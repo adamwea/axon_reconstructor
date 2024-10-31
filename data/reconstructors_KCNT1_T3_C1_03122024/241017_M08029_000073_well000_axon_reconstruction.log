@@ -1,0 +1,5 @@
+2024-10-31 09:16:22,048 - 241017_M08029_000073_well000 - axon_reconstructor - INFO - spikesort_recordings - Spike sorting stream well000
+2024-10-31 09:16:22,048 - 241017_M08029_000073_well000 - axon_reconstructor - WARNING - spikesort_recordings - Load existing sortings option from reconstructor is set to False. Generating new sorting.
+2024-10-31 09:16:22,048 - 241017_M08029_000073_well000 - axon_reconstructor - INFO - spikesort_recordings - Spike sorting stream well000
+2024-10-31 09:16:33,180 - 241017_M08029_000073_well000 - axon_reconstructor - INFO - sort_multirecording - Sorting multi-recording for stream well000
+2024-10-31 09:16:50,357 - 241017_M08029_000073_well000 - axon_reconstructor - INFO - sort_multirecording - Completed sorting and saved results to ./AxonReconPipeline/data/temp_data/sortings/241017/M08029/AxonTracking/000073/well000/sorter_output
