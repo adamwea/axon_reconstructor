@@ -601,7 +601,7 @@ class AxonReconstructor:
             params=self.av_params,
             analysis_options=self.analysis_options,
             stream_select=self.stream_select,
-            n_jobs=self.max_workers,
+            n_jobs=self.max_workers, #TODO: why?
             logger=self.logger,
             **recon_kwargs,
         )

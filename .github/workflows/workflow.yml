@@ -1,18 +1,27 @@
 name: "Run TODO to Issue"
-on: [ "push" ]
+
+on: 
+  push: 
+    branches:
+      - main
+      - dev_branch  # Adjust to your branch name if you want it to run on specific branches
+
 jobs:
   build:
     runs-on: "ubuntu-latest"
     steps:
-      - uses: "actions/checkout@v4"
+      - uses: actions/checkout@v4
+
       - name: "TODO to Issue"
-        uses: "alstr/todo-to-issue-action@v5"
+        uses: alstr/todo-to-issue-action@v5
         with:
-          INSERT_ISSUE_URLS: "true"
+          INSERT_ISSUE_URLS: "true"  # Ensures issues URLs are added to the TODO comments
+
       - name: Set Git user
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Commit and Push Changes
         run: |
           git add -A

@@ -449,7 +449,8 @@ def analyze_and_reconstruct(templates, params=None, analysis_options=None, recon
             #if unit_select is not None: n_jobs = 1
             #TODO: need to disambiguate workers and n_jobs... in this case the max_workers value is being assigned to n_jobs
             #FIXME: this is a bug, n_jobs should be the number of workers, max_workers should be the number of workers
-            if n_jobs > 1:
+            one_job_per_unit = True #TODO: make this a setting in the params
+            if n_jobs > 1 and one_job_per_unit is False:
                 with ProcessPoolExecutor(max_workers=n_jobs) as executor:
                     futures = [
                         executor.submit(process_unit, unit_id, unit_templates, recon_dir, params, analysis_options, successful_recons, failed_recons, logger)
