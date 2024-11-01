@@ -1,3 +1,3 @@
 [submodule "axon_velocity_fork"]
-	path = axon_velocity_fork
-	url = git@github_adamwea:adamwea/axon_velocity.git
+	path = submodules/axon_velocity_fork
+	url = git@github-work:adamwea/axon_velocity.git

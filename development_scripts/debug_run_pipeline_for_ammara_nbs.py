@@ -19,7 +19,7 @@ kwargs = {
         'allowed_scan_types': ['AxonTracking'],
         'load_existing_sortings': True,
         'keep_good_only': False,
-        'use_gpu': False,
+        #'use_gpu': False,
     },
     'te_params': {
         'load_merged_templates': False,
@@ -100,7 +100,7 @@ kwargs['reconstructor_dir'] = './data/reconstructors_KCNT1_T3_C1_03122024'
 
 h5_parent_dirs = [
     #E:\aw data\B6J_DensityTest_10012024_AR\B6J_DensityTest_10012024_AR\241017\M08029\AxonTracking\000073\data.raw.h5
-    "/mnt/e/aw data/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/data.raw.h5",
+    "/mnt/g/aw data/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/data.raw.h5",
 ]
 
 '''Run the pipeline '''

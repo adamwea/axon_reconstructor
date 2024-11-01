@@ -106,8 +106,7 @@ def sort_multirecording(multirecording, stream_id, save_root, sorting_params=dic
         output_folder = Path(stream_sort_path)
         output_folder.mkdir(parents=True, exist_ok=True)
         sorting_params_filtered = {k: v for k, v in sorting_params.items() if k in ss.Kilosort2Sorter.default_params()}
-        #TODO: remove/fix this later
-        sorting_params_filtered['use_gpu'] = False
+        #TODO: remove/fix this later: sorting_params_filtered['use_gpu'] = False
         sorting = MPL.benshalom_kilosort2_docker_image(multirecording, sorting_params=sorting_params_filtered, output_folder=stream_sort_path, verbose=verbose)
         message = f"Completed sorting and saved results to {sorter_output_folder}"
         if logger: logger.info(message)
