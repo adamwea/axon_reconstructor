@@ -86,7 +86,6 @@ class AxonReconstructor:
 
         self.logger.debug("AxonReconstructor initialized with parameters: %s", self.__dict__)
 
-
     def setup_logger(self, prefix=None):
         logger_level = self.logger_level
         log_file = self.log_file
@@ -203,8 +202,8 @@ class AxonReconstructor:
 
     def get_qc_params(self, kwargs):
         default_params = {
-            'min_n_spikes': 500,
-            'exclude_mua': True
+            'min_n_spikes': 500, #TODO: consider changing this to a percentage of the total number of spikes
+            'exclude_mua': False #TODO: gain a better understanding of this parameter
         }
         default_params.update(kwargs.get('qc_params', {}))
         for key, value in default_params.items():
@@ -491,6 +490,7 @@ class AxonReconstructor:
                     if sort is None: 
                         self.logger.error(f"Sorting object not found for {key} stream {stream_id}. Skipping waveform extraction.")
                         continue
+                    self.qc_params['logger'] = self.logger
                     cleaned_sorting = waveformer.select_units(sort, **self.qc_params)
                     cleaned_sorting = si.remove_excess_spikes(cleaned_sorting, mr) # Relevant if last spike time == recording_length
                     cleaned_sorting.register_recording(mr)

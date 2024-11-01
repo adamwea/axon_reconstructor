@@ -1,11 +1,60 @@
 # run_pipeline.py with custom params as needed.
 import os
 import sys
+import pandas as pd
 
 #use git to get root directory of repository
 def get_git_root():
     git_root = os.popen('git rev-parse --show-toplevel').read().strip()
     return git_root
+
+def run_pipeline_from_queue(csv_file, index=None, **kwargs):
+    # Load the CSV file
+    df_files = pd.read_csv(csv_file)
+
+    if index is not None:
+        # Process the specific index
+        if index in df_files.index:
+            row = df_files.loc[index]
+            h5_file = row['file']
+            h5_analysis_status = row['analysis_status']
+            print(f"Processing index {index} - {h5_file} - {h5_analysis_status}")
+            h5_parent_dirs = [os.path.dirname(h5_file)]
+            
+            try:
+                '''Run the pipeline '''
+                #mode = 'lean'
+                run_pipeline(h5_parent_dirs, **kwargs) # Run the pipeline in lean mode (usually)
+                
+                # Update the status to 'analyzed'
+                df_files.at[index, 'analysis_status'] = 'analyzed'
+                print(f"Successfully analyzed: {h5_file}")
+            except Exception as e:
+                print(f"Failed to analyze: {h5_file} - Error: {e}")
+        else:
+            print(f"Index {index} is out of range.")
+    else:
+        # Filter the files that need to be analyzed
+        files_to_analyze = df_files[df_files['analysis_status'] != 'analyzed']
+
+        # Process each file
+        for index, row in files_to_analyze.iterrows():
+            h5_file = row['file']
+            h5_parent_dirs = [os.path.dirname(h5_file)]
+            
+            try:
+                '''Run the pipeline '''
+                #mode = 'lean'
+                run_pipeline(h5_parent_dirs, **kwargs) # Run the pipeline in lean mode (usually)
+                
+                # Update the status to 'analyzed'
+                df_files.at[index, 'analysis_status'] = 'analyzed'
+                print(f"Successfully analyzed: {h5_file}")
+            except Exception as e:
+                print(f"Failed to analyze: {h5_file} - Error: {e}")
+
+    # Save the updated CSV file
+    df_files.to_csv(csv_file, index=False)
 
 git_root = get_git_root()
 sys.path.insert(0, git_root)
@@ -99,12 +148,23 @@ kwargs['project_name'] = None # Use project name to create subdirectories, if tr
 kwargs['analytics_dir'] = './data/analytics/'
 kwargs['recon_dir'] = './data/reconstructions/'
 kwargs['reconstructor_dir'] = './data/reconstructors/'
-
-h5_parent_dirs = [
-    #E:\aw data\B6J_DensityTest_10012024_AR\B6J_DensityTest_10012024_AR\241017\M08029\AxonTracking\000073\data.raw.h5
-    "/mnt/g/aw data/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/data.raw.h5",
-]
+kwargs['mode'] = 'lean'
 
 '''Run the pipeline '''
-mode = 'lean'
-run_pipeline(h5_parent_dirs, mode = mode, **kwargs) # Run the pipeline in lean mode (usually)
+project_csv_dir = '/home/adamm/workspace/RBS_axonal_reconstructions/analysis_queue/B6J_DensityTest_10012024_AR.csv'
+#index = 18 # not enough spikes, units get cleaned in waveform qc
+index = 11 # Points to the row in the CSV file to process
+run_pipeline_from_queue(project_csv_dir, index=index, **kwargs)
+# /home/adamm/workspace/RBS_axonal_reconstructions/analysis_queue/B6J_DensityTest_10012024_AR.csv
+
+# h5_parent_dirs = [
+#     #E:\aw data\B6J_DensityTest_10012024_AR\B6J_DensityTest_10012024_AR\241017\M08029\AxonTracking\000073\data.raw.h5
+#     #"/mnt/g/aw data/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/data.raw.h5", #on ssd
+#     #path on synology: /volume1/MEA_Backup/rbsmaxtwo/media/rbs-maxtwo/harddisk20tb/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/...
+#     "/mnt/ben-shalom_nas/rbsmaxtwo/media/rbs-maxtwo/harddisk20tb/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR", 
+    
+# ]
+
+#'''Run the pipeline '''
+#run_pipeline(h5_parent_dirs, mode = mode, **kwargs) # Run the pipeline in lean mode (usually)
+#new mode to run pipeline on file paths in csv queue
