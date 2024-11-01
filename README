@@ -22,5 +22,3 @@
    ```bash
    source ~/.bashrc
    ```
-
-Now, the `HDF5_PLUGIN_PATH` is set permanently, and you can use the plugin in your HDF5 applications. Enjoy your coding!
