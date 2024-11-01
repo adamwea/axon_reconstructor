@@ -117,8 +117,12 @@ def extract_recording_details(h5_dirs):
 
         ggg_dir = os.path.dirname(great_grandparent_dir)
         date = os.path.basename(ggg_dir)
+        
+        gggg_dir = os.path.dirname(ggg_dir)
+        project_name = os.path.basename(gggg_dir)
 
         record = {'h5_file_path': h5_dir, 
+                  'projectName': project_name,
                   'runID': runID, 
                   'scanType': scan_type, 
                   'chipID': chipID,

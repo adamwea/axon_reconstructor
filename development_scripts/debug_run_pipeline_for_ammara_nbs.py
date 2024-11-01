@@ -10,7 +10,7 @@ def get_git_root():
 git_root = get_git_root()
 sys.path.insert(0, git_root)
 
-from reconstruct.run_pipeline import run_pipeline
+from run_pipeline import run_pipeline
 
 # Reconstructor parameters
 kwargs = {
@@ -95,8 +95,10 @@ kwargs = {
     'run_lean': True,
 }
 
-kwargs['recon_dir'] = './data/reconstructions_KCNT1_T3_C1_03122024'
-kwargs['reconstructor_dir'] = './data/reconstructors_KCNT1_T3_C1_03122024'
+kwargs['project_name'] = None # Use project name to create subdirectories, if true the paths below can be relative
+kwargs['analytics_dir'] = './data/analytics/'
+kwargs['recon_dir'] = './data/reconstructions/'
+kwargs['reconstructor_dir'] = './data/reconstructors/'
 
 h5_parent_dirs = [
     #E:\aw data\B6J_DensityTest_10012024_AR\B6J_DensityTest_10012024_AR\241017\M08029\AxonTracking\000073\data.raw.h5
