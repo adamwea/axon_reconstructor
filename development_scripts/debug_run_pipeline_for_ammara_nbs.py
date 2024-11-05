@@ -132,7 +132,7 @@ kwargs = {
         'load_sortings': True,
         'load_wfs': False,
         'load_templates': True,
-        'load_templates_bypass': False,  # This is a new parameter that allows the user to bypass pre-processing steps and load the templates directly. 
+        'load_templates_bypass': True,  # This is a new parameter that allows the user to bypass pre-processing steps and load the templates directly. 
                                         # Useful if there isn't any need to reprocess the templates.
         'restore_environment': False,
     },
