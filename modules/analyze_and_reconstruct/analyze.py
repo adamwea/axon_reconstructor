@@ -123,6 +123,7 @@ def save_results(stream_id, all_analytics, recon_dir, logger=None):
         )
 
 def analyze(templates, analysis_options=None, recon_dir=None, logger=None, **kwargs):
+    #TODO: Bring waveforms in here and add it to template data
     analytics_list = []
 
     for key, tmps in templates.items():
