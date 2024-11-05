@@ -10,77 +10,100 @@ from modules.lib_axon_velocity_functions import (
     generate_axon_analytics
 )
 import logging
+import numpy as np
+from pathlib import Path
+from scipy.stats import kurtosis, skew
+import logging
+from modules.lib_axon_velocity_functions import (
+    plot_template_wrapper, 
+    generate_amplitude_map, 
+    generate_peak_latency_map, 
+    calculate_snr
+)
 
-def process_unit_for_analysis(unit_id, unit_templates, recon_dir, analysis_options, logger=None):
-    if logger:
-        logger.info(f'Analyzing unit {unit_id}')
-    else:
-        print(f'Analyzing unit {unit_id}')
+# Define modular functions for individual analytic calculations
+def calculate_num_channels(unit_templates):
+    """Calculate the number of channels included."""
+    return len(unit_templates['merged_channel_loc'])
 
-    # Prepare data for analytics
-    templates = {
-        'merged_template': unit_templates['merged_template'],
-        'dvdt_merged_template': unit_templates['dvdt_merged_template'],
-    }
+def calculate_channel_density(unit_templates):
+    """Calculate the channel density per unit area."""
+    x_coords = unit_templates['merged_channel_loc'][:, 0]
+    y_coords = unit_templates['merged_channel_loc'][:, 1]
+    area = (np.max(x_coords) - np.min(x_coords)) * (np.max(y_coords) - np.min(y_coords))
+    return len(unit_templates['merged_channel_loc']) / area
 
-    analytics_data = {
-        'unit_id': unit_id,
-        'template_type': [], 
-        'num_channels_included': [], 
-        'channel_density': [], 
-        'extremums': [], 
-        'velocities': [], 
-        'path_lengths': [], 
-        'r2s': [], 
-        'init_chans': []
-    }
-
+def calculate_spatial_extent(unit_templates):
+    """Calculate spatial extent in terms of bounding box (width, height) and area."""
     x_coords = unit_templates['merged_channel_loc'][:, 0]
     y_coords = unit_templates['merged_channel_loc'][:, 1]
     width = np.max(x_coords) - np.min(x_coords)
     height = np.max(y_coords) - np.min(y_coords)
     area = width * height
-    channel_density_value = len(unit_templates['merged_channel_loc']) / area  # channels / um^2
+    return (width, height), area
 
-    for key, template in templates.items():
-        if template is not None:
-            # Append data to analytics_data dict
-            analytics_data['template_type'].append(key)
-            analytics_data['num_channels_included'].append(len(unit_templates['merged_channel_loc']))
-            analytics_data['channel_density'].append(channel_density_value)
+def calculate_signal_extremums(template):
+    """Calculate the signal extremums (range between max and min)."""
+    return np.max(template) - np.min(template)
 
-            # Template Plot
-            try:
-                plot_dir = Path(recon_dir) / f"{unit_id}_{key}_plots"
-                plot_dir.mkdir(parents=True, exist_ok=True)
-                kwargs = {
-                    'save_path': plot_dir / f"template_plot_{unit_id}_{key}.png",
-                    'title': f'Template {unit_id} {key}',
-                    'fresh_plots': True,
-                    'template': template,
-                    'locations': unit_templates['merged_channel_loc'],
-                    'lw': 0.1, # line width
-                }
-                plot_template_wrapper(**kwargs)
-            except Exception as e:
-                if logger: 
-                    logger.info(f"Unit {unit_id}_{key} failed to plot template, error: {e}")
+def calculate_peak_amplitude(template):
+    """Calculate the peak amplitude of the template."""
+    return np.max(np.abs(template))
 
-            # Amplitude Map
-            try:
-                generate_amplitude_map(template, unit_templates['merged_channel_loc'], plot_dir, title=f'{key}_amplitude_map', fresh_plots=True, log=False, cmap='terrain')
-            except Exception as e:
-                if logger:
-                    logger.info(f"Unit {unit_id}_{key} failed to generate amplitude map, error: {e}")
+def calculate_average_amplitude(template):
+    """Calculate the average amplitude of the template."""
+    return np.mean(np.abs(template))
 
-            # Peak Latency Map
-            try:
-                generate_peak_latency_map(template, unit_templates['merged_channel_loc'], plot_dir, title=f'{key}_peak_latency_map', fresh_plots=True, log=False, cmap='terrain')
-            except Exception as e:
-                if logger:
-                    logger.info(f"Unit {unit_id}_{key} failed to generate peak latency map, error: {e}")
+def calculate_variance(template):
+    """Calculate the variance of the template signal."""
+    return np.var(template)
 
-    return analytics_data
+def calculate_kurtosis(template):
+    """Calculate kurtosis of the template."""
+    return kurtosis(template, fisher=True)
+
+def calculate_skewness(template):
+    """Calculate skewness of the template."""
+    return skew(template)
+
+# Main function to process analytics for a unit
+def process_unit_for_analysis(unit_id, unit_templates, recon_dir, analysis_options, logger=None):
+    if logger:
+        logger.info(f'Analyzing unit {unit_id}')
+    else:
+        print(f'Analyzing unit {unit_id}')
+        
+    # Primary dictionaries to hold template data and analytics
+    template_data = {
+        'unit_id': unit_id,
+        'template_segments': unit_templates.get('template_segments'),
+        'vt_template': unit_templates.get('merged_template'),
+        'dvdt_template': unit_templates.get('dvdt_merged_template'),
+        'milos_template': []  # Placeholder for milos_template if applicable #TODO: Implement milos_template
+    }
+
+    # Dictionary for template analytics initialized with function references
+    # TODO: Finish implementing the rest of the analytics
+    template_analytics = {
+        'num_channels_included': calculate_num_channels(unit_templates),
+        'channel_density': calculate_channel_density(unit_templates),
+        'spatial_extent': calculate_spatial_extent(unit_templates),
+        'extremums': [],
+        'peak_amplitude': [],
+        'average_amplitude': [],
+        'snr': [],
+        'variance': [],
+        'kurtosis': [],
+        'skewness': [],
+        'velocities': [],
+        'path_lengths': [],
+        'r2s': [],
+        'latency': [],
+        'init_chans': [],
+        'area': calculate_spatial_extent(unit_templates)[1]
+    }
+    
+    return template_data, template_analytics
 
 def build_analytics_dataframe(analytics_list):
     # Convert list of dictionaries to a DataFrame
