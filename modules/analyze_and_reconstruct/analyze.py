@@ -1,125 +1,38 @@
 # analyze.py
-import numpy as np
-import pandas as pd
-from pathlib import Path
-# from modules.lib_axon_velocity_functions import (
-#     plot_template_wrapper, 
-#     generate_amplitude_map, 
-#     generate_peak_latency_map, 
-#     generate_axon_analytics
-# )
+
 import logging
 import numpy as np
-from pathlib import Path
 from scipy.stats import kurtosis, skew
-import logging
-# from modules.lib_axon_velocity_functions import (
-#     plot_template_wrapper, 
-#     generate_amplitude_map, 
-#     generate_peak_latency_map, 
-#     calculate_snr
-# )
+from pathlib import Path
+import os
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import dill
+import pandas as pd
 
-# Define modular functions for individual analytic calculations
-def calculate_num_channels(template_data):
-    """Calculate the number of channels included."""
-    return len(template_data['vt_template'])
+'''Imports'''
+import os
+import sys
 
-def calculate_channel_density(template_data):
-    """Calculate the channel density per unit area."""
-    x_coords = template_data['vt_template'][:, 0]
-    y_coords = template_data['vt_template'][:, 1]
-    area = (np.max(x_coords) - np.min(x_coords)) * (np.max(y_coords) - np.min(y_coords))
-    return len(template_data['vt_template']) / area
-
-def calculate_spatial_extent(template_data):
-    """Calculate spatial extent in terms of bounding box (width, height) and area."""
-    x_coords = template_data['vt_template'][:, 0]
-    y_coords = template_data['vt_template'][:, 1]
-    width = np.max(x_coords) - np.min(x_coords)
-    height = np.max(y_coords) - np.min(y_coords)
-    area = width * height
-    return (width, height), area
-
-def calculate_signal_extremums(template_data):
-    """Calculate the signal extremums (range between max and min)."""
-    return np.max(template_data['vt_template']) - np.min(template_data['vt_template'])
-
-def calculate_peak_amplitude(template_data):
-    """Calculate the peak amplitude of the template."""
-    return np.max(np.abs(template_data['vt_template']))
-
-def calculate_average_amplitude(template_data):
-    """Calculate the average amplitude of the template."""
-    return np.mean(np.abs(template_data['vt_template']))
-
-def calculate_variance(template_data):
-    """Calculate the variance of the template signal."""
-    return np.var(template_data['vt_template'])
-
-def calculate_kurtosis(template_data):
-    """Calculate kurtosis of the template."""
-    return kurtosis(template_data['vt_template'], fisher=True)
-
-def calculate_skewness(template_data):
-    """Calculate skewness of the template."""
-    return skew(template_data['vt_template'])
-
-# def calculate_branch_channel_density(template_data):
-#     """Calculate the channel density per branch."""
-#     import axon_velocity
-
+'''Local Imports'''
 def get_git_root():
     git_root = os.popen('git rev-parse --show-toplevel').read().strip()
     return git_root
+git_root = get_git_root()
+sys.path.insert(0, git_root)
+from modules.analyze_and_reconstruct.lib_analysis_functions import *
 
-def transform_data(merged_template, merged_channel_loc, merged_template_filled=None, merged_channel_filled_loc=None):
-    transformed_template = merged_template.T  # array with time samples and amplitude values (voltage or v/s)
-    if merged_template_filled is not None: 
-        transformed_template_filled = merged_template_filled.T  # array with time samples and amplitude values (voltage or v/s)
-    else: 
-        transformed_template_filled = None
-    trans_loc = np.array([[loc[0], loc[1] * -1] for loc in merged_channel_loc])
-    if merged_channel_filled_loc is not None: 
-        trans_loc_filled = np.array([[loc[0], loc[1] * -1] for loc in merged_channel_filled_loc])
-    else: 
-        trans_loc_filled = None
-    return transformed_template, transformed_template_filled, trans_loc, trans_loc_filled
-
-import time
-def build_graph_axon_tracking(template_data, params=None):
-    """Build the graph for axon tracking."""
-    global gtr
-    from submodules.axon_velocity_fork.axon_velocity.axon_velocity import GraphAxonTracking
-    from submodules.axon_velocity_fork.axon_velocity import get_default_graph_velocity_params
-    transposed_template, _, transposed_loc, _ = transform_data(template_data['dvdt_template'], template_data['channel_loc'])
-    if params is None:
-        params = get_default_graph_velocity_params()
-    
-    #start timer
-    start = time.time()
-    print("Building graph...")
-    gtr = GraphAxonTracking(transposed_template, transposed_loc, 10000, **params)
-    gtr._verbose = 1
-    gtr.build_graph()
-    gtr.find_paths()
-    print(f"Graph built in {time.time() - start} seconds")
-    
-    # Save gtr using dill
-    import dill
-    with open('gtr_object.dill', 'wb') as f:
-        dill.dump(gtr, f)
-    return gtr
-
+''' Main Functions '''
 # Main function to process analytics for a unit
-def process_unit_for_analysis(unit_id, unit_templates, recon_dir, analysis_options, logger=None):
-    from submodules.axon_velocity_fork.axon_velocity.axon_velocity import GraphAxonTracking
+def process_unit_for_analysis(unit_id, unit_templates, recon_dir, analysis_options, params, logger=None):
+    start = time.time()
+    print(f'Analyzing unit {unit_id}...')
+    # if logger:
+    #     logger.info(f'Analyzing unit {unit_id}')
+    # else:
+    #     print(f'Analyzing unit {unit_id}')
     
-    if logger:
-        logger.info(f'Analyzing unit {unit_id}')
-    else:
-        print(f'Analyzing unit {unit_id}')
-        
+    '''Input Data for Reconstruction and Analysis'''    
     # Primary dictionaries to hold template data and analytics
     template_data = {
         'unit_id': unit_id,
@@ -133,80 +46,137 @@ def process_unit_for_analysis(unit_id, unit_templates, recon_dir, analysis_optio
         'milos_template': []  # Placeholder for milos_template if applicable #TODO: Implement milos_template
     }
 
+    '''Reconstruction'''
     # Dictionary for template analytics initialized with function references
-    # TODO: Finish implementing the rest of the analytics
-    template_analytics = {
-        'num_channels_included': calculate_num_channels(template_data),
-        'channel_density': calculate_channel_density(template_data),
-        'gtr_object': build_graph_axon_tracking(template_data),
-        'branches': gtr.branches,
-        #'gtr_object': GraphAxonTracking(transformed_template, trans_loc, 10000, **params),
-        #'branch_channel_density': calculate_branch_channel_density(template_data),
-        #'spatial_extent': calculate_spatial_extent(unit_templates),
-        'extremums': [],
-        'peak_amplitude': [],
-        'average_amplitude': [],
-        'snr': [],
-        'variance': [],
-        'kurtosis': [],
-        'skewness': [],
-        'velocities': [],
-        'path_lengths': [],
-        'r2s': [],
-        'latency': [],
-        'init_chans': [],
-        #'area': calculate_spatial_extent(unit_templates)[1]
-    }
+    try: gtr, av_params = build_graph_axon_tracking(template_data, recon_dir=recon_dir, load_gtr=True, params=params)
+    except:
+        try: gtr, av_params = build_graph_axon_tracking(template_data, recon_dir=recon_dir, load_gtr=False, params=params)
+        except Exception as e:
+            if logger:
+                logger.error(f"Failed to build graph for unit {unit_id} - Error: {e}")
+            else:
+                print(f"Failed to build graph for unit {unit_id} - Error: {e}")
+            return None, None, None
     
-    return template_data, template_analytics
+    # Reconstruction data dictionary
+    reconstruction_data = {
+        'gtr': gtr,
+        'av_params': av_params,
+        'branches': gtr.branches,
+        'branch_points': gtr._branching_points
+    }
 
-def build_analytics_dataframe(analytics_list):
-    # Convert list of dictionaries to a DataFrame
-    df = pd.DataFrame(analytics_list)
+    '''Analysis'''   
+    # Template analysis
+    reconstruction_analytics = {
+        'channels_in_template': len(template_data['channel_loc']),  # Number of channels in the template
+        'template_rect_area': calculate_template_rectangular_area(template_data),  # Area of the template, in um^2
+        'template_density': len(template_data['channel_loc']) / calculate_template_rectangular_area(template_data),  # Channel density of the template, in channels/um^2
+        
+        # Axon analysis
+        'axon_length': gtr.compute_path_length(gtr.branches[0]['channels']),  # Length of the axon, in um
+        
+        # Branching analysis
+        'num_branches': len(gtr.branches),  # Number of branches in the reconstruction
+        'branch_lengths': [gtr.compute_path_length(branch['channels']) for branch in gtr.branches],  # Length of each branch, in um
+        'branch_channel_density': [gtr.compute_path_length(branch['channels']) / len(branch['channels']) for branch in gtr.branches],  # Channel density of each branch, in channels/um^2
+        'branch_orders': {index: calculate_branch_order(branch['channels'], gtr._branching_points) for index, branch in enumerate(gtr.branches)},  # Branch order of each branch
+        'maximum_branch_order': max([calculate_branch_order(branch['channels'], gtr._branching_points) for branch in gtr.branches]),  # Maximum branch order in the reconstruction
+        # 'partition_asymmetry': calculate_partition_asymmetry(gtr.branches, gtr._branching_points),  # Partition asymmetry of the reconstruction #TODO: Implement partition_asymmetry
+        
+        # Signal Propagation Analysis
+        'velocities': {index: branch['velocity'] for index, branch in enumerate(gtr.branches)}  # Velocity of each branch, in um/s
+        # 'velocities': [branch['velocity'] for branch in gtr.branches],  # Velocity of each branch, in um/s
+    }
+    print(f'Finished analyzing unit {unit_id} in {time.time() - start} seconds')
+    return template_data, reconstruction_data, reconstruction_analytics
+
+def analysis_results_to_dataframe(analysis_results):
+    """
+    Convert the analysis results dictionary into a pandas DataFrame.
+
+    Parameters:
+    analysis_results (dict): The dictionary containing analysis results.
+
+    Returns:
+    pd.DataFrame: A DataFrame containing the analysis results.
+    """
+    flattened_data = []
+
+    for unit_id, results in analysis_results.items():
+        flattened_entry = {'unit_id': unit_id}
+        
+        # # Flatten template data
+        # for key, value in results['template_data'].items():
+        #     flattened_entry[f'template_{key}'] = value
+        
+        # # Flatten reconstruction data
+        # for key, value in results['reconstruction_data'].items():
+        #     flattened_entry[f'reconstruction_{key}'] = value
+        
+        # Flatten reconstruction analytics
+        for key, value in results['reconstruction_analytics'].items():
+            flattened_entry[f'analytics_{key}'] = value
+        
+        flattened_data.append(flattened_entry)
+    
+    df = pd.DataFrame(flattened_data)
     return df
 
-def save_results(stream_id, all_analytics, recon_dir, logger=None):
-    from modules.lib_axon_velocity_functions import save_axon_analytics
-    for key, data in all_analytics.items():
-        suffix = key.split('_')[-1] if '_' in key else 'template'
-        if 'dvdt' in key:
-            suffix = 'dvdt'
-        save_axon_analytics(
-            stream_id, data['units'], data['extremums'], data['branch_ids'], data['velocities'], 
-            data['path_lengths'], data['r2s'], data['num_channels_included'], data['channel_density'], data['init_chans'],
-            recon_dir, suffix=f"_{suffix}"
-        )
+# TODO: add waveforms to the template data
+def analyze(templates, analysis_options=None, recon_dir=None, logger=None, params=None, max_workers=10, **kwargs):
+    # Define the ThreadPoolExecutor with a specified number of workers
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for key, tmps in templates.items():
+            for stream_id, stream_templates in tmps['streams'].items():
+                unit_templates = stream_templates['units']
+                stream_results = {}  # Separate results for each stream
 
-def analyze(templates, analysis_options=None, recon_dir=None, logger=None, **kwargs):
-    #TODO: Bring waveforms in here and add it to template data
-    analytics_list = []
+                # Set up the stream-specific reconstruction directory
+                if recon_dir is None: 
+                    stream_recon_dir = Path(recon_dir) / tmps['date'] / tmps['chip_id'] / tmps['scanType'] / tmps['run_id'] / stream_id
+                else: 
+                    stream_recon_dir = Path(recon_dir)
+                if not stream_recon_dir.exists():
+                    stream_recon_dir.mkdir(parents=True, exist_ok=True)
 
-    for key, tmps in templates.items():
-        for stream_id, stream_templates in tmps['streams'].items():
-            unit_templates = stream_templates['units']
-            if recon_dir is None: recon_dir = Path(recon_dir) / tmps['date'] / tmps['chip_id'] / tmps['scanType'] / tmps['run_id'] / stream_id
-            else: 
-                #create recon_dir if it doesn't exist
-                if not Path(recon_dir).exists():
-                    Path(recon_dir).mkdir(parents=True, exist_ok=True)
-                recon_dir = Path(recon_dir)
-            
-            for unit_id, unit_template in unit_templates.items():
-                result = process_unit_for_analysis(unit_id, unit_template, recon_dir, analysis_options, logger)
-                if result:
-                    analytics_list.append(result)
+                # Submit each unit processing task
+                futures = {
+                    executor.submit(
+                        process_unit_for_analysis,
+                        unit_id, unit_template, stream_recon_dir, analysis_options, params, logger
+                    ): unit_id for unit_id, unit_template in unit_templates.items()
+                }
 
-    # Build and save the DataFrame of all analytics
-    analytics_df = build_analytics_dataframe(analytics_list)
-    analytics_df.to_csv(recon_dir / "axon_analytics.csv", index=False)
-    if logger:
-        logger.info(f"Saved analytics data to {recon_dir / 'axon_analytics.csv'}")
+                # Process results as they complete
+                for future in as_completed(futures):
+                    unit_id = futures[future]
+                    try:
+                        template_data, reconstruction_data, reconstruction_analytics = future.result()
+                        if template_data is not None:
+                            stream_results[unit_id] = {
+                                'template_data': template_data,
+                                'reconstruction_data': reconstruction_data,
+                                'reconstruction_analytics': reconstruction_analytics
+                            }
+                            
+                            # Save each unit's result individually
+                            with open(stream_recon_dir / f"{unit_id}_analysis_results.dill", 'wb') as f:
+                                dill.dump(stream_results[unit_id], f)
+                            print(f'Processed and saved unit {unit_id}')
+                    except Exception as e:
+                        if logger:
+                            logger.error(f"Error processing unit {unit_id}: {e}")
+                        else:
+                            print(f"Error processing unit {unit_id}: {e}")
+
+                # Convert the stream results to a DataFrame and save for the stream
+                df = analysis_results_to_dataframe(stream_results)
+                df.to_csv(stream_recon_dir / f"{stream_id}_axon_analytics.csv", index=False)
+                print(f'Saved analytics data for stream {stream_id} to {stream_recon_dir / f"{stream_id}_axon_analytics.csv"}')
+
         
-import numpy as np
-import os
-from pathlib import Path
-import logging
-
+''' Debug Helper Functions '''
 def load_templates_from_directory(directory):
     templates = {'templates': {'streams': {'well000': {'units': {}}}}}
     for file in os.listdir(directory):
@@ -214,11 +184,6 @@ def load_templates_from_directory(directory):
             unit_id = file.split('_')[0] if '_' in file else file.split('.')[0]
             if unit_id not in templates['templates']['streams']['well000']['units']:
                 templates['templates']['streams']['well000']['units'][unit_id] = {}
-                #     'merged_template': None,
-                #     'merged_channel_loc': None,
-                #     'template_segments': None,
-                #     'dvdt_merged_template': None
-                # }
             array = np.load(os.path.join(directory, file))
             if 'channels_filled' in file:
                 templates['templates']['streams']['well000']['units'][unit_id]['channels_loc_filled'] = array
@@ -232,15 +197,13 @@ def load_templates_from_directory(directory):
                 templates['templates']['streams']['well000']['units'][unit_id]['merged_template'] = array
     return templates
 
-import sys
-import os
 def main():
     git_root = get_git_root()
     sys.path.insert(0, git_root)
 
     # Set up logging
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+    # logging.basicConfig(level=logging.INFO)
+    # logger = logging.getLogger(__name__)
 
     # Define the directory containing the .npy files
     template_dir = "/home/adamm/workspace/RBS_axonal_reconstructions/development_scripts/templates_04Nov2024/241021/M06804/AxonTracking/000091/well000"
@@ -256,8 +219,12 @@ def main():
     # Define reconstruction directory
     recon_dir = "/home/adamm/workspace/RBS_axonal_reconstructions/development_scripts/templates_04Nov2024/241021/M06804/AxonTracking/000091/well000_recon"
 
+    #get params
+    params = get_default_graph_velocity_params()
+    params['r2_threshold'] = 0.5    
+    
     # Call the analyze function
-    analyze(templates, analysis_options=analysis_options, recon_dir=recon_dir, logger=logger)
+    analyze(templates, analysis_options=analysis_options, recon_dir=recon_dir, params=params)
 
 if __name__ == "__main__":
     main()

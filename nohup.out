@@ -1,0 +1,78 @@
+[monitor] 16:30:44 INFO: We will skip creation of a default folder on first start
+[start] 16:30:44 INFO: syncthing v1.18.0-ds1 "Fermium Flea" (go1.18.1 linux-amd64) debian@debian 2023-05-03 08:38:45 UTC
+[start] 16:30:44 INFO: Generating ECDSA key and certificate for syncthing...
+[start] 16:30:44 INFO: Default folder created and/or linked to new config
+[start] 16:30:44 INFO: Default config saved. Edit /home/adamm/.config/syncthing/config.xml to taste (with Syncthing stopped) or use the GUI
+[start] 16:30:44 INFO: Archiving a copy of old config file format at: /home/adamm/.config/syncthing/config.xml.v0
+[NHURG] 16:30:44 INFO: My ID: NHURGWO-JHQENJM-6D2BR7N-LGO4MUD-AWDQQKB-5MYA552-DLDHPEP-HOSECAH
+[NHURG] 16:30:45 INFO: Single thread SHA256 performance is 489 MB/s using minio/sha256-simd (418 MB/s using crypto/sha256).
+[NHURG] 16:30:45 INFO: Hashing performance is 403.83 MB/s
+[NHURG] 16:30:45 INFO: Running database migration 1...
+[NHURG] 16:30:45 INFO: Running database migration 2...
+[NHURG] 16:30:45 INFO: Running database migration 3...
+[NHURG] 16:30:45 INFO: Running database migration 5...
+[NHURG] 16:30:45 INFO: Running database migration 6...
+[NHURG] 16:30:45 INFO: Running database migration 7...
+[NHURG] 16:30:45 INFO: Running database migration 9...
+[NHURG] 16:30:45 INFO: Running database migration 10...
+[NHURG] 16:30:45 INFO: Running database migration 11...
+[NHURG] 16:30:45 INFO: Running database migration 13...
+[NHURG] 16:30:45 INFO: Running database migration 14...
+[NHURG] 16:30:45 INFO: Running database migration 16...
+[NHURG] 16:30:45 INFO: Running database migration 17...
+[NHURG] 16:30:45 INFO: Running database migration 19...
+[NHURG] 16:30:45 INFO: Compacting database after migration...
+[NHURG] 16:30:45 INFO: Starting deadlock detector with 20m0s timeout
+[NHURG] 16:30:45 INFO: Overall send rate is unlimited, receive rate is unlimited
+[NHURG] 16:30:45 INFO: No stored folder metadata for "default"; recalculating
+[NHURG] 16:30:45 INFO: Relay listener (dynamic+https://relays.syncthing.net/endpoint) starting
+[NHURG] 16:30:45 INFO: Using discovery mechanism: global discovery server https://discovery.syncthing.net/v2/?noannounce&id=LYXKCHX-VI3NYZR-ALCJBHF-WMZYSPK-QG6QJA3-MPFYMSO-U56GTUK-NA2MIAW
+[NHURG] 16:30:45 INFO: Using discovery mechanism: global discovery server https://discovery-v4.syncthing.net/v2/?nolookup&id=LYXKCHX-VI3NYZR-ALCJBHF-WMZYSPK-QG6QJA3-MPFYMSO-U56GTUK-NA2MIAW
+[NHURG] 16:30:45 INFO: Using discovery mechanism: global discovery server https://discovery-v6.syncthing.net/v2/?nolookup&id=LYXKCHX-VI3NYZR-ALCJBHF-WMZYSPK-QG6QJA3-MPFYMSO-U56GTUK-NA2MIAW
+[NHURG] 16:30:45 INFO: Using discovery mechanism: IPv4 local broadcast discovery on port 21027
+[NHURG] 16:30:45 INFO: Using discovery mechanism: IPv6 local multicast discovery on address [ff12::8384]:21027
+[NHURG] 16:30:45 INFO: TCP listener ([::]:22000) starting
+[NHURG] 16:30:45 INFO: Loading HTTPS certificate: open /home/adamm/.config/syncthing/https-cert.pem: no such file or directory
+[NHURG] 16:30:45 INFO: Creating new HTTPS certificate
+[NHURG] 16:30:45 INFO: Ready to synchronize "Default Folder" (default) (sendreceive)
+[NHURG] 16:30:45 INFO: Completed initial scan of sendreceive folder "Default Folder" (default)
+[NHURG] 16:30:45 INFO: GUI and API listening on 127.0.0.1:8384
+[NHURG] 16:30:45 INFO: Access the GUI via the following URL: http://127.0.0.1:8384/
+[NHURG] 16:30:45 INFO: My name is "BenShalomLabServer"
+[NHURG] 16:31:02 INFO: Detected 1 NAT service
+[NHURG] 16:31:56 INFO: Joined relay relay://104.168.76.137:22067
+[NHURG] 16:33:20 INFO: Adding folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5)
+[NHURG] 16:33:20 INFO: No stored folder metadata for "59sd7-yp7z5"; recalculating
+[NHURG] 16:33:20 INFO: Ready to synchronize "RBS_axonal_recons_server_sync" (59sd7-yp7z5) (sendreceive)
+[NHURG] 16:34:56 INFO: Established secure connection to S4F4PZL-USFEBMT-W2RJNN5-3CO7CAW-CO54I5F-GCE7JGX-BAFKOAX-ARV33QD at 152.79.176.134:50974-89.234.152.99:22067/relay-client/TLS1.3-TLS_AES_128_GCM_SHA256
+[NHURG] 16:34:56 INFO: Device S4F4PZL-USFEBMT-W2RJNN5-3CO7CAW-CO54I5F-GCE7JGX-BAFKOAX-ARV33QD client is "syncthing v1.18.0-ds1" named "" at 152.79.176.134:50974-89.234.152.99:22067/relay-client/TLS1.3-TLS_AES_128_GCM_SHA256
+[NHURG] 16:34:56 INFO: Connection to S4F4PZL-USFEBMT-W2RJNN5-3CO7CAW-CO54I5F-GCE7JGX-BAFKOAX-ARV33QD at 152.79.176.134:50974-89.234.152.99:22067/relay-client/TLS1.3-TLS_AES_128_GCM_SHA256 closed: reading length: EOF
+[NHURG] 16:35:08 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item "data/temp_data/waveforms/waveforms/241021/M06804/AxonTracking/000091/well000/seg16/waveforms/waveforms_312.npy"): hashing: context canceled
+[NHURG] 16:35:08 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item "data/temp_data/waveforms/waveforms/241021/M06804/AxonTracking/000091/well000/seg16/waveforms/waveforms_619.npy"): hashing: context canceled
+[NHURG] 16:35:08 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item "data/temp_data/waveforms/waveforms/241021/M06804/AxonTracking/000091/well000/seg3/waveforms/waveforms_68.npy"): hashing: context canceled
+[NHURG] 16:35:08 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item "data/temp_data/waveforms/waveforms/241021/M06804/AxonTracking/000091/well000/seg16/waveforms/sampled_index_5.npy"): hashing: context canceled
+[NHURG] 16:35:08 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item "data/temp_data/waveforms/waveforms/241021/M06804/AxonTracking/000091/well000/seg16/waveforms/waveforms_547.npy"): hashing: context canceled
+[NHURG] 16:35:08 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item "data/temp_data/waveforms/waveforms/241021/M06804/AxonTracking/000091/well000/seg3/waveforms/waveforms_70.npy"): hashing: context canceled
+[NHURG] 16:35:08 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item "data/temp_data/waveforms/waveforms/241021/M06804/AxonTracking/000091/well000/seg16/waveforms/sampled_index_611.npy"): hashing: context canceled
+[NHURG] 16:35:08 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item "data/temp_data/waveforms/waveforms/241021/M06804/AxonTracking/000091/well000/seg16/waveforms/waveforms_496.npy"): hashing: context canceled
+[NHURG] 16:35:08 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item "data/temp_data/waveforms/waveforms/241021/M06804/AxonTracking/000091/well000/seg16/waveforms/waveforms_621.npy"): hashing: context canceled
+[NHURG] 16:35:08 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item "data/temp_data/waveforms/waveforms/241021/M06804/AxonTracking/000091/well000/seg3/sorting.json"): hashing: context canceled
+[NHURG] 16:35:08 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item "data/temp_data/waveforms/waveforms/241021/M06804/AxonTracking/000091/well000/seg16/waveforms/waveforms_543.npy"): hashing: context canceled
+[NHURG] 16:35:08 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item "data/temp_data/waveforms/waveforms/241021/M06804/AxonTracking/000091/well000/seg7/waveforms/waveforms_620.npy"): hashing: context canceled
+[NHURG] 16:35:09 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item "data/temp_data/waveforms/waveforms/241021/M06804/AxonTracking/000091/well000/seg16/waveforms/waveforms_301.npy"): hashing: context canceled
+[NHURG] 16:35:09 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item "data/temp_data/waveforms/waveforms/241021/M06804/AxonTracking/000091/well000/seg16/waveforms/waveforms_561.npy"): hashing: context canceled
+[NHURG] 16:35:09 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item ".git/objects/pack/pack-baba4bcf5a336fb9cec8c9df1a18b892a6778b40.pack"): hashing: context canceled
+[NHURG] 16:35:09 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item "data/temp_data/waveforms/waveforms/241021/M06804/AxonTracking/000091/well000/seg16/sorting.json"): hashing: context canceled
+[NHURG] 16:35:09 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item ".git/objects/pack/pack-e548e64a6f1b55f8b8c090f51becaae2818ee860.pack"): hashing: context canceled
+[NHURG] 16:35:09 INFO: Scanner (folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5), item "data/temp_data/waveforms/waveforms/241021/M06804/AxonTracking/000091/well000/seg16/waveforms/waveforms_608.npy"): hashing: context canceled
+[NHURG] 16:35:09 INFO: Failed initial scan of sendreceive folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5)
+[NHURG] 16:35:09 INFO: Ready to synchronize "RBS_axonal_recons_server_sync" (59sd7-yp7z5) (sendreceive)
+[NHURG] 16:35:09 INFO: Restarted folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5) (sendreceive)
+[NHURG] 16:35:31 INFO: Established secure connection to S4F4PZL-USFEBMT-W2RJNN5-3CO7CAW-CO54I5F-GCE7JGX-BAFKOAX-ARV33QD at 152.79.176.134:22000-152.79.176.200:58376/tcp-server/TLS1.3-TLS_AES_128_GCM_SHA256
+[NHURG] 16:35:31 INFO: Device S4F4PZL-USFEBMT-W2RJNN5-3CO7CAW-CO54I5F-GCE7JGX-BAFKOAX-ARV33QD client is "syncthing v1.18.0-ds1" named "awLaptop" at 152.79.176.134:22000-152.79.176.200:58376/tcp-server/TLS1.3-TLS_AES_128_GCM_SHA256
+[NHURG] 16:36:19 INFO: Device S4F4PZL folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5) has a new index ID (0x4D44187CB63235A0)
+[NHURG] 16:42:12 INFO: Completed initial scan of sendreceive folder "RBS_axonal_recons_server_sync" (59sd7-yp7z5)
+[NHURG] 16:43:07 INFO: Established secure connection to S4F4PZL-USFEBMT-W2RJNN5-3CO7CAW-CO54I5F-GCE7JGX-BAFKOAX-ARV33QD at 152.79.176.134:22000-152.79.176.200:53044/tcp-server/TLS1.3-TLS_AES_128_GCM_SHA256
+[NHURG] 16:43:07 INFO: Replacing old connection 152.79.176.134:22000-152.79.176.200:58376/tcp-server/TLS1.3-TLS_AES_128_GCM_SHA256 with 152.79.176.134:22000-152.79.176.200:53044/tcp-server/TLS1.3-TLS_AES_128_GCM_SHA256 for S4F4PZL-USFEBMT-W2RJNN5-3CO7CAW-CO54I5F-GCE7JGX-BAFKOAX-ARV33QD
+[NHURG] 16:43:17 INFO: Connection to S4F4PZL-USFEBMT-W2RJNN5-3CO7CAW-CO54I5F-GCE7JGX-BAFKOAX-ARV33QD at 152.79.176.134:22000-152.79.176.200:58376/tcp-server/TLS1.3-TLS_AES_128_GCM_SHA256 closed: replacing connection
+[NHURG] 16:43:17 INFO: Device S4F4PZL-USFEBMT-W2RJNN5-3CO7CAW-CO54I5F-GCE7JGX-BAFKOAX-ARV33QD client is "syncthing v1.18.0-ds1" named "awLaptop" at 152.79.176.134:22000-152.79.176.200:53044/tcp-server/TLS1.3-TLS_AES_128_GCM_SHA256
