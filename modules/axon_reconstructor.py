@@ -8,7 +8,7 @@ import modules.lib_sorting_functions as sorter
 import modules.lib_waveform_functions as waveformer
 import modules.generate_templates.lib_template_functions as templater
 
-from modules.analyze_and_reconstruct.reconstruct_and_analyze import analyze
+from modules.analyze_and_reconstruct.reconstruct_and_analyze import reconstruct_and_analyze
 #from modules.analyze_and_reconstruct.reconstruct import reconstruct
 
 import spikeinterface.full as si

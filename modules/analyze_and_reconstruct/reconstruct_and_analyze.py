@@ -228,7 +228,10 @@ def main():
     # logger = logging.getLogger(__name__)
 
     # Define the directory containing the .npy files
-    template_dir = "/home/adamm/workspace/RBS_axonal_reconstructions/development_scripts/developing_nbs_for_AR_density_projects/templates_04Nov2024/241021/M06804/AxonTracking/000091/well000"
+    template_dir = "./RBS_axonal_reconstructions/development_scripts/developing_nbs_for_AR_density_projects/templates_04Nov2024/241021/M06804/AxonTracking/000091/well000"
+    template_dir = "/pscratch/sd/a/adammwea/RBS_axonal_reconstructions/development_scripts/developing_nbs_for_AR_density_projects/templates_04Nov2024/241021/M06804/AxonTracking/000091/well000"
+    #template_dir = os.path.abspath(template_dir)
+    print(f"Loading templates from {template_dir}")
 
     # Load templates from the directory
     templates = load_templates_from_directory(template_dir)
@@ -239,7 +242,10 @@ def main():
     }
 
     # Define reconstruction directory
-    recon_dir = "/home/adamm/workspace/RBS_axonal_reconstructions/development_scripts/developing_nbs_for_AR_density_projects/templates_04Nov2024/241021/M06804/AxonTracking/000091/well000_reconstruction_files"
+    recon_dir = "./RBS_axonal_reconstructions/development_scripts/developing_nbs_for_AR_density_projects/templates_04Nov2024/241021/M06804/AxonTracking/000091/well000_reconstruction_files"
+    recon_dir = "/pscratch/sd/a/adammwea/RBS_axonal_reconstructions/development_scripts/developing_nbs_for_AR_density_projects/templates_04Nov2024/241021/M06804/AxonTracking/000091/well000_reconstruction_files"
+    #recon_dir = os.path.abspath(recon_dir)
+    print(f"Saving reconstruction files to {recon_dir}")
 
     #get params
     params = get_default_graph_velocity_params()
