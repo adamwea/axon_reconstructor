@@ -1,0 +1,94 @@
+{
+    "template_data": {
+        "unit_id": "350",
+        "template_segments": [],
+        "channel_loc": "[[ 770.   927.5]\n [2730.  1190. ]\n [ 700.   910. ]\n ...\n [1767.5 1050. ]\n [1942.5 1977.5]\n [2275.  2047.5]]",
+        "channel_loc_filled": "[[ 770.   927.5]\n [2730.  1190. ]\n [ 700.   910. ]\n ...\n [ 700.  2065. ]\n [ 420.   735. ]\n [1347.5  630. ]]",
+        "vt_template": "[[-13.637543   -5.2452087 -19.931793  ...   0.          0.\n    0.       ]\n [-14.686584   -9.441376  -23.078918  ...   0.          0.\n    0.       ]\n [-13.637543   -8.392334  -22.029877  ...   0.          0.\n    0.       ]\n ...\n [ -2.0980835  -3.1471252  -9.441376  ...   0.          0.\n    0.       ]\n [ -8.392334   -8.392334   -4.196167  ...   0.          0.\n    0.       ]\n [  1.0490417  -4.196167   -9.441376  ...   0.          0.\n    0.       ]]",
+        "dvdt_template": "[[-10490.418 -41961.67  -31471.254 ... -71934.29   26975.361  17983.574]\n [ 10490.418  10490.418  10490.418 ...   8991.785 -17983.576  17983.57 ]\n [-20980.836  83923.34   31471.254 ... -44958.93   44958.938 -35967.145]\n ...\n [ 73432.92   20980.836 -20980.836 ...  -8991.785   8991.785 -17983.572]\n [-62942.508 -52452.09   52452.09  ...  26975.357 -26975.361  -8991.786]\n [ 94413.76   41961.67  -52452.09  ... -44958.938  53950.715   8991.786]]",
+        "filled_vt_template": null,
+        "filled_dvdt_template": "[[-10490.418 -41961.67  -31471.254 ...      0.         0.         0.   ]\n [ 10490.418  10490.418  10490.418 ...      0.         0.         0.   ]\n [-20980.836  83923.34   31471.254 ...      0.         0.         0.   ]\n ...\n [ 73432.92   20980.836 -20980.836 ...      0.         0.         0.   ]\n [-62942.508 -52452.09   52452.09  ...      0.         0.         0.   ]\n [ 94413.76   41961.67  -52452.09  ...      0.         0.         0.   ]]",
+        "milos_template": []
+    },
+    "reconstruction_data": {
+        "gtr": "<submodules.axon_velocity_fork.axon_velocity.tracking_classes.GraphAxonTracking object at 0x74c5500d8fa0>",
+        "av_params": {
+            "upsample": 1,
+            "init_delay": 0,
+            "detect_threshold": 0.01,
+            "kurt_threshold": 0.3,
+            "peak_std_threshold": null,
+            "peak_std_distance": 30,
+            "remove_isolated": true,
+            "detection_type": "relative",
+            "min_selected_points": 30,
+            "min_path_length": 100,
+            "min_path_points": 5,
+            "min_points_after_branching": 3,
+            "r2_threshold": 0.5,
+            "max_distance_for_edge": 300,
+            "max_distance_to_init": 200,
+            "mad_threshold": 8,
+            "n_neighbors": 3,
+            "init_amp_peak_ratio": 0.2,
+            "edge_dist_amp_ratio": 0.3,
+            "distance_exp": 2,
+            "max_peak_latency_for_splitting": 0.5,
+            "r2_threshold_for_outliers": 0.98,
+            "min_outlier_tracking_error": 50,
+            "theilsen_maxiter": 2000,
+            "neighbor_radius": 100,
+            "split_paths": true
+        },
+        "branches": [
+            {
+                "channels": "[ 501 3369 3608 3448  362 3945 4221 2780]",
+                "velocity": 220.732342897445,
+                "offset": 69.29993367821723,
+                "r2": 0.8645752242788654,
+                "pval": 0.0024120090445147986,
+                "distances": "[  0.          94.24038412 172.50276334 283.18248144 300.68248144\n 388.18248144 460.33682989]",
+                "peak_times": "[0.  0.1 0.2 1.4 0.9 1.2 1.7]",
+                "raw_path_idx": 3
+            },
+            {
+                "channels": "[ 501  721  773 3911 2443]",
+                "velocity": 79.51462688819666,
+                "offset": 27.0943030511107,
+                "r2": 0.8576259987409685,
+                "pval": 0.0739190107010249,
+                "distances": "[  0.          24.74873734  63.87992695 162.87487631]",
+                "peak_times": "[0.  0.1 0.  1.7]",
+                "raw_path_idx": 4
+            }
+        ],
+        "branch_points": [
+            "3676",
+            "501"
+        ]
+    },
+    "reconstruction_analytics": {
+        "channels_in_template": 4658,
+        "template_rect_area": 7871850.0,
+        "template_density": 0.0005917287549940611,
+        "axon_length": 626.3564070503887,
+        "num_branches": 2,
+        "branch_lengths": [
+            626.3564070503887,
+            303.9643869091168
+        ],
+        "branch_channel_density": [
+            78.29455088129859,
+            60.79287738182336
+        ],
+        "branch_orders": {
+            "0": 1,
+            "1": 1
+        },
+        "maximum_branch_order": 1,
+        "velocities": {
+            "0": 220.732342897445,
+            "1": 79.51462688819666
+        }
+    }
+}

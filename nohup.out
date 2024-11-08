@@ -11940,3 +11940,5 @@ Saved analytics data for stream well000 to /home/adamm/workspace/RBS_axonal_reco
 [NHURG] 16:52:58 INFO: Established secure connection to S4F4PZL-USFEBMT-W2RJNN5-3CO7CAW-CO54I5F-GCE7JGX-BAFKOAX-ARV33QD at 152.79.176.134:22000-152.79.176.200:54942/tcp-server/TLS1.3-TLS_AES_128_GCM_SHA256
 [NHURG] 16:52:58 INFO: Replacing old connection 152.79.176.134:22000-152.79.176.200:54942/tcp-server/TLS1.3-TLS_AES_128_GCM_SHA256 with 152.79.176.134:22000-152.79.176.200:54942/tcp-server/TLS1.3-TLS_AES_128_GCM_SHA256 for S4F4PZL-USFEBMT-W2RJNN5-3CO7CAW-CO54I5F-GCE7JGX-BAFKOAX-ARV33QD
 [NHURG] 06:09:35 INFO: Completed initial scan of sendreceive folder "RBS_workspace" (bnfk4-uuk4w)
+[NHURG] 14:04:37 INFO: Scanner (folder "RBS_workspace" (bnfk4-uuk4w), item "RBS_axonal_reconstructions/.git/objects/57/tmp_obj_LTLQ0S"): hashing: file changed during hashing
+[NHURG] 14:05:37 INFO: Scanner (folder "RBS_workspace" (bnfk4-uuk4w), item "RBS_axonal_reconstructions/.git/objects/21/tmp_obj_LDicTY"): hashing: open /home/adamm/workspace/RBS_axonal_reconstructions/.git/objects/21/tmp_obj_LDicTY: no such file or directory
