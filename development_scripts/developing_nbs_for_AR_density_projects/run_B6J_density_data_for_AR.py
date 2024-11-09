@@ -1,13 +1,14 @@
 # run_pipeline.py with custom params as needed.
+'''Setup Python environment '''
+import setup_environment
+setup_environment.set_pythonpath()
+
+''' Import the necessary modules '''
 import os
-import sys
 import pandas as pd
+from run_pipeline import run_pipeline
 
-#use git to get root directory of repository
-def get_git_root():
-    git_root = os.popen('git rev-parse --show-toplevel').read().strip()
-    return git_root
-
+''' Helper functions '''
 def get_axon_tracking_file_paths(h5_parent_dirs):
     axon_tracking_dirs = []
     for h5_parent_dir in h5_parent_dirs:
@@ -18,12 +19,7 @@ def get_axon_tracking_file_paths(h5_parent_dirs):
                     axon_tracking_dirs.append(file_path)
     return axon_tracking_dirs
 
-git_root = get_git_root()
-sys.path.insert(0, git_root)
-print(git_root)
-
-from run_pipeline import run_pipeline
-
+''' Parameters '''
 # Reconstructor parameters
 kwargs = {
     # runtime options
@@ -94,8 +90,8 @@ kwargs = {
         'load_multirecs': True,
         'load_sortings': True,
         'load_wfs': False,
-        'load_templates': True,
-        'load_templates_bypass': True,  # This is a new parameter that allows the user to bypass pre-processing steps and load the templates directly. 
+        'load_templates': False,
+        'load_templates_bypass': False,  # This is a new parameter that allows the user to bypass pre-processing steps and load the templates directly. 
                                         # Useful if there isn't any need to reprocess the templates.
         'restore_environment': False,
     },
@@ -108,12 +104,14 @@ kwargs = {
 }
 
 kwargs['project_name'] = None # Use project name to create subdirectories, if true the paths below can be relative
-kwargs['output_dir'] = "/pscratch/sd/a/adammwea/zRBS_axon_reconstruction_output"
+#kwargs['output_dir'] = "/pscratch/sd/a/adammwea/zRBS_axon_reconstruction_output" # Output directory for the reconstructions when running on NERSC
+kwargs['output_dir'] = "/home/adamm/workspace/zRBS_axon_reconstruction_output" # Output directory for the reconstructions when running on lab server
 kwargs['mode'] = 'lean'
 
 '''Run the pipeline '''
 h5_parent_dirs = [
-    "/pscratch/sd/a/adammwea/RBS_synology_rsync/B6J_DensityTest_10012024_AR"
+    #"/pscratch/sd/a/adammwea/RBS_synology_rsync/B6J_DensityTest_10012024_AR" #running on lab server, pulling from rsynced data from synology
+    "/mnt/ben-shalom_nas/rbsmaxtwo/media/rbs-maxtwo/harddisk20tb/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR", #Running on lab server, pulling from synology
 ]
 
 axon_tracking_file_paths = get_axon_tracking_file_paths(h5_parent_dirs)

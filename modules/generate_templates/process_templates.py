@@ -1,7 +1,43 @@
-from modules.generate_templates.lib_template_functions import *
+from modules.generate_templates.extract_templates import *
 import concurrent.futures
 import numpy as np
 from tqdm import tqdm
+
+def get_time_derivative(merged_template, 
+                        #merged_template_filled, 
+                        unit='seconds', sampling_rate=10000, axis=0):
+    """
+    Computes the time derivative of the input arrays along the specified axis.
+    
+    Parameters:
+    - merged_template: numpy.ndarray
+        The first input array where the y-axis describes channels and x-axis describes voltage(time) signals.
+    - merged_template_filled: numpy.ndarray
+        The second input array where the y-axis describes channels and x-axis describes voltage(time) signals.
+    - unit: str, optional
+        The time unit for the derivative, either 'seconds' or 'ms'. Default is 'seconds'.
+    - sampling_rate: int, optional
+        The sampling rate in samples per second. Default is 10000.
+    - axis: int, optional
+        The axis along which to compute the derivative. Default is 0 (assuming time signals along y-axis).
+    
+    Returns:
+    - d_merged_template: numpy.ndarray
+        The time derivative of merged_template.
+    - d_merged_template_filled: numpy.ndarray
+        The time derivative of merged_template_filled.
+    """
+    
+    if unit == 'seconds':
+        delta_t = 1.0 / sampling_rate
+    elif unit == 'ms':
+        delta_t = 1.0 / (sampling_rate / 1000)
+    else:
+        raise ValueError("Invalid unit. Choose either 'seconds' or 'ms'.")
+
+    d_merged_template = np.diff(merged_template, axis=axis) / delta_t
+    #d_merged_template_filled = np.diff(merged_template_filled, axis=axis) / delta_t
+    return d_merged_template #, d_merged_template_filled
 
 def fill_template(merged_templates, merged_channel_loc, merged_count_at_channel_by_sample, logger=None):
     def get_pitch():
@@ -216,14 +252,16 @@ def merge_templates(templates, channel_locations, logger=None):
     for i in range(len(merged_templates[-1])): assert len(merged_templates[-1][i]) <= 26400
     assert len(merged_channel_loc[-1]) <= 26400
 
-    merged_templates_filled, merged_channel_loc_filled, merged_count_at_channel_by_sample_filled = fill_template(merged_templates, merged_channel_loc, merged_count_at_channel_by_sample, logger=logger)
+    #merged_templates_filled, merged_channel_loc_filled, merged_count_at_channel_by_sample_filled = fill_template(merged_templates, merged_channel_loc, merged_count_at_channel_by_sample, logger=logger)
 
-    if logger is not None: logger.debug(f'Total merged channels after fill: {len(merged_channel_loc_filled[-1])}')
-    else: print(f'Total merged channels after fill: {len(merged_channel_loc_filled[-1])}')
+    #if logger is not None: logger.debug(f'Total merged channels after fill: {len(merged_channel_loc_filled[-1])}')
+    #else: print(f'Total merged channels after fill: {len(merged_channel_loc_filled[-1])}')
         
-    for i in range(len(merged_templates_filled[-1])): assert len(merged_templates_filled[-1][i]) <= 26400
-    assert len(merged_channel_loc_filled[-1]) <= 26400
-    return merged_templates, merged_channel_loc, merged_templates_filled, merged_channel_loc_filled
+    #for i in range(len(merged_templates_filled[-1])): assert len(merged_templates_filled[-1][i]) <= 26400
+    #assert len(merged_channel_loc_filled[-1]) <= 26400
+    return merged_templates, merged_channel_loc #, merged_templates_filled, merged_channel_loc_filled
+
+''' Deprecated function '''
 
 def merge_templates_single(template_data): #aw20July2024 - This doesnt currently work. TODO: Fix this later. not important.
     templates, channel_locations, logger, start, end, part_merged_count_at_channel_by_sample = template_data
