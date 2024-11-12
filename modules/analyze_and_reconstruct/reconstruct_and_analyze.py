@@ -9,14 +9,8 @@ import dill
 import pandas as pd
 from tqdm import tqdm
 import json
-
-'''Local Imports'''
-def get_git_root():
-    git_root = os.popen('git rev-parse --show-toplevel').read().strip()
-    return git_root
-git_root = get_git_root()
-sys.path.insert(0, git_root)
 from modules.analyze_and_reconstruct.lib_analysis_functions import *
+from modules.generate_templates.process_templates import get_time_derivative
 
 ''' Main Functions '''
 def process_unit_for_analysis(unit_id, unit_templates, recon_dir, analysis_options, params, failed_units, failed_units_file, logger=None):
@@ -27,14 +21,19 @@ def process_unit_for_analysis(unit_id, unit_templates, recon_dir, analysis_optio
     # Primary dictionaries to hold template data and analytics
     template_data = {
         'unit_id': unit_id,
-        'template_segments': unit_templates.get('template_segments', []),
-        'channel_loc': unit_templates.get('channels_loc'),
-        'channel_loc_filled': unit_templates.get('channels_loc_filled'),
         'vt_template': unit_templates.get('merged_template'),
-        'dvdt_template': unit_templates.get('dvdt'),
-        'filled_vt_template': unit_templates.get('merged_template_filled'),
-        'filled_dvdt_template': unit_templates.get('dvdt_filled'),
-        'milos_template': []  # Placeholder for milos_template if applicable #TODO: Implement milos_template
+        'dvdt_template': get_time_derivative(unit_templates.get('merged_template'), sampling_rate=10000), #TODO: get sampling rate from h5 data or something. Put it in analysis options
+        'milos_template': [],  # Placeholder for milos_template if applicable #TODO: Implement milos_template
+        'channel_locations': unit_templates.get('merged_channels_locs'),
+        #'template_segments': unit_templates.get('template_segments', []),
+        #'channel_loc': unit_templates.get('channels_loc'),
+        #'channel_loc' : unit_templates.get('channel_locations'),
+        #'channel_loc_filled': unit_templates.get('channels_loc_filled'),
+        #'channel_loc_filled': unit_templates.get('channel_locs_filled'),
+        # 'vt_template': unit_templates.get('merged_template'),
+        # 'dvdt_template': unit_templates.get('dvdt'),
+        # 'filled_vt_template': unit_templates.get('merged_template_filled'),
+        # 'filled_dvdt_template': unit_templates.get('dvdt_filled'),        
     }
 
     '''Reconstruction'''

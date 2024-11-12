@@ -6,7 +6,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 import modules.lib_sorting_functions as sorter
 import modules.lib_waveform_functions as waveformer
-import modules.generate_templates.lib_template_functions as templater
+import modules.generate_templates.extract_templates as templater
 
 from modules.analyze_and_reconstruct.reconstruct_and_analyze import reconstruct_and_analyze
 #from modules.analyze_and_reconstruct.reconstruct import reconstruct
@@ -623,7 +623,7 @@ class AxonReconstructor:
             'logger': self.logger,
         }
         
-        analyze(**analyze_kwargs)
+        reconstruct_and_analyze(**analyze_kwargs)
         # reconstruct(
         #     self.templates,
         #     recon_dir=self.recon_dir,

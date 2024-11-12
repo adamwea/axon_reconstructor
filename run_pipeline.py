@@ -1,14 +1,6 @@
 import sys
 import os
 
-# Use git to get the root directory of the repository
-def get_git_root():
-    git_root = os.popen('git rev-parse --show-toplevel').read().strip()
-    return git_root
-
-git_root = get_git_root()
-sys.path.insert(0, git_root)
-
 from modules import mea_processing_library as MPL
 import modules.lib_helper_functions as helper
 from modules.axon_reconstructor import AxonReconstructor
@@ -55,10 +47,10 @@ def run_pipeline(h5_parent_dirs, mode='normal', **kwargs):
                 # Set log files to be unique for each reconstructor
                 kwargs['log_file'] = f'{kwargs["output_dir"]}/{projectName}/{reconstructorID}_axon_reconstruction.log'
                 kwargs['error_log_file'] = f'{kwargs["output_dir"]}/{projectName}/{reconstructorID}_axon_reconstruction_error.log'
-                kwargs['recordings_dir'] = os.path.join(kwargs['output_dir'], projectName, 'temp_data/recordings')
-                kwargs['sortings_dir'] = os.path.join(kwargs['output_dir'], projectName, 'temp_data/sortings')
-                kwargs['waveforms_dir'] = os.path.join(kwargs['output_dir'], projectName, 'temp_data/waveforms')
-                kwargs['templates_dir'] = os.path.join(kwargs['output_dir'], projectName, 'temp_data/templates')
+                kwargs['recordings_dir'] = os.path.join(kwargs['output_dir'], projectName, 'recordings')
+                kwargs['sortings_dir'] = os.path.join(kwargs['output_dir'], projectName, 'sortings')
+                kwargs['waveforms_dir'] = os.path.join(kwargs['output_dir'], projectName, 'waveforms')
+                kwargs['templates_dir'] = os.path.join(kwargs['output_dir'], projectName, 'templates')
                 kwargs['recon_dir'] = os.path.join(kwargs['output_dir'], projectName, 'reconstructions')
                 kwargs['reconstructor_dir'] = os.path.join(kwargs['output_dir'], projectName, 'reconstructors')
                 
