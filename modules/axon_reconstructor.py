@@ -345,6 +345,7 @@ class AxonReconstructor:
             scanType = recording['scanType']
             run_id = recording['run_id']
             h5_path = recording['h5_path']
+            project_name = recording['project_name']
             h5 = h5py.File(h5_path)
             stream_ids = list(h5['wells'].keys())
             if self.stream_select is not None: stream_ids = [stream_ids[self.stream_select]] if isinstance(stream_ids[self.stream_select], str) else stream_ids[self.stream_select]
@@ -366,6 +367,8 @@ class AxonReconstructor:
                     self.logger.info(f'Concatenating recording segments for {date}_{chip_id}_{run_id} stream {stream_id}')
                     multirecording, common_el, multirec_save_path = sorter.concatenate_recording_segments(
                         h5_path, recording_segments, stream_id, save_dir=self.recordings_dir, logger=self.logger)                     
+                    #TODO: hack, fix later
+                    multirec_save_path = os.path.dirname(self.recordings_dir)                
                     streams[stream_id] = {
                         'multirecording': multirecording,
                         'common_el': common_el,
@@ -413,7 +416,8 @@ class AxonReconstructor:
             scanType = multirec['scanType']
             run_id = multirec['run_id']
             self.logger.info(f'Generating spike sorting objects for {date}_{chip_id}_{run_id}')
-            spikesorting_root = os.path.join(self.sorting_params['sortings_dir'], f'{date}/{chip_id}/{scanType}/{run_id}')
+            #spikesorting_root = os.path.join(self.sorting_params['sortings_dir'], f'{date}/{chip_id}/{scanType}/{run_id}')
+            spikesorting_root = self.sorting_params['sortings_dir']
             streams = {}
             for stream_id, stream in multirec['streams'].items():
                 self.setup_logger(prefix=f'{rec_key}_{stream_id}')

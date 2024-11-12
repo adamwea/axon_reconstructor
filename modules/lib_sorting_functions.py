@@ -84,7 +84,8 @@ def sort_multirecording(multirecording, stream_id, save_root, sorting_params=dic
     if logger:
         logger.info(f"Sorting multi-recording for stream {stream_id}")
 
-    stream_sort_path = os.path.join(save_root, stream_id)
+    #stream_sort_path = os.path.join(save_root, stream_id)
+    stream_sort_path = save_root
     sorter_output_folder = os.path.join(stream_sort_path, 'sorter_output')
     sorter_output_file = os.path.join(sorter_output_folder, 'amplitudes.npy')
 

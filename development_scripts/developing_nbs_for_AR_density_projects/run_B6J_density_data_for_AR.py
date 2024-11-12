@@ -119,8 +119,8 @@ kwargs['mode'] = 'lean'
 # self.recon_switch = kwargs.get('recon_switch', True)
 kwargs['concatenate_switch'] = True
 kwargs['sort_switch'] = True
-kwargs['waveform_switch'] = False
-kwargs['template_switch'] = False
+kwargs['waveform_switch'] = True
+kwargs['template_switch'] = True
 kwargs['recon_switch'] = False
 kwargs['save_reconstructor_object'] = False
 
@@ -135,6 +135,7 @@ assert all([os.path.exists(h5_parent_dir) for h5_parent_dir in h5_parent_dirs]),
 axon_tracking_file_paths = get_axon_tracking_file_paths(h5_parent_dirs)
 #print(axon_tracking_file_paths)
 
+import time
 run_pipeline(axon_tracking_file_paths, **kwargs)
 
 

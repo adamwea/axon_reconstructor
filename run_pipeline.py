@@ -33,6 +33,7 @@ def run_pipeline(h5_parent_dirs, mode='normal', **kwargs):
                 date = h5_details[0]['date']
                 chipID = h5_details[0]['chipID']
                 runID = h5_details[0]['runID']
+                scanType = h5_details[0]['scanType']
                 
                 if 'stream_select' not in kwargs:
                     #kwargs['stream_select'] = max_two_wells_analyzed  # should go 0 through 5
@@ -47,14 +48,39 @@ def run_pipeline(h5_parent_dirs, mode='normal', **kwargs):
                 reconstructorID = f'{date}_{chipID}_{runID}_well00{stream_select}'
                 
                 # Set log files to be unique for each reconstructor
-                kwargs['log_file'] = f'{kwargs["output_dir"]}/{projectName}/{reconstructorID}_axon_reconstruction.log'
-                kwargs['error_log_file'] = f'{kwargs["output_dir"]}/{projectName}/{reconstructorID}_axon_reconstruction_error.log'
-                kwargs['recordings_dir'] = os.path.join(kwargs['output_dir'], projectName, 'recordings')
-                kwargs['sortings_dir'] = os.path.join(kwargs['output_dir'], projectName, 'sortings')
-                kwargs['waveforms_dir'] = os.path.join(kwargs['output_dir'], projectName, 'waveforms')
-                kwargs['templates_dir'] = os.path.join(kwargs['output_dir'], projectName, 'templates')
-                kwargs['recon_dir'] = os.path.join(kwargs['output_dir'], projectName, 'reconstructions')
-                kwargs['reconstructor_dir'] = os.path.join(kwargs['output_dir'], projectName, 'reconstructors')
+                
+                #old naming scheme
+                # kwargs['log_file'] = f'{kwargs["output_dir"]}/{projectName}/{reconstructorID}_axon_reconstruction.log'
+                # kwargs['error_log_file'] = f'{kwargs["output_dir"]}/{projectName}/{reconstructorID}_axon_reconstruction_error.log'
+                # kwargs['recordings_dir'] = os.path.join(kwargs['output_dir'], projectName, 'recordings')
+                # kwargs['sortings_dir'] = os.path.join(kwargs['output_dir'], projectName, 'sortings')
+                # kwargs['waveforms_dir'] = os.path.join(kwargs['output_dir'], projectName, 'waveforms')
+                # kwargs['templates_dir'] = os.path.join(kwargs['output_dir'], projectName, 'templates')
+                # kwargs['recon_dir'] = os.path.join(kwargs['output_dir'], projectName, 'reconstructions')
+                # kwargs['reconstructor_dir'] = os.path.join(kwargs['output_dir'], projectName, 'reconstructors')
+                
+                #new naming scheme
+                #kwargs['log_file'] = f'{kwargs["output_dir"]}/{projectName}/{date}/{chipID}/{scanType}/{runID}/{wellID}/{reconstructorID}_axon_reconstruction.log'
+                wellID = f'well00{stream_select}'
+                well_path = f'{kwargs["output_dir"]}/{projectName}/{date}/{chipID}/{scanType}/{runID}/{wellID}'
+                kwargs['log_file'] = f'{well_path}/{wellID}_axon_reconstruction.log'
+                kwargs['error_log_file'] = f'{well_path}/{wellID}_axon_reconstruction_error.log'
+                kwargs['recordings_dir'] = os.path.join(well_path, 'recordings')
+                kwargs['sortings_dir'] = os.path.join(well_path, 'sortings')
+                kwargs['waveforms_dir'] = os.path.join(well_path, 'waveforms')
+                kwargs['templates_dir'] = os.path.join(well_path, 'templates')
+                kwargs['recon_dir'] = os.path.join(well_path, 'reconstructions')
+                kwargs['reconstructor_dir'] = well_path
+                
+                print(f'Starting reconstruction for {reconstructorID}...')
+                print(f'Log file: {kwargs["log_file"]}')
+                print(f'Error log file: {kwargs["error_log_file"]}')
+                print(f'Recordings dir: {kwargs["recordings_dir"]}')
+                print(f'Sortings dir: {kwargs["sortings_dir"]}')
+                print(f'Waveforms dir: {kwargs["waveforms_dir"]}')
+                print(f'Templates dir: {kwargs["templates_dir"]}')
+                print(f'Reconstructions dir: {kwargs["recon_dir"]}')
+                print(f'Reconstructor dir: {kwargs["reconstructor_dir"]}')
                 
                 # Run the pipeline
                 kwargs['stream_select'] = stream_select

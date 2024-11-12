@@ -50,7 +50,8 @@ def extract_unit_waveforms(h5_path, stream_id, segment_sorting, save_root=None, 
         segment_waveforms = {}
         with h5py.File(h5_path, 'r') as h5:
             rec_names = list(h5['wells'][stream_id].keys())
-            wf_paths = [os.path.join(save_root, f'waveforms/{date}/{chip_id}/{scanType}/{run_id}/{stream_id}/seg{sel_idx}') for sel_idx in range(len(rec_names))]
+            #wf_paths = [os.path.join(save_root, f'waveforms/{date}/{chip_id}/{scanType}/{run_id}/{stream_id}/seg{sel_idx}') for sel_idx in range(len(rec_names))]
+            wf_paths = [os.path.join(save_root, f'seg{sel_idx}') for sel_idx in range(len(rec_names))]
             seg_sorts = []
             logger.info(f'Extracting waveforms for stream {stream_id}')
             for sel_idx, wf_path in enumerate(wf_paths):

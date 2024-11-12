@@ -154,8 +154,10 @@ def extract_merged_templates(h5_path, stream_id, segment_sorting, waveforms, te_
     chip_id = h5_details['chipID']
     scanType = h5_details['scanType']
     run_id = h5_details['runID']
-    template_save_path = os.path.join(save_root, date, chip_id, scanType, run_id, stream_id) if save_root else None
-
+    #template_save_path = os.path.join(save_root, date, chip_id, scanType, run_id, stream_id) if save_root else None
+    template_save_path = save_root if save_root else None
+    assert template_save_path, 'No save root provided for templates'
+    
     if template_bypass:
         sel_unit_ids = get_existing_unit_ids(template_save_path)
         assert sel_unit_ids, 'No existing templates found. Generating New Templates.'
