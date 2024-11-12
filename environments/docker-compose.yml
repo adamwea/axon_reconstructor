@@ -1,0 +1,10 @@
+#version: '3.8'
+
+services:
+  app:
+    build: .
+    image: adammwea/axon_docker:latest
+    container_name: axon_docker
+    volumes:
+      - .:/workspace/RBS_axonal_reconstructions
+    #command: ["python", "your_script.py"]
