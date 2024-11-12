@@ -111,6 +111,20 @@ kwargs['output_dir'] = "/pscratch/sd/a/adammwea/zRBS_axon_reconstruction_output"
 #kwargs['output_dir'] = "/home/adamm/workspace/zRBS_axon_reconstruction_output" # Output directory for the reconstructions when running on lab server
 kwargs['mode'] = 'lean'
 
+#temporarily only spike sorting
+# self.concatenate_switch = kwargs.get('concatenate_switch', True)
+# self.sort_switch = kwargs.get('sort_switch', True)
+# self.waveform_switch = kwargs.get('waveform_switch', True)
+# self.template_switch = kwargs.get('template_switch', True)
+# self.recon_switch = kwargs.get('recon_switch', True)
+kwargs['concatenate_switch'] = True
+kwargs['sort_switch'] = True
+kwargs['waveform_switch'] = False
+kwargs['template_switch'] = False
+kwargs['recon_switch'] = False
+kwargs['save_reconstructor_object'] = False
+
+
 '''Run the pipeline '''
 h5_parent_dirs = [
     "/pscratch/sd/a/adammwea/RBS_synology_rsync/B6J_DensityTest_10012024_AR", #running on NERSC server, pulling from rsynced data from synology

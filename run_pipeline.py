@@ -35,14 +35,16 @@ def run_pipeline(h5_parent_dirs, mode='normal', **kwargs):
                 runID = h5_details[0]['runID']
                 
                 if 'stream_select' not in kwargs:
-                    kwargs['stream_select'] = max_two_wells_analyzed  # should go 0 through 5
+                    #kwargs['stream_select'] = max_two_wells_analyzed  # should go 0 through 5
+                    stream_select = max_two_wells_analyzed
                 else:
+                    stream_select = kwargs['stream_select']
                     if max_two_wells_analyzed != kwargs['stream_select']:
                         max_two_wells_analyzed += 1
                         continue
                 
                 projectName = h5_details[0]['projectName']
-                reconstructorID = f'{date}_{chipID}_{runID}_well00{kwargs["stream_select"]}'
+                reconstructorID = f'{date}_{chipID}_{runID}_well00{stream_select}'
                 
                 # Set log files to be unique for each reconstructor
                 kwargs['log_file'] = f'{kwargs["output_dir"]}/{projectName}/{reconstructorID}_axon_reconstruction.log'
@@ -55,7 +57,9 @@ def run_pipeline(h5_parent_dirs, mode='normal', **kwargs):
                 kwargs['reconstructor_dir'] = os.path.join(kwargs['output_dir'], projectName, 'reconstructors')
                 
                 # Run the pipeline
+                kwargs['stream_select'] = stream_select
                 reconstructor = AxonReconstructor([h5_file], **kwargs)
                 reconstructor.run_pipeline(**kwargs)
+                kwargs.pop('stream_select', None)
                 
                 max_two_wells_analyzed += 1

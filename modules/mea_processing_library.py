@@ -754,6 +754,63 @@ def benshalom_kilosort2_docker_image(recording, output_folder, sorting_params=No
 
     return sorting
 
+import os
+import shutil
+import spikeinterface.sorters as ss
+import logging
+
+logger = logging.getLogger(__name__)
+
+def kilosort2_wrapper(recording, output_folder, sorting_params=None, verbose=False):
+    """
+    Run Kilosort2 spike sorting using Shifter.
+
+    Parameters:
+        recording: Recording object from SpikeInterface.
+        output_folder: Path to the folder where the output will be saved.
+        sorting_params: Dictionary of sorter parameters.
+        verbose: Whether to output verbose logs.
+
+    Returns:
+        sorting: Sorting object with the results.
+    """
+
+    # Set default sorting parameters if none provided
+    if sorting_params is None:
+        sorting_params = ss.Kilosort2Sorter.default_params()
+        sorting_params.update({
+            'n_jobs': -1,
+            'detect_threshold': 7,
+            'minFR': 0.01,
+            'minfr_goodchannels': 0.01,
+            'keep_good_only': False,
+            'do_correction': False
+        })
+    else:
+        default_params = ss.Kilosort2Sorter.default_params()
+        default_params.update(sorting_params)
+        sorting_params = default_params
+
+    # Remove existing output folder if it exists
+    if os.path.exists(output_folder):
+        shutil.rmtree(output_folder)
+
+    logger.info("Running Kilosort2 spike sorting using Shifter.")
+
+    try:
+        sorting = ss.run_sorter(
+            sorter_name="kilosort2",
+            recording=recording,
+            output_folder=output_folder,
+            verbose=verbose,
+            **sorting_params
+        )
+    except Exception as e:
+        logger.error(f"Error running Kilosort2: {e}")
+        return None
+
+    return sorting
+
 
 
 def run_kilosort2_5_docker_image_GPUs(recording, output_folder, docker_image="spikeinterface/kilosort2_5-compiled-base:latest", verbose=False, num_gpus=1):
