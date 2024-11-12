@@ -111,8 +111,8 @@ kwargs['mode'] = 'lean'
 '''Run the pipeline '''
 h5_parent_dirs = [
     #"/pscratch/sd/a/adammwea/RBS_synology_rsync/B6J_DensityTest_10012024_AR" #running on NERSC server, pulling from rsynced data from synology
-    #"/mnt/ben-shalom_nas/rbsmaxtwo/media/rbs-maxtwo/harddisk20tb/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR", #Running on lab server, pulling from synology
-    "/home/adamm/workspace/data/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR" #Running on Gubuntu, pulling from local data
+    "/mnt/ben-shalom_nas/rbsmaxtwo/media/rbs-maxtwo/harddisk20tb/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR", #Running on lab server, pulling from synology
+    #"/home/adamm/workspace/data/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR" #Running on Gubuntu, pulling from local data
 ]
 axon_tracking_file_paths = get_axon_tracking_file_paths(h5_parent_dirs)
 #print(axon_tracking_file_paths)
