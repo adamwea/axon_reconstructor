@@ -8,6 +8,9 @@ import os
 import pandas as pd
 from run_pipeline import run_pipeline
 
+''' Import HDF5 plugin to os.environ '''
+os.environ['HDF5_PLUGIN_PATH'] = '/pscratch/sd/a/adammwea/RBS_axonal_reconstructions/modules/maxwell_hdf5_plugin/Linux'
+
 ''' Helper functions '''
 def get_axon_tracking_file_paths(h5_parent_dirs):
     axon_tracking_dirs = []
@@ -104,16 +107,17 @@ kwargs = {
 }
 
 kwargs['project_name'] = None # Use project name to create subdirectories, if true the paths below can be relative
-#kwargs['output_dir'] = "/pscratch/sd/a/adammwea/zRBS_axon_reconstruction_output" # Output directory for the reconstructions when running on NERSC
-kwargs['output_dir'] = "/home/adamm/workspace/zRBS_axon_reconstruction_output" # Output directory for the reconstructions when running on lab server
+kwargs['output_dir'] = "/pscratch/sd/a/adammwea/zRBS_axon_reconstruction_output" # Output directory for the reconstructions when running on NERSC
+#kwargs['output_dir'] = "/home/adamm/workspace/zRBS_axon_reconstruction_output" # Output directory for the reconstructions when running on lab server
 kwargs['mode'] = 'lean'
 
 '''Run the pipeline '''
 h5_parent_dirs = [
-    #"/pscratch/sd/a/adammwea/RBS_synology_rsync/B6J_DensityTest_10012024_AR" #running on NERSC server, pulling from rsynced data from synology
-    "/mnt/ben-shalom_nas/rbsmaxtwo/media/rbs-maxtwo/harddisk20tb/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR", #Running on lab server, pulling from synology
+    "/pscratch/sd/a/adammwea/RBS_synology_rsync/B6J_DensityTest_10012024_AR", #running on NERSC server, pulling from rsynced data from synology
+    #"/mnt/ben-shalom_nas/rbsmaxtwo/media/rbs-maxtwo/harddisk20tb/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR", #Running on lab server, pulling from synology
     #"/home/adamm/workspace/data/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR" #Running on Gubuntu, pulling from local data
 ]
+assert all([os.path.exists(h5_parent_dir) for h5_parent_dir in h5_parent_dirs]), "One or more h5_parent_dirs do not exist."
 axon_tracking_file_paths = get_axon_tracking_file_paths(h5_parent_dirs)
 #print(axon_tracking_file_paths)
 

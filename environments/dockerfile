@@ -1,0 +1,26 @@
+
+# Install the base image
+FROM continuumio/miniconda3
+
+# Set up the environment
+RUN conda create -n axon_env python=3.8
+RUN /bin/bash -c "source activate axon_env && conda install h5py"
+
+# Copy your Maxwell HDF5 plugin to the container (adjust the path as needed)
+COPY /pscratch/sd/a/adammwea/RBS_axonal_reconstructions/modules/maxwell_hdf5_plugin /opt/maxwell_hdf5_plugin
+
+# Set the HDF5_PLUGIN_PATH environment variable
+ENV HDF5_PLUGIN_PATH=/opt/maxwell_hdf5_plugin/Linux
+
+# Activate the environment by default
+SHELL ["conda", "run", "-n", "axon_env", "/bin/bash", "-c"]
+
+# Install any pip dependencies in axon_env if needed
+RUN pip install -r /path/to/your/requirements.txt
+
+# Copy your script into the container
+COPY your_script.py /workspace/your_script.py
+WORKDIR /workspace
+
+# Command to run your script
+CMD ["python", "your_script.py"]

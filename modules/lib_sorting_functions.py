@@ -70,6 +70,9 @@ def concatenate_recording_segments(h5_path, recording_segments, stream_id=None, 
     if logger: logger.info(f"Concatenating recording segments for {h5_path}, stream {stream_id}")
     else: print(f"Concatenating recording segments for {h5_path}, stream {stream_id}")
     max_workers = 1 #debug
+    #import os
+    #print h5_plugin_path
+    print(os.environ['HDF5_PLUGIN_PATH'])
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         rec_list = list(executor.map(process_rec_seg, recording_segments))
     
