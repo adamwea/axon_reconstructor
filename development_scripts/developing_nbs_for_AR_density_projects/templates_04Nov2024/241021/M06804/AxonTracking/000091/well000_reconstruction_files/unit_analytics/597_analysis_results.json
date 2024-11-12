@@ -1,0 +1,79 @@
+{
+    "template_data": {
+        "unit_id": "597",
+        "template_segments": [],
+        "channel_loc": "[[   0.  1435. ]\n [2835.   997.5]\n [ 402.5 1172.5]\n ...\n [2572.5  997.5]\n [2012.5 1260. ]\n [2292.5 1820. ]]",
+        "channel_loc_filled": "[[   0.  1435. ]\n [2835.   997.5]\n [ 402.5 1172.5]\n ...\n [ 700.  2065. ]\n [1347.5  630. ]\n [2852.5  472.5]]",
+        "vt_template": "[[-12.588501  -56.648254   -6.2942505 ...  10.4904175  10.329026\n   -5.6486864]\n [-18.882751  -75.531006  -18.882751  ...  10.651809    9.360681\n   -6.132859 ]\n [-18.882751  -56.648254   -6.2942505 ...  11.942937   10.167635\n   -5.9714684]\n ...\n [  0.        -50.354004    0.        ...  10.329026    7.101206\n   -3.550603 ]\n [  0.        -50.354004   -6.2942505 ...   8.069551    4.518949\n   -6.2942505]\n [ -6.2942505 -31.471252   -6.2942505 ...  10.4904175   5.6486864\n   -7.2625966]]",
+        "dvdt_template": "[[ -62942.508  -188827.52   -125885.016  ...    1613.9126   -9683.457\n    -4841.7285]\n [      0.      188827.52    125885.016  ...   12911.282     8069.544\n     1613.9078]\n [  62942.508    62942.508        0.     ...  -16139.107   -24208.65\n    12911.282 ]\n ...\n [  62942.508        0.     -125885.016  ...   -3227.8252   -6455.641\n     3227.8206]\n [      0.           0.      -62942.508  ...  -22594.748   -25822.568\n   -27436.477 ]\n [ -62942.508   188827.52         0.     ...   24208.66     11297.374\n    -9683.462 ]]",
+        "filled_vt_template": null,
+        "filled_dvdt_template": "[[ -62942.508 -188827.52  -125885.016 ...       0.          0.\n        0.   ]\n [      0.     188827.52   125885.016 ...       0.          0.\n        0.   ]\n [  62942.508   62942.508       0.    ...       0.          0.\n        0.   ]\n ...\n [  62942.508       0.    -125885.016 ...       0.          0.\n        0.   ]\n [      0.          0.     -62942.508 ...       0.          0.\n        0.   ]\n [ -62942.508  188827.52        0.    ...       0.          0.\n        0.   ]]",
+        "milos_template": []
+    },
+    "reconstruction_data": {
+        "gtr": "<submodules.axon_velocity_fork.axon_velocity.tracking_classes.GraphAxonTracking object at 0x7fb65b30aa60>",
+        "av_params": {
+            "upsample": 1,
+            "init_delay": 0,
+            "detect_threshold": 0.01,
+            "kurt_threshold": 0.3,
+            "peak_std_threshold": null,
+            "peak_std_distance": 30,
+            "remove_isolated": true,
+            "detection_type": "relative",
+            "min_selected_points": 30,
+            "min_path_length": 100,
+            "min_path_points": 5,
+            "min_points_after_branching": 3,
+            "r2_threshold": 0.9,
+            "max_distance_for_edge": 300,
+            "max_distance_to_init": 200,
+            "mad_threshold": 8,
+            "n_neighbors": 3,
+            "init_amp_peak_ratio": 0.2,
+            "edge_dist_amp_ratio": 0.3,
+            "distance_exp": 2,
+            "max_peak_latency_for_splitting": 0.5,
+            "r2_threshold_for_outliers": 0.98,
+            "min_outlier_tracking_error": 50,
+            "theilsen_maxiter": 2000,
+            "neighbor_radius": 100,
+            "split_paths": true
+        },
+        "branches": [
+            {
+                "channels": "[ 461  291  489  311 1402 2776]",
+                "velocity": 100.57516696310132,
+                "offset": 36.19864926071102,
+                "r2": 0.9297445324782597,
+                "pval": 0.008076455971074247,
+                "distances": "[  0.          49.49747468  98.99494937 186.49494937 288.53660753]",
+                "peak_times": "[0.  0.1 0.2 1.7 2.4]",
+                "raw_path_idx": 0
+            }
+        ],
+        "branch_points": [
+            "461"
+        ]
+    },
+    "reconstruction_analytics": {
+        "channels_in_template": 9058,
+        "template_rect_area": 7871850.0,
+        "template_density": 0.0011506824952203104,
+        "axon_length": 488.0673069182585,
+        "num_branches": 1,
+        "branch_lengths": [
+            488.0673069182585
+        ],
+        "branch_channel_density": [
+            81.34455115304308
+        ],
+        "branch_orders": {
+            "0": 1
+        },
+        "maximum_branch_order": 1,
+        "velocities": {
+            "0": 100.57516696310132
+        }
+    }
+}
