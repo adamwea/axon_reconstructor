@@ -33,7 +33,7 @@ kwargs = {
         #'use_gpu': False,
     },
     'te_params': {
-        'load_merged_templates': False,
+        'load_merged_templates': True,
         'save_merged_templates': True,
         'time_derivative': True,
     },
@@ -100,8 +100,9 @@ kwargs = {
     },
     'verbose': True,
     'debug_mode': True,
-    'n_jobs': 1,
-    'max_workers': 6,
+    #'n_jobs': 64,
+    'n_jobs': 128,
+    #'max_workers': 64,
     'logger_level': 'DEBUG',
     'run_lean': True,
 }
@@ -121,7 +122,7 @@ kwargs['concatenate_switch'] = True
 kwargs['sort_switch'] = True
 kwargs['waveform_switch'] = True
 kwargs['template_switch'] = True
-kwargs['recon_switch'] = False
+kwargs['recon_switch'] = True
 kwargs['save_reconstructor_object'] = False
 
 

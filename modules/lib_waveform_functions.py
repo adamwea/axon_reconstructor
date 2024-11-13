@@ -58,9 +58,11 @@ def extract_unit_waveforms(h5_path, stream_id, segment_sorting, save_root=None, 
                 try: seg_sorts.append((wf_path, si.SelectSegmentSorting(segment_sorting, sel_idx)))
                 except: pass #deal with erroneus recording segments
 
+            overwrite_wf = True
             if not overwrite_wf:
                 if logger is not None: logger.info(f'Loading waveforms for stream {stream_id}')
-                with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+                max_workers = min(len(seg_sorts), n_jobs)
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
                     futures = {executor.submit(load_waveforms, seg_sort[0], seg_sort[1]): sel_idx for sel_idx, seg_sort in enumerate(seg_sorts)}
 
                 try:
@@ -95,15 +97,24 @@ def extract_unit_waveforms(h5_path, stream_id, segment_sorting, save_root=None, 
                 seg_sort.register_recording(rec_centered)
 
                 if not os.path.exists(wf_path) or overwrite_wf:
-                    if logger is not None: logger.info(f'Extracting waveforms to {wf_path}, n_jobs={n_jobs}')
-                    else: print(f'Extracting waveforms to {wf_path}, n_jobs={n_jobs}')
+                    num_chunks = rec.get_num_samples() // chunk_size
+                    max_workers = min([
+                        num_chunks,
+                        n_jobs])
+                    if logger is not None: logger.info(f'Extracting waveforms to {wf_path}, n_jobs={max_workers}')
+                    else: print(f'Extracting waveforms to {wf_path}, n_jobs={max_workers}')
                     os.makedirs(wf_path, exist_ok=True)
                     seg_we = si.WaveformExtractor.create(rec_centered, seg_sort, wf_path, allow_unfiltered=True, remove_if_exists=True)
                     seg_we.set_params(ms_before=cutout[0], ms_after=cutout[1], return_scaled=True)
-                    seg_we.run_extract_waveforms(n_jobs=n_jobs)
+                    print(f'Extracted waveforms for {rec_name} to {wf_path}, n_jobs={max_workers}')
+                   
+
+                    #max_workers = 1
+                    seg_we.run_extract_waveforms(n_jobs=max_workers)
                     segment_waveforms[rec_name] = {'path': wf_path, 'waveforms': seg_we}
         return segment_waveforms
 
+    #max_workers = min([len(segment_sorting.get_unit_ids()), n_jobs])
     waveforms = extract_waveforms(h5_path, segment_sorting, stream_id, save_root, n_jobs, overwrite_wf)
     return waveforms
 

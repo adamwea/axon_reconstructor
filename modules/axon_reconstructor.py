@@ -64,8 +64,8 @@ class AxonReconstructor:
 
         # Parallelization Settings
         self.n_jobs = kwargs.get('n_jobs', 1)
-        self.max_workers = kwargs.get('max_workers', 16)
-        assert self.max_workers % self.n_jobs == 0, "max_workers must be a multiple of n_jobs to avoid oversubscription."
+        #self.max_workers = kwargs.get('max_workers', 16)
+        #assert self.max_workers % self.n_jobs == 0, "max_workers must be a multiple of n_jobs to avoid oversubscription."
 
         # Parameters for Reconstruction
         self.sorting_params = self.get_sorting_params(kwargs)
@@ -188,7 +188,7 @@ class AxonReconstructor:
             'align_cutout': True,
             'upsample': 2,
             'rm_outliers': True,
-            'n_jobs': self.max_workers,
+            'n_jobs': self.n_jobs,
             'n_neighbors': 10,
             'peak_cutout': 2,
             'overwrite_wf': False,
@@ -364,9 +364,19 @@ class AxonReconstructor:
                 # If not, generate new multirecording
                 except AssertionError as e: 
                     self.logger.warning(e)
+                    concat_kwargs = {
+                        'h5_path': h5_path,
+                        'recording_segments': recording_segments,
+                        'stream_id': stream_id,
+                        'save_dir': self.recordings_dir,
+                        'n_jobs': self.n_jobs,
+                        #'max_workers': 24,
+                        'logger': self.logger
+                    }
                     self.logger.info(f'Concatenating recording segments for {date}_{chip_id}_{run_id} stream {stream_id}')
-                    multirecording, common_el, multirec_save_path = sorter.concatenate_recording_segments(
-                        h5_path, recording_segments, stream_id, save_dir=self.recordings_dir, logger=self.logger)                     
+                    # multirecording, common_el, multirec_save_path = sorter.concatenate_recording_segments(
+                    #     h5_path, recording_segments, stream_id, save_dir=self.recordings_dir, logger=self.logger)
+                    multirecording, common_el, multirec_save_path = sorter.concatenate_recording_segments(**concat_kwargs)                     
                     #TODO: hack, fix later
                     multirec_save_path = os.path.dirname(self.recordings_dir)                
                     streams[stream_id] = {
@@ -623,7 +633,7 @@ class AxonReconstructor:
             'params': self.av_params,
             'analysis_options': self.analysis_options,
             'stream_select': self.stream_select,
-            'n_jobs': self.max_workers, #TODO: why?
+            'n_jobs': self.n_jobs, #TODO: why?
             'logger': self.logger,
         }
         
@@ -769,8 +779,8 @@ class AxonReconstructor:
         if self.waveform_switch: self.extract_waveforms()
         if self.template_switch: self.extract_templates()        
         if self.recon_switch: self.analyze_and_reconstruct()
-        if self.save_reconstructor_object: self.save_reconstructor()
-        if self.run_lean: self.clean_up()
+        #if self.save_reconstructor_object: self.save_reconstructor()
+        #if self.run_lean: self.clean_up()
         self.logger.info("Pipeline execution completed")
 
     def clean_up(self):

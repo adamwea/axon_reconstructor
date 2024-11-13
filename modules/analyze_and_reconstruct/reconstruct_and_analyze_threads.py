@@ -4,7 +4,7 @@ from scipy.stats import kurtosis, skew
 from pathlib import Path
 import os
 import sys
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import dill
 import pandas as pd
 from tqdm import tqdm
@@ -12,35 +12,53 @@ import json
 from modules.analyze_and_reconstruct.lib_analysis_functions import *
 from modules.generate_templates.process_templates import get_time_derivative
 
+''' Main Functions '''
 def process_unit_for_analysis(unit_id, unit_templates, recon_dir, analysis_options, params, failed_units, failed_units_file, logger=None):
     start = time.time()
     print(f'Analyzing unit {unit_id}...')
     
+    '''Input Data for Reconstruction and Analysis'''    
+    # Primary dictionaries to hold template data and analytics
     template_data = {
         'unit_id': unit_id,
         'vt_template': unit_templates.get('merged_template'),
-        'dvdt_template': get_time_derivative(unit_templates.get('merged_template'), sampling_rate=10000),
-        'milos_template': [],
+        'dvdt_template': get_time_derivative(unit_templates.get('merged_template'), sampling_rate=10000), #TODO: get sampling rate from h5 data or something. Put it in analysis options
+        'milos_template': [],  # Placeholder for milos_template if applicable #TODO: Implement milos_template
         'channel_locations': unit_templates.get('merged_channel_locs'),
+        #'template_segments': unit_templates.get('template_segments', []),
+        #'channel_loc': unit_templates.get('channels_loc'),
+        #'channel_loc' : unit_templates.get('channel_locations'),
+        #'channel_loc_filled': unit_templates.get('channels_loc_filled'),
+        #'channel_loc_filled': unit_templates.get('channel_locs_filled'),
+        # 'vt_template': unit_templates.get('merged_template'),
+        # 'dvdt_template': unit_templates.get('dvdt'),
+        # 'filled_vt_template': unit_templates.get('merged_template_filled'),
+        # 'filled_dvdt_template': unit_templates.get('dvdt_filled'),        
     }
 
+    '''Reconstruction'''
+    # Dictionary for template analytics initialized with function references
     try:
         gtr, av_params = build_graph_axon_tracking(template_data, recon_dir=recon_dir, load_gtr=True, params=params)
         
+        # Save the gtr object to file
         if recon_dir:
             recon_dir = Path(recon_dir)
             recon_dir.mkdir(parents=True, exist_ok=True)
             gtr_file = recon_dir / f"{unit_id}_gtr_object.dill"
+        if recon_dir:
             with open(gtr_file, 'wb') as f:
                 dill.dump(gtr, f) 
     except:
         try:
             gtr, av_params = build_graph_axon_tracking(template_data, recon_dir=recon_dir, load_gtr=False, params=params)
             
+            # Save the gtr object to file
             if recon_dir:
                 recon_dir = Path(recon_dir)
                 recon_dir.mkdir(parents=True, exist_ok=True)
                 gtr_file = recon_dir / f"{unit_id}_gtr_object.dill"
+            if recon_dir:
                 with open(gtr_file, 'wb') as f:
                     dill.dump(gtr, f) 
         except Exception as e:
@@ -49,9 +67,13 @@ def process_unit_for_analysis(unit_id, unit_templates, recon_dir, analysis_optio
             else:
                 print(f"Failed to build graph for unit {unit_id} - Error: {e}")
             failed_units.add(unit_id)
+            # Update the failed units JSON file immediately
+            # with open(failed_units_file, 'w') as f:
+            #     json.dump(list(failed_units), f, indent=4)
             save_failed_units(failed_units, failed_units_file)
             return None, None, None
     
+    # Reconstruction data dictionary
     reconstruction_data = {
         'gtr': gtr,
         'av_params': av_params,
@@ -59,27 +81,53 @@ def process_unit_for_analysis(unit_id, unit_templates, recon_dir, analysis_optio
         'branch_points': gtr._branching_points
     }
 
+    '''Analysis'''   
+    # Template analysis
     reconstruction_analytics = {
-        'channels_in_template': len(template_data['channel_locations']),
-        'template_rect_area': calculate_template_rectangular_area(template_data),
-        'template_density': len(template_data['channel_locations']) / calculate_template_rectangular_area(template_data),
-        'axon_length': gtr.compute_path_length(gtr.branches[0]['channels']),
-        'num_branches': len(gtr.branches),
-        'branch_lengths': [gtr.compute_path_length(branch['channels']) for branch in gtr.branches],
-        'branch_channel_density': [gtr.compute_path_length(branch['channels']) / len(branch['channels']) for branch in gtr.branches],
-        'branch_orders': {index: calculate_branch_order(branch['channels'], gtr._branching_points) for index, branch in enumerate(gtr.branches)},
-        'maximum_branch_order': max([calculate_branch_order(branch['channels'], gtr._branching_points) for branch in gtr.branches]),
-        'velocities': {index: branch['velocity'] for index, branch in enumerate(gtr.branches)}
+        'channels_in_template': len(template_data['channel_locations']),  # Number of channels in the template
+        'template_rect_area': calculate_template_rectangular_area(template_data),  # Area of the template, in um^2
+        'template_density': len(template_data['channel_locations']) / calculate_template_rectangular_area(template_data),  # Channel density of the template, in channels/um^2
+        
+        # Axon analysis
+        'axon_length': gtr.compute_path_length(gtr.branches[0]['channels']),  # Length of the axon, in um
+        
+        # Branching analysis
+        'num_branches': len(gtr.branches),  # Number of branches in the reconstruction
+        'branch_lengths': [gtr.compute_path_length(branch['channels']) for branch in gtr.branches],  # Length of each branch, in um
+        'branch_channel_density': [gtr.compute_path_length(branch['channels']) / len(branch['channels']) for branch in gtr.branches],  # Channel density of each branch, in channels/um^2
+        'branch_orders': {index: calculate_branch_order(branch['channels'], gtr._branching_points) for index, branch in enumerate(gtr.branches)},  # Branch order of each branch
+        'maximum_branch_order': max([calculate_branch_order(branch['channels'], gtr._branching_points) for branch in gtr.branches]),  # Maximum branch order in the reconstruction
+        # 'partition_asymmetry': calculate_partition_asymmetry(gtr.branches, gtr._branching_points),  # Partition asymmetry of the reconstruction #TODO: Implement partition_asymmetry
+        
+        # Signal Propagation Analysis
+        'velocities': {index: branch['velocity'] for index, branch in enumerate(gtr.branches)}  # Velocity of each branch, in um/s
+        # 'velocities': [branch['velocity'] for branch in gtr.branches],  # Velocity of each branch, in um/s
     }
     print(f'Finished analyzing unit {unit_id} in {time.time() - start} seconds')
     return template_data, reconstruction_data, reconstruction_analytics
 
+import json
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
+import pandas as pd
+
 def analysis_results_to_dataframe(analysis_results):
+    """
+    Convert the analysis results dictionary into a pandas DataFrame.
+
+    Parameters:
+    analysis_results (dict): The dictionary containing analysis results.
+
+    Returns:
+    pd.DataFrame: A DataFrame containing the analysis results.
+    """
     flattened_data = []
 
     for unit_id, results in analysis_results.items():
         flattened_entry = {'unit_id': unit_id}
         
+        # Flatten reconstruction analytics
         for key, value in results['reconstruction_analytics'].items():
             flattened_entry[key] = value
         
@@ -141,13 +189,20 @@ def process_results(futures, analysis_json_dir, failed_units, failed_units_file,
         try:
             template_data, reconstruction_data, reconstruction_analytics = future.result()
             if template_data is not None:
+                # #check if any of the values in the dictionary are numpy.int64
+                # if any(isinstance(v, np.int64) for v in reconstruction_analytics.values()):
+                #     # Convert int64 to int in reconstruction_analytics
+                #     reconstruction_analytics = {k: int(v) if isinstance(v, (np.integer, np.int64)) else v for k, v in reconstruction_analytics.items()}
+                    
                 stream_results[unit_id] = {
                     'template_data': template_data,
                     'reconstruction_data': reconstruction_data,
                     'reconstruction_analytics': reconstruction_analytics
                 }
                 
+                # check if any of the values in the dictionary are numpy.int64
                 if any(isinstance(v, np.int64) for v in stream_results[unit_id].values()):
+                    # Convert int64 to int in stream_results
                     stream_results[unit_id] = {k: int(v) if isinstance(v, (np.integer, np.int64)) else v for k, v in stream_results[unit_id].items()}
                 
                 with open(analysis_json_dir / f"{unit_id}_analysis_results.json", 'w') as f:
@@ -168,29 +223,17 @@ def process_results(futures, analysis_json_dir, failed_units, failed_units_file,
     return stream_results, successful_units
 
 def save_failed_units(failed_units, failed_units_file):
+    # Convert all elements to regular Python integers
     failed_units = [int(unit) for unit in failed_units]
     
     with open(failed_units_file, 'w') as f:
         json.dump(failed_units, f, indent=4)  
 
-def reconstruct_and_analyze(templates, analysis_options=None, recon_dir=None, logger=None, params=None, n_jobs=None, skip_failed_units=True, unit_limit=None, **kwargs):
-    # num_physical_cores = 128  # Number of physical CPUs
-    # num_logical_cores = 256   # Number of logical CPUs
-    
-    # # Set the number of threads for OpenBLAS and MKL
-    # os.environ["OPENBLAS_NUM_THREADS"] = "1"
-    # os.environ["MKL_NUM_THREADS"] = "1"
-    
-    # try:
-    #     import mkl
-    #     mkl.set_num_threads(1)
-    # except ImportError:
-    #     pass
-    
-    if n_jobs is None:
-        #n_jobs = num_physical_cores  # Start with the number of physical CPUs
-        n_jobs = 1  #debug
-    
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+from tqdm import tqdm
+
+def reconstruct_and_analyze(templates, analysis_options=None, recon_dir=None, logger=None, params=None, n_jobs=10, skip_failed_units=True, unit_limit=None, **kwargs):
     failed_units_file = Path(recon_dir) / 'failed_units.json'
     failed_units = load_failed_units(failed_units_file, skip_failed_units)
 
@@ -198,8 +241,8 @@ def reconstruct_and_analyze(templates, analysis_options=None, recon_dir=None, lo
     progress_bar = tqdm(total=total_units, desc="Reconstructing units")
 
     successful_units = 0
-    processed_units = 0
-    with ProcessPoolExecutor(max_workers=n_jobs) as executor:
+    max_workers = n_jobs
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for key, tmps in templates.items():
             for stream_id, stream_templates in tmps['streams'].items():
                 unit_templates = stream_templates['units']
@@ -209,20 +252,11 @@ def reconstruct_and_analyze(templates, analysis_options=None, recon_dir=None, lo
                     futures = submit_tasks(executor, unit_templates, failed_units, unit_limit - successful_units if unit_limit is not None else len(unit_templates), gtr_dir, analysis_options, params, failed_units_file, logger)
                     stream_results, new_successful_units = process_results(futures, analysis_json_dir, failed_units, failed_units_file, logger, progress_bar)
                     successful_units += new_successful_units
-                    processed_units += len(futures)
                     print(f'Processed {successful_units} units')
-                    
-                    # Break the loop if all units have been processed
-                    if processed_units >= total_units:
-                        break
                 
                 df = analysis_results_to_dataframe(stream_results)
                 df.to_csv(stream_recon_dir / f"agg_{stream_id}_axon_analytics.csv", index=False)
                 print(f'Saved analytics data for stream {stream_id} to {stream_recon_dir / f"agg_{stream_id}_axon_analytics.csv"}')
-
-                # Break the outer loop if all units have been processed
-                if processed_units >= total_units:
-                    break
 
     save_failed_units(failed_units, failed_units_file)
     progress_bar.close()

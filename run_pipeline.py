@@ -85,7 +85,10 @@ def run_pipeline(h5_parent_dirs, mode='normal', **kwargs):
                 # Run the pipeline
                 kwargs['stream_select'] = stream_select
                 reconstructor = AxonReconstructor([h5_file], **kwargs)
-                reconstructor.run_pipeline(**kwargs)
+                try: reconstructor.run_pipeline(**kwargs)
+                except Exception as e:
+                    print(f'Error running pipeline for {reconstructorID}: {e}')
+                    print(f'Continuing to next well...')
                 kwargs.pop('stream_select', None)
                 
                 max_two_wells_analyzed += 1

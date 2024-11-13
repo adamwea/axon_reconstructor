@@ -8,10 +8,16 @@ from concurrent.futures import ThreadPoolExecutor
 from modules import mea_processing_library as MPL
 import logging
 
-default_recording_dir = './AxonReconPipeline/data/temp_data/recordings'
-default_sorting_dir = './AxonReconPipeline/data/temp_data/sortings'
+#default_recording_dir = './AxonReconPipeline/data/temp_data/recordings'
+#default_sorting_dir = './AxonReconPipeline/data/temp_data/sortings'
 
-def find_common_electrodes(rec_path, stream_id, n_jobs=4, max_workers=24, logger=None):
+#import os
+#import numpy as np
+#import spikeinterface as si
+from concurrent.futures import ProcessPoolExecutor
+#import h5py
+
+def find_common_electrodes(rec_path, stream_id, logger=None):
     if logger:
         logger.info(f"Finding common electrodes in {rec_path} for stream {stream_id}")
     
@@ -19,32 +25,25 @@ def find_common_electrodes(rec_path, stream_id, n_jobs=4, max_workers=24, logger
     h5 = h5py.File(rec_path)
     rec_names = list(h5['wells'][stream_id].keys())
 
-    def process_recording(rec_name):
+    common_el = None
+    for rec_name in rec_names:
         try:
             rec = si.MaxwellRecordingExtractor(rec_path, stream_id=stream_id, rec_name=rec_name)
             rec_el = rec.get_property("contact_vector")["electrode"]
-            return rec_el
+            if common_el is None:
+                common_el = set(rec_el)
+            else:
+                common_el.intersection_update(rec_el)
         except Exception as e:
             if logger:
                 logger.warning(e)
-            return None
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        results = list(executor.map(process_recording, rec_names))
-    
-    common_el = set(results[0])
-    for rec_el in results[1:]:
-        try:
-            rec_el = [el for el in rec_el if el is not None]
-            common_el.intersection_update(rec_el)
-        except:
             continue
     
     return rec_names, list(common_el)
 
 def concatenate_recording_segments(h5_path, recording_segments, stream_id=None, save_dir=None, n_jobs=4, max_workers=24, logger=None):
     
-    rec_names, common_el = find_common_electrodes(h5_path, stream_id, n_jobs, max_workers, logger=logger)
+    rec_names, common_el = find_common_electrodes(h5_path, stream_id, logger=logger)
     multirec_name = f'{stream_id}_multirecording'
     h5_details = MPL.extract_recording_details(h5_path)
     date = h5_details[0]['date']
@@ -67,12 +66,16 @@ def concatenate_recording_segments(h5_path, recording_segments, stream_id=None, 
                 logger.error(e)
             return None
 
-    if logger: logger.info(f"Concatenating recording segments for {h5_path}, stream {stream_id}")
-    else: print(f"Concatenating recording segments for {h5_path}, stream {stream_id}")
-    max_workers = 1 #debug
-    #import os
-    #print h5_plugin_path
-    print(os.environ['HDF5_PLUGIN_PATH'])
+    if logger:
+        logger.info(f"Concatenating recording segments for {h5_path}, stream {stream_id}")
+    else:
+        print(f"Concatenating recording segments for {h5_path}, stream {stream_id}")
+    
+    max_workers = min([
+        len(recording_segments), 
+        n_jobs
+        ])
+    #max_workers = 1
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         rec_list = list(executor.map(process_rec_seg, recording_segments))
     

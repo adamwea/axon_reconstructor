@@ -24,7 +24,7 @@ def transform_data(merged_template, merged_channel_loc, merged_template_filled=N
 def build_graph_axon_tracking(template_data, load_gtr=False, recon_dir=None, params=None):
     gtr = None
     """Build the graph for axon tracking."""
-    transposed_template, _, transposed_loc, _ = transform_data(template_data['dvdt_template'], template_data['channel_loc'])
+    transposed_template, _, transposed_loc, _ = transform_data(template_data['dvdt_template'], template_data['channel_locations'])
     params = params or get_default_graph_velocity_params() # Default parameters for graph building if not provided
     unit_id = template_data['unit_id']
     
@@ -35,6 +35,7 @@ def build_graph_axon_tracking(template_data, load_gtr=False, recon_dir=None, par
         gtr_file = recon_dir / f"{unit_id}_gtr_object.dill"
         
         if load_gtr and gtr_file.exists():
+            assert gtr_file.exists() or not load_gtr, f"File {gtr_file} does not exist. Set load_gtr to False to build the graph."
             with open(gtr_file, 'rb') as f:
                 gtr = dill.load(f)
                 #return gtr, params
@@ -58,11 +59,7 @@ def build_graph_axon_tracking(template_data, load_gtr=False, recon_dir=None, par
         # gtr.find_paths()
         # gtr.clean_paths(remove_outliers=False)
         print(f"Graph updated in {time.time() - start} seconds")
-    
-    # Save the gtr object to file
-    if recon_dir:
-        with open(gtr_file, 'wb') as f:
-            dill.dump(gtr, f)    
+           
     return gtr, params
 
 def calculate_template_rectangular_area(template_data):
@@ -76,11 +73,11 @@ def calculate_template_rectangular_area(template_data):
     int: The number of channels in the template.
     float: The rectangular 2D area occupied by the channels in square micrometers.
     """
-    channels_in_template = len(template_data['channel_loc'])
+    channels_in_template = len(template_data['channel_locations'])
 
     # Extract x and y coordinates of all channels
-    x_coords = [loc[0] for loc in template_data['channel_loc']]
-    y_coords = [loc[1] for loc in template_data['channel_loc']]
+    x_coords = [loc[0] for loc in template_data['channel_locations']]
+    y_coords = [loc[1] for loc in template_data['channel_locations']]
 
     # Calculate the minimum and maximum x and y coordinates
     min_x, max_x = min(x_coords), max(x_coords)
