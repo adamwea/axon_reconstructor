@@ -58,7 +58,7 @@ def extract_unit_waveforms(h5_path, stream_id, segment_sorting, save_root=None, 
                 try: seg_sorts.append((wf_path, si.SelectSegmentSorting(segment_sorting, sel_idx)))
                 except: pass #deal with erroneus recording segments
 
-            overwrite_wf = True
+            #overwrite_wf = True
             if not overwrite_wf:
                 if logger is not None: logger.info(f'Loading waveforms for stream {stream_id}')
                 max_workers = min(len(seg_sorts), n_jobs)
