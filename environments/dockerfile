@@ -1,5 +1,5 @@
 # Install the base image
-FROM continuumio/miniconda3
+FROM rohanmalige/benshalom:v3
 
 # Set up the environment
 RUN conda create -n axon_env python=3.8
