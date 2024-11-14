@@ -20,57 +20,56 @@ def process_unit_for_analysis(unit_id, unit_templates, recon_dir, analysis_optio
         'unit_id': unit_id,
         'vt_template': unit_templates.get('merged_template'),
         'dvdt_template': get_time_derivative(unit_templates.get('merged_template'), sampling_rate=10000),
-        'milos_template': [],
+        'milos_template': [],  # Placeholder for milos template
         'channel_locations': unit_templates.get('merged_channel_locs'),
     }
 
-    try:
-        gtr, av_params = build_graph_axon_tracking(template_data, recon_dir=recon_dir, load_gtr=True, params=params)
-        
-        if recon_dir:
-            recon_dir = Path(recon_dir)
-            recon_dir.mkdir(parents=True, exist_ok=True)
-            gtr_file = recon_dir / f"{unit_id}_gtr_object.dill"
-            with open(gtr_file, 'wb') as f:
-                dill.dump(gtr, f) 
-    except:
+    reconstruction_data = {}
+    reconstruction_analytics = {}
+
+    for template_type in ['vt', 'dvt', 'milos']:
         try:
-            gtr, av_params = build_graph_axon_tracking(template_data, recon_dir=recon_dir, load_gtr=False, params=params)
+            gtr, av_params = build_graph_axon_tracking(template_data, recon_dir=recon_dir, load_gtr=True, params=params, template_type=template_type)
             
             if recon_dir:
-                recon_dir = Path(recon_dir)
-                recon_dir.mkdir(parents=True, exist_ok=True)
-                gtr_file = recon_dir / f"{unit_id}_gtr_object.dill"
+                template_recon_dir = Path(recon_dir) / template_type
+                template_recon_dir.mkdir(parents=True, exist_ok=True)
+                gtr_file = template_recon_dir / f"{unit_id}_gtr_object.dill"
                 with open(gtr_file, 'wb') as f:
                     dill.dump(gtr, f) 
-        except Exception as e:
-            if logger:
-                logger.error(f"Failed to build graph for unit {unit_id} - Error: {e}")
-            else:
-                print(f"Failed to build graph for unit {unit_id} - Error: {e}")
-            failed_units.add(unit_id)
-            save_failed_units(failed_units, failed_units_file)
-            return None, None, None
-    
-    reconstruction_data = {
-        'gtr': gtr,
-        'av_params': av_params,
-        'branches': gtr.branches,
-        'branch_points': gtr._branching_points
-    }
+        except:
+            try:
+                gtr, av_params = build_graph_axon_tracking(template_data, recon_dir=recon_dir, load_gtr=False, params=params, template_type=template_type)
+                
+                if recon_dir:
+                    template_recon_dir = Path(recon_dir) / template_type
+                    template_recon_dir.mkdir(parents=True, exist_ok=True)
+                    gtr_file = template_recon_dir / f"{unit_id}_gtr_object.dill"
+                    with open(gtr_file, 'wb') as f:
+                        dill.dump(gtr, f) 
+            except Exception as e:
+                if logger:
+                    logger.error(f"Failed to build graph for unit {unit_id} with template {template_type} - Error: {e}")
+                else:
+                    print(f"Failed to build graph for unit {unit_id} with template {template_type} - Error: {e}")
+                failed_units.add(unit_id)
+                save_failed_units(failed_units, failed_units_file)
+                continue
 
-    reconstruction_analytics = {
-        'channels_in_template': len(template_data['channel_locations']),
-        'template_rect_area': calculate_template_rectangular_area(template_data),
-        'template_density': len(template_data['channel_locations']) / calculate_template_rectangular_area(template_data),
-        'axon_length': gtr.compute_path_length(gtr.branches[0]['channels']),
-        'num_branches': len(gtr.branches),
-        'branch_lengths': [gtr.compute_path_length(branch['channels']) for branch in gtr.branches],
-        'branch_channel_density': [gtr.compute_path_length(branch['channels']) / len(branch['channels']) for branch in gtr.branches],
-        'branch_orders': {index: calculate_branch_order(branch['channels'], gtr._branching_points) for index, branch in enumerate(gtr.branches)},
-        'maximum_branch_order': max([calculate_branch_order(branch['channels'], gtr._branching_points) for branch in gtr.branches]),
-        'velocities': {index: branch['velocity'] for index, branch in enumerate(gtr.branches)}
-    }
+        reconstruction_data[template_type] = gtr
+        reconstruction_analytics[template_type] = {
+            'channels_in_template': len(template_data['channel_locations']),
+            'template_rect_area': calculate_template_rectangular_area(template_data),
+            'template_density': len(template_data['channel_locations']) / calculate_template_rectangular_area(template_data),
+            'axon_length': gtr.compute_path_length(gtr.branches[0]['channels']),
+            'num_branches': len(gtr.branches),
+            'branch_lengths': [gtr.compute_path_length(branch['channels']) for branch in gtr.branches],
+            'branch_channel_density': [gtr.compute_path_length(branch['channels']) / len(branch['channels']) for branch in gtr.branches],
+            'branch_orders': {index: calculate_branch_order(branch['channels'], gtr._branching_points) for index, branch in enumerate(gtr.branches)},
+            'maximum_branch_order': max([calculate_branch_order(branch['channels'], gtr._branching_points) for branch in gtr.branches]),
+            'velocities': {index: branch['velocity'] for index, branch in enumerate(gtr.branches)}
+        }
+
     print(f'Finished analyzing unit {unit_id} in {time.time() - start} seconds')
     return template_data, reconstruction_data, reconstruction_analytics
 
@@ -80,7 +79,7 @@ def analysis_results_to_dataframe(analysis_results):
     for unit_id, results in analysis_results.items():
         flattened_entry = {'unit_id': unit_id}
         
-        for key, value in results['reconstruction_analytics'].items():
+        for key, value in results.items():
             flattened_entry[key] = value
         
         flattened_data.append(flattened_entry)
@@ -140,6 +139,9 @@ def process_results(futures, analysis_json_dir, failed_units, failed_units_file,
         unit_id = futures[future]
         try:
             template_data, reconstruction_data, reconstruction_analytics = future.result()
+            if reconstruction_analytics:
+                if reconstruction_analytics and any(reconstruction_analytics.values()):
+                    print(f'Unit {unit_id} analytics: {reconstruction_analytics}')
             if template_data is not None:
                 stream_results[unit_id] = {
                     'template_data': template_data,
@@ -187,11 +189,12 @@ def reconstruct_and_analyze(templates, analysis_options=None, recon_dir=None, lo
     # except ImportError:
     #     pass
     
+    #n_jobs = 1  #debug
     if n_jobs is None:
-        #n_jobs = num_physical_cores  # Start with the number of physical CPUs
         n_jobs = 1  #debug
     
     failed_units_file = Path(recon_dir) / 'failed_units.json'
+    skip_failed_units = False
     failed_units = load_failed_units(failed_units_file, skip_failed_units)
 
     total_units = sum(len(stream_templates['units']) for tmps in templates.values() for stream_templates in tmps['streams'].values())
@@ -216,9 +219,21 @@ def reconstruct_and_analyze(templates, analysis_options=None, recon_dir=None, lo
                     if processed_units >= total_units:
                         break
                 
-                df = analysis_results_to_dataframe(stream_results)
-                df.to_csv(stream_recon_dir / f"agg_{stream_id}_axon_analytics.csv", index=False)
-                print(f'Saved analytics data for stream {stream_id} to {stream_recon_dir / f"agg_{stream_id}_axon_analytics.csv"}')
+                agg_template_analytics = {}
+                for template_type in ['vt', 'dvt', 'milos']:
+                    # for unit_id, results in stream_results.items():
+                    #     try: print(f'Unit {unit_id} analytics: {results["reconstruction_analytics"][template_type]}')
+                    #     except: continue
+                    #agg_template_analytics[template_type] = {unit_id: results['reconstruction_analytics'][template_type] for unit_id, results in stream_results.items() if template_type in results['reconstruction_analytics']}
+                    # --
+                    agg_template_analytics = {unit_id: results['reconstruction_analytics'][template_type] for unit_id, results in stream_results.items() if template_type in results['reconstruction_analytics']}   
+                    df = analysis_results_to_dataframe(agg_template_analytics)
+                    df.to_csv(stream_recon_dir / f"agg_{stream_id}_{template_type}_axon_analytics.csv", index=False)
+                    #open csv after saving
+                    
+                    print(f'Saved analytics data for stream {stream_id} and template {template_type} to {stream_recon_dir / f"agg_{stream_id}_{template_type}_axon_analytics.csv"}')
+                    with open(stream_recon_dir / f"agg_{stream_id}_{template_type}_axon_analytics.csv", 'r') as f:
+                        print(f.read())
 
                 # Break the outer loop if all units have been processed
                 if processed_units >= total_units:

@@ -21,14 +21,24 @@ def transform_data(merged_template, merged_channel_loc, merged_template_filled=N
         trans_loc_filled = None
     return transformed_template, transformed_template_filled, trans_loc, trans_loc_filled
 
-def build_graph_axon_tracking(template_data, load_gtr=False, recon_dir=None, params=None):
+def build_graph_axon_tracking(template_data, load_gtr=False, recon_dir=None, params=None, template_type='dvt'):
     gtr = None
     """Build the graph for axon tracking."""
-    transposed_template, _, transposed_loc, _ = transform_data(template_data['dvdt_template'], template_data['channel_locations'])
+    
+    if template_type == 'vt':
+        template_key = 'vt_template'
+    elif template_type == 'dvt':
+        template_key = 'dvdt_template'
+    elif template_type == 'milos':
+        template_key = 'milos_template'
+    else:
+        raise ValueError("Invalid template type. Choose from 'vt', 'dvt', or 'milos'.")
+    
+    transposed_template, _, transposed_loc, _ = transform_data(template_data[template_key], template_data['channel_locations'])
     params = params or get_default_graph_velocity_params() # Default parameters for graph building if not provided
     unit_id = template_data['unit_id']
     
-    #if recon_dir is not None, try to load the gtr object from file    
+    # if recon_dir is not None, try to load the gtr object from file    
     if recon_dir:
         recon_dir = Path(recon_dir)
         recon_dir.mkdir(parents=True, exist_ok=True)
@@ -38,19 +48,19 @@ def build_graph_axon_tracking(template_data, load_gtr=False, recon_dir=None, par
             assert gtr_file.exists() or not load_gtr, f"File {gtr_file} does not exist. Set load_gtr to False to build the graph."
             with open(gtr_file, 'rb') as f:
                 gtr = dill.load(f)
-                #return gtr, params
+                # return gtr, params
     
     # Build the graph
     start = time.time()
     if gtr is None:
-        #print("Building graph...")
+        # print("Building graph...")
         gtr = GraphAxonTracking(transposed_template, transposed_loc, 10000, **params)
-        gtr._verbose = 1 #TODO: make this an option later
+        gtr._verbose = 1 # TODO: make this an option later
         gtr.select_channels()
         gtr.build_graph()
         gtr.find_paths()
         gtr.clean_paths(remove_outliers=False)
-        #print(f"Graph built in {time.time() - start} seconds")
+        # print(f"Graph built in {time.time() - start} seconds")
     elif gtr is not None:
         print("Graph already exists. Updating analysis...")
         # gtr._verbose = 1
