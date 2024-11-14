@@ -1,8 +1,18 @@
+'''Setup Python environment '''
+import setup_environment
 import sys
 import os
+setup_environment.set_pythonpath()
+
+''' Import HDF5 plugin to os.environ '''
+os.environ['HDF5_PLUGIN_PATH'] = '/pscratch/sd/a/adammwea/RBS_axonal_reconstructions/modules/maxwell_hdf5_plugin/Linux'
+
+''' Import the necessary modules '''
 import argparse
 from modules import mea_processing_library as MPL
 from modules.axon_reconstructor import AxonReconstructor
+
+''' Helper functions '''
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Run the axon reconstruction pipeline for a single well.")
@@ -10,6 +20,8 @@ def parse_arguments():
     parser.add_argument("--output_dir", required=True, help="Output directory for reconstruction results.")
     return parser.parse_args()
 
+
+''' Main function '''
 def main():
     args = parse_arguments()
     well_file = args.well_file
@@ -119,6 +131,7 @@ def main():
     kwargs['save_reconstructor_object'] = False
 
     # Process a single well file
+    print(f"Processing well {well_file}...")
     h5_files = [well_file]
     reconstructor = AxonReconstructor(h5_files, **kwargs)
     try:
@@ -128,11 +141,11 @@ def main():
 
 if __name__ == "__main__":
     #test arguments
-    sys.argv = [
-        'parallel_run_pipeline.py', 
-        '--well_file', 
-        '/pscratch/sd/a/adammwea/RBS_synology_rsync/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/2021-10-01/10012024/10012024_AxonTracking_2021-10-01_10012024_well000.h5', 
-        '--output_dir', 
-        '/pscratch/sd/a/adammwea/zRBS_axon_reconstruction_output']
+    # sys.argv = [
+    #     'parallel_run_pipeline.py', 
+    #     '--well_file', 
+    #     '/pscratch/sd/a/adammwea/RBS_synology_rsync/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/2021-10-01/10012024/10012024_AxonTracking_2021-10-01_10012024_well000.h5', 
+    #     '--output_dir', 
+    #     '/pscratch/sd/a/adammwea/zRBS_axon_reconstruction_output']
     
     main()
