@@ -4,28 +4,27 @@ import sys
 import os
 setup_environment.set_pythonpath()
 
-''' Import HDF5 plugin to os.environ '''
-os.environ['HDF5_PLUGIN_PATH'] = '/pscratch/sd/a/adammwea/RBS_axonal_reconstructions/modules/maxwell_hdf5_plugin/Linux'
-
 ''' Import the necessary modules '''
 import argparse
 from modules import mea_processing_library as MPL
 from modules.axon_reconstructor import AxonReconstructor
+from pprint import pprint
 
 ''' Helper functions '''
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Run the axon reconstruction pipeline for a single well.")
-    parser.add_argument("--well_file", required=True, help="Path to the HDF5 file for the well.")
+    parser.add_argument("--plate_file", required=True, help="Path to the HDF5 file for the plate.")
     parser.add_argument("--output_dir", required=True, help="Output directory for reconstruction results.")
+    parser.add_argument("--stream_select", type=int, required=True, help="Stream select for the well (0-5).")
     return parser.parse_args()
-
 
 ''' Main function '''
 def main():
     args = parse_arguments()
-    well_file = args.well_file
+    plate_file = args.plate_file
     output_dir = args.output_dir
+    stream_select = args.stream_select
 
     ''' Parameters '''
     # Reconstructor parameters
@@ -113,39 +112,56 @@ def main():
     }
 
     kwargs['project_name'] = None # Use project name to create subdirectories, if true the paths below can be relative
-    kwargs['output_dir'] = "/pscratch/sd/a/adammwea/zRBS_axon_reconstruction_output" # Output directory for the reconstructions when running on NERSC
-    #kwargs['output_dir'] = "/home/adamm/workspace/zRBS_axon_reconstruction_output" # Output directory for the reconstructions when running on lab server
+    kwargs['output_dir'] = output_dir # Output directory for the reconstructions when running on NERSC
     kwargs['mode'] = 'lean'
-
-    #temporarily only spike sorting
-    # self.concatenate_switch = kwargs.get('concatenate_switch', True)
-    # self.sort_switch = kwargs.get('sort_switch', True)
-    # self.waveform_switch = kwargs.get('waveform_switch', True)
-    # self.template_switch = kwargs.get('template_switch', True)
-    # self.recon_switch = kwargs.get('recon_switch', True)
-    kwargs['concatenate_switch'] = True
-    kwargs['sort_switch'] = True
-    kwargs['waveform_switch'] = True
-    kwargs['template_switch'] = True
-    kwargs['recon_switch'] = True
-    kwargs['save_reconstructor_object'] = False
+    kwargs['stream_select'] = stream_select
 
     # Process a single well file
-    print(f"Processing well {well_file}...")
-    h5_files = [well_file]
-    reconstructor = AxonReconstructor(h5_files, **kwargs)
+    print(f"Processing plate {plate_file} stream {stream_select}...")
+    h5_files = [plate_file]
+    
+    h5_details = MPL.extract_recording_details([plate_file])
+    date = h5_details[0]['date']
+    chipID = h5_details[0]['chipID']
+    runID = h5_details[0]['runID']
+    scanType = h5_details[0]['scanType']
+    
+    projectName = h5_details[0]['projectName']
+    reconstructorID = f'{date}_{chipID}_{runID}_well00{stream_select}'
+
+    wellID = f'well00{stream_select}'
+    well_path = f'{kwargs["output_dir"]}/{projectName}/{date}/{chipID}/{scanType}/{runID}/{wellID}'
+    kwargs['log_file'] = f'{well_path}/{wellID}_axon_reconstruction.log'
+    kwargs['error_log_file'] = f'{well_path}/{wellID}_axon_reconstruction_error.log'
+    kwargs['recordings_dir'] = os.path.join(well_path, 'recordings')
+    kwargs['sortings_dir'] = os.path.join(well_path, 'sortings')
+    kwargs['waveforms_dir'] = os.path.join(well_path, 'waveforms')
+    kwargs['templates_dir'] = os.path.join(well_path, 'templates')
+    kwargs['recon_dir'] = os.path.join(well_path, 'reconstructions')
+    kwargs['reconstructor_dir'] = well_path
+    
+    print(f'Starting reconstruction for {reconstructorID}...')
+    print(f'Log file: {kwargs["log_file"]}')
+    print(f'Error log file: {kwargs["error_log_file"]}')
+    print(f'Recordings dir: {kwargs["recordings_dir"]}')
+    print(f'Sortings dir: {kwargs["sortings_dir"]}')
+    print(f'Waveforms dir: {kwargs["waveforms_dir"]}')
+    print(f'Templates dir: {kwargs["templates_dir"]}')
+    print(f'Reconstructions dir: {kwargs["recon_dir"]}')
+    print(f'Reconstructor dir: {kwargs["reconstructor_dir"]}')
+    
+    # # Run the pipeline
+    # print("Reconstructor Object:")
+    # pprint(vars(reconstructor))
+
+    # print("\nReconstructor Parameters:")
+    # pprint(kwargs)
+    
     try:
+        reconstructor = AxonReconstructor(h5_files, **kwargs)
         reconstructor.run_pipeline(**kwargs)
     except Exception as e:
-        print(f"Error processing well {well_file}: {e}")
+        print(f"Error processing plate {plate_file} stream {stream_select}: {e}")
 
 if __name__ == "__main__":
-    #test arguments
-    # sys.argv = [
-    #     'parallel_run_pipeline.py', 
-    #     '--well_file', 
-    #     '/pscratch/sd/a/adammwea/RBS_synology_rsync/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/2021-10-01/10012024/10012024_AxonTracking_2021-10-01_10012024_well000.h5', 
-    #     '--output_dir', 
-    #     '/pscratch/sd/a/adammwea/zRBS_axon_reconstruction_output']
-    
     main()

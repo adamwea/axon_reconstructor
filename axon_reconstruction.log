@@ -1,0 +1,39 @@
+2024-11-14 18:00:24,723 - axon_reconstructor - INFO - setup_logger - Logger initialized with level: DEBUG
+2024-11-14 18:00:24,725 - axon_reconstructor - INFO - setup_logger - This is an info message
+2024-11-14 18:00:24,725 - axon_reconstructor - WARNING - setup_logger - This is a warning message
+2024-11-14 18:00:24,725 - axon_reconstructor - INFO - __init__ - Initializing AxonReconstructor
+2024-11-14 18:00:24,725 - axon_reconstructor - INFO - run_pipeline - Starting pipeline execution
+2024-11-14 18:00:24,725 - axon_reconstructor - INFO - load_recordings - Loading continuous h5 files
+2024-11-14 18:00:24,725 - axon_reconstructor - INFO - load_recordings - Scan Type: AxonTracking
+2024-11-14 18:00:24,871 - axon_reconstructor - INFO - load_recordings - MaxTwo Detected.
+2024-11-14 18:00:29,302 - axon_reconstructor - INFO - load_recordings - Completed loading .h5 files
+2024-11-14 18:00:29,302 - axon_reconstructor - INFO - load_reconstructor - Loading reconstructor object
+2024-11-14 18:00:29,303 - axon_reconstructor - WARNING - load_reconstructor - Error loading reconstructor object: Reconstructor object not found at ./data/reconstructors/241021_M06804_000091_well000.dill. Generating new reconstructor object..
+2024-11-14 18:00:29,303 - axon_reconstructor - WARNING - load_reconstructor - load_reconstructor option will be set to False for this run. Generating new reconstructor object.
+2024-11-14 18:00:29,304 - axon_reconstructor - WARNING - load_reconstructor - Error loading reconstructor object: Reconstructor object not found at ./data/reconstructors/241021_M06804_000091_well001.dill. Generating new reconstructor object..
+2024-11-14 18:00:29,304 - axon_reconstructor - WARNING - load_reconstructor - load_reconstructor option will be set to False for this run. Generating new reconstructor object.
+2024-11-14 18:00:29,304 - axon_reconstructor - WARNING - load_reconstructor - Error loading reconstructor object: Reconstructor object not found at ./data/reconstructors/241021_M06804_000091_well002.dill. Generating new reconstructor object..
+2024-11-14 18:00:29,304 - axon_reconstructor - WARNING - load_reconstructor - load_reconstructor option will be set to False for this run. Generating new reconstructor object.
+2024-11-14 18:00:29,304 - axon_reconstructor - WARNING - load_reconstructor - Error loading reconstructor object: Reconstructor object not found at ./data/reconstructors/241021_M06804_000091_well003.dill. Generating new reconstructor object..
+2024-11-14 18:00:29,304 - axon_reconstructor - WARNING - load_reconstructor - load_reconstructor option will be set to False for this run. Generating new reconstructor object.
+2024-11-14 18:00:29,304 - axon_reconstructor - WARNING - load_reconstructor - Error loading reconstructor object: Reconstructor object not found at ./data/reconstructors/241021_M06804_000091_well004.dill. Generating new reconstructor object..
+2024-11-14 18:00:29,305 - axon_reconstructor - WARNING - load_reconstructor - load_reconstructor option will be set to False for this run. Generating new reconstructor object.
+2024-11-14 18:00:29,305 - axon_reconstructor - WARNING - load_reconstructor - Error loading reconstructor object: Reconstructor object not found at ./data/reconstructors/241021_M06804_000091_well005.dill. Generating new reconstructor object..
+2024-11-14 18:00:29,305 - axon_reconstructor - WARNING - load_reconstructor - load_reconstructor option will be set to False for this run. Generating new reconstructor object.
+2024-11-14 18:00:29,305 - axon_reconstructor - INFO - concatenate_recordings - Concatenating recordings
+2024-11-14 18:04:04,761 - axon_reconstructor - INFO - setup_logger - Logger initialized with level: DEBUG
+2024-11-14 18:04:04,762 - axon_reconstructor - INFO - setup_logger - This is an info message
+2024-11-14 18:04:04,762 - axon_reconstructor - WARNING - setup_logger - This is a warning message
+2024-11-14 18:04:04,762 - axon_reconstructor - INFO - __init__ - Initializing AxonReconstructor
+2024-11-14 18:04:42,249 - axon_reconstructor - INFO - setup_logger - Logger initialized with level: DEBUG
+2024-11-14 18:04:42,250 - axon_reconstructor - INFO - setup_logger - This is an info message
+2024-11-14 18:04:42,250 - axon_reconstructor - WARNING - setup_logger - This is a warning message
+2024-11-14 18:04:42,250 - axon_reconstructor - INFO - __init__ - Initializing AxonReconstructor
+2024-11-14 18:25:07,612 - axon_reconstructor - INFO - setup_logger - Logger initialized with level: DEBUG
+2024-11-14 18:25:07,614 - axon_reconstructor - INFO - setup_logger - This is an info message
+2024-11-14 18:25:07,614 - axon_reconstructor - WARNING - setup_logger - This is a warning message
+2024-11-14 18:25:07,614 - axon_reconstructor - INFO - __init__ - Initializing AxonReconstructor
+2024-11-14 18:28:27,543 - axon_reconstructor - INFO - setup_logger - Logger initialized with level: DEBUG
+2024-11-14 18:28:27,544 - axon_reconstructor - INFO - setup_logger - This is an info message
+2024-11-14 18:28:27,544 - axon_reconstructor - WARNING - setup_logger - This is a warning message
+2024-11-14 18:28:27,544 - axon_reconstructor - INFO - __init__ - Initializing AxonReconstructor

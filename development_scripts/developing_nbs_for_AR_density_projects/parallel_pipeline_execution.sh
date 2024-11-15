@@ -13,15 +13,41 @@
 
 # Functions ====================================================================
 # Function to generate the list of wells (HDF5 files) to process
-generate_well_files() {
-    WELL_FILES=()
+generate_plate_files() {
+    PLATE_FILES=()
     for h5_dir in "${H5_PARENT_DIRS[@]}"; do
         while IFS= read -r -d '' file; do
             if [[ "$file" == *"/AxonTracking/"* ]]; then # Get all HDF5 files in the specified directories that contain "AxonTracking" in the path
-                WELL_FILES+=("$file")
+                PLATE_FILES+=("$file")
             fi
         done < <(find "$h5_dir" -type f -name '*.h5' -print0)
     done
+}
+
+# Function to extract recording details and generate unique log file names
+generate_log_file_names() {
+    local plate_file=$1
+    local stream_select=$2
+
+    local parent_dir=$(dirname "$plate_file")
+    local runID=$(basename "$parent_dir")
+
+    local grandparent_dir=$(dirname "$parent_dir")
+    local scan_type=$(basename "$grandparent_dir")
+
+    local great_grandparent_dir=$(dirname "$grandparent_dir")
+    local chipID=$(basename "$great_grandparent_dir")
+
+    local ggg_dir=$(dirname "$great_grandparent_dir")
+    local date=$(basename "$ggg_dir")
+    
+    local gggg_dir=$(dirname "$ggg_dir")
+    local project_name=$(basename "$gggg_dir")
+
+    local log_file="${LOG_DIR}/${project_name}_${date}_${chipID}_${runID}_stream${stream_select}.log"
+    local error_log_file="${LOG_DIR}/${project_name}_${date}_${chipID}_${runID}_stream${stream_select}.err"
+
+    echo "$log_file" "$error_log_file"
 }
 
 # Args ========================================================================
@@ -49,25 +75,52 @@ echo "MAX_JOBS: ${MAX_JOBS}"
 echo "PYTHON_SCRIPT_PATH: ${PYTHON_SCRIPT_PATH}"
 
 # Load necessary modules
-echo "Loading conda module..."
-module load conda
-echo "Activating conda environment..."
-conda activate axon_env
+shifterimg pull adammwea/axon_docker:latest
 echo "Loading parallel module..."
 module load parallel
 
 # Generate the list of wells (HDF5 files) to process
-generate_well_files
-echo "Number of wells to process: ${#WELL_FILES[@]}"
+generate_plate_files
+echo "Number of plates to process: ${#PLATE_FILES[@]}"
+
+# Calculate the number of wells
+NUM_WELLS=$(( ${#PLATE_FILES[@]} * 6 ))
+echo "Number of wells to process: ${NUM_WELLS}"
 
 # Run pipeline on one well to test:
-srun --exclusive -N1 -n1 shifter --image=adammwea/axon_docker:latest python3 "$PYTHON_SCRIPT_PATH" --well_file "${WELL_FILES[0]}" --output_dir "${OUTPUT_DIR}"
+#srun -N1 shifter --image=adammwea/axon_docker:latest python3 "$PYTHON_SCRIPT_PATH" --plate_file "${PLATE_FILES[0]}" --stream_select 0 --output_dir "${OUTPUT_DIR}"
 
-# # Run the pipeline on each well in parallel
-# export OUTPUT_DIR  # Export environment variables for parallel jobs
-# export LOG_DIR
+# Run the pipeline on each well in parallel
+export OUTPUT_DIR  # Export environment variables for parallel jobs
+export LOG_DIR
 
-# echo "Starting parallel processing for ${#WELL_FILES[@]} wells..."
-# parallel --jobs $MAX_JOBS --delay 1 --joblog ${LOG_DIR}/parallel_joblog.txt --resume \
-#     srun --exclusive -N1 -n1 python3 run_pipeline.py --well_file {} --output_dir ${OUTPUT_DIR} \
-#     ::: "${WELL_FILES[@]}"
+# Function to print completion message
+job_done() {
+    echo "Well processing completed for plate file: $1, stream: $2 at $(date)"
+}
+
+# # Trap to catch job completion
+# trap 'job_done "$plate_file" "$stream_select"' CHLD
+
+# # Start timer
+# start_time=$(date +%s)
+# echo "Starting parallel processing for ${NUM_WELLS} wells at $(date)..."
+
+for plate_file in "${PLATE_FILES[@]}"; do
+    for stream_select in {0..5}; do
+        count=$((count + 1))
+        echo "Processing plate file: $plate_file, stream: $stream_select ($count out of $NUM_WELLS)"
+        read log_file error_log_file < <(generate_log_file_names "$plate_file" "$stream_select")
+        srun -N1 shifter --image=adammwea/axon_docker:latest python3 "$PYTHON_SCRIPT_PATH" --plate_file "$plate_file" --stream_select "$stream_select" --output_dir "${OUTPUT_DIR}" > "$log_file" 2> "$error_log_file" &
+        if (( $(jobs -r -p | wc -l) >= MAX_JOBS )); then
+            wait -n
+        fi
+    done
+done
+wait
+
+# Stop timer and report elapsed time
+end_time=$(date +%s)
+elapsed_time=$((end_time - start_time))
+echo "Parallel processing completed at $(date)."
+echo "Elapsed time: $((elapsed_time / 3600)) hours $(((elapsed_time / 60) % 60)) minutes $((elapsed_time % 60)) seconds."

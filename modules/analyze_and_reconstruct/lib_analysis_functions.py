@@ -10,16 +10,17 @@ import dill
 
 def transform_data(merged_template, merged_channel_loc, merged_template_filled=None, merged_channel_filled_loc=None):
     transformed_template = merged_template.T  # array with time samples and amplitude values (voltage or v/s)
-    if merged_template_filled is not None: 
-        transformed_template_filled = merged_template_filled.T  # array with time samples and amplitude values (voltage or v/s)
-    else: 
-        transformed_template_filled = None
     trans_loc = np.array([[loc[0], loc[1] * -1] for loc in merged_channel_loc])
-    if merged_channel_filled_loc is not None: 
-        trans_loc_filled = np.array([[loc[0], loc[1] * -1] for loc in merged_channel_filled_loc])
-    else: 
-        trans_loc_filled = None
-    return transformed_template, transformed_template_filled, trans_loc, trans_loc_filled
+    
+    # if merged_template_filled is not None: 
+    #     transformed_template_filled = merged_template_filled.T  # array with time samples and amplitude values (voltage or v/s)
+    # else: 
+    #     transformed_template_filled = None
+    # if merged_channel_filled_loc is not None: 
+    #     trans_loc_filled = np.array([[loc[0], loc[1] * -1] for loc in merged_channel_filled_loc])
+    # else: 
+    #     trans_loc_filled = None
+    return transformed_template, trans_loc
 
 def build_graph_axon_tracking(template_data, load_gtr=False, recon_dir=None, params=None, template_type='dvt'):
     gtr = None
@@ -34,7 +35,7 @@ def build_graph_axon_tracking(template_data, load_gtr=False, recon_dir=None, par
     else:
         raise ValueError("Invalid template type. Choose from 'vt', 'dvt', or 'milos'.")
     
-    transposed_template, _, transposed_loc, _ = transform_data(template_data[template_key], template_data['channel_locations'])
+    transposed_template, transposed_loc = transform_data(template_data[template_key], template_data['channel_locations'])
     params = params or get_default_graph_velocity_params() # Default parameters for graph building if not provided
     unit_id = template_data['unit_id']
     
