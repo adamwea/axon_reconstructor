@@ -1,10 +1,10 @@
-# Use the base image
-FROM continuumio/miniconda3:4.8.2
+# Use the pre-built Kilosort2 base image from spikeinterface
+FROM spikeinterface/kilosort2-compiled-base
 
 # Copy the environment file to the container
 COPY axon_env.yml /tmp/axon_env.yml
 
-# Install the conda environment
+# Install the custom conda environment
 RUN conda env create -f /tmp/axon_env.yml
 
 # Set the environment path to prioritize the new conda environment
@@ -19,24 +19,13 @@ COPY maxwell_hdf5_plugin /opt/maxwell_hdf5_plugin
 # Set the HDF5_PLUGIN_PATH environment variable
 ENV HDF5_PLUGIN_PATH=/opt/maxwell_hdf5_plugin/Linux
 
-# Update sources list to point to Debian archive and remove debian-security
-RUN sed -i 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' /etc/apt/sources.list && \
-    sed -i '/security.debian.org/d' /etc/apt/sources.list && \
-    apt-get update && \
-    apt-get install -y git wget unzip && \
+# Install additional tools, if necessary
+RUN apt-get update && \
+    apt-get install -y wget unzip && \
     rm -rf /var/lib/apt/lists/*
 
-# Clone the Kilosort2 repository
-RUN git clone https://github.com/MouseLand/Kilosort2 /opt/Kilosort2
-
-# Set the KILOSORT2_PATH environment variable
-ENV KILOSORT2_PATH=/opt/Kilosort2
-
-# Add Kilosort2 to MATLAB path in case MATLAB is launched
-RUN echo "addpath(genpath('$KILOSORT2_PATH'));" >> ~/.bashrc
-
 # Set the working directory (uncomment and adjust as needed)
-#WORKDIR /workspace/RBS_axonal_reconstructions
+# WORKDIR /workspace/RBS_axonal_reconstructions
 
 # Default command to activate the environment and provide an interactive shell
 CMD ["bash", "-c", "source activate axon_env && exec bash"]
