@@ -1,18 +1,17 @@
 # Install the base image
 FROM rohanmalige/benshalom:v3
 
+# Copy the environment file to the container
+COPY axon_env.yml /tmp/axon_env.yml
+
 # Set up the environment
-RUN conda create -n axon_env python=3.8
-RUN /bin/bash -c "source activate axon_env && conda install h5py"
+RUN conda env create -f /tmp/axon_env.yml
 
 # Copy your Maxwell HDF5 plugin to the container (adjust the path as needed)
 COPY maxwell_hdf5_plugin /opt/maxwell_hdf5_plugin
 
 # Set the HDF5_PLUGIN_PATH environment variable
 ENV HDF5_PLUGIN_PATH=/opt/maxwell_hdf5_plugin/Linux
-
-#install dill in the environment
-RUN /bin/bash -c "source activate axon_env && conda install dill"
 
 # Activate the environment by default
 SHELL ["conda", "run", "-n", "axon_env", "/bin/bash", "-c"]
