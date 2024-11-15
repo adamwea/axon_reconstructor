@@ -128,11 +128,11 @@ def main():
 
 if __name__ == "__main__":
     #test arguments
-    sys.argv = [
-        'parallel_run_pipeline.py', 
-        '--well_file', 
-        '/pscratch/sd/a/adammwea/RBS_synology_rsync/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/2021-10-01/10012024/10012024_AxonTracking_2021-10-01_10012024_well000.h5', 
-        '--output_dir', 
-        '/pscratch/sd/a/adammwea/zRBS_axon_reconstruction_output']
+    # sys.argv = [
+    #     'parallel_run_pipeline.py', 
+    #     '--well_file', 
+    #     '/pscratch/sd/a/adammwea/RBS_synology_rsync/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/2021-10-01/10012024/10012024_AxonTracking_2021-10-01_10012024_well000.h5', 
+    #     '--output_dir', 
+    #     '/pscratch/sd/a/adammwea/zRBS_axon_reconstruction_output']
     
     main()
