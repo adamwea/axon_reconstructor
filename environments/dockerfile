@@ -1,23 +1,26 @@
-# Install the base image
+# Use the base image
 FROM rohanmalige/benshalom:v3
 
 # Copy the environment file to the container
 COPY axon_env.yml /tmp/axon_env.yml
 
-# Set up the environment
+# Install the conda environment
 RUN conda env create -f /tmp/axon_env.yml
 
-# Copy your Maxwell HDF5 plugin to the container (adjust the path as needed)
+# Set the environment path to prioritize the new conda environment
+ENV PATH /opt/conda/envs/axon_env/bin:$PATH
+
+# Ensure that the new environment is always active by default
+RUN echo "source activate axon_env" >> ~/.bashrc
+
+# Copy the Maxwell HDF5 plugin to the container (adjust the path as needed)
 COPY maxwell_hdf5_plugin /opt/maxwell_hdf5_plugin
 
 # Set the HDF5_PLUGIN_PATH environment variable
 ENV HDF5_PLUGIN_PATH=/opt/maxwell_hdf5_plugin/Linux
 
-# Activate the environment by default
-SHELL ["conda", "run", "-n", "axon_env", "/bin/bash", "-c"]
-
 # Set the working directory
-WORKDIR /workspace/RBS_axonal_reconstructions
+#WORKDIR /workspace/RBS_axonal_reconstructions
 
-# Command to run your script
-# CMD ["python", "your_script.py"]
+# Default command to keep the container running or to provide an interactive shell
+#CMD ["/bin/bash"]

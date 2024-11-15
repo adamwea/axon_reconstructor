@@ -5,6 +5,8 @@ services:
     build: .
     image: adammwea/axon_docker:latest
     container_name: axon_docker
-    volumes:
-      - .:/workspace/RBS_axonal_reconstructions
-    #command: ["python", "your_script.py"]
+    #working_dir: /workspace/RBS_axonal_reconstructions  # Set the working directory inside the container
+    environment:
+      - HDF5_PLUGIN_PATH=/opt/maxwell_hdf5_plugin/Linux  # Ensure HDF5 plugin path is set
+    tty: true  # Keeps the container open, useful for interactive debugging
+    #command: ["python", "your_script.py"]  # Uncomment and replace with the actual script you want to run
