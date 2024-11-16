@@ -774,6 +774,10 @@ def kilosort2_wrapper(recording, output_folder, sorting_params=None, verbose=Fal
     Returns:
         sorting: Sorting object with the results.
     """
+    # #delete and recreate output folder
+    # if os.path.exists(output_folder):
+    #     shutil.rmtree(output_folder)
+    # os.makedirs(output_folder, exist_ok=True)
 
     # Set default sorting parameters if none provided
     if sorting_params is None:
@@ -796,10 +800,19 @@ def kilosort2_wrapper(recording, output_folder, sorting_params=None, verbose=Fal
         shutil.rmtree(output_folder)
 
     logger.info("Running Kilosort2 spike sorting using Shifter.")
+    
+    #set mode to 'singularity' for singularity container
+    #sorting_params['mode'] = 'singularity'
 
+    #set to one job to debug
+    #sorting_params['n_jobs'] = 1
+    #sorting_params = ss.Kilosort2_5Sorter.default_params()
+    
     try:
         sorting = ss.run_sorter(
+            #sorter_name="kilosort2",
             sorter_name="kilosort2",
+            #singularity_image="spikeinterface/kilosort25-compiled-base:latest",
             recording=recording,
             output_folder=output_folder,
             verbose=verbose,
