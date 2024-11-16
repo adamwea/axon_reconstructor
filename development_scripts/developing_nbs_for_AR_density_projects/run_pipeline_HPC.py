@@ -12,7 +12,33 @@ from pprint import pprint
 
 ''' Helper functions '''
 
+import h5py
+import logging
+from h5py.h5f import FileID
+
+def log_hdf5_errors(file_path):
+    try:
+        with h5py.File(file_path, 'r') as f:
+            fid = FileID(f.id.id)
+            print(f"{file_path} opened successfully.")
+            #check_fletcher32(file_path)
+            print("HDF5 File ID:", fid)
+    except Exception as e:
+        print(f"Error opening {file_path}: {e}")
+        #check_fletcher32(file_path)
+
+def check_fletcher32(file_path):
+    try:
+        with h5py.File(file_path, 'r') as f:
+            for name, dataset in f.items():
+                if dataset.fletcher32:
+                    print(f"Dataset {name} has checksum validation.")
+    except Exception as e:
+        print(f"Error checking Fletcher32 for {file_path}: {e}")
+
 def parse_arguments():
+    print("Parsing arguments...")
+    print(sys.argv)
     parser = argparse.ArgumentParser(description="Run the axon reconstruction pipeline for a single well.")
     parser.add_argument("--plate_file", required=True, help="Path to the HDF5 file for the plate.")
     parser.add_argument("--output_dir", required=True, help="Output directory for reconstruction results.")
@@ -156,12 +182,29 @@ def main():
 
     # print("\nReconstructor Parameters:")
     # pprint(kwargs)
+    # import h5py
+    # with h5py.File(plate_file, 'r') as f:
+    #     print(list(f.keys()))
+    
+    #log the HDF5 file
+    log_hdf5_errors(plate_file)
     
     try:
         reconstructor = AxonReconstructor(h5_files, **kwargs)
         reconstructor.run_pipeline(**kwargs)
     except Exception as e:
         print(f"Error processing plate {plate_file} stream {stream_select}: {e}")
+
+#Specify arguments for testing
+# sys.argv = [
+#     'run_pipeline_HPC.py',  # Script name
+#     '--plate_file', 
+#     #'/pscratch/sd/a/adammwea/RBS_synology_rsync/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/data.raw.h5',
+#     '/pscratch/sd/a/adammwea/RBS_synology_rsync/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/data.raw.h5',
+#     '--output_dir', 
+#     '/pscratch/sd/a/adammwea/zRBS_axon_reconstruction_output', 
+#     '--stream_select', '0'
+# ]
 
 if __name__ == "__main__":
     main()
