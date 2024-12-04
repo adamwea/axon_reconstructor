@@ -11,6 +11,104 @@ from tqdm import tqdm
 import json
 from modules.analyze_and_reconstruct.lib_analysis_functions import *
 from modules.generate_templates.process_templates import get_time_derivative
+import submodules.axon_velocity_fork.axon_velocity as av
+import matplotlib.pyplot as plt
+
+def plot_template_propagation(template, locations, selected_channels, sort_templates=False,
+                              color=None, color_marker=None, ax=None):
+    '''
+    This function was originally copy pasted from the axon_velocity library, but has (will be) modified to generate propogation plots
+    in a more specific way for validation of templates submitted for axon tracking.
+    
+    Changes made/needed:
+    1. Currently, amplitudes are adjusted such that propogation signals at each channel wont overlap. With enough channels, 
+        this just makes every signal look like a straight line. Allow individual lines to overlap to better visualize propogation.
+    2. Add a marker to the maximum amplitude of each channel to better visualize the propogation path.
+    3. To the left of each line, add a small label to indicate which branch the channel is a part of - i.e. where the signal is propogating.
+        3.1. Sort the lines by branch depth instead of breadth to better visualize propogation. See screenshot for example.        
+    '''
+    
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+    if color is None:
+        color = 'C0'
+    if color_marker is None:
+        color_marker = 'r'
+
+    template_selected = template[selected_channels]
+    locs = locations[selected_channels]
+    if sort_templates:
+        peaks = np.argmin(template_selected, 1)
+        sorted_idxs = np.argsort(peaks)
+        template_sorted = template_selected[sorted_idxs]
+        locs_sorted = locs[sorted_idxs]
+    else:
+        template_sorted = template_selected
+        locs_sorted = locs
+    dist_peaks_sorted = np.array([np.linalg.norm(loc - locs_sorted[0]) for loc in locs_sorted])
+    dist_peaks_sorted /= np.max(dist_peaks_sorted)
+    dist_peaks_sorted *= len(template_sorted)
+
+    ptp_glob = np.max(np.ptp(template_sorted, 1))
+    for i, temp in enumerate(template_sorted):
+        temp_shifted = temp + i * 1.5 * ptp_glob  # dist_peaks_sorted[i]
+        min_t = np.min(temp_shifted)
+        min_idx = np.argmin(temp_shifted)
+
+        ax.plot(temp_shifted, color=color)
+        ax.plot(min_idx, min_t, marker='o', color=color_marker)
+
+    ax.axis('off')
+    return ax
+
+def generate_propogation_plots(**kwargs):
+    reconstruction_data = kwargs.get('reconstruction_data')
+    reconstruction_analytics = kwargs.get('reconstruction_analytics')
+    recon_dir = kwargs.get('recon_dir')
+    unit_id = kwargs.get('unit_id')
+    template_type = kwargs.get('template_type')
+    template_data = kwargs.get('template_data')
+    
+    for template_type in ['vt', 'dvt', 'milos']:
+        gtr = reconstruction_data[template_type]
+        analytics = reconstruction_analytics[template_type]
+        template = template_data[template_type]
+        locations = template_data['channel_locations']
+        selected_channels = gtr.channels #TODO: check if this is the correct attribute to use
+        
+        if template_type == 'vt':
+            plot_template_propagation(template, locations, selected_channels, sort_templates=False, color='C0', color_marker='r', ax=None)
+        elif template_type == 'dvt':
+            plot_template_propagation(template, locations, selected_channels, sort_templates=False, color='C0', color_marker='r', ax=None)
+        elif template_type == 'milos':
+            #plot_template_propagation(gtr, analytics, recon_dir, unit_id, template_type)
+            print(f"Milos method not yet implemented")
+        else:
+            print(f"Invalid template type: {template_type}")
+            continue
+
+
+def process_individual_unit_plots(template_data, reconstruction_data, reconstruction_analytics, recon_dir, unit_id, template_type):
+    
+    kwargs = {
+        'template_data': template_data,
+        'reconstruction_data': reconstruction_data,
+        'reconstruction_analytics': reconstruction_analytics,
+        'recon_dir': recon_dir,
+        'unit_id': unit_id,
+        'template_type': template_type
+    }
+    
+    ## plot function 1
+    try: generate_propogation_plots(**kwargs)
+    except Exception as e: print(f"Failed to generate propogation plots for unit {unit_id} with template {template_type} - Error: {e}")
+    ## plot function 2
+    ## plot function 3
+    ## plot function 4
+    ## ...etc
+    
+    pass
 
 def process_unit_for_analysis(unit_id, unit_templates, recon_dir, analysis_options, params, failed_units, failed_units_file, logger=None):
     start = time.time()
@@ -69,6 +167,8 @@ def process_unit_for_analysis(unit_id, unit_templates, recon_dir, analysis_optio
             'maximum_branch_order': max([calculate_branch_order(branch['channels'], gtr._branching_points) for branch in gtr.branches]),
             'velocities': {index: branch['velocity'] for index, branch in enumerate(gtr.branches)}
         }
+        
+    process_individual_unit_plots(template_data, reconstruction_data, reconstruction_analytics, recon_dir, unit_id, template_type)
 
     print(f'Finished analyzing unit {unit_id} in {time.time() - start} seconds')
     return template_data, reconstruction_data, reconstruction_analytics
@@ -176,19 +276,6 @@ def save_failed_units(failed_units, failed_units_file):
         json.dump(failed_units, f, indent=4)  
 
 def reconstruct_and_analyze(templates, analysis_options=None, recon_dir=None, logger=None, params=None, n_jobs=None, skip_failed_units=True, unit_limit=None, **kwargs):
-    # num_physical_cores = 128  # Number of physical CPUs
-    # num_logical_cores = 256   # Number of logical CPUs
-    
-    # # Set the number of threads for OpenBLAS and MKL
-    # os.environ["OPENBLAS_NUM_THREADS"] = "1"
-    # os.environ["MKL_NUM_THREADS"] = "1"
-    
-    # try:
-    #     import mkl
-    #     mkl.set_num_threads(1)
-    # except ImportError:
-    #     pass
-    
     #n_jobs = 1  #debug
     if n_jobs is None:
         n_jobs = 1  #debug
@@ -221,16 +308,9 @@ def reconstruct_and_analyze(templates, analysis_options=None, recon_dir=None, lo
                 
                 agg_template_analytics = {}
                 for template_type in ['vt', 'dvt', 'milos']:
-                    # for unit_id, results in stream_results.items():
-                    #     try: print(f'Unit {unit_id} analytics: {results["reconstruction_analytics"][template_type]}')
-                    #     except: continue
-                    #agg_template_analytics[template_type] = {unit_id: results['reconstruction_analytics'][template_type] for unit_id, results in stream_results.items() if template_type in results['reconstruction_analytics']}
-                    # --
                     agg_template_analytics = {unit_id: results['reconstruction_analytics'][template_type] for unit_id, results in stream_results.items() if template_type in results['reconstruction_analytics']}   
                     df = analysis_results_to_dataframe(agg_template_analytics)
-                    df.to_csv(stream_recon_dir / f"agg_{stream_id}_{template_type}_axon_analytics.csv", index=False)
-                    #open csv after saving
-                    
+                    df.to_csv(stream_recon_dir / f"agg_{stream_id}_{template_type}_axon_analytics.csv", index=False)                    
                     print(f'Saved analytics data for stream {stream_id} and template {template_type} to {stream_recon_dir / f"agg_{stream_id}_{template_type}_axon_analytics.csv"}')
                     with open(stream_recon_dir / f"agg_{stream_id}_{template_type}_axon_analytics.csv", 'r') as f:
                         print(f.read())

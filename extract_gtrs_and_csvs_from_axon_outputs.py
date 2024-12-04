@@ -1,12 +1,17 @@
 import os
 import shutil
 
+project_name = 'B6J_DensityTest_10012024_AR'
+
 # Define the source directory
 source_dir = '/pscratch/sd/a/adammwea/zRBS_axon_reconstruction_output'
+source_dir = os.path.join(source_dir, project_name)
 
 # Define the destination directories
 csv_destination_dir = '/pscratch/sd/a/adammwea/zRBS_axon_recon_output_CSVs'
+csv_destination_dir = os.path.join(csv_destination_dir, project_name)
 dill_destination_dir = '/pscratch/sd/a/adammwea/zRBS_axon_recon_output_DILLs'
+dill_destination_dir = os.path.join(dill_destination_dir, project_name)
 
 # Ensure the destination directories exist
 os.makedirs(csv_destination_dir, exist_ok=True)
