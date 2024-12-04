@@ -189,9 +189,9 @@ def main():
     #kwargs switches, only do spike sorting for now
     kwargs['concatenate_switch'] = True
     kwargs['sort_switch'] = True
-    kwargs['waveforms_switch'] = False
-    kwargs['template_switch'] = False
-    kwargs['recon_switch'] = False
+    kwargs['waveforms_switch'] = True
+    kwargs['template_switch'] = True
+    kwargs['recon_switch'] = True
     
     #log the HDF5 file
     log_hdf5_errors(plate_file)
