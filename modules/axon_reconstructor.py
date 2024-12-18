@@ -572,8 +572,11 @@ class AxonReconstructor:
                 data = self.recordings                 
                 pass
             else: 
-                logging.error("No waveforms found. Skipping template extraction.")
-                return
+                #logging.error("No waveforms found. Skipping template extraction.")
+                logging.error("No waveforms found. Loading available templates.")
+                data = self.recordings
+                pass
+                #return
 
         for key, datum in data.items():
             streams = {}

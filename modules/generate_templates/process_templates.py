@@ -3,41 +3,41 @@ import concurrent.futures
 import numpy as np
 from tqdm import tqdm
 
-def get_time_derivative(merged_template, 
-                        #merged_template_filled, 
-                        unit='seconds', sampling_rate=10000, axis=0):
-    """
-    Computes the time derivative of the input arrays along the specified axis.
+# def get_time_derivative(merged_template, 
+#                         #merged_template_filled, 
+#                         unit='seconds', sampling_rate=10000, axis=0):
+#     """
+#     Computes the time derivative of the input arrays along the specified axis.
     
-    Parameters:
-    - merged_template: numpy.ndarray
-        The first input array where the y-axis describes channels and x-axis describes voltage(time) signals.
-    - merged_template_filled: numpy.ndarray
-        The second input array where the y-axis describes channels and x-axis describes voltage(time) signals.
-    - unit: str, optional
-        The time unit for the derivative, either 'seconds' or 'ms'. Default is 'seconds'.
-    - sampling_rate: int, optional
-        The sampling rate in samples per second. Default is 10000.
-    - axis: int, optional
-        The axis along which to compute the derivative. Default is 0 (assuming time signals along y-axis).
+#     Parameters:
+#     - merged_template: numpy.ndarray
+#         The first input array where the y-axis describes channels and x-axis describes voltage(time) signals.
+#     - merged_template_filled: numpy.ndarray
+#         The second input array where the y-axis describes channels and x-axis describes voltage(time) signals.
+#     - unit: str, optional
+#         The time unit for the derivative, either 'seconds' or 'ms'. Default is 'seconds'.
+#     - sampling_rate: int, optional
+#         The sampling rate in samples per second. Default is 10000.
+#     - axis: int, optional
+#         The axis along which to compute the derivative. Default is 0 (assuming time signals along y-axis).
     
-    Returns:
-    - d_merged_template: numpy.ndarray
-        The time derivative of merged_template.
-    - d_merged_template_filled: numpy.ndarray
-        The time derivative of merged_template_filled.
-    """
+#     Returns:
+#     - d_merged_template: numpy.ndarray
+#         The time derivative of merged_template.
+#     - d_merged_template_filled: numpy.ndarray
+#         The time derivative of merged_template_filled.
+#     """
     
-    if unit == 'seconds':
-        delta_t = 1.0 / sampling_rate
-    elif unit == 'ms':
-        delta_t = 1.0 / (sampling_rate / 1000)
-    else:
-        raise ValueError("Invalid unit. Choose either 'seconds' or 'ms'.")
+#     if unit == 'seconds':
+#         delta_t = 1.0 / sampling_rate
+#     elif unit == 'ms':
+#         delta_t = 1.0 / (sampling_rate / 1000)
+#     else:
+#         raise ValueError("Invalid unit. Choose either 'seconds' or 'ms'.")
 
-    d_merged_template = np.diff(merged_template, axis=axis) / delta_t
-    #d_merged_template_filled = np.diff(merged_template_filled, axis=axis) / delta_t
-    return d_merged_template #, d_merged_template_filled
+#     d_merged_template = np.diff(merged_template, axis=axis) / delta_t
+#     #d_merged_template_filled = np.diff(merged_template_filled, axis=axis) / delta_t
+#     return d_merged_template #, d_merged_template_filled
 
 def fill_template(merged_templates, merged_channel_loc, merged_count_at_channel_by_sample, logger=None):
     def get_pitch():

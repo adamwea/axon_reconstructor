@@ -124,11 +124,14 @@ process_task() {
 
 # Define the HDF5 directories containing wells
 H5_PARENT_DIRS=(
-    "/pscratch/sd/a/adammwea/xRBS_input_data/B6J_DensityTest_10012024_AR"
+    #"/pscratch/sd/a/adammwea/xRBS_input_data/B6J_DensityTest_10012024_AR",
+    "/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR"
+
 )
 
 # Define output and log directories
-export OUTPUT_DIR="/pscratch/sd/a/adammwea/zRBS_axon_reconstruction_output"
+#export OUTPUT_DIR="/pscratch/sd/a/adammwea/zRBS_axon_reconstruction_output"
+export OUTPUT_DIR="//pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output"
 export LOG_DIR="${OUTPUT_DIR}/logs"
 export ANALYZED_FILE="${OUTPUT_DIR}/analyzed_plate_files.txt"
 mkdir -p "$OUTPUT_DIR" "$LOG_DIR"
@@ -137,7 +140,8 @@ mkdir -p "$OUTPUT_DIR" "$LOG_DIR"
 MAX_JOBS=$(( ${SLURM_NNODES:-1} * 2 ))
 
 # Define the Python script and Shifter image
-PYTHON_SCRIPT_PATH="/pscratch/sd/a/adammwea/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC.py"
+#PYTHON_SCRIPT_PATH="/pscratch/sd/a/adammwea/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC.py"
+PYTHON_SCRIPT_PATH="/pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC.py"
 SHIFTER_IMAGE="adammwea/axonkilo_docker:v7"
 
 # ============================== Main Script ===================================
@@ -174,6 +178,9 @@ sed -i '/^$/d' "$parallel_input"
 export -f process_task
 export SHIFTER_IMAGE PYTHON_SCRIPT_PATH OUTPUT_DIR LOG_DIR
 export -f generate_log_file_names validate_output_files
+
+#user options
+export fresh_recon="True"
 
 # Run tasks in parallel using GNU Parallel
 echo "Running tasks in parallel..."
