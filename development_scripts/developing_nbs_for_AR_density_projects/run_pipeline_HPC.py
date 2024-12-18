@@ -123,8 +123,8 @@ def main():
             'load_multirecs': True,
             'load_sortings': True,
             'load_wfs': False,
-            'load_templates': False,
-            'load_templates_bypass': False,  # This is a new parameter that allows the user to bypass pre-processing steps and load the templates directly. 
+            'load_templates': True,
+            'load_templates_bypass': True,  # This is a new parameter that allows the user to bypass pre-processing steps and load the templates directly. 
                                             # Useful if there isn't any need to reprocess the templates.
             'restore_environment': False,
         },
@@ -189,6 +189,17 @@ def main():
     #log the HDF5 file
     log_hdf5_errors(plate_file)
     
+    #modify pipeline switches
+    #note: these are sequentially dependent, so if one is set to False, the following ones will not be processed
+    #the pipeline will automatically skip the steps it cannot perform
+    kwargs['concatenate_switch'] = True
+    kwargs['sort_switch'] = True
+    kwargs['waveform_switch'] = False
+    
+    kwargs['template_bypass'] = True
+    kwargs['template_switch'] = True
+    kwargs['recon_switch'] = True
+    
     try:
         reconstructor = AxonReconstructor(h5_files, **kwargs)
         reconstructor.run_pipeline(**kwargs)
@@ -196,15 +207,23 @@ def main():
         print(f"Error processing plate {plate_file} stream {stream_select}: {e}")
 
 #Specify arguments for testing
-# sys.argv = [
-#     'run_pipeline_HPC.py',  # Script name
-#     '--plate_file', 
-#     #'/pscratch/sd/a/adammwea/RBS_synology_rsync/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/data.raw.h5',
-#     '/pscratch/sd/a/adammwea/RBS_synology_rsync/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/data.raw.h5',
-#     '--output_dir', 
-#     '/pscratch/sd/a/adammwea/zRBS_axon_reconstruction_output', 
-#     '--stream_select', '0'
-# ]
+sys.argv = [
+    'run_pipeline_HPC.py',  # Script name
+    '--plate_file', 
+    #'/pscratch/sd/a/adammwea/RBS_synology_rsync/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/data.raw.h5',
+    #'/pscratch/sd/a/adammwea/RBS_synology_rsync/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/data.raw.h5',
+    '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/data.raw.h5',
+    '--output_dir', 
+    '/pscratch/sd/a/adammwea/yThroughput/zRBS_axon_reconstruction_output', 
+    '--stream_select', '0'
+]
 
 if __name__ == "__main__":
     main()
+    
+    #to debug in login node, init shifter container with the following command:
+    #shifter --image adammwea/axonkilo_docker:v7 /bin/bash
+    
+    #to run spikesorting as needed in interactive node with gpu:
+    #salloc -A m2043_g -q interactive -C gpu -t 04:00:00 --nodes=4 --gpus=4 --image=adammwea/axonkilo_docker:v7
+    #not sure why I cant specify tasks-per-node, in the previous line
