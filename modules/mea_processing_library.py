@@ -68,6 +68,9 @@ stream_handler.setFormatter(formatter)
 
 def extract_raw_h5_filepaths(h5_dir):
     #walk through the directory and find all .h5 files
+    if isinstance(h5_dir, list):
+        if len(h5_dir) == 1:
+            h5_dir = h5_dir[0]
     h5_subdirs = []
     if h5_dir.endswith('.h5'): return [h5_dir]
     for root, dirs, files in os.walk(h5_dir): 

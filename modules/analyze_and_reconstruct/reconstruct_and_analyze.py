@@ -70,17 +70,74 @@ def reconstruct_and_analyze(templates, analysis_options=None, recon_dir=None, lo
         return results
 
     def aggregate_analytics(results, stream_recon_dir, stream_id):
+        def analysis_results_to_dataframe(analysis_results):
+            flattened_data = []
+
+            # for unit_id, results in analysis_results.items():
+            #     flattened_entry = {'unit_id': unit_id}
+                
+            #     for key, value in results.items():
+            #         flattened_entry[key] = value
+                
+            #     flattened_data.append(flattened_entry)
+            
+            exploded_data = []
+            for unit_id, row in analysis_results.items():
+                max_length = max(len(v) if isinstance(v, list) else 1 for v in row.values())
+                for i in range(max_length):
+                    new_entry = {'unit_id': row['unit_id'], 'branch_id': i}
+                    for key, value in row.items():
+                        if key == 'unit_id':
+                            continue
+                        if isinstance(value, list):
+                            new_entry[key] = value[i] if i < len(value) else None
+                        elif isinstance(value, dict):
+                            new_entry[key] = value.get(i, None)
+                        else:
+                            new_entry[key] = value
+                    exploded_data.append(new_entry)
+            
+            df = pd.DataFrame(exploded_data)
+            return df
+        
         """Aggregate analytics and save to CSV."""
-        for template_type in ['vt', 'dvt', 'milos']:
+        #sort results by key (unit_id)
+        results = dict(sorted(results.items()))
+        for template_type in ['vt', 'dvdt', 'milos']:
             agg_template_analytics = {
                 unit_id: data['reconstruction_analytics'][template_type]
                 for unit_id, data in results.items()
                 if template_type in data.get('reconstruction_analytics', {})
             }
-            df = pd.DataFrame.from_dict(agg_template_analytics, orient='index')
-            output_file = stream_recon_dir / f"agg_{stream_id}_{template_type}_axon_analytics.csv"
-            df.to_csv(output_file, index=False)
-            print(f"Saved analytics data for stream {stream_id} and template {template_type} to {output_file}")
+            #include unit_id in the dataframe
+            # for unit_id, data in results.items():
+            #     if template_type in data.get('reconstruction_analytics', {}):
+            #         agg_template_analytics[unit_id]['unit_id'] = unit_id
+            
+            # if agg_template_analytics == {}:
+            #     print(f"No analytics data found for stream {stream_id} and template {template_type}")
+            #     continue
+            
+            try: 
+                df = analysis_results_to_dataframe(agg_template_analytics)
+                
+                # df = pd.DataFrame.from_dict(data, orient='index')
+                
+                # # reset index to avoid duplicate labels
+                # df = df.reset_index(drop=True)
+                
+                # # explode the 'branch_ids' column
+                # df = df.explode('branch_ids').reset_index(drop=True)
+                
+                # output_file = stream_recon_dir / f"agg_{stream_id}_{template_type}_axon_analytics.csv"
+                output_dir = os.path.dirname(stream_recon_dir)
+                output_dir = Path(output_dir)
+                output_file = output_dir / f"agg_{stream_id}_{template_type}_axon_analytics_v2.csv"
+                df.to_csv(output_file, index=False)
+                print(f"Saved analytics data for stream {stream_id} and template {template_type} to {output_file}")
+            except Exception as e:
+                print(f"Error saving analytics data for stream {stream_id} and template {template_type}: {e}")
+                pass
 
     def process_units(unit_templates, gtr_dir, analysis_options, params, unit_limit, analysis_json_dir, logger):
         """Process units either in parallel or serially."""
@@ -125,8 +182,67 @@ def reconstruct_and_analyze(templates, analysis_options=None, recon_dir=None, lo
             results = process_units(
                 unit_templates, gtr_dir, analysis_options, params, unit_limit, analysis_json_dir, logger
             )
-            aggregate_analytics(results, stream_recon_dir, stream_id)
+            try: aggregate_analytics(results, stream_recon_dir, stream_id)
+            except Exception as e: 
+                logger.error(f"Error aggregating analytics: {e}")
+                pass
             progress_bar.update(len(results))
+    
+    #plot all reconstructions together
+    print("Plotting all reconstructions together...")
+    from submodules.axon_velocity_fork import axon_velocity as av
+    from submodules.axon_velocity_fork.axon_velocity import plotting
+    # create a grid that's 4000 by 2000 um with a pitch of 17.5 um
+    locations_mea1k = np.array([[x, y] for x in range(0, 4000, 17) for y in range(0, 2000, 17)])
+    probe_mea1k = av.plotting.get_probe(locations_mea1k)
+
+    fig_mea1k, ax = plt.subplots(figsize=(10, 7))
+    _ = plotting.plot_probe(probe_mea1k, ax=ax, contacts_kargs={"alpha": 0.1}, probe_shape_kwargs={"alpha": 0.1})
+    ax.axis("off")
+
+    i = 0
+    i_sel = 0
+    cmap = "tab20"
+    cm = plt.get_cmap(cmap)
+    for i, gtr in gtrs_mea1k.items():
+        
+        if i in mea1k_selected_unit_idxs:
+            color = f"C{i_sel}"
+            lw = 3
+            alpha = 1
+            zorder = 10
+            i_sel += 1
+        else:
+            color = cm(i / len(gtrs_mea1k))
+            lw = 1
+            alpha = 1
+            zorder = 1
+        if len(gtr.branches) > 0:
+            ax.plot(gtr.locations[gtr.init_channel, 0], gtr.locations[gtr.init_channel, 1], 
+                    marker="o", markersize=5, color=color, alpha=alpha, zorder=zorder)
+
+            if i not in mea1k_selected_unit_idxs:
+                # for visualization purposes, plot raw branches
+                for b_i, path in enumerate(gtr._paths_raw):
+                    if b_i == 0:
+                        ax.plot(gtr.locations[path, 0], gtr.locations[path, 1], marker="", color=color,
+                                lw=lw, alpha=alpha, zorder=zorder, label=i)
+                    else:
+                        ax.plot(gtr.locations[path, 0], gtr.locations[path, 1], marker="", color=color,
+                                lw=lw, alpha=alpha, zorder=zorder)
+            else:
+                for b_i, br in enumerate(gtr.branches):
+                    if b_i == 0:
+                        ax.plot(gtr.locations[br["channels"], 0], gtr.locations[br["channels"], 1], marker="", 
+                                color=color, lw=lw, alpha=alpha, zorder=zorder, label=i)
+                    else:
+                        ax.plot(gtr.locations[br["channels"], 0], gtr.locations[br["channels"], 1], marker="", 
+                                color=color, lw=lw, alpha=alpha, zorder=zorder)
+
+    ax.plot([0, 500], [1900, 1900], color="k", marker="|")
+    ax.text(20, 1950, "500$\mu$m", color="k", fontsize=18)
+    ax.set_title("")
+    
     
     progress_bar.close()
     logger.info("Reconstruction and analysis complete.")
@@ -139,10 +255,10 @@ def process_unit_for_analysis_dep(unit_id, unit_templates, recon_dir, analysis_o
     
     template_data = {
         'unit_id': unit_id,
-        'vt_template': unit_templates.get('merged_template'),
-        'dvdt_template': get_time_derivative(unit_templates.get('merged_template'), sampling_rate=10000),
+        'vt_template': unit_templates.get('merged_template', None),
+        'dvdt_template': get_time_derivative(unit_templates.get('merged_template', None), sampling_rate=10000),
         'milos_template': [],  # Placeholder for milos template
-        'channel_locations': unit_templates.get('merged_channel_locs'),
+        'channel_locations': unit_templates.get('merged_channel_locs', None),
     }
 
     reconstruction_data = {}
@@ -228,7 +344,14 @@ def process_unit_for_analysis(unit_id, unit_templates, recon_dir, analysis_optio
     generate_plots(template_data, reconstruction_data, reconstruction_analytics, recon_dir, unit_id)
 
     print(f"Finished analyzing unit {unit_id} in {time.time() - start:.2f} seconds")
-    return template_data, reconstruction_data, reconstruction_analytics
+    
+    result = {
+        'template_data': template_data,
+        'reconstruction_data': reconstruction_data,
+        'reconstruction_analytics': reconstruction_analytics,
+    }
+    
+    return result
 
 def extract_template_data(unit_id, unit_templates):
     """
@@ -243,10 +366,10 @@ def extract_template_data(unit_id, unit_templates):
     # }    
     return {
         'unit_id': unit_id,
-        'vt': unit_templates.get('merged_template'),
-        'dvdt': get_time_derivative(unit_templates.get('merged_template'), sampling_rate=10000),
+        'vt': unit_templates.get('merged_template', None),
+        'dvdt': get_time_derivative(unit_templates.get('merged_template', None), sampling_rate=10000),
         'milos': [],  # Placeholder for milos template
-        'channel_locations': unit_templates.get('merged_channel_locs'),
+        'channel_locations': unit_templates.get('merged_channel_locs', None),
     }
     
 def reconstruct_template(template_data, template_type, recon_dir, params, logger=None):
@@ -274,23 +397,51 @@ def compute_reconstruction_analytics(template_data, gtr):
     """
     Computes analytics for the given reconstruction graph.
     """
-    return {
+    
+    branches = gtr.branches
+    
+    analytics = {
+        'unit_id': template_data['unit_id'],
+        'num_branches': len(gtr.branches),
         'channels_in_template': len(template_data['channel_locations']),
         'template_rect_area': calculate_template_rectangular_area(template_data),
         'template_density': len(template_data['channel_locations']) / calculate_template_rectangular_area(template_data),
         'axon_length': gtr.compute_path_length(gtr.branches[0]['channels']),
-        'num_branches': len(gtr.branches),
-        'branch_lengths': [gtr.compute_path_length(branch['channels']) for branch in gtr.branches],
-        'branch_channel_density': [gtr.compute_path_length(branch['channels']) / len(branch['channels']) for branch in gtr.branches],
-        'branch_orders': {
-            index: calculate_branch_order(branch['channels'], gtr._branching_points)
-            for index, branch in enumerate(gtr.branches)
-        },
+        
+        #total axon matter - computed as summed length of all branches
+        'total_axon_matter': sum([gtr.compute_path_length(branch['channels']) for branch in gtr.branches]),
+        
         'maximum_branch_order': max(
             calculate_branch_order(branch['channels'], gtr._branching_points) for branch in gtr.branches
         ),
-        'velocities': {index: branch['velocity'] for index, branch in enumerate(gtr.branches)},
+        
+        #include empty column to seperate total axon recon stats from branch specific stats
+        '': '',
+        
+        #'branch_id': [index for index, branch in enumerate(gtr.branches)],
+        #'velocity': {index: branch['velocity'] for index, branch in enumerate(gtr.branches)},
+        #'offset': {index: branch['offset'] for index, branch in enumerate(gtr.branches)},
+        #'r_square': {index: branch['r2'] for index, branch in enumerate(gtr.branches)},
+        #'pval': {index: branch['pval'] for index, branch in enumerate(gtr.branches)},
+        
+        'branch_ids': [index for index, branch in enumerate(gtr.branches)],
+        'velocities': [branch['velocity'] for branch in gtr.branches],
+        'offsets': [branch['offset'] for branch in gtr.branches],
+        'r_squares': [branch['r2'] for branch in gtr.branches],
+        'pvals': [branch['pval'] for branch in gtr.branches],
+        
+        'branch_lengths': [gtr.compute_path_length(branch['channels']) for branch in gtr.branches],
+        'channels_per_branch': [len(branch['channels']) for branch in gtr.branches],
+        'branch_channel_density': [gtr.compute_path_length(branch['channels']) / len(branch['channels']) for branch in gtr.branches],
+        # 'branch_orders': {
+        #     index: calculate_branch_order(branch['channels'], gtr._branching_points)
+        #     for index, branch in enumerate(gtr.branches)
+        # },
+        # do branch order as a list instead:
+        'branch_orders': [calculate_branch_order(branch['channels'], gtr._branching_points) for branch in gtr.branches],
     }
+    
+    return analytics
 
 def generate_plots(template_data, reconstruction_data, reconstruction_analytics, recon_dir, unit_id): #generate a list of different types of plots with the data
     """
@@ -324,11 +475,11 @@ def generate_reconstruction_summary_plots(**kwargs): #make identical summary plo
     """
     Generates a summary of the reconstruction results.
     """
-    template_data = kwargs.get('template_data')
-    reconstruction_data = kwargs.get('reconstruction_data')
-    reconstruction_analytics = kwargs.get('reconstruction_analytics')
-    recon_dir = kwargs.get('recon_dir')
-    unit_id = kwargs.get('unit_id')
+    template_data = kwargs.get('template_data', None)
+    reconstruction_data = kwargs.get('reconstruction_data', None)
+    reconstruction_analytics = kwargs.get('reconstruction_analytics', None)
+    recon_dir = kwargs.get('recon_dir', None)
+    unit_id = kwargs.get('unit_id', None)
     
     for template_type in ['vt', 'dvdt', 'milos']:
         if template_type not in reconstruction_data.keys():
@@ -877,13 +1028,13 @@ def plot_template_propagation(template, locations, selected_channels, sort_templ
     return ax
 
 def generate_propogation_plots_dep(**kwargs):
-    reconstruction_data = kwargs.get('reconstruction_data')
-    reconstruction_analytics = kwargs.get('reconstruction_analytics')
-    recon_dir = kwargs.get('recon_dir')
-    unit_id = kwargs.get('unit_id')
+    reconstruction_data = kwargs.get('reconstruction_data', None)
+    reconstruction_analytics = kwargs.get('reconstruction_analytics', None)
+    recon_dir = kwargs.get('recon_dir', None)
+    unit_id = kwargs.get('unit_id', None)
     #template_type = kwargs.get('template_type')
-    template_data = kwargs.get('template_data')
-    plot_axes = kwargs.get('plot_axes')
+    template_data = kwargs.get('template_data', None)
+    plot_axes = kwargs.get('plot_axes', None)
     
     #fix template keys...
     template_data['vt'] = template_data['vt_template']
@@ -950,7 +1101,7 @@ def get_time_derivative(merged_template,
     #d_merged_template_filled = np.diff(merged_template_filled, axis=axis) / delta_t
     return d_merged_template #, d_merged_template_filled
 
-def build_graph_axon_tracking(template_data, load_gtr=False, recon_dir=None, params=None, template_type='dvt'):
+def build_graph_axon_tracking(template_data, load_gtr=False, recon_dir=None, params=None, template_type='dvdt'):
     gtr = None
     """Build the graph for axon tracking."""
     
@@ -978,27 +1129,34 @@ def build_graph_axon_tracking(template_data, load_gtr=False, recon_dir=None, par
             assert gtr_file.exists() or not load_gtr, f"File {gtr_file} does not exist. Set load_gtr to False to build the graph."
             with open(gtr_file, 'rb') as f:
                 gtr = dill.load(f)
+            gtr._verbose = 1
+            gtr.select_channels()
+            gtr.build_graph()
+            gtr.find_paths()
+            gtr.clean_paths(remove_outliers=False)
+            print(f"Loaded gtr object from {gtr_file}")
+            return gtr, params
                 # return gtr, params
     
     # Build the graph
     start = time.time()
-    if gtr is None:
+    #if gtr is None:
         # print("Building graph...")
-        gtr = GraphAxonTracking(transposed_template, transposed_loc, 10000, **params)
-        gtr._verbose = 1 # TODO: make this an option later
-        gtr.select_channels()
-        gtr.build_graph()
-        gtr.find_paths()
-        gtr.clean_paths(remove_outliers=False)
-        # print(f"Graph built in {time.time() - start} seconds")
-    elif gtr is not None:
-        print("Graph already exists. Updating analysis...")
-        # gtr._verbose = 1
-        # gtr.select_channels()
-        # gtr.build_graph()
-        # gtr.find_paths()
-        # gtr.clean_paths(remove_outliers=False)
-        print(f"Graph updated in {time.time() - start} seconds")
+    gtr = GraphAxonTracking(transposed_template, transposed_loc, 10000, **params) #TODO: hard coded sampling rate...
+    gtr._verbose = 1 # TODO: make this an option later
+    gtr.select_channels()
+    gtr.build_graph()
+    gtr.find_paths()
+    gtr.clean_paths(remove_outliers=False)
+    # print(f"Graph built in {time.time() - start} seconds")
+    # elif gtr is not None:
+    #     print("Graph already exists. Updating analysis...")
+    #     # gtr._verbose = 1
+    #     # gtr.select_channels()
+    #     # gtr.build_graph()
+    #     # gtr.find_paths()
+    #     # gtr.clean_paths(remove_outliers=False)
+    #     print(f"Graph updated in {time.time() - start} seconds")
            
     return gtr, params
 

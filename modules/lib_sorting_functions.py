@@ -83,7 +83,7 @@ def concatenate_recording_segments(h5_path, recording_segments, stream_id=None, 
     multirecording = si.concatenate_recordings(rec_list)
     return multirecording, common_el, multirec_save_path
 
-def sort_multirecording(multirecording, stream_id, save_root, sorting_params=dict(), logger=None):
+def sort_multirecording(multirecording, stream_id, save_root, sorting_params=dict(), logger=None, only_load = False):
     if logger:
         logger.info(f"Sorting multi-recording for stream {stream_id}")
 
@@ -110,6 +110,7 @@ def sort_multirecording(multirecording, stream_id, save_root, sorting_params=dic
 
     # If no existing sorting found or loading failed, perform sorting
     try:
+        assert not only_load #TODO: implement this more thoughtfully later
         output_folder = Path(stream_sort_path)
         output_folder.mkdir(parents=True, exist_ok=True)
         sorting_params_filtered = {k: v for k, v in sorting_params.items() if k in ss.Kilosort2Sorter.default_params()}

@@ -1,0 +1,1756 @@
+H5 files found:
+['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/data.raw.h5']
+Parsing arguments...
+['/pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC_latest.py']
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241017_M06804_000064_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241017_M06804_000065_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241017_M08029_000073_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241017_M08029_000072_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241017_M08029_000082_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241021_M06804_000091_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241021_M06804_000093_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241021_M08029_000097_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241021_M08029_000098_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M06804_000108_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M06804_000109_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+RUNNING SHELL SCRIPT: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000/sortings/sorter_output/run_kilosort2.sh
+Time   2s. Determining good channels.. 
+
+found 2250 threshold crossings in 5.10 seconds of data 
+
+found 0 bad channels 
+
+Time  11s. Computing whitening matrix.. 
+
+Getting channel whitening matrix... 
+
+Channel-whitening matrix computed. 
+
+Time  16s. Loading raw data and applying filters... 
+
+Time  16s. Finished preprocessing 1 batches. 
+
+random seed for clusterSingleBatches: 1
+
+Obtained 7 PC waveforms in 0.31 seconds 
+
+----------------------------------------Array indices must be positive integers or logical values.
+Error running kilosort2
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000119_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000114_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000118_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000113_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241028_M06804_000124_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+RUNNING SHELL SCRIPT: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/well000/sortings/sorter_output/run_kilosort2.sh
+Time   0s. Determining good channels.. 
+
+found 1718 threshold crossings in 3.72 seconds of data 
+
+found 0 bad channels 
+
+Time   2s. Computing whitening matrix.. 
+
+Getting channel whitening matrix... 
+
+Channel-whitening matrix computed. 
+
+Time   3s. Loading raw data and applying filters... 
+
+Time   3s. Finished preprocessing 1 batches. 
+
+random seed for clusterSingleBatches: 1
+
+Obtained 7 PC waveforms in 0.19 seconds 
+
+----------------------------------------Array indices must be positive integers or logical values.
+Error running kilosort2
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241028_M06804_000123_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241028_M08029_000131_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+RUNNING SHELL SCRIPT: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/well000/sortings/sorter_output/run_kilosort2.sh
+Time   0s. Determining good channels.. 
+
+found 2341 threshold crossings in 5.44 seconds of data 
+
+found 3 bad channels 
+
+Time   2s. Computing whitening matrix.. 
+
+Getting channel whitening matrix... 
+
+Channel-whitening matrix computed. 
+
+Time   2s. Loading raw data and applying filters... 
+
+Time   2s. Finished preprocessing 1 batches. 
+
+random seed for clusterSingleBatches: 1
+
+Obtained 7 PC waveforms in 0.27 seconds 
+
+----------------------------------------Array indices must be positive integers or logical values.
+Error running kilosort2
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241028_M08029_000130_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+RUNNING SHELL SCRIPT: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/well000/sortings/sorter_output/run_kilosort2.sh
+Time   0s. Determining good channels.. 
+
+found 415891 threshold crossings in 388.10 seconds of data 
+
+found 28 bad channels 
+
+Time   7s. Computing whitening matrix.. 
+
+Getting channel whitening matrix... 
+
+Channel-whitening matrix computed. 
+
+Time   7s. Loading raw data and applying filters... 
+
+Time  12s. Finished preprocessing 60 batches. 
+
+random seed for clusterSingleBatches: 1
+
+Obtained 7 PC waveforms in 0.31 seconds 
+
+time 0.36, pre clustered 1 / 60 batches 
+
+time 0.20, compared 1 / 60 batches 
+
+time 6.78, Re-ordered 60 batches. 
+
+Time   7s. Optimizing templates ...
+
+7.95 sec, 1 / 60 batches, 45 units, nspks: 46.9798, mu: 10.0000, nst0: 882, merges: 0.3000, 0.0000 
+
+Elapsed time is 12.747496 seconds.
+
+Finished learning templates 
+
+Time  13s. Optimizing templates ...
+
+13.17 sec, 1 / 30 batches, 212 units, nspks: 130.9500, mu: 18.8713, nst0: 3444 
+
+Elapsed time is 15.698696 seconds.
+
+Time  16s. Optimizing templates ...
+
+15.94 sec, 1 / 30 batches, 212 units, nspks: 88.5000, mu: 18.8713, nst0: 2204 
+
+Elapsed time is 18.141200 seconds.
+
+Number of spikes before applying cutoff: 137753
+
+Finished compressing time-varying templates 
+
+initialized spike counts
+
+merged 152 into 153 
+
+merged 166 into 179 
+
+merged 44 into 40 
+
+merged 133 into 129 
+
+merged 154 into 153 
+
+merged 73 into 76 
+
+merged 13 into 9 
+
+merged 39 into 48 
+
+merged 75 into 80 
+
+merged 175 into 178 
+
+merged 174 into 183 
+
+merged 197 into 196 
+
+merged 180 into 179 
+
+merged 9 into 8 
+
+merged 78 into 80 
+
+merged 163 into 179 
+
+merged 183 into 179 
+
+merged 181 into 182 
+
+merged 177 into 179 
+
+merged 178 into 182 
+
+merged 74 into 80 
+
+merged 176 into 179 
+
+merged 85 into 86 
+
+Found 0 splits, checked 1/212 clusters, nccg 1 
+
+Found 3 splits, checked 101/215 clusters, nccg 21 
+
+Found 5 splits, checked 201/217 clusters, nccg 36 
+
+Finished splitting. Found 6 splits, checked 218/218 clusters, nccg 43 
+
+Found 0 splits, checked 1/218 clusters, nccg 0 
+
+Found 1 splits, checked 101/219 clusters, nccg 20 
+
+Found 1 splits, checked 201/219 clusters, nccg 34 
+
+Finished splitting. Found 1 splits, checked 219/219 clusters, nccg 40 
+
+----------------------------------------Error using /
+
+Matrix dimensions must agree.
+Error running kilosort2
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241030_M08029_000145_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241030_M08029_000144_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241031_M06804_000154_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241031_M06804_000155_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+RUNNING SHELL SCRIPT: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/well000/sortings/sorter_output/run_kilosort2.sh
+Time   0s. Determining good channels.. 
+
+found 3483 threshold crossings in 12.02 seconds of data 
+
+found 0 bad channels 
+
+Time   2s. Computing whitening matrix.. 
+
+Getting channel whitening matrix... 
+
+Channel-whitening matrix computed. 
+
+Time   3s. Loading raw data and applying filters... 
+
+Time   3s. Finished preprocessing 2 batches. 
+
+random seed for clusterSingleBatches: 1
+
+Obtained 7 PC waveforms in 0.65 seconds 
+
+time 0.20, pre clustered 1 / 2 batches 
+
+time 0.04, compared 1 / 2 batches 
+
+time 3.23, Re-ordered 2 batches. 
+
+Time   3s. Optimizing templates ...
+
+3.74 sec, 1 / 2 batches, 5 units, nspks: 10.6682, mu: 36.1905, nst0: 207, merges: 0.0000, 0.0000 
+
+Elapsed time is 3.997477 seconds.
+
+Finished learning templates 
+
+Time   4s. Optimizing templates ...
+
+4.10 sec, 1 / 1 batches, 5 units, nspks: 10.5500, mu: 31.0397, nst0: 211 
+
+Elapsed time is 4.103763 seconds.
+
+Time   4s. Optimizing templates ...
+
+4.12 sec, 1 / 1 batches, 5 units, nspks: 8.9500, mu: 31.0397, nst0: 179 
+
+Elapsed time is 4.124643 seconds.
+
+Number of spikes before applying cutoff: 390
+
+Finished compressing time-varying templates 
+
+initialized spike counts
+
+Found 0 splits, checked 1/5 clusters, nccg 0 
+
+Finished splitting. Found 0 splits, checked 5/5 clusters, nccg 0 
+
+Found 0 splits, checked 1/5 clusters, nccg 0 
+
+Finished splitting. Found 0 splits, checked 5/5 clusters, nccg 0 
+
+found 4 good units 
+
+Saving results to Phy  
+
+kilosort2 run time 18.98s
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241031_M08029_000159_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+RUNNING SHELL SCRIPT: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/well000/sortings/sorter_output/run_kilosort2.sh
+Time   1s. Determining good channels.. 
+
+found 682163 threshold crossings in 451.04 seconds of data 
+
+found 21 bad channels 
+
+Time   8s. Computing whitening matrix.. 
+
+Getting channel whitening matrix... 
+
+Channel-whitening matrix computed. 
+
+Time   9s. Loading raw data and applying filters... 
+
+Time  17s. Finished preprocessing 69 batches. 
+
+random seed for clusterSingleBatches: 1
+
+Obtained 7 PC waveforms in 0.32 seconds 
+
+time 0.23, pre clustered 1 / 69 batches 
+
+time 0.11, compared 1 / 69 batches 
+
+time 4.71, Re-ordered 69 batches. 
+
+Time   5s. Optimizing templates ...
+
+5.38 sec, 1 / 70 batches, 48 units, nspks: 35.4201, mu: 14.8327, nst0: 647, merges: 0.3000, 0.0000 
+
+Elapsed time is 11.634247 seconds.
+
+Finished learning templates 
+
+Time  12s. Optimizing templates ...
+
+11.91 sec, 1 / 35 batches, 101 units, nspks: 111.0500, mu: 18.6964, nst0: 2700 
+
+Elapsed time is 14.396966 seconds.
+
+Time  14s. Optimizing templates ...
+
+14.54 sec, 1 / 34 batches, 101 units, nspks: 116.2000, mu: 18.6964, nst0: 2650 
+
+Elapsed time is 16.983561 seconds.
+
+Number of spikes before applying cutoff: 186315
+
+Finished compressing time-varying templates 
+
+initialized spike counts
+
+merged 31 into 33 
+
+merged 96 into 95 
+
+merged 63 into 64 
+
+merged 69 into 25 
+
+merged 95 into 94 
+
+merged 28 into 29 
+
+merged 2 into 50 
+
+merged 27 into 33 
+
+merged 81 into 82 
+
+Found 2 splits, checked 1/103 clusters, nccg 1 
+
+Found 7 splits, checked 101/108 clusters, nccg 36 
+
+Found 8 splits, checked 101/109 clusters, nccg 36 
+
+Finished splitting. Found 9 splits, checked 110/110 clusters, nccg 36 
+
+Found 0 splits, checked 1/110 clusters, nccg 0 
+
+Found 0 splits, checked 101/110 clusters, nccg 33 
+
+Finished splitting. Found 0 splits, checked 110/110 clusters, nccg 34 
+
+Removing 26030 spikes from rez structure.
+
+found 64 good units 
+
+Saving results to Phy  
+
+kilosort2 run time 78.39s
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241031_M08029_000160_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+RUNNING SHELL SCRIPT: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/well000/sortings/sorter_output/run_kilosort2.sh
+Time   0s. Determining good channels.. 
+
+found 20659 threshold crossings in 5.60 seconds of data 
+
+found 208 bad channels 
+
+Time   2s. Computing whitening matrix.. 
+
+Getting channel whitening matrix... 
+
+Channel-whitening matrix computed. 
+
+Time   3s. Loading raw data and applying filters... 
+
+Time   3s. Finished preprocessing 1 batches. 
+
+random seed for clusterSingleBatches: 1
+
+Obtained 7 PC waveforms in 0.39 seconds 
+
+----------------------------------------Array indices must be positive integers or logical values.
+Error running kilosort2
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241031_M08029_000167_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+RUNNING SHELL SCRIPT: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/well000/sortings/sorter_output/run_kilosort2.sh
+Time   0s. Determining good channels.. 
+
+found 124208 threshold crossings in 102.76 seconds of data 
+
+found 1 bad channels 
+
+Time   3s. Computing whitening matrix.. 
+
+Getting channel whitening matrix... 
+
+Channel-whitening matrix computed. 
+
+Time   4s. Loading raw data and applying filters... 
+
+Time   5s. Finished preprocessing 16 batches. 
+
+random seed for clusterSingleBatches: 1
+
+Obtained 7 PC waveforms in 0.18 seconds 
+
+time 0.19, pre clustered 1 / 16 batches 
+
+time 0.12, compared 1 / 16 batches 
+
+time 3.59, Re-ordered 16 batches. 
+
+Time   4s. Optimizing templates ...
+
+4.12 sec, 1 / 16 batches, 16 units, nspks: 30.7832, mu: 10.0000, nst0: 595, merges: 0.6000, 0.0000 
+
+Elapsed time is 4.993906 seconds.
+
+Finished learning templates 
+
+Time   5s. Optimizing templates ...
+
+5.16 sec, 1 / 8 batches, 50 units, nspks: 74.9500, mu: 20.7994, nst0: 1964 
+
+Elapsed time is 5.522853 seconds.
+
+Time   6s. Optimizing templates ...
+
+5.59 sec, 1 / 8 batches, 50 units, nspks: 61.9500, mu: 20.7994, nst0: 1548 
+
+Elapsed time is 5.936961 seconds.
+
+Number of spikes before applying cutoff: 27140
+
+Finished compressing time-varying templates 
+
+initialized spike counts
+
+merged 45 into 46 
+
+merged 6 into 4 
+
+merged 37 into 35 
+
+merged 42 into 43 
+
+merged 36 into 14 
+
+merged 44 into 46 
+
+Found 0 splits, checked 1/50 clusters, nccg 0 
+
+Finished splitting. Found 6 splits, checked 56/56 clusters, nccg 9 
+
+Found 0 splits, checked 1/56 clusters, nccg 0 
+
+Finished splitting. Found 4 splits, checked 60/60 clusters, nccg 10 
+
+Removing 5310 spikes from rez structure.
+
+found 28 good units 
+
+Saving results to Phy  
+
+kilosort2 run time 31.20s
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241031_M08029_000166_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+RUNNING SHELL SCRIPT: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/well000/sortings/sorter_output/run_kilosort2.sh
+Time   0s. Determining good channels.. 
+
+found 839491 threshold crossings in 649.44 seconds of data 
+
+found 90 bad channels 
+
+Time  29s. Computing whitening matrix.. 
+
+Getting channel whitening matrix... 
+
+Channel-whitening matrix computed. 
+
+Time  45s. Loading raw data and applying filters... 
+
+Time 601s. Finished preprocessing 2864 batches. 
+
+random seed for clusterSingleBatches: 1
+
+Obtained 7 PC waveforms in 5.99 seconds 
+
+time 0.30, pre clustered 1 / 2864 batches 
+
+time 71.29, pre clustered 501 / 2864 batches 
+
+time 142.37, pre clustered 1001 / 2864 batches 
+
+time 213.94, pre clustered 1501 / 2864 batches 
+
+time 285.03, pre clustered 2001 / 2864 batches 
+
+time 358.01, pre clustered 2501 / 2864 batches 
+
+time 0.19, compared 1 / 2864 batches 
+
+time 25.23, compared 501 / 2864 batches 
+
+time 50.19, compared 1001 / 2864 batches 
+
+time 75.24, compared 1501 / 2864 batches 
+
+time 100.04, compared 2001 / 2864 batches 
+
+time 125.02, compared 2501 / 2864 batches 
+
+time 149.71, Re-ordered 2864 batches. 
+
+Time 184s. Optimizing templates ...
+
+184.26 sec, 1 / 2864 batches, 62 units, nspks: 43.8254, mu: 10.0000, nst0: 797, merges: 0.3000, 0.0000 
+
+202.04 sec, 101 / 2864 batches, 178 units, nspks: 2701.7822, mu: 15.5843, nst0: 2596, merges: 105.8714, 0.8297 
+
+216.65 sec, 201 / 2864 batches, 191 units, nspks: 2380.7690, mu: 15.4087, nst0: 2478, merges: 115.5703, 0.7381 
+
+230.69 sec, 301 / 2864 batches, 183 units, nspks: 2216.5482, mu: 14.8226, nst0: 2023, merges: 123.2964, 0.6597 
+
+243.18 sec, 401 / 2864 batches, 185 units, nspks: 2176.2047, mu: 14.9488, nst0: 2063, merges: 123.1151, 0.3411 
+
+257.25 sec, 501 / 2864 batches, 197 units, nspks: 2410.9160, mu: 15.2457, nst0: 2753, merges: 123.1508, 0.2650 
+
+271.79 sec, 601 / 2864 batches, 187 units, nspks: 2341.7225, mu: 15.7342, nst0: 2416, merges: 130.6315, 0.4171 
+
+286.33 sec, 701 / 2864 batches, 194 units, nspks: 2417.7203, mu: 16.0670, nst0: 2177, merges: 129.5693, 0.1959 
+
+300.86 sec, 801 / 2864 batches, 175 units, nspks: 2395.7996, mu: 15.9480, nst0: 2401, merges: 130.8047, 0.1412 
+
+315.63 sec, 901 / 2864 batches, 192 units, nspks: 2292.4144, mu: 16.0065, nst0: 2102, merges: 130.7753, 0.1290 
+
+331.25 sec, 1001 / 2864 batches, 215 units, nspks: 2394.9960, mu: 15.9016, nst0: 2461, merges: 133.7534, 0.5010 
+
+345.24 sec, 1101 / 2864 batches, 220 units, nspks: 2359.5583, mu: 16.0012, nst0: 1831, merges: 139.3253, 0.2514 
+
+359.17 sec, 1201 / 2864 batches, 202 units, nspks: 2341.1509, mu: 15.3507, nst0: 2328, merges: 137.6613, 0.1780 
+
+371.72 sec, 1301 / 2864 batches, 205 units, nspks: 2107.5650, mu: 15.3417, nst0: 2250, merges: 132.4621, 0.2258 
+
+383.89 sec, 1401 / 2864 batches, 165 units, nspks: 1822.5582, mu: 15.2829, nst0: 1754, merges: 127.7840, 0.0774 
+
+395.06 sec, 1501 / 2864 batches, 164 units, nspks: 1804.7135, mu: 15.4971, nst0: 1828, merges: 125.8314, 0.0229 
+
+405.49 sec, 1601 / 2864 batches, 178 units, nspks: 2169.9175, mu: 15.5263, nst0: 2503, merges: 127.8305, 0.0506 
+
+416.33 sec, 1701 / 2864 batches, 205 units, nspks: 2347.3343, mu: 16.2568, nst0: 2429, merges: 130.5802, 0.1290 
+
+427.62 sec, 1801 / 2864 batches, 218 units, nspks: 2516.6104, mu: 16.3330, nst0: 2522, merges: 138.8639, 0.0157 
+
+439.17 sec, 1901 / 2864 batches, 224 units, nspks: 2619.3304, mu: 16.3737, nst0: 2718, merges: 139.3003, 0.1717 
+
+450.77 sec, 2001 / 2864 batches, 209 units, nspks: 2320.2749, mu: 16.7530, nst0: 2053, merges: 136.9973, 0.0209 
+
+462.50 sec, 2101 / 2864 batches, 202 units, nspks: 2371.0195, mu: 16.1243, nst0: 2387, merges: 125.1656, 0.0504 
+
+474.27 sec, 2201 / 2864 batches, 195 units, nspks: 2438.2416, mu: 16.1141, nst0: 2087, merges: 123.2464, 0.0061 
+
+486.04 sec, 2301 / 2864 batches, 183 units, nspks: 2416.3827, mu: 15.6444, nst0: 3432, merges: 126.4566, 0.1700 
+
+498.86 sec, 2401 / 2864 batches, 191 units, nspks: 2559.5286, mu: 15.8047, nst0: 2257, merges: 133.0453, 0.1408 
+
+515.62 sec, 2501 / 2864 batches, 196 units, nspks: 2314.0778, mu: 16.4651, nst0: 2127, merges: 128.9809, 0.0357 
+
+529.82 sec, 2601 / 2864 batches, 208 units, nspks: 2380.4395, mu: 15.5797, nst0: 3170, merges: 127.8058, 0.0527 
+
+543.92 sec, 2701 / 2864 batches, 213 units, nspks: 2612.8120, mu: 16.6668, nst0: 3278, merges: 128.7281, 0.0413 
+
+557.65 sec, 2801 / 2864 batches, 220 units, nspks: 3022.3700, mu: 16.9608, nst0: 3625, merges: 129.5306, 0.0779 
+
+Elapsed time is 567.183849 seconds.
+
+Finished learning templates 
+
+Time 567s. Optimizing templates ...
+
+567.56 sec, 1 / 1432 batches, 200 units, nspks: 129.7000, mu: 17.6438, nst0: 3635 
+
+578.06 sec, 101 / 1432 batches, 200 units, nspks: 2887.5551, mu: 16.0095, nst0: 4027 
+
+588.58 sec, 201 / 1432 batches, 200 units, nspks: 2610.6769, mu: 15.0146, nst0: 3986 
+
+599.94 sec, 301 / 1432 batches, 200 units, nspks: 2324.6863, mu: 14.9698, nst0: 3108 
+
+609.94 sec, 401 / 1432 batches, 200 units, nspks: 2262.5812, mu: 15.0828, nst0: 3297 
+
+621.56 sec, 501 / 1432 batches, 200 units, nspks: 2466.0338, mu: 15.2959, nst0: 3512 
+
+634.59 sec, 601 / 1432 batches, 200 units, nspks: 2401.4225, mu: 15.4746, nst0: 2855 
+
+647.79 sec, 701 / 1432 batches, 200 units, nspks: 2478.3694, mu: 15.4619, nst0: 2829 
+
+661.72 sec, 801 / 1432 batches, 200 units, nspks: 2471.0639, mu: 15.3685, nst0: 3152 
+
+675.41 sec, 901 / 1432 batches, 200 units, nspks: 2351.9301, mu: 15.4941, nst0: 2754 
+
+690.58 sec, 1001 / 1432 batches, 200 units, nspks: 2576.1345, mu: 15.4904, nst0: 3293 
+
+703.20 sec, 1101 / 1432 batches, 200 units, nspks: 2423.3899, mu: 15.2306, nst0: 2494 
+
+716.28 sec, 1201 / 1432 batches, 200 units, nspks: 2403.3174, mu: 15.1872, nst0: 3123 
+
+728.59 sec, 1301 / 1432 batches, 200 units, nspks: 2168.1581, mu: 15.0838, nst0: 2912 
+
+741.04 sec, 1401 / 1432 batches, 200 units, nspks: 1840.1971, mu: 15.2319, nst0: 2221 
+
+Elapsed time is 745.203482 seconds.
+
+Time 746s. Optimizing templates ...
+
+746.62 sec, 1 / 1432 batches, 200 units, nspks: 137.6500, mu: 17.6438, nst0: 3645 
+
+761.19 sec, 101 / 1432 batches, 200 units, nspks: 2513.2038, mu: 16.3168, nst0: 4263 
+
+775.61 sec, 201 / 1432 batches, 200 units, nspks: 2619.7409, mu: 15.4851, nst0: 3913 
+
+790.05 sec, 301 / 1432 batches, 200 units, nspks: 2463.6953, mu: 15.2819, nst0: 3125 
+
+805.92 sec, 401 / 1432 batches, 200 units, nspks: 2647.8996, mu: 14.9262, nst0: 3723 
+
+821.54 sec, 501 / 1432 batches, 200 units, nspks: 2576.1880, mu: 14.6800, nst0: 3426 
+
+837.03 sec, 601 / 1432 batches, 200 units, nspks: 2528.2697, mu: 14.7483, nst0: 3225 
+
+852.08 sec, 701 / 1432 batches, 200 units, nspks: 2541.1620, mu: 14.8478, nst0: 4063 
+
+865.26 sec, 801 / 1432 batches, 200 units, nspks: 2385.6442, mu: 14.8542, nst0: 3652 
+
+878.61 sec, 901 / 1432 batches, 200 units, nspks: 2523.2228, mu: 15.0829, nst0: 3388 
+
+893.36 sec, 1001 / 1432 batches, 200 units, nspks: 2497.9788, mu: 15.2153, nst0: 4314 
+
+908.09 sec, 1101 / 1432 batches, 200 units, nspks: 2480.9663, mu: 15.4326, nst0: 2951 
+
+920.92 sec, 1201 / 1432 batches, 200 units, nspks: 2278.1518, mu: 15.4648, nst0: 3021 
+
+933.82 sec, 1301 / 1432 batches, 200 units, nspks: 2111.1518, mu: 15.4389, nst0: 2746 
+
+946.65 sec, 1401 / 1432 batches, 200 units, nspks: 2011.1363, mu: 15.3335, nst0: 2634 
+
+Elapsed time is 950.403511 seconds.
+
+Number of spikes before applying cutoff: 9358468
+
+Finished compressing time-varying templates 
+
+initialized spike counts
+
+merged 98 into 103 
+
+merged 153 into 188 
+
+merged 158 into 163 
+
+merged 162 into 163 
+
+merged 104 into 120 
+
+merged 56 into 116 
+
+merged 125 into 126 
+
+merged 120 into 103 
+
+merged 102 into 103 
+
+merged 65 into 27 
+
+merged 184 into 183 
+
+merged 138 into 139 
+
+merged 124 into 123 
+
+merged 7 into 27 
+
+merged 141 into 142 
+
+merged 165 into 166 
+
+merged 109 into 110 
+
+merged 126 into 139 
+
+merged 196 into 198 
+
+merged 182 into 183 
+
+merged 135 into 137 
+
+merged 163 into 160 
+
+merged 143 into 144 
+
+merged 187 into 186 
+
+merged 15 into 14 
+
+merged 66 into 67 
+
+merged 145 into 144 
+
+merged 198 into 197 
+
+merged 44 into 43 
+
+Found 0 splits, checked 1/200 clusters, nccg 0 
+
+Found 25 splits, checked 101/225 clusters, nccg 30 
+
+Found 40 splits, checked 201/240 clusters, nccg 82 
+
+Finished splitting. Found 54 splits, checked 254/254 clusters, nccg 88 
+
+Found 0 splits, checked 1/254 clusters, nccg 1 
+
+Found 5 splits, checked 101/259 clusters, nccg 29 
+
+Found 7 splits, checked 201/261 clusters, nccg 78 
+
+Finished splitting. Found 11 splits, checked 265/265 clusters, nccg 86 
+
+Removing 1.7655e+06 spikes from rez structure.
+
+found 144 good units 
+
+Saving results to Phy  
+
+kilosort2 run time 2227.88s
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241104_M06804_000171_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241104_M06804_000172_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+RUNNING SHELL SCRIPT: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/well000/sortings/sorter_output/run_kilosort2.sh
+Time   1s. Determining good channels.. 
+
+found 440 threshold crossings in 1.12 seconds of data 
+
+found 0 bad channels 
+
+Time   3s. Computing whitening matrix.. 
+
+Getting channel whitening matrix... 
+
+Channel-whitening matrix computed. 
+
+Time   4s. Loading raw data and applying filters... 
+
+Time   4s. Finished preprocessing 1 batches. 
+
+random seed for clusterSingleBatches: 1
+
+Obtained 7 PC waveforms in 0.25 seconds 
+
+----------------------------------------Array indices must be positive integers or logical values.
+Error running kilosort2
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241104_M08029_000176_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/data.raw.h5'] stream 5: list index out of range
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241104_M08029_000177_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+RUNNING SHELL SCRIPT: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/well000/sortings/sorter_output/run_kilosort2.sh
+Time   0s. Determining good channels.. 
+
+found 905 threshold crossings in 4.28 seconds of data 
+
+found 4 bad channels 
+
+Time   2s. Computing whitening matrix.. 
+
+Getting channel whitening matrix... 
+
+Channel-whitening matrix computed. 
+
+Time   3s. Loading raw data and applying filters... 
+
+Time   4s. Finished preprocessing 1 batches. 
+
+random seed for clusterSingleBatches: 1
+
+Obtained 7 PC waveforms in 0.13 seconds 
+
+----------------------------------------Array indices must be positive integers or logical values.
+Error running kilosort2
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/data.raw.h5'] stream 1...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/data.raw.h5'] stream 1: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/data.raw.h5'] stream 2...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/data.raw.h5'] stream 2: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/data.raw.h5'] stream 3...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/data.raw.h5'] stream 3: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/data.raw.h5'] stream 4...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/data.raw.h5'] stream 4: list index out of range
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/data.raw.h5'] stream 5...
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/data.raw.h5'] stream 5: list index out of range

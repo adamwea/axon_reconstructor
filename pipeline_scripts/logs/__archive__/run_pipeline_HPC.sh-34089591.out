@@ -1,0 +1,213 @@
+H5 files found:
+['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000065/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000073/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000072/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M08029/AxonTracking/000082/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000091/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M06804/AxonTracking/000093/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000097/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241021/M08029/AxonTracking/000098/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/data.raw.h5']
+Parsing arguments...
+['/pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC_latest.py']
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/data.raw.h5 stream 0...
+Starting reconstruction for 241017_M06804_000064_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000
+RUNNING SHELL SCRIPT: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/sortings/sorter_output/run_kilosort2.sh
+Time   0s. Determining good channels.. 
+
+found 852078 threshold crossings in 387.36 seconds of data 
+
+found 0 bad channels 
+
+Time  16s. Computing whitening matrix.. 
+
+Getting channel whitening matrix... 
+
+Channel-whitening matrix computed. 
+
+Time  22s. Loading raw data and applying filters... 
+
+Time  33s. Finished preprocessing 119 batches. 
+
+random seed for clusterSingleBatches: 1
+
+Obtained 7 PC waveforms in 0.28 seconds 
+
+time 0.26, pre clustered 1 / 119 batches 
+
+time 0.07, compared 1 / 119 batches 
+
+time 7.97, Re-ordered 119 batches. 
+
+Time   8s. Optimizing templates ...
+
+8.75 sec, 1 / 120 batches, 51 units, nspks: 20.4136, mu: 10.0000, nst0: 343, merges: 0.4000, 0.0000 
+
+21.67 sec, 101 / 120 batches, 537 units, nspks: 3379.5397, mu: 21.7121, nst0: 2983, merges: 118.0652, 0.4546 
+
+Elapsed time is 24.464391 seconds.
+
+Finished learning templates 
+
+Time  26s. Optimizing templates ...
+
+25.69 sec, 1 / 60 batches, 546 units, nspks: 171.0500, mu: 21.5572, nst0: 4616 
+
+Elapsed time is 33.834751 seconds.
+
+Time  34s. Optimizing templates ...
+
+34.64 sec, 1 / 59 batches, 546 units, nspks: 233.5500, mu: 21.5572, nst0: 6325 
+
+Elapsed time is 42.726097 seconds.
+
+Number of spikes before applying cutoff: 549672
+
+Finished compressing time-varying templates 
+
+initialized spike counts
+
+merged 385 into 154 
+
+merged 156 into 154 
+
+merged 329 into 332 
+
+merged 461 into 464 
+
+merged 500 into 499 
+
+merged 215 into 223 
+
+merged 160 into 155 
+
+merged 228 into 229 
+
+merged 150 into 155 
+
+merged 294 into 295 
+
+merged 482 into 481 
+
+merged 108 into 105 
+
+merged 139 into 134 
+
+merged 299 into 297 
+
+merged 24 into 13 
+
+merged 41 into 43 
+
+merged 316 into 318 
+
+merged 362 into 55 
+
+merged 509 into 245 
+
+merged 65 into 66 
+
+merged 318 into 317 
+
+merged 56 into 55 
+
+merged 212 into 213 
+
+merged 214 into 213 
+
+Found 0 splits, checked 1/546 clusters, nccg 1 
+
+Found 7 splits, checked 101/553 clusters, nccg 27 
+
+Found 8 splits, checked 101/554 clusters, nccg 27 
+
+Found 9 splits, checked 101/555 clusters, nccg 27 
+
+Found 20 splits, checked 201/566 clusters, nccg 44 
+
+Found 30 splits, checked 301/576 clusters, nccg 64 
+
+Found 40 splits, checked 401/586 clusters, nccg 76 
+
+Found 53 splits, checked 501/599 clusters, nccg 95 
+
+Found 76 splits, checked 601/622 clusters, nccg 124 
+
+Finished splitting. Found 79 splits, checked 625/625 clusters, nccg 130 
+
+Found 0 splits, checked 1/625 clusters, nccg 1 
+
+Found 3 splits, checked 101/628 clusters, nccg 25 
+
+Found 7 splits, checked 201/632 clusters, nccg 41 
+
+Found 9 splits, checked 301/634 clusters, nccg 62 
+
+Found 11 splits, checked 401/636 clusters, nccg 72 
+
+Found 16 splits, checked 501/641 clusters, nccg 100 
+
+Found 23 splits, checked 601/648 clusters, nccg 127 
+
+Finished splitting. Found 26 splits, checked 651/651 clusters, nccg 137 
+
+Removing 107234 spikes from rez structure.
+
+found 289 good units 
+
+Saving results to Phy  
+
+kilosort2 run time 234.88s
+Extracted waveforms for rec0000 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg0, n_jobs=30
+Extracted waveforms for rec0001 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg1, n_jobs=32
+Extracted waveforms for rec0002 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg2, n_jobs=33
+Extracted waveforms for rec0003 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg3, n_jobs=34
+Extracted waveforms for rec0004 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg4, n_jobs=35
+Extracted waveforms for rec0005 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg5, n_jobs=34
+Extracted waveforms for rec0006 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg6, n_jobs=35
+Extracted waveforms for rec0007 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg7, n_jobs=35
+Extracted waveforms for rec0008 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg8, n_jobs=35
+Extracted waveforms for rec0009 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg9, n_jobs=38
+Extracted waveforms for rec0010 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg10, n_jobs=38
+Extracted waveforms for rec0011 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg11, n_jobs=39
+Extracted waveforms for rec0012 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg12, n_jobs=38
+Extracted waveforms for rec0013 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg13, n_jobs=40
+Extracted waveforms for rec0014 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg14, n_jobs=39
+Extracted waveforms for rec0015 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg15, n_jobs=39
+Extracted waveforms for rec0016 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg16, n_jobs=40
+Extracted waveforms for rec0017 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg17, n_jobs=40
+Extracted waveforms for rec0018 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg18, n_jobs=40
+Extracted waveforms for rec0019 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg19, n_jobs=37
+Extracted waveforms for rec0020 to /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/well000/waveforms/seg20, n_jobs=40
+Error processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/data.raw.h5'] stream 0: A child process terminated abruptly, the process pool is not usable anymore
+Processing plate ['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241017/M06804/AxonTracking/000064/data.raw.h5'] stream 1...
