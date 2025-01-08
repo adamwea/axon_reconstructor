@@ -448,7 +448,7 @@ class AxonReconstructor:
                     self.logger.warning(e)
                     self.logger.info(f'Spike sorting stream {stream_id}')
                     mr = stream['multirecording']                    
-                    sorting, stream_sort_path, message = sorter.sort_multirecording(mr, stream_id, save_root=spikesorting_root, sorting_params=self.sorting_params, logger=self.logger)
+                    sorting, stream_sort_path, message = sorter.sort_multirecording(mr, stream_id, save_root=spikesorting_root, sorting_params=self.sorting_params, logger=self.logger, only_load=self.only_load_sortings)
                     streams[stream_id] = {
                         'sorting_path': stream_sort_path,
                         'sorting': sorting,
@@ -483,8 +483,10 @@ class AxonReconstructor:
     def extract_waveforms(self):    
         waveforms = {}
         self.logger.info("Extracting waveforms")
-        try: assert self.sortings, "No sortings found. Skipping waveform extraction."
-        except Exception as e: self.logger.error(e); return
+        try: 
+            assert self.sortings, "No sortings found. Skipping waveform extraction."
+        except Exception as e: 
+            self.logger.error(e); return
         for key, sorting in self.sortings.items():
             
             multirecs = self.multirecordings[key]
@@ -765,9 +767,24 @@ class AxonReconstructor:
         except Exception as e: self.logger.warning(f"Error bypassing to templates: {e}. Continuing with pipeline execution as normal.")
     
     def run_pipeline(self, **kwargs):
+        #print runtime options
+        print(f"\n--- Pipeline runtime options ---")
+        #print(f"Pipeline runtime options: {kwargs}")
+        print(f'load_reconstructor: {self.reconstructor_load_options["load_reconstructor"]}')
+        print(f'load_templates_bypass: {self.reconstructor_load_options["load_templates_bypass"]}')
+        print(f'concatenate_switch: {kwargs.get("concatenate_switch", True)}')
+        print(f'sort_switch: {kwargs.get("sort_switch", True)}')
+        print(f'waveform_switch: {kwargs.get("waveform_switch", True)}')
+        print(f'template_switch: {kwargs.get("template_switch", True)}')
+        print(f'recon_switch: {kwargs.get("recon_switch", True)}')
+        
+        # import sys
+        # sys.exit()
+        
         # Pipeline switches
         self.concatenate_switch = kwargs.get('concatenate_switch', True)
         self.sort_switch = kwargs.get('sort_switch', True)
+        self.only_load_sortings = kwargs.get('only_load_sortings', False)
         self.waveform_switch = kwargs.get('waveform_switch', True)
         self.template_switch = kwargs.get('template_switch', True)
         self.recon_switch = kwargs.get('recon_switch', True)

@@ -1,0 +1,10 @@
+numpy
+matplotlib
+scipy
+networkx
+sklearn
+MEAutility
+probeinterface
+neuron
+LFPy
+neuroplotlib

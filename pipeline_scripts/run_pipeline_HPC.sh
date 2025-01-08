@@ -2,10 +2,13 @@
 #SBATCH -A m2043_g               # Account
 #SBATCH -C gpu                   # Request GPU nodes
 #SBATCH -q regular                 # Queue
-#SBATCH -t 02:00:00              # Time limit
-#SBATCH -N 2                     # Number of nodes
-#SBATCH --gpus-per-task=2           # One GPU per task
+#SBATCH -t 5:00:00              # Time limit
+#SBATCH -N 1                     # Number of nodes
+#SBATCH --gpus-per-task=1           # One GPU per task
 #SBATCH --mail-type=ALL             # Send email on all job events
+#SBATCH -o /pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/logs/%x-%j.out
+#SBATCH -e /pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/logs/%x-%j.err
+#SBATCH --image=adammwea/axonkilo_docker:v7
 
 # Bind CPUs for optimal performance
 export SLURM_CPU_BIND="cores"
@@ -39,22 +42,22 @@ export SLURM_CPU_BIND="cores"
 #----------------------------------------------
 
 #target well 0 for testing
-#srun shifter --image=adammwea/axonkilo_docker:v7 python /pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC_latest.py --stream_select 0
+shifter --image=adammwea/axonkilo_docker:v7 python /pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC_latest.py
 
 # # #target well 1 for testing
-#srun shifter --image=adammwea/axonkilo_docker:v7 python /pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC_latest.py --stream_select 1
+#srun shifter --image=adammwea/axonkilo_docker:v7 python /pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC_latest.py
 
 # # #target well 2 for testing
-#srun shifter --image=adammwea/axonkilo_docker:v7 python /pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC_latest.py --stream_select 2 
+#srun shifter --image=adammwea/axonkilo_docker:v7 python /pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC_latest.py
 
 # # #target well 3 for testing
-#srun shifter --image=adammwea/axonkilo_docker:v7 python /pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC_latest.py --stream_select 3
+#srun shifter --image=adammwea/axonkilo_docker:v7 python /pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC_latest.py
 
 # # #target well 4 for testing
-#srun shifter --image=adammwea/axonkilo_docker:v7 python /pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC_latest.py --stream_select 4
+#srun shifter --image=adammwea/axonkilo_docker:v7 python /pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC_latest.py
 
 # # #target well 5 for testing
-#srun shifter --image=adammwea/axonkilo_docker:v7 python /pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC_latest.py --stream_select 5
+#srun shifter --image=adammwea/axonkilo_docker:v7 python /pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC_latest.py
 
 #----------------------------------------------
 

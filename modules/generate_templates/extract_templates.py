@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from modules import mea_processing_library as MPL
 import modules.lib_sorting_functions as sorter
 import modules.lib_waveform_functions as waveformer
-from RBS_axonal_reconstructions.modules.generate_templates.process_templates import merge_templates
+#from RBS_axonal_reconstructions.modules.generate_templates.process_templates import merge_templates
 
 default_n_jobs = 4
 

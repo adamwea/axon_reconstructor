@@ -1,0 +1,2204 @@
+H5 files found:
+['/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000113/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000124/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M06804/AxonTracking/000123/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000131/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241028/M08029/AxonTracking/000130/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000145/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241030/M08029/AxonTracking/000144/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000154/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M06804/AxonTracking/000155/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000159/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000160/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000167/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241031/M08029/AxonTracking/000166/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000171/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M06804/AxonTracking/000172/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000176/data.raw.h5',
+ '/pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241104/M08029/AxonTracking/000177/data.raw.h5']
+Parsing arguments...
+['/pscratch/sd/a/adammwea/workspace/RBS_axonal_reconstructions/pipeline_scripts/run_pipeline_HPC_latest.py']
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M06804_000108_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5 stream 1...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M06804_000108_well001...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well001/well001_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well001/well001_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well001/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well001/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well001/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well001/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well001/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well001
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5 stream 2...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M06804_000108_well002...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well002/well002_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well002/well002_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well002/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well002/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well002/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well002/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well002/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well002
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5 stream 3...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M06804_000108_well003...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well003/well003_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well003/well003_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well003/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well003/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well003/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well003/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well003/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well003
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5 stream 4...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M06804_000108_well004...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well004/well004_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well004/well004_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well004/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well004/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well004/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well004/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well004/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well004
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/data.raw.h5 stream 5...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M06804_000108_well005...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well005/well005_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well005/well005_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well005/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well005/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well005/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well005/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well005/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000108/well005
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M06804_000109_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+RUNNING SHELL SCRIPT: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well000/sortings/sorter_output/run_kilosort2.sh
+Time   0s. Determining good channels.. 
+
+found 2250 threshold crossings in 5.10 seconds of data 
+
+found 0 bad channels 
+
+Time  11s. Computing whitening matrix.. 
+
+Getting channel whitening matrix... 
+
+Channel-whitening matrix computed. 
+
+Time  16s. Loading raw data and applying filters... 
+
+Time  16s. Finished preprocessing 1 batches. 
+
+random seed for clusterSingleBatches: 1
+
+Obtained 7 PC waveforms in 0.21 seconds 
+
+----------------------------------------Array indices must be positive integers or logical values.
+Error running kilosort2
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5 stream 1...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M06804_000109_well001...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well001/well001_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well001/well001_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well001/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well001/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well001/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well001/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well001/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well001
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5 stream 2...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M06804_000109_well002...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well002/well002_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well002/well002_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well002/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well002/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well002/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well002/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well002/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well002
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5 stream 3...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M06804_000109_well003...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well003/well003_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well003/well003_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well003/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well003/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well003/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well003/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well003/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well003
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+RUNNING SHELL SCRIPT: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well003/sortings/sorter_output/run_kilosort2.sh
+Time   0s. Determining good channels.. 
+
+found 905 threshold crossings in 1.98 seconds of data 
+
+found 2 bad channels 
+
+Time   3s. Computing whitening matrix.. 
+
+Getting channel whitening matrix... 
+
+Channel-whitening matrix computed. 
+
+Time   3s. Loading raw data and applying filters... 
+
+Time   3s. Finished preprocessing 1 batches. 
+
+random seed for clusterSingleBatches: 1
+
+Obtained 7 PC waveforms in 0.15 seconds 
+
+----------------------------------------Array indices must be positive integers or logical values.
+Error running kilosort2
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5 stream 4...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M06804_000109_well004...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well004/well004_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well004/well004_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well004/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well004/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well004/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well004/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well004/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well004
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/data.raw.h5 stream 5...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M06804_000109_well005...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well005/well005_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well005/well005_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well005/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well005/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well005/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well005/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well005/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M06804/AxonTracking/000109/well005
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000119_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5 stream 1...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000119_well001...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well001/well001_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well001/well001_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well001/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well001/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well001/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well001/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well001/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well001
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5 stream 2...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000119_well002...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well002/well002_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well002/well002_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well002/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well002/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well002/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well002/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well002/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well002
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5 stream 3...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000119_well003...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well003/well003_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well003/well003_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well003/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well003/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well003/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well003/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well003/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well003
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5 stream 4...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000119_well004...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well004/well004_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well004/well004_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well004/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well004/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well004/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well004/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well004/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well004
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+RUNNING SHELL SCRIPT: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well004/sortings/sorter_output/run_kilosort2.sh
+Time   0s. Determining good channels.. 
+
+found 1385771 threshold crossings in 528.52 seconds of data 
+
+found 2 bad channels 
+
+Time   8s. Computing whitening matrix.. 
+
+Getting channel whitening matrix... 
+
+Channel-whitening matrix computed. 
+
+Time   9s. Loading raw data and applying filters... 
+
+Time  15s. Finished preprocessing 81 batches. 
+
+random seed for clusterSingleBatches: 1
+
+Obtained 7 PC waveforms in 0.22 seconds 
+
+time 0.23, pre clustered 1 / 81 batches 
+
+time 0.07, compared 1 / 81 batches 
+
+time 6.50, Re-ordered 81 batches. 
+
+Time   7s. Optimizing templates ...
+
+7.11 sec, 1 / 82 batches, 38 units, nspks: 42.6838, mu: 10.0000, nst0: 805, merges: 0.3000, 0.0000 
+
+Elapsed time is 14.538354 seconds.
+
+Finished learning templates 
+
+Time  15s. Optimizing templates ...
+
+14.95 sec, 1 / 41 batches, 217 units, nspks: 150.8000, mu: 18.5974, nst0: 3662 
+
+Elapsed time is 18.921219 seconds.
+
+Time  19s. Optimizing templates ...
+
+19.18 sec, 1 / 40 batches, 217 units, nspks: 157.5000, mu: 18.5974, nst0: 3729 
+
+Elapsed time is 23.260874 seconds.
+
+Number of spikes before applying cutoff: 314725
+
+Finished compressing time-varying templates 
+
+initialized spike counts
+
+merged 148 into 149 
+
+merged 69 into 68 
+
+merged 143 into 125 
+
+merged 86 into 84 
+
+merged 29 into 42 
+
+merged 189 into 188 
+
+merged 91 into 84 
+
+merged 67 into 111 
+
+merged 90 into 89 
+
+merged 83 into 89 
+
+merged 142 into 125 
+
+merged 34 into 45 
+
+merged 129 into 125 
+
+merged 183 into 176 
+
+merged 47 into 45 
+
+merged 180 into 177 
+
+merged 124 into 135 
+
+merged 181 into 176 
+
+merged 31 into 42 
+
+merged 62 into 58 
+
+merged 18 into 122 
+
+merged 216 into 215 
+
+merged 75 into 78 
+
+merged 79 into 78 
+
+merged 20 into 19 
+
+merged 60 into 58 
+
+Found 0 splits, checked 1/217 clusters, nccg 1 
+
+Found 10 splits, checked 101/227 clusters, nccg 25 
+
+Found 18 splits, checked 201/235 clusters, nccg 44 
+
+Finished splitting. Found 22 splits, checked 239/239 clusters, nccg 61 
+
+Found 0 splits, checked 1/239 clusters, nccg 1 
+
+Found 0 splits, checked 101/239 clusters, nccg 24 
+
+Found 4 splits, checked 201/243 clusters, nccg 39 
+
+Finished splitting. Found 8 splits, checked 247/247 clusters, nccg 56 
+
+----------------------------------------Error using /
+
+Matrix dimensions must agree.
+Error running kilosort2
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/data.raw.h5 stream 5...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000119_well005...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well005/well005_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well005/well005_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well005/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well005/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well005/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well005/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well005/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000119/well005
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000114_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5 stream 1...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000114_well001...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well001/well001_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well001/well001_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well001/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well001/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well001/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well001/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well001/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well001
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5 stream 2...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000114_well002...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well002/well002_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well002/well002_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well002/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well002/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well002/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well002/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well002/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well002
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5 stream 3...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000114_well003...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well003/well003_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well003/well003_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well003/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well003/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well003/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well003/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well003/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well003
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5 stream 4...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000114_well004...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well004/well004_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well004/well004_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well004/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well004/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well004/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well004/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well004/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well004
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/data.raw.h5 stream 5...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000114_well005...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well005/well005_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well005/well005_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well005/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well005/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well005/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well005/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well005/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000114/well005
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5 stream 0...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000118_well000...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well000/well000_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well000/well000_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well000/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well000/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well000/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well000/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well000/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well000
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5 stream 1...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000118_well001...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well001/well001_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well001/well001_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well001/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well001/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well001/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well001/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well001/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well001
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+RUNNING SHELL SCRIPT: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well001/sortings/sorter_output/run_kilosort2.sh
+Time   0s. Determining good channels.. 
+
+found 2174999 threshold crossings in 656.00 seconds of data 
+
+found 92 bad channels 
+
+Time  35s. Computing whitening matrix.. 
+
+Getting channel whitening matrix... 
+
+Channel-whitening matrix computed. 
+
+Time  47s. Loading raw data and applying filters... 
+
+Time 744s. Finished preprocessing 2381 batches. 
+
+random seed for clusterSingleBatches: 1
+
+Obtained 7 PC waveforms in 5.92 seconds 
+
+time 0.46, pre clustered 1 / 2381 batches 
+
+time 134.36, pre clustered 501 / 2381 batches 
+
+time 269.09, pre clustered 1001 / 2381 batches 
+
+time 405.18, pre clustered 1501 / 2381 batches 
+
+time 541.91, pre clustered 2001 / 2381 batches 
+
+time 0.15, compared 1 / 2381 batches 
+
+time 54.15, compared 501 / 2381 batches 
+
+time 108.34, compared 1001 / 2381 batches 
+
+time 162.66, compared 1501 / 2381 batches 
+
+time 217.31, compared 2001 / 2381 batches 
+
+time 263.26, Re-ordered 2381 batches. 
+
+Time 270s. Optimizing templates ...
+
+270.49 sec, 1 / 2382 batches, 113 units, nspks: 83.5488, mu: 10.0000, nst0: 1526, merges: 2.3000, 0.0000 
+
+305.83 sec, 101 / 2382 batches, 1130 units, nspks: 3964.6643, mu: 18.4314, nst0: 6948, merges: 229.3546, 1.6351 
+
+343.32 sec, 201 / 2382 batches, 1336 units, nspks: 4714.4944, mu: 16.6096, nst0: 4296, merges: 298.4919, 3.1624 
+
+381.17 sec, 301 / 2382 batches, 1337 units, nspks: 4251.6316, mu: 16.1263, nst0: 5940, merges: 313.3984, 2.7079 
+
+422.20 sec, 401 / 2382 batches, 1463 units, nspks: 4445.9193, mu: 16.3685, nst0: 4952, merges: 321.6845, 3.1671 
+
+463.87 sec, 501 / 2382 batches, 1478 units, nspks: 4704.5223, mu: 16.4093, nst0: 3650, merges: 325.6222, 3.1880 
+
+505.78 sec, 601 / 2382 batches, 1551 units, nspks: 4730.4209, mu: 16.6409, nst0: 3840, merges: 322.1988, 3.7797 
+
+547.96 sec, 701 / 2382 batches, 1563 units, nspks: 4821.7193, mu: 16.1562, nst0: 6776, merges: 323.2350, 3.4132 
+
+588.12 sec, 801 / 2382 batches, 1485 units, nspks: 4413.9232, mu: 16.2453, nst0: 4869, merges: 323.6290, 3.4870 
+
+628.35 sec, 901 / 2382 batches, 1491 units, nspks: 4319.7140, mu: 16.7287, nst0: 3373, merges: 324.6328, 2.7345 
+
+701.96 sec, 1001 / 2382 batches, 1539 units, nspks: 5606.3862, mu: 16.9175, nst0: 4748, merges: 326.7506, 2.9469 
+
+748.00 sec, 1101 / 2382 batches, 1583 units, nspks: 5961.2545, mu: 16.9131, nst0: 5043, merges: 334.4852, 2.4479 
+
+790.59 sec, 1201 / 2382 batches, 1440 units, nspks: 7178.0784, mu: 17.2648, nst0: 3893, merges: 326.7385, 1.8969 
+
+828.20 sec, 1301 / 2382 batches, 1475 units, nspks: 5933.6704, mu: 17.1806, nst0: 8082, merges: 326.4532, 2.4293 
+
+867.65 sec, 1401 / 2382 batches, 1577 units, nspks: 5972.0825, mu: 17.3351, nst0: 4848, merges: 330.7725, 2.0773 
+
+912.91 sec, 1501 / 2382 batches, 1589 units, nspks: 4712.4604, mu: 17.3096, nst0: 8291, merges: 325.4494, 2.0529 
+
+956.17 sec, 1601 / 2382 batches, 1639 units, nspks: 4659.0518, mu: 17.2107, nst0: 4882, merges: 324.2838, 2.4041 
+
+999.35 sec, 1701 / 2382 batches, 1637 units, nspks: 5034.3251, mu: 17.2577, nst0: 3907, merges: 326.7644, 1.6259 
+
+1043.71 sec, 1801 / 2382 batches, 1668 units, nspks: 5077.5099, mu: 17.5579, nst0: 5512, merges: 330.2013, 1.4642 
+
+1086.93 sec, 1901 / 2382 batches, 1576 units, nspks: 4907.4463, mu: 17.4546, nst0: 6192, merges: 331.1516, 1.6036 
+
+1129.89 sec, 2001 / 2382 batches, 1675 units, nspks: 4982.9562, mu: 17.4964, nst0: 6247, merges: 323.4724, 1.4257 
+
+1173.31 sec, 2101 / 2382 batches, 1676 units, nspks: 4769.4355, mu: 17.6089, nst0: 4607, merges: 331.2725, 0.7850 
+
+1217.86 sec, 2201 / 2382 batches, 1613 units, nspks: 5394.2634, mu: 17.5671, nst0: 5432, merges: 332.6768, 0.6954 
+
+1261.00 sec, 2301 / 2382 batches, 1582 units, nspks: 4948.7530, mu: 17.5893, nst0: 6256, merges: 329.8240, 0.9538 
+
+Elapsed time is 1295.244219 seconds.
+
+Finished learning templates 
+
+Time 1301s. Optimizing templates ...
+
+1300.84 sec, 1 / 1191 batches, 1490 units, nspks: 257.1500, mu: 17.0142, nst0: 7470 
+
+1332.98 sec, 101 / 1191 batches, 1490 units, nspks: 4818.5961, mu: 14.9465, nst0: 10885 
+
+1365.42 sec, 201 / 1191 batches, 1490 units, nspks: 5064.9930, mu: 14.3414, nst0: 7936 
+
+1397.64 sec, 301 / 1191 batches, 1490 units, nspks: 4472.4379, mu: 14.0261, nst0: 9838 
+
+1430.13 sec, 401 / 1191 batches, 1490 units, nspks: 4454.1341, mu: 13.6733, nst0: 9046 
+
+1462.73 sec, 501 / 1191 batches, 1490 units, nspks: 4318.2725, mu: 13.4325, nst0: 7445 
+
+1495.37 sec, 601 / 1191 batches, 1490 units, nspks: 4328.8348, mu: 13.2108, nst0: 7545 
+
+1532.18 sec, 701 / 1191 batches, 1490 units, nspks: 4422.8152, mu: 13.1433, nst0: 10525 
+
+1579.45 sec, 801 / 1191 batches, 1490 units, nspks: 3911.4336, mu: 13.1041, nst0: 8934 
+
+1620.80 sec, 901 / 1191 batches, 1490 units, nspks: 3773.9568, mu: 12.9814, nst0: 7869 
+
+1663.80 sec, 1001 / 1191 batches, 1490 units, nspks: 5123.2891, mu: 12.9317, nst0: 9391 
+
+1707.95 sec, 1101 / 1191 batches, 1490 units, nspks: 5385.8984, mu: 12.8149, nst0: 10846 
+
+Elapsed time is 1747.645112 seconds.
+
+Time 1753s. Optimizing templates ...
+
+1753.85 sec, 1 / 1190 batches, 1490 units, nspks: 266.2500, mu: 17.0142, nst0: 8312 
+
+1801.85 sec, 101 / 1190 batches, 1490 units, nspks: 4858.9528, mu: 14.8489, nst0: 8396 
+
+1846.51 sec, 201 / 1190 batches, 1490 units, nspks: 4623.7475, mu: 14.2845, nst0: 7419 
+
+1890.33 sec, 301 / 1190 batches, 1490 units, nspks: 4686.8706, mu: 13.8651, nst0: 7860 
+
+1938.59 sec, 401 / 1190 batches, 1490 units, nspks: 4664.1767, mu: 13.5559, nst0: 8676 
+
+1987.20 sec, 501 / 1190 batches, 1490 units, nspks: 4223.2848, mu: 13.3555, nst0: 7903 
+
+2035.58 sec, 601 / 1190 batches, 1490 units, nspks: 3855.7624, mu: 13.2041, nst0: 7600 
+
+2085.20 sec, 701 / 1190 batches, 1490 units, nspks: 3307.3096, mu: 13.0905, nst0: 7610 
+
+2132.48 sec, 801 / 1190 batches, 1490 units, nspks: 3094.5877, mu: 13.0553, nst0: 8318 
+
+2187.65 sec, 901 / 1190 batches, 1490 units, nspks: 3001.6128, mu: 12.9580, nst0: 6297 
+
+2242.27 sec, 1001 / 1190 batches, 1490 units, nspks: 2653.1573, mu: 12.8955, nst0: 7238 
+
+2294.71 sec, 1101 / 1190 batches, 1490 units, nspks: 2345.8278, mu: 12.8248, nst0: 7098 
+
+Elapsed time is 2334.521116 seconds.
+
+Number of spikes before applying cutoff: 20035659
+
+Finished compressing time-varying templates 
+
+initialized spike counts
+
+merged 409 into 408 
+
+merged 943 into 1097 
+
+merged 859 into 856 
+
+merged 811 into 807 
+
+merged 1059 into 1248 
+
+merged 975 into 977 
+
+merged 482 into 476 
+
+merged 471 into 478 
+
+merged 1047 into 1038 
+
+merged 613 into 601 
+
+merged 411 into 408 
+
+merged 1328 into 1331 
+
+merged 397 into 391 
+
+merged 974 into 806 
+
+merged 1269 into 1372 
+
+merged 863 into 1045 
+
+merged 862 into 1034 
+
+merged 190 into 193 
+
+merged 1301 into 1097 
+
+merged 54 into 28 
+
+merged 1434 into 1422 
+
+merged 1317 into 1331 
+
+merged 1345 into 1132 
+
+merged 1274 into 1372 
+
+merged 131 into 289 
+
+merged 1278 into 1372 
+
+merged 388 into 394 
+
+merged 229 into 228 
+
+merged 1123 into 1122 
+
+merged 1270 into 1372 
+
+merged 529 into 538 
+
+merged 396 into 240 
+
+merged 1118 into 1126 
+
+merged 236 into 228 
+
+merged 1287 into 1289 
+
+merged 1291 into 1289 
+
+merged 981 into 979 
+
+merged 1321 into 1442 
+
+merged 1212 into 1211 
+
+merged 1319 into 1310 
+
+merged 668 into 664 
+
+merged 1132 into 1128 
+
+merged 1277 into 1372 
+
+merged 1390 into 1384 
+
+merged 331 into 327 
+
+merged 370 into 469 
+
+merged 1113 into 1122 
+
+merged 222 into 390 
+
+merged 1056 into 1233 
+
+merged 283 into 284 
+
+merged 1273 into 1372 
+
+merged 751 into 750 
+
+merged 191 into 193 
+
+merged 1417 into 1416 
+
+merged 83 into 84 
+
+merged 778 into 929 
+
+merged 1121 into 1099 
+
+merged 1214 into 1025 
+
+merged 754 into 753 
+
+merged 1467 into 1466 
+
+merged 1146 into 1156 
+
+merged 1266 into 1264 
+
+merged 1312 into 1310 
+
+merged 1272 into 1372 
+
+merged 85 into 82 
+
+merged 240 into 394 
+
+merged 387 into 391 
+
+merged 174 into 1488 
+
+merged 284 into 282 
+
+merged 49 into 57 
+
+merged 615 into 601 
+
+merged 44 into 40 
+
+merged 7 into 822 
+
+merged 1279 into 1372 
+
+merged 784 into 786 
+
+merged 610 into 604 
+
+merged 536 into 539 
+
+merged 608 into 612 
+
+merged 931 into 934 
+
+merged 1322 into 1331 
+
+merged 1107 into 1102 
+
+merged 76 into 78 
+
+merged 542 into 523 
+
+merged 1329 into 1315 
+
+merged 741 into 743 
+
+merged 606 into 601 
+
+merged 644 into 633 
+
+merged 560 into 562 
+
+merged 1315 into 1310 
+
+merged 935 into 914 
+
+merged 810 into 815 
+
+merged 983 into 813 
+
+merged 1236 into 1243 
+
+merged 1112 into 1114 
+
+merged 1014 into 1015 
+
+merged 448 into 454 
+
+merged 785 into 782 
+
+merged 695 into 691 
+
+merged 730 into 742 
+
+merged 977 into 968 
+
+merged 922 into 934 
+
+merged 487 into 629 
+
+merged 495 into 403 
+
+merged 735 into 749 
+
+merged 813 into 815 
+
+merged 121 into 120 
+
+merged 925 into 934 
+
+merged 155 into 146 
+
+merged 930 into 934 
+
+merged 921 into 936 
+
+merged 320 into 90 
+
+merged 1425 into 1422 
+
+merged 419 into 548 
+
+merged 747 into 742 
+
+merged 877 into 876 
+
+merged 979 into 978 
+
+merged 541 into 528 
+
+merged 1314 into 1318 
+
+merged 1156 into 1159 
+
+merged 750 into 732 
+
+merged 788 into 602 
+
+merged 745 into 732 
+
+merged 1158 into 1159 
+
+merged 268 into 269 
+
+merged 1429 into 1422 
+
+merged 626 into 790 
+
+merged 1442 into 1331 
+
+merged 976 into 978 
+
+merged 36 into 47 
+
+merged 706 into 711 
+
+merged 744 into 752 
+
+merged 1476 into 175 
+
+merged 1116 into 1114 
+
+merged 881 into 878 
+
+merged 688 into 689 
+
+merged 978 into 806 
+
+merged 924 into 907 
+
+merged 880 into 878 
+
+merged 927 into 939 
+
+merged 1209 into 1210 
+
+merged 769 into 592 
+
+merged 1119 into 1101 
+
+merged 786 into 604 
+
+merged 1186 into 509 
+
+merged 679 into 678 
+
+merged 919 into 914 
+
+merged 45 into 53 
+
+merged 394 into 390 
+
+merged 41 into 35 
+
+merged 146 into 156 
+
+merged 787 into 607 
+
+merged 265 into 269 
+
+merged 1168 into 1161 
+
+merged 1424 into 1422 
+
+merged 914 into 934 
+
+merged 879 into 878 
+
+merged 55 into 35 
+
+merged 1355 into 67 
+
+merged 1105 into 1106 
+
+merged 1431 into 1422 
+
+merged 677 into 678 
+
+merged 37 into 53 
+
+merged 1436 into 1428 
+
+merged 1423 into 1422 
+
+merged 752 into 742 
+
+merged 612 into 601 
+
+merged 1013 into 1011 
+
+merged 97 into 95 
+
+merged 31 into 33 
+
+merged 1245 into 1243 
+
+merged 1012 into 1010 
+
+merged 40 into 33 
+
+merged 173 into 1490 
+
+merged 1444 into 1318 
+
+merged 39 into 53 
+
+merged 782 into 783 
+
+merged 1198 into 1184 
+
+merged 653 into 505 
+
+merged 913 into 936 
+
+merged 1090 into 918 
+
+merged 171 into 1475 
+
+merged 294 into 120 
+
+merged 33 into 35 
+
+merged 96 into 95 
+
+merged 607 into 602 
+
+merged 230 into 231 
+
+merged 829 into 830 
+
+merged 5 into 4 
+
+merged 920 into 936 
+
+merged 731 into 734 
+
+merged 1386 into 1384 
+
+merged 800 into 802 
+
+merged 783 into 602 
+
+merged 1426 into 1428 
+
+merged 772 into 917 
+
+merged 742 into 739 
+
+merged 704 into 707 
+
+merged 1430 into 1427 
+
+merged 189 into 193 
+
+merged 6 into 4 
+
+merged 57 into 47 
+
+merged 707 into 702 
+
+merged 1432 into 1422 
+
+merged 1126 into 1122 
+
+merged 616 into 601 
+
+merged 602 into 601 
+
+merged 756 into 743 
+
+merged 47 into 35 
+
+merged 1286 into 1281 
+
+merged 1427 into 1422 
+
+merged 676 into 678 
+
+merged 1384 into 1065 
+
+merged 1104 into 1106 
+
+merged 26 into 32 
+
+merged 604 into 601 
+
+merged 603 into 605 
+
+merged 98 into 95 
+
+merged 968 into 806 
+
+merged 743 into 739 
+
+merged 1098 into 1106 
+
+merged 24 into 28 
+
+merged 1401 into 1403 
+
+merged 159 into 340 
+
+merged 740 into 732 
+
+merged 214 into 213 
+
+merged 158 into 142 
+
+merged 148 into 156 
+
+merged 749 into 734 
+
+merged 151 into 156 
+
+merged 497 into 496 
+
+merged 30 into 28 
+
+merged 440 into 436 
+
+merged 161 into 1307 
+
+merged 142 into 156 
+
+merged 1428 into 1422 
+
+merged 88 into 89 
+
+merged 734 into 732 
+
+merged 1371 into 1372 
+
+merged 739 into 748 
+
+merged 454 into 450 
+
+merged 1024 into 1025 
+
+merged 807 into 806 
+
+merged 1382 into 1260 
+
+merged 894 into 1095 
+
+merged 803 into 804 
+
+merged 75 into 71 
+
+Found 0 splits, checked 1/1490 clusters, nccg 1 
+
+Found 22 splits, checked 101/1512 clusters, nccg 31 
+
+Found 55 splits, checked 201/1545 clusters, nccg 60 
+
+Found 56 splits, checked 201/1546 clusters, nccg 60 
+
+Found 104 splits, checked 301/1594 clusters, nccg 85 
+
+Found 138 splits, checked 401/1628 clusters, nccg 121 
+
+Found 160 splits, checked 501/1650 clusters, nccg 151 
+
+Found 205 splits, checked 601/1695 clusters, nccg 188 
+
+Found 227 splits, checked 701/1717 clusters, nccg 220 
+
+Found 270 splits, checked 801/1760 clusters, nccg 244 
+
+Found 323 splits, checked 901/1813 clusters, nccg 274 
+
+Found 367 splits, checked 1001/1857 clusters, nccg 303 
+
+Found 368 splits, checked 1001/1858 clusters, nccg 303 
+
+Found 409 splits, checked 1101/1899 clusters, nccg 337 
+
+Found 444 splits, checked 1201/1934 clusters, nccg 365 
+
+Found 445 splits, checked 1201/1935 clusters, nccg 365 
+
+Found 446 splits, checked 1201/1936 clusters, nccg 365 
+
+Found 489 splits, checked 1301/1979 clusters, nccg 389 
+
+Found 511 splits, checked 1401/2001 clusters, nccg 422 
+
+Found 512 splits, checked 1401/2002 clusters, nccg 422 
+
+Found 513 splits, checked 1401/2003 clusters, nccg 422 
+
+Found 540 splits, checked 1501/2030 clusters, nccg 457 
+
+Found 565 splits, checked 1601/2055 clusters, nccg 472 
+
+Found 600 splits, checked 1701/2090 clusters, nccg 499 
+
+Found 641 splits, checked 1801/2131 clusters, nccg 530 
+
+Found 642 splits, checked 1801/2132 clusters, nccg 530 
+
+Found 669 splits, checked 1901/2159 clusters, nccg 547 
+
+Found 693 splits, checked 2001/2183 clusters, nccg 566 
+
+Found 729 splits, checked 2101/2219 clusters, nccg 579 
+
+Found 752 splits, checked 2201/2242 clusters, nccg 597 
+
+Finished splitting. Found 758 splits, checked 2248/2248 clusters, nccg 603 
+
+Found 0 splits, checked 1/2248 clusters, nccg 1 
+
+Found 9 splits, checked 101/2257 clusters, nccg 29 
+
+Found 23 splits, checked 201/2271 clusters, nccg 57 
+
+Found 34 splits, checked 301/2282 clusters, nccg 76 
+
+Found 41 splits, checked 401/2289 clusters, nccg 104 
+
+Found 46 splits, checked 501/2294 clusters, nccg 133 
+
+Found 54 splits, checked 601/2302 clusters, nccg 167 
+
+Found 57 splits, checked 701/2305 clusters, nccg 197 
+
+Found 66 splits, checked 801/2314 clusters, nccg 216 
+
+Found 77 splits, checked 901/2325 clusters, nccg 241 
+
+Found 86 splits, checked 1001/2334 clusters, nccg 268 
+
+Found 99 splits, checked 1101/2347 clusters, nccg 300 
+
+Found 100 splits, checked 1101/2348 clusters, nccg 300 
+
+Found 103 splits, checked 1201/2351 clusters, nccg 326 
+
+Found 108 splits, checked 1301/2356 clusters, nccg 348 
+
+Found 121 splits, checked 1401/2369 clusters, nccg 379 
+
+Found 133 splits, checked 1501/2381 clusters, nccg 410 
+
+Found 138 splits, checked 1601/2386 clusters, nccg 421 
+
+Found 149 splits, checked 1701/2397 clusters, nccg 444 
+
+Found 162 splits, checked 1801/2410 clusters, nccg 466 
+
+Found 173 splits, checked 1901/2421 clusters, nccg 480 
+
+Found 183 splits, checked 2001/2431 clusters, nccg 498 
+
+Found 194 splits, checked 2101/2442 clusters, nccg 509 
+
+Found 195 splits, checked 2101/2443 clusters, nccg 509 
+
+Found 204 splits, checked 2201/2452 clusters, nccg 522 
+
+Found 216 splits, checked 2301/2464 clusters, nccg 539 
+
+Found 235 splits, checked 2401/2483 clusters, nccg 563 
+
+Finished splitting. Found 248 splits, checked 2496/2496 clusters, nccg 580 
+
+----------------------------------------Error using /
+
+Matrix dimensions must agree.
+Error running kilosort2
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5 stream 2...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000118_well002...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well002/well002_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well002/well002_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well002/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well002/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well002/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well002/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well002/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well002
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5 stream 3...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000118_well003...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well003/well003_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well003/well003_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well003/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well003/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well003/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well003/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well003/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well003
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5 stream 4...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000118_well004...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well004/well004_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well004/well004_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well004/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well004/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well004/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well004/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well004/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well004
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
+RUNNING SHELL SCRIPT: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well004/sortings/sorter_output/run_kilosort2.sh
+Time   0s. Determining good channels.. 
+
+found 2058659 threshold crossings in 636.32 seconds of data 
+
+found 4 bad channels 
+
+Time  39s. Computing whitening matrix.. 
+
+Getting channel whitening matrix... 
+
+Channel-whitening matrix computed. 
+
+Time  55s. Loading raw data and applying filters... 
+
+Time 1140s. Finished preprocessing 2903 batches. 
+
+random seed for clusterSingleBatches: 1
+
+Obtained 7 PC waveforms in 10.40 seconds 
+
+time 0.71, pre clustered 1 / 2903 batches 
+
+time 144.23, pre clustered 501 / 2903 batches 
+
+time 297.88, pre clustered 1001 / 2903 batches 
+
+time 445.77, pre clustered 1501 / 2903 batches 
+
+time 598.44, pre clustered 2001 / 2903 batches 
+
+time 748.24, pre clustered 2501 / 2903 batches 
+
+time 0.19, compared 1 / 2903 batches 
+
+time 69.55, compared 501 / 2903 batches 
+
+time 138.94, compared 1001 / 2903 batches 
+
+time 208.27, compared 1501 / 2903 batches 
+
+time 277.68, compared 2001 / 2903 batches 
+
+time 346.90, compared 2501 / 2903 batches 
+
+time 407.54, Re-ordered 2903 batches. 
+
+Time 415s. Optimizing templates ...
+
+415.90 sec, 1 / 2904 batches, 143 units, nspks: 77.9078, mu: 10.0000, nst0: 1375, merges: 1.2000, 0.0000 
+
+456.68 sec, 101 / 2904 batches, 1093 units, nspks: 4276.4842, mu: 16.6438, nst0: 5111, merges: 298.7560, 4.8039 
+
+498.52 sec, 201 / 2904 batches, 1296 units, nspks: 4659.9452, mu: 15.3722, nst0: 4650, merges: 355.4581, 6.1914 
+
+542.71 sec, 301 / 2904 batches, 1413 units, nspks: 4725.7797, mu: 15.9895, nst0: 3995, merges: 372.0521, 5.5482 
+
+587.31 sec, 401 / 2904 batches, 1440 units, nspks: 5011.8516, mu: 15.7476, nst0: 4278, merges: 378.3464, 4.2281 
+
+635.04 sec, 501 / 2904 batches, 1462 units, nspks: 5285.6868, mu: 15.6877, nst0: 5216, merges: 379.3099, 4.5231 
+
+681.18 sec, 601 / 2904 batches, 1512 units, nspks: 5201.6847, mu: 16.0648, nst0: 6762, merges: 380.2294, 3.6458 
+
+726.71 sec, 701 / 2904 batches, 1498 units, nspks: 5490.7531, mu: 16.5817, nst0: 5657, merges: 379.6336, 4.1968 
+
+775.80 sec, 801 / 2904 batches, 1550 units, nspks: 5225.6671, mu: 17.2042, nst0: 5020, merges: 375.8030, 3.5091 
+
+823.19 sec, 901 / 2904 batches, 1569 units, nspks: 5397.7960, mu: 16.8412, nst0: 4688, merges: 375.9579, 3.4845 
+
+871.29 sec, 1001 / 2904 batches, 1577 units, nspks: 5543.4744, mu: 17.1952, nst0: 5809, merges: 375.9203, 3.0246 
+
+916.13 sec, 1101 / 2904 batches, 1607 units, nspks: 5281.4180, mu: 17.4086, nst0: 5345, merges: 379.3861, 2.3335 
+
+960.26 sec, 1201 / 2904 batches, 1589 units, nspks: 5429.1726, mu: 17.1963, nst0: 5739, merges: 380.0807, 2.1123 
+
+1003.61 sec, 1301 / 2904 batches, 1578 units, nspks: 4919.6404, mu: 17.3301, nst0: 4337, merges: 382.9010, 2.1313 
+
+1048.21 sec, 1401 / 2904 batches, 1462 units, nspks: 4720.3777, mu: 17.0852, nst0: 5484, merges: 378.4104, 1.6304 
+
+1089.52 sec, 1501 / 2904 batches, 1418 units, nspks: 4459.5372, mu: 17.2261, nst0: 4614, merges: 367.5161, 1.1634 
+
+1127.62 sec, 1601 / 2904 batches, 1472 units, nspks: 4984.3879, mu: 17.5263, nst0: 5376, merges: 360.6946, 1.3723 
+
+1166.34 sec, 1701 / 2904 batches, 1478 units, nspks: 5086.7339, mu: 17.7104, nst0: 4539, merges: 371.0475, 1.6296 
+
+1208.13 sec, 1801 / 2904 batches, 1573 units, nspks: 5452.5257, mu: 18.2145, nst0: 4971, merges: 373.8620, 1.8228 
+
+1249.82 sec, 1901 / 2904 batches, 1569 units, nspks: 5405.4149, mu: 17.9110, nst0: 5138, merges: 384.7972, 2.7152 
+
+1291.74 sec, 2001 / 2904 batches, 1589 units, nspks: 5986.9934, mu: 18.3393, nst0: 8055, merges: 383.3259, 1.5440 
+
+1333.70 sec, 2101 / 2904 batches, 1577 units, nspks: 5645.6476, mu: 18.2079, nst0: 4906, merges: 380.5224, 2.2921 
+
+1375.75 sec, 2201 / 2904 batches, 1592 units, nspks: 5546.6866, mu: 18.2589, nst0: 5728, merges: 377.2845, 2.0678 
+
+1418.82 sec, 2301 / 2904 batches, 1632 units, nspks: 5622.2661, mu: 18.3214, nst0: 5985, merges: 379.7756, 2.0272 
+
+1462.01 sec, 2401 / 2904 batches, 1634 units, nspks: 5753.5364, mu: 18.1804, nst0: 5953, merges: 380.0964, 2.4799 
+
+1509.58 sec, 2501 / 2904 batches, 1633 units, nspks: 5368.3810, mu: 18.2284, nst0: 4432, merges: 380.5190, 2.4098 
+
+1555.07 sec, 2601 / 2904 batches, 1571 units, nspks: 5436.3916, mu: 18.1835, nst0: 4786, merges: 384.0314, 1.8641 
+
+1600.13 sec, 2701 / 2904 batches, 1654 units, nspks: 5569.1843, mu: 18.4433, nst0: 6547, merges: 376.7145, 1.8468 
+
+1645.36 sec, 2801 / 2904 batches, 1577 units, nspks: 5459.0067, mu: 18.3060, nst0: 4788, merges: 380.2307, 1.5147 
+
+1690.98 sec, 2901 / 2904 batches, 1548 units, nspks: 4949.7744, mu: 18.1791, nst0: 5565, merges: 377.7795, 1.2964 
+
+Elapsed time is 1692.517731 seconds.
+
+Finished learning templates 
+
+Time 1706s. Optimizing templates ...
+
+1706.58 sec, 1 / 1452 batches, 1464 units, nspks: 211.3500, mu: 17.9003, nst0: 6501 
+
+1740.50 sec, 101 / 1452 batches, 1464 units, nspks: 5248.1564, mu: 16.3702, nst0: 9408 
+
+1773.05 sec, 201 / 1452 batches, 1464 units, nspks: 4938.0607, mu: 15.5106, nst0: 7129 
+
+1803.37 sec, 301 / 1452 batches, 1464 units, nspks: 4682.1894, mu: 14.9074, nst0: 6772 
+
+1833.70 sec, 401 / 1452 batches, 1464 units, nspks: 4834.1371, mu: 14.4117, nst0: 6615 
+
+1866.46 sec, 501 / 1452 batches, 1464 units, nspks: 5013.2888, mu: 14.3882, nst0: 7586 
+
+1903.75 sec, 601 / 1452 batches, 1464 units, nspks: 4981.8816, mu: 14.1738, nst0: 10091 
+
+1941.35 sec, 701 / 1452 batches, 1464 units, nspks: 5173.2780, mu: 13.8115, nst0: 8654 
+
+1981.29 sec, 801 / 1452 batches, 1464 units, nspks: 4871.2486, mu: 13.5174, nst0: 7725 
+
+2025.46 sec, 901 / 1452 batches, 1464 units, nspks: 5016.5077, mu: 13.4773, nst0: 6841 
+
+2069.84 sec, 1001 / 1452 batches, 1464 units, nspks: 5052.9065, mu: 13.3156, nst0: 8688 
+
+2110.28 sec, 1101 / 1452 batches, 1464 units, nspks: 4673.7802, mu: 13.2888, nst0: 7759 
+
+2153.72 sec, 1201 / 1452 batches, 1464 units, nspks: 4808.6261, mu: 13.1500, nst0: 8927 
+
+2204.17 sec, 1301 / 1452 batches, 1464 units, nspks: 4290.2709, mu: 13.0983, nst0: 6661 
+
+2250.14 sec, 1401 / 1452 batches, 1464 units, nspks: 4165.6364, mu: 13.0261, nst0: 8504 
+
+Elapsed time is 2273.419744 seconds.
+
+Time 2281s. Optimizing templates ...
+
+2282.10 sec, 1 / 1451 batches, 1464 units, nspks: 280.2000, mu: 17.9003, nst0: 7895 
+
+2327.73 sec, 101 / 1451 batches, 1464 units, nspks: 5036.6367, mu: 16.4850, nst0: 9446 
+
+2370.23 sec, 201 / 1451 batches, 1464 units, nspks: 4669.5401, mu: 15.8234, nst0: 6547 
+
+2414.97 sec, 301 / 1451 batches, 1464 units, nspks: 4909.2049, mu: 15.3299, nst0: 5740 
+
+2456.85 sec, 401 / 1451 batches, 1464 units, nspks: 5004.2494, mu: 14.9805, nst0: 6678 
+
+2501.83 sec, 501 / 1451 batches, 1464 units, nspks: 4906.0304, mu: 14.6031, nst0: 7186 
+
+2545.03 sec, 601 / 1451 batches, 1464 units, nspks: 4582.1081, mu: 14.3025, nst0: 6764 
+
+2587.07 sec, 701 / 1451 batches, 1464 units, nspks: 4704.6212, mu: 14.1694, nst0: 7715 
+
+2632.09 sec, 801 / 1451 batches, 1464 units, nspks: 4594.5282, mu: 14.1142, nst0: 7739 
+
+2676.04 sec, 901 / 1451 batches, 1464 units, nspks: 4597.2552, mu: 14.0019, nst0: 6013 
+
+2718.55 sec, 1001 / 1451 batches, 1464 units, nspks: 4273.7460, mu: 13.9426, nst0: 7336 
+
+2759.81 sec, 1101 / 1451 batches, 1464 units, nspks: 4311.4439, mu: 13.7533, nst0: 7660 
+
+2799.91 sec, 1201 / 1451 batches, 1464 units, nspks: 4198.5329, mu: 13.6948, nst0: 7085 
+
+2840.39 sec, 1301 / 1451 batches, 1464 units, nspks: 4091.7484, mu: 13.5783, nst0: 7527 
+
+2886.86 sec, 1401 / 1451 batches, 1464 units, nspks: 3876.6903, mu: 13.5060, nst0: 5985 
+
+Elapsed time is 2908.219919 seconds.
+
+Number of spikes before applying cutoff: 22499690
+
+Finished compressing time-varying templates 
+
+initialized spike counts
+
+merged 1070 into 1073 
+
+merged 1121 into 1291 
+
+merged 943 into 941 
+
+merged 1348 into 1349 
+
+merged 982 into 1340 
+
+merged 484 into 483 
+
+merged 1072 into 1073 
+
+merged 488 into 498 
+
+merged 95 into 96 
+
+merged 1342 into 1343 
+
+merged 370 into 386 
+
+merged 1266 into 1270 
+
+merged 709 into 838 
+
+merged 1089 into 1082 
+
+merged 254 into 258 
+
+merged 834 into 832 
+
+merged 1401 into 1400 
+
+merged 1433 into 1435 
+
+merged 495 into 497 
+
+merged 1378 into 1197 
+
+merged 714 into 715 
+
+merged 536 into 688 
+
+merged 991 into 988 
+
+merged 1297 into 1295 
+
+merged 1374 into 1197 
+
+merged 833 into 832 
+
+merged 1170 into 1167 
+
+merged 986 into 988 
+
+merged 858 into 857 
+
+merged 410 into 1273 
+
+merged 1360 into 1359 
+
+merged 816 into 672 
+
+merged 29 into 25 
+
+merged 788 into 787 
+
+merged 1198 into 1197 
+
+merged 665 into 668 
+
+merged 1166 into 1168 
+
+merged 355 into 354 
+
+merged 538 into 537 
+
+merged 932 into 930 
+
+merged 908 into 206 
+
+merged 591 into 590 
+
+merged 926 into 925 
+
+merged 1134 into 1130 
+
+merged 116 into 121 
+
+merged 539 into 537 
+
+merged 26 into 25 
+
+merged 358 into 363 
+
+merged 1234 into 1233 
+
+merged 767 into 764 
+
+merged 721 into 718 
+
+merged 870 into 871 
+
+merged 457 into 455 
+
+merged 760 into 902 
+
+merged 270 into 271 
+
+merged 490 into 492 
+
+merged 96 into 94 
+
+merged 1173 into 1172 
+
+merged 27 into 25 
+
+merged 456 into 455 
+
+merged 122 into 339 
+
+merged 69 into 67 
+
+merged 1076 into 1074 
+
+merged 1158 into 1155 
+
+merged 1078 into 1082 
+
+merged 491 into 492 
+
+merged 942 into 941 
+
+merged 1049 into 883 
+
+merged 150 into 149 
+
+merged 1270 into 1261 
+
+merged 310 into 311 
+
+merged 861 into 863 
+
+merged 1133 into 1132 
+
+merged 862 into 863 
+
+merged 1387 into 1386 
+
+merged 1041 into 1042 
+
+merged 864 into 1042 
+
+merged 1135 into 1131 
+
+merged 389 into 386 
+
+merged 266 into 262 
+
+merged 835 into 836 
+
+merged 519 into 386 
+
+merged 517 into 509 
+
+merged 920 into 921 
+
+merged 28 into 25 
+
+merged 579 into 582 
+
+merged 1272 into 1261 
+
+merged 412 into 409 
+
+merged 593 into 658 
+
+merged 1362 into 1359 
+
+merged 752 into 751 
+
+merged 1124 into 149 
+
+merged 151 into 149 
+
+merged 134 into 386 
+
+merged 1087 into 1082 
+
+merged 1426 into 1431 
+
+merged 567 into 554 
+
+merged 387 into 386 
+
+merged 1389 into 1386 
+
+merged 312 into 319 
+
+merged 207 into 206 
+
+merged 971 into 968 
+
+merged 413 into 409 
+
+merged 497 into 496 
+
+merged 1390 into 1217 
+
+merged 928 into 924 
+
+merged 480 into 483 
+
+merged 1183 into 1180 
+
+merged 388 into 386 
+
+merged 411 into 409 
+
+merged 81 into 93 
+
+merged 1025 into 1218 
+
+merged 1167 into 1168 
+
+merged 322 into 311 
+
+merged 1026 into 1394 
+
+merged 807 into 968 
+
+merged 715 into 845 
+
+merged 857 into 859 
+
+merged 448 into 446 
+
+merged 461 into 455 
+
+merged 1228 into 1224 
+
+merged 551 into 537 
+
+merged 318 into 316 
+
+merged 791 into 793 
+
+merged 1172 into 1174 
+
+merged 354 into 363 
+
+merged 963 into 793 
+
+merged 662 into 660 
+
+merged 670 into 669 
+
+merged 500 into 485 
+
+merged 1165 into 1168 
+
+merged 1274 into 1273 
+
+merged 485 into 489 
+
+merged 831 into 836 
+
+merged 109 into 108 
+
+merged 43 into 42 
+
+merged 528 into 527 
+
+Found 0 splits, checked 1/1464 clusters, nccg 1 
+
+Found 55 splits, checked 101/1519 clusters, nccg 28 
+
+Found 104 splits, checked 201/1568 clusters, nccg 55 
+
+Found 136 splits, checked 301/1600 clusters, nccg 87 
+
+Found 137 splits, checked 301/1601 clusters, nccg 87 
+
+Found 138 splits, checked 301/1602 clusters, nccg 87 
+
+Found 139 splits, checked 301/1603 clusters, nccg 87 
+
+Found 180 splits, checked 401/1644 clusters, nccg 119 
+
+Found 224 splits, checked 501/1688 clusters, nccg 150 
+
+Found 271 splits, checked 601/1735 clusters, nccg 175 
+
+Found 305 splits, checked 701/1769 clusters, nccg 207 
+
+Found 349 splits, checked 801/1813 clusters, nccg 238 
+
+Found 375 splits, checked 901/1839 clusters, nccg 271 
+
+Found 376 splits, checked 901/1840 clusters, nccg 271 
+
+Found 424 splits, checked 1001/1888 clusters, nccg 310 
+
+Found 425 splits, checked 1001/1889 clusters, nccg 310 
+
+Found 470 splits, checked 1101/1934 clusters, nccg 334 
+
+Found 510 splits, checked 1201/1974 clusters, nccg 368 
+
+Found 553 splits, checked 1301/2017 clusters, nccg 397 
+
+Found 554 splits, checked 1301/2018 clusters, nccg 397 
+
+Found 586 splits, checked 1401/2050 clusters, nccg 426 
+
+Found 646 splits, checked 1501/2110 clusters, nccg 450 
+
+Found 703 splits, checked 1601/2167 clusters, nccg 463 
+
+Found 742 splits, checked 1701/2206 clusters, nccg 475 
+
+Found 785 splits, checked 1801/2249 clusters, nccg 491 
+
+Found 828 splits, checked 1901/2292 clusters, nccg 517 
+
+Found 829 splits, checked 1901/2293 clusters, nccg 517 
+
+Found 867 splits, checked 2001/2331 clusters, nccg 530 
+
+Found 915 splits, checked 2101/2379 clusters, nccg 541 
+
+Found 916 splits, checked 2101/2380 clusters, nccg 541 
+
+Found 944 splits, checked 2201/2408 clusters, nccg 548 
+
+Found 977 splits, checked 2301/2441 clusters, nccg 562 
+
+Found 1000 splits, checked 2401/2464 clusters, nccg 572 
+
+Finished splitting. Found 1014 splits, checked 2478/2478 clusters, nccg 575 
+
+Found 1 splits, checked 1/2479 clusters, nccg 0 
+
+Found 2 splits, checked 1/2480 clusters, nccg 0 
+
+Found 3 splits, checked 1/2481 clusters, nccg 0 
+
+Found 17 splits, checked 101/2495 clusters, nccg 23 
+
+Found 23 splits, checked 201/2501 clusters, nccg 48 
+
+Found 34 splits, checked 301/2512 clusters, nccg 76 
+
+Found 44 splits, checked 401/2522 clusters, nccg 101 
+
+Found 53 splits, checked 501/2531 clusters, nccg 126 
+
+Found 67 splits, checked 601/2545 clusters, nccg 149 
+
+Found 76 splits, checked 701/2554 clusters, nccg 178 
+
+Found 93 splits, checked 801/2571 clusters, nccg 205 
+
+Found 100 splits, checked 901/2578 clusters, nccg 238 
+
+Found 101 splits, checked 901/2579 clusters, nccg 238 
+
+Found 112 splits, checked 1001/2590 clusters, nccg 274 
+
+Found 125 splits, checked 1101/2603 clusters, nccg 297 
+
+Found 137 splits, checked 1201/2615 clusters, nccg 327 
+
+Found 147 splits, checked 1301/2625 clusters, nccg 352 
+
+Found 148 splits, checked 1301/2626 clusters, nccg 352 
+
+Found 155 splits, checked 1401/2633 clusters, nccg 379 
+
+Found 169 splits, checked 1501/2647 clusters, nccg 399 
+
+Found 175 splits, checked 1601/2653 clusters, nccg 410 
+
+Found 186 splits, checked 1701/2664 clusters, nccg 420 
+
+Found 187 splits, checked 1701/2665 clusters, nccg 420 
+
+Found 201 splits, checked 1801/2679 clusters, nccg 436 
+
+Found 213 splits, checked 1901/2691 clusters, nccg 454 
+
+Found 222 splits, checked 2001/2700 clusters, nccg 466 
+
+Found 233 splits, checked 2101/2711 clusters, nccg 475 
+
+Found 243 splits, checked 2201/2721 clusters, nccg 480 
+
+Found 244 splits, checked 2201/2722 clusters, nccg 480 
+
+Found 249 splits, checked 2301/2727 clusters, nccg 492 
+
+Found 254 splits, checked 2401/2732 clusters, nccg 500 
+
+Found 265 splits, checked 2501/2743 clusters, nccg 509 
+
+Found 287 splits, checked 2601/2765 clusters, nccg 530 
+
+Found 316 splits, checked 2701/2794 clusters, nccg 545 
+
+Found 331 splits, checked 2801/2809 clusters, nccg 555 
+
+Finished splitting. Found 331 splits, checked 2809/2809 clusters, nccg 555 
+
+----------------------------------------Error using /
+
+Matrix dimensions must agree.
+Error running kilosort2
+Processing plate /pscratch/sd/a/adammwea/workspace/xInputs/xRBS_input_data/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/data.raw.h5 stream 5...
+
+--------------------------------------------------
+Starting reconstruction for 241024_M08029_000118_well005...
+Log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well005/well005_axon_reconstruction.log
+Error log file: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well005/well005_axon_reconstruction_error.log
+Recordings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well005/recordings
+Sortings dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well005/sortings
+Waveforms dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well005/waveforms
+Templates dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well005/templates
+Reconstructions dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well005/reconstructions
+Reconstructor dir: /pscratch/sd/a/adammwea/workspace/yThroughput/zRBS_axon_reconstruction_output/B6J_DensityTest_10012024_AR/241024/M08029/AxonTracking/000118/well005
+
+--- Pipeline runtime options ---
+load_reconstructor: False
+load_templates_bypass: False
+concatenate_switch: True
+sort_switch: True
+waveform_switch: False
+template_switch: False
+recon_switch: False
