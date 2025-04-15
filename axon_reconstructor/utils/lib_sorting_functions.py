@@ -55,6 +55,7 @@ def concatenate_recording_segments(h5_path, recording_segments, stream_id=None, 
     def process_rec_seg(rec):
         try:
             chunk_size = min([10000, rec.get_num_samples()]) - 100
+            #print(f'chunk_size: {chunk_size}')
             rec_centered = si.center(rec, chunk_size=chunk_size)
             rec_el = rec.get_property("contact_vector")["electrode"]
             chan_idx = [np.where(rec_el == el)[0][0] for el in common_el]
