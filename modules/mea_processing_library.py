@@ -12,6 +12,7 @@ import filecmp
 from timeit import default_timer as timer
 import pandas as pd
 import h5py
+import traceback
 #import docker
 
 #spikeinterface imports
@@ -791,7 +792,10 @@ def kilosort2_wrapper(recording, output_folder, sorting_params=None, verbose=Fal
             'minFR': 0.01,
             'minfr_goodchannels': 0.01,
             'keep_good_only': False,
-            'do_correction': False
+            'do_correction': False,
+            
+            # aw 2025-03-29 18:54:18 - attempting to fix array casting error with Kilosort2
+            #'chunk_size': '500ms',
         })
     else:
         default_params = ss.Kilosort2Sorter.default_params()
@@ -823,6 +827,7 @@ def kilosort2_wrapper(recording, output_folder, sorting_params=None, verbose=Fal
         )
     except Exception as e:
         logger.error(f"Error running Kilosort2: {e}")
+        traceback.print_exc()  # Print the full traceback for debugging
         return None
 
     return sorting

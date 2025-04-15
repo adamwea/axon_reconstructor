@@ -29,7 +29,19 @@ def extract_unit_waveforms(h5_path, stream_id, segment_sorting, save_root=None, 
     # Helper function to load waveforms
     def load_waveforms(wf_path, seg_sort):
         try:
-            seg_we = si.WaveformExtractor.load(wf_path, with_recording=True, sorting=seg_sort)
+            # deprecated: si.WaveformExtractor.load is deprecated in spikeinterface 0.101
+            # seg_we = si.WaveformExtractor.load(wf_path, with_recording=True, sorting=seg_sort)
+            # update
+            # Load the waveform extractor using the new method
+            wf_path_exists = os.path.exists(wf_path)
+            if not wf_path_exists:
+                raise FileNotFoundError('Waveform folder does not exist')
+            seg_we = si.load_waveforms(
+                folder=wf_path,
+                with_recording=True,  # Load the recording associated with the waveforms 
+                sorting=seg_sort,
+                # **kwargs can be passed here if needed
+            )
             if len(seg_sort.get_unit_ids()) == len(seg_we.unit_ids):
                 if logger is not None: logger.debug(f'Waveforms loaded from {wf_path} already exist')
                 return wf_path, seg_we
@@ -103,15 +115,42 @@ def extract_unit_waveforms(h5_path, stream_id, segment_sorting, save_root=None, 
                         n_jobs])
                     if logger is not None: logger.info(f'Extracting waveforms to {wf_path}, n_jobs={max_workers}')
                     else: print(f'Extracting waveforms to {wf_path}, n_jobs={max_workers}')
-                    os.makedirs(wf_path, exist_ok=True)
-                    seg_we = si.WaveformExtractor.create(rec_centered, seg_sort, wf_path, allow_unfiltered=True, remove_if_exists=True)
-                    seg_we.set_params(ms_before=cutout[0], ms_after=cutout[1], return_scaled=True)
-                    print(f'Extracted waveforms for {rec_name} to {wf_path}, n_jobs={max_workers}')
-                   
+                    #os.makedirs(wf_path, exist_ok=True)
+                    #seg_we = si.WaveformExtractor.create(rec_centered, seg_sort, wf_path, allow_unfiltered=True, remove_if_exists=True)
+                    # seg_we.set_params(ms_before=cutout[0], ms_after=cutout[1], return_scaled=True)
+                    # print(f'Extracted waveforms for {rec_name} to {wf_path}, n_jobs={max_workers}')
+                    # #max_workers = 1
+                    # seg_we.run_extract_waveforms(n_jobs=max_workers)
+                    # NOTE: https://spikeinterface.readthedocs.io/en/stable/tutorials/waveform_extractor_to_sorting_analyzer.html # deperecated waveform extractor as of 0.101 # aw 2025-03-31 10:05:15
 
-                    #max_workers = 1
-                    seg_we.run_extract_waveforms(n_jobs=max_workers)
+                    # updated # aw 2025-03-31 10:18:31
+                    print(f'Extracting waveforms for {rec_name} to {wf_path}, n_jobs={max_workers}')
+                    overwrite_wf = True  # debug 
+                    if overwrite_wf:
+                        # delete the existing folder if it exists to ensure fresh extraction
+                        if os.path.exists(wf_path):
+                            shutil.rmtree(wf_path)
+                            print(f"Deleted existing waveform path: {wf_path}")
+                    try:
+                        seg_we = si.extract_waveforms(
+                            recording=rec_centered, 
+                            sorting=seg_sort,
+                            #save_path=wf_path,
+                            #max_spikes_per_unit=None, # None means all spikes
+                            ms_before=cutout[0], 
+                            ms_after=cutout[1],
+                            return_scaled=True,
+                            n_jobs=max_workers,
+                            allow_unfiltered=True,
+                            folder=wf_path, # this is the folder where the waveforms will be saved
+                            #**kwargs
+                        )
+                    except Exception as e:
+                        if logger is not None: logger.error(f"Error extracting waveforms for {rec_name}: {e}")
+                        else: print(f"Error extracting waveforms for {rec_name}: {e}")
+                        seg_we = None
                     segment_waveforms[rec_name] = {'path': wf_path, 'waveforms': seg_we}
+                    print(f'Extracted waveforms for {rec_name} to {wf_path}, n_jobs={max_workers}')
         return segment_waveforms
 
     #max_workers = min([len(segment_sorting.get_unit_ids()), n_jobs])
