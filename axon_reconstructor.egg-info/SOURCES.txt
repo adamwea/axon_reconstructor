@@ -1,4 +1,5 @@
 README
+pyproject.toml
 setup.py
 axon_reconstructor/__init__.py
 axon_reconstructor/axon_reconstructor.py

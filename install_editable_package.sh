@@ -7,4 +7,4 @@
 # #install the package in editable mode
 # pip install -e $DIR
 
-pip install -e /pscratch/sd/a/adammwea/workspace/axon_reconstructor
+pip install -e /global/homes/a/adammwea/dev/axon_reconstructor/axon_reconstructor

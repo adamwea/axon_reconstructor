@@ -1,4 +1,4 @@
-from modules.generate_templates.extract_templates import *
+from ..utils.extract_templates import *
 import concurrent.futures
 import numpy as np
 from tqdm import tqdm
@@ -38,6 +38,92 @@ from tqdm import tqdm
 #     d_merged_template = np.diff(merged_template, axis=axis) / delta_t
 #     #d_merged_template_filled = np.diff(merged_template_filled, axis=axis) / delta_t
 #     return d_merged_template #, d_merged_template_filled
+
+import matplotlib.pyplot as plt
+import os
+
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+
+def plot_partial_template(
+    incoming_template,
+    channel_locations=None,
+    save_root=None,
+    sel_unit_id=None,
+    template_idx=None,
+    logger=None,
+    verbose=True
+):
+    """
+    Plots the peak (min) value from incoming_template at each channel's XY location.
+
+    Args:
+        incoming_template (np.ndarray): 2D array (samples x channels).
+        channel_locations (list of np.ndarray): List of arrays (channels x 2), one per unit/template.
+        save_root (str, optional): Directory to save the plot.
+        sel_unit_id (int, optional): Unit ID for labeling.
+        template_idx (int, optional): Index for labeling.
+        logger (logging.Logger, optional): Logger for messages.
+        verbose (bool, optional): Whether to print/log messages.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import os
+
+    if channel_locations is None:
+        raise ValueError("channel_locations must be provided for XY plotting.")
+
+    # Use only the locations for this template
+    this_locs = np.array(channel_locations[template_idx])
+    # For each channel, get the minimum value across all samples (spike peak)
+    values = np.min(incoming_template, axis=0)  # shape: (channels,)
+
+    # Use all channel locations across all units/templates for axis limits
+    all_locs = np.vstack(channel_locations)
+    #x_min, x_max = np.min(all_locs[:, 0]), np.max(all_locs[:, 0])
+    #y_min, y_max = np.min(all_locs[:, 1]), np.max(all_locs[:, 1])
+    x_min, x_max = 0, 4200
+    y_min, y_max = 0, 2100
+
+    plt.figure(figsize=(12, 6))
+    sc = plt.scatter(
+        this_locs[:, 0], this_locs[:, 1], c=values, cmap='viridis', s=10, marker='s', edgecolor='k'
+    )
+    plt.colorbar(sc, label='Amplitude (min across samples)')
+    title = f"Template Peak Heatmap on Chip XY"
+    if sel_unit_id is not None:
+        title += f" | Unit {sel_unit_id}"
+    if template_idx is not None:
+        title += f" | Template {template_idx}"
+    plt.title(title)
+    plt.xlabel("X (nm)")
+    plt.ylabel("Y (nm)")
+    plt.xlim(x_min, x_max)
+    plt.ylim(y_min, y_max)
+    #plt.gca().set_aspect('equal')
+    plt.tight_layout()
+
+    if save_root is not None:
+        os.makedirs(save_root, exist_ok=True)
+        fname = f"xy_heatmap"
+        if sel_unit_id is not None:
+            fname += f"_unit{sel_unit_id}"
+        if template_idx is not None:
+            fname += f"_idx{template_idx}"
+        fname += ".png"
+        save_path = os.path.join(save_root, 'partial_templates', fname)
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=90, bbox_inches='tight')
+        if verbose:
+            msg = f"Saved XY heatmap to {save_path}"
+            if logger:
+                logger.info(msg)
+            else:
+                print(msg)
+    else:
+        plt.show()
+    plt.close()
 
 def fill_template(merged_templates, merged_channel_loc, merged_count_at_channel_by_sample, logger=None):
     def get_pitch():
@@ -112,7 +198,7 @@ def fill_template(merged_templates, merged_channel_loc, merged_count_at_channel_
 
     return merged_templates, merged_channel_loc, merged_count_at_channel_by_sample
    
-def merge_templates(templates, channel_locations, logger=None):
+def merge_templates(templates, channel_locations, logger=None, save_root=None, sel_unit_id=None):
     merged_templates = []
     merged_channel_loc = []
     verbose = True
@@ -123,9 +209,11 @@ def merge_templates(templates, channel_locations, logger=None):
     test_channel_measure = 0
     for i in range(len(templates)):
         channel_loc = channel_locations[i]
-
+        incoming_template = templates[i]
+        plot_partial_template(incoming_template, channel_locations, save_root=save_root, sel_unit_id=sel_unit_id, template_idx=i, logger=logger, verbose=verbose)
         if len(merged_templates) == 0:
             incoming_template = templates[i]
+            
             if np.isnan(incoming_template).all(): continue
             assert np.isnan(incoming_template).any() == False, "First template contains NaN values."
 
