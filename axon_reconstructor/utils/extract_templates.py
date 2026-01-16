@@ -10,12 +10,12 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 ''' Local imports '''
-from modules import mea_processing_library as MPL
-import modules.lib_sorting_functions as sorter
-import modules.lib_waveform_functions as waveformer
+from NetworkAnalysisTools import h5_helpers as MPL
+from ..utils import lib_sorting_functions as sorter
+from ..utils import lib_waveform_functions as waveformer
 #from RBS_axonal_reconstructions.modules.generate_templates.process_templates import merge_templates
 #from axon_reconstructor.utils.process_templates import merge_templates
-from .process_templates import merge_templates
+from ..utils.process_templates import merge_templates
 
 
 default_n_jobs = 4
@@ -47,6 +47,111 @@ def log_debug(logger, message):
         print(message)
 
 ''' Template Processing Functions '''
+
+def plot_merged_template_axon_velocity(
+    merged_template,
+    merged_channel_loc=None,
+    save_root=None,
+    sel_unit_id=None,
+    logger=None,
+    verbose=True,
+    **axon_velocity_kwargs
+):
+    """
+    Plots the axon velocity footprint using the axon_velocity package for the fully merged template.
+
+    Args:
+        merged_template (np.ndarray): 2D array (samples x channels) for the merged template.
+        merged_channel_loc (np.ndarray): Array of shape (channels x 2) with XY locations for each channel.
+        save_root (str, optional): Directory to save the plot.
+        sel_unit_id (int, optional): Unit ID for labeling.
+        logger (logging.Logger, optional): Logger for messages.
+        verbose (bool, optional): Whether to print/log messages.
+        **axon_velocity_kwargs: Additional kwargs for axon_velocity.estimate_velocity.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import os
+    from axon_velocity.axon_velocity import plot_template_propagation, plot_amplitude_map
+    #from axon_velocity.axon_velocity import GraphAxonTracking
+
+    if merged_channel_loc is None:
+        raise ValueError("merged_channel_loc must be provided for XY plotting.")
+
+    # Estimate velocity using axon_velocity package
+    # merged_template: (samples, channels), merged_channel_loc: (channels, 2)
+    # axon_velocity expects (channels, samples), so transpose
+    fig, ax = plt.subplots(figsize=(12, 6))
+    # velocity_map = plot_template_propagation(
+    #     merged_template.T, 
+    #     merged_channel_loc,
+    #     selected_channels=[i for i in range(merged_channel_loc.shape[0])],
+    #     ax=ax,
+        
+    #     #**axon_velocity_kwargs
+    # )  # returns (channels,)
+    amplitude_map = plot_amplitude_map(
+        merged_template.T,
+        merged_channel_loc,
+        #selected_channels=[i for i in range(merged_channel_loc.shape[0])],
+        ax=ax,
+        colorbar=True,
+    )  # returns (channels,)
+
+    #locs = np.array(merged_channel_loc)
+    #values = velocity_map
+
+    x_min, x_max = 0, 4200
+    y_min, y_max = 0, 2100
+
+    # plt.figure(figsize=(12, 6))
+    # sc = plt.scatter(
+    #     locs[:, 0], locs[:, 1], c=values, cmap='plasma', s=10, marker='s', edgecolor='k'
+    # )
+    # plt.colorbar(sc, label='Estimated Axon Velocity (µm/ms)')
+    # title = f"Merged Template Axon Velocity Heatmap on Chip XY"
+    # if sel_unit_id is not None:
+    #     title += f" | Unit {sel_unit_id}"
+    #plt.title(title)
+    plt.xlabel("X (nm)")
+    plt.ylabel("Y (nm)")
+    plt.xlim(x_min, x_max)
+    plt.ylim(y_min, y_max)
+    plt.tight_layout()
+
+    if save_root is not None:
+        os.makedirs(save_root, exist_ok=True)
+        fname = f"xy_heatmap_axon_velocity"
+        if sel_unit_id is not None:
+            fname += f"_unit{sel_unit_id}"
+        fname += ".png"
+        save_path = os.path.join(save_root, 'merged_templates', fname)
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=90, bbox_inches='tight')
+        if verbose:
+            msg = f"Saved merged XY axon velocity heatmap to {save_path}"
+            if logger:
+                logger.info(msg)
+            else:
+                print(msg)
+    else:
+        plt.show()
+    plt.close()
+    
+    # gtr = GraphAxonTracking(
+    #     merged_template.T,
+    #     merged_channel_loc,
+    #     fs=20000,
+    #     #selected_channels=[i for i in range(merged_channel_loc.shape[0])],
+    #     #**axon_velocity_kwargs
+    # )
+    
+    # gtr.select_channels()
+    # gtr.build_graph()
+    # gtr.find_paths()
+    # gtr.clean_paths(remove_outliers=False)
+    # fig, ax = plt.subplots(figsize=(12, 6))
+    # gtr.plot_raw_branches(ax=ax)
 
 def process_template_segment(sel_unit_id, rec_name, waveforms, save_root, sel_idx, logger):
     try:
@@ -107,11 +212,11 @@ def extract_template_segments(sel_unit_id, h5_path, stream_id, waveforms, save_r
     log_info(logger, f'Finished extracting {len(template_segments)} template segments for unit {sel_unit_id}')
     return template_segments, channel_locations
 
-def merge_template_segments(unit_segments, channel_locations, logger=None):
+def merge_template_segments(unit_segments, channel_locations, logger=None, save_root=None, sel_unit_id=None):
     log_info(logger, f'Merging partial templates')
     template_list = [tmp['template'] for rec_name, tmp in unit_segments.items()]
     channel_locations_list = [ch_loc['channel_locations'] for rec_name, ch_loc in channel_locations.items()]
-    merged_template, merged_channel_loc = merge_templates(template_list, channel_locations_list, logger=logger)
+    merged_template, merged_channel_loc = merge_templates(template_list, channel_locations_list, logger=logger, save_root=save_root, sel_unit_id=sel_unit_id)
     merged_template = merged_template[0]
     merged_channel_loc = merged_channel_loc[0]
     return merged_template, merged_channel_loc
@@ -147,7 +252,7 @@ def extract_and_merge_template(sel_unit_id, h5_path, stream_id, waveforms, te_pa
     n_jobs = te_params.get('n_jobs', 8)
     unit_segments, channel_locations = extract_template_segments(sel_unit_id, h5_path, stream_id, waveforms, save_root=save_root, logger=logger, max_workers=n_jobs)
     log_info(logger, f'Merging partial templates for unit {sel_unit_id}')
-    merged_template, merged_channel_loc = merge_template_segments(unit_segments, channel_locations, logger=logger)
+    merged_template, merged_channel_loc = merge_template_segments(unit_segments, channel_locations, logger=logger, save_root=save_root, sel_unit_id=sel_unit_id)
     return unit_segments, channel_locations, merged_template, merged_channel_loc
 
 def extract_merged_templates(h5_path, stream_id, segment_sorting, waveforms, te_params, save_root=None, unit_limit=None, logger=None, template_bypass=False, unit_select=None, **temp_kwargs):
@@ -189,6 +294,15 @@ def extract_merged_templates(h5_path, stream_id, segment_sorting, waveforms, te_
             unit_count += 1
             if unit_limit is not None and unit_count >= unit_limit:
                 break
+            
+            plot_merged_template_axon_velocity(
+                merged_template,
+                merged_channel_loc=merged_channel_loc,
+                save_root=save_root,
+                sel_unit_id=sel_unit_id,
+                logger=logger,
+                verbose=True
+            )
             continue
         except Exception as e:
             log_warning(logger, f'Error loading template for unit {sel_unit_id}:\n{e}. Generating New Templates.')
@@ -197,6 +311,15 @@ def extract_merged_templates(h5_path, stream_id, segment_sorting, waveforms, te_
             unit_segments, channel_locations, merged_template, merged_channel_loc = extract_and_merge_template(sel_unit_id, h5_path, stream_id, waveforms, te_params, save_root, logger)
             add_to_dict(unit_templates, sel_unit_id, unit_segments, channel_locations, merged_template, merged_channel_loc, template_save_file, channel_loc_save_file)
 
+            plot_merged_template_axon_velocity(
+                merged_template,
+                merged_channel_loc=merged_channel_loc,
+                save_root=save_root,
+                sel_unit_id=sel_unit_id,
+                logger=logger,
+                verbose=True
+            )
+            
             if te_params.get('save_merged_templates', False):
                 np.save(template_save_file, merged_template)
                 np.save(channel_loc_save_file, merged_channel_loc)
@@ -207,7 +330,7 @@ def extract_merged_templates(h5_path, stream_id, segment_sorting, waveforms, te_
                 break
         except Exception as e:
             log_error(logger, f'Unit {sel_unit_id} encountered the following error: {e}')
-
+            
     return unit_templates
 
 def extract_templates(multirec, sorting, waveforms, h5_path, stream_id, save_root=None, te_params={}, qc_params={}, unit_limit=None, logger=None, template_bypass=False, **temp_kwargs):

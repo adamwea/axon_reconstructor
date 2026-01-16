@@ -8,7 +8,8 @@ import subprocess
 import numpy as np
 import dill
 import h5py
-from MEA_Analysis.MEAProcessingLibrary import mea_processing_library as MPL
+#from MEA_Analysis.MEAProcessingLibrary import mea_processing_library as MPL
+from NetworkAnalysisTools import h5_helpers as MPL
 from pprint import pprint
 
 # local imports ===================================================
@@ -16,6 +17,8 @@ from .utils import lib_sorting_functions as sorter
 from .utils import lib_waveform_functions as waveformer
 from .utils import extract_templates as templater
 from ..modules.analyze_and_reconstruct.reconstruct_and_analyze import reconstruct_and_analyze  # This is the main function for reconstruction and analysis
+
+import spikeinterface.preprocessing as spre
 
 # logging helpers ===================================================
 class SingleLevelFilter(logging.Filter):
@@ -31,28 +34,32 @@ class AxonReconstructor:
     
     def __init__(self, h5_parent_dirs, **kwargs):
         # Identification and Logging
-        self.project_name = kwargs.get('project_name', None)
-        self.log_file = kwargs.get('log_file', 'axon_reconstruction.log')
-        self.error_log_file = kwargs.get('error_log_file', 'axon_reconstruction_error.log')
+        #self.project_name = kwargs.get('project_name', None)
+        self.output_dir = os.path.join(kwargs.get('output_dir', './temp_data'), 'reconstructor_output')
+        self.log_file = kwargs.get('log_file', os.path.join(self.output_dir, 'axon_reconstruction.log'))
+        self.error_log_file = kwargs.get('error_log_file', os.path.join(self.output_dir, 'axon_reconstruction_error.log'))
         self.logger_level = kwargs.get('logger_level', 'INFO')
         self.logger = self.setup_logger()
         self.logger.info("Initializing AxonReconstructor")
 
         # Directories
         self.h5_parent_dirs = h5_parent_dirs
-        self.recordings_dir = kwargs.get('recordings_dir', './data/temp_data/recordings')
-        self.sortings_dir = kwargs.get('sortings_dir', './data/temp_data/sortings')
-        self.waveforms_dir = kwargs.get('waveforms_dir', './data/temp_data/waveforms')
-        self.templates_dir = kwargs.get('templates_dir', './data/temp_data/templates')
-        self.recon_dir = kwargs.get('recon_dir', './data/reconstructions')
-        self.reconstructor_dir = kwargs.get('reconstructor_dir', './data/reconstructors')
+        #self.recordings_dir = kwargs.get('recordings_dir', './data/temp_data/recordings')
+        self.sortings_dir = kwargs.get('sortings_dir', os.path.join(self.output_dir, 'sorted'))
+        # self.waveforms_dir = kwargs.get('waveforms_dir', './data/temp_data/waveforms')
+        # self.templates_dir = kwargs.get('templates_dir', './data/temp_data/templates')
+        # self.recon_dir = kwargs.get('recon_dir', './data/reconstructions')
+        #self.reconstructor_dir = kwargs.get('reconstructor_dir', './data/reconstructors')
 
         # Configuration and Processing Options
+        self.MaxID = kwargs.get('MaxID', 2)
+        self.filter_signal = kwargs.get('filter_signal', False)
+        self.stim_rate = kwargs.get('stim_rate', 1.0)
         self.allowed_scan_types = kwargs.get('allowed_scan_types', ['AxonTracking'])
         self.stream_select = kwargs.get('stream_select', None)
         self.unit_select = kwargs.get('unit_select', None)
         self.unit_limit = kwargs.get('unit_limit', None)
-        self.save_reconstructor_object = kwargs.get('save_reconstructor_object', False)
+        #self.save_reconstructor_object = kwargs.get('save_reconstructor_object', False)
         self.debug_mode = kwargs.get('debug_mode', True)
         self.load_existing_sortings = kwargs.get('load_existing_sortings', True)
         self.load_merged_templates = kwargs.get('load_merged_templates', False)
@@ -299,7 +306,7 @@ class AxonReconstructor:
                 scan_type = h5_details[0]['scanType']
                 if scan_type in self.sorting_params['allowed_scan_types']:
                     try: 
-                        device, recording_segments, stream_count, rec_counts = MPL.load_recordings(h5_path, stream_select=self.stream_select, logger=self.logger)
+                        device, recording_segments, stream_count, rec_counts = MPL.load_recordings(h5_path, stream_select=self.stream_select, logger=self.logger, max_id=self.MaxID)
                     except Exception as e: 
                         self.logger.error(f"Error loading recording segments from {h5_path}: {e}")
                         self.logger.error(f"Skipping {h5_path}")
@@ -334,6 +341,31 @@ class AxonReconstructor:
         assert len(self.multirecordings[rec_key]['streams'][stream_id]['common_el'])>0, f"Empty common_el found in reconstructor for {stream_id}. Generating new multirecording."
         self.logger.info(f"Success! Using exisiting multirecording from reconstructor object for {stream_id}. Skipping concatenation.")
         return self.multirecordings[rec_key]['streams'][stream_id]
+    
+    def filter_recordings(self):
+        self.logger.info("Filtering recordings based on scan type and stream selection")
+        filtered_recordings = {}
+        for rec_key, recording in self.recordings.items():
+            streams = recording['streams']
+            for wellid, stream in streams.items():
+                filtered_segments = []
+                for segment in stream:
+                    filter_kwargs = {}
+                    filtered_segment = spre.highpass_filter(
+                        segment, 
+                        freq_min=1.0,  # Highpass at 1 Hz
+                        margin_ms=5.0, 
+                        **filter_kwargs
+                    )
+                    filtered_segments.append(filtered_segment)
+                    #filtered_segment_traces = filtered_segment.get_traces().T  # Transpose to have channels as rows
+                    #filtered_selected_traces = filtered_segment_traces[sorted_indices]
+                    #filtered_selected_traces = filtered_selected_traces[selected_indices]
+                    #log(f"Filtered traces shape: {filtered_selected_traces.shape}")
+                streams[wellid] = filtered_segments
+            self.recordings[rec_key]['streams'] = streams
+        #self.recordings = filtered_recordings
+        self.logger.info(f"Filtered recordings: {len(self.recordings)} found")
     
     def concatenate_recordings(self):        
         self.logger.info("Concatenating recordings")
@@ -375,7 +407,7 @@ class AxonReconstructor:
                         'h5_path': h5_path,
                         'recording_segments': recording_segments,
                         'stream_id': stream_id,
-                        'save_dir': self.recordings_dir,
+                        #'save_dir': self.recordings_dir,
                         'n_jobs': self.n_jobs,
                         #'max_workers': 24,
                         'logger': self.logger
@@ -383,13 +415,13 @@ class AxonReconstructor:
                     self.logger.info(f'Concatenating recording segments for {date}_{chip_id}_{run_id} stream {stream_id}')
                     # multirecording, common_el, multirec_save_path = sorter.concatenate_recording_segments(
                     #     h5_path, recording_segments, stream_id, save_dir=self.recordings_dir, logger=self.logger)
-                    multirecording, common_el, multirec_save_path = sorter.concatenate_recording_segments(**concat_kwargs)                     
+                    multirecording, common_el, multirec_save_path = sorter.concatenate_recording_segments(self, **concat_kwargs)                     
                     #TODO: hack, fix later
-                    multirec_save_path = os.path.dirname(self.recordings_dir)                
+                    #multirec_save_path = os.path.dirname(self.recordings_dir)                
                     streams[stream_id] = {
                         'multirecording': multirecording,
                         'common_el': common_el,
-                        'multirec_save_path': multirec_save_path
+                        #'multirec_save_path': multirec_save_path
                     } 
 
             multirecordings[f"{date}_{chip_id}_{run_id}"] = {
@@ -456,9 +488,32 @@ class AxonReconstructor:
                     self.logger.info(f'Spike sorting stream {stream_id}')
                     mr = stream['multirecording']                    
                     sorting, stream_sort_path, message = sorter.sort_multirecording(mr, stream_id, save_root=spikesorting_root, sorting_params=self.sorting_params, logger=self.logger, only_load=self.only_load_sortings)
+                    
+                    # generate sorting analyzer from sorting object
+                    # if sorting is not None:
+                    #     folder = os.path.join(self.output_dir, 'analyzer', stream_id)
+                    #     #HACK: if folder exists, delete it to avoid conflicts
+                    #     if os.path.exists(folder):
+                    #         shutil.rmtree(folder)                        
+                    #     try:
+                    #         sorting_analyzer = si.create_sorting_analyzer(
+                    #                 sorting=sorting,
+                    #                 recording=mr,
+                    #                 format="binary_folder",
+                    #                 folder=folder,
+                    #                 #**wf_kwargs
+                    #             )
+                    #     except Exception as e:
+                    #         try:
+                    #             sorting_analyzer = si.load_sorting_analyzer(folder)
+                    #         except Exception as e:
+                    #             self.logger.error(f"Failed to create or load sorting analyzer for {stream_id}: {e}")
+                    #             sorting_analyzer = None
+                    
                     streams[stream_id] = {
                         'sorting_path': stream_sort_path,
                         'sorting': sorting,
+                        'sorting_analyzer': sorting_analyzer if 'sorting_analyzer' in locals() else None,
                         'message': message
                     }
 
@@ -521,7 +576,7 @@ class AxonReconstructor:
                     self.logger.info(f'Extracting waveforms from stream: {stream_id}')
                     h5_path = self.recordings[key]['h5_path']
                     wf_kwargs = {
-                        'save_root': self.waveforms_dir,
+                        'save_root': os.path.join(self.output_dir, 'waveforms', stream_id),
                         'logger': self.logger,
                         'te_params': self.te_params,
                         'unit_limit': self.unit_limit,
@@ -540,7 +595,8 @@ class AxonReconstructor:
                 'date': multirecs['date'],
                 'chip_id': multirecs['chip_id'],
                 'run_id': multirecs['run_id'],
-                'waveforms_dir': self.waveforms_dir,
+                #'waveforms_dir': self.waveforms_dir,
+                'waveforms_dir': os.path.join(self.output_dir, 'waveforms', stream_id),
                 'streams': streams
             }
         try: 
@@ -614,7 +670,9 @@ class AxonReconstructor:
                         'unit_select': self.unit_select,
                     }
                     unit_templates = templater.extract_templates(
-                        multirec, sorting, wfs, h5_path, stream_id, save_root=self.templates_dir, 
+                        multirec, sorting, wfs, h5_path, stream_id, 
+                        #save_root=self.templates_dir, 
+                        save_root=os.path.join(self.output_dir, 'templates', stream_id),
                         te_params=self.te_params, qc_params=self.qc_params, unit_limit=self.unit_limit, 
                         logger=self.logger, template_bypass=template_bypass, **temp_kwargs)
                     streams[stream_id] = {'units': unit_templates}
@@ -624,7 +682,8 @@ class AxonReconstructor:
                 'date': datum['date'],
                 'chip_id': datum['chip_id'],
                 'run_id': datum['run_id'],
-                'templates_dir': self.templates_dir,
+                #'templates_dir': self.templates_dir,
+                'templates_dir': os.path.join(self.output_dir, 'templates', stream_id),
                 'streams': streams
             }
         try: 
@@ -641,7 +700,8 @@ class AxonReconstructor:
             'reconstructor_id': self.reconstructor_id,
             'unit_select': self.unit_select,
             'templates': self.templates,
-            'recon_dir': self.recon_dir,
+            #'recon_dir': self.recon_dir,
+            'recon_dir': os.path.join(self.output_dir, 'reconstructions'),
             'params': self.av_params,
             'analysis_options': self.analysis_options,
             'stream_select': self.stream_select,
@@ -767,8 +827,8 @@ class AxonReconstructor:
         #print runtime options
         print(f"\n--- Pipeline runtime options ---")
         #print(f"Pipeline runtime options: {kwargs}")
-        print(f'load_reconstructor: {self.reconstructor_load_options["load_reconstructor"]}')
-        print(f'load_templates_bypass: {self.reconstructor_load_options["load_templates_bypass"]}')
+        # print(f'load_reconstructor: {self.reconstructor_load_options["load_reconstructor"]}')
+        # print(f'load_templates_bypass: {self.reconstructor_load_options["load_templates_bypass"]}')
         print(f'concatenate_switch: {kwargs.get("concatenate_switch", True)}')
         print(f'sort_switch: {kwargs.get("sort_switch", True)}')
         print(f'waveform_switch: {kwargs.get("waveform_switch", True)}')
@@ -791,6 +851,8 @@ class AxonReconstructor:
         self.load_recordings()
         #if self.reconstructor_load_options['load_reconstructor']: self.load_reconstructor() #TODO: Finish implementing environment load at some point. Not important.
         #if self.reconstructor_load_options['load_templates_bypass']: self.bypass_to_templates() # Useful if sorting and waveform temp data have been dealt with but templates are still available
+        
+        if self.filter_signal: self.filter_recordings()
         if self.concatenate_switch: self.concatenate_recordings()
         if self.sort_switch: self.spikesort_recordings()
         if self.waveform_switch: self.extract_waveforms()

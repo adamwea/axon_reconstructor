@@ -5,7 +5,9 @@ import spikeinterface.sorters as ss
 import numpy as np
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
-from modules import mea_processing_library as MPL
+#from modules import mea_processing_library as MPL
+from NetworkAnalysisTools import h5_helpers as MPL
+from NetworkAnalysisTools import spikeinterface_helpers as si_helpers
 import logging
 
 #default_recording_dir = './AxonReconPipeline/data/temp_data/recordings'
@@ -41,16 +43,17 @@ def find_common_electrodes(rec_path, stream_id, logger=None):
     
     return rec_names, list(common_el)
 
-def concatenate_recording_segments(h5_path, recording_segments, stream_id=None, save_dir=None, n_jobs=4, max_workers=24, logger=None):
+def concatenate_recording_segments(self, h5_path, recording_segments, stream_id=None, save_dir=None, n_jobs=4, max_workers=24, logger=None):
     
     rec_names, common_el = find_common_electrodes(h5_path, stream_id, logger=logger)
     multirec_name = f'{stream_id}_multirecording'
-    h5_details = MPL.extract_recording_details(h5_path)
-    date = h5_details[0]['date']
-    chip_id = h5_details[0]['chipID']
-    scanType = h5_details[0]['scanType']
-    run_id = h5_details[0]['runID']
-    multirec_save_path = os.path.join(save_dir, f'{date}/{chip_id}/{scanType}/{run_id}', multirec_name)
+    # h5_details = MPL.extract_recording_details(h5_path)
+    # date = h5_details[0]['date']
+    # chip_id = h5_details[0]['chipID']
+    # scanType = h5_details[0]['scanType']
+    # run_id = h5_details[0]['runID']
+    multirec_save_path = os.path.join(self.output_dir, stream_id, multirec_name)
+    #multirec_save_path = os.path.join(save_dir, f'{date}/{chip_id}/{scanType}/{run_id}', multirec_name)
 
     def process_rec_seg(rec):
         try:
@@ -117,7 +120,7 @@ def sort_multirecording(multirecording, stream_id, save_root, sorting_params=dic
         sorting_params_filtered = {k: v for k, v in sorting_params.items() if k in ss.Kilosort2Sorter.default_params()}
         #TODO: remove/fix this later: sorting_params_filtered['use_gpu'] = False
         #sorting = MPL.benshalom_kilosort2_docker_image(multirecording, sorting_params=sorting_params_filtered, output_folder=stream_sort_path, verbose=verbose)
-        sorting = MPL.kilosort2_wrapper(multirecording, sorting_params=sorting_params_filtered, output_folder=stream_sort_path, verbose=verbose)
+        sorting = si_helpers.kilosort2_wrapper(multirecording, sorting_params=sorting_params_filtered, output_folder=stream_sort_path, verbose=verbose)
         message = f"Completed sorting and saved results to {sorter_output_folder}"
         if logger: logger.info(message)
         else: print(message)

@@ -6,8 +6,9 @@ import shutil
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from modules import mea_processing_library as MPL
-import modules.lib_sorting_functions as sorter
+#from modules import mea_processing_library as MPL
+from NetworkAnalysisTools import h5_helpers as MPL
+from ..utils import lib_sorting_functions as sorter
 
 # Function to extract waveforms for a specific unit
 def extract_unit_waveforms(h5_path, stream_id, segment_sorting, save_root=None, logger=None, te_params={}, **wf_kwargs):

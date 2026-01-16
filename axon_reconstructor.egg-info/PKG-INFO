@@ -1,4 +1,5 @@
-Metadata-Version: 2.1
-Name: axon-reconstructor
+Metadata-Version: 2.4
+Name: axon_reconstructor
 Version: 0.0.0
 Author-email: amwe@ucdavis.edu
+Dynamic: author-email
