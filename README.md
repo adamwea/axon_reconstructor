@@ -2,6 +2,11 @@
 
 Rebuilding `axon_reconstructor` with cleaner structure, documentation, and reproducible tooling.
 
+## Developer setup (start here)
+
+- Create the conda env: [environment.yml](environment.yml)
+- Follow the walkthrough: [docs/developer_setup.md](docs/developer_setup.md)
+
 ## Install (editable)
 
 ```bash
