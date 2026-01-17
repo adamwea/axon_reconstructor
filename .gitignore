@@ -24,3 +24,7 @@ htmlcov/
 # OS / editor
 .DS_Store
 .vscode/
+
+# Runtime logs
+axon_reconstruction*.log
+

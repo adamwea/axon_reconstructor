@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 # Third-party dependencies
 try:
@@ -87,6 +88,23 @@ class AxonReconstructor:
         self.save_reconstructor_object = kwargs.get('save_reconstructor_object', False)
         self.debug_mode = kwargs.get('debug_mode', True)
         self.load_existing_sortings = kwargs.get('load_existing_sortings', True)
+
+        # Spike sorting is always performed via Mandar's MEA_Analysis pipeline.
+        # This class either:
+        # - (NERSC) loads precomputed MEA_Analysis sorter outputs produced on a GPU node, or
+        # - (Lab) can optionally invoke Mandar's pipeline driver (typically using --docker).
+        self.mea_environment = kwargs.get('mea_environment', 'nersc')  # 'nersc' | 'lab'
+        self.mea_analysis_output_root = kwargs.get('mea_analysis_output_root', None)
+        self.mea_analysis_sorter_name = kwargs.get('mea_analysis_sorter_name', 'kilosort4')
+        self.mea_analysis_repo_root = kwargs.get('mea_analysis_repo_root', None)
+        self.mea_analysis_docker_image = kwargs.get('mea_analysis_docker_image', None)
+
+        # If True, this process may call Mandar's driver to generate missing sorter outputs.
+        # Defaults: lab=True, nersc=False.
+        self.mea_auto_run_driver = kwargs.get(
+            'mea_auto_run_driver',
+            True if self.mea_environment == 'lab' else False,
+        )
         self.load_merged_templates = kwargs.get('load_merged_templates', False)
         self.load_template_segments = kwargs.get('load_template_segments', True)
         self.load_waveforms = kwargs.get('load_waveforms', True)
@@ -456,6 +474,14 @@ class AxonReconstructor:
         sortings = {}
         try: assert self.multirecordings, "No multirecordings found. Skipping spike sorting." 
         except Exception as e: self.logger.error(e); return 
+        if self.mea_analysis_output_root is None:
+            raise ValueError(
+                'mea_analysis_output_root is required because spike sorting is performed via MEA_Analysis.'
+            )
+
+        # Track which data files we've already attempted to sort via the driver in this run.
+        driver_attempted_for: set[str] = set()
+
         for rec_key, multirec in self.multirecordings.items():
             date = multirec['date']
             chip_id = multirec['chip_id']
@@ -464,6 +490,15 @@ class AxonReconstructor:
             self.logger.info(f'Generating spike sorting objects for {date}_{chip_id}_{run_id}')
             #spikesorting_root = os.path.join(self.sorting_params['sortings_dir'], f'{date}/{chip_id}/{scanType}/{run_id}')
             spikesorting_root = self.sorting_params['sortings_dir']
+            h5_path = multirec.get('h5_path')
+            if h5_path is None:
+                self.logger.error(f'Missing h5_path for {rec_key}; cannot resolve MEA_Analysis sorter output.')
+                continue
+
+            # Optionally run Mandar's driver once per data file (lab mode) if sorter outputs are missing.
+            if self.mea_auto_run_driver and str(h5_path) not in driver_attempted_for:
+                driver_attempted_for.add(str(h5_path))
+                self._maybe_run_mea_analysis_driver(data_file=h5_path)
             streams = {}
             for stream_id, stream in multirec['streams'].items():
                 self.setup_logger(prefix=f'{rec_key}_{stream_id}')
@@ -483,13 +518,11 @@ class AxonReconstructor:
                 except AssertionError as e:
                     self.logger.warning(e)
                     self.logger.info(f'Spike sorting stream {stream_id}')
-                    mr = stream['multirecording']                    
-                    sorting, stream_sort_path, message = sorter.sort_multirecording(mr, stream_id, save_root=spikesorting_root, sorting_params=self.sorting_params, logger=self.logger, only_load=self.only_load_sortings)
-                    streams[stream_id] = {
-                        'sorting_path': stream_sort_path,
-                        'sorting': sorting,
-                        'message': message
-                    }
+
+                    streams[stream_id] = self._load_mea_analysis_sorting(
+                        data_file=h5_path,
+                        well=stream_id,
+                    )
 
             sortings[f"{date}_{chip_id}_{run_id}"] = {
                 'scanType': scanType,
@@ -503,6 +536,160 @@ class AxonReconstructor:
             self.update_nested_dict(self.sortings, sortings)
         except: self.sortings = sortings
         self.logger.debug("Completed spike sorting")
+
+    def _maybe_run_mea_analysis_driver(self, *, data_file: os.PathLike[str] | str) -> None:
+        """Optionally invoke Mandar's MEA_Analysis driver (lab mode) to generate sorter outputs.
+
+        On NERSC this defaults to disabled (spike sorting is usually run via a scheduler job).
+        """
+
+        if not self.mea_auto_run_driver:
+            return
+
+        if self.mea_analysis_repo_root is None:
+            self.logger.warning(
+                'mea_auto_run_driver=True but mea_analysis_repo_root is not set; cannot run Mandar driver.'
+            )
+            return
+
+        try:
+            from axon_reconstructor.integrations.mea_analysis import (
+                MEAAnalysisRunSpec,
+                build_run_pipeline_driver_cmd,
+            )
+        except Exception as e:
+            self.logger.warning(f'Cannot import MEA_Analysis command builder: {e}')
+            return
+
+        # Lab mode convention: run sorting inside docker.
+        docker_image = self.mea_analysis_docker_image
+        if docker_image is None:
+            self.logger.warning(
+                'mea_auto_run_driver=True but mea_analysis_docker_image is not set; '
+                'skipping driver invocation.'
+            )
+            return
+
+        output_root = Path(self.mea_analysis_output_root).resolve()
+
+        spec = MEAAnalysisRunSpec(
+            mea_analysis_repo_root=Path(self.mea_analysis_repo_root),
+            path=Path(data_file),
+            output_dir=output_root,
+            sorter=self.mea_analysis_sorter_name,
+            docker=docker_image,
+        )
+        argv = build_run_pipeline_driver_cmd(spec)
+        self.logger.info('Invoking MEA_Analysis driver to produce sorter outputs.')
+        self.logger.info('Command: %s', ' '.join(argv))
+
+        try:
+            subprocess.run(argv, check=True)
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f'MEA_Analysis driver failed (exit={e.returncode}).')
+            raise
+
+    def _load_mea_analysis_sorting(self, *, data_file: os.PathLike[str] | str, well: str) -> dict:
+        """Load a SortingExtractor from an existing MEA_Analysis `sorter_output` folder.
+
+        This is intentionally defensive:
+        - Uses the shared `IPNAnalysis.path_contract` via `axon_reconstructor.integrations.mea_analysis`
+        - Avoids hard-requiring SpikeInterface in minimal environments (returns sorting=None)
+        """
+
+        try:
+            from axon_reconstructor.integrations import mea_analysis as mea
+        except Exception as e:
+            return {
+                'sorting_path': None,
+                'sorting': None,
+                'message': f'Failed to import MEA_Analysis integration: {e}',
+            }
+
+        output_root = Path(self.mea_analysis_output_root).resolve()
+        well_output_dir = mea.compute_mea_output_dir(
+            output_root=output_root,
+            data_file=data_file,
+            well=well,
+        )
+        sorter_output_dir = well_output_dir / 'sorter_output'
+
+        if not mea.validate_sorter_output_dir(sorter_output_dir):
+            hint = ''
+            if self.mea_analysis_repo_root is not None:
+                try:
+                    from axon_reconstructor.integrations.mea_analysis import (
+                        MEAAnalysisRunSpec,
+                        build_run_pipeline_driver_cmd,
+                    )
+
+                    spec = MEAAnalysisRunSpec(
+                        mea_analysis_repo_root=Path(self.mea_analysis_repo_root),
+                        path=Path(data_file),
+                        output_dir=output_root,
+                        sorter=self.mea_analysis_sorter_name,
+                    )
+                    argv = build_run_pipeline_driver_cmd(spec)
+                    hint = f"\nSuggested command:\n  {' '.join(argv)}"
+                except Exception as e:
+                    hint = f"\n(Also failed to build suggested command: {e})"
+
+            msg = f'MEA_Analysis sorter_output not found or empty: {sorter_output_dir}.{hint}'
+            # In NERSC mode we fail fast: sorting is expected to be done externally (e.g. via Slurm on a GPU node).
+            if self.mea_environment == 'nersc':
+                raise FileNotFoundError(msg)
+
+            return {
+                'sorting_path': str(well_output_dir),
+                'sorting': None,
+                'message': msg,
+            }
+
+        if ss is None and si is None:
+            return {
+                'sorting_path': str(well_output_dir),
+                'sorting': None,
+                'message': 'Found sorter_output, but spikeinterface is not installed; cannot load SortingExtractor.',
+            }
+
+        sorter_name = self.mea_analysis_sorter_name
+
+        sorting_obj = None
+        load_error = None
+
+        if ss is not None and hasattr(ss, 'read_sorter_folder'):
+            try:
+                try:
+                    sorting_obj = ss.read_sorter_folder(sorter_output_dir, sorter_name=sorter_name)
+                except TypeError:
+                    sorting_obj = ss.read_sorter_folder(sorter_output_dir, sorter_name)
+            except Exception as e:
+                load_error = e
+
+        if sorting_obj is None and si is not None and hasattr(si, 'read_sorter_folder'):
+            try:
+                try:
+                    sorting_obj = si.read_sorter_folder(sorter_output_dir, sorter_name=sorter_name)
+                except TypeError:
+                    sorting_obj = si.read_sorter_folder(sorter_output_dir, sorter_name)
+            except Exception as e:
+                load_error = e
+
+        if sorting_obj is None:
+            msg = f'Found sorter_output but could not load it via spikeinterface for sorter={sorter_name}.'
+            if load_error is not None:
+                msg += f' Error: {load_error}'
+            return {
+                'sorting_path': str(well_output_dir),
+                'sorting': None,
+                'message': msg,
+            }
+
+        return {
+            'sorting_path': str(well_output_dir),
+            'sorting': sorting_obj,
+            'message': 'Loaded sorting from MEA_Analysis sorter_output.',
+        }
 
     def _validate_wf(self, rec_key, stream_id, sorting):
         assert self.reconstructor_load_options['load_wfs'], 'Load existing waveforms option is set to False. Generating new waveforms.'
