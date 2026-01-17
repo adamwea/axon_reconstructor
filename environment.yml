@@ -1,0 +1,16 @@
+name: axon_recon
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  # Dev/test tooling
+  - pytest
+  - ruff
+  - numpy
+  # Note: runtime scientific deps (spikeinterface, h5py, etc.) will be added
+  # incrementally as the rebuild progresses.
+  - pip:
+      # Install this package in editable mode with dev extras
+      - -e .[dev]
