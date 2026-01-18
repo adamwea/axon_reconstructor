@@ -8,11 +8,13 @@ set -euo pipefail
 #
 # Usage:
 #   salloc -A <acct> -C gpu -q interactive -t 00:30:00 -N 1 --gpus=1 --cpus-per-task=16
-#   bash scripts/nersc_perlmutter/07_gpu_node_smoketest_no_sort_container_plugin_default.sh
+#   bash scripts/nersc_perlmutter/smoke_tests/interactive_gpu_node/07_gpu_node_smoketest_no_sort_container_plugin_default.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/00_config.sh"
+source "$SCRIPT_DIR/../_shared/00_config.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/../_shared/_nersc_shifter_helpers.sh"
 
 if [[ ! -f "$RAW_H5" ]]; then
   echo "ERROR: RAW_H5 not found: $RAW_H5" >&2
@@ -52,15 +54,21 @@ DRIVER_ARGS=(
 
 DRIVER_SCRIPT_REL="IPNAnalysis/run_pipeline_driver.py"
 
-# Prevent host conda from hijacking python inside Shifter.
-CONTAINER_PATH="${SHIFTER_CONTAINER_PATH:-/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
-SHIFTER_PY="${SHIFTER_PYTHON:-python3}"
+if ! ensure_shifter_available; then
+  echo "ERROR: 'shifter' command not found in PATH (try: module load shifter)." >&2
+  exit 4
+fi
+
+shifter_mod_args=()
+if [[ -n "${SHIFTER_MODULES:-}" ]]; then
+  shifter_mod_args+=("--module=${SHIFTER_MODULES}")
+fi
 
 if [[ -n "${SLURM_JOB_ID:-}" && -n "${SHIFTER_IMAGE:-}" ]]; then
   CMD=(
-    srun --export=NONE,PATH="$CONTAINER_PATH",HOME="$HOME",CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES_VALUE}" \
-      --ntasks=1 --cpus-per-task="$N_JOBS" --gpus=1 --image="$SHIFTER_IMAGE" --chdir="$MEA_REPO"
-    "$SHIFTER_PY" -u "$DRIVER_SCRIPT_REL" "${DRIVER_ARGS[@]}"
+    srun --ntasks=1 --cpus-per-task="$N_JOBS" --gpus=1 \
+      shifter "${shifter_mod_args[@]}" --image="$SHIFTER_IMAGE" --env="CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES_VALUE}" \
+      /bin/bash -lc "cd \"$MEA_REPO\" && python3 -u \"$DRIVER_SCRIPT_REL\" ${DRIVER_ARGS[*]}"
   )
 else
   echo "ERROR: SHIFTER_IMAGE not set or not in a Slurm allocation." >&2

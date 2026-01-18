@@ -5,11 +5,11 @@ set -euo pipefail
 # Example interactive CPU allocation:
 #   salloc -A <acct> -C cpu -q interactive -t 02:00:00 -N 1 --cpus-per-task=32
 # Then:
-#   ./scripts/nersc_perlmutter/20_cpu_postprocess_skip_sort.sh
+#   ./scripts/nersc_perlmutter/smoke_tests/interactive_cpu_node/20_cpu_postprocess_skip_sort.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/00_config.sh"
+source "$SCRIPT_DIR/../_shared/00_config.sh"
 
 if [[ ! -f "$RAW_H5" ]]; then
   echo "ERROR: RAW_H5 not found: $RAW_H5" >&2
@@ -52,4 +52,4 @@ echo "  ${CMD[*]}"
 
 echo
 echo "Done. Outputs rooted at: $OUT_ROOT"
-echo "Next: run 30_run_axon_reconstructor.sh"
+echo "Next: run scripts/nersc_perlmutter/smoke_tests/axon_reconstructor/30_run_axon_reconstructor.sh"

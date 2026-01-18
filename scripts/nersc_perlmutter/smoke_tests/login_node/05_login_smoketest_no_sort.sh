@@ -7,11 +7,11 @@ set -euo pipefail
 # This intentionally does NOT run Kilosort (no GPU on login nodes, and heavy compute is disallowed).
 #
 # Usage:
-#   bash scripts/nersc_perlmutter/05_login_smoketest_no_sort.sh
+#   bash scripts/nersc_perlmutter/smoke_tests/login_node/05_login_smoketest_no_sort.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/00_config.sh"
+source "$SCRIPT_DIR/../_shared/00_config.sh"
 
 if [[ ! -f "$RAW_H5" ]]; then
   echo "ERROR: RAW_H5 not found: $RAW_H5" >&2

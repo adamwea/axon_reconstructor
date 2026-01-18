@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/00_config.sh"
+source "$SCRIPT_DIR/../_shared/00_config.sh"
 
 H5_PARENT_DIR="$(dirname "$RAW_H5")"
 

@@ -5,11 +5,13 @@ set -euo pipefail
 # Example allocation (adjust account/queue/time as needed):
 #   salloc -A <acct> -C gpu -q interactive -t 02:00:00 -N 1 --gpus=1 --cpus-per-task=32
 # Then:
-#   ./scripts/nersc_perlmutter/10_gpu_spikesort_interactive.sh
+#   ./scripts/nersc_perlmutter/smoke_tests/interactive_gpu_node/10_gpu_spikesort_interactive.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/00_config.sh"
+source "$SCRIPT_DIR/../_shared/00_config.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/../_shared/_nersc_shifter_helpers.sh"
 
 if [[ ! -f "$RAW_H5" ]]; then
   echo "ERROR: RAW_H5 not found: $RAW_H5" >&2
@@ -41,6 +43,16 @@ DRIVER_SCRIPT_REL="IPNAnalysis/run_pipeline_driver.py"
 CONTAINER_PATH="${SHIFTER_CONTAINER_PATH:-/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
 SHIFTER_PY="${SHIFTER_PYTHON:-python3}"
 
+if ! ensure_shifter_available; then
+  echo "ERROR: 'shifter' command not found in PATH (try: module load shifter)." >&2
+  exit 4
+fi
+
+shifter_mod_args=()
+if [[ -n "${SHIFTER_MODULES:-}" ]]; then
+  shifter_mod_args+=("--module=${SHIFTER_MODULES}")
+fi
+
 # Make the run debuggable: persist per-well stdout/stderr and stamp logs.
 RUN_TAG="gpu_spikesort_interactive"
 export MEA_ANALYSIS_RUN_BANNER="SPIKESORT: ${RUN_TAG} (GPU node, inside Shifter)"
@@ -67,7 +79,8 @@ DRIVER_ARGS=(
 if [[ -n "${SLURM_JOB_ID:-}" && -n "${SHIFTER_IMAGE:-}" ]]; then
   echo "Preflight: python/torch inside Shifter (clean PATH)" >&2
   srun --export=NONE,PATH="$CONTAINER_PATH",HOME="$HOME",CUDA_VISIBLE_DEVICES="$CUDA_VISIBLE_DEVICES_VALUE" \
-    --ntasks=1 --cpus-per-task=1 --gpus=1 --image="$SHIFTER_IMAGE" --chdir="$MEA_REPO" \
+    --ntasks=1 --cpus-per-task=1 --gpus=1 --chdir="$MEA_REPO" \
+    shifter "${shifter_mod_args[@]}" --image="$SHIFTER_IMAGE" \
     "$SHIFTER_PY" - <<'PY'
 import os
 import sys
@@ -94,9 +107,10 @@ if [[ -x "/entrypoint.sh" && -d "/MEA_Analysis" ]]; then
 elif [[ -n "${SLURM_JOB_ID:-}" && -n "${SHIFTER_IMAGE:-}" ]]; then
   # Preferred Perlmutter flow: run the driver inside Shifter.
   CMD=(
-    srun --export=NONE,PATH="$CONTAINER_PATH",HOME="$HOME",CUDA_VISIBLE_DEVICES="$CUDA_VISIBLE_DEVICES_VALUE" \
-      --ntasks=1 --cpus-per-task="$N_JOBS" --gpus=1 --image="$SHIFTER_IMAGE" --chdir="$MEA_REPO"
-    "$SHIFTER_PY" -u "$DRIVER_SCRIPT_REL" "${DRIVER_ARGS[@]}"
+    srun --export=ALL,PATH="$CONTAINER_PATH",HOME="$HOME",CUDA_VISIBLE_DEVICES="$CUDA_VISIBLE_DEVICES_VALUE" \
+      --ntasks=1 --cpus-per-task="$N_JOBS" --gpus=1 --chdir="$MEA_REPO" \
+      shifter "${shifter_mod_args[@]}" --image="$SHIFTER_IMAGE" \
+      "$SHIFTER_PY" -u "$DRIVER_SCRIPT_REL" "${DRIVER_ARGS[@]}"
   )
 else
   # Fallback: run directly on the host Python environment.
