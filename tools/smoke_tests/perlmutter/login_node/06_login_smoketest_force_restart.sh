@@ -4,14 +4,19 @@ set -euo pipefail
 # Login-node smoke test with --force-restart: validates a clean re-run path.
 #
 # Usage:
-#   bash scripts/nersc_perlmutter/smoke_tests/login_node/06_login_smoketest_force_restart.sh
+#   bash tools/smoke_tests/perlmutter/login_node/06_login_smoketest_force_restart.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/../_shared/00_config.sh"
 
+if [[ -z "${RAW_H5:-}" ]]; then
+  echo "ERROR: RAW_H5 is not set. Set RAW_H5 or configure tools/smoke_tests/perlmutter/smoke_tests.local.toml (recommended: use axon-recon-smoke)." >&2
+  exit 2
+fi
+
 if [[ ! -f "$RAW_H5" ]]; then
-  echo "ERROR: RAW_H5 not found: $RAW_H5" >&2
+  echo "ERROR: RAW_H5 not found on disk: $RAW_H5" >&2
   exit 1
 fi
 

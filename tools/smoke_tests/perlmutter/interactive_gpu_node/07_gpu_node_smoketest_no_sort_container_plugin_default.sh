@@ -8,7 +8,7 @@ set -euo pipefail
 #
 # Usage:
 #   salloc -A <acct> -C gpu -q interactive -t 00:30:00 -N 1 --gpus=1 --cpus-per-task=16
-#   bash scripts/nersc_perlmutter/smoke_tests/interactive_gpu_node/07_gpu_node_smoketest_no_sort_container_plugin_default.sh
+#   bash tools/smoke_tests/perlmutter/interactive_gpu_node/07_gpu_node_smoketest_no_sort_container_plugin_default.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

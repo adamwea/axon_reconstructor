@@ -14,24 +14,40 @@ These scripts are meant for **interactive node validation** on Perlmutter using 
 
 ## Quick start
 
-1) Edit `scripts/nersc_perlmutter/smoke_tests/_shared/00_config.sh` once.
+1) Create a local config (recommended):
+
+- Copy `tools/smoke_tests/perlmutter/smoke_tests.local.toml.example` to `tools/smoke_tests/perlmutter/smoke_tests.local.toml`.
+- Fill in at least:
+  - `paths.raw_h5`
+  - `paths.out_root`
+  - `gpu_salloc.account`
+
+Environment variables override both TOML files.
 
 2) Run all login-node smoke tests:
 
-- `bash scripts/nersc_perlmutter/smoke_tests/login_node/run_all_login_node_smoke_tests.sh`
+- `bash tools/smoke_tests/perlmutter/login_node/run_all_login_node_smoke_tests.sh`
+
+Or via CLI:
+
+- `axon-recon-smoke login`
 
 3) Run all GPU-node smoke tests from a login node (single allocation, runs suite inside it):
 
-- `bash scripts/nersc_perlmutter/smoke_tests/interactive_gpu_node/run_all_gpu_node_smoke_tests_from_login.sh`
+- `bash tools/smoke_tests/perlmutter/interactive_gpu_node/run_all_gpu_node_smoke_tests_from_login.sh`
+
+Or via CLI:
+
+- `axon-recon-smoke gpu`
 
 4) When ready for real spikesorting, allocate a GPU and run:
 
-- `bash scripts/nersc_perlmutter/smoke_tests/interactive_gpu_node/10_gpu_spikesort_interactive.sh`
+- `bash tools/smoke_tests/perlmutter/interactive_gpu_node/10_gpu_spikesort_interactive.sh`
 
 ## Common GPU failure mode: torch missing
 
 If the GPU checks show `ModuleNotFoundError: torch` (or you see host Python like `3.6.x`), run:
 
-- `bash scripts/nersc_perlmutter/smoke_tests/interactive_gpu_node/11_shifter_image_inventory.sh`
+- `bash tools/smoke_tests/perlmutter/interactive_gpu_node/11_shifter_image_inventory.sh`
 
 and confirm the intended image is being used and imports succeed.

@@ -1,9 +1,9 @@
 # Perlmutter scripts
 
-All Perlmutter smoke tests and interactive helpers live under:
+The Perlmutter smoke-test suite and interactive helpers live under:
 
-- `scripts/nersc_perlmutter/smoke_tests/`
+- `tools/smoke_tests/perlmutter/`
 
 Start here:
 
-- `scripts/nersc_perlmutter/smoke_tests/README.md`
+- `tools/smoke_tests/perlmutter/README.md`

@@ -8,23 +8,30 @@ set -euo pipefail
 # Directory containing this config file
 CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Raw data file to test
-RAW_H5="$HOME/symlinks/ben-shalom_nas/raw_data/B6J_DensityTest_10012024_AR/B6J_DensityTest_10012024_AR/241004/M08029/AxonTracking/000007/data.raw.h5"
+# Try to infer the repo root (useful when running from a git checkout).
+REPO_ROOT=""
+if command -v git >/dev/null 2>&1; then
+	REPO_ROOT="$(git -C "$CONFIG_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+fi
+
+# Raw data file to test.
+# Recommended: set this via env var (RAW_H5) or via the Python CLI + TOML config.
+RAW_H5="${RAW_H5:-}"
 
 # Keep MEA_Analysis outputs on pscratch for now
 # NOTE: This must be an *output root*.
 # MEA_Analysis will append <project>/<date>/<chip>/<scan>/<run>/<well00x>/... beneath it.
-OUT_ROOT="$HOME/symlinks/pscratch/mea_outputs"
+OUT_ROOT="${OUT_ROOT:-$HOME/symlinks/pscratch/mea_outputs}"
 
-# Repos (adjust if yours differ)
-MEA_REPO="$HOME/dev/pkgs/MEA_Analysis"
-AXON_REPO="$HOME/dev/pkgs/axon_reconstructor"
+# Repos (recommended: set via env vars or CLI/TOML)
+MEA_REPO="${MEA_REPO:-$HOME/dev/pkgs/MEA_Analysis}"
+AXON_REPO="${AXON_REPO:-${REPO_ROOT:-$HOME/dev/pkgs/axon_reconstructor}}"
 
 # Sorter name expected by Mandar pipeline
-SORTER="kilosort4"
+SORTER="${SORTER:-kilosort4}"
 
 # CPU workers (defaults to SLURM_CPUS_PER_TASK if present)
-N_JOBS="${SLURM_CPUS_PER_TASK:-8}"
+N_JOBS="${N_JOBS:-${SLURM_CPUS_PER_TASK:-8}}"
 
 # ----------------------------
 # Smoke-test wrapper defaults
@@ -32,8 +39,9 @@ N_JOBS="${SLURM_CPUS_PER_TASK:-8}"
 # These are used by run-all scripts that request allocations from the login node.
 # Override any of these via environment variables when launching a wrapper.
 
-# Perlmutter allocation defaults for the GPU smoke suite
-GPU_SMOKE_SALLOC_ACCOUNT="${GPU_SMOKE_SALLOC_ACCOUNT:-m2043_g}"
+# Perlmutter allocation defaults for the GPU smoke suite.
+# We intentionally do NOT default the account (project allocation) to avoid hard-coding.
+GPU_SMOKE_SALLOC_ACCOUNT="${GPU_SMOKE_SALLOC_ACCOUNT:-}"
 GPU_SMOKE_SALLOC_QOS="${GPU_SMOKE_SALLOC_QOS:-interactive}"
 GPU_SMOKE_SALLOC_CONSTRAINT="${GPU_SMOKE_SALLOC_CONSTRAINT:-gpu}"
 GPU_SMOKE_SALLOC_TIME="${GPU_SMOKE_SALLOC_TIME:-00:45:00}"
