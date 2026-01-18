@@ -26,6 +26,25 @@ SORTER="kilosort4"
 # CPU workers (defaults to SLURM_CPUS_PER_TASK if present)
 N_JOBS="${SLURM_CPUS_PER_TASK:-8}"
 
+# ----------------------------
+# Smoke-test wrapper defaults
+# ----------------------------
+# These are used by run-all scripts that request allocations from the login node.
+# Override any of these via environment variables when launching a wrapper.
+
+# Perlmutter allocation defaults for the GPU smoke suite
+GPU_SMOKE_SALLOC_ACCOUNT="${GPU_SMOKE_SALLOC_ACCOUNT:-m2043_g}"
+GPU_SMOKE_SALLOC_QOS="${GPU_SMOKE_SALLOC_QOS:-interactive}"
+GPU_SMOKE_SALLOC_CONSTRAINT="${GPU_SMOKE_SALLOC_CONSTRAINT:-gpu}"
+GPU_SMOKE_SALLOC_TIME="${GPU_SMOKE_SALLOC_TIME:-00:45:00}"
+GPU_SMOKE_SALLOC_NODES="${GPU_SMOKE_SALLOC_NODES:-1}"
+GPU_SMOKE_SALLOC_GPUS="${GPU_SMOKE_SALLOC_GPUS:-1}"
+GPU_SMOKE_SALLOC_CPUS_PER_TASK="${GPU_SMOKE_SALLOC_CPUS_PER_TASK:-16}"
+
+# Extra args appended verbatim to the salloc command (optional).
+# Example: GPU_SMOKE_SALLOC_EXTRA_ARGS="--reservation=..."
+GPU_SMOKE_SALLOC_EXTRA_ARGS="${GPU_SMOKE_SALLOC_EXTRA_ARGS:-}"
+
 # Scratch (fast local on compute nodes). On interactive nodes this is usually set.
 SCRATCH_DIR="${SLURM_TMPDIR:-}"
 
@@ -37,7 +56,7 @@ STAGE_BACK_MODE="copy"       # copy|move
 # IMPORTANT: On Perlmutter, Shifter typically expects fully-qualified image URIs like:
 #   docker:<repo>:<tag>
 # If you omit the `docker:` prefix, some configurations may not apply the container you expect.
-SHIFTER_IMAGE="${SHIFTER_IMAGE:-docker:adammwea/benshalomlab_spikesorter_shifter:v4}"
+SHIFTER_IMAGE="${SHIFTER_IMAGE:-docker:adammwea/benshalomlab_spikesorter_shifter:v5}"
 
 # Shifter environment hygiene:
 # Slurm exports your host PATH into the container by default, so an activated conda env
@@ -45,6 +64,18 @@ SHIFTER_IMAGE="${SHIFTER_IMAGE:-docker:adammwea/benshalomlab_spikesorter_shifter
 # PATH and/or a specific python executable.
 SHIFTER_CONTAINER_PATH="${SHIFTER_CONTAINER_PATH:-/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
 SHIFTER_PYTHON="${SHIFTER_PYTHON:-python3}"
+
+# How GPU scripts should launch the container.
+# - "srun_image": use Slurm's `srun --image=...` integration
+# - "shifter_cmd": use `srun shifter --image=...` (matches NERSC docs examples)
+#
+# We default to shifter_cmd because we've repeatedly observed cases where `srun --image`
+# appears to run the host OS/Python on Perlmutter compute nodes.
+SHIFTER_LAUNCH_MODE="${SHIFTER_LAUNCH_MODE:-shifter_cmd}"
+
+# Optional Shifter *modules* (not system modules). Leave empty to use site defaults.
+# Examples: "gpu", "gpu,nccl-plugin", or "none".
+SHIFTER_MODULES="${SHIFTER_MODULES:-}"
 
 # GPU pinning.
 # If this script accidentally runs on the host (not in a Slurm GPU step), some nodes expose all GPUs
