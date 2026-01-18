@@ -9,6 +9,9 @@ dependencies:
   - pytest
   - ruff
   - numpy
+  - h5py
+  - tqdm
+  - requests
   # Note: runtime scientific deps (spikeinterface, h5py, etc.) will be added
   # incrementally as the rebuild progresses.
   - pip:

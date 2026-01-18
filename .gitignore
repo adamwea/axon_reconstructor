@@ -28,3 +28,6 @@ htmlcov/
 # Runtime logs
 axon_reconstruction*.log
 
+# Maxwell HDF5 compression plugin (vendor locally for smoke tests; do not commit)
+scripts/nersc_perlmutter/vendor/
+

@@ -20,12 +20,30 @@ mkdir -p "$OUT_ROOT"
 
 cd "$MEA_REPO"
 
-CMD=(
-  python3 IPNAnalysis/run_pipeline_driver.py "$RAW_H5"
+DRIVER_SCRIPT_REL="IPNAnalysis/run_pipeline_driver.py"
+
+export MEA_ANALYSIS_REPO_URL
+export MEA_ANALYSIS_BRANCH
+export MEA_ANALYSIS_AUTO_UPDATE=1
+export MEA_ANALYSIS_AUTO_RUN=1
+
+DRIVER_ARGS=(
+  "$RAW_H5"
   --output-dir "$OUT_ROOT"
   --skip-spikesorting
   --n-jobs "$N_JOBS"
 )
+
+if [[ -x "/entrypoint.sh" && -d "/MEA_Analysis" ]]; then
+  CMD=(/entrypoint.sh "${DRIVER_ARGS[@]}")
+elif [[ -n "${SLURM_JOB_ID:-}" && -n "${SHIFTER_IMAGE:-}" ]]; then
+  CMD=(
+    srun --ntasks=1 --cpus-per-task="$N_JOBS" --image="$SHIFTER_IMAGE" --chdir="$MEA_REPO"
+    python3 -u "$DRIVER_SCRIPT_REL" "${DRIVER_ARGS[@]}"
+  )
+else
+  CMD=(python3 -u "$DRIVER_SCRIPT_REL" "${DRIVER_ARGS[@]}")
+fi
 
 echo "Running MEA_Analysis post-processing (skip spikesorting):"
 echo "  ${CMD[*]}"
