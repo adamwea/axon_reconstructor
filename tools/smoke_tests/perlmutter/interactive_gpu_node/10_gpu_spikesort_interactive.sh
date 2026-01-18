@@ -5,7 +5,7 @@ set -euo pipefail
 # Example allocation (adjust account/queue/time as needed):
 #   salloc -A <acct> -C gpu -q interactive -t 02:00:00 -N 1 --gpus=1 --cpus-per-task=32
 # Then:
-#   ./scripts/nersc_perlmutter/smoke_tests/interactive_gpu_node/10_gpu_spikesort_interactive.sh
+#   bash tools/smoke_tests/perlmutter/interactive_gpu_node/10_gpu_spikesort_interactive.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

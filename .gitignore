@@ -29,5 +29,8 @@ htmlcov/
 axon_reconstruction*.log
 
 # Maxwell HDF5 compression plugin (vendor locally for smoke tests; do not commit)
-scripts/nersc_perlmutter/vendor/
+tools/smoke_tests/perlmutter/_shared/vendor/
+
+# Smoke-test local overrides (user-specific)
+tools/smoke_tests/perlmutter/smoke_tests.local.toml
 

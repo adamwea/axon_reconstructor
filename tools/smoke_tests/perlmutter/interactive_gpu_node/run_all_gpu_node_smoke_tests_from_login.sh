@@ -43,10 +43,10 @@ suite_cmd=(
   "set -euo pipefail; \
    cd \"$repo_root\"; \
    echo '[gpu smoke suite] SLURM_JOB_ID='\"\${SLURM_JOB_ID:-unset}\"' host='\"\$(hostname)\"; \
-   bash scripts/nersc_perlmutter/smoke_tests/interactive_gpu_node/08_gpu_require_gpu_dry_check.sh; \
-   bash scripts/nersc_perlmutter/smoke_tests/interactive_gpu_node/11_shifter_image_inventory.sh; \
-   bash scripts/nersc_perlmutter/smoke_tests/interactive_gpu_node/09_gpu_readiness_check.sh; \
-   bash scripts/nersc_perlmutter/smoke_tests/interactive_gpu_node/07_gpu_node_smoketest_no_sort_container_plugin_default.sh; \
+  bash \"$SCRIPT_DIR/08_gpu_require_gpu_dry_check.sh\"; \
+  bash \"$SCRIPT_DIR/11_shifter_image_inventory.sh\"; \
+  bash \"$SCRIPT_DIR/09_gpu_readiness_check.sh\"; \
+  bash \"$SCRIPT_DIR/07_gpu_node_smoketest_no_sort_container_plugin_default.sh\"; \
    echo '[gpu smoke suite] done'"
 )
 

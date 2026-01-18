@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Small helper functions for NERSC/Perlmutter shells.
-# Intended to be sourced by scripts under scripts/nersc_perlmutter/smoke_tests/.
+# Intended to be sourced by scripts under tools/smoke_tests/perlmutter/.
 
 nersc_init_module_cmd() {
   # "module" is often a shell function provided by Lmod.

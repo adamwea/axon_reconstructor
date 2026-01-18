@@ -5,7 +5,7 @@ set -euo pipefail
 # - Run via `srun ... shifter --image=...` inside an interactive allocation
 #
 # Usage (inside interactive GPU allocation recommended):
-#   bash scripts/nersc_perlmutter/smoke_tests/interactive_gpu_node/11_shifter_image_inventory.sh
+#   bash tools/smoke_tests/perlmutter/interactive_gpu_node/11_shifter_image_inventory.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

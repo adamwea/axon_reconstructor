@@ -1,0 +1,10 @@
+# Copy this file to smoke_tests.local.toml and edit values for your environment.
+# The real smoke_tests.local.toml is gitignored.
+
+[paths]
+raw_h5 = "/path/to/data.raw.h5"
+out_root = "/path/to/output_root"
+mea_repo = "/path/to/MEA_Analysis"
+
+[gpu_salloc]
+account = "<your_perlmutter_account>"

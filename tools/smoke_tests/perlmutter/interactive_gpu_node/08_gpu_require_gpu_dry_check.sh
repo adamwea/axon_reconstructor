@@ -6,7 +6,7 @@ set -euo pipefail
 #
 # Usage:
 #   salloc -A <acct> -C gpu -q interactive -t 00:10:00 -N 1 --gpus=1 --cpus-per-task=4
-#   bash scripts/nersc_perlmutter/smoke_tests/interactive_gpu_node/08_gpu_require_gpu_dry_check.sh
+#   bash tools/smoke_tests/perlmutter/interactive_gpu_node/08_gpu_require_gpu_dry_check.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
