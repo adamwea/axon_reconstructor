@@ -53,18 +53,6 @@ if [[ -n "${SHIFTER_MODULES:-}" ]]; then
   shifter_mod_args+=("--module=${SHIFTER_MODULES}")
 fi
 
-# When launching via `srun shifter ...`, we must be able to find the host-side `shifter`
-# executable. Do NOT clobber PATH to a container-only PATH for the `shifter` process itself;
-# instead, pass the container PATH into the image via `--env=PATH=...`.
-SHIFTER_BIN="$(command -v shifter || true)"
-if [[ -z "$SHIFTER_BIN" ]]; then
-  echo "ERROR: 'shifter' resolved earlier but is not in PATH now." >&2
-  exit 4
-fi
-
-# Minimal PATH for the host process that runs `shifter`.
-HOST_SHIFTER_PATH="$(dirname "$SHIFTER_BIN"):/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-
 # Make the run debuggable: persist per-well stdout/stderr and stamp logs.
 RUN_TAG="gpu_spikesort_interactive"
 export MEA_ANALYSIS_RUN_BANNER="SPIKESORT: ${RUN_TAG} (GPU node, inside Shifter)"
@@ -86,45 +74,15 @@ DRIVER_ARGS=(
   --n-jobs "$N_JOBS"
 )
 
-# Quick preflight to prove we're using a CUDA-capable torch *inside the container*.
-# This intentionally uses a clean PATH so an activated host conda env can't mask the image's Python.
-if [[ -n "${SLURM_JOB_ID:-}" && -n "${SHIFTER_IMAGE:-}" ]]; then
-  echo "Preflight: python/torch inside Shifter (clean PATH)" >&2
-  srun --export=NONE,PATH="$HOST_SHIFTER_PATH",HOME="$HOME",CUDA_VISIBLE_DEVICES="$CUDA_VISIBLE_DEVICES_VALUE" \
-    --ntasks=1 --cpus-per-task=1 --gpus=1 --chdir="$MEA_REPO" \
-    shifter "${shifter_mod_args[@]}" --image="$SHIFTER_IMAGE" \
-    --env="PATH=$CONTAINER_PATH" \
-    "$SHIFTER_PY" - <<'PY'
-import os
-import sys
-
-print("python:", sys.executable)
-try:
-    import torch
-    print("torch:", torch.__version__)
-    print("cuda available:", torch.cuda.is_available())
-    print("device count:", torch.cuda.device_count())
-    if torch.cuda.is_available() and torch.cuda.device_count() > 0:
-        print("device[0]:", torch.cuda.get_device_name(0))
-except Exception as e:
-    print("ERROR: torch import/check failed:", repr(e))
-    raise
-
-print("CUDA_VISIBLE_DEVICES:", os.environ.get("CUDA_VISIBLE_DEVICES"))
-PY
-fi
-
 if [[ -x "/entrypoint.sh" && -d "/MEA_Analysis" ]]; then
   # If you happen to already be inside an image that provides an entrypoint, use it.
   CMD=(/entrypoint.sh "${DRIVER_ARGS[@]}")
 elif [[ -n "${SLURM_JOB_ID:-}" && -n "${SHIFTER_IMAGE:-}" ]]; then
   # Preferred Perlmutter flow: run the driver inside Shifter.
   CMD=(
-    srun --export=ALL,PATH="$HOST_SHIFTER_PATH",HOME="$HOME",CUDA_VISIBLE_DEVICES="$CUDA_VISIBLE_DEVICES_VALUE" \
-      --ntasks=1 --cpus-per-task="$N_JOBS" --gpus=1 --chdir="$MEA_REPO" \
-      shifter "${shifter_mod_args[@]}" --image="$SHIFTER_IMAGE" \
-      --env="PATH=$CONTAINER_PATH" \
-      "$SHIFTER_PY" -u "$DRIVER_SCRIPT_REL" "${DRIVER_ARGS[@]}"
+    srun --ntasks=1 --cpus-per-task="$N_JOBS" --gpus=1 \
+      shifter "${shifter_mod_args[@]}" --image="$SHIFTER_IMAGE" --env="CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES_VALUE}" \
+      /bin/bash -lc "cd \"$MEA_REPO\" && $SHIFTER_PY -u \"$DRIVER_SCRIPT_REL\" ${DRIVER_ARGS[*]}"
   )
 else
   # Fallback: run directly on the host Python environment.
