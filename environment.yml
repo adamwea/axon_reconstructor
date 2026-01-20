@@ -12,6 +12,8 @@ dependencies:
   - h5py
   - tqdm
   - requests
+  - spikeinterface
+  - matplotlib
   # Note: runtime scientific deps (spikeinterface, h5py, etc.) will be added
   # incrementally as the rebuild progresses.
   - pip:
