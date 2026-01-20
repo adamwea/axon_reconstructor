@@ -7,6 +7,10 @@ Rebuilding `axon_reconstructor` with cleaner structure, documentation, and repro
 - Create the conda env: [environment.yml](environment.yml)
 - Follow the walkthrough: [docs/developer_setup.md](docs/developer_setup.md)
 
+## Methods
+
+- Raw preprocessing + spikesorting: [docs/methods_preprocess_spikesort.md](docs/methods_preprocess_spikesort.md)
+
 ## Install (editable)
 
 ```bash
