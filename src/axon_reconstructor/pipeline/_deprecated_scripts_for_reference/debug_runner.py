@@ -68,7 +68,7 @@ def run_debug_preprocess(
 
     Suggested breakpoints:
     - axon_reconstructor/pipeline/pipeline_driver.py : AxonReconstructor.preprocess_for_spikesorting
-    - axon_reconstructor/pipeline/raw_preprocessing.py : build_concatenated_recording
+    - axon_reconstructor/pipeline/raw_preprocessing/ : build_concatenated_recording
     """
 
     _ensure_maxwell_hdf5_plugin_env()
