@@ -6,7 +6,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from axon_reconstructor.pipeline import raw_preprocessing
+from . import raw_preprocessing
+from .checkpointing import (
+    ProcessingStage,
+    compute_checkpoint_file,
+    exception_to_error_dict,
+    load_checkpoint,
+    save_checkpoint,
+)
 
 
 PREPROCESS_OUTPUTS_DIRNAME = "preprocess_outputs"
@@ -74,6 +81,8 @@ class AxonReconstructor:
         mea_analysis_repo_root: Optional[str] = None,
         mea_analysis_docker_image: Optional[str] = None,
         mea_auto_run_driver: bool = False,
+        force_restart: bool = False,
+        enable_checkpointing: bool = True,
         paths: Optional[PipelinePaths] = None,
         logger: Optional[logging.Logger] = None,
     ) -> None:
@@ -88,6 +97,9 @@ class AxonReconstructor:
         self.mea_analysis_repo_root = Path(mea_analysis_repo_root) if mea_analysis_repo_root else None
         self.mea_analysis_docker_image = mea_analysis_docker_image
         self.mea_auto_run_driver = bool(mea_auto_run_driver)
+
+        self.force_restart = bool(force_restart)
+        self.enable_checkpointing = bool(enable_checkpointing)
 
         self.paths = paths or PipelinePaths()
 
@@ -124,50 +136,115 @@ class AxonReconstructor:
             self.logger.info("No .cfg files discovered next to %s; using contact_vector electrodes", plan.h5_path)
 
         well_out_dir = None
+        if self.mea_analysis_output_root is not None and (plot_layouts or save_recording or self.enable_checkpointing):
+            well_out_dir = _compute_mea_analysis_output_dir(
+                output_root=self.mea_analysis_output_root,
+                data_file=h5_path,
+                well=stream_id,
+            )
+
         plot_dir = None
         if plot_layouts:
-            if self.mea_analysis_output_root is None:
-                self.logger.warning(
-                    "plot_layouts=True but mea_analysis_output_root is not set; skipping plots"
-                )
+            if well_out_dir is None:
+                self.logger.warning("plot_layouts=True but mea_analysis_output_root is not set; skipping plots")
             else:
-                well_out_dir = _compute_mea_analysis_output_dir(
-                    output_root=self.mea_analysis_output_root,
-                    data_file=h5_path,
-                    well=stream_id,
-                )
                 plot_dir = well_out_dir / PREPROCESS_OUTPUTS_DIRNAME
                 plot_dir.mkdir(parents=True, exist_ok=True)
                 self.logger.info("Preprocess diagnostics output: %s", plot_dir)
 
         if save_recording and well_out_dir is None:
-            # Even if plot_layouts=False, we still want a consistent place to save.
-            if self.mea_analysis_output_root is None:
-                self.logger.warning(
-                    "save_recording=True but mea_analysis_output_root is not set; skipping recording save"
-                )
-            else:
-                well_out_dir = _compute_mea_analysis_output_dir(
-                    output_root=self.mea_analysis_output_root,
-                    data_file=h5_path,
-                    well=stream_id,
-                )
+            self.logger.warning(
+                "save_recording=True but mea_analysis_output_root is not set; skipping recording save"
+            )
 
-        multirec, common_el = raw_preprocessing.build_concatenated_recording(
-            h5_path=plan.h5_path,
-            stream_id=plan.stream_id,
-            n_jobs=n_jobs,
-            plot_output_dir=plot_dir,
-        )
-        self.logger.info("Concatenated recording built; common electrodes=%d", len(common_el))
+        checkpoint_file = None
+        checkpoint_state = None
+        preprocess_dir = None
+        recording_dir = None
+        common_el_path = None
 
-        if save_recording and well_out_dir is not None:
-            # Persist the preprocessed recording so later stages can be debugged independently.
+        if self.enable_checkpointing and well_out_dir is not None:
+            checkpoint_file = compute_checkpoint_file(
+                output_dir=well_out_dir,
+                file_path=h5_path,
+                stream_id=stream_id,
+            )
+            checkpoint_state = load_checkpoint(
+                checkpoint_file=checkpoint_file,
+                force_restart=self.force_restart,
+                output_dir=well_out_dir,
+                file_path=h5_path,
+                stream_id=stream_id,
+            )
+
+        if well_out_dir is not None:
             preprocess_dir = well_out_dir / PREPROCESS_OUTPUTS_DIRNAME
-            preprocess_dir.mkdir(parents=True, exist_ok=True)
             recording_dir = preprocess_dir / "preprocessed_recording"
             common_el_path = preprocess_dir / "common_electrodes.npy"
 
+        # Resume shortcut: if preprocessing is complete and the caller doesn't want to overwrite.
+        if (
+            save_recording
+            and not overwrite_saved_recording
+            and checkpoint_state is not None
+            and checkpoint_state.stage >= ProcessingStage.PREPROCESSING_COMPLETE.value
+            and recording_dir is not None
+            and common_el_path is not None
+            and recording_dir.exists()
+            and common_el_path.exists()
+        ):
+            try:
+                import numpy as np  # type: ignore[import-not-found]
+                import spikeinterface.full as si  # type: ignore[import-not-found]
+
+                try:
+                    multirec = si.load(recording_dir)
+                except Exception:
+                    multirec = si.load_extractor(recording_dir)
+
+                common_el = np.load(common_el_path).tolist()
+                self.logger.info("Resuming: loaded preprocessed recording from %s", recording_dir)
+                return multirec, common_el
+            except Exception as e:
+                self.logger.warning("Failed to resume from saved preprocessed recording (%s); re-running", e)
+
+        if checkpoint_file is not None and checkpoint_state is not None:
+            checkpoint_state = save_checkpoint(
+                checkpoint_file=checkpoint_file,
+                state=checkpoint_state,
+                stage=ProcessingStage.PREPROCESSING,
+                failed_stage=None,
+                error=None,
+                extra_fields={
+                    "preprocess_outputs_dir": str(preprocess_dir) if preprocess_dir else None,
+                },
+            )
+
+        try:
+            multirec, common_el = raw_preprocessing.build_concatenated_recording(
+                h5_path=plan.h5_path,
+                stream_id=plan.stream_id,
+                n_jobs=n_jobs,
+                plot_output_dir=plot_dir,
+            )
+            self.logger.info("Concatenated recording built; common electrodes=%d", len(common_el))
+        except Exception as e:
+            if checkpoint_file is not None and checkpoint_state is not None:
+                save_checkpoint(
+                    checkpoint_file=checkpoint_file,
+                    state=checkpoint_state,
+                    stage=ProcessingStage.NOT_STARTED,
+                    failed_stage=ProcessingStage.PREPROCESSING.name,
+                    error=exception_to_error_dict(e),
+                )
+            raise
+
+        if save_recording and well_out_dir is not None:
+            # Persist the preprocessed recording so later stages can be debugged independently.
+            assert preprocess_dir is not None
+            assert recording_dir is not None
+            assert common_el_path is not None
+            preprocess_dir.mkdir(parents=True, exist_ok=True)
             try:
                 import numpy as np  # type: ignore[import-not-found]
                 import spikeinterface.full as si  # type: ignore[import-not-found]
@@ -195,6 +272,20 @@ class AxonReconstructor:
                 np.save(common_el_path, np.asarray(common_el, dtype=np.int64))
             except Exception as e:
                 self.logger.warning("Failed to save preprocessed recording: %s", e)
+
+        if checkpoint_file is not None and checkpoint_state is not None:
+            checkpoint_state = save_checkpoint(
+                checkpoint_file=checkpoint_file,
+                state=checkpoint_state,
+                stage=ProcessingStage.PREPROCESSING_COMPLETE,
+                failed_stage=None,
+                error=None,
+                extra_fields={
+                    "preprocessed_recording_dir": str(recording_dir) if recording_dir else None,
+                    "common_electrodes_path": str(common_el_path) if common_el_path else None,
+                    "n_common_electrodes": len(common_el),
+                },
+            )
 
         return multirec, common_el
 
