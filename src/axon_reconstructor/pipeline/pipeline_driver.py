@@ -180,6 +180,8 @@ class AxonReconstructor:
         preprocess_dir = None
         recording_dir = None
         common_el_path = None
+        epoch_maxwell_path = None
+        epoch_concat_path = None
 
         if self.enable_checkpointing and well_out_dir is not None:
             checkpoint_file = compute_checkpoint_file(
@@ -199,6 +201,8 @@ class AxonReconstructor:
             preprocess_dir = well_out_dir / PREPROCESS_OUTPUTS_DIRNAME
             recording_dir = preprocess_dir / "preprocessed_recording"
             common_el_path = preprocess_dir / "common_electrodes.npy"
+            epoch_maxwell_path = preprocess_dir / f"maxwell_contiguous_epochs_{stream_id}.json"
+            epoch_concat_path = preprocess_dir / f"concatenation_stitch_epochs_{stream_id}.json"
 
         # Resume shortcut: if preprocessing is complete and the caller doesn't want to overwrite.
         if (
@@ -235,6 +239,8 @@ class AxonReconstructor:
                 error=None,
                 extra_fields={
                     "preprocess_outputs_dir": str(preprocess_dir) if preprocess_dir else None,
+                    "maxwell_epochs_path": str(epoch_maxwell_path) if epoch_maxwell_path else None,
+                    "concat_epochs_path": str(epoch_concat_path) if epoch_concat_path else None,
                 },
             )
 
@@ -244,8 +250,12 @@ class AxonReconstructor:
                 stream_id=plan.stream_id,
                 n_jobs=n_jobs,
                 plot_output_dir=plot_dir,
+                epoch_markers_output_dir=(preprocess_dir if preprocess_dir is not None else plot_dir),
             )
             logger.info("Concatenated recording built; common electrodes=%d", len(common_el))
+            if epoch_maxwell_path is not None and epoch_concat_path is not None:
+                logger.info("Epoch markers (Maxwell): %s", epoch_maxwell_path)
+                logger.info("Epoch markers (Concat stitches): %s", epoch_concat_path)
         except Exception as e:
             if checkpoint_file is not None and checkpoint_state is not None:
                 save_checkpoint(
@@ -302,6 +312,8 @@ class AxonReconstructor:
                     "preprocessed_recording_dir": str(recording_dir) if recording_dir else None,
                     "common_electrodes_path": str(common_el_path) if common_el_path else None,
                     "n_common_electrodes": len(common_el),
+                    "maxwell_epochs_path": str(epoch_maxwell_path) if epoch_maxwell_path else None,
+                    "concat_epochs_path": str(epoch_concat_path) if epoch_concat_path else None,
                 },
             )
 

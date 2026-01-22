@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import configparser
 from dataclasses import dataclass
 import datetime as dt
@@ -304,6 +305,7 @@ def build_concatenated_recording(
     n_jobs: int = 8,
     center_chunk_size: int = 10_000,
     plot_output_dir: Optional[Path] = None,
+    epoch_markers_output_dir: Optional[Path] = None,
 ) -> tuple[object, list[int]]:
     """Load per-segment recordings, center, slice to shared electrodes, and concatenate.
 
@@ -357,12 +359,15 @@ def build_concatenated_recording(
     )
 
     if plot_output_dir is not None:
+        plot_output_dir = Path(plot_output_dir)
+        channel_layouts_dir = plot_output_dir / "channel_layouts"
+        channel_layouts_dir.mkdir(parents=True, exist_ok=True)
         _save_channel_layout_plots(
             h5_path=h5_path,
             stream_id=stream_id,
             rec_names=rec_names,
             common_electrodes=common_el,
-            out_dir=Path(plot_output_dir),
+            out_dir=channel_layouts_dir,
         )
 
         print(
@@ -436,6 +441,26 @@ def build_concatenated_recording(
     t_concat = time.perf_counter()
     multirecording = si.concatenate_recordings(rec_list)
 
+    # Precompute segment stitch epochs in concatenated sample coordinates.
+    seg_lengths = [int(r.get_num_samples()) for r in rec_list]
+    seg_offsets: list[int] = []
+    acc = 0
+    for n_frames in seg_lengths:
+        seg_offsets.append(acc)
+        acc += int(n_frames)
+
+    concat_epochs: list[dict] = []
+    for i, (rn, n_frames, start) in enumerate(zip(rec_names, seg_lengths, seg_offsets, strict=False)):
+        concat_epochs.append(
+            {
+                "segment_index": int(i),
+                "rec_name": str(rn),
+                "start_sample": int(start),
+                "end_sample": int(start + int(n_frames)),
+                "n_samples": int(n_frames),
+            }
+        )
+
     # Reconstruct accurate time vectors from `frame_nos`.
     #
     # Maxwell `.raw.h5` files can store *triggered* snippets spread across a longer
@@ -451,6 +476,10 @@ def build_concatenated_recording(
 
         time_vectors: list[np.ndarray] = []
         t0_epoch_s: Optional[float] = None
+
+        # Epochs of contiguous samples within Maxwell triggered/snippet recording strategy.
+        # Expressed in *concatenated* sample coordinates (multirecording time axis).
+        maxwell_epochs: list[dict] = []
 
         for seg_index, (rn, st) in enumerate(zip(rec_names, seg_stats, strict=False)):
             info = _read_well_rec_frame_nos_and_trigger_settings(
@@ -476,6 +505,32 @@ def build_concatenated_recording(
                     flush=True,
                 )
                 continue
+
+            # Detect discontinuities in the saved frames (triggered/snippet gaps show up here).
+            # A contiguous epoch is a run where diff(frame_nos)==1.
+            diffs = np.diff(frame_nos)
+            split_points = np.flatnonzero(diffs != 1) + 1
+            run_starts = np.concatenate(([0], split_points))
+            run_ends = np.concatenate((split_points, [frame_nos.size]))
+            seg_offset = int(seg_offsets[seg_index]) if seg_index < len(seg_offsets) else 0
+
+            for rs, re in zip(run_starts, run_ends, strict=False):
+                rs_i = int(rs)
+                re_i = int(re)
+                if re_i <= rs_i:
+                    continue
+                maxwell_epochs.append(
+                    {
+                        "segment_index": int(seg_index),
+                        "rec_name": str(rn),
+                        "start_sample": int(seg_offset + rs_i),
+                        "end_sample": int(seg_offset + re_i),
+                        "segment_start_sample": int(rs_i),
+                        "segment_end_sample": int(re_i),
+                        "frame_no_start": int(frame_nos[rs_i]),
+                        "frame_no_end": int(frame_nos[re_i - 1]),
+                    }
+                )
 
             frame0 = int(frame_nos[0])
             times_rel = (frame_nos - frame0) / fs
@@ -528,6 +583,30 @@ def build_concatenated_recording(
     except Exception as e:
         print(f"[axon_reconstructor][WARN] failed to set time vector from frame_nos: {e}", flush=True)
 
+    # Persist epoch marker JSON artifacts for later analysis.
+    if epoch_markers_output_dir is not None:
+        out_dir = Path(epoch_markers_output_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        maxwell_path = out_dir / f"maxwell_contiguous_epochs_{stream_id}.json"
+        concat_path = out_dir / f"concatenation_stitch_epochs_{stream_id}.json"
+
+        try:
+            # maxwell_epochs is defined inside the try block above; fall back to empty if unavailable.
+            maxwell_epochs_payload = locals().get("maxwell_epochs", [])
+            with open(maxwell_path, "w", encoding="utf-8") as f:
+                json.dump(list(maxwell_epochs_payload), f, indent=2)
+
+            with open(concat_path, "w", encoding="utf-8") as f:
+                json.dump(list(concat_epochs), f, indent=2)
+
+            print(
+                f"[axon_reconstructor] wrote epoch markers: maxwell={maxwell_path.name} concat={concat_path.name}",
+                flush=True,
+            )
+        except Exception as e:
+            print(f"[axon_reconstructor][WARN] failed to write epoch marker JSON: {e}", flush=True)
+
     fs_cat = float(multirecording.get_sampling_frequency())
     n_cat = int(multirecording.get_num_samples())
     dur_cat = (n_cat / fs_cat) if fs_cat > 0 else float("nan")
@@ -553,7 +632,9 @@ def build_concatenated_recording(
     if plot_output_dir is not None:
         # Plot concatenation diagnostics: cluster reps over time + stitch markers.
         # We can derive stitch frames directly from segment lengths.
-        seg_lengths = [int(r.get_num_samples()) for r in rec_list]
+        plot_output_dir = Path(plot_output_dir)
+        segment_traces_dir = plot_output_dir / "segment_traces"
+        segment_traces_dir.mkdir(parents=True, exist_ok=True)
         stitch_frames: list[int] = []
         acc = 0
         for n_frames in seg_lengths[:-1]:
@@ -600,7 +681,7 @@ def build_concatenated_recording(
                 recording=multirecording,
                 channel_ids=rep_keep,
                 stitch_frames=stitch_frames,
-                out_path=Path(plot_output_dir) / f"concat_cluster_reps_{stream_id}.png",
+                out_path=plot_output_dir / f"concat_cluster_reps_{stream_id}.png",
                 title=f"Concat cluster representatives ({stream_id}); red=stitch",
             )
 
@@ -612,7 +693,7 @@ def build_concatenated_recording(
                     recording=seg_rec,
                     channel_ids=rep_keep,
                     stitch_frames=[],
-                    out_path=Path(plot_output_dir) / f"segment_trace_{stream_id}_{rn}.png",
+                    out_path=segment_traces_dir / f"segment_trace_{stream_id}_{rn}.png",
                     title=f"Segment trace ({stream_id} / {rn})",
                 )
             
