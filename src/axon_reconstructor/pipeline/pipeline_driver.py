@@ -17,32 +17,31 @@ def _compute_mea_analysis_output_dir(
 ) -> Path:
     """Compute MEA_Analysis-style per-well output directory.
 
-    Uses the dependency-free contract in MEA_Analysis when available.
-    Falls back to an identical local implementation if MEA_Analysis is not importable.
+    This mirrors the effective contract used by
+    MEA_Analysis/IPNAnalysis/mea_analysis_routine.py (MEAPipeline._parse_metadata + output_dir).
+    We intentionally do not import from MEA_Analysis here, because that repo is actively
+    evolving and we want axon_reconstructor to be robust to internal refactors.
     """
 
     output_root = Path(output_root).expanduser().resolve()
     data_file = Path(data_file).expanduser().resolve()
 
+    # MEA_Analysis's MEAPipeline._parse_metadata() builds a relative_pattern like:
+    #   os.path.join(*parts[-6:-1])
+    # then sets:
+    #   output_dir = Path(output_root) / relative_pattern / stream_id
+    import os
+
     try:
-        # Prefer the authoritative contract from MEA_Analysis.
-        from MEA_Analysis.IPNAnalysis.path_contract import compute_output_dir  # type: ignore
-
-        return compute_output_dir(output_root=output_root, data_file=data_file, well=str(well))
+        relative_pattern = f"{data_file.parent.parent.name}/{data_file.parent.name}/{data_file.name}"
     except Exception:
-        # Fallback: mirror MEA_Analysis.IPNAnalysis.path_contract exactly.
-        import os
+        relative_pattern = str(data_file.name)
 
-        try:
-            relative_pattern = f"{data_file.parent.parent.name}/{data_file.parent.name}/{data_file.name}"
-        except Exception:
-            relative_pattern = str(data_file.name)
+    parts = str(data_file).split(os.sep)
+    if len(parts) > 5:
+        relative_pattern = os.path.join(*parts[-6:-1])
 
-        parts = str(data_file).split(os.sep)
-        if len(parts) > 5:
-            relative_pattern = os.path.join(*parts[-6:-1])
-
-        return output_root / relative_pattern / str(well)
+    return output_root / relative_pattern / str(well)
 
 
 @dataclass
@@ -110,6 +109,8 @@ class AxonReconstructor:
         stream_id: str,
         n_jobs: int = 8,
         plot_layouts: bool = True,
+        save_recording: bool = True,
+        overwrite_saved_recording: bool = True,
     ):
         """Build a concatenated SpikeInterface recording for a given h5 + stream."""
 
@@ -119,6 +120,7 @@ class AxonReconstructor:
         else:
             self.logger.info("No .cfg files discovered next to %s; using contact_vector electrodes", plan.h5_path)
 
+        well_out_dir = None
         plot_dir = None
         if plot_layouts:
             if self.mea_analysis_output_root is None:
@@ -135,6 +137,19 @@ class AxonReconstructor:
                 plot_dir.mkdir(parents=True, exist_ok=True)
                 self.logger.info("Preprocess diagnostics output: %s", plot_dir)
 
+        if save_recording and well_out_dir is None:
+            # Even if plot_layouts=False, we still want a consistent place to save.
+            if self.mea_analysis_output_root is None:
+                self.logger.warning(
+                    "save_recording=True but mea_analysis_output_root is not set; skipping recording save"
+                )
+            else:
+                well_out_dir = _compute_mea_analysis_output_dir(
+                    output_root=self.mea_analysis_output_root,
+                    data_file=h5_path,
+                    well=stream_id,
+                )
+
         multirec, common_el = raw_preprocessing.build_concatenated_recording(
             h5_path=plan.h5_path,
             stream_id=plan.stream_id,
@@ -142,6 +157,42 @@ class AxonReconstructor:
             plot_output_dir=plot_dir,
         )
         self.logger.info("Concatenated recording built; common electrodes=%d", len(common_el))
+
+        if save_recording and well_out_dir is not None:
+            # Persist the preprocessed recording so later stages can be debugged independently.
+            preprocess_dir = well_out_dir / "axon_reconstructor" / "preprocess"
+            preprocess_dir.mkdir(parents=True, exist_ok=True)
+            recording_dir = preprocess_dir / "preprocessed_recording"
+            common_el_path = preprocess_dir / "common_electrodes.npy"
+
+            try:
+                import numpy as np  # type: ignore[import-not-found]
+                import spikeinterface.full as si  # type: ignore[import-not-found]
+
+                if recording_dir.exists() and overwrite_saved_recording:
+                    # `Recording.save(..., overwrite=True)` isn't consistent across all SI versions
+                    # for all formats, so we proactively clean the folder.
+                    import shutil
+
+                    shutil.rmtree(recording_dir)
+
+                if (not recording_dir.exists()) or overwrite_saved_recording:
+                    self.logger.info("Saving preprocessed recording to %s", recording_dir)
+                    multirec.save(
+                        folder=recording_dir,
+                        format="binary",
+                        overwrite=True,
+                        n_jobs=n_jobs,
+                        chunk_duration="1s",
+                        progress_bar=False,
+                    )
+                else:
+                    self.logger.info("Preprocessed recording already exists at %s; not overwriting", recording_dir)
+
+                np.save(common_el_path, np.asarray(common_el, dtype=np.int64))
+            except Exception as e:
+                self.logger.warning("Failed to save preprocessed recording: %s", e)
+
         return multirec, common_el
 
     def run_pipeline(
