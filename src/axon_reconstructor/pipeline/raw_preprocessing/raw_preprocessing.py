@@ -594,7 +594,7 @@ def build_concatenated_recording(
                     zip(rep_channel_ids, scores, strict=False), key=lambda t: t[1], reverse=True
                 )
             ]
-            rep_keep = rep_sorted[:1]
+            rep_keep = rep_sorted[:4] # keep and plot top 2 representatives
 
             _plot_concat_cluster_traces(
                 recording=multirecording,
