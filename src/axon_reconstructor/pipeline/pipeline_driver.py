@@ -14,6 +14,7 @@ from .checkpointing import (
     load_checkpoint,
     save_checkpoint,
 )
+from .pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
 
 
 PREPROCESS_OUTPUTS_DIRNAME = "preprocess_outputs"
@@ -130,11 +131,9 @@ class AxonReconstructor:
         """Build a concatenated SpikeInterface recording for a given h5 + stream."""
 
         plan = raw_preprocessing.build_preprocess_plan(h5_path=h5_path, stream_id=stream_id)
-        if plan.cfg_files:
-            self.logger.info("Discovered %d cfg files next to %s", len(plan.cfg_files), plan.h5_path)
-        else:
-            self.logger.info("No .cfg files discovered next to %s; using contact_vector electrodes", plan.h5_path)
 
+        # If we can compute the per-well output dir, also set up a Mandar-style log file.
+        logger = self.logger
         well_out_dir = None
         if self.mea_analysis_output_root is not None and (plot_layouts or save_recording or self.enable_checkpointing):
             well_out_dir = _compute_mea_analysis_output_dir(
@@ -142,18 +141,37 @@ class AxonReconstructor:
                 data_file=h5_path,
                 well=stream_id,
             )
+            try:
+                log_file = compute_pipeline_log_file(
+                    well_out_dir=well_out_dir,
+                    data_file=h5_path,
+                    stream_id=stream_id,
+                )
+                logger = setup_pipeline_logger(
+                    log_file=log_file,
+                    logger_name=f"axon_reconstructor.{stream_id}",
+                    verbose=True,
+                )
+            except Exception:
+                # Never let logging setup break preprocessing.
+                logger = self.logger
+
+        if plan.cfg_files:
+            logger.info("Discovered %d cfg files next to %s", len(plan.cfg_files), plan.h5_path)
+        else:
+            logger.info("No .cfg files discovered next to %s; using contact_vector electrodes", plan.h5_path)
 
         plot_dir = None
         if plot_layouts:
             if well_out_dir is None:
-                self.logger.warning("plot_layouts=True but mea_analysis_output_root is not set; skipping plots")
+                logger.warning("plot_layouts=True but mea_analysis_output_root is not set; skipping plots")
             else:
                 plot_dir = well_out_dir / PREPROCESS_OUTPUTS_DIRNAME
                 plot_dir.mkdir(parents=True, exist_ok=True)
-                self.logger.info("Preprocess diagnostics output: %s", plot_dir)
+                logger.info("Preprocess diagnostics output: %s", plot_dir)
 
         if save_recording and well_out_dir is None:
-            self.logger.warning(
+            logger.warning(
                 "save_recording=True but mea_analysis_output_root is not set; skipping recording save"
             )
 
@@ -203,10 +221,10 @@ class AxonReconstructor:
                     multirec = si.load_extractor(recording_dir)
 
                 common_el = np.load(common_el_path).tolist()
-                self.logger.info("Resuming: loaded preprocessed recording from %s", recording_dir)
+                logger.info("Resuming: loaded preprocessed recording from %s", recording_dir)
                 return multirec, common_el
             except Exception as e:
-                self.logger.warning("Failed to resume from saved preprocessed recording (%s); re-running", e)
+                logger.warning("Failed to resume from saved preprocessed recording (%s); re-running", e)
 
         if checkpoint_file is not None and checkpoint_state is not None:
             checkpoint_state = save_checkpoint(
@@ -227,7 +245,7 @@ class AxonReconstructor:
                 n_jobs=n_jobs,
                 plot_output_dir=plot_dir,
             )
-            self.logger.info("Concatenated recording built; common electrodes=%d", len(common_el))
+            logger.info("Concatenated recording built; common electrodes=%d", len(common_el))
         except Exception as e:
             if checkpoint_file is not None and checkpoint_state is not None:
                 save_checkpoint(
@@ -257,7 +275,7 @@ class AxonReconstructor:
                     shutil.rmtree(recording_dir)
 
                 if (not recording_dir.exists()) or overwrite_saved_recording:
-                    self.logger.info("Saving preprocessed recording to %s", recording_dir)
+                    logger.info("Saving preprocessed recording to %s", recording_dir)
                     multirec.save(
                         folder=recording_dir,
                         format="binary",
@@ -267,11 +285,11 @@ class AxonReconstructor:
                         progress_bar=False,
                     )
                 else:
-                    self.logger.info("Preprocessed recording already exists at %s; not overwriting", recording_dir)
+                    logger.info("Preprocessed recording already exists at %s; not overwriting", recording_dir)
 
                 np.save(common_el_path, np.asarray(common_el, dtype=np.int64))
             except Exception as e:
-                self.logger.warning("Failed to save preprocessed recording: %s", e)
+                logger.warning("Failed to save preprocessed recording: %s", e)
 
         if checkpoint_file is not None and checkpoint_state is not None:
             checkpoint_state = save_checkpoint(
