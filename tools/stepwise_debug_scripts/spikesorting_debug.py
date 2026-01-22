@@ -24,6 +24,17 @@ PREPROCESS_OUTPUTS_DIRNAME = "preprocess_outputs"
 SPIKESORTING_OUTPUTS_DIRNAME = "spikesorting_outputs"
 
 
+def _setup_well_logger(*, well_out_dir: Path, h5_path: Path, stream_id: str, verbose: bool) -> logging.Logger:
+    from axon_reconstructor.pipeline.pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
+
+    log_file = compute_pipeline_log_file(well_out_dir=well_out_dir, data_file=h5_path, stream_id=stream_id)
+    return setup_pipeline_logger(
+        log_file=log_file,
+        logger_name=f"axon_reconstructor.{stream_id}",
+        verbose=bool(verbose),
+    )
+
+
 @dataclass(frozen=True)
 class SpikeSortingInputs:
     h5_path: Path
@@ -137,6 +148,18 @@ def run_spikesorting_only(*, inputs: SpikeSortingInputs, logger: logging.Logger)
         well=inputs.stream_id,
     )
 
+    # Ensure spikesorting status is captured in the same per-well pipeline log as preprocessing.
+    try:
+        logger = _setup_well_logger(
+            well_out_dir=well_out_dir,
+            h5_path=inputs.h5_path,
+            stream_id=inputs.stream_id,
+            verbose=inputs.verbose,
+        )
+    except Exception:
+        # Keep going even if logging setup fails.
+        pass
+
     preprocess_dir = _resolve_preprocess_dir(well_out_dir=well_out_dir)
     recording_dir = preprocess_dir / "preprocessed_recording"
     if not recording_dir.exists():
@@ -157,7 +180,7 @@ def run_spikesorting_only(*, inputs: SpikeSortingInputs, logger: logging.Logger)
         ProcessingStage,
     )
 
-    logger.info("Initializing MEA_Analysis pipeline object (sorting-only)")
+    logger.info("Initializing MEA_Analysis pipeline object (sorting/analyzer/reports)")
     pipeline = MEAPipeline(
         file_path=str(inputs.h5_path),
         stream_id=inputs.stream_id,
@@ -181,12 +204,29 @@ def run_spikesorting_only(*, inputs: SpikeSortingInputs, logger: logging.Logger)
     )
     pipeline.state["error"] = None
 
-    logger.info("Running MEA_Analysis Phase 2 sorting...")
-    pipeline.run_sorting()
+    logger.info(
+        "Starting MEA_Analysis run: sorter=%s docker_image=%s force_restart=%s",
+        inputs.sorter,
+        inputs.docker_image,
+        inputs.force_restart,
+    )
+
+    try:
+        logger.info("Running MEA_Analysis Phase 2 sorting...")
+        pipeline.run_sorting()
+        logger.info("MEA_Analysis sorting finished; stage=%s", pipeline.state.get("stage"))
+    except Exception:
+        logger.exception("MEA_Analysis sorting FAILED")
+        raise
 
     if inputs.run_analyzer:
-        logger.info("Running MEA_Analysis Phase 3 analyzer (computes waveforms/templates/metrics)...")
-        pipeline.run_analyzer()
+        try:
+            logger.info("Running MEA_Analysis Phase 3 analyzer (computes waveforms/templates/metrics)...")
+            pipeline.run_analyzer()
+            logger.info("MEA_Analysis analyzer finished; stage=%s", pipeline.state.get("stage"))
+        except Exception:
+            logger.exception("MEA_Analysis analyzer FAILED")
+            raise
 
     if inputs.run_reports:
         if not inputs.run_analyzer and pipeline.analyzer is None:
@@ -195,19 +235,30 @@ def run_spikesorting_only(*, inputs: SpikeSortingInputs, logger: logging.Logger)
                 "Set run_analyzer=True or run once to populate analyzer_output."
             )
 
-        logger.info(
-            "Running MEA_Analysis Phase 4 reports (plots/figures)... no_curation=%s export_to_phy=%s",
-            inputs.no_curation,
-            inputs.export_to_phy,
-        )
-        pipeline.generate_reports(
-            thresholds=None,
-            no_curation=inputs.no_curation,
-            export_phy=inputs.export_to_phy,
-        )
+        try:
+            logger.info(
+                "Running MEA_Analysis Phase 4 reports (plots/figures)... no_curation=%s export_to_phy=%s",
+                inputs.no_curation,
+                inputs.export_to_phy,
+            )
+            pipeline.generate_reports(
+                thresholds=None,
+                no_curation=inputs.no_curation,
+                export_phy=inputs.export_to_phy,
+            )
+            logger.info("MEA_Analysis reports finished; stage=%s", pipeline.state.get("stage"))
+        except Exception:
+            logger.exception("MEA_Analysis reports FAILED")
+            raise
 
     sorter_output_dir = pipeline.output_dir / "sorter_output"
     logger.info("Sorting output folder: %s", sorter_output_dir)
+
+    # Log a quick success marker for grepping.
+    if int(pipeline.state.get("stage", 0)) >= ProcessingStage.REPORTS_COMPLETE.value:
+        logger.info("MEA_Analysis completed successfully (REPORTS_COMPLETE)")
+    elif int(pipeline.state.get("stage", 0)) >= ProcessingStage.SORTING_COMPLETE.value:
+        logger.info("MEA_Analysis completed sorting successfully (SORTING_COMPLETE)")
 
     analyzer_dir = pipeline.output_dir / "analyzer_output"
     if inputs.run_reports:
