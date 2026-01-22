@@ -1,10 +1,44 @@
 from __future__ import annotations
 
 import configparser
+import contextlib
 from dataclasses import dataclass
+import datetime as dt
+import io
 from pathlib import Path
+import sys
 import time
 from typing import Iterable, Optional
+
+
+@contextlib.contextmanager
+def _tee_stdout_to_file(out_path: Path):
+    """Write stdout to both terminal and a file for debug logs."""
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(out_path, "w", encoding="utf-8") as f:
+
+        class _Tee(io.TextIOBase):
+            def __init__(self, a, b):
+                self._a = a
+                self._b = b
+
+            def write(self, s):
+                self._a.write(s)
+                self._b.write(s)
+                return len(s)
+
+            def flush(self):
+                try:
+                    self._a.flush()
+                finally:
+                    self._b.flush()
+
+        tee = _Tee(sys.stdout, f)
+        with contextlib.redirect_stdout(tee):
+            yield out_path
 
 
 def print_time_between_segments(
@@ -472,7 +506,7 @@ def _save_channel_layout_plots(
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
-        import spikeinterface.full as si
+        import spikeinterface.extractors as se
     except Exception as e:  # pragma: no cover
         raise RuntimeError(
             "plotting requires `matplotlib`, `numpy`, and `spikeinterface` installed"
@@ -489,7 +523,11 @@ def _save_channel_layout_plots(
 
     # First pass: load positions once per segment.
     for rec_name in rec_names:
-        rec = si.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_name)
+        # SpikeInterface >= 0.103.x: prefer the extractors function API.
+        if hasattr(se, "read_maxwell"):
+            rec = se.read_maxwell(file_path=str(h5_path), stream_id=stream_id, rec_name=rec_name)
+        else:  # pragma: no cover
+            rec = se.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_name)
         cv = rec.get_property("contact_vector")
         electrodes = np.asarray(cv["electrode"], dtype=int)
         x, y = _extract_xy_from_contact_vector(cv)
@@ -704,7 +742,7 @@ def find_common_electrodes_from_segments(
 
     try:
         import h5py
-        import spikeinterface.full as si
+        import spikeinterface.extractors as se
     except Exception as e:  # pragma: no cover
         raise RuntimeError(
             "raw preprocessing requires `h5py` and `spikeinterface` installed"
@@ -716,7 +754,16 @@ def find_common_electrodes_from_segments(
 
     common: Optional[set[int]] = None
     for rec_name in rec_names:
-        rec = si.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_name)
+        # SpikeInterface <= 0.102.x exposed `MaxwellRecordingExtractor` via `spikeinterface.full`.
+        # SpikeInterface >= 0.103.x removed that re-export, so prefer the stable function API.
+        if hasattr(se, "read_maxwell"):
+            # This appears to print "The h5 compression library for Maxwell is already located in /home/adamm/dev/pkgs/axon_reconstructor/vendor/maxwell_hdf5_plugin/Linux/libcompression.so!"
+            # when hdf5plugin is loaded; ignore.
+            # but perhaps we dont need to load hdf5plugin at all here?
+            rec = se.read_maxwell(file_path=str(h5_path), stream_id=stream_id, rec_name=rec_name)
+        else:  # pragma: no cover
+            # Old SpikeInterface versions.
+            rec = se.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_name)
         electrodes = rec.get_property("contact_vector")["electrode"]
         electrode_set = set(int(x) for x in electrodes)
         if common is None:
@@ -725,6 +772,801 @@ def find_common_electrodes_from_segments(
             common &= electrode_set
 
     return rec_names, sorted(common or set())
+
+
+def _print_h5_stream_summary(
+    *,
+    h5_path: Path,
+    stream_id: Optional[str] = None,
+    max_streams_print: int = 25,
+    max_segments_print: int = 10,
+) -> None:
+    """Print a lightweight HDF5 summary (streams/segments) and estimate total duration for a stream.
+
+    This uses `h5py` only (no SpikeInterface) and relies on best-effort heuristics to infer:
+    - sampling frequency (from common attribute names)
+    - number of samples per segment (from dataset shapes under each segment group)
+
+    It is intended as a debugging aid and should not be treated as a strict file parser.
+    """
+
+    try:
+        import h5py
+        import numpy as np
+    except Exception:
+        print("[axon_reconstructor][DEBUG] h5 summary skipped (missing h5py/numpy)", flush=True)
+        return
+
+    def _lower_keys(d):
+        try:
+            return {str(k).lower(): k for k in d.keys()}
+        except Exception:
+            return {}
+
+    def _try_get_attr(obj, names: list[str]):
+        key_map = _lower_keys(getattr(obj, "attrs", {}))
+        for n in names:
+            k = key_map.get(n.lower())
+            if k is None:
+                continue
+            try:
+                v = obj.attrs[k]
+                # unwrap numpy scalars/0-d arrays
+                if isinstance(v, np.ndarray) and v.shape == ():
+                    v = v.item()
+                if isinstance(v, (bytes, bytearray)):
+                    v = v.decode(errors="ignore")
+                return v
+            except Exception:
+                continue
+        return None
+
+    def _infer_sampling_frequency(*objs) -> Optional[float]:
+        attr_names = [
+            "sampling_frequency",
+            "sampling rate",
+            "sampling_rate",
+            "samplerate",
+            "sample_rate",
+            "fs",
+            "frequency",
+        ]
+        for o in objs:
+            if o is None:
+                continue
+            v = _try_get_attr(o, attr_names)
+            if v is None:
+                continue
+            try:
+                fv = float(v)
+                if fv > 0:
+                    return fv
+            except Exception:
+                continue
+        #return None
+
+        # Fallback: return 10,000 Hz as a common default for Maxwell recordings.
+        print("[axon_reconstructor][DEBUG] could not infer fs from attributes; defaulting to 10,000 Hz", flush=True)
+        return 10000.0
+
+    def _infer_segment_num_samples(seg_group) -> tuple[Optional[int], Optional[str]]:
+        # Heuristic: look for the largest numeric dataset (by number of elements)
+        # and use its longest dimension as "n_samples".
+        best = (0, None, None)  # (n_elems, n_samples, path)
+
+        def visitor(name, obj):
+            nonlocal best
+            if not isinstance(obj, h5py.Dataset):
+                return
+            try:
+                if obj.shape is None:
+                    return
+                if obj.dtype is None:
+                    return
+                if obj.dtype.kind not in ("i", "u", "f"):
+                    return
+                if len(obj.shape) == 0:
+                    return
+                n_elems = int(np.prod(obj.shape))
+                if n_elems <= 0:
+                    return
+                n_samples = int(max(obj.shape))
+                if n_elems > best[0]:
+                    best = (n_elems, n_samples, name)
+            except Exception:
+                return
+
+        try:
+            seg_group.visititems(visitor)
+        except Exception:
+            return None, None
+        return (best[1] if best[1] else None), best[2]
+
+    h5_path = Path(h5_path).expanduser().resolve()
+    try:
+        with h5py.File(h5_path, "r") as h5:
+            if "wells" not in h5:
+                print(f"[axon_reconstructor][DEBUG] h5 has no 'wells' group: {h5_path}", flush=True)
+                return
+
+            wells = h5["wells"]
+            stream_ids = list(wells.keys())
+            print(
+                f"[axon_reconstructor][DEBUG] h5 streams: n={len(stream_ids)} (showing up to {max_streams_print})",
+                flush=True,
+            )
+            for sid in stream_ids[: max(0, int(max_streams_print))]:
+                try:
+                    n_segs = len(wells[sid].keys())
+                except Exception:
+                    n_segs = -1
+                marker = " <==" if (stream_id is not None and str(sid) == str(stream_id)) else ""
+                print(f"[axon_reconstructor][DEBUG]  - {sid}: segments={n_segs}{marker}", flush=True)
+
+            if stream_id is None:
+                return
+            if str(stream_id) not in wells:
+                print(
+                    f"[axon_reconstructor][DEBUG] requested stream_id={stream_id!r} not found; available={stream_ids}",
+                    flush=True,
+                )
+                return
+
+            stream = wells[str(stream_id)]
+            rec_names = list(stream.keys())
+            fs = _infer_sampling_frequency(stream, wells, h5)
+            if fs is not None:
+                print(f"[axon_reconstructor][DEBUG] inferred fs={fs:.6f} Hz for stream={stream_id}", flush=True)
+            else:
+                print(f"[axon_reconstructor][DEBUG] could not infer fs for stream={stream_id}", flush=True)
+
+            total_samples = 0
+            unknown = 0
+            for rn in rec_names:
+                seg = stream[rn]
+                n_samp, ds_path = _infer_segment_num_samples(seg)
+                if n_samp is None:
+                    unknown += 1
+                    continue
+                total_samples += int(n_samp)
+                if max_segments_print and len(rec_names) <= int(max_segments_print):
+                    print(
+                        f"[axon_reconstructor][DEBUG]   segment {rn}: samples~{int(n_samp):,} (from dataset '{ds_path}')",
+                        flush=True,
+                    )
+
+            if fs is not None and total_samples > 0:
+                dur_s = float(total_samples) / float(fs)
+                print(
+                    f"[axon_reconstructor][DEBUG] stream {stream_id}: total_samples~{total_samples:,} => duration~{dur_s/60.0:.2f} min ({dur_s:.1f} s)",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[axon_reconstructor][DEBUG] stream {stream_id}: total_samples~{total_samples:,} (duration unknown; fs missing)",
+                    flush=True,
+                )
+            if unknown:
+                print(
+                    f"[axon_reconstructor][DEBUG] stream {stream_id}: could not infer samples for {unknown}/{len(rec_names)} segments",
+                    flush=True,
+                )
+    except OSError as e:
+        print(f"[axon_reconstructor][DEBUG] failed to open h5: {h5_path} ({e})", flush=True)
+        return
+
+
+def _dump_h5_metadata_tree(
+    *,
+    h5_path: Path,
+    out_path: Optional[Path] = None,
+    max_attr_value_chars: int = 240,
+    max_array_preview_elems: int = 16,
+    include_datasets: bool = True,
+    include_dataset_preview: bool = False,
+) -> None:
+    """Dump the full HDF5 tree (groups/datasets) and their attributes.
+
+    Goal: make it easy to find acquisition/settings/config metadata saved in the file.
+
+    Notes:
+    - This is a debugging aid. Output can be large.
+    - By default, it does NOT read dataset contents (only names/shapes/dtypes/attrs).
+    """
+
+    try:
+        import h5py
+        import numpy as np
+    except Exception:
+        print("[axon_reconstructor][DEBUG] h5 metadata dump skipped (missing h5py/numpy)", flush=True)
+        return
+
+    h5_path = Path(h5_path).expanduser().resolve()
+    sink = None
+    try:
+        if out_path is not None:
+            out_path = Path(out_path)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            sink = open(out_path, "w", encoding="utf-8")
+
+        def emit(line: str) -> None:
+            if sink is not None:
+                sink.write(line + "\n")
+            else:
+                print(line, flush=True)
+
+        def fmt_value(v) -> str:
+            try:
+                if isinstance(v, (bytes, bytearray)):
+                    s = v.decode(errors="replace")
+                    return repr(s[:max_attr_value_chars]) + ("…" if len(s) > max_attr_value_chars else "")
+                if isinstance(v, str):
+                    return repr(v[:max_attr_value_chars]) + ("…" if len(v) > max_attr_value_chars else "")
+                if isinstance(v, np.ndarray):
+                    if v.shape == ():
+                        return fmt_value(v.item())
+                    preview = v.ravel()[: int(max_array_preview_elems)]
+                    return f"ndarray(shape={v.shape}, dtype={v.dtype}, preview={preview!r}{'…' if v.size > max_array_preview_elems else ''})"
+                # numpy scalar
+                if hasattr(v, "dtype") and hasattr(v, "item"):
+                    try:
+                        return fmt_value(v.item())
+                    except Exception:
+                        pass
+                s = repr(v)
+                return s[:max_attr_value_chars] + ("…" if len(s) > max_attr_value_chars else "")
+            except Exception as e:
+                return f"<unprintable: {type(v).__name__}: {e}>"
+
+        def dump_attrs(obj, indent: str) -> None:
+            try:
+                keys = list(getattr(obj, "attrs", {}).keys())
+            except Exception:
+                keys = []
+            if not keys:
+                return
+            for k in sorted(keys, key=lambda x: str(x)):
+                try:
+                    v = obj.attrs[k]
+                except Exception as e:
+                    emit(f"{indent}  @ {k}: <error reading attr: {e}>")
+                    continue
+                emit(f"{indent}  @ {k}: {fmt_value(v)}")
+
+        emit(f"[axon_reconstructor][DEBUG] HDF5 metadata dump: {h5_path}")
+        emit("[axon_reconstructor][DEBUG] (groups/datasets + attributes; dataset contents are not read by default)")
+
+        with h5py.File(h5_path, "r") as h5:
+            # Root attributes
+            emit("/")
+            dump_attrs(h5, indent="")
+
+            def visitor(name: str, obj) -> None:
+                # name is path without leading '/'
+                path = "/" + name
+                if isinstance(obj, h5py.Group):
+                    emit(f"{path}  (Group)")
+                    dump_attrs(obj, indent="")
+                elif isinstance(obj, h5py.Dataset):
+                    if not include_datasets:
+                        return
+                    shape = getattr(obj, "shape", None)
+                    dtype = getattr(obj, "dtype", None)
+                    emit(f"{path}  (Dataset shape={shape} dtype={dtype})")
+                    dump_attrs(obj, indent="")
+                    if include_dataset_preview:
+                        try:
+                            # Keep this extremely conservative; some datasets are huge/compressed.
+                            if shape is not None and len(shape) >= 1 and int(shape[0]) > 0:
+                                sl = tuple([slice(0, 1)] + [slice(None)] * (len(shape) - 1))
+                                arr = obj[sl]
+                                emit(f"  preview: {fmt_value(np.asarray(arr))}")
+                        except Exception as e:
+                            emit(f"  preview: <error reading dataset preview: {e}>")
+
+            h5.visititems(visitor)
+
+        if out_path is not None:
+            print(f"[axon_reconstructor][DEBUG] wrote HDF5 metadata dump to: {out_path}", flush=True)
+    except OSError as e:
+        print(f"[axon_reconstructor][DEBUG] failed to open h5 for metadata dump: {h5_path} ({e})", flush=True)
+    finally:
+        if sink is not None:
+            sink.close()
+
+
+def _print_assay_settings(*, h5_path: Path) -> None:
+    """Print high-level assay metadata from Maxwell-style HDF5 files.
+
+    Expected paths (when present):
+    - /assay/run_id
+    - /assay/script_id
+    - /assay/inputs/record_time
+    - /assay/inputs/electrodes
+    """
+
+    try:
+        import h5py
+        import numpy as np
+    except Exception:
+        print("[axon_reconstructor][DEBUG] assay settings skipped (missing h5py/numpy)", flush=True)
+        return
+
+    def _decode_scalar(v):
+        if isinstance(v, np.ndarray):
+            if v.shape == ():
+                v = v.item()
+            elif v.size == 1:
+                v = v.ravel()[0].item()
+        if isinstance(v, (bytes, bytearray)):
+            return v.decode(errors="replace")
+        return v
+
+    def _read_text_dataset(h5, path: str) -> Optional[str]:
+        if path not in h5:
+            return None
+        try:
+            ds = h5[path]
+            if not hasattr(ds, "shape"):
+                return None
+            v = ds[()]
+            v = _decode_scalar(v)
+            return str(v)
+        except Exception:
+            return None
+
+    h5_path = Path(h5_path).expanduser().resolve()
+    try:
+        with h5py.File(h5_path, "r") as h5:
+            if "assay" not in h5:
+                print("[axon_reconstructor][DEBUG] /assay group not present", flush=True)
+                return
+
+            run_id = _read_text_dataset(h5, "/assay/run_id")
+            script_id = _read_text_dataset(h5, "/assay/script_id")
+            record_time = _read_text_dataset(h5, "/assay/inputs/record_time")
+
+            print("[axon_reconstructor][DEBUG] assay settings:", flush=True)
+            if run_id is not None:
+                print(f"[axon_reconstructor][DEBUG]  - run_id: {run_id}", flush=True)
+            if script_id is not None:
+                print(f"[axon_reconstructor][DEBUG]  - script_id: {script_id}", flush=True)
+            if record_time is not None:
+                print(f"[axon_reconstructor][DEBUG]  - record_time: {record_time}", flush=True)
+
+            # Too Much info, we can leave this out.
+            # # electrodes can be a very large serialized blob; print size + a short preview.
+            # electrodes_path = "/assay/inputs/electrodes"
+            # if electrodes_path in h5:
+            #     try:
+            #         ds = h5[electrodes_path]
+            #         raw = ds[()]
+            #         raw = _decode_scalar(raw)
+            #         raw_str = str(raw)
+            #         preview = raw_str[:500]
+            #         suffix = "…" if len(raw_str) > 500 else ""
+            #         print(
+            #             f"[axon_reconstructor][DEBUG]  - electrodes: {len(raw_str):,} chars; preview=\n{preview}{suffix}",
+            #             flush=True,
+            #         )
+            #     except Exception as e:
+            #         print(f"[axon_reconstructor][DEBUG]  - electrodes: <error reading: {e}>", flush=True)
+
+    except OSError as e:
+        print(f"[axon_reconstructor][DEBUG] assay settings: failed to open h5 ({e})", flush=True)
+        return
+
+
+def _print_data_store_start_stop_durations(
+    *,
+    h5_path: Path,
+    target_stream_id: Optional[str] = None,
+    max_entries_print: int = 1000,
+) -> None:
+    """Print start/stop/duration for each `/data_store/dataXXXX` (stream-config) block.
+
+    In these Maxwell-style files, `/data_store/data0000`, `/data_store/data0001`, ... typically enumerate
+    stream/config combinations sequentially. Each block generally contains:
+    - `well_id`
+    - `settings/*` (gain/hpf/lsb/sampling/spike_threshold/mapping)
+    - `start_time` / `stop_time`
+    - `groups/routed/raw` with shape (n_channels, n_frames)
+
+    This is a debugging helper; some files may omit fields.
+    """
+
+    try:
+        import h5py
+        import numpy as np
+    except Exception:
+        print("[axon_reconstructor][DEBUG] data_store timing skipped (missing h5py/numpy)", flush=True)
+        return
+
+    def _read_scalar(ds) -> Optional[object]:
+        try:
+            v = ds[()]
+        except Exception:
+            return None
+        if isinstance(v, np.ndarray):
+            if v.shape == ():
+                v = v.item()
+            elif v.size == 1:
+                v = v.ravel()[0].item()
+        if isinstance(v, (bytes, bytearray)):
+            try:
+                return v.decode(errors="replace")
+            except Exception:
+                return str(v)
+        return v
+
+    def _fmt(v) -> str:
+        if v is None:
+            return "?"
+        try:
+            return str(v)
+        except Exception:
+            return repr(v)
+
+    def _well_label(well_id_val: Optional[int]) -> Optional[str]:
+        if well_id_val is None:
+            return None
+        try:
+            return f"well{int(well_id_val):03d}"
+        except Exception:
+            return None
+
+    target_well_label = None
+    if target_stream_id is not None:
+        s = str(target_stream_id)
+        if s.startswith("well") and s[4:].isdigit():
+            target_well_label = s
+
+    def _infer_epoch_divisor_to_seconds(values: list[int]) -> tuple[float, str]:
+        """Infer whether epoch timestamps are in ms/us/ns and return divisor to seconds."""
+        # Typical magnitudes:
+        # - seconds since epoch: ~1e9
+        # - milliseconds: ~1e12-1e13
+        # - microseconds: ~1e15-1e16
+        # - nanoseconds: ~1e18-1e19
+        if not values:
+            return 1.0, "s"
+        vmax = max(values)
+        if vmax >= 10**18:
+            return 1e9, "ns"
+        if vmax >= 10**15:
+            return 1e6, "us"
+        if vmax >= 10**12:
+            return 1e3, "ms"
+        return 1.0, "s"
+
+    def _fmt_epoch(ts: Optional[int], *, divisor: float) -> str:
+        if ts is None:
+            return "?"
+        try:
+            import datetime as _dt
+
+            dt = _dt.datetime.fromtimestamp(float(ts) / float(divisor), tz=_dt.timezone.utc)
+            return dt.isoformat()
+        except Exception:
+            return str(ts)
+
+    h5_path = Path(h5_path).expanduser().resolve()
+    try:
+        with h5py.File(h5_path, "r") as h5:
+            if "data_store" not in h5:
+                print("[axon_reconstructor][DEBUG] /data_store group not present", flush=True)
+                return
+            ds = h5["data_store"]
+
+            def _key_num(k: str) -> int:
+                # data0000 -> 0
+                digits = "".join(ch for ch in str(k) if ch.isdigit())
+                try:
+                    return int(digits) if digits else 0
+                except Exception:
+                    return 0
+
+            data_keys = sorted([k for k in ds.keys() if str(k).startswith("data")], key=_key_num)
+            if not data_keys:
+                print("[axon_reconstructor][DEBUG] /data_store has no dataXXXX entries", flush=True)
+                return
+
+            print(
+                f"[axon_reconstructor][DEBUG] data_store blocks: n={len(data_keys)} (showing up to {max_entries_print})",
+                flush=True,
+            )
+
+            # Track min/max timestamps for robust overall duration.
+            starts_all: list[int] = []
+            stops_all: list[int] = []
+            entries: list[dict[str, object]] = []
+
+            for k in data_keys[: max(0, int(max_entries_print))]:
+                g = ds[k]
+
+                well_id = None
+                if "well_id" in g:
+                    try:
+                        well_id = int(_read_scalar(g["well_id"]))
+                    except Exception:
+                        well_id = None
+                wl = _well_label(well_id)
+
+                start = _read_scalar(g["start_time"]) if "start_time" in g else None
+                stop = _read_scalar(g["stop_time"]) if "stop_time" in g else None
+                try:
+                    if start is not None:
+                        starts_all.append(int(start))
+                    if stop is not None:
+                        stops_all.append(int(stop))
+                except Exception:
+                    pass
+
+                delta = None
+                try:
+                    if start is not None and stop is not None:
+                        delta = int(stop) - int(start)
+                except Exception:
+                    delta = None
+
+                # Read key settings if present.
+                gain = _read_scalar(g["settings/gain"]) if "settings/gain" in g else None
+                hpf = _read_scalar(g["settings/hpf"]) if "settings/hpf" in g else None
+                lsb = _read_scalar(g["settings/lsb"]) if "settings/lsb" in g else None
+                thresh = _read_scalar(g["settings/spike_threshold"]) if "settings/spike_threshold" in g else None
+                fs = _read_scalar(g["settings/sampling"]) if "settings/sampling" in g else None
+                try:
+                    fs = float(fs) if fs is not None else None
+                except Exception:
+                    fs = None
+
+                # Infer frames/channels from routed/raw.
+                n_channels = None
+                n_frames = None
+                if "groups/routed/raw" in g:
+                    try:
+                        shape = g["groups/routed/raw"].shape
+                        if shape is not None and len(shape) == 2:
+                            n_channels = int(shape[0])
+                            n_frames = int(shape[1])
+                    except Exception:
+                        pass
+                if n_frames is None and "groups/routed/frame_nos" in g:
+                    try:
+                        n_frames = int(g["groups/routed/frame_nos"].shape[0])
+                    except Exception:
+                        pass
+
+                dur_by_frames = None
+                if fs is not None and n_frames is not None and fs > 0:
+                    dur_by_frames = float(n_frames) / float(fs)
+
+                entries.append(
+                    {
+                        "key": str(k),
+                        "well_label": wl,
+                        "well_id": well_id,
+                        "start": start,
+                        "stop": stop,
+                        "delta": delta,
+                        "fs": fs,
+                        "n_channels": n_channels,
+                        "n_frames": n_frames,
+                        "dur_by_frames": dur_by_frames,
+                        "gain": gain,
+                        "hpf": hpf,
+                        "lsb": lsb,
+                        "thr": thresh,
+                    }
+                )
+
+            # Infer epoch unit once (ms/us/ns) for consistent per-block prints.
+            if starts_all and stops_all:
+                min_start = min(starts_all)
+                max_stop = max(stops_all)
+                divisor, unit = _infer_epoch_divisor_to_seconds([min_start, max_stop])
+            else:
+                divisor, unit = 1.0, "s"
+
+            # Per-block printing + gaps between consecutive config blocks.
+            last_stop_by_well: dict[str, int] = {}
+            last_key_by_well: dict[str, str] = {}
+            for e in entries:
+                wl = e.get("well_label")
+                if target_well_label is not None and wl != target_well_label:
+                    continue
+
+                k = str(e.get("key"))
+                well_id = e.get("well_id")
+                start = e.get("start")
+                stop = e.get("stop")
+                delta = e.get("delta")
+
+                line = (
+                    f"[axon_reconstructor][DEBUG]  - {k}: well={wl or _fmt(well_id)} "
+                    f"fs={_fmt(e.get('fs'))}Hz nch={_fmt(e.get('n_channels'))} frames={_fmt(e.get('n_frames'))} "
+                    f"start={_fmt(start)} ({_fmt_epoch(int(start) if start is not None else None, divisor=divisor)}) "
+                    f"stop={_fmt(stop)} ({_fmt_epoch(int(stop) if stop is not None else None, divisor=divisor)}) "
+                    f"delta={_fmt(delta)} ({unit})"
+                )
+                print(line, flush=True)
+
+                # Duration and gap (in seconds) computed from start/stop.
+                dur_s = None
+                if delta is not None:
+                    try:
+                        dur_s = float(int(delta)) / float(divisor)
+                    except Exception:
+                        dur_s = None
+
+                gap_s = None
+                prev_key = None
+                if wl is not None and start is not None:
+                    try:
+                        prev_stop = last_stop_by_well.get(wl)
+                        prev_key = last_key_by_well.get(wl)
+                        if prev_stop is not None:
+                            gap_raw = int(start) - int(prev_stop)
+                            gap_s = float(gap_raw) / float(divisor)
+                    except Exception:
+                        gap_s = None
+
+                if wl is not None and stop is not None:
+                    try:
+                        last_stop_by_well[wl] = int(stop)
+                        last_key_by_well[wl] = k
+                    except Exception:
+                        pass
+
+                cfg_bits = [
+                    f"gain={_fmt(e.get('gain'))}",
+                    f"hpf={_fmt(e.get('hpf'))}",
+                    f"lsb={_fmt(e.get('lsb'))}",
+                    f"thr={_fmt(e.get('thr'))}",
+                ]
+                time_bits = []
+                if dur_s is not None:
+                    time_bits.append(f"dur={dur_s:.6f}s")
+                if gap_s is not None and prev_key is not None:
+                    time_bits.append(f"gap(prev {prev_key}->{k})={gap_s:.6f}s")
+
+                print(
+                    "[axon_reconstructor][DEBUG]      " + ", ".join(cfg_bits + (["; "] if time_bits else []) + time_bits),
+                    flush=True,
+                )
+            
+
+            # Overall duration summary (earliest start -> latest stop).
+            if starts_all and stops_all:
+                min_start = min(starts_all)
+                max_stop = max(stops_all)
+                overall_delta = int(max_stop) - int(min_start)
+
+                overall_delta_s = float(overall_delta) / float(divisor)
+                print(
+                    f"[axon_reconstructor][DEBUG] data_store overall: min_start={min_start} ({_fmt_epoch(min_start, divisor=divisor)}) "
+                    f"max_stop={max_stop} ({_fmt_epoch(max_stop, divisor=divisor)}) delta={overall_delta} ({unit})",
+                    flush=True,
+                )
+                print(
+                    f"[axon_reconstructor][DEBUG] data_store overall duration: {overall_delta_s:.3f} s ({overall_delta_s/60.0:.2f} min) assuming epoch-{unit}",
+                    flush=True,
+                )
+                
+    except OSError as e:
+        print(f"[axon_reconstructor][DEBUG] data_store timing: failed to open h5 ({e})", flush=True)
+        return
+
+
+def _process_rec_segment_for_concatenation(
+    *,
+    h5_path: Path,
+    stream_id: str,
+    rec_name: str,
+    common_el: list[int],
+    center_chunk_size: int,
+    expected_xy_by_electrode: Optional[dict[int, tuple[float, float]]] = None,
+    expected_xy_atol: float = 0.0,
+):
+    """Load a segment, center, select the shared electrodes, validate ordering, and normalize channel ids.
+
+    Important behavioral notes (for posterity):
+
+    - SpikeInterface concatenation is strict: it only concatenates recordings when *dtype* and *channel_ids*
+      arrays are exactly identical across segments (including order). It does not match by electrode metadata.
+    - Historically this pipeline normalized channel ids to 0..n-1 before concatenation.
+    - Renaming to 0..n-1 can hide per-segment mismatches (e.g. wrong electrode->channel mapping) because it
+      forces channel_ids equality even if the underlying electrode identity differs.
+    - To keep concat deterministic without losing identity, we rename channel ids to the *validated* electrode
+      ids (`common_el`) after confirming the selected electrodes and (optionally) their x/y locations match.
+    """
+
+    try:
+        import numpy as np
+        import spikeinterface.full as si
+        import spikeinterface.extractors as se
+    except Exception as e:  # pragma: no cover
+        raise RuntimeError(
+            "raw preprocessing requires `numpy` and `spikeinterface` installed"
+        ) from e
+
+    if hasattr(se, "read_maxwell"):
+        rec = se.read_maxwell(file_path=str(h5_path), stream_id=stream_id, rec_name=rec_name)
+    else:  # pragma: no cover
+        rec = se.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_name)
+
+    fs = float(rec.get_sampling_frequency())
+    n_samples = int(rec.get_num_samples())
+    chunk = min(center_chunk_size, rec.get_num_samples()) - 100
+    chunk = max(chunk, 100)
+    rec_centered = si.center(rec, chunk_size=chunk)
+
+    # Map electrode id -> channel index within this segment.
+    rec_el = np.asarray(rec.get_property("contact_vector")["electrode"], dtype=int)
+    if int(np.unique(rec_el).size) != int(rec_el.size):
+        raise RuntimeError(
+            f"Duplicate electrode ids found in contact_vector for segment {rec_name}; cannot map electrodes reliably"
+        )
+    el_to_idx = {int(el): int(i) for i, el in enumerate(rec_el)}
+    try:
+        chan_idx = [el_to_idx[int(el)] for el in common_el]
+    except KeyError as e:
+        raise RuntimeError(
+            f"Segment {rec_name} is missing expected electrode id={e.args[0]} from the common electrode set"
+        ) from e
+
+    sel_channels = np.asarray(rec.get_channel_ids(), dtype=object)[chan_idx]
+
+    # SpikeInterface <=0.102.x (and earlier): this used to work and could also rename ids:
+    # rec_centered_sliced = rec_centered.channel_slice(sel_channels, renamed_channel_ids=list(range(len(sel_channels))))
+    # SpikeInterface 0.103.x: BaseRecording no longer has `channel_slice()`.
+    processed = rec_centered.select_channels(list(sel_channels))
+
+    # Validate that selection did what we asked (before any renaming).
+    processed_ch = np.asarray(processed.get_channel_ids(), dtype=object)
+    if processed_ch.shape != sel_channels.shape or not np.array_equal(processed_ch, sel_channels):
+        raise RuntimeError(
+            f"Selected channel_ids mismatch for segment {rec_name}. "
+            "This may indicate a channel-id ordering issue during selection."
+        )
+
+    # Validate electrode identity and order.
+    processed_el = np.asarray(processed.get_property("contact_vector")["electrode"], dtype=int)
+    expected_el = np.asarray(common_el, dtype=int)
+    if processed_el.shape != expected_el.shape or not np.array_equal(processed_el, expected_el):
+        raise RuntimeError(
+            f"Selected electrodes mismatch for segment {rec_name}. "
+            f"Expected {expected_el.shape[0]} electrodes matching common set; got {processed_el.shape[0]} "
+            f"and/or different ordering."
+        )
+
+    # Optional: validate electrode locations (x/y) match the reference segment, if available.
+    if expected_xy_by_electrode is not None:
+        cv = processed.get_property("contact_vector")
+        x, y = _extract_xy_from_contact_vector(cv)
+        x = np.asarray(x, dtype=float)
+        y = np.asarray(y, dtype=float)
+        expected_x = np.asarray([expected_xy_by_electrode[int(el)][0] for el in expected_el], dtype=float)
+        expected_y = np.asarray([expected_xy_by_electrode[int(el)][1] for el in expected_el], dtype=float)
+        if not (np.allclose(x, expected_x, atol=float(expected_xy_atol)) and np.allclose(y, expected_y, atol=float(expected_xy_atol))):
+            raise RuntimeError(
+                f"Electrode x/y locations differ from reference for segment {rec_name}. "
+                "This suggests inconsistent layouts across segments; refusing to concatenate."
+            )
+
+    # Now normalize channel ids in a way that preserves identity and makes concat deterministic.
+    processed = processed.rename_channels([int(el) for el in expected_el])
+
+    renamed_ch = np.asarray(processed.get_channel_ids(), dtype=object)
+    if renamed_ch.shape != expected_el.shape or not np.array_equal(renamed_ch.astype(int), expected_el):
+        raise RuntimeError(f"Failed to rename channel ids to electrode ids for segment {rec_name}")
+
+    return processed, {
+        "rec_name": rec_name,
+        "fs": fs,
+        "n_samples": n_samples,
+        "n_channels": int(processed.get_num_channels()),
+    }
 
 
 def build_concatenated_recording(
@@ -743,6 +1585,7 @@ def build_concatenated_recording(
     try:
         import numpy as np
         import spikeinterface.full as si
+        import spikeinterface.extractors as se
     except Exception as e:  # pragma: no cover
         raise RuntimeError(
             "raw preprocessing requires `numpy` and `spikeinterface` installed"
@@ -752,6 +1595,44 @@ def build_concatenated_recording(
 
     t0 = time.perf_counter()
     print(f"[axon_reconstructor] preprocessing: h5={h5_path} stream={stream_id}", flush=True)
+
+    # Save assay + data_store timing stats to a text file while still echoing to terminal.
+    stats_dir = Path(plot_output_dir) if plot_output_dir is not None else h5_path.parent
+    stats_path = stats_dir / f"assay_stats_{stream_id}.txt"
+    try:
+        with _tee_stdout_to_file(stats_path) as p:
+            print(
+                f"[axon_reconstructor][DEBUG] assay_stats file: {p} "
+                f"(generated {dt.datetime.now(dt.timezone.utc).isoformat()})",
+                flush=True,
+            )
+            print(f"[axon_reconstructor][DEBUG] assay_stats context: h5={h5_path} stream={stream_id}", flush=True)
+
+            # Quick check for assay-level metadata embedded in the HDF5.
+            _print_assay_settings(h5_path=h5_path)
+
+            # Print start/stop/duration for each stream-config block in /data_store.
+            _print_data_store_start_stop_durations(h5_path=h5_path, target_stream_id=stream_id)
+    except Exception as e:
+        print(f"[axon_reconstructor][WARN] failed to write assay_stats file to {stats_path}: {e}", flush=True)
+        _print_assay_settings(h5_path=h5_path)
+        _print_data_store_start_stop_durations(h5_path=h5_path, target_stream_id=stream_id)
+
+    # Debugging aid: summarize streams/segments and estimate stream duration.
+    #_print_h5_stream_summary(h5_path=h5_path, stream_id=stream_id)
+
+    # Debugging aid: dump all HDF5 attributes/settings so we can find acquisition config.
+    # This can be very verbose; write to plot_output_dir when provided.
+    # Useful tool, but we dont need to run this everytime. Move to a debug libary later.
+    # if plot_output_dir is not None:
+    #     _dump_h5_metadata_tree(
+    #         h5_path=h5_path,
+    #         out_path=Path(plot_output_dir) / f"h5_metadata_dump_{stream_id}.txt",
+    #         include_datasets=True,
+    #         include_dataset_preview=False,
+    #     )
+    # else:
+    #     _dump_h5_metadata_tree(h5_path=h5_path, out_path=None, include_datasets=True, include_dataset_preview=False)
 
     rec_names, common_el = find_common_electrodes_from_segments(h5_path=h5_path, stream_id=stream_id)
 
@@ -776,19 +1657,25 @@ def build_concatenated_recording(
             flush=True,
         )
 
-    def process_rec_name(rec_name: str):
-        rec = si.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_name)
-        fs = float(rec.get_sampling_frequency())
-        n_samples = int(rec.get_num_samples())
-        chunk = min(center_chunk_size, rec.get_num_samples()) - 100
-        chunk = max(chunk, 100)
-        rec_centered = si.center(rec, chunk_size=chunk)
-
-        rec_el = rec.get_property("contact_vector")["electrode"]
-        chan_idx = [int(np.where(rec_el == el)[0][0]) for el in common_el]
-        sel_channels = rec.get_channel_ids()[chan_idx]
-        processed = rec_centered.channel_slice(sel_channels, renamed_channel_ids=list(range(len(chan_idx))))
-        return processed, {"rec_name": rec_name, "fs": fs, "n_samples": n_samples, "n_channels": int(processed.get_num_channels())}
+    # Build a reference map electrode_id -> (x, y) from the first segment.
+    # This lets us confirm that all segments share the same electrode layout/order before concatenation.
+    expected_xy_by_electrode: Optional[dict[int, tuple[float, float]]] = None
+    try:
+        if rec_names:
+            if hasattr(se, "read_maxwell"):
+                rec0 = se.read_maxwell(file_path=str(h5_path), stream_id=stream_id, rec_name=rec_names[0])
+            else:  # pragma: no cover
+                rec0 = se.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_names[0])
+            cv0 = rec0.get_property("contact_vector")
+            el0 = np.asarray(cv0["electrode"], dtype=int)
+            x0, y0 = _extract_xy_from_contact_vector(cv0)
+            expected_xy_by_electrode = {
+                int(e): (float(x), float(y))
+                for e, x, y in zip(el0, np.asarray(x0, dtype=float), np.asarray(y0, dtype=float), strict=False)
+            }
+    except Exception:
+        # If x/y is unavailable or malformed, fall back to electrode-id-only validation.
+        expected_xy_by_electrode = None
 
     # Keep concurrency modest; these extractors are I/O heavy.
     from concurrent.futures import ThreadPoolExecutor
@@ -796,29 +1683,40 @@ def build_concatenated_recording(
     max_workers = min(len(rec_names), max(1, int(n_jobs)))
     t_segments = time.perf_counter()
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        results = list(ex.map(process_rec_name, rec_names))
+        from functools import partial
+
+        process = partial(
+            _process_rec_segment_for_concatenation,
+            h5_path=h5_path,
+            stream_id=stream_id,
+            common_el=common_el,
+            center_chunk_size=center_chunk_size,
+            expected_xy_by_electrode=expected_xy_by_electrode,
+            expected_xy_atol=0.0,
+        )
+        results = list(ex.map(lambda rn: process(rec_name=rn), rec_names))
 
     rec_list = [r for r, _ in results]
     seg_stats = [s for _, s in results]
 
-    # Print per-segment durations (in the original order).
+    # # Print per-segment durations (in the original order).
     print(
         f"[axon_reconstructor] segment preprocessing done in {time.perf_counter() - t_segments:.2f}s "
         f"(n_jobs={n_jobs}, workers={max_workers})",
         flush=True,
     )
-    for s in seg_stats:
-        fs = float(s["fs"])
-        n = int(s["n_samples"])
-        dur = (n / fs) if fs > 0 else float("nan")
-        print(
-            f"[axon_reconstructor] segment {s['rec_name']}: fs={fs:.2f} Hz, "
-            f"samples={n:,}, duration={dur:.2f} s, channels={int(s['n_channels'])}",
-            flush=True,
-        )
+    # for s in seg_stats:
+    #     fs = float(s["fs"])
+    #     n = int(s["n_samples"])
+    #     dur = (n / fs) if fs > 0 else float("nan")
+    #     print(
+    #         f"[axon_reconstructor] segment {s['rec_name']}: fs={fs:.2f} Hz, "
+    #         f"samples={n:,}, duration={dur:.2f} s, channels={int(s['n_channels'])}",
+    #         flush=True,
+    #     )
 
-    # Optional: print real inter-segment gaps, if the extractor exposes absolute times.
-    print_time_between_segments(rec_list, rec_names=rec_names)
+    # # Optional: print real inter-segment gaps, if the extractor exposes absolute times.
+    # print_time_between_segments(rec_list, rec_names=rec_names)
 
     # Check sampling-frequency consistency across segments.
     fs_vals = [float(s["fs"]) for s in seg_stats if float(s["fs"]) > 0]
@@ -856,7 +1754,10 @@ def build_concatenated_recording(
 
         # Build shared-electrode positions using the first segment contact_vector.
         try:
-            rec0 = si.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_names[0])
+            if hasattr(se, "read_maxwell"):
+                rec0 = se.read_maxwell(file_path=str(h5_path), stream_id=stream_id, rec_name=rec_names[0])
+            else:  # pragma: no cover
+                rec0 = se.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_names[0])
             cv0 = rec0.get_property("contact_vector")
             el0 = np.asarray(cv0["electrode"], dtype=int)
             x0, y0 = _extract_xy_from_contact_vector(cv0)
@@ -869,10 +1770,13 @@ def build_concatenated_recording(
             ys = np.asarray([el_to_pos[int(e)][1] for e in common_el], dtype=float)
 
             clusters = detect_electrode_clusters(x=xs, y=ys, max_cluster_size_warn=9)
+            mr_channel_ids = list(multirecording.get_channel_ids())
             rep_channel_ids: list[int] = []
             for c in clusters:
                 rep_idx = _pick_representative_index_for_cluster(x=xs, y=ys, cluster=c)
-                rep_channel_ids.append(int(rep_idx))
+                # rep_idx is an index into the shared-electrode arrays (xs/ys), NOT necessarily a channel id.
+                # Map it to the actual channel id used by the (possibly non-renamed) recording.
+                rep_channel_ids.append(int(mr_channel_ids[int(rep_idx)]))
 
             # Score reps by activity and keep the most active representative for now.
             scores = [
