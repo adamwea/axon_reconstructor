@@ -7,7 +7,7 @@ This is intentionally parallel to `preprocessing_debug.py`:
 
 Contract:
 - preprocessing has already saved a SpikeInterface recording at:
-    <MEA_OUTPUT_ROOT>/<relative_pattern>/<well>/axon_reconstructor/preprocess/preprocessed_recording
+    <MEA_OUTPUT_ROOT>/<relative_pattern>/<well>/preprocess_outputs/preprocessed_recording
 - this harness loads that recording and runs MEA_Analysis Phase 2 (sorting)
 """
 
@@ -18,6 +18,10 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+
+PREPROCESS_OUTPUTS_DIRNAME = "preprocess_outputs"
+SPIKESORTING_OUTPUTS_DIRNAME = "spikesorting_outputs"
 
 
 @dataclass(frozen=True)
@@ -56,6 +60,56 @@ class SpikeSortingOutputs:
     analyzer_dir: Path
 
 
+def _resolve_preprocess_dir(*, well_out_dir: Path) -> Path:
+    """Find preprocessing output folder, with backward-compatible fallback."""
+
+    new_dir = well_out_dir / PREPROCESS_OUTPUTS_DIRNAME
+    if new_dir.exists():
+        return new_dir
+
+    legacy_dir = well_out_dir / "axon_reconstructor" / "preprocess"
+    if legacy_dir.exists():
+        return legacy_dir
+
+    # Default to new location for error messaging.
+    return new_dir
+
+
+def _relocate_mea_analysis_outputs(*, pipeline, well_out_dir: Path, logger: logging.Logger) -> None:
+    """Force MEA_Analysis to write all outputs under <well>/spikesorting_outputs/.
+
+    We keep MEA_Analysis itself unmodified by overriding the pipeline object's
+    output_dir + checkpoint_file after construction.
+    """
+
+    spikesorting_dir = well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME
+    spikesorting_dir.mkdir(parents=True, exist_ok=True)
+
+    pipeline.output_dir = spikesorting_dir
+
+    # Re-home checkpoints into spikesorting_outputs/checkpoints
+    ckpt_root = spikesorting_dir / "checkpoints"
+    ckpt_root.mkdir(parents=True, exist_ok=True)
+    pipeline.checkpoint_file = (
+        ckpt_root / f"{pipeline.project_name}_{pipeline.run_id}_{pipeline.stream_id}_checkpoint.json"
+    )
+
+    # Reload state from the new checkpoint location (if present)
+    try:
+        pipeline.state = pipeline._load_checkpoint()
+    except Exception as e:
+        logger.warning("Could not reload MEA_Analysis checkpoint from spikesorting_outputs: %s", e)
+
+    # Re-home the MEA_Analysis log file too (best-effort)
+    try:
+        log_file = spikesorting_dir / f"{pipeline.run_id}_{pipeline.stream_id}_pipeline.log"
+        mea_logger = logging.getLogger(f"mea_{pipeline.stream_id}")
+        mea_logger.handlers.clear()
+        pipeline.logger = pipeline._setup_logger(log_file)
+    except Exception as e:
+        logger.debug("Could not reset MEA_Analysis logger handlers: %s", e)
+
+
 def _ensure_mea_analysis_importable(mea_analysis_repo_root: Path) -> None:
     """Make `import MEA_Analysis...` work in ad-hoc debug sessions."""
 
@@ -83,7 +137,7 @@ def run_spikesorting_only(*, inputs: SpikeSortingInputs, logger: logging.Logger)
         well=inputs.stream_id,
     )
 
-    preprocess_dir = well_out_dir / "axon_reconstructor" / "preprocess"
+    preprocess_dir = _resolve_preprocess_dir(well_out_dir=well_out_dir)
     recording_dir = preprocess_dir / "preprocessed_recording"
     if not recording_dir.exists():
         raise FileNotFoundError(
@@ -116,6 +170,8 @@ def run_spikesorting_only(*, inputs: SpikeSortingInputs, logger: logging.Logger)
         cleanup=False,
         force_restart=inputs.force_restart,
     )
+
+    _relocate_mea_analysis_outputs(pipeline=pipeline, well_out_dir=well_out_dir, logger=logger)
 
     # Inject our preprocessed recording; skip MEA_Analysis preprocessing.
     pipeline.recording = recording

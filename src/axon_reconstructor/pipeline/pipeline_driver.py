@@ -9,6 +9,9 @@ from typing import Optional
 from axon_reconstructor.pipeline import raw_preprocessing
 
 
+PREPROCESS_OUTPUTS_DIRNAME = "preprocess_outputs"
+
+
 def _compute_mea_analysis_output_dir(
     *,
     output_root: Path,
@@ -133,7 +136,7 @@ class AxonReconstructor:
                     data_file=h5_path,
                     well=stream_id,
                 )
-                plot_dir = well_out_dir / "axon_reconstructor" / "preprocess"
+                plot_dir = well_out_dir / PREPROCESS_OUTPUTS_DIRNAME
                 plot_dir.mkdir(parents=True, exist_ok=True)
                 self.logger.info("Preprocess diagnostics output: %s", plot_dir)
 
@@ -160,7 +163,7 @@ class AxonReconstructor:
 
         if save_recording and well_out_dir is not None:
             # Persist the preprocessed recording so later stages can be debugged independently.
-            preprocess_dir = well_out_dir / "axon_reconstructor" / "preprocess"
+            preprocess_dir = well_out_dir / PREPROCESS_OUTPUTS_DIRNAME
             preprocess_dir.mkdir(parents=True, exist_ok=True)
             recording_dir = preprocess_dir / "preprocessed_recording"
             common_el_path = preprocess_dir / "common_electrodes.npy"
