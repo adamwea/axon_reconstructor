@@ -10,6 +10,9 @@ from typing import Iterable, Optional, Sequence
 _INSTALLED_PATH_CONTRACT = importlib.import_module("IPNAnalysis.path_contract")
 
 
+SPIKESORTING_OUTPUTS_DIRNAME = "spikesorting_outputs"
+
+
 def compute_mea_relative_pattern(
     data_file: os.PathLike[str] | str,
 ) -> str:
@@ -44,14 +47,46 @@ def compute_sorter_output_dir(
     data_file: os.PathLike[str] | str,
     well: str,
 ) -> Path:
-    return (
-        compute_mea_output_dir(
-            output_root=output_root,
-            data_file=data_file,
-            well=well,
-        )
-        / "sorter_output"
-    )
+    return compute_spikesorting_output_dir(
+        output_root=output_root,
+        data_file=data_file,
+        well=well,
+    ) / "sorter_output"
+
+
+def compute_spikesorting_output_dir(
+    *,
+    output_root: os.PathLike[str] | str,
+    data_file: os.PathLike[str] | str,
+    well: str,
+) -> Path:
+    """Compute the per-well folder where MEA_Analysis outputs are stored.
+
+    In axon_reconstructor, MEA_Analysis is a *step* (spike sorting), so its
+    outputs live under:
+      <output_root>/<relative_pattern>/<well>/spikesorting_outputs/
+    """
+
+    return compute_mea_output_dir(
+        output_root=output_root,
+        data_file=data_file,
+        well=well,
+    ) / SPIKESORTING_OUTPUTS_DIRNAME
+
+
+def compute_legacy_sorter_output_dir(
+    *,
+    output_root: os.PathLike[str] | str,
+    data_file: os.PathLike[str] | str,
+    well: str,
+) -> Path:
+    """Legacy MEA_Analysis layout (outputs directly under the per-well folder)."""
+
+    return compute_mea_output_dir(
+        output_root=output_root,
+        data_file=data_file,
+        well=well,
+    ) / "sorter_output"
 
 
 def validate_sorter_output_dir(sorter_output_dir: os.PathLike[str] | str) -> bool:

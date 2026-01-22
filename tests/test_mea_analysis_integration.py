@@ -7,6 +7,7 @@ from axon_reconstructor.integrations.mea_analysis import (
     build_run_pipeline_driver_cmd,
     compute_mea_output_dir,
     compute_mea_relative_pattern,
+    compute_spikesorting_output_dir,
     compute_sorter_output_dir,
     validate_sorter_output_dir,
 )
@@ -45,7 +46,11 @@ def test_compute_output_and_sorter_output_dirs():
 
     sorter_out = compute_sorter_output_dir(output_root=output_root, data_file=data_file, well=well)
     assert sorter_out.name == "sorter_output"
-    assert sorter_out.parent == out
+    assert sorter_out.parent == compute_spikesorting_output_dir(
+        output_root=output_root,
+        data_file=data_file,
+        well=well,
+    )
 
 
 def test_validate_sorter_output_dir(tmp_path: Path):

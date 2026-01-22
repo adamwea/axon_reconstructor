@@ -25,7 +25,10 @@ def resolve_mea_sorter_output_dir(req: SpikeSortRequest) -> Path:
     """
 
     try:
-        from axon_reconstructor.integrations.mea_analysis import compute_sorter_output_dir
+        from axon_reconstructor.integrations.mea_analysis import (
+            compute_legacy_sorter_output_dir,
+            compute_sorter_output_dir,
+        )
     except Exception as e:  # pragma: no cover
         raise RuntimeError(
             "Resolving sorter output dirs requires MEA_Analysis installed (import IPNAnalysis.path_contract)."
@@ -34,11 +37,26 @@ def resolve_mea_sorter_output_dir(req: SpikeSortRequest) -> Path:
     if not req.well:
         raise ValueError("well is required to resolve a per-well sorter_output directory")
 
-    return compute_sorter_output_dir(
+    preferred = compute_sorter_output_dir(
         output_root=req.mea_output_root,
         data_file=req.data_file,
         well=req.well,
     )
+
+    if preferred.exists():
+        return preferred
+
+    legacy = compute_legacy_sorter_output_dir(
+        output_root=req.mea_output_root,
+        data_file=req.data_file,
+        well=req.well,
+    )
+
+    if legacy.exists():
+        return legacy
+
+    # Default to the new contract.
+    return preferred
 
 
 def validate_sorter_output(sorter_output_dir: Path) -> bool:
