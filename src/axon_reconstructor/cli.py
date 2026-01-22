@@ -224,6 +224,8 @@ def _cmd_run_reconstruction(args: argparse.Namespace) -> int:
         mea_analysis_repo_root=args.mea_analysis_repo_root,
         mea_analysis_docker_image=args.docker_image,
         mea_auto_run_driver=bool(args.auto_run_driver),
+        force_restart=bool(getattr(args, "force_restart", False)),
+        enable_checkpointing=bool(getattr(args, "enable_checkpointing", True)),
     )
 
     recon.run_pipeline(
@@ -258,6 +260,8 @@ def _cmd_pipeline(args: argparse.Namespace) -> int:
         mea_analysis_repo_root=args.mea_analysis_repo_root,
         mea_analysis_docker_image=args.docker_image,
         mea_auto_run_driver=bool(args.auto_run_driver),
+        force_restart=bool(getattr(args, "force_restart", False)),
+        enable_checkpointing=bool(getattr(args, "enable_checkpointing", True)),
     )
 
     if args.list_streams:
@@ -329,6 +333,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="If set, may invoke MEA_Analysis driver (lab mode) when sorter_output is missing.",
     )
+    p_run.add_argument(
+        "--force-restart",
+        action="store_true",
+        help="Ignore existing axon_reconstructor checkpoint state (re-run stages).",
+    )
+    p_run.add_argument(
+        "--no-checkpoint",
+        dest="enable_checkpointing",
+        action="store_false",
+        default=True,
+        help="Disable axon_reconstructor JSON checkpointing.",
+    )
     p_run.add_argument("--only-load-sortings", action="store_true", help="Legacy flag; kept for compatibility.")
     p_run.add_argument("--no-concatenate", dest="concatenate", action="store_false", default=True)
     p_run.add_argument("--no-waveforms", dest="waveforms", action="store_false", default=True)
@@ -350,6 +366,18 @@ def main(argv: list[str] | None = None) -> int:
         "--auto-run-driver",
         action="store_true",
         help="If set, may invoke MEA_Analysis driver (lab mode) when sorter_output is missing.",
+    )
+    p_pipe.add_argument(
+        "--force-restart",
+        action="store_true",
+        help="Ignore existing axon_reconstructor checkpoint state (re-run stages).",
+    )
+    p_pipe.add_argument(
+        "--no-checkpoint",
+        dest="enable_checkpointing",
+        action="store_false",
+        default=True,
+        help="Disable axon_reconstructor JSON checkpointing.",
     )
     p_pipe.add_argument("--only-load-sortings", action="store_true")
     p_pipe.add_argument("--no-concatenate", dest="concatenate", action="store_false", default=True)
