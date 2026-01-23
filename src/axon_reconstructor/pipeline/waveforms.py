@@ -685,19 +685,22 @@ def _filter_spike_train_by_intervals(
     intervals: list[tuple[int, int]],
     pre_samples: int,
     post_samples: int,
-) -> tuple[list[int], int, int]:
+) -> tuple[list[int], int, int, list[int], list[int]]:
     """Keep spikes whose cutout window stays within some interval.
 
     Returns:
-      (kept_spikes, removed_outside_interval, removed_window_crosses_interval_edge)
+            (kept_spikes, removed_outside_interval, removed_window_crosses_interval_edge,
+             removed_outside_spikes, removed_edge_spikes)
     """
 
     if not intervals:
-        return spike_train, 0, 0
+                return spike_train, 0, 0, [], []
 
     kept: list[int] = []
     removed_outside = 0
     removed_edge = 0
+    removed_outside_spikes: list[int] = []
+    removed_edge_spikes: list[int] = []
 
     # Two-pointer scan because both spike_train and intervals are sorted.
     # We advance based on the spike time `t` (not t0), then classify removal
@@ -725,10 +728,135 @@ def _filter_spike_train_by_intervals(
         else:
             if in_interval:
                 removed_edge += 1
+                removed_edge_spikes.append(t_int)
             else:
                 removed_outside += 1
+                removed_outside_spikes.append(t_int)
 
-    return kept, removed_outside, removed_edge
+    return kept, removed_outside, removed_edge, removed_outside_spikes, removed_edge_spikes
+
+
+def _write_wf_rejection_log_xlsx(
+    *,
+    wf_rejection_log_xlsx: Path,
+    rows: list[dict[str, Any]],
+    force_restart: bool,
+    logger,
+) -> None:
+    """Write per-spike waveform rejection log.
+
+    This tracks spikes removed during waveforms extraction filtering (epoch/out-of-epoch
+    removals and edge/window violations). The output is designed to be joinable to the
+    waveforms analyzers used by footprinting.
+    """
+
+    if wf_rejection_log_xlsx.exists() and (not force_restart):
+        logger.info("wf_rejection_log.xlsx exists; not overwriting: %s", wf_rejection_log_xlsx)
+        return
+
+    import pandas as pd  # type: ignore[import-not-found]
+
+    if not rows:
+        df = pd.DataFrame(
+            columns=[
+                "scope",
+                "source_name",
+                "segment_index",
+                "rec_name",
+                "unit_id",
+                "spike_sample_local",
+                "spike_sample_concat",
+                "spike_time_s",
+                "reason",
+                "stream_id",
+                "sorter",
+                "h5_path",
+                "fs_hz",
+                "ms_before",
+                "ms_after",
+                "pre_samples",
+                "post_samples",
+            ]
+        )
+    else:
+        df = pd.DataFrame(rows)
+
+    # Ensure stable column order.
+    preferred_cols = [
+        "scope",
+        "source_name",
+        "segment_index",
+        "rec_name",
+        "unit_id",
+        "spike_sample_local",
+        "spike_sample_concat",
+        "spike_time_s",
+        "reason",
+        "stream_id",
+        "sorter",
+        "h5_path",
+        "fs_hz",
+        "ms_before",
+        "ms_after",
+        "pre_samples",
+        "post_samples",
+    ]
+    cols = [c for c in preferred_cols if c in df.columns] + [c for c in df.columns if c not in preferred_cols]
+    df = df.loc[:, cols]
+
+    # Summaries that are fast to read later (avoid loading giant sheets).
+    summary_rows: list[dict[str, Any]] = []
+    try:
+        summary_rows.append({"metric": "n_rows", "value": int(len(df))})
+        for key, label in [
+            ("scope", "by_scope"),
+            ("reason", "by_reason"),
+            ("source_name", "by_source"),
+        ]:
+            if key in df.columns:
+                vc = df[key].value_counts(dropna=False)
+                for k, v in vc.items():
+                    summary_rows.append({"metric": f"{label}:{k}", "value": int(v)})
+    except Exception:
+        pass
+
+    summary_df = pd.DataFrame(summary_rows)
+
+    unit_counts_df = None
+    try:
+        if not df.empty and {"source_name", "unit_id", "reason"}.issubset(set(df.columns)):
+            unit_counts_df = (
+                df.groupby(["scope", "source_name", "segment_index", "rec_name", "unit_id", "reason"], dropna=False)
+                .size()
+                .reset_index(name="n_rejected_spikes")
+            )
+    except Exception:
+        unit_counts_df = None
+
+    # Excel row limit is 1,048,576 including header.
+    max_rows_per_sheet = 1_000_000
+    try:
+        import xlsxwriter  # type: ignore[import-not-found]
+
+        engine = "xlsxwriter"
+    except Exception:
+        engine = "openpyxl"
+
+    wf_rejection_log_xlsx.parent.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(wf_rejection_log_xlsx, engine=engine) as writer:
+        summary_df.to_excel(writer, sheet_name="summary", index=False)
+        if unit_counts_df is not None:
+            unit_counts_df.to_excel(writer, sheet_name="unit_counts", index=False)
+
+        if df.empty:
+            df.to_excel(writer, sheet_name="rejections_000", index=False)
+        else:
+            for i0 in range(0, len(df), max_rows_per_sheet):
+                chunk = df.iloc[i0 : i0 + max_rows_per_sheet]
+                sheet = f"rejections_{i0 // max_rows_per_sheet:03d}"
+                chunk.to_excel(writer, sheet_name=sheet, index=False)
+
+    logger.info("Wrote wf_rejection_log.xlsx -> %s (rows=%d)", wf_rejection_log_xlsx, int(len(df)))
 
 
 def _to_numpy_sorting(*, unit_trains: dict[int, list[int]], fs_hz: float) -> Any:
@@ -781,6 +909,7 @@ def extract_waveforms(
     <well>/waveforms_outputs/metrics_curated.xlsx
     <well>/waveforms_outputs/tm_curated.xlsx
     <well>/waveforms_outputs/rejection_log.xlsx
+    <well>/waveforms_outputs/wf_rejection_log.xlsx
     plus JSON summaries.
 
     Uses existing epoch marker JSONs (from preprocessing) to avoid extracting
@@ -825,6 +954,12 @@ def extract_waveforms(
     # Resume shortcut: trust existing artifacts if present.
     if not inputs.force_restart and concat_waveforms_dir.exists():
         logger.info("Resuming waveforms: existing outputs found at %s", concat_waveforms_dir)
+
+        # Best-effort: populate optional PDF fields if they exist.
+        waveforms_grid_pdf = waveforms_out_dir / "waveforms_grid_uncurated.pdf"
+        waveforms_grid_pdf = waveforms_grid_pdf if waveforms_grid_pdf.exists() else None
+        spikesorting_waveforms_grid_pdf = None
+
         return WaveformExtractOutputs(
             well_out_dir=well_out_dir,
             waveforms_out_dir=waveforms_out_dir,
@@ -832,6 +967,8 @@ def extract_waveforms(
             segment_waveforms_dir=segment_waveforms_dir,
             params_json=params_json,
             filtering_json=filtering_json,
+            waveforms_grid_pdf=waveforms_grid_pdf,
+            spikesorting_waveforms_grid_pdf=spikesorting_waveforms_grid_pdf,
         )
 
     ckpt = save_checkpoint(
@@ -908,6 +1045,20 @@ def extract_waveforms(
             },
         }
 
+        # Per-spike rejection rows for auditability / downstream alignment.
+        # Written to waveforms_outputs/wf_rejection_log.xlsx at the end of the stage.
+        wf_rejection_rows: list[dict[str, Any]] = []
+        base_rej_fields: dict[str, Any] = {
+            "stream_id": inputs.stream_id,
+            "sorter": inputs.sorter,
+            "h5_path": str(inputs.h5_path),
+            "fs_hz": float(fs_hz),
+            "ms_before": float(ms_before),
+            "ms_after": float(ms_after),
+            "pre_samples": int(pre_samples),
+            "post_samples": int(post_samples),
+        }
+
         if inputs.filter_by_maxwell_epochs and maxwell_intervals:
             unit_trains: dict[int, list[int]] = {}
             removed_total = 0
@@ -921,17 +1072,51 @@ def extract_waveforms(
                 st_list = [int(x) for x in st]
                 st_list.sort()
 
-                kept, removed_outside, removed_edge = _filter_spike_train_by_intervals(
+                kept, removed_outside, removed_edge, removed_outside_spikes, removed_edge_spikes = (
+                    _filter_spike_train_by_intervals(
                     spike_train=st_list,
                     intervals=maxwell_intervals,
                     pre_samples=pre_samples,
                     post_samples=post_samples,
+                    )
                 )
                 unit_trains[int(u)] = kept
                 removed_outside_total += int(removed_outside)
                 removed_edge_total += int(removed_edge)
                 removed_total += int(removed_outside) + int(removed_edge)
                 kept_total += len(kept)
+
+                # Record exact removed spikes for joinability.
+                for t in removed_outside_spikes:
+                    wf_rejection_rows.append(
+                        {
+                            **base_rej_fields,
+                            "scope": "concat",
+                            "source_name": "concat",
+                            "segment_index": None,
+                            "rec_name": None,
+                            "unit_id": int(u),
+                            "spike_sample_local": None,
+                            "spike_sample_concat": int(t),
+                            "spike_time_s": float(t) / float(fs_hz),
+                            "reason": "outside_maxwell_epoch",
+                        }
+                    )
+                for t in removed_edge_spikes:
+                    wf_rejection_rows.append(
+                        {
+                            **base_rej_fields,
+                            "scope": "concat",
+                            "source_name": "concat",
+                            "segment_index": None,
+                            "rec_name": None,
+                            "unit_id": int(u),
+                            "spike_sample_local": None,
+                            "spike_sample_concat": int(t),
+                            "spike_time_s": float(t) / float(fs_hz),
+                            "reason": "waveform_window_crosses_epoch_edge",
+                        }
+                    )
 
             filtered_sorting = _to_numpy_sorting(unit_trains=unit_trains, fs_hz=fs_hz)
             filtering_summary["removed_spikes_total"] = int(removed_total)
@@ -1182,13 +1367,53 @@ def extract_waveforms(
                     local_epoch_filtered = local_all
                     removed_epoch = 0
                     if inputs.filter_by_maxwell_epochs and seg_maxwell_intervals:
-                        local_epoch_filtered, removed_outside, removed_edge_epoch = _filter_spike_train_by_intervals(
+                        (
+                            local_epoch_filtered,
+                            removed_outside,
+                            removed_edge_epoch,
+                            removed_outside_spikes,
+                            removed_edge_spikes,
+                        ) = _filter_spike_train_by_intervals(
                             spike_train=local_all,
                             intervals=seg_maxwell_intervals,
                             pre_samples=pre_samples,
                             post_samples=post_samples,
                         )
                         removed_epoch = int(removed_outside) + int(removed_edge_epoch)
+
+                        source_name = f"seg{int(seg_index):02d}_{rec_name}"
+                        for t_local in removed_outside_spikes:
+                            t_concat = int(t_local) + int(start)
+                            wf_rejection_rows.append(
+                                {
+                                    **base_rej_fields,
+                                    "scope": "segment",
+                                    "source_name": str(source_name),
+                                    "segment_index": int(seg_index),
+                                    "rec_name": str(rec_name),
+                                    "unit_id": int(u),
+                                    "spike_sample_local": int(t_local),
+                                    "spike_sample_concat": int(t_concat),
+                                    "spike_time_s": float(t_concat) / float(fs_hz),
+                                    "reason": "outside_maxwell_epoch",
+                                }
+                            )
+                        for t_local in removed_edge_spikes:
+                            t_concat = int(t_local) + int(start)
+                            wf_rejection_rows.append(
+                                {
+                                    **base_rej_fields,
+                                    "scope": "segment",
+                                    "source_name": str(source_name),
+                                    "segment_index": int(seg_index),
+                                    "rec_name": str(rec_name),
+                                    "unit_id": int(u),
+                                    "spike_sample_local": int(t_local),
+                                    "spike_sample_concat": int(t_concat),
+                                    "spike_time_s": float(t_concat) / float(fs_hz),
+                                    "reason": "waveform_window_crosses_epoch_edge",
+                                }
+                            )
 
                     # Extra safety: enforce segment-edge constraints even if epoch markers
                     # are missing/unexpected.
@@ -1199,6 +1424,34 @@ def extract_waveforms(
                         if t_local + post_samples >= int(seg_len):
                             continue
                         kept_edges.append(int(t_local))
+
+                    # Log spikes rejected due to segment-edge constraints.
+                    try:
+                        source_name = f"seg{int(seg_index):02d}_{rec_name}"
+                        kept_edge_set = set(int(x) for x in kept_edges)
+                        for t_local in local_epoch_filtered:
+                            if int(t_local) in kept_edge_set:
+                                continue
+                            if (int(t_local) - int(pre_samples) < 0) or (
+                                int(t_local) + int(post_samples) >= int(seg_len)
+                            ):
+                                t_concat = int(t_local) + int(start)
+                                wf_rejection_rows.append(
+                                    {
+                                        **base_rej_fields,
+                                        "scope": "segment",
+                                        "source_name": str(source_name),
+                                        "segment_index": int(seg_index),
+                                        "rec_name": str(rec_name),
+                                        "unit_id": int(u),
+                                        "spike_sample_local": int(t_local),
+                                        "spike_sample_concat": int(t_concat),
+                                        "spike_time_s": float(t_concat) / float(fs_hz),
+                                        "reason": "waveform_window_outside_segment_bounds",
+                                    }
+                                )
+                    except Exception:
+                        pass
 
                     removed_edge = int(len(local_epoch_filtered) - len(kept_edges))
                     seg_removed_epoch_total += int(removed_epoch)
@@ -1273,6 +1526,18 @@ def extract_waveforms(
         # Persist filtering summary after all filtering passes have contributed their counts
         # (concat-level filtering + optional per-segment filtering).
         _write_json(filtering_json, filtering_summary)
+
+        # Persist per-spike rejection log (best effort; safe to skip if pandas engine is missing).
+        try:
+            wf_rejection_log_xlsx = waveforms_out_dir / "wf_rejection_log.xlsx"
+            _write_wf_rejection_log_xlsx(
+                wf_rejection_log_xlsx=wf_rejection_log_xlsx,
+                rows=wf_rejection_rows,
+                force_restart=bool(inputs.force_restart),
+                logger=logger,
+            )
+        except Exception as e:
+            logger.warning("Failed to write wf_rejection_log.xlsx: %s", e)
 
         waveforms_grid_pdf: Optional[Path] = None
         spikesorting_waveforms_grid_pdf: Optional[Path] = None
