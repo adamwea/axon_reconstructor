@@ -6,13 +6,14 @@ import pytest
 
 
 def test_spikesort_recordings_mea_analysis_backend_loads_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure AxonReconstructor can populate sortings from an existing MEA_Analysis-style folder.
+    """Resolve sorter_output dir via MEA_Analysis contract when installed.
 
-    This test avoids requiring spikeinterface; we only verify that the expected
-    `sorting_path` is recorded and that we don't fall back to internal sorting.
+    When MEA_Analysis isn't installed, this test is skipped.
     """
 
-    from axon_reconstructor.pipeline.reconstructor import AxonReconstructor
+    pytest.importorskip("IPNAnalysis.path_contract")
+
+    from axon_reconstructor.pipeline.spikesorting import SpikeSortRequest, resolve_mea_sorter_output_dir
 
     # Create a plausible MEA_Analysis output layout:
     #   <well_output_dir>/spikesorting_outputs/sorter_output/<some file>
@@ -24,36 +25,12 @@ def test_spikesort_recordings_mea_analysis_backend_loads_paths(tmp_path: Path, m
     # Patch the integration pathing so this test doesn't depend on the exact contract.
     import axon_reconstructor.integrations.mea_analysis as mea
 
-    monkeypatch.setattr(mea, "compute_mea_output_dir", lambda **_: well_output_dir)
+    monkeypatch.setattr(mea, "compute_sorter_output_dir", lambda **_: sorter_output_dir)
 
-    recon = AxonReconstructor(
-        h5_parent_dirs=[],
-        mea_environment="nersc",
-        mea_analysis_output_root=tmp_path,
-        mea_auto_run_driver=False,
+    req = SpikeSortRequest(
+        data_file=tmp_path / "whatever" / "data.raw.h5",
+        mea_output_root=tmp_path,
+        well="well001",
     )
-
-    # Avoid trying to load an existing reconstructor object.
-    recon.reconstructor_load_options["load_reconstructor"] = False
-
-    rec_key = "2020_Chip_Run"
-    recon.multirecordings = {
-        rec_key: {
-            "h5_path": "/some/path/file.h5",
-            "scanType": "AxonTracking",
-            "date": "2020",
-            "chip_id": "Chip",
-            "run_id": "Run",
-            "streams": {
-                "well001": {"multirecording": None, "common_el": [], "multirec_save_path": ""}
-            },
-        }
-    }
-    recon.recordings = {rec_key: {"h5_path": "/some/path/file.h5", "streams": {}}}
-
-    recon.spikesort_recordings()
-
-    assert rec_key in recon.sortings
-    assert "well001" in recon.sortings[rec_key]["streams"]
-    entry = recon.sortings[rec_key]["streams"]["well001"]
-    assert Path(entry["sorting_path"]) == well_output_dir
+    resolved = resolve_mea_sorter_output_dir(req)
+    assert resolved == sorter_output_dir

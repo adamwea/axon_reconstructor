@@ -34,7 +34,13 @@ def _compute_mea_analysis_output_dir(
     evolving and we want axon_reconstructor to be robust to internal refactors.
     """
 
-    output_root = Path(output_root).expanduser().resolve()
+    # Intentionally avoid `.resolve()` on output_root: users commonly provide a
+    # symlinked path (e.g. /home/.../symlinks/local_RBS_data/outputs) and expect
+    # outputs to appear under that same path, not the resolved target.
+    output_root = Path(output_root).expanduser()
+
+    # Keep data_file resolved to ensure stable metadata parsing even if it is a
+    # symlink.
     data_file = Path(data_file).expanduser().resolve()
 
     # MEA_Analysis's MEAPipeline._parse_metadata() builds a relative_pattern like:
