@@ -67,6 +67,9 @@ class WaveformExtractInputs:
     # If True, drop spikes whose waveform window would cross Maxwell snippet boundaries.
     filter_by_maxwell_epochs: bool = True
 
+    # Plotting
+    plot_waveforms_grid_pdf: bool = True
+
 
 @dataclass(frozen=True)
 class WaveformExtractOutputs:
@@ -76,6 +79,201 @@ class WaveformExtractOutputs:
     segment_waveforms_dir: Optional[Path]
     params_json: Path
     filtering_json: Path
+    waveforms_grid_pdf: Optional[Path]
+    spikesorting_waveforms_grid_pdf: Optional[Path]
+
+
+def _write_waveforms_grid_pdf(
+    *,
+    waveforms_folder: Path,
+    pdf_path: Path,
+) -> None:
+    """Write a multi-page PDF of per-unit waveforms.
+
+    This is an (intentionally) very close copy of MEA_Analysis:
+    MEA_Analysis/IPNAnalysis/mea_analysis_routine.py::_plot_waveforms_grid.
+
+    We adapt it to load from a SpikeInterface waveforms folder (instead of a SortingAnalyzer
+    waveforms extension) so it can run in the axon_reconstructor waveforms step.
+    """
+
+    try:
+        import logging
+
+        import numpy as np  # type: ignore[import-not-found]
+        import spikeinterface.full as si  # type: ignore[import-not-found]
+
+        # Avoid extremely verbose font/debug output when the pipeline logger is in DEBUG.
+        # This needs to happen *before* importing matplotlib, because matplotlib can emit
+        # DEBUG logs during import.
+        logging.getLogger("matplotlib").setLevel(logging.WARNING)
+        logging.getLogger("matplotlib.font_manager").setLevel(logging.WARNING)
+
+        import matplotlib
+
+        matplotlib.use("Agg", force=True)
+        import matplotlib.pyplot as plt
+        import matplotlib.backends.backend_pdf as pdf
+
+        # Prefer the exact MEA_Analysis scalebar implementation.
+        # In MEA_Analysis it's a local module next to mea_analysis_routine.py, so depending
+        # on how MEA_Analysis is installed/imported it may not be importable as `scalebury`.
+        try:
+            from scalebury import add_scalebar  # type: ignore[import-not-found]
+        except Exception:
+            try:
+                from MEA_Analysis.IPNAnalysis.scalebury import add_scalebar  # type: ignore[import-not-found]
+            except Exception:
+                # Fallback: inline copy of MEA_Analysis/IPNAnalysis/scalebury.py (PSF license).
+                from matplotlib.offsetbox import AnchoredOffsetbox
+
+                class AnchoredScaleBar(AnchoredOffsetbox):
+                    def __init__(
+                        self,
+                        transform,
+                        sizex=0,
+                        sizey=0,
+                        labelx=None,
+                        labely=None,
+                        loc=4,
+                        pad=0.1,
+                        borderpad=0.1,
+                        sep=2,
+                        prop=None,
+                        barcolor="black",
+                        barwidth=None,
+                        **kwargs,
+                    ):
+                        from matplotlib.patches import Rectangle
+                        from matplotlib.offsetbox import AuxTransformBox, VPacker, HPacker, TextArea
+
+                        bars = AuxTransformBox(transform)
+                        if sizex:
+                            bars.add_artist(
+                                Rectangle((0, 0), sizex, 0, ec=barcolor, lw=barwidth, fc="none")
+                            )
+                        if sizey:
+                            bars.add_artist(
+                                Rectangle((0, 0), 0, sizey, ec=barcolor, lw=barwidth, fc="none")
+                            )
+
+                        if sizex and labelx:
+                            self.xlabel = TextArea(labelx)
+                            bars = VPacker(children=[bars, self.xlabel], align="center", pad=0, sep=sep)
+                        if sizey and labely:
+                            self.ylabel = TextArea(labely)
+                            bars = HPacker(children=[self.ylabel, bars], align="center", pad=0, sep=sep)
+
+                        AnchoredOffsetbox.__init__(
+                            self,
+                            loc,
+                            pad=pad,
+                            borderpad=borderpad,
+                            child=bars,
+                            prop=prop,
+                            frameon=False,
+                            **kwargs,
+                        )
+
+                def add_scalebar(ax, matchx=True, matchy=True, hidex=True, hidey=True, **kwargs):
+                    def f(axis):
+                        l = axis.get_majorticklocs()
+                        return len(l) > 1 and (l[1] - l[0])
+
+                    if matchx:
+                        kwargs["sizex"] = f(ax.xaxis)
+                        kwargs["labelx"] = str(kwargs["sizex"])
+                    if matchy:
+                        kwargs["sizey"] = f(ax.yaxis)
+                        kwargs["labely"] = str(kwargs["sizey"])
+
+                    sb = AnchoredScaleBar(ax.transData, **kwargs)
+                    ax.add_artist(sb)
+
+                    if hidex:
+                        ax.xaxis.set_visible(False)
+                    if hidey:
+                        ax.yaxis.set_visible(False)
+                    if hidex and hidey:
+                        ax.set_frame_on(False)
+
+                    return sb
+    except Exception as e:  # pragma: no cover
+        raise RuntimeError("Plotting waveforms grid requires numpy/matplotlib/spikeinterface") from e
+
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+
+    we = si.load_waveforms(waveforms_folder)
+    unit_ids = list(we.sorting.unit_ids)
+    if len(unit_ids) == 0:
+        return
+
+    fs = float(we.recording.get_sampling_frequency())
+
+    with pdf.PdfPages(pdf_path) as pdf_doc:
+        units_per_page = 12
+        for i in range(0, len(unit_ids), units_per_page):
+            batch = unit_ids[i : i + units_per_page]
+            fig, axes = plt.subplots(3, 4, figsize=(12, 9))
+            axes = axes.flatten()
+
+            for ax, uid in zip(axes, batch, strict=False):
+                try:
+                    # Remove standard axes/ticks (MEA_Analysis-style QC panels).
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+                    ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+                    for spine in ax.spines.values():
+                        spine.set_visible(False)
+
+                    wf = we.get_waveforms(uid)
+                    if wf is None or wf.shape[0] == 0:
+                        ax.axis("off")
+                        continue
+
+                    mean_wf = np.mean(wf, axis=0)
+                    best_ch = int(np.argmin(np.min(mean_wf, axis=0)))
+
+                    time_ms = np.arange(wf.shape[1]) / fs * 1000
+
+                    n_spikes = int(wf.shape[0])
+                    if n_spikes > 50:
+                        indices = np.random.choice(n_spikes, 50, replace=False)
+                        spikes_to_plot = wf[indices, :, best_ch]
+                    else:
+                        spikes_to_plot = wf[:, :, best_ch]
+
+                    ax.plot(time_ms, spikes_to_plot.T, c="gray", lw=0.5, alpha=0.3)
+                    ax.plot(time_ms, mean_wf[:, best_ch], c="red", lw=1.5)
+
+                    ax.set_title(f"Unit {uid} | Ch {best_ch}", fontsize=10)
+
+                    # Scale bar (1 ms x 50 uV)
+                    if add_scalebar is not None:
+                        try:
+                            add_scalebar(
+                                ax,
+                                matchx=False,
+                                matchy=False,
+                                sizex=1.0,
+                                labelx="1 ms",
+                                sizey=50,
+                                labely="50 µV",
+                                loc=4,
+                                hidex=True,
+                                hidey=True,
+                            )
+                        except Exception:
+                            # Keep plots usable even if scalebar fails.
+                            pass
+                except Exception:
+                    ax.axis("off")
+
+            for j in range(len(batch), len(axes)):
+                axes[j].axis("off")
+
+            pdf_doc.savefig(fig)
+            plt.close(fig)
 
 
 def _read_json(path: Path) -> Any:
@@ -368,6 +566,8 @@ def extract_waveforms(
     Produces:
       <well>/waveforms_outputs/concat_waveforms/
       <well>/waveforms_outputs/segment_waveforms/ (optional)
+            <well>/waveforms_outputs/waveforms_grid.pdf
+            <well>/spikesorting_outputs/waveforms_grid.pdf (compat mirror)
       plus JSON summaries.
 
     Uses existing epoch marker JSONs (from preprocessing) to avoid extracting
@@ -847,6 +1047,19 @@ def extract_waveforms(
         # (concat-level filtering + optional per-segment filtering).
         _write_json(filtering_json, filtering_summary)
 
+        waveforms_grid_pdf: Optional[Path] = None
+        spikesorting_waveforms_grid_pdf: Optional[Path] = None
+        if inputs.plot_waveforms_grid_pdf:
+            waveforms_grid_pdf = waveforms_out_dir / "waveforms_grid.pdf"
+
+            # Recreate only when force_restart or missing.
+            if (not waveforms_grid_pdf.exists()) or inputs.force_restart:
+                logger.info("Writing waveforms grid PDF -> %s", waveforms_grid_pdf)
+                _write_waveforms_grid_pdf(
+                    waveforms_folder=concat_waveforms_dir,
+                    pdf_path=waveforms_grid_pdf,
+                )
+
         ckpt = save_checkpoint(
             checkpoint_file=ckpt_file,
             state=ckpt,
@@ -859,6 +1072,8 @@ def extract_waveforms(
                 "segment_waveforms_dir": str(segment_waveforms_dir) if segment_waveforms_dir else None,
                 "waveforms_params_json": str(params_json),
                 "waveforms_filtering_json": str(filtering_json),
+                "waveforms_grid_pdf": str(waveforms_grid_pdf) if waveforms_grid_pdf else None,
+                "spikesorting_waveforms_grid_pdf": None,
             },
         )
 
@@ -871,6 +1086,8 @@ def extract_waveforms(
             segment_waveforms_dir=segment_waveforms_dir,
             params_json=params_json,
             filtering_json=filtering_json,
+            waveforms_grid_pdf=waveforms_grid_pdf,
+            spikesorting_waveforms_grid_pdf=spikesorting_waveforms_grid_pdf,
         )
 
     except Exception as e:
