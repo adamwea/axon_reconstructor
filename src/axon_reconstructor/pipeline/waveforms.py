@@ -859,6 +859,44 @@ def _write_wf_rejection_log_xlsx(
     logger.info("Wrote wf_rejection_log.xlsx -> %s (rows=%d)", wf_rejection_log_xlsx, int(len(df)))
 
 
+def _load_wf_rejection_log_unit_counts(*, well_out_dir: Path, logger) -> tuple[Optional[list[dict[str, Any]]], Optional[Path]]:
+    """Best-effort loader for waveforms-stage per-spike rejection counts.
+
+    This reads the lightweight `unit_counts` sheet from:
+      <well>/waveforms_outputs/wf_rejection_log.xlsx
+
+    Returns a list of row dicts (JSON-friendly) so downstream stages can make
+    pragmatic decisions without loading the huge per-spike sheets.
+
+    NOTE: This is intentionally minimal and exists mainly to support temporary,
+    downstream "monkey patches" while we design a principled way to carry
+    spike-level waveform exclusions forward.
+    """
+
+    wf_rej_xlsx = well_out_dir / "waveforms_outputs" / "wf_rejection_log.xlsx"
+    if not wf_rej_xlsx.exists():
+        return None, None
+
+    try:
+        import pandas as pd  # type: ignore[import-not-found]
+
+        df = pd.read_excel(wf_rej_xlsx, sheet_name="unit_counts")
+        if df is None or df.empty:
+            return [], wf_rej_xlsx
+
+        # Convert to plain python scalars for JSON friendliness.
+        rows: list[dict[str, Any]] = []
+        for _, r in df.iterrows():
+            try:
+                rows.append({k: (v.item() if hasattr(v, "item") else v) for k, v in r.to_dict().items()})
+            except Exception:
+                continue
+        return rows, wf_rej_xlsx
+    except Exception as e:
+        logger.warning("Failed reading wf_rejection_log.xlsx unit_counts: %s", e)
+        return None, wf_rej_xlsx
+
+
 def _to_numpy_sorting(*, unit_trains: dict[int, list[int]], fs_hz: float) -> Any:
     import numpy as np  # type: ignore[import-not-found]
     from spikeinterface.core import NumpySorting  # type: ignore[import-not-found]
