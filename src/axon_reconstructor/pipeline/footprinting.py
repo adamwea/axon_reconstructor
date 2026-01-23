@@ -133,8 +133,6 @@ def _write_footprints_grid_pdf(*, analyzer_folder: Path, pdf_path: Path, unit_id
         matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
         import matplotlib.backends.backend_pdf as pdf
-        from matplotlib.collections import PatchCollection
-        from matplotlib.patches import Rectangle
         from matplotlib.colors import LogNorm
 
         # Intentionally no scalebar here: it tends to add clutter and can make
@@ -170,22 +168,14 @@ def _write_footprints_grid_pdf(*, analyzer_folder: Path, pdf_path: Path, unit_id
         # Likely meters (e.g., ~0..0.004)
         return float(side_um) * 1e-6
 
-    def _add_square_footprints(
-        ax,
-        *,
-        channel_locations: "np.ndarray",
-        values_for_color: "np.ndarray",
-        norm,
-        cmap: str,
-        side_len: float,
-    ):
-        half = side_len / 2.0
-        patches = [Rectangle((float(x) - half, float(y) - half), side_len, side_len) for x, y in channel_locations]
-        pc = PatchCollection(patches, cmap=cmap, norm=norm, edgecolor="none", linewidth=0.0)
-        pc.set_array(values_for_color)
-        pc.set_rasterized(True)
-        ax.add_collection(pc)
-        return pc
+    def _square_marker_area_points2(ax, *, side_len: float) -> float:
+        """Convert a square side length in data units to scatter 's' (points^2)."""
+
+        p0 = ax.transData.transform((0.0, 0.0))
+        p1 = ax.transData.transform((float(side_len), 0.0))
+        dx_pixels = abs(float(p1[0]) - float(p0[0]))
+        side_points = dx_pixels * 72.0 / float(ax.figure.dpi)
+        return float(side_points * side_points)
 
     pad = 20.0
     xlim = (float(np.min(xs_all)) - pad, float(np.max(xs_all)) + pad)
@@ -203,14 +193,16 @@ def _write_footprints_grid_pdf(*, analyzer_folder: Path, pdf_path: Path, unit_id
             fig, axes = plt.subplots(n_rows, n_cols, figsize=(10, 12))
             axes = axes.flatten()
 
-            # Dark theme (better contrast for color mapping + easier inspection when zooming).
+            # Dark background per-plot only (keep the overall page light).
             dark_bg = "#0b0b0b"
-            fig.patch.set_facecolor(dark_bg)
+            cmap_name = "turbo"
+            fig.patch.set_facecolor("white")
 
             # Make space for a colorbar without shrinking subplots unpredictably.
             fig.subplots_adjust(left=0.04, right=0.88, bottom=0.04, top=0.93, wspace=0.05, hspace=0.12)
 
             last_mappable = None
+            marker_area = None
             # Simple log scaling: compute from all units on the page.
             amps_for_page: list[np.ndarray] = []
             for uid in batch:
@@ -250,6 +242,10 @@ def _write_footprints_grid_pdf(*, analyzer_folder: Path, pdf_path: Path, unit_id
                 ax.set_ylim(*ylim)
                 ax.set_aspect("equal", adjustable="box")
 
+                if marker_area is None:
+                    # Same limits/aspect across axes => same marker area.
+                    marker_area = _square_marker_area_points2(ax, side_len=square_side)
+
                 tmpl = _get_unit_template_from_extension(analyzer=analyzer, templates_ext=templates_ext, unit_id=uid)
                 if tmpl is None:
                     ax.axis("off")
@@ -265,40 +261,46 @@ def _write_footprints_grid_pdf(*, analyzer_folder: Path, pdf_path: Path, unit_id
                     # Ensure ALL channels render under LogNorm (avoid masking/dropping zeros).
                     amp_for_color = np.where(amp <= 0, norm_vmin_for_zeros, amp)
 
-                last_mappable = _add_square_footprints(
-                    ax,
-                    channel_locations=locs,
-                    values_for_color=amp_for_color,
+                last_mappable = ax.scatter(
+                    locs[:, 0],
+                    locs[:, 1],
+                    c=amp_for_color,
+                    s=float(marker_area or 1.0),
+                    marker="s",
+                    cmap=cmap_name,
                     norm=norm,
-                    cmap="viridis",
-                    side_len=square_side,
+                    linewidths=0,
+                    edgecolors="none",
+                    alpha=1.0,
                 )
+                last_mappable.set_rasterized(True)
 
-                ax.set_title(f"Unit {uid}", fontsize=10)
+                # Title text renders on the white page background, not the dark axes.
+                ax.set_title(f"Unit {uid}", fontsize=10, color="black")
 
 
 
             for j in range(len(batch), len(axes)):
                 axes[j].axis("off")
 
-            fig.suptitle("Footprints (template PTP)", fontsize=12, color="white")
+            fig.suptitle("Footprints (template PTP)", fontsize=12, color="black")
 
             if last_mappable is not None:
                 try:
                     cax = fig.add_axes([0.90, 0.15, 0.02, 0.70])
-                    cax.set_facecolor(dark_bg)
+                    cax.set_facecolor("white")
                     cbar = fig.colorbar(last_mappable, cax=cax)
-                    cbar.set_label("Template PTP (µV)", fontsize=9, color="white")
-                    cbar.ax.tick_params(labelsize=8, colors="white")
+                    cbar.set_label("Template PTP (µV)", fontsize=9, color="black")
+                    cbar.ax.tick_params(labelsize=8, colors="black")
                     try:
-                        cbar.outline.set_edgecolor("white")
+                        cbar.outline.set_edgecolor("black")
                     except Exception:
                         pass
                 except Exception:
                     pass
 
-            # Increase rasterization resolution for the dense electrode squares.
-            pdf_doc.savefig(fig, dpi=600)
+            # Keep raster dpi modest to avoid heavy memory use (WSL-friendly).
+            pdf_doc.savefig(fig, dpi=300)
             plt.close(fig)
 
 
@@ -324,8 +326,6 @@ def _write_unit_footprints_across_sources_pdf(
         matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
         import matplotlib.backends.backend_pdf as pdf
-        from matplotlib.collections import PatchCollection
-        from matplotlib.patches import Rectangle
         from matplotlib.colors import LogNorm
 
         # Intentionally no scalebar here (see _write_footprints_grid_pdf).
@@ -354,22 +354,12 @@ def _write_unit_footprints_across_sources_pdf(
             return float(side_um) / 1000.0
         return float(side_um) * 1e-6
 
-    def _add_square_footprints(
-        ax,
-        *,
-        channel_locations: "np.ndarray",
-        values_for_color: "np.ndarray",
-        norm,
-        cmap: str,
-        side_len: float,
-    ):
-        half = side_len / 2.0
-        patches = [Rectangle((float(x) - half, float(y) - half), side_len, side_len) for x, y in channel_locations]
-        pc = PatchCollection(patches, cmap=cmap, norm=norm, edgecolor="none", linewidth=0.0)
-        pc.set_array(values_for_color)
-        pc.set_rasterized(True)
-        ax.add_collection(pc)
-        return pc
+    def _square_marker_area_points2(ax, *, side_len: float) -> float:
+        p0 = ax.transData.transform((0.0, 0.0))
+        p1 = ax.transData.transform((float(side_len), 0.0))
+        dx_pixels = abs(float(p1[0]) - float(p0[0]))
+        side_points = dx_pixels * 72.0 / float(ax.figure.dpi)
+        return float(side_points * side_points)
 
     # Simple shared log scaling across sources for this unit.
     norm = None
@@ -400,11 +390,13 @@ def _write_unit_footprints_across_sources_pdf(
             axes = axes.flatten()
 
             dark_bg = "#0b0b0b"
-            fig.patch.set_facecolor(dark_bg)
+            cmap_name = "turbo"
+            fig.patch.set_facecolor("white")
 
             fig.subplots_adjust(left=0.04, right=0.88, bottom=0.04, top=0.91, wspace=0.05, hspace=0.12)
 
             last_mappable = None
+            marker_area = None
             for ax, src in zip(axes, batch, strict=False):
                 ax.set_facecolor(dark_bg)
                 ax.set_xticks([])
@@ -417,22 +409,34 @@ def _write_unit_footprints_across_sources_pdf(
                 ax.set_ylim(*ylim)
                 ax.set_aspect("equal", adjustable="box")
 
+                if marker_area is None:
+                    marker_area = _square_marker_area_points2(ax, side_len=square_side)
+
                 locs = np.asarray(src["channel_locations"])
                 amp = np.asarray(src["amp"])
                 amp_for_color = amp
                 if norm is not None and norm_vmin_for_zeros is not None:
                     amp_for_color = np.where(amp <= 0, norm_vmin_for_zeros, amp)
 
-                last_mappable = _add_square_footprints(
-                    ax,
-                    channel_locations=locs,
-                    values_for_color=amp_for_color,
+                last_mappable = ax.scatter(
+                    locs[:, 0],
+                    locs[:, 1],
+                    c=amp_for_color,
+                    s=float(marker_area or 1.0),
+                    marker="s",
+                    cmap=cmap_name,
                     norm=norm,
-                    cmap="viridis",
-                    side_len=square_side,
+                    linewidths=0,
+                    edgecolors="none",
+                    alpha=1.0,
                 )
+                last_mappable.set_rasterized(True)
 
-                ax.set_title(f"{src['name']} | n={int(src.get('n_channels', locs.shape[0]))}", fontsize=10)
+                ax.set_title(
+                    f"{src['name']} | n={int(src.get('n_channels', locs.shape[0]))}",
+                    fontsize=10,
+                    color="black",
+                )
 
 
 
@@ -442,24 +446,24 @@ def _write_unit_footprints_across_sources_pdf(
             fig.suptitle(
                 f"Unit {unit_id} | Footprints across sources (log color scale)",
                 fontsize=12,
-                color="white",
+                color="black",
             )
 
             if last_mappable is not None:
                 try:
                     cax = fig.add_axes([0.90, 0.15, 0.02, 0.70])
-                    cax.set_facecolor(dark_bg)
+                    cax.set_facecolor("white")
                     cbar = fig.colorbar(last_mappable, cax=cax)
-                    cbar.set_label("Template PTP (µV)", fontsize=9, color="white")
-                    cbar.ax.tick_params(labelsize=8, colors="white")
+                    cbar.set_label("Template PTP (µV)", fontsize=9, color="black")
+                    cbar.ax.tick_params(labelsize=8, colors="black")
                     try:
-                        cbar.outline.set_edgecolor("white")
+                        cbar.outline.set_edgecolor("black")
                     except Exception:
                         pass
                 except Exception:
                     pass
 
-            pdf_doc.savefig(fig, dpi=600)
+            pdf_doc.savefig(fig, dpi=300)
             plt.close(fig)
 
     logger.info("Wrote multi-source footprints PDF: %s", pdf_path)
