@@ -55,6 +55,12 @@ class WaveformExtractInputs:
     # If True, also extract waveforms per concatenated segment.
     per_segment: bool = True
 
+    # If True, per-segment waveforms are extracted only on channels that were
+    # excluded during concatenation (i.e. not in the common-electrode intersection).
+    # This avoids duplicating waveforms for the common channels already covered by
+    # concat_waveforms.
+    per_segment_only_additional_channels: bool = True
+
     # Resume/overwrite controls
     force_restart: bool = False
 
@@ -238,42 +244,85 @@ def _epochs_to_intervals(epochs: list[dict]) -> list[tuple[int, int]]:
     return intervals
 
 
+def _maxwell_epochs_to_segment_local_intervals(
+    *,
+    maxwell_epochs: list[dict],
+    segment_index: int,
+) -> list[tuple[int, int]]:
+    """Convert maxwell epoch marker JSON to segment-local [start, end) intervals.
+
+    The preprocessing artifact includes both concatenated coordinates and
+    segment-local coordinates. For per-segment waveform extraction we want
+    segment-local intervals so we can exclude waveform windows that would cross
+    snippet boundaries *inside that segment*.
+    """
+
+    intervals: list[tuple[int, int]] = []
+    for e in maxwell_epochs:
+        try:
+            if int(e.get("segment_index")) != int(segment_index):
+                continue
+            start = int(e["segment_start_sample"])
+            end = int(e["segment_end_sample"])
+        except Exception:
+            continue
+        if end > start:
+            intervals.append((start, end))
+
+    intervals.sort()
+    return intervals
+
+
 def _filter_spike_train_by_intervals(
     *,
     spike_train: list[int],
     intervals: list[tuple[int, int]],
     pre_samples: int,
     post_samples: int,
-) -> tuple[list[int], int]:
-    """Keep spikes whose cutout window stays within some interval."""
+) -> tuple[list[int], int, int]:
+    """Keep spikes whose cutout window stays within some interval.
+
+    Returns:
+      (kept_spikes, removed_outside_interval, removed_window_crosses_interval_edge)
+    """
 
     if not intervals:
-        return spike_train, 0
+        return spike_train, 0, 0
 
     kept: list[int] = []
-    removed = 0
+    removed_outside = 0
+    removed_edge = 0
 
     # Two-pointer scan because both spike_train and intervals are sorted.
+    # We advance based on the spike time `t` (not t0), then classify removal
+    # depending on whether the spike was in any interval vs. its window failing.
     i = 0
     for t in spike_train:
-        t0 = int(t) - int(pre_samples)
-        t1 = int(t) + int(post_samples)
+        t_int = int(t)
+        t0 = t_int - int(pre_samples)
+        t1 = t_int + int(post_samples)
 
-        while i < len(intervals) and intervals[i][1] <= t0:
+        while i < len(intervals) and intervals[i][1] <= t_int:
             i += 1
 
+        in_interval = False
         ok = False
         if i < len(intervals):
             start, end = intervals[i]
-            if t0 >= start and t1 < end:
-                ok = True
+            if start <= t_int < end:
+                in_interval = True
+                if t0 >= start and t1 < end:
+                    ok = True
 
         if ok:
-            kept.append(int(t))
+            kept.append(t_int)
         else:
-            removed += 1
+            if in_interval:
+                removed_edge += 1
+            else:
+                removed_outside += 1
 
-    return kept, removed
+    return kept, removed_outside, removed_edge
 
 
 def _to_numpy_sorting(*, unit_trains: dict[int, list[int]], fs_hz: float) -> Any:
@@ -407,11 +456,13 @@ def extract_waveforms(
         maxwell_epochs_path = preprocess_dir / f"maxwell_contiguous_epochs_{inputs.stream_id}.json"
         concat_epochs_path = preprocess_dir / f"concatenation_stitch_epochs_{inputs.stream_id}.json"
 
+        maxwell_epochs: list[dict] = []
         maxwell_intervals: list[tuple[int, int]] = []
         concat_epochs: list[dict] = []
 
         if maxwell_epochs_path.exists():
             maxwell_epochs = list(_read_json(maxwell_epochs_path))
+            # These are in concatenated sample coordinates.
             maxwell_intervals = _epochs_to_intervals(maxwell_epochs)
         if concat_epochs_path.exists():
             concat_epochs = list(_read_json(concat_epochs_path))
@@ -428,11 +479,27 @@ def extract_waveforms(
             "concat_epochs_path": str(concat_epochs_path) if concat_epochs_path.exists() else None,
             "removed_spikes_total": 0,
             "kept_spikes_total": 0,
+            # Concat-level breakdown:
+            # - removed_by_maxwell_epoch_total: spikes outside contiguous Maxwell epochs
+            # - removed_by_edge_total: spikes inside an epoch but too close to an epoch edge
+            #   for the requested waveform window (pre/post)
+            "removed_by_maxwell_epoch_total": 0,
+            "removed_by_edge_total": 0,
+            # Per-segment extraction filtering summary (filled in below when enabled).
+            "per_segment": {
+                "enabled": bool(inputs.per_segment),
+                "removed_by_maxwell_epoch_total": 0,
+                "removed_by_edge_total": 0,
+                "kept_spikes_total": 0,
+                "segments": [],
+            },
         }
 
         if inputs.filter_by_maxwell_epochs and maxwell_intervals:
             unit_trains: dict[int, list[int]] = {}
             removed_total = 0
+            removed_outside_total = 0
+            removed_edge_total = 0
             kept_total = 0
 
             unit_ids = list(sorting.get_unit_ids())
@@ -441,19 +508,23 @@ def extract_waveforms(
                 st_list = [int(x) for x in st]
                 st_list.sort()
 
-                kept, removed = _filter_spike_train_by_intervals(
+                kept, removed_outside, removed_edge = _filter_spike_train_by_intervals(
                     spike_train=st_list,
                     intervals=maxwell_intervals,
                     pre_samples=pre_samples,
                     post_samples=post_samples,
                 )
                 unit_trains[int(u)] = kept
-                removed_total += removed
+                removed_outside_total += int(removed_outside)
+                removed_edge_total += int(removed_edge)
+                removed_total += int(removed_outside) + int(removed_edge)
                 kept_total += len(kept)
 
             filtered_sorting = _to_numpy_sorting(unit_trains=unit_trains, fs_hz=fs_hz)
             filtering_summary["removed_spikes_total"] = int(removed_total)
             filtering_summary["kept_spikes_total"] = int(kept_total)
+            filtering_summary["removed_by_maxwell_epoch_total"] = int(removed_outside_total)
+            filtering_summary["removed_by_edge_total"] = int(removed_edge_total)
             logger.info(
                 "Filtered spikes by Maxwell epochs: kept=%d removed=%d (pre=%d post=%d samples)",
                 kept_total,
@@ -480,8 +551,14 @@ def extract_waveforms(
             "max_spikes_per_unit": inputs.max_spikes_per_unit,
             "per_segment": bool(inputs.per_segment),
             "per_segment_recording_source": "raw_maxwell_full_channels" if inputs.per_segment else None,
+            "per_segment_only_additional_channels": bool(inputs.per_segment_only_additional_channels),
         })
-        _write_json(filtering_json, filtering_summary)
+
+        # Used to avoid redundant per-segment waveforms on common channels.
+        try:
+            common_channel_ids = set(int(x) for x in recording.get_channel_ids())
+        except Exception:
+            common_channel_ids = set()
 
         # Extract concatenated waveforms.
         import shutil
@@ -540,6 +617,75 @@ def extract_waveforms(
                     center_chunk_size=10_000,
                 )
 
+                # Optional: avoid redundant waveforms.
+                # If enabled, remove the concat/common electrodes from the raw segment
+                # so the per-segment waveforms contain only the *additional* channels.
+                raw_channels_total: Optional[int]
+                excluded_common_channels_total: Optional[int]
+                kept_additional_channels_total: Optional[int]
+                raw_channels_total = None
+                excluded_common_channels_total = None
+                kept_additional_channels_total = None
+
+                try:
+                    raw_channels_total = int(seg_rec.get_num_channels())
+                except Exception:
+                    pass
+
+                if inputs.per_segment_only_additional_channels and common_channel_ids:
+                    try:
+                        import numpy as np  # type: ignore[import-not-found]
+
+                        cv = seg_rec.get_property("contact_vector")
+                        electrodes = np.asarray(cv["electrode"], dtype=int)
+                        ch_ids = list(seg_rec.get_channel_ids())
+                        if len(electrodes) == len(ch_ids):
+                            keep_mask = [int(e) not in common_channel_ids for e in electrodes]
+                            keep_channel_ids = [ch_ids[i] for i, keep in enumerate(keep_mask) if keep]
+                            kept_electrodes = [int(electrodes[i]) for i, keep in enumerate(keep_mask) if keep]
+                            seg_rec = seg_rec.select_channels(keep_channel_ids)
+                            excluded_common_channels_total = int(len(ch_ids) - len(keep_channel_ids))
+                            kept_additional_channels_total = int(len(keep_channel_ids))
+
+                            # Ensure channel ids are electrode ids for stable identity.
+                            # (Helpful if earlier rename failed.)
+                            try:
+                                if len(kept_electrodes) == int(seg_rec.get_num_channels()):
+                                    if int(np.unique(np.asarray(kept_electrodes)).size) == int(len(kept_electrodes)):
+                                        seg_rec = seg_rec.rename_channels([int(e) for e in kept_electrodes])
+                            except Exception:
+                                pass
+                    except Exception:
+                        # Best-effort: if we cannot compute the additional-channel set,
+                        # keep full channels rather than failing.
+                        pass
+
+                if inputs.per_segment_only_additional_channels:
+                    try:
+                        if int(seg_rec.get_num_channels()) == 0:
+                            logger.info(
+                                "Segment %s: no additional channels after excluding common set; skipping per-segment waveforms.",
+                                rec_name,
+                            )
+                            filtering_summary["per_segment"]["segments"].append(
+                                {
+                                    "segment_index": int(seg_index),
+                                    "rec_name": str(rec_name),
+                                    "spikes_in_segment_total": 0,
+                                    "removed_by_maxwell_epoch": 0,
+                                    "removed_by_edge": 0,
+                                    "kept_spikes_total": 0,
+                                    "maxwell_intervals_in_segment": None,
+                                    "raw_channels_total": raw_channels_total,
+                                    "excluded_common_channels_total": excluded_common_channels_total,
+                                    "kept_additional_channels_total": kept_additional_channels_total,
+                                    "skipped_reason": "no_additional_channels",
+                                }
+                            )
+                            continue
+                    except Exception:
+                        pass
+
                 # Sanity: concat_epochs were computed from the preprocessed segments.
                 # Channel slicing does not change sample count, so this should match.
                 seg_len_expected = int(end - start)
@@ -558,14 +704,33 @@ def extract_waveforms(
                     seg_len = seg_len_expected
 
                 try:
-                    logger.info(
-                        "Segment %s: raw channels=%d (concat channels=%d)",
-                        rec_name,
-                        int(seg_rec.get_num_channels()),
-                        int(recording.get_num_channels()),
-                    )
+                    if inputs.per_segment_only_additional_channels:
+                        logger.info(
+                            "Segment %s: raw channels=%s, kept additional=%s (excluded common=%s, concat/common=%d)",
+                            rec_name,
+                            raw_channels_total,
+                            kept_additional_channels_total,
+                            excluded_common_channels_total,
+                            int(recording.get_num_channels()),
+                        )
+                    else:
+                        logger.info(
+                            "Segment %s: raw channels=%d (concat/common=%d)",
+                            rec_name,
+                            int(seg_rec.get_num_channels()),
+                            int(recording.get_num_channels()),
+                        )
                 except Exception:
                     pass
+                # Compute Maxwell contiguous-epoch intervals in *segment-local* coordinates.
+                # This ensures we don't extract waveforms whose windows cross snippet gaps
+                # within this segment.
+                seg_maxwell_intervals: list[tuple[int, int]] = []
+                if inputs.filter_by_maxwell_epochs and maxwell_epochs:
+                    seg_maxwell_intervals = _maxwell_epochs_to_segment_local_intervals(
+                        maxwell_epochs=maxwell_epochs,
+                        segment_index=seg_index,
+                    )
 
                 # STEP 2) Build a segment-local sorting from the *concatenated* sorting.
                 #
@@ -577,23 +742,50 @@ def extract_waveforms(
                 #   - shift them to segment-local coordinates by subtracting `start`
                 #   - drop spikes too close to segment edges so waveform windows fit.
                 unit_trains_seg: dict[int, list[int]] = {}
+
+                seg_spikes_total = 0
+                seg_removed_epoch_total = 0
+                seg_removed_edge_total = 0
+                seg_kept_total = 0
+
                 for u in filtered_sorting.get_unit_ids():
                     st = filtered_sorting.get_unit_spike_train(u)
                     st_list = [int(x) for x in st]
 
                     # Keep only spikes in the segment, shift to segment-local coordinates.
                     # Also drop spikes too close to segment edges for waveform windows.
-                    kept: list[int] = []
-                    for t in st_list:
-                        if t < start or t >= end:
-                            continue
-                        t_local = int(t - start)
+                    local_all = [int(t - start) for t in st_list if start <= t < end]
+                    local_all.sort()
+                    seg_spikes_total += len(local_all)
+
+                    # Filter by Maxwell contiguous epochs *within this segment*.
+                    local_epoch_filtered = local_all
+                    removed_epoch = 0
+                    if inputs.filter_by_maxwell_epochs and seg_maxwell_intervals:
+                        local_epoch_filtered, removed_outside, removed_edge_epoch = _filter_spike_train_by_intervals(
+                            spike_train=local_all,
+                            intervals=seg_maxwell_intervals,
+                            pre_samples=pre_samples,
+                            post_samples=post_samples,
+                        )
+                        removed_epoch = int(removed_outside) + int(removed_edge_epoch)
+
+                    # Extra safety: enforce segment-edge constraints even if epoch markers
+                    # are missing/unexpected.
+                    kept_edges: list[int] = []
+                    for t_local in local_epoch_filtered:
                         if t_local - pre_samples < 0:
                             continue
                         if t_local + post_samples >= int(seg_len):
                             continue
-                        kept.append(t_local)
-                    unit_trains_seg[int(u)] = kept
+                        kept_edges.append(int(t_local))
+
+                    removed_edge = int(len(local_epoch_filtered) - len(kept_edges))
+                    seg_removed_epoch_total += int(removed_epoch)
+                    seg_removed_edge_total += int(removed_edge)
+                    seg_kept_total += int(len(kept_edges))
+
+                    unit_trains_seg[int(u)] = kept_edges
 
                 # Convert the segment-local spike trains into a SortingExtractor.
                 # This is the bridge that lets us use the holistic concat sorting
@@ -628,6 +820,32 @@ def extract_waveforms(
                     n_jobs=max(1, int(inputs.n_jobs)),
                     progress_bar=False,
                 )
+
+                # Accumulate per-segment filtering stats.
+                try:
+                    filtering_summary["per_segment"]["removed_by_maxwell_epoch_total"] += int(seg_removed_epoch_total)
+                    filtering_summary["per_segment"]["removed_by_edge_total"] += int(seg_removed_edge_total)
+                    filtering_summary["per_segment"]["kept_spikes_total"] += int(seg_kept_total)
+                    filtering_summary["per_segment"]["segments"].append(
+                        {
+                            "segment_index": int(seg_index),
+                            "rec_name": str(rec_name),
+                            "spikes_in_segment_total": int(seg_spikes_total),
+                            "removed_by_maxwell_epoch": int(seg_removed_epoch_total),
+                            "removed_by_edge": int(seg_removed_edge_total),
+                            "kept_spikes_total": int(seg_kept_total),
+                            "maxwell_intervals_in_segment": int(len(seg_maxwell_intervals)),
+                            "raw_channels_total": raw_channels_total,
+                            "excluded_common_channels_total": excluded_common_channels_total,
+                            "kept_additional_channels_total": kept_additional_channels_total,
+                        }
+                    )
+                except Exception:
+                    pass
+
+        # Persist filtering summary after all filtering passes have contributed their counts
+        # (concat-level filtering + optional per-segment filtering).
+        _write_json(filtering_json, filtering_summary)
 
         ckpt = save_checkpoint(
             checkpoint_file=ckpt_file,
