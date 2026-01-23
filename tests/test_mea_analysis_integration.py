@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from axon_reconstructor.integrations.mea_analysis import (
     MEAAnalysisRunSpec,
     build_run_pipeline_driver_cmd,
@@ -15,14 +17,14 @@ from axon_reconstructor.integrations.mea_analysis import (
 
 def test_compute_mea_relative_pattern_deep_path():
     # The contract is owned by MEA_Analysis (installed as IPNAnalysis.path_contract).
-    import IPNAnalysis.path_contract as pc
+    pc = pytest.importorskip("IPNAnalysis.path_contract")
 
     data_file = Path("/tmp/ProjectA/2026-01-01/Chip123/Network/123456/data.raw.h5")
     assert pc.compute_relative_pattern(data_file) == "ProjectA/2026-01-01/Chip123/Network/123456"
 
 
 def test_compute_mea_relative_pattern_prefers_installed_contract(monkeypatch, tmp_path: Path):
-    import IPNAnalysis.path_contract as pc
+    pc = pytest.importorskip("IPNAnalysis.path_contract")
 
     monkeypatch.setattr(pc, "compute_relative_pattern", lambda _: "SINGLE_SOURCE_OF_TRUTH")
 
@@ -35,6 +37,8 @@ def test_compute_mea_relative_pattern_prefers_installed_contract(monkeypatch, tm
 
 
 def test_compute_output_and_sorter_output_dirs():
+    pytest.importorskip("IPNAnalysis.path_contract")
+
     output_root = Path("/tmp/outputs")
     data_file = Path("/tmp/ProjectA/2026-01-01/Chip123/Network/123456/data.raw.h5")
     well = "well000"

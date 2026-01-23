@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from axon_reconstructor.internal.generate_templates.signal_processing import get_time_derivative
+from axon_reconstructor.pipeline.signal_processing import get_time_derivative
 
 
 def test_get_time_derivative_seconds_axis0():

@@ -1,13 +1,27 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
 
-_INSTALLED_PATH_CONTRACT = importlib.import_module("IPNAnalysis.path_contract")
+def _load_installed_path_contract():
+    """Load MEA_Analysis' dependency-free path contract module.
+
+    We treat MEA_Analysis as an *optional* dependency: axon_reconstructor can still be
+    imported/used for parts of the pipeline that don't require MEA_Analysis.
+    """
+
+    spec = importlib.util.find_spec("IPNAnalysis.path_contract")
+    if spec is None:
+        raise ModuleNotFoundError(
+            "MEA_Analysis is not installed (missing 'IPNAnalysis.path_contract'). "
+            "Install MEA_Analysis (editable is fine) so that 'IPNAnalysis' is importable."
+        )
+    return importlib.import_module("IPNAnalysis.path_contract")
 
 
 SPIKESORTING_OUTPUTS_DIRNAME = "spikesorting_outputs"
@@ -25,7 +39,8 @@ def compute_mea_relative_pattern(
     `IPNAnalysis.path_contract` is importable.
     """
 
-    return str(_INSTALLED_PATH_CONTRACT.compute_relative_pattern(data_file))
+    contract = _load_installed_path_contract()
+    return str(contract.compute_relative_pattern(data_file))
 
 
 def compute_mea_output_dir(

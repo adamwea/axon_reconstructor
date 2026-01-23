@@ -37,11 +37,17 @@ def resolve_mea_sorter_output_dir(req: SpikeSortRequest) -> Path:
     if not req.well:
         raise ValueError("well is required to resolve a per-well sorter_output directory")
 
-    preferred = compute_sorter_output_dir(
-        output_root=req.mea_output_root,
-        data_file=req.data_file,
-        well=req.well,
-    )
+    try:
+        preferred = compute_sorter_output_dir(
+            output_root=req.mea_output_root,
+            data_file=req.data_file,
+            well=req.well,
+        )
+    except ModuleNotFoundError as e:
+        raise RuntimeError(
+            "Resolving sorter output dirs requires MEA_Analysis installed so that "
+            "'IPNAnalysis.path_contract' is importable."
+        ) from e
 
     if preferred.exists():
         return preferred

@@ -1,65 +1,36 @@
-def test_param_merging_te_params(tmp_path, monkeypatch):
-    """The reconstructor should merge default params with user overrides.
+from __future__ import annotations
 
-    This stays dependency-light: it doesn't require spikeinterface/h5py.
-    """
+from pathlib import Path
 
-    from axon_reconstructor.pipeline import reconstructor as recon_mod
+from axon_reconstructor.pipeline.templates import TemplateExtractInputs
+from axon_reconstructor.pipeline.waveforms import WaveformExtractInputs
 
-    # If spikeinterface is available, keep defaults deterministic.
-    if recon_mod.ss is not None:
-        monkeypatch.setattr(recon_mod.ss.Kilosort2Sorter, "default_params", lambda: {})
 
-    recon = recon_mod.AxonReconstructor(
-        h5_parent_dirs=[],
+def test_waveforms_inputs_accept_overrides() -> None:
+    inputs = WaveformExtractInputs(
+        h5_path=Path("/tmp/data.raw.h5"),
+        stream_id="well000",
+        mea_output_root=Path("/tmp/out"),
         n_jobs=5,
-        te_params={"upsample": 4},
-        log_file=str(tmp_path / "axon_reconstruction.log"),
-        error_log_file=str(tmp_path / "axon_reconstruction_error.log"),
-        logger_level="CRITICAL",
+        per_segment=False,
+        filter_by_maxwell_epochs=False,
     )
 
-    assert recon.te_params["align_cutout"] is True
-    assert recon.te_params["n_jobs"] == 5
-    assert recon.te_params["upsample"] == 4
+    assert inputs.n_jobs == 5
+    assert inputs.per_segment is False
+    assert inputs.filter_by_maxwell_epochs is False
 
 
-def test_param_merging_sorting_params(tmp_path, monkeypatch):
-    from axon_reconstructor.pipeline import reconstructor as recon_mod
-
-    if recon_mod.ss is not None:
-        monkeypatch.setattr(recon_mod.ss.Kilosort2Sorter, "default_params", lambda: {})
-
-    recon = recon_mod.AxonReconstructor(
-        h5_parent_dirs=[],
-        n_jobs=2,
-        sorting_params={"detect_threshold": 9, "use_gpu": False},
-        log_file=str(tmp_path / "axon_reconstruction.log"),
-        error_log_file=str(tmp_path / "axon_reconstruction_error.log"),
-        logger_level="CRITICAL",
+def test_templates_inputs_accept_overrides() -> None:
+    inputs = TemplateExtractInputs(
+        h5_path=Path("/tmp/data.raw.h5"),
+        stream_id="well000",
+        mea_output_root=Path("/tmp/out"),
+        run_unit_merging=False,
+        include_segments=False,
+        unit_limit=10,
     )
 
-    assert recon.sorting_params["n_jobs"] == 2
-    assert recon.sorting_params["detect_threshold"] == 9
-    assert recon.sorting_params["use_gpu"] is False
-
-
-def test_param_merging_reconstructor_options(tmp_path, monkeypatch):
-    from axon_reconstructor.pipeline import reconstructor as recon_mod
-
-    if recon_mod.ss is not None:
-        monkeypatch.setattr(recon_mod.ss.Kilosort2Sorter, "default_params", lambda: {})
-
-    recon = recon_mod.AxonReconstructor(
-        h5_parent_dirs=[],
-        reconstructor_save_options={"templates": False, "waveforms": True},
-        reconstructor_load_options={"load_templates": False, "load_wfs": False},
-        log_file=str(tmp_path / "axon_reconstruction.log"),
-        error_log_file=str(tmp_path / "axon_reconstruction_error.log"),
-        logger_level="CRITICAL",
-    )
-
-    assert recon.reconstructor_save_options["templates"] is False
-    assert recon.reconstructor_save_options["waveforms"] is True
-    assert recon.reconstructor_load_options["load_templates"] is False
-    assert recon.reconstructor_load_options["load_wfs"] is False
+    assert inputs.run_unit_merging is False
+    assert inputs.include_segments is False
+    assert inputs.unit_limit == 10
