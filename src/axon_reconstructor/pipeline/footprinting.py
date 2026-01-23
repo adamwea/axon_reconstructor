@@ -565,21 +565,35 @@ def _write_unit_footprints_across_sources_pdf(
         norm = None
         norm_vmin_for_zeros = None
 
-    panels_per_page = 12
-    n_rows = 4
-    n_cols = 3
+    if len(sources) == 1:
+        # For merged-union-only PDFs, use the whole page (no empty grid).
+        panels_per_page = 1
+        n_rows = 1
+        n_cols = 1
+        fig_size = (9, 9)
+        top = 0.92
+        right = 0.88
+    else:
+        panels_per_page = 12
+        n_rows = 4
+        n_cols = 3
+        fig_size = (10, 12)
+        top = 0.91
+        right = 0.88
     square_side = _electrode_square_side_in_data_units(stacked, side_um=17.5)
     with pdf.PdfPages(pdf_path) as pdf_doc:
         for i in range(0, len(sources), panels_per_page):
             batch = sources[i : i + panels_per_page]
-            fig, axes = plt.subplots(n_rows, n_cols, figsize=(10, 12))
-            axes = axes.flatten()
+            fig, axes = plt.subplots(n_rows, n_cols, figsize=fig_size)
+            if isinstance(axes, (list, tuple)):
+                axes = np.asarray(axes)
+            axes = np.atleast_1d(axes).flatten()
 
             dark_bg = "#0b0b0b"
             cmap_name = "turbo"
             fig.patch.set_facecolor("white")
 
-            fig.subplots_adjust(left=0.04, right=0.88, bottom=0.04, top=0.91, wspace=0.05, hspace=0.12)
+            fig.subplots_adjust(left=0.04, right=right, bottom=0.04, top=top, wspace=0.05, hspace=0.12)
 
             last_mappable = None
             marker_area = None
@@ -618,22 +632,24 @@ def _write_unit_footprints_across_sources_pdf(
                 )
                 last_mappable.set_rasterized(True)
 
-                ax.set_title(
-                    f"{src['name']} | n={int(src.get('n_channels', locs.shape[0]))}",
-                    fontsize=10,
-                    color="black",
-                )
+                if len(sources) != 1:
+                    ax.set_title(
+                        f"{src['name']} | n={int(src.get('n_channels', locs.shape[0]))}",
+                        fontsize=10,
+                        color="black",
+                    )
 
 
 
             for j in range(len(batch), len(axes)):
                 axes[j].axis("off")
 
-            fig.suptitle(
-                f"Unit {unit_id} | Footprints across sources (log color scale)",
-                fontsize=12,
-                color="black",
+            title = (
+                f"Unit {unit_id} | {sources[0].get('name', 'source')} footprint (log color scale)"
+                if len(sources) == 1
+                else f"Unit {unit_id} | Footprints across sources (log color scale)"
             )
+            fig.suptitle(title, fontsize=12, color="black")
 
             if last_mappable is not None:
                 try:
@@ -727,6 +743,8 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
     concat_grid_pdf = footprinting_out_dir / "footprints_grid_concat.pdf"
     multi_source_dir = footprinting_out_dir / "footprints_by_source"
     multi_source_summary_json = multi_source_dir / "footprints_by_source_summary.json"
+    merged_union_dir = footprinting_out_dir / "merged_union_by_unit"
+    merged_union_summary_json = merged_union_dir / "merged_union_summary.json"
     summary_json = footprinting_out_dir / "footprinting_summary.json"
 
     ckpt_file = _compute_footprinting_checkpoint_file(
@@ -747,6 +765,7 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
         resume_ok = resume_ok and concat_grid_pdf.exists()
     if inputs.plot_multi_source_footprints_pdf:
         resume_ok = resume_ok and multi_source_summary_json.exists()
+        resume_ok = resume_ok and merged_union_summary_json.exists()
 
     if not inputs.force_restart and resume_ok:
         logger.info("Resuming footprinting: existing outputs found at %s", footprinting_out_dir)
@@ -796,6 +815,13 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
             "stream_id": inputs.stream_id,
             "well_out_dir": str(well_out_dir),
             "sources": [name for name, _ in analyzers],
+            "units": [],
+        }
+
+        merged_union_summary: dict[str, Any] = {
+            "h5_path": str(inputs.h5_path),
+            "stream_id": inputs.stream_id,
+            "well_out_dir": str(well_out_dir),
             "units": [],
         }
 
@@ -856,8 +882,34 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
                 "sources": [s["name"] for s in sources_for_unit],
                 "merged_union": (merged_union_src.get("merge") if merged_union_src is not None else None),
                 "pdf_path": str(pdf_path) if merged_sources_for_unit else None,
+                "merged_union_pdf_path": None,
                 "error": None,
             }
+
+            # Write merged-union-only PDF per unit into its own subdir.
+            if inputs.plot_multi_source_footprints_pdf and merged_union_src is not None:
+                unit_dir = merged_union_dir / f"unit_{uid}"
+                unit_dir.mkdir(parents=True, exist_ok=True)
+                merged_pdf_path = unit_dir / "merged_union.pdf"
+                try:
+                    _write_unit_footprints_across_sources_pdf(
+                        sources=[merged_union_src],
+                        unit_id=uid,
+                        pdf_path=merged_pdf_path,
+                        logger=logger,
+                    )
+                    unit_entry["merged_union_pdf_path"] = str(merged_pdf_path)
+                    merged_union_summary["units"].append(
+                        {
+                            "unit_id": int(uid) if str(uid).isdigit() else str(uid),
+                            "pdf_path": str(merged_pdf_path),
+                            "merge": merged_union_src.get("merge"),
+                            "n_channels": int(merged_union_src.get("n_channels", 0)),
+                        }
+                    )
+                except Exception as e:
+                    # Keep going; multi-source PDFs can still be useful.
+                    logger.warning("Failed writing merged_union PDF for unit %s: %s", uid, e)
 
             if inputs.plot_multi_source_footprints_pdf and merged_sources_for_unit:
                 try:
@@ -879,6 +931,7 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
 
         if inputs.plot_multi_source_footprints_pdf:
             _write_json(multi_source_summary_json, multi_source_summary)
+            _write_json(merged_union_summary_json, merged_union_summary)
 
         if inputs.plot_concat_footprints_grid_pdf:
             # Prefer the concat analyzer folder when available.
@@ -905,6 +958,10 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
                 "multi_source_footprints_summary_json": str(multi_source_summary_json)
                 if inputs.plot_multi_source_footprints_pdf
                 else None,
+                "merged_union_by_unit_dir": str(merged_union_dir) if inputs.plot_multi_source_footprints_pdf else None,
+                "merged_union_summary_json": str(merged_union_summary_json)
+                if inputs.plot_multi_source_footprints_pdf
+                else None,
             },
         )
 
@@ -919,6 +976,10 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
                 "concat_footprints_grid_pdf": str(concat_grid_pdf) if inputs.plot_concat_footprints_grid_pdf else None,
                 "multi_source_footprints_dir": str(multi_source_dir) if inputs.plot_multi_source_footprints_pdf else None,
                 "multi_source_footprints_summary_json": str(multi_source_summary_json)
+                if inputs.plot_multi_source_footprints_pdf
+                else None,
+                "merged_union_by_unit_dir": str(merged_union_dir) if inputs.plot_multi_source_footprints_pdf else None,
+                "merged_union_summary_json": str(merged_union_summary_json)
                 if inputs.plot_multi_source_footprints_pdf
                 else None,
                 "summary_json": str(summary_json),
