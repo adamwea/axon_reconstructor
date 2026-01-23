@@ -205,6 +205,89 @@ def _build_union_source_for_unit(
     }
 
 
+def _normalize_id_for_compare(x: Any) -> Any:
+    """Normalize ids so np scalars / floats round-trip consistently."""
+
+    try:
+        # numpy scalar -> python scalar
+        if hasattr(x, "item"):
+            x = x.item()
+    except Exception:
+        pass
+
+    if isinstance(x, bool):
+        return x
+    if isinstance(x, int):
+        return int(x)
+    if isinstance(x, float) and x.is_integer():
+        return int(x)
+    return str(x)
+
+
+def _load_curated_unit_ids_from_waveforms_outputs(*, well_out_dir: Path, logger) -> tuple[Optional[list[Any]], Optional[Path]]:
+    """Load curated (kept) unit ids from waveforms outputs, if available.
+
+    Waveforms stage writes MEA_Analysis-style curation artifacts, including:
+      <well>/waveforms_outputs/metrics_curated.xlsx
+
+    We treat the index of that spreadsheet as the curated/kept unit ids.
+    """
+
+    metrics_curated_xlsx = well_out_dir / "waveforms_outputs" / "metrics_curated.xlsx"
+    if not metrics_curated_xlsx.exists():
+        return None, None
+
+    try:
+        import pandas as pd  # type: ignore[import-not-found]
+    except Exception:
+        logger.warning("Found %s but pandas is unavailable; cannot apply unit curation", metrics_curated_xlsx)
+        return None, metrics_curated_xlsx
+
+    try:
+        df = pd.read_excel(metrics_curated_xlsx, index_col=0)
+        curated = [_normalize_id_for_compare(x) for x in list(df.index.values)]
+        # Preserve order but de-dupe.
+        seen: set[Any] = set()
+        curated_unique: list[Any] = []
+        for u in curated:
+            if u in seen:
+                continue
+            seen.add(u)
+            curated_unique.append(u)
+        return curated_unique, metrics_curated_xlsx
+    except Exception as e:
+        logger.warning("Failed reading curated unit list from %s: %s", metrics_curated_xlsx, e)
+        return None, metrics_curated_xlsx
+
+def _load_wf_rejection_log_summary(*, well_out_dir: Path, logger) -> tuple[Optional[dict[str, Any]], Optional[Path]]:
+    """Load waveforms-stage per-spike rejection log summary (best effort).
+
+    The detailed sheets can be extremely large; footprinting only consumes the
+    lightweight `summary` sheet so we can carry the metadata forward without
+    incurring a heavy read.
+    """
+
+    wf_rej_xlsx = well_out_dir / "waveforms_outputs" / "wf_rejection_log.xlsx"
+    if not wf_rej_xlsx.exists():
+        return None, None
+
+    try:
+        import pandas as pd  # type: ignore[import-not-found]
+
+        df = pd.read_excel(wf_rej_xlsx, sheet_name="summary")
+        summary: dict[str, Any] = {"wf_rejection_log_xlsx": str(wf_rej_xlsx)}
+        if not df.empty and {"metric", "value"}.issubset(set(df.columns)):
+            for _, row in df.iterrows():
+                try:
+                    summary[str(row["metric"])] = row["value"]
+                except Exception:
+                    continue
+        return summary, wf_rej_xlsx
+    except Exception as e:
+        logger.warning("Failed to read wf_rejection_log.xlsx summary: %s", e)
+        return {"wf_rejection_log_xlsx": str(wf_rej_xlsx), "error": str(e)}, wf_rej_xlsx
+
+
 def _ensure_analyzer_extensions(*, analyzer, extension_names: list[str], logger, n_jobs: int) -> None:
     missing = [name for name in extension_names if not analyzer.has_extension(name)]
     if not missing:
@@ -808,6 +891,38 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
         else:
             unit_ids = list(analyzers[0][1].sorting.unit_ids)
 
+        # If waveforms-stage curation ran, it produced a curated unit list.
+        # Use it here so footprinting skips rejected units without re-running curation.
+        curation_metrics_xlsx: Optional[Path] = None
+        curated_units_norm: Optional[list[Any]] = None
+        if inputs.unit_ids is None:
+            curated_units_norm, curation_metrics_xlsx = _load_curated_unit_ids_from_waveforms_outputs(
+                well_out_dir=well_out_dir,
+                logger=logger,
+            )
+            if curated_units_norm is not None:
+                curated_set = set(curated_units_norm)
+                before = len(unit_ids)
+                unit_ids = [uid for uid in unit_ids if _normalize_id_for_compare(uid) in curated_set]
+                logger.info(
+                    "Applying waveforms curation: %d -> %d units (from %s)",
+                    before,
+                    len(unit_ids),
+                    curation_metrics_xlsx,
+                )
+
+        wf_rejection_summary: Optional[dict[str, Any]] = None
+        if inputs.unit_ids is None:
+            wf_rejection_summary, _ = _load_wf_rejection_log_summary(well_out_dir=well_out_dir, logger=logger)
+            if wf_rejection_summary is not None:
+                try:
+                    logger.info(
+                        "Found waveforms wf_rejection_log.xlsx (rows=%s)",
+                        wf_rejection_summary.get("n_rows"),
+                    )
+                except Exception:
+                    pass
+
         footprinting_out_dir.mkdir(parents=True, exist_ok=True)
 
         multi_source_summary: dict[str, Any] = {
@@ -815,6 +930,12 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
             "stream_id": inputs.stream_id,
             "well_out_dir": str(well_out_dir),
             "sources": [name for name, _ in analyzers],
+            "curation": {
+                "metrics_curated_xlsx": str(curation_metrics_xlsx) if curation_metrics_xlsx else None,
+                "applied": bool(curated_units_norm is not None),
+                "n_curated_units": int(len(curated_units_norm)) if curated_units_norm is not None else None,
+            },
+            "waveform_rejections": wf_rejection_summary,
             "units": [],
         }
 
@@ -822,6 +943,12 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
             "h5_path": str(inputs.h5_path),
             "stream_id": inputs.stream_id,
             "well_out_dir": str(well_out_dir),
+            "curation": {
+                "metrics_curated_xlsx": str(curation_metrics_xlsx) if curation_metrics_xlsx else None,
+                "applied": bool(curated_units_norm is not None),
+                "n_curated_units": int(len(curated_units_norm)) if curated_units_norm is not None else None,
+            },
+            "waveform_rejections": wf_rejection_summary,
             "units": [],
         }
 
@@ -888,9 +1015,13 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
 
             # Write merged-union-only PDF per unit into its own subdir.
             if inputs.plot_multi_source_footprints_pdf and merged_union_src is not None:
-                unit_dir = merged_union_dir / f"unit_{uid}"
+                # unit_dir = merged_union_dir / f"unit_{uid}"
+                # unit_dir.mkdir(parents=True, exist_ok=True)
+                # merged_pdf_path = unit_dir / "merged_union.pdf"
+
+                unit_dir = merged_union_dir
                 unit_dir.mkdir(parents=True, exist_ok=True)
-                merged_pdf_path = unit_dir / "merged_union.pdf"
+                merged_pdf_path = unit_dir / f"unit_{uid}_merged_union.pdf"
                 try:
                     _write_unit_footprints_across_sources_pdf(
                         sources=[merged_union_src],
@@ -953,6 +1084,11 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
                 "well_out_dir": str(well_out_dir),
                 "footprinting_out_dir": str(footprinting_out_dir),
                 "sources": [name for name, _ in analyzers],
+                "curation": {
+                    "metrics_curated_xlsx": str(curation_metrics_xlsx) if curation_metrics_xlsx else None,
+                    "applied": bool(curated_units_norm is not None),
+                    "n_curated_units": int(len(curated_units_norm)) if curated_units_norm is not None else None,
+                },
                 "concat_footprints_grid_pdf": str(concat_grid_pdf) if inputs.plot_concat_footprints_grid_pdf else None,
                 "multi_source_footprints_dir": str(multi_source_dir) if inputs.plot_multi_source_footprints_pdf else None,
                 "multi_source_footprints_summary_json": str(multi_source_summary_json)
