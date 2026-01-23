@@ -28,7 +28,6 @@ class TemplatesInputs:
     include_concat: bool = True
 
     plot_templates_grid_pdf: bool = True
-    plot_footprints_grid_pdf: bool = True
     n_jobs: int = 8
 
     unit_limit: Optional[int] = None
@@ -45,12 +44,9 @@ def run_templates_only(*, inputs: TemplatesInputs, logger: logging.Logger) -> No
             mea_output_root=inputs.mea_output_root,
             include_concat=inputs.include_concat,
             plot_templates_grid_pdf=inputs.plot_templates_grid_pdf,
-            plot_footprints_grid_pdf=inputs.plot_footprints_grid_pdf,
             n_jobs=inputs.n_jobs,
             unit_limit=inputs.unit_limit,
             force_restart=inputs.force_restart,
-            plot_multi_source_footprints_pdf=True,
-            include_segments=True,
         )
     )
 
@@ -59,10 +55,6 @@ def run_templates_only(*, inputs: TemplatesInputs, logger: logging.Logger) -> No
     logger.info("Summary JSON: %s", out.summary_json)
     if out.templates_grid_pdf is not None:
         logger.info("Templates grid PDF: %s", out.templates_grid_pdf)
-    if out.footprints_grid_pdf is not None:
-        logger.info("Footprints grid PDF: %s", out.footprints_grid_pdf)
-    logger.info("multi_source_footprints_dir: %s", out.multi_source_footprints_dir)
-    logger.info("multi_source_footprints_summary_json: %s", out.multi_source_footprints_summary_json)
 
 
 if __name__ == "__main__":
