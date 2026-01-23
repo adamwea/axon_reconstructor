@@ -19,6 +19,192 @@ from .pipeline_driver import _compute_mea_analysis_output_dir
 FOOTPRINTING_OUTPUTS_DIRNAME = "footprinting_outputs"
 
 
+def _infer_location_tolerance(locations: "Any") -> float:
+    """Infer a reasonable coordinate-space tolerance for location matching.
+
+    Channel locations are typically in µm for MEA data, but can be mm or meters.
+    We use a 0.5 µm tolerance (scaled to the inferred units).
+    """
+
+    import numpy as np  # type: ignore[import-not-found]
+
+    locs = np.asarray(locations)
+    if locs.size == 0:
+        return 0.0
+    max_coord = float(np.nanmax(np.abs(locs)))
+    # Heuristic matching the one used for electrode square sizing.
+    if max_coord > 100.0:
+        return 0.5
+    if max_coord > 1.0:
+        return 0.5 / 1000.0
+    return 0.5e-6
+
+
+def _try_get_recording_property(recording: Any, key: str):
+    try:
+        if hasattr(recording, "get_property_keys"):
+            keys = set(recording.get_property_keys())
+            if key not in keys:
+                return None
+        if hasattr(recording, "get_property"):
+            return recording.get_property(key)
+    except Exception:
+        return None
+    return None
+
+
+def _try_get_electrode_ids(recording: Any):
+    """Best-effort extraction of an 'electrode id' per channel.
+
+    SpikeInterface recordings can carry various per-channel properties.
+    We check a few common candidates; if none exist, returns None.
+    """
+
+    for key in (
+        "electrode_id",
+        "electrode",
+        "contact_id",
+        "contact_ids",
+        "contact",
+        "site_id",
+        "site",
+    ):
+        vals = _try_get_recording_property(recording, key)
+        if vals is not None:
+            return vals
+    return None
+
+
+def _build_union_source_for_unit(
+    *,
+    sources: list[dict[str, Any]],
+    unit_id: Any,
+    logger,
+) -> Optional[dict[str, Any]]:
+    """Union channels across per-source footprints for a unit.
+
+    If overlaps are detected (by channel_id, electrode_id, or location within tolerance),
+    we warn and keep the first occurrence.
+    """
+
+    import numpy as np  # type: ignore[import-not-found]
+
+    if not sources:
+        return None
+
+    # Determine location tolerance from all locations.
+    all_locs = [np.asarray(s.get("channel_locations")) for s in sources if s.get("channel_locations") is not None]
+    if not all_locs:
+        return None
+    stacked = np.concatenate(all_locs, axis=0)
+    tol = float(_infer_location_tolerance(stacked))
+    if tol <= 0:
+        tol = 0.0
+
+    def loc_key(x: float, y: float) -> tuple[int, int]:
+        if tol <= 0:
+            return (int(round(x * 1e6)), int(round(y * 1e6)))
+        return (int(round(x / tol)), int(round(y / tol)))
+
+    union_locs: list[list[float]] = []
+    union_amp: list[float] = []
+    union_channel_ids: list[Any] = []
+    union_electrode_ids: list[Any] = []
+
+    seen_channel_ids: set[Any] = set()
+    seen_electrode_ids: set[Any] = set()
+    seen_loc_keys: set[tuple[int, int]] = set()
+
+    overlap_counts = {"channel_id": 0, "electrode_id": 0, "location": 0}
+
+    for src in sources:
+        locs = np.asarray(src.get("channel_locations"))
+        amp = np.asarray(src.get("amp"))
+        ch_ids = src.get("channel_ids")
+        el_ids = src.get("electrode_ids")
+
+        if locs.size == 0 or amp.size == 0 or locs.shape[0] != amp.shape[0]:
+            continue
+
+        # Optional: warn about duplicates within source.
+        try:
+            if ch_ids is not None:
+                ch_list = list(ch_ids)
+                if len(set(ch_list)) != len(ch_list):
+                    logger.warning("Duplicate channel_ids within source %s (unit %s)", src.get("name"), unit_id)
+        except Exception:
+            pass
+
+        for i in range(locs.shape[0]):
+            x = float(locs[i, 0])
+            y = float(locs[i, 1])
+            lk = loc_key(x, y)
+
+            cid = None
+            if ch_ids is not None:
+                try:
+                    cid = ch_ids[i]
+                except Exception:
+                    cid = None
+
+            eid = None
+            if el_ids is not None:
+                try:
+                    eid = el_ids[i]
+                except Exception:
+                    eid = None
+
+            # Overlap checks: if any overlap, keep the first and skip.
+            if cid is not None and cid in seen_channel_ids:
+                overlap_counts["channel_id"] += 1
+                continue
+            if eid is not None and eid in seen_electrode_ids:
+                overlap_counts["electrode_id"] += 1
+                continue
+            if lk in seen_loc_keys:
+                overlap_counts["location"] += 1
+                continue
+
+            seen_loc_keys.add(lk)
+            if cid is not None:
+                seen_channel_ids.add(cid)
+            if eid is not None:
+                seen_electrode_ids.add(eid)
+
+            union_locs.append([x, y])
+            union_amp.append(float(amp[i]))
+            union_channel_ids.append(cid)
+            union_electrode_ids.append(eid)
+
+    total_overlaps = sum(overlap_counts.values())
+    if total_overlaps:
+        logger.warning(
+            "Merged footprint overlaps for unit %s: %s (kept first, skipped the rest)",
+            unit_id,
+            overlap_counts,
+        )
+
+    if not union_locs:
+        return None
+
+    union_locs_arr = np.asarray(union_locs)
+    union_amp_arr = np.asarray(union_amp)
+
+    return {
+        "name": "merged_union",
+        "channel_locations": union_locs_arr,
+        "amp": union_amp_arr,
+        "best_ch": int(np.argmax(union_amp_arr)) if union_amp_arr.size else 0,
+        "n_channels": int(union_locs_arr.shape[0]),
+        "channel_ids": union_channel_ids,
+        "electrode_ids": union_electrode_ids,
+        "merge": {
+            "location_tolerance": tol,
+            "overlap_counts": overlap_counts,
+        },
+    }
+
+
 def _ensure_analyzer_extensions(*, analyzer, extension_names: list[str], logger, n_jobs: int) -> None:
     missing = [name for name in extension_names if not analyzer.has_extension(name)]
     if not missing:
@@ -626,6 +812,19 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
                 if tmpl_src.ndim != 2 or tmpl_src.size == 0:
                     continue
                 locs_src = np.asarray(an.recording.get_channel_locations())
+                ch_ids_src = None
+                try:
+                    ch_ids_src = np.asarray(an.recording.get_channel_ids())
+                except Exception:
+                    ch_ids_src = None
+
+                el_ids_src = _try_get_electrode_ids(an.recording)
+                if el_ids_src is not None:
+                    try:
+                        el_ids_src = np.asarray(el_ids_src)
+                    except Exception:
+                        el_ids_src = None
+
                 if tmpl_src.shape[1] != locs_src.shape[0]:
                     continue
 
@@ -638,8 +837,15 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
                         "amp": amp,
                         "best_ch": best_ch,
                         "n_channels": int(locs_src.shape[0]),
+                        "channel_ids": ch_ids_src,
+                        "electrode_ids": el_ids_src,
                     }
                 )
+
+            merged_union_src = _build_union_source_for_unit(sources=sources_for_unit, unit_id=uid, logger=logger)
+            merged_sources_for_unit = (
+                ([merged_union_src] + sources_for_unit) if merged_union_src is not None else sources_for_unit
+            )
 
             multi_source_dir.mkdir(parents=True, exist_ok=True)
             pdf_path = multi_source_dir / f"unit_{uid}_footprints.pdf"
@@ -648,14 +854,15 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
                 "unit_id": int(uid) if str(uid).isdigit() else str(uid),
                 "num_sources": int(len(sources_for_unit)),
                 "sources": [s["name"] for s in sources_for_unit],
-                "pdf_path": str(pdf_path) if sources_for_unit else None,
+                "merged_union": (merged_union_src.get("merge") if merged_union_src is not None else None),
+                "pdf_path": str(pdf_path) if merged_sources_for_unit else None,
                 "error": None,
             }
 
-            if inputs.plot_multi_source_footprints_pdf and sources_for_unit:
+            if inputs.plot_multi_source_footprints_pdf and merged_sources_for_unit:
                 try:
                     _write_unit_footprints_across_sources_pdf(
-                        sources=sources_for_unit,
+                        sources=merged_sources_for_unit,
                         unit_id=uid,
                         pdf_path=pdf_path,
                         logger=logger,
