@@ -94,8 +94,10 @@ def _write_waveforms_grid_pdf(
     This is an (intentionally) very close copy of MEA_Analysis:
     MEA_Analysis/IPNAnalysis/mea_analysis_routine.py::_plot_waveforms_grid.
 
-    We adapt it to load from a SpikeInterface waveforms folder (instead of a SortingAnalyzer
-    waveforms extension) so it can run in the axon_reconstructor waveforms step.
+    We adapt it to load from a SpikeInterface `SortingAnalyzer` folder.
+
+    For backwards compatibility, this will also try to load a legacy waveforms folder
+    (WaveformExtractor) if a SortingAnalyzer cannot be loaded.
     """
 
     try:
@@ -204,13 +206,33 @@ def _write_waveforms_grid_pdf(
 
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
 
-    we = si.load_waveforms(waveforms_folder)
+    analyzer = None
+    waveforms_ext = None
+    legacy_we = None
+
+    try:
+        analyzer = si.load_sorting_analyzer(waveforms_folder)
+        waveforms_ext = analyzer.get_extension("waveforms")
+    except Exception:
+        analyzer = None
+        waveforms_ext = None
+
+    if analyzer is None or waveforms_ext is None:
+        # Legacy fallback: old WaveformExtractor folder.
+        legacy_we = si.load_waveforms(waveforms_folder)
+
     if unit_ids is None:
-        unit_ids = list(we.sorting.unit_ids)
+        if analyzer is not None:
+            unit_ids = list(analyzer.sorting.unit_ids)
+        else:
+            unit_ids = list(legacy_we.sorting.unit_ids)
     if len(unit_ids) == 0:
         return
 
-    fs = float(we.recording.get_sampling_frequency())
+    if analyzer is not None:
+        fs = float(analyzer.sampling_frequency)
+    else:
+        fs = float(legacy_we.recording.get_sampling_frequency())
 
     with pdf.PdfPages(pdf_path) as pdf_doc:
         units_per_page = 12
@@ -228,7 +250,21 @@ def _write_waveforms_grid_pdf(
                     for spine in ax.spines.values():
                         spine.set_visible(False)
 
-                    wf = we.get_waveforms(uid)
+                    if analyzer is not None:
+                        wf = waveforms_ext.get_waveforms_one_unit(unit_id=uid)
+                        unit_channel_ids = None
+                        try:
+                            if analyzer.sparsity is not None:
+                                unit_channel_ids = analyzer.sparsity.unit_id_to_channel_ids.get(uid)
+                        except Exception:
+                            unit_channel_ids = None
+                    else:
+                        wf = legacy_we.get_waveforms(uid)
+                        unit_channel_ids = None
+                        try:
+                            unit_channel_ids = list(legacy_we.recording.get_channel_ids())
+                        except Exception:
+                            unit_channel_ids = None
                     if wf is None or wf.shape[0] == 0:
                         ax.axis("off")
                         continue
@@ -248,7 +284,14 @@ def _write_waveforms_grid_pdf(
                     ax.plot(time_ms, spikes_to_plot.T, c="gray", lw=0.5, alpha=0.3)
                     ax.plot(time_ms, mean_wf[:, best_ch], c="red", lw=1.5)
 
-                    ax.set_title(f"Unit {uid} | Ch {best_ch}", fontsize=10)
+                    ch_label = best_ch
+                    try:
+                        if unit_channel_ids is not None and best_ch < len(unit_channel_ids):
+                            ch_label = int(unit_channel_ids[best_ch])
+                    except Exception:
+                        pass
+
+                    ax.set_title(f"Unit {uid} | Ch {ch_label}", fontsize=10)
 
                     # Scale bar (1 ms x 50 uV)
                     if add_scalebar is not None:
@@ -371,6 +414,7 @@ def _run_mea_analysis_style_curation(
             ext_list,
             extension_params=ext_params,
             verbose=False,
+            n_jobs=int(n_jobs),
         )
 
     q_metrics = analyzer.get_extension("quality_metrics").get_data()
@@ -937,18 +981,25 @@ def extract_waveforms(
             shutil.rmtree(concat_waveforms_dir)
 
         logger.info("Extracting concat waveforms -> %s", concat_waveforms_dir)
-        si.extract_waveforms(
-            recording=recording,
-            sorting=filtered_sorting,
+        concat_analyzer = si.create_sorting_analyzer(
+            filtered_sorting,
+            recording,
+            format="binary_folder",
             folder=concat_waveforms_dir,
-            ms_before=float(ms_before),
-            ms_after=float(ms_after),
-            max_spikes_per_unit=inputs.max_spikes_per_unit,
-            return_scaled=True,
-            allow_unfiltered=True,
-            overwrite=None,
+            return_in_uV=True,
+        )
+        concat_analyzer.compute(
+            ["random_spikes", "waveforms"],
+            extension_params={
+                "random_spikes": {
+                    "method": "uniform",
+                    "max_spikes_per_unit": int(inputs.max_spikes_per_unit),
+                    "seed": 0,
+                },
+                "waveforms": {"ms_before": float(ms_before), "ms_after": float(ms_after)},
+            },
+            verbose=False,
             n_jobs=int(inputs.n_jobs),
-            progress_bar=False,
         )
 
         # Optional: per-segment extraction using concatenation epochs.
@@ -1163,7 +1214,7 @@ def extract_waveforms(
 
                 # STEP 3) Register the sorting to the raw segment recording.
                 #
-                # Not strictly required for `si.extract_waveforms(recording=..., sorting=...)`,
+                # Not strictly required for `si.create_sorting_analyzer(sorting=..., recording=...)`,
                 # but this matches the intent/semantics of the legacy pipeline and helps
                 # downstream utilities that expect the sorting to “know” its recording.
                 try:
@@ -1176,18 +1227,25 @@ def extract_waveforms(
                 # Key outcome: these waveforms include channels that are absent from the
                 # concatenated recording (i.e. the non-shared electrodes), which is the
                 # whole reason we do this per-segment pass.
-                si.extract_waveforms(
-                    recording=seg_rec,
-                    sorting=seg_sort,
+                seg_analyzer = si.create_sorting_analyzer(
+                    seg_sort,
+                    seg_rec,
+                    format="binary_folder",
                     folder=seg_dir,
-                    ms_before=float(ms_before),
-                    ms_after=float(ms_after),
-                    max_spikes_per_unit=inputs.max_spikes_per_unit,
-                    return_scaled=True,
-                    allow_unfiltered=True,
-                    overwrite=None,
+                    return_in_uV=True,
+                )
+                seg_analyzer.compute(
+                    ["random_spikes", "waveforms"],
+                    extension_params={
+                        "random_spikes": {
+                            "method": "uniform",
+                            "max_spikes_per_unit": int(inputs.max_spikes_per_unit),
+                            "seed": 0,
+                        },
+                        "waveforms": {"ms_before": float(ms_before), "ms_after": float(ms_after)},
+                    },
+                    verbose=False,
                     n_jobs=max(1, int(inputs.n_jobs)),
-                    progress_bar=False,
                 )
 
                 # Accumulate per-segment filtering stats.
