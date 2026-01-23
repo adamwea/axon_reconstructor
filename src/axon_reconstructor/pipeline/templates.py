@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -19,52 +21,55 @@ from .pipeline_driver import _compute_mea_analysis_output_dir
 TEMPLATES_OUTPUTS_DIRNAME = "templates_outputs"
 
 
-def _check_unit_merging_available(*, logger) -> tuple[bool, str | None]:
-    """Return whether SpikeInterface auto-merge can run in this environment.
+def _read_json(path: Path) -> Any:
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-    SpikeInterface's auto-merge presets rely on quality metrics that call
-    `compute_refrac_period_violations`, which requires `numba`. When numba is
-    not installed, upstream currently warns and returns None, which can crash
-    auto-merge.
-    """
+
+def _write_json(path: Path, payload: Any) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+
+
+def _jsonable(x: Any) -> Any:
+    """Convert common non-JSON-native scalars into JSON-safe Python types."""
 
     try:
-        import spikeinterface.curation.auto_merge as _am  # type: ignore[import-not-found]
+        import numpy as np  # type: ignore[import-not-found]
 
-        have_numba = getattr(_am, "HAVE_NUMBA", None)
-        if have_numba is False:
-            return False, "numba is not installed (required by SpikeInterface auto-merge presets)"
-    except Exception as e:
-        logger.debug("Unable to import spikeinterface.curation.auto_merge: %s", e)
-        # If we cannot import the module, unit merging cannot run.
-        return False, "spikeinterface.curation.auto_merge is unavailable"
-
-    # Belt-and-suspenders check.
-    try:
-        import numba  # type: ignore[import-not-found]  # noqa: F401
+        if isinstance(x, (np.integer, np.floating)):
+            return x.item()
     except Exception:
-        return False, "numba is not installed (required by SpikeInterface auto-merge presets)"
+        pass
+    if isinstance(x, Path):
+        return str(x)
+    return x
 
-    return True, None
+
+def _jsonable_list(xs: Optional[list[Any]]) -> Optional[list[Any]]:
+    if xs is None:
+        return None
+    return [_jsonable(v) for v in xs]
 
 
-def _ensure_analyzer_extensions(*, analyzer, extension_names: list[str], logger, n_jobs: int) -> None:
-    """Ensure a `SortingAnalyzer` has the requested extensions.
+def _jsonable_sequence(xs: Any) -> Optional[list[Any]]:
+    """Like `_jsonable_list`, but accepts list/tuple/numpy arrays (best effort)."""
 
-    SpikeInterface's `SortingAnalyzer` API has evolved; in 0.103.x the supported
-    way to check is `has_extension()` (not `get_extension_names()`).
-    """
-
-    missing = [name for name in extension_names if not analyzer.has_extension(name)]
-    if not missing:
-        return
-
-    logger.info("Computing extensions: %s", ", ".join(missing))
-    analyzer.compute(missing, verbose=False, n_jobs=max(1, int(n_jobs)))
+    if xs is None:
+        return None
+    try:
+        return [_jsonable(v) for v in list(xs)]
+    except Exception:
+        try:
+            return [_jsonable(xs)]
+        except Exception:
+            return None
 
 
 def _compute_templates_checkpoint_file(*, well_out_dir: Path, h5_path: Path, stream_id: str) -> Path:
-    """Use a dedicated checkpoint file for template extraction/merging."""
+    """Use a dedicated checkpoint file for templates."""
 
     main_ckpt = compute_checkpoint_file(output_dir=well_out_dir, file_path=h5_path, stream_id=stream_id)
     name = main_ckpt.name
@@ -81,21 +86,25 @@ class TemplateExtractInputs:
     stream_id: str
     mea_output_root: Path
 
-    # Which waveforms/analyzers to use
     include_concat: bool = True
     include_segments: bool = True
 
-    # Extraction controls
     unit_ids: Optional[list[Any]] = None
     unit_limit: Optional[int] = None
 
-    # Unit merging (optional)
+    # Optional SpikeInterface auto-merge of units (best-effort).
     run_unit_merging: bool = True
     merge_presets: Optional[list[str]] = None
     merge_recursive: bool = False
-    n_jobs: int = 8
 
-    # Resume/overwrite
+    # Plotting
+    plot_templates_grid_pdf: bool = True
+    plot_multi_source_templates_pdf: bool = True
+
+    # Template overlay plot controls
+    top_channels_per_template: int = 8
+
+    n_jobs: int = 8
     force_restart: bool = False
 
 
@@ -103,169 +112,413 @@ class TemplateExtractInputs:
 class TemplateExtractOutputs:
     well_out_dir: Path
     templates_out_dir: Path
-    merged_templates_dir: Path
+    extracted_templates_dir: Path
+    merged_union_by_unit_dir: Optional[Path]
+
     summary_json: Path
-
-    unit_merging_dir: Optional[Path] = None
-    merged_analyzer_dir: Optional[Path] = None
-    unit_merging_summary_json: Optional[Path] = None
+    templates_grid_pdf: Optional[Path]
+    multi_source_templates_dir: Optional[Path]
 
 
-def _read_json(path: Path) -> Any:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+def _try_get_electrode_ids(recording) -> Optional[list[Any]]:
+    """Best-effort retrieval of electrode ids from a RecordingExtractor."""
+
+    try:
+        cv = recording.get_property("contact_vector")
+        if cv is None:
+            return None
+        electrodes = cv.get("electrode")
+        if electrodes is None:
+            return None
+        return list(electrodes)
+    except Exception:
+        return None
 
 
-def _write_json(path: Path, payload: Any) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+def _infer_location_tolerance(locs) -> float:
+    """Infer a tolerance for matching channel locations (in same units as locs)."""
+
+    import numpy as np  # type: ignore[import-not-found]
+
+    locs = np.asarray(locs)
+    if locs.ndim != 2 or locs.shape[0] < 2:
+        return 1e-6
+    # Roughly: 1/4 of the median nearest-neighbor distance.
+    try:
+        from scipy.spatial import cKDTree  # type: ignore[import-not-found]
+
+        tree = cKDTree(locs[:, :2])
+        d, _ = tree.query(locs[:, :2], k=2)
+        nn = d[:, 1]
+        med = float(np.median(nn[nn > 0])) if np.any(nn > 0) else 0.0
+        if med <= 0:
+            return 1e-6
+        return max(1e-6, med / 4.0)
+    except Exception:
+        return 1e-6
 
 
-def _loc_key(loc: Any) -> tuple[int, int]:
-    """Stable key for matching channel locations across segments.
-
-    We scale/round to avoid float equality surprises.
-    """
-
-    x = float(loc[0])
-    y = float(loc[1])
-    return (int(round(x * 1000.0)), int(round(y * 1000.0)))
+def _loc_key(xy: Any, tol: float) -> tuple[int, int]:
+    x = float(xy[0])
+    y = float(xy[1])
+    # bucketize by tol
+    return (int(round(x / tol)), int(round(y / tol)))
 
 
-def _merge_templates_by_location(
-    *,
-    templates: list["Any"],
-    channel_locations: list["Any"],
-    logger,
-) -> tuple["Any", "Any", dict[str, Any]]:
-    """Merge multiple (samples x channels) templates into a single template.
+def _build_union_template_for_unit(*, sources_for_unit: list[dict[str, Any]], logger) -> Optional[dict[str, Any]]:
+    """Build a merged-union template across sources.
 
-    Matching is done by identical channel location (x, y). Overlapping channels are
-    averaged. New channels are appended.
+    Keeps the first occurrence for overlapping channels (warns on overlaps).
+
+    Returns a dict with fields compatible with `sources_for_unit` entries.
     """
 
     import numpy as np  # type: ignore[import-not-found]
 
-    assert len(templates) == len(channel_locations)
-    if len(templates) == 0:
-        raise ValueError("No templates to merge")
+    if not sources_for_unit:
+        return None
 
-    # Initialize with first template.
-    merged = np.asarray(templates[0])
-    merged_locs = np.asarray(channel_locations[0])
-    if merged.ndim != 2:
-        raise ValueError(f"Template must be 2D (samples x channels); got shape {merged.shape}")
-    if merged_locs.ndim != 2 or merged_locs.shape[1] < 2:
-        raise ValueError(f"Channel locations must be (n,2); got shape {merged_locs.shape}")
-    if merged.shape[1] != merged_locs.shape[0]:
-        raise ValueError("Template channels and channel_locations length mismatch")
+    # Use first source as base for time axis (#samples).
+    n_samples = int(np.asarray(sources_for_unit[0]["template"]).shape[0])
 
-    # Per-sample counts, to support NaN-masked merges.
-    counts = np.ones_like(merged, dtype=np.uint16)
-    if np.isnan(merged).any():
-        counts = (~np.isnan(merged)).astype(np.uint16)
-        merged = np.nan_to_num(merged, nan=0.0)
+    tol = None
+    try:
+        tol = _infer_location_tolerance(sources_for_unit[0]["channel_locations"])
+    except Exception:
+        tol = 1e-6
 
-    loc_to_index: dict[tuple[int, int], int] = {_loc_key(loc): int(i) for i, loc in enumerate(merged_locs)}
+    union_waveforms: list[np.ndarray] = []
+    union_locs: list[np.ndarray] = []
+    union_channel_ids: list[Any] = []
+    union_electrode_ids: list[Any] = []
+    union_source_names: list[str] = []
 
-    stats: dict[str, Any] = {
-        "num_inputs": int(len(templates)),
-        "inputs": [],
-        "final_channels": None,
+    # Map from match key -> union index.
+    key_to_index: dict[Any, int] = {}
+
+    overlap_count = 0
+
+    for src in sources_for_unit:
+        name = str(src["name"])
+        tmpl = np.asarray(src["template"])
+        locs = np.asarray(src["channel_locations"])
+        ch_ids = src.get("channel_ids")
+        el_ids = src.get("electrode_ids")
+
+        if tmpl.ndim != 2 or tmpl.shape[0] != n_samples:
+            logger.warning("Skipping %s for merged_union: bad template shape %s", name, tmpl.shape)
+            continue
+
+        for j in range(tmpl.shape[1]):
+            key = None
+            try:
+                if el_ids is not None:
+                    key = ("electrode", int(el_ids[j]))
+                elif ch_ids is not None:
+                    key = ("channel", str(ch_ids[j]))
+                else:
+                    key = ("loc", _loc_key(locs[j], float(tol)))
+            except Exception:
+                key = ("loc", _loc_key(locs[j], float(tol)))
+
+            if key in key_to_index:
+                overlap_count += 1
+                continue
+
+            key_to_index[key] = len(union_waveforms)
+            union_waveforms.append(np.asarray(tmpl[:, j], dtype=float))
+            union_locs.append(np.asarray(locs[j, :2], dtype=float))
+            union_source_names.append(str(name))
+            try:
+                union_channel_ids.append(None if ch_ids is None else ch_ids[j])
+            except Exception:
+                union_channel_ids.append(None)
+            try:
+                union_electrode_ids.append(None if el_ids is None else el_ids[j])
+            except Exception:
+                union_electrode_ids.append(None)
+
+    if not union_waveforms:
+        return None
+
+    if overlap_count:
+        logger.warning("merged_union: skipped %d overlapping channels (keep-first)", overlap_count)
+
+    merged = np.stack(union_waveforms, axis=1)
+    merged_locs = np.stack(union_locs, axis=0)
+
+    return {
+        "name": "merged_union",
+        "template": merged,
+        "channel_locations": merged_locs,
+        "channel_ids": union_channel_ids,
+        "electrode_ids": union_electrode_ids,
+        "channel_source_names": union_source_names,
+        "stats": {"overlap_skipped": int(overlap_count), "n_channels": int(merged.shape[1])},
     }
 
-    for idx in range(1, len(templates)):
-        t_in = np.asarray(templates[idx])
-        locs_in = np.asarray(channel_locations[idx])
-        if t_in.ndim != 2:
-            raise ValueError(f"Incoming template must be 2D; got shape {t_in.shape}")
-        if t_in.shape[1] != locs_in.shape[0]:
-            raise ValueError("Incoming template channels and channel_locations mismatch")
-        if t_in.shape[0] != merged.shape[0]:
-            raise ValueError(
-                f"All templates must share the same #samples; got {t_in.shape[0]} vs {merged.shape[0]}"
-            )
 
-        # Build overlap/new index lists.
-        in_keys = [_loc_key(loc) for loc in locs_in]
-        overlap_in: list[int] = []
-        overlap_merged: list[int] = []
-        new_in: list[int] = []
-        new_locs: list[Any] = []
-        for j, key in enumerate(in_keys):
-            existing = loc_to_index.get(key)
-            if existing is None:
-                new_in.append(j)
-                new_locs.append(locs_in[j])
-            else:
-                overlap_in.append(j)
-                overlap_merged.append(existing)
-
-        stats["inputs"].append(
-            {
-                "index": int(idx),
-                "incoming_channels": int(t_in.shape[1]),
-                "overlap_channels": int(len(overlap_in)),
-                "new_channels": int(len(new_in)),
-            }
-        )
-
-        # Merge overlap channels by (masked) average.
-        if overlap_in:
-            merged_idx = np.asarray(overlap_merged, dtype=int)
-            in_idx = np.asarray(overlap_in, dtype=int)
-            incoming = t_in[:, in_idx]
-            incoming_counts = (~np.isnan(incoming)).astype(np.uint16)
-            incoming = np.nan_to_num(incoming, nan=0.0)
-
-            merged_part = merged[:, merged_idx]
-            counts_part = counts[:, merged_idx]
-
-            total = counts_part + incoming_counts
-            # Avoid division by zero when both are zero (should be rare).
-            out = np.where(total > 0, (merged_part * counts_part + incoming) / total, 0.0)
-
-            merged[:, merged_idx] = out.astype(merged.dtype, copy=False)
-            counts[:, merged_idx] = total
-
-        # Append new channels.
-        if new_in:
-            in_idx = np.asarray(new_in, dtype=int)
-            incoming_new = t_in[:, in_idx]
-            incoming_counts_new = (~np.isnan(incoming_new)).astype(np.uint16)
-            incoming_new = np.nan_to_num(incoming_new, nan=0.0)
-
-            merged = np.concatenate([merged, incoming_new], axis=1)
-            counts = np.concatenate([counts, incoming_counts_new], axis=1)
-
-            # Update locations and dict.
-            start = int(merged_locs.shape[0])
-            merged_locs = np.concatenate([merged_locs, np.asarray(new_locs)], axis=0)
-            for offset, loc in enumerate(new_locs):
-                loc_to_index[_loc_key(loc)] = start + int(offset)
-
-    stats["final_channels"] = int(merged.shape[1])
-    logger.info("Merged template channels: %d", int(merged.shape[1]))
-    return merged, merged_locs, stats
-
-
-def extract_and_merge_templates(
+def _apply_wf_exclusion_monkey_patch_to_merged_union(
     *,
-    inputs: TemplateExtractInputs,
-    logger_name_prefix: str = "axon_reconstructor",
-) -> TemplateExtractOutputs:
-    """Extract per-unit templates and merge across segments (by channel location).
+    merged_union_src: dict[str, Any],
+    unit_id: Any,
+    excluded_source_names: set[str],
+    logger,
+) -> dict[str, Any]:
+    """TEMPORARY monkey patch: drop channels from merged_union based on waveforms-stage rejections.
 
-    Inputs are the waveforms analyzers produced by the waveforms stage:
-      <well>/waveforms_outputs/concat_waveforms/
-      <well>/waveforms_outputs/segment_waveforms/segXX_*/
-    Outputs go to:
-      <well>/templates_outputs/merged_templates/
+    Background:
+    - Waveforms extraction can exclude spikes (e.g., crossing Maxwell snippet gaps).
+    - Today, templates are derived from waveforms analyzers, but we do not yet
+      have a principled way to carry *spike-level* exclusion decisions into
+      downstream reconstruction artifacts.
+
+    This is an intentionally blunt stop-gap:
+    - If a segment-source had any waveforms-stage spike rejections for this unit,
+      we drop that segment's contributed channels from `merged_union`.
+
+    IMPORTANT:
+    - This only affects the *merged_union* artifact (plotting + saved npy/meta).
+    - Per-source templates remain unchanged.
+    - This should be removed once proper spike-level template recomputation exists.
     """
 
-    import spikeinterface.full as si  # type: ignore[import-not-found]
+    import numpy as np  # type: ignore[import-not-found]
+
+    if not excluded_source_names:
+        return merged_union_src
+
+    # Never drop the concat source via this monkey patch (it is the backbone).
+    excluded = {s for s in excluded_source_names if str(s) != "concat"}
+    if not excluded:
+        return merged_union_src
+
+    src_names = merged_union_src.get("channel_source_names")
+    if src_names is None:
+        return merged_union_src
+
+    try:
+        src_names_list = [str(x) for x in list(src_names)]
+    except Exception:
+        return merged_union_src
+
+    keep_mask = np.asarray([name not in excluded for name in src_names_list], dtype=bool)
+    if keep_mask.size == 0:
+        return merged_union_src
+    if bool(np.all(keep_mask)):
+        return merged_union_src
+
+    if not bool(np.any(keep_mask)):
+        logger.warning(
+            "MONKEY PATCH: would drop all merged_union channels for unit %s (excluded sources=%s); keeping unmodified",
+            unit_id,
+            sorted(excluded),
+        )
+        return merged_union_src
+
+    tmpl = np.asarray(merged_union_src.get("template"))
+    locs = np.asarray(merged_union_src.get("channel_locations"))
+    if tmpl.ndim != 2 or locs.ndim != 2 or tmpl.shape[1] != locs.shape[0] or keep_mask.shape[0] != tmpl.shape[1]:
+        return merged_union_src
+
+    dropped = int(np.sum(~keep_mask))
+    kept = int(np.sum(keep_mask))
+    logger.info(
+        "MONKEY PATCH: merged_union channel curation for unit %s: dropping %d channels from sources=%s (kept=%d)",
+        unit_id,
+        dropped,
+        sorted(excluded),
+        kept,
+    )
+
+    merged_union_src = dict(merged_union_src)
+    merged_union_src["template"] = tmpl[:, keep_mask]
+    merged_union_src["channel_locations"] = locs[keep_mask]
+
+    # Optional aux lists
+    for key in ("channel_ids", "electrode_ids", "channel_source_names"):
+        try:
+            vals = merged_union_src.get(key)
+            if vals is not None and len(vals) == int(keep_mask.shape[0]):
+                merged_union_src[key] = [v for v, keep in zip(list(vals), keep_mask.tolist(), strict=False) if keep]
+        except Exception:
+            pass
+
+    try:
+        stats = dict(merged_union_src.get("stats") or {})
+        stats["monkey_patch_dropped_sources"] = sorted(excluded)
+        stats["monkey_patch_dropped_channels"] = dropped
+        stats["n_channels"] = int(merged_union_src["template"].shape[1])
+        merged_union_src["stats"] = stats
+    except Exception:
+        pass
+
+    return merged_union_src
+
+
+def _write_template_overlay(
+    *,
+    ax,
+    template: Any,
+    fs_hz: float,
+    ms_before: Optional[float],
+    ms_after: Optional[float],
+    top_channels: int,
+    title: str,
+) -> None:
+    import numpy as np  # type: ignore[import-not-found]
+
+    tmpl = np.asarray(template)
+    if tmpl.ndim != 2 or tmpl.size == 0:
+        ax.set_axis_off()
+        return
+
+    n_samples = tmpl.shape[0]
+
+    # Time axis in ms (best effort).
+    if ms_before is not None and ms_after is not None:
+        # Use linspace so the full window maps nicely.
+        t_ms = np.linspace(-float(ms_before), float(ms_after), n_samples, endpoint=False)
+    else:
+        t_ms = (np.arange(n_samples, dtype=float) / float(fs_hz)) * 1000.0
+
+    ptp = np.ptp(tmpl, axis=0)
+    order = np.argsort(ptp)[::-1]
+    # If top_channels <= 0, plot all channels.
+    if int(top_channels) <= 0:
+        sel = order
+    else:
+        k = int(min(max(1, int(top_channels)), len(order)))
+        sel = order[:k]
+
+    # Overlay selected channels.
+    for j_idx, j in enumerate(sel):
+        y = tmpl[:, int(j)]
+        ax.plot(t_ms, y, lw=0.8, alpha=0.85)
+
+    ax.set_title(title, fontsize=9)
+    ax.set_xlabel("Time (ms)", fontsize=8)
+    ax.set_ylabel("uV", fontsize=8)
+    ax.tick_params(axis="both", labelsize=7)
+
+
+def _write_templates_grid_pdf(
+    *,
+    pdf_path: Path,
+    unit_entries: list[dict[str, Any]],
+    fs_hz: float,
+    ms_before: Optional[float],
+    ms_after: Optional[float],
+    top_channels: int,
+    logger,
+) -> None:
+    """Write a grid PDF of templates (one subplot per unit)."""
+
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+    import matplotlib.backends.backend_pdf as pdf
+
+    ncols = 3
+    nrows = 4
+    per_page = ncols * nrows
+
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    with pdf.PdfPages(pdf_path) as out:
+        for i0 in range(0, len(unit_entries), per_page):
+            chunk = unit_entries[i0 : i0 + per_page]
+            fig, axes = plt.subplots(nrows, ncols, figsize=(11, 8.5), constrained_layout=True)
+            axes = axes.ravel().tolist()
+
+            for ax, entry in zip(axes, chunk):
+                uid = entry.get("unit_id")
+                title = f"unit {uid}"
+                _write_template_overlay(
+                    ax=ax,
+                    template=entry["template"],
+                    fs_hz=float(fs_hz),
+                    ms_before=ms_before,
+                    ms_after=ms_after,
+                    top_channels=int(top_channels),
+                    title=title,
+                )
+
+            for j in range(len(chunk), len(axes)):
+                axes[j].set_axis_off()
+
+            out.savefig(fig, dpi=150)
+            plt.close(fig)
+
+    logger.info("Wrote templates grid PDF -> %s", pdf_path)
+
+
+def _write_unit_templates_across_sources_pdf(
+    *,
+    pdf_path: Path,
+    unit_id: Any,
+    sources_for_unit: list[dict[str, Any]],
+    fs_hz: float,
+    ms_before: Optional[float],
+    ms_after: Optional[float],
+    top_channels: int,
+) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+    import matplotlib.backends.backend_pdf as pdf
+
+    n = len(sources_for_unit)
+    if n <= 0:
+        return
+
+    if n == 1:
+        ncols, nrows = 1, 1
+        figsize = (11, 8.5)
+    else:
+        ncols = 3
+        nrows = int(math.ceil(n / ncols))
+        figsize = (11, 3.0 * nrows)
+
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    with pdf.PdfPages(pdf_path) as out:
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize, constrained_layout=True)
+        import numpy as np  # type: ignore[import-not-found]
+
+        axes_list = list(np.asarray(axes).ravel())
+
+        for ax, src in zip(axes_list, sources_for_unit):
+            # For merged_union specifically, plot *all* channels so nothing is hidden
+            # by the top-N selection.
+            tc = 0 if str(src.get("name")) == "merged_union" else int(top_channels)
+            _write_template_overlay(
+                ax=ax,
+                template=src["template"],
+                fs_hz=float(fs_hz),
+                ms_before=ms_before,
+                ms_after=ms_after,
+                top_channels=int(tc),
+                title=str(src["name"]),
+            )
+
+        for j in range(len(sources_for_unit), len(axes_list)):
+            axes_list[j].set_axis_off()
+
+        fig.suptitle(f"Templates overlay (unit {unit_id})", fontsize=12)
+        out.savefig(fig, dpi=150)
+        plt.close(fig)
+
+
+def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_prefix: str = "axon_reconstructor") -> TemplateExtractOutputs:
+    """Extract templates from waveforms analyzers, save `.npy`, and produce QC PDFs.
+
+    Mirrors the footprinting step's multi-source logic:
+    - loads concat + per-segment waveforms analyzers
+    - applies waveforms-stage unit curation (metrics_curated.xlsx) when available
+    - handles missing units in some segments by skipping that source
+    - builds a per-unit `merged_union` template across sources
+    """
 
     well_out_dir = _compute_mea_analysis_output_dir(
         output_root=inputs.mea_output_root,
@@ -273,11 +526,7 @@ def extract_and_merge_templates(
         well=inputs.stream_id,
     )
 
-    log_file = compute_pipeline_log_file(
-        well_out_dir=well_out_dir,
-        data_file=inputs.h5_path,
-        stream_id=inputs.stream_id,
-    )
+    log_file = compute_pipeline_log_file(well_out_dir=well_out_dir, data_file=inputs.h5_path, stream_id=inputs.stream_id)
     logger = setup_pipeline_logger(
         log_file=log_file,
         logger_name=f"{logger_name_prefix}.{inputs.stream_id}.templates",
@@ -285,21 +534,14 @@ def extract_and_merge_templates(
     )
 
     templates_out_dir = well_out_dir / TEMPLATES_OUTPUTS_DIRNAME
-    merged_templates_dir = templates_out_dir / "merged_templates"
-    summary_json = templates_out_dir / "template_merge_summary.json"
+    extracted_templates_dir = templates_out_dir / "extracted_templates"
+    merged_union_by_unit_dir = templates_out_dir / "merged_union_by_unit"
 
-    unit_merging_dir = templates_out_dir / "unit_merging"
-    merged_analyzer_dir = unit_merging_dir / "merged_analyzer"
-    unit_merging_summary_json = unit_merging_dir / "unit_merging_summary.json"
+    summary_json = templates_out_dir / "templates_summary.json"
+    templates_grid_pdf = templates_out_dir / "templates_grid_uncurated.pdf" if inputs.plot_templates_grid_pdf else None
+    multi_source_templates_dir = templates_out_dir / "multi_source_by_unit" if inputs.plot_multi_source_templates_pdf else None
 
-    unit_merging_available, unit_merging_unavailable_reason = _check_unit_merging_available(logger=logger)
-    will_run_unit_merging = bool(inputs.run_unit_merging) and bool(unit_merging_available)
-
-    ckpt_file = _compute_templates_checkpoint_file(
-        well_out_dir=well_out_dir,
-        h5_path=inputs.h5_path,
-        stream_id=inputs.stream_id,
-    )
+    ckpt_file = _compute_templates_checkpoint_file(well_out_dir=well_out_dir, h5_path=inputs.h5_path, stream_id=inputs.stream_id)
     ckpt = load_checkpoint(
         checkpoint_file=ckpt_file,
         force_restart=bool(inputs.force_restart),
@@ -309,37 +551,23 @@ def extract_and_merge_templates(
     )
 
     # Resume shortcut.
-    # If unit merging *will run* in this environment, require its artifacts too.
-    resume_ok = merged_templates_dir.exists() and summary_json.exists()
-    if will_run_unit_merging:
-        resume_ok = resume_ok and merged_analyzer_dir.exists() and unit_merging_summary_json.exists()
-
-    if not inputs.force_restart and resume_ok:
-        logger.info("Resuming templates: existing outputs found at %s", merged_templates_dir)
-
-        # If unit merging was requested but cannot run, ensure we leave a breadcrumb.
-        if inputs.run_unit_merging and not will_run_unit_merging and not unit_merging_summary_json.exists():
-            unit_merging_dir.mkdir(parents=True, exist_ok=True)
-            _write_json(
-                unit_merging_summary_json,
-                {
-                    "status": "skipped",
-                    "reason": unit_merging_unavailable_reason,
-                    "h5_path": str(inputs.h5_path),
-                    "stream_id": inputs.stream_id,
-                    "requested_presets": list(inputs.merge_presets) if inputs.merge_presets is not None else None,
-                    "requested_recursive": bool(inputs.merge_recursive),
-                },
-            )
-
+    if (
+        (not inputs.force_restart)
+        and extracted_templates_dir.exists()
+        and summary_json.exists()
+        and ((templates_grid_pdf is None) or templates_grid_pdf.exists())
+    ):
+        logger.info("Resuming templates: existing outputs found at %s", templates_out_dir)
         return TemplateExtractOutputs(
             well_out_dir=well_out_dir,
             templates_out_dir=templates_out_dir,
-            merged_templates_dir=merged_templates_dir,
+            extracted_templates_dir=extracted_templates_dir,
+            merged_union_by_unit_dir=(merged_union_by_unit_dir if merged_union_by_unit_dir.exists() else None),
             summary_json=summary_json,
-            unit_merging_dir=(unit_merging_dir if inputs.run_unit_merging else None),
-            merged_analyzer_dir=(merged_analyzer_dir if will_run_unit_merging else None),
-            unit_merging_summary_json=(unit_merging_summary_json if inputs.run_unit_merging else None),
+            templates_grid_pdf=(templates_grid_pdf if (templates_grid_pdf and templates_grid_pdf.exists()) else None),
+            multi_source_templates_dir=(
+                multi_source_templates_dir if (multi_source_templates_dir and multi_source_templates_dir.exists()) else None
+            ),
         )
 
     ckpt = save_checkpoint(
@@ -348,292 +576,338 @@ def extract_and_merge_templates(
         stage=ProcessingStage.ANALYZER,
         failed_stage=None,
         error=None,
-        extra_fields={
-            "templates_out_dir": str(templates_out_dir),
-        },
+        extra_fields={"templates_out_dir": str(templates_out_dir)},
     )
 
-    try:
-        waveforms_out_dir = well_out_dir / "waveforms_outputs"
-        concat_waveforms_dir = waveforms_out_dir / "concat_waveforms"
-        segment_waveforms_dir = waveforms_out_dir / "segment_waveforms"
+    templates_out_dir.mkdir(parents=True, exist_ok=True)
+    extracted_templates_dir.mkdir(parents=True, exist_ok=True)
+    merged_union_by_unit_dir.mkdir(parents=True, exist_ok=True)
+    if multi_source_templates_dir is not None:
+        multi_source_templates_dir.mkdir(parents=True, exist_ok=True)
 
-        if inputs.include_concat and not concat_waveforms_dir.exists():
-            raise FileNotFoundError(f"Missing concat waveforms analyzer at {concat_waveforms_dir}")
+    # Load waveforms analyzers (concat + segments).
+    import numpy as np  # type: ignore[import-not-found]
+    import spikeinterface.full as si  # type: ignore[import-not-found]
 
-        analyzers: list[tuple[str, Any]] = []
-        if inputs.include_concat:
-            logger.info("Loading concat analyzer: %s", concat_waveforms_dir)
-            analyzers.append(("concat", si.load_sorting_analyzer(concat_waveforms_dir)))
+    from .footprinting import (
+        _ensure_analyzer_extensions,
+        _get_unit_template_from_extension,
+        _load_curated_unit_ids_from_waveforms_outputs,
+        _load_waveforms_analyzers,
+        _normalize_id_for_compare,
+    )
 
-        if inputs.include_segments and segment_waveforms_dir.exists():
-            seg_dirs = sorted([p for p in segment_waveforms_dir.iterdir() if p.is_dir()])
-            logger.info("Found %d segment analyzers", len(seg_dirs))
-            for p in seg_dirs:
-                try:
-                    analyzers.append((p.name, si.load_sorting_analyzer(p)))
-                except Exception:
-                    logger.warning("Skipping unreadable segment analyzer: %s", p)
+    # --- TEMPORARY monkey patch plumbing (waveforms-stage spike rejections) ---
+    # We use waveforms-stage metadata to optionally prune segment-contributed channels
+    # from merged_union templates. This is a stop-gap until we have principled,
+    # spike-level propagation of waveform exclusions.
+    from .waveforms import _load_wf_rejection_log_unit_counts
 
-        if not analyzers:
-            raise RuntimeError("No analyzers available for template extraction")
-
-        # Ensure templates extension exists everywhere.
-        for name, an in analyzers:
+    wf_unit_counts_rows, wf_rej_xlsx = _load_wf_rejection_log_unit_counts(well_out_dir=well_out_dir, logger=logger)
+    # Build: unit_id_norm -> set(source_name) that had any rejections.
+    excluded_sources_by_unit: dict[Any, set[str]] = {}
+    if wf_unit_counts_rows:
+        for row in wf_unit_counts_rows:
             try:
-                _ensure_analyzer_extensions(
-                    analyzer=an,
-                    extension_names=["templates"],
-                    logger=logger,
-                    n_jobs=int(inputs.n_jobs),
-                )
-            except Exception as e:
-                raise RuntimeError(f"Failed to compute templates for analyzer {name}") from e
-
-        # Unit list from concat analyzer by default.
-        if inputs.unit_ids is not None:
-            unit_ids = list(inputs.unit_ids)
-        else:
-            unit_ids = list(analyzers[0][1].sorting.unit_ids)
-
-        merged_templates_dir.mkdir(parents=True, exist_ok=True)
-
-        summary: dict[str, Any] = {
-            "h5_path": str(inputs.h5_path),
-            "stream_id": inputs.stream_id,
-            "well_out_dir": str(well_out_dir),
-            "include_concat": bool(inputs.include_concat),
-            "include_segments": bool(inputs.include_segments),
-            "sources": [name for name, _ in analyzers],
-            "units": [],
-        }
-
-        unit_count = 0
-        for unit_id in unit_ids:
-            template_list = []
-            loc_list = []
-            used_sources = []
-
-            for name, an in analyzers:
-                # Skip segments where the unit has no waveforms.
-                try:
-                    wf_ext = an.get_extension("waveforms")
-                    wf = wf_ext.get_waveforms_one_unit(unit_id=unit_id)
-                    if wf is None or getattr(wf, "shape", (0,))[0] == 0:
-                        continue
-                except Exception:
-                    # If waveforms extension is missing/unexpected, fall back to templates anyway.
-                    pass
-
-                try:
-                    t_ext = an.get_extension("templates")
-                    if hasattr(t_ext, "get_unit_template"):
-                        tmpl = t_ext.get_unit_template(unit_id=unit_id)
-                    else:
-                        tmpl = None
-                        if hasattr(t_ext, "get_templates"):
-                            all_templates = t_ext.get_templates()
-                            try:
-                                unit_index = list(an.sorting.unit_ids).index(unit_id)
-                                tmpl = all_templates[unit_index]
-                            except Exception:
-                                tmpl = None
-                except Exception:
-                    continue
-
-                if tmpl is None:
-                    continue
-                try:
-                    import numpy as np  # type: ignore[import-not-found]
-
-                    arr = np.asarray(tmpl)
-                    if arr.size == 0:
-                        continue
-                    if np.isnan(arr).all():
-                        continue
-                except Exception:
-                    pass
-
-                try:
-                    locs = an.recording.get_channel_locations()
-                except Exception:
-                    continue
-
-                template_list.append(tmpl)
-                loc_list.append(locs)
-                used_sources.append(name)
-
-            if not template_list:
+                src_name = str(row.get("source_name"))
+                reason = str(row.get("reason"))
+                n_rej = int(row.get("n_rejected_spikes") or 0)
+                unit_id_norm = _normalize_id_for_compare(row.get("unit_id"))
+            except Exception:
                 continue
 
-            merged_template, merged_locs, merge_stats = _merge_templates_by_location(
-                templates=template_list,
-                channel_locations=loc_list,
-                logger=logger,
+            # Only consider segment-level rejections for this monkey patch.
+            # (We avoid pruning concat channels, which are the reconstruction backbone.)
+            if str(row.get("scope")) != "segment":
+                continue
+            if n_rej <= 0:
+                continue
+
+            # Restrict to the waveforms-exclusion reasons (vs. other future reasons).
+            if reason not in {
+                "outside_maxwell_epoch",
+                "waveform_window_crosses_epoch_edge",
+                "waveform_window_outside_segment_bounds",
+            }:
+                continue
+
+            excluded_sources_by_unit.setdefault(unit_id_norm, set()).add(src_name)
+
+    if excluded_sources_by_unit and wf_rej_xlsx is not None:
+        logger.warning(
+            "MONKEY PATCH enabled: will prune merged_union channels using waveforms-stage rejections from %s",
+            wf_rej_xlsx,
+        )
+
+    analyzers = _load_waveforms_analyzers(
+        well_out_dir=well_out_dir,
+        include_concat=bool(inputs.include_concat),
+        include_segments=bool(inputs.include_segments),
+        logger=logger,
+    )
+
+    for _, an in analyzers:
+        _ensure_analyzer_extensions(analyzer=an, extension_names=["templates"], logger=logger, n_jobs=int(inputs.n_jobs))
+
+    # Determine unit list from concat if present, else from first source.
+    unit_ids: list[Any]
+    if inputs.unit_ids is not None:
+        unit_ids = list(inputs.unit_ids)
+    else:
+        unit_ids = list(analyzers[0][1].sorting.unit_ids)
+
+    # Apply waveforms-stage unit curation if available.
+    curation_metrics_xlsx: Optional[Path] = None
+    curated_units_norm: Optional[list[Any]] = None
+    if inputs.unit_ids is None:
+        curated_units_norm, curation_metrics_xlsx = _load_curated_unit_ids_from_waveforms_outputs(
+            well_out_dir=well_out_dir,
+            logger=logger,
+        )
+        if curated_units_norm is not None:
+            curated_set = set(curated_units_norm)
+            before = len(unit_ids)
+            unit_ids = [uid for uid in unit_ids if _normalize_id_for_compare(uid) in curated_set]
+            logger.info(
+                "Applying waveforms curation: %d -> %d units (from %s)",
+                before,
+                len(unit_ids),
+                curation_metrics_xlsx,
             )
 
-            unit_template_file = merged_templates_dir / f"{unit_id}.npy"
-            unit_locs_file = merged_templates_dir / f"{unit_id}_channels.npy"
+    if inputs.unit_limit is not None:
+        unit_ids = unit_ids[: int(inputs.unit_limit)]
 
-            import numpy as np  # type: ignore[import-not-found]
+    # Time window (for plotting). Best effort: read from waveforms params JSON if present.
+    ms_before: Optional[float] = None
+    ms_after: Optional[float] = None
+    fs_hz: float
+    try:
+        fs_hz = float(analyzers[0][1].recording.get_sampling_frequency())
+    except Exception:
+        fs_hz = 10_000.0
 
-            np.save(unit_template_file, merged_template)
-            np.save(unit_locs_file, merged_locs)
+    wf_params_json = well_out_dir / "waveforms_outputs" / "waveform_extraction_params.json"
+    if wf_params_json.exists():
+        try:
+            params = _read_json(wf_params_json)
+            ms_before = float(params.get("ms_before")) if params.get("ms_before") is not None else None
+            ms_after = float(params.get("ms_after")) if params.get("ms_after") is not None else None
+        except Exception:
+            pass
 
-            summary["units"].append(
+    unit_grid_entries: list[dict[str, Any]] = []
+
+    summary: dict[str, Any] = {
+        "h5_path": str(inputs.h5_path),
+        "stream_id": inputs.stream_id,
+        "well_out_dir": str(well_out_dir),
+        "templates_out_dir": str(templates_out_dir),
+        "sources": [name for name, _ in analyzers],
+        "curation": {
+            "metrics_curated_xlsx": str(curation_metrics_xlsx) if curation_metrics_xlsx else None,
+            "applied": bool(curated_units_norm is not None),
+            "n_curated_units": int(len(curated_units_norm)) if curated_units_norm is not None else None,
+        },
+        "units": [],
+    }
+
+    for uid in unit_ids:
+        sources_for_unit: list[dict[str, Any]] = []
+
+        for name, an in analyzers:
+            t_ext = an.get_extension("templates")
+            tmpl = _get_unit_template_from_extension(analyzer=an, templates_ext=t_ext, unit_id=uid)
+            if tmpl is None:
+                continue
+            tmpl = np.asarray(tmpl)
+            if tmpl.ndim != 2 or tmpl.size == 0:
+                continue
+
+            locs = np.asarray(an.recording.get_channel_locations())
+            try:
+                ch_ids = list(an.recording.get_channel_ids())
+            except Exception:
+                ch_ids = None
+            el_ids = _try_get_electrode_ids(an.recording)
+
+            if tmpl.shape[1] != locs.shape[0]:
+                continue
+
+            sources_for_unit.append(
                 {
-                    "unit_id": int(unit_id) if str(unit_id).isdigit() else str(unit_id),
-                    "sources_used": used_sources,
-                    "merged_template_path": str(unit_template_file),
-                    "merged_channel_locations_path": str(unit_locs_file),
-                    "merged_channels": int(getattr(merged_template, "shape", (0, 0))[1]),
-                    "merge_stats": merge_stats,
+                    "name": str(name),
+                    "template": tmpl,
+                    "channel_locations": locs,
+                    "channel_ids": ch_ids,
+                    "electrode_ids": el_ids,
                 }
             )
 
-            unit_count += 1
-            if inputs.unit_limit is not None and unit_count >= int(inputs.unit_limit):
-                break
+        if not sources_for_unit:
+            continue
 
-        _write_json(summary_json, summary)
-
-        # Optional: automatic unit merging on the concat analyzer (SpikeInterface).
-        unit_merging_summary: Optional[dict[str, Any]] = None
-        if inputs.run_unit_merging and not will_run_unit_merging:
-            logger.warning(
-                "Skipping unit merging because it is unavailable in this environment: %s",
-                unit_merging_unavailable_reason,
+        merged_union = _build_union_template_for_unit(sources_for_unit=sources_for_unit, logger=logger)
+        if merged_union is not None:
+            # TEMPORARY MONKEY PATCH:
+            # Drop channels contributed by segment sources where waveforms-stage spike filtering
+            # rejected spikes for this unit. This is a blunt heuristic to avoid carrying
+            # problematic segment snippets into reconstruction artifacts.
+            unit_norm = _normalize_id_for_compare(uid)
+            excluded = excluded_sources_by_unit.get(unit_norm, set())
+            merged_union = _apply_wf_exclusion_monkey_patch_to_merged_union(
+                merged_union_src=merged_union,
+                unit_id=uid,
+                excluded_source_names=set(excluded),
+                logger=logger,
             )
-            unit_merging_dir.mkdir(parents=True, exist_ok=True)
-            unit_merging_summary = {
-                "status": "skipped",
-                "reason": unit_merging_unavailable_reason,
-                "h5_path": str(inputs.h5_path),
-                "stream_id": inputs.stream_id,
-                "requested_presets": list(inputs.merge_presets) if inputs.merge_presets is not None else None,
-                "requested_recursive": bool(inputs.merge_recursive),
-                "n_jobs": int(inputs.n_jobs),
-            }
-            _write_json(unit_merging_summary_json, unit_merging_summary)
+        if merged_union is not None:
+            sources_for_unit_with_union = list(sources_for_unit) + [merged_union]
+        else:
+            sources_for_unit_with_union = list(sources_for_unit)
 
-        # Optional: automatic unit merging on the concat analyzer (SpikeInterface).
-        if will_run_unit_merging:
-            try:
-                import spikeinterface.curation as sc  # type: ignore[import-not-found]
-            except Exception as e:
-                raise RuntimeError("Unit merging requested but spikeinterface.curation is unavailable") from e
+        # Save per-source templates.
+        unit_entry: dict[str, Any] = {"unit_id": _jsonable(uid), "sources": []}
+        for src in sources_for_unit_with_union:
+            src_name = str(src["name"])
+            tmpl = np.asarray(src["template"], dtype=float)
+            locs = np.asarray(src["channel_locations"], dtype=float)
 
-            if not inputs.include_concat:
-                raise ValueError("run_unit_merging=True requires include_concat=True")
+            if src_name == "merged_union":
+                out_dir = merged_union_by_unit_dir / f"unit_{uid}"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                npy_path = out_dir / "merged_union_template.npy"
+                locs_npy = out_dir / "merged_union_channel_locations.npy"
+                ch_ids_npy = out_dir / "merged_union_channel_ids.npy"
+                el_ids_npy = out_dir / "merged_union_electrode_ids.npy"
+                meta_path = out_dir / "merged_union_template_meta.json"
+            else:
+                out_dir = extracted_templates_dir / src_name
+                out_dir.mkdir(parents=True, exist_ok=True)
+                npy_path = out_dir / f"unit_{uid}.npy"
+                meta_path = out_dir / f"unit_{uid}_meta.json"
 
-            concat_analyzer = analyzers[0][1]
-            unit_merging_dir.mkdir(parents=True, exist_ok=True)
+            if (not npy_path.exists()) or inputs.force_restart:
+                np.save(npy_path, tmpl)
 
-            # Ensure required extensions exist for the default 'similarity_correlograms' preset.
-            required_exts = ["templates", "correlograms", "template_similarity"]
-            try:
-                _ensure_analyzer_extensions(
-                    analyzer=concat_analyzer,
-                    extension_names=list(required_exts),
-                    logger=logger,
-                    n_jobs=int(inputs.n_jobs),
-                )
-            except Exception as e:
-                raise RuntimeError("Failed to compute required extensions for unit merging") from e
-
-            presets = inputs.merge_presets if inputs.merge_presets is not None else ["similarity_correlograms"]
-
-            logger.info(
-                "Running unit auto-merge (presets=%s, recursive=%s)",
-                presets,
-                bool(inputs.merge_recursive),
-            )
-
-            merged_result = sc.auto_merge_units(
-                concat_analyzer,
-                presets=list(presets),
-                recursive=bool(inputs.merge_recursive),
-                extra_outputs=True,
-                force_copy=True,
-                n_jobs=max(1, int(inputs.n_jobs)),
-            )
-
-            merged_analyzer, resolved_merges, merge_unit_groups, _outs = merged_result
-
-            # Persist merged analyzer folder for downstream debugging.
-            if merged_analyzer_dir.exists() and inputs.force_restart:
-                import shutil
-
-                shutil.rmtree(merged_analyzer_dir)
-            merged_analyzer.save_as(format="binary_folder", folder=merged_analyzer_dir)
-
-            # JSON-friendly summary (avoid dumping large arrays from outs).
-            def _jsonable(obj: Any) -> Any:
-                if obj is None:
-                    return None
-                if isinstance(obj, (str, int, float, bool)):
-                    return obj
-                if isinstance(obj, (list, tuple)):
-                    return [_jsonable(x) for x in obj]
-                if isinstance(obj, dict):
-                    return {str(k): _jsonable(v) for k, v in obj.items()}
+            # For merged_union, also persist the merged channel identifiers/locations as arrays
+            # (these are the primary inputs needed by downstream reconstruction).
+            if src_name == "merged_union":
                 try:
-                    return str(obj)
-                except Exception:
-                    return None
+                    if (not locs_npy.exists()) or inputs.force_restart:
+                        np.save(locs_npy, np.asarray(locs[:, :2], dtype=float))
 
-            unit_merging_summary = {
-                "status": "ok",
-                "h5_path": str(inputs.h5_path),
-                "stream_id": inputs.stream_id,
-                "presets": list(presets),
-                "recursive": bool(inputs.merge_recursive),
-                "n_jobs": int(inputs.n_jobs),
-                "num_units_before": int(len(concat_analyzer.sorting.unit_ids)),
-                "num_units_after": int(len(merged_analyzer.sorting.unit_ids)),
-                "merged_analyzer_dir": str(merged_analyzer_dir),
-                "merge_unit_groups": _jsonable(merge_unit_groups),
-                "resolved_merges": _jsonable(resolved_merges),
-            }
+                    ch_ids_seq = _jsonable_sequence(src.get("channel_ids"))
+                    if (not ch_ids_npy.exists()) or inputs.force_restart:
+                        np.save(ch_ids_npy, np.asarray(ch_ids_seq, dtype=object))
 
-            _write_json(unit_merging_summary_json, unit_merging_summary)
-            _write_json(unit_merging_summary_json, unit_merging_summary)
+                    el_ids_seq = _jsonable_sequence(src.get("electrode_ids"))
+                    if (not el_ids_npy.exists()) or inputs.force_restart:
+                        np.save(el_ids_npy, np.asarray(el_ids_seq, dtype=object))
+                except Exception as e:
+                    logger.warning("Failed writing merged_union aux arrays for unit %s: %s", uid, e)
+            if (not meta_path.exists()) or inputs.force_restart:
+                meta = {
+                    "unit_id": _jsonable(uid),
+                    "source_name": src_name,
+                    "template_npy": str(npy_path),
+                    "channel_locations_npy": (str(locs_npy) if src_name == "merged_union" else None),
+                    "channel_ids_npy": (str(ch_ids_npy) if src_name == "merged_union" else None),
+                    "electrode_ids_npy": (str(el_ids_npy) if src_name == "merged_union" else None),
+                    "sampling_frequency_hz": float(fs_hz),
+                    "ms_before": ms_before,
+                    "ms_after": ms_after,
+                    "n_samples": int(tmpl.shape[0]),
+                    "n_channels": int(tmpl.shape[1]),
+                    "channel_ids": _jsonable_sequence(src.get("channel_ids")),
+                    "electrode_ids": _jsonable_sequence(src.get("electrode_ids")),
+                    "channel_locations": locs[:, :2].tolist(),
+                }
+                _write_json(meta_path, meta)
 
-        save_checkpoint(
-            checkpoint_file=ckpt_file,
-            state=ckpt,
-            stage=ProcessingStage.ANALYZER_COMPLETE,
-            failed_stage=None,
-            error=None,
-            extra_fields={
-                "templates_out_dir": str(templates_out_dir),
-                "merged_templates_dir": str(merged_templates_dir),
-                "template_merge_summary_json": str(summary_json),
-                "unit_merging_dir": str(unit_merging_dir) if inputs.run_unit_merging else None,
-                "merged_analyzer_dir": str(merged_analyzer_dir) if inputs.run_unit_merging else None,
-                "unit_merging_summary_json": str(unit_merging_summary_json) if inputs.run_unit_merging else None,
-            },
-        )
+            unit_entry["sources"].append(
+                {
+                    "name": src_name,
+                    "template_npy": str(npy_path),
+                    "meta_json": str(meta_path),
+                    "n_channels": int(tmpl.shape[1]),
+                    "channel_locations_npy": (str(locs_npy) if src_name == "merged_union" else None),
+                    "channel_ids_npy": (str(ch_ids_npy) if src_name == "merged_union" else None),
+                }
+            )
 
-        logger.info("Template extraction/merge complete")
+        summary["units"].append(unit_entry)
 
-        return TemplateExtractOutputs(
-            well_out_dir=well_out_dir,
-            templates_out_dir=templates_out_dir,
-            merged_templates_dir=merged_templates_dir,
-            summary_json=summary_json,
-            unit_merging_dir=(unit_merging_dir if inputs.run_unit_merging else None),
-            merged_analyzer_dir=(merged_analyzer_dir if inputs.run_unit_merging else None),
-            unit_merging_summary_json=(unit_merging_summary_json if inputs.run_unit_merging else None),
-        )
+        # For grid PDF: take concat if present else first source.
+        chosen = None
+        for s in sources_for_unit:
+            if str(s["name"]) == "concat":
+                chosen = s
+                break
+        if chosen is None:
+            chosen = sources_for_unit[0]
 
-    except Exception as e:
-        save_checkpoint(
-            checkpoint_file=ckpt_file,
-            state=ckpt,
-            stage=ProcessingStage.ANALYZER,
-            failed_stage="TEMPLATES",
-            error=exception_to_error_dict(e),
-        )
-        logger.exception("Template extraction/merge FAILED")
-        raise
+        unit_grid_entries.append({"unit_id": uid, "template": chosen["template"]})
+
+        # Per-unit multi-source overlay PDF.
+        if multi_source_templates_dir is not None:
+            unit_dir = multi_source_templates_dir / f"unit_{uid}"
+            unit_dir.mkdir(parents=True, exist_ok=True)
+            unit_pdf = unit_dir / "templates.pdf"
+            if (not unit_pdf.exists()) or inputs.force_restart:
+                _write_unit_templates_across_sources_pdf(
+                    pdf_path=unit_pdf,
+                    unit_id=uid,
+                    sources_for_unit=sources_for_unit_with_union,
+                    fs_hz=float(fs_hz),
+                    ms_before=ms_before,
+                    ms_after=ms_after,
+                    top_channels=int(inputs.top_channels_per_template),
+                )
+
+    # Write grid PDF.
+    if templates_grid_pdf is not None:
+        if (not templates_grid_pdf.exists()) or inputs.force_restart:
+            _write_templates_grid_pdf(
+                pdf_path=templates_grid_pdf,
+                unit_entries=unit_grid_entries,
+                fs_hz=float(fs_hz),
+                ms_before=ms_before,
+                ms_after=ms_after,
+                top_channels=int(inputs.top_channels_per_template),
+                logger=logger,
+            )
+
+    _write_json(summary_json, summary)
+
+    ckpt = save_checkpoint(
+        checkpoint_file=ckpt_file,
+        state=ckpt,
+        stage=ProcessingStage.ANALYZER_COMPLETE,
+        failed_stage=None,
+        error=None,
+        extra_fields={
+            "templates_out_dir": str(templates_out_dir),
+            "extracted_templates_dir": str(extracted_templates_dir),
+            "merged_union_by_unit_dir": str(merged_union_by_unit_dir),
+            "templates_summary_json": str(summary_json),
+            "templates_grid_pdf": str(templates_grid_pdf) if templates_grid_pdf else None,
+        },
+    )
+
+    return TemplateExtractOutputs(
+        well_out_dir=well_out_dir,
+        templates_out_dir=templates_out_dir,
+        extracted_templates_dir=extracted_templates_dir,
+        merged_union_by_unit_dir=merged_union_by_unit_dir,
+        summary_json=summary_json,
+        templates_grid_pdf=templates_grid_pdf,
+        multi_source_templates_dir=multi_source_templates_dir,
+    )
+
+
+__all__ = [
+    "TemplateExtractInputs",
+    "TemplateExtractOutputs",
+    "extract_and_merge_templates",
+]
