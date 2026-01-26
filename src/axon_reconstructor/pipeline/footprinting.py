@@ -296,6 +296,73 @@ def _ensure_analyzer_extensions(*, analyzer, extension_names: list[str], logger,
     analyzer.compute(missing, verbose=False, n_jobs=max(1, int(n_jobs)))
 
 
+def _sparsity_unit_channel_indices(*, sparsity, unit_id: Any):
+    """Return per-unit channel indices from a `ChannelSparsity` object.
+
+    SpikeInterface API differs across versions:
+    - Some versions expose `unit_id_to_channel_indices` as a callable.
+    - Others (e.g. SI 0.103.x) expose it as a dict.
+    """
+
+    if sparsity is None:
+        return None
+
+    try:
+        mapping = getattr(sparsity, "unit_id_to_channel_indices", None)
+        if callable(mapping):
+            return mapping(unit_id)
+        if isinstance(mapping, dict):
+            if unit_id in mapping:
+                return mapping[unit_id]
+            # Best-effort normalized match.
+            try:
+                from .waveform_exclusions import normalize_unit_id
+
+                uid_norm = normalize_unit_id(unit_id)
+                for k, v in mapping.items():
+                    if normalize_unit_id(k) == uid_norm:
+                        return v
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Additional fallbacks across versions.
+    for attr in ("get_channel_indices", "get_channel_indices_for_unit"):
+        if hasattr(sparsity, attr):
+            fn = getattr(sparsity, attr)
+            if callable(fn):
+                try:
+                    return fn(unit_id)
+                except Exception:
+                    pass
+
+    return None
+
+
+def _get_unit_template_from_waveforms_with_exclusions(
+    *,
+    analyzer,
+    unit_id: Any,
+    excluded_spike_samples: Optional[set[int]],
+    logger,
+):
+    """Compute a unit template from waveforms, applying spike-level exclusions."""
+
+    try:
+        from .waveform_exclusions import compute_unit_template_from_waveforms
+
+        res = compute_unit_template_from_waveforms(
+            analyzer=analyzer,
+            unit_id=unit_id,
+            excluded_spike_samples=excluded_spike_samples,
+            logger=logger,
+        )
+        return None if res is None else res.template
+    except Exception:
+        return None
+
+
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -410,8 +477,23 @@ def _write_footprints_grid_pdf(*, analyzer_folder: Path, pdf_path: Path, unit_id
         raise RuntimeError("Plotting footprints requires numpy/matplotlib") from e
 
     analyzer = si.load_sorting_analyzer(analyzer_folder)
-    _ensure_analyzer_extensions(analyzer=analyzer, extension_names=["templates"], logger=logging.getLogger(__name__), n_jobs=1)
-    templates_ext = analyzer.get_extension("templates")
+    _ensure_analyzer_extensions(
+        analyzer=analyzer,
+        extension_names=["random_spikes", "waveforms"],
+        logger=logging.getLogger(__name__),
+        n_jobs=1,
+    )
+
+    exclusions_by_source: dict[str, dict[Any, set[int]]] = {}
+    try:
+        from .waveform_exclusions import load_wf_exclusions_by_source, normalize_unit_id
+
+        # analyzer_folder is <well>/waveforms_outputs/<source>/..., so well_out_dir is 2 levels up.
+        well_out_dir = analyzer_folder.parent.parent
+        exclusions_by_source = load_wf_exclusions_by_source(well_out_dir=well_out_dir, logger=logging.getLogger(__name__))
+        _norm_unit_id = normalize_unit_id
+    except Exception:
+        _norm_unit_id = lambda x: x
 
     if unit_ids is None:
         unit_ids = list(analyzer.sorting.unit_ids)
@@ -475,7 +557,18 @@ def _write_footprints_grid_pdf(*, analyzer_folder: Path, pdf_path: Path, unit_id
             # Simple log scaling: compute from all units on the page.
             amps_for_page: list[np.ndarray] = []
             for uid in batch:
-                tmpl = _get_unit_template_from_extension(analyzer=analyzer, templates_ext=templates_ext, unit_id=uid)
+                src_name = "concat" if str(analyzer_folder.name) == "concat_waveforms" else str(analyzer_folder.name)
+                excluded = set()
+                try:
+                    excluded = exclusions_by_source.get(src_name, {}).get(_norm_unit_id(uid), set())
+                except Exception:
+                    excluded = set()
+                tmpl = _get_unit_template_from_waveforms_with_exclusions(
+                    analyzer=analyzer,
+                    unit_id=uid,
+                    excluded_spike_samples=excluded,
+                    logger=logging.getLogger(__name__),
+                )
                 if tmpl is None:
                     continue
                 tmpl = np.asarray(tmpl)
@@ -515,7 +608,18 @@ def _write_footprints_grid_pdf(*, analyzer_folder: Path, pdf_path: Path, unit_id
                     # Same limits/aspect across axes => same marker area.
                     marker_area = _square_marker_area_points2(ax, side_len=square_side)
 
-                tmpl = _get_unit_template_from_extension(analyzer=analyzer, templates_ext=templates_ext, unit_id=uid)
+                src_name = "concat" if str(analyzer_folder.name) == "concat_waveforms" else str(analyzer_folder.name)
+                excluded = set()
+                try:
+                    excluded = exclusions_by_source.get(src_name, {}).get(_norm_unit_id(uid), set())
+                except Exception:
+                    excluded = set()
+                tmpl = _get_unit_template_from_waveforms_with_exclusions(
+                    analyzer=analyzer,
+                    unit_id=uid,
+                    excluded_spike_samples=excluded,
+                    logger=logging.getLogger(__name__),
+                )
                 if tmpl is None:
                     ax.axis("off")
                     continue
@@ -530,9 +634,38 @@ def _write_footprints_grid_pdf(*, analyzer_folder: Path, pdf_path: Path, unit_id
                     # Ensure ALL channels render under LogNorm (avoid masking/dropping zeros).
                     amp_for_color = np.where(amp <= 0, norm_vmin_for_zeros, amp)
 
+                # Handle sparse waveforms/templates: amp may be for a per-unit channel subset.
+                # Prefer padding to full channel count so every unit shares the same electrode layout.
+                locs_for_plot = locs
+                if amp_for_color.shape[0] != locs.shape[0]:
+                    try:
+                        sp = getattr(analyzer, "sparsity", None)
+                        if sp is None and analyzer.has_extension("waveforms"):
+                            sp = getattr(analyzer.get_extension("waveforms"), "sparsity", None)
+                        if sp is not None:
+                            ch_inds = _sparsity_unit_channel_indices(sparsity=sp, unit_id=uid)
+                            try:
+                                import numpy as np  # type: ignore[import-not-found]
+
+                                ch_inds = np.asarray(ch_inds, dtype=int)
+                            except Exception:
+                                ch_inds = None
+
+                            if ch_inds is not None and int(ch_inds.size) == int(amp_for_color.shape[0]):
+                                full = np.zeros((locs.shape[0],), dtype=float)
+                                full[ch_inds] = np.asarray(amp_for_color, dtype=float)
+                                amp_for_color = full
+                    except Exception:
+                        pass
+
+                if amp_for_color.shape[0] != locs_for_plot.shape[0]:
+                    # Still inconsistent; skip plotting this unit rather than failing the whole PDF.
+                    ax.axis("off")
+                    continue
+
                 last_mappable = ax.scatter(
-                    locs[:, 0],
-                    locs[:, 1],
+                    locs_for_plot[:, 0],
+                    locs_for_plot[:, 1],
                     c=amp_for_color,
                     s=float(marker_area or 1.0),
                     marker="s",
@@ -787,6 +920,7 @@ class FootprintingOutputs:
     multi_source_footprints_summary_json: Optional[Path]
 
     footprinting_summary_json: Path
+    concat_footprints_grid_curated_pdf: Optional[Path] = None
 
 
 def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "axon_reconstructor") -> FootprintingOutputs:
@@ -824,6 +958,7 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
     footprinting_out_dir = well_out_dir / FOOTPRINTING_OUTPUTS_DIRNAME
 
     concat_grid_pdf = footprinting_out_dir / "footprints_grid_concat.pdf"
+    concat_grid_curated_pdf = footprinting_out_dir / "footprints_grid_concat_curated.pdf"
     multi_source_dir = footprinting_out_dir / "footprints_by_source"
     multi_source_summary_json = multi_source_dir / "footprints_by_source_summary.json"
     merged_union_dir = footprinting_out_dir / "merged_union_by_unit"
@@ -843,9 +978,14 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
         stream_id=inputs.stream_id,
     )
 
+    # When plotting is enabled, always write BOTH curated+uncurated grids.
+    # If waveforms-stage curation exists, "curated" reflects that list; otherwise it's identical to uncurated.
+    expect_curated_grid = bool(inputs.plot_concat_footprints_grid_pdf)
+
     resume_ok = summary_json.exists()
     if inputs.plot_concat_footprints_grid_pdf:
         resume_ok = resume_ok and concat_grid_pdf.exists()
+        resume_ok = resume_ok and concat_grid_curated_pdf.exists()
     if inputs.plot_multi_source_footprints_pdf:
         resume_ok = resume_ok and multi_source_summary_json.exists()
         resume_ok = resume_ok and merged_union_summary_json.exists()
@@ -857,6 +997,11 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
             templates_out_dir=templates_out_dir,
             footprinting_out_dir=footprinting_out_dir,
             concat_footprints_grid_pdf=(concat_grid_pdf if inputs.plot_concat_footprints_grid_pdf else None),
+            concat_footprints_grid_curated_pdf=(
+                concat_grid_curated_pdf
+                if (inputs.plot_concat_footprints_grid_pdf and concat_grid_curated_pdf.exists())
+                else None
+            ),
             multi_source_footprints_dir=(multi_source_dir if inputs.plot_multi_source_footprints_pdf else None),
             multi_source_footprints_summary_json=(
                 multi_source_summary_json if inputs.plot_multi_source_footprints_pdf else None
@@ -881,8 +1026,23 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
             logger=logger,
         )
 
+        # Spike-level exclusions produced by the waveforms stage (fast .npz).
+        try:
+            from .waveform_exclusions import load_wf_exclusions_by_source, normalize_unit_id
+
+            exclusions_by_source = load_wf_exclusions_by_source(well_out_dir=well_out_dir, logger=logger)
+            _norm_unit_id = normalize_unit_id
+        except Exception:
+            exclusions_by_source = {}
+            _norm_unit_id = lambda x: x
+
         for _, an in analyzers:
-            _ensure_analyzer_extensions(analyzer=an, extension_names=["templates"], logger=logger, n_jobs=int(inputs.n_jobs))
+            _ensure_analyzer_extensions(
+                analyzer=an,
+                extension_names=["random_spikes", "waveforms"],
+                logger=logger,
+                n_jobs=int(inputs.n_jobs),
+            )
 
         # Determine unit list from concat if present, else from first source.
         unit_ids: list[Any]
@@ -890,6 +1050,9 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
             unit_ids = list(inputs.unit_ids)
         else:
             unit_ids = list(analyzers[0][1].sorting.unit_ids)
+
+        # Preserve an uncurated copy for QC grid PDFs.
+        unit_ids_all = list(unit_ids)
 
         # If waveforms-stage curation ran, it produced a curated unit list.
         # Use it here so footprinting skips rejected units without re-running curation.
@@ -910,6 +1073,10 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
                     len(unit_ids),
                     curation_metrics_xlsx,
                 )
+
+        if inputs.unit_limit is not None:
+            unit_ids_all = unit_ids_all[: int(inputs.unit_limit)]
+            unit_ids = unit_ids[: int(inputs.unit_limit)]
 
         wf_rejection_summary: Optional[dict[str, Any]] = None
         if inputs.unit_ids is None:
@@ -957,8 +1124,18 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
             # Gather sources where this unit has a template.
             sources_for_unit: list[dict[str, Any]] = []
             for name, an in analyzers:
-                t_ext = an.get_extension("templates")
-                tmpl_src = _get_unit_template_from_extension(analyzer=an, templates_ext=t_ext, unit_id=uid)
+                excluded = set()
+                try:
+                    excluded = exclusions_by_source.get(str(name), {}).get(_norm_unit_id(uid), set())
+                except Exception:
+                    excluded = set()
+
+                tmpl_src = _get_unit_template_from_waveforms_with_exclusions(
+                    analyzer=an,
+                    unit_id=uid,
+                    excluded_spike_samples=excluded,
+                    logger=logger,
+                )
                 if tmpl_src is None:
                     continue
                 tmpl_src = np.asarray(tmpl_src)
@@ -977,6 +1154,24 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
                         el_ids_src = np.asarray(el_ids_src)
                     except Exception:
                         el_ids_src = None
+
+                # Support sparse templates by subsetting locations/ids according to sparsity.
+                if tmpl_src.shape[1] != locs_src.shape[0]:
+                    try:
+                        sp = getattr(an, "sparsity", None)
+                        if sp is None and an.has_extension("waveforms"):
+                            sp = getattr(an.get_extension("waveforms"), "sparsity", None)
+                        if sp is not None:
+                            ch_inds = _sparsity_unit_channel_indices(sparsity=sp, unit_id=uid)
+                            ch_inds = np.asarray(ch_inds, dtype=int)
+                            if int(ch_inds.size) == int(tmpl_src.shape[1]):
+                                locs_src = locs_src[ch_inds, :]
+                                if ch_ids_src is not None:
+                                    ch_ids_src = np.asarray(ch_ids_src)[ch_inds]
+                                if el_ids_src is not None:
+                                    el_ids_src = np.asarray(el_ids_src)[ch_inds]
+                    except Exception:
+                        pass
 
                 if tmpl_src.shape[1] != locs_src.shape[0]:
                     continue
@@ -1068,12 +1263,30 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
             # Prefer the concat analyzer folder when available.
             concat_folder = well_out_dir / "waveforms_outputs" / "concat_waveforms"
             if concat_folder.exists():
-                _write_footprints_grid_pdf(analyzer_folder=concat_folder, pdf_path=concat_grid_pdf)
+                # Uncurated grid.
+                _write_footprints_grid_pdf(
+                    analyzer_folder=concat_folder,
+                    pdf_path=concat_grid_pdf,
+                    unit_ids=unit_ids_all,
+                )
+
+                # Curated grid (reflects waveforms curation if present; otherwise identical to uncurated).
+                _write_footprints_grid_pdf(
+                    analyzer_folder=concat_folder,
+                    pdf_path=concat_grid_curated_pdf,
+                    unit_ids=unit_ids,
+                )
             else:
                 # Fallback to first analyzer folder (rare).
                 _write_footprints_grid_pdf(
                     analyzer_folder=well_out_dir / "waveforms_outputs" / "segment_waveforms" / analyzers[0][0],
                     pdf_path=concat_grid_pdf,
+                    unit_ids=unit_ids_all,
+                )
+                _write_footprints_grid_pdf(
+                    analyzer_folder=well_out_dir / "waveforms_outputs" / "segment_waveforms" / analyzers[0][0],
+                    pdf_path=concat_grid_curated_pdf,
+                    unit_ids=unit_ids,
                 )
 
         _write_json(
@@ -1090,6 +1303,9 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
                     "n_curated_units": int(len(curated_units_norm)) if curated_units_norm is not None else None,
                 },
                 "concat_footprints_grid_pdf": str(concat_grid_pdf) if inputs.plot_concat_footprints_grid_pdf else None,
+                "concat_footprints_grid_curated_pdf": str(concat_grid_curated_pdf)
+                if inputs.plot_concat_footprints_grid_pdf
+                else None,
                 "multi_source_footprints_dir": str(multi_source_dir) if inputs.plot_multi_source_footprints_pdf else None,
                 "multi_source_footprints_summary_json": str(multi_source_summary_json)
                 if inputs.plot_multi_source_footprints_pdf
@@ -1110,6 +1326,9 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
             extra_fields={
                 "footprinting_out_dir": str(footprinting_out_dir),
                 "concat_footprints_grid_pdf": str(concat_grid_pdf) if inputs.plot_concat_footprints_grid_pdf else None,
+                "concat_footprints_grid_curated_pdf": str(concat_grid_curated_pdf)
+                if inputs.plot_concat_footprints_grid_pdf
+                else None,
                 "multi_source_footprints_dir": str(multi_source_dir) if inputs.plot_multi_source_footprints_pdf else None,
                 "multi_source_footprints_summary_json": str(multi_source_summary_json)
                 if inputs.plot_multi_source_footprints_pdf
@@ -1127,6 +1346,9 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
             templates_out_dir=templates_out_dir,
             footprinting_out_dir=footprinting_out_dir,
             concat_footprints_grid_pdf=(concat_grid_pdf if inputs.plot_concat_footprints_grid_pdf else None),
+            concat_footprints_grid_curated_pdf=(
+                concat_grid_curated_pdf if inputs.plot_concat_footprints_grid_pdf else None
+            ),
             multi_source_footprints_dir=(multi_source_dir if inputs.plot_multi_source_footprints_pdf else None),
             multi_source_footprints_summary_json=(multi_source_summary_json if inputs.plot_multi_source_footprints_pdf else None),
             footprinting_summary_json=summary_json,

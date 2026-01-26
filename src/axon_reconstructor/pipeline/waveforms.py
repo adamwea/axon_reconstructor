@@ -1577,6 +1577,20 @@ def extract_waveforms(
         except Exception as e:
             logger.warning("Failed to write wf_rejection_log.xlsx: %s", e)
 
+        # Persist compact per-spike exclusions for fast downstream filtering.
+        # This avoids having to load large Excel sheets in footprinting/templates.
+        try:
+            from .waveform_exclusions import WF_EXCLUSIONS_NPZ_NAME, write_wf_exclusions_npz
+
+            write_wf_exclusions_npz(
+                wf_exclusions_npz=waveforms_out_dir / WF_EXCLUSIONS_NPZ_NAME,
+                rows=wf_rejection_rows,
+                force_restart=bool(inputs.force_restart),
+                logger=logger,
+            )
+        except Exception as e:
+            logger.warning("Failed to write wf_exclusions.npz: %s", e)
+
         waveforms_grid_pdf: Optional[Path] = None
         spikesorting_waveforms_grid_pdf: Optional[Path] = None
         if inputs.plot_waveforms_grid_pdf:
