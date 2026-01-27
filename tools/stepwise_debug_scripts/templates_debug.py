@@ -35,10 +35,10 @@ class TemplatesInputs:
 
 
 def run_templates_only(*, inputs: TemplatesInputs, logger: logging.Logger) -> None:
-    from axon_reconstructor.pipeline.templates_extraction import TemplateExtractionInputs, extract_templates
+    from axon_reconstructor.pipeline.templates import TemplateExtractInputs, extract_and_merge_templates
 
-    out = extract_templates(
-        inputs=TemplateExtractionInputs(
+    out = extract_and_merge_templates(
+        inputs=TemplateExtractInputs(
             h5_path=inputs.h5_path,
             stream_id=inputs.stream_id,
             mea_output_root=inputs.mea_output_root,

@@ -21,7 +21,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-
 WF_EXCLUSIONS_NPZ_NAME = "wf_exclusions.npz"
 
 
@@ -34,6 +33,7 @@ def _py_scalar(v: Any) -> Any:
 
 def normalize_unit_id(unit_id: Any) -> Any:
     """Normalize unit IDs for dict/set lookups across numpy/python scalar types."""
+
     unit_id = _py_scalar(unit_id)
     # Preserve ints when possible.
     try:
@@ -191,7 +191,7 @@ def load_wf_exclusions_by_source(
     return out
 
 
-def _get_random_spike_samples(*, analyzer, unit_id: Any) -> Optional["Any"]:
+def _get_random_spike_samples(*, analyzer, unit_id: Any) -> Optional[Any]:
     """Return per-waveform spike samples corresponding to waveforms array order."""
 
     try:
@@ -254,7 +254,7 @@ def _get_random_spike_samples(*, analyzer, unit_id: Any) -> Optional["Any"]:
     return None
 
 
-def _get_unit_waveforms(*, analyzer, unit_id: Any) -> Optional["Any"]:
+def _get_unit_waveforms(*, analyzer, unit_id: Any) -> Optional[Any]:
     try:
         wf_ext = analyzer.get_extension("waveforms")
     except Exception:
@@ -281,7 +281,7 @@ def _get_unit_waveforms(*, analyzer, unit_id: Any) -> Optional["Any"]:
 
 @dataclass(frozen=True)
 class TemplateFromWaveformsResult:
-    template: "Any"
+    template: Any
     n_waveforms_total: int
     n_waveforms_kept: int
 
@@ -294,11 +294,7 @@ def init_wf_exclusion_report(
     stage: str,
     exclusions_by_source: dict[str, dict[Any, set[int]]],
 ) -> dict[str, Any]:
-    """Initialize a JSON-friendly report structure for exclusion application.
-
-    This is intended for downstream stages (templates/footprinting) to answer:
-    "Did we actually drop any waveforms due to wf_exclusions.npz?"
-    """
+    """Initialize a JSON-friendly report structure for exclusion application."""
 
     total_units = 0
     total_spikes = 0
@@ -340,7 +336,7 @@ def update_wf_exclusion_report(
     source_name: str,
     unit_id: Any,
     excluded_spike_samples: Optional[set[int]],
-    result: Optional["TemplateFromWaveformsResult"],
+    result: Optional[TemplateFromWaveformsResult],
 ) -> None:
     """Update exclusion report with one template-from-waveforms computation."""
 
@@ -440,11 +436,7 @@ def compute_unit_template_from_waveforms(
     excluded_spike_samples: Optional[set[int]],
     logger,
 ) -> Optional[TemplateFromWaveformsResult]:
-    """Compute a unit template by averaging waveforms while excluding spikes.
-
-    Exclusions are applied by comparing per-waveform spike sample indices from
-    `random_spikes` against `excluded_spike_samples`.
-    """
+    """Compute a unit template by averaging waveforms while excluding spikes."""
 
     try:
         import numpy as np  # type: ignore[import-not-found]

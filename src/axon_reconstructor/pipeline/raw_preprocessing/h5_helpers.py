@@ -7,6 +7,101 @@ import sys
 from typing import Optional
 
 
+def _print_assay_settings(*, h5_path: Path, prefix: str = "[axon_reconstructor]") -> None:
+    """Best-effort print a small set of Maxwell assay metadata.
+
+    This is debug/logging only: failure to read metadata should not stop the pipeline.
+    """
+
+    try:
+        import h5py
+    except Exception:
+        print(f"{prefix} assay settings: h5py not available", flush=True)
+        return
+
+    h5_path = Path(h5_path).expanduser().resolve()
+    try:
+        with h5py.File(h5_path, "r") as h5:
+            if "assay" not in h5:
+                print(f"{prefix} assay settings: no /assay group", flush=True)
+                return
+            assay = h5["assay"]
+            keys = list(assay.keys())
+            print(f"{prefix} assay settings: /assay keys={keys}", flush=True)
+    except Exception as e:
+        print(f"{prefix} assay settings: failed to read: {e}", flush=True)
+
+
+def _print_data_store_start_stop_durations(
+    *,
+    h5_path: Path,
+    target_stream_id: Optional[str] = None,
+    prefix: str = "[axon_reconstructor]",
+) -> None:
+    """Print start/stop/duration for `/data_store` entries.
+
+    Maxwell exports sometimes include one or more timing blocks in `/data_store`.
+    This is used for debugging segment-time alignment, but should not be required
+    for processing.
+    """
+
+    try:
+        import h5py
+        import numpy as np
+    except Exception:
+        print(f"{prefix} data_store: h5py/numpy not available", flush=True)
+        return
+
+    h5_path = Path(h5_path).expanduser().resolve()
+    try:
+        with h5py.File(h5_path, "r") as h5:
+            if "data_store" not in h5:
+                print(f"{prefix} data_store: no /data_store group", flush=True)
+                return
+
+            ds = h5["data_store"]
+            stream_ids = sorted(ds.keys())
+            if target_stream_id is not None:
+                stream_ids = [s for s in stream_ids if str(s) == str(target_stream_id)]
+                if not stream_ids:
+                    print(
+                        f"{prefix} data_store: target_stream_id={target_stream_id} not found", flush=True
+                    )
+                    return
+
+            for stream_id in stream_ids:
+                stream = ds[str(stream_id)]
+                cfg_names = sorted(stream.keys())
+                for cfg_name in cfg_names:
+                    cfg = stream[str(cfg_name)]
+
+                    def _read_ms(name: str) -> Optional[int]:
+                        if name not in cfg:
+                            return None
+                        try:
+                            return int(np.asarray(cfg[name][()]).ravel()[0])
+                        except Exception:
+                            return None
+
+                    start_ms = _read_ms("start_time")
+                    stop_ms = _read_ms("stop_time")
+                    if start_ms is None or stop_ms is None:
+                        print(
+                            f"{prefix} data_store: stream={stream_id} cfg={cfg_name} start/stop unavailable",
+                            flush=True,
+                        )
+                        continue
+
+                    dur_s = (stop_ms - start_ms) / 1000.0
+                    print(
+                        f"{prefix} data_store: stream={stream_id} cfg={cfg_name} "
+                        f"start_ms={start_ms} stop_ms={stop_ms} dur_s={dur_s:.3f}",
+                        flush=True,
+                    )
+    except Exception as e:
+        print(f"{prefix} data_store: failed to read: {e}", flush=True)
+
+
 def _read_well_rec_frame_nos_and_trigger_settings(
     *,
     h5_path: Path,

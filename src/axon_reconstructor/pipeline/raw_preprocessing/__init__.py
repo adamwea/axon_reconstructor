@@ -4,7 +4,7 @@ This package is a refactor of the original monolithic module
 `axon_reconstructor.pipeline.raw_preprocessing`.
 
 We split responsibilities into:
-- `raw_preprocessing.py`: main preprocessing + concatenation logic
+- `main.py`: main preprocessing + concatenation logic
 - `h5_helpers.py`: HDF5/assay timing and metadata debugging helpers
 - `plotting.py`: plotting and electrode-layout utilities
 
@@ -14,7 +14,7 @@ used by `pipeline_driver`.
 
 from __future__ import annotations
 
-from .raw_preprocessing import (
+from .main import (
     RawPreprocessPlan,
     build_concatenated_recording,
     build_preprocess_plan,
