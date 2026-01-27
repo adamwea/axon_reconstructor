@@ -119,6 +119,7 @@ class TemplateExtractOutputs:
     templates_grid_pdf: Optional[Path]
     multi_source_templates_dir: Optional[Path]
     templates_grid_curated_pdf: Optional[Path] = None
+    multi_source_templates_dir_uncurated: Optional[Path] = None
 
 
 def _try_get_electrode_ids(recording) -> Optional[list[Any]]:
@@ -542,6 +543,9 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     templates_grid_pdf = templates_out_dir / "templates_grid_uncurated.pdf" if inputs.plot_templates_grid_pdf else None
     templates_grid_curated_pdf = templates_out_dir / "templates_grid_curated.pdf" if inputs.plot_templates_grid_pdf else None
     multi_source_templates_dir = templates_out_dir / "multi_source_by_unit" if inputs.plot_multi_source_templates_pdf else None
+    multi_source_templates_dir_uncurated = (
+        templates_out_dir / "multi_source_by_unit_uncurated" if inputs.plot_multi_source_templates_pdf else None
+    )
 
     ckpt_file = _compute_templates_checkpoint_file(well_out_dir=well_out_dir, h5_path=inputs.h5_path, stream_id=inputs.stream_id)
     ckpt = load_checkpoint(
@@ -601,6 +605,8 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     merged_union_by_unit_dir.mkdir(parents=True, exist_ok=True)
     if multi_source_templates_dir is not None:
         multi_source_templates_dir.mkdir(parents=True, exist_ok=True)
+    if multi_source_templates_dir_uncurated is not None:
+        multi_source_templates_dir_uncurated.mkdir(parents=True, exist_ok=True)
 
     # Load waveforms analyzers (concat + segments).
     import numpy as np  # type: ignore[import-not-found]
@@ -620,9 +626,16 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     # from merged_union templates. This is a stop-gap until we have principled,
     # spike-level propagation of waveform exclusions.
     # New, spike-level exclusions (preferred): used when computing templates from waveforms.
-    from .waveform_exclusions import load_wf_exclusions_by_source
+    from .waveform_exclusions import (
+        init_wf_exclusion_report,
+        load_wf_exclusions_by_source,
+        update_wf_exclusion_report,
+    )
 
     exclusions_by_source = load_wf_exclusions_by_source(well_out_dir=well_out_dir, logger=logger)
+
+    wf_exclusions_applied_report_json = templates_out_dir / "wf_exclusions_applied_report.json"
+    wf_excl_report = init_wf_exclusion_report(stage="templates", exclusions_by_source=exclusions_by_source)
 
     # Legacy monkey patch (channel pruning) is disabled when we have spike-level exclusions.
     excluded_sources_by_unit: dict[Any, set[str]] = {}
@@ -736,12 +749,19 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         "sources": [name for name, _ in analyzers],
         "templates_grid_pdf": str(templates_grid_pdf) if templates_grid_pdf else None,
         "templates_grid_curated_pdf": str(templates_grid_curated_pdf) if templates_grid_curated_pdf else None,
+        "multi_source_templates_dir": str(multi_source_templates_dir) if multi_source_templates_dir else None,
+        "multi_source_templates_dir_uncurated": (
+            str(multi_source_templates_dir_uncurated) if multi_source_templates_dir_uncurated else None
+        ),
         "curation": {
             "metrics_curated_xlsx": str(curation_metrics_xlsx) if curation_metrics_xlsx else None,
             "applied": bool(curated_units_norm is not None),
             "n_curated_units": int(len(curated_units_norm)) if curated_units_norm is not None else None,
         },
         "units": [],
+        "wf_exclusions": {
+            "applied_report_json": str(wf_exclusions_applied_report_json),
+        },
     }
 
     for uid in unit_ids:
@@ -760,6 +780,14 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
                     unit_id=uid,
                     excluded_spike_samples=excluded,
                     logger=logger,
+                )
+                update_wf_exclusion_report(
+                    wf_excl_report,
+                    scope="curated",
+                    source_name=str(name),
+                    unit_id=uid,
+                    excluded_spike_samples=excluded,
+                    result=res,
                 )
                 tmpl = (None if res is None else res.template)
             except Exception:
@@ -951,21 +979,125 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
             if concat_analyzer is None:
                 concat_analyzer = analyzers[0][1]
 
-            concat_exclusions = exclusions_by_source.get("concat", {})
             for uid in unit_ids_all:
-                uid_norm = normalize_unit_id(uid)
-                excluded = concat_exclusions.get(uid_norm, set())
+                # Uncurated definition: pre-exclusion (use all available waveforms)
+                excluded = set()
                 res = compute_unit_template_from_waveforms(
                     analyzer=concat_analyzer,
                     unit_id=uid,
                     excluded_spike_samples=excluded,
                     logger=logger,
                 )
+                update_wf_exclusion_report(
+                    wf_excl_report,
+                    scope="uncurated_grid",
+                    source_name="concat" if concat_analyzer is not None else "unknown",
+                    unit_id=uid,
+                    excluded_spike_samples=excluded,
+                    result=res,
+                )
                 if res is None:
                     continue
                 unit_grid_entries_uncurated.append({"unit_id": uid, "template": res.template})
         except Exception as e:
             logger.warning("Failed building templates uncurated grid entries: %s", e)
+
+    # Uncurated multi-source overlays: all units, pre-exclusion, pre-curation.
+    if multi_source_templates_dir_uncurated is not None:
+        for uid in unit_ids_all:
+            sources_for_unit: list[dict[str, Any]] = []
+            for name, an in analyzers:
+                tmpl = None
+                try:
+                    from .waveform_exclusions import compute_unit_template_from_waveforms
+
+                    res = compute_unit_template_from_waveforms(
+                        analyzer=an,
+                        unit_id=uid,
+                        excluded_spike_samples=set(),
+                        logger=logger,
+                    )
+                    update_wf_exclusion_report(
+                        wf_excl_report,
+                        scope="uncurated_multi_source",
+                        source_name=str(name),
+                        unit_id=uid,
+                        excluded_spike_samples=set(),
+                        result=res,
+                    )
+                    tmpl = (None if res is None else res.template)
+                except Exception:
+                    tmpl = None
+
+                if tmpl is None:
+                    t_ext = an.get_extension("templates") if an.has_extension("templates") else None
+                    if t_ext is not None:
+                        tmpl = _get_unit_template_from_extension(analyzer=an, templates_ext=t_ext, unit_id=uid)
+                if tmpl is None:
+                    continue
+                tmpl = np.asarray(tmpl)
+                if tmpl.ndim != 2 or tmpl.size == 0:
+                    continue
+
+                locs = np.asarray(an.recording.get_channel_locations())
+                try:
+                    ch_ids = list(an.recording.get_channel_ids())
+                except Exception:
+                    ch_ids = None
+                el_ids = _try_get_electrode_ids(an.recording)
+
+                if tmpl.shape[1] != locs.shape[0]:
+                    try:
+                        sp = getattr(an, "sparsity", None)
+                        if sp is None and an.has_extension("waveforms"):
+                            sp = getattr(an.get_extension("waveforms"), "sparsity", None)
+                        if sp is not None:
+                            ch_inds = _sparsity_unit_channel_indices(sparsity=sp, unit_id=uid)
+                            ch_inds = np.asarray(ch_inds, dtype=int)
+                            if int(ch_inds.size) == int(tmpl.shape[1]):
+                                locs = locs[ch_inds, :]
+                                if ch_ids is not None:
+                                    ch_ids = list(np.asarray(ch_ids, dtype=object)[ch_inds])
+                                if el_ids is not None:
+                                    try:
+                                        el_ids = list(np.asarray(el_ids, dtype=object)[ch_inds])
+                                    except Exception:
+                                        pass
+                    except Exception:
+                        pass
+
+                if tmpl.shape[1] != locs.shape[0]:
+                    continue
+
+                sources_for_unit.append(
+                    {
+                        "name": str(name),
+                        "template": tmpl,
+                        "channel_locations": locs,
+                        "channel_ids": ch_ids,
+                        "electrode_ids": el_ids,
+                    }
+                )
+
+            if not sources_for_unit:
+                continue
+
+            merged_union = _build_union_template_for_unit(sources_for_unit=sources_for_unit, logger=logger)
+            sources_for_unit_with_union = list(sources_for_unit) + ([merged_union] if merged_union is not None else [])
+
+            unit_dir = multi_source_templates_dir_uncurated / f"unit_{uid}"
+            unit_dir.mkdir(parents=True, exist_ok=True)
+            unit_pdf = unit_dir / "templates.pdf"
+            if (not unit_pdf.exists()) or inputs.force_restart:
+                _write_unit_templates_across_sources_pdf(
+                    pdf_path=unit_pdf,
+                    unit_id=uid,
+                    sources_for_unit=sources_for_unit_with_union,
+                    fs_hz=float(fs_hz),
+                    ms_before=ms_before,
+                    ms_after=ms_after,
+                    top_channels=int(inputs.top_channels_per_template),
+                )
 
     # Write grid PDFs.
     if templates_grid_pdf is not None:
@@ -992,6 +1124,29 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
                 logger=logger,
             )
 
+    # Persist a compact report so it's easy to audit whether exclusions were applied.
+    try:
+        _write_json(wf_exclusions_applied_report_json, wf_excl_report)
+        # Best-effort stage-level summary.
+        scopes = (wf_excl_report.get("application") or {}).get("scopes") or {}
+        for scope_name, scope_entry in scopes.items():
+            by_source = (scope_entry or {}).get("by_source") or {}
+            for src, src_entry in by_source.items():
+                n_req_units = int((src_entry or {}).get("n_units_with_exclusions_requested", 0) or 0)
+                n_matched_units = int((src_entry or {}).get("n_units_with_exclusions_matched", 0) or 0)
+                n_excl = int((src_entry or {}).get("waveforms_excluded_matched", 0) or 0)
+                if (n_req_units > 0) or (n_excl > 0):
+                    logger.info(
+                        "wf_exclusions applied (%s/%s): requested_units=%d matched_units=%d matched_excluded=%d",
+                        str(scope_name),
+                        str(src),
+                        n_req_units,
+                        n_matched_units,
+                        n_excl,
+                    )
+    except Exception as e:
+        logger.warning("Failed writing wf_exclusions applied report: %s", e)
+
     _write_json(summary_json, summary)
 
     ckpt = save_checkpoint(
@@ -1005,6 +1160,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
             "extracted_templates_dir": str(extracted_templates_dir),
             "merged_union_by_unit_dir": str(merged_union_by_unit_dir),
             "templates_summary_json": str(summary_json),
+            "wf_exclusions_applied_report_json": str(wf_exclusions_applied_report_json),
             "templates_grid_pdf": str(templates_grid_pdf) if templates_grid_pdf else None,
             "templates_grid_curated_pdf": str(templates_grid_curated_pdf) if templates_grid_curated_pdf else None,
         },
@@ -1019,6 +1175,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         templates_grid_pdf=templates_grid_pdf,
         templates_grid_curated_pdf=templates_grid_curated_pdf,
         multi_source_templates_dir=multi_source_templates_dir,
+        multi_source_templates_dir_uncurated=multi_source_templates_dir_uncurated,
     )
 
 
