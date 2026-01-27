@@ -7,77 +7,31 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from .checkpointing import (
+from .plotting import _write_templates_grid_pdf, _write_unit_templates_across_sources_pdf
+from .utils import (
+    _apply_wf_exclusion_monkey_patch_to_merged_union,
+    _build_union_template_for_unit,
+    _compute_templates_checkpoint_file,
+    _jsonable,
+    _jsonable_list,
+    _jsonable_sequence,
+    _read_json,
+    _try_get_electrode_ids,
+    _write_json,
+)
+
+from ..checkpointing import (
     ProcessingStage,
     compute_checkpoint_file,
     exception_to_error_dict,
     load_checkpoint,
     save_checkpoint,
 )
-from .pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
-from .pipeline_driver import _compute_mea_analysis_output_dir
+from ..pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
+from ..pipeline_driver import _compute_mea_analysis_output_dir
 
 
 TEMPLATES_OUTPUTS_DIRNAME = "templates_outputs"
-
-
-def _read_json(path: Path) -> Any:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _write_json(path: Path, payload: Any) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
-
-
-def _jsonable(x: Any) -> Any:
-    """Convert common non-JSON-native scalars into JSON-safe Python types."""
-
-    try:
-        import numpy as np  # type: ignore[import-not-found]
-
-        if isinstance(x, (np.integer, np.floating)):
-            return x.item()
-    except Exception:
-        pass
-    if isinstance(x, Path):
-        return str(x)
-    return x
-
-
-def _jsonable_list(xs: Optional[list[Any]]) -> Optional[list[Any]]:
-    if xs is None:
-        return None
-    return [_jsonable(v) for v in xs]
-
-
-def _jsonable_sequence(xs: Any) -> Optional[list[Any]]:
-    """Like `_jsonable_list`, but accepts list/tuple/numpy arrays (best effort)."""
-
-    if xs is None:
-        return None
-    try:
-        return [_jsonable(v) for v in list(xs)]
-    except Exception:
-        try:
-            return [_jsonable(xs)]
-        except Exception:
-            return None
-
-
-def _compute_templates_checkpoint_file(*, well_out_dir: Path, h5_path: Path, stream_id: str) -> Path:
-    """Use a dedicated checkpoint file for templates."""
-
-    main_ckpt = compute_checkpoint_file(output_dir=well_out_dir, file_path=h5_path, stream_id=stream_id)
-    name = main_ckpt.name
-    if name.endswith("_checkpoint.json"):
-        name = name[: -len("_checkpoint.json")] + "_templates_checkpoint.json"
-    else:
-        name = main_ckpt.stem + "_templates_checkpoint.json"
-    return main_ckpt.with_name(name)
 
 
 @dataclass(frozen=True)
@@ -120,396 +74,6 @@ class TemplateExtractOutputs:
     multi_source_templates_dir: Optional[Path]
     templates_grid_curated_pdf: Optional[Path] = None
     multi_source_templates_dir_uncurated: Optional[Path] = None
-
-
-def _try_get_electrode_ids(recording) -> Optional[list[Any]]:
-    """Best-effort retrieval of electrode ids from a RecordingExtractor."""
-
-    try:
-        cv = recording.get_property("contact_vector")
-        if cv is None:
-            return None
-        electrodes = cv.get("electrode")
-        if electrodes is None:
-            return None
-        return list(electrodes)
-    except Exception:
-        return None
-
-
-def _infer_location_tolerance(locs) -> float:
-    """Infer a tolerance for matching channel locations (in same units as locs)."""
-
-    import numpy as np  # type: ignore[import-not-found]
-
-    locs = np.asarray(locs)
-    if locs.ndim != 2 or locs.shape[0] < 2:
-        return 1e-6
-    # Roughly: 1/4 of the median nearest-neighbor distance.
-    try:
-        from scipy.spatial import cKDTree  # type: ignore[import-not-found]
-
-        tree = cKDTree(locs[:, :2])
-        d, _ = tree.query(locs[:, :2], k=2)
-        nn = d[:, 1]
-        med = float(np.median(nn[nn > 0])) if np.any(nn > 0) else 0.0
-        if med <= 0:
-            return 1e-6
-        return max(1e-6, med / 4.0)
-    except Exception:
-        return 1e-6
-
-
-def _loc_key(xy: Any, tol: float) -> tuple[int, int]:
-    x = float(xy[0])
-    y = float(xy[1])
-    # bucketize by tol
-    return (int(round(x / tol)), int(round(y / tol)))
-
-
-def _build_union_template_for_unit(*, sources_for_unit: list[dict[str, Any]], logger) -> Optional[dict[str, Any]]:
-    """Build a merged-union template across sources.
-
-    Keeps the first occurrence for overlapping channels (warns on overlaps).
-
-    Returns a dict with fields compatible with `sources_for_unit` entries.
-    """
-
-    import numpy as np  # type: ignore[import-not-found]
-
-    if not sources_for_unit:
-        return None
-
-    # Use first source as base for time axis (#samples).
-    n_samples = int(np.asarray(sources_for_unit[0]["template"]).shape[0])
-
-    tol = None
-    try:
-        tol = _infer_location_tolerance(sources_for_unit[0]["channel_locations"])
-    except Exception:
-        tol = 1e-6
-
-    union_waveforms: list[np.ndarray] = []
-    union_locs: list[np.ndarray] = []
-    union_channel_ids: list[Any] = []
-    union_electrode_ids: list[Any] = []
-    union_source_names: list[str] = []
-
-    # Map from match key -> union index.
-    key_to_index: dict[Any, int] = {}
-
-    overlap_count = 0
-
-    for src in sources_for_unit:
-        name = str(src["name"])
-        tmpl = np.asarray(src["template"])
-        locs = np.asarray(src["channel_locations"])
-        ch_ids = src.get("channel_ids")
-        el_ids = src.get("electrode_ids")
-
-        if tmpl.ndim != 2 or tmpl.shape[0] != n_samples:
-            logger.warning("Skipping %s for merged_union: bad template shape %s", name, tmpl.shape)
-            continue
-
-        for j in range(tmpl.shape[1]):
-            key = None
-            try:
-                if el_ids is not None:
-                    key = ("electrode", int(el_ids[j]))
-                elif ch_ids is not None:
-                    key = ("channel", str(ch_ids[j]))
-                else:
-                    key = ("loc", _loc_key(locs[j], float(tol)))
-            except Exception:
-                key = ("loc", _loc_key(locs[j], float(tol)))
-
-            if key in key_to_index:
-                overlap_count += 1
-                continue
-
-            key_to_index[key] = len(union_waveforms)
-            union_waveforms.append(np.asarray(tmpl[:, j], dtype=float))
-            union_locs.append(np.asarray(locs[j, :2], dtype=float))
-            union_source_names.append(str(name))
-            try:
-                union_channel_ids.append(None if ch_ids is None else ch_ids[j])
-            except Exception:
-                union_channel_ids.append(None)
-            try:
-                union_electrode_ids.append(None if el_ids is None else el_ids[j])
-            except Exception:
-                union_electrode_ids.append(None)
-
-    if not union_waveforms:
-        return None
-
-    if overlap_count:
-        logger.warning("merged_union: skipped %d overlapping channels (keep-first)", overlap_count)
-
-    merged = np.stack(union_waveforms, axis=1)
-    merged_locs = np.stack(union_locs, axis=0)
-
-    return {
-        "name": "merged_union",
-        "template": merged,
-        "channel_locations": merged_locs,
-        "channel_ids": union_channel_ids,
-        "electrode_ids": union_electrode_ids,
-        "channel_source_names": union_source_names,
-        "stats": {"overlap_skipped": int(overlap_count), "n_channels": int(merged.shape[1])},
-    }
-
-
-def _apply_wf_exclusion_monkey_patch_to_merged_union(
-    *,
-    merged_union_src: dict[str, Any],
-    unit_id: Any,
-    excluded_source_names: set[str],
-    logger,
-) -> dict[str, Any]:
-    """TEMPORARY monkey patch: drop channels from merged_union based on waveforms-stage rejections.
-
-    Background:
-    - Waveforms extraction can exclude spikes (e.g., crossing Maxwell snippet gaps).
-    - Today, templates are derived from waveforms analyzers, but we do not yet
-      have a principled way to carry *spike-level* exclusion decisions into
-      downstream reconstruction artifacts.
-
-    This is an intentionally blunt stop-gap:
-    - If a segment-source had any waveforms-stage spike rejections for this unit,
-      we drop that segment's contributed channels from `merged_union`.
-
-    IMPORTANT:
-    - This only affects the *merged_union* artifact (plotting + saved npy/meta).
-    - Per-source templates remain unchanged.
-    - This should be removed once proper spike-level template recomputation exists.
-    """
-
-    import numpy as np  # type: ignore[import-not-found]
-
-    if not excluded_source_names:
-        return merged_union_src
-
-    # Never drop the concat source via this monkey patch (it is the backbone).
-    excluded = {s for s in excluded_source_names if str(s) != "concat"}
-    if not excluded:
-        return merged_union_src
-
-    src_names = merged_union_src.get("channel_source_names")
-    if src_names is None:
-        return merged_union_src
-
-    try:
-        src_names_list = [str(x) for x in list(src_names)]
-    except Exception:
-        return merged_union_src
-
-    keep_mask = np.asarray([name not in excluded for name in src_names_list], dtype=bool)
-    if keep_mask.size == 0:
-        return merged_union_src
-    if bool(np.all(keep_mask)):
-        return merged_union_src
-
-    if not bool(np.any(keep_mask)):
-        logger.warning(
-            "MONKEY PATCH: would drop all merged_union channels for unit %s (excluded sources=%s); keeping unmodified",
-            unit_id,
-            sorted(excluded),
-        )
-        return merged_union_src
-
-    tmpl = np.asarray(merged_union_src.get("template"))
-    locs = np.asarray(merged_union_src.get("channel_locations"))
-    if tmpl.ndim != 2 or locs.ndim != 2 or tmpl.shape[1] != locs.shape[0] or keep_mask.shape[0] != tmpl.shape[1]:
-        return merged_union_src
-
-    dropped = int(np.sum(~keep_mask))
-    kept = int(np.sum(keep_mask))
-    logger.info(
-        "MONKEY PATCH: merged_union channel curation for unit %s: dropping %d channels from sources=%s (kept=%d)",
-        unit_id,
-        dropped,
-        sorted(excluded),
-        kept,
-    )
-
-    merged_union_src = dict(merged_union_src)
-    merged_union_src["template"] = tmpl[:, keep_mask]
-    merged_union_src["channel_locations"] = locs[keep_mask]
-
-    # Optional aux lists
-    for key in ("channel_ids", "electrode_ids", "channel_source_names"):
-        try:
-            vals = merged_union_src.get(key)
-            if vals is not None and len(vals) == int(keep_mask.shape[0]):
-                merged_union_src[key] = [v for v, keep in zip(list(vals), keep_mask.tolist(), strict=False) if keep]
-        except Exception:
-            pass
-
-    try:
-        stats = dict(merged_union_src.get("stats") or {})
-        stats["monkey_patch_dropped_sources"] = sorted(excluded)
-        stats["monkey_patch_dropped_channels"] = dropped
-        stats["n_channels"] = int(merged_union_src["template"].shape[1])
-        merged_union_src["stats"] = stats
-    except Exception:
-        pass
-
-    return merged_union_src
-
-
-def _write_template_overlay(
-    *,
-    ax,
-    template: Any,
-    fs_hz: float,
-    ms_before: Optional[float],
-    ms_after: Optional[float],
-    top_channels: int,
-    title: str,
-) -> None:
-    import numpy as np  # type: ignore[import-not-found]
-
-    tmpl = np.asarray(template)
-    if tmpl.ndim != 2 or tmpl.size == 0:
-        ax.set_axis_off()
-        return
-
-    n_samples = tmpl.shape[0]
-
-    # Time axis in ms (best effort).
-    if ms_before is not None and ms_after is not None:
-        # Use linspace so the full window maps nicely.
-        t_ms = np.linspace(-float(ms_before), float(ms_after), n_samples, endpoint=False)
-    else:
-        t_ms = (np.arange(n_samples, dtype=float) / float(fs_hz)) * 1000.0
-
-    ptp = np.ptp(tmpl, axis=0)
-    order = np.argsort(ptp)[::-1]
-    # If top_channels <= 0, plot all channels.
-    if int(top_channels) <= 0:
-        sel = order
-    else:
-        k = int(min(max(1, int(top_channels)), len(order)))
-        sel = order[:k]
-
-    # Overlay selected channels.
-    for j_idx, j in enumerate(sel):
-        y = tmpl[:, int(j)]
-        ax.plot(t_ms, y, lw=0.8, alpha=0.85)
-
-    ax.set_title(title, fontsize=9)
-    ax.set_xlabel("Time (ms)", fontsize=8)
-    ax.set_ylabel("uV", fontsize=8)
-    ax.tick_params(axis="both", labelsize=7)
-
-
-def _write_templates_grid_pdf(
-    *,
-    pdf_path: Path,
-    unit_entries: list[dict[str, Any]],
-    fs_hz: float,
-    ms_before: Optional[float],
-    ms_after: Optional[float],
-    top_channels: int,
-    logger,
-) -> None:
-    """Write a grid PDF of templates (one subplot per unit)."""
-
-    import matplotlib
-
-    matplotlib.use("Agg", force=True)
-    import matplotlib.pyplot as plt
-    import matplotlib.backends.backend_pdf as pdf
-
-    ncols = 3
-    nrows = 4
-    per_page = ncols * nrows
-
-    pdf_path.parent.mkdir(parents=True, exist_ok=True)
-    with pdf.PdfPages(pdf_path) as out:
-        for i0 in range(0, len(unit_entries), per_page):
-            chunk = unit_entries[i0 : i0 + per_page]
-            fig, axes = plt.subplots(nrows, ncols, figsize=(11, 8.5), constrained_layout=True)
-            axes = axes.ravel().tolist()
-
-            for ax, entry in zip(axes, chunk):
-                uid = entry.get("unit_id")
-                title = f"unit {uid}"
-                _write_template_overlay(
-                    ax=ax,
-                    template=entry["template"],
-                    fs_hz=float(fs_hz),
-                    ms_before=ms_before,
-                    ms_after=ms_after,
-                    top_channels=int(top_channels),
-                    title=title,
-                )
-
-            for j in range(len(chunk), len(axes)):
-                axes[j].set_axis_off()
-
-            out.savefig(fig, dpi=150)
-            plt.close(fig)
-
-    logger.info("Wrote templates grid PDF -> %s", pdf_path)
-
-
-def _write_unit_templates_across_sources_pdf(
-    *,
-    pdf_path: Path,
-    unit_id: Any,
-    sources_for_unit: list[dict[str, Any]],
-    fs_hz: float,
-    ms_before: Optional[float],
-    ms_after: Optional[float],
-    top_channels: int,
-) -> None:
-    import matplotlib
-
-    matplotlib.use("Agg", force=True)
-    import matplotlib.pyplot as plt
-    import matplotlib.backends.backend_pdf as pdf
-
-    n = len(sources_for_unit)
-    if n <= 0:
-        return
-
-    if n == 1:
-        ncols, nrows = 1, 1
-        figsize = (11, 8.5)
-    else:
-        ncols = 3
-        nrows = int(math.ceil(n / ncols))
-        figsize = (11, 3.0 * nrows)
-
-    pdf_path.parent.mkdir(parents=True, exist_ok=True)
-    with pdf.PdfPages(pdf_path) as out:
-        fig, axes = plt.subplots(nrows, ncols, figsize=figsize, constrained_layout=True)
-        import numpy as np  # type: ignore[import-not-found]
-
-        axes_list = list(np.asarray(axes).ravel())
-
-        for ax, src in zip(axes_list, sources_for_unit):
-            # For merged_union specifically, plot *all* channels so nothing is hidden
-            # by the top-N selection.
-            tc = 0 if str(src.get("name")) == "merged_union" else int(top_channels)
-            _write_template_overlay(
-                ax=ax,
-                template=src["template"],
-                fs_hz=float(fs_hz),
-                ms_before=ms_before,
-                ms_after=ms_after,
-                top_channels=int(tc),
-                title=str(src["name"]),
-            )
-
-        for j in range(len(sources_for_unit), len(axes_list)):
-            axes_list[j].set_axis_off()
-
-        fig.suptitle(f"Templates overlay (unit {unit_id})", fontsize=12)
-        out.savefig(fig, dpi=150)
-        plt.close(fig)
 
 
 def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_prefix: str = "axon_reconstructor") -> TemplateExtractOutputs:
@@ -612,13 +176,13 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     import numpy as np  # type: ignore[import-not-found]
     import spikeinterface.full as si  # type: ignore[import-not-found]
 
-    from .footprinting import (
+    from ..footprinting.utils import (
         _ensure_analyzer_extensions,
-        _sparsity_unit_channel_indices,
         _get_unit_template_from_extension,
         _load_curated_unit_ids_from_waveforms_outputs,
         _load_waveforms_analyzers,
         _normalize_id_for_compare,
+        _sparsity_unit_channel_indices,
     )
 
     # --- TEMPORARY monkey patch plumbing (waveforms-stage spike rejections) ---
@@ -626,7 +190,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     # from merged_union templates. This is a stop-gap until we have principled,
     # spike-level propagation of waveform exclusions.
     # New, spike-level exclusions (preferred): used when computing templates from waveforms.
-    from .waveform_exclusions import (
+    from ..waveforms.exclusions import (
         init_wf_exclusion_report,
         load_wf_exclusions_by_source,
         update_wf_exclusion_report,
@@ -640,7 +204,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     # Legacy monkey patch (channel pruning) is disabled when we have spike-level exclusions.
     excluded_sources_by_unit: dict[Any, set[str]] = {}
     if not exclusions_by_source:
-        from .waveforms import _load_wf_rejection_log_unit_counts
+        from ..waveforms.reporting import _load_wf_rejection_log_unit_counts
 
         wf_unit_counts_rows, wf_rej_xlsx = _load_wf_rejection_log_unit_counts(well_out_dir=well_out_dir, logger=logger)
         # Build: unit_id_norm -> set(source_name) that had any rejections.
@@ -771,7 +335,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
             # Prefer computing templates from waveforms with spike-level exclusions.
             tmpl = None
             try:
-                from .waveform_exclusions import compute_unit_template_from_waveforms, normalize_unit_id
+                from ..waveforms.exclusions import compute_unit_template_from_waveforms, normalize_unit_id
 
                 uid_norm = normalize_unit_id(uid)
                 excluded = exclusions_by_source.get(str(name), {}).get(uid_norm, set())
@@ -969,7 +533,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     # Build uncurated grid entries using concat-only templates.
     if inputs.plot_templates_grid_pdf:
         try:
-            from .waveform_exclusions import compute_unit_template_from_waveforms, normalize_unit_id
+            from ..waveforms.exclusions import compute_unit_template_from_waveforms, normalize_unit_id
 
             concat_analyzer = None
             for name, an in analyzers:
@@ -1009,7 +573,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
             for name, an in analyzers:
                 tmpl = None
                 try:
-                    from .waveform_exclusions import compute_unit_template_from_waveforms
+                    from ..waveforms.exclusions import compute_unit_template_from_waveforms
 
                     res = compute_unit_template_from_waveforms(
                         analyzer=an,

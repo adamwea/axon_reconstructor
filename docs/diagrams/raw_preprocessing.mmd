@@ -1,0 +1,7 @@
+flowchart TD
+  A[Maxwell .h5 + stream_id] --> B[build_concatenated_recording]
+  B -->|returns| C[SpikeInterface recording - concatenated]
+  B -->|returns| D[common_electrodes]
+  B --> F[channel_layouts/*.png]
+  B --> I[concat_cluster_reps_<stream_id>.png]
+  B --> J[segment_traces/segment_trace_<stream_id>_<rec>.png]

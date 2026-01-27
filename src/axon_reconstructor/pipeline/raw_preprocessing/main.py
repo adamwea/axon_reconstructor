@@ -1,301 +1,32 @@
 from __future__ import annotations
 
 import json
-import configparser
-from dataclasses import dataclass
 import datetime as dt
 from pathlib import Path
 import time
-from typing import Iterable, Optional
+from typing import Optional
 
+from .utils import _ensure_maxwell_hdf5_plugin_path
 
-def _ensure_maxwell_hdf5_plugin_path(*, prefix: str = "[axon_reconstructor]") -> None:
-    """Best-effort fix for Maxwell HDF5 decompression plugin discovery.
+from .planning import RawPreprocessPlan, build_preprocess_plan, discover_cfg_files, parse_cfg_channel_locations
 
-    Some environments end up with `HDF5_PLUGIN_PATH` pointing at a non-existent
-    directory, which causes HDF5 reads to fail when the Maxwell compression
-    filter is encountered.
-
-    We prefer the vendored plugin shipped with this repo when available.
-    """
-
-    import os
-
-    env = os.environ.get("HDF5_PLUGIN_PATH")
-    if env:
-        try:
-            if not Path(env).expanduser().exists():
-                print(f"{prefix}[WARN] HDF5_PLUGIN_PATH points to missing dir: {env}; ignoring", flush=True)
-                os.environ.pop("HDF5_PLUGIN_PATH", None)
-        except Exception:
-            pass
-
-    if os.environ.get("HDF5_PLUGIN_PATH"):
-        return
-
-    # Look for a vendored plugin directory.
-    here = Path(__file__).resolve()
-    for parent in [here] + list(here.parents):
-        cand_dir = parent / "vendor" / "maxwell_hdf5_plugin" / "Linux"
-        if (cand_dir / "libcompression.so").exists():
-            os.environ["HDF5_PLUGIN_PATH"] = str(cand_dir)
-            print(f"{prefix}[DEBUG] set HDF5_PLUGIN_PATH={cand_dir}", flush=True)
-            return
+from .concatenation import find_common_electrodes_from_segments, _process_rec_segment_for_concatenation
 
 from .h5_helpers import (
     _read_well_rec_frame_nos_and_trigger_settings,
+    _tee_stdout_to_file,
     _print_assay_settings,
     _print_data_store_start_stop_durations,
-    _tee_stdout_to_file,
-    print_time_between_segments,
 )
+
 from .plotting import (
     _activity_score_rms,
     _extract_xy_from_contact_vector,
     _pick_representative_index_for_cluster,
     _plot_concat_cluster_traces,
-    _plot_stitch_zoom,
     _save_channel_layout_plots,
     detect_electrode_clusters,
 )
-
-
-@dataclass(frozen=True)
-class RawPreprocessPlan:
-    """Plan for building a concatenated recording for spikesorting.
-
-    Today this focuses on two concepts:
-    1) discover per-segment channel-location metadata (often via sibling `.cfg` files)
-    2) identify the channel/electrode intersection shared across segments
-
-    The plan exists so we can log + reproduce the exact preprocessing decisions.
-    """
-
-    h5_path: Path
-    stream_id: str
-    cfg_files: tuple[Path, ...]
-
-
-def discover_cfg_files(h5_path: Path) -> list[Path]:
-    """Return `.cfg` files adjacent to an `.h5` file.
-
-    Maxwell exports sometimes include per-segment configuration files beside the
-    recording. We treat these as *optional* because not all datasets ship them.
-    """
-
-    h5_path = Path(h5_path)
-    folder = h5_path.parent
-    return sorted(folder.glob("*.cfg"))
-
-
-def parse_cfg_channel_locations(cfg_path: Path) -> dict:
-    """Parse a Maxwell-style `.cfg` file.
-
-    We don't yet have a single canonical `.cfg` schema across datasets. This
-    parser is deliberately conservative: it attempts INI parsing first and falls
-    back to raw text storage.
-
-    Returns a dict with minimally:
-    - `path`: cfg path
-    - `sections`: parsed INI sections (if any)
-    - `raw`: raw file text (always)
-
-    TODO(adam): Once we inspect real `.cfg` files in your datasets, replace this
-    with a schema-aware parser that returns electrode ids + (x,y) locations.
-    """
-
-    cfg_path = Path(cfg_path)
-    raw = cfg_path.read_text(errors="replace")
-
-    parser = configparser.ConfigParser()
-    sections: dict[str, dict[str, str]] = {}
-    try:
-        parser.read_string(raw)
-        for section in parser.sections():
-            sections[section] = dict(parser.items(section))
-    except configparser.Error:
-        sections = {}
-
-    return {"path": str(cfg_path), "sections": sections, "raw": raw}
-
-
-def build_preprocess_plan(
-    *,
-    h5_path: Path,
-    stream_id: str,
-    cfg_files: Optional[Iterable[Path]] = None,
-) -> RawPreprocessPlan:
-    h5_path = Path(h5_path).expanduser().resolve()
-    if cfg_files is None:
-        cfg_files = discover_cfg_files(h5_path)
-    cfg_files_tuple = tuple(Path(p).expanduser().resolve() for p in cfg_files)
-    return RawPreprocessPlan(h5_path=h5_path, stream_id=stream_id, cfg_files=cfg_files_tuple)
-
-
-def find_common_electrodes_from_segments(
-    *,
-    h5_path: Path,
-    stream_id: str,
-) -> tuple[list[str], list[int]]:
-    """Compute the shared electrode set across all rec segments for a stream.
-
-    Current implementation uses SpikeInterface's `MaxwellRecordingExtractor`
-    contact_vector electrode ids.
-
-    This matches the historical behavior in `internal/lib_sorting_functions.py`
-    but is now housed in a dedicated preprocessing module.
-    """
-
-    try:
-        import h5py
-        import spikeinterface.extractors as se
-    except Exception as e:  # pragma: no cover
-        raise RuntimeError(
-            "raw preprocessing requires `h5py` and `spikeinterface` installed"
-        ) from e
-
-    _ensure_maxwell_hdf5_plugin_path()
-
-    h5_path = Path(h5_path)
-    with h5py.File(h5_path, "r") as h5:
-        rec_names = list(h5["wells"][stream_id].keys())
-
-    common: Optional[set[int]] = None
-    for rec_name in rec_names:
-        # SpikeInterface <= 0.102.x exposed `MaxwellRecordingExtractor` via `spikeinterface.full`.
-        # SpikeInterface >= 0.103.x removed that re-export, so prefer the stable function API.
-        if hasattr(se, "read_maxwell"):
-            # This appears to print "The h5 compression library for Maxwell is already located in /home/adamm/dev/pkgs/axon_reconstructor/vendor/maxwell_hdf5_plugin/Linux/libcompression.so!"
-            # when hdf5plugin is loaded; ignore.
-            # but perhaps we dont need to load hdf5plugin at all here?
-            rec = se.read_maxwell(file_path=str(h5_path), stream_id=stream_id, rec_name=rec_name)
-        else:  # pragma: no cover
-            # Old SpikeInterface versions.
-            rec = se.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_name)
-        electrodes = rec.get_property("contact_vector")["electrode"]
-        electrode_set = set(int(x) for x in electrodes)
-        if common is None:
-            common = electrode_set
-        else:
-            common &= electrode_set
-
-    return rec_names, sorted(common or set())
-
-
-def _process_rec_segment_for_concatenation(
-    *,
-    h5_path: Path,
-    stream_id: str,
-    rec_name: str,
-    common_el: list[int],
-    center_chunk_size: int,
-    expected_xy_by_electrode: Optional[dict[int, tuple[float, float]]] = None,
-    expected_xy_atol: float = 0.0,
-):
-    """Load a segment, center, select the shared electrodes, validate ordering, and normalize channel ids.
-
-    Important behavioral notes (for posterity):
-
-    - SpikeInterface concatenation is strict: it only concatenates recordings when *dtype* and *channel_ids*
-      arrays are exactly identical across segments (including order). It does not match by electrode metadata.
-    - Historically this pipeline normalized channel ids to 0..n-1 before concatenation.
-    - Renaming to 0..n-1 can hide per-segment mismatches (e.g. wrong electrode->channel mapping) because it
-      forces channel_ids equality even if the underlying electrode identity differs.
-    - To keep concat deterministic without losing identity, we rename channel ids to the *validated* electrode
-      ids (`common_el`) after confirming the selected electrodes and (optionally) their x/y locations match.
-    """
-
-    try:
-        import numpy as np
-        import spikeinterface.full as si
-        import spikeinterface.extractors as se
-    except Exception as e:  # pragma: no cover
-        raise RuntimeError(
-            "raw preprocessing requires `numpy` and `spikeinterface` installed"
-        ) from e
-
-    _ensure_maxwell_hdf5_plugin_path()
-
-    if hasattr(se, "read_maxwell"):
-        rec = se.read_maxwell(file_path=str(h5_path), stream_id=stream_id, rec_name=rec_name)
-    else:  # pragma: no cover
-        rec = se.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_name)
-
-    fs = float(rec.get_sampling_frequency())
-    n_samples = int(rec.get_num_samples())
-    chunk = min(center_chunk_size, rec.get_num_samples()) - 100
-    chunk = max(chunk, 100)
-    rec_centered = si.center(rec, chunk_size=chunk)
-
-    # Map electrode id -> channel index within this segment.
-    rec_el = np.asarray(rec.get_property("contact_vector")["electrode"], dtype=int)
-    if int(np.unique(rec_el).size) != int(rec_el.size):
-        raise RuntimeError(
-            f"Duplicate electrode ids found in contact_vector for segment {rec_name}; cannot map electrodes reliably"
-        )
-    el_to_idx = {int(el): int(i) for i, el in enumerate(rec_el)}
-    try:
-        chan_idx = [el_to_idx[int(el)] for el in common_el]
-    except KeyError as e:
-        raise RuntimeError(
-            f"Segment {rec_name} is missing expected electrode id={e.args[0]} from the common electrode set"
-        ) from e
-
-    sel_channels = np.asarray(rec.get_channel_ids(), dtype=object)[chan_idx]
-
-    # SpikeInterface <=0.102.x (and earlier): this used to work and could also rename ids:
-    # rec_centered_sliced = rec_centered.channel_slice(sel_channels, renamed_channel_ids=list(range(len(sel_channels))))
-    # SpikeInterface 0.103.x: BaseRecording no longer has `channel_slice()`.
-    processed = rec_centered.select_channels(list(sel_channels))
-
-    # Validate that selection did what we asked (before any renaming).
-    processed_ch = np.asarray(processed.get_channel_ids(), dtype=object)
-    if processed_ch.shape != sel_channels.shape or not np.array_equal(processed_ch, sel_channels):
-        raise RuntimeError(
-            f"Selected channel_ids mismatch for segment {rec_name}. "
-            "This may indicate a channel-id ordering issue during selection."
-        )
-
-    # Validate electrode identity and order.
-    processed_el = np.asarray(processed.get_property("contact_vector")["electrode"], dtype=int)
-    expected_el = np.asarray(common_el, dtype=int)
-    if processed_el.shape != expected_el.shape or not np.array_equal(processed_el, expected_el):
-        raise RuntimeError(
-            f"Selected electrodes mismatch for segment {rec_name}. "
-            f"Expected {expected_el.shape[0]} electrodes matching common set; got {processed_el.shape[0]} "
-            f"and/or different ordering."
-        )
-
-    # Optional: validate electrode locations (x/y) match the reference segment, if available.
-    if expected_xy_by_electrode is not None:
-        cv = processed.get_property("contact_vector")
-        x, y = _extract_xy_from_contact_vector(cv)
-        x = np.asarray(x, dtype=float)
-        y = np.asarray(y, dtype=float)
-        expected_x = np.asarray([expected_xy_by_electrode[int(el)][0] for el in expected_el], dtype=float)
-        expected_y = np.asarray([expected_xy_by_electrode[int(el)][1] for el in expected_el], dtype=float)
-        if not (
-            np.allclose(x, expected_x, atol=float(expected_xy_atol))
-            and np.allclose(y, expected_y, atol=float(expected_xy_atol))
-        ):
-            raise RuntimeError(
-                f"Electrode x/y locations differ from reference for segment {rec_name}. "
-                "This suggests inconsistent layouts across segments; refusing to concatenate."
-            )
-
-    # Now normalize channel ids in a way that preserves identity and makes concat deterministic.
-    processed = processed.rename_channels([int(el) for el in expected_el])
-
-    renamed_ch = np.asarray(processed.get_channel_ids(), dtype=object)
-    if renamed_ch.shape != expected_el.shape or not np.array_equal(renamed_ch.astype(int), expected_el):
-        raise RuntimeError(f"Failed to rename channel ids to electrode ids for segment {rec_name}")
-
-    return processed, {
-        "rec_name": rec_name,
-        "fs": fs,
-        "n_samples": n_samples,
-        "n_channels": int(processed.get_num_channels()),
-    }
 
 
 def build_concatenated_recording(
