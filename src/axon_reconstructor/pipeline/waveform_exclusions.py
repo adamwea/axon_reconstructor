@@ -286,6 +286,153 @@ class TemplateFromWaveformsResult:
     n_waveforms_kept: int
 
 
+WF_EXCLUSION_REPORT_MAX_UNIT_ROWS = 200
+
+
+def init_wf_exclusion_report(
+    *,
+    stage: str,
+    exclusions_by_source: dict[str, dict[Any, set[int]]],
+) -> dict[str, Any]:
+    """Initialize a JSON-friendly report structure for exclusion application.
+
+    This is intended for downstream stages (templates/footprinting) to answer:
+    "Did we actually drop any waveforms due to wf_exclusions.npz?"
+    """
+
+    total_units = 0
+    total_spikes = 0
+    by_source_loaded: dict[str, dict[str, int]] = {}
+    for src, per_unit in exclusions_by_source.items():
+        try:
+            n_units = int(len(per_unit))
+        except Exception:
+            n_units = 0
+        n_spikes = 0
+        for s in (per_unit or {}).values():
+            try:
+                n_spikes += int(len(s))
+            except Exception:
+                continue
+        by_source_loaded[str(src)] = {"n_units": n_units, "n_spikes": int(n_spikes)}
+        total_units += n_units
+        total_spikes += int(n_spikes)
+
+    return {
+        "stage": str(stage),
+        "loaded_exclusions": {
+            "n_sources": int(len(exclusions_by_source)),
+            "n_units": int(total_units),
+            "n_spikes": int(total_spikes),
+            "by_source": by_source_loaded,
+        },
+        # Filled by update_wf_exclusion_report
+        "application": {
+            "scopes": {},
+        },
+    }
+
+
+def update_wf_exclusion_report(
+    report: dict[str, Any],
+    *,
+    scope: str,
+    source_name: str,
+    unit_id: Any,
+    excluded_spike_samples: Optional[set[int]],
+    result: Optional["TemplateFromWaveformsResult"],
+) -> None:
+    """Update exclusion report with one template-from-waveforms computation."""
+
+    if report is None:
+        return
+
+    scope = str(scope)
+    source_name = str(source_name)
+
+    try:
+        uid = normalize_unit_id(unit_id)
+    except Exception:
+        uid = _py_scalar(unit_id)
+
+    n_req = 0
+    try:
+        n_req = int(len(excluded_spike_samples or set()))
+    except Exception:
+        n_req = 0
+
+    n_total = None
+    n_kept = None
+    n_matched = None
+    ok = False
+
+    if result is not None:
+        try:
+            n_total = int(result.n_waveforms_total)
+            n_kept = int(result.n_waveforms_kept)
+            ok = True
+        except Exception:
+            ok = False
+    if ok and n_total is not None and n_kept is not None and n_req > 0:
+        try:
+            n_matched = int(max(0, n_total - n_kept))
+        except Exception:
+            n_matched = None
+
+    # Initialize buckets.
+    app = report.setdefault("application", {})
+    scopes = app.setdefault("scopes", {})
+    scope_entry = scopes.setdefault(scope, {})
+    by_source = scope_entry.setdefault("by_source", {})
+    src_entry = by_source.setdefault(
+        source_name,
+        {
+            "n_units_seen": 0,
+            "n_units_with_exclusions_requested": 0,
+            "n_units_with_exclusions_matched": 0,
+            "n_compute_failures": 0,
+            "waveforms_total": 0,
+            "waveforms_kept": 0,
+            "waveforms_excluded_matched": 0,
+            "examples": [],
+        },
+    )
+
+    src_entry["n_units_seen"] = int(src_entry.get("n_units_seen", 0)) + 1
+    if n_req > 0:
+        src_entry["n_units_with_exclusions_requested"] = int(src_entry.get("n_units_with_exclusions_requested", 0)) + 1
+
+    if not ok:
+        src_entry["n_compute_failures"] = int(src_entry.get("n_compute_failures", 0)) + 1
+    else:
+        src_entry["waveforms_total"] = int(src_entry.get("waveforms_total", 0)) + int(n_total or 0)
+        src_entry["waveforms_kept"] = int(src_entry.get("waveforms_kept", 0)) + int(n_kept or 0)
+        if n_matched is not None and n_matched > 0:
+            src_entry["n_units_with_exclusions_matched"] = int(src_entry.get("n_units_with_exclusions_matched", 0)) + 1
+            src_entry["waveforms_excluded_matched"] = int(src_entry.get("waveforms_excluded_matched", 0)) + int(n_matched)
+
+    # Keep some examples for debugging (only for units with requested exclusions or matched exclusions).
+    try:
+        examples = src_entry.get("examples")
+        if not isinstance(examples, list):
+            examples = []
+            src_entry["examples"] = examples
+
+        should_record = (n_req > 0) or (n_matched is not None and n_matched > 0)
+        if should_record and len(examples) < int(WF_EXCLUSION_REPORT_MAX_UNIT_ROWS):
+            examples.append(
+                {
+                    "unit_id": _py_scalar(uid),
+                    "n_exclusions_requested": int(n_req),
+                    "n_waveforms_total": (None if n_total is None else int(n_total)),
+                    "n_waveforms_kept": (None if n_kept is None else int(n_kept)),
+                    "n_waveforms_excluded_matched": (None if n_matched is None else int(n_matched)),
+                }
+            )
+    except Exception:
+        pass
+
+
 def compute_unit_template_from_waveforms(
     *,
     analyzer,
