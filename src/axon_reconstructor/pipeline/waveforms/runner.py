@@ -1137,7 +1137,7 @@ def _plot_and_curate_if_requested(
     raise RuntimeError("_plot_and_curate_if_requested is deprecated; use _curate_then_plot")
 
 
-def _curate_then_plot(
+def _compute_and_merge_waveforms_metrics(
     *,
     inputs: WaveformExtractInputs,
     waveforms_out_dir: Path,
@@ -1146,15 +1146,8 @@ def _curate_then_plot(
     epochs: _EpochInputs,
     window: _WaveformWindow,
     logger: Any,
-) -> tuple[Optional[Path], Optional[Path]]:
-    """Compute metrics/curation first, then plot PDFs.
-
-    This intentionally does *not* reuse spikesorting-step curation outputs.
-    It recomputes quality + template metrics from the analyzers generated during
-    waveform extraction.
-    """
-
-    curated_units_for_plot: Optional[list[Any]] = None
+) -> tuple[Any, Any]:
+    """Waveforms step 1/3: compute per-source metrics and merge."""
 
     # 1) Compute per-source metrics (concat + per segment) using the already-built analyzers.
     try:
@@ -1164,6 +1157,8 @@ def _curate_then_plot(
 
     metrics_sources_dir = waveforms_out_dir / "metrics_sources"
     metrics_sources_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info("Waveforms step 1/3: compute + merge metrics")
 
     concat_qm, concat_tm = load_and_compute_metrics(
         analyzer_dir=concat_waveforms_dir,
@@ -1218,18 +1213,6 @@ def _curate_then_plot(
                 out_dir.mkdir(parents=True, exist_ok=True)
                 qm.to_excel(out_dir / "qm_unfiltered.xlsx")
                 tm.to_excel(out_dir / "tm_unfiltered.xlsx")
-
-                # # Apply curation for this segment source.
-                # try:
-                #     clean_seg, rej_seg = apply_mea_analysis_curation(q_metrics=qm, user_thresholds=None)
-                #     clean_seg.to_excel(out_dir / "metrics_curated.xlsx")
-                #     rej_seg.to_excel(out_dir / "rejection_log.xlsx")
-                #     try:
-                #         tm.loc[list(clean_seg.index.values)].to_excel(out_dir / "tm_curated.xlsx")
-                #     except Exception:
-                #         pass
-                # except Exception as e:
-                #     logger.warning("Curation failed for %s: %s", src, e)
             except Exception as e:
                 logger.warning("Failed metrics for %s: %s", src, e)
 
@@ -1296,7 +1279,20 @@ def _curate_then_plot(
     except Exception as e:
         logger.warning("Failed to save root metrics xlsx: %s", e)
 
-    # 3) Apply curation logic on merged metrics.
+    return merged_qm, merged_tm
+
+
+def _apply_waveforms_curation(
+    *,
+    waveforms_out_dir: Path,
+    merged_qm: Any,
+    merged_tm: Any,
+    logger: Any,
+) -> Optional[list[Any]]:
+    """Waveforms step 2/3: apply curation logic to merged metrics."""
+
+    logger.info("Waveforms step 2/3: apply curation")
+    curated_units_for_plot: Optional[list[Any]] = None
     try:
         clean_metrics, rejection_log = apply_mea_analysis_curation(q_metrics=merged_qm, user_thresholds=None)
         curated_units_for_plot = list(clean_metrics.index.values)
@@ -1308,16 +1304,61 @@ def _curate_then_plot(
             pass
     except Exception as e:
         logger.warning("Curation failed; skipping curated artifacts: %s", e)
+    return curated_units_for_plot
 
-    # 4) Plot PDFs (uncurated + curated).
+
+def _plot_waveforms_outputs(
+    *,
+    inputs: WaveformExtractInputs,
+    waveforms_out_dir: Path,
+    concat_waveforms_dir: Path,
+    segment_waveforms_dir: Optional[Path],
+    epochs: _EpochInputs,
+    curated_units_for_plot: Optional[list[Any]],
+    logger: Any,
+) -> tuple[Optional[Path], Optional[Path]]:
+    """Waveforms step 3/3: plot uncurated + curated waveforms PDFs."""
+
+    logger.info("Waveforms step 3/3: plot")
     waveforms_grid_pdf: Optional[Path] = None
     spikesorting_waveforms_grid_pdf: Optional[Path] = None
 
     if inputs.plot_waveforms_grid_pdf:
+        segment_folders: Optional[list[Path]] = None
+        try:
+            if inputs.per_segment and epochs.concat_epochs and segment_waveforms_dir is not None:
+                seg_dirs: list[Path] = []
+                for seg in epochs.concat_epochs:
+                    spec = _parse_concat_epoch_segment(seg=seg, segment_waveforms_dir=segment_waveforms_dir)
+                    if spec is None:
+                        continue
+                    if spec.seg_dir.exists():
+                        seg_dirs.append(spec.seg_dir)
+                segment_folders = seg_dirs if seg_dirs else None
+        except Exception:
+            segment_folders = None
+
+        # Extra debug output: concat-only (no segment overlays), uncurated.
+        # This is useful to verify differences vs the combined concat+segments plot.
+        concat_only_pdf = waveforms_out_dir / "waveforms_grid_concat_uncurated.pdf"
+        if (not concat_only_pdf.exists()) or inputs.force_restart:
+            logger.info("Writing concat-only waveforms grid PDF -> %s", concat_only_pdf)
+            _write_waveforms_grid_pdf(
+                waveforms_folder=concat_waveforms_dir,
+                pdf_path=concat_only_pdf,
+                segment_waveforms_folders=None,
+                show_debug_annotation=False,
+            )
+
         waveforms_grid_pdf = waveforms_out_dir / "waveforms_grid_uncurated.pdf"
         if (not waveforms_grid_pdf.exists()) or inputs.force_restart:
             logger.info("Writing waveforms grid PDF -> %s", waveforms_grid_pdf)
-            _write_waveforms_grid_pdf(waveforms_folder=concat_waveforms_dir, pdf_path=waveforms_grid_pdf)
+            _write_waveforms_grid_pdf(
+                waveforms_folder=concat_waveforms_dir,
+                pdf_path=waveforms_grid_pdf,
+                segment_waveforms_folders=segment_folders,
+                show_debug_annotation=False,
+            )
 
         if curated_units_for_plot is not None:
             curated_pdf = waveforms_out_dir / "waveforms_grid_curated.pdf"
@@ -1327,9 +1368,59 @@ def _curate_then_plot(
                     waveforms_folder=concat_waveforms_dir,
                     pdf_path=curated_pdf,
                     unit_ids=list(curated_units_for_plot),
+                    segment_waveforms_folders=segment_folders,
+                    show_debug_annotation=False,
                 )
 
     return waveforms_grid_pdf, spikesorting_waveforms_grid_pdf
+
+
+def _curate_then_plot(
+    *,
+    inputs: WaveformExtractInputs,
+    waveforms_out_dir: Path,
+    concat_waveforms_dir: Path,
+    segment_waveforms_dir: Optional[Path],
+    epochs: _EpochInputs,
+    window: _WaveformWindow,
+    logger: Any,
+) -> tuple[Optional[Path], Optional[Path]]:
+    """Compute metrics/curation first, then plot PDFs.
+
+    This intentionally does *not* reuse spikesorting-step curation outputs.
+    It recomputes quality + template metrics from the analyzers generated during
+    waveform extraction.
+
+    The logic is split into 3 runner steps:
+      1) Compute + merge metrics
+      2) Apply curation logic
+      3) Plot
+    """
+
+    merged_qm, merged_tm = _compute_and_merge_waveforms_metrics(
+        inputs=inputs,
+        waveforms_out_dir=waveforms_out_dir,
+        concat_waveforms_dir=concat_waveforms_dir,
+        segment_waveforms_dir=segment_waveforms_dir,
+        epochs=epochs,
+        window=window,
+        logger=logger,
+    )
+    curated_units_for_plot = _apply_waveforms_curation(
+        waveforms_out_dir=waveforms_out_dir,
+        merged_qm=merged_qm,
+        merged_tm=merged_tm,
+        logger=logger,
+    )
+    return _plot_waveforms_outputs(
+        inputs=inputs,
+        waveforms_out_dir=waveforms_out_dir,
+        concat_waveforms_dir=concat_waveforms_dir,
+        segment_waveforms_dir=segment_waveforms_dir,
+        epochs=epochs,
+        curated_units_for_plot=curated_units_for_plot,
+        logger=logger,
+    )
 
 
 def extract_waveforms(
@@ -1478,13 +1569,30 @@ def extract_waveforms(
             logger=ctx.logger,
         )
 
-        waveforms_grid_pdf, spikesorting_waveforms_grid_pdf = _curate_then_plot(
+        merged_qm, merged_tm = _compute_and_merge_waveforms_metrics(
             inputs=inputs,
             waveforms_out_dir=ctx.waveforms_out_dir,
             concat_waveforms_dir=ctx.concat_waveforms_dir,
             segment_waveforms_dir=ctx.segment_waveforms_dir,
             epochs=epochs,
             window=window,
+            logger=ctx.logger,
+        )
+
+        curated_units_for_plot = _apply_waveforms_curation(
+            waveforms_out_dir=ctx.waveforms_out_dir,
+            merged_qm=merged_qm,
+            merged_tm=merged_tm,
+            logger=ctx.logger,
+        )
+
+        waveforms_grid_pdf, spikesorting_waveforms_grid_pdf = _plot_waveforms_outputs(
+            inputs=inputs,
+            waveforms_out_dir=ctx.waveforms_out_dir,
+            concat_waveforms_dir=ctx.concat_waveforms_dir,
+            segment_waveforms_dir=ctx.segment_waveforms_dir,
+            epochs=epochs,
+            curated_units_for_plot=curated_units_for_plot,
             logger=ctx.logger,
         )
 
