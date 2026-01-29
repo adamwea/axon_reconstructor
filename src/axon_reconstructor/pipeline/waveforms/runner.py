@@ -1291,8 +1291,8 @@ def _curate_then_plot(
 
     # Also keep the historical root-level filenames, but now they represent the merged metrics.
     try:
-        merged_qm.to_excel(waveforms_out_dir / "qm_unfiltered.xlsx")
-        merged_tm.to_excel(waveforms_out_dir / "tm_unfiltered.xlsx")
+        merged_qm.to_excel(waveforms_out_dir / "qm_merged_unfiltered.xlsx")
+        merged_tm.to_excel(waveforms_out_dir / "tm_merged_unfiltered.xlsx")
     except Exception as e:
         logger.warning("Failed to save root metrics xlsx: %s", e)
 

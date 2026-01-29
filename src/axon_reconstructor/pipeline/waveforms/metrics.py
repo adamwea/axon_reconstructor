@@ -322,11 +322,12 @@ def recompute_merged_quality_metrics_from_deduplicated_spikes(
         running += int(seg_len)
 
     # Prepare per-unit maps: sample_index (concat time) -> amplitude.
-    # Concat values take precedence; segment values are used only to fill
-    # missing spikes (should be rare), preventing double counting.
-    amp_maps_by_unit: dict[Any, dict[int, float]] = {}
+    # We build two separate sources (concat + segments), then select per-spike
+    # which amplitude to keep based on larger magnitude (|amp|).
+    concat_amp_maps_by_unit: dict[Any, dict[int, float]] = {}
+    segment_best_amp_maps_by_unit: dict[Any, dict[int, float]] = {}
 
-    def _add_spikes_from_analyzer(*, analyzer: Any, sample_offset: int) -> None:
+    def _add_spikes_from_analyzer(*, analyzer: Any, sample_offset: int, out_maps_by_unit: dict[Any, dict[int, float]], keep_best_abs: bool) -> None:
         sorting = analyzer.sorting
         unit_ids = list(sorting.unit_ids)
 
@@ -348,16 +349,32 @@ def recompute_merged_quality_metrics_from_deduplicated_spikes(
             if sample_concat < 0 or sample_concat >= total_samples:
                 continue
 
-            per_unit = amp_maps_by_unit.get(unit_id)
+            per_unit = out_maps_by_unit.get(unit_id)
             if per_unit is None:
                 per_unit = {}
-                amp_maps_by_unit[unit_id] = per_unit
+
+                out_maps_by_unit[unit_id] = per_unit
+
+            amp_v = float(amps[i])
 
             if sample_concat not in per_unit:
-                per_unit[sample_concat] = float(amps[i])
+                per_unit[sample_concat] = amp_v
+            elif keep_best_abs:
+                # If the same spike time appears multiple times in this analyzer
+                # (should be rare), keep the entry with the larger |amplitude|.
+                try:
+                    if abs(amp_v) > abs(float(per_unit[sample_concat])):
+                        per_unit[sample_concat] = amp_v
+                except Exception:
+                    per_unit[sample_concat] = amp_v
 
-    # Add concat baseline first (wins for duplicates).
-    _add_spikes_from_analyzer(analyzer=concat_analyzer, sample_offset=0)
+    # Add concat baseline.
+    _add_spikes_from_analyzer(
+        analyzer=concat_analyzer,
+        sample_offset=0,
+        out_maps_by_unit=concat_amp_maps_by_unit,
+        keep_best_abs=False,
+    )
 
     # Then fill from segments.
     for src in segment_sources:
@@ -367,7 +384,66 @@ def recompute_merged_quality_metrics_from_deduplicated_spikes(
             logger.warning("Failed to load segment analyzer %s: %s", src.analyzer_dir, e)
             continue
 
-        _add_spikes_from_analyzer(analyzer=seg_analyzer, sample_offset=int(src.start_sample_concat))
+        _add_spikes_from_analyzer(
+            analyzer=seg_analyzer,
+            sample_offset=int(src.start_sample_concat),
+            out_maps_by_unit=segment_best_amp_maps_by_unit,
+            keep_best_abs=True,
+        )
+
+    # Merge the two sources by selecting, per spike time, the amplitude with
+    # larger magnitude (|amp|). This is the expected behavior when segment
+    # analyzers include additional channels and can better capture peak amplitude.
+    AMP_TIE_ABS_TOL = 1e-6
+
+    amp_maps_by_unit: dict[Any, dict[int, float]] = {}
+    # Debug: how often segment vs concat wins the amplitude comparison.
+    # unit_id -> (segment_wins, concat_wins, ties, only_segment, only_concat)
+    pick_stats_by_unit: dict[Any, tuple[int, int, int, int, int]] = {}
+
+    all_unit_ids = set(concat_amp_maps_by_unit.keys()) | set(segment_best_amp_maps_by_unit.keys())
+    for unit_id in all_unit_ids:
+        c_map = concat_amp_maps_by_unit.get(unit_id, {})
+        s_map = segment_best_amp_maps_by_unit.get(unit_id, {})
+
+        samples_all = set(c_map.keys()) | set(s_map.keys())
+        if not samples_all:
+            continue
+
+        seg_wins = 0
+        con_wins = 0
+        ties = 0
+        only_seg = 0
+        only_con = 0
+
+        merged: dict[int, float] = {}
+        for sample_concat in sorted(samples_all):
+            has_c = sample_concat in c_map
+            has_s = sample_concat in s_map
+
+            if has_c and has_s:
+                a_c = float(c_map[sample_concat])
+                a_s = float(s_map[sample_concat])
+                d = abs(a_s) - abs(a_c)
+                if d > AMP_TIE_ABS_TOL:
+                    merged[sample_concat] = a_s
+                    seg_wins += 1
+                elif d < -AMP_TIE_ABS_TOL:
+                    merged[sample_concat] = a_c
+                    con_wins += 1
+                else:
+                    # Tie (or near-tie): keep segment deterministically.
+                    merged[sample_concat] = a_s
+                    ties += 1
+            elif has_s:
+                merged[sample_concat] = float(s_map[sample_concat])
+                only_seg += 1
+            else:
+                merged[sample_concat] = float(c_map[sample_concat])
+                only_con += 1
+
+        amp_maps_by_unit[unit_id] = merged
+        pick_stats_by_unit[unit_id] = (seg_wins, con_wins, ties, only_seg, only_con)
 
     # Helpers that mirror SpikeInterface logic.
     def _count_rp_violations_pairs(*, spike_train: Any, t_r: int) -> int:
@@ -407,6 +483,12 @@ def recompute_merged_quality_metrics_from_deduplicated_spikes(
         "amplitude_cv_median": [],
         "amplitude_cv_range": [],
     }
+
+    # Debug bookkeeping so we can emit OLD vs NEW comparisons *after* NaN-fallback
+    # has been applied to the final dataframe.
+    debug_old_by_unit: dict[Any, dict[str, Any]] = {}
+    debug_new_pre_fallback_by_unit: dict[Any, dict[str, Any]] = {}
+    debug_pick_stats_by_unit: dict[Any, tuple[int, int, int, int, int]] = {}
 
     for unit_id, sample_to_amp in amp_maps_by_unit.items():
         samples = np.array(sorted(sample_to_amp.keys()), dtype=np.int64)
@@ -530,25 +612,16 @@ def recompute_merged_quality_metrics_from_deduplicated_spikes(
 
         # Debug: per-unit recomputed/adjusted values used for merged curation.
         # This is intentionally verbose when logger is in DEBUG level.
+        # IMPORTANT: we *store* values here but only *log* them after fallback.
         try:
             if hasattr(logger, "debug"):
-                n_valid = int(seg_samples_concat.size)
-                n_outside = int(n_spikes - n_valid)
+                debug_pick_stats_by_unit[unit_id] = pick_stats_by_unit.get(unit_id, (0, 0, 0, 0, 0))
 
                 rp_contam_v = rows["rp_contamination"][-1] if rows["rp_contamination"] else float("nan")
                 rp_v = rows["rp_violations"][-1] if rows["rp_violations"] else float("nan")
                 amp_mean_v = rows["amplitude_mean"][-1] if rows["amplitude_mean"] else float("nan")
                 amp_median_v = rows["amplitude_median"][-1] if rows["amplitude_median"] else float("nan")
                 amp_cv_med_v = rows["amplitude_cv_median"][-1] if rows["amplitude_cv_median"] else float("nan")
-
-                def _fmt(x: Any) -> str:
-                    try:
-                        xf = float(x)
-                        if not np.isfinite(xf):
-                            return "nan"
-                        return f"{xf:.6g}"
-                    except Exception:
-                        return str(x)
 
                 # OLD values: direct concat quality_metrics (plus rp_contam/amp_mean computed here).
                 old_num_spikes = float("nan")
@@ -592,37 +665,271 @@ def recompute_merged_quality_metrics_from_deduplicated_spikes(
                 except Exception:
                     pass
 
-                # Emit TWO rows per unit: old concat vs new merged/recomputed.
-                logger.debug(
-                    "OLD(concat_qm) unit=%s n_spikes=%s fr=%s pr=%s rp_contam=%s rp_v=%s amp_mean=%s amp_median=%s amp_cv_med=%s",
-                    str(unit_id),
-                    _fmt(old_num_spikes),
-                    _fmt(old_fr),
-                    _fmt(old_pr),
-                    _fmt(old_rp_contam),
-                    _fmt(old_rp_v),
-                    _fmt(old_amp_mean),
-                    _fmt(old_amp_median),
-                    _fmt(old_amp_cv_median),
-                )
-                logger.debug(
-                    "NEW(merged+recomputed) unit=%s n_spikes=%d (in_segments=%d outside=%d) fr=%s pr=%s rp_contam=%s rp_v=%s amp_mean=%s amp_median=%s amp_cv_med=%s",
-                    str(unit_id),
-                    int(n_spikes),
-                    int(n_valid),
-                    int(n_outside),
-                    _fmt(fr),
-                    _fmt(pr),
-                    _fmt(rp_contam_v),
-                    _fmt(rp_v),
-                    _fmt(amp_mean_v),
-                    _fmt(amp_median_v),
-                    _fmt(amp_cv_med_v),
-                )
+                debug_old_by_unit[unit_id] = {
+                    "num_spikes": old_num_spikes,
+                    "firing_rate": old_fr,
+                    "presence_ratio": old_pr,
+                    "rp_contamination": old_rp_contam,
+                    "rp_violations": old_rp_v,
+                    "amplitude_mean": old_amp_mean,
+                    "amplitude_median": old_amp_median,
+                    "amplitude_cv_median": old_amp_cv_median,
+                }
+                debug_new_pre_fallback_by_unit[unit_id] = {
+                    "num_spikes": float(n_spikes),
+                    "firing_rate": fr,
+                    "presence_ratio": pr,
+                    "rp_contamination": rp_contam_v,
+                    "rp_violations": rp_v,
+                    "amplitude_mean": amp_mean_v,
+                    "amplitude_median": amp_median_v,
+                    "amplitude_cv_median": amp_cv_med_v,
+                    "amplitude_cv_range": rows["amplitude_cv_range"][-1]
+                    if rows["amplitude_cv_range"]
+                    else float("nan"),
+                }
         except Exception:
             pass
 
     df = pd.DataFrame(rows)
     if not df.empty:
         df = df.set_index("unit_id")
+
+    # Optional fallback: if a recomputed value is NaN, use the concat analyzer
+    # value when it exists and is not NaN. This keeps downstream curation stable
+    # for edge cases (too-few-spikes, tiny segments, etc.) without overriding
+    # valid recomputed values.
+    try:
+        if df is not None and (not df.empty):
+            # Straight column-wise fallbacks where concat_qm has matching columns.
+            if concat_qm is not None:
+                for col in [
+                    "firing_rate",
+                    "presence_ratio",
+                    "amplitude_median",
+                    "amplitude_cv_median",
+                    "amplitude_cv_range",
+                ]:
+                    try:
+                        if col in df.columns and col in concat_qm.columns:
+                            old_vals = concat_qm[col].reindex(df.index)
+                            df[col] = df[col].where(~df[col].isna(), old_vals)
+                    except Exception:
+                        continue
+
+            # amplitude_mean fallback: concat_qm typically doesn't include this.
+            try:
+                if "amplitude_mean" in df.columns and concat_amps_by_unit:
+                    for unit_id in df.index:
+                        try:
+                            if not pd.isna(df.at[unit_id, "amplitude_mean"]):
+                                continue
+                            a0 = concat_amps_by_unit.get(unit_id)
+                            if a0 is None:
+                                continue
+                            a0 = np.asarray(a0, dtype=float)
+                            if a0.size == 0:
+                                continue
+                            v = float(np.mean(a0))
+                            if np.isfinite(v):
+                                df.at[unit_id, "amplitude_mean"] = v
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+
+            # rp_contamination/rp_violations fallback: concat_qm doesn't store
+            # rp_contamination, so recompute the concat-based version only when
+            # needed.
+            try:
+                if ("rp_contamination" in df.columns) or ("rp_violations" in df.columns):
+                    needs = []
+                    for unit_id in df.index:
+                        try:
+                            need = False
+                            if "rp_contamination" in df.columns and pd.isna(df.at[unit_id, "rp_contamination"]):
+                                need = True
+                            if "rp_violations" in df.columns and pd.isna(df.at[unit_id, "rp_violations"]):
+                                need = True
+                            if need:
+                                needs.append(unit_id)
+                        except Exception:
+                            continue
+
+                    if needs and (t_r - t_c) > 0:
+                        for unit_id in needs:
+                            try:
+                                st0 = concat_analyzer.sorting.get_unit_spike_train(unit_id=unit_id, segment_index=0)
+                                st0 = np.asarray(st0, dtype=np.int64)
+                                if st0.size == 0:
+                                    continue
+                                st0.sort()
+                                n0 = int(st0.size)
+                                old_rp_v = int(_count_rp_violations_pairs(spike_train=st0, t_r=int(t_r)))
+
+                                # Fill violations count if missing.
+                                if "rp_violations" in df.columns and pd.isna(df.at[unit_id, "rp_violations"]):
+                                    df.at[unit_id, "rp_violations"] = float(old_rp_v)
+
+                                # Fill contamination if missing.
+                                if "rp_contamination" in df.columns and pd.isna(df.at[unit_id, "rp_contamination"]):
+                                    N0 = float(n0)
+                                    T0 = float(total_samples)
+                                    D0 = 1.0 - float(old_rp_v) * (T0 - 2.0 * N0 * float(t_c)) / (N0**2 * float(t_r - t_c))
+                                    old_rp_contam = 1.0 - math.sqrt(D0) if D0 >= 0 else 1.0
+                                    if np.isfinite(float(old_rp_contam)):
+                                        df.at[unit_id, "rp_contamination"] = float(old_rp_contam)
+                            except Exception:
+                                continue
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Emit debug AFTER fallback so NEW values reflect what downstream uses.
+    try:
+        if hasattr(logger, "debug") and df is not None and (not df.empty) and debug_old_by_unit:
+
+            def _fmt(x: Any) -> str:
+                try:
+                    xf = float(x)
+                    if not np.isfinite(xf):
+                        return "nan"
+                    return f"{xf:.6g}"
+                except Exception:
+                    return str(x)
+
+            def _fmtw(x: Any, width: int = 10) -> str:
+                s = _fmt(x)
+                try:
+                    float(s)
+                    return f"{s:>{width}}"
+                except Exception:
+                    return f"{s:<{width}}"
+
+            fmt_line = (
+                "QM unit=%s %-3s"
+                " n=%s fr=%s pr=%s"
+                " rpC=%s rpV=%s"
+                " ampMean=%s ampMed=%s ampCvMed=%s"
+                " segWin=%s conWin=%s tie=%s onlySeg=%s onlyCon=%s"
+            )
+
+            # Determine whether fallback actually changed anything.
+            fallback_units = 0
+            fallback_fields = 0
+            for unit_id in df.index:
+                pre = debug_new_pre_fallback_by_unit.get(unit_id)
+                if pre is None:
+                    continue
+                changed_cols = []
+                for col in [
+                    "firing_rate",
+                    "presence_ratio",
+                    "rp_contamination",
+                    "rp_violations",
+                    "amplitude_mean",
+                    "amplitude_median",
+                    "amplitude_cv_median",
+                    "amplitude_cv_range",
+                ]:
+                    try:
+                        if col not in df.columns:
+                            continue
+                        pre_v = pre.get(col, float("nan"))
+                        post_v = df.at[unit_id, col]
+                        if pd.isna(pre_v) and (not pd.isna(post_v)):
+                            changed_cols.append(col)
+                    except Exception:
+                        continue
+
+                if changed_cols:
+                    fallback_units += 1
+                    fallback_fields += len(changed_cols)
+                    logger.debug(
+                        "QM NaN-fallback activated unit=%s cols=%s",
+                        str(unit_id),
+                        ",".join(changed_cols),
+                    )
+
+            if fallback_units > 0:
+                logger.debug(
+                    "QM NaN-fallback filled %d fields across %d units",
+                    int(fallback_fields),
+                    int(fallback_units),
+                )
+
+            # Print aligned OLD vs NEW (post-fallback) rows.
+            for unit_id in df.index:
+                old = debug_old_by_unit.get(unit_id)
+                if old is None:
+                    continue
+
+                seg_wins, con_wins, ties, only_seg, only_con = debug_pick_stats_by_unit.get(unit_id, (0, 0, 0, 0, 0))
+
+                logger.debug(
+                    fmt_line,
+                    str(unit_id),
+                    "OLD",
+                    _fmtw(old.get("num_spikes"), 8),
+                    _fmtw(old.get("firing_rate"), 9),
+                    _fmtw(old.get("presence_ratio"), 7),
+                    _fmtw(old.get("rp_contamination"), 8),
+                    _fmtw(old.get("rp_violations"), 5),
+                    _fmtw(old.get("amplitude_mean"), 10),
+                    _fmtw(old.get("amplitude_median"), 10),
+                    _fmtw(old.get("amplitude_cv_median"), 9),
+                    _fmtw("-", 6),
+                    _fmtw("-", 6),
+                    _fmtw("-", 4),
+                    _fmtw("-", 7),
+                    _fmtw("-", 7),
+                )
+                logger.debug(
+                    fmt_line,
+                    str(unit_id),
+                    "NEW",
+                    _fmtw(df.at[unit_id, "num_spikes"] if "num_spikes" in df.columns else float("nan"), 8),
+                    _fmtw(df.at[unit_id, "firing_rate"] if "firing_rate" in df.columns else float("nan"), 9),
+                    _fmtw(df.at[unit_id, "presence_ratio"] if "presence_ratio" in df.columns else float("nan"), 7),
+                    _fmtw(df.at[unit_id, "rp_contamination"] if "rp_contamination" in df.columns else float("nan"), 8),
+                    _fmtw(df.at[unit_id, "rp_violations"] if "rp_violations" in df.columns else float("nan"), 5),
+                    _fmtw(df.at[unit_id, "amplitude_mean"] if "amplitude_mean" in df.columns else float("nan"), 10),
+                    _fmtw(df.at[unit_id, "amplitude_median"] if "amplitude_median" in df.columns else float("nan"), 10),
+                    _fmtw(df.at[unit_id, "amplitude_cv_median"] if "amplitude_cv_median" in df.columns else float("nan"), 9),
+                    _fmtw(seg_wins, 6),
+                    _fmtw(con_wins, 6),
+                    _fmtw(ties, 4),
+                    _fmtw(only_seg, 7),
+                    _fmtw(only_con, 7),
+                )
+
+            # Aggregate selection stats across units for quick sanity-checks.
+            try:
+                tot_seg = 0
+                tot_con = 0
+                tot_tie = 0
+                tot_only_seg = 0
+                tot_only_con = 0
+                for unit_id in df.index:
+                    seg_wins, con_wins, ties, only_seg, only_con = debug_pick_stats_by_unit.get(unit_id, (0, 0, 0, 0, 0))
+                    tot_seg += int(seg_wins)
+                    tot_con += int(con_wins)
+                    tot_tie += int(ties)
+                    tot_only_seg += int(only_seg)
+                    tot_only_con += int(only_con)
+
+                logger.debug(
+                    "QM pick-stats total segWin=%d conWin=%d tie=%d onlySeg=%d onlyCon=%d (units=%d)",
+                    int(tot_seg),
+                    int(tot_con),
+                    int(tot_tie),
+                    int(tot_only_seg),
+                    int(tot_only_con),
+                    int(len(df.index)),
+                )
+            except Exception:
+                pass
+    except Exception:
+        pass
     return df
