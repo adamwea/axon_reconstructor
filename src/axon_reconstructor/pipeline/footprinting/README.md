@@ -35,8 +35,7 @@ Under `<well>/footprinting_outputs/`:
 
 ## Exclusions + curation
 
-- Spike-level waveform exclusions are loaded from `<well>/waveforms_outputs/wf_exclusions.npz`.
-- When exclusions exist, per-unit templates are computed from waveforms with excluded spikes dropped.
+- `wf_exclusions.npz` is deprecated and not required.
 - Curated vs uncurated outputs follow the waveforms-stage curated unit set when available.
 
 ## Mermaid flow

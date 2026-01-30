@@ -43,6 +43,16 @@ class WaveformExtractInputs:
     # If True, drop spikes whose waveform window would cross Maxwell snippet boundaries.
     filter_by_maxwell_epochs: bool = True
 
+    # Deprecated (2026-01): historically we also *flagged* extracted per-segment random_spikes
+    # against segment-local Maxwell intervals after waveforms were computed. This is redundant
+    # when concat-time filtering is authoritative and does not mutate analyzers anyway.
+    deprecated_flag_segment_random_spikes_by_epochs: bool = False
+
+    # Deprecated (2026-01): spike-level exclusions are no longer persisted as wf_exclusions.npz.
+    # Downstream stages should consume the waveforms analyzers directly.
+    # This flag remains as an escape hatch for older workflows.
+    write_wf_exclusions_npz: bool = False
+
     # Plotting
     plot_waveforms_grid_pdf: bool = True
 

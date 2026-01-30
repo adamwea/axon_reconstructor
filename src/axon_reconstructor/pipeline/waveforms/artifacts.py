@@ -55,14 +55,19 @@ def _persist_filtering_and_exclusions(
         logger.warning("Failed to write wf_rejection_log.xlsx: %s", e)
 
     try:
-        from .exclusions import WF_EXCLUSIONS_NPZ_NAME, write_wf_exclusions_npz
+        if bool(getattr(inputs, "write_wf_exclusions_npz", False)):
+            logger.warning(
+                "DEPRECATED: writing wf_exclusions.npz (legacy escape hatch enabled). "
+                "Prefer consuming the waveforms analyzers directly."
+            )
+            from .exclusions import WF_EXCLUSIONS_NPZ_NAME, write_wf_exclusions_npz
 
-        write_wf_exclusions_npz(
-            wf_exclusions_npz=waveforms_out_dir / WF_EXCLUSIONS_NPZ_NAME,
-            rows=wf_rejection_rows,
-            force_restart=bool(inputs.force_restart),
-            logger=logger,
-        )
+            write_wf_exclusions_npz(
+                wf_exclusions_npz=waveforms_out_dir / WF_EXCLUSIONS_NPZ_NAME,
+                rows=wf_rejection_rows,
+                force_restart=bool(inputs.force_restart),
+                logger=logger,
+            )
     except Exception as e:
         logger.warning("Failed to write wf_exclusions.npz: %s", e)
 
