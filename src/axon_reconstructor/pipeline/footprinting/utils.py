@@ -315,7 +315,10 @@ def _build_union_source_for_unit(
     """Union channels across per-source footprints for a unit.
 
     If overlaps are detected (by channel_id, electrode_id, or location within tolerance),
-    we warn and keep the first occurrence.
+    we try to resolve them by averaging the underlying waveforms across the
+    contributing sources and recomputing the amplitude (ptp) for that channel.
+
+    If waveform access fails for an overlap group, we fall back to keep-first.
     """
 
     import numpy as np  # type: ignore[import-not-found]
@@ -341,17 +344,28 @@ def _build_union_source_for_unit(
     union_channel_ids: list[Any] = []
     union_electrode_ids: list[Any] = []
 
-    seen_channel_ids: set[Any] = set()
-    seen_electrode_ids: set[Any] = set()
-    seen_loc_keys: set[tuple[int, int]] = set()
+    from axon_reconstructor.pipeline.overlap import (  # local import to avoid import cycles
+        WaveformContribution,
+        mean_waveform_from_contributions,
+        ptp_amplitude_from_mean_waveform,
+    )
+
+    channel_id_to_index: dict[Any, int] = {}
+    electrode_id_to_index: dict[Any, int] = {}
+    loc_key_to_index: dict[tuple[int, int], int] = {}
+
+    contribs_by_index: dict[int, list[WaveformContribution]] = {}
+    overlap_details: list[dict[str, Any]] = []
 
     overlap_counts = {"channel_id": 0, "electrode_id": 0, "location": 0}
 
     for src in sources:
+        src_name = str(src.get("name"))
         locs = np.asarray(src.get("channel_locations"))
         amp = np.asarray(src.get("amp"))
         ch_ids = src.get("channel_ids")
         el_ids = src.get("electrode_ids")
+        an = src.get("_analyzer")
 
         if locs.size == 0 or amp.size == 0 or locs.shape[0] != amp.shape[0]:
             continue
@@ -383,33 +397,100 @@ def _build_union_source_for_unit(
                 except Exception:
                     eid = None
 
-            if cid is not None and cid in seen_channel_ids:
-                overlap_counts["channel_id"] += 1
-                continue
-            if eid is not None and eid in seen_electrode_ids:
-                overlap_counts["electrode_id"] += 1
-                continue
-            if lk in seen_loc_keys:
-                overlap_counts["location"] += 1
+            # Determine whether this (source, channel) overlaps an existing union entry.
+            overlap_type: Optional[str] = None
+            union_index: Optional[int] = None
+
+            if cid is not None and cid in channel_id_to_index:
+                overlap_type = "channel_id"
+                union_index = channel_id_to_index[cid]
+            elif eid is not None and eid in electrode_id_to_index:
+                overlap_type = "electrode_id"
+                union_index = electrode_id_to_index[eid]
+            elif lk in loc_key_to_index:
+                overlap_type = "location"
+                union_index = loc_key_to_index[lk]
+
+            if union_index is not None and overlap_type is not None:
+                overlap_counts[overlap_type] += 1
+                try:
+                    if an is not None:
+                        contribs_by_index.setdefault(int(union_index), []).append(
+                            WaveformContribution(
+                                source_name=src_name,
+                                analyzer=an,
+                                unit_id=unit_id,
+                                channel_ref=(cid if cid is not None else int(i)),
+                            )
+                        )
+                except Exception:
+                    pass
                 continue
 
-            seen_loc_keys.add(lk)
+            # First occurrence: add new union entry and seed contributions.
+            idx = len(union_locs)
+            loc_key_to_index[lk] = idx
             if cid is not None:
-                seen_channel_ids.add(cid)
+                channel_id_to_index[cid] = idx
             if eid is not None:
-                seen_electrode_ids.add(eid)
+                electrode_id_to_index[eid] = idx
 
             union_locs.append([x, y])
             union_amp.append(float(amp[i]))
             union_channel_ids.append(cid)
             union_electrode_ids.append(eid)
 
+            try:
+                if an is not None:
+                    contribs_by_index.setdefault(idx, []).append(
+                        WaveformContribution(
+                            source_name=src_name,
+                            analyzer=an,
+                            unit_id=unit_id,
+                            channel_ref=(cid if cid is not None else int(i)),
+                        )
+                    )
+            except Exception:
+                pass
+
     total_overlaps = sum(overlap_counts.values())
+    overlap_resolved = 0
+
+    # Resolve overlaps by recomputing amp from the mean waveform across contributions.
+    if union_amp:
+        for idx, contribs in contribs_by_index.items():
+            if len(contribs) <= 1:
+                continue
+            try:
+                mean_wf = mean_waveform_from_contributions(contributions=contribs, logger=logger)
+                merged_amp = ptp_amplitude_from_mean_waveform(mean_wf)
+            except Exception:
+                merged_amp = None
+
+            if merged_amp is None:
+                continue
+
+            if 0 <= int(idx) < len(union_amp):
+                union_amp[int(idx)] = float(merged_amp)
+                overlap_resolved += 1
+                try:
+                    overlap_details.append(
+                        {
+                            "channel_index": int(idx),
+                            "sources": sorted({c.source_name for c in contribs}),
+                            "n_contributions": int(len(contribs)),
+                            "strategy": "mean_waveforms",
+                        }
+                    )
+                except Exception:
+                    pass
+
     if total_overlaps:
         logger.warning(
-            "Merged footprint overlaps for unit %s: %s (kept first, skipped the rest)",
+            "Merged footprint overlaps for unit %s: %s (resolved=%d via mean-waveforms; keep-first fallback)",
             unit_id,
             overlap_counts,
+            int(overlap_resolved),
         )
 
     if not union_locs:
@@ -429,6 +510,9 @@ def _build_union_source_for_unit(
         "merge": {
             "location_tolerance": tol,
             "overlap_counts": overlap_counts,
+            "overlap_strategy": "mean_waveforms",
+            "overlap_resolved": int(overlap_resolved),
+            "overlap_details": overlap_details if overlap_details else None,
         },
     }
 

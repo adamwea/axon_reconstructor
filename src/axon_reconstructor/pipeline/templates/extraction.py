@@ -55,6 +55,45 @@ def _gather_template_sources_for_unit(
             ch_ids = None
         el_ids = try_get_electrode_ids(an.recording)
 
+        # Prefer sparsity-aware channel selection when available.
+        # In some SpikeInterface versions, the templates extension returns *dense*
+        # templates (n_channels == recording.get_num_channels()) with zeros outside
+        # the waveforms sparsity. Downstream merging should operate on the sparse
+        # channel set to avoid false overlaps.
+        try:
+            sp = getattr(an, "sparsity", None)
+            if sp is None and an.has_extension("waveforms"):
+                sp = getattr(an.get_extension("waveforms"), "sparsity", None)
+            if sp is not None:
+                ch_inds = sparsity_unit_channel_indices(sparsity=sp, unit_id=uid)
+                ch_inds = np.asarray(ch_inds, dtype=int)
+
+                # Determine whether the template is dense.
+                n_rec_ch = None
+                try:
+                    if ch_ids is not None:
+                        n_rec_ch = int(len(ch_ids))
+                except Exception:
+                    n_rec_ch = None
+                if n_rec_ch is None:
+                    try:
+                        n_rec_ch = int(locs.shape[0])
+                    except Exception:
+                        n_rec_ch = None
+
+                if n_rec_ch is not None and int(tmpl.shape[1]) == int(n_rec_ch) and int(ch_inds.size) > 0 and int(ch_inds.size) < int(n_rec_ch):
+                    tmpl = tmpl[:, ch_inds]
+                    locs = locs[ch_inds, :]
+                    if ch_ids is not None:
+                        ch_ids = list(np.asarray(ch_ids, dtype=object)[ch_inds])
+                    if el_ids is not None:
+                        try:
+                            el_ids = list(np.asarray(el_ids, dtype=object)[ch_inds])
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
         # Support sparse templates by subsetting locations/ids according to sparsity.
         if tmpl.shape[1] != locs.shape[0]:
             try:
@@ -86,6 +125,8 @@ def _gather_template_sources_for_unit(
                 "channel_locations": locs,
                 "channel_ids": ch_ids,
                 "electrode_ids": el_ids,
+                # Runtime-only pointer used for overlap resolution (not serialized).
+                "_analyzer": an,
             }
         )
 
@@ -184,6 +225,9 @@ def _persist_unit_templates(
                 "channel_ids": jsonable_sequence(src.get("channel_ids")),
                 "electrode_ids": jsonable_sequence(src.get("electrode_ids")),
                 "channel_locations": locs[:, :2].tolist(),
+                # Best-effort extra diagnostics for merged_union.
+                "stats": (src.get("stats") if src_name == "merged_union" else None),
+                "overlap": (src.get("overlap") if src_name == "merged_union" else None),
             }
             write_json(meta_path, meta)
 
