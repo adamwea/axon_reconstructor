@@ -35,7 +35,7 @@ flowchart TD
   A[Maxwell .h5] --> B[MEA_Analysis run_pipeline_driver.py]
   B --> C[sorter_output dir]
   C --> D[resolve_mea_sorter_output_dir]
-  D --> E[waveforms/templates/footprinting]
+  D --> E[waveforms/templates]
 ```
 
 ## Notes

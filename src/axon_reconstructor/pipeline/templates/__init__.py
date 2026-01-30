@@ -1,7 +1,7 @@
 """Templates step.
 
 This package extracts per-source templates, builds merged_union templates, and
-writes curated/uncurated QC PDFs and JSON summaries.
+writes QC PDFs and JSON summaries.
 
 Primary entry points are re-exported from .main for compatibility.
 """

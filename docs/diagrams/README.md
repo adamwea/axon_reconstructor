@@ -9,7 +9,6 @@ This folder contains slide-ready Mermaid diagrams as `.mmd` files, plus a helper
 - `spikesorting.mmd`
 - `waveforms.mmd`
 - `templates.mmd`
-- `footprinting.mmd`
 - `reconstruction.mmd`
 
 Rendered outputs are written to:

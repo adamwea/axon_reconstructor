@@ -45,22 +45,8 @@ flowchart LR
     tpl_merged[merged_union templates]
     tpl_fn --> tpl_merged
 
-    tpl_fn --> tpl_pdf1[templates_grid_uncurated.pdf]
-    tpl_fn --> tpl_pdf2[templates_grid_curated.pdf]
+    tpl_fn --> tpl_pdf1[templates_grid.pdf]
     tpl_fn --> tpl_ms1[multi_source_by_unit/*.pdf optional]
-    tpl_fn --> tpl_ms2[multi_source_by_unit_uncurated/*.pdf optional]
-  end
-
-  subgraph FP[footprinting]
-    fp_fn[run_footprinting]
-    wf_fn --> fp_fn
-
-    fp_fn --> fp_pdf1[footprints_grid_concat.pdf]
-    fp_fn --> fp_pdf2[footprints_grid_concat_curated.pdf]
-    fp_fn --> fp_pdf3[footprints_by_source/*.pdf optional]
-    fp_fn --> fp_pdf4[footprints_by_source_uncurated/*.pdf optional]
-    fp_fn --> fp_pdf5[merged_union_by_unit/*.pdf optional]
-    fp_fn --> fp_pdf6[merged_union_by_unit_uncurated/*.pdf optional]
   end
 
   subgraph RX[reconstruction]
