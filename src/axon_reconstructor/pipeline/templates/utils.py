@@ -205,7 +205,11 @@ def _apply_wf_exclusion_monkey_patch_to_merged_union(
     excluded_source_names: set[str],
     logger: Any,
 ) -> dict[str, Any]:
-    """TEMPORARY: drop channels from merged_union based on waveforms-stage rejections."""
+    """TEMPORARY: drop channels from merged_union based on waveforms-stage rejections.
+
+    Deprecated: spike-level exclusions (`wf_exclusions.npz`) are no longer part of the
+    default artifact contract, and the templates step does not apply them downstream.
+    """
 
     import numpy as np  # type: ignore[import-not-found]
 

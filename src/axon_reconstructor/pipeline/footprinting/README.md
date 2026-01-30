@@ -17,6 +17,11 @@ This step is intentionally decoupled from template extraction: it reads the wave
 - plotting controls (concat grids + multi-source overlays)
 - `n_jobs`, `force_restart`
 
+This step reads waveforms analyzers from:
+
+- `<well>/waveforms_outputs/concat_waveforms/`
+- `<well>/waveforms_outputs/segment_waveforms/*/`
+
 ## Outputs (artifacts)
 
 Under `<well>/footprinting_outputs/`:
@@ -36,7 +41,7 @@ Under `<well>/footprinting_outputs/`:
 ## Exclusions + curation
 
 - `wf_exclusions.npz` is deprecated and not required.
-- Curated vs uncurated outputs follow the waveforms-stage curated unit set when available.
+- This step does not apply spike-level exclusions; curated vs uncurated differs only by the unit list (waveforms-stage curation when available).
 
 ## Mermaid flow
 
@@ -51,3 +56,5 @@ flowchart TD
 ## Notes
 
 - Footprinting is useful both as a QC product and as an input to reconstruction heuristics.
+
+Implementation note: footprinting uses the waveforms analyzer `templates` extension as the template source for each unit.

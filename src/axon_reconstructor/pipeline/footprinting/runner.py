@@ -18,10 +18,9 @@ from ..pipeline_driver import _compute_mea_analysis_output_dir
 from .plotting import (
     _build_global_channel_layout,
     _write_merged_union_footprints_grid_pdf,
-    _write_unit_footprints_across_sources_pdf,
 )
+from .multi_source import emit_multi_source_outputs
 from .utils import (
-    _build_union_source_for_unit,
     _compute_footprinting_checkpoint_file,
     _ensure_analyzer_extensions,
     _get_unit_template_from_extension,
@@ -30,7 +29,6 @@ from .utils import (
     _load_wf_rejection_log_summary,
     _load_waveforms_analyzers,
     _normalize_id_for_compare,
-    _sparsity_unit_channel_indices,
     _try_get_electrode_ids,
     _write_json,
 )
@@ -81,6 +79,11 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
 
         And writes under:
             <well>/footprinting_outputs/
+
+        Notes:
+        - Footprinting uses the waveforms analyzer `templates` extension as the template source.
+        - Spike-level exclusions (`wf_exclusions.npz`) are deprecated and are not applied here.
+            "Curated" vs "uncurated" differs only by unit list selection.
     """
 
     import numpy as np  # type: ignore[import-not-found]
@@ -297,169 +300,37 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
         # Build a global electrode layout across all sources (lets us show non-contributing channels).
         layout_locs, layout_key_to_index, layout_tol = _build_global_channel_layout(analyzers=analyzers)
 
-        def _gather_sources_for_unit(*, uid: Any) -> list[dict[str, Any]]:
-            sources_for_unit: list[dict[str, Any]] = []
-            for name, an in analyzers:
-                tmpl_src = None
-                try:
-                    t_ext = an.get_extension("templates") if an.has_extension("templates") else None
-                    if t_ext is not None:
-                        tmpl_src = _get_unit_template_from_extension(analyzer=an, templates_ext=t_ext, unit_id=uid)
-                except Exception:
-                    tmpl_src = None
-                if tmpl_src is None:
-                    continue
-                tmpl_src = np.asarray(tmpl_src)
-                if tmpl_src.ndim != 2 or tmpl_src.size == 0:
-                    continue
-
-                locs_src = np.asarray(an.recording.get_channel_locations())[:, :2]
-                ch_ids_src = None
-                try:
-                    ch_ids_src = np.asarray(an.recording.get_channel_ids())
-                except Exception:
-                    ch_ids_src = None
-
-                el_ids_src = _try_get_electrode_ids(an.recording)
-                if el_ids_src is not None:
-                    try:
-                        el_ids_src = np.asarray(el_ids_src)
-                    except Exception:
-                        el_ids_src = None
-
-                # Support sparse templates by subsetting locations/ids according to sparsity.
-                if tmpl_src.shape[1] != locs_src.shape[0]:
-                    try:
-                        sp = getattr(an, "sparsity", None)
-                        if sp is None and an.has_extension("waveforms"):
-                            sp = getattr(an.get_extension("waveforms"), "sparsity", None)
-                        if sp is not None:
-                            ch_inds = _sparsity_unit_channel_indices(sparsity=sp, unit_id=uid)
-                            ch_inds = np.asarray(ch_inds, dtype=int)
-                            if int(ch_inds.size) == int(tmpl_src.shape[1]):
-                                locs_src = locs_src[ch_inds, :]
-                                if ch_ids_src is not None:
-                                    ch_ids_src = np.asarray(ch_ids_src)[ch_inds]
-                                if el_ids_src is not None:
-                                    el_ids_src = np.asarray(el_ids_src)[ch_inds]
-                    except Exception:
-                        pass
-
-                if tmpl_src.shape[1] != locs_src.shape[0]:
-                    continue
-
-                amp = np.ptp(tmpl_src, axis=0)
-                best_ch = int(np.argmax(amp))
-                sources_for_unit.append(
-                    {
-                        "name": name,
-                        "channel_locations": locs_src,
-                        "amp": amp,
-                        "best_ch": best_ch,
-                        "n_channels": int(locs_src.shape[0]),
-                        "channel_ids": ch_ids_src,
-                        "electrode_ids": el_ids_src,
-                    }
-                )
-            return sources_for_unit
-
-        def _emit_multi_source_outputs(
-            *,
-            unit_list: list[Any],
-            out_dir: Path,
-            out_summary: dict[str, Any],
-            merged_dir: Path,
-            merged_summary: dict[str, Any],
-        ) -> None:
-            processed = 0
-            out_dir.mkdir(parents=True, exist_ok=True)
-            merged_dir.mkdir(parents=True, exist_ok=True)
-
-            for uid in unit_list:
-                sources_for_unit = _gather_sources_for_unit(uid=uid)
-
-                merged_union_src = _build_union_source_for_unit(sources=sources_for_unit, unit_id=uid, logger=logger)
-                merged_sources_for_unit = (
-                    ([merged_union_src] + sources_for_unit) if merged_union_src is not None else sources_for_unit
-                )
-
-                pdf_path = out_dir / f"unit_{uid}_footprints.pdf"
-
-                unit_entry: dict[str, Any] = {
-                    "unit_id": int(uid) if str(uid).isdigit() else str(uid),
-                    "num_sources": int(len(sources_for_unit)),
-                    "sources": [s["name"] for s in sources_for_unit],
-                    "merged_union": (merged_union_src.get("merge") if merged_union_src is not None else None),
-                    "pdf_path": str(pdf_path) if merged_sources_for_unit else None,
-                    "merged_union_pdf_path": None,
-                    "error": None,
-                }
-
-                # Write merged-union-only PDF per unit.
-                if inputs.plot_multi_source_footprints_pdf and merged_union_src is not None:
-                    merged_pdf_path = merged_dir / f"unit_{uid}_merged_union.pdf"
-                    try:
-                        _write_unit_footprints_across_sources_pdf(
-                            sources=[merged_union_src],
-                            unit_id=uid,
-                            pdf_path=merged_pdf_path,
-                            logger=logger,
-                            layout_locs=layout_locs,
-                            layout_key_to_index=layout_key_to_index,
-                            layout_tol=float(layout_tol),
-                            show_non_contributing_channels=True,
-                        )
-                        unit_entry["merged_union_pdf_path"] = str(merged_pdf_path)
-                        merged_summary["units"].append(
-                            {
-                                "unit_id": int(uid) if str(uid).isdigit() else str(uid),
-                                "pdf_path": str(merged_pdf_path),
-                                "merge": merged_union_src.get("merge"),
-                                "n_channels": int(merged_union_src.get("n_channels", 0)),
-                            }
-                        )
-                    except Exception as e:
-                        logger.warning("Failed writing merged_union PDF for unit %s: %s", uid, e)
-
-                if inputs.plot_multi_source_footprints_pdf and merged_sources_for_unit:
-                    try:
-                        _write_unit_footprints_across_sources_pdf(
-                            sources=merged_sources_for_unit,
-                            unit_id=uid,
-                            pdf_path=pdf_path,
-                            logger=logger,
-                            layout_locs=layout_locs,
-                            layout_key_to_index=layout_key_to_index,
-                            layout_tol=float(layout_tol),
-                            show_non_contributing_channels=True,
-                        )
-                    except Exception as e:
-                        unit_entry["error"] = str(e)
-                        unit_entry["pdf_path"] = None
-
-                out_summary["units"].append(unit_entry)
-
-                processed += 1
-                if inputs.unit_limit is not None and processed >= int(inputs.unit_limit):
-                    break
-
         if inputs.plot_multi_source_footprints_pdf:
             # Uncurated: all units, pre-exclusion.
-            _emit_multi_source_outputs(
+            emit_multi_source_outputs(
                 unit_list=unit_ids_all,
+                analyzers=analyzers,
                 out_dir=multi_source_dir_uncurated,
                 out_summary=multi_source_summary_uncurated,
                 merged_dir=merged_union_dir_uncurated,
                 merged_summary=merged_union_summary_uncurated,
+                logger=logger,
+                layout_locs=layout_locs,
+                layout_key_to_index=layout_key_to_index,
+                layout_tol=float(layout_tol),
+                unit_limit=(int(inputs.unit_limit) if inputs.unit_limit is not None else None),
+                plot_pdfs=bool(inputs.plot_multi_source_footprints_pdf),
             )
 
             # Curated: curated units, exclusions applied.
-            _emit_multi_source_outputs(
+            emit_multi_source_outputs(
                 unit_list=unit_ids,
+                analyzers=analyzers,
                 out_dir=multi_source_dir,
                 out_summary=multi_source_summary,
                 merged_dir=merged_union_dir,
                 merged_summary=merged_union_summary,
+                logger=logger,
+                layout_locs=layout_locs,
+                layout_key_to_index=layout_key_to_index,
+                layout_tol=float(layout_tol),
+                unit_limit=(int(inputs.unit_limit) if inputs.unit_limit is not None else None),
+                plot_pdfs=bool(inputs.plot_multi_source_footprints_pdf),
             )
 
         if inputs.plot_multi_source_footprints_pdf:
