@@ -144,7 +144,7 @@ def _build_union_template_for_unit(
     union_electrode_ids: list[Any] = []
     union_source_names: list[str] = []
 
-    from axon_reconstructor.pipeline.overlap import (  # local import to avoid circular deps
+    from axon_reconstructor.pipeline.templates.overlaps import (  # local import to avoid circular deps
         WaveformContribution,
         mean_waveform_from_contributions,
     )
@@ -185,10 +185,16 @@ def _build_union_template_for_unit(
                     if an is not None:
                         ch_ref = None
                         try:
-                            if ch_ids is not None:
-                                ch_ref = ch_ids[j]
+                            if el_ids is not None:
+                                ch_ref = el_ids[j]
                         except Exception:
                             ch_ref = None
+                        if ch_ref is None:
+                            try:
+                                if ch_ids is not None:
+                                    ch_ref = ch_ids[j]
+                            except Exception:
+                                ch_ref = None
                         contribs_by_key.setdefault(key, []).append(
                             WaveformContribution(
                                 source_name=str(name),
@@ -221,10 +227,16 @@ def _build_union_template_for_unit(
                 if an is not None:
                     ch_ref = None
                     try:
-                        if ch_ids is not None:
-                            ch_ref = ch_ids[j]
+                        if el_ids is not None:
+                            ch_ref = el_ids[j]
                     except Exception:
                         ch_ref = None
+                    if ch_ref is None:
+                        try:
+                            if ch_ids is not None:
+                                ch_ref = ch_ids[j]
+                        except Exception:
+                            ch_ref = None
                     contribs_by_key.setdefault(key, []).append(
                         WaveformContribution(
                             source_name=str(name),
@@ -303,92 +315,7 @@ def _build_union_template_for_unit(
     }
 
 
-def _apply_wf_exclusion_monkey_patch_to_merged_union(
-    *,
-    merged_union_src: dict[str, Any],
-    unit_id: Any,
-    excluded_source_names: set[str],
-    logger: Any,
-) -> dict[str, Any]:
-    """TEMPORARY: drop channels from merged_union based on waveforms-stage rejections.
-
-    Deprecated: spike-level exclusions (`wf_exclusions.npz`) are no longer part of the
-    default artifact contract, and the templates step does not apply them downstream.
-    """
-
-    import numpy as np  # type: ignore[import-not-found]
-
-    if not excluded_source_names:
-        return merged_union_src
-
-    excluded = {s for s in excluded_source_names if str(s) != "concat"}
-    if not excluded:
-        return merged_union_src
-
-    src_names = merged_union_src.get("channel_source_names")
-    if src_names is None:
-        return merged_union_src
-
-    try:
-        src_names_list = [str(x) for x in list(src_names)]
-    except Exception:
-        return merged_union_src
-
-    keep_mask = np.asarray([name not in excluded for name in src_names_list], dtype=bool)
-    if keep_mask.size == 0:
-        return merged_union_src
-    if bool(np.all(keep_mask)):
-        return merged_union_src
-
-    if not bool(np.any(keep_mask)):
-        logger.warning(
-            "MONKEY PATCH: would drop all merged_union channels for unit %s (excluded sources=%s); keeping unmodified",
-            unit_id,
-            sorted(excluded),
-        )
-        return merged_union_src
-
-    tmpl = np.asarray(merged_union_src.get("template"))
-    locs = np.asarray(merged_union_src.get("channel_locations"))
-    if tmpl.ndim != 2 or locs.ndim != 2 or tmpl.shape[1] != locs.shape[0] or keep_mask.shape[0] != tmpl.shape[1]:
-        return merged_union_src
-
-    dropped = int(np.sum(~keep_mask))
-    kept = int(np.sum(keep_mask))
-    logger.info(
-        "MONKEY PATCH: merged_union channel curation for unit %s: dropping %d channels from sources=%s (kept=%d)",
-        unit_id,
-        dropped,
-        sorted(excluded),
-        kept,
-    )
-
-    merged_union_src = dict(merged_union_src)
-    merged_union_src["template"] = tmpl[:, keep_mask]
-    merged_union_src["channel_locations"] = locs[keep_mask]
-
-    for key in ("channel_ids", "electrode_ids", "channel_source_names"):
-        try:
-            vals = merged_union_src.get(key)
-            if vals is not None and len(vals) == int(keep_mask.shape[0]):
-                merged_union_src[key] = [v for v, keep in zip(list(vals), keep_mask.tolist(), strict=False) if keep]
-        except Exception:
-            pass
-
-    try:
-        stats = dict(merged_union_src.get("stats") or {})
-        stats["monkey_patch_dropped_sources"] = sorted(excluded)
-        stats["monkey_patch_dropped_channels"] = dropped
-        stats["n_channels"] = int(merged_union_src["template"].shape[1])
-        merged_union_src["stats"] = stats
-    except Exception:
-        pass
-
-    return merged_union_src
-
-
 __all__ = [
-    "_apply_wf_exclusion_monkey_patch_to_merged_union",
     "_build_union_template_for_unit",
     "_compute_templates_checkpoint_file",
     "_infer_location_tolerance",

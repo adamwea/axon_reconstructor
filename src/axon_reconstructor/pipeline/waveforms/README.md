@@ -87,7 +87,6 @@ flowchart TD
   B --> E[wf_rejection_log.xlsx]
   B --> F[wf_exclusions.npz]
   C --> G[templates]
-  C --> H[footprinting]
 ```
 
 ## Notes

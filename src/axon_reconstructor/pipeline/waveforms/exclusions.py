@@ -1,7 +1,10 @@
 """Waveform exclusion artifact helpers.
 
 This module provides a *spike-level* exclusion mechanism that can be produced in
-`waveforms` and consumed later by `footprinting`/`templates`.
+`waveforms`.
+
+Note: downstream stages (templates/reconstruction) no longer consume or apply spike-level
+exclusions; `wf_exclusions.npz` is deprecated and retained only for audit/debugging.
 
 Key idea:
 - Represent exclusions by (source_name, unit_id, spike_sample) rather than by

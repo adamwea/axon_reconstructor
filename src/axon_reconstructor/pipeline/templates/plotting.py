@@ -140,16 +140,13 @@ def _write_unit_templates_across_sources_pdf(
         axes_list = list(np.asarray(axes).ravel())
 
         for ax, src in zip(axes_list, sources_for_unit):
-            # For merged_union specifically, plot *all* channels so nothing is hidden
-            # by the top-N selection.
-            tc = 0 if str(src.get("name")) == "merged_union" else int(top_channels)
             _write_template_overlay(
                 ax=ax,
                 template=src["template"],
                 fs_hz=float(fs_hz),
                 ms_before=ms_before,
                 ms_after=ms_after,
-                top_channels=int(tc),
+                top_channels=int(top_channels),
                 title=str(src["name"]),
             )
 

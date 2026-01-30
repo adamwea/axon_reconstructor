@@ -11,8 +11,8 @@ class WaveformContribution:
     `channel_ref` is a best-effort reference to a channel for this source.
     It can be:
       - a channel id from `recording.get_channel_ids()` (preferred)
-      - a global channel index in the recording channel list (common when ids
-        are 0..N-1)
+      - an electrode/contact id from per-channel properties (common for Maxwell)
+      - a global channel index in the recording channel list
 
     This module maps `channel_ref` into the waveforms extension's local channel
     axis index (sparsity-aware) before selecting waveforms.
@@ -36,32 +36,84 @@ def _try_get_recording_channel_ids(analyzer: Any) -> Optional[list[Any]]:
     return None
 
 
+def _try_get_recording_electrode_ids(analyzer: Any) -> Optional[list[Any]]:
+    """Best-effort electrode/contact id per recording channel."""
+
+    rec = getattr(analyzer, "recording", None)
+    if rec is None:
+        return None
+
+    for key in (
+        "electrode_id",
+        "electrode",
+        "contact_id",
+        "contact_ids",
+        "contact",
+        "site_id",
+        "site",
+    ):
+        try:
+            if hasattr(rec, "get_property_keys") and key not in set(rec.get_property_keys()):
+                continue
+            if hasattr(rec, "get_property"):
+                vals = rec.get_property(key)
+                if vals is None:
+                    continue
+                return list(vals)
+        except Exception:
+            continue
+
+    # Maxwell-specific: contact_vector dict with an 'electrode' field.
+    try:
+        if hasattr(rec, "get_property"):
+            cv = rec.get_property("contact_vector")
+            if isinstance(cv, dict) and "electrode" in cv:
+                return list(cv["electrode"])
+    except Exception:
+        pass
+
+    return None
+
+
 def _resolve_global_channel_index(*, analyzer: Any, channel_ref: Any) -> Optional[int]:
     """Resolve a channel reference to a global channel index (recording order)."""
 
     ch_ids = _try_get_recording_channel_ids(analyzer)
-    if not ch_ids:
-        return None
+    if ch_ids:
+        # Exact match against channel_ids (handles int/str ids).
+        try:
+            return int(ch_ids.index(channel_ref))
+        except Exception:
+            pass
 
-    # Exact match against channel_ids (handles int/str ids).
-    try:
-        return int(ch_ids.index(channel_ref))
-    except Exception:
-        pass
+        # Common: ids are numeric but may be stringified (or vice versa).
+        try:
+            ref_str = str(channel_ref)
+            for i, cid in enumerate(ch_ids):
+                if str(cid) == ref_str:
+                    return int(i)
+        except Exception:
+            pass
 
-    # Common: ids are numeric but may be stringified (or vice versa).
-    try:
-        ref_str = str(channel_ref)
-        for i, cid in enumerate(ch_ids):
-            if str(cid) == ref_str:
-                return int(i)
-    except Exception:
-        pass
+    # Some pipelines key overlaps by electrode/contact id instead of channel_id.
+    el_ids = _try_get_recording_electrode_ids(analyzer)
+    if el_ids:
+        try:
+            return int(el_ids.index(channel_ref))
+        except Exception:
+            pass
+        try:
+            ref_str = str(channel_ref)
+            for i, eid in enumerate(el_ids):
+                if str(eid) == ref_str:
+                    return int(i)
+        except Exception:
+            pass
 
     # Fallback: treat as an already-global index.
     try:
         idx = int(channel_ref)
-        if 0 <= idx < len(ch_ids):
+        if ch_ids and 0 <= idx < len(ch_ids):
             return idx
     except Exception:
         pass
@@ -188,14 +240,26 @@ def mean_waveform_from_contributions(
     stacked: list[np.ndarray] = []
     used = 0
 
+    # Cache waveforms per (analyzer, unit_id) to avoid repeated heavy loads.
+    wf_cache: dict[tuple[int, Any], Optional[np.ndarray]] = {}
+
     for c in contributions:
-        wfs = _try_get_waveforms_one_unit(analyzer=c.analyzer, unit_id=c.unit_id)
+        cache_key = (id(c.analyzer), c.unit_id)
+        if cache_key in wf_cache:
+            wfs = wf_cache[cache_key]
+        else:
+            wfs_raw = _try_get_waveforms_one_unit(analyzer=c.analyzer, unit_id=c.unit_id)
+            try:
+                wfs = None if wfs_raw is None else np.asarray(wfs_raw)
+            except Exception:
+                wfs = None
+            wf_cache[cache_key] = wfs
+
         if wfs is None:
             if logger is not None:
                 logger.debug("Overlap: no waveforms for %s unit=%s", c.source_name, c.unit_id)
             continue
 
-        wfs = np.asarray(wfs)
         if wfs.ndim != 3:
             if logger is not None:
                 logger.debug(

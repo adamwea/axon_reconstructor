@@ -20,7 +20,7 @@ def _gather_template_sources_for_unit(
     Args:
         uid: Unit id.
         analyzers: List of (source_name, SortingAnalyzer).
-        get_template_from_extension: Callable compatible with footprinting/templates helpers.
+        get_template_from_extension: Callable compatible with templates helpers.
         sparsity_unit_channel_indices: Callable that extracts per-unit channel indices from a sparsity object.
         try_get_electrode_ids: Callable that best-effort extracts electrode ids.
 
@@ -177,6 +177,10 @@ def _persist_unit_templates(
             locs_npy = out_dir / "merged_union_channel_locations.npy"
             ch_ids_npy = out_dir / "merged_union_channel_ids.npy"
             el_ids_npy = out_dir / "merged_union_electrode_ids.npy"
+            footprint_ptp_npy = out_dir / "merged_union_footprint_ptp.npy"
+            axon_velocity_npz = out_dir / "axon_velocity_inputs.npz"
+            axon_velocity_amplitude_png = out_dir / "axon_velocity_amplitude_map.png"
+            axon_velocity_peak_latency_png = out_dir / "axon_velocity_peak_latency_map.png"
             meta_path = out_dir / "merged_union_template_meta.json"
         else:
             out_dir = extracted_templates_dir / src_name
@@ -186,6 +190,10 @@ def _persist_unit_templates(
             locs_npy = None
             ch_ids_npy = None
             el_ids_npy = None
+            footprint_ptp_npy = None
+            axon_velocity_npz = None
+            axon_velocity_amplitude_png = None
+            axon_velocity_peak_latency_png = None
 
         if (not npy_path.exists()) or force_restart:
             np.save(npy_path, tmpl)
@@ -195,6 +203,7 @@ def _persist_unit_templates(
         if src_name == "merged_union":
             try:
                 assert locs_npy is not None and ch_ids_npy is not None and el_ids_npy is not None
+                assert footprint_ptp_npy is not None and axon_velocity_npz is not None
 
                 if (not locs_npy.exists()) or force_restart:
                     np.save(locs_npy, np.asarray(locs[:, :2], dtype=float))
@@ -206,6 +215,69 @@ def _persist_unit_templates(
                 el_ids_seq = jsonable_sequence(src.get("electrode_ids"))
                 if (not el_ids_npy.exists()) or force_restart:
                     np.save(el_ids_npy, np.asarray(el_ids_seq, dtype=object))
+
+                # Footprint amplitude (ptp across time for each channel).
+                # `tmpl` is (n_samples, n_channels).
+                if (not footprint_ptp_npy.exists()) or force_restart:
+                    try:
+                        np.save(footprint_ptp_npy, np.ptp(tmpl, axis=0).astype(float))
+                    except Exception:
+                        # Keep this best-effort; reconstruction only needs template+locations.
+                        pass
+
+                # Convenience bundle for axon_velocity usage (channels x time expected).
+                if (not axon_velocity_npz.exists()) or force_restart:
+                    try:
+                        np.savez(
+                            axon_velocity_npz,
+                            unit_id=jsonable(uid),
+                            template_ch_by_t=np.asarray(tmpl, dtype=float).T,
+                            locations_xy=np.asarray(locs[:, :2], dtype=float),
+                            sampling_frequency_hz=float(fs_hz),
+                            channel_ids=np.asarray(ch_ids_seq, dtype=object) if ch_ids_seq is not None else None,
+                            electrode_ids=np.asarray(el_ids_seq, dtype=object) if el_ids_seq is not None else None,
+                        )
+                    except Exception:
+                        pass
+
+                # Best-effort axon_velocity plots (do not hard-require axon_velocity dependencies).
+                # These are useful quick-look visualizations and mirror the legacy pipeline outputs.
+                try:
+                    if ((not axon_velocity_amplitude_png.exists()) or (not axon_velocity_peak_latency_png.exists()) or force_restart):
+                        import matplotlib
+
+                        matplotlib.use("Agg", force=True)
+                        import matplotlib.pyplot as plt
+
+                        import axon_velocity.plotting as av_plotting  # type: ignore[import-not-found]
+
+                        tmpl_ch_by_t = np.asarray(tmpl, dtype=float).T
+                        locs_xy = np.asarray(locs[:, :2], dtype=float)
+
+                        if (not axon_velocity_amplitude_png.exists()) or force_restart:
+                            fig = plt.figure(figsize=(5, 4))
+                            ax = fig.add_subplot(111)
+                            _ = av_plotting.plot_amplitude_map(tmpl_ch_by_t, locs_xy, ax=ax, cmap="viridis", log=False)
+                            fig.tight_layout()
+                            fig.savefig(axon_velocity_amplitude_png, dpi=200)
+                            plt.close(fig)
+
+                        if (not axon_velocity_peak_latency_png.exists()) or force_restart:
+                            fig = plt.figure(figsize=(5, 4))
+                            ax = fig.add_subplot(111)
+                            _ = av_plotting.plot_peak_latency_map(
+                                tmpl_ch_by_t,
+                                locs_xy,
+                                float(fs_hz),
+                                ax=ax,
+                                cmap="viridis",
+                                log=False,
+                            )
+                            fig.tight_layout()
+                            fig.savefig(axon_velocity_peak_latency_png, dpi=200)
+                            plt.close(fig)
+                except Exception:
+                    pass
             except Exception as e:
                 logger.warning("Failed writing merged_union aux arrays for unit %s: %s", uid, e)
 
@@ -217,6 +289,24 @@ def _persist_unit_templates(
                 "channel_locations_npy": (str(locs_npy) if src_name == "merged_union" and locs_npy is not None else None),
                 "channel_ids_npy": (str(ch_ids_npy) if src_name == "merged_union" and ch_ids_npy is not None else None),
                 "electrode_ids_npy": (str(el_ids_npy) if src_name == "merged_union" and el_ids_npy is not None else None),
+                "footprint_ptp_npy": (
+                    str(footprint_ptp_npy)
+                    if src_name == "merged_union" and footprint_ptp_npy is not None
+                    else None
+                ),
+                "axon_velocity_inputs_npz": (
+                    str(axon_velocity_npz) if src_name == "merged_union" and axon_velocity_npz is not None else None
+                ),
+                "axon_velocity_amplitude_map_png": (
+                    str(axon_velocity_amplitude_png)
+                    if src_name == "merged_union" and axon_velocity_amplitude_png is not None
+                    else None
+                ),
+                "axon_velocity_peak_latency_map_png": (
+                    str(axon_velocity_peak_latency_png)
+                    if src_name == "merged_union" and axon_velocity_peak_latency_png is not None
+                    else None
+                ),
                 "sampling_frequency_hz": float(fs_hz),
                 "ms_before": ms_before,
                 "ms_after": ms_after,

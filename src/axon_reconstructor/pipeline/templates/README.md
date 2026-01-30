@@ -2,7 +2,7 @@
 
 Extracts per-unit templates from waveforms analyzers and builds a **merged_union** template per unit across sources.
 
-This step also produces curated/uncurated QC PDFs and JSON summaries.
+This step produces QC PDFs and a JSON summary.
 
 ## Primary API
 
@@ -35,18 +35,18 @@ Under `<well>/templates_outputs/`:
     - `merged_union_template.npy`
     - `merged_union_channel_locations.npy`
     - `merged_union_template_meta.json`
+    - `merged_union_footprint_ptp.npy` (peak-to-peak amplitude per channel)
+    - `axon_velocity_inputs.npz` (convenience bundle for plotting/reconstruction)
 - QC PDFs
-  - `templates_grid_uncurated.pdf`
-  - `templates_grid_curated.pdf` (uses waveforms-stage curated unit list when available)
+  - `templates_grid.pdf`
   - `multi_source_by_unit/` (optional per-unit overlays)
-  - `multi_source_by_unit_uncurated/` (optional)
 - Summaries
   - `templates_summary.json`
 
 ## Exclusions + curation
 
 - `wf_exclusions.npz` is deprecated and not required.
-- This step does not apply spike-level exclusions; curated vs uncurated differs only by the unit list (waveforms-stage curation when available).
+- This step does not apply spike-level exclusions; curation here refers only to which unit ids are processed (waveforms-stage curation when available).
 
 ## Mermaid flow
 
