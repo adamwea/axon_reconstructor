@@ -4,7 +4,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from .plotting import _write_templates_grid_pdf, _write_unit_templates_across_sources_pdf
+from .plotting import (
+    _write_footprint_ptp_map,
+    _write_templates_grid_pdf,
+    _write_unit_template_and_footprint_svg,
+    _write_unit_templates_across_sources_pdf,
+)
 
 from .processing import (
     _apply_waveforms_stage_unit_curation,
@@ -47,6 +52,10 @@ class TemplateExtractInputs:
     # Plotting
     plot_templates_grid_pdf: bool = True
     plot_multi_source_templates_pdf: bool = True
+    plot_templates_grid_panels_svg: bool = True
+
+    # Footprints
+    plot_merged_union_footprints_linear_and_log: bool = True
 
     # Template overlay plot controls
     top_channels_per_template: int = 8
@@ -64,22 +73,31 @@ class TemplateExtractOutputs:
 
     summary_json: Path
     templates_grid_pdf: Optional[Path]
+    templates_grid_panels_dir: Optional[Path]
     multi_source_templates_dir: Optional[Path]
 
 
 def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_prefix: str = "axon_reconstructor") -> TemplateExtractOutputs:
-    """Extract templates from waveforms analyzers, save `.npy`, and produce QC PDFs.
+    """Extract templates from waveforms analyzers, persist artifacts, and produce QC plots.
 
-    Implements multi-source logic similar to the earlier footprinting step (now consolidated here):
-    - loads concat + per-segment waveforms analyzers
-    - applies waveforms-stage unit curation (metrics_curated.xlsx) when available
-    - handles missing units in some segments by skipping that source
-    - builds a per-unit `merged_union` template across sources
+        Scientific / data-handling contract:
+        - Templates are sourced from the waveforms-stage `SortingAnalyzer` artifacts (`templates` extension).
+        - Spike-level exclusions belong to the waveforms stage and are **not** re-applied downstream.
+            (The deprecated `wf_exclusions.npz` is intentionally not consumed here.)
+        - "Curation" at this stage refers only to selecting which unit ids are processed, optionally
+            using the waveforms-stage curated unit list when available.
 
-        Notes:
-        - Templates are sourced from the analyzer `templates` extension.
-        - Spike-level exclusions (`wf_exclusions.npz`) are deprecated and are not applied downstream.
-        - "Curation" in this stage only refers to unit list selection (waveforms-stage curation when available).
+        Multi-source logic (concat + optional per-segment analyzers):
+        - Loads concat + per-segment waveforms analyzers.
+        - Handles missing units in some sources by skipping that source for the unit.
+        - Builds a per-unit `merged_union` template across sources (union of channels).
+        - For overlapping channels across sources (same physical channel), merges the waveform using
+            a mean-of-waveforms strategy (best-effort) to avoid keep-first bias.
+
+        QC outputs:
+        - Grid PDF (`templates_grid.pdf`) and optional per-unit multi-source overlay PDFs.
+        - Per-unit merged_union footprint PTP maps (linear + log) and combined SVG panels.
+        - Optional per-unit SVG panels for the grid entries (linear + log footprint).
     """
 
     well_out_dir = _compute_mea_analysis_output_dir(
@@ -102,6 +120,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     summary_json = templates_out_dir / "templates_summary.json"
     templates_grid_pdf = templates_out_dir / "templates_grid.pdf" if inputs.plot_templates_grid_pdf else None
     multi_source_templates_dir = templates_out_dir / "multi_source_by_unit" if inputs.plot_multi_source_templates_pdf else None
+    templates_grid_panels_dir = templates_out_dir / "templates_grid_panels_svg" if inputs.plot_templates_grid_panels_svg else None
 
     # Legacy filenames from earlier iterations (resume-compatible).
     legacy_templates_grid_uncurated_pdf = templates_out_dir / "templates_grid_uncurated.pdf"
@@ -146,6 +165,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
             merged_union_by_unit_dir=(merged_union_by_unit_dir if merged_union_by_unit_dir.exists() else None),
             summary_json=summary_json,
             templates_grid_pdf=existing_grid_pdf,
+            templates_grid_panels_dir=(templates_grid_panels_dir if templates_grid_panels_dir is not None and templates_grid_panels_dir.exists() else None),
             multi_source_templates_dir=existing_multi_source_dir,
         )
 
@@ -163,6 +183,8 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     merged_union_by_unit_dir.mkdir(parents=True, exist_ok=True)
     if multi_source_templates_dir is not None:
         multi_source_templates_dir.mkdir(parents=True, exist_ok=True)
+    if templates_grid_panels_dir is not None:
+        templates_grid_panels_dir.mkdir(parents=True, exist_ok=True)
 
     from .multi_source_utils import (
         _get_unit_template_from_extension,
@@ -215,6 +237,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         "templates_out_dir": str(templates_out_dir),
         "sources": [name for name, _ in analyzers],
         "templates_grid_pdf": str(templates_grid_pdf) if templates_grid_pdf else None,
+        "templates_grid_panels_dir": str(templates_grid_panels_dir) if templates_grid_panels_dir else None,
         "multi_source_templates_dir": str(multi_source_templates_dir) if multi_source_templates_dir else None,
         "curation": {
             "metrics_curated_xlsx": str(curation_metrics_xlsx) if curation_metrics_xlsx else None,
@@ -234,6 +257,9 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         ms_before=ms_before,
         ms_after=ms_after,
         top_channels_per_template=int(inputs.top_channels_per_template),
+        write_footprint_ptp_map=_write_footprint_ptp_map,
+        write_unit_template_and_footprint_svg=_write_unit_template_and_footprint_svg,
+        make_merged_union_footprint_plots=bool(inputs.plot_merged_union_footprints_linear_and_log),
         force_restart=bool(inputs.force_restart),
         n_jobs=int(inputs.n_jobs),
         get_template_from_extension=_get_unit_template_from_extension,
@@ -261,6 +287,43 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
                 logger=logger,
             )
 
+    # Write per-unit vector panels (SVG) mirroring the grid entries.
+    if templates_grid_panels_dir is not None:
+        for entry in unit_grid_entries:
+            uid = entry.get("unit_id")
+            tmpl = entry.get("template")
+            locs = entry.get("channel_locations")
+            if uid is None or tmpl is None or locs is None:
+                continue
+            linear_svg = templates_grid_panels_dir / f"unit_{uid}_linear.svg"
+            log_svg = templates_grid_panels_dir / f"unit_{uid}_log.svg"
+            if inputs.force_restart or (not linear_svg.exists()) or (not log_svg.exists()):
+                try:
+                    _write_unit_template_and_footprint_svg(
+                        out_path=linear_svg,
+                        unit_id=uid,
+                        template=tmpl,
+                        channel_locations_xy=locs,
+                        fs_hz=float(fs_hz),
+                        ms_before=ms_before,
+                        ms_after=ms_after,
+                        top_channels=int(inputs.top_channels_per_template),
+                        log_footprint=False,
+                    )
+                    _write_unit_template_and_footprint_svg(
+                        out_path=log_svg,
+                        unit_id=uid,
+                        template=tmpl,
+                        channel_locations_xy=locs,
+                        fs_hz=float(fs_hz),
+                        ms_before=ms_before,
+                        ms_after=ms_after,
+                        top_channels=int(inputs.top_channels_per_template),
+                        log_footprint=True,
+                    )
+                except Exception:
+                    pass
+
     _write_json(summary_json, summary)
 
     ckpt = save_checkpoint(
@@ -285,6 +348,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         merged_union_by_unit_dir=merged_union_by_unit_dir,
         summary_json=summary_json,
         templates_grid_pdf=templates_grid_pdf,
+        templates_grid_panels_dir=templates_grid_panels_dir,
         multi_source_templates_dir=multi_source_templates_dir,
     )
 

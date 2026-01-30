@@ -13,6 +13,7 @@ def _write_waveforms_grid_pdf(
     unit_ids: Optional[list[Any]] = None,
     segment_waveforms_folders: Optional[list[Path]] = None,
     show_debug_annotation: bool = False,
+    panel_dir: Optional[Path] = None,
 ) -> None:
     """Write a multi-page PDF of per-unit waveforms.
 
@@ -130,6 +131,8 @@ def _write_waveforms_grid_pdf(
         raise RuntimeError("Plotting waveforms grid requires numpy/matplotlib/spikeinterface") from e
 
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    if panel_dir is not None:
+        panel_dir.mkdir(parents=True, exist_ok=True)
 
     analyzer = None
     waveforms_ext = None
@@ -419,6 +422,61 @@ def _write_waveforms_grid_pdf(
                             )
                         except Exception:
                             # Keep plots usable even if scalebar fails.
+                            pass
+
+                    # Optional: write an individual vector panel for this unit.
+                    if panel_dir is not None:
+                        try:
+                            panel_path = panel_dir / f"unit_{uid}.svg"
+                            fig_u = plt.figure(figsize=(4.2, 3.2))
+                            ax_u = fig_u.add_subplot(111)
+
+                            ax_u.set_xticks([])
+                            ax_u.set_yticks([])
+                            ax_u.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+                            for spine in ax_u.spines.values():
+                                spine.set_visible(False)
+
+                            ax_u.plot(time_ms, spikes_to_plot.T, c="gray", lw=0.5, alpha=0.3)
+                            ax_u.plot(time_ms, mean_wf_1d, c="red", lw=1.5)
+                            ax_u.set_title(f"Unit {uid} | Ch {ch_label}", fontsize=10)
+
+                            try:
+                                ax_u.text(
+                                    0.98,
+                                    0.14,
+                                    annotation_text,
+                                    transform=ax_u.transAxes,
+                                    ha="left",
+                                    va="bottom",
+                                    fontsize=8,
+                                    color="black",
+                                    bbox={"facecolor": "white", "alpha": 0.65, "edgecolor": "none", "pad": 1.0},
+                                )
+                            except Exception:
+                                pass
+
+                            if add_scalebar is not None:
+                                try:
+                                    add_scalebar(
+                                        ax_u,
+                                        matchx=False,
+                                        matchy=False,
+                                        sizex=1.0,
+                                        labelx="1 ms",
+                                        sizey=50,
+                                        labely="50 µV",
+                                        loc=4,
+                                        hidex=True,
+                                        hidey=True,
+                                    )
+                                except Exception:
+                                    pass
+
+                            fig_u.tight_layout()
+                            fig_u.savefig(panel_path, format="svg")
+                            plt.close(fig_u)
+                        except Exception:
                             pass
                 except Exception:
                     ax.axis("off")

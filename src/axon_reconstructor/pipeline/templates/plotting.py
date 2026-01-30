@@ -158,7 +158,133 @@ def _write_unit_templates_across_sources_pdf(
         plt.close(fig)
 
 
+def _write_footprint_ptp_map(
+    *,
+    out_path: Path,
+    channel_locations_xy: Any,
+    footprint_ptp: Any,
+    title: str,
+    log_scale: bool,
+    cmap: str = "viridis",
+) -> None:
+    """Write a footprint PTP amplitude map as a single image.
+
+    This is intentionally lightweight and does not depend on axon_velocity.
+    """
+
+    import numpy as np  # type: ignore[import-not-found]
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+
+    from matplotlib.colors import LogNorm
+
+    locs = np.asarray(channel_locations_xy, dtype=float)
+    amp = np.asarray(footprint_ptp, dtype=float)
+    if locs.ndim != 2 or locs.shape[1] < 2 or amp.ndim != 1 or locs.shape[0] != amp.shape[0]:
+        return
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig = plt.figure(figsize=(5, 4))
+    ax = fig.add_subplot(111)
+    ax.set_title(title, fontsize=10)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_aspect("equal", adjustable="box")
+
+    norm = None
+    if bool(log_scale):
+        try:
+            pos = amp[np.isfinite(amp) & (amp > 0)]
+            if pos.size:
+                vmin = float(np.nanmin(pos))
+                vmax = float(np.nanmax(pos))
+                vmin = max(vmin, 1e-9)
+                if vmax > vmin:
+                    norm = LogNorm(vmin=vmin, vmax=vmax)
+        except Exception:
+            norm = None
+
+    sc = ax.scatter(locs[:, 0], locs[:, 1], c=amp, s=18, cmap=cmap, norm=norm, marker="s", linewidths=0)
+    fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04, label="PTP")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200)
+    plt.close(fig)
+
+
+def _write_unit_template_and_footprint_svg(
+    *,
+    out_path: Path,
+    unit_id: Any,
+    template: Any,
+    channel_locations_xy: Any,
+    fs_hz: float,
+    ms_before: Optional[float],
+    ms_after: Optional[float],
+    top_channels: int,
+    log_footprint: bool,
+) -> None:
+    """Write a per-unit vector panel combining footprint + template overlay."""
+
+    import numpy as np  # type: ignore[import-not-found]
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+
+    tmpl = np.asarray(template, dtype=float)
+    locs = np.asarray(channel_locations_xy, dtype=float)
+    if tmpl.ndim != 2 or locs.ndim != 2 or locs.shape[0] != tmpl.shape[1]:
+        return
+
+    amp = np.ptp(tmpl, axis=0)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(9.5, 3.6), constrained_layout=True)
+
+    # Footprint map.
+    try:
+        from matplotlib.colors import LogNorm
+
+        norm = None
+        if bool(log_footprint):
+            pos = amp[np.isfinite(amp) & (amp > 0)]
+            if pos.size:
+                vmin = float(np.nanmin(pos))
+                vmax = float(np.nanmax(pos))
+                vmin = max(vmin, 1e-9)
+                if vmax > vmin:
+                    norm = LogNorm(vmin=vmin, vmax=vmax)
+        sc = ax0.scatter(locs[:, 0], locs[:, 1], c=amp, s=18, cmap="viridis", norm=norm, marker="s", linewidths=0)
+        ax0.set_title("Footprint (PTP)" + (" [log]" if log_footprint else ""), fontsize=10)
+        ax0.set_aspect("equal", adjustable="box")
+        ax0.set_xlabel("x")
+        ax0.set_ylabel("y")
+        fig.colorbar(sc, ax=ax0, fraction=0.046, pad=0.04)
+    except Exception:
+        ax0.set_axis_off()
+
+    # Template overlay.
+    _write_template_overlay(
+        ax=ax1,
+        template=tmpl,
+        fs_hz=float(fs_hz),
+        ms_before=ms_before,
+        ms_after=ms_after,
+        top_channels=int(top_channels),
+        title=f"Unit {unit_id} template (top {top_channels})",
+    )
+
+    fig.suptitle(f"Unit {unit_id}", fontsize=12)
+    fig.savefig(out_path, format="svg")
+    plt.close(fig)
+
+
 __all__ = [
     "_write_templates_grid_pdf",
     "_write_unit_templates_across_sources_pdf",
+    "_write_footprint_ptp_map",
+    "_write_unit_template_and_footprint_svg",
 ]

@@ -201,6 +201,7 @@ def _plot_waveforms_outputs(
                 pdf_path=concat_only_pdf,
                 segment_waveforms_folders=None,
                 show_debug_annotation=False,
+                panel_dir=(waveforms_out_dir / "waveforms_grid_concat_uncurated_panels"),
             )
 
         waveforms_grid_pdf = waveforms_out_dir / "waveforms_grid_uncurated.pdf"
@@ -211,6 +212,7 @@ def _plot_waveforms_outputs(
                 pdf_path=waveforms_grid_pdf,
                 segment_waveforms_folders=segment_folders,
                 show_debug_annotation=False,
+                panel_dir=(waveforms_out_dir / "waveforms_grid_uncurated_panels"),
             )
 
         if curated_units_for_plot is not None:
@@ -223,6 +225,7 @@ def _plot_waveforms_outputs(
                     unit_ids=list(curated_units_for_plot),
                     segment_waveforms_folders=segment_folders,
                     show_debug_annotation=False,
+                    panel_dir=(waveforms_out_dir / "waveforms_grid_curated_panels"),
                 )
 
     return waveforms_grid_pdf, spikesorting_waveforms_grid_pdf
