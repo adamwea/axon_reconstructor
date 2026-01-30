@@ -347,8 +347,9 @@ def _write_waveforms_grid_pdf(
                     time_ms = np.arange(wf2d_all.shape[1]) / fs * 1000
 
                     n_spikes = int(wf2d_all.shape[0])
-                    if n_spikes > 50:
-                        indices = np.random.choice(n_spikes, 50, replace=False)
+                    max_spikes_to_plot = 500
+                    if n_spikes > max_spikes_to_plot:
+                        indices = np.random.choice(n_spikes, max_spikes_to_plot, replace=False)
                         spikes_to_plot = wf2d_all[indices, :]
                     else:
                         spikes_to_plot = wf2d_all
@@ -385,7 +386,7 @@ def _write_waveforms_grid_pdf(
                             )
                         else:
                             # "All" (union) contribution summary, without an "all:" prefix.
-                            annotation_text = f"nChUniq={all_n_channels_unique} \nnWfSum={all_n_waveforms_sum}"
+                            annotation_text = f"nChUniq={all_n_channels_unique} \nnWfSum={all_n_waveforms_sum} \nnWF={n_wf_used}"
 
                         ax.text(
                             0.98,
