@@ -83,6 +83,9 @@ def process_unit_list(
     ms_before: Optional[float],
     ms_after: Optional[float],
     top_channels_per_template: int,
+    write_footprint_ptp_map=None,
+    write_unit_template_and_footprint_svg=None,
+    make_merged_union_footprint_plots: bool = True,
     force_restart: bool,
     n_jobs: int,
     get_template_from_extension,
@@ -122,6 +125,63 @@ def process_unit_list(
         merged_union = _build_union_template_for_unit(sources_for_unit=sources_for_unit, unit_id=uid, logger=logger)
         sources_for_unit_with_union = list(sources_for_unit) + ([merged_union] if merged_union is not None else [])
 
+        # Best-effort merged_union quick-look plots.
+        if (
+            bool(make_merged_union_footprint_plots)
+            and merged_union is not None
+            and write_footprint_ptp_map is not None
+            and write_unit_template_and_footprint_svg is not None
+        ):
+            try:
+                import numpy as np  # type: ignore[import-not-found]
+
+                unit_dir = merged_union_by_unit_dir / f"unit_{uid}"
+                unit_dir.mkdir(parents=True, exist_ok=True)
+
+                tmpl = np.asarray(merged_union["template"], dtype=float)
+                locs = np.asarray(merged_union["channel_locations"], dtype=float)
+                amp = np.ptp(tmpl, axis=0)
+
+                write_footprint_ptp_map(
+                    out_path=unit_dir / "merged_union_footprint_ptp_linear.png",
+                    channel_locations_xy=locs[:, :2],
+                    footprint_ptp=amp,
+                    title=f"Unit {uid} merged_union footprint (PTP)",
+                    log_scale=False,
+                )
+                write_footprint_ptp_map(
+                    out_path=unit_dir / "merged_union_footprint_ptp_log.png",
+                    channel_locations_xy=locs[:, :2],
+                    footprint_ptp=amp,
+                    title=f"Unit {uid} merged_union footprint (PTP, log)",
+                    log_scale=True,
+                )
+
+                write_unit_template_and_footprint_svg(
+                    out_path=unit_dir / "merged_union_template_footprint_linear.svg",
+                    unit_id=uid,
+                    template=tmpl,
+                    channel_locations_xy=locs[:, :2],
+                    fs_hz=float(fs_hz),
+                    ms_before=ms_before,
+                    ms_after=ms_after,
+                    top_channels=int(top_channels_per_template),
+                    log_footprint=False,
+                )
+                write_unit_template_and_footprint_svg(
+                    out_path=unit_dir / "merged_union_template_footprint_log.svg",
+                    unit_id=uid,
+                    template=tmpl,
+                    channel_locations_xy=locs[:, :2],
+                    fs_hz=float(fs_hz),
+                    ms_before=ms_before,
+                    ms_after=ms_after,
+                    top_channels=int(top_channels_per_template),
+                    log_footprint=True,
+                )
+            except Exception:
+                pass
+
         if persist:
             unit_entry = _persist_unit_templates(
                 uid=uid,
@@ -142,7 +202,13 @@ def process_unit_list(
 
         chosen = _choose_grid_source_for_unit(sources_for_unit=sources_for_unit)
         if chosen is not None:
-            grid_entries.append({"unit_id": uid, "template": chosen["template"]})
+            grid_entries.append(
+                {
+                    "unit_id": uid,
+                    "template": chosen["template"],
+                    "channel_locations": chosen.get("channel_locations"),
+                }
+            )
 
         if plot_dir is not None:
             unit_dir = plot_dir / f"unit_{uid}"
