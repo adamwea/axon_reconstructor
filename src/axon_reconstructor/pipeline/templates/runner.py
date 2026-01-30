@@ -9,7 +9,6 @@ from typing import Any, Optional
 
 from .plotting import _write_templates_grid_pdf, _write_unit_templates_across_sources_pdf
 from .utils import (
-    _apply_wf_exclusion_monkey_patch_to_merged_union,
     _build_union_template_for_unit,
     _compute_templates_checkpoint_file,
     _jsonable,
@@ -185,62 +184,6 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         _sparsity_unit_channel_indices,
     )
 
-    # --- TEMPORARY monkey patch plumbing (waveforms-stage spike rejections) ---
-    # We use waveforms-stage metadata to optionally prune segment-contributed channels
-    # from merged_union templates. This is a stop-gap until we have principled,
-    # spike-level propagation of waveform exclusions.
-    # New, spike-level exclusions (preferred): used when computing templates from waveforms.
-    from ..waveforms.exclusions import (
-        init_wf_exclusion_report,
-        load_wf_exclusions_by_source,
-        update_wf_exclusion_report,
-    )
-
-    exclusions_by_source = load_wf_exclusions_by_source(well_out_dir=well_out_dir, logger=logger)
-
-    wf_exclusions_applied_report_json = templates_out_dir / "wf_exclusions_applied_report.json"
-    wf_excl_report = init_wf_exclusion_report(stage="templates", exclusions_by_source=exclusions_by_source)
-
-    # Legacy monkey patch (channel pruning) is disabled when we have spike-level exclusions.
-    excluded_sources_by_unit: dict[Any, set[str]] = {}
-    if not exclusions_by_source:
-        from ..waveforms.reporting import _load_wf_rejection_log_unit_counts
-
-        wf_unit_counts_rows, wf_rej_xlsx = _load_wf_rejection_log_unit_counts(well_out_dir=well_out_dir, logger=logger)
-        # Build: unit_id_norm -> set(source_name) that had any rejections.
-        if wf_unit_counts_rows:
-            for row in wf_unit_counts_rows:
-                try:
-                    src_name = str(row.get("source_name"))
-                    reason = str(row.get("reason"))
-                    n_rej = int(row.get("n_rejected_spikes") or 0)
-                    unit_id_norm = _normalize_id_for_compare(row.get("unit_id"))
-                except Exception:
-                    continue
-
-                # Only consider segment-level rejections for this monkey patch.
-                # (We avoid pruning concat channels, which are the reconstruction backbone.)
-                if str(row.get("scope")) != "segment":
-                    continue
-                if n_rej <= 0:
-                    continue
-
-                # Restrict to the waveforms-exclusion reasons (vs. other future reasons).
-                if reason not in {
-                    "outside_maxwell_epoch",
-                    "waveform_window_crosses_epoch_edge",
-                    "waveform_window_outside_segment_bounds",
-                }:
-                    continue
-
-                excluded_sources_by_unit.setdefault(unit_id_norm, set()).add(src_name)
-
-        if excluded_sources_by_unit and wf_rej_xlsx is not None:
-            logger.warning(
-                "MONKEY PATCH enabled: will prune merged_union channels using waveforms-stage rejections from %s",
-                wf_rej_xlsx,
-            )
-
     analyzers = _load_waveforms_analyzers(
         well_out_dir=well_out_dir,
         include_concat=bool(inputs.include_concat),
@@ -249,7 +192,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     )
 
     for _, an in analyzers:
-        _ensure_analyzer_extensions(analyzer=an, extension_names=["random_spikes", "waveforms"], logger=logger, n_jobs=int(inputs.n_jobs))
+        _ensure_analyzer_extensions(analyzer=an, extension_names=["templates"], logger=logger, n_jobs=int(inputs.n_jobs))
 
     # Determine unit list from concat if present, else from first source.
     unit_ids: list[Any]
@@ -323,45 +266,16 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
             "n_curated_units": int(len(curated_units_norm)) if curated_units_norm is not None else None,
         },
         "units": [],
-        "wf_exclusions": {
-            "applied_report_json": str(wf_exclusions_applied_report_json),
-        },
     }
 
     for uid in unit_ids:
         sources_for_unit: list[dict[str, Any]] = []
 
         for name, an in analyzers:
-            # Prefer computing templates from waveforms with spike-level exclusions.
             tmpl = None
-            try:
-                from ..waveforms.exclusions import compute_unit_template_from_waveforms, normalize_unit_id
-
-                uid_norm = normalize_unit_id(uid)
-                excluded = exclusions_by_source.get(str(name), {}).get(uid_norm, set())
-                res = compute_unit_template_from_waveforms(
-                    analyzer=an,
-                    unit_id=uid,
-                    excluded_spike_samples=excluded,
-                    logger=logger,
-                )
-                update_wf_exclusion_report(
-                    wf_excl_report,
-                    scope="curated",
-                    source_name=str(name),
-                    unit_id=uid,
-                    excluded_spike_samples=excluded,
-                    result=res,
-                )
-                tmpl = (None if res is None else res.template)
-            except Exception:
-                tmpl = None
-
-            # Fallback to SpikeInterface templates extension if needed.
-            if tmpl is None:
-                t_ext = an.get_extension("templates") if an.has_extension("templates") else None
-                if t_ext is not None:
-                    tmpl = _get_unit_template_from_extension(analyzer=an, templates_ext=t_ext, unit_id=uid)
+            t_ext = an.get_extension("templates") if an.has_extension("templates") else None
+            if t_ext is not None:
+                tmpl = _get_unit_template_from_extension(analyzer=an, templates_ext=t_ext, unit_id=uid)
             if tmpl is None:
                 continue
             tmpl = np.asarray(tmpl)
@@ -413,19 +327,6 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
             continue
 
         merged_union = _build_union_template_for_unit(sources_for_unit=sources_for_unit, logger=logger)
-        if merged_union is not None:
-            # TEMPORARY MONKEY PATCH:
-            # Drop channels contributed by segment sources where waveforms-stage spike filtering
-            # rejected spikes for this unit. This is a blunt heuristic to avoid carrying
-            # problematic segment snippets into reconstruction artifacts.
-            unit_norm = _normalize_id_for_compare(uid)
-            excluded = excluded_sources_by_unit.get(unit_norm, set())
-            merged_union = _apply_wf_exclusion_monkey_patch_to_merged_union(
-                merged_union_src=merged_union,
-                unit_id=uid,
-                excluded_source_names=set(excluded),
-                logger=logger,
-            )
         if merged_union is not None:
             sources_for_unit_with_union = list(sources_for_unit) + [merged_union]
         else:
@@ -688,29 +589,6 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
                 logger=logger,
             )
 
-    # Persist a compact report so it's easy to audit whether exclusions were applied.
-    try:
-        _write_json(wf_exclusions_applied_report_json, wf_excl_report)
-        # Best-effort stage-level summary.
-        scopes = (wf_excl_report.get("application") or {}).get("scopes") or {}
-        for scope_name, scope_entry in scopes.items():
-            by_source = (scope_entry or {}).get("by_source") or {}
-            for src, src_entry in by_source.items():
-                n_req_units = int((src_entry or {}).get("n_units_with_exclusions_requested", 0) or 0)
-                n_matched_units = int((src_entry or {}).get("n_units_with_exclusions_matched", 0) or 0)
-                n_excl = int((src_entry or {}).get("waveforms_excluded_matched", 0) or 0)
-                if (n_req_units > 0) or (n_excl > 0):
-                    logger.info(
-                        "wf_exclusions applied (%s/%s): requested_units=%d matched_units=%d matched_excluded=%d",
-                        str(scope_name),
-                        str(src),
-                        n_req_units,
-                        n_matched_units,
-                        n_excl,
-                    )
-    except Exception as e:
-        logger.warning("Failed writing wf_exclusions applied report: %s", e)
-
     _write_json(summary_json, summary)
 
     ckpt = save_checkpoint(
@@ -724,7 +602,6 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
             "extracted_templates_dir": str(extracted_templates_dir),
             "merged_union_by_unit_dir": str(merged_union_by_unit_dir),
             "templates_summary_json": str(summary_json),
-            "wf_exclusions_applied_report_json": str(wf_exclusions_applied_report_json),
             "templates_grid_pdf": str(templates_grid_pdf) if templates_grid_pdf else None,
             "templates_grid_curated_pdf": str(templates_grid_curated_pdf) if templates_grid_curated_pdf else None,
         },

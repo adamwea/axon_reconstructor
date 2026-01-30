@@ -335,7 +335,14 @@ def _extract_per_segment_waveforms(
                 n_jobs=max(1, int(inputs.n_jobs)),
             )
 
-            if inputs.filter_by_maxwell_epochs and seg_maxwell_intervals:
+            # Deprecated (2026-01): we previously *flagged* extracted per-segment random_spikes
+            # against segment-local Maxwell intervals after waveforms were computed. This does
+            # not mutate the analyzer and is redundant when concat-time filtering is authoritative.
+            if (
+                bool(getattr(inputs, "deprecated_flag_segment_random_spikes_by_epochs", False))
+                and inputs.filter_by_maxwell_epochs
+                and seg_maxwell_intervals
+            ):
                 try:
                     from .exclusions import _get_random_spike_samples  # type: ignore
 
@@ -408,8 +415,8 @@ def _extract_per_segment_waveforms(
                             )
 
                     seg_removed_epoch_total = int(removed_outside_total + removed_edge_epoch_total)
-                    logger.info(
-                        "Segment %s: flagged extracted waveforms by maxwell epochs=%d (outside=%d edge=%d, selected_random_spikes=%d)",
+                    logger.warning(
+                        "DEPRECATED: Segment %s: flagged extracted random_spikes by maxwell epochs=%d (outside=%d edge=%d, selected_random_spikes=%d)",
                         rec_name,
                         int(seg_removed_epoch_total),
                         int(removed_outside_total),

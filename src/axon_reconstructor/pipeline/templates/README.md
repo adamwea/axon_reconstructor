@@ -37,12 +37,10 @@ Under `<well>/templates_outputs/`:
   - `multi_source_by_unit_uncurated/` (optional)
 - Summaries
   - `templates_summary.json`
-  - `wf_exclusions_applied_report.json` (audit of spike-level exclusions application)
 
 ## Exclusions + curation
 
-- Spike-level waveform exclusions are loaded from `<well>/waveforms_outputs/wf_exclusions.npz`.
-- When exclusions exist, templates are computed from waveforms while dropping excluded spikes.
+- `wf_exclusions.npz` is deprecated and not required.
 - When waveforms-stage curation exists, “curated” plots reflect the curated unit set; otherwise curated == uncurated.
 
 ## Mermaid flow

@@ -2,7 +2,7 @@
 
 Extracts SpikeInterface `SortingAnalyzer` waveforms (concat and optionally per-segment) and produces QC artifacts.
 
-This is also the **source of spike-level waveform exclusions** (persisted for downstream steps as `wf_exclusions.npz`).
+This stage produces waveform analyzers and a **spike-level rejection log** (`wf_rejection_log.xlsx`) that can be used for debugging/audit.
 
 ## Scientific methods (data handling)
 
@@ -34,8 +34,8 @@ This stage is designed to produce *scientifically defensible* waveform snippets 
   - Quality/template metrics are computed per analyzer source (concat + each segment) and merged.
   - A merged table drives MEA_Analysis-style curation thresholds, producing curated metrics and rejection logs.
   - Metrics parameters may adapt to recording/segment duration for stability (e.g., binning choices for presence metrics).
-- **Audit trail + reproducibility**: both aggregate summaries and spike-level exclusion rows are persisted so downstream
-  template estimation can apply exclusions deterministically.
+- **Audit trail + reproducibility**: aggregate summaries and spike-level rejection rows are persisted so downstream
+  steps can diagnose filtering decisions.
 
 ## Primary API
 
@@ -67,7 +67,7 @@ Under `<well>/waveforms_outputs/`:
 - Rejection / filtering logs
   - `rejection_log.xlsx` (legacy/MEA_Analysis style)
   - `wf_rejection_log.xlsx` (per-spike rows)
-  - `wf_exclusions.npz` (compact per-spike exclusions; consumed by templates/footprinting)
+  - `wf_exclusions.npz` (deprecated; no longer written by default)
 - JSON summaries
   - `waveform_extraction_params.json`
   - `waveform_filtering_summary.json`
@@ -75,7 +75,7 @@ Under `<well>/waveforms_outputs/`:
 ## How exclusions work
 
 - Exclusions are represented as `(source_name, unit_id, spike_sample)`.
-- Downstream steps use `waveforms.exclusions.load_wf_exclusions_by_source(...)` and apply them when averaging waveforms into templates.
+- `wf_exclusions.npz` is deprecated; prefer consuming the `SortingAnalyzer` outputs directly.
 
 ## Mermaid flow
 

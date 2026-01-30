@@ -24,7 +24,6 @@ from .utils import (
     _build_union_source_for_unit,
     _compute_footprinting_checkpoint_file,
     _ensure_analyzer_extensions,
-    _get_unit_template_from_waveforms_with_exclusions,
     _get_unit_template_from_extension,
     _infer_location_tolerance,
     _load_curated_unit_ids_from_waveforms_outputs,
@@ -181,34 +180,14 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
             logger=logger,
         )
 
-        # Spike-level exclusions produced by the waveforms stage (fast .npz).
-        try:
-            from ..waveforms.exclusions import (
-                init_wf_exclusion_report,
-                load_wf_exclusions_by_source,
-                normalize_unit_id,
-            )
-
-            exclusions_by_source = load_wf_exclusions_by_source(well_out_dir=well_out_dir, logger=logger)
-            _norm_unit_id = normalize_unit_id
-        except Exception:
-            exclusions_by_source = {}
-            _norm_unit_id = lambda x: x
-
-        wf_exclusions_applied_report_json = footprinting_out_dir / "wf_exclusions_applied_report.json"
-        try:
-            wf_excl_report = init_wf_exclusion_report(stage="footprinting", exclusions_by_source=exclusions_by_source)
-        except Exception:
-            wf_excl_report = {
-                "stage": "footprinting",
-                "loaded_exclusions": {"n_sources": 0, "n_units": 0, "n_spikes": 0, "by_source": {}},
-                "application": {"scopes": {}},
-            }
+        # Waveforms-stage spike-level exclusions (wf_exclusions.npz) are deprecated.
+        # Footprinting now uses the stored analyzers directly.
+        exclusions_by_source: dict[str, dict[Any, set[int]]] = {}
 
         for _, an in analyzers:
             _ensure_analyzer_extensions(
                 analyzer=an,
-                extension_names=["random_spikes", "waveforms"],
+                extension_names=["random_spikes", "waveforms", "templates"],
                 logger=logger,
                 n_jobs=int(inputs.n_jobs),
             )
@@ -318,39 +297,16 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
         # Build a global electrode layout across all sources (lets us show non-contributing channels).
         layout_locs, layout_key_to_index, layout_tol = _build_global_channel_layout(analyzers=analyzers)
 
-        def _gather_sources_for_unit(*, uid: Any, apply_exclusions: bool) -> list[dict[str, Any]]:
+        def _gather_sources_for_unit(*, uid: Any) -> list[dict[str, Any]]:
             sources_for_unit: list[dict[str, Any]] = []
             for name, an in analyzers:
-                excluded = set()
-                if apply_exclusions:
-                    try:
-                        excluded = exclusions_by_source.get(str(name), {}).get(_norm_unit_id(uid), set())
-                    except Exception:
-                        excluded = set()
-
-                res = _get_unit_template_from_waveforms_with_exclusions(
-                    analyzer=an,
-                    unit_id=uid,
-                    excluded_spike_samples=(excluded if apply_exclusions else set()),
-                    logger=logger,
-                    return_result=True,
-                )
-
+                tmpl_src = None
                 try:
-                    from ..waveforms.exclusions import update_wf_exclusion_report
-
-                    update_wf_exclusion_report(
-                        wf_excl_report,
-                        scope=("multi_source_curated" if apply_exclusions else "multi_source_uncurated"),
-                        source_name=str(name),
-                        unit_id=uid,
-                        excluded_spike_samples=(excluded if apply_exclusions else set()),
-                        result=res,
-                    )
+                    t_ext = an.get_extension("templates") if an.has_extension("templates") else None
+                    if t_ext is not None:
+                        tmpl_src = _get_unit_template_from_extension(analyzer=an, templates_ext=t_ext, unit_id=uid)
                 except Exception:
-                    pass
-
-                tmpl_src = (None if res is None else getattr(res, "template", None))
+                    tmpl_src = None
                 if tmpl_src is None:
                     continue
                 tmpl_src = np.asarray(tmpl_src)
@@ -410,7 +366,6 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
         def _emit_multi_source_outputs(
             *,
             unit_list: list[Any],
-            apply_exclusions: bool,
             out_dir: Path,
             out_summary: dict[str, Any],
             merged_dir: Path,
@@ -421,7 +376,7 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
             merged_dir.mkdir(parents=True, exist_ok=True)
 
             for uid in unit_list:
-                sources_for_unit = _gather_sources_for_unit(uid=uid, apply_exclusions=apply_exclusions)
+                sources_for_unit = _gather_sources_for_unit(uid=uid)
 
                 merged_union_src = _build_union_source_for_unit(sources=sources_for_unit, unit_id=uid, logger=logger)
                 merged_sources_for_unit = (
@@ -492,7 +447,6 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
             # Uncurated: all units, pre-exclusion.
             _emit_multi_source_outputs(
                 unit_list=unit_ids_all,
-                apply_exclusions=False,
                 out_dir=multi_source_dir_uncurated,
                 out_summary=multi_source_summary_uncurated,
                 merged_dir=merged_union_dir_uncurated,
@@ -502,7 +456,6 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
             # Curated: curated units, exclusions applied.
             _emit_multi_source_outputs(
                 unit_list=unit_ids,
-                apply_exclusions=True,
                 out_dir=multi_source_dir,
                 out_summary=multi_source_summary,
                 merged_dir=merged_union_dir,
@@ -527,8 +480,6 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
                 layout_key_to_index=layout_key_to_index,
                 layout_tol=float(layout_tol),
                 logger=logger,
-                wf_excl_report=wf_excl_report,
-                wf_excl_scope="concat_grid_uncurated",
             )
             # Curated grid: curated units, exclusions applied, merged_union on global layout.
             _write_merged_union_footprints_grid_pdf(
@@ -541,31 +492,7 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
                 layout_key_to_index=layout_key_to_index,
                 layout_tol=float(layout_tol),
                 logger=logger,
-                wf_excl_report=wf_excl_report,
-                wf_excl_scope="concat_grid_curated",
             )
-
-        # Persist a compact report so it's easy to audit whether exclusions were applied.
-        try:
-            _write_json(wf_exclusions_applied_report_json, wf_excl_report)
-            scopes = (wf_excl_report.get("application") or {}).get("scopes") or {}
-            for scope_name, scope_entry in scopes.items():
-                by_source = (scope_entry or {}).get("by_source") or {}
-                for src, src_entry in by_source.items():
-                    n_req_units = int((src_entry or {}).get("n_units_with_exclusions_requested", 0) or 0)
-                    n_matched_units = int((src_entry or {}).get("n_units_with_exclusions_matched", 0) or 0)
-                    n_excl = int((src_entry or {}).get("waveforms_excluded_matched", 0) or 0)
-                    if (n_req_units > 0) or (n_excl > 0):
-                        logger.info(
-                            "wf_exclusions applied (%s/%s): requested_units=%d matched_units=%d matched_excluded=%d",
-                            str(scope_name),
-                            str(src),
-                            n_req_units,
-                            n_matched_units,
-                            n_excl,
-                        )
-        except Exception as e:
-            logger.warning("Failed writing wf_exclusions applied report: %s", e)
 
         _write_json(
             summary_json,
@@ -604,7 +531,6 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
                 "merged_union_summary_json_uncurated": str(merged_union_summary_json_uncurated)
                 if inputs.plot_multi_source_footprints_pdf
                 else None,
-                "wf_exclusions_applied_report_json": str(wf_exclusions_applied_report_json),
             },
         )
 
@@ -629,7 +555,6 @@ def run_footprinting(*, inputs: FootprintingInputs, logger_name_prefix: str = "a
                 if inputs.plot_multi_source_footprints_pdf
                 else None,
                 "summary_json": str(summary_json),
-                "wf_exclusions_applied_report_json": str(wf_exclusions_applied_report_json),
             },
         )
 
