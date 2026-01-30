@@ -101,6 +101,21 @@ def process_unit_list(
 ) -> list[dict[str, Any]]:
     """Process units: gather per-source templates, build merged_union, persist, and plot."""
 
+    # Electrode ids present in at least one recording object (union over sources).
+    recording_electrode_ids: Optional[list[Any]] = None
+    try:
+        all_electrode_ids: list[Any] = []
+        for _, an in analyzers:
+            try:
+                el_ids = try_get_electrode_ids(an.recording)
+            except Exception:
+                el_ids = None
+            if el_ids:
+                all_electrode_ids.extend(list(el_ids))
+        recording_electrode_ids = all_electrode_ids if all_electrode_ids else None
+    except Exception:
+        recording_electrode_ids = None
+
     # Ensure templates extension exists (best effort).
     for _, an in analyzers:
         try:
@@ -135,6 +150,8 @@ def process_unit_list(
             try:
                 import numpy as np  # type: ignore[import-not-found]
 
+                merged_union_electrode_ids = merged_union.get("electrode_ids")
+
                 unit_dir = merged_union_by_unit_dir / f"unit_{uid}"
                 unit_dir.mkdir(parents=True, exist_ok=True)
 
@@ -148,6 +165,8 @@ def process_unit_list(
                     footprint_ptp=amp,
                     title=f"Unit {uid} merged_union footprint (PTP)",
                     log_scale=False,
+                    electrode_ids=merged_union_electrode_ids,
+                    recording_electrode_ids=recording_electrode_ids,
                 )
                 write_footprint_ptp_map(
                     out_path=unit_dir / "merged_union_footprint_ptp_log.png",
@@ -155,6 +174,8 @@ def process_unit_list(
                     footprint_ptp=amp,
                     title=f"Unit {uid} merged_union footprint (PTP, log)",
                     log_scale=True,
+                    electrode_ids=merged_union_electrode_ids,
+                    recording_electrode_ids=recording_electrode_ids,
                 )
 
                 write_unit_template_and_footprint_svg(
@@ -167,6 +188,8 @@ def process_unit_list(
                     ms_after=ms_after,
                     top_channels=int(top_channels_per_template),
                     log_footprint=False,
+                    electrode_ids=merged_union_electrode_ids,
+                    recording_electrode_ids=recording_electrode_ids,
                 )
                 write_unit_template_and_footprint_svg(
                     out_path=unit_dir / "merged_union_template_footprint_log.svg",
@@ -178,6 +201,8 @@ def process_unit_list(
                     ms_after=ms_after,
                     top_channels=int(top_channels_per_template),
                     log_footprint=True,
+                    electrode_ids=merged_union_electrode_ids,
+                    recording_electrode_ids=recording_electrode_ids,
                 )
             except Exception:
                 pass
@@ -191,6 +216,7 @@ def process_unit_list(
                 fs_hz=float(fs_hz),
                 ms_before=ms_before,
                 ms_after=ms_after,
+                recording_electrode_ids=recording_electrode_ids,
                 jsonable=jsonable,
                 jsonable_sequence=jsonable_sequence,
                 write_json=write_json,

@@ -153,6 +153,7 @@ def _persist_unit_templates(
     fs_hz: float,
     ms_before: Optional[float],
     ms_after: Optional[float],
+    recording_electrode_ids: Any = None,
     jsonable,
     jsonable_sequence,
     write_json,
@@ -244,38 +245,33 @@ def _persist_unit_templates(
                 # These are useful quick-look visualizations and mirror the legacy pipeline outputs.
                 try:
                     if ((not axon_velocity_amplitude_png.exists()) or (not axon_velocity_peak_latency_png.exists()) or force_restart):
-                        import matplotlib
-
-                        matplotlib.use("Agg", force=True)
-                        import matplotlib.pyplot as plt
-
-                        import axon_velocity.plotting as av_plotting  # type: ignore[import-not-found]
+                        from axon_reconstructor.pipeline.templates.plotting import (
+                            _write_full_chip_amplitude_map_png,
+                            _write_full_chip_peak_latency_map_png,
+                        )
 
                         tmpl_ch_by_t = np.asarray(tmpl, dtype=float).T
-                        locs_xy = np.asarray(locs[:, :2], dtype=float)
 
                         if (not axon_velocity_amplitude_png.exists()) or force_restart:
-                            fig = plt.figure(figsize=(5, 4))
-                            ax = fig.add_subplot(111)
-                            _ = av_plotting.plot_amplitude_map(tmpl_ch_by_t, locs_xy, ax=ax, cmap="viridis", log=False)
-                            fig.tight_layout()
-                            fig.savefig(axon_velocity_amplitude_png, dpi=200)
-                            plt.close(fig)
+                            _write_full_chip_amplitude_map_png(
+                                out_path=axon_velocity_amplitude_png,
+                                template_ch_by_t=tmpl_ch_by_t,
+                                electrode_ids=el_ids_seq,
+                                recording_electrode_ids=recording_electrode_ids,
+                                title="Amplitude map",
+                                cmap="viridis",
+                            )
 
                         if (not axon_velocity_peak_latency_png.exists()) or force_restart:
-                            fig = plt.figure(figsize=(5, 4))
-                            ax = fig.add_subplot(111)
-                            _ = av_plotting.plot_peak_latency_map(
-                                tmpl_ch_by_t,
-                                locs_xy,
-                                float(fs_hz),
-                                ax=ax,
+                            _write_full_chip_peak_latency_map_png(
+                                out_path=axon_velocity_peak_latency_png,
+                                template_ch_by_t=tmpl_ch_by_t,
+                                electrode_ids=el_ids_seq,
+                                recording_electrode_ids=recording_electrode_ids,
+                                sampling_frequency_hz=float(fs_hz),
+                                title="Peak latency map",
                                 cmap="viridis",
-                                log=False,
                             )
-                            fig.tight_layout()
-                            fig.savefig(axon_velocity_peak_latency_png, dpi=200)
-                            plt.close(fig)
                 except Exception:
                     pass
             except Exception as e:
