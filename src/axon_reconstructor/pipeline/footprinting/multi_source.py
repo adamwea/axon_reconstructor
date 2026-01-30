@@ -48,6 +48,40 @@ def _gather_sources_for_unit(*, uid: Any, analyzers: list[tuple[str, Any]]) -> l
             except Exception:
                 el_ids_src = None
 
+        # Prefer sparsity-aware channel selection when available.
+        # The templates extension can yield dense templates with zeros outside the
+        # waveforms sparsity; downstream footprint merging should use the sparse
+        # channel set.
+        try:
+            sp = getattr(an, "sparsity", None)
+            if sp is None and an.has_extension("waveforms"):
+                sp = getattr(an.get_extension("waveforms"), "sparsity", None)
+            if sp is not None:
+                ch_inds = _sparsity_unit_channel_indices(sparsity=sp, unit_id=uid)
+                ch_inds = np.asarray(ch_inds, dtype=int)
+
+                n_rec_ch = None
+                try:
+                    if ch_ids_src is not None:
+                        n_rec_ch = int(len(ch_ids_src))
+                except Exception:
+                    n_rec_ch = None
+                if n_rec_ch is None:
+                    try:
+                        n_rec_ch = int(locs_src.shape[0])
+                    except Exception:
+                        n_rec_ch = None
+
+                if n_rec_ch is not None and int(tmpl_src.shape[1]) == int(n_rec_ch) and int(ch_inds.size) > 0 and int(ch_inds.size) < int(n_rec_ch):
+                    tmpl_src = tmpl_src[:, ch_inds]
+                    locs_src = locs_src[ch_inds, :]
+                    if ch_ids_src is not None:
+                        ch_ids_src = np.asarray(ch_ids_src)[ch_inds]
+                    if el_ids_src is not None:
+                        el_ids_src = np.asarray(el_ids_src)[ch_inds]
+        except Exception:
+            pass
+
         # Support sparse templates by subsetting locations/ids according to sparsity.
         if tmpl_src.shape[1] != locs_src.shape[0]:
             try:
@@ -80,6 +114,8 @@ def _gather_sources_for_unit(*, uid: Any, analyzers: list[tuple[str, Any]]) -> l
                 "n_channels": int(locs_src.shape[0]),
                 "channel_ids": ch_ids_src,
                 "electrode_ids": el_ids_src,
+                # Runtime-only pointer used for overlap resolution (not serialized).
+                "_analyzer": an,
             }
         )
 

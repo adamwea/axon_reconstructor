@@ -296,7 +296,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
             if not sources_for_unit:
                 continue
 
-            merged_union = _build_union_template_for_unit(sources_for_unit=sources_for_unit, logger=logger)
+            merged_union = _build_union_template_for_unit(sources_for_unit=sources_for_unit, unit_id=uid, logger=logger)
             sources_for_unit_with_union = list(sources_for_unit) + ([merged_union] if merged_union is not None else [])
 
             if persist:

@@ -110,10 +110,18 @@ def _loc_key(xy: Any, tol: float) -> tuple[int, int]:
     return (int(round(x / tol)), int(round(y / tol)))
 
 
-def _build_union_template_for_unit(*, sources_for_unit: list[dict[str, Any]], logger: Any) -> Optional[dict[str, Any]]:
+def _build_union_template_for_unit(
+    *,
+    sources_for_unit: list[dict[str, Any]],
+    unit_id: Any,
+    logger: Any,
+) -> Optional[dict[str, Any]]:
     """Build a merged-union template across sources.
 
-    Keeps the first occurrence for overlapping channels (warns on overlaps).
+    Default strategy for overlapping channels is to compute a merged per-channel
+    waveform by stacking the underlying waveforms from each contributing source
+    (segment) and taking the mean. This mimics the conceptual template
+    computation and avoids keep-first bias.
 
     Returns a dict with fields compatible with `sources_for_unit` entries.
     """
@@ -136,8 +144,15 @@ def _build_union_template_for_unit(*, sources_for_unit: list[dict[str, Any]], lo
     union_electrode_ids: list[Any] = []
     union_source_names: list[str] = []
 
+    from axon_reconstructor.pipeline.overlap import (  # local import to avoid circular deps
+        WaveformContribution,
+        mean_waveform_from_contributions,
+    )
+
     key_to_index: dict[Any, int] = {}
     overlap_count = 0
+    overlap_details: list[dict[str, Any]] = []
+    contribs_by_key: dict[Any, list[WaveformContribution]] = {}
 
     for src in sources_for_unit:
         name = str(src["name"])
@@ -163,6 +178,28 @@ def _build_union_template_for_unit(*, sources_for_unit: list[dict[str, Any]], lo
 
             if key in key_to_index:
                 overlap_count += 1
+
+                # Track overlap contributions for later waveform-mean merge.
+                try:
+                    an = src.get("_analyzer")
+                    if an is not None:
+                        ch_ref = None
+                        try:
+                            if ch_ids is not None:
+                                ch_ref = ch_ids[j]
+                        except Exception:
+                            ch_ref = None
+                        contribs_by_key.setdefault(key, []).append(
+                            WaveformContribution(
+                                source_name=str(name),
+                                analyzer=an,
+                                unit_id=unit_id,
+                                channel_ref=(ch_ref if ch_ref is not None else int(j)),
+                            )
+                        )
+                except Exception:
+                    pass
+
                 continue
 
             key_to_index[key] = len(union_waveforms)
@@ -178,11 +215,73 @@ def _build_union_template_for_unit(*, sources_for_unit: list[dict[str, Any]], lo
             except Exception:
                 union_electrode_ids.append(None)
 
+            # Seed overlap contributions for this key with the first occurrence.
+            try:
+                an = src.get("_analyzer")
+                if an is not None:
+                    ch_ref = None
+                    try:
+                        if ch_ids is not None:
+                            ch_ref = ch_ids[j]
+                    except Exception:
+                        ch_ref = None
+                    contribs_by_key.setdefault(key, []).append(
+                        WaveformContribution(
+                            source_name=str(name),
+                            analyzer=an,
+                            unit_id=unit_id,
+                            channel_ref=(ch_ref if ch_ref is not None else int(j)),
+                        )
+                    )
+            except Exception:
+                pass
+
     if not union_waveforms:
         return None
 
+    # Resolve overlaps by recomputing the per-channel waveform using the mean of
+    # all contributing waveforms across sources.
+    overlap_resolved = 0
+    for key, contribs in contribs_by_key.items():
+        if len(contribs) <= 1:
+            continue
+        idx = key_to_index.get(key)
+        if idx is None:
+            continue
+
+        try:
+            merged_wf = mean_waveform_from_contributions(contributions=contribs, logger=logger)
+        except Exception:
+            merged_wf = None
+
+        if merged_wf is None:
+            # Fallback: keep the first template column (existing behavior).
+            continue
+
+        if int(merged_wf.shape[0]) != int(n_samples):
+            continue
+
+        union_waveforms[idx] = merged_wf
+        overlap_resolved += 1
+        try:
+            overlap_details.append(
+                {
+                    "key": (str(key[0]), _jsonable(key[1]) if len(key) > 1 else None),
+                    "channel_index": int(idx),
+                    "sources": sorted({c.source_name for c in contribs}),
+                    "n_contributions": int(len(contribs)),
+                    "strategy": "mean_waveforms",
+                }
+            )
+        except Exception:
+            pass
+
     if overlap_count:
-        logger.warning("merged_union: skipped %d overlapping channels (keep-first)", overlap_count)
+        logger.warning(
+            "merged_union: encountered %d overlapping channels; resolved=%d via mean-waveforms (kept first otherwise)",
+            int(overlap_count),
+            int(overlap_resolved),
+        )
 
     merged = np.stack(union_waveforms, axis=1)
     merged_locs = np.stack(union_locs, axis=0)
@@ -194,7 +293,13 @@ def _build_union_template_for_unit(*, sources_for_unit: list[dict[str, Any]], lo
         "channel_ids": union_channel_ids,
         "electrode_ids": union_electrode_ids,
         "channel_source_names": union_source_names,
-        "stats": {"overlap_skipped": int(overlap_count), "n_channels": int(merged.shape[1])},
+        "stats": {
+            "overlap_encountered": int(overlap_count),
+            "overlap_resolved": int(overlap_resolved),
+            "overlap_strategy": "mean_waveforms",
+            "n_channels": int(merged.shape[1]),
+        },
+        "overlap": {"channels": overlap_details} if overlap_details else None,
     }
 
 
