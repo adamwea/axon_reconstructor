@@ -19,6 +19,11 @@ This step also produces curated/uncurated QC PDFs and JSON summaries.
 - plotting controls: `plot_templates_grid_pdf`, `plot_multi_source_templates_pdf`, `top_channels_per_template`
 - `n_jobs`, `force_restart`
 
+This step reads waveforms analyzers from:
+
+- `<well>/waveforms_outputs/concat_waveforms/`
+- `<well>/waveforms_outputs/segment_waveforms/*/`
+
 ## Outputs (artifacts)
 
 Under `<well>/templates_outputs/`:
@@ -41,7 +46,7 @@ Under `<well>/templates_outputs/`:
 ## Exclusions + curation
 
 - `wf_exclusions.npz` is deprecated and not required.
-- When waveforms-stage curation exists, “curated” plots reflect the curated unit set; otherwise curated == uncurated.
+- This step does not apply spike-level exclusions; curated vs uncurated differs only by the unit list (waveforms-stage curation when available).
 
 ## Mermaid flow
 
@@ -51,7 +56,7 @@ flowchart TD
   B --> C[extracted_templates/*.npy]
   B --> D[merged_union_by_unit/unit_*/merged_union_template.npy]
   B --> E[templates_grid_*.pdf]
-  B --> F[wf_exclusions_applied_report.json]
+  B --> F[templates_summary.json]
   D --> G[reconstruction]
 ```
 

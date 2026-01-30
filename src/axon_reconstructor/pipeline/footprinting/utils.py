@@ -115,7 +115,11 @@ def _get_unit_template_from_waveforms_with_exclusions(
     logger,
     return_result: bool = False,
 ):
-    """Compute a unit template from waveforms, applying spike-level exclusions."""
+    """Compute a unit template from waveforms, applying spike-level exclusions.
+
+    Deprecated: the pipeline no longer persists or consumes `wf_exclusions.npz` by default.
+    This helper exists for backwards-compatible plotting code paths.
+    """
 
     try:
         from ..waveforms.exclusions import compute_unit_template_from_waveforms

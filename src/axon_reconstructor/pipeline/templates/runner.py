@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .plotting import _write_templates_grid_pdf, _write_unit_templates_across_sources_pdf
+from .extraction import (
+    _choose_grid_source_for_unit,
+    _gather_template_sources_for_unit,
+    _persist_unit_templates,
+)
 from .utils import (
     _build_union_template_for_unit,
     _compute_templates_checkpoint_file,
@@ -83,6 +88,11 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     - applies waveforms-stage unit curation (metrics_curated.xlsx) when available
     - handles missing units in some segments by skipping that source
     - builds a per-unit `merged_union` template across sources
+
+        Notes:
+        - Templates are sourced from the analyzer `templates` extension.
+        - Spike-level exclusions (`wf_exclusions.npz`) are deprecated and are not applied downstream.
+            "Curated" vs "uncurated" differs only by unit list selection.
     """
 
     well_out_dir = _compute_mea_analysis_output_dir(
@@ -173,7 +183,6 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
 
     # Load waveforms analyzers (concat + segments).
     import numpy as np  # type: ignore[import-not-found]
-    import spikeinterface.full as si  # type: ignore[import-not-found]
 
     from ..footprinting.utils import (
         _ensure_analyzer_extensions,
@@ -268,301 +277,81 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         "units": [],
     }
 
-    for uid in unit_ids:
-        sources_for_unit: list[dict[str, Any]] = []
+    def _process_unit_list(
+        *,
+        unit_list: list[Any],
+        plot_dir: Optional[Path],
+        persist: bool,
+    ) -> list[dict[str, Any]]:
+        grid_entries: list[dict[str, Any]] = []
 
-        for name, an in analyzers:
-            tmpl = None
-            t_ext = an.get_extension("templates") if an.has_extension("templates") else None
-            if t_ext is not None:
-                tmpl = _get_unit_template_from_extension(analyzer=an, templates_ext=t_ext, unit_id=uid)
-            if tmpl is None:
-                continue
-            tmpl = np.asarray(tmpl)
-            if tmpl.ndim != 2 or tmpl.size == 0:
-                continue
-
-            locs = np.asarray(an.recording.get_channel_locations())
-            try:
-                ch_ids = list(an.recording.get_channel_ids())
-            except Exception:
-                ch_ids = None
-            el_ids = _try_get_electrode_ids(an.recording)
-
-            # Support sparse templates by subsetting locations/ids according to sparsity.
-            if tmpl.shape[1] != locs.shape[0]:
-                try:
-                    sp = getattr(an, "sparsity", None)
-                    if sp is None and an.has_extension("waveforms"):
-                        sp = getattr(an.get_extension("waveforms"), "sparsity", None)
-                    if sp is not None:
-                        ch_inds = _sparsity_unit_channel_indices(sparsity=sp, unit_id=uid)
-                        ch_inds = np.asarray(ch_inds, dtype=int)
-                        if int(ch_inds.size) == int(tmpl.shape[1]):
-                            locs = locs[ch_inds, :]
-                            if ch_ids is not None:
-                                ch_ids = list(np.asarray(ch_ids, dtype=object)[ch_inds])
-                            if el_ids is not None:
-                                try:
-                                    el_ids = list(np.asarray(el_ids, dtype=object)[ch_inds])
-                                except Exception:
-                                    pass
-                except Exception:
-                    pass
-
-            if tmpl.shape[1] != locs.shape[0]:
-                continue
-
-            sources_for_unit.append(
-                {
-                    "name": str(name),
-                    "template": tmpl,
-                    "channel_locations": locs,
-                    "channel_ids": ch_ids,
-                    "electrode_ids": el_ids,
-                }
+        for uid in unit_list:
+            sources_for_unit = _gather_template_sources_for_unit(
+                uid=uid,
+                analyzers=analyzers,
+                get_template_from_extension=_get_unit_template_from_extension,
+                sparsity_unit_channel_indices=_sparsity_unit_channel_indices,
+                try_get_electrode_ids=_try_get_electrode_ids,
             )
-
-        if not sources_for_unit:
-            continue
-
-        merged_union = _build_union_template_for_unit(sources_for_unit=sources_for_unit, logger=logger)
-        if merged_union is not None:
-            sources_for_unit_with_union = list(sources_for_unit) + [merged_union]
-        else:
-            sources_for_unit_with_union = list(sources_for_unit)
-
-        # Save per-source templates.
-        unit_entry: dict[str, Any] = {"unit_id": _jsonable(uid), "sources": []}
-        for src in sources_for_unit_with_union:
-            src_name = str(src["name"])
-            tmpl = np.asarray(src["template"], dtype=float)
-            locs = np.asarray(src["channel_locations"], dtype=float)
-
-            if src_name == "merged_union":
-                out_dir = merged_union_by_unit_dir / f"unit_{uid}"
-                out_dir.mkdir(parents=True, exist_ok=True)
-                npy_path = out_dir / "merged_union_template.npy"
-                locs_npy = out_dir / "merged_union_channel_locations.npy"
-                ch_ids_npy = out_dir / "merged_union_channel_ids.npy"
-                el_ids_npy = out_dir / "merged_union_electrode_ids.npy"
-                meta_path = out_dir / "merged_union_template_meta.json"
-            else:
-                out_dir = extracted_templates_dir / src_name
-                out_dir.mkdir(parents=True, exist_ok=True)
-                npy_path = out_dir / f"unit_{uid}.npy"
-                meta_path = out_dir / f"unit_{uid}_meta.json"
-
-            if (not npy_path.exists()) or inputs.force_restart:
-                np.save(npy_path, tmpl)
-
-            # For merged_union, also persist the merged channel identifiers/locations as arrays
-            # (these are the primary inputs needed by downstream reconstruction).
-            if src_name == "merged_union":
-                try:
-                    if (not locs_npy.exists()) or inputs.force_restart:
-                        np.save(locs_npy, np.asarray(locs[:, :2], dtype=float))
-
-                    ch_ids_seq = _jsonable_sequence(src.get("channel_ids"))
-                    if (not ch_ids_npy.exists()) or inputs.force_restart:
-                        np.save(ch_ids_npy, np.asarray(ch_ids_seq, dtype=object))
-
-                    el_ids_seq = _jsonable_sequence(src.get("electrode_ids"))
-                    if (not el_ids_npy.exists()) or inputs.force_restart:
-                        np.save(el_ids_npy, np.asarray(el_ids_seq, dtype=object))
-                except Exception as e:
-                    logger.warning("Failed writing merged_union aux arrays for unit %s: %s", uid, e)
-            if (not meta_path.exists()) or inputs.force_restart:
-                meta = {
-                    "unit_id": _jsonable(uid),
-                    "source_name": src_name,
-                    "template_npy": str(npy_path),
-                    "channel_locations_npy": (str(locs_npy) if src_name == "merged_union" else None),
-                    "channel_ids_npy": (str(ch_ids_npy) if src_name == "merged_union" else None),
-                    "electrode_ids_npy": (str(el_ids_npy) if src_name == "merged_union" else None),
-                    "sampling_frequency_hz": float(fs_hz),
-                    "ms_before": ms_before,
-                    "ms_after": ms_after,
-                    "n_samples": int(tmpl.shape[0]),
-                    "n_channels": int(tmpl.shape[1]),
-                    "channel_ids": _jsonable_sequence(src.get("channel_ids")),
-                    "electrode_ids": _jsonable_sequence(src.get("electrode_ids")),
-                    "channel_locations": locs[:, :2].tolist(),
-                }
-                _write_json(meta_path, meta)
-
-            unit_entry["sources"].append(
-                {
-                    "name": src_name,
-                    "template_npy": str(npy_path),
-                    "meta_json": str(meta_path),
-                    "n_channels": int(tmpl.shape[1]),
-                    "channel_locations_npy": (str(locs_npy) if src_name == "merged_union" else None),
-                    "channel_ids_npy": (str(ch_ids_npy) if src_name == "merged_union" else None),
-                }
-            )
-
-        summary["units"].append(unit_entry)
-
-        # For grid PDF: take concat if present else first source.
-        chosen = None
-        for s in sources_for_unit:
-            if str(s["name"]) == "concat":
-                chosen = s
-                break
-        if chosen is None:
-            chosen = sources_for_unit[0]
-
-        unit_grid_entries_curated.append({"unit_id": uid, "template": chosen["template"]})
-
-        # Per-unit multi-source overlay PDF.
-        if multi_source_templates_dir is not None:
-            unit_dir = multi_source_templates_dir / f"unit_{uid}"
-            unit_dir.mkdir(parents=True, exist_ok=True)
-            unit_pdf = unit_dir / "templates.pdf"
-            if (not unit_pdf.exists()) or inputs.force_restart:
-                _write_unit_templates_across_sources_pdf(
-                    pdf_path=unit_pdf,
-                    unit_id=uid,
-                    sources_for_unit=sources_for_unit_with_union,
-                    fs_hz=float(fs_hz),
-                    ms_before=ms_before,
-                    ms_after=ms_after,
-                    top_channels=int(inputs.top_channels_per_template),
-                )
-
-    # Build uncurated grid entries using concat-only templates.
-    if inputs.plot_templates_grid_pdf:
-        try:
-            from ..waveforms.exclusions import compute_unit_template_from_waveforms, normalize_unit_id
-
-            concat_analyzer = None
-            for name, an in analyzers:
-                if str(name) == "concat":
-                    concat_analyzer = an
-                    break
-            if concat_analyzer is None:
-                concat_analyzer = analyzers[0][1]
-
-            for uid in unit_ids_all:
-                # Uncurated definition: pre-exclusion (use all available waveforms)
-                excluded = set()
-                res = compute_unit_template_from_waveforms(
-                    analyzer=concat_analyzer,
-                    unit_id=uid,
-                    excluded_spike_samples=excluded,
-                    logger=logger,
-                )
-                update_wf_exclusion_report(
-                    wf_excl_report,
-                    scope="uncurated_grid",
-                    source_name="concat" if concat_analyzer is not None else "unknown",
-                    unit_id=uid,
-                    excluded_spike_samples=excluded,
-                    result=res,
-                )
-                if res is None:
-                    continue
-                unit_grid_entries_uncurated.append({"unit_id": uid, "template": res.template})
-        except Exception as e:
-            logger.warning("Failed building templates uncurated grid entries: %s", e)
-
-    # Uncurated multi-source overlays: all units, pre-exclusion, pre-curation.
-    if multi_source_templates_dir_uncurated is not None:
-        for uid in unit_ids_all:
-            sources_for_unit: list[dict[str, Any]] = []
-            for name, an in analyzers:
-                tmpl = None
-                try:
-                    from ..waveforms.exclusions import compute_unit_template_from_waveforms
-
-                    res = compute_unit_template_from_waveforms(
-                        analyzer=an,
-                        unit_id=uid,
-                        excluded_spike_samples=set(),
-                        logger=logger,
-                    )
-                    update_wf_exclusion_report(
-                        wf_excl_report,
-                        scope="uncurated_multi_source",
-                        source_name=str(name),
-                        unit_id=uid,
-                        excluded_spike_samples=set(),
-                        result=res,
-                    )
-                    tmpl = (None if res is None else res.template)
-                except Exception:
-                    tmpl = None
-
-                if tmpl is None:
-                    t_ext = an.get_extension("templates") if an.has_extension("templates") else None
-                    if t_ext is not None:
-                        tmpl = _get_unit_template_from_extension(analyzer=an, templates_ext=t_ext, unit_id=uid)
-                if tmpl is None:
-                    continue
-                tmpl = np.asarray(tmpl)
-                if tmpl.ndim != 2 or tmpl.size == 0:
-                    continue
-
-                locs = np.asarray(an.recording.get_channel_locations())
-                try:
-                    ch_ids = list(an.recording.get_channel_ids())
-                except Exception:
-                    ch_ids = None
-                el_ids = _try_get_electrode_ids(an.recording)
-
-                if tmpl.shape[1] != locs.shape[0]:
-                    try:
-                        sp = getattr(an, "sparsity", None)
-                        if sp is None and an.has_extension("waveforms"):
-                            sp = getattr(an.get_extension("waveforms"), "sparsity", None)
-                        if sp is not None:
-                            ch_inds = _sparsity_unit_channel_indices(sparsity=sp, unit_id=uid)
-                            ch_inds = np.asarray(ch_inds, dtype=int)
-                            if int(ch_inds.size) == int(tmpl.shape[1]):
-                                locs = locs[ch_inds, :]
-                                if ch_ids is not None:
-                                    ch_ids = list(np.asarray(ch_ids, dtype=object)[ch_inds])
-                                if el_ids is not None:
-                                    try:
-                                        el_ids = list(np.asarray(el_ids, dtype=object)[ch_inds])
-                                    except Exception:
-                                        pass
-                    except Exception:
-                        pass
-
-                if tmpl.shape[1] != locs.shape[0]:
-                    continue
-
-                sources_for_unit.append(
-                    {
-                        "name": str(name),
-                        "template": tmpl,
-                        "channel_locations": locs,
-                        "channel_ids": ch_ids,
-                        "electrode_ids": el_ids,
-                    }
-                )
-
             if not sources_for_unit:
                 continue
 
             merged_union = _build_union_template_for_unit(sources_for_unit=sources_for_unit, logger=logger)
             sources_for_unit_with_union = list(sources_for_unit) + ([merged_union] if merged_union is not None else [])
 
-            unit_dir = multi_source_templates_dir_uncurated / f"unit_{uid}"
-            unit_dir.mkdir(parents=True, exist_ok=True)
-            unit_pdf = unit_dir / "templates.pdf"
-            if (not unit_pdf.exists()) or inputs.force_restart:
-                _write_unit_templates_across_sources_pdf(
-                    pdf_path=unit_pdf,
-                    unit_id=uid,
-                    sources_for_unit=sources_for_unit_with_union,
+            if persist:
+                unit_entry = _persist_unit_templates(
+                    uid=uid,
+                    sources_for_unit_with_union=sources_for_unit_with_union,
+                    extracted_templates_dir=extracted_templates_dir,
+                    merged_union_by_unit_dir=merged_union_by_unit_dir,
                     fs_hz=float(fs_hz),
                     ms_before=ms_before,
                     ms_after=ms_after,
-                    top_channels=int(inputs.top_channels_per_template),
+                    jsonable=_jsonable,
+                    jsonable_sequence=_jsonable_sequence,
+                    write_json=_write_json,
+                    force_restart=bool(inputs.force_restart),
+                    logger=logger,
                 )
+                summary["units"].append(unit_entry)
+
+            chosen = _choose_grid_source_for_unit(sources_for_unit=sources_for_unit)
+            if chosen is not None:
+                grid_entries.append({"unit_id": uid, "template": chosen["template"]})
+
+            if plot_dir is not None:
+                unit_dir = plot_dir / f"unit_{uid}"
+                unit_dir.mkdir(parents=True, exist_ok=True)
+                unit_pdf = unit_dir / "templates.pdf"
+                if (not unit_pdf.exists()) or inputs.force_restart:
+                    _write_unit_templates_across_sources_pdf(
+                        pdf_path=unit_pdf,
+                        unit_id=uid,
+                        sources_for_unit=sources_for_unit_with_union,
+                        fs_hz=float(fs_hz),
+                        ms_before=ms_before,
+                        ms_after=ms_after,
+                        top_channels=int(inputs.top_channels_per_template),
+                    )
+
+        return grid_entries
+
+    # Curated artifacts (unit_ids already curated if waveforms curation exists).
+    unit_grid_entries_curated = _process_unit_list(
+        unit_list=unit_ids,
+        plot_dir=multi_source_templates_dir,
+        persist=True,
+    )
+
+    # Uncurated artifacts (pre-curation). Note: "uncurated" is now defined by unit list only;
+    # spike-level exclusions are not applied downstream.
+    if multi_source_templates_dir_uncurated is not None or inputs.plot_templates_grid_pdf:
+        unit_grid_entries_uncurated = _process_unit_list(
+            unit_list=unit_ids_all,
+            plot_dir=multi_source_templates_dir_uncurated,
+            persist=False,
+        )
 
     # Write grid PDFs.
     if templates_grid_pdf is not None:
