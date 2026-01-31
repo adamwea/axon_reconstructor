@@ -149,11 +149,18 @@ def _persist_unit_templates(
     uid: Any,
     sources_for_unit_with_union: list[dict[str, Any]],
     extracted_templates_dir: Path,
-    merged_union_by_unit_dir: Path,
+    merged_units_dir: Path,
+    merged_unit_full_chip_maps_dir: Path,
+    axon_velocity_outputs_root_dir: Path,
+    full_unit_templates_dir: Optional[Path] = None,
+    full_channel_locations_xy: Any = None,
+    full_channel_ids: Any = None,
+    full_electrode_ids: Any = None,
     fs_hz: float,
     ms_before: Optional[float],
     ms_after: Optional[float],
     recording_electrode_ids: Any = None,
+    make_axon_velocity_plots: bool = False,
     jsonable,
     jsonable_sequence,
     write_json,
@@ -172,17 +179,22 @@ def _persist_unit_templates(
         locs = np.asarray(src["channel_locations"], dtype=float)
 
         if src_name == "merged_union":
-            out_dir = merged_union_by_unit_dir / f"unit_{uid}"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            npy_path = out_dir / "merged_union_template.npy"
-            locs_npy = out_dir / "merged_union_channel_locations.npy"
-            ch_ids_npy = out_dir / "merged_union_channel_ids.npy"
-            el_ids_npy = out_dir / "merged_union_electrode_ids.npy"
-            footprint_ptp_npy = out_dir / "merged_union_footprint_ptp.npy"
-            axon_velocity_npz = out_dir / "axon_velocity_inputs.npz"
-            axon_velocity_amplitude_png = out_dir / "axon_velocity_amplitude_map.png"
-            axon_velocity_peak_latency_png = out_dir / "axon_velocity_peak_latency_map.png"
-            meta_path = out_dir / "merged_union_template_meta.json"
+            data_dir = merged_units_dir / f"unit_{uid}"
+            data_dir.mkdir(parents=True, exist_ok=True)
+
+            merged_unit_full_chip_maps_dir.mkdir(parents=True, exist_ok=True)
+
+            npy_path = data_dir / "merged_union_template.npy"
+            locs_npy = data_dir / "merged_union_channel_locations.npy"
+            ch_ids_npy = data_dir / "merged_union_channel_ids.npy"
+            el_ids_npy = data_dir / "merged_union_electrode_ids.npy"
+            footprint_ptp_npy = data_dir / "merged_union_footprint_ptp.npy"
+            axon_velocity_npz = data_dir / "axon_velocity_inputs.npz"
+
+            template_amplitude_png = merged_unit_full_chip_maps_dir / f"unit_{uid}_template_amplitude_map_full_chip.png"
+            template_peak_latency_png = merged_unit_full_chip_maps_dir / f"unit_{uid}_template_peak_latency_map_full_chip.png"
+            axon_velocity_plots_dir = axon_velocity_outputs_root_dir / f"unit_{uid}"
+            meta_path = data_dir / "merged_union_template_meta.json"
         else:
             out_dir = extracted_templates_dir / src_name
             out_dir.mkdir(parents=True, exist_ok=True)
@@ -193,8 +205,9 @@ def _persist_unit_templates(
             el_ids_npy = None
             footprint_ptp_npy = None
             axon_velocity_npz = None
-            axon_velocity_amplitude_png = None
-            axon_velocity_peak_latency_png = None
+            template_amplitude_png = None
+            template_peak_latency_png = None
+            axon_velocity_plots_dir = None
 
         if (not npy_path.exists()) or force_restart:
             np.save(npy_path, tmpl)
@@ -241,39 +254,224 @@ def _persist_unit_templates(
                     except Exception:
                         pass
 
-                # Best-effort axon_velocity plots (do not hard-require axon_velocity dependencies).
-                # These are useful quick-look visualizations and mirror the legacy pipeline outputs.
+                # Best-effort template QC maps (full-chip rendering, no external axon_velocity dependency).
                 try:
-                    if ((not axon_velocity_amplitude_png.exists()) or (not axon_velocity_peak_latency_png.exists()) or force_restart):
-                        from axon_reconstructor.pipeline.templates.plotting import (
-                            _write_full_chip_amplitude_map_png,
-                            _write_full_chip_peak_latency_map_png,
+                    assert template_amplitude_png is not None and template_peak_latency_png is not None
+                    from axon_reconstructor.pipeline.templates.plotting import (
+                        _write_full_chip_template_amplitude_map_png,
+                        _write_full_chip_template_peak_latency_map_png,
+                    )
+
+                    tmpl_ch_by_t = np.asarray(tmpl, dtype=float).T
+
+                    if (not template_amplitude_png.exists()) or force_restart:
+                        _write_full_chip_template_amplitude_map_png(
+                            out_path=template_amplitude_png,
+                            template_ch_by_t=tmpl_ch_by_t,
+                            electrode_ids=el_ids_seq,
+                            recording_electrode_ids=recording_electrode_ids,
+                            title="Amplitude map",
+                            cmap="viridis",
                         )
 
-                        tmpl_ch_by_t = np.asarray(tmpl, dtype=float).T
-
-                        if (not axon_velocity_amplitude_png.exists()) or force_restart:
-                            _write_full_chip_amplitude_map_png(
-                                out_path=axon_velocity_amplitude_png,
-                                template_ch_by_t=tmpl_ch_by_t,
-                                electrode_ids=el_ids_seq,
-                                recording_electrode_ids=recording_electrode_ids,
-                                title="Amplitude map",
-                                cmap="viridis",
-                            )
-
-                        if (not axon_velocity_peak_latency_png.exists()) or force_restart:
-                            _write_full_chip_peak_latency_map_png(
-                                out_path=axon_velocity_peak_latency_png,
-                                template_ch_by_t=tmpl_ch_by_t,
-                                electrode_ids=el_ids_seq,
-                                recording_electrode_ids=recording_electrode_ids,
-                                sampling_frequency_hz=float(fs_hz),
-                                title="Peak latency map",
-                                cmap="viridis",
-                            )
+                    if (not template_peak_latency_png.exists()) or force_restart:
+                        _write_full_chip_template_peak_latency_map_png(
+                            out_path=template_peak_latency_png,
+                            template_ch_by_t=tmpl_ch_by_t,
+                            electrode_ids=el_ids_seq,
+                            recording_electrode_ids=recording_electrode_ids,
+                            sampling_frequency_hz=float(fs_hz),
+                            title="Peak latency map",
+                            cmap="viridis",
+                        )
                 except Exception:
                     pass
+
+                # Clean up legacy naming so merged_union output dirs don't keep old axon_velocity-like QC maps.
+                try:
+                    legacy_plots_dir = Path(axon_velocity_outputs_root_dir).parent / "merged_unit_plots" / f"unit_{uid}"
+                    legacy_amp = legacy_plots_dir / "axon_velocity_amplitude_map.png"
+                    legacy_lat = legacy_plots_dir / "axon_velocity_peak_latency_map.png"
+                    legacy_std = legacy_plots_dir / "axon_velocity_peak_std_map.png"
+                    if template_amplitude_png is not None and template_amplitude_png.exists() and legacy_amp.exists():
+                        legacy_amp.unlink()
+                    if template_peak_latency_png is not None and template_peak_latency_png.exists() and legacy_lat.exists():
+                        legacy_lat.unlink()
+                    if legacy_std.exists():
+                        legacy_std.unlink()
+                except Exception:
+                    pass
+
+                # Optional: real axon_velocity integration outputs (separate folder).
+                if bool(make_axon_velocity_plots) and axon_velocity_plots_dir is not None and axon_velocity_npz is not None:
+                    try:
+                        from axon_reconstructor.pipeline.templates.av_plotting import (
+                            try_write_axon_velocity_plots_from_npz,
+                        )
+
+                        if force_restart or (not axon_velocity_plots_dir.exists()):
+                            axon_velocity_plots_dir.mkdir(parents=True, exist_ok=True)
+                        try_write_axon_velocity_plots_from_npz(
+                            npz_path=axon_velocity_npz,
+                            out_dir=axon_velocity_plots_dir,
+                            unit_id=jsonable(uid),
+                        )
+                    except Exception:
+                        pass
+
+                # Optional: persist a full-channel (dense) template for reconstruction.
+                # This places the merged_union template into the reference recording's channel order,
+                # with zeros for channels that were not in the merged_union sparsity.
+                if full_unit_templates_dir is not None:
+                    try:
+                        # Persist the *recording electrode universe* (union over sources) once under
+                        # full_unit_templates so disk-only replotting can distinguish:
+                        # - quiet electrodes: not present in any recording
+                        # - non-contributing electrodes: present in recording but not contributing
+                        recording_eids_npy = Path(full_unit_templates_dir) / "recording_electrode_ids.npy"
+                        recording_eids_meta = Path(full_unit_templates_dir) / "recording_electrode_ids_meta.json"
+                        rec_eids_seq = jsonable_sequence(recording_electrode_ids)
+                        if rec_eids_seq is not None and len(rec_eids_seq) > 0:
+                            if (not recording_eids_npy.exists()) or force_restart:
+                                np.save(recording_eids_npy, np.asarray(rec_eids_seq, dtype=object))
+                            if (not recording_eids_meta.exists()) or force_restart:
+                                write_json(
+                                    recording_eids_meta,
+                                    {
+                                        "recording_electrode_ids_npy": str(recording_eids_npy),
+                                        "n_recording_electrodes": int(len(rec_eids_seq)),
+                                        "definition": "electrode ids that appear in at least one templates-stage recording/analyzer (union over sources)",
+                                    },
+                                )
+
+                        unit_full_dir = Path(full_unit_templates_dir) / f"unit_{uid}"
+                        unit_full_dir.mkdir(parents=True, exist_ok=True)
+
+                        full_template_npy = unit_full_dir / "full_template.npy"
+                        full_locs_npy = unit_full_dir / "full_channel_locations_xy.npy"
+                        full_ch_ids_npy = unit_full_dir / "full_channel_ids.npy"
+                        full_el_ids_npy = unit_full_dir / "full_electrode_ids.npy"
+                        full_contrib_inds_npy = unit_full_dir / "contributing_full_channel_indices.npy"
+                        full_meta_json = unit_full_dir / "full_template_meta.json"
+
+                        full_locs = None
+                        try:
+                            full_locs = np.asarray(full_channel_locations_xy, dtype=float)
+                        except Exception:
+                            full_locs = None
+
+                        # Persist channel metadata (shared across units but kept per-unit for convenience).
+                        if full_locs is not None and full_locs.ndim == 2 and int(full_locs.shape[0]) > 0:
+                            if (not full_locs_npy.exists()) or force_restart:
+                                np.save(full_locs_npy, np.asarray(full_locs[:, :2], dtype=float))
+
+                        full_ch_ids_seq = jsonable_sequence(full_channel_ids)
+                        if full_ch_ids_seq is not None:
+                            if (not full_ch_ids_npy.exists()) or force_restart:
+                                np.save(full_ch_ids_npy, np.asarray(full_ch_ids_seq, dtype=object))
+
+                        full_el_ids_seq = jsonable_sequence(full_electrode_ids)
+                        if full_el_ids_seq is not None:
+                            if (not full_el_ids_npy.exists()) or force_restart:
+                                np.save(full_el_ids_npy, np.asarray(full_el_ids_seq, dtype=object))
+
+                        # Build mapping from merged_union channels -> full channel indices.
+                        n_full = None
+                        if full_locs is not None and full_locs.ndim == 2:
+                            n_full = int(full_locs.shape[0])
+                        elif full_ch_ids_seq is not None:
+                            n_full = int(len(full_ch_ids_seq))
+
+                        if n_full is not None and n_full > 0:
+                            # Prefer electrode id mapping (most stable across sources).
+                            contrib_inds: list[int] = []
+                            full_template = np.zeros((int(tmpl.shape[0]), int(n_full)), dtype=float)
+
+                            merged_el_ids_seq = jsonable_sequence(src.get("electrode_ids"))
+                            merged_ch_ids_seq = jsonable_sequence(src.get("channel_ids"))
+
+                            el_to_index = None
+                            if full_el_ids_seq is not None:
+                                try:
+                                    el_to_index = {int(e): int(i) for i, e in enumerate(full_el_ids_seq) if e is not None}
+                                except Exception:
+                                    el_to_index = None
+
+                            ch_to_index = None
+                            if el_to_index is None and full_ch_ids_seq is not None:
+                                try:
+                                    ch_to_index = {str(c): int(i) for i, c in enumerate(full_ch_ids_seq) if c is not None}
+                                except Exception:
+                                    ch_to_index = None
+
+                            # Location fallback.
+                            loc_to_index = None
+                            tol = None
+                            if el_to_index is None and ch_to_index is None and full_locs is not None:
+                                try:
+                                    from axon_reconstructor.pipeline.templates.utils import _infer_location_tolerance, _loc_key
+
+                                    tol = float(_infer_location_tolerance(full_locs))
+                                    loc_to_index = {_loc_key(xy, tol): int(i) for i, xy in enumerate(np.asarray(full_locs)[:, :2])}
+                                except Exception:
+                                    loc_to_index = None
+
+                            for j in range(int(tmpl.shape[1])):
+                                idx = None
+                                if el_to_index is not None and merged_el_ids_seq is not None:
+                                    try:
+                                        e = merged_el_ids_seq[j]
+                                        if e is not None:
+                                            idx = el_to_index.get(int(e))
+                                    except Exception:
+                                        idx = None
+                                if idx is None and ch_to_index is not None and merged_ch_ids_seq is not None:
+                                    try:
+                                        c = merged_ch_ids_seq[j]
+                                        if c is not None:
+                                            idx = ch_to_index.get(str(c))
+                                    except Exception:
+                                        idx = None
+                                if idx is None and loc_to_index is not None and tol is not None:
+                                    try:
+                                        key = _loc_key(locs[j, :2], float(tol))
+                                        idx = loc_to_index.get(key)
+                                    except Exception:
+                                        idx = None
+
+                                if idx is None:
+                                    continue
+
+                                full_template[:, int(idx)] = tmpl[:, j]
+                                contrib_inds.append(int(idx))
+
+                            if (not full_template_npy.exists()) or force_restart:
+                                np.save(full_template_npy, full_template)
+                            if (not full_contrib_inds_npy.exists()) or force_restart:
+                                np.save(full_contrib_inds_npy, np.asarray(sorted(set(contrib_inds)), dtype=int))
+
+                            if (not full_meta_json.exists()) or force_restart:
+                                write_json(
+                                    full_meta_json,
+                                    {
+                                        "unit_id": jsonable(uid),
+                                        "full_template_npy": str(full_template_npy),
+                                        "full_channel_locations_xy_npy": (str(full_locs_npy) if full_locs is not None else None),
+                                        "full_channel_ids_npy": (str(full_ch_ids_npy) if full_ch_ids_seq is not None else None),
+                                        "full_electrode_ids_npy": (str(full_el_ids_npy) if full_el_ids_seq is not None else None),
+                                        "contributing_full_channel_indices_npy": str(full_contrib_inds_npy),
+                                        "recording_electrode_ids_npy": (str(recording_eids_npy) if rec_eids_seq is not None and len(rec_eids_seq) > 0 else None),
+                                        "n_recording_electrodes": (int(len(rec_eids_seq)) if rec_eids_seq is not None else None),
+                                        "n_samples": int(tmpl.shape[0]),
+                                        "n_full_channels": int(n_full),
+                                        "n_contributing_channels": int(len(set(contrib_inds))),
+                                        "mapping_strategy": (
+                                            "electrode_ids" if el_to_index is not None else ("channel_ids" if ch_to_index is not None else "locations")
+                                        ),
+                                    },
+                                )
+                    except Exception as e:
+                        logger.warning("Failed writing full_unit_templates for unit %s: %s", uid, e)
             except Exception as e:
                 logger.warning("Failed writing merged_union aux arrays for unit %s: %s", uid, e)
 
@@ -293,15 +491,14 @@ def _persist_unit_templates(
                 "axon_velocity_inputs_npz": (
                     str(axon_velocity_npz) if src_name == "merged_union" and axon_velocity_npz is not None else None
                 ),
-                "axon_velocity_amplitude_map_png": (
-                    str(axon_velocity_amplitude_png)
-                    if src_name == "merged_union" and axon_velocity_amplitude_png is not None
-                    else None
+                "template_amplitude_map_full_chip_png": (
+                    str(template_amplitude_png) if src_name == "merged_union" and template_amplitude_png is not None else None
                 ),
-                "axon_velocity_peak_latency_map_png": (
-                    str(axon_velocity_peak_latency_png)
-                    if src_name == "merged_union" and axon_velocity_peak_latency_png is not None
-                    else None
+                "template_peak_latency_map_full_chip_png": (
+                    str(template_peak_latency_png) if src_name == "merged_union" and template_peak_latency_png is not None else None
+                ),
+                "axon_velocity_outputs_dir": (
+                    str(axon_velocity_plots_dir) if src_name == "merged_union" and axon_velocity_plots_dir is not None else None
                 ),
                 "sampling_frequency_hz": float(fs_hz),
                 "ms_before": ms_before,

@@ -20,11 +20,13 @@ Produces per-unit and all-units PDF summaries plus a JSON summary.
 
 ## Inputs consumed (from templates)
 
-From `<well>/templates_outputs/merged_union_by_unit/unit_<id>/`:
+From `<well>/templates_outputs/merged_units/unit_<id>/`:
 
 - `merged_union_template.npy`
 - `merged_union_channel_locations.npy`
 - `merged_union_template_meta.json`
+
+Note: legacy runs may have these under `merged_union_by_unit/`.
 
 ## Outputs (artifacts)
 

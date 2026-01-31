@@ -116,7 +116,7 @@ class ReconstructionInputs:
     stream_id: str
     mea_output_root: Path
 
-    # Units to reconstruct. If None, reconstruct all units found under templates_outputs/merged_union_by_unit.
+    # Units to reconstruct. If None, reconstruct all units found under templates_outputs/merged_units.
     unit_ids: Optional[list[Any]] = None
     unit_limit: Optional[int] = None
 
@@ -147,10 +147,10 @@ class ReconstructionOutputs:
 def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_prefix: str = "axon_reconstructor") -> ReconstructionOutputs:
     """Run axon reconstruction/velocity estimation using axon_velocity.
 
-    This stage consumes the merged_union artifacts from templates extraction:
-      <well>/templates_outputs/merged_union_by_unit/unit_<id>/merged_union_template.npy
-      <well>/templates_outputs/merged_union_by_unit/unit_<id>/merged_union_channel_locations.npy
-      <well>/templates_outputs/merged_union_by_unit/unit_<id>/merged_union_template_meta.json
+        This stage consumes the merged_union artifacts from templates extraction:
+            <well>/templates_outputs/merged_units/unit_<id>/merged_union_template.npy
+            <well>/templates_outputs/merged_units/unit_<id>/merged_union_channel_locations.npy
+            <well>/templates_outputs/merged_units/unit_<id>/merged_union_template_meta.json
 
     And produces:
       <well>/reconstruction_outputs/
@@ -221,9 +221,17 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
     by_unit_dir.mkdir(parents=True, exist_ok=True)
 
     templates_out_dir = well_out_dir / "templates_outputs"
-    merged_union_by_unit_dir = templates_out_dir / "merged_union_by_unit"
-    if not merged_union_by_unit_dir.exists():
-        raise FileNotFoundError(f"Missing merged_union templates at {merged_union_by_unit_dir}")
+    merged_units_dir = templates_out_dir / "merged_units"
+    legacy_merged_union_by_unit_dir = templates_out_dir / "merged_union_by_unit"
+    merged_union_by_unit_dir = (
+        merged_units_dir
+        if merged_units_dir.exists()
+        else (legacy_merged_union_by_unit_dir if legacy_merged_union_by_unit_dir.exists() else None)
+    )
+    if merged_union_by_unit_dir is None:
+        raise FileNotFoundError(
+            f"Missing merged_union templates at {merged_units_dir} (or legacy {legacy_merged_union_by_unit_dir})"
+        )
 
     try:
         import numpy as np  # type: ignore[import-not-found]
@@ -282,7 +290,7 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
         "h5_path": str(inputs.h5_path),
         "stream_id": inputs.stream_id,
         "well_out_dir": str(well_out_dir),
-        "templates_merged_union_by_unit_dir": str(merged_union_by_unit_dir),
+        "templates_merged_units_dir": str(merged_union_by_unit_dir),
         "reconstruction_out_dir": str(recon_out_dir),
         "axon_velocity_params": {k: _jsonable(v) for k, v in params.items()},
         "units": [],
