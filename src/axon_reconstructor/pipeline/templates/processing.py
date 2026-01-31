@@ -77,15 +77,24 @@ def process_unit_list(
     unit_list: list[Any],
     analyzers: list[tuple[str, Any]],
     extracted_templates_dir: Path,
-    merged_union_by_unit_dir: Path,
-    plot_dir: Optional[Path],
+    merged_units_dir: Path,
+    merged_unit_footprints_dir: Path,
+    merged_unit_svgs_dir: Path,
+    merged_unit_full_chip_maps_dir: Path,
+    axon_velocity_outputs_root_dir: Path,
+    unit_segment_grids_dir: Optional[Path],
+    full_unit_templates_dir: Optional[Path] = None,
+    topo_unit_footprints_dir: Optional[Path] = None,
+    propagation_plots_dir: Optional[Path] = None,
     fs_hz: float,
     ms_before: Optional[float],
     ms_after: Optional[float],
     top_channels_per_template: int,
     write_footprint_ptp_map=None,
     write_unit_template_and_footprint_svg=None,
+    write_topo_unit_footprint_png=None,
     make_merged_union_footprint_plots: bool = True,
+    make_axon_velocity_plots: bool = False,
     force_restart: bool,
     n_jobs: int,
     get_template_from_extension,
@@ -94,7 +103,13 @@ def process_unit_list(
     jsonable,
     jsonable_sequence,
     write_json,
-    write_unit_templates_across_sources_pdf,
+    write_unit_segment_grids_pdf,
+    write_unit_segment_footprint_grids_pdf=None,
+    write_unit_propagation_plots_pdf=None,
+    propagation_top_channels: int = 10,
+    propagation_n_waveforms: int = 12,
+    propagation_channels_per_panel: int = 25,
+    propagation_channel_overlap: int = 5,
     logger,
     persist: bool,
     summary: Optional[dict[str, Any]] = None,
@@ -102,6 +117,15 @@ def process_unit_list(
     """Process units: gather per-source templates, build merged_union, persist, and plot."""
 
     # Electrode ids present in at least one recording object (union over sources).
+    # Note: waveforms-stage analyzers may be sparse. When we detect Maxwell electrode id
+    # scheme, we can still generate a *full-chip geometry* for full templates, but we
+    # must NOT promote the observed recording electrode universe to the full chip.
+    #
+    # Rationale: downstream plots distinguish
+    # - quiet electrodes: not present in any recording/analyzer
+    # - non-contributing electrodes: present in at least one recording but not contributing for this unit
+    #
+    # That distinction requires preserving the observed recording electrode set.
     recording_electrode_ids: Optional[list[Any]] = None
     try:
         all_electrode_ids: list[Any] = []
@@ -116,6 +140,9 @@ def process_unit_list(
     except Exception:
         recording_electrode_ids = None
 
+    # Note: do NOT replace recording_electrode_ids with the full chip here.
+    # Full-chip geometry is handled separately below when building full_unit_templates.
+
     # Ensure templates extension exists (best effort).
     for _, an in analyzers:
         try:
@@ -123,6 +150,49 @@ def process_unit_list(
                 an.compute(["templates"], verbose=False, n_jobs=max(1, int(n_jobs)))
         except Exception:
             pass
+
+    # Choose a reference analyzer for full-channel metadata (prefer concat).
+    reference_analyzer = analyzers[0][1] if analyzers else None
+    for name, an in analyzers:
+        if str(name) == "concat":
+            reference_analyzer = an
+            break
+
+    full_channel_locations_xy = None
+    full_channel_ids = None
+    full_electrode_ids = None
+    if full_unit_templates_dir is not None:
+        # Prefer a deterministic full-chip geometry when we can detect Maxwell electrode ids.
+        # This avoids accidentally building a "full" template over only the sparse waveforms channels.
+        try:
+            from .utils import _looks_like_maxwell_full_chip_electrode_ids, _maxwell_full_chip_channel_metadata
+
+            if _looks_like_maxwell_full_chip_electrode_ids(recording_electrode_ids):
+                locs_xy, ch_ids, el_ids = _maxwell_full_chip_channel_metadata()
+                full_channel_locations_xy = locs_xy
+                full_channel_ids = list(ch_ids.tolist())
+                full_electrode_ids = list(el_ids.tolist())
+        except Exception:
+            pass
+
+        # Fallback: use the reference analyzer's recording geometry.
+        if full_channel_locations_xy is None and reference_analyzer is not None:
+            try:
+                import numpy as np  # type: ignore[import-not-found]
+
+                full_channel_locations_xy = np.asarray(reference_analyzer.recording.get_channel_locations(), dtype=float)[:, :2]
+                try:
+                    full_channel_ids = list(reference_analyzer.recording.get_channel_ids())
+                except Exception:
+                    full_channel_ids = None
+                try:
+                    full_electrode_ids = try_get_electrode_ids(reference_analyzer.recording)
+                except Exception:
+                    full_electrode_ids = None
+            except Exception:
+                full_channel_locations_xy = None
+                full_channel_ids = None
+                full_electrode_ids = None
 
     grid_entries: list[dict[str, Any]] = []
 
@@ -152,15 +222,15 @@ def process_unit_list(
 
                 merged_union_electrode_ids = merged_union.get("electrode_ids")
 
-                unit_dir = merged_union_by_unit_dir / f"unit_{uid}"
-                unit_dir.mkdir(parents=True, exist_ok=True)
+                merged_unit_footprints_dir.mkdir(parents=True, exist_ok=True)
+                merged_unit_svgs_dir.mkdir(parents=True, exist_ok=True)
 
                 tmpl = np.asarray(merged_union["template"], dtype=float)
                 locs = np.asarray(merged_union["channel_locations"], dtype=float)
                 amp = np.ptp(tmpl, axis=0)
 
                 write_footprint_ptp_map(
-                    out_path=unit_dir / "merged_union_footprint_ptp_linear.png",
+                    out_path=merged_unit_footprints_dir / f"unit_{uid}_merged_union_footprint_ptp_linear.png",
                     channel_locations_xy=locs[:, :2],
                     footprint_ptp=amp,
                     title=f"Unit {uid} merged_union footprint (PTP)",
@@ -169,7 +239,7 @@ def process_unit_list(
                     recording_electrode_ids=recording_electrode_ids,
                 )
                 write_footprint_ptp_map(
-                    out_path=unit_dir / "merged_union_footprint_ptp_log.png",
+                    out_path=merged_unit_footprints_dir / f"unit_{uid}_merged_union_footprint_ptp_log.png",
                     channel_locations_xy=locs[:, :2],
                     footprint_ptp=amp,
                     title=f"Unit {uid} merged_union footprint (PTP, log)",
@@ -179,7 +249,7 @@ def process_unit_list(
                 )
 
                 write_unit_template_and_footprint_svg(
-                    out_path=unit_dir / "merged_union_template_footprint_linear.svg",
+                    out_path=merged_unit_svgs_dir / f"unit_{uid}_merged_union_template_footprint_linear.svg",
                     unit_id=uid,
                     template=tmpl,
                     channel_locations_xy=locs[:, :2],
@@ -192,7 +262,7 @@ def process_unit_list(
                     recording_electrode_ids=recording_electrode_ids,
                 )
                 write_unit_template_and_footprint_svg(
-                    out_path=unit_dir / "merged_union_template_footprint_log.svg",
+                    out_path=merged_unit_svgs_dir / f"unit_{uid}_merged_union_template_footprint_log.svg",
                     unit_id=uid,
                     template=tmpl,
                     channel_locations_xy=locs[:, :2],
@@ -212,11 +282,18 @@ def process_unit_list(
                 uid=uid,
                 sources_for_unit_with_union=sources_for_unit_with_union,
                 extracted_templates_dir=extracted_templates_dir,
-                merged_union_by_unit_dir=merged_union_by_unit_dir,
+                merged_units_dir=merged_units_dir,
+                merged_unit_full_chip_maps_dir=merged_unit_full_chip_maps_dir,
+                axon_velocity_outputs_root_dir=axon_velocity_outputs_root_dir,
+                full_unit_templates_dir=full_unit_templates_dir,
+                full_channel_locations_xy=full_channel_locations_xy,
+                full_channel_ids=full_channel_ids,
+                full_electrode_ids=full_electrode_ids,
                 fs_hz=float(fs_hz),
                 ms_before=ms_before,
                 ms_after=ms_after,
                 recording_electrode_ids=recording_electrode_ids,
+                make_axon_velocity_plots=bool(make_axon_velocity_plots),
                 jsonable=jsonable,
                 jsonable_sequence=jsonable_sequence,
                 write_json=write_json,
@@ -226,29 +303,100 @@ def process_unit_list(
             if summary is not None:
                 summary.setdefault("units", []).append(unit_entry)
 
-        chosen = _choose_grid_source_for_unit(sources_for_unit=sources_for_unit)
+        # Topographical footprint plot from full-channel template (per-unit).
+        if topo_unit_footprints_dir is not None and write_topo_unit_footprint_png is not None and full_unit_templates_dir is not None:
+            try:
+                out_png = topo_unit_footprints_dir / f"unit_{uid}.png"
+                if (not out_png.exists()) or force_restart:
+                    unit_full_dir = full_unit_templates_dir / f"unit_{uid}"
+                    full_template_npy = unit_full_dir / "full_template.npy"
+                    full_electrode_ids_npy = unit_full_dir / "full_electrode_ids.npy"
+
+                    if full_template_npy.exists():
+                        import numpy as np  # type: ignore[import-not-found]
+
+                        full_tmpl = np.load(full_template_npy)
+                        try:
+                            full_eids = (
+                                np.load(full_electrode_ids_npy, allow_pickle=True)
+                                if full_electrode_ids_npy.exists()
+                                else None
+                            )
+                        except Exception:
+                            full_eids = None
+
+                        write_topo_unit_footprint_png(
+                            out_path=out_png,
+                            unit_id=uid,
+                            full_template=full_tmpl,
+                            full_electrode_ids=(full_eids.tolist() if full_eids is not None else None),
+                            recording_electrode_ids=recording_electrode_ids,
+                            title=f"Unit {uid} full-template topo footprint (PTP)",
+                        )
+            except Exception:
+                pass
+
+        # Templates grid should show the merged (union) template.
+        chosen = merged_union
         if chosen is not None:
             grid_entries.append(
                 {
                     "unit_id": uid,
                     "template": chosen["template"],
                     "channel_locations": chosen.get("channel_locations"),
+                    "n_channels": int(chosen["template"].shape[1]) if chosen.get("template") is not None else None,
+                    # Best-effort counts for waveforms contributing (computed in sources, if available).
+                    "n_waveforms_sum": chosen.get("n_waveforms_sum"),
+                    "n_channels_union": chosen.get("n_channels_union"),
                 }
             )
 
-        if plot_dir is not None:
-            unit_dir = plot_dir / f"unit_{uid}"
-            unit_dir.mkdir(parents=True, exist_ok=True)
-            unit_pdf = unit_dir / "templates.pdf"
-            if (not unit_pdf.exists()) or force_restart:
-                write_unit_templates_across_sources_pdf(
-                    pdf_path=unit_pdf,
+        if unit_segment_grids_dir is not None:
+            unit_segment_grids_dir.mkdir(parents=True, exist_ok=True)
+            unit_templates_pdf = unit_segment_grids_dir / f"unit_{uid}_templates.pdf"
+            if (not unit_templates_pdf.exists()) or force_restart:
+                write_unit_segment_grids_pdf(
+                    pdf_path=unit_templates_pdf,
                     unit_id=uid,
-                    sources_for_unit=sources_for_unit_with_union,
+                    sources_for_unit=sources_for_unit,
                     fs_hz=float(fs_hz),
                     ms_before=ms_before,
                     ms_after=ms_after,
-                    top_channels=int(top_channels_per_template),
                 )
+
+            if write_unit_segment_footprint_grids_pdf is not None:
+                unit_footprints_pdf = unit_segment_grids_dir / f"unit_{uid}_footprints.pdf"
+                if (not unit_footprints_pdf.exists()) or force_restart:
+                    write_unit_segment_footprint_grids_pdf(
+                        pdf_path=unit_footprints_pdf,
+                        unit_id=uid,
+                        sources_for_unit=sources_for_unit,
+                        recording_electrode_ids=recording_electrode_ids,
+                    )
+
+        # Propagation plots (best-effort).
+        # Prefer PNG outputs (faster iteration than PDFs).
+        if propagation_plots_dir is not None and write_unit_propagation_plots_pdf is not None and merged_union is not None:
+            try:
+                out_png = propagation_plots_dir / f"unit_{uid}.png"
+                if (not out_png.exists()) or force_restart:
+                    # `write_unit_propagation_plots_pdf` is a legacy name; current plotting writes PNG(s)
+                    # into the provided directory.
+                    write_unit_propagation_plots_pdf(
+                        pdf_path=(propagation_plots_dir / f"unit_{uid}.pdf"),
+                        unit_id=uid,
+                        merged_union=merged_union,
+                        fs_hz=float(fs_hz),
+                        ms_before=ms_before,
+                        ms_after=ms_after,
+                        top_channels=int(propagation_top_channels),
+                        n_waveforms=int(propagation_n_waveforms),
+                        channels_per_panel=int(propagation_channels_per_panel),
+                        channel_overlap=int(propagation_channel_overlap),
+                        ap_timings_json_path=(merged_units_dir / f"unit_{uid}" / "ap_timings.json"),
+                        logger=logger,
+                    )
+            except Exception:
+                pass
 
     return grid_entries

@@ -81,6 +81,69 @@ def _try_get_electrode_ids(recording: Any) -> Optional[list[Any]]:
         return None
 
 
+def _looks_like_maxwell_full_chip_electrode_ids(electrode_ids: Any) -> bool:
+    """Heuristic: detect Maxwell full-chip electrode id scheme.
+
+    Maxwell electrode ids are expected to be integers in [0, CHIP_ROWS*CHIP_COLS).
+    """
+
+    try:
+        import numpy as np  # type: ignore[import-not-found]
+
+        from .plotting import CHIP_COLS, CHIP_ROWS
+
+        if electrode_ids is None:
+            return False
+        arr = np.asarray(list(electrode_ids), dtype=object)
+        if arr.size == 0:
+            return False
+
+        ints: list[int] = []
+        for v in arr.tolist():
+            if v is None:
+                continue
+            try:
+                ints.append(int(v))
+            except Exception:
+                return False
+        if not ints:
+            return False
+
+        mn = min(ints)
+        mx = max(ints)
+        if mn < 0:
+            return False
+
+        n = int(CHIP_COLS) * int(CHIP_ROWS)
+        if mx >= n:
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def _maxwell_full_chip_channel_metadata():
+    """Return (locations_xy, channel_ids, electrode_ids) for the Maxwell full chip."""
+
+    import numpy as np  # type: ignore[import-not-found]
+
+    from .plotting import CHIP_COLS, CHIP_PITCH_UM, CHIP_ROWS
+
+    n = int(CHIP_COLS) * int(CHIP_ROWS)
+    eids = np.arange(n, dtype=int)
+    rows = (eids // int(CHIP_COLS)).astype(float)
+    cols = (eids % int(CHIP_COLS)).astype(float)
+    x_um = cols * float(CHIP_PITCH_UM)
+    y_um = rows * float(CHIP_PITCH_UM)
+    locs_xy = np.column_stack([x_um, y_um]).astype(float)
+
+    # For this pipeline, channel_ids are only used as a fallback mapping; electrode_ids are preferred.
+    # Using electrode id integers as channel ids keeps everything JSON/pickle-stable.
+    ch_ids = eids.astype(object)
+    el_ids = eids.astype(object)
+    return locs_xy, ch_ids, el_ids
+
+
 def _infer_location_tolerance(locs: Any) -> float:
     """Infer a tolerance for matching channel locations (in same units as locs)."""
 
