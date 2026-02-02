@@ -160,6 +160,22 @@ def extract_waveforms(
         sorter_output_dir = _resolve_mea_sorter_output_dir(well_out_dir=ctx.well_out_dir)
         sorting = _load_sorting_from_sorter_output_dir(sorter_output_dir=sorter_output_dir, sorter=inputs.sorter)
 
+        # Postprocessing parity with MEA_Analysis (after pairing sorting with the concat recording):
+        # remove spikes that fall beyond the recording length, then drop any units that
+        # became empty as a result. This prevents analyzer-time indexing errors and
+        # keeps downstream metrics consistent.
+        # NOTE: this step may not be necessery if the sorter output is already cleaned. aw 2026-02-01 21:47:35
+        try:
+            import spikeinterface.full as si  # type: ignore[import-not-found]
+
+            sorting = si.remove_excess_spikes(sorting, recording)
+            sorting = sorting.remove_empty_units()
+        except Exception:
+            ctx.logger.debug(
+                "Sorting cleanup (remove_excess_spikes/remove_empty_units) failed; continuing without cleanup.",
+                exc_info=True,
+            )
+
         # Load epoch marker JSONs produced during preprocessing.
         # Scientific rationale: Maxwell recordings can contain snippet discontinuities;
         # we use contiguous-epoch markers to avoid extracting waveforms whose window
