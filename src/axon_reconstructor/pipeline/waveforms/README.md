@@ -19,6 +19,9 @@ This stage is designed to produce *scientifically defensible* waveform snippets 
   - **Concat analyzer** represents the channel set used for sorting (often the electrode intersection across segments).
   - **Per-segment analyzers** optionally extract waveforms on *raw* segment recordings to recover waveforms on electrodes
     that were dropped during concatenation (channels not present in all segments).
+  - **Per-segment preprocessing parity**: by default, raw segment recordings are additionally preprocessed to mimic
+    MEA_Analysis (unsigned->signed if needed, 300 Hz high-pass, common median reference, float32 cast). This reduces
+    risk that per-segment waveforms differ purely due to preprocessing mismatch.
   - **Why per-segment waveforms reuse concat spike times (Kilosort4 context)**:
     - Kilosort4 is a template-matching spikesorter: it detects events and assigns them to units by fitting learned
       templates (with drift handling) on the *same concatenated, preprocessed recording* used for sorting.
@@ -49,6 +52,7 @@ This stage is designed to produce *scientifically defensible* waveform snippets 
 - waveform cutout: `ms_before`/`ms_after` (or inferred from Maxwell trigger metadata)
 - `per_segment`, `per_segment_only_additional_channels`
 - `filter_by_maxwell_epochs`: drop spikes whose window crosses Maxwell snippet boundaries
+- `per_segment_preprocess_like_mea_analysis`: apply MEA_Analysis-like preprocessing to per-segment recordings before extraction
 - `force_restart`, `n_jobs`, `max_spikes_per_unit`
 
 ## Outputs (artifacts)

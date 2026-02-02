@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import json
 from pathlib import Path
 from typing import Any
 
 from ..pipeline_driver import PREPROCESS_OUTPUTS_DIRNAME
 from ..raw_preprocessing.utils import _ensure_maxwell_hdf5_plugin_path
+
+logger = logging.getLogger(__name__)
 
 
 def _read_json(path: Path) -> Any:
@@ -70,6 +73,7 @@ def _load_raw_segment_recording_full_channels(
     stream_id: str,
     rec_name: str,
     center_chunk_size: int = 10_000,
+    preprocess_like_mea_analysis: bool = True,
 ) -> Any:
     """Load a single raw Maxwell rec segment and keep its full channel set."""
 
@@ -98,6 +102,126 @@ def _load_raw_segment_recording_full_channels(
         rec_centered = rec_centered.rename_channels([int(e) for e in electrodes])
     except Exception:
         pass
+
+    # Optional: mimic MEA_Analysis preprocessing (see MEA_Analysis/IPNAnalysis/mea_analysis_routine.py)
+    # so per-segment waveforms are extracted from a signal more comparable to the sorter input.
+    if preprocess_like_mea_analysis:
+        try:
+            import spikeinterface.preprocessing as spre  # type: ignore[import-not-found]
+
+            # 1) Unsigned -> signed conversion (if needed)
+            #
+            # Maxwell / acquisition pipelines sometimes store samples as uint (e.g. uint16)
+            # with an implicit offset. Treating that as centered around 0 breaks filtering
+            # and re-referencing (large DC offsets, incorrect baselines). MEA_Analysis does
+            # this conversion before any filtering/reference operations.
+            try:
+                if rec_centered.get_dtype().kind == "u":
+                    rec_centered = spre.unsigned_to_signed(rec_centered)
+            except Exception:
+                logger.debug(
+                    "MEA_Analysis-like preprocessing: unsigned_to_signed failed; continuing without conversion. "
+                    "h5=%s stream_id=%s rec=%s dtype=%s",
+                    h5_path,
+                    stream_id,
+                    rec_name,
+                    getattr(rec_centered, "get_dtype", lambda: None)(),
+                    exc_info=True,
+                )
+
+            # 2) High-pass filter (~AP band)
+            #
+            # MEA_Analysis uses a 300 Hz high-pass for spike sorting. This removes slow
+            # drift and LFP-like components so waveform shapes/peaks are comparable to
+            # the sorter input.
+            try:
+                rec_centered = spre.highpass_filter(rec_centered, freq_min=300)
+            except Exception:
+                logger.debug(
+                    "MEA_Analysis-like preprocessing: highpass_filter(freq_min=300) failed; continuing without HP. "
+                    "h5=%s stream_id=%s rec=%s",
+                    h5_path,
+                    stream_id,
+                    rec_name,
+                    exc_info=True,
+                )
+
+            # 3) Common reference (median)
+            #
+            # MEA_Analysis applies local common-median reference (CMR) when channel
+            # locations are available (intended to preserve local network activity while
+            # reducing common-mode noise). If locations are missing/malformed, it falls
+            # back to global median reference.
+            #
+            # Note: in SpikeInterface, `local_radius` is an (inner_radius, outer_radius)
+            # annulus in the same distance units as the probe geometry. Setting
+            # `local_radius=(0, R)` yields a simple circular neighborhood of radius R.
+            try:
+                rec_centered = spre.common_reference(
+                    rec_centered,
+                    reference="local",
+                    operator="median",
+                    local_radius=(0, 250),
+                )
+            except Exception:
+                logger.debug(
+                    "MEA_Analysis-like preprocessing: local common_reference(median, radius=(250,250)) failed; "
+                    "falling back to global. h5=%s stream_id=%s rec=%s",
+                    h5_path,
+                    stream_id,
+                    rec_name,
+                    exc_info=True,
+                )
+                try:
+                    rec_centered = spre.common_reference(rec_centered, reference="global", operator="median")
+                except Exception:
+                    logger.debug(
+                        "MEA_Analysis-like preprocessing: global common_reference(median) also failed; continuing "
+                        "without re-referencing. h5=%s stream_id=%s rec=%s",
+                        h5_path,
+                        stream_id,
+                        rec_name,
+                        exc_info=True,
+                    )
+
+            # 4) Annotate filter status
+            #
+            # SpikeInterface components sometimes use this metadata to decide whether
+            # additional filtering is required (or to report provenance).
+            try:
+                rec_centered.annotate(is_filtered=True)
+            except Exception:
+                logger.debug(
+                    "MEA_Analysis-like preprocessing: annotate(is_filtered=True) failed; continuing. "
+                    "h5=%s stream_id=%s rec=%s",
+                    h5_path,
+                    stream_id,
+                    rec_name,
+                    exc_info=True,
+                )
+
+            # 5) Force float32
+            #
+            # MEA_Analysis converts to float32 before saving/running the sorter. Keeping
+            # float32 here reduces risk of dtype-dependent differences (e.g. int scaling/
+            # rounding affecting peak timing/amplitudes) and avoids some downstream
+            # crashes that occur with integer dtypes.
+            try:
+                if rec_centered.get_dtype() != "float32":
+                    rec_centered = spre.astype(rec_centered, "float32")
+            except Exception:
+                logger.debug(
+                    "MEA_Analysis-like preprocessing: astype(float32) failed; continuing without cast. "
+                    "h5=%s stream_id=%s rec=%s dtype=%s",
+                    h5_path,
+                    stream_id,
+                    rec_name,
+                    getattr(rec_centered, "get_dtype", lambda: None)(),
+                    exc_info=True,
+                )
+        except Exception:
+            # If spikeinterface.preprocessing isn't available, proceed without this parity step.
+            pass
 
     return rec_centered
 
