@@ -535,6 +535,25 @@ def _extract_per_segment_waveforms(
 
             seg_sort = _to_numpy_sorting(unit_trains=unit_trains_seg, fs_hz=window.fs_hz)
 
+            # MEA_Analysis-style safety cleanup (segment-local):
+            # even though we try to keep only in-bounds spikes above, this is a cheap
+            # no-op in the common case and prevents analyzer-time indexing errors if
+            # any spike times fall outside `seg_rec`.
+            # Also drops units that ended up with zero kept spikes in this segment.
+            # NOTE: upstream spikesorting may already take care of this already... but I guess it doesnt hurt.
+            # -- aw 2026-02-01 21:51:12
+            try:
+                import spikeinterface.full as si  # type: ignore[import-not-found]
+
+                seg_sort = si.remove_excess_spikes(seg_sort, seg_rec)
+                seg_sort = seg_sort.remove_empty_units()
+            except Exception:
+                logger.debug(
+                    "Segment %s: sorting cleanup (remove_excess_spikes/remove_empty_units) failed; continuing.",
+                    rec_name,
+                    exc_info=True,
+                )
+
             try:
                 seg_sort.register_recording(seg_rec)
             except Exception:
