@@ -209,6 +209,7 @@ def _build_union_template_for_unit(
 
     from axon_reconstructor.pipeline.templates.overlaps import (  # local import to avoid circular deps
         WaveformContribution,
+        robust_baseline_pre_negative_peak,
         mean_waveform_from_contributions,
     )
 
@@ -272,7 +273,13 @@ def _build_union_template_for_unit(
                 continue
 
             key_to_index[key] = len(union_waveforms)
-            union_waveforms.append(np.asarray(tmpl[:, j], dtype=float))
+            # Center per-channel waveform so merged_union is baseline-consistent across sources.
+            try:
+                wf = np.asarray(tmpl[:, j], dtype=float)
+                wf = wf - robust_baseline_pre_negative_peak(wf)
+            except Exception:
+                wf = np.asarray(tmpl[:, j], dtype=float)
+            union_waveforms.append(wf)
             union_locs.append(np.asarray(locs[j, :2], dtype=float))
             union_source_names.append(str(name))
             try:
@@ -336,7 +343,13 @@ def _build_union_template_for_unit(
         if int(merged_wf.shape[0]) != int(n_samples):
             continue
 
-        union_waveforms[idx] = merged_wf
+        # Ensure overlap-resolved waveform is centered too.
+        try:
+            mw = np.asarray(merged_wf, dtype=float)
+            mw = mw - robust_baseline_pre_negative_peak(mw)
+            union_waveforms[idx] = mw
+        except Exception:
+            union_waveforms[idx] = merged_wf
         overlap_resolved += 1
         try:
             overlap_details.append(

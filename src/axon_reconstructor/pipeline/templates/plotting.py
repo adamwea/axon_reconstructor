@@ -1168,7 +1168,7 @@ def _write_unit_propagation_plots_png(
             lab = str(j)
         channel_labels.append(lab)
 
-    # Select channels for plotting: hybridize amplitude + chronology.
+    # Select channels for plotting: amplitude-only (ignore timing for now).
     try:
         amp = np.ptp(tmpl, axis=0).astype(float)
     except Exception:
@@ -1347,151 +1347,11 @@ def _write_unit_propagation_plots_png(
             pass
 
     top_n = max(1, int(min(int(top_channels), int(n_ch_total))))
-    order_by_amp = np.argsort(-np.asarray(amp))
+    order_by_amp = np.argsort(-np.asarray(amp, dtype=float))
+    picked = [int(i) for i in order_by_amp[:top_n].tolist()]
 
-    def _select_hybrid_chain(
-        *,
-        neg_peak_i_all: Any,
-        amp_all: Any,
-        top_n: int,
-        max_candidates: int,
-        eps_amp: float = 1e-9,
-    ) -> list[int]:
-        """Pick a subset that is strictly chronological and strictly decreasing in amplitude.
-
-        We model each channel as a point (t_peak, amp). We want an ordered sequence where:
-        - t_peak is strictly increasing
-        - amp is strictly decreasing
-
-        This enforces: each channel peaks after the previous AND has lower amplitude.
-        """
-
-        import numpy as np  # type: ignore[import-not-found]
-
-        neg_i = np.asarray(neg_peak_i_all)
-        amp_v = np.asarray(amp_all, dtype=float)
-        if neg_i.ndim != 1 or amp_v.ndim != 1:
-            return []
-
-        valid = np.isfinite(amp_v) & np.isfinite(neg_i.astype(float))
-        cand = np.where(valid)[0].astype(int)
-        if cand.size == 0:
-            return []
-
-        # Restrict to high-amplitude candidates to avoid filling the chain with noise.
-        cand = cand[np.argsort(-amp_v[cand])]
-        cand = cand[: int(max(1, min(int(max_candidates), int(cand.size))))]
-
-        # Sort candidates by peak time (then by amplitude descending for stability).
-        cand = sorted(cand.tolist(), key=lambda i: (int(neg_i[int(i)]), -float(amp_v[int(i)])))
-
-        m = len(cand)
-        if m == 0:
-            return []
-
-        t = np.asarray([int(neg_i[int(i)]) for i in cand], dtype=int)
-        a = np.asarray([float(amp_v[int(i)]) for i in cand], dtype=float)
-
-        # DP over lengths up to top_n: maximize total amplitude for each length.
-        top_n2 = int(min(int(top_n), int(m)))
-        score = np.full((top_n2 + 1, m), -np.inf, dtype=float)
-        prev = np.full((top_n2 + 1, m), -1, dtype=int)
-
-        for i in range(m):
-            score[1, i] = a[i]
-
-        for L in range(2, top_n2 + 1):
-            for i in range(m):
-                best_s = -np.inf
-                best_j = -1
-                ti = int(t[i])
-                ai = float(a[i])
-                for j in range(0, i):
-                    if int(t[j]) >= ti:
-                        continue
-                    if float(a[j]) <= ai + float(eps_amp):
-                        continue
-                    s = float(score[L - 1, j]) + ai
-                    if s > best_s:
-                        best_s = s
-                        best_j = int(j)
-                if best_j >= 0:
-                    score[L, i] = best_s
-                    prev[L, i] = best_j
-
-        # Prefer the longest feasible chain (up to top_n), then max sum amplitude.
-        best_L = 1
-        best_end = int(np.nanargmax(score[1, :]))
-        best_sum = float(score[1, best_end])
-        for L in range(2, top_n2 + 1):
-            if not np.any(np.isfinite(score[L, :])):
-                continue
-            end = int(np.nanargmax(score[L, :]))
-            s = float(score[L, end])
-            if (L > best_L) or (L == best_L and s > best_sum):
-                best_L = int(L)
-                best_end = int(end)
-                best_sum = float(s)
-
-        # Reconstruct chain.
-        chain_local: list[int] = []
-        L = int(best_L)
-        i = int(best_end)
-        while L >= 1 and i >= 0:
-            chain_local.append(int(cand[i]))
-            pj = int(prev[L, i])
-            i = pj
-            L -= 1
-        chain_local.reverse()
-        return [int(x) for x in chain_local]
-
-    # Build a hybrid chain from high-amplitude candidates.
-    try:
-        neg_peak_i_all = timings.get("neg_peak_i")
-        max_candidates = int(n_ch_total)
-        picked = _select_hybrid_chain(
-            neg_peak_i_all=neg_peak_i_all,
-            amp_all=amp,
-            top_n=top_n,
-            max_candidates=max_candidates,
-        )
-        if not picked:
-            raise RuntimeError("empty hybrid selection")
-    except Exception:
-        # Fallback: take top channels by amplitude.
-        picked = [int(i) for i in order_by_amp[:top_n].tolist()]
-
-    def _warn(fmt: str, *args) -> None:
-        try:
-            msg = fmt % args if args else fmt
-        except Exception:
-            msg = fmt
-        if logger is not None:
-            try:
-                logger.warning(msg)
-                return
-            except Exception:
-                pass
-        try:
-            print(f"[WARN] {msg}")
-        except Exception:
-            pass
-
-    if len(picked) < int(top_n):
-        _warn(
-            "Propagation: strict amp+chron constraints selected %d/%d channels for unit %s",
-            int(len(picked)),
-            int(top_n),
-            unit_id,
-        )
-
-    # Warnings about "best channel" selection.
-    try:
-        best_ch = int(order_by_amp[0])
-        if best_ch not in picked:
-            _warn("Propagation: best channel (max PTP) not included in picked set for unit %s", unit_id)
-    except Exception:
-        best_ch = None
+    # Best channel by PTP (by definition in amplitude-only mode).
+    best_ch = int(picked[0]) if picked else None
 
     # Best channel by negative deflection magnitude (extracellular AP heuristic).
     try:
@@ -1501,13 +1361,7 @@ def _write_unit_propagation_plots_png(
     except Exception:
         best_neg_ch = None
 
-    # Ensure final ordering is chronological by negative peak.
-    try:
-        neg_peak_i_all = timings.get("neg_peak_i")
-        neg_peak_i_sel = [int(np.asarray(neg_peak_i_all)[int(i)]) for i in picked]
-        picked = [i for _, i in sorted(zip(neg_peak_i_sel, picked), key=lambda x: int(x[0]))]
-    except Exception:
-        pass
+    # picked is already ordered by amplitude.
 
     # Build channel panels with overlap.
     cpp = max(1, int(channels_per_panel))
@@ -1556,28 +1410,8 @@ def _write_unit_propagation_plots_png(
         fig = plt.figure(figsize=png_figsize)
         ax = fig.add_subplot(111)
 
-        # Chronology should read top-down: earliest (smallest negative-peak time) on top.
+        # Amplitude ordering reads top-down: highest-PTP channels first.
         n_in_panel = int(len(panel))
-
-        # Warn if the first plotted channel isn't the max-PTP channel.
-        try:
-            first_plotted = int(panel[0]) if n_in_panel > 0 else None
-            if best_ch is not None and first_plotted is not None and int(first_plotted) != int(best_ch):
-                _warn(
-                    "Propagation: first plotted channel %s != best channel %s (max PTP) for unit %s",
-                    channel_labels[int(first_plotted)],
-                    channel_labels[int(best_ch)],
-                    unit_id,
-                )
-            if best_neg_ch is not None and first_plotted is not None and int(first_plotted) != int(best_neg_ch):
-                _warn(
-                    "Propagation: first plotted channel %s != largest-negative-deflection channel %s for unit %s",
-                    channel_labels[int(first_plotted)],
-                    channel_labels[int(best_neg_ch)],
-                    unit_id,
-                )
-        except Exception:
-            pass
 
         # Plot one line per channel (single color).
         for j, ch in enumerate(panel):
@@ -1627,7 +1461,7 @@ def _write_unit_propagation_plots_png(
             except Exception:
                 pass
 
-        title_text = f"Propagation unit {unit_id} — {len(panel)} ch (hybrid amp+chron), ordered by negative peak (v = neg peak)"
+        title_text = f"Propagation unit {unit_id} — {len(panel)} ch, ordered by amplitude (v = neg peak)"
         fig.suptitle(title_text, fontsize=12)
         try:
             fig.subplots_adjust(left=0.10, right=0.99, bottom=0.03, top=0.92)

@@ -227,7 +227,7 @@ def extract_waveforms(
         # 1) Extract waveforms (and compute analyzer extensions) on the concatenated recording.
         # Computational rationale: random spike sub-sampling bounds compute cost while still
         # providing representative waveform snippets for QC and template estimation.
-        _extract_concat_waveforms(
+        concat_best = _extract_concat_waveforms(
             inputs=inputs,
             filtered_sorting=filtered_sorting,
             recording=recording,
@@ -242,9 +242,10 @@ def extract_waveforms(
         # during concatenation (i.e. channels not present in all segments).
         # Note: we reuse spike times from the concatenated sorting; this step does not
         # perform new spike detection.
+        seg_best: dict[object, tuple[float, object, str]] = {}
         if inputs.per_segment and epochs.concat_epochs:
             assert ctx.segment_waveforms_dir is not None
-            _extract_per_segment_waveforms(
+            seg_best = _extract_per_segment_waveforms(
                 inputs=inputs,
                 recording=recording,
                 sorting_unfiltered=sorting,
@@ -259,6 +260,45 @@ def extract_waveforms(
                 quality_metrics_params=quality_metrics_params,
                 logger=ctx.logger,
             )
+
+        # Cross-source QC: if any segment contains a stronger channel (PTP) for a unit
+        # than concat, it's a sign the concat/common-electrode intersection may have
+        # dropped the unit's true best electrode. This can make sorter timestamps a
+        # weaker reference for the full channel set.
+        try:
+            if seg_best:
+                ratio_thr = 1.10
+                abs_thr_uv = 2.0
+                warned = 0
+
+                for u, (ptp_seg, ch_seg, src) in seg_best.items():
+                    ptp_seg_f = float(ptp_seg)
+                    ptp_concat_f = float(concat_best.get(u, (0.0, None))[0]) if concat_best else 0.0
+                    ch_concat = concat_best.get(u, (0.0, None))[1] if concat_best else None
+
+                    if not (ptp_seg_f > 0):
+                        continue
+
+                    better = (ptp_seg_f > ptp_concat_f + float(abs_thr_uv)) and (
+                        ptp_concat_f <= 0 or (ptp_seg_f / max(ptp_concat_f, 1e-9)) >= float(ratio_thr)
+                    )
+                    if better:
+                        warned += 1
+                        ctx.logger.warning(
+                            "Unit %s: segment has stronger best-channel PTP than concat (segment=%s ch=%s ptp=%.2f µV; concat ch=%s ptp=%.2f µV). "
+                            "This suggests concat/common channel intersection may have dropped the unit's strongest electrode; consider alignment work for multi-source merging/propagation.",
+                            u,
+                            str(src),
+                            str(ch_seg),
+                            float(ptp_seg_f),
+                            str(ch_concat),
+                            float(ptp_concat_f),
+                        )
+
+                if warned == 0:
+                    ctx.logger.info("Cross-source best-channel check: no units had a stronger segment channel than concat.")
+        except Exception:
+            pass
 
         # Persist filtering summaries and compact exclusion artifacts.
         # Scientific rationale: keeping both aggregate counts and spike-level rows enables
