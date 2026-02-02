@@ -31,6 +31,15 @@ class WaveformExtractInputs:
     # If True, also extract waveforms per concatenated segment.
     per_segment: bool = True
 
+    # If True, apply MEA_Analysis-style preprocessing to each raw segment recording
+    # before extracting per-segment waveforms.
+    #
+    # This is intentionally applied only to per-segment analyzers (not the concat
+    # analyzer), because per-segment recordings are loaded directly from the raw
+    # Maxwell .h5 and would otherwise not match the preprocessing used by the
+    # MEA_Analysis sorting pipeline.
+    per_segment_preprocess_like_mea_analysis: bool = True
+
     # If True, per-segment waveforms are extracted only on channels that were
     # excluded during concatenation (i.e. not in the common-electrode intersection).
     # This avoids duplicating waveforms for the common channels already covered by

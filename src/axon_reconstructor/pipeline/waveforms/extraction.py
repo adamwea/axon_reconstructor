@@ -352,6 +352,9 @@ def _extract_per_segment_waveforms(
                 stream_id=inputs.stream_id,
                 rec_name=rec_name,
                 center_chunk_size=10_000,
+                preprocess_like_mea_analysis=bool(
+                    getattr(inputs, "per_segment_preprocess_like_mea_analysis", True)
+                ),
             )
 
             raw_channels_total = None
