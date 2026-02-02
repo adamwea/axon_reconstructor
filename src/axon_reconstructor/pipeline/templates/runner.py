@@ -335,6 +335,11 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
             "applied": bool(curated_units_norm is not None),
             "n_curated_units": int(len(curated_units_norm)) if curated_units_norm is not None else None,
         },
+        "waveforms_best_channel_sources_xlsx": (
+            str(waveforms_out_dir / "best_channel_sources.xlsx")
+            if (waveforms_out_dir / "best_channel_sources.xlsx").exists()
+            else None
+        ),
         "units": [],
     }
 
