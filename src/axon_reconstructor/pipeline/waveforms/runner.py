@@ -325,6 +325,21 @@ def extract_waveforms(
         except Exception:
             pass
 
+        # Persist a cross-source best-channel log so later stages (templates/reconstruction)
+        # can audit which source appears to contain the strongest electrode for each unit.
+        try:
+            from .reporting import _write_best_channel_sources_xlsx
+
+            _write_best_channel_sources_xlsx(
+                best_channel_sources_xlsx=ctx.waveforms_out_dir / "best_channel_sources.xlsx",
+                concat_waveforms_dir=ctx.concat_waveforms_dir,
+                segment_waveforms_dir=ctx.segment_waveforms_dir,
+                force_restart=bool(inputs.force_restart),
+                logger=ctx.logger,
+            )
+        except Exception:
+            pass
+
         # Persist filtering summaries and compact exclusion artifacts.
         # Scientific rationale: keeping both aggregate counts and spike-level rows enables
         # reproducible downstream template averaging (with consistent exclusions applied).
