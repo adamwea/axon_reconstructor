@@ -12,6 +12,234 @@ from .segments import (
 from .utils import _load_raw_segment_recording_full_channels, _to_numpy_sorting
 
 
+def _best_ptp_channel_by_unit_from_templates(*, analyzer: Any) -> dict[Any, tuple[float, Any]]:
+    """Return {unit_id: (best_ptp_uv, best_channel_id)} from analyzer templates.
+
+    Notes:
+    - Uses templates (mean waveforms) since they exist for both concat and segment analyzers.
+    - Handles both dense (ndarray) and sparse (dict) template representations.
+    """
+
+    try:
+        import numpy as np  # type: ignore[import-not-found]
+    except Exception:
+        return {}
+
+    try:
+        ch_ids = list(analyzer.get_channel_ids())
+    except Exception:
+        try:
+            ch_ids = list(analyzer.recording.get_channel_ids())
+        except Exception:
+            ch_ids = None
+
+    try:
+        ext = analyzer.get_extension("templates")
+        templates = ext.get_data()
+    except Exception:
+        templates = None
+        try:
+            templates = analyzer.get_templates()
+        except Exception:
+            return {}
+
+    try:
+        unit_ids = list(analyzer.unit_ids)
+    except Exception:
+        try:
+            unit_ids = list(analyzer.sorting.get_unit_ids())
+        except Exception:
+            unit_ids = []
+
+    out: dict[Any, tuple[float, Any]] = {}
+
+    def _best_for_template(tmpl_2d: "np.ndarray") -> tuple[float, int] | None:
+        if tmpl_2d.ndim != 2:
+            return None
+        # tmpl_2d: (n_samples, n_channels)
+        ptp = np.nanmax(tmpl_2d, axis=0) - np.nanmin(tmpl_2d, axis=0)
+        if ptp.size == 0 or not np.any(np.isfinite(ptp)):
+            return None
+        j = int(np.nanargmax(ptp))
+        v = float(ptp[j])
+        if not np.isfinite(v):
+            return None
+        return v, j
+
+    if isinstance(templates, dict):
+        for u in unit_ids:
+            try:
+                tmpl = np.asarray(templates[u])
+            except Exception:
+                continue
+            best = _best_for_template(tmpl)
+            if best is None:
+                continue
+            v, j = best
+            if ch_ids is not None and 0 <= j < len(ch_ids):
+                out[u] = (float(v), ch_ids[j])
+            else:
+                out[u] = (float(v), int(j))
+        return out
+
+    arr = np.asarray(templates)
+    if arr.ndim != 3:
+        return out
+
+    n_units, _, n_ch = arr.shape
+    if n_units != len(unit_ids):
+        unit_ids = [i for i in range(int(n_units))]
+
+    for i, u in enumerate(unit_ids):
+        try:
+            tmpl = np.asarray(arr[int(i)])
+        except Exception:
+            continue
+        best = _best_for_template(tmpl)
+        if best is None:
+            continue
+        v, j = best
+        if ch_ids is not None and 0 <= j < len(ch_ids):
+            out[u] = (float(v), ch_ids[j])
+        else:
+            out[u] = (float(v), int(j))
+
+    return out
+
+
+def _warn_early_negative_peaks_from_templates(*, analyzer: Any, window: Any, logger: Any) -> None:
+    """Warn if mean waveforms appear clipped at the start.
+
+    Scientific rationale:
+    - Spike times are usually referenced to a unit's "main" channel.
+    - Other channels can legitimately peak earlier/later due to propagation.
+    - However, if a non-trivial fraction of channels have their negative peak at
+      the first 0-1 samples, it's often a sign that ms_before is too small (peak
+      clipped) or that spike-time alignment is off.
+
+    This is a lightweight QC check using the computed templates (mean waveforms)
+    rather than iterating over all spike snippets.
+    """
+
+    try:
+        import numpy as np  # type: ignore[import-not-found]
+    except Exception:
+        return
+
+    try:
+        ext = analyzer.get_extension("templates")
+        templates = ext.get_data()
+    except Exception:
+        templates = None
+        try:
+            templates = analyzer.get_templates()
+        except Exception:
+            return
+
+    try:
+        unit_ids = list(analyzer.unit_ids)
+    except Exception:
+        try:
+            unit_ids = list(analyzer.sorting.get_unit_ids())
+        except Exception:
+            unit_ids = []
+
+    # IMPORTANT: SpikeInterface templates are often *sparse* (many channels are
+    # exactly/near-zero for compute efficiency). Those near-zero channels will
+    # trivially have their argmin at sample 0 and would create a massive false
+    # positive. So we only evaluate channels with non-trivial PTP.
+
+    # Thresholds tuned to catch obvious clipping without being noisy.
+    early_samples = 1
+    warn_frac = 0.05
+    warn_abs = 3
+
+    # Channel activity thresholding: active if PTP exceeds both an absolute and
+    # relative threshold (relative to the unit's strongest channel).
+    ptp_abs_uv = 1.0
+    ptp_rel = 0.02
+
+    def _active_mask_from_template(tmpl_2d: "np.ndarray") -> "np.ndarray":
+        ptp = np.nanmax(tmpl_2d, axis=0) - np.nanmin(tmpl_2d, axis=0)
+        max_ptp = float(np.nanmax(ptp)) if ptp.size else float("nan")
+        rel_thresh = float(ptp_rel) * max_ptp if np.isfinite(max_ptp) else float("inf")
+        thr = max(float(ptp_abs_uv), float(rel_thresh))
+        return ptp > thr
+
+    if isinstance(templates, dict):
+        for u in unit_ids:
+            try:
+                tmpl = np.asarray(templates[u])
+            except Exception:
+                continue
+            if tmpl.ndim != 2:
+                continue
+            n_samples, n_ch = tmpl.shape
+            if n_samples < 3 or n_ch < 1:
+                continue
+            try:
+                active = _active_mask_from_template(tmpl)
+                active_n = int(np.sum(active))
+                if active_n <= 0:
+                    continue
+                imin = np.nanargmin(tmpl[:, active], axis=0)
+            except Exception:
+                continue
+
+            n0 = int(np.sum(imin == 0))
+            n_early = int(np.sum(imin <= int(early_samples)))
+            if n_early >= warn_abs or (active_n > 0 and (n_early / float(active_n)) >= warn_frac):
+                logger.warning(
+                    "Unit %s: %d/%d active channels have neg-peak at <=%d samples (sample0=%d). "
+                    "This can indicate waveform clipping (ms_before too small) or misalignment. "
+                    "Consider increasing ms_before (currently %.3f ms) or reviewing spike-time alignment.",
+                    u,
+                    n_early,
+                    int(active_n),
+                    int(early_samples),
+                    int(n0),
+                    float(getattr(window, "ms_before", float("nan"))),
+                )
+        return
+
+    templates_arr = np.asarray(templates)
+    if templates_arr.ndim != 3:
+        return
+
+    n_units, n_samples, n_ch = templates_arr.shape
+    if n_units != len(unit_ids):
+        # Fall back to best-effort indexing if ordering isn't available.
+        unit_ids = [str(i) for i in range(int(n_units))]
+
+    for i, u in enumerate(unit_ids):
+        tmpl = templates_arr[i]
+        if tmpl.shape != (n_samples, n_ch):
+            continue
+        try:
+            active = _active_mask_from_template(tmpl)
+            active_n = int(np.sum(active))
+            if active_n <= 0:
+                continue
+            imin = np.nanargmin(tmpl[:, active], axis=0)
+        except Exception:
+            continue
+
+        n0 = int(np.sum(imin == 0))
+        n_early = int(np.sum(imin <= int(early_samples)))
+        if n_early >= warn_abs or (active_n > 0 and (n_early / float(active_n)) >= warn_frac):
+            logger.warning(
+                "Unit %s: %d/%d active channels have neg-peak at <=%d samples (sample0=%d). "
+                "This can indicate waveform clipping (ms_before too small) or misalignment. "
+                "Consider increasing ms_before (currently %.3f ms) or reviewing spike-time alignment.",
+                u,
+                n_early,
+                int(active_n),
+                int(early_samples),
+                int(n0),
+                float(getattr(window, "ms_before", float("nan"))),
+            )
+
+
 def _extract_concat_waveforms(
     *,
     inputs,
@@ -68,6 +296,10 @@ def _extract_concat_waveforms(
         n_jobs=int(inputs.n_jobs),
     )
 
+    _warn_early_negative_peaks_from_templates(analyzer=concat_analyzer, window=window, logger=logger)
+
+    return _best_ptp_channel_by_unit_from_templates(analyzer=concat_analyzer)
+
 
 def _extract_per_segment_waveforms(
     *,
@@ -84,7 +316,15 @@ def _extract_per_segment_waveforms(
     base_rej_fields: dict[str, Any],
     quality_metrics_params: dict[str, Any],
     logger: Any,
-) -> None:
+) -> dict[Any, tuple[float, Any, str]]:
+    """Extract per-segment waveforms and return best channel info across segments.
+
+    Returns:
+        best_by_unit: {unit_id: (best_ptp_uv, best_channel_id, source_name)}
+    """
+
+    best_by_unit: dict[Any, tuple[float, Any, str]] = {}
+
     if inputs.per_segment and epochs.concat_epochs:
         segment_waveforms_dir.mkdir(parents=True, exist_ok=True)
 
@@ -335,6 +575,21 @@ def _extract_per_segment_waveforms(
                 n_jobs=max(1, int(inputs.n_jobs)),
             )
 
+            # Track best channel by PTP for this segment (mean template).
+            try:
+                source_name = f"seg{int(seg_index):02d}_{rec_name}"
+                seg_best = _best_ptp_channel_by_unit_from_templates(analyzer=seg_analyzer)
+                for u, (ptp_uv, ch_id) in seg_best.items():
+                    try:
+                        ptp_f = float(ptp_uv)
+                    except Exception:
+                        continue
+                    prev = best_by_unit.get(u)
+                    if prev is None or ptp_f > float(prev[0]):
+                        best_by_unit[u] = (ptp_f, ch_id, str(source_name))
+            except Exception:
+                pass
+
             # Deprecated (2026-01): we previously *flagged* extracted per-segment random_spikes
             # against segment-local Maxwell intervals after waveforms were computed. This does
             # not mutate the analyzer and is redundant when concat-time filtering is authoritative.
@@ -444,6 +699,8 @@ def _extract_per_segment_waveforms(
                 )
             except Exception:
                 pass
+
+    return best_by_unit
 
 
 __all__ = [

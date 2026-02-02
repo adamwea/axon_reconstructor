@@ -4,6 +4,55 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 
+def robust_baseline_pre_negative_peak(
+    wf: Any,
+    *,
+    win_frac: float = 0.10,
+    guard_frac: float = 0.05,
+    min_win: int = 5,
+    min_guard: int = 2,
+) -> float:
+    """Estimate baseline using a window *before* the waveform's negative peak.
+
+    Why this exists:
+        Using the first N samples as "baseline" is fragile when waveforms are not
+        temporally centered (AP can start very early), which can bias the baseline
+        estimate and leave DC offsets in merged templates.
+
+    Fallback behavior:
+        If the negative peak is too close to the beginning to permit a pre-peak
+        window, fall back to a trailing window at the end of the waveform.
+    """
+
+    import numpy as np  # type: ignore[import-not-found]
+
+    x = np.asarray(wf, dtype=float)
+    if x.ndim != 1 or x.size == 0:
+        return 0.0
+
+    n = int(x.size)
+    win = max(int(min_win), int(round(float(win_frac) * n)))
+    guard = max(int(min_guard), int(round(float(guard_frac) * n)))
+
+    try:
+        imin = int(np.nanargmin(x))
+    except Exception:
+        return 0.0
+
+    end = max(0, imin - guard)
+    start = max(0, end - win)
+    if (end - start) < 3:
+        # min is too early; use a trailing window instead.
+        start = max(0, n - win)
+        end = n
+
+    try:
+        b = float(np.nanmedian(x[start:end]))
+    except Exception:
+        b = 0.0
+    return b
+
+
 @dataclass(frozen=True)
 class WaveformContribution:
     """Pointer to waveforms for a (source, unit, channel) tuple.
@@ -293,6 +342,17 @@ def mean_waveform_from_contributions(
 
         sel = wfs[:, :, int(ch_i)]
 
+        # Robust per-spike baseline subtraction to avoid DC offsets propagating into
+        # overlap-resolved templates. We intentionally do this here (templates stage)
+        # because source templates may have slightly different baselines across segments.
+        try:
+            baseline = np.zeros((int(sel.shape[0]), 1), dtype=float)
+            for i in range(int(sel.shape[0])):
+                baseline[i, 0] = robust_baseline_pre_negative_peak(sel[i, :])
+            sel = sel - baseline
+        except Exception:
+            pass
+
         # Optional downsampling of spikes to cap memory.
         if max_spikes_per_contribution is not None and n_spikes > int(max_spikes_per_contribution):
             k = int(max_spikes_per_contribution)
@@ -314,6 +374,12 @@ def mean_waveform_from_contributions(
         return None
 
     mean_wf = np.mean(all_wfs, axis=0)
+
+    # Re-center the mean waveform (in case some contributions had different baseline windows).
+    try:
+        mean_wf = mean_wf - robust_baseline_pre_negative_peak(mean_wf)
+    except Exception:
+        pass
 
     if logger is not None:
         logger.info(
