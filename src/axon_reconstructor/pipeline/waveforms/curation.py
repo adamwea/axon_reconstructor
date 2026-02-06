@@ -17,13 +17,18 @@ def apply_mea_analysis_curation(*, q_metrics: Any, user_thresholds: Any = None) 
         raise RuntimeError("Curation requires numpy/pandas") from e
 
     # Apply the same curation logic as MEA_Analysis if available.
+    # IMPORTANT: MEA_Analysis' module-level imports may call sys.exit(1) on failure,
+    # which raises SystemExit (a BaseException, not an Exception). We must not let
+    # that terminate axon_reconstructor; instead, fall back to built-in thresholds.
     try:
         from MEA_Analysis.IPNAnalysis.mea_analysis_routine import MEAPipeline  # type: ignore[import-not-found]
 
         dummy = MEAPipeline.__new__(MEAPipeline)
         clean_metrics, rejection_log = MEAPipeline._apply_curation_logic(dummy, q_metrics, user_thresholds)
         return clean_metrics, rejection_log
-    except Exception:
+    except BaseException as e:
+        if isinstance(e, KeyboardInterrupt):
+            raise
         defaults = {
             "presence_ratio": 0.75,
             "rp_contamination": 0.15,
