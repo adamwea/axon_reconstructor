@@ -247,7 +247,6 @@ def _extract_concat_waveforms(
     recording: Any,
     concat_waveforms_dir,
     window,
-    quality_metrics_params: dict[str, Any],
     logger: Any,
 ) -> None:
     import shutil
@@ -284,13 +283,10 @@ def _extract_concat_waveforms(
             "spike_amplitudes",
             "templates",
             "noise_levels",
-            "quality_metrics",
-            "template_metrics",
             "unit_locations",
         ],
         extension_params={
             "unit_locations": {"method": "monopolar_triangulation"},
-            "quality_metrics": dict(quality_metrics_params),
         },
         verbose=False,
         n_jobs=int(inputs.n_jobs),
@@ -314,7 +310,6 @@ def _extract_per_segment_waveforms(
     filtering_summary: dict[str, Any],
     wf_rejection_rows: list[dict[str, Any]],
     base_rej_fields: dict[str, Any],
-    quality_metrics_params: dict[str, Any],
     logger: Any,
     channel_groups: dict[str, Any] | None = None,
 ) -> dict[Any, tuple[float, Any, str]]:
@@ -627,13 +622,10 @@ def _extract_per_segment_waveforms(
                     "spike_amplitudes",
                     "templates",
                     "noise_levels",
-                    "quality_metrics",
-                    "template_metrics",
                     "unit_locations",
                 ],
                 extension_params={
                     "unit_locations": {"method": "monopolar_triangulation"},
-                    "quality_metrics": dict(quality_metrics_params),
                 },
                 verbose=False,
                 n_jobs=max(1, int(inputs.n_jobs)),
