@@ -9,7 +9,7 @@ from .segments import (
     _count_spikes_in_concat_window,
     _parse_concat_epoch_segment,
 )
-from .utils import _load_raw_segment_recording_full_channels, _to_numpy_sorting
+from .utils import _load_raw_segment_recording_segment_channels, _to_numpy_sorting
 
 
 def _best_ptp_channel_by_unit_from_templates(*, analyzer: Any) -> dict[Any, tuple[float, Any]]:
@@ -316,6 +316,7 @@ def _extract_per_segment_waveforms(
     base_rej_fields: dict[str, Any],
     quality_metrics_params: dict[str, Any],
     logger: Any,
+    channel_groups: dict[str, Any] | None = None,
 ) -> dict[Any, tuple[float, Any, str]]:
     """Extract per-segment waveforms and return best channel info across segments.
 
@@ -324,6 +325,12 @@ def _extract_per_segment_waveforms(
     """
 
     best_by_unit: dict[Any, tuple[float, Any, str]] = {}
+
+    # Channel-group bookkeeping for documentation/QC.
+    # We track *electrode ids* when they are available via contact_vector['electrode'].
+    seg_electrode_sets: dict[str, set[int]] = {}
+    seg_channel_id_sets: dict[str, set[Any]] = {}
+    seg_additional_electrode_sets: dict[str, set[int]] = {}
 
     if inputs.per_segment and epochs.concat_epochs:
         segment_waveforms_dir.mkdir(parents=True, exist_ok=True)
@@ -347,7 +354,7 @@ def _extract_per_segment_waveforms(
             if seg_dir.exists() and inputs.force_restart:
                 shutil.rmtree(seg_dir)
 
-            seg_rec = _load_raw_segment_recording_full_channels(
+            seg_rec = _load_raw_segment_recording_segment_channels(
                 h5_path=inputs.h5_path,
                 stream_id=inputs.stream_id,
                 rec_name=rec_name,
@@ -356,6 +363,27 @@ def _extract_per_segment_waveforms(
                     getattr(inputs, "per_segment_preprocess_like_mea_analysis", True)
                 ),
             )
+
+            source_name = f"seg{int(seg_index):02d}_{rec_name}"
+
+            # Attempt to record electrode ids (preferred) and raw channel ids (fallback).
+            electrodes_all: list[int] | None = None
+            try:
+                import numpy as np  # type: ignore[import-not-found]
+
+                cv_all = seg_rec.get_property("contact_vector")
+                electrodes_all = [int(x) for x in np.asarray(cv_all["electrode"], dtype=int).tolist()]
+            except Exception:
+                electrodes_all = None
+
+            try:
+                seg_channel_ids_all = list(seg_rec.get_channel_ids())
+            except Exception:
+                seg_channel_ids_all = []
+
+            if electrodes_all is not None and len(electrodes_all) == len(seg_channel_ids_all):
+                seg_electrode_sets[str(source_name)] = set(int(e) for e in electrodes_all)
+            seg_channel_id_sets[str(source_name)] = set(seg_channel_ids_all)
 
             raw_channels_total = None
             excluded_common_channels_total = None
@@ -387,7 +415,22 @@ def _extract_per_segment_waveforms(
                         except Exception:
                             pass
                 except Exception:
-                    pass
+                    logger.warning(
+                        "Segment %s: could not map channel ids to electrode ids; cannot reliably exclude common channels. "
+                        "Per-segment waveforms may include common channels.",
+                        str(rec_name),
+                    )
+
+            # After selection, track additional-channel electrode ids when possible.
+            try:
+                import numpy as np  # type: ignore[import-not-found]
+
+                cv_sel = seg_rec.get_property("contact_vector")
+                electrodes_sel = [int(x) for x in np.asarray(cv_sel["electrode"], dtype=int).tolist()]
+                if electrodes_sel:
+                    seg_additional_electrode_sets[str(source_name)] = set(int(e) for e in electrodes_sel)
+            except Exception:
+                pass
 
             if inputs.per_segment_only_additional_channels:
                 try:
@@ -490,7 +533,6 @@ def _extract_per_segment_waveforms(
                     kept_edges.append(int(t_local))
 
                 try:
-                    source_name = f"seg{int(seg_index):02d}_{rec_name}"
                     kept_edge_set = set(int(x) for x in kept_edges)
                     for t_local in local_all:
                         if int(t_local) in kept_edge_set:
@@ -721,6 +763,102 @@ def _extract_per_segment_waveforms(
                 )
             except Exception:
                 pass
+
+        # Once segments are processed, compute derived channel groups if requested.
+        if channel_groups is not None:
+            try:
+                n_segments = len(list(epochs.concat_epochs))
+
+                # Prefer electrode-id space (only if we have it for at least one segment).
+                any_electrodes = len(seg_electrode_sets) > 0
+
+                channel_groups.setdefault("version", 1)
+                channel_groups.setdefault("n_segments", int(n_segments))
+                channel_groups.setdefault("common_channel_ids", sorted(int(x) for x in common_channel_ids))
+
+                def _json_id(x: Any) -> int | str:
+                    try:
+                        # numpy scalars / strings that represent ints
+                        return int(x)
+                    except Exception:
+                        try:
+                            return str(x)
+                        except Exception:
+                            return "<unserializable>"
+
+                segments_payload: dict[str, Any] = {}
+                for src in sorted(set(list(seg_channel_id_sets.keys()) + list(seg_electrode_sets.keys()))):
+                    seg_payload: dict[str, Any] = {
+                        "source_name": str(src),
+                        "segment_channel_ids": sorted((_json_id(x) for x in seg_channel_id_sets.get(src, set())), key=str),
+                        "segment_channel_id_space": "electrode_id" if src in seg_electrode_sets else "unknown",
+                    }
+
+                    if src in seg_electrode_sets:
+                        seg_e = set(int(x) for x in seg_electrode_sets[src])
+                        seg_payload["segment_electrode_ids"] = sorted(seg_e)
+                        seg_payload["non_common_segment_electrode_ids"] = sorted(seg_e - set(common_channel_ids))
+
+                    if src in seg_additional_electrode_sets:
+                        # This is the electrode set after optional channel selection.
+                        seg_payload["waveforms_recording_electrode_ids"] = sorted(
+                            set(int(x) for x in seg_additional_electrode_sets[src])
+                        )
+
+                    segments_payload[str(src)] = seg_payload
+
+                channel_groups["segments"] = segments_payload
+
+                if any_electrodes:
+                    # Build channel occurrence counts across segments.
+                    counts: dict[int, int] = {}
+                    for seg_set in seg_electrode_sets.values():
+                        for c in seg_set:
+                            counts[int(c)] = int(counts.get(int(c), 0) + 1)
+
+                    all_union = set(counts.keys())
+                    channel_groups["all_channels_union_electrode_ids"] = sorted(all_union)
+
+                    # Compute intersection from segments and compare to the concat/common set.
+                    seg_sets = list(seg_electrode_sets.values())
+                    seg_intersection = set(seg_sets[0]) if seg_sets else set()
+                    for s in seg_sets[1:]:
+                        seg_intersection &= set(s)
+
+                    channel_groups["common_channels_from_segment_intersection_electrode_ids"] = sorted(seg_intersection)
+                    if set(common_channel_ids) and seg_intersection and set(common_channel_ids) != seg_intersection:
+                        logger.warning(
+                            "Common channel mismatch: concat/common has %d channels but segment intersection has %d. "
+                            "This can indicate inconsistent channel-id naming or a concatenation/channel-selection mismatch.",
+                            int(len(set(common_channel_ids))),
+                            int(len(seg_intersection)),
+                        )
+
+                    # Unique / non-unique (excluding common).
+                    unique_by_src: dict[str, list[int]] = {}
+                    for src, seg_set in seg_electrode_sets.items():
+                        uniq = [int(c) for c in seg_set if counts.get(int(c), 0) == 1 and int(c) not in common_channel_ids]
+                        unique_by_src[str(src)] = sorted(uniq)
+                    channel_groups["unique_segment_electrode_ids_by_source"] = unique_by_src
+
+                    non_unique_non_common = [
+                        int(c)
+                        for c, k in counts.items()
+                        if int(k) > 1 and int(k) < int(n_segments) and int(c) not in common_channel_ids
+                    ]
+                    channel_groups["non_unique_non_common_electrode_ids"] = sorted(non_unique_non_common)
+
+                    channel_groups.setdefault("counts", {})
+                    channel_groups["counts"].update(
+                        {
+                            "all_channels_union": int(len(all_union)),
+                            "common_channels_concat": int(len(set(common_channel_ids))),
+                            "common_channels_segment_intersection": int(len(seg_intersection)),
+                            "non_unique_non_common": int(len(non_unique_non_common)),
+                        }
+                    )
+            except Exception:
+                logger.debug("Failed to compute channel group summaries", exc_info=True)
 
     return best_by_unit
 

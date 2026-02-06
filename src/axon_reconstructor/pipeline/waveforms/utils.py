@@ -67,7 +67,7 @@ def _load_preprocessed_recording(*, well_out_dir: Path) -> Any:
         return si.load_extractor(recording_dir)
 
 
-def _load_raw_segment_recording_full_channels(
+def _load_raw_segment_recording_segment_channels(
     *,
     h5_path: Path,
     stream_id: str,
@@ -75,7 +75,12 @@ def _load_raw_segment_recording_full_channels(
     center_chunk_size: int = 10_000,
     preprocess_like_mea_analysis: bool = True,
 ) -> Any:
-    """Load a single raw Maxwell rec segment and keep its full channel set."""
+    """Load a single raw Maxwell rec segment and keep its segment channel set.
+
+    Terminology:
+    - "segment channels" means the full electrode set available in *this* segment.
+    - This is not "all channels" across all segments.
+    """
 
     try:
         import numpy as np  # type: ignore[import-not-found]
@@ -226,6 +231,29 @@ def _load_raw_segment_recording_full_channels(
     return rec_centered
 
 
+def _load_raw_segment_recording_full_channels(
+    *,
+    h5_path: Path,
+    stream_id: str,
+    rec_name: str,
+    center_chunk_size: int = 10_000,
+    preprocess_like_mea_analysis: bool = True,
+) -> Any:
+    """Backward-compatible alias.
+
+    Historical name used "full_channels" to mean "full set for the segment".
+    Prefer `_load_raw_segment_recording_segment_channels`.
+    """
+
+    return _load_raw_segment_recording_segment_channels(
+        h5_path=h5_path,
+        stream_id=stream_id,
+        rec_name=rec_name,
+        center_chunk_size=center_chunk_size,
+        preprocess_like_mea_analysis=preprocess_like_mea_analysis,
+    )
+
+
 def _resolve_mea_sorter_output_dir(*, well_out_dir: Path) -> Path:
     p = well_out_dir / "spikesorting_outputs" / "sorter_output"
     if p.exists():
@@ -368,6 +396,7 @@ __all__ = [
     "_infer_cutout_ms",
     "_load_preprocessed_recording",
     "_load_raw_segment_recording_full_channels",
+    "_load_raw_segment_recording_segment_channels",
     "_resolve_mea_sorter_output_dir",
     "_load_sorting_from_sorter_output_dir",
     "_epochs_to_intervals",

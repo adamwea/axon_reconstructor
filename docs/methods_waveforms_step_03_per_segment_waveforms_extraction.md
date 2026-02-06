@@ -2,13 +2,16 @@
 
 Scope: This document covers the **per-segment** waveform extraction branch in the waveforms runner. It begins right after Part 2 ends (concat analyzer exists and we have `concat_best`) and ends once `_extract_per_segment_waveforms(...)` returns `seg_best` (best-channel-by-PTP summary per unit across segment analyzers).
 
+Terminology note:
+- Channel-set names (all/common/segment/non-common/unique/non-unique) are defined in `docs/methods_waveforms_channel_sets.md`.
+
 Primary code paths:
 - `axon_reconstructor.pipeline.waveforms.runner.extract_waveforms(...)` (per-segment branch)
 - `axon_reconstructor.pipeline.waveforms.extraction._extract_per_segment_waveforms(...)`
 
 Key helper modules involved:
 - `axon_reconstructor.pipeline.waveforms.segments` (segment spec parsing + filtering summary updates)
-- `axon_reconstructor.pipeline.waveforms.utils` (load raw segment recordings full channels; NumpySorting helper)
+- `axon_reconstructor.pipeline.waveforms.utils` (load raw segment recordings with **segment channels**; NumpySorting helper)
 
 ---
 
@@ -16,13 +19,13 @@ Key helper modules involved:
 
 From earlier parts, the runner has:
 
-- `recording`: concat preprocessed recording (common/intersection channel set)
+- `recording`: concat preprocessed recording (channel set == **common channels**)
 - `filtered_sorting`: concat-time spike trains after epoch-aware filtering
 - `sorting`: concat-time sorter output (cleaned best-effort)
 - `epochs.concat_epochs`: list of concatenation stitch segments (each has `segment_index`, `rec_name`, `start_sample`, `end_sample`, ...)
 - `window`: waveform window in ms + samples (`pre_samples`, `post_samples`)
 - `quality_metrics_params`: params for SpikeInterface `quality_metrics`
-- `common_channel_ids`: set of channel ids present in concat recording
+- `common_channel_ids`: set of **common channels** (this equals the concat recording’s channel IDs)
 - `filtering_summary`: mutable dict initialized earlier
 - `wf_rejection_rows`: list that accumulates spike-level rejections across concat + segments
 - `base_rej_fields`: fields that are merged into every rejection row
@@ -50,11 +53,16 @@ From earlier parts, the runner has:
    - `filtering_summary`, `wf_rejection_rows`, `base_rej_fields`
    - `quality_metrics_params`
 
+3. Best-effort channel-set logging:
+
+   - The runner also persists `waveforms_outputs/channel_groups.json` after per-segment extraction finishes.
+   - This JSON is meant to make the channel-set definitions (common vs segment vs non-common, etc.) concrete for each run.
+
 ---
 
 ## 2. High-level goal of per-segment analyzers
 
-Per-segment analyzers exist to recover waveforms on electrodes that are not present in the concat/common intersection.
+Per-segment analyzers exist to recover waveforms on **non-common segment channels** (channels present in a segment, but not in the concat/common set).
 
 Key design choice:
 - We **reuse** the concat-time spike trains (from the sorter output) and map them into segment-local time.
@@ -103,11 +111,11 @@ Inside `_extract_per_segment_waveforms(...)`:
 
 ---
 
-## 4. Load raw segment recording (full channels) and optionally preprocess
+## 4. Load raw segment recording (segment channels) and optionally preprocess
 
-1. Load the raw Maxwell segment recording with all available channels:
+1. Load the raw Maxwell segment recording with its **segment channels** (the full electrode set available in that segment):
 
-   - `seg_rec = _load_raw_segment_recording_full_channels(
+   - `seg_rec = _load_raw_segment_recording_segment_channels(
        h5_path=inputs.h5_path,
        stream_id=inputs.stream_id,
        rec_name=rec_name,
@@ -115,7 +123,7 @@ Inside `_extract_per_segment_waveforms(...)`:
        preprocess_like_mea_analysis=inputs.per_segment_preprocess_like_mea_analysis,
      )`
 
-2. What `_load_raw_segment_recording_full_channels(...)` does (high level):
+2. What `_load_raw_segment_recording_segment_channels(...)` does (high level):
 
    1. Reads the Maxwell rec (`rec_name`) for this well from the raw H5.
    2. Applies `si.center(...)` to remove DC offsets.
@@ -137,15 +145,18 @@ Important nuance:
 
 ---
 
-## 5. Optionally restrict per-segment extraction to “additional channels only”
+## 5. Optionally restrict per-segment extraction to “non-common segment channels only"
 
 This branch is controlled by:
 
 - `inputs.per_segment_only_additional_channels` (default True)
 
+Naming note:
+- The flag name says “additional”, but conceptually this is “non-common segment channels”.
+
 Goal:
-- Avoid duplicating work on channels already present in the concat/common intersection.
-- Focus per-segment analyzers on channels that were dropped by concatenation.
+- Avoid duplicating work on **common channels** that already have waveforms in the concat analyzer.
+- Focus per-segment analyzers on **non-common segment channels**.
 
 How it’s implemented:
 
@@ -163,7 +174,7 @@ How it’s implemented:
 
 2. If `per_segment_only_additional_channels=True` and selection yields 0 channels:
 
-   1. Log that the segment has no additional channels.
+   1. Log that the segment has no **non-common** channels after excluding the common set.
    2. Append a per-segment skip record via `_append_segment_skip_summary(...)` with reason `"no_additional_channels"`.
    3. `continue` to the next segment (no analyzer produced for this segment).
 

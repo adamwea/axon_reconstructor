@@ -2,6 +2,9 @@
 
 Scope: This document covers the **next chunk** of the waveforms stage as implemented in the runner. It begins immediately after Part 1 ends (we already have `filtered_sorting`) and ends right after the **concat** `SortingAnalyzer` has been computed and we have `concat_best` (best-channel-by-PTP summary computed from concat templates).
 
+Terminology note:
+- Channel-set names (all/common/segment/non-common/unique/non-unique) are defined in `docs/methods_waveforms_channel_sets.md`.
+
 Primary code paths:
 - `axon_reconstructor.pipeline.waveforms.runner.extract_waveforms(...)`
 - `axon_reconstructor.pipeline.waveforms.artifacts._write_waveform_extraction_params(...)`
@@ -51,8 +54,8 @@ At this point in the runner we already have:
 
    4. Per-segment mode flags (even though this part only computes concat)
       1. `per_segment`
-      2. `per_segment_recording_source` (set to `raw_maxwell_full_channels` when per-segment is enabled)
-      3. `per_segment_only_additional_channels`
+      2. `per_segment_recording_source` (raw Maxwell segment recordings; i.e. **segment channels**) — stored as `raw_maxwell_segment_channels`
+      3. `per_segment_only_additional_channels` (i.e. extract per-segment waveforms only on **non-common segment channels**)
 
 Why this is written *here*:
 - This is the earliest point where we have all critical context resolved (window, sorter_output_dir, flags).
@@ -60,17 +63,21 @@ Why this is written *here*:
 
 ---
 
-## 2. Determine the concat (common/intersection) channel set
+## 2. Determine the concat channel set (== common channels)
 
-1. Attempt to define the “common channel ids” present in the concat recording:
+1. Attempt to define the **common channels** present in the concat recording:
 
-   - `common_channel_ids = set(int(x) for x in recording.get_channel_ids())`
+   - Preferred: use electrode IDs from `recording.get_property("contact_vector")["electrode"]` (when available)
+   - Fallback: `common_channel_ids = set(int(x) for x in recording.get_channel_ids())`
 
 2. If channel IDs cannot be cast to `int` (or something fails), fall back to `common_channel_ids = set()`.
 
 Why this is computed:
-- Later, per-segment waveform extraction can optionally exclude these channels and focus only on **additional channels** that were dropped during concatenation.
-- Doing it here ensures a single consistent definition of “common channels” derived from the concat analyzer’s recording.
+- The concat recording was built by intersecting channels across segments, so its channel IDs are the **common channel** set.
+- Later, per-segment waveform extraction can optionally exclude these common channels and focus only on **non-common segment channels** (channels dropped during concatenation).
+
+Related artifact:
+- The waveforms stage persists `waveforms_outputs/channel_groups.json` (best-effort) so you can inspect these sets for a run.
 
 ---
 

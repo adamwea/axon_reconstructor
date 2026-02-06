@@ -26,7 +26,7 @@ def _write_waveform_extraction_params(
             "n_jobs": int(inputs.n_jobs),
             "max_spikes_per_unit": inputs.max_spikes_per_unit,
             "per_segment": bool(inputs.per_segment),
-            "per_segment_recording_source": "raw_maxwell_full_channels" if inputs.per_segment else None,
+            "per_segment_recording_source": "raw_maxwell_segment_channels" if inputs.per_segment else None,
             "per_segment_only_additional_channels": bool(inputs.per_segment_only_additional_channels),
         },
     )
@@ -72,7 +72,18 @@ def _persist_filtering_and_exclusions(
         logger.warning("Failed to write wf_exclusions.npz: %s", e)
 
 
+def _persist_channel_groups_json(*, channel_groups_json: Path, channel_groups: dict[str, Any]) -> None:
+    """Persist waveforms-stage channel group bookkeeping.
+
+    This is intentionally a plain JSON artifact so it can be inspected without
+    loading SpikeInterface analyzers.
+    """
+
+    _write_json(channel_groups_json, channel_groups)
+
+
 __all__ = [
+    "_persist_channel_groups_json",
     "_persist_filtering_and_exclusions",
     "_write_waveform_extraction_params",
 ]

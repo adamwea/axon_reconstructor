@@ -2,6 +2,9 @@
 
 Scope: This document covers the **first chunk** of the waveforms stage as implemented in the runner. It ends right after we produce `filtered_sorting` (the spike trains we will actually use for waveform extraction).
 
+Terminology note:
+- Channel-set names (all/common/segment/non-common/unique/non-unique) are defined in `docs/methods_waveforms_channel_sets.md`.
+
 Primary code path:
 - `axon_reconstructor.pipeline.waveforms.runner.extract_waveforms(...)`
 
@@ -237,7 +240,7 @@ Purpose:
 
    For each unit `u` in `sorting.get_unit_ids()`:
 
-   1. Pull the full spike train in concat samples:
+   1. Pull the entire spike train in concat samples:
       - `st = sorting.get_unit_spike_train(u)`
       - Convert to sorted Python ints.
 

@@ -6,7 +6,7 @@ from typing import Optional
 
 from ..checkpointing import ProcessingStage, exception_to_error_dict, save_checkpoint
 
-from .artifacts import _persist_filtering_and_exclusions, _write_waveform_extraction_params
+from .artifacts import _persist_channel_groups_json, _persist_filtering_and_exclusions, _write_waveform_extraction_params
 from .extraction import _extract_concat_waveforms, _extract_per_segment_waveforms
 from .filtering import _filter_sorting_by_maxwell_epochs, _init_filtering_summary, _init_wf_rejection_log_fields
 from .run_context import _WaveformsRunContext, _initialize_run_context, _load_epoch_markers, _resolve_waveform_window
@@ -239,15 +239,47 @@ def extract_waveforms(
             window=window,
         )
 
-        # Identify the channel set present in the concatenated recording.
+        # Identify the electrode/channel set present in the concatenated recording.
         # Scientific rationale: concatenation often keeps only the shared electrode
         # intersection across segments. Per-segment extraction can optionally focus
-        # on *additional* channels that were dropped from the concat recording.
-        # Used to avoid redundant per-segment waveforms on common channels.
+        # on *non-common* segment channels that were dropped from the concat recording.
+        #
+        # IMPORTANT: for set operations we prefer electrode IDs from contact_vector
+        # when available; otherwise fall back to recording channel IDs.
+        common_channel_ids: set[int] = set()
         try:
-            common_channel_ids = set(int(x) for x in recording.get_channel_ids())
+            import numpy as np  # type: ignore[import-not-found]
+
+            cv = recording.get_property("contact_vector")
+            electrodes = np.asarray(cv["electrode"], dtype=int)
+            if electrodes.size == int(recording.get_num_channels()):
+                common_channel_ids = set(int(e) for e in electrodes.tolist())
+
+                try:
+                    ch_ids = [int(x) for x in recording.get_channel_ids()]
+                    if set(ch_ids) != set(common_channel_ids):
+                        ctx.logger.warning(
+                            "Concat recording channel_ids differ from contact_vector electrode ids (n_ch=%d). "
+                            "Using electrode ids for common_channel_ids.",
+                            int(recording.get_num_channels()),
+                        )
+                except Exception:
+                    pass
         except Exception:
             common_channel_ids = set()
+
+        if not common_channel_ids:
+            try:
+                common_channel_ids = set(int(x) for x in recording.get_channel_ids())
+            except Exception:
+                common_channel_ids = set()
+
+        # Channel-set bookkeeping for debugging/documentation. This is later enriched
+        # by per-segment extraction (if enabled) and persisted as channel_groups.json.
+        channel_groups: dict[str, object] = {
+            "common_channel_ids": sorted(int(x) for x in common_channel_ids),
+            "segments": {},
+        }
 
         # 1) Extract waveforms (and compute analyzer extensions) on the concatenated recording.
         # Computational rationale: random spike sub-sampling bounds compute cost while still
@@ -284,7 +316,34 @@ def extract_waveforms(
                 base_rej_fields=base_rej_fields,
                 quality_metrics_params=quality_metrics_params,
                 logger=ctx.logger,
+                channel_groups=channel_groups,  # populated in-place
             )
+
+        # Persist channel group info (best-effort, even if per-segment is disabled).
+        try:
+            _persist_channel_groups_json(
+                channel_groups_json=ctx.waveforms_out_dir / "channel_groups.json",
+                channel_groups=channel_groups,  # type: ignore[arg-type]
+            )
+
+            try:
+                counts = channel_groups.get("counts") if isinstance(channel_groups, dict) else None
+                if isinstance(counts, dict):
+                    ctx.logger.info(
+                        "Channel groups: common=%s, all_union=%s, non_unique_non_common=%s",
+                        str(counts.get("common_channels_concat")),
+                        str(counts.get("all_channels_union")),
+                        str(counts.get("non_unique_non_common")),
+                    )
+                else:
+                    ctx.logger.info(
+                        "Channel groups persisted: common=%d (per-segment groups may be unavailable if per_segment=False)",
+                        int(len(common_channel_ids)),
+                    )
+            except Exception:
+                pass
+        except Exception:
+            pass
 
         # Cross-source QC: if any segment contains a stronger channel (PTP) for a unit
         # than concat, it's a sign the concat/common-electrode intersection may have
