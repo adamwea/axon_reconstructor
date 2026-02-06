@@ -115,36 +115,6 @@ def _normalize_id_for_compare(x: Any) -> Any:
     return str(x)
 
 
-def _load_curated_unit_ids_from_waveforms_outputs(*, well_out_dir: Path, logger) -> tuple[Optional[list[Any]], Optional[Path]]:
-    """Load curated (kept) unit ids from waveforms outputs, if available."""
-
-    metrics_curated_xlsx = well_out_dir / "waveforms_outputs" / "metrics_curated.xlsx"
-    if not metrics_curated_xlsx.exists():
-        return None, None
-
-    try:
-        import pandas as pd  # type: ignore[import-not-found]
-    except Exception:
-        logger.warning("Found %s but pandas is unavailable; cannot apply unit curation", metrics_curated_xlsx)
-        return None, metrics_curated_xlsx
-
-    try:
-        df = pd.read_excel(metrics_curated_xlsx, index_col=0)
-        curated = [_normalize_id_for_compare(x) for x in list(df.index.values)]
-
-        seen: set[Any] = set()
-        curated_unique: list[Any] = []
-        for u in curated:
-            if u in seen:
-                continue
-            seen.add(u)
-            curated_unique.append(u)
-        return curated_unique, metrics_curated_xlsx
-    except Exception as e:
-        logger.warning("Failed reading curated unit list from %s: %s", metrics_curated_xlsx, e)
-        return None, metrics_curated_xlsx
-
-
 def _ensure_analyzer_extensions(*, analyzer, extension_names: list[str], logger, n_jobs: int) -> None:
     missing = [name for name in extension_names if not analyzer.has_extension(name)]
     if not missing:

@@ -1,6 +1,6 @@
-# Waveforms Step — Channel-Set Nomenclature (Maxwell / AxonTracking Arrays)
+# Channel-Set Nomenclature (Waveforms + Templates)
 
-This document defines the channel/electrode group names used throughout the waveforms stage (and related preprocessing/spikesorting).
+This document defines the channel/electrode group names used throughout the **waveforms** and **templates** stages (and related preprocessing/spikesorting).
 
 These groups matter because:
 - the **concat recording** used for spikesorting contains only the **common channels** (intersection across segments)
@@ -9,14 +9,25 @@ These groups matter because:
 
 Unless otherwise noted, “channel ID” here refers to **Maxwell electrode IDs** (integers), i.e. the IDs from `contact_vector['electrode']`.
 
+Two important axes of terminology:
+
+1. **Dataset-level channel sets** (common/segment/all-recorded/etc.)
+2. **Unit-level channel sets** (contributing/non-contributing/quiet)
+
+The templates stage combines these: it builds per-unit templates over a channel axis that may include contributing channels and may optionally include additional non-contributing and quiet channels (filled with zeros/NaNs) for plotting/merging.
+
 ---
 
 ## Definitions
 
-### 1) All channels
-- **Meaning**: the union of electrode IDs present across *all* concatenated segments.
+### 1) All recorded channels
+- **Meaning**: the union of electrode IDs present across *all* segments in this dataset (i.e., all channels that were recorded at least once).
 - **Typical magnitude**: ~10,000 (device/config dependent).
 - **Where it exists**: conceptually across the whole dataset; not present in a single SpikeInterface `Recording` in this pipeline.
+
+Notes:
+- In templates code/docs this is sometimes referred to as the “recorded electrode universe” (union over sources/analyzers).
+- This is **not** the same as the full physical MEA chip (see “Full channels”).
 
 ### 2) Common channels
 - **Meaning**: electrode IDs present in **every** segment; the set intersection across segments.
@@ -58,6 +69,46 @@ Terminology note:
 
 - **Typical magnitude**: expected to be small (“a few”), but depends on array configuration.
 
+### 7) Full channels (full MEA chip)
+- **Meaning**: the complete physical channel set on the MEA chip, including channels that were never recorded in this dataset.
+- **Maxwell/AxonTracking full-chip size**: **26,400 channels** (220 columns × 120 rows).
+- **Where it exists**:
+  - This is a *physical* chip definition.
+  - It does not necessarily correspond to any `Recording` loaded in the pipeline.
+  - In the templates stage we may *infer* this geometry (locations + electrode IDs) to:
+    - render full-chip maps,
+    - represent quiet channels explicitly when needed.
+
+Relationship:
+
+$$\text{full channels} = \text{all recorded channels} \cup \text{quiet channels}$$
+
+---
+
+## Unit-level definitions (templates- and reconstruction-facing)
+
+These definitions are per-unit and are used most heavily in the **templates** stage.
+
+### A) Contributing channels (for a unit)
+- **Meaning**: channels that have actual waveform samples for this unit’s template.
+- In practice, “contributing” means the channel is present in at least one source analyzer for that unit and is included in the unit’s template channel axis.
+
+Sub-categories:
+- **Common contributing channels**: contributing channels that are also in the dataset-level common channel set.
+- **Segment contributing channels**: contributing channels that are not common (appear only in some segments), but contribute to this unit’s merged template.
+
+### B) Non-contributing channels (for a unit)
+- **Meaning**: channels that are part of the dataset-level **all recorded channels** universe, but do not contribute to this unit.
+- These channels may be included explicitly in some outputs (e.g., dense/full-axis templates or full-chip maps) with **zeros or NaNs** so that all units share a consistent channel axis.
+
+### C) Quiet channels (for a unit)
+- **Meaning**: channels that are in the dataset-level **full channels** set, but are **not** in the dataset-level all recorded channels universe (i.e., they were never recorded at all in this dataset).
+- Quiet channels may be included with **zeros or NaNs** in plotting/merging outputs to represent the full physical chip.
+
+Relationship (per unit, conceptually):
+
+$$\text{full channels} = \text{contributing} \cup \text{non-contributing} \cup \text{quiet}$$
+
 ---
 
 ## How these sets map to the pipeline
@@ -86,7 +137,8 @@ The waveforms stage writes a JSON file:
 This is intended to make the above definitions concrete for each run. It includes:
 - `common_channel_ids` (concat/common intersection)
 - per-segment `segment_electrode_ids` and `non_common_segment_electrode_ids` (when electrode IDs are available)
-- `all_channels_union_electrode_ids`
+- `all_recorded_electrode_ids`
+- per-segment `waveforms_analyzer_electrode_ids` (the electrode set actually used for waveforms after optional channel selection)
 - `unique_segment_electrode_ids_by_source`
 - `non_unique_non_common_electrode_ids`
 - counts/summaries to sanity-check that “concat channels” truly match the segment intersection

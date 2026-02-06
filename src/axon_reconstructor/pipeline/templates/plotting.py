@@ -146,7 +146,7 @@ def _render_full_chip_value_map(
     *,
     ax,
     values_by_electrode_id: dict[int, float],
-    recording_electrode_ids: Optional[Any],
+    all_recorded_electrode_ids: Optional[Any],
     title: str,
     cmap: str,
     norm,
@@ -165,7 +165,7 @@ def _render_full_chip_value_map(
     rgba = np.empty((int(CHIP_ROWS), int(CHIP_COLS), 4), dtype=float)
     rgba[:] = np.asarray(quiet_rgba, dtype=float)
 
-    rec_eids = _try_int_array(recording_electrode_ids)
+    rec_eids = _try_int_array(all_recorded_electrode_ids)
     if rec_eids is not None:
         rec_eids = rec_eids.ravel()
         ok = (rec_eids >= 0) & (rec_eids < int(CHIP_ROWS * CHIP_COLS))
@@ -655,7 +655,7 @@ def _render_full_chip_value_map_no_colorbar(
     *,
     ax,
     values_by_electrode_id: dict[int, float],
-    recording_electrode_ids: Optional[Any],
+    all_recorded_electrode_ids: Optional[Any],
     title: str,
     cmap: str,
     norm,
@@ -671,7 +671,7 @@ def _render_full_chip_value_map_no_colorbar(
     rgba = np.empty((int(CHIP_ROWS), int(CHIP_COLS), 4), dtype=float)
     rgba[:] = np.asarray(quiet_rgba, dtype=float)
 
-    rec_eids = _try_int_array(recording_electrode_ids)
+    rec_eids = _try_int_array(all_recorded_electrode_ids)
     if rec_eids is not None:
         rec_eids = rec_eids.ravel()
         ok = (rec_eids >= 0) & (rec_eids < int(CHIP_ROWS * CHIP_COLS))
@@ -714,7 +714,7 @@ def _write_unit_segment_footprint_grids_pdf(
     pdf_path: Path,
     unit_id: Any,
     sources_for_unit: list[dict[str, Any]],
-    recording_electrode_ids: Any = None,
+    all_recorded_electrode_ids: Any = None,
     cmap: str = "viridis",
 ) -> None:
     """Write per-unit concat-vs-segment footprint PTP maps as a grid PDF."""
@@ -785,7 +785,7 @@ def _write_unit_segment_footprint_grids_pdf(
                 _render_full_chip_value_map_no_colorbar(
                     ax=ax,
                     values_by_electrode_id=values,
-                    recording_electrode_ids=recording_electrode_ids,
+                    all_recorded_electrode_ids=all_recorded_electrode_ids,
                     title=str(name),
                     cmap=cmap,
                     norm=norm,
@@ -843,7 +843,7 @@ def _write_topo_unit_footprint_png(
     unit_id: Any,
     full_template: Any,
     full_electrode_ids: Any,
-    recording_electrode_ids: Any,
+    all_recorded_electrode_ids: Any,
     title: str,
     cmap: str = "viridis",
 ) -> None:
@@ -886,7 +886,7 @@ def _write_topo_unit_footprint_png(
     Z = np.full((int(CHIP_ROWS), int(CHIP_COLS)), np.nan, dtype=float)
 
     # Recording mask.
-    rec_eids = _try_int_array(recording_electrode_ids)
+    rec_eids = _try_int_array(all_recorded_electrode_ids)
     rec_mask = np.zeros((int(CHIP_ROWS), int(CHIP_COLS)), dtype=bool)
     if rec_eids is not None:
         rec_eids = rec_eids.ravel()
@@ -1097,7 +1097,7 @@ def _write_unit_propagation_plots_png(
     *,
     out_dir: Path,
     unit_id: Any,
-    merged_union: dict[str, Any],
+    merged_contributing: dict[str, Any],
     fs_hz: float,
     ms_before: Optional[float],
     ms_after: Optional[float],
@@ -1108,12 +1108,12 @@ def _write_unit_propagation_plots_png(
     ap_timings_json_path: Optional[Path] = None,
     logger=None,
 ) -> None:
-    """Write propagation plots derived from the merged_union template as PNG(s).
+    """Write propagation plots derived from the merged contributing-channels template as PNG(s).
 
     This is intentionally *template-based* (one trace per channel) so we don't need to
     re-extract or load waveforms/spike trains for plotting.
 
-    The plot shows the top-N channels by PTP (from the merged_union template), ordered by
+    The plot shows the top-N channels by PTP (from the merged template), ordered by
     best-effort timing estimates. A small triangle marks the negative-peak time for each channel.
     """
 
@@ -1127,7 +1127,7 @@ def _write_unit_propagation_plots_png(
     _ = n_waveforms  # deprecated: kept for API/backwards-compatibility
 
     try:
-        tmpl = np.asarray(merged_union.get("template"), dtype=float)
+        tmpl = np.asarray(merged_contributing.get("template"), dtype=float)
     except Exception:
         tmpl = None
     if tmpl is None or getattr(tmpl, "ndim", 0) != 2 or tmpl.size == 0:
@@ -1145,8 +1145,8 @@ def _write_unit_propagation_plots_png(
         t_ms = (np.arange(n_samp, dtype=float) / float(fs_hz)) * 1000.0
 
     # Channel IDs for labeling (prefer electrode ids).
-    electrode_ids = merged_union.get("electrode_ids")
-    channel_ids = merged_union.get("channel_ids")
+    electrode_ids = merged_contributing.get("electrode_ids")
+    channel_ids = merged_contributing.get("channel_ids")
     channel_labels: list[str] = []
     for j in range(n_ch_total):
         lab = None
@@ -1226,8 +1226,14 @@ def _write_unit_propagation_plots_png(
         k_sigma = 3.0
 
         for ch in range(n_ch_local):
-            w = np.asarray(tmpl2[:, ch], dtype=float)
+            w = np.asarray(tmpl2[:, int(ch)], dtype=float)
             b = float(baseline[ch])
+            try:
+                ns = float(noise[ch])
+                if not (ns >= 0):
+                    ns = 0.0
+            except Exception:
+                ns = 0.0
             ni = int(neg_i[ch])
             if ni <= 1:
                 start_i = int(max(0, ni - 1))
@@ -1242,9 +1248,12 @@ def _write_unit_propagation_plots_png(
                 continue
 
             # Symmetric noise band around baseline.
-            ns = float(noise[ch]) if np.isfinite(noise[ch]) else 0.0
-            ptp_ch = float(np.nanmax(w) - np.nanmin(w)) if np.all(np.isfinite(w)) else float(np.ptp(np.nan_to_num(w)))
-            band = max(k_sigma * ns, 0.02 * max(ptp_ch, 0.0), 1e-9)
+            try:
+                ptp_ch = float(np.nanmax(w) - np.nanmin(w))
+            except Exception:
+                ptp_ch = float(np.ptp(np.nan_to_num(w)))
+
+            band = max(float(k_sigma) * float(ns), 0.02 * max(float(ptp_ch), 0.0), 1e-9)
             pos_thr = b + band
             neg_thr = b - band
 
@@ -1476,7 +1485,7 @@ def _write_unit_propagation_plots_pdf(
     *,
     pdf_path: Path,
     unit_id: Any,
-    merged_union: dict[str, Any],
+    merged_contributing: dict[str, Any],
     fs_hz: float,
     ms_before: Optional[float],
     ms_after: Optional[float],
@@ -1495,7 +1504,7 @@ def _write_unit_propagation_plots_pdf(
     _write_unit_propagation_plots_png(
         out_dir=out_dir,
         unit_id=unit_id,
-        merged_union=merged_union,
+        merged_contributing=merged_contributing,
         fs_hz=fs_hz,
         ms_before=ms_before,
         ms_after=ms_after,
@@ -1517,7 +1526,7 @@ def _write_footprint_ptp_map(
     log_scale: bool,
     cmap: str = "viridis",
     electrode_ids: Any = None,
-    recording_electrode_ids: Any = None,
+    all_recorded_electrode_ids: Any = None,
 ) -> None:
     """Write a footprint PTP amplitude map as a single image.
 
@@ -1570,7 +1579,7 @@ def _write_footprint_ptp_map(
         _render_full_chip_value_map(
             ax=ax,
             values_by_electrode_id=values,
-            recording_electrode_ids=recording_electrode_ids,
+            all_recorded_electrode_ids=all_recorded_electrode_ids,
             title=title,
             cmap=cmap,
             norm=norm,
@@ -1620,7 +1629,7 @@ def _write_unit_template_and_footprint_svg(
     template: Any,
     channel_locations_xy: Any,
     electrode_ids: Any = None,
-    recording_electrode_ids: Any = None,
+    all_recorded_electrode_ids: Any = None,
     fs_hz: float,
     ms_before: Optional[float],
     ms_after: Optional[float],
@@ -1672,7 +1681,7 @@ def _write_unit_template_and_footprint_svg(
             _render_full_chip_value_map(
                 ax=ax0,
                 values_by_electrode_id=values,
-                recording_electrode_ids=recording_electrode_ids,
+                all_recorded_electrode_ids=all_recorded_electrode_ids,
                 title="Footprint (PTP)" + (" [log]" if log_footprint else ""),
                 cmap="viridis",
                 norm=norm,
@@ -1709,7 +1718,7 @@ def _write_full_chip_template_amplitude_map_png(
     out_path: Path,
     template_ch_by_t: Any,
     electrode_ids: Any,
-    recording_electrode_ids: Any,
+    all_recorded_electrode_ids: Any,
     title: str,
     cmap: str = "viridis",
 ) -> None:
@@ -1748,7 +1757,7 @@ def _write_full_chip_template_amplitude_map_png(
     _render_full_chip_value_map(
         ax=ax,
         values_by_electrode_id=values,
-        recording_electrode_ids=recording_electrode_ids,
+        all_recorded_electrode_ids=all_recorded_electrode_ids,
         title=title,
         cmap=cmap,
         norm=norm,
@@ -1764,7 +1773,7 @@ def _write_full_chip_template_peak_latency_map_png(
     out_path: Path,
     template_ch_by_t: Any,
     electrode_ids: Any,
-    recording_electrode_ids: Any,
+    all_recorded_electrode_ids: Any,
     sampling_frequency_hz: float,
     title: str,
     cmap: str = "viridis",
@@ -1809,7 +1818,7 @@ def _write_full_chip_template_peak_latency_map_png(
     _render_full_chip_value_map(
         ax=ax,
         values_by_electrode_id=values,
-        recording_electrode_ids=recording_electrode_ids,
+        all_recorded_electrode_ids=all_recorded_electrode_ids,
         title=title,
         cmap=cmap,
         norm=norm,
