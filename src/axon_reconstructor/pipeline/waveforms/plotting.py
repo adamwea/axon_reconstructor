@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 
 def _write_waveforms_grid_pdf(
@@ -14,6 +14,11 @@ def _write_waveforms_grid_pdf(
     segment_waveforms_folders: Optional[list[Path]] = None,
     show_debug_annotation: bool = False,
     panel_dir: Optional[Path] = None,
+    pages_dir: Optional[Path] = None,
+    write_page_png: bool = True,
+    write_page_svg: bool = True,
+    page_dpi: int = 150,
+    best_channel_mode: Literal["old", "new"] = "new",
 ) -> None:
     """Write a multi-page PDF of per-unit waveforms.
 
@@ -133,6 +138,8 @@ def _write_waveforms_grid_pdf(
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
     if panel_dir is not None:
         panel_dir.mkdir(parents=True, exist_ok=True)
+    if pages_dir is not None:
+        pages_dir.mkdir(parents=True, exist_ok=True)
 
     analyzer = None
     waveforms_ext = None
@@ -177,6 +184,7 @@ def _write_waveforms_grid_pdf(
 
     with pdf.PdfPages(pdf_path) as pdf_doc:
         units_per_page = 12
+        page_idx = 0
         for i in range(0, len(unit_ids), units_per_page):
             batch = unit_ids[i : i + units_per_page]
             fig, axes = plt.subplots(3, 4, figsize=(12, 9))
@@ -276,48 +284,60 @@ def _write_waveforms_grid_pdf(
                     all_n_channels_unique = int(len(all_channel_set))
                     all_n_waveforms_sum = int(concat_n_waveforms + seg_total_waveforms)
 
-                    # Choose a global "best" channel_id across all sources.
-                    # Primary: most negative mean deflection. Tie-break: present in more sources.
-                    channel_presence: dict[Any, int] = {}
-                    for _src_name, _src_wf, _src_ch_ids in wf_sources:
-                        for _ch in set(_src_ch_ids):
-                            channel_presence[_ch] = channel_presence.get(_ch, 0) + 1
+                    # Old best-channel heuristic (concat-only): choose channel with the most
+                    # negative deflection in the concat mean waveform.
+                    concat_best_channel_id: Any | None = None
+                    try:
+                        mean_wf_concat = np.mean(wf, axis=0)
+                        best_ch = int(np.argmin(np.min(mean_wf_concat, axis=0)))
+                        concat_best_channel_id = concat_channel_ids[best_ch] if best_ch < len(concat_channel_ids) else best_ch
+                    except Exception:
+                        concat_best_channel_id = None
 
+                    # New best-channel heuristic (cross-source): choose channel across the union
+                    # of available channel_ids from concat + segments.
                     best_channel_id: Any | None = None
-                    best_score: float | None = None
-                    best_presence: int = -1
-                    for _src_name, _src_wf, _src_ch_ids in wf_sources:
-                        try:
-                            if _src_wf is None or _src_wf.shape[0] == 0:
-                                continue
-                            mean_wf = np.mean(_src_wf, axis=0)  # (n_samples, n_channels)
-                            # Safety: ensure channel axis matches channel_id list.
-                            n_ch = int(mean_wf.shape[1]) if mean_wf.ndim == 2 else 0
-                            for ch_idx in range(min(n_ch, len(_src_ch_ids))):
-                                ch_id = _src_ch_ids[ch_idx]
-                                score = float(np.min(mean_wf[:, ch_idx]))
-                                presence = int(channel_presence.get(ch_id, 0))
-                                if best_score is None:
-                                    best_channel_id = ch_id
-                                    best_score = score
-                                    best_presence = presence
-                                    continue
-                                if score < best_score:
-                                    best_channel_id = ch_id
-                                    best_score = score
-                                    best_presence = presence
-                                elif score == best_score and presence > best_presence:
-                                    best_channel_id = ch_id
-                                    best_score = score
-                                    best_presence = presence
-                        except Exception:
-                            continue
+                    if best_channel_mode == "old":
+                        best_channel_id = concat_best_channel_id
+                    else:
+                        channel_presence: dict[Any, int] = {}
+                        for _src_name, _src_wf, _src_ch_ids in wf_sources:
+                            for _ch in set(_src_ch_ids):
+                                channel_presence[_ch] = channel_presence.get(_ch, 0) + 1
 
-                    # Fallback: if something went wrong, keep concat's original heuristic.
+                        best_score: float | None = None
+                        best_presence: int = -1
+                        for _src_name, _src_wf, _src_ch_ids in wf_sources:
+                            try:
+                                if _src_wf is None or _src_wf.shape[0] == 0:
+                                    continue
+                                mean_wf = np.mean(_src_wf, axis=0)  # (n_samples, n_channels)
+                                n_ch = int(mean_wf.shape[1]) if mean_wf.ndim == 2 else 0
+                                for ch_idx in range(min(n_ch, len(_src_ch_ids))):
+                                    ch_id = _src_ch_ids[ch_idx]
+                                    score = float(np.min(mean_wf[:, ch_idx]))
+                                    presence = int(channel_presence.get(ch_id, 0))
+                                    if best_score is None:
+                                        best_channel_id = ch_id
+                                        best_score = score
+                                        best_presence = presence
+                                        continue
+                                    if score < best_score:
+                                        best_channel_id = ch_id
+                                        best_score = score
+                                        best_presence = presence
+                                    elif score == best_score and presence > best_presence:
+                                        best_channel_id = ch_id
+                                        best_score = score
+                                        best_presence = presence
+                            except Exception:
+                                continue
+
+                    # Final fallback: prefer concat best if anything went wrong.
                     if best_channel_id is None:
-                        mean_wf = np.mean(wf, axis=0)
-                        best_ch = int(np.argmin(np.min(mean_wf, axis=0)))
-                        best_channel_id = concat_channel_ids[best_ch] if best_ch < len(concat_channel_ids) else best_ch
+                        best_channel_id = concat_best_channel_id
+                    if best_channel_id is None:
+                        best_channel_id = 0
 
                     # Gather waveforms for the chosen channel across all sources.
                     stacked_wfs: list[Any] = []
@@ -485,7 +505,20 @@ def _write_waveforms_grid_pdf(
                 axes[j].axis("off")
 
             pdf_doc.savefig(fig)
+
+            # Optional per-page exports (useful for debugging without opening PDFs).
+            try:
+                if pages_dir is not None and (write_page_png or write_page_svg):
+                    stem = f"page_{page_idx:03d}"
+                    if write_page_png:
+                        fig.savefig(pages_dir / f"{stem}.png", format="png", dpi=int(page_dpi))
+                    if write_page_svg:
+                        fig.savefig(pages_dir / f"{stem}.svg", format="svg")
+            except Exception:
+                pass
+
             plt.close(fig)
+            page_idx += 1
 
 
 __all__ = [
