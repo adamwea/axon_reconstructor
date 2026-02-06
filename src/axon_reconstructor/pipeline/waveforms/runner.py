@@ -10,7 +10,7 @@ from .artifacts import _persist_channel_groups_json, _persist_filtering_and_excl
 from .extraction import _extract_concat_waveforms, _extract_per_segment_waveforms
 from .filtering import _filter_sorting_by_maxwell_epochs, _init_filtering_summary, _init_wf_rejection_log_fields
 from .run_context import _WaveformsRunContext, _initialize_run_context, _load_epoch_markers, _resolve_waveform_window
-from .steps import _apply_waveforms_curation, _compute_and_merge_waveforms_metrics, _plot_waveforms_outputs
+from .steps import _apply_waveforms_curation, _plot_waveforms_outputs
 from .utils import _load_preprocessed_recording, _load_sorting_from_sorter_output_dir, _resolve_mea_sorter_output_dir
 
 
@@ -121,16 +121,15 @@ def extract_waveforms(
     Produces:
       <well>/waveforms_outputs/concat_waveforms/
       <well>/waveforms_outputs/segment_waveforms/ (optional)
-    <well>/waveforms_outputs/waveforms_grid_uncurated.pdf
-    <well>/waveforms_outputs/waveforms_grid_curated.pdf (if curation succeeds)
-        <well>/waveforms_outputs/qm_unfiltered.xlsx  (merged)
-        <well>/waveforms_outputs/tm_unfiltered.xlsx  (merged)
-    <well>/waveforms_outputs/metrics_curated.xlsx
-    <well>/waveforms_outputs/tm_curated.xlsx
-    <well>/waveforms_outputs/rejection_log.xlsx
-    <well>/waveforms_outputs/wf_rejection_log.xlsx
-        <well>/waveforms_outputs/metrics_sources/ (per-source concat/segment metrics + curation)
-    plus JSON summaries.
+            <well>/waveforms_outputs/waveforms_grid_uncurated.pdf
+            <well>/waveforms_outputs/waveforms_grid_curated.pdf (if curation succeeds)
+            <well>/waveforms_outputs/wf_rejection_log.xlsx
+            plus JSON summaries.
+
+        Notes:
+        - Waveforms stage does not recompute quality/template metrics.
+        - When applying curation logic for plotting, this stage reads:
+                <well>/spikesorting_outputs/qm_unfiltered.xlsx
 
     Uses existing epoch marker JSONs (from preprocessing) to avoid extracting
     waveforms that cross Maxwell snippet discontinuities.
@@ -228,7 +227,7 @@ def extract_waveforms(
         epochs = _load_epoch_markers(well_out_dir=ctx.well_out_dir, stream_id=inputs.stream_id)
 
         # Optional debug limit: restrict to the first N concat stitch segments.
-        # This only affects per-segment extraction/metrics/plotting (concat analyzer still
+        # This only affects per-segment extraction/plotting (concat analyzer still
         # spans the full concatenated recording).
         try:
             if inputs.debug_max_segments is not None and epochs.concat_epochs:
@@ -254,35 +253,6 @@ def extract_waveforms(
                     )
         except Exception:
             pass
-
-        from .qm_config import build_quality_metrics_extension_params
-
-        # Configure quality-metric parameters.
-        # Scientific rationale: some metrics (e.g., presence ratio) depend on time binning.
-        # Using the shortest available segment duration provides a conservative bin size
-        # when per-segment analyzers exist (avoids bins larger than the segment itself).
-        # Use the shortest segment duration when segments are available; otherwise
-        # fall back to the full concat duration.
-        min_duration_s: float | None = None
-        try:
-            if inputs.per_segment and epochs.concat_epochs:
-                durations: list[float] = []
-                for seg in epochs.concat_epochs:
-                    try:
-                        start = int(seg["start_sample"])
-                        end = int(seg["end_sample"])
-                        if end > start:
-                            durations.append((end - start) / float(fs_hz))
-                    except Exception:
-                        continue
-                if durations:
-                    min_duration_s = float(min(durations))
-            if min_duration_s is None:
-                min_duration_s = float(recording.get_total_duration())
-        except Exception:
-            min_duration_s = None
-
-        quality_metrics_params = build_quality_metrics_extension_params(min_duration_s=min_duration_s, logger=ctx.logger)
 
         # Initialize structured summaries that are persisted for auditability:
         # - filtering_summary: aggregate counts and per-segment breakdowns
@@ -363,7 +333,6 @@ def extract_waveforms(
             recording=recording,
             concat_waveforms_dir=ctx.concat_waveforms_dir,
             window=window,
-            quality_metrics_params=quality_metrics_params,
             logger=ctx.logger,
         )
 
@@ -387,7 +356,6 @@ def extract_waveforms(
                 filtering_summary=filtering_summary,
                 wf_rejection_rows=wf_rejection_rows,
                 base_rej_fields=base_rej_fields,
-                quality_metrics_params=quality_metrics_params,
                 logger=ctx.logger,
                 channel_groups=channel_groups,  # populated in-place
             )
@@ -484,24 +452,10 @@ def extract_waveforms(
             logger=ctx.logger,
         )
 
-        # Compute per-source metrics (concat + segments) and merge to a single, consistent
-        # metrics table for curation.
-        merged_qm, merged_tm = _compute_and_merge_waveforms_metrics(
-            inputs=inputs,
-            waveforms_out_dir=ctx.waveforms_out_dir,
-            concat_waveforms_dir=ctx.concat_waveforms_dir,
-            segment_waveforms_dir=ctx.segment_waveforms_dir,
-            epochs=epochs,
-            window=window,
-            logger=ctx.logger,
-        )
-
-        # Apply curation thresholds to merged metrics (MEA_Analysis-style), producing curated
-        # tables and a rejection log. If curation fails, plotting proceeds with uncurated units.
+        # Apply curation thresholds (MEA_Analysis-style) based on spikesorting outputs.
+        # If this fails, plotting proceeds with uncurated units.
         curated_units_for_plot = _apply_waveforms_curation(
             waveforms_out_dir=ctx.waveforms_out_dir,
-            merged_qm=merged_qm,
-            merged_tm=merged_tm,
             logger=ctx.logger,
         )
 

@@ -1,8 +1,8 @@
-# Waveforms Step — Part 5: Metrics Merge, Curation, Plotting, and Checkpoint Finalization (Runner)
+# Waveforms Step — Part 5: Curation, Plotting, and Checkpoint Finalization (Runner)
 
-Scope: This document continues directly after Part 4 ends. It begins at the runner’s metrics phase:
+Scope: This document continues directly after Part 4 ends. It begins at the runner’s curation+plotting phase:
 
-- `merged_qm, merged_tm = _compute_and_merge_waveforms_metrics(...)`
+- `curated_units_for_plot = _apply_waveforms_curation(...)`
 
 and ends when the waveforms stage saves its checkpoint at `ProcessingStage.ANALYZER_COMPLETE` and returns `WaveformExtractOutputs`.
 
@@ -10,11 +10,9 @@ Terminology note:
 - Channel-set names (all/common/segment/non-common/unique/non-unique) are defined in `docs/methods_waveforms_channel_sets.md`.
 
 Primary code paths:
-- `axon_reconstructor.pipeline.waveforms.runner.extract_waveforms(...)` (metrics → curation → plotting → checkpoint)
-- `axon_reconstructor.pipeline.waveforms.steps._compute_and_merge_waveforms_metrics(...)`
+- `axon_reconstructor.pipeline.waveforms.runner.extract_waveforms(...)` (curation → plotting → checkpoint)
 - `axon_reconstructor.pipeline.waveforms.steps._apply_waveforms_curation(...)`
 - `axon_reconstructor.pipeline.waveforms.steps._plot_waveforms_outputs(...)`
-- `axon_reconstructor.pipeline.waveforms.metrics` (metric load/merge/recompute logic)
 - `axon_reconstructor.pipeline.waveforms.curation.apply_mea_analysis_curation(...)`
 - `axon_reconstructor.pipeline.waveforms.plotting._write_waveforms_grid_pdf(...)`
 
@@ -35,124 +33,17 @@ At this point, the waveforms runner has already:
   - `waveforms_outputs/wf_rejection_log.xlsx`
 
 The remaining goal is:
-- compute per-source quality/template metrics,
-- merge them into a single, consistent metrics view,
-- apply MEA_Analysis-style curation thresholds,
+- apply MEA_Analysis-style curation thresholds (using spikesorting metrics),
 - generate QC plots,
 - and mark the waveforms stage complete via a dedicated waveforms checkpoint.
 
----
-
-## 1. Compute per-source metrics and merge to a single table
-
-Runner call:
-
-- `merged_qm, merged_tm = _compute_and_merge_waveforms_metrics(...)`
-
-Implementation:
-- `axon_reconstructor.pipeline.waveforms.steps._compute_and_merge_waveforms_metrics`
-
-Output directory convention:
-- A per-source metrics tree is created under:
-  - `<well_out_dir>/waveforms_outputs/metrics_sources/`
-
-### 1.1 Load metrics from existing analyzers
-
-The metrics computation does **not** recompute waveforms; it loads analyzers from disk and reads extensions.
-
-- Concat metrics are loaded from:
-  - `concat_waveforms_dir = <waveforms_out_dir>/concat_waveforms/`
-
-- Segment metrics are loaded (best-effort) from:
-  - `<waveforms_out_dir>/segment_waveforms/segXX_<rec_name>/`
-  - Segment folders are derived by iterating `epochs.concat_epochs` and using `_parse_concat_epoch_segment(...)`.
-
-How metrics are loaded:
-- `load_and_compute_metrics(analyzer_dir=..., ...)` in `axon_reconstructor.pipeline.waveforms.metrics` loads the analyzer and requires:
-  - `quality_metrics` extension
-  - `template_metrics` extension
-- It also tries to add `unit_locations` into the quality-metrics DataFrame as `loc_x` and `loc_y`.
-
-Important dependency note:
-- If an analyzer folder is missing required extensions (e.g. `quality_metrics`), the loader raises a helpful error suggesting re-running waveforms with `force_restart=True`.
-
-### 1.2 Per-source file outputs (concat + segments)
-
-For concat, files are written under:
-
-- `<waveforms_out_dir>/metrics_sources/concat/`
-  - `qm_unfiltered.xlsx`
-  - `tm_unfiltered.xlsx`
-
-Additionally, the code applies MEA_Analysis-style curation *as a per-source diagnostic* and writes:
-
-- `<waveforms_out_dir>/metrics_sources/concat/`
-  - `metrics_curated.xlsx`
-  - `rejection_log.xlsx`
-  - `tm_curated.xlsx` (best-effort)
-
-For each segment source (name like `seg02_<rec_name>`), unfiltered metrics are written under:
-
-- `<waveforms_out_dir>/metrics_sources/segXX_<rec_name>/`
-  - `qm_unfiltered.xlsx`
-  - `tm_unfiltered.xlsx`
-
-Notes:
-- Segment metrics are best-effort; a failure in one segment logs a warning and the pipeline continues.
-
-### 1.3 Merge policy: concat + segments → merged metrics
-
-After per-source metrics are collected, the pipeline merges them into two “merged” tables:
-
-- `merged_qm = merge_quality_metrics(concat_qm, segment_qm_by_source)`
-- `merged_tm = merge_template_metrics(concat_tm, segment_tm_by_source)`
-
-Quality-metrics merge policy (high level):
-- Column-wise aggregation with safe defaults (intended to align with MEA_Analysis threshold semantics):
-  - “Higher-is-better” columns use a min across sources (worst-case)
-  - “Lower-is-better” columns use a max across sources (worst-case)
-  - certain columns (notably `loc_x`, `loc_y`) prefer concat
-  - unknown numeric columns default to concat-preferred if present, else mean fallback
-
-Template-metrics merge policy (high level):
-- Concat-preferred per column when concat has that metric; otherwise mean across segments for numeric columns.
-
-### 1.4 Optional recomputation from a deduplicated spike+amplitude representation
-
-After the initial merges, the code attempts a higher-fidelity recomputation step:
-
-- `recompute_merged_quality_metrics_from_deduplicated_spikes(...)`
-
-Goal:
-- Avoid purely heuristic scalar merges by recomputing key metrics on a deduplicated view of spikes (using concat-time samples, respecting segment boundaries).
-
-Key idea:
-- Build per-unit maps of `sample_index (concat time) -> amplitude` from:
-  - concat analyzer spike amplitudes
-  - per-segment analyzer spike amplitudes (offset into concat time using each segment’s `start_sample_concat`)
-- Where the same spike time appears in multiple sources, choose the amplitude with larger magnitude $|\mathrm{amp}|$.
-
-If successful:
-- The recomputed columns are inserted/overwritten in `merged_qm` for the recomputed unit IDs.
-
-If it fails:
-- A warning is logged and the pipeline continues using merge-only metrics.
-
-### 1.5 Merged metrics file outputs
-
-Merged metrics are written both under the “merged” subfolder and at the waveforms root:
-
-- `<waveforms_out_dir>/metrics_sources/merged/`
-  - `qm_merged.xlsx`
-  - `tm_merged.xlsx`
-
-- `<waveforms_out_dir>/`
-  - `qm_merged_unfiltered.xlsx`
-  - `tm_merged_unfiltered.xlsx`
+Important design change:
+- The waveforms stage intentionally does **not** compute quality metrics or template metrics.
+- Curation is driven by the spikesorting stage’s `qm_unfiltered.xlsx` (under `spikesorting_outputs/`) to avoid metric drift due to parameterization (notably `presence_ratio.bin_duration_s`).
 
 ---
 
-## 2. Apply curation thresholds to merged metrics
+## 1. Apply curation thresholds (from spikesorting metrics)
 
 Runner call:
 
@@ -162,18 +53,18 @@ Implementation:
 - `axon_reconstructor.pipeline.waveforms.steps._apply_waveforms_curation`
 
 What it does:
-- Runs MEA_Analysis-style curation logic on the merged quality metrics table:
-  - `clean_metrics, rejection_log = apply_mea_analysis_curation(q_metrics=merged_qm, user_thresholds=None)`
+- Loads spikesorting quality metrics from:
+  - `<well_out_dir>/spikesorting_outputs/qm_unfiltered.xlsx`
+- Runs MEA_Analysis-style curation logic on that table:
+  - `clean_metrics, rejection_log = apply_mea_analysis_curation(q_metrics=qm, user_thresholds=None)`
 
 Where the curation logic comes from:
 - Preferred path: if MEA_Analysis is importable, it calls MEA_Analysis’ internal curation method.
 - Fallback path: if not importable, it uses built-in default thresholds (presence ratio, RP contamination, firing rate, amplitude, amplitude CV).
 
-Artifacts written (only if curation succeeds):
-
-- `<waveforms_out_dir>/metrics_curated.xlsx`
-- `<waveforms_out_dir>/rejection_log.xlsx`
-- `<waveforms_out_dir>/tm_curated.xlsx` (best-effort subset of `merged_tm`)
+Artifacts written:
+- None in the waveforms stage. Curation here is used only to decide which units appear in the curated plotting permutations.
+- If you need curated metrics tables / rejection logs on disk, those should come from the spikesorting stage outputs.
 
 Return value:
 - `curated_units_for_plot` is a list of unit IDs (index of `clean_metrics`).
@@ -181,7 +72,7 @@ Return value:
 
 ---
 
-## 3. Plot waveforms grids for human QC
+## 2. Plot waveforms grids for human QC
 
 Runner call:
 
@@ -193,7 +84,7 @@ Implementation:
 
 This phase produces MEA_Analysis-style waveform grid PDFs by loading waveforms from the on-disk analyzers.
 
-### 3.1 Segment overlay behavior
+### 2.1 Segment overlay behavior
 
 If per-segment analyzers exist, `_plot_waveforms_outputs(...)` passes them as `segment_waveforms_folders`.
 
@@ -206,7 +97,7 @@ In `_write_waveforms_grid_pdf(...)`:
 
 This means the PDF is explicitly “cross-source” when per-segment analyzers are available.
 
-### 3.2 Grid outputs (`grids/`) and panel outputs (`panels/`)
+### 2.2 Grid outputs (`grids/`) and panel outputs (`panels/`)
 
 To reduce clutter, the waveforms stage writes all grid artifacts under:
 
@@ -246,7 +137,7 @@ Note on `spikesorting_waveforms_grid_pdf`:
 
 ---
 
-## 4. Save checkpoint and return outputs
+## 3. Save checkpoint and return outputs
 
 After metrics, curation, and plotting complete, the runner saves a waveforms-specific checkpoint:
 
@@ -272,4 +163,7 @@ Finally, the runner logs `"Waveform extraction complete"` and returns a `Wavefor
 After the waveforms stage finishes, later pipeline stages typically consume:
 - the `concat_waveforms` analyzer,
 - any per-segment analyzers,
-- and the merged/curated metrics + plotting artifacts for QC and downstream decisions.
+- and the plotting artifacts for QC and downstream decisions.
+
+For quality metrics, later stages should use the spikesorting outputs:
+- `<well_out_dir>/spikesorting_outputs/qm_unfiltered.xlsx` (and any curated variants produced there)
