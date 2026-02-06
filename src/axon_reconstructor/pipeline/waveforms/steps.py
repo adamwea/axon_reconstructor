@@ -193,40 +193,79 @@ def _plot_waveforms_outputs(
         except Exception:
             segment_folders = None
 
-        concat_only_pdf = waveforms_out_dir / "waveforms_grid_concat_uncurated.pdf"
-        if (not concat_only_pdf.exists()) or inputs.force_restart:
-            logger.info("Writing concat-only waveforms grid PDF -> %s", concat_only_pdf)
-            _write_waveforms_grid_pdf(
-                waveforms_folder=concat_waveforms_dir,
-                pdf_path=concat_only_pdf,
-                segment_waveforms_folders=None,
-                show_debug_annotation=False,
-                panel_dir=(waveforms_out_dir / "waveforms_grid_concat_uncurated_panels"),
-            )
+        grids_dir = waveforms_out_dir / "grids"
+        panels_root = waveforms_out_dir / "panels"
+        grids_dir.mkdir(parents=True, exist_ok=True)
+        panels_root.mkdir(parents=True, exist_ok=True)
 
-        waveforms_grid_pdf = waveforms_out_dir / "waveforms_grid_uncurated.pdf"
-        if (not waveforms_grid_pdf.exists()) or inputs.force_restart:
-            logger.info("Writing waveforms grid PDF -> %s", waveforms_grid_pdf)
-            _write_waveforms_grid_pdf(
-                waveforms_folder=concat_waveforms_dir,
-                pdf_path=waveforms_grid_pdf,
-                segment_waveforms_folders=segment_folders,
-                show_debug_annotation=False,
-                panel_dir=(waveforms_out_dir / "waveforms_grid_uncurated_panels"),
-            )
-
-        if curated_units_for_plot is not None:
-            curated_pdf = waveforms_out_dir / "waveforms_grid_curated.pdf"
-            if (not curated_pdf.exists()) or inputs.force_restart:
-                logger.info("Writing curated waveforms grid PDF -> %s", curated_pdf)
+        def _write_perm(
+            *,
+            name: str,
+            unit_ids: Optional[list[Any]],
+            segment_waveforms_folders: Optional[list[Path]],
+            best_channel_mode: str,
+        ) -> Path:
+            pdf_path = grids_dir / f"{name}.pdf"
+            if (not pdf_path.exists()) or inputs.force_restart:
+                logger.info("Writing waveforms grid -> %s", pdf_path)
                 _write_waveforms_grid_pdf(
                     waveforms_folder=concat_waveforms_dir,
-                    pdf_path=curated_pdf,
-                    unit_ids=list(curated_units_for_plot),
-                    segment_waveforms_folders=segment_folders,
+                    pdf_path=pdf_path,
+                    unit_ids=unit_ids,
+                    segment_waveforms_folders=segment_waveforms_folders,
                     show_debug_annotation=False,
-                    panel_dir=(waveforms_out_dir / "waveforms_grid_curated_panels"),
+                    panel_dir=(panels_root / name),
+                    pages_dir=(grids_dir / f"{name}_pages"),
+                    write_page_png=True,
+                    write_page_svg=True,
+                    best_channel_mode=("old" if str(best_channel_mode) == "old" else "new"),
                 )
+            return pdf_path
+
+        # Requested permutations.
+        # Note: concat-only grids have no segments; old/new best-channel modes are equivalent.
+        _write_perm(
+            name="concat_uncurated",
+            unit_ids=None,
+            segment_waveforms_folders=None,
+            best_channel_mode="old",
+        )
+
+        if curated_units_for_plot is not None:
+            _write_perm(
+                name="concat_curated",
+                unit_ids=list(curated_units_for_plot),
+                segment_waveforms_folders=None,
+                best_channel_mode="old",
+            )
+
+        # Combined grids (concat + segments), using old vs new best-channel selection.
+        _write_perm(
+            name="uncurated_old_bestchan",
+            unit_ids=None,
+            segment_waveforms_folders=segment_folders,
+            best_channel_mode="old",
+        )
+        waveforms_grid_pdf = _write_perm(
+            name="uncurated_new_best_chan",
+            unit_ids=None,
+            segment_waveforms_folders=segment_folders,
+            best_channel_mode="new",
+        )
+
+        if curated_units_for_plot is not None:
+            _write_perm(
+                name="curated_old_bestchan",
+                unit_ids=list(curated_units_for_plot),
+                segment_waveforms_folders=segment_folders,
+                best_channel_mode="old",
+            )
+            _write_perm(
+                name="curated_new_bestchan",
+                unit_ids=list(curated_units_for_plot),
+                segment_waveforms_folders=segment_folders,
+                best_channel_mode="new",
+            )
 
     return waveforms_grid_pdf, spikesorting_waveforms_grid_pdf
 

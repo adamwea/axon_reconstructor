@@ -65,6 +65,11 @@ class WaveformExtractInputs:
     # Plotting
     plot_waveforms_grid_pdf: bool = True
 
+    # Debug/perf controls (developer convenience): optionally limit work to the first N
+    # units/segments to speed up interactive runs.
+    debug_max_units: Optional[int] = None
+    debug_max_segments: Optional[int] = None
+
 
 @dataclass(frozen=True)
 class WaveformExtractOutputs:
@@ -82,8 +87,14 @@ def _resume_if_possible(*, inputs: WaveformExtractInputs, ctx: _WaveformsRunCont
     if not inputs.force_restart and ctx.concat_waveforms_dir.exists():
         ctx.logger.info("Resuming waveforms: existing outputs found at %s", ctx.concat_waveforms_dir)
 
-        waveforms_grid_pdf = ctx.waveforms_out_dir / "waveforms_grid_uncurated.pdf"
-        waveforms_grid_pdf = waveforms_grid_pdf if waveforms_grid_pdf.exists() else None
+        # Preferred (2026-02): new grid outputs live under waveforms_outputs/grids.
+        waveforms_grid_pdf = ctx.waveforms_out_dir / "grids" / "uncurated_new_best_chan.pdf"
+        if not waveforms_grid_pdf.exists():
+            # Backward-compat: legacy root-level name.
+            legacy = ctx.waveforms_out_dir / "waveforms_grid_uncurated.pdf"
+            waveforms_grid_pdf = legacy if legacy.exists() else None
+        else:
+            waveforms_grid_pdf = waveforms_grid_pdf
         spikesorting_waveforms_grid_pdf = None
 
         return WaveformExtractOutputs(
@@ -176,11 +187,73 @@ def extract_waveforms(
                 exc_info=True,
             )
 
+        # Optional debug limit: restrict to a subset of units early to reduce compute.
+        try:
+            if inputs.debug_max_units is not None:
+                max_units = int(inputs.debug_max_units)
+                if max_units > 0:
+                    try:
+                        unit_ids = list(sorting.get_unit_ids())
+                    except Exception:
+                        unit_ids = list(getattr(sorting, "unit_ids", []))
+
+                    if unit_ids:
+                        try:
+                            unit_ids_sorted = sorted(unit_ids)
+                        except Exception:
+                            unit_ids_sorted = sorted(unit_ids, key=lambda x: str(x))
+
+                        keep = unit_ids_sorted[:max_units]
+                        try:
+                            sorting = sorting.select_units(unit_ids=keep)
+                        except Exception:
+                            # Some Sorting implementations use positional args.
+                            try:
+                                sorting = sorting.select_units(keep)
+                            except Exception:
+                                pass
+
+                        ctx.logger.warning(
+                            "DEBUG: limiting waveforms to first %d units (of %d)",
+                            int(len(keep)),
+                            int(len(unit_ids_sorted)),
+                        )
+        except Exception:
+            pass
+
         # Load epoch marker JSONs produced during preprocessing.
         # Scientific rationale: Maxwell recordings can contain snippet discontinuities;
         # we use contiguous-epoch markers to avoid extracting waveforms whose window
         # would cross a boundary (which would mix unrelated signal segments).
         epochs = _load_epoch_markers(well_out_dir=ctx.well_out_dir, stream_id=inputs.stream_id)
+
+        # Optional debug limit: restrict to the first N concat stitch segments.
+        # This only affects per-segment extraction/metrics/plotting (concat analyzer still
+        # spans the full concatenated recording).
+        try:
+            if inputs.debug_max_segments is not None and epochs.concat_epochs:
+                from .run_context import _EpochInputs
+
+                max_segments = int(inputs.debug_max_segments)
+                if max_segments > 0:
+                    limited = list(epochs.concat_epochs)[:max_segments]
+                    if len(limited) < len(epochs.concat_epochs):
+                        ctx.logger.warning(
+                            "DEBUG: limiting per-segment waveforms to first %d segments (of %d)",
+                            int(len(limited)),
+                            int(len(epochs.concat_epochs)),
+                        )
+
+                    epochs = _EpochInputs(
+                        preprocess_dir=epochs.preprocess_dir,
+                        maxwell_epochs_path=epochs.maxwell_epochs_path,
+                        concat_epochs_path=epochs.concat_epochs_path,
+                        maxwell_epochs=epochs.maxwell_epochs,
+                        maxwell_intervals=epochs.maxwell_intervals,
+                        concat_epochs=limited,
+                    )
+        except Exception:
+            pass
 
         from .qm_config import build_quality_metrics_extension_params
 

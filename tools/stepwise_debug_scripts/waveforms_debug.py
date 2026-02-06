@@ -39,6 +39,10 @@ class WaveformsInputs:
     per_segment: bool = True
     filter_by_maxwell_epochs: bool = True
 
+    # Debug/perf controls
+    debug_max_units: Optional[int] = None
+    debug_max_segments: Optional[int] = None
+
     force_restart: bool = False
 
 
@@ -58,6 +62,8 @@ def run_waveforms_only(*, inputs: WaveformsInputs, logger: logging.Logger) -> No
             per_segment=inputs.per_segment,
             force_restart=inputs.force_restart,
             filter_by_maxwell_epochs=inputs.filter_by_maxwell_epochs,
+            debug_max_units=inputs.debug_max_units,
+            debug_max_segments=inputs.debug_max_segments,
         )
     )
 
