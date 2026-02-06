@@ -95,9 +95,13 @@ def _append_segment_skip_summary(
             "removed_by_edge": 0,
             "kept_spikes_total": 0,
             "maxwell_intervals_in_segment": None,
+            # Channel counts (terminology in docs/methods_waveforms_channel_sets.md)
             "raw_channels_total": raw_channels_total,
+            "segment_channels_total": raw_channels_total,
             "excluded_common_channels_total": excluded_common_channels_total,
+            # "additional" == non-common segment channels
             "kept_additional_channels_total": kept_additional_channels_total,
+            "kept_non_common_segment_channels_total": kept_additional_channels_total,
             "skipped_reason": str(skipped_reason),
         }
     )
@@ -129,9 +133,13 @@ def _append_segment_summary(
             "removed_by_edge": int(seg_removed_edge_total),
             "kept_spikes_total": int(seg_kept_total),
             "maxwell_intervals_in_segment": int(seg_maxwell_intervals_len),
+            # Channel counts (terminology in docs/methods_waveforms_channel_sets.md)
             "raw_channels_total": raw_channels_total,
+            "segment_channels_total": raw_channels_total,
             "excluded_common_channels_total": excluded_common_channels_total,
+            # "additional" == non-common segment channels
             "kept_additional_channels_total": kept_additional_channels_total,
+            "kept_non_common_segment_channels_total": kept_additional_channels_total,
         }
     )
 
