@@ -87,14 +87,17 @@ def _resume_if_possible(*, inputs: WaveformExtractInputs, ctx: _WaveformsRunCont
     if not inputs.force_restart and ctx.concat_waveforms_dir.exists():
         ctx.logger.info("Resuming waveforms: existing outputs found at %s", ctx.concat_waveforms_dir)
 
-        # Preferred (2026-02): new grid outputs live under waveforms_outputs/grids.
-        waveforms_grid_pdf = ctx.waveforms_out_dir / "grids" / "uncurated_new_best_chan.pdf"
+        # Preferred (2026-02): grid outputs live under waveforms_outputs/grids.
+        # Current convention: only "uncurated.pdf" (+ "curated.pdf" best-effort).
+        waveforms_grid_pdf = ctx.waveforms_out_dir / "grids" / "uncurated.pdf"
         if not waveforms_grid_pdf.exists():
-            # Backward-compat: legacy root-level name.
-            legacy = ctx.waveforms_out_dir / "waveforms_grid_uncurated.pdf"
-            waveforms_grid_pdf = legacy if legacy.exists() else None
-        else:
-            waveforms_grid_pdf = waveforms_grid_pdf
+            # Backward-compat: older variants.
+            legacy_variant = ctx.waveforms_out_dir / "grids" / "uncurated_new_best_chan.pdf"
+            if legacy_variant.exists():
+                waveforms_grid_pdf = legacy_variant
+            else:
+                legacy_root = ctx.waveforms_out_dir / "waveforms_grid_uncurated.pdf"
+                waveforms_grid_pdf = legacy_root if legacy_root.exists() else None
         spikesorting_waveforms_grid_pdf = None
 
         return WaveformExtractOutputs(
@@ -121,8 +124,10 @@ def extract_waveforms(
     Produces:
       <well>/waveforms_outputs/concat_waveforms/
       <well>/waveforms_outputs/segment_waveforms/ (optional)
-            <well>/waveforms_outputs/waveforms_grid_uncurated.pdf
-            <well>/waveforms_outputs/waveforms_grid_curated.pdf (if curation succeeds)
+            <well>/waveforms_outputs/grids/uncurated.pdf
+            <well>/waveforms_outputs/grids/curated.pdf (if curation succeeds)
+            <well>/waveforms_outputs/grids/segments/<seg_name>/curated_best_local.pdf (per segment)
+            <well>/waveforms_outputs/panels/<name>/unit_<id>.svg (per unit)
             <well>/waveforms_outputs/wf_rejection_log.xlsx
             plus JSON summaries.
 

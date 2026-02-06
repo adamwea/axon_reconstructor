@@ -99,74 +99,125 @@ def _plot_waveforms_outputs(
         grids_dir.mkdir(parents=True, exist_ok=True)
         panels_root.mkdir(parents=True, exist_ok=True)
 
-        def _write_perm(
+        # Best-effort cleanup: older versions of this step produced many grid/panel
+        # permutations. Going forward we keep only uncurated + curated (plus the
+        # per-segment curated_best_local outputs under grids/segments).
+        try:
+            import shutil
+
+            legacy_stems = [
+                "concat_uncurated",
+                "concat_curated",
+                "uncurated_old_bestchan",
+                "uncurated_new_best_chan",
+                "curated_old_bestchan",
+                "curated_new_bestchan",
+            ]
+
+            for stem in legacy_stems:
+                try:
+                    (grids_dir / f"{stem}.pdf").unlink(missing_ok=True)  # type: ignore[arg-type]
+                except Exception:
+                    pass
+                try:
+                    shutil.rmtree(grids_dir / f"{stem}_pages", ignore_errors=True)
+                except Exception:
+                    pass
+                try:
+                    shutil.rmtree(panels_root / stem, ignore_errors=True)
+                except Exception:
+                    pass
+
+            # Backward-compat: older root-level names.
+            try:
+                (waveforms_out_dir / "waveforms_grid_uncurated.pdf").unlink(missing_ok=True)  # type: ignore[arg-type]
+            except Exception:
+                pass
+            try:
+                (waveforms_out_dir / "waveforms_grid_curated.pdf").unlink(missing_ok=True)  # type: ignore[arg-type]
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        def _write_grid(
             *,
+            waveforms_folder: Path,
             name: str,
             unit_ids: Optional[list[Any]],
             segment_waveforms_folders: Optional[list[Path]],
             best_channel_mode: str,
+            grids_subdir: Optional[Path] = None,
+            panels_subdir: Optional[Path] = None,
         ) -> Path:
-            pdf_path = grids_dir / f"{name}.pdf"
+            base_grids_dir = grids_dir if grids_subdir is None else grids_subdir
+            base_panels_dir = panels_root if panels_subdir is None else panels_subdir
+
+            pdf_path = base_grids_dir / f"{name}.pdf"
             if (not pdf_path.exists()) or inputs.force_restart:
                 logger.info("Writing waveforms grid -> %s", pdf_path)
                 _write_waveforms_grid_pdf(
-                    waveforms_folder=concat_waveforms_dir,
+                    waveforms_folder=waveforms_folder,
                     pdf_path=pdf_path,
                     unit_ids=unit_ids,
                     segment_waveforms_folders=segment_waveforms_folders,
                     show_debug_annotation=False,
-                    panel_dir=(panels_root / name),
-                    pages_dir=(grids_dir / f"{name}_pages"),
+                    panel_dir=(base_panels_dir / name),
+                    pages_dir=(base_grids_dir / f"{name}_pages"),
                     write_page_png=True,
                     write_page_svg=True,
                     best_channel_mode=("old" if str(best_channel_mode) == "old" else "new"),
                 )
             return pdf_path
 
-        # Requested permutations.
-        # Note: concat-only grids have no segments; old/new best-channel modes are equivalent.
-        _write_perm(
-            name="concat_uncurated",
-            unit_ids=None,
-            segment_waveforms_folders=None,
-            best_channel_mode="old",
-        )
-
-        if curated_units_for_plot is not None:
-            _write_perm(
-                name="concat_curated",
-                unit_ids=list(curated_units_for_plot),
-                segment_waveforms_folders=None,
-                best_channel_mode="old",
-            )
-
-        # Combined grids (concat + segments), using old vs new best-channel selection.
-        _write_perm(
-            name="uncurated_old_bestchan",
-            unit_ids=None,
-            segment_waveforms_folders=segment_folders,
-            best_channel_mode="old",
-        )
-        waveforms_grid_pdf = _write_perm(
-            name="uncurated_new_best_chan",
+        # Primary outputs: only uncurated + curated (best-effort) grids/panels.
+        # These use concat waveforms as the anchor and optionally include per-segment
+        # waveforms to choose a strong channel across sources (best_channel_mode="new").
+        waveforms_grid_pdf = _write_grid(
+            waveforms_folder=concat_waveforms_dir,
+            name="uncurated",
             unit_ids=None,
             segment_waveforms_folders=segment_folders,
             best_channel_mode="new",
         )
 
         if curated_units_for_plot is not None:
-            _write_perm(
-                name="curated_old_bestchan",
-                unit_ids=list(curated_units_for_plot),
-                segment_waveforms_folders=segment_folders,
-                best_channel_mode="old",
-            )
-            _write_perm(
-                name="curated_new_bestchan",
+            _write_grid(
+                waveforms_folder=concat_waveforms_dir,
+                name="curated",
                 unit_ids=list(curated_units_for_plot),
                 segment_waveforms_folders=segment_folders,
                 best_channel_mode="new",
             )
+
+        # Novel outputs: per-segment curated grids using best-local channels.
+        # Here we plot each segment in isolation (no cross-source channel selection).
+        if curated_units_for_plot is not None and segment_folders:
+            try:
+                seg_grids_root = grids_dir / "segments"
+                seg_panels_root = panels_root / "segments"
+                seg_grids_root.mkdir(parents=True, exist_ok=True)
+                seg_panels_root.mkdir(parents=True, exist_ok=True)
+
+                for seg_dir in segment_folders:
+                    seg_name = seg_dir.name
+                    out_grids_dir = seg_grids_root / seg_name
+                    out_panels_dir = seg_panels_root / seg_name
+                    out_grids_dir.mkdir(parents=True, exist_ok=True)
+                    out_panels_dir.mkdir(parents=True, exist_ok=True)
+
+                    _write_grid(
+                        waveforms_folder=seg_dir,
+                        name="curated_best_local",
+                        unit_ids=list(curated_units_for_plot),
+                        segment_waveforms_folders=None,
+                        best_channel_mode="old",
+                        grids_subdir=out_grids_dir,
+                        panels_subdir=out_panels_dir,
+                    )
+            except Exception:
+                # Per-segment plotting is best-effort.
+                pass
 
     return waveforms_grid_pdf, spikesorting_waveforms_grid_pdf
 __all__ = [
