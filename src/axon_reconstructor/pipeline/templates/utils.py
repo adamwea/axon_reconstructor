@@ -173,13 +173,13 @@ def _loc_key(xy: Any, tol: float) -> tuple[int, int]:
     return (int(round(x / tol)), int(round(y / tol)))
 
 
-def _build_union_template_for_unit(
+def _build_merged_contributing_template_for_unit(
     *,
     sources_for_unit: list[dict[str, Any]],
     unit_id: Any,
     logger: Any,
 ) -> Optional[dict[str, Any]]:
-    """Build a merged-union template across sources.
+    """Build a merged contributing-channels template across sources.
 
     Default strategy for overlapping channels is to compute a merged per-channel
     waveform by stacking the underlying waveforms from each contributing source
@@ -201,11 +201,11 @@ def _build_union_template_for_unit(
     except Exception:
         tol = 1e-6
 
-    union_waveforms: list[np.ndarray] = []
-    union_locs: list[np.ndarray] = []
-    union_channel_ids: list[Any] = []
-    union_electrode_ids: list[Any] = []
-    union_source_names: list[str] = []
+    contributing_waveforms: list[np.ndarray] = []
+    contributing_locs: list[np.ndarray] = []
+    contributing_channel_ids: list[Any] = []
+    contributing_electrode_ids: list[Any] = []
+    contributing_source_names: list[str] = []
 
     from axon_reconstructor.pipeline.templates.overlaps import (  # local import to avoid circular deps
         WaveformContribution,
@@ -226,7 +226,7 @@ def _build_union_template_for_unit(
         el_ids = src.get("electrode_ids")
 
         if tmpl.ndim != 2 or tmpl.shape[0] != n_samples:
-            logger.warning("Skipping %s for merged_union: bad template shape %s", name, tmpl.shape)
+            logger.warning("Skipping %s for merged_contributing: bad template shape %s", name, tmpl.shape)
             continue
 
         for j in range(tmpl.shape[1]):
@@ -272,24 +272,24 @@ def _build_union_template_for_unit(
 
                 continue
 
-            key_to_index[key] = len(union_waveforms)
-            # Center per-channel waveform so merged_union is baseline-consistent across sources.
+            key_to_index[key] = len(contributing_waveforms)
+            # Center per-channel waveform so merged_contributing is baseline-consistent across sources.
             try:
                 wf = np.asarray(tmpl[:, j], dtype=float)
                 wf = wf - robust_baseline_pre_negative_peak(wf)
             except Exception:
                 wf = np.asarray(tmpl[:, j], dtype=float)
-            union_waveforms.append(wf)
-            union_locs.append(np.asarray(locs[j, :2], dtype=float))
-            union_source_names.append(str(name))
+            contributing_waveforms.append(wf)
+            contributing_locs.append(np.asarray(locs[j, :2], dtype=float))
+            contributing_source_names.append(str(name))
             try:
-                union_channel_ids.append(None if ch_ids is None else ch_ids[j])
+                contributing_channel_ids.append(None if ch_ids is None else ch_ids[j])
             except Exception:
-                union_channel_ids.append(None)
+                contributing_channel_ids.append(None)
             try:
-                union_electrode_ids.append(None if el_ids is None else el_ids[j])
+                contributing_electrode_ids.append(None if el_ids is None else el_ids[j])
             except Exception:
-                union_electrode_ids.append(None)
+                contributing_electrode_ids.append(None)
 
             # Seed overlap contributions for this key with the first occurrence.
             try:
@@ -318,7 +318,7 @@ def _build_union_template_for_unit(
             except Exception:
                 pass
 
-    if not union_waveforms:
+    if not contributing_waveforms:
         return None
 
     # Resolve overlaps by recomputing the per-channel waveform using the mean of
@@ -347,9 +347,9 @@ def _build_union_template_for_unit(
         try:
             mw = np.asarray(merged_wf, dtype=float)
             mw = mw - robust_baseline_pre_negative_peak(mw)
-            union_waveforms[idx] = mw
+            contributing_waveforms[idx] = mw
         except Exception:
-            union_waveforms[idx] = merged_wf
+            contributing_waveforms[idx] = merged_wf
         overlap_resolved += 1
         try:
             overlap_details.append(
@@ -366,33 +366,33 @@ def _build_union_template_for_unit(
 
     if overlap_count:
         logger.warning(
-            "merged_union: encountered %d overlapping channels; resolved=%d via mean-waveforms (kept first otherwise)",
+            "merged_contributing: encountered %d overlapping channels; resolved=%d via mean-waveforms (kept first otherwise)",
             int(overlap_count),
             int(overlap_resolved),
         )
 
-    merged = np.stack(union_waveforms, axis=1)
-    merged_locs = np.stack(union_locs, axis=0)
+    merged = np.stack(contributing_waveforms, axis=1)
+    merged_locs = np.stack(contributing_locs, axis=0)
 
     return {
-        "name": "merged_union",
+        "name": "merged_contributing",
         "template": merged,
         "channel_locations": merged_locs,
-        "channel_ids": union_channel_ids,
-        "electrode_ids": union_electrode_ids,
-        "channel_source_names": union_source_names,
+        "channel_ids": contributing_channel_ids,
+        "electrode_ids": contributing_electrode_ids,
+        "channel_source_names": contributing_source_names,
         "stats": {
             "overlap_encountered": int(overlap_count),
             "overlap_resolved": int(overlap_resolved),
             "overlap_strategy": "mean_waveforms",
-            "n_channels": int(merged.shape[1]),
+            "n_contributing_channels": int(merged.shape[1]),
         },
         "overlap": {"channels": overlap_details} if overlap_details else None,
     }
 
 
 __all__ = [
-    "_build_union_template_for_unit",
+    "_build_merged_contributing_template_for_unit",
     "_compute_templates_checkpoint_file",
     "_infer_location_tolerance",
     "_jsonable",

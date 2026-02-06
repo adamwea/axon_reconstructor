@@ -764,7 +764,8 @@ def _extract_per_segment_waveforms(
                 # Prefer electrode-id space (only if we have it for at least one segment).
                 any_electrodes = len(seg_electrode_sets) > 0
 
-                channel_groups.setdefault("version", 1)
+                # Version bump: key names aligned to docs/methods_waveforms_channel_sets.md.
+                channel_groups.setdefault("version", 2)
                 channel_groups.setdefault("n_segments", int(n_segments))
                 channel_groups.setdefault("common_channel_ids", sorted(int(x) for x in common_channel_ids))
 
@@ -793,7 +794,7 @@ def _extract_per_segment_waveforms(
 
                     if src in seg_additional_electrode_sets:
                         # This is the electrode set after optional channel selection.
-                        seg_payload["waveforms_recording_electrode_ids"] = sorted(
+                        seg_payload["waveforms_analyzer_electrode_ids"] = sorted(
                             set(int(x) for x in seg_additional_electrode_sets[src])
                         )
 
@@ -809,7 +810,8 @@ def _extract_per_segment_waveforms(
                             counts[int(c)] = int(counts.get(int(c), 0) + 1)
 
                     all_union = set(counts.keys())
-                    channel_groups["all_channels_union_electrode_ids"] = sorted(all_union)
+                    # Dataset-level: union of electrode ids present in at least one segment.
+                    channel_groups["all_recorded_electrode_ids"] = sorted(all_union)
 
                     # Compute intersection from segments and compare to the concat/common set.
                     seg_sets = list(seg_electrode_sets.values())

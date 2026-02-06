@@ -1,6 +1,6 @@
 """Templates step.
 
-This package extracts per-source templates, builds merged_union templates, and
+This package extracts per-source templates, builds merged contributing-channels templates, and
 writes QC PDFs and JSON summaries.
 
 Primary entry points are re-exported from .main for compatibility.

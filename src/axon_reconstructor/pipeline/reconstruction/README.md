@@ -1,6 +1,6 @@
 # Reconstruction
 
-Runs axon reconstruction / velocity estimation using `axon_velocity`, consuming merged_union templates from the templates step.
+Runs axon reconstruction / velocity estimation using `axon_velocity`, consuming merged contributing-channels templates from the templates step.
 
 Produces per-unit and all-units PDF summaries plus a JSON summary.
 
@@ -22,11 +22,9 @@ Produces per-unit and all-units PDF summaries plus a JSON summary.
 
 From `<well>/templates_outputs/merged_units/unit_<id>/`:
 
-- `merged_union_template.npy`
-- `merged_union_channel_locations.npy`
-- `merged_union_template_meta.json`
-
-Note: legacy runs may have these under `merged_union_by_unit/`.
+- `merged_contributing_template.npy`
+- `merged_contributing_channel_locations.npy`
+- `merged_contributing_template_meta.json`
 
 ## Outputs (artifacts)
 
@@ -41,7 +39,7 @@ Under `<well>/reconstruction_outputs/`:
 
 ```mermaid
 flowchart TD
-  A[merged_union templates] --> B[reconstruct_from_templates]
+  A[merged_contributing templates] --> B[reconstruct_from_templates]
   B --> C[reconstruction_outputs/reconstruction_summary.json]
   B --> D[reconstruction_outputs/all_units_morphology.pdf]
   B --> E[reconstruction_outputs/by_unit/unit_*/...]

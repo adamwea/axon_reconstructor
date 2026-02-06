@@ -65,9 +65,8 @@ Under `<well>/waveforms_outputs/`:
 - PDFs
   - `waveforms_grid_uncurated.pdf`
   - `waveforms_grid_curated.pdf` (if curation succeeds)
-- Curation / metrics tables (best-effort)
-  - `qm_unfiltered.xlsx`, `tm_unfiltered.xlsx`
-  - `metrics_curated.xlsx`, `tm_curated.xlsx`
+- Curation (consumed)
+  - Uses spikesorting-stage quality metrics from `<well>/spikesorting_outputs/qm_unfiltered.xlsx` to decide curated vs rejected units.
 - Rejection / filtering logs
   - `rejection_log.xlsx` (legacy/MEA_Analysis style)
   - `wf_rejection_log.xlsx` (per-spike rows)

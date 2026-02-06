@@ -15,9 +15,8 @@ from .plotting import (
 )
 
 from .processing import (
-    _apply_waveforms_stage_unit_curation,
+    _apply_spikesorting_stage_unit_curation,
     _infer_template_plot_window,
-    _pick_existing,
     process_unit_list,
 )
 from .utils import _compute_templates_checkpoint_file, _jsonable, _jsonable_sequence, _read_json, _write_json
@@ -47,8 +46,8 @@ class TemplateExtractInputs:
     unit_ids: Optional[list[Any]] = None
     unit_limit: Optional[int] = None
 
-    # Templates should only run on curated units from the waveforms step.
-    # If True and `unit_ids` is None, this requires `waveforms_outputs/metrics_curated.xlsx`.
+    # Templates should only run on curated units derived from spikesorting metrics.
+    # If True and `unit_ids` is None, this requires `<well>/spikesorting_outputs/qm_unfiltered.xlsx`.
     require_curated_units: bool = True
 
     # Optional SpikeInterface auto-merge of units (best-effort).
@@ -65,10 +64,11 @@ class TemplateExtractInputs:
     plot_templates_grid_panels_svg: bool = False
 
     # Footprints
-    plot_merged_union_footprints_linear_and_log: bool = True
+    plot_merged_contributing_footprints_linear_and_log: bool = True
 
-    # Save full-channel templates (zeros on non-contributing channels) for reconstruction.
-    save_full_unit_templates: bool = True
+    # Save full-channels templates (zeros on non-contributing channels) for reconstruction.
+    # These are persisted on a deterministic “full channels” axis (e.g. Maxwell full chip = 26,400).
+    save_full_channels_templates: bool = True
 
     # 3D topographical footprint plots (PTP amplitude as height).
     plot_topo_unit_footprints: bool = True
@@ -80,7 +80,7 @@ class TemplateExtractInputs:
     propagation_channels_per_panel: int = 25
     propagation_channel_overlap: int = 5
 
-    # Optional: generate real axon_velocity plot bundle from merged_union templates.
+    # Optional: generate real axon_velocity plot bundle from merged contributing-channels templates.
     # This writes to per-unit `axon_velocity_outputs/` and requires the axon_velocity deps.
     plot_axon_velocity_outputs: bool = False
 
@@ -111,19 +111,19 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         - Templates are sourced from the waveforms-stage `SortingAnalyzer` artifacts (`templates` extension).
         - Spike-level exclusions belong to the waveforms stage and are **not** re-applied downstream.
             (The deprecated `wf_exclusions.npz` is intentionally not consumed here.)
-        - "Curation" at this stage refers only to selecting which unit ids are processed, optionally
-            using the waveforms-stage curated unit list when available.
+        - "Curation" at this stage refers only to selecting which unit ids are processed, by default
+            using curated units derived from spikesorting-stage quality metrics.
 
         Multi-source logic (concat + optional per-segment analyzers):
         - Loads concat + per-segment waveforms analyzers.
         - Handles missing units in some sources by skipping that source for the unit.
-        - Builds a per-unit `merged_union` template across sources (union of channels).
+        - Builds a per-unit `merged_contributing` template across sources (contributing channels across sources).
         - For overlapping channels across sources (same physical channel), merges the waveform using
             a mean-of-waveforms strategy (best-effort) to avoid keep-first bias.
 
         QC outputs:
         - Grid PDF (`templates_grid.pdf`) and optional per-unit multi-source overlay PDFs.
-        - Per-unit merged_union footprint PTP maps (linear + log) and combined SVG panels.
+        - Per-unit merged_contributing footprint PTP maps (linear + log) and combined SVG panels.
         - Optional per-unit SVG panels for the grid entries (linear + log footprint).
     """
 
@@ -150,7 +150,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     merged_unit_full_chip_maps_dir = templates_out_dir / "full_chip_maps"
     axon_velocity_outputs_root_dir = templates_out_dir / "axon_velocity_outputs"
 
-    full_unit_templates_dir = templates_out_dir / "full_unit_templates"
+    full_channels_templates_dir = templates_out_dir / "full_channels_templates"
     topo_unit_footprints_dir = templates_out_dir / "topo_unit_footprints"
     propagation_plots_dir = templates_out_dir / "propagation_plots"
 
@@ -162,14 +162,6 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     # Intentionally disabled.
     templates_grid_panels_dir = None
 
-    # Legacy filenames from earlier iterations (resume-compatible).
-    legacy_templates_grid_uncurated_pdf = templates_out_dir / "templates_grid_uncurated.pdf"
-    legacy_templates_grid_curated_pdf = templates_out_dir / "templates_grid_curated.pdf"
-    legacy_multi_source_templates_dir_uncurated = templates_out_dir / "multi_source_by_unit_uncurated"
-    legacy_multi_source_templates_dir = templates_out_dir / "multi_source_by_unit"
-    legacy_templates_grid_panels_dir = templates_out_dir / "templates_grid_panels_svg"
-    legacy_merged_union_by_unit_dir = templates_out_dir / "merged_union_by_unit"
-
     ckpt_file = _compute_templates_checkpoint_file(well_out_dir=well_out_dir, h5_path=inputs.h5_path, stream_id=inputs.stream_id)
     ckpt = load_checkpoint(
         checkpoint_file=ckpt_file,
@@ -180,24 +172,9 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     )
 
     # Resume shortcut.
-    waveforms_out_dir = well_out_dir / "waveforms_outputs"
-    curation_metrics_xlsx_hint = waveforms_out_dir / "metrics_curated.xlsx"
-
-    existing_grid_pdf = None
-    if templates_grid_pdf is not None:
-        existing_grid_pdf = _pick_existing(
-            candidates=[templates_grid_pdf, legacy_templates_grid_uncurated_pdf, legacy_templates_grid_curated_pdf]
-        )
-
-    existing_multi_source_dir = None
-    if unit_segment_grids_dir is not None:
-        existing_multi_source_dir = _pick_existing(
-            candidates=[unit_segment_grids_dir, legacy_multi_source_templates_dir, legacy_multi_source_templates_dir_uncurated]
-        )
-
     resume_ok = (not inputs.force_restart) and extracted_templates_dir.exists() and summary_json.exists()
     if templates_grid_pdf is not None:
-        resume_ok = resume_ok and (existing_grid_pdf is not None)
+        resume_ok = resume_ok and templates_grid_pdf.exists()
 
     if resume_ok:
         logger.info("Resuming templates: existing outputs found at %s", templates_out_dir)
@@ -205,16 +182,12 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
             well_out_dir=well_out_dir,
             templates_out_dir=templates_out_dir,
             extracted_templates_dir=extracted_templates_dir,
-            merged_units_dir=(
-                merged_units_dir
-                if merged_units_dir.exists()
-                else (legacy_merged_union_by_unit_dir if legacy_merged_union_by_unit_dir.exists() else None)
-            ),
+            merged_units_dir=(merged_units_dir if merged_units_dir.exists() else None),
             # Plots are now written directly under templates_outputs/* (no merged_unit_plots dir).
             merged_unit_plots_dir=None,
             summary_json=summary_json,
-            templates_grid_pdf=existing_grid_pdf,
-            multi_source_templates_dir=existing_multi_source_dir,
+            templates_grid_pdf=templates_grid_pdf,
+            multi_source_templates_dir=(unit_segment_grids_dir if unit_segment_grids_dir is not None and unit_segment_grids_dir.exists() else None),
         )
 
     ckpt = save_checkpoint(
@@ -233,8 +206,8 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     merged_unit_svgs_dir.mkdir(parents=True, exist_ok=True)
     merged_unit_full_chip_maps_dir.mkdir(parents=True, exist_ok=True)
     axon_velocity_outputs_root_dir.mkdir(parents=True, exist_ok=True)
-    if bool(inputs.save_full_unit_templates):
-        full_unit_templates_dir.mkdir(parents=True, exist_ok=True)
+    if bool(inputs.save_full_channels_templates):
+        full_channels_templates_dir.mkdir(parents=True, exist_ok=True)
     if bool(inputs.plot_topo_unit_footprints):
         topo_unit_footprints_dir.mkdir(parents=True, exist_ok=True)
     if bool(inputs.plot_propagation_plots):
@@ -242,31 +215,8 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     if unit_segment_grids_dir is not None:
         unit_segment_grids_dir.mkdir(parents=True, exist_ok=True)
 
-    # Output hygiene on restarts: remove legacy directories we no longer produce.
-    if inputs.force_restart:
-        import shutil
-
-        cleanup_dirs = [
-            legacy_templates_grid_panels_dir,
-            legacy_multi_source_templates_dir,
-            legacy_merged_union_by_unit_dir,
-            # Legacy plots dir.
-            templates_out_dir / "merged_unit_plots",
-        ]
-        # Current dir (naming changed: unit_<id>.pdf -> unit_<id>_{templates,footprints}.pdf)
-        if unit_segment_grids_dir is not None:
-            cleanup_dirs.append(unit_segment_grids_dir)
-
-        for legacy_dir in cleanup_dirs:
-            try:
-                if legacy_dir.exists():
-                    shutil.rmtree(legacy_dir)
-            except Exception:
-                pass
-
     from .multi_source_utils import (
         _get_unit_template_from_extension,
-        _load_curated_unit_ids_from_waveforms_outputs,
         _load_waveforms_analyzers,
         _normalize_id_for_compare,
         _sparsity_unit_channel_indices,
@@ -282,26 +232,25 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
 
     # Unit list:
     # - If the user passes `unit_ids`, we treat that list as the curated set.
-    # - Otherwise, we require the waveforms-stage curated list (default).
-    curation_metrics_xlsx: Optional[Path] = None
+    # - Otherwise, we require spikesorting-stage curation (default).
+    curation_qm_xlsx: Optional[Path] = None
     curated_units_norm: Optional[list[Any]] = None
     if inputs.unit_ids is not None:
         unit_ids = list(inputs.unit_ids)
     else:
         # Start from concat (or first analyzer) as the universe, then strictly filter.
         unit_ids = list(analyzers[0][1].sorting.unit_ids)
-        unit_ids, curated_units_norm, curation_metrics_xlsx = _apply_waveforms_stage_unit_curation(
+        unit_ids, curated_units_norm, curation_qm_xlsx = _apply_spikesorting_stage_unit_curation(
             unit_ids=unit_ids,
             well_out_dir=well_out_dir,
-            load_curated_unit_ids_from_waveforms_outputs=_load_curated_unit_ids_from_waveforms_outputs,
             normalize_id_for_compare=_normalize_id_for_compare,
             logger=logger,
         )
         if bool(inputs.require_curated_units) and curated_units_norm is None:
             raise RuntimeError(
-                "Templates stage is configured to require curated units from the waveforms stage, "
-                "but no curated list was found (expected <well>/waveforms_outputs/metrics_curated.xlsx). "
-                "Run waveforms curation first, or pass TemplateExtractInputs(unit_ids=[...]) explicitly, "
+                "Templates stage is configured to require curated units from spikesorting metrics, "
+                "but curated units could not be derived (expected <well>/spikesorting_outputs/qm_unfiltered.xlsx). "
+                "Run spikesorting first, or pass TemplateExtractInputs(unit_ids=[...]) explicitly, "
                 "or set require_curated_units=False."
             )
 
@@ -314,6 +263,8 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         read_json=_read_json,
     )
 
+    waveforms_out_dir = well_out_dir / "waveforms_outputs"
+
     summary: dict[str, Any] = {
         "h5_path": str(inputs.h5_path),
         "stream_id": inputs.stream_id,
@@ -323,7 +274,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         "templates_grid_pdf": str(templates_grid_pdf) if templates_grid_pdf else None,
         "templates_grid_panels_dir": str(templates_grid_panels_dir) if templates_grid_panels_dir else None,
         "multi_source_templates_dir": str(unit_segment_grids_dir) if unit_segment_grids_dir else None,
-        "full_unit_templates_dir": str(full_unit_templates_dir) if bool(inputs.save_full_unit_templates) else None,
+        "full_channels_templates_dir": str(full_channels_templates_dir) if bool(inputs.save_full_channels_templates) else None,
         "topo_unit_footprints_dir": str(topo_unit_footprints_dir) if bool(inputs.plot_topo_unit_footprints) else None,
         "propagation_plots_dir": str(propagation_plots_dir) if bool(inputs.plot_propagation_plots) else None,
         "merged_unit_footprints_dir": str(merged_unit_footprints_dir),
@@ -331,7 +282,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         "merged_unit_full_chip_maps_dir": str(merged_unit_full_chip_maps_dir),
         "axon_velocity_outputs_root_dir": str(axon_velocity_outputs_root_dir),
         "curation": {
-            "metrics_curated_xlsx": str(curation_metrics_xlsx) if curation_metrics_xlsx else None,
+            "qm_unfiltered_xlsx": str(curation_qm_xlsx) if curation_qm_xlsx else None,
             "applied": bool(curated_units_norm is not None),
             "n_curated_units": int(len(curated_units_norm)) if curated_units_norm is not None else None,
         },
@@ -353,7 +304,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         merged_unit_full_chip_maps_dir=merged_unit_full_chip_maps_dir,
         axon_velocity_outputs_root_dir=axon_velocity_outputs_root_dir,
         unit_segment_grids_dir=unit_segment_grids_dir,
-        full_unit_templates_dir=(full_unit_templates_dir if bool(inputs.save_full_unit_templates) else None),
+        full_channels_templates_dir=(full_channels_templates_dir if bool(inputs.save_full_channels_templates) else None),
         topo_unit_footprints_dir=(topo_unit_footprints_dir if bool(inputs.plot_topo_unit_footprints) else None),
         propagation_plots_dir=(propagation_plots_dir if bool(inputs.plot_propagation_plots) else None),
         fs_hz=float(fs_hz),
@@ -363,7 +314,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         write_footprint_ptp_map=_write_footprint_ptp_map,
         write_unit_template_and_footprint_svg=_write_unit_template_and_footprint_svg,
         write_topo_unit_footprint_png=_write_topo_unit_footprint_png,
-        make_merged_union_footprint_plots=bool(inputs.plot_merged_union_footprints_linear_and_log),
+        make_merged_contributing_footprint_plots=bool(inputs.plot_merged_contributing_footprints_linear_and_log),
         make_axon_velocity_plots=bool(inputs.plot_axon_velocity_outputs),
         force_restart=bool(inputs.force_restart),
         n_jobs=int(inputs.n_jobs),

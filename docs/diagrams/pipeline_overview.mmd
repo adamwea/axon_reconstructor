@@ -42,11 +42,11 @@ flowchart LR
     tpl_fn[extract_and_merge_templates]
     wf_fn --> tpl_fn
 
-    tpl_merged[merged_union templates]
+    tpl_merged[merged_contributing templates]
     tpl_fn --> tpl_merged
 
     tpl_fn --> tpl_pdf1[templates_grid.pdf]
-    tpl_fn --> tpl_ms1[multi_source_by_unit/*.pdf optional]
+    tpl_fn --> tpl_ms1[unit_segment_grids/unit_<id>_templates.pdf optional]
   end
 
   subgraph RX[reconstruction]

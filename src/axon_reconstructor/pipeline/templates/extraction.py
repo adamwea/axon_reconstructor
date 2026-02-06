@@ -147,19 +147,19 @@ def _choose_grid_source_for_unit(*, sources_for_unit: list[dict[str, Any]]) -> O
 def _persist_unit_templates(
     *,
     uid: Any,
-    sources_for_unit_with_union: list[dict[str, Any]],
+    sources_for_unit_with_merged: list[dict[str, Any]],
     extracted_templates_dir: Path,
     merged_units_dir: Path,
     merged_unit_full_chip_maps_dir: Path,
     axon_velocity_outputs_root_dir: Path,
-    full_unit_templates_dir: Optional[Path] = None,
+    full_channels_templates_dir: Optional[Path] = None,
     full_channel_locations_xy: Any = None,
     full_channel_ids: Any = None,
     full_electrode_ids: Any = None,
     fs_hz: float,
     ms_before: Optional[float],
     ms_after: Optional[float],
-    recording_electrode_ids: Any = None,
+    all_recorded_electrode_ids: Any = None,
     make_axon_velocity_plots: bool = False,
     jsonable,
     jsonable_sequence,
@@ -173,28 +173,28 @@ def _persist_unit_templates(
 
     unit_entry: dict[str, Any] = {"unit_id": jsonable(uid), "sources": []}
 
-    for src in sources_for_unit_with_union:
+    for src in sources_for_unit_with_merged:
         src_name = str(src["name"])
         tmpl = np.asarray(src["template"], dtype=float)
         locs = np.asarray(src["channel_locations"], dtype=float)
 
-        if src_name == "merged_union":
+        if src_name == "merged_contributing":
             data_dir = merged_units_dir / f"unit_{uid}"
             data_dir.mkdir(parents=True, exist_ok=True)
 
             merged_unit_full_chip_maps_dir.mkdir(parents=True, exist_ok=True)
 
-            npy_path = data_dir / "merged_union_template.npy"
-            locs_npy = data_dir / "merged_union_channel_locations.npy"
-            ch_ids_npy = data_dir / "merged_union_channel_ids.npy"
-            el_ids_npy = data_dir / "merged_union_electrode_ids.npy"
-            footprint_ptp_npy = data_dir / "merged_union_footprint_ptp.npy"
+            npy_path = data_dir / "merged_contributing_template.npy"
+            locs_npy = data_dir / "merged_contributing_channel_locations.npy"
+            ch_ids_npy = data_dir / "merged_contributing_channel_ids.npy"
+            el_ids_npy = data_dir / "merged_contributing_electrode_ids.npy"
+            footprint_ptp_npy = data_dir / "merged_contributing_footprint_ptp.npy"
             axon_velocity_npz = data_dir / "axon_velocity_inputs.npz"
 
             template_amplitude_png = merged_unit_full_chip_maps_dir / f"unit_{uid}_template_amplitude_map_full_chip.png"
             template_peak_latency_png = merged_unit_full_chip_maps_dir / f"unit_{uid}_template_peak_latency_map_full_chip.png"
             axon_velocity_plots_dir = axon_velocity_outputs_root_dir / f"unit_{uid}"
-            meta_path = data_dir / "merged_union_template_meta.json"
+            meta_path = data_dir / "merged_contributing_template_meta.json"
         else:
             out_dir = extracted_templates_dir / src_name
             out_dir.mkdir(parents=True, exist_ok=True)
@@ -212,9 +212,9 @@ def _persist_unit_templates(
         if (not npy_path.exists()) or force_restart:
             np.save(npy_path, tmpl)
 
-        # For merged_union, also persist the merged channel identifiers/locations as arrays
+        # For merged_contributing, also persist the merged channel identifiers/locations as arrays
         # (these are the primary inputs needed by downstream reconstruction).
-        if src_name == "merged_union":
+        if src_name == "merged_contributing":
             try:
                 assert locs_npy is not None and ch_ids_npy is not None and el_ids_npy is not None
                 assert footprint_ptp_npy is not None and axon_velocity_npz is not None
@@ -269,7 +269,7 @@ def _persist_unit_templates(
                             out_path=template_amplitude_png,
                             template_ch_by_t=tmpl_ch_by_t,
                             electrode_ids=el_ids_seq,
-                            recording_electrode_ids=recording_electrode_ids,
+                            all_recorded_electrode_ids=all_recorded_electrode_ids,
                             title="Amplitude map",
                             cmap="viridis",
                         )
@@ -279,7 +279,7 @@ def _persist_unit_templates(
                             out_path=template_peak_latency_png,
                             template_ch_by_t=tmpl_ch_by_t,
                             electrode_ids=el_ids_seq,
-                            recording_electrode_ids=recording_electrode_ids,
+                            all_recorded_electrode_ids=all_recorded_electrode_ids,
                             sampling_frequency_hz=float(fs_hz),
                             title="Peak latency map",
                             cmap="viridis",
@@ -287,7 +287,7 @@ def _persist_unit_templates(
                 except Exception:
                     pass
 
-                # Clean up legacy naming so merged_union output dirs don't keep old axon_velocity-like QC maps.
+                # Clean up legacy naming so merged output dirs don't keep old axon_velocity-like QC maps.
                 try:
                     legacy_plots_dir = Path(axon_velocity_outputs_root_dir).parent / "merged_unit_plots" / f"unit_{uid}"
                     legacy_amp = legacy_plots_dir / "axon_velocity_amplitude_map.png"
@@ -320,31 +320,31 @@ def _persist_unit_templates(
                         pass
 
                 # Optional: persist a full-channel (dense) template for reconstruction.
-                # This places the merged_union template into the reference recording's channel order,
-                # with zeros for channels that were not in the merged_union sparsity.
-                if full_unit_templates_dir is not None:
+                # This places the merged contributing-channels template into the reference recording's channel order,
+                # with zeros for channels that were not contributing for this unit.
+                if full_channels_templates_dir is not None:
                     try:
-                        # Persist the *recording electrode universe* (union over sources) once under
-                        # full_unit_templates so disk-only replotting can distinguish:
+                        # Persist the *all recorded electrodes* universe (across sources) once under
+                        # full_channels_templates so disk-only replotting can distinguish:
                         # - quiet electrodes: not present in any recording
                         # - non-contributing electrodes: present in recording but not contributing
-                        recording_eids_npy = Path(full_unit_templates_dir) / "recording_electrode_ids.npy"
-                        recording_eids_meta = Path(full_unit_templates_dir) / "recording_electrode_ids_meta.json"
-                        rec_eids_seq = jsonable_sequence(recording_electrode_ids)
-                        if rec_eids_seq is not None and len(rec_eids_seq) > 0:
-                            if (not recording_eids_npy.exists()) or force_restart:
-                                np.save(recording_eids_npy, np.asarray(rec_eids_seq, dtype=object))
-                            if (not recording_eids_meta.exists()) or force_restart:
+                        all_recorded_eids_npy = Path(full_channels_templates_dir) / "all_recorded_electrode_ids.npy"
+                        all_recorded_eids_meta = Path(full_channels_templates_dir) / "all_recorded_electrode_ids_meta.json"
+                        all_recorded_eids_seq = jsonable_sequence(all_recorded_electrode_ids)
+                        if all_recorded_eids_seq is not None and len(all_recorded_eids_seq) > 0:
+                            if (not all_recorded_eids_npy.exists()) or force_restart:
+                                np.save(all_recorded_eids_npy, np.asarray(all_recorded_eids_seq, dtype=object))
+                            if (not all_recorded_eids_meta.exists()) or force_restart:
                                 write_json(
-                                    recording_eids_meta,
+                                    all_recorded_eids_meta,
                                     {
-                                        "recording_electrode_ids_npy": str(recording_eids_npy),
-                                        "n_recording_electrodes": int(len(rec_eids_seq)),
-                                        "definition": "electrode ids that appear in at least one templates-stage recording/analyzer (union over sources)",
+                                        "all_recorded_electrode_ids_npy": str(all_recorded_eids_npy),
+                                        "n_all_recorded_electrodes": int(len(all_recorded_eids_seq)),
+                                        "definition": "electrode ids that appear in at least one templates-stage recording/analyzer (across sources)",
                                     },
                                 )
 
-                        unit_full_dir = Path(full_unit_templates_dir) / f"unit_{uid}"
+                        unit_full_dir = Path(full_channels_templates_dir) / f"unit_{uid}"
                         unit_full_dir.mkdir(parents=True, exist_ok=True)
 
                         full_template_npy = unit_full_dir / "full_template.npy"
@@ -375,7 +375,7 @@ def _persist_unit_templates(
                             if (not full_el_ids_npy.exists()) or force_restart:
                                 np.save(full_el_ids_npy, np.asarray(full_el_ids_seq, dtype=object))
 
-                        # Build mapping from merged_union channels -> full channel indices.
+                        # Build mapping from merged contributing-channels -> full channel indices.
                         n_full = None
                         if full_locs is not None and full_locs.ndim == 2:
                             n_full = int(full_locs.shape[0])
@@ -460,8 +460,14 @@ def _persist_unit_templates(
                                         "full_channel_ids_npy": (str(full_ch_ids_npy) if full_ch_ids_seq is not None else None),
                                         "full_electrode_ids_npy": (str(full_el_ids_npy) if full_el_ids_seq is not None else None),
                                         "contributing_full_channel_indices_npy": str(full_contrib_inds_npy),
-                                        "recording_electrode_ids_npy": (str(recording_eids_npy) if rec_eids_seq is not None and len(rec_eids_seq) > 0 else None),
-                                        "n_recording_electrodes": (int(len(rec_eids_seq)) if rec_eids_seq is not None else None),
+                                        "all_recorded_electrode_ids_npy": (
+                                            str(all_recorded_eids_npy)
+                                            if all_recorded_eids_seq is not None and len(all_recorded_eids_seq) > 0
+                                            else None
+                                        ),
+                                        "n_all_recorded_electrodes": (
+                                            int(len(all_recorded_eids_seq)) if all_recorded_eids_seq is not None else None
+                                        ),
                                         "n_samples": int(tmpl.shape[0]),
                                         "n_full_channels": int(n_full),
                                         "n_contributing_channels": int(len(set(contrib_inds))),
@@ -471,34 +477,46 @@ def _persist_unit_templates(
                                     },
                                 )
                     except Exception as e:
-                        logger.warning("Failed writing full_unit_templates for unit %s: %s", uid, e)
+                        logger.warning("Failed writing full_channels_templates for unit %s: %s", uid, e)
             except Exception as e:
-                logger.warning("Failed writing merged_union aux arrays for unit %s: %s", uid, e)
+                logger.warning("Failed writing merged_contributing aux arrays for unit %s: %s", uid, e)
 
         if (not meta_path.exists()) or force_restart:
             meta = {
                 "unit_id": jsonable(uid),
                 "source_name": src_name,
                 "template_npy": str(npy_path),
-                "channel_locations_npy": (str(locs_npy) if src_name == "merged_union" and locs_npy is not None else None),
-                "channel_ids_npy": (str(ch_ids_npy) if src_name == "merged_union" and ch_ids_npy is not None else None),
-                "electrode_ids_npy": (str(el_ids_npy) if src_name == "merged_union" and el_ids_npy is not None else None),
+                "channel_locations_npy": (
+                    str(locs_npy) if src_name == "merged_contributing" and locs_npy is not None else None
+                ),
+                "channel_ids_npy": (
+                    str(ch_ids_npy) if src_name == "merged_contributing" and ch_ids_npy is not None else None
+                ),
+                "electrode_ids_npy": (
+                    str(el_ids_npy) if src_name == "merged_contributing" and el_ids_npy is not None else None
+                ),
                 "footprint_ptp_npy": (
                     str(footprint_ptp_npy)
-                    if src_name == "merged_union" and footprint_ptp_npy is not None
+                    if src_name == "merged_contributing" and footprint_ptp_npy is not None
                     else None
                 ),
                 "axon_velocity_inputs_npz": (
-                    str(axon_velocity_npz) if src_name == "merged_union" and axon_velocity_npz is not None else None
+                    str(axon_velocity_npz) if src_name == "merged_contributing" and axon_velocity_npz is not None else None
                 ),
                 "template_amplitude_map_full_chip_png": (
-                    str(template_amplitude_png) if src_name == "merged_union" and template_amplitude_png is not None else None
+                    str(template_amplitude_png)
+                    if src_name == "merged_contributing" and template_amplitude_png is not None
+                    else None
                 ),
                 "template_peak_latency_map_full_chip_png": (
-                    str(template_peak_latency_png) if src_name == "merged_union" and template_peak_latency_png is not None else None
+                    str(template_peak_latency_png)
+                    if src_name == "merged_contributing" and template_peak_latency_png is not None
+                    else None
                 ),
                 "axon_velocity_outputs_dir": (
-                    str(axon_velocity_plots_dir) if src_name == "merged_union" and axon_velocity_plots_dir is not None else None
+                    str(axon_velocity_plots_dir)
+                    if src_name == "merged_contributing" and axon_velocity_plots_dir is not None
+                    else None
                 ),
                 "sampling_frequency_hz": float(fs_hz),
                 "ms_before": ms_before,
@@ -508,9 +526,9 @@ def _persist_unit_templates(
                 "channel_ids": jsonable_sequence(src.get("channel_ids")),
                 "electrode_ids": jsonable_sequence(src.get("electrode_ids")),
                 "channel_locations": locs[:, :2].tolist(),
-                # Best-effort extra diagnostics for merged_union.
-                "stats": (src.get("stats") if src_name == "merged_union" else None),
-                "overlap": (src.get("overlap") if src_name == "merged_union" else None),
+                # Best-effort extra diagnostics for merged_contributing.
+                "stats": (src.get("stats") if src_name == "merged_contributing" else None),
+                "overlap": (src.get("overlap") if src_name == "merged_contributing" else None),
             }
             write_json(meta_path, meta)
 
@@ -520,8 +538,12 @@ def _persist_unit_templates(
                 "template_npy": str(npy_path),
                 "meta_json": str(meta_path),
                 "n_channels": int(tmpl.shape[1]),
-                "channel_locations_npy": (str(locs_npy) if src_name == "merged_union" and locs_npy is not None else None),
-                "channel_ids_npy": (str(ch_ids_npy) if src_name == "merged_union" and ch_ids_npy is not None else None),
+                "channel_locations_npy": (
+                    str(locs_npy) if src_name == "merged_contributing" and locs_npy is not None else None
+                ),
+                "channel_ids_npy": (
+                    str(ch_ids_npy) if src_name == "merged_contributing" and ch_ids_npy is not None else None
+                ),
             }
         )
 

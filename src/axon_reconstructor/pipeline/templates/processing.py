@@ -4,14 +4,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .extraction import _choose_grid_source_for_unit, _gather_template_sources_for_unit, _persist_unit_templates
-from .utils import _build_union_template_for_unit
-
-
-def _pick_existing(*, candidates: list[Path]) -> Optional[Path]:
-    for p in candidates:
-        if p.exists():
-            return p
-    return None
+from .utils import _build_merged_contributing_template_for_unit
 
 
 def _infer_template_plot_window(*, well_out_dir: Path, analyzers: list[tuple[str, Any]], read_json) -> tuple[float, Optional[float], Optional[float]]:
@@ -40,36 +33,66 @@ def _infer_template_plot_window(*, well_out_dir: Path, analyzers: list[tuple[str
     return float(fs_hz), ms_before, ms_after
 
 
-def _apply_waveforms_stage_unit_curation(
+def _apply_spikesorting_stage_unit_curation(
     *,
     unit_ids: list[Any],
     well_out_dir: Path,
-    load_curated_unit_ids_from_waveforms_outputs,
     normalize_id_for_compare,
     logger,
 ) -> tuple[list[Any], Optional[list[Any]], Optional[Path]]:
-    """Filter unit_ids using waveforms-stage curation list if present."""
+    """Filter unit_ids using spikesorting-stage quality metrics (MEA_Analysis).
 
-    curated_units_norm = None
-    curation_metrics_xlsx = None
+    Waveforms stage no longer computes/owns quality metrics; the authoritative metrics
+    live at `<well>/spikesorting_outputs/qm_unfiltered.xlsx`.
 
-    curated_units_norm, curation_metrics_xlsx = load_curated_unit_ids_from_waveforms_outputs(
-        well_out_dir=well_out_dir,
-        logger=logger,
+    This helper applies the same curation logic used elsewhere in this repo
+    (`waveforms.curation.apply_mea_analysis_curation`) and then filters `unit_ids`
+    to the curated set.
+    """
+
+    qm_xlsx = well_out_dir / "spikesorting_outputs" / "qm_unfiltered.xlsx"
+    if not qm_xlsx.exists():
+        return unit_ids, None, None
+
+    try:
+        import pandas as pd  # type: ignore[import-not-found]
+    except Exception:
+        logger.warning("Found %s but pandas is unavailable; cannot apply curation", qm_xlsx)
+        return unit_ids, None, qm_xlsx
+
+    try:
+        qm = pd.read_excel(qm_xlsx, index_col=0)
+    except Exception as e:
+        logger.warning("Failed reading %s: %s", qm_xlsx, e)
+        return unit_ids, None, qm_xlsx
+
+    try:
+        if (getattr(qm, "index", None) is not None) and (str(qm.index.name) != "unit_id"):
+            if "unit_id" in getattr(qm, "columns", []):
+                qm = qm.set_index("unit_id", drop=True)
+    except Exception:
+        pass
+
+    try:
+        from ..waveforms.curation import apply_mea_analysis_curation
+
+        clean_metrics, _rej = apply_mea_analysis_curation(q_metrics=qm, user_thresholds=None)
+        curated_units_norm = [normalize_id_for_compare(x) for x in list(clean_metrics.index.values)]
+    except Exception as e:
+        logger.warning("Failed applying curation logic to %s: %s", qm_xlsx, e)
+        return unit_ids, None, qm_xlsx
+
+    curated_set = set(curated_units_norm)
+    before = len(unit_ids)
+    unit_ids = [uid for uid in unit_ids if normalize_id_for_compare(uid) in curated_set]
+    logger.info(
+        "Applying spikesorting curation: %d -> %d units (from %s)",
+        before,
+        len(unit_ids),
+        qm_xlsx,
     )
 
-    if curated_units_norm is not None:
-        curated_set = set(curated_units_norm)
-        before = len(unit_ids)
-        unit_ids = [uid for uid in unit_ids if normalize_id_for_compare(uid) in curated_set]
-        logger.info(
-            "Applying waveforms curation: %d -> %d units (from %s)",
-            before,
-            len(unit_ids),
-            curation_metrics_xlsx,
-        )
-
-    return unit_ids, curated_units_norm, curation_metrics_xlsx
+    return unit_ids, curated_units_norm, qm_xlsx
 
 
 def process_unit_list(
@@ -83,7 +106,7 @@ def process_unit_list(
     merged_unit_full_chip_maps_dir: Path,
     axon_velocity_outputs_root_dir: Path,
     unit_segment_grids_dir: Optional[Path],
-    full_unit_templates_dir: Optional[Path] = None,
+    full_channels_templates_dir: Optional[Path] = None,
     topo_unit_footprints_dir: Optional[Path] = None,
     propagation_plots_dir: Optional[Path] = None,
     fs_hz: float,
@@ -93,7 +116,7 @@ def process_unit_list(
     write_footprint_ptp_map=None,
     write_unit_template_and_footprint_svg=None,
     write_topo_unit_footprint_png=None,
-    make_merged_union_footprint_plots: bool = True,
+    make_merged_contributing_footprint_plots: bool = True,
     make_axon_velocity_plots: bool = False,
     force_restart: bool,
     n_jobs: int,
@@ -114,9 +137,9 @@ def process_unit_list(
     persist: bool,
     summary: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
-    """Process units: gather per-source templates, build merged_union, persist, and plot."""
+    """Process units: gather per-source templates, build merged_contributing, persist, and plot."""
 
-    # Electrode ids present in at least one recording object (union over sources).
+    # Electrode ids present in at least one recording object (across sources).
     # Note: waveforms-stage analyzers may be sparse. When we detect Maxwell electrode id
     # scheme, we can still generate a *full-chip geometry* for full templates, but we
     # must NOT promote the observed recording electrode universe to the full chip.
@@ -126,7 +149,7 @@ def process_unit_list(
     # - non-contributing electrodes: present in at least one recording but not contributing for this unit
     #
     # That distinction requires preserving the observed recording electrode set.
-    recording_electrode_ids: Optional[list[Any]] = None
+    all_recorded_electrode_ids: Optional[list[Any]] = None
     try:
         all_electrode_ids: list[Any] = []
         for _, an in analyzers:
@@ -136,12 +159,12 @@ def process_unit_list(
                 el_ids = None
             if el_ids:
                 all_electrode_ids.extend(list(el_ids))
-        recording_electrode_ids = all_electrode_ids if all_electrode_ids else None
+        all_recorded_electrode_ids = all_electrode_ids if all_electrode_ids else None
     except Exception:
-        recording_electrode_ids = None
+        all_recorded_electrode_ids = None
 
-    # Note: do NOT replace recording_electrode_ids with the full chip here.
-    # Full-chip geometry is handled separately below when building full_unit_templates.
+    # Note: do NOT replace all_recorded_electrode_ids with the full chip here.
+    # Full-chip geometry is handled separately below when building full_channels_templates.
 
     # Ensure templates extension exists (best effort).
     for _, an in analyzers:
@@ -161,13 +184,13 @@ def process_unit_list(
     full_channel_locations_xy = None
     full_channel_ids = None
     full_electrode_ids = None
-    if full_unit_templates_dir is not None:
+    if full_channels_templates_dir is not None:
         # Prefer a deterministic full-chip geometry when we can detect Maxwell electrode ids.
         # This avoids accidentally building a "full" template over only the sparse waveforms channels.
         try:
             from .utils import _looks_like_maxwell_full_chip_electrode_ids, _maxwell_full_chip_channel_metadata
 
-            if _looks_like_maxwell_full_chip_electrode_ids(recording_electrode_ids):
+            if _looks_like_maxwell_full_chip_electrode_ids(all_recorded_electrode_ids):
                 locs_xy, ch_ids, el_ids = _maxwell_full_chip_channel_metadata()
                 full_channel_locations_xy = locs_xy
                 full_channel_ids = list(ch_ids.tolist())
@@ -207,49 +230,55 @@ def process_unit_list(
         if not sources_for_unit:
             continue
 
-        merged_union = _build_union_template_for_unit(sources_for_unit=sources_for_unit, unit_id=uid, logger=logger)
-        sources_for_unit_with_union = list(sources_for_unit) + ([merged_union] if merged_union is not None else [])
+        merged_contributing = _build_merged_contributing_template_for_unit(
+            sources_for_unit=sources_for_unit,
+            unit_id=uid,
+            logger=logger,
+        )
+        sources_for_unit_with_merged = list(sources_for_unit) + (
+            [merged_contributing] if merged_contributing is not None else []
+        )
 
-        # Best-effort merged_union quick-look plots.
+        # Best-effort merged_contributing quick-look plots.
         if (
-            bool(make_merged_union_footprint_plots)
-            and merged_union is not None
+            bool(make_merged_contributing_footprint_plots)
+            and merged_contributing is not None
             and write_footprint_ptp_map is not None
             and write_unit_template_and_footprint_svg is not None
         ):
             try:
                 import numpy as np  # type: ignore[import-not-found]
 
-                merged_union_electrode_ids = merged_union.get("electrode_ids")
+                merged_contributing_electrode_ids = merged_contributing.get("electrode_ids")
 
                 merged_unit_footprints_dir.mkdir(parents=True, exist_ok=True)
                 merged_unit_svgs_dir.mkdir(parents=True, exist_ok=True)
 
-                tmpl = np.asarray(merged_union["template"], dtype=float)
-                locs = np.asarray(merged_union["channel_locations"], dtype=float)
+                tmpl = np.asarray(merged_contributing["template"], dtype=float)
+                locs = np.asarray(merged_contributing["channel_locations"], dtype=float)
                 amp = np.ptp(tmpl, axis=0)
 
                 write_footprint_ptp_map(
-                    out_path=merged_unit_footprints_dir / f"unit_{uid}_merged_union_footprint_ptp_linear.png",
+                    out_path=merged_unit_footprints_dir / f"unit_{uid}_merged_contributing_footprint_ptp_linear.png",
                     channel_locations_xy=locs[:, :2],
                     footprint_ptp=amp,
-                    title=f"Unit {uid} merged_union footprint (PTP)",
+                    title=f"Unit {uid} contributing-channels footprint (PTP)",
                     log_scale=False,
-                    electrode_ids=merged_union_electrode_ids,
-                    recording_electrode_ids=recording_electrode_ids,
+                    electrode_ids=merged_contributing_electrode_ids,
+                    all_recorded_electrode_ids=all_recorded_electrode_ids,
                 )
                 write_footprint_ptp_map(
-                    out_path=merged_unit_footprints_dir / f"unit_{uid}_merged_union_footprint_ptp_log.png",
+                    out_path=merged_unit_footprints_dir / f"unit_{uid}_merged_contributing_footprint_ptp_log.png",
                     channel_locations_xy=locs[:, :2],
                     footprint_ptp=amp,
-                    title=f"Unit {uid} merged_union footprint (PTP, log)",
+                    title=f"Unit {uid} contributing-channels footprint (PTP, log)",
                     log_scale=True,
-                    electrode_ids=merged_union_electrode_ids,
-                    recording_electrode_ids=recording_electrode_ids,
+                    electrode_ids=merged_contributing_electrode_ids,
+                    all_recorded_electrode_ids=all_recorded_electrode_ids,
                 )
 
                 write_unit_template_and_footprint_svg(
-                    out_path=merged_unit_svgs_dir / f"unit_{uid}_merged_union_template_footprint_linear.svg",
+                    out_path=merged_unit_svgs_dir / f"unit_{uid}_merged_contributing_template_footprint_linear.svg",
                     unit_id=uid,
                     template=tmpl,
                     channel_locations_xy=locs[:, :2],
@@ -258,11 +287,11 @@ def process_unit_list(
                     ms_after=ms_after,
                     top_channels=int(top_channels_per_template),
                     log_footprint=False,
-                    electrode_ids=merged_union_electrode_ids,
-                    recording_electrode_ids=recording_electrode_ids,
+                    electrode_ids=merged_contributing_electrode_ids,
+                    all_recorded_electrode_ids=all_recorded_electrode_ids,
                 )
                 write_unit_template_and_footprint_svg(
-                    out_path=merged_unit_svgs_dir / f"unit_{uid}_merged_union_template_footprint_log.svg",
+                    out_path=merged_unit_svgs_dir / f"unit_{uid}_merged_contributing_template_footprint_log.svg",
                     unit_id=uid,
                     template=tmpl,
                     channel_locations_xy=locs[:, :2],
@@ -271,8 +300,8 @@ def process_unit_list(
                     ms_after=ms_after,
                     top_channels=int(top_channels_per_template),
                     log_footprint=True,
-                    electrode_ids=merged_union_electrode_ids,
-                    recording_electrode_ids=recording_electrode_ids,
+                    electrode_ids=merged_contributing_electrode_ids,
+                    all_recorded_electrode_ids=all_recorded_electrode_ids,
                 )
             except Exception:
                 pass
@@ -280,19 +309,19 @@ def process_unit_list(
         if persist:
             unit_entry = _persist_unit_templates(
                 uid=uid,
-                sources_for_unit_with_union=sources_for_unit_with_union,
+                sources_for_unit_with_merged=sources_for_unit_with_merged,
                 extracted_templates_dir=extracted_templates_dir,
                 merged_units_dir=merged_units_dir,
                 merged_unit_full_chip_maps_dir=merged_unit_full_chip_maps_dir,
                 axon_velocity_outputs_root_dir=axon_velocity_outputs_root_dir,
-                full_unit_templates_dir=full_unit_templates_dir,
+                full_channels_templates_dir=full_channels_templates_dir,
                 full_channel_locations_xy=full_channel_locations_xy,
                 full_channel_ids=full_channel_ids,
                 full_electrode_ids=full_electrode_ids,
                 fs_hz=float(fs_hz),
                 ms_before=ms_before,
                 ms_after=ms_after,
-                recording_electrode_ids=recording_electrode_ids,
+                all_recorded_electrode_ids=all_recorded_electrode_ids,
                 make_axon_velocity_plots=bool(make_axon_velocity_plots),
                 jsonable=jsonable,
                 jsonable_sequence=jsonable_sequence,
@@ -304,11 +333,11 @@ def process_unit_list(
                 summary.setdefault("units", []).append(unit_entry)
 
         # Topographical footprint plot from full-channel template (per-unit).
-        if topo_unit_footprints_dir is not None and write_topo_unit_footprint_png is not None and full_unit_templates_dir is not None:
+        if topo_unit_footprints_dir is not None and write_topo_unit_footprint_png is not None and full_channels_templates_dir is not None:
             try:
                 out_png = topo_unit_footprints_dir / f"unit_{uid}.png"
                 if (not out_png.exists()) or force_restart:
-                    unit_full_dir = full_unit_templates_dir / f"unit_{uid}"
+                    unit_full_dir = full_channels_templates_dir / f"unit_{uid}"
                     full_template_npy = unit_full_dir / "full_template.npy"
                     full_electrode_ids_npy = unit_full_dir / "full_electrode_ids.npy"
 
@@ -330,14 +359,14 @@ def process_unit_list(
                             unit_id=uid,
                             full_template=full_tmpl,
                             full_electrode_ids=(full_eids.tolist() if full_eids is not None else None),
-                            recording_electrode_ids=recording_electrode_ids,
+                            all_recorded_electrode_ids=all_recorded_electrode_ids,
                             title=f"Unit {uid} full-template topo footprint (PTP)",
                         )
             except Exception:
                 pass
 
-        # Templates grid should show the merged (union) template.
-        chosen = merged_union
+        # Templates grid should show the merged contributing-channels template.
+        chosen = merged_contributing
         if chosen is not None:
             grid_entries.append(
                 {
@@ -347,7 +376,7 @@ def process_unit_list(
                     "n_channels": int(chosen["template"].shape[1]) if chosen.get("template") is not None else None,
                     # Best-effort counts for waveforms contributing (computed in sources, if available).
                     "n_waveforms_sum": chosen.get("n_waveforms_sum"),
-                    "n_channels_union": chosen.get("n_channels_union"),
+                    "n_contributing_channels": chosen.get("n_contributing_channels"),
                 }
             )
 
@@ -371,12 +400,12 @@ def process_unit_list(
                         pdf_path=unit_footprints_pdf,
                         unit_id=uid,
                         sources_for_unit=sources_for_unit,
-                        recording_electrode_ids=recording_electrode_ids,
+                        all_recorded_electrode_ids=all_recorded_electrode_ids,
                     )
 
         # Propagation plots (best-effort).
         # Prefer PNG outputs (faster iteration than PDFs).
-        if propagation_plots_dir is not None and write_unit_propagation_plots_pdf is not None and merged_union is not None:
+        if propagation_plots_dir is not None and write_unit_propagation_plots_pdf is not None and merged_contributing is not None:
             try:
                 out_png = propagation_plots_dir / f"unit_{uid}.png"
                 if (not out_png.exists()) or force_restart:
@@ -385,7 +414,7 @@ def process_unit_list(
                     write_unit_propagation_plots_pdf(
                         pdf_path=(propagation_plots_dir / f"unit_{uid}.pdf"),
                         unit_id=uid,
-                        merged_union=merged_union,
+                        merged_contributing=merged_contributing,
                         fs_hz=float(fs_hz),
                         ms_before=ms_before,
                         ms_after=ms_after,
