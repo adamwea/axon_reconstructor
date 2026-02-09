@@ -1119,16 +1119,21 @@ def _write_unit_propagation_plots_png(
     n_waveforms: int = 12,
     channels_per_panel: int = 25,
     channel_overlap: int = 5,
+    show_electrode_ids: bool = True,
+    trace_gain: float = 1.0,
+    trace_spacing: float = 1.0,
     ap_timings_json_path: Optional[Path] = None,
     logger=None,
 ) -> None:
     """Write propagation plots derived from the merged contributing-channels template as PNG(s).
 
-    This is intentionally *template-based* (one trace per channel) so we don't need to
-    re-extract or load waveforms/spike trains for plotting.
+    Preferred implementation: `axon_velocity.plotting.plot_template_propagation`.
 
-    The plot shows the top-N channels by PTP (from the merged template), ordered by
-    best-effort timing estimates. A small triangle marks the negative-peak time for each channel.
+    Notes:
+    - This is intentionally *template-based* (one trace per channel) so we don't need to
+        re-extract or load waveforms/spike trains for plotting.
+    - The legacy implementation below (geometry/timing heuristics + multi-panel rendering)
+        is kept as a best-effort fallback, but is deprecated.
     """
 
     import numpy as np  # type: ignore[import-not-found]
@@ -1151,6 +1156,251 @@ def _write_unit_propagation_plots_png(
     n_ch_total = int(tmpl.shape[1])
     if n_samp <= 1 or n_ch_total <= 0:
         return
+
+    # Prefer axon_velocity's propagation plot renderer (when available).
+    # axon_velocity expects template as (n_channels, n_samples).
+    try:
+        import axon_velocity.plotting as av_plot  # type: ignore[import-not-found]
+
+        locs_xy = merged_contributing.get("channel_locations")
+        if locs_xy is not None:
+            locs_xy = np.asarray(locs_xy, dtype=float)
+        if locs_xy is not None and locs_xy.ndim == 2 and int(locs_xy.shape[0]) == int(n_ch_total) and int(locs_xy.shape[1]) >= 2:
+            # Select top-N channels by PTP.
+            try:
+                amp = np.ptp(tmpl, axis=0).astype(float)
+            except Exception:
+                amp = None
+            if amp is not None and np.asarray(amp).ndim == 1:
+                top_n = int(max(1, min(int(top_channels), int(n_ch_total))))
+                order = np.argsort(-np.asarray(amp, dtype=float))
+                selected = [int(i) for i in order[:top_n].tolist()]
+
+                out_dir = Path(out_dir)
+                out_dir.mkdir(parents=True, exist_ok=True)
+                out_path = out_dir / f"unit_{unit_id}.png"
+
+                # Reasonable aspect scaling with channel count.
+                fig_h = float(min(18.0, max(4.5, 0.38 * float(len(selected)) + 1.5)))
+                fig_w = 10.5
+                fig = plt.figure(figsize=(fig_w, fig_h))
+                ax = fig.add_subplot(111)
+
+                av_plot.plot_template_propagation(
+                    tmpl.T,
+                    locs_xy[:, :2],
+                    selected,
+                    sort_templates=True,
+                    color="black",
+                    color_marker="black",
+                    ax=ax,
+                )
+
+                # Post-process Matplotlib artists to allow amplitude gain and/or trace overlap
+                # without modifying axon_velocity. This assumes one Line2D per channel trace.
+                trace_gain_f = float(trace_gain) if trace_gain is not None else 1.0
+                trace_spacing_f = float(trace_spacing) if trace_spacing is not None else 1.0
+                if not (trace_gain_f > 0):
+                    trace_gain_f = 1.0
+                if not (trace_spacing_f > 0):
+                    trace_spacing_f = 1.0
+
+                # These values will be reused for electrode-id label placement.
+                selected_sorted: list[int] = []
+                new_spacing: Optional[float] = None
+
+                try:
+                    import numpy as np  # type: ignore[import-not-found]
+
+                    # Replicate axon_velocity's ordering (sort by negative peak index).
+                    template_selected = np.asarray(tmpl.T, dtype=float)[np.asarray(selected, dtype=int), :]
+                    peaks = np.argmin(template_selected, axis=1)
+                    order = np.argsort(peaks)
+                    selected_sorted = [int(selected[int(i)]) for i in order.tolist()]
+
+                    template_sorted = template_selected[order]
+                    ptp_glob = float(np.max(np.ptp(template_sorted, axis=1))) if template_sorted.size else 1.0
+                    if not (ptp_glob > 0):
+                        ptp_glob = 1.0
+
+                    # Gather plotted lines + estimate original spacing from their median y.
+                    lines = list(getattr(ax, "lines", []))
+
+                    # axon_velocity uses a fixed baseline spacing: i * (1.5 * ptp_glob)
+                    old_spacing = 1.5 * float(ptp_glob)
+                    new_spacing = float(old_spacing) * float(trace_spacing_f)
+
+                    # Preferred path: axon_velocity draws 2 lines per trace (wave + peak dot).
+                    n_traces = int(template_sorted.shape[0])
+                    expected = 2 * n_traces
+                    ok_pairing = (n_traces > 0) and (len(lines) >= expected)
+                    if ok_pairing:
+                        try:
+                            for i in range(n_traces):
+                                mk = lines[2 * i + 1].get_marker()
+                                if str(mk) != "o":
+                                    ok_pairing = False
+                                    break
+                        except Exception:
+                            ok_pairing = False
+
+                    if ok_pairing:
+                        for i in range(n_traces):
+                            base_old = float(i) * float(old_spacing)
+                            base_new = float(i) * float(new_spacing)
+
+                            for ln in (lines[2 * i], lines[2 * i + 1]):
+                                yd = np.asarray(ln.get_ydata(orig=False), dtype=float)
+                                if yd.size == 0:
+                                    continue
+                                ln.set_ydata((yd - base_old) * float(trace_gain_f) + base_new)
+                    else:
+                        # Fallback: adjust multi-point lines by median baseline, then
+                        # move 1-point marker lines by snapping to nearest baseline.
+                        line_infos: list[tuple[float, Any]] = []
+                        baselines: list[float] = []
+                        for ln in lines:
+                            try:
+                                yd = np.asarray(ln.get_ydata(orig=False), dtype=float)
+                            except Exception:
+                                continue
+                            if yd.size < 2 or not np.isfinite(yd).any():
+                                continue
+                            b = float(np.nanmedian(yd))
+                            baselines.append(b)
+                            line_infos.append((b, ln))
+                        line_infos.sort(key=lambda t: t[0])
+                        baselines_sorted = np.asarray([b for b, _ in line_infos], dtype=float) if line_infos else None
+
+                        for i, (baseline, ln) in enumerate(line_infos):
+                            yd = np.asarray(ln.get_ydata(orig=False), dtype=float)
+                            if yd.size < 2:
+                                continue
+                            centered = yd - float(baseline)
+                            ln.set_ydata(centered * float(trace_gain_f) + float(i) * float(new_spacing))
+
+                        if baselines_sorted is not None and baselines_sorted.size:
+                            for ln in lines:
+                                try:
+                                    yd = np.asarray(ln.get_ydata(orig=False), dtype=float)
+                                except Exception:
+                                    continue
+                                if yd.size != 1 or (not np.isfinite(yd[0])):
+                                    continue
+                                y0 = float(yd[0])
+                                i = int(np.argmin(np.abs(baselines_sorted - y0)))
+                                base_old = float(baselines_sorted[i])
+                                base_new = float(i) * float(new_spacing)
+                                ln.set_ydata(np.asarray([(y0 - base_old) * float(trace_gain_f) + base_new], dtype=float))
+
+                    # Expand y-limits so large gain doesn't clip the bottom/top.
+                    try:
+                        ymins: list[float] = []
+                        ymaxs: list[float] = []
+                        for ln in list(getattr(ax, "lines", [])):
+                            try:
+                                yd = np.asarray(ln.get_ydata(orig=False), dtype=float)
+                            except Exception:
+                                continue
+                            if yd.size == 0 or not np.isfinite(yd).any():
+                                continue
+                            ymins.append(float(np.nanmin(yd)))
+                            ymaxs.append(float(np.nanmax(yd)))
+                        if ymins and ymaxs:
+                            ymin = float(min(ymins))
+                            ymax = float(max(ymaxs))
+                            pad = max(0.15 * float(old_spacing) * float(trace_gain_f), 0.05 * (ymax - ymin))
+                            if np.isfinite(ymin) and np.isfinite(ymax) and (ymax > ymin):
+                                ax.set_ylim(ymin - pad, ymax + pad)
+                    except Exception:
+                        pass
+                except Exception:
+                    # Never fail plot generation due to optional styling.
+                    selected_sorted = []
+                    new_spacing = None
+
+                if bool(show_electrode_ids):
+                    try:
+                        from matplotlib.transforms import blended_transform_factory
+
+                        electrode_ids = merged_contributing.get("electrode_ids")
+                        channel_ids = merged_contributing.get("channel_ids")
+
+                        # Build a per-channel label list aligned to channel index.
+                        labels_all: list[str] = []
+                        for ch_idx in range(n_ch_total):
+                            lab = None
+                            if electrode_ids is not None:
+                                try:
+                                    e = list(electrode_ids)[int(ch_idx)]
+                                    if e is not None:
+                                        lab = f"e{int(e)}"
+                                except Exception:
+                                    lab = None
+                            if lab is None and channel_ids is not None:
+                                try:
+                                    c = list(channel_ids)[int(ch_idx)]
+                                    if c is not None:
+                                        lab = str(c)
+                                except Exception:
+                                    lab = None
+                            if lab is None:
+                                lab = str(int(ch_idx))
+                            labels_all.append(str(lab))
+
+                        # Use the post-processed spacing when available; otherwise fall back.
+                        if not selected_sorted:
+                            import numpy as np  # type: ignore[import-not-found]
+
+                            template_selected = np.asarray(tmpl.T, dtype=float)[np.asarray(selected, dtype=int), :]
+                            peaks = np.argmin(template_selected, axis=1)
+                            order = np.argsort(peaks)
+                            selected_sorted = [int(selected[int(i)]) for i in order.tolist()]
+
+                        if new_spacing is None:
+                            import numpy as np  # type: ignore[import-not-found]
+
+                            template_selected = np.asarray(tmpl.T, dtype=float)[np.asarray(selected, dtype=int), :]
+                            template_sorted = template_selected[np.argsort(np.argmin(template_selected, axis=1))]
+                            ptp_per = np.ptp(template_sorted, axis=1)
+                            ptp_glob = float(np.max(ptp_per)) if ptp_per.size else 1.0
+                            if not (ptp_glob > 0):
+                                ptp_glob = 1.0
+                            new_spacing = 1.5 * float(ptp_glob) * float(trace_spacing_f)
+
+                        trans = blended_transform_factory(ax.transAxes, ax.transData)
+                        x_ax = -0.01
+                        for i, ch_idx in enumerate(selected_sorted):
+                            y0 = float(i) * float(new_spacing)
+                            ax.text(
+                                x_ax,
+                                y0,
+                                labels_all[int(ch_idx)],
+                                transform=trans,
+                                ha="right",
+                                va="center",
+                                fontsize=12,
+                                color="black",
+                                clip_on=False,
+                            )
+                    except Exception:
+                        pass
+
+                fig.savefig(out_path, dpi=220, bbox_inches="tight", pad_inches=0.02)
+                plt.close(fig)
+                return
+    except Exception:
+        # Fall back to legacy implementation below.
+        try:
+            import warnings
+
+            warnings.warn(
+                "Falling back to deprecated propagation-plot renderer; install/enable axon_velocity to use the preferred renderer.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        except Exception:
+            pass
 
     # Time axis (ms) for plotting.
     if ms_before is not None and ms_after is not None and (ms_before + ms_after) > 0 and n_samp > 1:
@@ -1698,6 +1948,9 @@ def _write_unit_propagation_plots_pdf(
     n_waveforms: int = 12,
     channels_per_panel: int = 25,
     channel_overlap: int = 5,
+    show_electrode_ids: bool = False,
+    trace_gain: float = 1.0,
+    trace_spacing: float = 1.0,
     ap_timings_json_path: Optional[Path] = None,
     logger=None,
 ) -> None:
@@ -1717,6 +1970,9 @@ def _write_unit_propagation_plots_pdf(
         n_waveforms=n_waveforms,
         channels_per_panel=channels_per_panel,
         channel_overlap=channel_overlap,
+        show_electrode_ids=bool(show_electrode_ids),
+        trace_gain=float(trace_gain),
+        trace_spacing=float(trace_spacing),
         ap_timings_json_path=ap_timings_json_path,
         logger=logger,
     )
