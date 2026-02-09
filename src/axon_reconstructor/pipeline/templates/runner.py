@@ -80,6 +80,16 @@ class TemplateExtractInputs:
     propagation_channels_per_panel: int = 25
     propagation_channel_overlap: int = 5
 
+    # If True, label each propagated trace with its electrode id.
+    # Implemented by annotating matplotlib output after axon_velocity renders.
+    propagation_show_electrode_ids: bool = False
+
+    # Post-render styling knobs for axon_velocity propagation plots.
+    # `propagation_trace_gain` scales waveform amplitude around each trace's baseline.
+    # `propagation_trace_spacing` scales vertical spacing between traces (lower -> more overlap).
+    propagation_trace_gain: float = 1.0
+    propagation_trace_spacing: float = 1.0
+
     # Optional: generate real axon_velocity plot bundle from merged contributing-channels templates.
     # This writes to per-unit `axon_velocity_outputs/` and requires the axon_velocity deps.
     plot_axon_velocity_outputs: bool = False
@@ -335,6 +345,9 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         propagation_n_waveforms=int(inputs.propagation_n_waveforms),
         propagation_channels_per_panel=int(inputs.propagation_channels_per_panel),
         propagation_channel_overlap=int(inputs.propagation_channel_overlap),
+        propagation_show_electrode_ids=bool(inputs.propagation_show_electrode_ids),
+        propagation_trace_gain=float(inputs.propagation_trace_gain),
+        propagation_trace_spacing=float(inputs.propagation_trace_spacing),
         logger=logger,
         persist=True,
         summary=summary,
