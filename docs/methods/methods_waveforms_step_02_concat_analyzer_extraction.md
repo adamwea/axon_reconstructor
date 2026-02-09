@@ -3,7 +3,7 @@
 Scope: This document covers the **next chunk** of the waveforms stage as implemented in the runner. It begins immediately after Part 1 ends (we already have `filtered_sorting`) and ends right after the **concat** `SortingAnalyzer` has been computed and we have `concat_best` (best-channel-by-PTP summary computed from concat templates).
 
 Terminology note:
-- Channel-set names (all/common/segment/non-common/unique/non-unique) are defined in `docs/methods_waveforms_channel_sets.md`.
+- Channel-set names (all/common/segment/non-common/unique/non-unique) are defined in `methods_waveforms_channel_sets.md`.
 
 Primary code paths:
 - `axon_reconstructor.pipeline.waveforms.runner.extract_waveforms(...)`

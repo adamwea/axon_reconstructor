@@ -3,7 +3,7 @@
 Scope: This document covers the **first chunk** of the waveforms stage as implemented in the runner. It ends right after we produce `filtered_sorting` (the spike trains we will actually use for waveform extraction).
 
 Terminology note:
-- Channel-set names (all/common/segment/non-common/unique/non-unique) are defined in `docs/methods_waveforms_channel_sets.md`.
+- Channel-set names (all/common/segment/non-common/unique/non-unique) are defined in `methods_waveforms_channel_sets.md`.
 
 Primary code path:
 - `axon_reconstructor.pipeline.waveforms.runner.extract_waveforms(...)`

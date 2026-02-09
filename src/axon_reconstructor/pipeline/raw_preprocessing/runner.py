@@ -35,6 +35,10 @@ def build_concatenated_recording(
     stream_id: str,
     n_jobs: int = 8,
     center_chunk_size: int = 10_000,
+    temporal_resample_factor: Optional[int] = None,
+    temporal_resample_rate_hz: Optional[int] = None,
+    temporal_resample_margin_ms: float = 100.0,
+    temporal_resample_dtype: Optional[str] = None,
     plot_output_dir: Optional[Path] = None,
     epoch_markers_output_dir: Optional[Path] = None,
 ) -> tuple[object, list[int]]:
@@ -202,6 +206,8 @@ def build_concatenated_recording(
     #  - per-segment *relative* times (0..~record_time) for plotting individual segments
     #  - concatenated *absolute-ish* times (aligned to the first segment) so inter-segment
     #    gaps appear when plotting the concatenated recording.
+    concat_times = None
+    maxwell_epochs: list[dict] = []
     try:
         import numpy as np
 
@@ -210,7 +216,6 @@ def build_concatenated_recording(
 
         # Epochs of contiguous samples within Maxwell triggered/snippet recording strategy.
         # Expressed in *concatenated* sample coordinates (multirecording time axis).
-        maxwell_epochs: list[dict] = []
 
         for seg_index, (rn, st) in enumerate(zip(rec_names, seg_stats, strict=False)):
             info = _read_well_rec_frame_nos_and_trigger_settings(
@@ -314,6 +319,104 @@ def build_concatenated_recording(
     except Exception as e:
         print(f"[axon_reconstructor][WARN] failed to set time vector from frame_nos: {e}", flush=True)
 
+    # Optional: temporal resampling (e.g. 10x) to emulate higher sampling rate.
+    if temporal_resample_rate_hz is not None or temporal_resample_factor is not None:
+        try:
+            import numpy as np
+            import spikeinterface.preprocessing as spre
+
+            old_fs = float(multirecording.get_sampling_frequency())
+            if old_fs <= 0:
+                raise RuntimeError("Could not determine recording sampling frequency")
+
+            if temporal_resample_rate_hz is not None:
+                new_fs = float(int(temporal_resample_rate_hz))
+            else:
+                f = int(temporal_resample_factor or 0)
+                if f < 2:
+                    raise ValueError(f"temporal_resample_factor must be >=2, got {f}")
+                new_fs = float(old_fs) * float(f)
+
+            new_fs_int = int(round(new_fs))
+            if new_fs_int <= 0:
+                raise ValueError(f"Invalid target resample rate: {new_fs_int}")
+
+            ratio = float(new_fs_int) / float(old_fs)
+            print(
+                f"[axon_reconstructor] temporal resample: fs {old_fs:.2f} -> {new_fs_int} Hz (x{ratio:.4f})",
+                flush=True,
+            )
+
+            dtype = None
+            if temporal_resample_dtype is not None:
+                try:
+                    dtype = np.dtype(str(temporal_resample_dtype))
+                except Exception:
+                    dtype = None
+
+            multirecording = spre.resample(
+                multirecording,
+                resample_rate=int(new_fs_int),
+                margin_ms=float(temporal_resample_margin_ms),
+                dtype=dtype,
+                skip_checks=False,
+            )
+
+            # Scale epoch markers to match the resampled sample coordinates.
+            def _scale_epoch(ep: dict) -> dict:
+                out = dict(ep)
+                for k in ("start_sample", "end_sample", "segment_start_sample", "segment_end_sample"):
+                    if k in out and out[k] is not None:
+                        out[k] = int(round(float(out[k]) * ratio))
+                if "n_samples" in out and out["n_samples"] is not None:
+                    out["n_samples"] = int(round(float(out["n_samples"]) * ratio))
+                return out
+
+            concat_epochs = [_scale_epoch(ep) for ep in concat_epochs]
+            maxwell_epochs = [_scale_epoch(ep) for ep in maxwell_epochs]
+
+            # Fail fast if epoch indices drift out of bounds after resampling.
+            n_new = int(multirecording.get_num_samples())
+            if n_new <= 0:
+                raise RuntimeError("Resampled recording has non-positive sample count")
+
+            def _max_end_sample(epochs: list[dict]) -> int:
+                ends: list[int] = []
+                for e in epochs:
+                    try:
+                        end = e.get("end_sample")
+                        if end is None:
+                            continue
+                        ends.append(int(end))
+                    except Exception:
+                        continue
+                return max(ends) if ends else 0
+
+            maxwell_max_end = _max_end_sample(maxwell_epochs)
+            concat_max_end = _max_end_sample(concat_epochs)
+            if maxwell_max_end > n_new or concat_max_end > n_new:
+                raise RuntimeError(
+                    "Epoch markers exceed resampled recording length: "
+                    f"n_samples={n_new} maxwell_max_end={maxwell_max_end} concat_max_end={concat_max_end} "
+                    f"(ratio={ratio:.6f})"
+                )
+
+            # Re-interpolate concat time vector to match new length, if available.
+            if concat_times is not None:
+                n_old = int(concat_times.size)
+                n_new = int(multirecording.get_num_samples())
+                if n_old > 1 and n_new > 1:
+                    x_old = np.arange(n_old, dtype=float)
+                    x_new = np.linspace(0.0, float(n_old - 1), num=n_new, dtype=float)
+                    t_new = np.interp(x_new, x_old, np.asarray(concat_times, dtype=float))
+                    if t_new.size == n_new:
+                        try:
+                            multirecording.set_times(t_new)
+                        except Exception:
+                            pass
+        except Exception as e:
+            raise RuntimeError(f"Temporal resampling failed: {e}") from e
+
     # Persist epoch marker JSON artifacts for later analysis.
     if epoch_markers_output_dir is not None:
         out_dir = Path(epoch_markers_output_dir)
@@ -323,10 +426,8 @@ def build_concatenated_recording(
         concat_path = out_dir / f"concatenation_stitch_epochs_{stream_id}.json"
 
         try:
-            # maxwell_epochs is defined inside the try block above; fall back to empty if unavailable.
-            maxwell_epochs_payload = locals().get("maxwell_epochs", [])
             with open(maxwell_path, "w", encoding="utf-8") as f:
-                json.dump(list(maxwell_epochs_payload), f, indent=2)
+                json.dump(list(maxwell_epochs), f, indent=2)
 
             with open(concat_path, "w", encoding="utf-8") as f:
                 json.dump(list(concat_epochs), f, indent=2)

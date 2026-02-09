@@ -7,7 +7,7 @@ Scope: This document continues directly after Part 4 ends. It begins at the runn
 and ends when the waveforms stage saves its checkpoint at `ProcessingStage.ANALYZER_COMPLETE` and returns `WaveformExtractOutputs`.
 
 Terminology note:
-- Channel-set names (all/common/segment/non-common/unique/non-unique) are defined in `docs/methods_waveforms_channel_sets.md`.
+- Channel-set names (all/common/segment/non-common/unique/non-unique) are defined in `methods_waveforms_channel_sets.md`.
 
 Primary code paths:
 - `axon_reconstructor.pipeline.waveforms.runner.extract_waveforms(...)` (curation → plotting → checkpoint)

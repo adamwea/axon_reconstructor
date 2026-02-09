@@ -9,7 +9,7 @@ Rebuilding `axon_reconstructor` with cleaner structure, documentation, and repro
 
 ## Methods
 
-- Raw preprocessing + spikesorting: [docs/methods_preprocess_spikesort.md](docs/methods_preprocess_spikesort.md)
+- Raw preprocessing + spikesorting: [docs/methods/methods_preprocess_spikesort.md](docs/methods/methods_preprocess_spikesort.md)
 
 ## Install (editable)
 
