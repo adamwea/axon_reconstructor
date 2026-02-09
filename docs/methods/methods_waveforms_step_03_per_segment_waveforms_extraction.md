@@ -3,7 +3,7 @@
 Scope: This document covers the **per-segment** waveform extraction branch in the waveforms runner. It begins right after Part 2 ends (concat analyzer exists and we have `concat_best`) and ends once `_extract_per_segment_waveforms(...)` returns `seg_best` (best-channel-by-PTP summary per unit across segment analyzers).
 
 Terminology note:
-- Channel-set names (all/common/segment/non-common/unique/non-unique) are defined in `docs/methods_waveforms_channel_sets.md`.
+- Channel-set names (all/common/segment/non-common/unique/non-unique) are defined in `methods_waveforms_channel_sets.md`.
 
 Primary code paths:
 - `axon_reconstructor.pipeline.waveforms.runner.extract_waveforms(...)` (per-segment branch)

@@ -131,6 +131,10 @@ class AxonReconstructor:
         stream_id: str,
         n_jobs: int = 8,
         plot_layouts: bool = True,
+        temporal_resample_factor: Optional[int] = None,
+        temporal_resample_rate_hz: Optional[int] = None,
+        temporal_resample_margin_ms: float = 100.0,
+        temporal_resample_dtype: Optional[str] = None,
         save_recording: bool = True,
         overwrite_saved_recording: bool = True,
     ):
@@ -210,6 +214,14 @@ class AxonReconstructor:
             epoch_maxwell_path = preprocess_dir / f"maxwell_contiguous_epochs_{stream_id}.json"
             epoch_concat_path = preprocess_dir / f"concatenation_stitch_epochs_{stream_id}.json"
 
+        preprocess_cfg_path = (preprocess_dir / "preprocess_config.json") if preprocess_dir is not None else None
+        requested_cfg = {
+            "temporal_resample_factor": (int(temporal_resample_factor) if temporal_resample_factor is not None else None),
+            "temporal_resample_rate_hz": (int(temporal_resample_rate_hz) if temporal_resample_rate_hz is not None else None),
+            "temporal_resample_margin_ms": float(temporal_resample_margin_ms),
+            "temporal_resample_dtype": (str(temporal_resample_dtype) if temporal_resample_dtype is not None else None),
+        }
+
         # Resume shortcut: if preprocessing is complete and the caller doesn't want to overwrite.
         if (
             save_recording
@@ -224,6 +236,22 @@ class AxonReconstructor:
             try:
                 import numpy as np  # type: ignore[import-not-found]
                 import spikeinterface.full as si  # type: ignore[import-not-found]
+
+                # If a config is present and doesn't match, do not resume.
+                if preprocess_cfg_path is not None and preprocess_cfg_path.exists():
+                    try:
+                        import json
+
+                        saved_cfg = json.loads(preprocess_cfg_path.read_text(errors="replace"))
+                        if isinstance(saved_cfg, dict) and saved_cfg.get("requested_cfg") != requested_cfg:
+                            raise RuntimeError(
+                                f"Saved preprocess_config.json does not match requested options; re-running preprocessing. "
+                                f"(saved at {preprocess_cfg_path})"
+                            )
+                    except Exception as e:
+                        raise
+                elif temporal_resample_rate_hz is not None or temporal_resample_factor is not None:
+                    raise RuntimeError("Temporal resampling requested but no preprocess_config.json found; re-running")
 
                 try:
                     multirec = si.load(recording_dir)
@@ -257,6 +285,10 @@ class AxonReconstructor:
                 n_jobs=n_jobs,
                 plot_output_dir=plot_dir,
                 epoch_markers_output_dir=(preprocess_dir if preprocess_dir is not None else plot_dir),
+                temporal_resample_factor=(int(temporal_resample_factor) if temporal_resample_factor is not None else None),
+                temporal_resample_rate_hz=(int(temporal_resample_rate_hz) if temporal_resample_rate_hz is not None else None),
+                temporal_resample_margin_ms=float(temporal_resample_margin_ms),
+                temporal_resample_dtype=(str(temporal_resample_dtype) if temporal_resample_dtype is not None else None),
             )
             logger.info("Concatenated recording built; common electrodes=%d", len(common_el))
             if epoch_maxwell_path is not None and epoch_concat_path is not None:
@@ -279,6 +311,25 @@ class AxonReconstructor:
             assert recording_dir is not None
             assert common_el_path is not None
             preprocess_dir.mkdir(parents=True, exist_ok=True)
+
+            if preprocess_cfg_path is not None:
+                try:
+                    import json
+                    import datetime as dt
+
+                    preprocess_cfg_path.write_text(
+                        json.dumps(
+                            {
+                                "generated_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+                                "requested_cfg": requested_cfg,
+                            },
+                            indent=2,
+                            sort_keys=True,
+                        )
+                        + "\n"
+                    )
+                except Exception as e:
+                    logger.warning("Failed to write preprocess_config.json: %s", e)
             try:
                 import numpy as np  # type: ignore[import-not-found]
                 import spikeinterface.full as si  # type: ignore[import-not-found]

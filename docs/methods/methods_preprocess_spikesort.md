@@ -1,4 +1,11 @@
-# Methods: Raw preprocessing + spikesorting (WIP)
+# Methods: Raw preprocessing + spikesorting (WIP / legacy)
+
+This document is kept for historical context.
+
+For the current stepwise documentation (with ordered `stage_XX_` filenames), start here:
+
+- [../stage_01_preprocessing.md](../stage_01_preprocessing.md)
+- [../stage_02_spikesorting.md](../stage_02_spikesorting.md)
 
 This document describes the **scientific / data-processing methods** used by `axon_reconstructor` to prepare Maxwell recordings for spikesorting and to interface with MEA_Analysis for GPU sorting.
 

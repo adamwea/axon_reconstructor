@@ -11,7 +11,7 @@ It ends immediately after the runner persists the waveforms-stage “audit artif
 - `waveforms_outputs/wf_rejection_log.xlsx`
 
 Terminology note:
-- Channel-set names (all/common/segment/non-common/unique/non-unique) are defined in `docs/methods_waveforms_channel_sets.md`.
+- Channel-set names (all/common/segment/non-common/unique/non-unique) are defined in `methods_waveforms_channel_sets.md`.
 
 Primary code paths:
 - `axon_reconstructor.pipeline.waveforms.runner.extract_waveforms(...)` (post-extraction block)

@@ -24,6 +24,12 @@ class PreprocessInputs:
     plot_layouts: bool = True
     force_restart: bool = False
 
+    # Optional: temporal resampling (e.g. factor=10) to emulate higher sampling rate.
+    temporal_resample_factor: Optional[int] = None
+    temporal_resample_rate_hz: Optional[int] = None
+    temporal_resample_margin_ms: float = 100.0
+    temporal_resample_dtype: Optional[str] = None
+
 
 @dataclass(frozen=True)
 class PreprocessOutputs:
@@ -158,6 +164,7 @@ def run_preprocessing_with_validations(
         try:
             import numpy as np  # type: ignore[import-not-found]
             import spikeinterface.full as si  # type: ignore[import-not-found]
+            import json
 
             from axon_reconstructor.pipeline.pipeline_driver import _compute_mea_analysis_output_dir, PREPROCESS_OUTPUTS_DIRNAME
 
@@ -169,6 +176,20 @@ def run_preprocessing_with_validations(
             preprocess_dir = well_out_dir / PREPROCESS_OUTPUTS_DIRNAME
             recording_dir = preprocess_dir / "preprocessed_recording"
             common_el_path = preprocess_dir / "common_electrodes.npy"
+            preprocess_cfg_path = preprocess_dir / "preprocess_config.json"
+
+            requested_cfg = {
+                "temporal_resample_factor": (
+                    int(inputs.temporal_resample_factor) if inputs.temporal_resample_factor is not None else None
+                ),
+                "temporal_resample_rate_hz": (
+                    int(inputs.temporal_resample_rate_hz) if inputs.temporal_resample_rate_hz is not None else None
+                ),
+                "temporal_resample_margin_ms": float(inputs.temporal_resample_margin_ms),
+                "temporal_resample_dtype": (
+                    str(inputs.temporal_resample_dtype) if inputs.temporal_resample_dtype is not None else None
+                ),
+            }
 
             ckpt_file = compute_checkpoint_file(
                 output_dir=well_out_dir,
@@ -186,6 +207,17 @@ def run_preprocessing_with_validations(
             checkpoint_ok = ckpt.stage >= ProcessingStage.PREPROCESSING_COMPLETE.value
 
             if recording_dir.exists() and common_el_path.exists() and checkpoint_ok:
+                # If resampling is requested, ensure the cached recording was built with matching options.
+                if preprocess_cfg_path.exists():
+                    saved_cfg = json.loads(preprocess_cfg_path.read_text(errors="replace"))
+                    if isinstance(saved_cfg, dict) and saved_cfg.get("requested_cfg") != requested_cfg:
+                        raise RuntimeError(
+                            f"Saved preprocess_config.json does not match requested options; re-running preprocessing. "
+                            f"(saved at {preprocess_cfg_path})"
+                        )
+                elif inputs.temporal_resample_factor is not None or inputs.temporal_resample_rate_hz is not None:
+                    raise RuntimeError("Temporal resampling requested but no preprocess_config.json found; re-running")
+
                 logger.info("Resuming preprocessing: loading saved recording from %s", recording_dir)
                 try:
                     multirec = si.load(recording_dir)
@@ -231,6 +263,16 @@ def run_preprocessing_with_validations(
         stream_id=str(inputs.stream_id),
         n_jobs=int(inputs.n_jobs),
         plot_layouts=bool(inputs.plot_layouts) and (inputs.mea_output_root is not None),
+        temporal_resample_factor=(
+            int(inputs.temporal_resample_factor) if inputs.temporal_resample_factor is not None else None
+        ),
+        temporal_resample_rate_hz=(
+            int(inputs.temporal_resample_rate_hz) if inputs.temporal_resample_rate_hz is not None else None
+        ),
+        temporal_resample_margin_ms=float(inputs.temporal_resample_margin_ms),
+        temporal_resample_dtype=(
+            str(inputs.temporal_resample_dtype) if inputs.temporal_resample_dtype is not None else None
+        ),
         overwrite_saved_recording=bool(inputs.force_restart),
     )
 
