@@ -10,6 +10,7 @@ This folder contains slide-ready Mermaid diagrams as `.mmd` files, plus a helper
 - `waveforms.mmd`
 - `templates.mmd`
 - `reconstruction.mmd`
+- `recording_to_reconstruction_dataflow.mmd`
 
 Rendered outputs are written to:
 

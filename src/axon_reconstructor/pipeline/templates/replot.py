@@ -368,6 +368,7 @@ def replot_unit_from_disk(
     fs_hz, ms_before, ms_after = _load_plot_window_from_waveforms_outputs(well_out_dir=well_out_dir)
 
     footprints_dir = templates_out_dir / "footprints"
+    footprints_zoomed_dir = templates_out_dir / "footprints_zoomed"
     svgs_dir = templates_out_dir / "svgs"
     full_chip_maps_dir = templates_out_dir / "full_chip_maps"
     topo_dir = templates_out_dir / "topo_unit_footprints"
@@ -383,6 +384,8 @@ def replot_unit_from_disk(
 
         out_lin = footprints_dir / f"unit_{unit_id}_merged_contributing_footprint_ptp_linear.png"
         out_log = footprints_dir / f"unit_{unit_id}_merged_contributing_footprint_ptp_log.png"
+        out_lin_zoom = footprints_zoomed_dir / f"unit_{unit_id}_merged_contributing_footprint_ptp_linear_zoom.png"
+        out_log_zoom = footprints_zoomed_dir / f"unit_{unit_id}_merged_contributing_footprint_ptp_log_zoom.png"
         if force or (not out_lin.exists()):
             _write_footprint_ptp_map(
                 out_path=out_lin,
@@ -402,6 +405,33 @@ def replot_unit_from_disk(
                 log_scale=True,
                 electrode_ids=merged.electrode_ids,
                 all_recorded_electrode_ids=all_recorded_electrode_ids,
+            )
+
+        # Zoomed (no-title) variants used by analysis summary grids.
+        if force or (not out_lin_zoom.exists()) or (not out_log_zoom.exists()):
+            footprints_zoomed_dir.mkdir(parents=True, exist_ok=True)
+
+        if force or (not out_lin_zoom.exists()):
+            _write_footprint_ptp_map(
+                out_path=out_lin_zoom,
+                channel_locations_xy=merged.channel_locations_xy,
+                footprint_ptp=amp,
+                title="",
+                log_scale=False,
+                electrode_ids=merged.electrode_ids,
+                all_recorded_electrode_ids=all_recorded_electrode_ids,
+                zoom=True,
+            )
+        if force or (not out_log_zoom.exists()):
+            _write_footprint_ptp_map(
+                out_path=out_log_zoom,
+                channel_locations_xy=merged.channel_locations_xy,
+                footprint_ptp=amp,
+                title="",
+                log_scale=True,
+                electrode_ids=merged.electrode_ids,
+                all_recorded_electrode_ids=all_recorded_electrode_ids,
+                zoom=True,
             )
 
     if make_svgs:

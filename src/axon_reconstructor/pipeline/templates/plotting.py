@@ -845,6 +845,7 @@ def _write_topo_unit_footprint_png(
     full_electrode_ids: Any,
     all_recorded_electrode_ids: Any,
     title: str,
+    overlap_resolved_line: Optional[str] = None,
     cmap: str = "viridis",
 ) -> None:
     """Write a 3D full-chip topographical footprint plot.
@@ -991,10 +992,23 @@ def _write_topo_unit_footprint_png(
         n_recording = int(np.sum(rec_mask)) if np.any(rec_mask) else int(CHIP_ROWS) * int(CHIP_COLS)
         n_contrib = int(np.sum(np.isfinite(Z) & (Z > float(noncontrib_height_uv))))
         n_noncontrib = int(max(0, n_recording - n_contrib))
+
+        overlap_line = str(overlap_resolved_line).strip() if overlap_resolved_line is not None else ""
+        if not overlap_line:
+            overlap_line = "overlap-resolved: none"
+
         ax.text2D(
             0.02,
             0.98,
-            f"recording={n_recording}\ncontrib={n_contrib}\nnoncontrib={n_noncontrib}\nnoncontrib floor={noncontrib_height_uv:g} µV",
+            "\n".join(
+                [
+                    f"recording={n_recording}",
+                    f"contrib={n_contrib}",
+                    f"noncontrib={n_noncontrib}",
+                    f"noncontrib floor={noncontrib_height_uv:g} µV",
+                    overlap_line,
+                ]
+            ),
             transform=ax.transAxes,
             ha="left",
             va="top",
@@ -1168,7 +1182,7 @@ def _write_unit_propagation_plots_png(
             lab = str(j)
         channel_labels.append(lab)
 
-    # Select channels for plotting: amplitude-only (ignore timing for now).
+    # Select channels for plotting.
     try:
         amp = np.ptp(tmpl, axis=0).astype(float)
     except Exception:
@@ -1326,6 +1340,194 @@ def _write_unit_propagation_plots_png(
 
     timings = _best_effort_ap_timings(template_t_by_ch=tmpl, t_ms=t_ms)
 
+    def _pick_channels_propagation_path(
+        *,
+        locs_xy: Any,
+        amp: Any,
+        neg_peak_i: Any,
+        top_n: int,
+        n_nearest: int = 8,
+        n_forward: int = 5,
+        tol_samples: int = 0,
+    ) -> list[int]:
+        """Heuristic ordering of channels along a putative propagation path.
+
+        - Start at max-PTP channel.
+        - Next: consider the N nearest channels; choose the max-PTP candidate whose trough
+          (negative peak) is at the same time or later than the current channel.
+        - Then: consider the K most "in front" of the direction (prev->curr); choose max-PTP
+          with the same timing constraint.
+
+        Timing constraint is strict: the trough must not go backwards in time.
+        """
+
+        import numpy as np  # type: ignore[import-not-found]
+
+        amp_arr = np.asarray(amp, dtype=float).ravel()
+        neg_arr = np.asarray(neg_peak_i, dtype=float).ravel()
+        locs = np.asarray(locs_xy, dtype=float)
+        if locs.ndim != 2 or locs.shape[0] != amp_arr.size or locs.shape[1] < 2:
+            return []
+        locs = locs[:, :2]
+
+        finite_xy = np.isfinite(locs[:, 0]) & np.isfinite(locs[:, 1])
+        finite_amp = np.isfinite(amp_arr)
+        finite_neg = np.isfinite(neg_arr)
+        valid = finite_xy & finite_amp & finite_neg
+        if not np.any(valid):
+            return []
+
+        top_n = int(max(1, min(int(top_n), int(amp_arr.size))))
+        remaining = set(int(i) for i in range(int(amp_arr.size)) if bool(valid[i]))
+        if not remaining:
+            return []
+
+        start = int(np.nanargmax(np.where(valid, amp_arr, -np.inf)))
+        if start not in remaining:
+            start = int(next(iter(remaining)))
+
+        picked: list[int] = [start]
+        remaining.remove(start)
+        prev: int | None = None
+        curr: int = start
+
+        def timing_ok(cand: int, ref: int) -> bool:
+            try:
+                return float(neg_arr[int(cand)]) + float(tol_samples) >= float(neg_arr[int(ref)])
+            except Exception:
+                return True
+
+        def pick_best(cands: list[int], ref: int, require_timing: bool) -> int | None:
+            best = None
+            best_amp = -np.inf
+            for c in cands:
+                if c not in remaining:
+                    continue
+                if require_timing and (not timing_ok(c, ref)):
+                    continue
+                a = float(amp_arr[int(c)])
+                if a > best_amp:
+                    best = int(c)
+                    best_amp = a
+            return best
+
+        def nearest_candidates(ref: int, k: int) -> list[int]:
+            ref = int(ref)
+            if ref < 0 or ref >= locs.shape[0]:
+                return []
+            d = locs - locs[ref][None, :]
+            d2 = np.sum(d * d, axis=1)
+            d2[~valid] = np.inf
+            d2[ref] = np.inf
+            for i in range(d2.size):
+                if i not in remaining:
+                    d2[i] = np.inf
+            idx = np.argsort(d2)
+            out: list[int] = []
+            for i in idx:
+                if not np.isfinite(d2[int(i)]):
+                    break
+                out.append(int(i))
+                if len(out) >= int(k):
+                    break
+            return out
+
+        def forward_candidates(prev_i: int, curr_i: int, k: int) -> list[int]:
+            prev_i = int(prev_i)
+            curr_i = int(curr_i)
+            d = locs[curr_i] - locs[prev_i]
+            dn = float(np.hypot(float(d[0]), float(d[1])))
+            if not (dn > 0):
+                return []
+            u = d / dn
+            v = locs - locs[curr_i][None, :]
+            proj = (v[:, 0] * u[0]) + (v[:, 1] * u[1])
+            mask = (proj > 0) & valid
+            for i in range(mask.size):
+                if i not in remaining:
+                    mask[i] = False
+            if not np.any(mask):
+                return []
+            perp = np.hypot(v[:, 0] - proj * u[0], v[:, 1] - proj * u[1])
+            metric = perp / (proj + 1e-9)
+            metric[~mask] = np.inf
+            idx = np.argsort(metric)
+            out: list[int] = []
+            for i in idx:
+                if not np.isfinite(metric[int(i)]):
+                    break
+                out.append(int(i))
+                if len(out) >= int(k):
+                    break
+            return out
+
+        def best_remaining_by_amp_with_timing(ref: int) -> int | None:
+            ref = int(ref)
+            rem = [i for i in range(int(amp_arr.size)) if i in remaining and timing_ok(int(i), ref)]
+            if not rem:
+                return None
+            try:
+                return int(rem[int(np.nanargmax(amp_arr[rem]))])
+            except Exception:
+                return int(rem[0])
+
+        # Step 2: nearest neighbors.
+        if len(picked) < top_n and remaining:
+            cands = nearest_candidates(curr, n_nearest)
+            nxt = pick_best(cands, curr, True)
+            if nxt is None:
+                # Global fallback, but still must obey timing constraint.
+                nxt = best_remaining_by_amp_with_timing(curr)
+            if nxt is not None and nxt in remaining:
+                prev, curr = curr, int(nxt)
+                picked.append(curr)
+                remaining.remove(curr)
+
+        # Subsequent steps: forward direction.
+        # User-requested: try the 3 most-forward channels first; if none work, try the 5 most-forward.
+        while len(picked) < top_n and remaining:
+            nxt = None
+            if prev is not None:
+                cands3 = forward_candidates(prev, curr, 3)
+                nxt = pick_best(cands3, curr, True)
+                if nxt is None:
+                    cands5 = forward_candidates(prev, curr, 5)
+                    nxt = pick_best(cands5, curr, True)
+            if nxt is None:
+                cands = nearest_candidates(curr, n_nearest)
+                nxt = pick_best(cands, curr, True)
+            if nxt is None:
+                # Global fallback, but still must obey timing constraint.
+                nxt = best_remaining_by_amp_with_timing(curr)
+            if nxt is None or nxt not in remaining:
+                break
+            prev, curr = curr, int(nxt)
+            picked.append(curr)
+            remaining.remove(curr)
+
+        return picked
+
+    top_n = max(1, int(min(int(top_channels), int(n_ch_total))))
+    order_by_amp = np.argsort(-np.asarray(amp, dtype=float))
+
+    picked: list[int] = []
+    locs_xy = merged_contributing.get("channel_locations")
+    neg_peak_i = timings.get("neg_peak_i")
+    if locs_xy is not None and neg_peak_i is not None:
+        try:
+            picked = _pick_channels_propagation_path(
+                locs_xy=locs_xy,
+                amp=amp,
+                neg_peak_i=neg_peak_i,
+                top_n=top_n,
+                n_nearest=8,
+                tol_samples=0,
+            )
+        except Exception:
+            picked = []
+    if not picked:
+        picked = [int(i) for i in order_by_amp[:top_n].tolist()]
+
     # Persist timing analysis next to merged_unit outputs when requested.
     if ap_timings_json_path is not None:
         try:
@@ -1344,6 +1546,8 @@ def _write_unit_propagation_plots_png(
                 "n_channels": int(n_ch_total),
                 "channel_labels": list(channel_labels),
                 "ptp_uv": np.asarray(amp, dtype=float).tolist(),
+                "picked_channel_indices": list(picked),
+                "picked_channel_labels": [str(channel_labels[int(i)]) for i in picked],
                 "ap_start_ms": np.asarray(timings.get("ap_start_ms"), dtype=float).tolist(),
                 "pre_pos_ms": np.asarray(timings.get("pre_pos_ms"), dtype=float).tolist(),
                 "pos_peak_ms": np.asarray(timings.get("pos_peak_ms"), dtype=float).tolist(),
@@ -1355,11 +1559,7 @@ def _write_unit_propagation_plots_png(
         except Exception:
             pass
 
-    top_n = max(1, int(min(int(top_channels), int(n_ch_total))))
-    order_by_amp = np.argsort(-np.asarray(amp, dtype=float))
-    picked = [int(i) for i in order_by_amp[:top_n].tolist()]
-
-    # Best channel by PTP (by definition in amplitude-only mode).
+    # Best channel by PTP.
     best_ch = int(picked[0]) if picked else None
 
     # Best channel by negative deflection magnitude (extracellular AP heuristic).
@@ -1405,6 +1605,11 @@ def _write_unit_propagation_plots_png(
     # Larger height than PPT to emphasize amplitudes during iteration.
     png_figsize = (13.333, 10.0)
 
+    # Font sizing (make this big for inspection and slide readability).
+    title_fs = 22
+    channel_label_fs = 16
+    scalebar_fs = 14
+
     neg_peak_i_all = timings.get("neg_peak_i")
     neg_peak_i_all = None if neg_peak_i_all is None else list(neg_peak_i_all)
 
@@ -1449,7 +1654,7 @@ def _write_unit_propagation_plots_png(
                     str(channel_labels[ch]),
                     ha="right",
                     va="center",
-                    fontsize=8,
+                    fontsize=channel_label_fs,
                     color="black",
                 )
             except Exception:
@@ -1466,12 +1671,12 @@ def _write_unit_propagation_plots_png(
 
         if add_scalebar is not None:
             try:
-                add_scalebar(ax=ax, units="µV", fontsize=8)
+                add_scalebar(ax=ax, units="µV", fontsize=scalebar_fs)
             except Exception:
                 pass
 
-        title_text = f"Propagation unit {unit_id} — {len(panel)} ch, ordered by amplitude (v = neg peak)"
-        fig.suptitle(title_text, fontsize=12)
+        title_text = f"Propagation unit {unit_id} — {len(panel)} ch, propagation-ordered (v = neg peak)"
+        fig.suptitle(title_text, fontsize=title_fs)
         try:
             fig.subplots_adjust(left=0.10, right=0.99, bottom=0.03, top=0.92)
         except Exception:
@@ -1522,11 +1727,14 @@ def _write_footprint_ptp_map(
     out_path: Path,
     channel_locations_xy: Any,
     footprint_ptp: Any,
-    title: str,
+    title: str = "",
     log_scale: bool,
     cmap: str = "viridis",
     electrode_ids: Any = None,
     all_recorded_electrode_ids: Any = None,
+    zoom: bool = False,
+    zoom_pad_um: float = 200.0,
+    zoom_pad_frac: float = 0.10,
 ) -> None:
     """Write a footprint PTP amplitude map as a single image.
 
@@ -1580,11 +1788,30 @@ def _write_footprint_ptp_map(
             ax=ax,
             values_by_electrode_id=values,
             all_recorded_electrode_ids=all_recorded_electrode_ids,
-            title=title,
+            title=(title or ""),
             cmap=cmap,
             norm=norm,
             cbar_label="PTP (µV)",
         )
+
+        if bool(zoom):
+            try:
+                # Convert contributing electrode ids to µm coordinates.
+                cols = e_trip[2].astype(float)
+                rows = e_trip[1].astype(float)
+                xs = cols * float(CHIP_PITCH_UM)
+                ys = rows * float(CHIP_PITCH_UM)
+
+                xmin, xmax = float(np.min(xs)), float(np.max(xs))
+                ymin, ymax = float(np.min(ys)), float(np.max(ys))
+                dx = max(xmax - xmin, 0.0)
+                dy = max(ymax - ymin, 0.0)
+                pad_x = max(float(zoom_pad_um), float(zoom_pad_frac) * dx)
+                pad_y = max(float(zoom_pad_um), float(zoom_pad_frac) * dy)
+                ax.set_xlim(xmin - pad_x, xmax + pad_x)
+                ax.set_ylim(ymin - pad_y, ymax + pad_y)
+            except Exception:
+                pass
         fig.tight_layout()
         fig.savefig(out_path, dpi=200)
         plt.close(fig)
@@ -1597,7 +1824,8 @@ def _write_footprint_ptp_map(
 
     fig = plt.figure(figsize=(5, 4))
     ax = fig.add_subplot(111)
-    ax.set_title(title, fontsize=10)
+    if title:
+        ax.set_title(str(title), fontsize=10)
     ax.set_xlabel("x")
     ax.set_ylabel("y")
     ax.set_aspect("equal", adjustable="box")
@@ -1617,6 +1845,23 @@ def _write_footprint_ptp_map(
 
     sc = ax.scatter(locs[:, 0], locs[:, 1], c=amp, s=18, cmap=cmap, norm=norm, marker="s", linewidths=0)
     fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04, label="PTP")
+
+    if bool(zoom):
+        try:
+            good = np.isfinite(amp) & (amp > 0)
+            xs = locs[good, 0]
+            ys = locs[good, 1]
+            if xs.size and ys.size:
+                xmin, xmax = float(np.min(xs)), float(np.max(xs))
+                ymin, ymax = float(np.min(ys)), float(np.max(ys))
+                dx = max(xmax - xmin, 0.0)
+                dy = max(ymax - ymin, 0.0)
+                pad_x = max(float(zoom_pad_um), float(zoom_pad_frac) * dx)
+                pad_y = max(float(zoom_pad_um), float(zoom_pad_frac) * dy)
+                ax.set_xlim(xmin - pad_x, xmax + pad_x)
+                ax.set_ylim(ymin - pad_y, ymax + pad_y)
+        except Exception:
+            pass
     fig.tight_layout()
     fig.savefig(out_path, dpi=200)
     plt.close(fig)
