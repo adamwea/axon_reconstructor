@@ -1,10 +1,86 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Optional
 
 from .extraction import _choose_grid_source_for_unit, _gather_template_sources_for_unit, _persist_unit_templates
 from .utils import _build_merged_contributing_template_for_unit
+
+
+def _format_overlap_resolved_line(*, merged_units_dir: Path, unit_id: Any, max_show: int = 12) -> str:
+    """Format a short overlap-resolution summary from persisted merged template metadata.
+
+    Returned string is intended to be appended as a single extra line in plot info blocks.
+    """
+
+    meta_path = Path(merged_units_dir) / f"unit_{unit_id}" / "merged_contributing_template_meta.json"
+    if not meta_path.exists():
+        return "overlap-resolved: (meta missing)"
+
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+    except Exception:
+        return "overlap-resolved: (meta unreadable)"
+
+    if not isinstance(meta, dict):
+        return "overlap-resolved: (meta invalid)"
+
+    overlap = meta.get("overlap")
+    if not isinstance(overlap, dict):
+        return "overlap-resolved: none"
+
+    chans = overlap.get("channels")
+    if not isinstance(chans, list) or (not chans):
+        return "overlap-resolved: none"
+
+    entries: list[str] = []
+    for ch in chans:
+        if not isinstance(ch, dict):
+            continue
+
+        key = ch.get("key")
+        idx = ch.get("channel_index")
+
+        kind = None
+        val = None
+        try:
+            if isinstance(key, (list, tuple)) and len(key) >= 2:
+                kind = key[0]
+                val = key[1]
+        except Exception:
+            kind = None
+            val = None
+
+        if kind == "electrode" and val is not None:
+            s = f"e{val}"
+            if idx is not None:
+                s += f"(idx{idx})"
+        elif kind == "channel" and val is not None:
+            s = f"{val}"
+            if idx is not None:
+                s += f"(idx{idx})"
+        else:
+            s = f"idx{idx}" if idx is not None else "(unknown)"
+
+        entries.append(str(s))
+
+    # De-dup while preserving order.
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for s in entries:
+        if s not in seen:
+            uniq.append(s)
+            seen.add(s)
+
+    if not uniq:
+        return "overlap-resolved: none"
+
+    shown = uniq[: int(max_show)]
+    more = len(uniq) - len(shown)
+    suffix = f" +{more} more" if more > 0 else ""
+    return "overlap-resolved: " + ", ".join(shown) + suffix
 
 
 def _infer_template_plot_window(*, well_out_dir: Path, analyzers: list[tuple[str, Any]], read_json) -> tuple[float, Optional[float], Optional[float]]:
@@ -102,6 +178,7 @@ def process_unit_list(
     extracted_templates_dir: Path,
     merged_units_dir: Path,
     merged_unit_footprints_dir: Path,
+    merged_unit_footprints_zoomed_dir: Optional[Path] = None,
     merged_unit_svgs_dir: Path,
     merged_unit_full_chip_maps_dir: Path,
     axon_velocity_outputs_root_dir: Path,
@@ -277,6 +354,32 @@ def process_unit_list(
                     all_recorded_electrode_ids=all_recorded_electrode_ids,
                 )
 
+                # Zoomed-in versions (no title), for summary grids/presentations.
+                if merged_unit_footprints_zoomed_dir is not None:
+                    merged_unit_footprints_zoomed_dir.mkdir(parents=True, exist_ok=True)
+                    write_footprint_ptp_map(
+                        out_path=merged_unit_footprints_zoomed_dir
+                        / f"unit_{uid}_merged_contributing_footprint_ptp_linear_zoom.png",
+                        channel_locations_xy=locs[:, :2],
+                        footprint_ptp=amp,
+                        title="",
+                        log_scale=False,
+                        electrode_ids=merged_contributing_electrode_ids,
+                        all_recorded_electrode_ids=all_recorded_electrode_ids,
+                        zoom=True,
+                    )
+                    write_footprint_ptp_map(
+                        out_path=merged_unit_footprints_zoomed_dir
+                        / f"unit_{uid}_merged_contributing_footprint_ptp_log_zoom.png",
+                        channel_locations_xy=locs[:, :2],
+                        footprint_ptp=amp,
+                        title="",
+                        log_scale=True,
+                        electrode_ids=merged_contributing_electrode_ids,
+                        all_recorded_electrode_ids=all_recorded_electrode_ids,
+                        zoom=True,
+                    )
+
                 write_unit_template_and_footprint_svg(
                     out_path=merged_unit_svgs_dir / f"unit_{uid}_merged_contributing_template_footprint_linear.svg",
                     unit_id=uid,
@@ -361,6 +464,10 @@ def process_unit_list(
                             full_electrode_ids=(full_eids.tolist() if full_eids is not None else None),
                             all_recorded_electrode_ids=all_recorded_electrode_ids,
                             title=f"Unit {uid} full-template topo footprint (PTP)",
+                            overlap_resolved_line=_format_overlap_resolved_line(
+                                merged_units_dir=merged_units_dir,
+                                unit_id=uid,
+                            ),
                         )
             except Exception:
                 pass

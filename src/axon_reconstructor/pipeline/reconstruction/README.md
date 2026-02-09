@@ -20,10 +20,19 @@ Produces per-unit and all-units PDF summaries plus a JSON summary.
 
 ## Inputs consumed (from templates)
 
+axon_velocity is most robust when given a *dense full-channel template* on a deterministic geometry.
+By default, reconstruction consumes the full-channel templates emitted by the templates stage.
+
+From `<well>/templates_outputs/full_channels_templates/unit_<id>/`:
+
+- `full_template.npy`
+- `full_channel_locations_xy.npy`
+- `full_template_meta.json` (best-effort)
+
+Reconstruction also reads (best-effort) sampling frequency metadata from the merged-contributing meta file:
+
 From `<well>/templates_outputs/merged_units/unit_<id>/`:
 
-- `merged_contributing_template.npy`
-- `merged_contributing_channel_locations.npy`
 - `merged_contributing_template_meta.json`
 
 ## Outputs (artifacts)

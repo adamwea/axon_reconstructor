@@ -1,7 +1,12 @@
 """Reconstruction step.
 
 This package runs axon reconstruction (axon_velocity + additional logic) using
-Merged contributing-channels templates and per-unit metadata.
+templates-stage artifacts.
+
+Reconstruction is designed to consume dense full-channel templates under
+`<well>/templates_outputs/full_channels_templates/` for best compatibility with
+axon_velocity. It reads merged-contributing metadata best-effort (e.g. sampling
+frequency) from `<well>/templates_outputs/merged_units/`.
 
 Primary entry points are re-exported from .main for compatibility.
 """

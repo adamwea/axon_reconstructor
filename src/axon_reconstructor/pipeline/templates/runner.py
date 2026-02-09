@@ -146,6 +146,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
 
     # Plot outputs (plot-type dirs directly under templates_outputs/)
     merged_unit_footprints_dir = templates_out_dir / "footprints"
+    merged_unit_footprints_zoomed_dir = templates_out_dir / "footprints_zoomed"
     merged_unit_svgs_dir = templates_out_dir / "svgs"
     merged_unit_full_chip_maps_dir = templates_out_dir / "full_chip_maps"
     axon_velocity_outputs_root_dir = templates_out_dir / "axon_velocity_outputs"
@@ -203,6 +204,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     extracted_templates_dir.mkdir(parents=True, exist_ok=True)
     merged_units_dir.mkdir(parents=True, exist_ok=True)
     merged_unit_footprints_dir.mkdir(parents=True, exist_ok=True)
+    merged_unit_footprints_zoomed_dir.mkdir(parents=True, exist_ok=True)
     merged_unit_svgs_dir.mkdir(parents=True, exist_ok=True)
     merged_unit_full_chip_maps_dir.mkdir(parents=True, exist_ok=True)
     axon_velocity_outputs_root_dir.mkdir(parents=True, exist_ok=True)
@@ -278,6 +280,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         "topo_unit_footprints_dir": str(topo_unit_footprints_dir) if bool(inputs.plot_topo_unit_footprints) else None,
         "propagation_plots_dir": str(propagation_plots_dir) if bool(inputs.plot_propagation_plots) else None,
         "merged_unit_footprints_dir": str(merged_unit_footprints_dir),
+        "merged_unit_footprints_zoomed_dir": str(merged_unit_footprints_zoomed_dir),
         "merged_unit_svgs_dir": str(merged_unit_svgs_dir),
         "merged_unit_full_chip_maps_dir": str(merged_unit_full_chip_maps_dir),
         "axon_velocity_outputs_root_dir": str(axon_velocity_outputs_root_dir),
@@ -300,6 +303,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         extracted_templates_dir=extracted_templates_dir,
         merged_units_dir=merged_units_dir,
         merged_unit_footprints_dir=merged_unit_footprints_dir,
+        merged_unit_footprints_zoomed_dir=merged_unit_footprints_zoomed_dir,
         merged_unit_svgs_dir=merged_unit_svgs_dir,
         merged_unit_full_chip_maps_dir=merged_unit_full_chip_maps_dir,
         axon_velocity_outputs_root_dir=axon_velocity_outputs_root_dir,

@@ -120,6 +120,19 @@ class ReconstructionInputs:
     unit_ids: Optional[list[Any]] = None
     unit_limit: Optional[int] = None
 
+    # Template source for axon_velocity.
+    #
+    # axon_velocity is most robust when given a dense full-channel template on a deterministic
+    # geometry (e.g. Maxwell full chip). By default we therefore consume templates-stage outputs
+    # under `<well>/templates_outputs/full_channels_templates/`.
+    #
+    # Set `use_full_channels_templates=False` to fall back to the sparse merged-contributing
+    # template under `<well>/templates_outputs/merged_units/`.
+    use_full_channels_templates: bool = True
+
+    # If True, raise if full-channel templates are missing.
+    require_full_channels_templates: bool = True
+
     # axon_velocity params (merged onto defaults). Only keys accepted by
     # axon_velocity.compute_graph_propagation_velocity are passed through.
     axon_velocity_params: Optional[dict[str, Any]] = None
@@ -147,9 +160,11 @@ class ReconstructionOutputs:
 def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_prefix: str = "axon_reconstructor") -> ReconstructionOutputs:
     """Run axon reconstruction/velocity estimation using axon_velocity.
 
-        This stage consumes the merged contributing-channels artifacts from templates extraction:
-            <well>/templates_outputs/merged_units/unit_<id>/merged_contributing_template.npy
-            <well>/templates_outputs/merged_units/unit_<id>/merged_contributing_channel_locations.npy
+        This stage primarily consumes the dense full-channel template artifacts from templates extraction:
+            <well>/templates_outputs/full_channels_templates/unit_<id>/full_template.npy
+            <well>/templates_outputs/full_channels_templates/unit_<id>/full_channel_locations_xy.npy
+
+        It also reads (best-effort) sampling frequency metadata from:
             <well>/templates_outputs/merged_units/unit_<id>/merged_contributing_template_meta.json
 
     And produces:
@@ -222,8 +237,17 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
 
     templates_out_dir = well_out_dir / "templates_outputs"
     merged_units_dir = templates_out_dir / "merged_units"
+    full_channels_templates_dir = templates_out_dir / "full_channels_templates"
     if not merged_units_dir.exists():
         raise FileNotFoundError(f"Missing merged templates at {merged_units_dir}")
+    if bool(inputs.use_full_channels_templates) and bool(inputs.require_full_channels_templates):
+        if not full_channels_templates_dir.exists():
+            raise FileNotFoundError(
+                "Reconstruction is configured to require full-channel templates for axon_velocity, "
+                f"but {full_channels_templates_dir} does not exist. "
+                "Re-run templates with save_full_channels_templates=True, or set "
+                "ReconstructionInputs(require_full_channels_templates=False)."
+            )
 
     try:
         import numpy as np  # type: ignore[import-not-found]
@@ -283,8 +307,15 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
         "stream_id": inputs.stream_id,
         "well_out_dir": str(well_out_dir),
         "templates_merged_units_dir": str(merged_units_dir),
+        "templates_full_channels_templates_dir": (
+            str(full_channels_templates_dir) if full_channels_templates_dir.exists() else None
+        ),
         "reconstruction_out_dir": str(recon_out_dir),
         "axon_velocity_params": {k: _jsonable(v) for k, v in params.items()},
+        "template_source": {
+            "use_full_channels_templates": bool(inputs.use_full_channels_templates),
+            "require_full_channels_templates": bool(inputs.require_full_channels_templates),
+        },
         "units": [],
     }
 
@@ -294,9 +325,14 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
 
     for uid in unit_ids:
         unit_dir = merged_units_dir / f"unit_{uid}"
-        tmpl_npy = unit_dir / "merged_contributing_template.npy"
-        locs_npy = unit_dir / "merged_contributing_channel_locations.npy"
-        meta_json = unit_dir / "merged_contributing_template_meta.json"
+        merged_tmpl_npy = unit_dir / "merged_contributing_template.npy"
+        merged_locs_npy = unit_dir / "merged_contributing_channel_locations.npy"
+        merged_meta_json = unit_dir / "merged_contributing_template_meta.json"
+
+        full_unit_dir = full_channels_templates_dir / f"unit_{uid}"
+        full_tmpl_npy = full_unit_dir / "full_template.npy"
+        full_locs_npy = full_unit_dir / "full_channel_locations_xy.npy"
+        full_meta_json = full_unit_dir / "full_template_meta.json"
 
         out_unit_dir = by_unit_dir / f"unit_{uid}"
         out_unit_dir.mkdir(parents=True, exist_ok=True)
@@ -304,9 +340,16 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
         unit_summary: dict[str, Any] = {
             "unit_id": _jsonable(uid),
             "inputs": {
-                "template_npy": str(tmpl_npy),
-                "channel_locations_npy": str(locs_npy),
-                "template_meta_json": str(meta_json),
+                "merged_contributing": {
+                    "template_npy": str(merged_tmpl_npy),
+                    "channel_locations_npy": str(merged_locs_npy),
+                    "template_meta_json": str(merged_meta_json),
+                },
+                "full_channels": {
+                    "full_template_npy": str(full_tmpl_npy),
+                    "full_channel_locations_xy_npy": str(full_locs_npy),
+                    "full_template_meta_json": str(full_meta_json),
+                },
             },
             "outputs": {},
             "status": "ok",
@@ -314,11 +357,26 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
         }
 
         try:
-            if not tmpl_npy.exists() or not locs_npy.exists():
-                raise FileNotFoundError(f"Missing merged template inputs for unit {uid}")
+            use_full = bool(inputs.use_full_channels_templates)
+            if use_full:
+                if not full_tmpl_npy.exists() or not full_locs_npy.exists():
+                    if bool(inputs.require_full_channels_templates):
+                        raise FileNotFoundError(
+                            f"Missing full-channel templates for unit {uid}: expected {full_tmpl_npy} and {full_locs_npy}"
+                        )
+                    use_full = False
 
-            tmpl = np.load(tmpl_npy)
-            locs = np.load(locs_npy)
+            if use_full:
+                tmpl = np.load(full_tmpl_npy)
+                locs = np.load(full_locs_npy)
+                unit_summary["inputs"]["selected_template_source"] = "full_channels_templates"
+            else:
+                if not merged_tmpl_npy.exists() or not merged_locs_npy.exists():
+                    raise FileNotFoundError(f"Missing merged template inputs for unit {uid}")
+                tmpl = np.load(merged_tmpl_npy)
+                locs = np.load(merged_locs_npy)
+                unit_summary["inputs"]["selected_template_source"] = "merged_contributing"
+
             if tmpl.ndim != 2:
                 raise ValueError(f"Unexpected template shape for unit {uid}: {tmpl.shape}")
             if locs.ndim != 2 or locs.shape[1] < 2:
@@ -330,8 +388,12 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
 
             fs_hz = None
             try:
-                meta = _read_json(meta_json)
-                fs_hz = float(meta.get("sampling_frequency_hz")) if meta.get("sampling_frequency_hz") is not None else None
+                meta = _read_json(merged_meta_json)
+                fs_hz = (
+                    float(meta.get("sampling_frequency_hz"))
+                    if meta.get("sampling_frequency_hz") is not None
+                    else None
+                )
             except Exception:
                 fs_hz = None
             if fs_hz is None:
@@ -435,6 +497,9 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
             )
             if ok:
                 summary["all_units_overview_pdf"] = str(all_units_overview_pdf)
+                all_units_overview_png = all_units_overview_pdf.with_suffix(".png")
+                if all_units_overview_png.exists():
+                    summary["all_units_overview_png"] = str(all_units_overview_png)
         except Exception as e:
             logger.warning("Failed writing all-units overview pdf: %s", e)
 
