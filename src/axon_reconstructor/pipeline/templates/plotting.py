@@ -1119,37 +1119,43 @@ def _write_unit_propagation_plots_png(
     n_waveforms: int = 12,
     channels_per_panel: int = 25,
     channel_overlap: int = 5,
-    show_electrode_ids: bool = True,
+    show_electrode_ids: bool = False,
     trace_gain: float = 1.0,
     trace_spacing: float = 1.0,
     ap_timings_json_path: Optional[Path] = None,
     logger=None,
 ) -> None:
-    """Write propagation plots derived from the merged contributing-channels template as PNG(s).
+    """Write a propagation plot PNG via `axon_velocity`.
 
-    Preferred implementation: `axon_velocity.plotting.plot_template_propagation`.
+    No legacy fallback: if axon_velocity is unavailable or inputs are invalid, return.
 
-    Notes:
-    - This is intentionally *template-based* (one trace per channel) so we don't need to
-        re-extract or load waveforms/spike trains for plotting.
-    - The legacy implementation below (geometry/timing heuristics + multi-panel rendering)
-        is kept as a best-effort fallback, but is deprecated.
+    Optional cosmetics (implemented post-render, without editing axon_velocity):
+    - `trace_gain`: scale waveform amplitude about each trace baseline
+    - `trace_spacing`: scale vertical spacing between traces (smaller -> more overlap)
+    - `show_electrode_ids`: annotate electrode ids left of each trace
     """
+
+    _ = n_waveforms
+    _ = channels_per_panel
+    _ = channel_overlap
+    _ = ap_timings_json_path
 
     import numpy as np  # type: ignore[import-not-found]
     import matplotlib
 
     matplotlib.use("Agg", force=True)
     import matplotlib.pyplot as plt
-    # PNG output only (faster iteration than multipage PDFs).
 
-    _ = n_waveforms  # deprecated: kept for API/backwards-compatibility
+    try:
+        import axon_velocity.plotting as av_plot  # type: ignore[import-not-found]
+    except Exception:
+        return
 
     try:
         tmpl = np.asarray(merged_contributing.get("template"), dtype=float)
     except Exception:
-        tmpl = None
-    if tmpl is None or getattr(tmpl, "ndim", 0) != 2 or tmpl.size == 0:
+        return
+    if tmpl.ndim != 2 or tmpl.size == 0:
         return
 
     n_samp = int(tmpl.shape[0])
@@ -1157,783 +1163,172 @@ def _write_unit_propagation_plots_png(
     if n_samp <= 1 or n_ch_total <= 0:
         return
 
-    # Prefer axon_velocity's propagation plot renderer (when available).
-    # axon_velocity expects template as (n_channels, n_samples).
+    locs_xy = merged_contributing.get("channel_locations")
+    if locs_xy is None:
+        return
     try:
-        import axon_velocity.plotting as av_plot  # type: ignore[import-not-found]
-
-        locs_xy = merged_contributing.get("channel_locations")
-        if locs_xy is not None:
-            locs_xy = np.asarray(locs_xy, dtype=float)
-        if locs_xy is not None and locs_xy.ndim == 2 and int(locs_xy.shape[0]) == int(n_ch_total) and int(locs_xy.shape[1]) >= 2:
-            # Select top-N channels by PTP.
-            try:
-                amp = np.ptp(tmpl, axis=0).astype(float)
-            except Exception:
-                amp = None
-            if amp is not None and np.asarray(amp).ndim == 1:
-                top_n = int(max(1, min(int(top_channels), int(n_ch_total))))
-                order = np.argsort(-np.asarray(amp, dtype=float))
-                selected = [int(i) for i in order[:top_n].tolist()]
-
-                out_dir = Path(out_dir)
-                out_dir.mkdir(parents=True, exist_ok=True)
-                out_path = out_dir / f"unit_{unit_id}.png"
-
-                # Reasonable aspect scaling with channel count.
-                fig_h = float(min(18.0, max(4.5, 0.38 * float(len(selected)) + 1.5)))
-                fig_w = 10.5
-                fig = plt.figure(figsize=(fig_w, fig_h))
-                ax = fig.add_subplot(111)
-
-                av_plot.plot_template_propagation(
-                    tmpl.T,
-                    locs_xy[:, :2],
-                    selected,
-                    sort_templates=True,
-                    color="black",
-                    color_marker="black",
-                    ax=ax,
-                )
-
-                # Post-process Matplotlib artists to allow amplitude gain and/or trace overlap
-                # without modifying axon_velocity. This assumes one Line2D per channel trace.
-                trace_gain_f = float(trace_gain) if trace_gain is not None else 1.0
-                trace_spacing_f = float(trace_spacing) if trace_spacing is not None else 1.0
-                if not (trace_gain_f > 0):
-                    trace_gain_f = 1.0
-                if not (trace_spacing_f > 0):
-                    trace_spacing_f = 1.0
-
-                # These values will be reused for electrode-id label placement.
-                selected_sorted: list[int] = []
-                new_spacing: Optional[float] = None
-
-                try:
-                    import numpy as np  # type: ignore[import-not-found]
-
-                    # Replicate axon_velocity's ordering (sort by negative peak index).
-                    template_selected = np.asarray(tmpl.T, dtype=float)[np.asarray(selected, dtype=int), :]
-                    peaks = np.argmin(template_selected, axis=1)
-                    order = np.argsort(peaks)
-                    selected_sorted = [int(selected[int(i)]) for i in order.tolist()]
-
-                    template_sorted = template_selected[order]
-                    ptp_glob = float(np.max(np.ptp(template_sorted, axis=1))) if template_sorted.size else 1.0
-                    if not (ptp_glob > 0):
-                        ptp_glob = 1.0
-
-                    # Gather plotted lines + estimate original spacing from their median y.
-                    lines = list(getattr(ax, "lines", []))
-
-                    # axon_velocity uses a fixed baseline spacing: i * (1.5 * ptp_glob)
-                    old_spacing = 1.5 * float(ptp_glob)
-                    new_spacing = float(old_spacing) * float(trace_spacing_f)
-
-                    # Preferred path: axon_velocity draws 2 lines per trace (wave + peak dot).
-                    n_traces = int(template_sorted.shape[0])
-                    expected = 2 * n_traces
-                    ok_pairing = (n_traces > 0) and (len(lines) >= expected)
-                    if ok_pairing:
-                        try:
-                            for i in range(n_traces):
-                                mk = lines[2 * i + 1].get_marker()
-                                if str(mk) != "o":
-                                    ok_pairing = False
-                                    break
-                        except Exception:
-                            ok_pairing = False
-
-                    if ok_pairing:
-                        for i in range(n_traces):
-                            base_old = float(i) * float(old_spacing)
-                            base_new = float(i) * float(new_spacing)
-
-                            for ln in (lines[2 * i], lines[2 * i + 1]):
-                                yd = np.asarray(ln.get_ydata(orig=False), dtype=float)
-                                if yd.size == 0:
-                                    continue
-                                ln.set_ydata((yd - base_old) * float(trace_gain_f) + base_new)
-                    else:
-                        # Fallback: adjust multi-point lines by median baseline, then
-                        # move 1-point marker lines by snapping to nearest baseline.
-                        line_infos: list[tuple[float, Any]] = []
-                        baselines: list[float] = []
-                        for ln in lines:
-                            try:
-                                yd = np.asarray(ln.get_ydata(orig=False), dtype=float)
-                            except Exception:
-                                continue
-                            if yd.size < 2 or not np.isfinite(yd).any():
-                                continue
-                            b = float(np.nanmedian(yd))
-                            baselines.append(b)
-                            line_infos.append((b, ln))
-                        line_infos.sort(key=lambda t: t[0])
-                        baselines_sorted = np.asarray([b for b, _ in line_infos], dtype=float) if line_infos else None
-
-                        for i, (baseline, ln) in enumerate(line_infos):
-                            yd = np.asarray(ln.get_ydata(orig=False), dtype=float)
-                            if yd.size < 2:
-                                continue
-                            centered = yd - float(baseline)
-                            ln.set_ydata(centered * float(trace_gain_f) + float(i) * float(new_spacing))
-
-                        if baselines_sorted is not None and baselines_sorted.size:
-                            for ln in lines:
-                                try:
-                                    yd = np.asarray(ln.get_ydata(orig=False), dtype=float)
-                                except Exception:
-                                    continue
-                                if yd.size != 1 or (not np.isfinite(yd[0])):
-                                    continue
-                                y0 = float(yd[0])
-                                i = int(np.argmin(np.abs(baselines_sorted - y0)))
-                                base_old = float(baselines_sorted[i])
-                                base_new = float(i) * float(new_spacing)
-                                ln.set_ydata(np.asarray([(y0 - base_old) * float(trace_gain_f) + base_new], dtype=float))
-
-                    # Expand y-limits so large gain doesn't clip the bottom/top.
-                    try:
-                        ymins: list[float] = []
-                        ymaxs: list[float] = []
-                        for ln in list(getattr(ax, "lines", [])):
-                            try:
-                                yd = np.asarray(ln.get_ydata(orig=False), dtype=float)
-                            except Exception:
-                                continue
-                            if yd.size == 0 or not np.isfinite(yd).any():
-                                continue
-                            ymins.append(float(np.nanmin(yd)))
-                            ymaxs.append(float(np.nanmax(yd)))
-                        if ymins and ymaxs:
-                            ymin = float(min(ymins))
-                            ymax = float(max(ymaxs))
-                            pad = max(0.15 * float(old_spacing) * float(trace_gain_f), 0.05 * (ymax - ymin))
-                            if np.isfinite(ymin) and np.isfinite(ymax) and (ymax > ymin):
-                                ax.set_ylim(ymin - pad, ymax + pad)
-                    except Exception:
-                        pass
-                except Exception:
-                    # Never fail plot generation due to optional styling.
-                    selected_sorted = []
-                    new_spacing = None
-
-                if bool(show_electrode_ids):
-                    try:
-                        from matplotlib.transforms import blended_transform_factory
-
-                        electrode_ids = merged_contributing.get("electrode_ids")
-                        channel_ids = merged_contributing.get("channel_ids")
-
-                        # Build a per-channel label list aligned to channel index.
-                        labels_all: list[str] = []
-                        for ch_idx in range(n_ch_total):
-                            lab = None
-                            if electrode_ids is not None:
-                                try:
-                                    e = list(electrode_ids)[int(ch_idx)]
-                                    if e is not None:
-                                        lab = f"e{int(e)}"
-                                except Exception:
-                                    lab = None
-                            if lab is None and channel_ids is not None:
-                                try:
-                                    c = list(channel_ids)[int(ch_idx)]
-                                    if c is not None:
-                                        lab = str(c)
-                                except Exception:
-                                    lab = None
-                            if lab is None:
-                                lab = str(int(ch_idx))
-                            labels_all.append(str(lab))
-
-                        # Use the post-processed spacing when available; otherwise fall back.
-                        if not selected_sorted:
-                            import numpy as np  # type: ignore[import-not-found]
-
-                            template_selected = np.asarray(tmpl.T, dtype=float)[np.asarray(selected, dtype=int), :]
-                            peaks = np.argmin(template_selected, axis=1)
-                            order = np.argsort(peaks)
-                            selected_sorted = [int(selected[int(i)]) for i in order.tolist()]
-
-                        if new_spacing is None:
-                            import numpy as np  # type: ignore[import-not-found]
-
-                            template_selected = np.asarray(tmpl.T, dtype=float)[np.asarray(selected, dtype=int), :]
-                            template_sorted = template_selected[np.argsort(np.argmin(template_selected, axis=1))]
-                            ptp_per = np.ptp(template_sorted, axis=1)
-                            ptp_glob = float(np.max(ptp_per)) if ptp_per.size else 1.0
-                            if not (ptp_glob > 0):
-                                ptp_glob = 1.0
-                            new_spacing = 1.5 * float(ptp_glob) * float(trace_spacing_f)
-
-                        trans = blended_transform_factory(ax.transAxes, ax.transData)
-                        x_ax = -0.01
-                        for i, ch_idx in enumerate(selected_sorted):
-                            y0 = float(i) * float(new_spacing)
-                            ax.text(
-                                x_ax,
-                                y0,
-                                labels_all[int(ch_idx)],
-                                transform=trans,
-                                ha="right",
-                                va="center",
-                                fontsize=12,
-                                color="black",
-                                clip_on=False,
-                            )
-                    except Exception:
-                        pass
-
-                fig.savefig(out_path, dpi=220, bbox_inches="tight", pad_inches=0.02)
-                plt.close(fig)
-                return
+        locs_xy = np.asarray(locs_xy, dtype=float)
     except Exception:
-        # Fall back to legacy implementation below.
-        try:
-            import warnings
+        return
+    if locs_xy.ndim != 2 or int(locs_xy.shape[0]) != int(n_ch_total) or int(locs_xy.shape[1]) < 2:
+        return
 
-            warnings.warn(
-                "Falling back to deprecated propagation-plot renderer; install/enable axon_velocity to use the preferred renderer.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        except Exception:
-            pass
-
-    # Time axis (ms) for plotting.
-    if ms_before is not None and ms_after is not None and (ms_before + ms_after) > 0 and n_samp > 1:
-        t_ms = np.linspace(-float(ms_before), float(ms_after), n_samp)
-    else:
-        t_ms = (np.arange(n_samp, dtype=float) / float(fs_hz)) * 1000.0
-
-    # Channel IDs for labeling (prefer electrode ids).
-    electrode_ids = merged_contributing.get("electrode_ids")
-    channel_ids = merged_contributing.get("channel_ids")
-    channel_labels: list[str] = []
-    for j in range(n_ch_total):
-        lab = None
-        if electrode_ids is not None:
-            try:
-                e = list(electrode_ids)[int(j)]
-                if e is not None:
-                    lab = f"e{int(e)}"
-            except Exception:
-                lab = None
-        if lab is None and channel_ids is not None:
-            try:
-                c = list(channel_ids)[int(j)]
-                if c is not None:
-                    lab = str(c)
-            except Exception:
-                lab = None
-        if lab is None:
-            lab = str(j)
-        channel_labels.append(lab)
-
-    # Select channels for plotting.
     try:
         amp = np.ptp(tmpl, axis=0).astype(float)
     except Exception:
-        amp = None
-    if amp is None or np.asarray(amp).ndim != 1:
+        return
+    if np.asarray(amp).ndim != 1:
         return
 
-    def _best_effort_ap_timings(*, template_t_by_ch: Any, t_ms: Any) -> dict[str, Any]:
-        """Best-effort AP timing indices for each channel.
-
-        Assumes an extracellular waveform shape:
-        - a large negative deflection (often the dominant feature)
-        - often a smaller positive deflection before and/or after the negative peak
-
-                This implementation enforces a strict chronology of timepoints per channel:
-                    ap_start -> pre_pos -> neg_peak -> post_pos -> ap_end
-
-                Method:
-                - Anchor on the negative peak.
-                - Define a symmetric "noise band" around a robust baseline using a robust noise estimate.
-                - Find AP start/end as the boundaries of the contiguous (best-effort) region around the negative
-                    peak where the waveform is outside that noise band.
-                - Within the AP window, pick the strongest positive deflection before/after the negative peak.
-        """
-
-        import numpy as np  # type: ignore[import-not-found]
-
-        tmpl2 = np.asarray(template_t_by_ch, dtype=float)
-        t_ms_arr = np.asarray(t_ms, dtype=float)
-        n_samp_local = int(tmpl2.shape[0])
-        n_ch_local = int(tmpl2.shape[1])
-
-        n0 = max(3, int(round(0.15 * n_samp_local)))
-        baseline = np.nanmedian(tmpl2[:n0, :], axis=0)
-
-        # Noise estimate (MAD) from early+late windows, excluding the central region.
-        try:
-            early = tmpl2[:n0, :]
-            late = tmpl2[max(0, n_samp_local - n0) :, :]
-            noise_samples = np.concatenate([early, late], axis=0)
-            mad = np.nanmedian(np.abs(noise_samples - baseline[None, :]), axis=0)
-            noise = 1.4826 * mad
-        except Exception:
-            noise = np.zeros(n_ch_local, dtype=float)
-
-        neg_i = np.argmin(tmpl2, axis=0).astype(int)
-        pos_i = np.argmax(tmpl2, axis=0).astype(int)
-
-        ap_start_i = np.zeros(n_ch_local, dtype=int)
-        ap_end_i = (n_samp_local - 1) * np.ones(n_ch_local, dtype=int)
-        pre_pos_i = np.zeros(n_ch_local, dtype=int)
-        post_pos_i = np.zeros(n_ch_local, dtype=int)
-
-        hold = 3  # require a short run inside the noise band to declare start/end
-        k_sigma = 3.0
-
-        for ch in range(n_ch_local):
-            w = np.asarray(tmpl2[:, int(ch)], dtype=float)
-            b = float(baseline[ch])
-            try:
-                ns = float(noise[ch])
-                if not (ns >= 0):
-                    ns = 0.0
-            except Exception:
-                ns = 0.0
-            ni = int(neg_i[ch])
-            if ni <= 1:
-                start_i = int(max(0, ni - 1))
-                pre_i = int(start_i)
-                post_i = int(min(n_samp_local - 1, ni + 1))
-                end_i = int(max(ni, post_i))
-
-                ap_start_i[ch] = int(start_i)
-                ap_end_i[ch] = int(end_i)
-                pre_pos_i[ch] = int(pre_i)
-                post_pos_i[ch] = int(post_i)
-                continue
-
-            # Symmetric noise band around baseline.
-            try:
-                ptp_ch = float(np.nanmax(w) - np.nanmin(w))
-            except Exception:
-                ptp_ch = float(np.ptp(np.nan_to_num(w)))
-
-            band = max(float(k_sigma) * float(ns), 0.02 * max(float(ptp_ch), 0.0), 1e-9)
-            pos_thr = b + band
-            neg_thr = b - band
-
-            active = (w > pos_thr) | (w < neg_thr)
-
-            # Find AP start/end as boundaries of the "active" region around the negative peak.
-            start_i = 0
-            for j in range(int(ni) - int(hold), -1, -1):
-                try:
-                    if np.all(~active[j : j + hold]) and np.any(active[j + hold : ni + 1]):
-                        start_i = int(j + hold)
-                        break
-                except Exception:
-                    continue
-
-            end_i = int(n_samp_local - 1)
-            for j in range(int(ni) + 1, int(n_samp_local) - int(hold) + 1):
-                try:
-                    if np.all(~active[j : j + hold]) and np.any(active[ni:j]):
-                        end_i = int(j - 1)
-                        break
-                except Exception:
-                    continue
-
-            start_i = int(np.clip(start_i, 0, ni))
-            end_i = int(np.clip(end_i, ni, n_samp_local - 1))
-
-            # Pick strongest pre/post positive deflections within the AP window.
-            if start_i < ni:
-                pre_slice = w[start_i:ni]
-                ppi = int(start_i + int(np.argmax(pre_slice))) if pre_slice.size else int(start_i)
-            else:
-                ppi = int(start_i)
-
-            if ni < end_i:
-                post_slice = w[ni : end_i + 1]
-                psti = int(ni + int(np.argmax(post_slice))) if post_slice.size else int(end_i)
-            else:
-                psti = int(end_i)
-
-            # Enforce strict chronology and monotonicity.
-            start_i = int(min(int(start_i), int(ppi)))
-            end_i = int(max(int(end_i), int(psti)))
-            start_i = int(np.clip(start_i, 0, ni))
-            end_i = int(np.clip(end_i, ni, n_samp_local - 1))
-            ppi = int(np.clip(ppi, start_i, ni))
-            psti = int(np.clip(psti, ni, end_i))
-
-            ap_start_i[ch] = int(start_i)
-            ap_end_i[ch] = int(end_i)
-            pre_pos_i[ch] = int(ppi)
-            post_pos_i[ch] = int(psti)
-
-        return {
-            "baseline": baseline,
-            "noise": noise,
-            "neg_peak_i": neg_i,
-            "pos_peak_i": pos_i,
-            "pre_pos_i": pre_pos_i,
-            "post_pos_i": post_pos_i,
-            "ap_start_i": ap_start_i,
-            "ap_end_i": ap_end_i,
-            "neg_peak_ms": t_ms_arr[np.clip(neg_i, 0, n_samp_local - 1)],
-            "pos_peak_ms": t_ms_arr[np.clip(pos_i, 0, n_samp_local - 1)],
-            "ap_start_ms": t_ms_arr[np.clip(ap_start_i, 0, n_samp_local - 1)],
-            "ap_end_ms": t_ms_arr[np.clip(ap_end_i, 0, n_samp_local - 1)],
-            "pre_pos_ms": t_ms_arr[np.clip(pre_pos_i, 0, n_samp_local - 1)],
-            "post_pos_ms": t_ms_arr[np.clip(post_pos_i, 0, n_samp_local - 1)],
-        }
-
-    timings = _best_effort_ap_timings(template_t_by_ch=tmpl, t_ms=t_ms)
-
-    def _pick_channels_propagation_path(
-        *,
-        locs_xy: Any,
-        amp: Any,
-        neg_peak_i: Any,
-        top_n: int,
-        n_nearest: int = 8,
-        n_forward: int = 5,
-        tol_samples: int = 0,
-    ) -> list[int]:
-        """Heuristic ordering of channels along a putative propagation path.
-
-        - Start at max-PTP channel.
-        - Next: consider the N nearest channels; choose the max-PTP candidate whose trough
-          (negative peak) is at the same time or later than the current channel.
-        - Then: consider the K most "in front" of the direction (prev->curr); choose max-PTP
-          with the same timing constraint.
-
-        Timing constraint is strict: the trough must not go backwards in time.
-        """
-
-        import numpy as np  # type: ignore[import-not-found]
-
-        amp_arr = np.asarray(amp, dtype=float).ravel()
-        neg_arr = np.asarray(neg_peak_i, dtype=float).ravel()
-        locs = np.asarray(locs_xy, dtype=float)
-        if locs.ndim != 2 or locs.shape[0] != amp_arr.size or locs.shape[1] < 2:
-            return []
-        locs = locs[:, :2]
-
-        finite_xy = np.isfinite(locs[:, 0]) & np.isfinite(locs[:, 1])
-        finite_amp = np.isfinite(amp_arr)
-        finite_neg = np.isfinite(neg_arr)
-        valid = finite_xy & finite_amp & finite_neg
-        if not np.any(valid):
-            return []
-
-        top_n = int(max(1, min(int(top_n), int(amp_arr.size))))
-        remaining = set(int(i) for i in range(int(amp_arr.size)) if bool(valid[i]))
-        if not remaining:
-            return []
-
-        start = int(np.nanargmax(np.where(valid, amp_arr, -np.inf)))
-        if start not in remaining:
-            start = int(next(iter(remaining)))
-
-        picked: list[int] = [start]
-        remaining.remove(start)
-        prev: int | None = None
-        curr: int = start
-
-        def timing_ok(cand: int, ref: int) -> bool:
-            try:
-                return float(neg_arr[int(cand)]) + float(tol_samples) >= float(neg_arr[int(ref)])
-            except Exception:
-                return True
-
-        def pick_best(cands: list[int], ref: int, require_timing: bool) -> int | None:
-            best = None
-            best_amp = -np.inf
-            for c in cands:
-                if c not in remaining:
-                    continue
-                if require_timing and (not timing_ok(c, ref)):
-                    continue
-                a = float(amp_arr[int(c)])
-                if a > best_amp:
-                    best = int(c)
-                    best_amp = a
-            return best
-
-        def nearest_candidates(ref: int, k: int) -> list[int]:
-            ref = int(ref)
-            if ref < 0 or ref >= locs.shape[0]:
-                return []
-            d = locs - locs[ref][None, :]
-            d2 = np.sum(d * d, axis=1)
-            d2[~valid] = np.inf
-            d2[ref] = np.inf
-            for i in range(d2.size):
-                if i not in remaining:
-                    d2[i] = np.inf
-            idx = np.argsort(d2)
-            out: list[int] = []
-            for i in idx:
-                if not np.isfinite(d2[int(i)]):
-                    break
-                out.append(int(i))
-                if len(out) >= int(k):
-                    break
-            return out
-
-        def forward_candidates(prev_i: int, curr_i: int, k: int) -> list[int]:
-            prev_i = int(prev_i)
-            curr_i = int(curr_i)
-            d = locs[curr_i] - locs[prev_i]
-            dn = float(np.hypot(float(d[0]), float(d[1])))
-            if not (dn > 0):
-                return []
-            u = d / dn
-            v = locs - locs[curr_i][None, :]
-            proj = (v[:, 0] * u[0]) + (v[:, 1] * u[1])
-            mask = (proj > 0) & valid
-            for i in range(mask.size):
-                if i not in remaining:
-                    mask[i] = False
-            if not np.any(mask):
-                return []
-            perp = np.hypot(v[:, 0] - proj * u[0], v[:, 1] - proj * u[1])
-            metric = perp / (proj + 1e-9)
-            metric[~mask] = np.inf
-            idx = np.argsort(metric)
-            out: list[int] = []
-            for i in idx:
-                if not np.isfinite(metric[int(i)]):
-                    break
-                out.append(int(i))
-                if len(out) >= int(k):
-                    break
-            return out
-
-        def best_remaining_by_amp_with_timing(ref: int) -> int | None:
-            ref = int(ref)
-            rem = [i for i in range(int(amp_arr.size)) if i in remaining and timing_ok(int(i), ref)]
-            if not rem:
-                return None
-            try:
-                return int(rem[int(np.nanargmax(amp_arr[rem]))])
-            except Exception:
-                return int(rem[0])
-
-        # Step 2: nearest neighbors.
-        if len(picked) < top_n and remaining:
-            cands = nearest_candidates(curr, n_nearest)
-            nxt = pick_best(cands, curr, True)
-            if nxt is None:
-                # Global fallback, but still must obey timing constraint.
-                nxt = best_remaining_by_amp_with_timing(curr)
-            if nxt is not None and nxt in remaining:
-                prev, curr = curr, int(nxt)
-                picked.append(curr)
-                remaining.remove(curr)
-
-        # Subsequent steps: forward direction.
-        # User-requested: try the 3 most-forward channels first; if none work, try the 5 most-forward.
-        while len(picked) < top_n and remaining:
-            nxt = None
-            if prev is not None:
-                cands3 = forward_candidates(prev, curr, 3)
-                nxt = pick_best(cands3, curr, True)
-                if nxt is None:
-                    cands5 = forward_candidates(prev, curr, 5)
-                    nxt = pick_best(cands5, curr, True)
-            if nxt is None:
-                cands = nearest_candidates(curr, n_nearest)
-                nxt = pick_best(cands, curr, True)
-            if nxt is None:
-                # Global fallback, but still must obey timing constraint.
-                nxt = best_remaining_by_amp_with_timing(curr)
-            if nxt is None or nxt not in remaining:
-                break
-            prev, curr = curr, int(nxt)
-            picked.append(curr)
-            remaining.remove(curr)
-
-        return picked
-
-    top_n = max(1, int(min(int(top_channels), int(n_ch_total))))
-    order_by_amp = np.argsort(-np.asarray(amp, dtype=float))
-
-    picked: list[int] = []
-    locs_xy = merged_contributing.get("channel_locations")
-    neg_peak_i = timings.get("neg_peak_i")
-    if locs_xy is not None and neg_peak_i is not None:
-        try:
-            picked = _pick_channels_propagation_path(
-                locs_xy=locs_xy,
-                amp=amp,
-                neg_peak_i=neg_peak_i,
-                top_n=top_n,
-                n_nearest=8,
-                tol_samples=0,
-            )
-        except Exception:
-            picked = []
-    if not picked:
-        picked = [int(i) for i in order_by_amp[:top_n].tolist()]
-
-    # Persist timing analysis next to merged_unit outputs when requested.
-    if ap_timings_json_path is not None:
-        try:
-            import json
-            import numpy as np  # type: ignore[import-not-found]
-
-            ap_timings_json_path = Path(ap_timings_json_path)
-            ap_timings_json_path.parent.mkdir(parents=True, exist_ok=True)
-
-            payload: dict[str, Any] = {
-                "unit_id": unit_id,
-                "sampling_frequency_hz": float(fs_hz),
-                "ms_before": ms_before,
-                "ms_after": ms_after,
-                "n_samples": int(n_samp),
-                "n_channels": int(n_ch_total),
-                "channel_labels": list(channel_labels),
-                "ptp_uv": np.asarray(amp, dtype=float).tolist(),
-                "picked_channel_indices": list(picked),
-                "picked_channel_labels": [str(channel_labels[int(i)]) for i in picked],
-                "ap_start_ms": np.asarray(timings.get("ap_start_ms"), dtype=float).tolist(),
-                "pre_pos_ms": np.asarray(timings.get("pre_pos_ms"), dtype=float).tolist(),
-                "pos_peak_ms": np.asarray(timings.get("pos_peak_ms"), dtype=float).tolist(),
-                "neg_peak_ms": np.asarray(timings.get("neg_peak_ms"), dtype=float).tolist(),
-                "post_pos_ms": np.asarray(timings.get("post_pos_ms"), dtype=float).tolist(),
-                "ap_end_ms": np.asarray(timings.get("ap_end_ms"), dtype=float).tolist(),
-            }
-            ap_timings_json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        except Exception:
-            pass
-
-    # Best channel by PTP.
-    best_ch = int(picked[0]) if picked else None
-
-    # Best channel by negative deflection magnitude (extracellular AP heuristic).
-    try:
-        baseline_all = np.asarray(timings.get("baseline"), dtype=float)
-        neg_amp_all = baseline_all - np.asarray(np.min(tmpl, axis=0), dtype=float)
-        best_neg_ch = int(np.nanargmax(neg_amp_all))
-    except Exception:
-        best_neg_ch = None
-
-    # picked is already ordered by amplitude.
-
-    # Build channel panels with overlap.
-    cpp = max(1, int(channels_per_panel))
-    ov = max(0, int(channel_overlap))
-    step = max(1, cpp - ov)
-    panels: list[list[int]] = []
-    for start in range(0, len(picked), step):
-        sl = picked[start : start + cpp]
-        if not sl:
-            continue
-        panels.append(list(sl))
-        if start + cpp >= len(picked):
-            break
-    if not panels:
-        panels = [picked]
-
-    # Robust vertical spacing scale. Use smaller spacing so traces visually pop more.
-    try:
-        ptp_sel = np.asarray(amp, dtype=float)[picked]
-        scale = float(np.nanpercentile(ptp_sel[np.isfinite(ptp_sel)], 90)) if np.any(np.isfinite(ptp_sel)) else 1.0
-        if not (scale > 0):
-            scale = 1.0
-        spacing = 0.55 * scale
-    except Exception:
-        spacing = 1.0
-
-    add_scalebar = _try_get_add_scalebar()
+    top_n = int(max(1, min(int(top_channels), int(n_ch_total))))
+    by_amp = np.argsort(-np.asarray(amp, dtype=float))
+    selected = [int(i) for i in by_amp[:top_n].tolist()]
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"unit_{unit_id}.png"
 
-    # Larger height than PPT to emphasize amplitudes during iteration.
-    png_figsize = (13.333, 10.0)
+    fig_h = float(min(18.0, max(4.5, 0.38 * float(len(selected)) + 1.5)))
+    fig_w = 10.5
+    fig = plt.figure(figsize=(fig_w, fig_h))
+    ax = fig.add_subplot(111)
 
-    # Font sizing (make this big for inspection and slide readability).
-    title_fs = 22
-    channel_label_fs = 16
-    scalebar_fs = 14
+    av_plot.plot_template_propagation(
+        tmpl.T,
+        locs_xy[:, :2],
+        selected,
+        sort_templates=True,
+        color="black",
+        color_marker="black",
+        ax=ax,
+    )
 
-    neg_peak_i_all = timings.get("neg_peak_i")
-    neg_peak_i_all = None if neg_peak_i_all is None else list(neg_peak_i_all)
+    trace_gain_f = float(trace_gain) if trace_gain is not None else 1.0
+    trace_spacing_f = float(trace_spacing) if trace_spacing is not None else 1.0
+    if not (trace_gain_f > 0):
+        trace_gain_f = 1.0
+    if not (trace_spacing_f > 0):
+        trace_spacing_f = 1.0
 
-    for panel_idx, panel in enumerate(panels):
-        # Output name: single panel gets unit_<id>.png; multi-panels get unit_<id>_panel_XX.png
-        out_path = (
-            out_dir / f"unit_{unit_id}.png"
-            if len(panels) == 1
-            else out_dir / f"unit_{unit_id}_panel_{panel_idx + 1:02d}.png"
-        )
+    selected_sorted: list[int] = []
+    new_spacing: Optional[float] = None
+    old_spacing: Optional[float] = None
 
-        fig = plt.figure(figsize=png_figsize)
-        ax = fig.add_subplot(111)
+    # Move both wave lines and peak-dot lines after applying gain/spacing.
+    try:
+        template_selected = np.asarray(tmpl.T, dtype=float)[np.asarray(selected, dtype=int), :]
+        peaks = np.argmin(template_selected, axis=1)
+        sort_idx = np.argsort(peaks)
+        selected_sorted = [int(selected[int(i)]) for i in sort_idx.tolist()]
 
-        # Amplitude ordering reads top-down: highest-PTP channels first.
-        n_in_panel = int(len(panel))
+        template_sorted = template_selected[sort_idx]
+        ptp_glob = float(np.max(np.ptp(template_sorted, axis=1))) if template_sorted.size else 1.0
+        if not (ptp_glob > 0):
+            ptp_glob = 1.0
 
-        # Plot one line per channel (single color).
-        for j, ch in enumerate(panel):
-            ch = int(ch)
-            # Top-down ordering.
-            y0 = float(n_in_panel - 1 - int(j)) * float(spacing)
-            w = np.asarray(tmpl[:, ch], dtype=float)
-            ax.plot(t_ms, w + y0, color="black", alpha=0.92, linewidth=1.2)
+        old_spacing = 1.5 * float(ptp_glob)
+        new_spacing = float(old_spacing) * float(trace_spacing_f)
 
-            # Negative-peak marker (triangle).
-            try:
-                if neg_peak_i_all is not None:
-                    si = int(neg_peak_i_all[ch])
-                else:
-                    si = int(np.argmin(w))
-                si = int(max(0, min(n_samp - 1, si)))
-                ax.scatter([float(t_ms[si])], [float(w[si] + y0)], s=18, color="black", marker="v", zorder=10)
-            except Exception:
-                pass
+        lines = list(getattr(ax, "lines", []))
+        n_traces = int(template_sorted.shape[0])
+        expected = 2 * n_traces
+        ok_pairing = (n_traces > 0) and (len(lines) >= expected)
+        if ok_pairing:
+            for i in range(n_traces):
+                if str(lines[2 * i + 1].get_marker()) != "o":
+                    ok_pairing = False
+                    break
 
-            # Channel label aligned to this trace.
-            try:
+        if ok_pairing:
+            for i in range(n_traces):
+                base_old = float(i) * float(old_spacing)
+                base_new = float(i) * float(new_spacing)
+                for ln in (lines[2 * i], lines[2 * i + 1]):
+                    yd = np.asarray(ln.get_ydata(orig=False), dtype=float)
+                    if yd.size:
+                        ln.set_ydata((yd - base_old) * float(trace_gain_f) + base_new)
+
+        # Expand y-limits so large gain doesn't clip the bottom/top.
+        ymins: list[float] = []
+        ymaxs: list[float] = []
+        for ln in list(getattr(ax, "lines", [])):
+            yd = np.asarray(ln.get_ydata(orig=False), dtype=float)
+            if yd.size == 0 or not np.isfinite(yd).any():
+                continue
+            ymins.append(float(np.nanmin(yd)))
+            ymaxs.append(float(np.nanmax(yd)))
+        if ymins and ymaxs and old_spacing is not None:
+            ymin = float(min(ymins))
+            ymax = float(max(ymaxs))
+            pad = max(0.15 * float(old_spacing) * float(trace_gain_f), 0.05 * (ymax - ymin))
+            if np.isfinite(ymin) and np.isfinite(ymax) and (ymax > ymin):
+                ax.set_ylim(ymin - pad, ymax + pad)
+    except Exception:
+        selected_sorted = []
+        new_spacing = None
+
+    if bool(show_electrode_ids):
+        try:
+            from matplotlib.transforms import blended_transform_factory
+
+            electrode_ids = merged_contributing.get("electrode_ids")
+            channel_ids = merged_contributing.get("channel_ids")
+
+            labels_all: list[str] = []
+            for ch_idx in range(n_ch_total):
+                lab = None
+                if electrode_ids is not None:
+                    try:
+                        e = list(electrode_ids)[int(ch_idx)]
+                        if e is not None:
+                            lab = f"e{int(e)}"
+                    except Exception:
+                        lab = None
+                if lab is None and channel_ids is not None:
+                    try:
+                        c = list(channel_ids)[int(ch_idx)]
+                        if c is not None:
+                            lab = str(c)
+                    except Exception:
+                        lab = None
+                if lab is None:
+                    lab = str(int(ch_idx))
+                labels_all.append(str(lab))
+
+            if not selected_sorted:
+                template_selected = np.asarray(tmpl.T, dtype=float)[np.asarray(selected, dtype=int), :]
+                peaks = np.argmin(template_selected, axis=1)
+                sort_idx = np.argsort(peaks)
+                selected_sorted = [int(selected[int(i)]) for i in sort_idx.tolist()]
+
+            if new_spacing is None:
+                template_selected = np.asarray(tmpl.T, dtype=float)[np.asarray(selected, dtype=int), :]
+                template_sorted = template_selected[np.argsort(np.argmin(template_selected, axis=1))]
+                ptp_glob = float(np.max(np.ptp(template_sorted, axis=1))) if template_sorted.size else 1.0
+                if not (ptp_glob > 0):
+                    ptp_glob = 1.0
+                new_spacing = 1.5 * float(ptp_glob) * float(trace_spacing_f)
+
+            trans = blended_transform_factory(ax.transAxes, ax.transData)
+            x_ax = -0.01
+            for i, ch_idx in enumerate(selected_sorted):
                 ax.text(
-                    float(t_ms[0]),
-                    y0,
-                    str(channel_labels[ch]),
+                    x_ax,
+                    float(i) * float(new_spacing),
+                    labels_all[int(ch_idx)],
+                    transform=trans,
                     ha="right",
                     va="center",
-                    fontsize=channel_label_fs,
+                    fontsize=12,
                     color="black",
+                    clip_on=False,
                 )
-            except Exception:
-                pass
-
-        # Minimal styling.
-        try:
-            ax.set_yticks([])
-            ax.set_xticks([])
-            for spine in ax.spines.values():
-                spine.set_visible(False)
         except Exception:
             pass
 
-        if add_scalebar is not None:
-            try:
-                add_scalebar(ax=ax, units="µV", fontsize=scalebar_fs)
-            except Exception:
-                pass
-
-        title_text = f"Propagation unit {unit_id} — {len(panel)} ch, propagation-ordered (v = neg peak)"
-        fig.suptitle(title_text, fontsize=title_fs)
-        try:
-            fig.subplots_adjust(left=0.10, right=0.99, bottom=0.03, top=0.92)
-        except Exception:
-            pass
-
-        fig.savefig(out_path, dpi=200)
-        plt.close(fig)
+    fig.savefig(out_path, dpi=220, bbox_inches="tight", pad_inches=0.02)
+    plt.close(fig)
+    return
 
 
 def _write_unit_propagation_plots_pdf(
