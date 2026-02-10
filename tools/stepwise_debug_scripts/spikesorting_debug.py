@@ -13,6 +13,7 @@ Contract:
 
 from __future__ import annotations
 
+import os
 import sys
 import logging
 from dataclasses import dataclass
@@ -50,6 +51,30 @@ class SpikeSortingInputs:
     docker_image: Optional[str] = None
     recording_num: str = "rec0000"
     verbose: bool = True
+
+    # Optional Kilosort tuning (applied via MEA_Analysis sorter_kwargs override).
+    # - If both are provided, `ks_batch_size` wins.
+    # - `ks_batch_duration_s` is converted using the loaded recording's sampling rate.
+    ks_batch_duration_s: Optional[float] = None
+    ks_batch_size: Optional[int] = None
+
+    # Resource controls (best-effort): these primarily affect analyzer/reporting
+    # steps that run in the current Python process.
+    n_jobs: Optional[int] = None
+    chunk_duration: Optional[str] = None
+
+    # CPU thread controls (applied via env vars)
+    omp_threads: Optional[int] = None
+    mkl_threads: Optional[int] = None
+    openblas_threads: Optional[int] = None
+    numexpr_threads: Optional[int] = None
+
+    # Torch CPU threading (analyzer/reports)
+    torch_threads: Optional[int] = None
+    torch_interop_threads: Optional[int] = None
+
+    # GPU selection (helps multi-GPU nodes / avoiding contention)
+    cuda_visible_devices: Optional[str] = None
 
     # Post-sorting steps (these are where most figures are generated)
     run_analyzer: bool = True
@@ -137,7 +162,59 @@ def run_spikesorting_only(*, inputs: SpikeSortingInputs, logger: logging.Logger)
 
     _ensure_mea_analysis_importable(inputs.mea_analysis_repo_root)
 
+    # Apply environment-level resource controls as early as possible.
+    # These can affect numpy/scipy/tensor backends and may propagate to subprocesses.
+    def _set_env_int(name: str, value: Optional[int]) -> None:
+        if value is None:
+            return
+        try:
+            os.environ[name] = str(int(value))
+        except Exception:
+            return
+
+    _set_env_int("OMP_NUM_THREADS", inputs.omp_threads)
+    _set_env_int("MKL_NUM_THREADS", inputs.mkl_threads)
+    _set_env_int("OPENBLAS_NUM_THREADS", inputs.openblas_threads)
+    _set_env_int("NUMEXPR_NUM_THREADS", inputs.numexpr_threads)
+    if inputs.cuda_visible_devices is not None:
+        try:
+            os.environ["CUDA_VISIBLE_DEVICES"] = str(inputs.cuda_visible_devices)
+        except Exception:
+            pass
+
     import spikeinterface.full as si  # type: ignore[import-not-found]
+
+    # Configure SpikeInterface global job kwargs (affects many `compute()` calls).
+    try:
+        job_kwargs = {}
+        if inputs.n_jobs is not None:
+            job_kwargs["n_jobs"] = int(inputs.n_jobs)
+        if inputs.chunk_duration is not None:
+            job_kwargs["chunk_duration"] = str(inputs.chunk_duration)
+        # Prefer no progress bars in debug logs unless verbose is on.
+        job_kwargs["progress_bar"] = bool(inputs.verbose)
+
+        if job_kwargs and hasattr(si, "set_global_job_kwargs"):
+            si.set_global_job_kwargs(**job_kwargs)
+            logger.info("SpikeInterface global job kwargs: %s", job_kwargs)
+    except Exception:
+        logger.debug("Could not set SpikeInterface global job kwargs", exc_info=True)
+
+    # Configure torch CPU thread pool (analyzer/reports). Sorting in docker may ignore this.
+    try:
+        import torch  # type: ignore[import-not-found]
+
+        if inputs.torch_threads is not None:
+            torch.set_num_threads(int(inputs.torch_threads))
+        if inputs.torch_interop_threads is not None:
+            torch.set_num_interop_threads(int(inputs.torch_interop_threads))
+        logger.info(
+            "Torch threads: num_threads=%s num_interop_threads=%s",
+            str(getattr(torch, "get_num_threads", lambda: None)()),
+            str(getattr(torch, "get_num_interop_threads", lambda: None)()),
+        )
+    except Exception:
+        pass
 
     # Reuse axon_reconstructor's MEA_Analysis-style output path computation.
     from axon_reconstructor.pipeline.pipeline_driver import _compute_mea_analysis_output_dir
@@ -175,6 +252,17 @@ def run_spikesorting_only(*, inputs: SpikeSortingInputs, logger: logging.Logger)
     except Exception:
         recording = si.load_extractor(recording_dir)
 
+    # Build optional sorter kwargs override (primarily for Kilosort4 memory tuning).
+    sorter_kwargs: dict = {}
+    try:
+        if inputs.ks_batch_size is not None:
+            sorter_kwargs["batch_size"] = int(inputs.ks_batch_size)
+        elif inputs.ks_batch_duration_s is not None:
+            fs = float(recording.get_sampling_frequency())
+            sorter_kwargs["batch_size"] = int(round(fs * float(inputs.ks_batch_duration_s)))
+    except Exception:
+        sorter_kwargs = {}
+
     from MEA_Analysis.IPNAnalysis.mea_analysis_routine import (  # type: ignore[import-not-found]
         MEAPipeline,
         ProcessingStage,
@@ -192,7 +280,21 @@ def run_spikesorting_only(*, inputs: SpikeSortingInputs, logger: logging.Logger)
         verbose=inputs.verbose,
         cleanup=False,
         force_restart=inputs.force_restart,
+        sorter_kwargs=(sorter_kwargs if sorter_kwargs else None),
     )
+
+    if sorter_kwargs:
+        logger.info("MEA_Analysis sorter kwargs override: %s", sorter_kwargs)
+
+    # Best-effort: if MEA_Analysis pipeline object supports resource hints, attach them.
+    # (Keeps MEA_Analysis backwards compatible; these attrs are optional.)
+    try:
+        if inputs.n_jobs is not None:
+            setattr(pipeline, "n_jobs", int(inputs.n_jobs))
+        if inputs.chunk_duration is not None:
+            setattr(pipeline, "chunk_duration", str(inputs.chunk_duration))
+    except Exception:
+        pass
 
     _relocate_mea_analysis_outputs(pipeline=pipeline, well_out_dir=well_out_dir, logger=logger)
 

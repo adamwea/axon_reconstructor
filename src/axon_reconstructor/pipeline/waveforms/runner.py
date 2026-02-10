@@ -49,6 +49,10 @@ class WaveformExtractInputs:
     # Resume/overwrite controls
     force_restart: bool = False
 
+    # If True, reuse existing extracted waveforms/analyzers but rewrite grids/panels.
+    # This is useful when iterating on plotting settings.
+    force_replot: bool = False
+
     # If True, drop spikes whose waveform window would cross Maxwell snippet boundaries.
     filter_by_maxwell_epochs: bool = True
 
@@ -146,7 +150,39 @@ def extract_waveforms(
     # return a best-effort outputs object without recomputing analyzers/metrics.
     resumed = _resume_if_possible(inputs=inputs, ctx=ctx)
     if resumed is not None:
-        return resumed
+        # If the user wants to re-render plots (or if they are missing), do a plot-only pass.
+        uncurated_pdf = ctx.waveforms_out_dir / "grids" / "uncurated.pdf"
+        need_replot = bool(inputs.force_replot) or (not uncurated_pdf.exists())
+        if not need_replot:
+            return resumed
+
+        ctx.logger.info(
+            "Replot-only waveforms run (reuse existing analyzers): force_replot=%s",
+            str(bool(inputs.force_replot)),
+        )
+
+        epochs = _load_epoch_markers(well_out_dir=ctx.well_out_dir, stream_id=inputs.stream_id)
+        curated_units_for_plot = _apply_waveforms_curation(waveforms_out_dir=ctx.waveforms_out_dir, logger=ctx.logger)
+        waveforms_grid_pdf, spikesorting_waveforms_grid_pdf = _plot_waveforms_outputs(
+            inputs=inputs,
+            waveforms_out_dir=ctx.waveforms_out_dir,
+            concat_waveforms_dir=ctx.concat_waveforms_dir,
+            segment_waveforms_dir=ctx.segment_waveforms_dir,
+            epochs=epochs,
+            curated_units_for_plot=curated_units_for_plot,
+            logger=ctx.logger,
+        )
+
+        return WaveformExtractOutputs(
+            well_out_dir=ctx.well_out_dir,
+            waveforms_out_dir=ctx.waveforms_out_dir,
+            concat_waveforms_dir=ctx.concat_waveforms_dir,
+            segment_waveforms_dir=ctx.segment_waveforms_dir,
+            params_json=ctx.params_json,
+            filtering_json=ctx.filtering_json,
+            waveforms_grid_pdf=waveforms_grid_pdf if waveforms_grid_pdf is not None else resumed.waveforms_grid_pdf,
+            spikesorting_waveforms_grid_pdf=spikesorting_waveforms_grid_pdf,
+        )
 
     ckpt = save_checkpoint(
         checkpoint_file=ctx.ckpt_file,

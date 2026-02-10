@@ -22,6 +22,30 @@ def _write_json(path: Path, payload: Any) -> None:
         json.dump(payload, f, indent=2)
 
 
+def _load_preprocess_requested_cfg(*, preprocess_dir: Path) -> dict[str, Any] | None:
+    """Load preprocessing config written by Stage 01 (best effort).
+
+    This is used to ensure downstream stages (especially per-segment waveforms)
+    can reproduce temporal resampling settings when the concatenated recording
+    was upsampled during preprocessing.
+    """
+
+    preprocess_dir = Path(preprocess_dir)
+    cfg_path = preprocess_dir / "preprocess_config.json"
+    if not cfg_path.exists():
+        return None
+
+    try:
+        payload = _read_json(cfg_path)
+        if isinstance(payload, dict):
+            requested = payload.get("requested_cfg")
+            return requested if isinstance(requested, dict) else None
+    except Exception:
+        return None
+
+    return None
+
+
 def _infer_cutout_ms(*, h5_path: Path, stream_id: str, fs_hz: float) -> tuple[float, float]:
     """Infer ms_before/ms_after from trigger_pre/trigger_post when available."""
 
@@ -74,6 +98,9 @@ def _load_raw_segment_recording_segment_channels(
     rec_name: str,
     center_chunk_size: int = 10_000,
     preprocess_like_mea_analysis: bool = True,
+    target_sampling_frequency_hz: float | None = None,
+    temporal_resample_margin_ms: float = 100.0,
+    temporal_resample_dtype: str | None = None,
 ) -> Any:
     """Load a single raw Maxwell rec segment and keep its segment channel set.
 
@@ -227,6 +254,52 @@ def _load_raw_segment_recording_segment_channels(
         except Exception:
             # If spikeinterface.preprocessing isn't available, proceed without this parity step.
             pass
+
+    # IMPORTANT: If preprocessing applied temporal resampling, the concatenated recording
+    # (and all downstream spike times/epoch markers) are in the resampled time base.
+    # Per-segment waveforms load raw segments directly from the H5, so we must resample
+    # them here to keep segment-local indexing consistent.
+    if target_sampling_frequency_hz is not None:
+        try:
+            import numpy as np  # type: ignore[import-not-found]
+            import spikeinterface.preprocessing as spre  # type: ignore[import-not-found]
+
+            current_fs = float(rec_centered.get_sampling_frequency())
+            target_fs = float(target_sampling_frequency_hz)
+
+            current_fs_i = int(round(current_fs))
+            target_fs_i = int(round(target_fs))
+            if current_fs_i <= 0 or target_fs_i <= 0:
+                raise RuntimeError(f"Invalid sampling frequency (current={current_fs}, target={target_fs})")
+
+            if current_fs_i != target_fs_i:
+                dtype = None
+                if temporal_resample_dtype is not None:
+                    try:
+                        dtype = np.dtype(str(temporal_resample_dtype))
+                    except Exception:
+                        dtype = None
+
+                logger.info(
+                    "Resampling segment recording %s: fs %d -> %d Hz (margin_ms=%.1f dtype=%s)",
+                    str(rec_name),
+                    int(current_fs_i),
+                    int(target_fs_i),
+                    float(temporal_resample_margin_ms),
+                    str(temporal_resample_dtype),
+                )
+
+                rec_centered = spre.resample(
+                    rec_centered,
+                    resample_rate=int(target_fs_i),
+                    margin_ms=float(temporal_resample_margin_ms),
+                    dtype=dtype,
+                    skip_checks=False,
+                )
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to resample segment recording rec={rec_name} to target_fs={target_sampling_frequency_hz}: {e}"
+            ) from e
 
     return rec_centered
 
@@ -402,5 +475,6 @@ __all__ = [
     "_epochs_to_intervals",
     "_maxwell_epochs_to_segment_local_intervals",
     "_filter_spike_train_by_intervals",
+    "_load_preprocess_requested_cfg",
     "_to_numpy_sorting",
 ]
