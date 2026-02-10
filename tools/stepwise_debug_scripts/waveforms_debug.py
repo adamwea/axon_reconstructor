@@ -45,6 +45,9 @@ class WaveformsInputs:
 
     force_restart: bool = False
 
+    # If True, reuse existing extracted waveforms/analyzers but rewrite grids/panels.
+    force_replot: bool = False
+
 
 def run_waveforms_only(*, inputs: WaveformsInputs, logger: logging.Logger) -> None:
     from axon_reconstructor.pipeline.waveforms import WaveformExtractInputs, extract_waveforms
@@ -61,6 +64,7 @@ def run_waveforms_only(*, inputs: WaveformsInputs, logger: logging.Logger) -> No
             max_spikes_per_unit=inputs.max_spikes_per_unit,
             per_segment=inputs.per_segment,
             force_restart=inputs.force_restart,
+            force_replot=inputs.force_replot,
             filter_by_maxwell_epochs=inputs.filter_by_maxwell_epochs,
             debug_max_units=inputs.debug_max_units,
             debug_max_segments=inputs.debug_max_segments,

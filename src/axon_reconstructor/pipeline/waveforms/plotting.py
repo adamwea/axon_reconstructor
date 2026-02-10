@@ -18,6 +18,7 @@ def _write_waveforms_grid_pdf(
     write_page_png: bool = True,
     write_page_svg: bool = True,
     page_dpi: int = 150,
+    max_spikes_to_plot: int = 50,
     best_channel_mode: Literal["old", "new"] = "new",
 ) -> None:
     """Write a multi-page PDF of per-unit waveforms.
@@ -370,9 +371,9 @@ def _write_waveforms_grid_pdf(
                     time_ms = np.arange(wf2d_all.shape[1]) / fs * 1000
 
                     n_spikes = int(wf2d_all.shape[0])
-                    max_spikes_to_plot = 500
-                    if n_spikes > max_spikes_to_plot:
-                        indices = np.random.choice(n_spikes, max_spikes_to_plot, replace=False)
+                    max_to_plot = max(1, int(max_spikes_to_plot))
+                    if n_spikes > max_to_plot:
+                        indices = np.random.choice(n_spikes, max_to_plot, replace=False)
                         spikes_to_plot = wf2d_all[indices, :]
                     else:
                         spikes_to_plot = wf2d_all

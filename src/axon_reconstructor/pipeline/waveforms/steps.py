@@ -154,7 +154,27 @@ def _plot_waveforms_outputs(
             base_panels_dir = panels_root if panels_subdir is None else panels_subdir
 
             pdf_path = base_grids_dir / f"{name}.pdf"
-            if (not pdf_path.exists()) or inputs.force_restart:
+            should_write = (not pdf_path.exists()) or inputs.force_restart or bool(getattr(inputs, "force_replot", False))
+            if should_write:
+                # Best-effort cleanup to avoid stale pages/panels lingering across replot runs.
+                try:
+                    import shutil
+
+                    try:
+                        pdf_path.unlink(missing_ok=True)  # type: ignore[arg-type]
+                    except Exception:
+                        pass
+                    try:
+                        shutil.rmtree(base_grids_dir / f"{name}_pages", ignore_errors=True)
+                    except Exception:
+                        pass
+                    try:
+                        shutil.rmtree(base_panels_dir / name, ignore_errors=True)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
                 logger.info("Writing waveforms grid -> %s", pdf_path)
                 _write_waveforms_grid_pdf(
                     waveforms_folder=waveforms_folder,
@@ -166,19 +186,20 @@ def _plot_waveforms_outputs(
                     pages_dir=(base_grids_dir / f"{name}_pages"),
                     write_page_png=True,
                     write_page_svg=True,
+                    max_spikes_to_plot=50,
                     best_channel_mode=("old" if str(best_channel_mode) == "old" else "new"),
                 )
             return pdf_path
 
         # Primary outputs: only uncurated + curated (best-effort) grids/panels.
-        # These use concat waveforms as the anchor and optionally include per-segment
-        # waveforms to choose a strong channel across sources (best_channel_mode="new").
+        # These use concat waveforms as the anchor and choose the best channel from
+        # the concat spikesorting waveform/template (best_channel_mode="old").
         waveforms_grid_pdf = _write_grid(
             waveforms_folder=concat_waveforms_dir,
             name="uncurated",
             unit_ids=None,
             segment_waveforms_folders=segment_folders,
-            best_channel_mode="new",
+            best_channel_mode="old",
         )
 
         if curated_units_for_plot is not None:
@@ -187,7 +208,7 @@ def _plot_waveforms_outputs(
                 name="curated",
                 unit_ids=list(curated_units_for_plot),
                 segment_waveforms_folders=segment_folders,
-                best_channel_mode="new",
+                best_channel_mode="old",
             )
 
         # Novel outputs: per-segment curated grids using best-local channels.

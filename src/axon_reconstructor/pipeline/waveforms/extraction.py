@@ -9,7 +9,7 @@ from .segments import (
     _count_spikes_in_concat_window,
     _parse_concat_epoch_segment,
 )
-from .utils import _load_raw_segment_recording_segment_channels, _to_numpy_sorting
+from .utils import _load_preprocess_requested_cfg, _load_raw_segment_recording_segment_channels, _to_numpy_sorting
 
 
 def _best_ptp_channel_by_unit_from_templates(*, analyzer: Any) -> dict[Any, tuple[float, Any]]:
@@ -321,6 +321,31 @@ def _extract_per_segment_waveforms(
 
     best_by_unit: dict[Any, tuple[float, Any, str]] = {}
 
+    requested_cfg = None
+    try:
+        preprocess_dir = getattr(epochs, "preprocess_dir", None)
+        if preprocess_dir is not None:
+            requested_cfg = _load_preprocess_requested_cfg(preprocess_dir=preprocess_dir)
+    except Exception:
+        requested_cfg = None
+
+    # Resampling params (best-effort); if preprocessing upsampled the concatenated recording,
+    # we must resample each raw segment to the same fs as `recording`/`window.fs_hz`.
+    target_fs_hz = float(getattr(window, "fs_hz", recording.get_sampling_frequency()))
+    seg_resample_margin_ms = 100.0
+    seg_resample_dtype = None
+    if isinstance(requested_cfg, dict):
+        try:
+            seg_resample_margin_ms = float(requested_cfg.get("temporal_resample_margin_ms", seg_resample_margin_ms))
+        except Exception:
+            seg_resample_margin_ms = 100.0
+        try:
+            seg_resample_dtype = requested_cfg.get("temporal_resample_dtype")
+            if seg_resample_dtype is not None:
+                seg_resample_dtype = str(seg_resample_dtype)
+        except Exception:
+            seg_resample_dtype = None
+
     # Channel-group bookkeeping for documentation/QC.
     # We track *electrode ids* when they are available via contact_vector['electrode'].
     seg_electrode_sets: dict[str, set[int]] = {}
@@ -343,7 +368,8 @@ def _extract_per_segment_waveforms(
             seg_index = int(spec.segment_index)
             rec_name = str(spec.rec_name)
             start = int(spec.start_sample_concat)
-            end = int(spec.end_sample_concat)
+            end_epoch = int(spec.end_sample_concat)
+            end = int(end_epoch)
             seg_dir = spec.seg_dir
 
             if seg_dir.exists() and inputs.force_restart:
@@ -357,6 +383,9 @@ def _extract_per_segment_waveforms(
                 preprocess_like_mea_analysis=bool(
                     getattr(inputs, "per_segment_preprocess_like_mea_analysis", True)
                 ),
+                target_sampling_frequency_hz=float(target_fs_hz),
+                temporal_resample_margin_ms=float(seg_resample_margin_ms),
+                temporal_resample_dtype=(str(seg_resample_dtype) if seg_resample_dtype is not None else None),
             )
 
             source_name = f"seg{int(seg_index):02d}_{rec_name}"
@@ -447,20 +476,26 @@ def _extract_per_segment_waveforms(
                 except Exception:
                     pass
 
-            seg_len_expected = int(end - start)
+            seg_len_expected = int(end_epoch - start)
             try:
                 seg_len = int(seg_rec.get_num_samples())
-                if seg_len != seg_len_expected:
+                # Clamp concat-window end to the actual segment length (resampling can
+                # introduce +/- 1 sample drift vs simple ratio scaling).
+                end_clamped = min(int(end_epoch), int(start) + int(seg_len))
+                if end_clamped != int(end_epoch) or seg_len != seg_len_expected:
                     logger.warning(
-                        "Segment length mismatch for %s: raw=%d expected=%d (start=%d end=%d). Proceeding.",
+                        "Segment length mismatch for %s: raw=%d expected=%d (start=%d end_epoch=%d end_clamped=%d). Proceeding.",
                         rec_name,
                         seg_len,
                         seg_len_expected,
                         start,
-                        end,
+                        end_epoch,
+                        end_clamped,
                     )
+                end = int(end_clamped)
             except Exception:
                 seg_len = seg_len_expected
+                end = int(min(int(end_epoch), int(start) + int(seg_len)))
 
             try:
                 if inputs.per_segment_only_additional_channels:
