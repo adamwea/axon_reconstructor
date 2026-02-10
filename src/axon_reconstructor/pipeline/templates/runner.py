@@ -94,6 +94,20 @@ class TemplateExtractInputs:
     # This writes to per-unit `axon_velocity_outputs/` and requires the axon_velocity deps.
     plot_axon_velocity_outputs: bool = False
 
+    # Optional post-spikesort upsampling of persisted templates (time axis only).
+    #
+    # Scientific rationale:
+    # - Spikesorting is performed at the native sampling rate.
+    # - Templates (mean waveforms) can optionally be upsampled after spikesorting to
+    #   improve peak-timing resolution for axon_velocity without re-running sorting.
+    #
+    # Contract:
+    # - When enabled, the persisted template arrays and their metadata (`sampling_frequency_hz`, `n_samples`)
+    #   reflect the *upsampled* timebase.
+    # - Downstream reconstruction consumes that metadata and stays unchanged.
+    template_time_upsample_factor: int = 1
+    template_time_upsample_method: str = "sinc"
+
     # Template overlay plot controls
     top_channels_per_template: int = 8
 
@@ -275,6 +289,10 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         read_json=_read_json,
     )
 
+    time_upsample_factor = int(getattr(inputs, "template_time_upsample_factor", 1) or 1)
+    time_upsample_method = str(getattr(inputs, "template_time_upsample_method", "sinc") or "sinc")
+    fs_hz_effective = float(fs_hz) * float(time_upsample_factor) if time_upsample_factor > 1 else float(fs_hz)
+
     waveforms_out_dir = well_out_dir / "waveforms_outputs"
 
     summary: dict[str, Any] = {
@@ -305,6 +323,13 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
             else None
         ),
         "units": [],
+        "template_time_upsampling": {
+            "enabled": bool(time_upsample_factor > 1),
+            "factor": int(time_upsample_factor),
+            "method": str(time_upsample_method),
+            "native_sampling_frequency_hz": float(fs_hz),
+            "effective_sampling_frequency_hz": float(fs_hz_effective),
+        },
     }
 
     unit_grid_entries = process_unit_list(
@@ -322,6 +347,8 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         topo_unit_footprints_dir=(topo_unit_footprints_dir if bool(inputs.plot_topo_unit_footprints) else None),
         propagation_plots_dir=(propagation_plots_dir if bool(inputs.plot_propagation_plots) else None),
         fs_hz=float(fs_hz),
+        template_time_upsample_factor=int(time_upsample_factor),
+        template_time_upsample_method=str(time_upsample_method),
         ms_before=ms_before,
         ms_after=ms_after,
         top_channels_per_template=int(inputs.top_channels_per_template),
@@ -359,7 +386,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
             _write_templates_grid_pdf(
                 pdf_path=templates_grid_pdf,
                 unit_entries=unit_grid_entries,
-                fs_hz=float(fs_hz),
+                fs_hz=float(fs_hz_effective),
                 ms_before=ms_before,
                 ms_after=ms_after,
                 top_channels=int(inputs.top_channels_per_template),
