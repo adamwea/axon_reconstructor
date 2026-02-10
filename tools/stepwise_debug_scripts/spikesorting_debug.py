@@ -84,6 +84,12 @@ class SpikeSortingInputs:
     no_curation: bool = False
     export_to_phy: bool = False
 
+    # Analyzer options (default-off)
+    force_rerun_analyzer: bool = False
+    auto_merge_units: bool = False
+    # CSV string like "0.05,0.15,0.25"; only used if auto_merge_units=True
+    auto_merge_template_diff_thresh: str = "0.05,0.15,0.25"
+
     # If True, ignore existing MEA_Analysis checkpoints for this run.
     force_restart: bool = False
 
@@ -268,6 +274,26 @@ def run_spikesorting_only(*, inputs: SpikeSortingInputs, logger: logging.Logger)
         ProcessingStage,
     )
 
+    auto_merge_presets = None
+    auto_merge_steps_params = None
+    if bool(inputs.auto_merge_units):
+        try:
+            diffs = [
+                float(x.strip())
+                for x in str(inputs.auto_merge_template_diff_thresh).split(",")
+                if x.strip()
+            ]
+            if diffs:
+                auto_merge_presets = ["x_contaminations"] * len(diffs)
+                auto_merge_steps_params = [
+                    {"template_similarity": {"template_diff_thresh": float(t)}} for t in diffs
+                ]
+        except Exception:
+            logger.warning(
+                "Invalid auto-merge template diff thresh '%s'; using MEA_Analysis defaults",
+                str(inputs.auto_merge_template_diff_thresh),
+            )
+
     logger.info("Initializing MEA_Analysis pipeline object (sorting/analyzer/reports)")
     pipeline = MEAPipeline(
         file_path=str(inputs.h5_path),
@@ -281,6 +307,10 @@ def run_spikesorting_only(*, inputs: SpikeSortingInputs, logger: logging.Logger)
         cleanup=False,
         force_restart=inputs.force_restart,
         sorter_kwargs=(sorter_kwargs if sorter_kwargs else None),
+        auto_merge_units=bool(inputs.auto_merge_units),
+        auto_merge_presets=auto_merge_presets,
+        auto_merge_steps_params=auto_merge_steps_params,
+        force_rerun_analyzer=bool(inputs.force_rerun_analyzer),
     )
 
     if sorter_kwargs:

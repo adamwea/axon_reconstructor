@@ -157,6 +157,9 @@ def _persist_unit_templates(
     full_channel_ids: Any = None,
     full_electrode_ids: Any = None,
     fs_hz: float,
+    fs_hz_native: Optional[float] = None,
+    template_time_upsample_factor: int = 1,
+    template_time_upsample_method: str = "sinc",
     ms_before: Optional[float],
     ms_after: Optional[float],
     all_recorded_electrode_ids: Any = None,
@@ -171,7 +174,25 @@ def _persist_unit_templates(
 
     import numpy as np  # type: ignore[import-not-found]
 
-    unit_entry: dict[str, Any] = {"unit_id": jsonable(uid), "sources": []}
+    up_factor = int(template_time_upsample_factor or 1)
+    up_method = str(template_time_upsample_method or "sinc")
+    fs_native = (
+        float(fs_hz_native)
+        if fs_hz_native is not None
+        else (float(fs_hz) / float(up_factor) if up_factor > 1 else float(fs_hz))
+    )
+
+    unit_entry: dict[str, Any] = {
+        "unit_id": jsonable(uid),
+        "sources": [],
+        "template_time_upsampling": {
+            "enabled": bool(up_factor > 1),
+            "factor": int(up_factor),
+            "method": str(up_method),
+            "native_sampling_frequency_hz": float(fs_native),
+            "effective_sampling_frequency_hz": float(fs_hz),
+        },
+    }
 
     for src in sources_for_unit_with_merged:
         src_name = str(src["name"])
@@ -471,6 +492,10 @@ def _persist_unit_templates(
                                         "n_samples": int(tmpl.shape[0]),
                                         "n_full_channels": int(n_full),
                                         "n_contributing_channels": int(len(set(contrib_inds))),
+                                        "sampling_frequency_hz": float(fs_hz),
+                                        "native_sampling_frequency_hz": float(fs_native),
+                                        "template_time_upsample_factor": int(up_factor),
+                                        "template_time_upsample_method": str(up_method),
                                         "mapping_strategy": (
                                             "electrode_ids" if el_to_index is not None else ("channel_ids" if ch_to_index is not None else "locations")
                                         ),
@@ -519,6 +544,9 @@ def _persist_unit_templates(
                     else None
                 ),
                 "sampling_frequency_hz": float(fs_hz),
+                "native_sampling_frequency_hz": float(fs_native),
+                "template_time_upsample_factor": int(up_factor),
+                "template_time_upsample_method": str(up_method),
                 "ms_before": ms_before,
                 "ms_after": ms_after,
                 "n_samples": int(tmpl.shape[0]),

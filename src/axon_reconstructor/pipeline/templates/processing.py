@@ -187,6 +187,8 @@ def process_unit_list(
     topo_unit_footprints_dir: Optional[Path] = None,
     propagation_plots_dir: Optional[Path] = None,
     fs_hz: float,
+    template_time_upsample_factor: int = 1,
+    template_time_upsample_method: str = "sinc",
     ms_before: Optional[float],
     ms_after: Optional[float],
     top_channels_per_template: int,
@@ -218,6 +220,13 @@ def process_unit_list(
     summary: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
     """Process units: gather per-source templates, build merged_contributing, persist, and plot."""
+
+    time_upsample_factor = int(template_time_upsample_factor or 1)
+    time_upsample_method = str(template_time_upsample_method or "sinc")
+    fs_hz_native = float(fs_hz)
+    fs_hz_effective = float(fs_hz_native) * float(time_upsample_factor) if time_upsample_factor > 1 else float(fs_hz_native)
+
+    from .utils import _upsample_template_time
 
     # Electrode ids present in at least one recording object (across sources).
     # Note: waveforms-stage analyzers may be sparse. When we detect Maxwell electrode id
@@ -319,6 +328,21 @@ def process_unit_list(
             [merged_contributing] if merged_contributing is not None else []
         )
 
+        # Optional post-spikesort time upsampling.
+        # This is applied after multi-source merging so that all persisted artifacts
+        # share a consistent effective timebase.
+        if int(time_upsample_factor) > 1:
+            for src in sources_for_unit_with_merged:
+                try:
+                    src["template"] = _upsample_template_time(
+                        template=src.get("template"),
+                        factor=int(time_upsample_factor),
+                        method=str(time_upsample_method),
+                    )
+                except Exception:
+                    # Keep best-effort; failing to upsample should not abort the whole unit.
+                    pass
+
         # Best-effort merged_contributing quick-look plots.
         if (
             bool(make_merged_contributing_footprint_plots)
@@ -388,7 +412,7 @@ def process_unit_list(
                     unit_id=uid,
                     template=tmpl,
                     channel_locations_xy=locs[:, :2],
-                    fs_hz=float(fs_hz),
+                    fs_hz=float(fs_hz_effective),
                     ms_before=ms_before,
                     ms_after=ms_after,
                     top_channels=int(top_channels_per_template),
@@ -401,7 +425,7 @@ def process_unit_list(
                     unit_id=uid,
                     template=tmpl,
                     channel_locations_xy=locs[:, :2],
-                    fs_hz=float(fs_hz),
+                    fs_hz=float(fs_hz_effective),
                     ms_before=ms_before,
                     ms_after=ms_after,
                     top_channels=int(top_channels_per_template),
@@ -424,7 +448,10 @@ def process_unit_list(
                 full_channel_locations_xy=full_channel_locations_xy,
                 full_channel_ids=full_channel_ids,
                 full_electrode_ids=full_electrode_ids,
-                fs_hz=float(fs_hz),
+                fs_hz=float(fs_hz_effective),
+                fs_hz_native=float(fs_hz_native),
+                template_time_upsample_factor=int(time_upsample_factor),
+                template_time_upsample_method=str(time_upsample_method),
                 ms_before=ms_before,
                 ms_after=ms_after,
                 all_recorded_electrode_ids=all_recorded_electrode_ids,
@@ -498,7 +525,7 @@ def process_unit_list(
                     pdf_path=unit_templates_pdf,
                     unit_id=uid,
                     sources_for_unit=sources_for_unit,
-                    fs_hz=float(fs_hz),
+                    fs_hz=float(fs_hz_effective),
                     ms_before=ms_before,
                     ms_after=ms_after,
                 )
@@ -525,7 +552,7 @@ def process_unit_list(
                         pdf_path=(propagation_plots_dir / f"unit_{uid}.pdf"),
                         unit_id=uid,
                         merged_contributing=merged_contributing,
-                        fs_hz=float(fs_hz),
+                        fs_hz=float(fs_hz_effective),
                         ms_before=ms_before,
                         ms_after=ms_after,
                         top_channels=int(propagation_top_channels),

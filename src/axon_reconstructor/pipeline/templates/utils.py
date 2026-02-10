@@ -7,6 +7,58 @@ from typing import Any, Optional
 from ..checkpointing import compute_checkpoint_file
 
 
+def _upsample_template_time(*, template, factor: int, method: str = "sinc"):
+    """Upsample a template along the time axis by an integer factor.
+
+    Args:
+        template: Array-like of shape (n_samples, n_channels).
+        factor: Integer upsample factor. If <= 1, returns the template unchanged.
+        method:
+            - "sinc": Best-effort bandlimited upsampling via scipy.signal.resample_poly.
+            - "linear": Linear interpolation fallback (no scipy dependency).
+
+    Returns:
+        np.ndarray of shape (n_samples * factor, n_channels)
+    """
+
+    if template is None:
+        return template
+
+    if factor is None:
+        factor = 1
+    factor = int(factor)
+    if factor <= 1:
+        return template
+
+    import numpy as np  # type: ignore[import-not-found]
+
+    x = np.asarray(template, dtype=float)
+    if x.ndim != 2 or x.size == 0:
+        return x
+
+    m = str(method or "").strip().lower()
+    if m in {"", "sinc", "whittaker-shannon", "whittaker_shannon", "polyphase", "resample_poly"}:
+        try:
+            from scipy.signal import resample_poly  # type: ignore[import-not-found]
+
+            # resample_poly applies an anti-aliasing low-pass and is a good practical
+            # approximation to ideal bandlimited interpolation.
+            return np.asarray(resample_poly(x, up=int(factor), down=1, axis=0), dtype=float)
+        except Exception:
+            m = "linear"
+
+    if m in {"linear", "interp"}:
+        n_samples, n_ch = x.shape
+        t_old = np.arange(n_samples, dtype=float)
+        t_new = np.linspace(0.0, float(n_samples - 1), int(n_samples * factor), dtype=float)
+        y = np.empty((int(n_samples * factor), int(n_ch)), dtype=float)
+        for j in range(int(n_ch)):
+            y[:, j] = np.interp(t_new, t_old, x[:, j])
+        return y
+
+    raise ValueError(f"Unsupported template time upsample method: {method!r}")
+
+
 def _read_json(path: Path) -> Any:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
