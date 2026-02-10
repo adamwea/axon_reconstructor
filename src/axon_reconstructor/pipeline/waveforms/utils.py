@@ -438,16 +438,21 @@ def _to_numpy_sorting(*, unit_trains: dict[int, list[int]], fs_hz: float) -> Any
     import numpy as np  # type: ignore[import-not-found]
     from spikeinterface.core import NumpySorting  # type: ignore[import-not-found]
 
-    unit_ids = sorted(unit_trains.keys())
+    unit_trains_np: dict[int, "np.ndarray"] = {
+        int(u): np.asarray(times, dtype=np.int64) for u, times in unit_trains.items()
+    }
+
+    unit_ids = sorted(unit_trains_np.keys())
     all_times: list[int] = []
     all_labels: list[int] = []
     for u in unit_ids:
-        times = unit_trains[u]
-        all_times.extend(times)
-        all_labels.extend([u] * len(times))
+        times_arr = unit_trains_np[u]
+        if times_arr.size:
+            all_times.extend(times_arr.tolist())
+            all_labels.extend([u] * int(times_arr.size))
 
     if not all_times:
-        return NumpySorting.from_unit_dict(unit_trains, sampling_frequency=float(fs_hz))
+        return NumpySorting.from_unit_dict(unit_trains_np, sampling_frequency=float(fs_hz))
 
     times_arr = np.asarray(all_times, dtype=np.int64)
     labels_arr = np.asarray(all_labels, dtype=np.int64)
