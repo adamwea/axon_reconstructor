@@ -463,15 +463,21 @@ def build_concatenated_recording(
 
     if plot_output_dir is not None:
         # Plot concatenation diagnostics: cluster reps over time + stitch markers.
-        # We can derive stitch frames directly from segment lengths.
+        # We derive stitch frames from `concat_epochs` so they remain correct after
+        # optional temporal resampling (which scales sample indices).
         plot_output_dir = Path(plot_output_dir)
         segment_traces_dir = plot_output_dir / "segment_traces"
         segment_traces_dir.mkdir(parents=True, exist_ok=True)
         stitch_frames: list[int] = []
-        acc = 0
-        for n_frames in seg_lengths[:-1]:
-            acc += int(n_frames)
-            stitch_frames.append(acc)
+        try:
+            # Stitch points are the start of each segment after the first.
+            stitch_frames = [int(ep["start_sample"]) for ep in concat_epochs[1:]]
+        except Exception:
+            # Fallback: derive from (pre-resample) segment lengths.
+            acc = 0
+            for n_frames in seg_lengths[:-1]:
+                acc += int(n_frames)
+                stitch_frames.append(acc)
 
         # Build shared-electrode positions using the first segment contact_vector.
         try:

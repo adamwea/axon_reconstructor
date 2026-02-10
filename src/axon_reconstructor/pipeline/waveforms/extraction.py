@@ -626,6 +626,37 @@ def _extract_per_segment_waveforms(
                     exc_info=True,
                 )
 
+            # SpikeInterface's SortingAnalyzer creation/auto-sparsity estimation
+            # fails when there are zero units or zero spikes (e.g. empty segment
+            # after edge/epoch filtering). Skip those segments.
+            try:
+                unit_ids = list(getattr(seg_sort, "unit_ids", []))
+            except Exception:
+                unit_ids = []
+            if not unit_ids:
+                try:
+                    logger.info("Segment %s: no units after filtering; skipping per-segment waveforms.", rec_name)
+                except Exception:
+                    pass
+                continue
+
+            try:
+                has_any_spikes = False
+                for u in unit_ids:
+                    st = seg_sort.get_unit_spike_train(unit_id=u, segment_index=0)
+                    if len(st):
+                        has_any_spikes = True
+                        break
+                if not has_any_spikes:
+                    try:
+                        logger.info("Segment %s: no spikes after filtering; skipping per-segment waveforms.", rec_name)
+                    except Exception:
+                        pass
+                    continue
+            except Exception:
+                # Best-effort: if we can't determine spike counts, continue.
+                pass
+
             try:
                 seg_sort.register_recording(seg_rec)
             except Exception:
