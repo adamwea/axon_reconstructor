@@ -179,10 +179,9 @@ def process_unit_list(
     merged_units_dir: Path,
     merged_unit_footprints_dir: Path,
     merged_unit_footprints_zoomed_dir: Optional[Path] = None,
-    merged_unit_svgs_dir: Path,
     merged_unit_full_chip_maps_dir: Path,
-    axon_velocity_outputs_root_dir: Path,
-    unit_segment_grids_dir: Optional[Path],
+    axon_velocity_outputs_root_dir: Optional[Path] = None,
+    unit_segment_grids_dir: Optional[Path] = None,
     full_channels_templates_dir: Optional[Path] = None,
     topo_unit_footprints_dir: Optional[Path] = None,
     propagation_plots_dir: Optional[Path] = None,
@@ -193,7 +192,6 @@ def process_unit_list(
     ms_after: Optional[float],
     top_channels_per_template: int,
     write_footprint_ptp_map=None,
-    write_unit_template_and_footprint_svg=None,
     write_topo_unit_footprint_png=None,
     make_merged_contributing_footprint_plots: bool = True,
     make_axon_velocity_plots: bool = False,
@@ -344,19 +342,13 @@ def process_unit_list(
                     pass
 
         # Best-effort merged_contributing quick-look plots.
-        if (
-            bool(make_merged_contributing_footprint_plots)
-            and merged_contributing is not None
-            and write_footprint_ptp_map is not None
-            and write_unit_template_and_footprint_svg is not None
-        ):
+        if bool(make_merged_contributing_footprint_plots) and merged_contributing is not None and write_footprint_ptp_map is not None:
             try:
                 import numpy as np  # type: ignore[import-not-found]
 
                 merged_contributing_electrode_ids = merged_contributing.get("electrode_ids")
 
                 merged_unit_footprints_dir.mkdir(parents=True, exist_ok=True)
-                merged_unit_svgs_dir.mkdir(parents=True, exist_ok=True)
 
                 tmpl = np.asarray(merged_contributing["template"], dtype=float)
                 locs = np.asarray(merged_contributing["channel_locations"], dtype=float)
@@ -406,33 +398,6 @@ def process_unit_list(
                         all_recorded_electrode_ids=all_recorded_electrode_ids,
                         zoom=True,
                     )
-
-                write_unit_template_and_footprint_svg(
-                    out_path=merged_unit_svgs_dir / f"unit_{uid}_merged_contributing_template_footprint_linear.svg",
-                    unit_id=uid,
-                    template=tmpl,
-                    channel_locations_xy=locs[:, :2],
-                    fs_hz=float(fs_hz_effective),
-                    ms_before=ms_before,
-                    ms_after=ms_after,
-                    top_channels=int(top_channels_per_template),
-                    log_footprint=False,
-                    electrode_ids=merged_contributing_electrode_ids,
-                    all_recorded_electrode_ids=all_recorded_electrode_ids,
-                )
-                write_unit_template_and_footprint_svg(
-                    out_path=merged_unit_svgs_dir / f"unit_{uid}_merged_contributing_template_footprint_log.svg",
-                    unit_id=uid,
-                    template=tmpl,
-                    channel_locations_xy=locs[:, :2],
-                    fs_hz=float(fs_hz_effective),
-                    ms_before=ms_before,
-                    ms_after=ms_after,
-                    top_channels=int(top_channels_per_template),
-                    log_footprint=True,
-                    electrode_ids=merged_contributing_electrode_ids,
-                    all_recorded_electrode_ids=all_recorded_electrode_ids,
-                )
             except Exception:
                 pass
 
@@ -469,7 +434,9 @@ def process_unit_list(
         if topo_unit_footprints_dir is not None and write_topo_unit_footprint_png is not None and full_channels_templates_dir is not None:
             try:
                 out_png = topo_unit_footprints_dir / f"unit_{uid}.png"
-                if (not out_png.exists()) or force_restart:
+                out_zoom_png = topo_unit_footprints_dir / f"unit_{uid}_zoom.png"
+
+                if ((not out_png.exists()) or (not out_zoom_png.exists())) or force_restart:
                     unit_full_dir = full_channels_templates_dir / f"unit_{uid}"
                     full_template_npy = unit_full_dir / "full_template.npy"
                     full_electrode_ids_npy = unit_full_dir / "full_electrode_ids.npy"
@@ -487,18 +454,42 @@ def process_unit_list(
                         except Exception:
                             full_eids = None
 
-                        write_topo_unit_footprint_png(
-                            out_path=out_png,
+                        overlap_line = _format_overlap_resolved_line(
+                            merged_units_dir=merged_units_dir,
                             unit_id=uid,
-                            full_template=full_tmpl,
-                            full_electrode_ids=(full_eids.tolist() if full_eids is not None else None),
-                            all_recorded_electrode_ids=all_recorded_electrode_ids,
-                            title=f"Unit {uid} full-template topo footprint (PTP)",
-                            overlap_resolved_line=_format_overlap_resolved_line(
-                                merged_units_dir=merged_units_dir,
-                                unit_id=uid,
-                            ),
                         )
+
+                        if ((not out_png.exists()) or force_restart):
+                            write_topo_unit_footprint_png(
+                                out_path=out_png,
+                                unit_id=uid,
+                                full_template=full_tmpl,
+                                full_electrode_ids=(full_eids.tolist() if full_eids is not None else None),
+                                all_recorded_electrode_ids=all_recorded_electrode_ids,
+                                title=f"Unit {uid} full-template topo footprint (PTP)",
+                                overlap_resolved_line=overlap_line,
+                            )
+
+                        # Zoomed variant: constrain x/y to contributing electrodes.
+                        if ((not out_zoom_png.exists()) or force_restart):
+                            zoom_eids = None
+                            try:
+                                zoom_eids_npy = (merged_units_dir / f"unit_{uid}" / "merged_contributing_electrode_ids.npy")
+                                if zoom_eids_npy.exists():
+                                    zoom_eids = np.load(zoom_eids_npy, allow_pickle=True)
+                            except Exception:
+                                zoom_eids = None
+
+                            write_topo_unit_footprint_png(
+                                out_path=out_zoom_png,
+                                unit_id=uid,
+                                full_template=full_tmpl,
+                                full_electrode_ids=(full_eids.tolist() if full_eids is not None else None),
+                                all_recorded_electrode_ids=all_recorded_electrode_ids,
+                                title=f"Unit {uid} topo footprint (PTP) [zoomed to contributing x/y]",
+                                overlap_resolved_line=overlap_line,
+                                zoom_electrode_ids=(zoom_eids.tolist() if zoom_eids is not None else None),
+                            )
             except Exception:
                 pass
 

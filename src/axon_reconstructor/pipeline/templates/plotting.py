@@ -846,6 +846,8 @@ def _write_topo_unit_footprint_png(
     all_recorded_electrode_ids: Any,
     title: str,
     overlap_resolved_line: Optional[str] = None,
+    zoom_electrode_ids: Optional[Any] = None,
+    zoom_pad_um: Optional[float] = None,
     cmap: str = "viridis",
 ) -> None:
     """Write a 3D full-chip topographical footprint plot.
@@ -987,6 +989,31 @@ def _write_topo_unit_footprint_png(
     except Exception:
         pass
 
+    # Optional zoom: constrain x/y limits to the contributing electrode region.
+    # This is intentionally done at *render time* (templates stage), so analysis only
+    # loads a pre-rendered zoomed topo instead of post-hoc cropping.
+    try:
+        if zoom_electrode_ids is not None:
+            z_trip = _electrode_ids_to_rowcol(electrode_ids=zoom_electrode_ids)
+            if z_trip is not None:
+                z_rr = z_trip[1]
+                z_cc = z_trip[2]
+                if int(z_rr.size) > 0 and int(z_cc.size) > 0:
+                    pad_um = float(zoom_pad_um) if zoom_pad_um is not None else 4.0 * float(CHIP_PITCH_UM)
+
+                    x_full_max = float((int(CHIP_COLS) - 1) * float(CHIP_PITCH_UM))
+                    y_full_max = float((int(CHIP_ROWS) - 1) * float(CHIP_PITCH_UM))
+
+                    x0 = float(np.min(z_cc)) * float(CHIP_PITCH_UM)
+                    x1 = float(np.max(z_cc)) * float(CHIP_PITCH_UM)
+                    y0 = float(np.min(z_rr)) * float(CHIP_PITCH_UM)
+                    y1 = float(np.max(z_rr)) * float(CHIP_PITCH_UM)
+
+                    ax.set_xlim(max(0.0, x0 - pad_um), min(x_full_max, x1 + pad_um))
+                    ax.set_ylim(max(0.0, y0 - pad_um), min(y_full_max, y1 + pad_um))
+    except Exception:
+        pass
+
     # Add contributing/noncontrib counts.
     try:
         n_recording = int(np.sum(rec_mask)) if np.any(rec_mask) else int(CHIP_ROWS) * int(CHIP_COLS)
@@ -1020,8 +1047,10 @@ def _write_topo_unit_footprint_png(
 
     # Respect physical aspect on x/y; make z visually taller so structure is visible.
     try:
-        x_range = float((int(CHIP_COLS) - 1) * float(CHIP_PITCH_UM))
-        y_range = float((int(CHIP_ROWS) - 1) * float(CHIP_PITCH_UM))
+        x0_lim, x1_lim = ax.get_xlim3d()
+        y0_lim, y1_lim = ax.get_ylim3d()
+        x_range = float(abs(x1_lim - x0_lim))
+        y_range = float(abs(y1_lim - y0_lim))
         z_max = float(np.nanmax(Z)) if np.isfinite(np.nanmax(Z)) else 1.0
         z_max = max(z_max, 1.0)
         ax.set_zlim(0.0, z_max * 1.05)
@@ -1188,8 +1217,9 @@ def _write_unit_propagation_plots_png(
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"unit_{unit_id}.png"
 
-    fig_h = float(min(18.0, max(4.5, 0.38 * float(len(selected)) + 1.5)))
-    fig_w = 10.5
+    out_svg = out_dir / f"unit_{unit_id}.svg"
+    fig_w = 5.0
+    fig_h = float(min(26.0, max(8.0, 0.60 * float(len(selected)) + 3.0)))
     fig = plt.figure(figsize=(fig_w, fig_h))
     ax = fig.add_subplot(111)
 
@@ -1326,7 +1356,11 @@ def _write_unit_propagation_plots_png(
         except Exception:
             pass
 
-    fig.savefig(out_path, dpi=220, bbox_inches="tight", pad_inches=0.02)
+    fig.savefig(out_path, dpi=260, bbox_inches="tight", pad_inches=0.02)
+    try:
+        fig.savefig(out_svg, format="svg", bbox_inches="tight", pad_inches=0.02)
+    except Exception:
+        pass
     plt.close(fig)
     return
 
@@ -1464,7 +1498,11 @@ def _write_footprint_ptp_map(
             except Exception:
                 pass
         fig.tight_layout()
-        fig.savefig(out_path, dpi=200)
+        fig.savefig(out_path, dpi=220)
+        try:
+            fig.savefig(out_path.with_suffix(".svg"), format="svg")
+        except Exception:
+            pass
         plt.close(fig)
         return
 
@@ -1514,7 +1552,11 @@ def _write_footprint_ptp_map(
         except Exception:
             pass
     fig.tight_layout()
-    fig.savefig(out_path, dpi=200)
+    fig.savefig(out_path, dpi=220)
+    try:
+        fig.savefig(out_path.with_suffix(".svg"), format="svg")
+    except Exception:
+        pass
     plt.close(fig)
 
 

@@ -4,8 +4,12 @@ This module exists for debugging / iteration on plots without needing to re-run
 waveform extraction or load SortingAnalyzers.
 
 It intentionally reads only from the files produced by the templates step:
-- merged templates: <well>/templates_outputs/merged_units/unit_<id>/...
-- full templates (optional): <well>/templates_outputs/full_channels_templates/unit_<id>/...
+- merged templates: <well>/templates_outputs/templates/merged/unit_<id>/...
+- full templates (optional): <well>/templates_outputs/templates/full/unit_<id>/...
+
+Legacy (pre-refactor) paths are supported for reading:
+- <well>/templates_outputs/merged_units/
+- <well>/templates_outputs/full_channels_templates/
 
 Usage (module):
     python -m axon_reconstructor.pipeline.templates.replot \
@@ -70,8 +74,8 @@ def _load_all_recorded_electrode_ids(*, full_channels_templates_dir: Path):
       - quiet electrodes: not present in any recording/analyzer
       - non-contributing electrodes: present in recording but not contributing for this unit
 
-    Source:
-      <well>/templates_outputs/full_channels_templates/all_recorded_electrode_ids.npy
+        Source:
+            <well>/templates_outputs/templates/full/all_recorded_electrode_ids.npy
     """
 
     all_recorded_npy = Path(full_channels_templates_dir) / "all_recorded_electrode_ids.npy"
@@ -312,7 +316,7 @@ def replot_unit_from_disk(
     unit_id: Any,
     force: bool = False,
     make_footprints: bool = True,
-    make_svgs: bool = True,
+    make_svgs: bool = False,
     make_full_chip_maps: bool = True,
     make_topo: bool = True,
     make_propagation: bool = True,
@@ -329,12 +333,23 @@ def replot_unit_from_disk(
         _write_full_chip_template_peak_latency_map_png,
         _write_topo_unit_footprint_png,
         _write_unit_propagation_plots_png,
-        _write_unit_template_and_footprint_svg,
     )
 
     templates_out_dir = well_out_dir / "templates_outputs"
-    merged_units_dir = templates_out_dir / "merged_units"
-    full_channels_templates_dir = templates_out_dir / "full_channels_templates"
+
+    templates_dir = templates_out_dir / "templates"
+    merged_units_dir = templates_dir / "merged"
+    full_channels_templates_dir = templates_dir / "full"
+
+    # Legacy fallback.
+    if not merged_units_dir.exists():
+        legacy = templates_out_dir / "merged_units"
+        if legacy.exists():
+            merged_units_dir = legacy
+    if not full_channels_templates_dir.exists():
+        legacy = templates_out_dir / "full_channels_templates"
+        if legacy.exists():
+            full_channels_templates_dir = legacy
 
     merged = load_persisted_merged_unit(merged_units_dir=merged_units_dir, unit_id=unit_id)
     if merged is None:
@@ -367,11 +382,13 @@ def replot_unit_from_disk(
 
     fs_hz, ms_before, ms_after = _load_plot_window_from_waveforms_outputs(well_out_dir=well_out_dir)
 
-    footprints_dir = templates_out_dir / "footprints"
-    footprints_zoomed_dir = templates_out_dir / "footprints_zoomed"
-    svgs_dir = templates_out_dir / "svgs"
-    full_chip_maps_dir = templates_out_dir / "full_chip_maps"
-    topo_dir = templates_out_dir / "topo_unit_footprints"
+    footprints_root = templates_out_dir / "footprints"
+    footprints_dir = footprints_root / "full"
+    footprints_zoomed_dir = footprints_root / "zoomed"
+    full_chip_maps_root_dir = footprints_root / "full_chip_maps"
+    full_chip_amp_dir = full_chip_maps_root_dir / "amplitude"
+    full_chip_lat_dir = full_chip_maps_root_dir / "peak_latency"
+    topo_dir = footprints_root / "3D"
     propagation_dir = templates_out_dir / "propagation_plots"
 
     if make_footprints:
@@ -382,6 +399,7 @@ def replot_unit_from_disk(
         if amp is None:
             amp = np.ptp(np.asarray(merged.template, dtype=float), axis=0).astype(float)
 
+        footprints_dir.mkdir(parents=True, exist_ok=True)
         out_lin = footprints_dir / f"unit_{unit_id}_merged_contributing_footprint_ptp_linear.png"
         out_log = footprints_dir / f"unit_{unit_id}_merged_contributing_footprint_ptp_log.png"
         out_lin_zoom = footprints_zoomed_dir / f"unit_{unit_id}_merged_contributing_footprint_ptp_linear_zoom.png"
@@ -434,44 +452,16 @@ def replot_unit_from_disk(
                 zoom=True,
             )
 
-    if make_svgs:
-        out_svg_lin = svgs_dir / f"unit_{unit_id}_merged_contributing_template_footprint_linear.svg"
-        out_svg_log = svgs_dir / f"unit_{unit_id}_merged_contributing_template_footprint_log.svg"
-        if force or (not out_svg_lin.exists()):
-            _write_unit_template_and_footprint_svg(
-                out_path=out_svg_lin,
-                unit_id=unit_id,
-                template=merged.template,
-                channel_locations_xy=merged.channel_locations_xy,
-                fs_hz=float(fs_hz),
-                ms_before=ms_before,
-                ms_after=ms_after,
-                top_channels=8,
-                log_footprint=False,
-                electrode_ids=merged.electrode_ids,
-                all_recorded_electrode_ids=all_recorded_electrode_ids,
-            )
-        if force or (not out_svg_log.exists()):
-            _write_unit_template_and_footprint_svg(
-                out_path=out_svg_log,
-                unit_id=unit_id,
-                template=merged.template,
-                channel_locations_xy=merged.channel_locations_xy,
-                fs_hz=float(fs_hz),
-                ms_before=ms_before,
-                ms_after=ms_after,
-                top_channels=8,
-                log_footprint=True,
-                electrode_ids=merged.electrode_ids,
-                all_recorded_electrode_ids=all_recorded_electrode_ids,
-            )
+    _ = make_svgs  # SVG outputs intentionally disabled (folder no longer generated).
 
     if make_full_chip_maps and merged.electrode_ids is not None:
         import numpy as np  # type: ignore[import-not-found]
 
         tmp_ch_by_t = np.asarray(merged.template, dtype=float).T
-        out_amp = full_chip_maps_dir / f"unit_{unit_id}_template_amplitude_map_full_chip.png"
-        out_lat = full_chip_maps_dir / f"unit_{unit_id}_template_peak_latency_map_full_chip.png"
+        full_chip_amp_dir.mkdir(parents=True, exist_ok=True)
+        full_chip_lat_dir.mkdir(parents=True, exist_ok=True)
+        out_amp = full_chip_amp_dir / f"unit_{unit_id}_template_amplitude_map_full_chip.png"
+        out_lat = full_chip_lat_dir / f"unit_{unit_id}_template_peak_latency_map_full_chip.png"
         if force or (not out_amp.exists()):
             _write_full_chip_template_amplitude_map_png(
                 out_path=out_amp,
@@ -491,6 +481,7 @@ def replot_unit_from_disk(
             )
 
     if make_topo and full is not None and full.full_electrode_ids is not None:
+        topo_dir.mkdir(parents=True, exist_ok=True)
         out_topo = topo_dir / f"unit_{unit_id}.png"
         if force or (not out_topo.exists()):
             _write_topo_unit_footprint_png(
@@ -503,6 +494,7 @@ def replot_unit_from_disk(
             )
 
     if make_propagation:
+        propagation_dir.mkdir(parents=True, exist_ok=True)
         # PNG output (one file if one panel; multiple if multiple panels).
         out_png = propagation_dir / f"unit_{unit_id}.png"
         legacy_pdf = propagation_dir / f"unit_{unit_id}.pdf"
@@ -544,7 +536,14 @@ def replot_templates_outputs_from_disk(
     """Replot multiple units from disk."""
 
     templates_out_dir = well_out_dir / "templates_outputs"
-    merged_units_dir = templates_out_dir / "merged_units"
+    templates_dir = templates_out_dir / "templates"
+    merged_units_dir = templates_dir / "merged"
+
+    # Legacy fallback.
+    if not merged_units_dir.exists():
+        legacy = templates_out_dir / "merged_units"
+        if legacy.exists():
+            merged_units_dir = legacy
 
     if unit_ids is None:
         unit_ids = _iter_unit_ids_from_disk(merged_units_dir)
@@ -574,7 +573,7 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p.add_argument(
         "--rebuild-full-channels-templates",
         action="store_true",
-        help="Rebuild templates_outputs/full_channels_templates from merged_units using Maxwell full-chip electrode ids (fixes sparse full templates for topo plots).",
+        help="Rebuild templates_outputs/templates/full from merged templates using Maxwell full-chip electrode ids (fixes sparse full templates for topo plots).",
     )
 
     p.add_argument("--propagation-top-channels", type=int, default=25)

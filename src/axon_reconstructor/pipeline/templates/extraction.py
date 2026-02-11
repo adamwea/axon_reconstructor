@@ -151,7 +151,7 @@ def _persist_unit_templates(
     extracted_templates_dir: Path,
     merged_units_dir: Path,
     merged_unit_full_chip_maps_dir: Path,
-    axon_velocity_outputs_root_dir: Path,
+    axon_velocity_outputs_root_dir: Optional[Path] = None,
     full_channels_templates_dir: Optional[Path] = None,
     full_channel_locations_xy: Any = None,
     full_channel_ids: Any = None,
@@ -203,7 +203,12 @@ def _persist_unit_templates(
             data_dir = merged_units_dir / f"unit_{uid}"
             data_dir.mkdir(parents=True, exist_ok=True)
 
-            merged_unit_full_chip_maps_dir.mkdir(parents=True, exist_ok=True)
+            # Full-chip QC maps are organized by map type under:
+            #   templates_outputs/footprints/full_chip_maps/{amplitude,peak_latency}/
+            amp_maps_dir = Path(merged_unit_full_chip_maps_dir) / "amplitude"
+            lat_maps_dir = Path(merged_unit_full_chip_maps_dir) / "peak_latency"
+            amp_maps_dir.mkdir(parents=True, exist_ok=True)
+            lat_maps_dir.mkdir(parents=True, exist_ok=True)
 
             npy_path = data_dir / "merged_contributing_template.npy"
             locs_npy = data_dir / "merged_contributing_channel_locations.npy"
@@ -212,9 +217,9 @@ def _persist_unit_templates(
             footprint_ptp_npy = data_dir / "merged_contributing_footprint_ptp.npy"
             axon_velocity_npz = data_dir / "axon_velocity_inputs.npz"
 
-            template_amplitude_png = merged_unit_full_chip_maps_dir / f"unit_{uid}_template_amplitude_map_full_chip.png"
-            template_peak_latency_png = merged_unit_full_chip_maps_dir / f"unit_{uid}_template_peak_latency_map_full_chip.png"
-            axon_velocity_plots_dir = axon_velocity_outputs_root_dir / f"unit_{uid}"
+            template_amplitude_png = amp_maps_dir / f"unit_{uid}_template_amplitude_map_full_chip.png"
+            template_peak_latency_png = lat_maps_dir / f"unit_{uid}_template_peak_latency_map_full_chip.png"
+            axon_velocity_plots_dir = (Path(axon_velocity_outputs_root_dir) / f"unit_{uid}") if axon_velocity_outputs_root_dir is not None else None
             meta_path = data_dir / "merged_contributing_template_meta.json"
         else:
             out_dir = extracted_templates_dir / src_name
@@ -309,19 +314,20 @@ def _persist_unit_templates(
                     pass
 
                 # Clean up legacy naming so merged output dirs don't keep old axon_velocity-like QC maps.
-                try:
-                    legacy_plots_dir = Path(axon_velocity_outputs_root_dir).parent / "merged_unit_plots" / f"unit_{uid}"
-                    legacy_amp = legacy_plots_dir / "axon_velocity_amplitude_map.png"
-                    legacy_lat = legacy_plots_dir / "axon_velocity_peak_latency_map.png"
-                    legacy_std = legacy_plots_dir / "axon_velocity_peak_std_map.png"
-                    if template_amplitude_png is not None and template_amplitude_png.exists() and legacy_amp.exists():
-                        legacy_amp.unlink()
-                    if template_peak_latency_png is not None and template_peak_latency_png.exists() and legacy_lat.exists():
-                        legacy_lat.unlink()
-                    if legacy_std.exists():
-                        legacy_std.unlink()
-                except Exception:
-                    pass
+                if axon_velocity_outputs_root_dir is not None:
+                    try:
+                        legacy_plots_dir = Path(axon_velocity_outputs_root_dir).parent / "merged_unit_plots" / f"unit_{uid}"
+                        legacy_amp = legacy_plots_dir / "axon_velocity_amplitude_map.png"
+                        legacy_lat = legacy_plots_dir / "axon_velocity_peak_latency_map.png"
+                        legacy_std = legacy_plots_dir / "axon_velocity_peak_std_map.png"
+                        if template_amplitude_png is not None and template_amplitude_png.exists() and legacy_amp.exists():
+                            legacy_amp.unlink()
+                        if template_peak_latency_png is not None and template_peak_latency_png.exists() and legacy_lat.exists():
+                            legacy_lat.unlink()
+                        if legacy_std.exists():
+                            legacy_std.unlink()
+                    except Exception:
+                        pass
 
                 # Optional: real axon_velocity integration outputs (separate folder).
                 if bool(make_axon_velocity_plots) and axon_velocity_plots_dir is not None and axon_velocity_npz is not None:
