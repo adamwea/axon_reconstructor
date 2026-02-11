@@ -116,7 +116,7 @@ class ReconstructionInputs:
     stream_id: str
     mea_output_root: Path
 
-    # Units to reconstruct. If None, reconstruct all units found under templates_outputs/merged_units.
+    # Units to reconstruct. If None, reconstruct all units found under templates_outputs/templates/merged.
     unit_ids: Optional[list[Any]] = None
     unit_limit: Optional[int] = None
 
@@ -124,10 +124,10 @@ class ReconstructionInputs:
     #
     # axon_velocity is most robust when given a dense full-channel template on a deterministic
     # geometry (e.g. Maxwell full chip). By default we therefore consume templates-stage outputs
-    # under `<well>/templates_outputs/full_channels_templates/`.
+    # under `<well>/templates_outputs/templates/full/`.
     #
     # Set `use_full_channels_templates=False` to fall back to the sparse merged-contributing
-    # template under `<well>/templates_outputs/merged_units/`.
+    # template under `<well>/templates_outputs/templates/merged/`.
     use_full_channels_templates: bool = True
 
     # If True, raise if full-channel templates are missing.
@@ -161,11 +161,11 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
     """Run axon reconstruction/velocity estimation using axon_velocity.
 
         This stage primarily consumes the dense full-channel template artifacts from templates extraction:
-            <well>/templates_outputs/full_channels_templates/unit_<id>/full_template.npy
-            <well>/templates_outputs/full_channels_templates/unit_<id>/full_channel_locations_xy.npy
+            <well>/templates_outputs/templates/full/unit_<id>/full_template.npy
+            <well>/templates_outputs/templates/full/unit_<id>/full_channel_locations_xy.npy
 
         It also reads (best-effort) sampling frequency metadata from:
-            <well>/templates_outputs/merged_units/unit_<id>/merged_contributing_template_meta.json
+            <well>/templates_outputs/templates/merged/unit_<id>/merged_contributing_template_meta.json
 
     And produces:
       <well>/reconstruction_outputs/
@@ -236,8 +236,20 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
     by_unit_dir.mkdir(parents=True, exist_ok=True)
 
     templates_out_dir = well_out_dir / "templates_outputs"
-    merged_units_dir = templates_out_dir / "merged_units"
-    full_channels_templates_dir = templates_out_dir / "full_channels_templates"
+    templates_dir = templates_out_dir / "templates"
+
+    merged_units_dir = templates_dir / "merged"
+    full_channels_templates_dir = templates_dir / "full"
+
+    # Legacy fallback.
+    if not merged_units_dir.exists():
+        legacy = templates_out_dir / "merged_units"
+        if legacy.exists():
+            merged_units_dir = legacy
+    if not full_channels_templates_dir.exists():
+        legacy = templates_out_dir / "full_channels_templates"
+        if legacy.exists():
+            full_channels_templates_dir = legacy
     if not merged_units_dir.exists():
         raise FileNotFoundError(f"Missing merged templates at {merged_units_dir}")
     if bool(inputs.use_full_channels_templates) and bool(inputs.require_full_channels_templates):

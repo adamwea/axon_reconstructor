@@ -8,7 +8,6 @@ from .plotting import (
     _write_footprint_ptp_map,
     _write_templates_grid_pdf,
     _write_unit_segment_grids_pdf,
-    _write_unit_template_and_footprint_svg,
     _write_unit_segment_footprint_grids_pdf,
     _write_topo_unit_footprint_png,
     _write_unit_propagation_plots_pdf,
@@ -165,24 +164,27 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     )
 
     templates_out_dir = well_out_dir / TEMPLATES_OUTPUTS_DIRNAME
-    extracted_templates_dir = templates_out_dir / "extracted_templates"
-    merged_units_dir = templates_out_dir / "merged_units"
+    templates_dir = templates_out_dir / "templates"
+    extracted_templates_dir = templates_dir / "sources"
+    merged_units_dir = templates_dir / "merged"
 
-    # Plot outputs (plot-type dirs directly under templates_outputs/)
-    merged_unit_footprints_dir = templates_out_dir / "footprints"
-    merged_unit_footprints_zoomed_dir = templates_out_dir / "footprints_zoomed"
-    merged_unit_svgs_dir = templates_out_dir / "svgs"
-    merged_unit_full_chip_maps_dir = templates_out_dir / "full_chip_maps"
+    # Plot outputs
+    footprints_root_dir = templates_out_dir / "footprints"
+    merged_unit_footprints_dir = footprints_root_dir / "full"
+    merged_unit_footprints_zoomed_dir = footprints_root_dir / "zoomed"
+    merged_unit_full_chip_maps_dir = footprints_root_dir / "full_chip_maps"
+
+    # Optional per-unit axon_velocity plot bundle (only created when enabled).
     axon_velocity_outputs_root_dir = templates_out_dir / "axon_velocity_outputs"
 
-    full_channels_templates_dir = templates_out_dir / "full_channels_templates"
-    topo_unit_footprints_dir = templates_out_dir / "topo_unit_footprints"
+    full_channels_templates_dir = templates_dir / "full"
+    topo_unit_footprints_dir = footprints_root_dir / "3D"
     propagation_plots_dir = templates_out_dir / "propagation_plots"
 
     summary_json = templates_out_dir / "templates_summary.json"
     templates_grid_pdf = templates_out_dir / "templates_grid.pdf" if inputs.plot_templates_grid_pdf else None
     # Per-unit concat-vs-segment grids (flattened files).
-    unit_segment_grids_dir = templates_out_dir / "unit_segment_grids" if inputs.plot_multi_source_templates_pdf else None
+    unit_segment_grids_dir = templates_out_dir / "segment_grids" if inputs.plot_multi_source_templates_pdf else None
 
     # Intentionally disabled.
     templates_grid_panels_dir = None
@@ -225,13 +227,13 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     )
 
     templates_out_dir.mkdir(parents=True, exist_ok=True)
+    templates_dir.mkdir(parents=True, exist_ok=True)
     extracted_templates_dir.mkdir(parents=True, exist_ok=True)
     merged_units_dir.mkdir(parents=True, exist_ok=True)
+    footprints_root_dir.mkdir(parents=True, exist_ok=True)
     merged_unit_footprints_dir.mkdir(parents=True, exist_ok=True)
     merged_unit_footprints_zoomed_dir.mkdir(parents=True, exist_ok=True)
-    merged_unit_svgs_dir.mkdir(parents=True, exist_ok=True)
     merged_unit_full_chip_maps_dir.mkdir(parents=True, exist_ok=True)
-    axon_velocity_outputs_root_dir.mkdir(parents=True, exist_ok=True)
     if bool(inputs.save_full_channels_templates):
         full_channels_templates_dir.mkdir(parents=True, exist_ok=True)
     if bool(inputs.plot_topo_unit_footprints):
@@ -240,6 +242,9 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         propagation_plots_dir.mkdir(parents=True, exist_ok=True)
     if unit_segment_grids_dir is not None:
         unit_segment_grids_dir.mkdir(parents=True, exist_ok=True)
+
+    if bool(inputs.plot_axon_velocity_outputs):
+        axon_velocity_outputs_root_dir.mkdir(parents=True, exist_ok=True)
 
     from .multi_source_utils import (
         _get_unit_template_from_extension,
@@ -309,9 +314,8 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         "propagation_plots_dir": str(propagation_plots_dir) if bool(inputs.plot_propagation_plots) else None,
         "merged_unit_footprints_dir": str(merged_unit_footprints_dir),
         "merged_unit_footprints_zoomed_dir": str(merged_unit_footprints_zoomed_dir),
-        "merged_unit_svgs_dir": str(merged_unit_svgs_dir),
         "merged_unit_full_chip_maps_dir": str(merged_unit_full_chip_maps_dir),
-        "axon_velocity_outputs_root_dir": str(axon_velocity_outputs_root_dir),
+        "axon_velocity_outputs_root_dir": str(axon_velocity_outputs_root_dir) if bool(inputs.plot_axon_velocity_outputs) else None,
         "curation": {
             "qm_unfiltered_xlsx": str(curation_qm_xlsx) if curation_qm_xlsx else None,
             "applied": bool(curated_units_norm is not None),
@@ -339,9 +343,8 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         merged_units_dir=merged_units_dir,
         merged_unit_footprints_dir=merged_unit_footprints_dir,
         merged_unit_footprints_zoomed_dir=merged_unit_footprints_zoomed_dir,
-        merged_unit_svgs_dir=merged_unit_svgs_dir,
         merged_unit_full_chip_maps_dir=merged_unit_full_chip_maps_dir,
-        axon_velocity_outputs_root_dir=axon_velocity_outputs_root_dir,
+        axon_velocity_outputs_root_dir=(axon_velocity_outputs_root_dir if bool(inputs.plot_axon_velocity_outputs) else None),
         unit_segment_grids_dir=unit_segment_grids_dir,
         full_channels_templates_dir=(full_channels_templates_dir if bool(inputs.save_full_channels_templates) else None),
         topo_unit_footprints_dir=(topo_unit_footprints_dir if bool(inputs.plot_topo_unit_footprints) else None),
@@ -353,7 +356,6 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         ms_after=ms_after,
         top_channels_per_template=int(inputs.top_channels_per_template),
         write_footprint_ptp_map=_write_footprint_ptp_map,
-        write_unit_template_and_footprint_svg=_write_unit_template_and_footprint_svg,
         write_topo_unit_footprint_png=_write_topo_unit_footprint_png,
         make_merged_contributing_footprint_plots=bool(inputs.plot_merged_contributing_footprints_linear_and_log),
         make_axon_velocity_plots=bool(inputs.plot_axon_velocity_outputs),
