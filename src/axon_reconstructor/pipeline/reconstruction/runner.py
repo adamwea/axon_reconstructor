@@ -141,6 +141,14 @@ class ReconstructionInputs:
     write_unit_pdfs: bool = True
     write_all_units_overview_pdf: bool = True
 
+    # If True, skip axon_velocity tracking and only (re)render per-unit summary plots
+    # from already-written reconstruction/templates artifacts on disk.
+    replot_summaries_only: bool = False
+
+    # If True, run axon_velocity tracking but only (re)write branches_raw.json (raw paths)
+    # and skip all other per-unit plots/outputs.
+    recompute_branches_raw_only: bool = False
+
     # Runtime
     verbose: bool = False
 
@@ -196,7 +204,15 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
     recon_out_dir = well_out_dir / RECONSTRUCTION_OUTPUTS_DIRNAME
     by_unit_dir = recon_out_dir / "by_unit"
     summary_json = recon_out_dir / "reconstruction_summary.json"
-    all_units_overview_pdf = recon_out_dir / "all_units_morphology.pdf" if inputs.write_all_units_overview_pdf else None
+    if bool(inputs.replot_summaries_only) and bool(inputs.recompute_branches_raw_only):
+        raise ValueError("replot_summaries_only and recompute_branches_raw_only are mutually exclusive")
+
+    # In modes that skip normal plotting, avoid generating the all-units overview artifact.
+    all_units_overview_pdf = (
+        None
+        if (bool(inputs.replot_summaries_only) or bool(inputs.recompute_branches_raw_only))
+        else (recon_out_dir / "all_units_morphology.pdf" if inputs.write_all_units_overview_pdf else None)
+    )
 
     ckpt_file = _compute_reconstruction_checkpoint_file(well_out_dir=well_out_dir, h5_path=inputs.h5_path, stream_id=inputs.stream_id)
     ckpt = load_checkpoint(
@@ -210,6 +226,8 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
     # Resume shortcut.
     if (
         (not inputs.force_restart)
+        and (not bool(inputs.replot_summaries_only))
+        and (not bool(inputs.recompute_branches_raw_only))
         and summary_json.exists()
         and ((all_units_overview_pdf is None) or all_units_overview_pdf.exists())
         and by_unit_dir.exists()
@@ -398,9 +416,67 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
             tmpl_ch_by_t = np.asarray(tmpl).T
             locs_xy = np.asarray(locs)[:, :2]
 
+            # Summary-only mode: plot summaries directly from on-disk artifacts.
+            if bool(inputs.replot_summaries_only):
+                from .plotting import write_unit_summary_plots_from_disk
+
+                fs_hz_for_summary: Optional[float] = None
+                try:
+                    meta_path = full_meta_json if (use_full and full_meta_json.exists()) else merged_meta_json
+                    meta = _read_json(meta_path)
+                    if meta.get("sampling_frequency_hz") is not None:
+                        fs_hz_for_summary = float(meta.get("sampling_frequency_hz"))
+                except Exception:
+                    fs_hz_for_summary = None
+
+                out = write_unit_summary_plots_from_disk(
+                    uid=uid,
+                    out_unit_dir=out_unit_dir,
+                    template_ch_by_t=tmpl_ch_by_t,
+                    locs_xy=locs_xy,
+                    fs_hz=fs_hz_for_summary,
+                    force_restart=bool(inputs.force_restart),
+                    logger=logger,
+                )
+                unit_summary["outputs"].update(out)
+                summary["units"].append(unit_summary)
+                continue
+
+            # branches_raw-only mode: run tracking, write branches_raw.json, and skip other outputs.
+            if bool(inputs.recompute_branches_raw_only):
+                fs_hz = None
+                try:
+                    meta_path = full_meta_json if (use_full and full_meta_json.exists()) else merged_meta_json
+                    meta = _read_json(meta_path)
+                    fs_hz = (
+                        float(meta.get("sampling_frequency_hz"))
+                        if meta.get("sampling_frequency_hz") is not None
+                        else None
+                    )
+                except Exception:
+                    fs_hz = None
+                if fs_hz is None:
+                    fs_hz = 10_000.0
+
+                gtr = av.compute_graph_propagation_velocity(tmpl_ch_by_t, locs_xy, float(fs_hz), **params)
+
+                raw_branches_json = out_unit_dir / "branches_raw.json"
+                try:
+                    from .plotting import compute_raw_branches_for_summary
+
+                    raw_branches_out = compute_raw_branches_for_summary(uid=uid, gtr=gtr)
+                    _write_json(raw_branches_json, {"unit_id": _jsonable(uid), "branches": raw_branches_out})
+                    unit_summary["outputs"]["branches_raw_json"] = str(raw_branches_json)
+                except Exception as e:
+                    logger.warning("Failed writing branches_raw.json for unit %s: %s", uid, e)
+
+                summary["units"].append(unit_summary)
+                continue
+
             fs_hz = None
             try:
-                meta = _read_json(merged_meta_json)
+                meta_path = full_meta_json if (use_full and full_meta_json.exists()) else merged_meta_json
+                meta = _read_json(meta_path)
                 fs_hz = (
                     float(meta.get("sampling_frequency_hz"))
                     if meta.get("sampling_frequency_hz") is not None
@@ -463,9 +539,21 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                 pass
 
             branches_json = out_unit_dir / "branches.json"
+            raw_branches_json = out_unit_dir / "branches_raw.json"
             heuristics_json = out_unit_dir / "heuristics.json"
             _write_json(branches_json, {"unit_id": _jsonable(uid), "branches": branches_out})
             _write_json(heuristics_json, {"unit_id": _jsonable(uid), "heuristics": heuristics})
+
+            # Persist raw paths (best effort) so summary plots can be regenerated without
+            # recomputing axon_velocity tracking.
+            try:
+                from .plotting import compute_raw_branches_for_summary
+
+                raw_branches_out = compute_raw_branches_for_summary(uid=uid, gtr=gtr)
+                _write_json(raw_branches_json, {"unit_id": _jsonable(uid), "branches": raw_branches_out})
+                unit_summary["outputs"]["branches_raw_json"] = str(raw_branches_json)
+            except Exception:
+                pass
 
             unit_summary["outputs"].update(
                 {
@@ -497,7 +585,7 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
         summary["units"].append(unit_summary)
 
     # All-units overview morphology plot.
-    if all_units_overview_pdf is not None:
+    if (not bool(inputs.replot_summaries_only)) and (all_units_overview_pdf is not None):
         try:
             ok = write_all_units_overview_pdf(
                 all_units_overview_pdf=all_units_overview_pdf,
