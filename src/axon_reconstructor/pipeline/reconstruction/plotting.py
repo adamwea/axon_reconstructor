@@ -927,6 +927,62 @@ def write_unit_reconstruction_pdfs(
         "",
     }
 
+    crop_template_movie_gif = (
+        str(os.getenv("AXON_RECON_RECON_TEMPLATE_MOVIE_GIF_CROP", "1")).strip().lower()
+        not in {
+            "0",
+            "false",
+            "no",
+            "off",
+            "",
+        }
+    )
+
+    template_movie_gif_cmap = str(os.getenv("AXON_RECON_RECON_TEMPLATE_MOVIE_GIF_CMAP", "coolwarm")).strip() or "coolwarm"
+    try:
+        template_movie_gif_clip_quantile = float(
+            str(os.getenv("AXON_RECON_RECON_TEMPLATE_MOVIE_GIF_CLIP_QUANTILE", "0.995")).strip()
+        )
+    except Exception:
+        template_movie_gif_clip_quantile = 0.995
+
+    write_template_movie_gif_colorbar = (
+        str(os.getenv("AXON_RECON_RECON_TEMPLATE_MOVIE_GIF_COLORBAR", "1")).strip().lower()
+        not in {
+            "0",
+            "false",
+            "no",
+            "off",
+            "",
+        }
+    )
+    template_movie_gif_colorbar_label = str(
+        os.getenv("AXON_RECON_RECON_TEMPLATE_MOVIE_GIF_COLORBAR_LABEL", "")
+    ).strip()
+
+    zoom_template_movie_gif = (
+        str(os.getenv("AXON_RECON_RECON_TEMPLATE_MOVIE_GIF_ZOOM", "1")).strip().lower()
+        not in {
+            "0",
+            "false",
+            "no",
+            "off",
+            "",
+        }
+    )
+    try:
+        template_movie_zoom_pad_frac = float(
+            str(os.getenv("AXON_RECON_RECON_TEMPLATE_MOVIE_GIF_ZOOM_PAD_FRAC", "0.08")).strip()
+        )
+    except Exception:
+        template_movie_zoom_pad_frac = 0.08
+    try:
+        template_movie_zoom_pad_abs = float(
+            str(os.getenv("AXON_RECON_RECON_TEMPLATE_MOVIE_GIF_ZOOM_PAD_ABS", "20.0")).strip()
+        )
+    except Exception:
+        template_movie_zoom_pad_abs = 20.0
+
     # Zoom region used for template/maps.
     branch_xy_points: list[list[float]] = []
     for br in _as_list(getattr(gtr, "branches", None)):
@@ -941,6 +997,24 @@ def write_unit_reconstruction_pdfs(
         for ch in chans:
             if 0 <= ch < locs_xy.shape[0]:
                 branch_xy_points.append([float(locs_xy[ch, 0]), float(locs_xy[ch, 1])])
+
+    contributing_channels: list[int] = []
+    try:
+        contrib_set: set[int] = set()
+        for br in _as_list(getattr(gtr, "branches", None)):
+            if isinstance(br, dict):
+                chans = _as_int_list(br.get("channels"))
+            else:
+                try:
+                    chans = _as_int_list(getattr(br, "channels", None))
+                except Exception:
+                    chans = []
+            for ch in chans:
+                if 0 <= ch < locs_xy.shape[0]:
+                    contrib_set.add(int(ch))
+        contributing_channels = sorted(contrib_set)
+    except Exception:
+        contributing_channels = []
 
     if ((not template_png.exists()) or force_restart) and (template is not None):
         try:
@@ -1562,23 +1636,147 @@ def write_unit_reconstruction_pdfs(
         try:
             from axon_velocity.plotting import play_template_map as av_play_template_map  # type: ignore[import-not-found]
             from matplotlib.animation import PillowWriter
+            from types import SimpleNamespace
 
             fig = plt.figure(figsize=(7.2, 6.2))
             ax = fig.add_subplot(111)
+
+            template_for_movie = template
+            locs_xy_for_movie = locs_xy
+            gtr_for_movie: Any | None = gtr
+
+            # Performance: crop template+locations to a square ROI around the contributing channels.
+            # This reduces the probe size passed into probe.to_image() for each animation frame.
+            if crop_template_movie_gif and contributing_channels:
+                try:
+                    xy_contrib = [[float(locs_xy[ch, 0]), float(locs_xy[ch, 1])] for ch in contributing_channels]
+                    xmin, xmax, ymin, ymax = _compute_zoom_limits_from_xy(
+                        xy_contrib,
+                        pad_frac=template_movie_zoom_pad_frac,
+                        pad_abs=template_movie_zoom_pad_abs,
+                    )
+                    # Make it square in XY.
+                    cx = 0.5 * (xmin + xmax)
+                    cy = 0.5 * (ymin + ymax)
+                    w = float(max(xmax - xmin, ymax - ymin))
+                    xmin, xmax = cx - 0.5 * w, cx + 0.5 * w
+                    ymin, ymax = cy - 0.5 * w, cy + 0.5 * w
+
+                    xs = locs_xy[:, 0]
+                    ys = locs_xy[:, 1]
+                    mask = (xs >= xmin) & (xs <= xmax) & (ys >= ymin) & (ys <= ymax)
+                    crop_inds = np.where(mask)[0].astype(int).tolist()
+
+                    # If the ROI got too small for any reason, fall back to just the contributing channels.
+                    if len(crop_inds) < max(4, min(16, len(contributing_channels))):
+                        crop_inds = list(contributing_channels)
+
+                    if crop_inds:
+                        locs_xy_for_movie = locs_xy[crop_inds, :]
+                        template_for_movie = template[crop_inds, :]
+
+                        # Remap branches into the cropped index space so axon_velocity can draw them.
+                        remap = {int(old): int(new) for new, old in enumerate(crop_inds)}
+                        branches_cropped: list[dict[str, Any]] = []
+                        for br in _as_list(getattr(gtr, "branches", None)):
+                            if not isinstance(br, dict):
+                                continue
+                            br_ch = [int(c) for c in _as_int_list(br.get("channels")) if int(c) in remap]
+                            if len(br_ch) < 2:
+                                continue
+                            branches_cropped.append({"channels": [remap[c] for c in br_ch]})
+                        gtr_for_movie = (
+                            SimpleNamespace(branches=branches_cropped, locations=locs_xy_for_movie)
+                            if branches_cropped
+                            else None
+                        )
+                except Exception:
+                    template_for_movie = template
+                    locs_xy_for_movie = locs_xy
+                    gtr_for_movie = gtr
+
+            # Reduce saturated colors by clipping extreme amplitudes (keeps sign).
+            try:
+                q = float(template_movie_gif_clip_quantile)
+                if 0.0 < q < 1.0:
+                    vals = np.asarray(template_for_movie)
+                    vmax = float(np.quantile(np.abs(vals), q))
+                    if vmax > 0.0:
+                        template_for_movie = np.clip(vals, -vmax, vmax)
+            except Exception:
+                pass
+
             with plt.rc_context(_white_bg_rc_params()):
                 ani = av_play_template_map(
-                    template,
-                    locs_xy,
-                    gtr=gtr,
+                    template_for_movie,
+                    locs_xy_for_movie,
+                    gtr=gtr_for_movie,
                     ax=ax,
-                    cmap="seismic",
+                    cmap=template_movie_gif_cmap,
                     log=False,
                     skip_frames=2,
                     interval=40,
                 )
+
+            # Add a colorbar to interpret color intensity (use any of the images; they share vmin/vmax).
+            if write_template_movie_gif_colorbar:
+                try:
+                    images = getattr(ax, "images", None)
+                    if images:
+                        mappable = images[0]
+                        cbar = fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.02)
+                        try:
+                            cbar.ax.tick_params(colors="#222222")
+                        except Exception:
+                            pass
+                        if template_movie_gif_colorbar_label:
+                            try:
+                                cbar.set_label(template_movie_gif_colorbar_label, color="#222222")
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+            # axon_velocity draws morphology branches as black lines; soften them.
+            try:
+                for ln in (ax.get_lines() or []):
+                    try:
+                        ln.set_color("#666666")
+                    except Exception:
+                        pass
+                    try:
+                        ln.set_alpha(0.55)
+                    except Exception:
+                        pass
+                    try:
+                        ln.set_linewidth(1.0)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # If we didn't crop, still optionally zoom the viewport.
+            if (not crop_template_movie_gif) and zoom_template_movie_gif and branch_xy_points:
+                xmin, xmax, ymin, ymax = _compute_zoom_limits_from_xy(
+                    branch_xy_points,
+                    pad_frac=template_movie_zoom_pad_frac,
+                    pad_abs=template_movie_zoom_pad_abs,
+                )
+                # Keep it square (matches crop behavior).
+                cx = 0.5 * (xmin + xmax)
+                cy = 0.5 * (ymin + ymax)
+                w = float(max(xmax - xmin, ymax - ymin))
+                ax.set_xlim(cx - 0.5 * w, cx + 0.5 * w)
+                ax.set_ylim(cy - 0.5 * w, cy + 0.5 * w)
+                ax.set_aspect("equal", adjustable="box")
             _force_white_background(fig)
             template_movie_gif.parent.mkdir(parents=True, exist_ok=True)
-            ani.save(str(template_movie_gif), writer=PillowWriter(fps=12), dpi=DPI_STD)
+            ani.save(
+                str(template_movie_gif),
+                writer=PillowWriter(fps=12),
+                dpi=DPI_STD,
+                savefig_kwargs={"facecolor": "white"},
+            )
             plt.close(fig)
         except Exception as e:
             logger.warning("Template animation failed for unit %s: %s", uid, e)
