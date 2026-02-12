@@ -960,6 +960,17 @@ def write_unit_reconstruction_pdfs(
         os.getenv("AXON_RECON_RECON_TEMPLATE_MOVIE_GIF_COLORBAR_LABEL", "")
     ).strip()
 
+    write_template_movie_gif_time_counter = (
+        str(os.getenv("AXON_RECON_RECON_TEMPLATE_MOVIE_GIF_TIME_COUNTER", "1")).strip().lower()
+        not in {
+            "0",
+            "false",
+            "no",
+            "off",
+            "",
+        }
+    )
+
     zoom_template_movie_gif = (
         str(os.getenv("AXON_RECON_RECON_TEMPLATE_MOVIE_GIF_ZOOM", "1")).strip().lower()
         not in {
@@ -1641,6 +1652,8 @@ def write_unit_reconstruction_pdfs(
             fig = plt.figure(figsize=(7.2, 6.2))
             ax = fig.add_subplot(111)
 
+            template_movie_skip_frames = 2
+
             template_for_movie = template
             locs_xy_for_movie = locs_xy
             gtr_for_movie: Any | None = gtr
@@ -1714,7 +1727,7 @@ def write_unit_reconstruction_pdfs(
                     ax=ax,
                     cmap=template_movie_gif_cmap,
                     log=False,
-                    skip_frames=2,
+                    skip_frames=template_movie_skip_frames,
                     interval=40,
                 )
 
@@ -1736,6 +1749,44 @@ def write_unit_reconstruction_pdfs(
                                 pass
                 except Exception:
                     pass
+
+            # Add a time counter overlay in the corner.
+            if write_template_movie_gif_time_counter:
+                try:
+                    fs_hz = float(getattr(gtr, "fs", None) or 0.0)
+                except Exception:
+                    fs_hz = 0.0
+                try:
+                    framedata = getattr(ani, "_framedata", None)
+                except Exception:
+                    framedata = None
+                if fs_hz > 0.0 and framedata:
+                    for fi, artists in enumerate(framedata):
+                        t_sec = (float(fi) * float(template_movie_skip_frames)) / fs_hz
+                        if t_sec < 1.0:
+                            t_val = t_sec * 1000.0
+                            label = f"t={t_val:.0f} ms" if t_val >= 10.0 else f"t={t_val:.1f} ms"
+                        else:
+                            label = f"t={t_sec:.2f} s"
+                        try:
+                            txt = ax.text(
+                                0.02,
+                                0.98,
+                                label,
+                                transform=ax.transAxes,
+                                ha="left",
+                                va="top",
+                                fontsize=10,
+                                color="#222222",
+                                bbox={"facecolor": "white", "alpha": 0.75, "edgecolor": "none", "pad": 2.0},
+                            )
+                            # Each frame is a list of artists; append our label for blitting.
+                            try:
+                                artists.append(txt)
+                            except Exception:
+                                pass
+                        except Exception:
+                            continue
 
             # axon_velocity draws morphology branches as black lines; soften them.
             try:
