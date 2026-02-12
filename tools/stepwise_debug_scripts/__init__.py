@@ -1,6 +1,8 @@
 """Stepwise debug scripts/helpers (developer tools).
 
 These are intentionally *not* part of the installed package API.
-Project-local debug entrypoints (e.g. under ~/dev/projects/...) can add this
-folder to `sys.path` and import helpers from here.
+
+This folder contains a small set of optional developer helpers for stepping
+through the pipeline. Project-local debug entrypoints should prefer importing
+the real pipeline modules under `axon_reconstructor.pipeline.*` directly.
 """
