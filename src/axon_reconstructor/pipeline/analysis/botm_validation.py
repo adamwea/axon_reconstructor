@@ -346,6 +346,122 @@ def _scores_for_waveforms(*, waveforms_t_by_c: Any, f_t_by_c: Any) -> Any:
     return np.sum(wfs * f[None, :, :], axis=(1, 2))
 
 
+def _linear_resample_time_t_by_c(*, x_t_by_c: Any, target_t: int) -> Any:
+    """Linearly resample (T, C) -> (target_t, C) on a uniform grid."""
+
+    import numpy as np  # type: ignore[import-not-found]
+
+    x = np.asarray(x_t_by_c)
+    if x.ndim != 2:
+        raise ValueError(f"expected (T, C), got shape={x.shape}")
+
+    old_t = int(x.shape[0])
+    target_t = int(target_t)
+    if target_t <= 0:
+        raise ValueError(f"target_t must be > 0 (got {target_t})")
+    if old_t == target_t:
+        return x
+    if old_t < 2:
+        raise ValueError(f"cannot resample from old_t={old_t}")
+
+    pos = np.linspace(0.0, float(old_t - 1), num=target_t, dtype=float)
+    idx0 = np.floor(pos).astype(int)
+    idx1 = np.minimum(idx0 + 1, old_t - 1)
+    w = (pos - idx0).astype(float)
+    w = w[:, None]  # (target_t, 1)
+
+    y0 = x[idx0, :]
+    y1 = x[idx1, :]
+    return (1.0 - w) * y0 + w * y1
+
+
+def _linear_resample_time_n_t_by_c(*, x_n_t_by_c: Any, target_t: int) -> Any:
+    """Linearly resample (N, T, C) -> (N, target_t, C) on a uniform grid."""
+
+    import numpy as np  # type: ignore[import-not-found]
+
+    x = np.asarray(x_n_t_by_c)
+    if x.ndim != 3:
+        raise ValueError(f"expected (N, T, C), got shape={x.shape}")
+
+    old_t = int(x.shape[1])
+    target_t = int(target_t)
+    if target_t <= 0:
+        raise ValueError(f"target_t must be > 0 (got {target_t})")
+    if old_t == target_t:
+        return x
+    if old_t < 2:
+        raise ValueError(f"cannot resample from old_t={old_t}")
+
+    pos = np.linspace(0.0, float(old_t - 1), num=target_t, dtype=float)
+    idx0 = np.floor(pos).astype(int)
+    idx1 = np.minimum(idx0 + 1, old_t - 1)
+    w = (pos - idx0).astype(float)
+
+    y0 = x[:, idx0, :]
+    y1 = x[:, idx1, :]
+    return (1.0 - w)[None, :, None] * y0 + w[None, :, None] * y1
+
+def _resample_waveforms_time_to_target_t(*, waveforms_n_t_by_c: Any, target_t: int, method: str = "sinc") -> Any:
+    """Resample waveforms to a target time length.
+
+    We prefer to keep templates at their native timebase (which may be upsampled
+    upstream) and instead upsample/downsample waveforms to match.
+
+    If the ratio is an integer factor, we reuse the templates-stage resampling
+    implementation (polyphase/sinc via resample_poly when available).
+    Falls back to local linear interpolation for non-integer ratios.
+    """
+
+    import numpy as np  # type: ignore[import-not-found]
+
+    wfs = np.asarray(waveforms_n_t_by_c)
+    if wfs.ndim != 3:
+        raise ValueError(f"expected (N, T, C), got shape={wfs.shape}")
+
+    old_t = int(wfs.shape[1])
+    target_t = int(target_t)
+    if target_t <= 0:
+        raise ValueError(f"target_t must be > 0 (got {target_t})")
+    if old_t == target_t:
+        return wfs
+    if old_t < 2:
+        raise ValueError(f"cannot resample from old_t={old_t}")
+
+    up = None
+    down = None
+    if old_t > 0 and target_t % old_t == 0:
+        up = int(target_t // old_t)
+        down = 1
+    elif target_t > 0 and old_t % target_t == 0:
+        up = 1
+        down = int(old_t // target_t)
+
+    if up is not None and down is not None:
+        try:
+            from axon_reconstructor.pipeline.templates.utils import _resample_template_time  # type: ignore
+
+            # Reuse the templates-stage resampler by flattening (N, C) into a single channel axis.
+            n, _, c = wfs.shape
+            x = np.transpose(wfs, (1, 0, 2)).reshape(old_t, int(n * c))  # (T, N*C)
+            y = _resample_template_time(template=x, up=int(up), down=int(down), method=str(method))
+            y = np.asarray(y)
+
+            # Enforce exact target_t if needed.
+            if int(y.shape[0]) > int(target_t):
+                y = y[: int(target_t), :]
+            elif int(y.shape[0]) < int(target_t):
+                pad = np.zeros((int(target_t) - int(y.shape[0]), int(y.shape[1])), dtype=y.dtype)
+                y = np.concatenate([y, pad], axis=0)
+
+            y = y.reshape(int(target_t), int(n), int(c))
+            return np.transpose(y, (1, 0, 2))  # (N, target_t, C)
+        except Exception:
+            pass
+
+    return _linear_resample_time_n_t_by_c(x_n_t_by_c=wfs, target_t=int(target_t))
+
+
 def _auc_from_scores(*, pos: Any, neg: Any) -> float:
     """Compute AUC = P(pos > neg) using rank statistics.
 
@@ -373,7 +489,6 @@ def _auc_from_scores(*, pos: Any, neg: Any) -> float:
     ranks = np.empty_like(order, dtype=float)
     ranks[order] = np.arange(1, scores.size + 1, dtype=float)
 
-    # Tie handling: replace ranks within ties by their average.
     sorted_scores = scores[order]
     i = 0
     while i < sorted_scores.size:
@@ -496,6 +611,9 @@ def compute_botm_template_metrics_for_unit(
         record["error"] = f"unexpected template shape: {tuple(tmpl.shape)}"
         return record
 
+    # Keep templates at their native timebase (may be upsampled upstream).
+    tmpl_use = tmpl
+
     template_channel_ids = None
     try:
         ch_ids = meta.get("channel_ids")
@@ -543,6 +661,10 @@ def compute_botm_template_metrics_for_unit(
     spikes_by_source: dict[str, int] = {}
     used_sources: list[str] = []
 
+    target_t: int = int(tmpl_use.shape[0])
+    concat_waveforms_native_t: Optional[int] = None
+    waveforms_native_t_by_source: dict[str, int] = {}
+
     for src_name, analyzer in analyzers:
         waveforms = _try_get_waveforms_one_unit(analyzer=analyzer, unit_id=uid)
         if waveforms is None:
@@ -555,9 +677,36 @@ def compute_botm_template_metrics_for_unit(
 
         if wfs_src.ndim != 3 or int(wfs_src.shape[0]) == 0:
             continue
-        if int(wfs_src.shape[1]) != int(tmpl.shape[0]):
-            # Skip sources with a different waveform window.
-            continue
+
+        try:
+            waveforms_native_t_by_source[str(src_name)] = int(wfs_src.shape[1])
+        except Exception:
+            pass
+
+        # Remember the native (pre-resample) waveform window length for the concat analyzer.
+        # This is the most appropriate window length for sampling random negatives from the
+        # concat recording (before upsampling those windows to match the template timebase).
+        if concat_waveforms_native_t is None and str(src_name) == "concat":
+            try:
+                concat_waveforms_native_t = int(wfs_src.shape[1])
+            except Exception:
+                concat_waveforms_native_t = None
+
+        # Resample waveforms to match template time length (common case: 30 -> 300).
+        if int(wfs_src.shape[1]) != int(target_t):
+            old_t = int(wfs_src.shape[1])
+            try:
+                wfs_src = _resample_waveforms_time_to_target_t(
+                    waveforms_n_t_by_c=wfs_src,
+                    target_t=int(target_t),
+                    method="sinc",
+                )
+                record.setdefault("warnings", [])
+                record["warnings"].append(
+                    f"resampled waveforms time axis for source={str(src_name)!r} from T={old_t} to T={int(target_t)}"
+                )
+            except Exception:
+                continue
 
         # Cap per-source spikes to avoid huge memory.
         n_have = int(wfs_src.shape[0])
@@ -595,6 +744,10 @@ def compute_botm_template_metrics_for_unit(
         record["error"] = "missing waveforms for unit across requested sources"
         return record
 
+    record["inputs"].update({"waveforms_target_t": int(target_t), "template_time_resampled": False})
+    if concat_waveforms_native_t is not None:
+        record["inputs"]["concat_waveforms_native_t"] = int(concat_waveforms_native_t)
+
     try:
         wfs_all = np.concatenate(wfs_sources, axis=0)
     except Exception as e:
@@ -630,7 +783,7 @@ def compute_botm_template_metrics_for_unit(
 
     # BOTM filter and spike scores.
     try:
-        f = _botm_filter_from_template(template_t_by_c=tmpl, sigma_ch=sigma_ch)
+        f = _botm_filter_from_template(template_t_by_c=tmpl_use, sigma_ch=sigma_ch)
         scores_spike = _scores_for_waveforms(waveforms_t_by_c=wfs, f_t_by_c=f)
     except Exception as e:
         record["status"] = "error"
@@ -646,7 +799,7 @@ def compute_botm_template_metrics_for_unit(
             noise = rng.normal(
                 loc=0.0,
                 scale=np.asarray(sigma_ch)[None, None, :],
-                size=(nN, int(tmpl.shape[0]), int(tmpl.shape[1])),
+                size=(nN, int(tmpl_use.shape[0]), int(tmpl_use.shape[1])),
             )
             scores_noise = _scores_for_waveforms(waveforms_t_by_c=noise, f_t_by_c=f)
         except Exception as e:
@@ -659,50 +812,91 @@ def compute_botm_template_metrics_for_unit(
         # If the required channels are not available, fall back to Gaussian.
         scores_noise = None
         try:
-            # Prefer concat analyzer recording.
-            concat_an = None
-            for src_name, an in analyzers:
-                if str(src_name) == "concat":
-                    concat_an = an
-                    break
-            if concat_an is None:
-                concat_an = analyzers[0][1]
-
-            rec = getattr(concat_an, "recording", None)
-            if rec is None:
-                raise RuntimeError("concat analyzer has no recording attached")
-
-            rec_ch_ids = None
-            try:
-                rec_ch_ids = list(rec.get_channel_ids())
-            except Exception:
-                rec_ch_ids = None
-
-            if template_channel_ids is None or rec_ch_ids is None:
-                raise RuntimeError("cannot map template channels onto concat recording")
-
-            rec_id_to_idx = {str(cid): int(i) for i, cid in enumerate(rec_ch_ids)}
-            want = [rec_id_to_idx.get(str(cid)) for cid in template_channel_ids]
-            if any(v is None for v in want):
-                raise RuntimeError("concat recording is missing some merged-template channels")
-
-            want_idx = [int(v) for v in want if v is not None]
+            if template_channel_ids is None:
+                raise RuntimeError("cannot sample recording_random negatives without template channel ids")
 
             nN = int(max(1, n_noise))
-            T = int(tmpl.shape[0])
-            n_total = int(rec.get_num_samples())
-            if n_total <= T + 1:
-                raise RuntimeError("recording too short for noise windows")
+            T = int(tmpl_use.shape[0])
+            c_template = int(tmpl_use.shape[1])
 
-            # Sample random start frames.
-            starts = rng.integers(low=0, high=max(1, n_total - T), size=nN, dtype=int)
-            windows = []
-            for s in starts.tolist():
-                tr = rec.get_traces(start_frame=int(s), end_frame=int(s + T))
-                # get_traces returns (n_samples, n_channels_total)
-                tr = np.asarray(tr)[:, want_idx]
-                windows.append(tr)
-            noise_wfs = np.stack(windows, axis=0)  # (nN, T, C)
+            # Use any analyzers that have a recording attached (concat + segments).
+            sources_with_rec = []
+            for src_name, an in analyzers:
+                rec = getattr(an, "recording", None)
+                if rec is None:
+                    continue
+                sources_with_rec.append((str(src_name), rec))
+
+            if not sources_with_rec:
+                raise RuntimeError("no recordings attached to any waveforms analyzers")
+
+            # Distribute noise windows across sources (best-effort).
+            n_sources = int(len(sources_with_rec))
+            n_per = int((nN + n_sources - 1) // n_sources)
+            noise_chunks: list[np.ndarray] = []
+            used_noise_sources: dict[str, int] = {}
+
+            for src_name, rec in sources_with_rec:
+                try:
+                    rec_ch_ids = list(rec.get_channel_ids())
+                except Exception:
+                    continue
+
+                rec_id_to_idx = {str(cid): int(i) for i, cid in enumerate(rec_ch_ids)}
+                # Which template channels exist in this recording?
+                template_positions: list[int] = []
+                rec_indices: list[int] = []
+                for j, cid in enumerate(template_channel_ids):
+                    idx = rec_id_to_idx.get(str(cid))
+                    if idx is None:
+                        continue
+                    template_positions.append(int(j))
+                    rec_indices.append(int(idx))
+
+                if not rec_indices:
+                    continue
+
+                # Choose native window length for this source (prefer its waveforms length).
+                T_native = int(waveforms_native_t_by_source.get(str(src_name)) or concat_waveforms_native_t or T)
+                n_total = int(rec.get_num_samples())
+                if n_total <= T_native + 1:
+                    continue
+
+                starts = rng.integers(low=0, high=max(1, n_total - T_native), size=int(n_per), dtype=int)
+                windows_src: list[np.ndarray] = []
+                for s in starts.tolist():
+                    tr = rec.get_traces(start_frame=int(s), end_frame=int(s + T_native))
+                    tr = np.asarray(tr)[:, rec_indices]  # (T_native, n_found_channels)
+
+                    # Embed into full merged-template channel order with zeros for missing channels.
+                    full = np.zeros((int(T_native), int(c_template)), dtype=float)
+                    full[:, template_positions] = tr
+                    windows_src.append(full)
+
+                if not windows_src:
+                    continue
+
+                noise_native = np.stack(windows_src, axis=0)  # (n_per, T_native, C_template)
+                if int(noise_native.shape[1]) != int(T):
+                    noise_src = _resample_waveforms_time_to_target_t(
+                        waveforms_n_t_by_c=noise_native,
+                        target_t=int(T),
+                        method="sinc",
+                    )
+                else:
+                    noise_src = noise_native
+
+                noise_chunks.append(np.asarray(noise_src))
+                used_noise_sources[str(src_name)] = int(noise_src.shape[0])
+
+                if int(sum(int(x.shape[0]) for x in noise_chunks)) >= int(nN):
+                    break
+
+            if not noise_chunks:
+                raise RuntimeError("no noise windows could be sampled from any recording source")
+
+            noise_wfs = np.concatenate(noise_chunks, axis=0)[: int(nN), :, :]
+            record["inputs"].setdefault("recording_random_noise_sources", used_noise_sources)
             scores_noise = _scores_for_waveforms(waveforms_t_by_c=noise_wfs, f_t_by_c=f)
         except Exception as e:
             record.setdefault("warnings", [])
@@ -712,7 +906,7 @@ def compute_botm_template_metrics_for_unit(
                 noise = rng.normal(
                     loc=0.0,
                     scale=np.asarray(sigma_ch)[None, None, :],
-                    size=(nN, int(tmpl.shape[0]), int(tmpl.shape[1])),
+                    size=(nN, int(tmpl_use.shape[0]), int(tmpl_use.shape[1])),
                 )
                 scores_noise = _scores_for_waveforms(waveforms_t_by_c=noise, f_t_by_c=f)
             except Exception as e2:

@@ -779,6 +779,16 @@ class AnalysisInputs:
     # Prefer waveforms curated panels when available.
     prefer_curated_waveforms_panels: bool = True
 
+    # Optional BOTM validation metrics (defaults keep current behavior unchanged)
+    compute_botm_validation: bool = False
+    botm_n_spike: int = 200
+    botm_n_noise: int = 200
+    botm_noise_model: str = "diag"
+    botm_waveforms_source: str = "concat"
+    botm_negatives_mode: str = "gaussian"
+    botm_baseline_frac: float = 0.25
+    botm_seed: int = 0
+
     # Resume/overwrite controls
     force_restart: bool = False
 
@@ -857,6 +867,47 @@ def analyze_units(*, inputs: AnalysisInputs, logger_name_prefix: str = "axon_rec
     if inputs.unit_limit is not None:
         unit_ids = unit_ids[: int(inputs.unit_limit)]
 
+    # Optional BOTM validation run (writes separate artifacts; does not alter grid montage).
+    botm_summary_json: Optional[Path] = None
+    botm_out_dir: Optional[Path] = None
+    if bool(getattr(inputs, "compute_botm_validation", False)):
+        try:
+            from .botm_validation import BotmValidationInputs, write_botm_validation_outputs
+
+            botm_out_dir = analysis_out_dir / "botm_validation"
+            botm_inputs = BotmValidationInputs(
+                well_out_dir=well_out_dir,
+                templates_out_dir=(well_out_dir / "templates_outputs"),
+                waveforms_out_dir=(well_out_dir / "waveforms_outputs"),
+                unit_ids=list(unit_ids),
+                n_spike=int(getattr(inputs, "botm_n_spike", 200)),
+                n_noise=int(getattr(inputs, "botm_n_noise", 200)),
+                noise_model=str(getattr(inputs, "botm_noise_model", "diag")),
+                waveforms_source=str(getattr(inputs, "botm_waveforms_source", "concat")),
+                negatives_mode=str(getattr(inputs, "botm_negatives_mode", "gaussian")),
+                baseline_frac=float(getattr(inputs, "botm_baseline_frac", 0.25)),
+                seed=int(getattr(inputs, "botm_seed", 0)),
+                out_dir=botm_out_dir,
+                force_restart=bool(inputs.force_restart),
+            )
+
+            logger.info(
+                "BOTM validation enabled: out_dir=%s n_units=%d seed=%s negatives_mode=%s waveforms_source=%s",
+                str(botm_out_dir),
+                int(len(unit_ids)),
+                str(getattr(inputs, "botm_seed", 0)),
+                str(getattr(inputs, "botm_negatives_mode", "gaussian")),
+                str(getattr(inputs, "botm_waveforms_source", "concat")),
+            )
+
+            botm_summary = write_botm_validation_outputs(inputs=botm_inputs, logger=logger)
+            try:
+                botm_summary_json = Path(botm_summary.get("out_dir")) / "summary.json"
+            except Exception:
+                botm_summary_json = botm_out_dir / "summary.json"
+        except Exception as e:
+            logger.warning("BOTM validation failed: %s", str(e))
+
     # Common roots
     recon_by_unit_root = well_out_dir / "reconstruction_outputs" / "by_unit"
 
@@ -868,6 +919,17 @@ def analyze_units(*, inputs: AnalysisInputs, logger_name_prefix: str = "axon_rec
         "by_unit_dir": str(by_unit_dir),
         "units": [],
     }
+
+    if botm_out_dir is not None:
+        summary["botm_validation"] = {
+            "out_dir": str(botm_out_dir),
+            "summary_json": (str(botm_summary_json) if botm_summary_json is not None else None),
+            "enabled": True,
+        }
+    else:
+        summary["botm_validation"] = {
+            "enabled": False,
+        }
 
     for uid in unit_ids:
         out_unit_dir = by_unit_dir / f"unit_{uid}"
