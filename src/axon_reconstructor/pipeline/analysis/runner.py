@@ -779,22 +779,14 @@ class AnalysisInputs:
     # Prefer waveforms curated panels when available.
     prefer_curated_waveforms_panels: bool = True
 
-    # Optional BOTM validation metrics (defaults keep current behavior unchanged)
+    # Optional BOTM validation (raw-snippet, analysis-stage only)
     compute_botm_validation: bool = False
-    botm_n_spike: int = 200
-    botm_n_noise: int = 200
-    botm_cap_waveforms_per_source_to_n_spike: bool = True
-    botm_noise_model: str = "cov"
-    botm_waveforms_source: str = "concat"
-    botm_negatives_mode: str = "recording_spikefree"
-    botm_baseline_frac: float = 0.25
+    botm_n_events: int = 200
+    botm_n_noise_windows: int = 2000
     botm_seed: int = 0
-
-    # BOTM channel-level matching controls (Figure-5-style validation)
-    botm_channel_match_fraction_threshold: float = 0.70
-    botm_channel_match_method: str = "botm_franke2015"
-    botm_channel_match_prior_signal: float = 0.5
-    botm_channel_match_noise_std_level: float = 3.0
+    botm_prior_signal: float = 0.5
+    botm_match_fraction_threshold: float = 0.70
+    botm_sorter: str = "kilosort4"
 
     # Resume/overwrite controls
     force_restart: bool = False
@@ -878,47 +870,38 @@ def analyze_units(*, inputs: AnalysisInputs, logger_name_prefix: str = "axon_rec
     botm_summary_json: Optional[Path] = None
     botm_out_dir: Optional[Path] = None
     if bool(getattr(inputs, "compute_botm_validation", False)):
+        from .botm_validation import BotmValidationInputs, write_botm_validation_outputs
+
+        botm_out_dir = analysis_out_dir / "botm_validation"
+        botm_inputs = BotmValidationInputs(
+            well_out_dir=well_out_dir,
+            h5_path=Path(inputs.h5_path),
+            stream_id=str(inputs.stream_id),
+            unit_ids=list(unit_ids),
+            n_events=int(getattr(inputs, "botm_n_events", 200)),
+            n_noise_windows=int(getattr(inputs, "botm_n_noise_windows", 2000)),
+            seed=int(getattr(inputs, "botm_seed", 0)),
+            prior_signal=float(getattr(inputs, "botm_prior_signal", 0.5)),
+            match_fraction_threshold=float(getattr(inputs, "botm_match_fraction_threshold", 0.70)),
+            sorter=str(getattr(inputs, "botm_sorter", "kilosort4")),
+            out_dir=botm_out_dir,
+            force_restart=bool(inputs.force_restart),
+        )
+
+        logger.info(
+            "BOTM validation enabled: out_dir=%s n_units=%d seed=%s n_events=%d n_noise_windows=%d",
+            str(botm_out_dir),
+            int(len(unit_ids)),
+            str(getattr(inputs, "botm_seed", 0)),
+            int(getattr(inputs, "botm_n_events", 200)),
+            int(getattr(inputs, "botm_n_noise_windows", 2000)),
+        )
+
+        botm_summary = write_botm_validation_outputs(inputs=botm_inputs, logger=logger)
         try:
-            from .botm_validation import BotmValidationInputs, write_botm_validation_outputs
-
-            botm_out_dir = analysis_out_dir / "botm_validation"
-            botm_inputs = BotmValidationInputs(
-                well_out_dir=well_out_dir,
-                templates_out_dir=(well_out_dir / "templates_outputs"),
-                waveforms_out_dir=(well_out_dir / "waveforms_outputs"),
-                unit_ids=list(unit_ids),
-                n_spike=int(getattr(inputs, "botm_n_spike", 200)),
-                n_noise=int(getattr(inputs, "botm_n_noise", 200)),
-                cap_waveforms_per_source_to_n_spike=bool(getattr(inputs, "botm_cap_waveforms_per_source_to_n_spike", True)),
-                noise_model=str(getattr(inputs, "botm_noise_model", "diag")),
-                waveforms_source=str(getattr(inputs, "botm_waveforms_source", "concat")),
-                negatives_mode=str(getattr(inputs, "botm_negatives_mode", "gaussian")),
-                baseline_frac=float(getattr(inputs, "botm_baseline_frac", 0.25)),
-                seed=int(getattr(inputs, "botm_seed", 0)),
-                channel_match_fraction_threshold=float(getattr(inputs, "botm_channel_match_fraction_threshold", 0.70)),
-                channel_match_method=str(getattr(inputs, "botm_channel_match_method", "botm_franke2015")),
-                channel_match_prior_signal=float(getattr(inputs, "botm_channel_match_prior_signal", 0.5)),
-                channel_match_noise_std_level=float(getattr(inputs, "botm_channel_match_noise_std_level", 3.0)),
-                out_dir=botm_out_dir,
-                force_restart=bool(inputs.force_restart),
-            )
-
-            logger.info(
-                "BOTM validation enabled: out_dir=%s n_units=%d seed=%s negatives_mode=%s waveforms_source=%s",
-                str(botm_out_dir),
-                int(len(unit_ids)),
-                str(getattr(inputs, "botm_seed", 0)),
-                str(getattr(inputs, "botm_negatives_mode", "gaussian")),
-                str(getattr(inputs, "botm_waveforms_source", "concat")),
-            )
-
-            botm_summary = write_botm_validation_outputs(inputs=botm_inputs, logger=logger)
-            try:
-                botm_summary_json = Path(botm_summary.get("out_dir")) / "summary.json"
-            except Exception:
-                botm_summary_json = botm_out_dir / "summary.json"
-        except Exception as e:
-            logger.warning("BOTM validation failed: %s", str(e))
+            botm_summary_json = Path(botm_summary.get("out_dir")) / "summary.json"
+        except Exception:
+            botm_summary_json = botm_out_dir / "summary.json"
 
     # Common roots
     recon_by_unit_root = well_out_dir / "reconstruction_outputs" / "by_unit"
