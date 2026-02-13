@@ -783,11 +783,18 @@ class AnalysisInputs:
     compute_botm_validation: bool = False
     botm_n_spike: int = 200
     botm_n_noise: int = 200
-    botm_noise_model: str = "diag"
+    botm_cap_waveforms_per_source_to_n_spike: bool = True
+    botm_noise_model: str = "cov"
     botm_waveforms_source: str = "concat"
-    botm_negatives_mode: str = "gaussian"
+    botm_negatives_mode: str = "recording_spikefree"
     botm_baseline_frac: float = 0.25
     botm_seed: int = 0
+
+    # BOTM channel-level matching controls (Figure-5-style validation)
+    botm_channel_match_fraction_threshold: float = 0.70
+    botm_channel_match_method: str = "botm_franke2015"
+    botm_channel_match_prior_signal: float = 0.5
+    botm_channel_match_noise_std_level: float = 3.0
 
     # Resume/overwrite controls
     force_restart: bool = False
@@ -882,11 +889,16 @@ def analyze_units(*, inputs: AnalysisInputs, logger_name_prefix: str = "axon_rec
                 unit_ids=list(unit_ids),
                 n_spike=int(getattr(inputs, "botm_n_spike", 200)),
                 n_noise=int(getattr(inputs, "botm_n_noise", 200)),
+                cap_waveforms_per_source_to_n_spike=bool(getattr(inputs, "botm_cap_waveforms_per_source_to_n_spike", True)),
                 noise_model=str(getattr(inputs, "botm_noise_model", "diag")),
                 waveforms_source=str(getattr(inputs, "botm_waveforms_source", "concat")),
                 negatives_mode=str(getattr(inputs, "botm_negatives_mode", "gaussian")),
                 baseline_frac=float(getattr(inputs, "botm_baseline_frac", 0.25)),
                 seed=int(getattr(inputs, "botm_seed", 0)),
+                channel_match_fraction_threshold=float(getattr(inputs, "botm_channel_match_fraction_threshold", 0.70)),
+                channel_match_method=str(getattr(inputs, "botm_channel_match_method", "botm_franke2015")),
+                channel_match_prior_signal=float(getattr(inputs, "botm_channel_match_prior_signal", 0.5)),
+                channel_match_noise_std_level=float(getattr(inputs, "botm_channel_match_noise_std_level", 3.0)),
                 out_dir=botm_out_dir,
                 force_restart=bool(inputs.force_restart),
             )
