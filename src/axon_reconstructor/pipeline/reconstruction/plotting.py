@@ -512,39 +512,48 @@ def compute_raw_branches_for_summary(*, uid: Any, gtr: Any) -> list[dict[str, An
 
     est = getattr(gtr, "_estimate_peaks_and_dists", None)
     rve = getattr(gtr, "robust_velocity_estimator", None)
-    if (not callable(est)) or (not callable(rve)):
-        return []
 
     out: list[dict[str, Any]] = []
     for raw_idx, raw_path in enumerate(list(raw)):
         try:
-            # Match axon_velocity's convention used in our raw velocity plot.
-            chans = [int(x) for x in list(raw_path)[::-1][1:]]
-            peaks, dists = est(chans)
-            peaks = np.asarray(peaks, dtype=float)
-            dists = np.asarray(dists, dtype=float)
-            if (peaks.size < 2) or (dists.size != peaks.size):
+            # Keep full raw path channels for plotting overlays.
+            raw_chans = [int(x) for x in list(raw_path)[::-1]]
+            if len(raw_chans) < 2:
                 continue
 
-            (
-                _path_clean,
-                velocity,
-                offset,
-                r2,
-                p_value,
-                dists_clean,
-                peaks_clean,
-                _inlier_mask,
-            ) = rve(chans, peaks, dists, True)
+            # Best-effort velocity metadata. If fitting fails, keep channels anyway.
+            velocity = None
+            offset = None
+            r2 = None
+            p_value = None
+            dists_clean: list[float] = []
+            peaks_clean: list[float] = []
+
+            if callable(est) and callable(rve):
+                fit_chans = raw_chans[1:] if len(raw_chans) > 2 else raw_chans
+                peaks, dists = est(fit_chans)
+                peaks = np.asarray(peaks, dtype=float)
+                dists = np.asarray(dists, dtype=float)
+                if (peaks.size >= 2) and (dists.size == peaks.size):
+                    (
+                        _path_clean,
+                        velocity,
+                        offset,
+                        r2,
+                        p_value,
+                        dists_clean,
+                        peaks_clean,
+                        _inlier_mask,
+                    ) = rve(fit_chans, peaks, dists, True)
 
             # Keep the same keys axon_velocity expects.
             out.append(
                 {
                     "branch_index": int(raw_idx),
-                    "channels": [int(x) for x in list(chans)],
-                    "velocity": float(velocity),
-                    "offset": float(offset),
-                    "r2": float(r2),
+                    "channels": [int(x) for x in list(raw_chans)],
+                    "velocity": float(velocity) if velocity is not None else None,
+                    "offset": float(offset) if offset is not None else None,
+                    "r2": float(r2) if r2 is not None else None,
                     "pval": float(p_value) if p_value is not None else None,
                     "distances": [float(x) for x in list(dists_clean)],
                     "peak_times": [float(x) for x in list(peaks_clean)],
@@ -1658,11 +1667,41 @@ def write_unit_reconstruction_pdfs(
             locs_xy_for_movie = locs_xy
             gtr_for_movie: Any | None = gtr
 
+            # Prefer raw branches for the template movie overlay (matches summary_raw.png).
+            branches_for_movie: list[dict[str, Any]] = []
+            try:
+                branches_for_movie = compute_raw_branches_for_summary(uid=uid, gtr=gtr)
+            except Exception:
+                branches_for_movie = []
+
+            contributing_channels_for_movie: list[int] = []
+            try:
+                contrib: set[int] = set()
+                for br in _as_list(branches_for_movie):
+                    if not isinstance(br, dict):
+                        continue
+                    for ch in _as_int_list(br.get("channels")):
+                        contrib.add(int(ch))
+                contributing_channels_for_movie = sorted(contrib)
+            except Exception:
+                contributing_channels_for_movie = []
+
+            branch_xy_points_for_movie: list[list[float]] = []
+            try:
+                for br in _as_list(branches_for_movie):
+                    if not isinstance(br, dict):
+                        continue
+                    for ch in _as_int_list(br.get("channels")):
+                        if 0 <= ch < locs_xy.shape[0]:
+                            branch_xy_points_for_movie.append([float(locs_xy[ch, 0]), float(locs_xy[ch, 1])])
+            except Exception:
+                branch_xy_points_for_movie = []
+
             # Performance: crop template+locations to a square ROI around the contributing channels.
             # This reduces the probe size passed into probe.to_image() for each animation frame.
-            if crop_template_movie_gif and contributing_channels:
+            if crop_template_movie_gif and contributing_channels_for_movie:
                 try:
-                    xy_contrib = [[float(locs_xy[ch, 0]), float(locs_xy[ch, 1])] for ch in contributing_channels]
+                    xy_contrib = [[float(locs_xy[ch, 0]), float(locs_xy[ch, 1])] for ch in contributing_channels_for_movie]
                     xmin, xmax, ymin, ymax = _compute_zoom_limits_from_xy(
                         xy_contrib,
                         pad_frac=template_movie_zoom_pad_frac,
@@ -1681,8 +1720,8 @@ def write_unit_reconstruction_pdfs(
                     crop_inds = np.where(mask)[0].astype(int).tolist()
 
                     # If the ROI got too small for any reason, fall back to just the contributing channels.
-                    if len(crop_inds) < max(4, min(16, len(contributing_channels))):
-                        crop_inds = list(contributing_channels)
+                    if len(crop_inds) < max(4, min(16, len(contributing_channels_for_movie))):
+                        crop_inds = list(contributing_channels_for_movie)
 
                     if crop_inds:
                         locs_xy_for_movie = locs_xy[crop_inds, :]
@@ -1691,7 +1730,7 @@ def write_unit_reconstruction_pdfs(
                         # Remap branches into the cropped index space so axon_velocity can draw them.
                         remap = {int(old): int(new) for new, old in enumerate(crop_inds)}
                         branches_cropped: list[dict[str, Any]] = []
-                        for br in _as_list(getattr(gtr, "branches", None)):
+                        for br in _as_list(branches_for_movie):
                             if not isinstance(br, dict):
                                 continue
                             br_ch = [int(c) for c in _as_int_list(br.get("channels")) if int(c) in remap]
@@ -1807,9 +1846,9 @@ def write_unit_reconstruction_pdfs(
                 pass
 
             # If we didn't crop, still optionally zoom the viewport.
-            if (not crop_template_movie_gif) and zoom_template_movie_gif and branch_xy_points:
+            if (not crop_template_movie_gif) and zoom_template_movie_gif and branch_xy_points_for_movie:
                 xmin, xmax, ymin, ymax = _compute_zoom_limits_from_xy(
-                    branch_xy_points,
+                    branch_xy_points_for_movie,
                     pad_frac=template_movie_zoom_pad_frac,
                     pad_abs=template_movie_zoom_pad_abs,
                 )
