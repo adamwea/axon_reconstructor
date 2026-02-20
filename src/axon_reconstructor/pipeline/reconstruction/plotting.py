@@ -343,6 +343,42 @@ def _apply_raw_branch_colors(*, ax: Any, n_raw_paths: int) -> None:
         return
 
 
+def _extract_raw_branch_colors_from_plot(*, gtr: Any) -> list[Any]:
+    """Best-effort: read raw branch line colors from gtr.plot_raw_branches().
+
+    Returns colors in the same raw-branch plotting order used by axon_velocity.
+    """
+
+    try:
+        import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+
+        plot_fn = getattr(gtr, "plot_raw_branches", None)
+        if not callable(plot_fn):
+            return []
+
+        fig = plt.figure(figsize=(4, 3))
+        ax = fig.add_subplot(111)
+        try:
+            with plt.rc_context(_white_bg_rc_params()):
+                _ = plot_fn(plot_full_template=True, ax=ax)
+
+            colors: list[Any] = []
+            for line in (ax.get_lines() or []):
+                try:
+                    if (line.get_marker() == "o") and (line.get_linestyle() == "-"):
+                        colors.append(line.get_color())
+                except Exception:
+                    continue
+            return colors
+        finally:
+            try:
+                plt.close(fig)
+            except Exception:
+                pass
+    except Exception:
+        return []
+
+
 def _plot_raw_branch_velocities(
     *,
     uid: Any,
@@ -359,13 +395,16 @@ def _plot_raw_branch_velocities(
 
     import numpy as np  # type: ignore[import-not-found]
 
-    palette = _okabe_ito_palette()
     paths_raw = getattr(gtr, "_paths_raw", None)
     if not paths_raw:
         ax.text(0.5, 0.5, "no raw paths", ha="center", va="center", fontsize=10)
         return
 
     logger.info("Unit %s: plotting raw-branch velocities for %d raw paths", uid, len(paths_raw))
+
+    # Reuse the exact branch colors emitted by plot_raw_branches(), so overlay
+    # velocity colors match branches_raw / branches_raw_zoom.
+    raw_branch_colors = _extract_raw_branch_colors_from_plot(gtr=gtr)
 
     handles = []
     labels = []
@@ -378,8 +417,6 @@ def _plot_raw_branch_velocities(
 
     for raw_idx, raw_path in enumerate(paths_raw):
         try:
-            color = palette[int(raw_idx) % len(palette)]
-
             # Match axon_velocity's convention.
             path = list(raw_path)[::-1][1:]
 
@@ -411,11 +448,30 @@ def _plot_raw_branch_velocities(
             except Exception:
                 inlier_mask = np.ones_like(peaks, dtype=bool)
 
-            # Markers
+            # Fit line
+            color = None
+            try:
+                if raw_idx < len(raw_branch_colors):
+                    color = raw_branch_colors[raw_idx]
+            except Exception:
+                color = None
+
+            try:
+                v = float(velocity)
+                b = float(offset)
+                xs = np.linspace(float(np.min(peaks)), float(np.max(peaks)), 50)
+                ys = v * xs + b
+                (ln,) = ax.plot(xs, ys, lw=2.5, alpha=0.95, color=color, linestyle=":")
+            except Exception:
+                (ln,) = ax.plot([], [], lw=2.5, alpha=0.95, color=color, linestyle=":")
+
+            color = ln.get_color()
+
+            # Markers (match line color selected by matplotlib cycle)
             ax.scatter(
                 peaks[inlier_mask],
                 dists[inlier_mask],
-                s=18,
+                s=72,
                 color=color,
                 alpha=0.75,
                 edgecolors="k",
@@ -426,7 +482,7 @@ def _plot_raw_branch_velocities(
                 ax.scatter(
                     peaks[out],
                     dists[out],
-                    s=26,
+                    s=104,
                     marker="d",
                     color=color,
                     alpha=0.85,
@@ -434,23 +490,23 @@ def _plot_raw_branch_velocities(
                     linewidths=0.3,
                 )
 
-            # Fit line
-            try:
-                v = float(velocity)
-                b = float(offset)
-                xs = np.linspace(float(np.min(peaks)), float(np.max(peaks)), 50)
-                ys = v * xs + b
-                (ln,) = ax.plot(xs, ys, color=color, lw=2.5, alpha=0.95)
-            except Exception:
-                (ln,) = ax.plot([], [], color=color, lw=2.5, alpha=0.95)
-
             handles.append(ln)
-            labels.append(f"Raw {raw_idx}  r2={float(r2):.2f}" if r2 is not None else f"Raw {raw_idx}")
+            vel_label = "NA"
+            r2_label = "NA"
+            try:
+                vel_label = f"{float(velocity):.2f}"
+            except Exception:
+                pass
+            try:
+                r2_label = f"{float(r2):.2f}"
+            except Exception:
+                pass
+            labels.append(f"Raw {raw_idx}  vel: {vel_label} mm/s  r2: {r2_label}")
         except Exception:
             continue
 
-    ax.set_xlabel("peak_time", fontsize=label_fs)
-    ax.set_ylabel("distance", fontsize=label_fs)
+    ax.set_xlabel("Peak time (ms)", fontsize=label_fs)
+    ax.set_ylabel("Distance (um)", fontsize=label_fs)
     try:
         ax.tick_params(axis="both", which="major", labelsize=tick_fs)
     except Exception:
@@ -461,7 +517,16 @@ def _plot_raw_branch_velocities(
     except Exception:
         pass
     if handles:
-        ax.legend(handles, labels, loc="best", fontsize=legend_fs, frameon=False, ncol=1)
+        ax.legend(
+            handles,
+            labels,
+            loc="lower right",
+            bbox_to_anchor=(2.10, 0.02),
+            fontsize=legend_fs,
+            frameon=False,
+            ncol=1,
+            borderaxespad=0.0,
+        )
 
 
 def _strip_axes_titles(fig: Any, *, titles_to_remove: set[str]) -> None:
@@ -1387,7 +1452,6 @@ def write_unit_reconstruction_pdfs(
     if (not raw_branches_pdf.exists()) or force_restart:
         try:
             plot_fn = getattr(gtr, "plot_raw_branches", None)
-            paths_raw = getattr(gtr, "_paths_raw", None)
             if callable(plot_fn):
                 fig = plt.figure(figsize=(8, 6))
                 ax = fig.add_subplot(111)
@@ -1395,7 +1459,6 @@ def write_unit_reconstruction_pdfs(
                     _ = plot_fn(plot_full_template=True, ax=ax)
                 _minimal_axes(ax)
                 _force_white_background(fig)
-                _apply_raw_branch_colors(ax=ax, n_raw_paths=len(paths_raw) if paths_raw is not None else 0)
                 _save_fig_pdf_and_png(fig=fig, pdf_path=raw_branches_pdf, png_path=raw_branches_png, dpi=DPI_STD)
                 plt.close(fig)
         except Exception as e:
@@ -1429,7 +1492,6 @@ def write_unit_reconstruction_pdfs(
                 ax.set_ylim(ymin, ymax)
                 _minimal_axes(ax)
                 _force_white_background(fig)
-                _apply_raw_branch_colors(ax=ax, n_raw_paths=len(paths_raw) if paths_raw is not None else 0)
                 _save_fig_pdf_and_png(fig=fig, pdf_path=raw_branches_zoom_pdf, png_path=raw_branches_zoom_png, dpi=DPI_STD)
                 plt.close(fig)
         except Exception as e:
