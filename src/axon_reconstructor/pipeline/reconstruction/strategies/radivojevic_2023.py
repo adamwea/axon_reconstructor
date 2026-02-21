@@ -17,8 +17,8 @@ Scope implemented from the publication text:
 
 Notes:
 - This module is intentionally not wired into the active reconstruction runner.
-- Inputs can be provided as already-framed electrical images, or generated from merged
-  contributing templates via helper methods.
+- Inputs can be provided as already-framed electrical images, or generated from full-template
+    unit artifacts (preferred) / merged contributing templates (compatibility fallback).
 """
 
 from __future__ import annotations
@@ -56,6 +56,7 @@ class Radivojevic2023Params:
     support_level_std: float = 1.0
     support_graph_neighbor_radius_um: float = 25.0
     support_path_slack_factor: float = 2.5
+    skeleton_grid_step_um: float = 10.0
 
     # If True, enforce exact paper framing assumptions.
     strict_paper_mode: bool = False
@@ -353,6 +354,62 @@ class Radivojevic2023Reconstructor:
         self.params = params or Radivojevic2023Params()
 
     @staticmethod
+    def load_full_template_inputs(*, full_unit_dir: Path) -> dict[str, Any]:
+        unit_dir = Path(full_unit_dir)
+        template_npy = unit_dir / "full_template.npy"
+        locs_npy = unit_dir / "full_channel_locations_xy.npy"
+        meta_json = unit_dir / "full_template_meta.json"
+        channel_ids_npy = unit_dir / "full_channel_ids.npy"
+        contrib_idx_npy = unit_dir / "contributing_full_channel_indices.npy"
+
+        if not template_npy.exists() or not locs_npy.exists() or not meta_json.exists():
+            raise FileNotFoundError(
+                "Expected full-template files: "
+                f"{template_npy}, {locs_npy}, {meta_json}"
+            )
+
+        template = np.asarray(np.load(template_npy), dtype=float)
+        locs = np.asarray(np.load(locs_npy), dtype=float)
+        meta = json.loads(meta_json.read_text(encoding="utf-8"))
+
+        if template.ndim != 2:
+            raise ValueError(f"Expected full_template.npy as 2D [samples, channels], got {template.shape}")
+        if locs.ndim != 2 or locs.shape[1] < 2:
+            raise ValueError(f"Expected full_channel_locations_xy.npy as [channels,2], got {locs.shape}")
+        if int(template.shape[1]) != int(locs.shape[0]):
+            raise ValueError("Mismatch between full template channel count and location count")
+
+        if channel_ids_npy.exists():
+            channel_ids_arr = np.load(channel_ids_npy, allow_pickle=True)
+            channel_ids = [int(v) for v in np.asarray(channel_ids_arr).tolist()]
+        else:
+            channel_ids = list(range(int(template.shape[1])))
+
+        # Keep only informative channels so downstream pairwise-distance computations stay tractable.
+        keep_mask = np.any(template != 0.0, axis=0)
+        if contrib_idx_npy.exists():
+            contrib_idx = np.asarray(np.load(contrib_idx_npy), dtype=np.int64)
+            if contrib_idx.size:
+                keep_mask = np.zeros((template.shape[1],), dtype=bool)
+                keep_mask[np.clip(contrib_idx, 0, template.shape[1] - 1)] = True
+
+        keep_idx = np.where(keep_mask)[0]
+        if keep_idx.size == 0:
+            raise ValueError("Full template has no non-zero/contributing channels after filtering")
+
+        template_kept = template[:, keep_idx]
+        locs_kept = locs[keep_idx, :2]
+        channel_ids_kept = [int(channel_ids[int(i)]) for i in keep_idx.tolist()]
+
+        return {
+            "template_samples_by_channels": template_kept,
+            "channel_locations_um": locs_kept,
+            "channel_ids": channel_ids_kept,
+            "meta": meta,
+            "source_base": "full_template",
+        }
+
+    @staticmethod
     def load_merged_contributing_inputs(*, merged_unit_dir: Path) -> dict[str, Any]:
         unit_dir = Path(merged_unit_dir)
         template_npy = unit_dir / "merged_contributing_template.npy"
@@ -372,8 +429,34 @@ class Radivojevic2023Reconstructor:
         return {
             "template_samples_by_channels": np.asarray(template, dtype=float),
             "channel_locations_um": np.asarray(locs, dtype=float)[:, :2],
+            "channel_ids": [int(ch) for ch in meta.get("channel_ids", [])] if isinstance(meta.get("channel_ids"), list) else None,
             "meta": meta,
+            "source_base": "merged_contributing_template",
         }
+
+    def _load_preferred_template_inputs(self, *, unit_dir: Path) -> dict[str, Any]:
+        p = Path(unit_dir)
+        if (p / "full_template.npy").exists() and (p / "full_template_meta.json").exists():
+            return self.load_full_template_inputs(full_unit_dir=p)
+        return self.load_merged_contributing_inputs(merged_unit_dir=p)
+
+    def make_input_from_full_template(
+        self,
+        *,
+        full_unit_dir: Path,
+        noise_std_uv_per_us: float | None = None,
+        well_out_dir: Path | None = None,
+        unit_id: Any | None = None,
+        sorter: str = "kilosort4",
+    ) -> Radivojevic2023Input:
+        loaded = self.load_full_template_inputs(full_unit_dir=full_unit_dir)
+        return self._make_input_from_loaded_template(
+            loaded=loaded,
+            noise_std_uv_per_us=noise_std_uv_per_us,
+            well_out_dir=well_out_dir,
+            unit_id=unit_id,
+            sorter=sorter,
+        )
 
     def make_input_from_merged_contributing(
         self,
@@ -384,14 +467,32 @@ class Radivojevic2023Reconstructor:
         unit_id: Any | None = None,
         sorter: str = "kilosort4",
     ) -> Radivojevic2023Input:
-        loaded = self.load_merged_contributing_inputs(merged_unit_dir=merged_unit_dir)
+        loaded = self._load_preferred_template_inputs(unit_dir=Path(merged_unit_dir))
+        return self._make_input_from_loaded_template(
+            loaded=loaded,
+            noise_std_uv_per_us=noise_std_uv_per_us,
+            well_out_dir=well_out_dir,
+            unit_id=unit_id,
+            sorter=sorter,
+        )
+
+    def _make_input_from_loaded_template(
+        self,
+        *,
+        loaded: dict[str, Any],
+        noise_std_uv_per_us: float | None,
+        well_out_dir: Path | None,
+        unit_id: Any | None,
+        sorter: str,
+    ) -> Radivojevic2023Input:
         template = loaded["template_samples_by_channels"]
         locs = loaded["channel_locations_um"]
+        source_base = str(loaded.get("source_base") or "template")
         meta = loaded["meta"]
 
         fs_hz = float(meta.get("sampling_frequency_hz") or 0.0)
         if fs_hz <= 0:
-            raise ValueError("merged_contributing_template_meta.json missing valid sampling_frequency_hz")
+            raise ValueError("template meta missing valid sampling_frequency_hz")
 
         dvdt = _time_derivative_uv_per_us(template, fs_hz)
         frames = _frame_from_derivative(
@@ -401,12 +502,12 @@ class Radivojevic2023Reconstructor:
         )
 
         resolved_unit_id = unit_id if unit_id is not None else meta.get("unit_id")
-        meta_channel_ids = meta.get("channel_ids")
-        channel_ids = [int(ch) for ch in meta_channel_ids] if isinstance(meta_channel_ids, list) else None
+        loaded_channel_ids = loaded.get("channel_ids")
+        channel_ids = [int(ch) for ch in loaded_channel_ids] if isinstance(loaded_channel_ids, list) else None
 
         if noise_std_uv_per_us is not None:
             sigma = float(noise_std_uv_per_us)
-            source = "merged_contributing_template_user_noise"
+            source = f"{source_base}_user_noise"
         elif self.params.use_quiet_period_noise_estimation:
             if well_out_dir is None:
                 raise ValueError(
@@ -414,7 +515,7 @@ class Radivojevic2023Reconstructor:
                 )
             if resolved_unit_id is None:
                 raise ValueError(
-                    "use_quiet_period_noise_estimation=True requires unit_id or unit_id in merged template meta"
+                    "use_quiet_period_noise_estimation=True requires unit_id or unit_id in template meta"
                 )
             sigma = _estimate_quiet_noise_std_uv_per_us(
                 well_out_dir=Path(well_out_dir),
@@ -426,10 +527,10 @@ class Radivojevic2023Reconstructor:
                 sorter=str(sorter),
                 exclude_all_units=bool(self.params.quiet_noise_exclude_all_units),
             )
-            source = "merged_contributing_template_quiet_noise"
+            source = f"{source_base}_quiet_noise"
         else:
             sigma = _robust_noise_std(dvdt)
-            source = "merged_contributing_template"
+            source = source_base
 
         return Radivojevic2023Input(
             dvdt_frames_uv_per_us=frames,
@@ -687,14 +788,18 @@ class Radivojevic2023Reconstructor:
             srcs = [p for p in by_frame.get(fi, []) if p.peak_id not in used_src]
             dsts = [p for p in by_frame.get(fi + 1, []) if p.peak_id not in used_dst]
             frame_avg = 0.5 * (frames[fi] + frames[fi + 1])
-            support = self._support_indices(frame_avg=frame_avg, noise_std=noise_std)
+            support = self._build_skeleton_support(frame_avg=frame_avg, locs=locs, noise_std=noise_std)
             for sp in srcs:
                 best: tuple[float, DetectedPeak] | None = None
                 for dp in dsts:
                     d = float(np.hypot(dp.x_um - sp.x_um, dp.y_um - sp.y_um))
                     if d > float(self.params.skeleton_link_max_distance_um):
                         continue
-                    if not self._support_path_exists(locs=locs, support_indices=support, src_idx=sp.channel_idx, dst_idx=dp.channel_idx):
+                    if not self._skeleton_path_exists(
+                        support=support,
+                        src_xy=(sp.x_um, sp.y_um),
+                        dst_xy=(dp.x_um, dp.y_um),
+                    ):
                         continue
                     if best is None or d < best[0]:
                         best = (d, dp)
@@ -724,14 +829,18 @@ class Radivojevic2023Reconstructor:
             srcs = [p for p in by_frame.get(fi, []) if p.peak_id not in used_src]
             dsts = [p for p in by_frame.get(fi + 2, []) if p.peak_id not in used_dst]
             frame_avg = (frames[fi] + frames[fi + 1] + frames[fi + 2]) / 3.0
-            support = self._support_indices(frame_avg=frame_avg, noise_std=noise_std)
+            support = self._build_skeleton_support(frame_avg=frame_avg, locs=locs, noise_std=noise_std)
             for sp in srcs:
                 best: tuple[float, DetectedPeak] | None = None
                 for dp in dsts:
                     d = float(np.hypot(dp.x_um - sp.x_um, dp.y_um - sp.y_um))
                     if d > float(self.params.indirect_link_max_distance_um):
                         continue
-                    if not self._support_path_exists(locs=locs, support_indices=support, src_idx=sp.channel_idx, dst_idx=dp.channel_idx):
+                    if not self._skeleton_path_exists(
+                        support=support,
+                        src_xy=(sp.x_um, sp.y_um),
+                        dst_xy=(dp.x_um, dp.y_um),
+                    ):
                         continue
                     if best is None or d < best[0]:
                         best = (d, dp)
@@ -759,65 +868,113 @@ class Radivojevic2023Reconstructor:
 
         return links
 
-    def _support_indices(self, *, frame_avg: np.ndarray, noise_std: float) -> np.ndarray:
-        thr = -float(self.params.support_level_std) * float(noise_std)
-        return np.where(np.asarray(frame_avg, dtype=float) <= thr)[0]
-
-    def _support_path_exists(
+    def _build_skeleton_support(
         self,
         *,
+        frame_avg: np.ndarray,
         locs: np.ndarray,
-        support_indices: np.ndarray,
-        src_idx: int,
-        dst_idx: int,
+        noise_std: float,
+    ) -> dict[str, Any]:
+        from scipy import interpolate, ndimage  # type: ignore[import-not-found]
+
+        thr = -float(self.params.support_level_std) * float(noise_std)
+        values = np.asarray(frame_avg, dtype=float)
+        points = np.asarray(locs[:, :2], dtype=float)
+
+        x_min = float(np.min(points[:, 0]))
+        x_max = float(np.max(points[:, 0]))
+        y_min = float(np.min(points[:, 1]))
+        y_max = float(np.max(points[:, 1]))
+
+        step_um = float(self.params.skeleton_grid_step_um)
+        if not np.isfinite(step_um) or step_um <= 0:
+            step_um = 10.0
+
+        nx = int(np.ceil((x_max - x_min) / step_um)) + 3
+        ny = int(np.ceil((y_max - y_min) / step_um)) + 3
+        nx = max(nx, 5)
+        ny = max(ny, 5)
+
+        grid_x = x_min - step_um + np.arange(nx, dtype=float) * step_um
+        grid_y = y_min - step_um + np.arange(ny, dtype=float) * step_um
+        gx, gy = np.meshgrid(grid_x, grid_y, indexing="xy")
+
+        zi_lin = interpolate.griddata(points, values, (gx, gy), method="linear")
+        zi_near = interpolate.griddata(points, values, (gx, gy), method="nearest")
+        if zi_lin is None or zi_near is None:
+            raise RuntimeError("Failed to construct interpolated skeleton support map")
+        img = np.where(np.isfinite(zi_lin), zi_lin, zi_near)
+
+        binary = np.asarray(img <= thr, dtype=bool)
+        structure = np.ones((3, 3), dtype=bool)
+        binary = ndimage.binary_opening(binary, structure=structure)
+        binary = ndimage.binary_closing(binary, structure=structure)
+
+        skeleton = self._morphological_skeleton(binary)
+        # Thicken slightly to tolerate rasterization mismatch from endpoint projection.
+        skeleton_thick = ndimage.binary_dilation(skeleton, structure=structure, iterations=1)
+
+        return {
+            "skeleton": np.asarray(skeleton_thick, dtype=bool),
+            "x0": x_min - step_um,
+            "y0": y_min - step_um,
+            "step_um": step_um,
+            "nx": int(nx),
+            "ny": int(ny),
+        }
+
+    def _morphological_skeleton(self, binary: np.ndarray) -> np.ndarray:
+        from scipy import ndimage  # type: ignore[import-not-found]
+
+        img = np.asarray(binary, dtype=bool)
+        if img.ndim != 2:
+            raise ValueError(f"Expected 2D binary image for skeletonization, got {img.shape}")
+
+        structure = np.ones((3, 3), dtype=bool)
+        skel = np.zeros_like(img, dtype=bool)
+        work = img.copy()
+
+        while np.any(work):
+            eroded = ndimage.binary_erosion(work, structure=structure)
+            opened = ndimage.binary_dilation(eroded, structure=structure)
+            skel |= work & (~opened)
+            work = eroded
+
+        return skel
+
+    def _xy_to_grid_ij(self, *, x: float, y: float, support: dict[str, Any]) -> tuple[int, int]:
+        x0 = float(support["x0"])
+        y0 = float(support["y0"])
+        step = float(support["step_um"])
+        nx = int(support["nx"])
+        ny = int(support["ny"])
+
+        j = int(np.clip(np.round((float(x) - x0) / step), 0, nx - 1))
+        i = int(np.clip(np.round((float(y) - y0) / step), 0, ny - 1))
+        return i, j
+
+    def _skeleton_path_exists(
+        self,
+        *,
+        support: dict[str, Any],
+        src_xy: tuple[float, float],
+        dst_xy: tuple[float, float],
     ) -> bool:
-        nodes = set(int(x) for x in np.asarray(support_indices, dtype=int).tolist())
-        nodes.add(int(src_idx))
-        nodes.add(int(dst_idx))
+        from scipy import ndimage  # type: ignore[import-not-found]
 
-        node_list = sorted(nodes)
-        if len(node_list) <= 1:
-            return True
+        mask = np.asarray(support["skeleton"], dtype=bool).copy()
+        if mask.ndim != 2 or mask.size == 0:
+            return False
 
-        coords = locs[node_list, :2]
-        d = coords[:, None, :] - coords[None, :, :]
-        dist = np.sqrt(np.sum(d * d, axis=2))
+        src_i, src_j = self._xy_to_grid_ij(x=float(src_xy[0]), y=float(src_xy[1]), support=support)
+        dst_i, dst_j = self._xy_to_grid_ij(x=float(dst_xy[0]), y=float(dst_xy[1]), support=support)
+        mask[src_i, src_j] = True
+        mask[dst_i, dst_j] = True
 
-        neigh_r = float(self.params.support_graph_neighbor_radius_um)
-        max_path = float(self.params.support_path_slack_factor) * float(
-            np.hypot(locs[dst_idx, 0] - locs[src_idx, 0], locs[dst_idx, 1] - locs[src_idx, 1])
-        )
-
-        id_to_pos = {nid: i for i, nid in enumerate(node_list)}
-        src_pos = id_to_pos[int(src_idx)]
-        dst_pos = id_to_pos[int(dst_idx)]
-
-        # Dijkstra (small graph; numpy + python heapless implementation).
-        n = len(node_list)
-        visited = np.zeros(n, dtype=bool)
-        best = np.full(n, np.inf, dtype=float)
-        best[src_pos] = 0.0
-
-        while True:
-            cand = np.where(~visited)[0]
-            if cand.size == 0:
-                break
-            i = cand[int(np.argmin(best[cand]))]
-            if not np.isfinite(best[i]):
-                break
-            if i == dst_pos:
-                break
-            visited[i] = True
-
-            nbrs = np.where((dist[i] > 0) & (dist[i] <= neigh_r))[0]
-            for j in nbrs.tolist():
-                if visited[j]:
-                    continue
-                nd = best[i] + float(dist[i, j])
-                if nd < best[j]:
-                    best[j] = nd
-
-        return bool(np.isfinite(best[dst_pos]) and best[dst_pos] <= max_path)
+        labels, _ = ndimage.label(mask, structure=np.ones((3, 3), dtype=bool))
+        a = int(labels[src_i, src_j])
+        b = int(labels[dst_i, dst_j])
+        return bool(a > 0 and a == b)
 
     def _build_trajectories(self, *, peaks: list[DetectedPeak], links: list[PeakLink]) -> list[list[int]]:
         if not peaks:
