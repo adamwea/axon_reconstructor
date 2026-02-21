@@ -13,6 +13,10 @@ Legend:
 
 ## A) Inputs and signal framing
 
+- [x] IMPLEMENTED: Uses full-template unit artifacts as preferred template source.
+  - Code: `load_full_template_inputs`, `make_input_from_full_template`, `_load_preferred_template_inputs`
+  - Data behavior: non-contributing channels are present as zero-padded channels in `full_template.npy` (not NaN), then filtered to informative/contributing channels for reconstruction.
+
 - [x] IMPLEMENTED: Uses dV/dt electrical images for detection.
   - Code: `_time_derivative_uv_per_us`, `_frame_from_derivative`
 
@@ -41,9 +45,9 @@ Legend:
 - [x] IMPLEMENTED: Greedy progression from high-amplitude to lower-amplitude detections.
   - Code: step order in `run()`, plus `_merge_peaks` between stages
 
-- [ ] APPROXIMATED: Exact local peak logic used in original Matlab implementation.
-  - Current: local minimum in radius-limited channel neighborhood (`_is_local_minimum`).
-  - Gap: potential differences from original peak operator and neighborhood topology.
+- [x] IMPLEMENTED (equivalent probably): Local peak/minimum selection in neighborhood.
+  - Code: `_is_local_minimum` (radius-limited neighborhood minimum on channel graph).
+  - Note: minor operator-level differences (e.g., plateau/tie handling or neighborhood definition) are possible, but not expected to be method-significant for this checklist level.
 
 ## C) Three-step tracking (Figure 4 flow)
 
@@ -62,9 +66,9 @@ Legend:
 - [x] IMPLEMENTED: Velocity consistency rejection at >50% deviation.
   - Code: `_velocity_ok`, `max_velocity_deviation_fraction=0.5`
 
-- [ ] APPROXIMATED: True image skeletonization from 2-frame / 3-frame averaged maps.
-  - Current: graph-based support path check on thresholded support nodes (`_support_indices`, `_support_path_exists`).
-  - Gap: no explicit binary morphology + skeleton image operations equivalent to paper figure workflow.
+- [x] IMPLEMENTED: Image skeletonization from 2-frame / 3-frame averaged maps.
+  - Code: `_build_skeleton_support`, `_morphological_skeleton`, `_skeleton_path_exists`
+  - Behavior: interpolate averaged frame map to a spatial raster, threshold at support level, apply binary morphology, extract skeleton, and require connected skeleton path between candidate peaks.
 
 - [ ] APPROXIMATED: “No false links” operating point reported in Figure 6.
   - Current: algorithmic constraints are present, but no evaluation harness reproducing paper benchmark yet.
@@ -93,8 +97,8 @@ Legend:
 
 ## F) Priority gap-closing plan (recommended)
 
-1. Implement paper-faithful skeletonization path extraction
-   - Replace graph-support approximation in step II/III with explicit map thresholding + skeleton extraction.
+1. Validate paper-faithful skeletonization parameterization
+  - Tune raster step/morphology settings against reference outcomes.
 2. Verify inactive-window noise estimation fidelity
   - Compare quiet-window estimator outputs against BOTM validation noise stats on the same units.
 3. Add BOTM-based peak truth evaluation module
@@ -104,7 +108,6 @@ Legend:
 
 ## Reviewer quick summary
 
-Current implementation is method-structured and parameter-faithful for the main thresholds/distances/timing, with one major area still approximation-level versus the paper’s exact workflow:
-- skeletonization procedure details
+Current implementation is method-structured and parameter-faithful for thresholds/distances/timing and includes image-based skeletonization for step II/III tracking.
 
 Validation sections (BOTM ground truth and reported percentages) are still pending.

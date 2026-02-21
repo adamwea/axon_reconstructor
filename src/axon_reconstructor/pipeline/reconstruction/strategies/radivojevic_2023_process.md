@@ -9,7 +9,7 @@ It is intended for review before wiring this strategy into the active reconstruc
 
 - Strategy name: Radivojevic2023Reconstructor
 - Status: standalone module, not wired into reconstruction runner
-- Input compatibility: merged contributing templates from templates stage
+- Input compatibility: full-template unit artifacts (preferred), merged contributing templates (compatibility)
 - Core algorithm stages implemented:
   1) Adaptive thresholding (3 steps)
   2) Trajectory tracking (3 steps)
@@ -46,7 +46,24 @@ Provide Radivojevic2023Input with:
 - sampling_frequency_hz
 - source label
 
-### B) Build input from merged contributing template artifacts
+### B) Build input from full-template artifacts (preferred)
+
+The helper make_input_from_full_template reads from one unit folder:
+- full_template.npy
+- full_channel_locations_xy.npy
+- full_template_meta.json
+- full_channel_ids.npy (if present)
+- contributing_full_channel_indices.npy (if present)
+
+Pipeline in helper:
+1. Load full template and channel geometry.
+2. Keep informative/contributing channels (full template is zero-padded on non-contributing channels).
+3. Read sampling_frequency_hz from meta JSON.
+4. Compute time derivative dV/dt in microvolt per microsecond via finite difference.
+5. Convert derivative samples to 50 microsecond frames by block reduction (minimum per block).
+6. Estimate noise std from derivative signal unless user supplies one (optional quiet-period path available).
+
+### C) Build input from merged contributing template artifacts (compatibility)
 
 The helper make_input_from_merged_contributing reads from one unit folder:
 - merged_contributing_template.npy
@@ -116,14 +133,16 @@ Internal sequence:
 
    4.2 Phase 2: skeleton-assisted interconnection
    - Consecutive frames, up to 200 micrometers
-   - Build support mask from average of two frames at a low support threshold
-   - Require support path existence on a local graph
+   - Build support image from 2-frame average at low support threshold
+   - Interpolate to raster map, apply binary morphology, extract skeleton
+   - Require connected skeleton path between candidate endpoints
    - Apply velocity consistency check
 
    4.3 Phase 3: indirect interconnection
    - Every other frame (frame t to t+2), up to 400 micrometers
-   - Support mask from average of three consecutive frames
-   - Require support path existence
+   - Build support image from 3-frame average
+   - Interpolate to raster map, apply binary morphology, extract skeleton
+   - Require connected skeleton path between candidate endpoints
    - Compute velocity using 2-frame time delta
    - Store predicted midpoint coordinates for middle frame
    - Apply velocity consistency check
@@ -159,11 +178,10 @@ Serialization helper:
 
 2. Noise estimation source
 - If not provided, noise std is estimated from the available derivative signal using robust MAD scaling.
-- The paper describes noise from inactive periods; this is approximated when only merged templates are available.
+- Optional quiet-period estimation is available from spike-free windows in preprocessed concat recording.
 
-3. Skeletonization approximation
-- The skeleton-assisted step is represented by support-path existence on a thresholded spatial graph.
-- It does not yet perform image skeletonization exactly as in the Matlab workflow.
+3. Skeletonization mode
+- The skeleton-assisted step uses interpolated image maps with morphology + skeleton extraction and connectivity checks.
 
 4. Multi-link constraints
 - Current linking is greedy with unmatched source and destination constraints per tracking stage.
@@ -176,13 +194,13 @@ Serialization helper:
 Use in ad hoc experiments:
 
 1. Instantiate parameters and reconstructor.
-2. Build input from one merged unit directory.
+2. Build input from one full-template unit directory.
 3. Run strategy.
 4. Save result via to_jsonable.
 
 Pseudo-steps:
 - recon = Radivojevic2023Reconstructor(Radivojevic2023Params())
-- inp = recon.make_input_from_merged_contributing(merged_unit_dir=...)
+- inp = recon.make_input_from_full_template(full_unit_dir=...)
 - res = recon.run(inp)
 - json.dump(res.to_jsonable(), ...)
 
