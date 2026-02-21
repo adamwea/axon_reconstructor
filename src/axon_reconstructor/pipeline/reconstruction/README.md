@@ -57,3 +57,5 @@ flowchart TD
 ## Notes
 
 - This step uses a dedicated reconstruction checkpoint file so it can resume independently of earlier stages.
+- Standalone strategy modules are available under `pipeline/reconstruction/strategies/`.
+- `radivojevic_2023.py` is currently not wired into the default runner.
