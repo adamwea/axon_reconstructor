@@ -28,17 +28,9 @@ Environment variables override both TOML files.
 
 - `bash tools/smoke_tests/perlmutter/login_node/run_all_login_node_smoke_tests.sh`
 
-Or via CLI:
-
-- `axon-recon-smoke login`
-
 3) Run all GPU-node smoke tests from a login node (single allocation, runs suite inside it):
 
 - `bash tools/smoke_tests/perlmutter/interactive_gpu_node/run_all_gpu_node_smoke_tests_from_login.sh`
-
-Or via CLI:
-
-- `axon-recon-smoke gpu`
 
 4) When ready for real spikesorting, allocate a GPU and run:
 

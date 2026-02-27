@@ -3,8 +3,11 @@
 Scope: this document covers the in-repo spikesorting debug harness that runs MEA_Analysis *in-process* (Python import) while using the Stage 01 saved recording.
 
 Primary script:
-- `tools/stepwise_debug_scripts/spikesorting_debug.py`
-  - `run_spikesorting_only(inputs=..., logger=...)`
+- `src/axon_reconstructor/pipeline/spikesorting/runner.py`
+  - `run_spikesorting_stage(inputs=..., logger=...)`
+
+Thin CLI wrapper:
+- `tools/debug/debug_spikesorting_step.py`
 
 ---
 

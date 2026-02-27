@@ -6,7 +6,7 @@ Primary code path:
 - `axon_reconstructor.pipeline.pipeline_driver.AxonReconstructor.preprocess_for_spikesorting(...)`
 
 Related scripts:
-- `tools/stepwise_debug_scripts/preprocessing_debug.py`
+- `tools/debug/debug_preprocessing_step.py`
 - project-local wrappers (example): `projects/.../debug_preprocessing_step.py`
 
 ---
@@ -70,7 +70,7 @@ These are intended as sanity checks and do not affect downstream correctness.
 Two common ways to debug preprocessing:
 
 1. Repo-local harness:
-   - `tools/stepwise_debug_scripts/preprocessing_debug.py`
+   - `tools/debug/debug_preprocessing_step.py`
 
 2. Project-local wrapper scripts (convenience for specific datasets):
    - `projects/.../debug_preprocessing_step.py`

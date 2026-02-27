@@ -8,7 +8,7 @@ Primary code paths:
   - `axon_reconstructor.integrations.mea_analysis.compute_mea_output_dir(...)`
   - `axon_reconstructor.integrations.mea_analysis.compute_spikesorting_output_dir(...)`
   - `axon_reconstructor.integrations.mea_analysis.compute_sorter_output_dir(...)`
-- Debug harness (in-process MEA_Analysis): `tools/stepwise_debug_scripts/spikesorting_debug.py`
+- In-process stage runner (imports MEA_Analysis): `axon_reconstructor.pipeline.spikesorting.run_spikesorting_stage(...)`
 
 ---
 
