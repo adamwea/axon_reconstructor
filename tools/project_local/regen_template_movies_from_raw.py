@@ -27,7 +27,7 @@ from typing import Any
 
 import numpy as np
 
-import debug_env
+from axon_reconstructor import env_utils as debug_env
 
 
 def _read_json(path: Path) -> Any:
