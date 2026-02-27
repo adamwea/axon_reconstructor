@@ -7,6 +7,8 @@
 - Primary planning + execution tracker: [DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md)
 - Developer setup guide: [docs/developer_setup.md](docs/developer_setup.md)
 - Environment spec: [environment.yml](environment.yml)
+- Debug harness docs: [docs/debugging/README.md](docs/debugging/README.md)
+- Example configs: [docs/examples/README.md](docs/examples/README.md)
 
 All major work should follow the roadmap sequence and include a docs/roadmap checkpoint after each major item.
 
@@ -28,7 +30,7 @@ pytest
 
 - Preprocess + spikesorting: [docs/methods/methods_preprocess_spikesort.md](docs/methods/methods_preprocess_spikesort.md)
 
-## Near-term documentation targets
+## Current implementation notes
 
-- Add package-owned debug harness docs and examples (env defaults + cross-well config template).
-- Add modular analysis project guidance for real dataset runs.
+- Package-owned debug harness scripts now live under `tools/debug`.
+- A minimal project wrapper for Media Density analysis lives at `/home/adamm/dev/projects/260227_media_density_analysis_project` and delegates execution to package-owned scripts.

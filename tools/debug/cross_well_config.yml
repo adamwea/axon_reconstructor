@@ -1,0 +1,150 @@
+analysis_name: Media_Density_T3_07012025_AR_M07137_multiday
+
+# Optional: env file to load (useful when other scripts share knobs).
+# In your case, this is your "runtime env".
+runtime_env_file: /home/adamm/dev/projects/260121_debugging_individual_axon_recon_steps/debug.env
+
+# Cross-analysis outputs path must be explicit because this analysis may
+# aggregate multiple datasets.
+out_dir: /home/adamm/dev/symlinks/local_RBS_data/outputs/Media_Density_T3_07012025_AR/cross_well_analysis_outputs/Media_Density_T3_07012025_AR_M07137_multiday
+
+electrode_pitch_um: 17.5
+
+datasets:
+  # 7/8/2025 (Run 44), wells recorded: 1,2,3,4,5,6 => well000..well005
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250708/M07137/AxonTracking/000044/data.raw.h5
+
+    # Days in vitro (DIV) at time of recording. This is used to determine which recordings are "early" vs "late" in the culture's development.
+    DIV: 7
+    
+    # Organize in density order here (not well number order)
+    wells:
+      # - well_id: well000
+      #   condition: 60K NBP
+      #   plating_density_nbp: 60000
+      #   genotype: WT
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      # - well_id: well002
+      #   condition: 100K NBP
+      #   plating_density_nbp: 100000
+      #   genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT
+      # - well_id: well005
+      #   condition: 120K NBP
+      #   plating_density_nbp: 120000
+      #   genotype: WT
+
+  # 7/10/2025 (Run 89), wells recorded: 2,4,5 => well001, well003, well004
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250710/M07137/AxonTracking/000089/data.raw.h5
+
+    # Days in vitro (DIV) at time of recording. This is used to determine which recordings are "early" vs "late" in the culture's development.
+    DIV: 9
+    
+    # Organize in density order here (not well number order)
+    wells:
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT
+
+  # 7/14/2025 (Run 103), wells recorded: 2,4,5 => well001, well003, well004
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250714/M07137/AxonTracking/000103/data.raw.h5
+
+    # Days in vitro (DIV) at time of recording. This is used to determine which recordings are "early" vs "late" in the culture's development.
+    DIV: 11
+    
+    # Organize in density order here (not well number order)
+    wells:
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT
+
+  # 7/17/2025 (Run 148), wells recorded: 2,4,5 => well001, well003, well004
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250717/M07137/AxonTracking/000148/data.raw.h5
+
+    # Days in vitro (DIV) at time of recording. This is used to determine which recordings are "early" vs "late" in the culture's development.
+    DIV: 14
+    
+    # Organize in density order here (not well number order)
+    wells:
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT
+
+  # 7/21/2025 (Run 173), wells recorded: 2,4,5 => well001, well003, well004
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250721/M07137/AxonTracking/000173/data.raw.h5
+
+    # Days in vitro (DIV) at time of recording. This is used to determine which recordings are "early" vs "late" in the culture's development.
+    DIV: 18
+    
+    # Organize in density order here (not well number order)
+    wells:
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT
+
+  # 7/28/2025 (Run 225), wells recorded: 2,4,5 => well001, well003, well004
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5
+
+    # Days in vitro (DIV) at time of recording. This is used to determine which recordings are "early" vs "late" in the culture's development.
+    DIV: 21
+    
+    # Organize in density order here (not well number order)
+    wells:
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT

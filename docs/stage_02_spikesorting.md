@@ -17,8 +17,9 @@ This stage exposes two layers:
   - `compute_sorter_output_dir(...)`
   - `validate_sorter_output_dir(...)`
 
-- In-process debug harness (imports MEA_Analysis and injects the saved recording):
-  - `tools/stepwise_debug_scripts/spikesorting_debug.py` (`run_spikesorting_only(...)`)
+- In-process stage runner (imports MEA_Analysis and injects the saved recording):
+  - `axon_reconstructor.pipeline.spikesorting.run_spikesorting_stage(...)`
+  - Debug CLI wrapper: `tools/debug/debug_spikesorting_step.py`
 
 ## Inputs
 

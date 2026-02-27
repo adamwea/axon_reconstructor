@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../_shared/00_config.sh"
 
 if [[ -z "${RAW_H5:-}" ]]; then
-  echo "ERROR: RAW_H5 is not set. Set RAW_H5 or configure tools/smoke_tests/perlmutter/smoke_tests.local.toml (recommended: use axon-recon-smoke)." >&2
+  echo "ERROR: RAW_H5 is not set. Set RAW_H5 or configure tools/smoke_tests/perlmutter/smoke_tests.local.toml." >&2
   exit 2
 fi
 

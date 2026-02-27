@@ -21,7 +21,6 @@ dev = [
 
 [project.scripts]
 axon-reconstructor = "axon_reconstructor.cli:main"
-axon-recon-smoke = "axon_reconstructor.smoke.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

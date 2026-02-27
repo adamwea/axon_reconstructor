@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import logging
 import os
 import shlex
 import subprocess
@@ -301,6 +303,139 @@ def _cmd_pipeline(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_stage_kwargs(args: argparse.Namespace) -> dict:
+    kwargs: dict = {}
+    if getattr(args, "stage_kwargs_file", None):
+        payload = json.loads(Path(args.stage_kwargs_file).read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise SystemExit("--stage-kwargs-file must contain a JSON object")
+        kwargs.update(payload)
+    if getattr(args, "stage_kwargs", None):
+        payload = json.loads(args.stage_kwargs)
+        if not isinstance(payload, dict):
+            raise SystemExit("--stage-kwargs must be a JSON object")
+        kwargs.update(payload)
+    return kwargs
+
+
+def _cmd_stage(args: argparse.Namespace) -> int:
+    stage = str(args.stage)
+    stage_kwargs = _load_stage_kwargs(args)
+
+    if bool(args.debug):
+        logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s", force=True)
+
+    h5_path = Path(args.h5_path).expanduser().resolve()
+    if not h5_path.exists():
+        raise SystemExit(f"h5 path not found: {h5_path}")
+
+    stream_id = str(args.stream_id)
+    mea_output_root = Path(args.mea_output_root).expanduser()
+
+    if stage == "preprocess":
+        from axon_reconstructor.pipeline.pipeline_driver import AxonReconstructor
+
+        recon = AxonReconstructor(
+            h5_parent_dirs=[h5_path],
+            mea_analysis_output_root=str(mea_output_root),
+            force_restart=bool(args.force_restart),
+        )
+        multirec, common_el = recon.preprocess_for_spikesorting(
+            h5_path=h5_path,
+            stream_id=stream_id,
+            n_jobs=int(args.n_jobs),
+            overwrite_saved_recording=bool(args.force_restart),
+            **stage_kwargs,
+        )
+        print(f"preprocess complete: stream={stream_id} common_electrodes={len(common_el)}")
+        _ = multirec
+        return 0
+
+    if stage == "spikesort":
+        if not args.mea_analysis_repo_root:
+            raise SystemExit("--mea-analysis-repo-root is required for stage 'spikesort'")
+
+        from axon_reconstructor.pipeline.spikesorting import SpikeSortingInputs, run_spikesorting_stage
+
+        inputs = SpikeSortingInputs(
+            h5_path=h5_path,
+            stream_id=stream_id,
+            mea_output_root=mea_output_root,
+            mea_analysis_repo_root=Path(args.mea_analysis_repo_root).expanduser().resolve(),
+            sorter=str(args.sorter),
+            docker_image=args.docker_image,
+            n_jobs=int(args.n_jobs) if args.n_jobs else None,
+            chunk_duration=args.chunk_duration,
+            force_restart=bool(args.force_restart),
+            verbose=bool(args.debug),
+            **stage_kwargs,
+        )
+        outputs = run_spikesorting_stage(inputs=inputs, logger=logging.getLogger("axon_reconstructor.stage.spikesort"))
+        print(f"spikesort complete: sorter_output={outputs.sorter_output_dir}")
+        return 0
+
+    if stage == "waveforms":
+        from axon_reconstructor.pipeline.waveforms import WaveformExtractInputs, extract_waveforms
+
+        inputs = WaveformExtractInputs(
+            h5_path=h5_path,
+            stream_id=stream_id,
+            mea_output_root=mea_output_root,
+            sorter=str(args.sorter),
+            n_jobs=int(args.n_jobs),
+            force_restart=bool(args.force_restart),
+            **stage_kwargs,
+        )
+        outputs = extract_waveforms(inputs=inputs)
+        print(f"waveforms complete: out_dir={outputs.waveforms_out_dir}")
+        return 0
+
+    if stage == "templates":
+        from axon_reconstructor.pipeline.templates import TemplateExtractInputs, extract_and_merge_templates
+
+        inputs = TemplateExtractInputs(
+            h5_path=h5_path,
+            stream_id=stream_id,
+            mea_output_root=mea_output_root,
+            n_jobs=int(args.n_jobs),
+            force_restart=bool(args.force_restart),
+            **stage_kwargs,
+        )
+        outputs = extract_and_merge_templates(inputs=inputs)
+        print(f"templates complete: out_dir={outputs.templates_out_dir}")
+        return 0
+
+    if stage == "reconstruct":
+        from axon_reconstructor.pipeline.reconstruction import ReconstructionInputs, reconstruct_from_templates
+
+        inputs = ReconstructionInputs(
+            h5_path=h5_path,
+            stream_id=stream_id,
+            mea_output_root=mea_output_root,
+            force_restart=bool(args.force_restart),
+            **stage_kwargs,
+        )
+        outputs = reconstruct_from_templates(inputs=inputs)
+        print(f"reconstruction complete: out_dir={outputs.reconstruction_out_dir}")
+        return 0
+
+    if stage == "analysis":
+        from axon_reconstructor.pipeline.analysis import AnalysisInputs, analyze_units
+
+        inputs = AnalysisInputs(
+            h5_path=h5_path,
+            stream_id=stream_id,
+            mea_output_root=mea_output_root,
+            force_restart=bool(args.force_restart),
+            **stage_kwargs,
+        )
+        outputs = analyze_units(inputs=inputs)
+        print(f"analysis complete: out_dir={outputs.analysis_out_dir}")
+        return 0
+
+    raise SystemExit(f"Unsupported stage: {stage}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="axon-reconstructor")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -423,6 +558,25 @@ def main(argv: list[str] | None = None) -> int:
     p_gpu.add_argument("--stage-back-mode", default="copy", choices=["copy", "move"])
     p_gpu.add_argument("--dry-run", action="store_true", help="Print the salloc command and exit.")
     p_gpu.set_defaults(func=_cmd_gpu_interact)
+
+    p_stage = sub.add_parser(
+        "stage",
+        help="Run an individual axon_reconstructor pipeline stage directly.",
+    )
+    p_stage.add_argument("stage", choices=["preprocess", "spikesort", "waveforms", "templates", "reconstruct", "analysis"])
+    p_stage.add_argument("--h5-path", required=True, help="Path to raw .h5 file")
+    p_stage.add_argument("--stream-id", required=True, help="Well/stream id (e.g. well003)")
+    p_stage.add_argument("--mea-output-root", required=True, help="MEA output root used for per-well stage outputs")
+    p_stage.add_argument("--mea-analysis-repo-root", default=None, help="Required for spikesort stage")
+    p_stage.add_argument("--sorter", default="kilosort4")
+    p_stage.add_argument("--docker-image", default=None)
+    p_stage.add_argument("--n-jobs", type=int, default=8)
+    p_stage.add_argument("--chunk-duration", default=None)
+    p_stage.add_argument("--force-restart", action="store_true")
+    p_stage.add_argument("--debug", action="store_true", help="Enable debug logging")
+    p_stage.add_argument("--stage-kwargs", default=None, help="JSON object of stage-specific keyword args")
+    p_stage.add_argument("--stage-kwargs-file", default=None, help="Path to JSON file with stage-specific keyword args")
+    p_stage.set_defaults(func=_cmd_stage)
 
     args = parser.parse_args(argv)
     try:

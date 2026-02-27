@@ -77,7 +77,7 @@ If resampling is requested but no `preprocess_config.json` exists, preprocessing
 
 ## Debugging entrypoints
 
-- Repo debug harness: `tools/stepwise_debug_scripts/preprocessing_debug.py`
+- Repo debug entrypoint: `tools/debug/debug_preprocessing_step.py`
 - Project-local F5 entrypoint (example): `projects/.../debug_preprocessing_step.py`
 
 ## Detailed stepwise docs

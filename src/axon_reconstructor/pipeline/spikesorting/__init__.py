@@ -12,10 +12,18 @@ from .main import (
     resolve_mea_sorter_output_dir,
     validate_sorter_output,
 )
+from .runner import (
+    SpikeSortingInputs,
+    SpikeSortingOutputs,
+    run_spikesorting_stage,
+)
 
 __all__ = [
     "SpikeSortRequest",
     "resolve_mea_sorter_output_dir",
     "validate_sorter_output",
     "build_mea_analysis_driver_cmd",
+    "SpikeSortingInputs",
+    "SpikeSortingOutputs",
+    "run_spikesorting_stage",
 ]
