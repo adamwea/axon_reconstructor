@@ -87,7 +87,7 @@ Status legend:
 ## Phase 3 — Core Refactor for Stage Efficiency
 
 ### 3.0 Debug harness minimization + migration audit
-- Status: `IN PROGRESS`
+- Status: `DONE`
 - Goal:
   - Reduce `tools/debug` to thin wrappers by migrating reusable logic into `src/axon_reconstructor/pipeline`.
 - Deliverables:
@@ -96,12 +96,12 @@ Status legend:
   - [DONE] Move spikesorting stage logic into `src/axon_reconstructor/pipeline/spikesorting/runner.py`.
   - [DONE] Remove preprocessing debug intermediary (`tools/debug/preprocessing_debug.py`); debug entrypoint now calls pipeline stage API directly.
   - [DONE] Canonicalize smoke-test location to `tools/smoke_tests` (remove `src/axon_reconstructor/smoke` wrapper package and `axon-recon-smoke` script entrypoint).
-  - Inventory each `tools/debug` script by function ownership:
+  - [DONE] Inventory each `tools/debug` script by function ownership:
     - keep as wrapper,
     - migrate to stage module,
     - migrate to shared pipeline utility,
     - archive/remove from package-owned debug area.
-  - Explicit de-scope note: `prune_to_axontracking.py` is one-time/project-local and should remain outside package-owned debug workflows.
+  - [DONE] Explicit de-scope note executed: `prune_to_axontracking.py` moved out of package-owned debug workflows into `tools/project_local`.
 
 #### 3.0 Inventory (initial pass)
 - Keep as wrapper (target state: thin CLI/env adapters only):
@@ -114,22 +114,22 @@ Status legend:
   - `debug_analysis_step.py`
   - `debug_analysis_deck.py`
 - Migrate to stage module (`src/axon_reconstructor/pipeline/...`):
-  - `cross_well_analysis.py` → `pipeline/analysis/...` (priority)
+  - [DONE] `cross_well_analysis.py` → `pipeline/analysis/cross_well.py` (debug script now thin wrapper)
   - [DONE] `spikesorting_debug.py` → `pipeline/spikesorting/runner.py`
   - [DONE] `debug_preprocessing_step.py` now calls `AxonReconstructor.preprocess_for_spikesorting(...)` directly (no intermediary module)
 - Migrate to shared utility:
-  - `debug_env.py` → shared config/env utility module (pipeline-adjacent or common util package)
+  - [DONE] `debug_env.py` → shared config/env utility module (`src/axon_reconstructor/env_utils.py`); `tools/debug/debug_env.py` kept as thin compatibility adapter
 - Archive/remove from package-owned debug area:
-  - `prune_to_axontracking.py` (de-scope; keep project-local only)
-  - `regen_template_movies_from_raw.py` (evaluate if still needed after stage-owned migration)
+  - [DONE] `prune_to_axontracking.py` moved to `tools/project_local/prune_to_axontracking.py` (project-local)
+  - [DONE] `regen_template_movies_from_raw.py` moved to `tools/project_local/regen_template_movies_from_raw.py` (project-local)
 - Script de-bloating candidates once orchestration is pipeline-native:
-  - `run_multidataset_preprocessing.sh`
-  - `run_multidataset_spikesorting.sh`
-  - `run_multidataset_waveforms.sh`
-  - `run_multidataset_templates.sh`
-  - `run_multidataset_reconstruction.sh`
-  - `run_multidataset_stages.sh`
-  - `run_multidataset_waveforms_templates_reconstruction.sh`
+  - [DEFERRED → 3.2c] `run_multidataset_preprocessing.sh`
+  - [DEFERRED → 3.2c] `run_multidataset_spikesorting.sh`
+  - [DEFERRED → 3.2c] `run_multidataset_waveforms.sh`
+  - [DEFERRED → 3.2c] `run_multidataset_templates.sh`
+  - [DEFERRED → 3.2c] `run_multidataset_reconstruction.sh`
+  - [DEFERRED → 3.2c] `run_multidataset_stages.sh`
+  - [DEFERRED → 3.2c] `run_multidataset_waveforms_templates_reconstruction.sh`
 
 #### 3.0 Canonical smoke-test location decision
 - Canonical location: `tools/smoke_tests`.
@@ -150,12 +150,12 @@ Status legend:
   - Tighten interfaces and reduce side effects.
 
 ### 3.1a Analysis-stage integration (priority: `cross_well_analysis`)
-- Status: `TODO`
+- Status: `IN PROGRESS`
 - Goal:
   - Refactor `tools/debug/cross_well_analysis.py` into pipeline-owned analysis modules.
 - Deliverables:
-  - Move reusable analysis logic into `src/axon_reconstructor/pipeline/analysis/...`.
-  - Keep debug script as thin CLI adapter that imports pipeline code.
+  - [DONE] Move reusable analysis logic into `src/axon_reconstructor/pipeline/analysis/...`.
+  - [DONE] Keep debug script as thin CLI adapter that imports pipeline code.
   - Split plotting/statistics/deck generation into testable units.
 
 ### 3.1b Stage-owned integration for other debug scripts
@@ -323,4 +323,4 @@ Status legend:
 
 ## Immediate Next Item (for execution)
 
-`Phase 3.0` + `Phase 3.1a` — Debug harness migration audit and `cross_well_analysis` integration into pipeline-owned analysis modules.
+`Phase 3.1a` — Continue `cross_well_analysis` decomposition (plotting/statistics/deck modules into smaller, testable units).
