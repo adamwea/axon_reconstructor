@@ -24,6 +24,38 @@ from .plotting_core import (
 )
 from .plotting_summary import _plot_summary_from_parts, compute_raw_branches_for_summary
 
+
+def _thin_lines_and_markers(ax: Any, *, lw: float = 0.45, ms: float = 1.5, alpha: float = 0.9) -> None:
+    try:
+        for line in getattr(ax, "lines", []):
+            try:
+                line.set_linewidth(lw)
+            except Exception:
+                pass
+            try:
+                line.set_markersize(ms)
+            except Exception:
+                pass
+            try:
+                line.set_alpha(alpha)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    try:
+        for coll in getattr(ax, "collections", []):
+            try:
+                coll.set_alpha(alpha)
+            except Exception:
+                pass
+            try:
+                coll.set_linewidths(lw)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
 def _compute_zoom_limits_from_xy(
     xy_points: list[list[float]],
     *,
