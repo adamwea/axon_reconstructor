@@ -4,7 +4,11 @@ import contextlib
 import io
 from pathlib import Path
 import sys
+import threading
 from typing import Optional
+
+
+_STDOUT_TEE_LOCK = threading.Lock()
 
 
 def _print_assay_settings(*, h5_path: Path, prefix: str = "[axon_reconstructor]") -> None:
@@ -180,7 +184,7 @@ def _tee_stdout_to_file(out_path: Path):
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(out_path, "w", encoding="utf-8") as f:
+    with _STDOUT_TEE_LOCK, open(out_path, "w", encoding="utf-8") as f:
 
         class _Tee(io.TextIOBase):
             def __init__(self, a, b):

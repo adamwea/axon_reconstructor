@@ -463,6 +463,32 @@ Compatibility/deprecation policy (approved):
   - 3.6.3 Analysis global resume shortcut when complete outputs exist and `force_restart=False`: `DONE`
   - 3.6.4 Analysis-deck command checkpoint artifact (`deck_started`/`deck_complete`/`deck_failed`): `DONE`
   - 3.6.5 Scope-run barrier resume artifact for stage-level barrier progress: `DONE`
+  - 3.6.6 Network-scan runtime caveats (single-segment preprocess fast path + spikesort profile handling): `DONE`
+
+### 3.7 Orchestration consolidation + legacy deletion
+- Status: `TODO`
+- Goal:
+  - Make one canonical orchestration path (`scope-run`/`stage_orchestrator`) and remove legacy orchestration codepaths after parity is verified.
+- Policy:
+  - No long-lived compatibility window for deprecated orchestration paths.
+  - Deprecated orchestration surfaces should be deleted in this phase once replacement parity checks pass.
+- Deliverables:
+  - 3.7.1 Introduce a shared stage-execution registry/API used by both `stage` CLI and `scope-run` (`TODO`)
+    - eliminate duplicate stage dispatch logic across `cli.py` and `stage_orchestrator.py`.
+  - 3.7.2 Rewire `run` and `pipeline` commands to canonical orchestrator semantics (`TODO`)
+    - either invoke scope orchestration directly (single-target scope) or be removed if redundant.
+  - 3.7.3 Reduce `pipeline_driver.py` to stage service responsibilities only (`TODO`)
+    - keep preprocess/runtime helper responsibilities;
+    - remove legacy WIP orchestration entrypoint behavior (`run_pipeline`) once canonical path covers use cases.
+  - 3.7.4 Delete deprecated orchestration codepaths and CLI surfaces (`TODO`)
+    - remove legacy command handlers and switches that are no longer part of canonical stage/scope flow;
+    - remove superseded docs/examples in the same change set.
+  - 3.7.5 Add consolidation parity checks and migration notes (`TODO`)
+    - targeted runtime tests for stage CLI vs scope-run stage execution parity;
+    - developer note documenting final ownership boundaries (`stage_orchestrator` vs stage service modules).
+
+### 3.7.6 Docs + Roadmap Update Checkpoint
+- Status: `TODO`
 
 ---
 
@@ -575,4 +601,4 @@ Compatibility/deprecation policy (approved):
 
 ## Immediate Next Item (for execution)
 
-`Phase 4.1` — Wire up and test partially implemented Radivojevic-style reconstruction.
+`Phase 3.7.1` — Introduce shared stage-execution registry/API used by both `stage` CLI and `scope-run`.

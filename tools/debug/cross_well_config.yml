@@ -44,6 +44,40 @@ datasets:
       #   plating_density_nbp: 120000
       #   genotype: WT
 
+  # 7/8/2025 Network scan (single-segment wells; no cross-segment concatenation expected)
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250708/M07137/Network/000032/data.raw.h5
+    DIV: 7
+    wells:
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT
+
+  # 7/8/2025 Network scan (single-segment wells; no cross-segment concatenation expected)
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250708/M07137/Network/000033/data.raw.h5
+    DIV: 7
+    wells:
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT
+
   # 7/10/2025 (Run 89), wells recorded: 2,4,5 => well001, well003, well004
   - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250710/M07137/AxonTracking/000089/data.raw.h5
 
@@ -51,6 +85,40 @@ datasets:
     DIV: 9
     
     # Organize in density order here (not well number order)
+    wells:
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT
+
+  # 7/10/2025 Network scan (single-segment wells)
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250710/M07137/Network/000084/data.raw.h5
+    DIV: 9
+    wells:
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT
+
+  # 7/10/2025 Network scan (single-segment wells)
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250710/M07137/Network/000085/data.raw.h5
+    DIV: 9
     wells:
       - well_id: well001
         condition: 80K NBP
@@ -86,6 +154,40 @@ datasets:
         plating_density_nbp: 120000
         genotype: WT
 
+  # 7/14/2025 Network scan (single-segment wells)
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250714/M07137/Network/000101/data.raw.h5
+    DIV: 11
+    wells:
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT
+
+  # 7/14/2025 Network scan (single-segment wells)
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250714/M07137/Network/000102/data.raw.h5
+    DIV: 11
+    wells:
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT
+
   # 7/17/2025 (Run 148), wells recorded: 2,4,5 => well001, well003, well004
   - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250717/M07137/AxonTracking/000148/data.raw.h5
 
@@ -93,6 +195,40 @@ datasets:
     DIV: 14
     
     # Organize in density order here (not well number order)
+    wells:
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT
+
+  # 7/17/2025 Network scan (single-segment wells)
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250717/M07137/Network/000146/data.raw.h5
+    DIV: 14
+    wells:
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT
+
+  # 7/17/2025 Network scan (single-segment wells)
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250717/M07137/Network/000147/data.raw.h5
+    DIV: 14
     wells:
       - well_id: well001
         condition: 80K NBP
@@ -128,6 +264,40 @@ datasets:
         plating_density_nbp: 120000
         genotype: WT
 
+  # 7/21/2025 Network scan (single-segment wells)
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250721/M07137/Network/000171/data.raw.h5
+    DIV: 18
+    wells:
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT
+
+  # 7/21/2025 Network scan (single-segment wells)
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250721/M07137/Network/000172/data.raw.h5
+    DIV: 18
+    wells:
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT
+
   # 7/28/2025 (Run 225), wells recorded: 2,4,5 => well001, well003, well004
   - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5
 
@@ -135,6 +305,40 @@ datasets:
     DIV: 21
     
     # Organize in density order here (not well number order)
+    wells:
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT
+
+  # 7/28/2025 Network scan (single-segment wells)
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/Network/000223/data.raw.h5
+    DIV: 21
+    wells:
+      - well_id: well001
+        condition: 80K NBP
+        plating_density_nbp: 80000
+        genotype: WT
+      - well_id: well004
+        condition: 100K NBP
+        plating_density_nbp: 100000
+        genotype: WT
+      - well_id: well003
+        condition: 120K NBP
+        plating_density_nbp: 120000
+        genotype: WT
+
+  # 7/28/2025 Network scan (single-segment wells)
+  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/Network/000224/data.raw.h5
+    DIV: 21
     wells:
       - well_id: well001
         condition: 80K NBP

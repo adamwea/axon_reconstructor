@@ -24,6 +24,15 @@ PREPROCESS_OUTPUTS_DIRNAME = "preprocess_outputs"
 SPIKESORTING_OUTPUTS_DIRNAME = "spikesorting_outputs"
 
 
+def _recording_profile_from_h5(h5_path: Path) -> str:
+    path_lower = str(Path(h5_path)).lower()
+    if "/network/" in path_lower:
+        return "network_single_segment_expected"
+    if "/axontracking/" in path_lower:
+        return "axontracking_multi_segment_possible"
+    return "unknown"
+
+
 def _compute_spikesort_checkpoint_file(*, well_out_dir: Path, h5_path: Path, stream_id: str) -> Path:
     return compute_stage_checkpoint_file(
         well_out_dir=well_out_dir,
@@ -280,6 +289,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         stage=AxonProcessingStage.SORTING,
         extra_fields={
             "spikesorting_out_dir": str(well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME),
+            "recording_profile": str(_recording_profile_from_h5(inputs.h5_path)),
             "checkpoint_owner": "axon_reconstructor_wrapper",
             "delegate_checkpoint_owner": "MEA_Analysis",
         },
@@ -290,6 +300,13 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         checkpoint_file=axon_ckpt_file,
         note="outer-wrapper; MEA_Analysis checkpoint remains authoritative inside stage",
     )
+
+    recording_profile = _recording_profile_from_h5(inputs.h5_path)
+    if recording_profile == "network_single_segment_expected":
+        logger.info(
+            "Network-scan profile detected: spikesorting uses preprocessed recording as-is "
+            "(single-segment handling is applied in preprocessing)."
+        )
 
     preprocess_dir = _resolve_preprocess_dir(well_out_dir=well_out_dir)
     recording_dir = preprocess_dir / "preprocessed_recording"
@@ -437,6 +454,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
                 "spikesorting_out_dir": str(pipeline.output_dir),
                 "sorter_output_dir": str(sorter_output_dir),
                 "analyzer_dir": str(analyzer_dir),
+                "recording_profile": str(recording_profile),
                 "mea_analysis_checkpoint_file": str(getattr(pipeline, "checkpoint_file", "")),
                 "checkpoint_owner": "axon_reconstructor_wrapper",
                 "delegate_checkpoint_owner": "MEA_Analysis",
@@ -465,6 +483,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
             error=e,
             extra_fields={
                 "spikesorting_out_dir": str(well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME),
+                "recording_profile": str(_recording_profile_from_h5(inputs.h5_path)),
                 "checkpoint_owner": "axon_reconstructor_wrapper",
                 "delegate_checkpoint_owner": "MEA_Analysis",
             },
