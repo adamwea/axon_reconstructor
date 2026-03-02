@@ -194,7 +194,7 @@ Status legend:
   - [DONE] Stage-barrier orchestration helper with per-well parallel execution:
     - `src/axon_reconstructor/pipeline/stage_orchestrator.py`
   - [DONE] Reduced stage-invocation duplication by centralizing cross-stage orchestration and kwargs merging.
-  - [DEFERRED → 4.x] Continue extracting lower-level reusable IO/logging/plot/metrics helpers from stage internals.
+  - [DEFERRED → 3.5.1] Continue extracting lower-level reusable IO/logging/plot/metrics helpers from stage internals.
 
 ### 3.2a Pipeline-native scope config for multi-dataset execution
 - Status: `DONE`
@@ -412,6 +412,44 @@ Compatibility/deprecation policy (approved):
 
 ---
 
+## Phase 3.5 — Cross-Stage Runtime Hardening
+
+### 3.5.1 Deferred helper extraction from Phase 3.2
+- Status: `TODO`
+- Goal:
+  - Complete deferred shared-helper extraction across all stages before reconstruction-backend expansion.
+- Deliverables:
+  - Extract reusable IO helper functions into shared pipeline utilities (path resolution, artifact discovery, structured output writes).
+  - Extract reusable plotting helper functions into shared pipeline utilities (common figure setup/output conventions).
+  - Extract reusable metrics helper functions into shared pipeline utilities (common metric serialization/aggregation utilities).
+  - Replace duplicated per-stage inline helper logic with shared utility imports while preserving behavior parity.
+  - Add a short developer note listing moved helpers and module ownership boundaries.
+
+### 3.5.2 Logging harmonization across pipeline stages
+- Status: `TODO`
+- Goal:
+  - Centralize and standardize logging behavior across preprocess/spikesort/waveforms/templates/reconstruct/analysis/scope orchestration.
+- Deliverables:
+  - Define a single logging contract (logger naming, levels, message shape, summary lines, error/traceback handling).
+  - Implement shared logging setup/helpers used by all stage runners and orchestration entrypoints.
+  - Remove stage-specific ad hoc logging differences where they do not provide clear value.
+  - Ensure scope summaries and stage outputs are consistently structured for CLI and file logs.
+
+### 3.5.3 Checkpointing architecture review + optimization
+- Status: `TODO`
+- Goal:
+  - Review checkpoint behavior end-to-end and harden resume/restart semantics across all stages.
+- Deliverables:
+  - Inventory checkpoint state ownership and transitions per stage and orchestrated scope runs.
+  - Identify and resolve gaps in restart semantics (`force_restart`, partial failures, fail-fast boundaries).
+  - Standardize checkpoint read/write/update patterns and failure handling.
+  - Add targeted validation scenarios for resume/retry behavior (single-stage + scope barrier contexts).
+
+### 3.5.4 Docs + Roadmap Update Checkpoint
+- Status: `TODO`
+
+---
+
 ## Phase 4 — Reconstruction Engines Alignment
 
 ### 4.1 Wire up and test partially implemented Radivojevic-style reconstruction
@@ -521,4 +559,4 @@ Compatibility/deprecation policy (approved):
 
 ## Immediate Next Item (for execution)
 
-`Phase 4.1` — Wire up and test partially implemented Radivojevic-style reconstruction.
+`Phase 3.5.1` — Deferred helper extraction from Phase 3.2.
