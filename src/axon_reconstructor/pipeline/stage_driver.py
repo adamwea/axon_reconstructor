@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import concurrent.futures
 import datetime as dt
 import json
@@ -7,15 +8,265 @@ import logging
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from .analysis import AnalysisInputs, analyze_units
-from .pipeline_driver import AxonReconstructor, _compute_mea_analysis_output_dir
+from .output_paths import compute_mea_analysis_output_dir
+from .raw_preprocessing import run_preprocess_stage
 from .reconstruction import ReconstructionInputs, reconstruct_from_templates
 from .scope_config import ScopeConfig
 from .spikesorting import SpikeSortingInputs, run_spikesorting_stage
 from .templates import TemplateExtractInputs, extract_and_merge_templates
 from .waveforms import WaveformExtractInputs, extract_waveforms
+
+
+STAGE_CHOICES = ("preprocess", "spikesort", "waveforms", "templates", "reconstruct", "analysis")
+
+
+def add_stage_selector_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("stage", choices=STAGE_CHOICES)
+
+
+def add_stage_common_required_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--h5-path",
+        required=False,
+        default=None,
+        help="Path to raw .h5 file (or set AXON_RECON_H5_PATH via --env-file/env).",
+    )
+    parser.add_argument(
+        "--stream-id",
+        required=False,
+        default=None,
+        help="Well/stream id (e.g. well003) (or set AXON_RECON_STREAM_ID via --env-file/env).",
+    )
+    parser.add_argument(
+        "--mea-output-root",
+        required=False,
+        default=None,
+        help="MEA output root for per-well stage outputs (or set AXON_RECON_MEA_OUTPUT_ROOT via --env-file/env).",
+    )
+
+
+def add_stage_spikesort_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--mea-analysis-repo-root", default=None, help="Required for spikesort stage")
+    parser.add_argument("--sorter", default="kilosort4")
+    parser.add_argument("--docker-image", default=None)
+    parser.add_argument("--chunk-duration", default=None)
+
+
+def add_stage_execution_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--n-jobs", type=int, default=None, help="Override worker count (env fallback: AXON_RECON_N_JOBS).")
+    parser.add_argument(
+        "--force-restart",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override restart behavior (env fallback: AXON_RECON_FORCE_RESTART).",
+    )
+    parser.add_argument(
+        "--debug",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable debug logging (env fallback: AXON_RECON_DEBUG).",
+    )
+
+
+def add_stage_debug_controls(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--break-before-run",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Drop into debugger before running preprocess/spikesort stage logic (env: AXON_RECON_BREAK_BEFORE_RUN).",
+    )
+    parser.add_argument(
+        "--debug-max-units",
+        type=int,
+        default=None,
+        help="Limit waveforms stage to first N units (env: AXON_RECON_WF_DEBUG_MAX_UNITS).",
+    )
+    parser.add_argument(
+        "--debug-max-segments",
+        type=int,
+        default=None,
+        help="Limit waveforms stage to first N segments when per-segment extraction is enabled (env: AXON_RECON_WF_DEBUG_MAX_SEGMENTS).",
+    )
+
+
+def add_stage_analysis_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--unit-limit",
+        default=None,
+        help="Limit analysis to first N units; accepts none/null/all for no limit (env: AXON_RECON_UNIT_LIMIT).",
+    )
+    parser.add_argument(
+        "--unit-ids",
+        nargs="*",
+        default=None,
+        help="Run analysis for explicit unit ids (env: AXON_RECON_UNIT_IDS as comma-separated list).",
+    )
+    parser.add_argument(
+        "--prefer-curated-waveforms-panels",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Prefer curated waveforms panels in analysis outputs (env: AXON_RECON_ANALYSIS_PREFER_CURATED_WAVEFORMS_PANELS).",
+    )
+    parser.add_argument(
+        "--botm-enable",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable BOTM validation metrics (env: AXON_RECON_ANALYSIS_BOTM_ENABLE).",
+    )
+    parser.add_argument("--botm-n-events", type=int, default=None, help="BOTM event count (env: AXON_RECON_ANALYSIS_BOTM_N_SPIKE).")
+    parser.add_argument(
+        "--botm-n-noise-windows",
+        type=int,
+        default=None,
+        help="BOTM noise window count (env: AXON_RECON_ANALYSIS_BOTM_N_NOISE).",
+    )
+    parser.add_argument("--botm-seed", type=int, default=None, help="BOTM RNG seed (env: AXON_RECON_ANALYSIS_BOTM_SEED).")
+    parser.add_argument(
+        "--botm-prior-signal",
+        type=float,
+        default=None,
+        help="BOTM prior signal probability (env: AXON_RECON_ANALYSIS_BOTM_CHANNEL_MATCH_PRIOR_SIGNAL).",
+    )
+    parser.add_argument(
+        "--botm-match-fraction-threshold",
+        type=float,
+        default=None,
+        help="BOTM match fraction threshold (env: AXON_RECON_ANALYSIS_BOTM_CHANNEL_MATCH_FRACTION_THRESHOLD).",
+    )
+    parser.add_argument("--botm-sorter", type=str, default=None, help="BOTM sorter id (env: AXON_RECON_ANALYSIS_BOTM_SORTER).")
+
+
+def add_stage_kwargs_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--stage-kwargs", default=None, help="JSON object of stage-specific keyword args")
+    parser.add_argument("--stage-kwargs-file", default=None, help="Path to JSON file with stage-specific keyword args")
+
+
+@dataclass(frozen=True)
+class StageExecutionContext:
+    h5_path: Path
+    stream_id: str
+    mea_output_root: Path
+    force_restart: bool
+    n_jobs: int = 8
+    sorter: str = "kilosort4"
+    docker_image: Optional[str] = None
+    chunk_duration: Optional[str] = None
+    mea_analysis_repo_root: Optional[Path] = None
+    verbose: bool = False
+
+
+@dataclass(frozen=True)
+class StageExecutionResult:
+    stage: str
+    artifacts: dict[str, Any]
+
+
+def execute_stage(
+    *,
+    stage: str,
+    context: StageExecutionContext,
+    stage_kwargs: Optional[dict[str, Any]] = None,
+    logger: Optional[logging.Logger] = None,
+) -> StageExecutionResult:
+    stage = str(stage)
+    kwargs = dict(stage_kwargs or {})
+
+    if stage == "preprocess":
+        preprocess_kwargs = {
+            "h5_path": context.h5_path,
+            "stream_id": context.stream_id,
+            "mea_output_root": context.mea_output_root,
+            "force_restart": bool(context.force_restart),
+            "n_jobs": int(context.n_jobs),
+            "overwrite_saved_recording": bool(context.force_restart),
+        }
+        preprocess_kwargs.update(kwargs)
+        _, common_el = run_preprocess_stage(**preprocess_kwargs)
+        return StageExecutionResult(stage=stage, artifacts={"n_common_electrodes": int(len(common_el))})
+
+    if stage == "spikesort":
+        if context.mea_analysis_repo_root is None:
+            raise RuntimeError("spikesort stage requires mea_analysis_repo_root")
+
+        spikesort_fields = {
+            "h5_path": context.h5_path,
+            "stream_id": context.stream_id,
+            "mea_output_root": context.mea_output_root,
+            "mea_analysis_repo_root": context.mea_analysis_repo_root,
+            "sorter": context.sorter,
+            "docker_image": context.docker_image,
+            "force_restart": bool(context.force_restart),
+            "verbose": bool(context.verbose),
+            "n_jobs": int(context.n_jobs),
+            "chunk_duration": context.chunk_duration,
+        }
+        spikesort_fields.update(kwargs)
+        out = run_spikesorting_stage(
+            inputs=SpikeSortingInputs(**spikesort_fields),
+            logger=logger or logging.getLogger(f"axon_reconstructor.stage.{context.stream_id}.spikesort"),
+        )
+        return StageExecutionResult(
+            stage=stage,
+            artifacts={
+                "sorter_output_dir": str(out.sorter_output_dir),
+                "output_dir": str(out.output_dir),
+            },
+        )
+
+    if stage == "waveforms":
+        waveform_fields = {
+            "h5_path": context.h5_path,
+            "stream_id": context.stream_id,
+            "mea_output_root": context.mea_output_root,
+            "sorter": context.sorter,
+            "n_jobs": int(context.n_jobs),
+            "force_restart": bool(context.force_restart),
+        }
+        waveform_fields.update(kwargs)
+        out = extract_waveforms(inputs=WaveformExtractInputs(**waveform_fields))
+        return StageExecutionResult(stage=stage, artifacts={"waveforms_out_dir": str(out.waveforms_out_dir)})
+
+    if stage == "templates":
+        template_fields = {
+            "h5_path": context.h5_path,
+            "stream_id": context.stream_id,
+            "mea_output_root": context.mea_output_root,
+            "n_jobs": int(context.n_jobs),
+            "force_restart": bool(context.force_restart),
+        }
+        template_fields.update(kwargs)
+        out = extract_and_merge_templates(inputs=TemplateExtractInputs(**template_fields))
+        return StageExecutionResult(stage=stage, artifacts={"templates_out_dir": str(out.templates_out_dir)})
+
+    if stage == "reconstruct":
+        recon_fields = {
+            "h5_path": context.h5_path,
+            "stream_id": context.stream_id,
+            "mea_output_root": context.mea_output_root,
+            "force_restart": bool(context.force_restart),
+        }
+        recon_fields.update(kwargs)
+        out = reconstruct_from_templates(inputs=ReconstructionInputs(**recon_fields))
+        return StageExecutionResult(
+            stage=stage,
+            artifacts={"reconstruction_out_dir": str(out.reconstruction_out_dir)},
+        )
+
+    if stage == "analysis":
+        analysis_fields = {
+            "h5_path": context.h5_path,
+            "stream_id": context.stream_id,
+            "mea_output_root": context.mea_output_root,
+            "force_restart": bool(context.force_restart),
+        }
+        analysis_fields.update(kwargs)
+        out = analyze_units(inputs=AnalysisInputs(**analysis_fields))
+        return StageExecutionResult(stage=stage, artifacts={"analysis_out_dir": str(out.analysis_out_dir)})
+
+    raise ValueError(f"Unsupported stage: {stage}")
 
 
 @dataclass(frozen=True)
@@ -96,157 +347,38 @@ def _run_single_stage_target(*, stage: str, config: ScopeConfig, target: ScopeTa
     stage_kwargs = _merge_stage_kwargs(stage=stage, config=config, target=target)
     started_at = _now_utc()
 
-    if stage == "preprocess":
-        recon = AxonReconstructor(
-            h5_parent_dirs=[target.h5_path],
-            mea_analysis_output_root=str(config.mea_output_root),
-            force_restart=bool(config.force_restart),
-        )
-        preprocess_kwargs = {
-            "h5_path": target.h5_path,
-            "stream_id": target.stream_id,
-            "n_jobs": int(config.n_jobs),
-            "overwrite_saved_recording": bool(config.force_restart),
-        }
-        preprocess_kwargs.update(stage_kwargs)
-        _, common_el = recon.preprocess_for_spikesorting(**preprocess_kwargs)
-        return {
-            "status": "ok",
-            "stage": stage,
-            "dataset_id": target.dataset_id,
-            "h5_path": str(target.h5_path),
-            "stream_id": target.stream_id,
-            "started_at": started_at,
-            "finished_at": _now_utc(),
-            "n_common_electrodes": int(len(common_el)),
-        }
-
-    if stage == "spikesort":
-        if config.mea_analysis_repo_root is None:
-            raise RuntimeError("spikesort stage requires mea_analysis_repo_root in scope config")
-
-        spikesort_fields = {
-            "h5_path": target.h5_path,
-            "stream_id": target.stream_id,
-            "mea_output_root": config.mea_output_root,
-            "mea_analysis_repo_root": config.mea_analysis_repo_root,
-            "sorter": config.sorter,
-            "docker_image": config.docker_image,
-            "force_restart": bool(config.force_restart),
-            "verbose": True,
-            "n_jobs": int(config.n_jobs),
-            "chunk_duration": config.chunk_duration,
-        }
-        spikesort_fields.update(stage_kwargs)
-        inputs = SpikeSortingInputs(**spikesort_fields)
-        out = run_spikesorting_stage(
-            inputs=inputs,
-            logger=logging.getLogger(f"axon_reconstructor.scope.{target.stream_id}.spikesort"),
-        )
-        return {
-            "status": "ok",
-            "stage": stage,
-            "dataset_id": target.dataset_id,
-            "h5_path": str(target.h5_path),
-            "stream_id": target.stream_id,
-            "started_at": started_at,
-            "finished_at": _now_utc(),
-            "sorter_output_dir": str(out.sorter_output_dir),
-            "output_dir": str(out.output_dir),
-        }
-
-    if stage == "waveforms":
-        waveform_fields = {
-            "h5_path": target.h5_path,
-            "stream_id": target.stream_id,
-            "mea_output_root": config.mea_output_root,
-            "sorter": config.sorter,
-            "n_jobs": int(config.n_jobs),
-            "force_restart": bool(config.force_restart),
-        }
-        waveform_fields.update(stage_kwargs)
-        inputs = WaveformExtractInputs(**waveform_fields)
-        out = extract_waveforms(inputs=inputs)
-        return {
-            "status": "ok",
-            "stage": stage,
-            "dataset_id": target.dataset_id,
-            "h5_path": str(target.h5_path),
-            "stream_id": target.stream_id,
-            "started_at": started_at,
-            "finished_at": _now_utc(),
-            "waveforms_out_dir": str(out.waveforms_out_dir),
-        }
-
-    if stage == "templates":
-        template_fields = {
-            "h5_path": target.h5_path,
-            "stream_id": target.stream_id,
-            "mea_output_root": config.mea_output_root,
-            "n_jobs": int(config.n_jobs),
-            "force_restart": bool(config.force_restart),
-        }
-        template_fields.update(stage_kwargs)
-        inputs = TemplateExtractInputs(**template_fields)
-        out = extract_and_merge_templates(inputs=inputs)
-        return {
-            "status": "ok",
-            "stage": stage,
-            "dataset_id": target.dataset_id,
-            "h5_path": str(target.h5_path),
-            "stream_id": target.stream_id,
-            "started_at": started_at,
-            "finished_at": _now_utc(),
-            "templates_out_dir": str(out.templates_out_dir),
-        }
-
-    if stage == "reconstruct":
-        recon_fields = {
-            "h5_path": target.h5_path,
-            "stream_id": target.stream_id,
-            "mea_output_root": config.mea_output_root,
-            "force_restart": bool(config.force_restart),
-        }
-        recon_fields.update(stage_kwargs)
-        inputs = ReconstructionInputs(**recon_fields)
-        out = reconstruct_from_templates(inputs=inputs)
-        return {
-            "status": "ok",
-            "stage": stage,
-            "dataset_id": target.dataset_id,
-            "h5_path": str(target.h5_path),
-            "stream_id": target.stream_id,
-            "started_at": started_at,
-            "finished_at": _now_utc(),
-            "reconstruction_out_dir": str(out.reconstruction_out_dir),
-        }
-
-    if stage == "analysis":
-        analysis_fields = {
-            "h5_path": target.h5_path,
-            "stream_id": target.stream_id,
-            "mea_output_root": config.mea_output_root,
-            "force_restart": bool(config.force_restart),
-        }
-        analysis_fields.update(stage_kwargs)
-        inputs = AnalysisInputs(**analysis_fields)
-        out = analyze_units(inputs=inputs)
-        return {
-            "status": "ok",
-            "stage": stage,
-            "dataset_id": target.dataset_id,
-            "h5_path": str(target.h5_path),
-            "stream_id": target.stream_id,
-            "started_at": started_at,
-            "finished_at": _now_utc(),
-            "analysis_out_dir": str(out.analysis_out_dir),
-        }
-
-    raise ValueError(f"Unsupported stage: {stage}")
+    context = StageExecutionContext(
+        h5_path=target.h5_path,
+        stream_id=target.stream_id,
+        mea_output_root=config.mea_output_root,
+        force_restart=bool(config.force_restart),
+        n_jobs=int(config.n_jobs),
+        sorter=config.sorter,
+        docker_image=config.docker_image,
+        chunk_duration=config.chunk_duration,
+        mea_analysis_repo_root=config.mea_analysis_repo_root,
+        verbose=True,
+    )
+    result = execute_stage(
+        stage=stage,
+        context=context,
+        stage_kwargs=stage_kwargs,
+        logger=logging.getLogger(f"axon_reconstructor.scope.{target.stream_id}.{stage}"),
+    )
+    return {
+        "status": "ok",
+        "stage": stage,
+        "dataset_id": target.dataset_id,
+        "h5_path": str(target.h5_path),
+        "stream_id": target.stream_id,
+        "started_at": started_at,
+        "finished_at": _now_utc(),
+        **dict(result.artifacts),
+    }
 
 
 def _expected_sorter_output_dir(*, config: ScopeConfig, target: ScopeTarget) -> Path:
-    well_out_dir = _compute_mea_analysis_output_dir(
+    well_out_dir = compute_mea_analysis_output_dir(
         output_root=config.mea_output_root,
         data_file=target.h5_path,
         well=target.stream_id,
@@ -373,18 +505,18 @@ def run_scope_stage_barriers(
     if dry_run:
         for stage in stage_order:
             stage_entries = []
-            for t in targets:
+            for target in targets:
                 if stage in {"unit_match", "merge_update"}:
                     gate_name = "spikesort_artifacts_ready" if stage == "unit_match" else "merge_updates_after_unit_match"
                     stage_entries.append(
                         {
                             "status": "planned",
                             "stage": stage,
-                            "dataset_id": t.dataset_id,
-                            "h5_path": str(t.h5_path),
-                            "stream_id": t.stream_id,
+                            "dataset_id": target.dataset_id,
+                            "h5_path": str(target.h5_path),
+                            "stream_id": target.stream_id,
                             "gate": gate_name,
-                            "stage_kwargs": _merge_stage_kwargs(stage=stage, config=config, target=t),
+                            "stage_kwargs": _merge_stage_kwargs(stage=stage, config=config, target=target),
                         }
                     )
                     continue
@@ -393,10 +525,10 @@ def run_scope_stage_barriers(
                     {
                         "status": "planned",
                         "stage": stage,
-                        "dataset_id": t.dataset_id,
-                        "h5_path": str(t.h5_path),
-                        "stream_id": t.stream_id,
-                        "stage_kwargs": _merge_stage_kwargs(stage=stage, config=config, target=t),
+                        "dataset_id": target.dataset_id,
+                        "h5_path": str(target.h5_path),
+                        "stream_id": target.stream_id,
+                        "stage_kwargs": _merge_stage_kwargs(stage=stage, config=config, target=target),
                     }
                 )
             summary["stages"].append({"stage": stage, "results": stage_entries, "failed": 0})
@@ -508,3 +640,21 @@ def write_scope_run_summary(*, summary: dict[str, Any], out_path: Path) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return out_path
+
+
+__all__ = [
+    "STAGE_CHOICES",
+    "add_stage_selector_arg",
+    "add_stage_common_required_args",
+    "add_stage_spikesort_args",
+    "add_stage_execution_args",
+    "add_stage_debug_controls",
+    "add_stage_analysis_args",
+    "add_stage_kwargs_args",
+    "StageExecutionContext",
+    "StageExecutionResult",
+    "execute_stage",
+    "ScopeTarget",
+    "run_scope_stage_barriers",
+    "write_scope_run_summary",
+]

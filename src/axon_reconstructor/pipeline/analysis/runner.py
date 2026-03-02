@@ -11,7 +11,7 @@ from ..checkpointing import (
     exception_to_error_dict,
     load_checkpoint,
 )
-from ..pipeline_driver import _compute_mea_analysis_output_dir
+from ..output_paths import compute_mea_analysis_output_dir
 from ..pipeline_logging import build_stage_logger, log_stage_complete, log_stage_failure, log_stage_start
 from ..shared_io import read_json, write_json
 from ..stage_checkpointing import compute_stage_checkpoint_file, save_stage_completed, save_stage_failed, save_stage_started
@@ -797,7 +797,7 @@ class AnalysisOutputs:
 def analyze_units(*, inputs: AnalysisInputs, logger_name_prefix: str = "axon_reconstructor") -> AnalysisOutputs:
     """Generate analysis summary artifacts (currently per-unit summary grids)."""
 
-    well_out_dir = _compute_mea_analysis_output_dir(
+    well_out_dir = compute_mea_analysis_output_dir(
         output_root=inputs.mea_output_root,
         data_file=inputs.h5_path,
         well=inputs.stream_id,

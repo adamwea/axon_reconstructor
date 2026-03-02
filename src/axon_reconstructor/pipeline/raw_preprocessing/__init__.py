@@ -8,8 +8,8 @@ We split responsibilities into:
 - `h5_helpers.py`: HDF5/assay timing and metadata debugging helpers
 - `plotting.py`: plotting and electrode-layout utilities
 
-For backward compatibility, the package re-exports the primary public entry points
-used by `pipeline_driver`.
+The package re-exports the primary public entry points used by the
+preprocess stage service.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from .main import (
     discover_cfg_files,
     find_common_electrodes_from_segments,
     parse_cfg_channel_locations,
+    run_preprocess_stage,
 )
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     "build_preprocess_plan",
     "find_common_electrodes_from_segments",
     "build_concatenated_recording",
+    "run_preprocess_stage",
 ]

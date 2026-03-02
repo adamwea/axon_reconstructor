@@ -466,29 +466,64 @@ Compatibility/deprecation policy (approved):
   - 3.6.6 Network-scan runtime caveats (single-segment preprocess fast path + spikesort profile handling): `DONE`
 
 ### 3.7 Orchestration consolidation + legacy deletion
-- Status: `TODO`
+- Status: `DONE`
 - Goal:
   - Make one canonical orchestration path (`scope-run`/`stage_orchestrator`) and remove legacy orchestration codepaths after parity is verified.
 - Policy:
   - No long-lived compatibility window for deprecated orchestration paths.
   - Deprecated orchestration surfaces should be deleted in this phase once replacement parity checks pass.
 - Deliverables:
-  - 3.7.1 Introduce a shared stage-execution registry/API used by both `stage` CLI and `scope-run` (`TODO`)
+  - 3.7.1 Introduce a shared stage-execution registry/API used by both `stage` CLI and `scope-run` (`DONE`)
     - eliminate duplicate stage dispatch logic across `cli.py` and `stage_orchestrator.py`.
-  - 3.7.2 Rewire `run` and `pipeline` commands to canonical orchestrator semantics (`TODO`)
+  - 3.7.2 Rewire `run` and `pipeline` commands to canonical orchestrator semantics (`DONE`)
     - either invoke scope orchestration directly (single-target scope) or be removed if redundant.
-  - 3.7.3 Reduce `pipeline_driver.py` to stage service responsibilities only (`TODO`)
-    - keep preprocess/runtime helper responsibilities;
-    - remove legacy WIP orchestration entrypoint behavior (`run_pipeline`) once canonical path covers use cases.
-  - 3.7.4 Delete deprecated orchestration codepaths and CLI surfaces (`TODO`)
+  - 3.7.3 Eliminate `pipeline_driver.py` and move remaining responsibilities to canonical stage services (`DONE`)
+    - path/layout helpers moved into `pipeline/output_paths.py`;
+    - preprocess runtime ownership moved into `pipeline/preprocessing_service.py`;
+    - legacy driver module removed after in-repo callsite migration.
+  - 3.7.4 Delete deprecated orchestration codepaths and CLI surfaces (`DONE`)
     - remove legacy command handlers and switches that are no longer part of canonical stage/scope flow;
     - remove superseded docs/examples in the same change set.
-  - 3.7.5 Add consolidation parity checks and migration notes (`TODO`)
+  - 3.7.5 Add consolidation parity checks and migration notes (`DONE`)
     - targeted runtime tests for stage CLI vs scope-run stage execution parity;
     - developer note documenting final ownership boundaries (`stage_orchestrator` vs stage service modules).
+    - parity tests added: `tests/test_stage_execution_parity.py`.
+    - ownership note added: `docs/developer/orchestration_ownership.md`.
+
+#### 3.7 implementation order (active)
+1. 3.7.1 Shared stage executor extraction (DONE).
+2. 3.7.5 Parity tests for stage CLI vs scope-run execution (DONE).
+3. 3.7.2 Rewire `run`/`pipeline` to canonical orchestrator semantics (DONE).
+4. 3.7.3 Eliminate `pipeline_driver.py` via service extraction + module deletion (DONE).
+5. 3.7.4 Delete deprecated orchestration CLI/codepaths and update docs in same changeset (DONE).
 
 ### 3.7.6 Docs + Roadmap Update Checkpoint
-- Status: `TODO`
+- Status: `DONE`
+
+### 3.7.7 Top-level pipeline ownership cleanup (post-consolidation)
+- Status: `DONE`
+- Goal:
+  - Minimize top-level `pipeline/` module surface by pushing stage-specific logic into stage-owned packages and keeping only true cross-stage orchestration/config contracts at the top level.
+- Deliverables:
+  - 3.7.7a Preprocess service ownership alignment (`DONE`)
+    - move preprocess stage service entrypoint out of top-level `pipeline/preprocessing_service.py` into `pipeline/raw_preprocessing` package (`main.py`/`runner.py` ownership).
+    - remove deprecated top-level preprocess service module after import rewiring.
+  - 3.7.7b Stage orchestration file-shape review (`DONE`)
+    - review `stage_checkpointing.py`, `stage_cli_args.py`, `stage_execution.py`, `stage_orchestrator.py` boundaries and merge only where cohesion improves maintainability without reducing testability.
+    - if merged, introduce a canonical `stage_driver` module and keep legacy module paths as short-lived shims until same changeset cleanup.
+  - 3.7.7c Scope config layering review (`DONE`)
+    - review split between `scope_config.py` and `scope_config_builder.py`; merge or retain split based on parser/model vs CLI-conversion responsibility boundary.
+  - 3.7.7d Shared path helper ownership decision (`DONE`)
+    - confirm whether MEA output path computation is cross-stage shared contract or preprocess-only concern; relocate if preprocess-only.
+  - 3.7.7e Remove temporary compatibility shims (`DONE`)
+    - delete `stage_cli_args.py`, `stage_execution.py`, `stage_orchestrator.py`, and `scope_config_builder.py` shims after callers/tests/docs are fully migrated to canonical owners (`stage_driver.py`, `scope_config.py`).
+
+#### 3.7.7 implementation order (active)
+1. 3.7.7a Move preprocess service into `pipeline/raw_preprocessing` package and delete top-level module.
+2. 3.7.7d Re-evaluate output path helper ownership after preprocess move (DONE).
+3. 3.7.7b Review/implement stage driver consolidation with tests (DONE).
+4. 3.7.7c Review/implement scope config consolidation with tests (DONE).
+5. 3.7.7e Remove temporary compatibility shims after full migration (DONE).
 
 ---
 
@@ -601,4 +636,4 @@ Compatibility/deprecation policy (approved):
 
 ## Immediate Next Item (for execution)
 
-`Phase 3.7.1` — Introduce shared stage-execution registry/API used by both `stage` CLI and `scope-run`.
+`Phase 4.1` — Wire up and test partially implemented Radivojevic-style reconstruction.

@@ -15,7 +15,7 @@ This document inventories resume/restart behavior from CLI args down to stage ru
 
 Primary arg definitions:
 - `src/axon_reconstructor/cli.py`
-- `src/axon_reconstructor/pipeline/stage_cli_args.py`
+- `src/axon_reconstructor/pipeline/stage_driver.py`
 
 ## 2) Stage runtime checkpointing + resume logic
 
@@ -29,7 +29,7 @@ Primary arg definitions:
 | analysis | stage checkpoint (`*_analysis_checkpoint.json`) | `REPORTS` -> `REPORTS_COMPLETE` (+ failure) | No top-level stage early-return; per-artifact skip behavior controlled by `force_restart` | Covered (no global early-return) |
 
 Primary stage files:
-- `src/axon_reconstructor/pipeline/pipeline_driver.py` (preprocess)
+- `src/axon_reconstructor/pipeline/raw_preprocessing/main.py` (preprocess)
 - `src/axon_reconstructor/pipeline/spikesorting/runner.py`
 - `src/axon_reconstructor/pipeline/waveforms/runner.py`
 - `src/axon_reconstructor/pipeline/templates/runner.py`
@@ -39,7 +39,7 @@ Primary stage files:
 
 ## 3) Scope orchestration behavior
 
-`scope-run` (`src/axon_reconstructor/pipeline/stage_orchestrator.py`) propagates `force_restart` from config to stage inputs, but does not maintain an orchestrator-level checkpoint for barrier progress itself. Transition gates (`unit_match`, `merge_update`) are readiness-gate checks, not checkpoint-backed state machines.
+`scope-run` (`src/axon_reconstructor/pipeline/stage_driver.py`) propagates `force_restart` from config to stage inputs, and maintains a barrier checkpoint artifact for stage-level progress. Transition gates (`unit_match`, `merge_update`) are readiness-gate checks.
 
 ## 4) Low-hanging fruit (obvious + easy)
 

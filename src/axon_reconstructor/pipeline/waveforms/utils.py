@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..pipeline_driver import PREPROCESS_OUTPUTS_DIRNAME
+from ..raw_preprocessing.constants import PREPROCESS_OUTPUTS_DIRNAME
 from ..raw_preprocessing.utils import _ensure_maxwell_hdf5_plugin_path
 
 logger = logging.getLogger(__name__)
