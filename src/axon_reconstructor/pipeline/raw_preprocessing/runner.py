@@ -51,9 +51,10 @@ def build_concatenated_recording(
         import numpy as np
         import spikeinterface.full as si
         import spikeinterface.extractors as se
+        import h5py
     except Exception as e:  # pragma: no cover
         raise RuntimeError(
-            "raw preprocessing requires `numpy` and `spikeinterface` installed"
+            "raw preprocessing requires `numpy`, `h5py`, and `spikeinterface` installed"
         ) from e
 
     _ensure_maxwell_hdf5_plugin_path()
@@ -85,79 +86,129 @@ def build_concatenated_recording(
         _print_assay_settings(h5_path=h5_path)
         _print_data_store_start_stop_durations(h5_path=h5_path, target_stream_id=stream_id)
 
-    rec_names, common_el = find_common_electrodes_from_segments(h5_path=h5_path, stream_id=stream_id)
+    with h5py.File(h5_path, "r") as h5:
+        rec_names = list(h5["wells"][stream_id].keys())
 
-    print(
-        f"[axon_reconstructor] found {len(rec_names)} segments; shared electrodes={len(common_el)}; "
-        f"intersection took {time.perf_counter() - t0:.2f}s",
-        flush=True,
-    )
+    if not rec_names:
+        raise RuntimeError(f"No recording segments found under /wells/{stream_id} in {h5_path}")
 
-    if plot_output_dir is not None:
-        plot_output_dir = Path(plot_output_dir)
-        channel_layouts_dir = plot_output_dir / "channel_layouts"
-        channel_layouts_dir.mkdir(parents=True, exist_ok=True)
-        _save_channel_layout_plots(
-            h5_path=h5_path,
-            stream_id=stream_id,
-            rec_names=rec_names,
-            common_electrodes=common_el,
-            out_dir=channel_layouts_dir,
-        )
+    is_single_segment = len(rec_names) == 1
+    common_el: list[int] = []
 
+    if is_single_segment:
+        rec_name = rec_names[0]
         print(
-            f"[axon_reconstructor] layout plots written to {Path(plot_output_dir)} "
-            f"({time.perf_counter() - t0:.2f}s elapsed)",
+            f"[axon_reconstructor] single-segment recording detected ({rec_name}); "
+            "skipping cross-segment channel intersection/slicing and concatenation",
+            flush=True,
+        )
+        if hasattr(se, "read_maxwell"):
+            rec = se.read_maxwell(file_path=str(h5_path), stream_id=stream_id, rec_name=rec_name)
+        else:  # pragma: no cover
+            rec = se.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_name)
+
+        fs = float(rec.get_sampling_frequency())
+        n_samples = int(rec.get_num_samples())
+        chunk = min(center_chunk_size, rec.get_num_samples()) - 100
+        chunk = max(chunk, 100)
+        rec_centered = si.center(rec, chunk_size=chunk)
+
+        rec_el = np.asarray(rec.get_property("contact_vector")["electrode"], dtype=int)
+        if int(np.unique(rec_el).size) != int(rec_el.size):
+            raise RuntimeError(
+                f"Duplicate electrode ids found in contact_vector for segment {rec_name}; cannot map electrodes reliably"
+            )
+
+        common_el = [int(e) for e in rec_el.tolist()]
+        rec_single = rec_centered.rename_channels(common_el)
+        rec_list = [rec_single]
+        seg_stats = [
+            {
+                "rec_name": str(rec_name),
+                "fs": fs,
+                "n_samples": n_samples,
+                "n_channels": int(rec_single.get_num_channels()),
+            }
+        ]
+    else:
+        rec_names, common_el = find_common_electrodes_from_segments(h5_path=h5_path, stream_id=stream_id)
+        print(
+            f"[axon_reconstructor] found {len(rec_names)} segments; shared electrodes={len(common_el)}; "
+            f"intersection took {time.perf_counter() - t0:.2f}s",
             flush=True,
         )
 
-    # Build a reference map electrode_id -> (x, y) from the first segment.
-    # This lets us confirm that all segments share the same electrode layout/order before concatenation.
-    expected_xy_by_electrode: Optional[dict[int, tuple[float, float]]] = None
-    try:
-        if rec_names:
-            if hasattr(se, "read_maxwell"):
-                rec0 = se.read_maxwell(file_path=str(h5_path), stream_id=stream_id, rec_name=rec_names[0])
-            else:  # pragma: no cover
-                rec0 = se.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_names[0])
-            cv0 = rec0.get_property("contact_vector")
-            el0 = np.asarray(cv0["electrode"], dtype=int)
-            x0, y0 = _extract_xy_from_contact_vector(cv0)
-            expected_xy_by_electrode = {
-                int(e): (float(x), float(y))
-                for e, x, y in zip(el0, np.asarray(x0, dtype=float), np.asarray(y0, dtype=float), strict=False)
-            }
-    except Exception:
-        # If x/y is unavailable or malformed, fall back to electrode-id-only validation.
-        expected_xy_by_electrode = None
+        # Build a reference map electrode_id -> (x, y) from the first segment.
+        # This lets us confirm that all segments share the same electrode layout/order before concatenation.
+        expected_xy_by_electrode: Optional[dict[int, tuple[float, float]]] = None
+        try:
+            if rec_names:
+                if hasattr(se, "read_maxwell"):
+                    rec0 = se.read_maxwell(file_path=str(h5_path), stream_id=stream_id, rec_name=rec_names[0])
+                else:  # pragma: no cover
+                    rec0 = se.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_names[0])
+                cv0 = rec0.get_property("contact_vector")
+                el0 = np.asarray(cv0["electrode"], dtype=int)
+                x0, y0 = _extract_xy_from_contact_vector(cv0)
+                expected_xy_by_electrode = {
+                    int(e): (float(x), float(y))
+                    for e, x, y in zip(el0, np.asarray(x0, dtype=float), np.asarray(y0, dtype=float), strict=False)
+                }
+        except Exception:
+            # If x/y is unavailable or malformed, fall back to electrode-id-only validation.
+            expected_xy_by_electrode = None
 
-    # Keep concurrency modest; these extractors are I/O heavy.
-    from concurrent.futures import ThreadPoolExecutor
+        # Keep concurrency modest; these extractors are I/O heavy.
+        from concurrent.futures import ThreadPoolExecutor
 
-    max_workers = min(len(rec_names), max(1, int(n_jobs)))
-    t_segments = time.perf_counter()
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        from functools import partial
+        max_workers = min(len(rec_names), max(1, int(n_jobs)))
+        t_segments = time.perf_counter()
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            from functools import partial
 
-        process = partial(
-            _process_rec_segment_for_concatenation,
-            h5_path=h5_path,
-            stream_id=stream_id,
-            common_el=common_el,
-            center_chunk_size=center_chunk_size,
-            expected_xy_by_electrode=expected_xy_by_electrode,
-            expected_xy_atol=0.0,
+            process = partial(
+                _process_rec_segment_for_concatenation,
+                h5_path=h5_path,
+                stream_id=stream_id,
+                common_el=common_el,
+                center_chunk_size=center_chunk_size,
+                expected_xy_by_electrode=expected_xy_by_electrode,
+                expected_xy_atol=0.0,
+            )
+            results = list(ex.map(lambda rn: process(rec_name=rn), rec_names))
+
+        rec_list = [r for r, _ in results]
+        seg_stats = [s for _, s in results]
+
+        print(
+            f"[axon_reconstructor] segment preprocessing done in {time.perf_counter() - t_segments:.2f}s "
+            f"(n_jobs={n_jobs}, workers={max_workers})",
+            flush=True,
         )
-        results = list(ex.map(lambda rn: process(rec_name=rn), rec_names))
 
-    rec_list = [r for r, _ in results]
-    seg_stats = [s for _, s in results]
+    if plot_output_dir is not None:
+        plot_output_dir = Path(plot_output_dir)
+        if is_single_segment:
+            print(
+                "[axon_reconstructor] single-segment recording: skipping channel-layout summary plots",
+                flush=True,
+            )
+        else:
+            channel_layouts_dir = plot_output_dir / "channel_layouts"
+            channel_layouts_dir.mkdir(parents=True, exist_ok=True)
+            _save_channel_layout_plots(
+                h5_path=h5_path,
+                stream_id=stream_id,
+                rec_names=rec_names,
+                common_electrodes=common_el,
+                out_dir=channel_layouts_dir,
+            )
 
-    print(
-        f"[axon_reconstructor] segment preprocessing done in {time.perf_counter() - t_segments:.2f}s "
-        f"(n_jobs={n_jobs}, workers={max_workers})",
-        flush=True,
-    )
+            print(
+                f"[axon_reconstructor] layout plots written to {Path(plot_output_dir)} "
+                f"({time.perf_counter() - t0:.2f}s elapsed)",
+                flush=True,
+            )
 
     # Optional: print real inter-segment gaps, if the extractor exposes absolute times.
     # print_time_between_segments(rec_list, rec_names=rec_names)
@@ -174,7 +225,10 @@ def build_concatenated_recording(
             )
 
     t_concat = time.perf_counter()
-    multirecording = si.concatenate_recordings(rec_list)
+    if is_single_segment:
+        multirecording = rec_list[0]
+    else:
+        multirecording = si.concatenate_recordings(rec_list)
 
     # Precompute segment stitch epochs in concatenated sample coordinates.
     seg_lengths = [int(r.get_num_samples()) for r in rec_list]
@@ -429,13 +483,20 @@ def build_concatenated_recording(
             with open(maxwell_path, "w", encoding="utf-8") as f:
                 json.dump(list(maxwell_epochs), f, indent=2)
 
-            with open(concat_path, "w", encoding="utf-8") as f:
-                json.dump(list(concat_epochs), f, indent=2)
+            if is_single_segment:
+                print(
+                    f"[axon_reconstructor] wrote epoch markers: maxwell={maxwell_path.name} "
+                    "(single-segment; no concatenation_stitch_epochs file)",
+                    flush=True,
+                )
+            else:
+                with open(concat_path, "w", encoding="utf-8") as f:
+                    json.dump(list(concat_epochs), f, indent=2)
 
-            print(
-                f"[axon_reconstructor] wrote epoch markers: maxwell={maxwell_path.name} concat={concat_path.name}",
-                flush=True,
-            )
+                print(
+                    f"[axon_reconstructor] wrote epoch markers: maxwell={maxwell_path.name} concat={concat_path.name}",
+                    flush=True,
+                )
         except Exception as e:
             print(f"[axon_reconstructor][WARN] failed to write epoch marker JSON: {e}", flush=True)
 
@@ -450,18 +511,20 @@ def build_concatenated_recording(
     except Exception:
         dur_timevec = None
 
+    record_kind = "single-segment recording" if is_single_segment else "concatenated recording"
+    timing_label = "prepare took" if is_single_segment else "concat took"
     print(
-        f"[axon_reconstructor] concatenated recording: fs={fs_cat:.2f} Hz, "
+        f"[axon_reconstructor] {record_kind}: fs={fs_cat:.2f} Hz, "
         f"samples={n_cat:,}, duration_samples/fs={dur_cat:.2f} s"
         + (
             f", duration_time_vector={dur_timevec:.2f} s" if dur_timevec is not None else ""
         )
         + f", channels={int(multirecording.get_num_channels())} "
-        f"(concat took {time.perf_counter() - t_concat:.2f}s)",
+        f"({timing_label} {time.perf_counter() - t_concat:.2f}s)",
         flush=True,
     )
 
-    if plot_output_dir is not None:
+    if plot_output_dir is not None and not is_single_segment:
         # Plot concatenation diagnostics: cluster reps over time + stitch markers.
         # We derive stitch frames from `concat_epochs` so they remain correct after
         # optional temporal resampling (which scales sample indices).

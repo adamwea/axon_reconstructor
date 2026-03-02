@@ -159,7 +159,7 @@ class AxonReconstructor:
                 )
                 logger = setup_pipeline_logger(
                     log_file=log_file,
-                    logger_name=f"axon_reconstructor.{stream_id}",
+                    logger_name=f"axon_reconstructor.{log_file.stem}",
                     verbose=True,
                 )
             except Exception:
@@ -273,8 +273,6 @@ class AxonReconstructor:
                 error=None,
                 extra_fields={
                     "preprocess_outputs_dir": str(preprocess_dir) if preprocess_dir else None,
-                    "maxwell_epochs_path": str(epoch_maxwell_path) if epoch_maxwell_path else None,
-                    "concat_epochs_path": str(epoch_concat_path) if epoch_concat_path else None,
                 },
             )
 
@@ -290,10 +288,12 @@ class AxonReconstructor:
                 temporal_resample_margin_ms=float(temporal_resample_margin_ms),
                 temporal_resample_dtype=(str(temporal_resample_dtype) if temporal_resample_dtype is not None else None),
             )
-            logger.info("Concatenated recording built; common electrodes=%d", len(common_el))
+            logger.info("Preprocessed recording built; common electrodes=%d", len(common_el))
             if epoch_maxwell_path is not None and epoch_concat_path is not None:
-                logger.info("Epoch markers (Maxwell): %s", epoch_maxwell_path)
-                logger.info("Epoch markers (Concat stitches): %s", epoch_concat_path)
+                if epoch_maxwell_path.exists():
+                    logger.info("Epoch markers (Maxwell): %s", epoch_maxwell_path)
+                if epoch_concat_path.exists():
+                    logger.info("Epoch markers (Concat stitches): %s", epoch_concat_path)
         except Exception as e:
             if checkpoint_file is not None and checkpoint_state is not None:
                 save_checkpoint(
@@ -330,35 +330,51 @@ class AxonReconstructor:
                     )
                 except Exception as e:
                     logger.warning("Failed to write preprocess_config.json: %s", e)
-            try:
-                import numpy as np  # type: ignore[import-not-found]
-                import spikeinterface.full as si  # type: ignore[import-not-found]
+                try:
+                    import numpy as np  # type: ignore[import-not-found]
+                    import spikeinterface.full as si  # type: ignore[import-not-found]
 
-                if recording_dir.exists() and overwrite_saved_recording:
-                    # `Recording.save(..., overwrite=True)` isn't consistent across all SI versions
-                    # for all formats, so we proactively clean the folder.
-                    import shutil
+                    if recording_dir.exists() and overwrite_saved_recording:
+                        # `Recording.save(..., overwrite=True)` isn't consistent across all SI versions
+                        # for all formats, so we proactively clean the folder.
+                        import shutil
 
-                    shutil.rmtree(recording_dir)
+                        shutil.rmtree(recording_dir)
 
-                if (not recording_dir.exists()) or overwrite_saved_recording:
-                    logger.info("Saving preprocessed recording to %s", recording_dir)
-                    multirec.save(
-                        folder=recording_dir,
-                        format="binary",
-                        overwrite=True,
-                        n_jobs=n_jobs,
-                        chunk_duration="1s",
-                        progress_bar=False,
-                    )
-                else:
-                    logger.info("Preprocessed recording already exists at %s; not overwriting", recording_dir)
+                    if (not recording_dir.exists()) or overwrite_saved_recording:
+                        logger.info("Saving preprocessed recording to %s", recording_dir)
+                        multirec.save(
+                            folder=recording_dir,
+                            format="binary",
+                            overwrite=True,
+                            n_jobs=n_jobs,
+                            chunk_duration="1s",
+                            progress_bar=False,
+                        )
+                    else:
+                        logger.info("Preprocessed recording already exists at %s; not overwriting", recording_dir)
 
-                np.save(common_el_path, np.asarray(common_el, dtype=np.int64))
-            except Exception as e:
-                logger.warning("Failed to save preprocessed recording: %s", e)
+                    np.save(common_el_path, np.asarray(common_el, dtype=np.int64))
+                except Exception as e:
+                    logger.error("Failed to save preprocessed recording artifacts: %s", e)
+                    if checkpoint_file is not None and checkpoint_state is not None:
+                        save_checkpoint(
+                            checkpoint_file=checkpoint_file,
+                            state=checkpoint_state,
+                            stage=ProcessingStage.NOT_STARTED,
+                            failed_stage=ProcessingStage.PREPROCESSING.name,
+                            error={
+                                "type": type(e).__name__,
+                                "message": str(e),
+                            },
+                        )
+                    raise RuntimeError(f"Failed to save preprocessed recording artifacts: {e}") from e
 
         if checkpoint_file is not None and checkpoint_state is not None:
+            preprocessed_recording_dir = str(recording_dir) if recording_dir and recording_dir.exists() else None
+            common_electrodes_path = str(common_el_path) if common_el_path and common_el_path.exists() else None
+            maxwell_epochs_path = str(epoch_maxwell_path) if epoch_maxwell_path and epoch_maxwell_path.exists() else None
+            concat_epochs_path = str(epoch_concat_path) if epoch_concat_path and epoch_concat_path.exists() else None
             checkpoint_state = save_checkpoint(
                 checkpoint_file=checkpoint_file,
                 state=checkpoint_state,
@@ -366,11 +382,11 @@ class AxonReconstructor:
                 failed_stage=None,
                 error=None,
                 extra_fields={
-                    "preprocessed_recording_dir": str(recording_dir) if recording_dir else None,
-                    "common_electrodes_path": str(common_el_path) if common_el_path else None,
+                    "preprocessed_recording_dir": preprocessed_recording_dir,
+                    "common_electrodes_path": common_electrodes_path,
                     "n_common_electrodes": len(common_el),
-                    "maxwell_epochs_path": str(epoch_maxwell_path) if epoch_maxwell_path else None,
-                    "concat_epochs_path": str(epoch_concat_path) if epoch_concat_path else None,
+                    "maxwell_epochs_path": maxwell_epochs_path,
+                    "concat_epochs_path": concat_epochs_path,
                 },
             )
 
