@@ -13,6 +13,9 @@ from typing import Any, Iterable
 import numpy as np
 
 from axon_reconstructor.env_utils import load_env_file_into_os
+from . import cross_well_decks as cw_decks
+from . import cross_well_plotting as cw_plots
+from . import cross_well_stats as cw_stats
 
 
 @dataclass(frozen=True)
@@ -2430,16 +2433,16 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
             ],
         },
     )
-    wells_summary = _annotate_rows_with_div(rows=wells_summary)
-    all_units = _annotate_rows_with_div(rows=all_units)
-    all_branches = _annotate_rows_with_div(rows=all_branches)
+    wells_summary = cw_stats._annotate_rows_with_div(rows=wells_summary)
+    all_units = cw_stats._annotate_rows_with_div(rows=all_units)
+    all_branches = cw_stats._annotate_rows_with_div(rows=all_branches)
 
     _write_csv(out_dir / "well_summary.csv", wells_summary)
     _write_csv(out_dir / "unit_metrics.csv", all_units)
     _write_csv(out_dir / "branch_metrics.csv", all_branches)
 
     # Plot ordering: by DIV then density then condition.
-    group_order = _compute_div_density_group_order(rows=wells_summary)
+    group_order = cw_stats._compute_div_density_group_order(rows=wells_summary)
     plots_dir = out_dir / "plots"
     _ensure_dir(plots_dir)
 
@@ -2481,21 +2484,21 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
             or ("branch_length" in metric)
             or ("branch_velocity" in metric)
         ):
-            unit_rows_for_metric = _rows_with_positive_metric(all_units, metric)
+            unit_rows_for_metric = cw_stats._rows_with_positive_metric(all_units, metric)
 
-        groups, labels, div_labels, density_tick_labels, conditions_for_groups = _values_by_div_density(
+        groups, labels, div_labels, density_tick_labels, conditions_for_groups = cw_stats._values_by_div_density(
             unit_rows_for_metric,
             metric=metric,
             group_order=group_order,
         )
 
-        groups_used, group_stats = _prepare_groups_for_tests(
+        groups_used, group_stats = cw_stats._prepare_groups_for_tests(
             groups,
             labels,
             exclude_outliers=exclude_outliers,
             outlier_k=outlier_k,
         )
-        pairwise = _pairwise_mannwhitneyu_within_blocks(
+        pairwise = cw_stats._pairwise_mannwhitneyu_within_blocks(
             groups_used,
             labels,
             block_labels=div_labels,
@@ -2510,7 +2513,7 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
             r["n_used_a"] = group_stats.get(r["group_a"], {}).get("n_used")
             r["n_used_b"] = group_stats.get(r["group_b"], {}).get("n_used")
         tests_rows.extend(pairwise)
-        plot_boxplot_with_stars(
+        cw_plots.plot_boxplot_with_stars(
             out_path=plots_dir / f"unit__{metric}.png",
             title=title,
             ylabel=ylabel,
@@ -2524,8 +2527,8 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
             group_conditions=conditions_for_groups,
         )
 
-        groups_no_outliers, _ = _exclude_group_outliers(groups, outlier_k=outlier_k)
-        pairwise_no_outliers = _pairwise_mannwhitneyu_within_blocks(
+        groups_no_outliers, _ = cw_stats._exclude_group_outliers(groups, outlier_k=outlier_k)
+        pairwise_no_outliers = cw_stats._pairwise_mannwhitneyu_within_blocks(
             groups_no_outliers,
             labels,
             block_labels=div_labels,
@@ -2537,7 +2540,7 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
             r["outlier_iqr_k"] = float(outlier_k)
             r["plot_variant"] = "outliers_excluded"
         tests_rows.extend(pairwise_no_outliers)
-        plot_boxplot_with_stars(
+        cw_plots.plot_boxplot_with_stars(
             out_path=plots_dir / f"unit__{metric}__outliers_excluded.png",
             title=f"{title} (outliers excluded)",
             ylabel=ylabel,
@@ -2570,20 +2573,20 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
         )
 
     for metric, title, ylabel, where in branch_metrics_to_plot:
-        groups, labels, div_labels, density_tick_labels, conditions_for_groups = _values_by_div_density(
+        groups, labels, div_labels, density_tick_labels, conditions_for_groups = cw_stats._values_by_div_density(
             all_branches,
             metric=metric,
             group_order=group_order,
             where=where,
         )
 
-        groups_used, group_stats = _prepare_groups_for_tests(
+        groups_used, group_stats = cw_stats._prepare_groups_for_tests(
             groups,
             labels,
             exclude_outliers=exclude_outliers,
             outlier_k=outlier_k,
         )
-        pairwise = _pairwise_mannwhitneyu_within_blocks(
+        pairwise = cw_stats._pairwise_mannwhitneyu_within_blocks(
             groups_used,
             labels,
             block_labels=div_labels,
@@ -2600,7 +2603,7 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
             r["n_used_b"] = group_stats.get(r["group_b"], {}).get("n_used")
         tests_rows.extend(pairwise)
         suffix = "_" + "_".join(f"{k}-{v}" for k, v in where.items())
-        plot_boxplot_with_stars(
+        cw_plots.plot_boxplot_with_stars(
             out_path=plots_dir / f"branch__{metric}{suffix}.png",
             title=title,
             ylabel=ylabel,
@@ -2614,8 +2617,8 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
             group_conditions=conditions_for_groups,
         )
 
-        groups_no_outliers, _ = _exclude_group_outliers(groups, outlier_k=outlier_k)
-        pairwise_no_outliers = _pairwise_mannwhitneyu_within_blocks(
+        groups_no_outliers, _ = cw_stats._exclude_group_outliers(groups, outlier_k=outlier_k)
+        pairwise_no_outliers = cw_stats._pairwise_mannwhitneyu_within_blocks(
             groups_no_outliers,
             labels,
             block_labels=div_labels,
@@ -2628,7 +2631,7 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
             r["outlier_iqr_k"] = float(outlier_k)
             r["plot_variant"] = "outliers_excluded"
         tests_rows.extend(pairwise_no_outliers)
-        plot_boxplot_with_stars(
+        cw_plots.plot_boxplot_with_stars(
             out_path=plots_dir / f"branch__{metric}{suffix}__outliers_excluded.png",
             title=f"{title} (outliers excluded)",
             ylabel=ylabel,
@@ -2645,7 +2648,7 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
 
         # Optional positive-only velocity view (for exploratory handling of negative values).
         if metric == "branch_velocity":
-            groups_pos, labels_pos, div_labels_pos, density_labels_pos, conds_pos = _values_by_div_density(
+            groups_pos, labels_pos, div_labels_pos, density_labels_pos, conds_pos = cw_stats._values_by_div_density(
                 all_branches,
                 metric=metric,
                 group_order=group_order,
@@ -2653,13 +2656,13 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
                 min_value=0.0,
             )
 
-            groups_pos_used, group_stats_pos = _prepare_groups_for_tests(
+            groups_pos_used, group_stats_pos = cw_stats._prepare_groups_for_tests(
                 groups_pos,
                 labels_pos,
                 exclude_outliers=exclude_outliers,
                 outlier_k=outlier_k,
             )
-            pairwise_pos = _pairwise_mannwhitneyu_within_blocks(
+            pairwise_pos = cw_stats._pairwise_mannwhitneyu_within_blocks(
                 groups_pos_used,
                 labels_pos,
                 block_labels=div_labels_pos,
@@ -2676,7 +2679,7 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
                 r["n_used_b"] = group_stats_pos.get(r["group_b"], {}).get("n_used")
             tests_rows.extend(pairwise_pos)
 
-            plot_boxplot_with_stars(
+            cw_plots.plot_boxplot_with_stars(
                 out_path=plots_dir / f"branch__{metric}{suffix}__positive_only.png",
                 title=f"{title} (non-negative only)",
                 ylabel=ylabel,
@@ -2690,8 +2693,8 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
                 group_conditions=conds_pos,
             )
 
-            groups_pos_no_outliers, _ = _exclude_group_outliers(groups_pos, outlier_k=outlier_k)
-            pairwise_pos_no_outliers = _pairwise_mannwhitneyu_within_blocks(
+            groups_pos_no_outliers, _ = cw_stats._exclude_group_outliers(groups_pos, outlier_k=outlier_k)
+            pairwise_pos_no_outliers = cw_stats._pairwise_mannwhitneyu_within_blocks(
                 groups_pos_no_outliers,
                 labels_pos,
                 block_labels=div_labels_pos,
@@ -2705,7 +2708,7 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
                 r["plot_variant"] = "outliers_excluded"
             tests_rows.extend(pairwise_pos_no_outliers)
 
-            plot_boxplot_with_stars(
+            cw_plots.plot_boxplot_with_stars(
                 out_path=plots_dir / f"branch__{metric}{suffix}__positive_only__outliers_excluded.png",
                 title=f"{title} (non-negative only, outliers excluded)",
                 ylabel=ylabel,
@@ -2738,20 +2741,20 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
         )
 
     for metric, title, ylabel, source_rows, stem in n_count_specs:
-        rows_for_metric = _rows_with_positive_metric(source_rows, metric) if metric.startswith("n_branches") else source_rows
-        groups, labels, div_labels, density_tick_labels, conditions_for_groups = _values_by_div_density(
+        rows_for_metric = cw_stats._rows_with_positive_metric(source_rows, metric) if metric.startswith("n_branches") else source_rows
+        groups, labels, div_labels, density_tick_labels, conditions_for_groups = cw_stats._values_by_div_density(
             rows_for_metric,
             metric=metric,
             group_order=group_order,
         )
 
-        groups_used, group_stats = _prepare_groups_for_tests(
+        groups_used, group_stats = cw_stats._prepare_groups_for_tests(
             groups,
             labels,
             exclude_outliers=exclude_outliers,
             outlier_k=outlier_k,
         )
-        pairwise = _pairwise_mannwhitneyu_within_blocks(
+        pairwise = cw_stats._pairwise_mannwhitneyu_within_blocks(
             groups_used,
             labels,
             block_labels=div_labels,
@@ -2767,7 +2770,7 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
             r["n_used_b"] = group_stats.get(r["group_b"], {}).get("n_used")
         tests_rows.extend(pairwise)
 
-        plot_mean_sem_bar_with_stars(
+        cw_plots.plot_mean_sem_bar_with_stars(
             out_path=plots_dir / f"{stem}.png",
             title=title,
             ylabel=ylabel,
@@ -2782,8 +2785,8 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
             highlight_outliers=True,
         )
 
-        groups_no_outliers, _ = _exclude_group_outliers(groups, outlier_k=outlier_k)
-        pairwise_no_outliers = _pairwise_mannwhitneyu_within_blocks(
+        groups_no_outliers, _ = cw_stats._exclude_group_outliers(groups, outlier_k=outlier_k)
+        pairwise_no_outliers = cw_stats._pairwise_mannwhitneyu_within_blocks(
             groups_no_outliers,
             labels,
             block_labels=div_labels,
@@ -2796,7 +2799,7 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
             r["plot_variant"] = "outliers_excluded"
         tests_rows.extend(pairwise_no_outliers)
 
-        plot_mean_sem_bar_with_stars(
+        cw_plots.plot_mean_sem_bar_with_stars(
             out_path=plots_dir / f"{stem}__outliers_excluded.png",
             title=f"{title} (outliers excluded)",
             ylabel=ylabel,
@@ -2814,22 +2817,22 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
     # Dedicated per-well counts (no outlier logic):
     # - detected units: single bar per well
     # - reconstructed units: paired raw/clean bars per well
-    well_count_rows = _build_well_count_rows(
+    well_count_rows = cw_stats._build_well_count_rows(
         wells_summary=wells_summary,
         all_units=all_units,
     )
-    plot_units_detected_vs_reconstructed_per_well(
+    cw_plots.plot_units_detected_vs_reconstructed_per_well(
         out_path=plots_dir / "n_counts__n_units_detected_vs_reconstructed_per_well.png",
         rows=well_count_rows,
     )
-    plot_percent_reconstructed_per_well(
+    cw_plots.plot_percent_reconstructed_per_well(
         out_path=plots_dir / "n_counts__pct_reconstructed_per_well.png",
         rows=well_count_rows,
     )
 
     _write_csv(out_dir / "pairwise_tests_mannwhitneyu.csv", tests_rows)
 
-    deck = write_cross_well_slide_deck(
+    deck = cw_decks.write_cross_well_slide_deck(
         out_dir=out_dir,
         cfg=cfg,
         plots_dir=plots_dir,
@@ -2838,7 +2841,7 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
     if deck is not None:
         print(f"Wrote deck: {deck}")
 
-    feature_decks = write_feature_slide_decks(
+    feature_decks = cw_decks.write_feature_slide_decks(
         out_dir=out_dir,
         cfg=cfg,
         plots_dir=plots_dir,
@@ -2847,7 +2850,7 @@ def main(argv: list[str] | None = None, *, default_config_path: Path | None = No
     for p in feature_decks:
         print(f"Wrote feature deck artifact: {p}")
 
-    feature_pdfs = write_feature_pdf_decks(
+    feature_pdfs = cw_decks.write_feature_pdf_decks(
         out_dir=out_dir,
         cfg=cfg,
         plots_dir=plots_dir,

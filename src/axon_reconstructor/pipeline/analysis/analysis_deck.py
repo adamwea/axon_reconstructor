@@ -33,7 +33,6 @@ We embed the rendered grid PNG on each slide (not the individual panels).
 
 from __future__ import annotations
 
-import argparse
 import logging
 import os
 import shutil
@@ -41,7 +40,7 @@ import subprocess
 import textwrap
 from pathlib import Path
 
-import debug_env
+from axon_reconstructor import env_utils
 
 
 # Dataset configuration comes from debug.env (or CLI overrides).
@@ -62,43 +61,6 @@ def _parse_int_or_none(raw: str) -> int | None:
     if v in {"none", "null", "all"}:
         return None
     return int(v)
-
-
-def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Build analysis unit grids deck (PPTX/PDF)")
-    p.add_argument(
-        "--env-file",
-        type=Path,
-        default=None,
-        help="Path to env file (default: ./debug.env)",
-    )
-    p.add_argument(
-        "--debug",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Enable/disable debug logging",
-    )
-
-    p.add_argument("--h5-path", type=Path, default=None)
-    p.add_argument("--stream-id", type=str, default=None)
-    p.add_argument("--mea-output-root", type=Path, default=None)
-
-    p.add_argument(
-        "--force-restart",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Re-render analysis grids",
-    )
-    p.add_argument("--unit-limit", type=str, default=None, help="Int or 'none'")
-    p.add_argument("--unit-ids", nargs="*", default=None, help="Optional unit ids (space-separated).")
-    p.add_argument(
-        "--require-complete",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Require all required source panels to be present for inclusion",
-    )
-
-    return p.parse_args()
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -603,23 +565,19 @@ def _add_summary_slide(
         add_line(f"  - {si_err}")
 
 
-def main() -> None:
-    args = _parse_args()
+def run_with_args(args: object) -> int:
 
-    env_file = Path(args.env_file) if args.env_file is not None else debug_env.default_env_path(script_path=__file__)
-    debug_env.load_env_file_into_os(env_file=env_file, override_existing=False)
-
-    debug_enabled = debug_env.env_bool("AXON_RECON_DEBUG", default=bool(DEBUG)) if args.debug is None else bool(args.debug)
+    debug_enabled = env_utils.env_bool("AXON_RECON_DEBUG", default=bool(DEBUG)) if args.debug is None else bool(args.debug)
     log_level = logging.DEBUG if debug_enabled else logging.INFO
     logging.basicConfig(level=log_level, format="[%(levelname)s] %(message)s", force=True)
     logger = logging.getLogger("projects.debug_analysis_deck")
 
-    h5_path = Path(args.h5_path) if args.h5_path is not None else debug_env.env_required_path("AXON_RECON_H5_PATH")
-    stream_id = str(args.stream_id) if args.stream_id is not None else debug_env.env_required_str("AXON_RECON_STREAM_ID")
+    h5_path = Path(args.h5_path) if args.h5_path is not None else env_utils.env_required_path("AXON_RECON_H5_PATH")
+    stream_id = str(args.stream_id) if args.stream_id is not None else env_utils.env_required_str("AXON_RECON_STREAM_ID")
     mea_output_root = (
         Path(args.mea_output_root)
         if args.mea_output_root is not None
-        else debug_env.env_required_path("AXON_RECON_MEA_OUTPUT_ROOT")
+        else env_utils.env_required_path("AXON_RECON_MEA_OUTPUT_ROOT")
     )
 
     from axon_reconstructor.pipeline.analysis import AnalysisInputs, analyze_units
@@ -628,7 +586,7 @@ def main() -> None:
     if args.force_restart is not None:
         force_restart = bool(args.force_restart)
     else:
-        force_restart = debug_env.env_bool("AXON_RECON_FORCE_RESTART", default=bool(FORCE_RESTART))
+        force_restart = env_utils.env_bool("AXON_RECON_FORCE_RESTART", default=bool(FORCE_RESTART))
 
     unit_limit = _env_int_or_none("AXON_RECON_UNIT_LIMIT", default=UNIT_LIMIT)
     if args.unit_limit is not None:
@@ -643,17 +601,17 @@ def main() -> None:
     if args.require_complete is not None:
         require_complete = bool(args.require_complete)
     else:
-        require_complete = debug_env.env_bool("AXON_RECON_REQUIRE_COMPLETE", default=bool(REQUIRE_COMPLETE))
+        require_complete = env_utils.env_bool("AXON_RECON_REQUIRE_COMPLETE", default=bool(REQUIRE_COMPLETE))
 
-    compute_botm_validation = debug_env.env_bool("AXON_RECON_ANALYSIS_BOTM_ENABLE", default=False)
-    botm_n_events = int(debug_env.env_int("AXON_RECON_ANALYSIS_BOTM_N_SPIKE", default=200) or 200)
-    botm_n_noise_windows = int(debug_env.env_int("AXON_RECON_ANALYSIS_BOTM_N_NOISE", default=2000) or 2000)
-    botm_seed = int(debug_env.env_int("AXON_RECON_ANALYSIS_BOTM_SEED", default=0) or 0)
-    botm_prior_signal = float(debug_env.env_float("AXON_RECON_ANALYSIS_BOTM_CHANNEL_MATCH_PRIOR_SIGNAL", default=0.5) or 0.5)
+    compute_botm_validation = env_utils.env_bool("AXON_RECON_ANALYSIS_BOTM_ENABLE", default=False)
+    botm_n_events = int(env_utils.env_int("AXON_RECON_ANALYSIS_BOTM_N_SPIKE", default=200) or 200)
+    botm_n_noise_windows = int(env_utils.env_int("AXON_RECON_ANALYSIS_BOTM_N_NOISE", default=2000) or 2000)
+    botm_seed = int(env_utils.env_int("AXON_RECON_ANALYSIS_BOTM_SEED", default=0) or 0)
+    botm_prior_signal = float(env_utils.env_float("AXON_RECON_ANALYSIS_BOTM_CHANNEL_MATCH_PRIOR_SIGNAL", default=0.5) or 0.5)
     botm_match_fraction_threshold = float(
-        debug_env.env_float("AXON_RECON_ANALYSIS_BOTM_CHANNEL_MATCH_FRACTION_THRESHOLD", default=0.70) or 0.70
+        env_utils.env_float("AXON_RECON_ANALYSIS_BOTM_CHANNEL_MATCH_FRACTION_THRESHOLD", default=0.70) or 0.70
     )
-    botm_sorter = str(debug_env.env_str("AXON_RECON_ANALYSIS_BOTM_SORTER", default="kilosort4") or "kilosort4")
+    botm_sorter = str(env_utils.env_str("AXON_RECON_ANALYSIS_BOTM_SORTER", default="kilosort4") or "kilosort4")
 
     inputs = AnalysisInputs(
         h5_path=h5_path,
@@ -725,7 +683,7 @@ def main() -> None:
 
     if not eligible:
         logger.error("No eligible units found (require_complete=%s).", require_complete)
-        raise SystemExit(2)
+        return 2
 
     safe_stream = str(stream_id).replace(os.sep, "_").replace(" ", "_")
     deck_path = out.analysis_out_dir / f"unit_summary_grids_{safe_stream}_complete.pptx"
@@ -970,7 +928,4 @@ def main() -> None:
         logger.info("Wrote PDF (from grids): %s", pdf_written)
     else:
         logger.warning("Failed to write PDF deck")
-
-
-if __name__ == "__main__":
-    main()
+    return 0

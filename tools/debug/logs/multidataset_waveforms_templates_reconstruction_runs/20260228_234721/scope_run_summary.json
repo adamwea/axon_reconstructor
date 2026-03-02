@@ -1,0 +1,553 @@
+{
+  "dry_run": true,
+  "generated_utc": "2026-03-01T07:47:25.336881+00:00",
+  "stage_order": [
+    "waveforms",
+    "templates",
+    "reconstruct"
+  ],
+  "stages": [
+    {
+      "failed": 0,
+      "results": [
+        {
+          "dataset_id": "dataset_000",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250708/M07137/AxonTracking/000044/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_000",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250708/M07137/AxonTracking/000044/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_000",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250708/M07137/AxonTracking/000044/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        },
+        {
+          "dataset_id": "dataset_001",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250710/M07137/AxonTracking/000089/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_001",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250710/M07137/AxonTracking/000089/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_001",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250710/M07137/AxonTracking/000089/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        },
+        {
+          "dataset_id": "dataset_002",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250714/M07137/AxonTracking/000103/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_002",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250714/M07137/AxonTracking/000103/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_002",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250714/M07137/AxonTracking/000103/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        },
+        {
+          "dataset_id": "dataset_003",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250717/M07137/AxonTracking/000148/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_003",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250717/M07137/AxonTracking/000148/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_003",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250717/M07137/AxonTracking/000148/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        },
+        {
+          "dataset_id": "dataset_004",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250721/M07137/AxonTracking/000173/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_004",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250721/M07137/AxonTracking/000173/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_004",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250721/M07137/AxonTracking/000173/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        },
+        {
+          "dataset_id": "dataset_005",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_005",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_005",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5",
+          "stage": "waveforms",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        }
+      ],
+      "stage": "waveforms"
+    },
+    {
+      "failed": 0,
+      "results": [
+        {
+          "dataset_id": "dataset_000",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250708/M07137/AxonTracking/000044/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_000",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250708/M07137/AxonTracking/000044/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_000",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250708/M07137/AxonTracking/000044/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        },
+        {
+          "dataset_id": "dataset_001",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250710/M07137/AxonTracking/000089/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_001",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250710/M07137/AxonTracking/000089/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_001",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250710/M07137/AxonTracking/000089/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        },
+        {
+          "dataset_id": "dataset_002",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250714/M07137/AxonTracking/000103/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_002",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250714/M07137/AxonTracking/000103/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_002",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250714/M07137/AxonTracking/000103/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        },
+        {
+          "dataset_id": "dataset_003",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250717/M07137/AxonTracking/000148/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_003",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250717/M07137/AxonTracking/000148/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_003",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250717/M07137/AxonTracking/000148/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        },
+        {
+          "dataset_id": "dataset_004",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250721/M07137/AxonTracking/000173/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_004",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250721/M07137/AxonTracking/000173/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_004",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250721/M07137/AxonTracking/000173/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        },
+        {
+          "dataset_id": "dataset_005",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_005",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_005",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5",
+          "stage": "templates",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        }
+      ],
+      "stage": "templates"
+    },
+    {
+      "failed": 0,
+      "results": [
+        {
+          "dataset_id": "dataset_000",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250708/M07137/AxonTracking/000044/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_000",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250708/M07137/AxonTracking/000044/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_000",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250708/M07137/AxonTracking/000044/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        },
+        {
+          "dataset_id": "dataset_001",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250710/M07137/AxonTracking/000089/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_001",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250710/M07137/AxonTracking/000089/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_001",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250710/M07137/AxonTracking/000089/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        },
+        {
+          "dataset_id": "dataset_002",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250714/M07137/AxonTracking/000103/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_002",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250714/M07137/AxonTracking/000103/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_002",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250714/M07137/AxonTracking/000103/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        },
+        {
+          "dataset_id": "dataset_003",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250717/M07137/AxonTracking/000148/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_003",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250717/M07137/AxonTracking/000148/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_003",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250717/M07137/AxonTracking/000148/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        },
+        {
+          "dataset_id": "dataset_004",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250721/M07137/AxonTracking/000173/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_004",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250721/M07137/AxonTracking/000173/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_004",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250721/M07137/AxonTracking/000173/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        },
+        {
+          "dataset_id": "dataset_005",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well001"
+        },
+        {
+          "dataset_id": "dataset_005",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well004"
+        },
+        {
+          "dataset_id": "dataset_005",
+          "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5",
+          "stage": "reconstruct",
+          "stage_kwargs": {},
+          "status": "planned",
+          "stream_id": "well003"
+        }
+      ],
+      "stage": "reconstruct"
+    }
+  ],
+  "targets": [
+    {
+      "dataset_id": "dataset_000",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250708/M07137/AxonTracking/000044/data.raw.h5",
+      "stream_id": "well001"
+    },
+    {
+      "dataset_id": "dataset_000",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250708/M07137/AxonTracking/000044/data.raw.h5",
+      "stream_id": "well004"
+    },
+    {
+      "dataset_id": "dataset_000",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250708/M07137/AxonTracking/000044/data.raw.h5",
+      "stream_id": "well003"
+    },
+    {
+      "dataset_id": "dataset_001",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250710/M07137/AxonTracking/000089/data.raw.h5",
+      "stream_id": "well001"
+    },
+    {
+      "dataset_id": "dataset_001",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250710/M07137/AxonTracking/000089/data.raw.h5",
+      "stream_id": "well004"
+    },
+    {
+      "dataset_id": "dataset_001",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250710/M07137/AxonTracking/000089/data.raw.h5",
+      "stream_id": "well003"
+    },
+    {
+      "dataset_id": "dataset_002",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250714/M07137/AxonTracking/000103/data.raw.h5",
+      "stream_id": "well001"
+    },
+    {
+      "dataset_id": "dataset_002",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250714/M07137/AxonTracking/000103/data.raw.h5",
+      "stream_id": "well004"
+    },
+    {
+      "dataset_id": "dataset_002",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250714/M07137/AxonTracking/000103/data.raw.h5",
+      "stream_id": "well003"
+    },
+    {
+      "dataset_id": "dataset_003",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250717/M07137/AxonTracking/000148/data.raw.h5",
+      "stream_id": "well001"
+    },
+    {
+      "dataset_id": "dataset_003",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250717/M07137/AxonTracking/000148/data.raw.h5",
+      "stream_id": "well004"
+    },
+    {
+      "dataset_id": "dataset_003",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250717/M07137/AxonTracking/000148/data.raw.h5",
+      "stream_id": "well003"
+    },
+    {
+      "dataset_id": "dataset_004",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250721/M07137/AxonTracking/000173/data.raw.h5",
+      "stream_id": "well001"
+    },
+    {
+      "dataset_id": "dataset_004",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250721/M07137/AxonTracking/000173/data.raw.h5",
+      "stream_id": "well004"
+    },
+    {
+      "dataset_id": "dataset_004",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250721/M07137/AxonTracking/000173/data.raw.h5",
+      "stream_id": "well003"
+    },
+    {
+      "dataset_id": "dataset_005",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5",
+      "stream_id": "well001"
+    },
+    {
+      "dataset_id": "dataset_005",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5",
+      "stream_id": "well004"
+    },
+    {
+      "dataset_id": "dataset_005",
+      "h5_path": "/mnt/c/Users/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5",
+      "stream_id": "well003"
+    }
+  ]
+}

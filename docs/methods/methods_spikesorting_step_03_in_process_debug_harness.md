@@ -6,8 +6,8 @@ Primary script:
 - `src/axon_reconstructor/pipeline/spikesorting/runner.py`
   - `run_spikesorting_stage(inputs=..., logger=...)`
 
-Thin CLI wrapper:
-- `tools/debug/debug_spikesorting_step.py`
+Canonical CLI entrypoint:
+- `python -m axon_reconstructor.cli stage spikesort ...`
 
 ---
 

@@ -77,8 +77,8 @@ If resampling is requested but no `preprocess_config.json` exists, preprocessing
 
 ## Debugging entrypoints
 
-- Repo debug entrypoint: `tools/debug/debug_preprocessing_step.py`
-- Project-local F5 entrypoint (example): `projects/.../debug_preprocessing_step.py`
+- Canonical CLI command: `python -m axon_reconstructor.cli stage preprocess --h5-path ... --stream-id ... --mea-output-root ...`
+- Project-local script entrypoint (example): `projects/.../run_preprocess.py` calling package CLI/module APIs.
 
 ## Detailed stepwise docs
 
