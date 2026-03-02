@@ -672,6 +672,12 @@ def _cmd_scope_run(args: argparse.Namespace) -> int:
     return 0 if failed_total == 0 else 1
 
 
+def _cmd_scope_config_build(args: argparse.Namespace) -> int:
+    from axon_reconstructor.pipeline.scope_config_builder import run_scope_config_build
+
+    return int(run_scope_config_build(args))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="axon-reconstructor")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -860,6 +866,27 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_scope.add_argument("--debug", action=argparse.BooleanOptionalAction, default=None, help="Enable debug logging")
     p_scope.set_defaults(func=_cmd_scope_run)
+
+    p_scope_build = sub.add_parser(
+        "scope-config-build",
+        help="Build a scope-run JSON config from a cross-well config and env defaults.",
+    )
+    p_scope_build.add_argument("--cross-well-config", required=True, type=Path)
+    p_scope_build.add_argument("--env-file", default=None, type=Path)
+    p_scope_build.add_argument("--out", required=True, type=Path)
+    p_scope_build.add_argument("--stage-order", required=True, help="Comma-separated stage order")
+    p_scope_build.add_argument("--per-well-parallelism", type=int, default=1)
+    p_scope_build.add_argument("--fail-fast", nargs="?", const="1", default=None)
+    p_scope_build.add_argument("--force-restart", nargs="?", const="1", default=None)
+    p_scope_build.add_argument("--n-jobs", type=int, default=None)
+    p_scope_build.add_argument("--chunk-duration", default=None)
+    p_scope_build.add_argument("--mea-output-root", type=Path, default=None)
+    p_scope_build.add_argument("--mea-analysis-repo-root", type=Path, default=None)
+    p_scope_build.add_argument("--sorter", default=None)
+    p_scope_build.add_argument("--docker-image", default=None)
+    p_scope_build.add_argument("--recon-unit-workers", type=int, default=None)
+    p_scope_build.add_argument("--recon-json-only", action="store_true")
+    p_scope_build.set_defaults(func=_cmd_scope_config_build)
 
     args = parser.parse_args(argv)
     try:
