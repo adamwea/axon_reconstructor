@@ -6,8 +6,8 @@ Primary code path:
 - `axon_reconstructor.pipeline.pipeline_driver.AxonReconstructor.preprocess_for_spikesorting(...)`
 
 Related scripts:
-- `tools/debug/debug_preprocessing_step.py`
-- project-local wrappers (example): `projects/.../debug_preprocessing_step.py`
+- canonical CLI entrypoint: `python -m axon_reconstructor.cli stage preprocess ...`
+- project-local scripts (example): `projects/.../run_preprocess.py`
 
 ---
 
@@ -69,10 +69,10 @@ These are intended as sanity checks and do not affect downstream correctness.
 
 Two common ways to debug preprocessing:
 
-1. Repo-local harness:
-   - `tools/debug/debug_preprocessing_step.py`
+1. Canonical package CLI:
+   - `python -m axon_reconstructor.cli stage preprocess ...`
 
-2. Project-local wrapper scripts (convenience for specific datasets):
-   - `projects/.../debug_preprocessing_step.py`
+2. Project-local scripts (convenience for specific datasets):
+   - `projects/.../run_preprocess.py`
 
 These are designed to run preprocessing as an isolated step and emit artifacts into the same per-well output folder that later stages consume.

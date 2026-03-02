@@ -19,7 +19,7 @@ This stage exposes two layers:
 
 - In-process stage runner (imports MEA_Analysis and injects the saved recording):
   - `axon_reconstructor.pipeline.spikesorting.run_spikesorting_stage(...)`
-  - Debug CLI wrapper: `tools/debug/debug_spikesorting_step.py`
+  - Canonical CLI command: `python -m axon_reconstructor.cli stage spikesort ...`
 
 ## Inputs
 

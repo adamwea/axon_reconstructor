@@ -10,6 +10,103 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from axon_reconstructor import env_utils
+from axon_reconstructor.pipeline.stage_cli_args import (
+    add_stage_analysis_args,
+    add_stage_common_required_args,
+    add_stage_debug_controls,
+    add_stage_execution_args,
+    add_stage_kwargs_args,
+    add_stage_selector_arg,
+    add_stage_spikesort_args,
+)
+
+
+def _load_explicit_env_file(*, args: argparse.Namespace) -> None:
+    env_file = getattr(args, "env_file", None)
+    if env_file is None:
+        return
+    env_utils.load_env_files_into_os(env_files=[Path(env_file)], override_existing=False)
+
+
+def _resolve_required_str(*, cli_value: str | None, env_key: str, cli_flag: str) -> str:
+    if cli_value is not None and str(cli_value).strip() != "":
+        return str(cli_value)
+    env_value = env_utils.env_str(env_key, default=None)
+    if env_value is not None:
+        return str(env_value)
+    raise SystemExit(f"{cli_flag} is required (or set {env_key} in --env-file/shell environment).")
+
+
+def _resolve_required_path(*, cli_value: str | Path | None, env_key: str, cli_flag: str) -> Path:
+    if cli_value is not None and str(cli_value).strip() != "":
+        return Path(cli_value).expanduser().resolve()
+    env_value = env_utils.env_path(env_key, default=None)
+    if env_value is not None:
+        return Path(env_value).expanduser().resolve()
+    raise SystemExit(f"{cli_flag} is required (or set {env_key} in --env-file/shell environment).")
+
+
+def _resolve_optional_path(*, cli_value: str | Path | None, env_key: str) -> Path | None:
+    if cli_value is not None and str(cli_value).strip() != "":
+        return Path(cli_value).expanduser().resolve()
+    env_value = env_utils.env_path(env_key, default=None)
+    if env_value is None:
+        return None
+    return Path(env_value).expanduser().resolve()
+
+
+def _resolve_optional_str(*, cli_value: str | None, env_key: str, default: str | None = None) -> str | None:
+    if cli_value is not None and str(cli_value).strip() != "":
+        return str(cli_value)
+    return env_utils.env_str(env_key, default=default)
+
+
+def _resolve_bool(*, cli_value: bool | None, env_key: str, default: bool) -> bool:
+    if cli_value is not None:
+        return bool(cli_value)
+    return bool(env_utils.env_bool(env_key, default=default))
+
+
+def _resolve_int(*, cli_value: int | None, env_key: str, default: int) -> int:
+    if cli_value is not None:
+        return int(cli_value)
+    env_value = env_utils.env_int(env_key, default=None)
+    if env_value is None:
+        return int(default)
+    return int(env_value)
+
+
+def _resolve_optional_int(*, cli_value: int | None, env_key: str, default: int | None = None) -> int | None:
+    if cli_value is not None:
+        return int(cli_value)
+    parsed = env_utils.env_typed(env_key, default=default)
+    if parsed is None:
+        return None
+    try:
+        return int(parsed)
+    except Exception as e:
+        raise SystemExit(f"Invalid integer for {env_key}: {parsed!r}") from e
+
+
+def _parse_int_or_none_token(raw: str | int | None) -> int | None:
+    if raw is None:
+        return None
+    token = str(raw).strip().lower()
+    if token in {"", "none", "null", "all"}:
+        return None
+    try:
+        return int(token)
+    except Exception as e:
+        raise SystemExit(f"Invalid int-or-none token: {raw!r}") from e
+
+
+def _cmd_analysis_deck(args: argparse.Namespace) -> int:
+    _load_explicit_env_file(args=args)
+    from axon_reconstructor.pipeline.analysis.analysis_deck import run_with_args
+
+    return int(run_with_args(args))
+
 
 def _add_mea_common_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
@@ -319,18 +416,55 @@ def _load_stage_kwargs(args: argparse.Namespace) -> dict:
 
 
 def _cmd_stage(args: argparse.Namespace) -> int:
+    _load_explicit_env_file(args=args)
+
     stage = str(args.stage)
     stage_kwargs = _load_stage_kwargs(args)
 
-    if bool(args.debug):
+    debug_enabled = _resolve_bool(cli_value=getattr(args, "debug", None), env_key="AXON_RECON_DEBUG", default=False)
+    force_restart = _resolve_bool(
+        cli_value=getattr(args, "force_restart", None), env_key="AXON_RECON_FORCE_RESTART", default=False
+    )
+    break_before_run = _resolve_bool(
+        cli_value=getattr(args, "break_before_run", None), env_key="AXON_RECON_BREAK_BEFORE_RUN", default=False
+    )
+    n_jobs = _resolve_int(cli_value=getattr(args, "n_jobs", None), env_key="AXON_RECON_N_JOBS", default=8)
+    sorter = _resolve_optional_str(
+        cli_value=getattr(args, "sorter", None), env_key="AXON_RECON_SORTER", default="kilosort4"
+    )
+    docker_image = _resolve_optional_str(cli_value=getattr(args, "docker_image", None), env_key="AXON_RECON_DOCKER_IMAGE")
+    chunk_duration = _resolve_optional_str(
+        cli_value=getattr(args, "chunk_duration", None), env_key="AXON_RECON_CHUNK_DURATION"
+    )
+    mea_analysis_repo_root = _resolve_optional_path(
+        cli_value=getattr(args, "mea_analysis_repo_root", None), env_key="AXON_RECON_MEA_ANALYSIS_REPO_ROOT"
+    )
+    debug_max_units = _resolve_optional_int(
+        cli_value=getattr(args, "debug_max_units", None), env_key="AXON_RECON_WF_DEBUG_MAX_UNITS", default=None
+    )
+    debug_max_segments = _resolve_optional_int(
+        cli_value=getattr(args, "debug_max_segments", None), env_key="AXON_RECON_WF_DEBUG_MAX_SEGMENTS", default=None
+    )
+
+    if bool(debug_enabled):
         logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s", force=True)
 
-    h5_path = Path(args.h5_path).expanduser().resolve()
+    h5_path = _resolve_required_path(cli_value=args.h5_path, env_key="AXON_RECON_H5_PATH", cli_flag="--h5-path")
     if not h5_path.exists():
         raise SystemExit(f"h5 path not found: {h5_path}")
 
-    stream_id = str(args.stream_id)
-    mea_output_root = Path(args.mea_output_root).expanduser()
+    stream_id = _resolve_required_str(cli_value=args.stream_id, env_key="AXON_RECON_STREAM_ID", cli_flag="--stream-id")
+    mea_output_root = _resolve_required_path(
+        cli_value=args.mea_output_root,
+        env_key="AXON_RECON_MEA_OUTPUT_ROOT",
+        cli_flag="--mea-output-root",
+    )
+
+    if bool(break_before_run) and stage in {"preprocess", "spikesort"}:
+        import pdb
+
+        print(f"break-before-run enabled for stage '{stage}'", file=sys.stderr)
+        pdb.set_trace()
 
     if stage == "preprocess":
         from axon_reconstructor.pipeline.pipeline_driver import AxonReconstructor
@@ -338,13 +472,13 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         recon = AxonReconstructor(
             h5_parent_dirs=[h5_path],
             mea_analysis_output_root=str(mea_output_root),
-            force_restart=bool(args.force_restart),
+            force_restart=bool(force_restart),
         )
         multirec, common_el = recon.preprocess_for_spikesorting(
             h5_path=h5_path,
             stream_id=stream_id,
-            n_jobs=int(args.n_jobs),
-            overwrite_saved_recording=bool(args.force_restart),
+            n_jobs=int(n_jobs),
+            overwrite_saved_recording=bool(force_restart),
             **stage_kwargs,
         )
         print(f"preprocess complete: stream={stream_id} common_electrodes={len(common_el)}")
@@ -352,7 +486,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         return 0
 
     if stage == "spikesort":
-        if not args.mea_analysis_repo_root:
+        if mea_analysis_repo_root is None:
             raise SystemExit("--mea-analysis-repo-root is required for stage 'spikesort'")
 
         from axon_reconstructor.pipeline.spikesorting import SpikeSortingInputs, run_spikesorting_stage
@@ -361,13 +495,13 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             h5_path=h5_path,
             stream_id=stream_id,
             mea_output_root=mea_output_root,
-            mea_analysis_repo_root=Path(args.mea_analysis_repo_root).expanduser().resolve(),
-            sorter=str(args.sorter),
-            docker_image=args.docker_image,
-            n_jobs=int(args.n_jobs) if args.n_jobs else None,
-            chunk_duration=args.chunk_duration,
-            force_restart=bool(args.force_restart),
-            verbose=bool(args.debug),
+            mea_analysis_repo_root=mea_analysis_repo_root,
+            sorter=str(sorter),
+            docker_image=docker_image,
+            n_jobs=int(n_jobs) if n_jobs else None,
+            chunk_duration=chunk_duration,
+            force_restart=bool(force_restart),
+            verbose=bool(debug_enabled),
             **stage_kwargs,
         )
         outputs = run_spikesorting_stage(inputs=inputs, logger=logging.getLogger("axon_reconstructor.stage.spikesort"))
@@ -381,9 +515,11 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             h5_path=h5_path,
             stream_id=stream_id,
             mea_output_root=mea_output_root,
-            sorter=str(args.sorter),
-            n_jobs=int(args.n_jobs),
-            force_restart=bool(args.force_restart),
+            sorter=str(sorter),
+            n_jobs=int(n_jobs),
+            force_restart=bool(force_restart),
+            debug_max_units=debug_max_units,
+            debug_max_segments=debug_max_segments,
             **stage_kwargs,
         )
         outputs = extract_waveforms(inputs=inputs)
@@ -397,8 +533,8 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             h5_path=h5_path,
             stream_id=stream_id,
             mea_output_root=mea_output_root,
-            n_jobs=int(args.n_jobs),
-            force_restart=bool(args.force_restart),
+            n_jobs=int(n_jobs),
+            force_restart=bool(force_restart),
             **stage_kwargs,
         )
         outputs = extract_and_merge_templates(inputs=inputs)
@@ -412,7 +548,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             h5_path=h5_path,
             stream_id=stream_id,
             mea_output_root=mea_output_root,
-            force_restart=bool(args.force_restart),
+            force_restart=bool(force_restart),
             **stage_kwargs,
         )
         outputs = reconstruct_from_templates(inputs=inputs)
@@ -422,18 +558,118 @@ def _cmd_stage(args: argparse.Namespace) -> int:
     if stage == "analysis":
         from axon_reconstructor.pipeline.analysis import AnalysisInputs, analyze_units
 
-        inputs = AnalysisInputs(
-            h5_path=h5_path,
-            stream_id=stream_id,
-            mea_output_root=mea_output_root,
-            force_restart=bool(args.force_restart),
-            **stage_kwargs,
+        if args.unit_ids:
+            unit_ids = [int(value) for value in args.unit_ids]
+        else:
+            unit_ids = env_utils.env_int_list("AXON_RECON_UNIT_IDS")
+
+        unit_limit = _parse_int_or_none_token(args.unit_limit)
+        if args.unit_limit is None:
+            unit_limit = _parse_int_or_none_token(env_utils.env_str("AXON_RECON_UNIT_LIMIT", default=None))
+
+        prefer_curated_waveforms_panels = _resolve_bool(
+            cli_value=getattr(args, "prefer_curated_waveforms_panels", None),
+            env_key="AXON_RECON_ANALYSIS_PREFER_CURATED_WAVEFORMS_PANELS",
+            default=True,
         )
+
+        compute_botm_validation = _resolve_bool(
+            cli_value=getattr(args, "botm_enable", None),
+            env_key="AXON_RECON_ANALYSIS_BOTM_ENABLE",
+            default=False,
+        )
+        botm_n_events = _resolve_int(
+            cli_value=getattr(args, "botm_n_events", None),
+            env_key="AXON_RECON_ANALYSIS_BOTM_N_SPIKE",
+            default=200,
+        )
+        botm_n_noise_windows = _resolve_int(
+            cli_value=getattr(args, "botm_n_noise_windows", None),
+            env_key="AXON_RECON_ANALYSIS_BOTM_N_NOISE",
+            default=2000,
+        )
+        botm_seed = _resolve_int(
+            cli_value=getattr(args, "botm_seed", None),
+            env_key="AXON_RECON_ANALYSIS_BOTM_SEED",
+            default=0,
+        )
+        botm_prior_signal = float(
+            getattr(args, "botm_prior_signal", None)
+            if getattr(args, "botm_prior_signal", None) is not None
+            else (env_utils.env_float("AXON_RECON_ANALYSIS_BOTM_CHANNEL_MATCH_PRIOR_SIGNAL", default=0.5) or 0.5)
+        )
+        botm_match_fraction_threshold = float(
+            getattr(args, "botm_match_fraction_threshold", None)
+            if getattr(args, "botm_match_fraction_threshold", None) is not None
+            else (env_utils.env_float("AXON_RECON_ANALYSIS_BOTM_CHANNEL_MATCH_FRACTION_THRESHOLD", default=0.70) or 0.70)
+        )
+        botm_sorter = _resolve_optional_str(
+            cli_value=getattr(args, "botm_sorter", None),
+            env_key="AXON_RECON_ANALYSIS_BOTM_SORTER",
+            default="kilosort4",
+        )
+
+        analysis_fields = {
+            "h5_path": h5_path,
+            "stream_id": stream_id,
+            "mea_output_root": mea_output_root,
+            "unit_ids": unit_ids,
+            "unit_limit": unit_limit,
+            "prefer_curated_waveforms_panels": bool(prefer_curated_waveforms_panels),
+            "compute_botm_validation": bool(compute_botm_validation),
+            "botm_n_events": int(botm_n_events),
+            "botm_n_noise_windows": int(botm_n_noise_windows),
+            "botm_seed": int(botm_seed),
+            "botm_prior_signal": float(botm_prior_signal),
+            "botm_match_fraction_threshold": float(botm_match_fraction_threshold),
+            "botm_sorter": str(botm_sorter),
+            "force_restart": bool(force_restart),
+        }
+        analysis_fields.update(stage_kwargs)
+
+        inputs = AnalysisInputs(**analysis_fields)
         outputs = analyze_units(inputs=inputs)
         print(f"analysis complete: out_dir={outputs.analysis_out_dir}")
         return 0
 
     raise SystemExit(f"Unsupported stage: {stage}")
+
+
+def _cmd_scope_run(args: argparse.Namespace) -> int:
+    _load_explicit_env_file(args=args)
+
+    from axon_reconstructor.pipeline.scope_config import load_scope_config, summarize_scope_config, validate_scope_config
+    from axon_reconstructor.pipeline.stage_orchestrator import run_scope_stage_barriers, write_scope_run_summary
+
+    scope_config = load_scope_config(Path(args.config))
+    errors = validate_scope_config(scope_config)
+    if errors:
+        msg = "\n".join(f"- {e}" for e in errors)
+        raise SystemExit(f"Invalid scope config:\n{msg}")
+
+    debug_enabled = _resolve_bool(cli_value=getattr(args, "debug", None), env_key="AXON_RECON_DEBUG", default=False)
+    if bool(debug_enabled):
+        logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s", force=True)
+
+    logger = logging.getLogger("axon_reconstructor.scope")
+    logger.info("Scope summary: %s", summarize_scope_config(scope_config))
+
+    summary = run_scope_stage_barriers(
+        config=scope_config,
+        dry_run=bool(args.dry_run),
+        logger=logger,
+    )
+
+    out_path = Path(args.summary_out).expanduser() if args.summary_out else (scope_config.mea_output_root / "scope_run_summary.json")
+    out_path = write_scope_run_summary(summary=summary, out_path=out_path)
+
+    failed_total = 0
+    for stage_block in summary.get("stages", []):
+        failed_total += int(stage_block.get("failed", 0) or 0)
+
+    print(f"scope-run summary: {out_path}")
+    print(f"stages_executed={len(summary.get('stages', []))} failed_targets={failed_total} dry_run={bool(summary.get('dry_run'))}")
+    return 0 if failed_total == 0 else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -563,20 +799,67 @@ def main(argv: list[str] | None = None) -> int:
         "stage",
         help="Run an individual axon_reconstructor pipeline stage directly.",
     )
-    p_stage.add_argument("stage", choices=["preprocess", "spikesort", "waveforms", "templates", "reconstruct", "analysis"])
-    p_stage.add_argument("--h5-path", required=True, help="Path to raw .h5 file")
-    p_stage.add_argument("--stream-id", required=True, help="Well/stream id (e.g. well003)")
-    p_stage.add_argument("--mea-output-root", required=True, help="MEA output root used for per-well stage outputs")
-    p_stage.add_argument("--mea-analysis-repo-root", default=None, help="Required for spikesort stage")
-    p_stage.add_argument("--sorter", default="kilosort4")
-    p_stage.add_argument("--docker-image", default=None)
-    p_stage.add_argument("--n-jobs", type=int, default=8)
-    p_stage.add_argument("--chunk-duration", default=None)
-    p_stage.add_argument("--force-restart", action="store_true")
-    p_stage.add_argument("--debug", action="store_true", help="Enable debug logging")
-    p_stage.add_argument("--stage-kwargs", default=None, help="JSON object of stage-specific keyword args")
-    p_stage.add_argument("--stage-kwargs-file", default=None, help="Path to JSON file with stage-specific keyword args")
+    p_stage.add_argument(
+        "--env-file",
+        type=Path,
+        default=None,
+        help="Optional .env file to load before resolving stage args (CLI flags override env values).",
+    )
+    add_stage_selector_arg(p_stage)
+    add_stage_common_required_args(p_stage)
+    add_stage_spikesort_args(p_stage)
+    add_stage_execution_args(p_stage)
+    add_stage_debug_controls(p_stage)
+    add_stage_analysis_args(p_stage)
+    add_stage_kwargs_args(p_stage)
     p_stage.set_defaults(func=_cmd_stage)
+
+    p_analysis_deck = sub.add_parser(
+        "analysis-deck",
+        help="Build analysis unit-grid deck from stage outputs.",
+    )
+    p_analysis_deck.add_argument(
+        "--env-file",
+        type=Path,
+        default=None,
+        help="Optional .env file to load before resolving command args (CLI flags override env values).",
+    )
+    p_analysis_deck.add_argument("--debug", action=argparse.BooleanOptionalAction, default=None)
+    p_analysis_deck.add_argument("--h5-path", type=Path, default=None)
+    p_analysis_deck.add_argument("--stream-id", type=str, default=None)
+    p_analysis_deck.add_argument("--mea-output-root", type=Path, default=None)
+    p_analysis_deck.add_argument("--force-restart", action=argparse.BooleanOptionalAction, default=None)
+    p_analysis_deck.add_argument("--unit-limit", type=str, default=None)
+    p_analysis_deck.add_argument("--unit-ids", nargs="*", default=None)
+    p_analysis_deck.add_argument("--require-complete", action=argparse.BooleanOptionalAction, default=None)
+    p_analysis_deck.set_defaults(func=_cmd_analysis_deck)
+
+    p_scope = sub.add_parser(
+        "scope-run",
+        help=(
+            "Run pipeline-native stage barriers across all datasets/wells defined in a scope config. "
+            "Executes each stage globally before advancing to the next stage."
+        ),
+    )
+    p_scope.add_argument("--config", required=True, help="Path to scope config (.json/.yml/.yaml)")
+    p_scope.add_argument(
+        "--env-file",
+        type=Path,
+        default=None,
+        help="Optional .env file to load before scope execution (useful for shared runtime flags).",
+    )
+    p_scope.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Plan-only mode: validate config and emit execution plan without running stages.",
+    )
+    p_scope.add_argument(
+        "--summary-out",
+        default=None,
+        help="Optional output path for scope run summary JSON (default: <mea_output_root>/scope_run_summary.json)",
+    )
+    p_scope.add_argument("--debug", action=argparse.BooleanOptionalAction, default=None, help="Enable debug logging")
+    p_scope.set_defaults(func=_cmd_scope_run)
 
     args = parser.parse_args(argv)
     try:

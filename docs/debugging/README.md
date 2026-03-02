@@ -10,15 +10,9 @@ This folder documents the package-owned debug harness in [tools/debug](../../too
 
 ## Entry points
 
-- Main staged runner: [tools/debug/debug_steps.py](../../tools/debug/debug_steps.py)
-- Individual stages:
-  - [tools/debug/debug_preprocessing_step.py](../../tools/debug/debug_preprocessing_step.py)
-  - [tools/debug/debug_spikesorting_step.py](../../tools/debug/debug_spikesorting_step.py)
-  - [tools/debug/debug_waveforms_step.py](../../tools/debug/debug_waveforms_step.py)
-  - [tools/debug/debug_templates_step.py](../../tools/debug/debug_templates_step.py)
-  - [tools/debug/debug_reconstruction_step.py](../../tools/debug/debug_reconstruction_step.py)
-  - [tools/debug/debug_analysis_step.py](../../tools/debug/debug_analysis_step.py)
-- Multi-dataset shell runners: [tools/debug](../../tools/debug)
+- Canonical stage commands: `axon-reconstructor stage <stage> ...`
+- Analysis deck command: `axon-reconstructor analysis-deck ...`
+- Scope orchestration (canonical): `axon-reconstructor scope-run --config <scope.json|yml>`
 
 ## Defaults and examples
 
@@ -33,11 +27,41 @@ This folder documents the package-owned debug harness in [tools/debug](../../too
 From repo root:
 
 ```bash
-python tools/debug/debug_steps.py --env-file tools/debug/debug.env
+python -m axon_reconstructor.cli stage preprocess \
+  --env-file tools/debug/debug.env
 ```
 
-Run one stage directly:
+Run a stage using manual CLI args only (no env file required):
 
 ```bash
-python tools/debug/debug_reconstruction_step.py --env-file tools/debug/debug.env
+python -m axon_reconstructor.cli stage preprocess \
+  --h5-path /path/to/data.raw.h5 \
+  --stream-id well003 \
+  --mea-output-root /path/to/outputs
 ```
+
+Run reconstruction stage directly:
+
+```bash
+python -m axon_reconstructor.cli stage reconstruct --env-file tools/debug/debug.env
+```
+
+Build analysis deck from existing stage outputs:
+
+```bash
+python -m axon_reconstructor.cli analysis-deck --env-file tools/debug/debug.env
+```
+
+Run pipeline-native stage barriers over full scope:
+
+```bash
+python -m axon_reconstructor.cli scope-run \
+  --config docs/examples/scope_config.example.json \
+  --env-file tools/debug/debug.env \
+  --dry-run
+```
+
+## Multi-dataset usage
+
+- Preferred path: run `scope-run` directly with an explicit scope config.
+- Use [docs/examples/scope_config.example.json](../examples/scope_config.example.json) as a template.

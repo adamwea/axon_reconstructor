@@ -1,11 +1,27 @@
 # Example Configs Reference
 
-This folder contains editable templates for debug and cross-well analysis.
+This folder contains editable templates for stage-first CLI and cross-well/scope orchestration.
 
 ## Files
 
 - [debug.env.example](debug.env.example): default runtime variables used by `tools/debug/*.py` scripts.
+- [project.env.example](project.env.example): project-local env template for canonical `stage` / `scope-run` commands.
 - [cross_well_config.example.yml](cross_well_config.example.yml): multi-dataset cross-well analysis spec.
+- [scope_config.example.json](scope_config.example.json): canonical multi-dataset pipeline orchestration spec for `scope-run`.
+
+## Recommended config layering
+
+- Keep project defaults in a project-local env file (for example `./.env` or `./project.env`).
+- Invoke canonical CLI commands with `--env-file <path>`.
+- Override any env default at runtime with explicit CLI flags.
+
+Example:
+
+```bash
+python -m axon_reconstructor.cli stage waveforms \
+  --env-file docs/examples/project.env.example \
+  --n-jobs 16
+```
 
 ## `debug.env.example` key groups
 
@@ -29,3 +45,17 @@ This folder contains editable templates for debug and cross-well analysis.
     - `condition`: grouping label (e.g., density)
     - `plating_density_nbp`: numeric density for ordered grouping
     - `genotype`: genotype label
+
+## `scope_config.example.json` fields
+
+- `mea_output_root`: output root consumed by pipeline stages.
+- `datasets[]`: dataset/well targets for execution.
+  - `h5_path`: source recording path.
+  - `wells[].stream_id`: well/stream id.
+- `stage_order`: global stage barrier order.
+- `per_well_parallelism`: number of wells processed concurrently within a stage barrier.
+- `stage_kwargs`: optional stage-specific keyword overrides.
+
+Migration note:
+- Use `scope_config.example.json` + `axon-reconstructor scope-run` for new runs.
+- Prefer project-local scripts that call canonical package commands directly.

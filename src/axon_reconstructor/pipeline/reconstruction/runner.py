@@ -177,6 +177,10 @@ class ReconstructionInputs:
     # axon_velocity.compute_graph_propagation_velocity are passed through.
     axon_velocity_params: Optional[dict[str, Any]] = None
 
+    # Optional checkout root for axon_velocity when it is not installed in this
+    # environment (editable/dev workflow).
+    axon_velocity_repo_root: Optional[Path] = None
+
     # Plotting / outputs
     write_unit_pdfs: bool = True
     write_all_units_overview_pdf: bool = True
@@ -217,6 +221,35 @@ def _ensure_low_level_thread_caps_for_parallel_units() -> None:
         os.environ.setdefault(env_name, "1")
 
 
+def _import_axon_velocity(*, repo_root: Optional[Path] = None) -> Any:
+    try:
+        import axon_velocity as av  # type: ignore[import-not-found]
+
+        return av
+    except Exception as e:
+        fallback = Path(repo_root) if repo_root is not None else Path("/home/adamm/dev/pkgs/axon_velocity")
+        if (fallback / "axon_velocity").exists():
+            if str(fallback) not in sys.path:
+                sys.path.insert(0, str(fallback))
+            try:
+                import axon_velocity as av  # type: ignore[import-not-found]
+
+                return av
+            except Exception as e2:
+                msg = str(e2)
+                if "No module named 'sklearn'" in msg or "No module named sklearn" in msg:
+                    raise RuntimeError(
+                        "axon_velocity imported, but its dependency scikit-learn is missing. Install it in the active env (e.g. `pip install scikit-learn` or `conda install scikit-learn`)."
+                    ) from e2
+                raise RuntimeError(
+                    f"Reconstruction requires axon_velocity; attempted sys.path fallback to {fallback}"
+                ) from e2
+
+        raise RuntimeError(
+            f"Reconstruction requires axon_velocity (expected editable install at {fallback})"
+        ) from e
+
+
 def _run_single_unit_reconstruction(
     *,
     uid: Any,
@@ -224,6 +257,7 @@ def _run_single_unit_reconstruction(
     full_channels_templates_dir: Path,
     use_full_channels_templates: bool,
     require_full_channels_templates: bool,
+    axon_velocity_repo_root: Optional[Path],
     params: dict[str, Any],
     force_restart: bool,
     write_unit_pdfs: bool,
@@ -273,17 +307,7 @@ def _run_single_unit_reconstruction(
         except Exception as e:
             raise RuntimeError("Reconstruction requires numpy") from e
 
-        try:
-            import axon_velocity as av  # type: ignore[import-not-found]
-        except Exception as e:
-            axon_velocity_repo = Path("/home/adamm/dev/pkgs/axon_velocity")
-            if (axon_velocity_repo / "axon_velocity").exists():
-                sys.path.insert(0, str(axon_velocity_repo))
-                import axon_velocity as av  # type: ignore[import-not-found]
-            else:
-                raise RuntimeError(
-                    "Reconstruction requires axon_velocity (expected editable install at /home/adamm/dev/pkgs/axon_velocity)"
-                ) from e
+        av = _import_axon_velocity(repo_root=axon_velocity_repo_root)
 
         use_full = bool(use_full_channels_templates)
         if use_full:
@@ -602,29 +626,7 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
     except Exception as e:  # pragma: no cover
         raise RuntimeError("Reconstruction requires numpy") from e
 
-    try:
-        import axon_velocity as av  # type: ignore[import-not-found]
-    except Exception as e:  # pragma: no cover
-        # Best-effort fallback: user often has axon_velocity as an editable checkout,
-        # but the active interpreter may not have it installed.
-        axon_velocity_repo = Path("/home/adamm/dev/pkgs/axon_velocity")
-        if (axon_velocity_repo / "axon_velocity").exists():
-            sys.path.insert(0, str(axon_velocity_repo))
-            try:
-                import axon_velocity as av  # type: ignore[import-not-found]
-            except Exception as e2:
-                msg = str(e2)
-                if "No module named 'sklearn'" in msg or "No module named sklearn" in msg:
-                    raise RuntimeError(
-                        "axon_velocity imported, but its dependency scikit-learn is missing. Install it in the active env (e.g. `pip install scikit-learn` or `conda install scikit-learn`)."
-                    ) from e2
-                raise RuntimeError(
-                    "Reconstruction requires axon_velocity; attempted sys.path fallback to /home/adamm/dev/pkgs/axon_velocity"
-                ) from e2
-        else:
-            raise RuntimeError(
-                "Reconstruction requires axon_velocity (expected editable install at /home/adamm/dev/pkgs/axon_velocity)"
-            ) from e
+    av = _import_axon_velocity(repo_root=inputs.axon_velocity_repo_root)
 
     # Determine unit list.
     discovered_unit_ids: list[Any] = []
@@ -704,6 +706,7 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                 full_channels_templates_dir=full_channels_templates_dir,
                 use_full_channels_templates=bool(inputs.use_full_channels_templates),
                 require_full_channels_templates=bool(inputs.require_full_channels_templates),
+                axon_velocity_repo_root=inputs.axon_velocity_repo_root,
                 params=params,
                 force_restart=bool(inputs.force_restart),
                 write_unit_pdfs=bool(inputs.write_unit_pdfs),
@@ -722,6 +725,7 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                     full_channels_templates_dir=full_channels_templates_dir,
                     use_full_channels_templates=bool(inputs.use_full_channels_templates),
                     require_full_channels_templates=bool(inputs.require_full_channels_templates),
+                    axon_velocity_repo_root=inputs.axon_velocity_repo_root,
                     params=params,
                     force_restart=bool(inputs.force_restart),
                     write_unit_pdfs=bool(inputs.write_unit_pdfs),
