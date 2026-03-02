@@ -42,3 +42,10 @@ python -m pytest -q
 
 - Prefer running tools via `python -m ...` to ensure you’re using the active environment.
 - Heavy scientific/runtime dependencies will be added incrementally as we rebuild each pipeline step.
+
+## Pipeline helper ownership (Phase 3.5)
+
+- Stage-independent JSON/value conversion helpers live in `src/axon_reconstructor/pipeline/shared_io.py`.
+- Stage-specific checkpoint filename/transition helpers live in `src/axon_reconstructor/pipeline/stage_checkpointing.py`.
+- Shared stage logger and stage lifecycle logging helpers live in `src/axon_reconstructor/pipeline/pipeline_logging.py`.
+- Stage runners should call shared helpers instead of re-implementing `_read_json`/`_write_json`, stage checkpoint naming, or stage start/complete/failure log formatting.

@@ -38,6 +38,7 @@ import os
 import shutil
 import subprocess
 import textwrap
+from datetime import datetime, timezone
 from pathlib import Path
 
 from axon_reconstructor import env_utils
@@ -91,6 +92,21 @@ def _is_nonempty_file(path: Path, *, min_bytes: int = 1024) -> bool:
         return path.is_file() and (path.stat().st_size >= min_bytes)
     except Exception:
         return False
+
+
+def _deck_checkpoint_path(*, analysis_out_dir: Path, stream_id: str) -> Path:
+    safe_stream = str(stream_id).replace(os.sep, "_").replace(" ", "_")
+    return Path(analysis_out_dir) / f"analysis_deck_{safe_stream}_checkpoint.json"
+
+
+def _write_deck_checkpoint(*, checkpoint_file: Path, payload: dict[str, object]) -> None:
+    import json
+
+    checkpoint_file = Path(checkpoint_file)
+    checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+    data = dict(payload)
+    data["last_updated_utc"] = datetime.now(timezone.utc).isoformat()
+    checkpoint_file.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _try_export_pptx_as_pdf(*, pptx_path: Path, out_dir: Path, logger: logging.Logger) -> Path | None:
@@ -683,13 +699,35 @@ def run_with_args(args: object) -> int:
 
     if not eligible:
         logger.error("No eligible units found (require_complete=%s).", require_complete)
+        _write_deck_checkpoint(
+            checkpoint_file=_deck_checkpoint_path(analysis_out_dir=out.analysis_out_dir, stream_id=stream_id),
+            payload={
+                "state": "deck_failed",
+                "stream_id": str(stream_id),
+                "analysis_out_dir": str(out.analysis_out_dir),
+                "reason": "no_eligible_units",
+                "require_complete": bool(require_complete),
+            },
+        )
         return 2
 
     safe_stream = str(stream_id).replace(os.sep, "_").replace(" ", "_")
     deck_path = out.analysis_out_dir / f"unit_summary_grids_{safe_stream}_complete.pptx"
     pdf_path = out.analysis_out_dir / f"unit_summary_grids_{safe_stream}_complete.pdf"
+    deck_ckpt_file = _deck_checkpoint_path(analysis_out_dir=out.analysis_out_dir, stream_id=stream_id)
 
     eligible_uids = [uid for uid, _ in eligible]
+    _write_deck_checkpoint(
+        checkpoint_file=deck_ckpt_file,
+        payload={
+            "state": "deck_started",
+            "stream_id": str(stream_id),
+            "analysis_out_dir": str(out.analysis_out_dir),
+            "eligible_units": [int(uid) for uid in eligible_uids],
+            "eligible_count": int(len(eligible_uids)),
+            "require_complete": bool(require_complete),
+        },
+    )
 
     def _convert_svg_to_png(*, svg_path: Path, png_path: Path, logger: any) -> bool:
         """Best-effort SVG->PNG conversion for PPTX embedding."""
@@ -928,4 +966,19 @@ def run_with_args(args: object) -> int:
         logger.info("Wrote PDF (from grids): %s", pdf_written)
     else:
         logger.warning("Failed to write PDF deck")
+
+    _write_deck_checkpoint(
+        checkpoint_file=deck_ckpt_file,
+        payload={
+            "state": "deck_complete",
+            "stream_id": str(stream_id),
+            "analysis_out_dir": str(out.analysis_out_dir),
+            "deck_pptx": str(deck_path),
+            "deck_pptx_exists": bool(deck_path.exists()),
+            "deck_pdf": str(pdf_path),
+            "deck_pdf_exists": bool(pdf_path.exists()),
+            "eligible_count": int(len(eligible_uids)),
+            "require_complete": bool(require_complete),
+        },
+    )
     return 0

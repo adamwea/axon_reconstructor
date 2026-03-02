@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,37 +8,32 @@ from typing import Any, Optional
 
 from ..checkpointing import (
     ProcessingStage,
-    compute_checkpoint_file,
     exception_to_error_dict,
     load_checkpoint,
-    save_checkpoint,
 )
 from ..pipeline_driver import _compute_mea_analysis_output_dir
-from ..pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
+from ..pipeline_logging import build_stage_logger, log_stage_complete, log_stage_failure, log_stage_start
+from ..shared_io import read_json, write_json
+from ..stage_checkpointing import compute_stage_checkpoint_file, save_stage_completed, save_stage_failed, save_stage_started
 
 from .constants import ANALYSIS_OUTPUTS_DIRNAME
 
 
 def _read_json(path: Path) -> Any:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    return read_json(path)
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+    write_json(path, payload)
 
 
 def _compute_analysis_checkpoint_file(*, well_out_dir: Path, h5_path: Path, stream_id: str) -> Path:
-    main_ckpt = compute_checkpoint_file(output_dir=well_out_dir, file_path=h5_path, stream_id=stream_id)
-    name = main_ckpt.name
-    if name.endswith("_checkpoint.json"):
-        name = name[: -len("_checkpoint.json")] + "_analysis_checkpoint.json"
-    else:
-        name = main_ckpt.stem + "_analysis_checkpoint.json"
-    return main_ckpt.with_name(name)
+    return compute_stage_checkpoint_file(
+        well_out_dir=well_out_dir,
+        h5_path=h5_path,
+        stream_id=stream_id,
+        stage_name="analysis",
+    )
 
 
 def _try_load_image_rgba(*, path: Path, logger: logging.Logger) -> tuple[Optional[Any], Optional[str]]:
@@ -809,9 +803,10 @@ def analyze_units(*, inputs: AnalysisInputs, logger_name_prefix: str = "axon_rec
         well=inputs.stream_id,
     )
 
-    log_file = compute_pipeline_log_file(well_out_dir=well_out_dir, data_file=inputs.h5_path, stream_id=inputs.stream_id)
-    logger = setup_pipeline_logger(
-        log_file=log_file,
+    logger = build_stage_logger(
+        well_out_dir=well_out_dir,
+        data_file=inputs.h5_path,
+        stream_id=inputs.stream_id,
         logger_name=f"{logger_name_prefix}.{inputs.stream_id}.analysis",
         verbose=True,
     )
@@ -829,292 +824,324 @@ def analyze_units(*, inputs: AnalysisInputs, logger_name_prefix: str = "axon_rec
         stream_id=inputs.stream_id,
     )
 
+    if (
+        (not bool(inputs.force_restart))
+        and summary_json.exists()
+        and by_unit_dir.exists()
+        and any(p.is_dir() for p in by_unit_dir.glob("unit_*"))
+    ):
+        logger.info("Resuming analysis: existing outputs found at %s", analysis_out_dir)
+        return AnalysisOutputs(
+            well_out_dir=well_out_dir,
+            analysis_out_dir=analysis_out_dir,
+            summary_json=summary_json,
+            by_unit_dir=by_unit_dir,
+        )
+
     analysis_out_dir.mkdir(parents=True, exist_ok=True)
     by_unit_dir.mkdir(parents=True, exist_ok=True)
 
-    ckpt = save_checkpoint(
+    ckpt = save_stage_started(
         checkpoint_file=ckpt_file,
         state=ckpt,
         stage=ProcessingStage.REPORTS,
-        failed_stage=None,
-        error=None,
         extra_fields={"analysis_out_dir": str(analysis_out_dir)},
     )
 
-    # Unit discovery: default to templates merged_units (stable contract).
-    templates_out_dir = well_out_dir / "templates_outputs"
-    templates_dir = templates_out_dir / "templates"
-    merged_units_dir = templates_dir / "merged"
-    if not merged_units_dir.exists():
-        legacy = templates_out_dir / "merged_units"
-        if legacy.exists():
-            merged_units_dir = legacy
-    discovered_unit_ids: list[Any] = []
-    for p in sorted(merged_units_dir.glob("unit_*") if merged_units_dir.exists() else []):
-        if not p.is_dir():
-            continue
-        try:
-            discovered_unit_ids.append(int(p.name.split("unit_", 1)[1]))
-        except Exception:
-            discovered_unit_ids.append(p.name.split("unit_", 1)[1])
-
-    if inputs.unit_ids is not None:
-        unit_ids = list(inputs.unit_ids)
-    else:
-        unit_ids = list(discovered_unit_ids)
-
-    if inputs.unit_limit is not None:
-        unit_ids = unit_ids[: int(inputs.unit_limit)]
-
-    # Optional BOTM validation run (writes separate artifacts; does not alter grid montage).
-    botm_summary_json: Optional[Path] = None
-    botm_out_dir: Optional[Path] = None
-    if bool(getattr(inputs, "compute_botm_validation", False)):
-        from .botm_validation import BotmValidationInputs, write_botm_validation_outputs
-
-        botm_out_dir = analysis_out_dir / "botm_validation"
-        botm_inputs = BotmValidationInputs(
-            well_out_dir=well_out_dir,
-            h5_path=Path(inputs.h5_path),
-            stream_id=str(inputs.stream_id),
-            unit_ids=list(unit_ids),
-            n_events=int(getattr(inputs, "botm_n_events", 200)),
-            n_noise_windows=int(getattr(inputs, "botm_n_noise_windows", 2000)),
-            seed=int(getattr(inputs, "botm_seed", 0)),
-            prior_signal=float(getattr(inputs, "botm_prior_signal", 0.5)),
-            match_fraction_threshold=float(getattr(inputs, "botm_match_fraction_threshold", 0.70)),
-            sorter=str(getattr(inputs, "botm_sorter", "kilosort4")),
-            out_dir=botm_out_dir,
-            force_restart=bool(inputs.force_restart),
-        )
-
-        logger.info(
-            "BOTM validation enabled: out_dir=%s n_units=%d seed=%s n_events=%d n_noise_windows=%d",
-            str(botm_out_dir),
-            int(len(unit_ids)),
-            str(getattr(inputs, "botm_seed", 0)),
-            int(getattr(inputs, "botm_n_events", 200)),
-            int(getattr(inputs, "botm_n_noise_windows", 2000)),
-        )
-
-        botm_summary = write_botm_validation_outputs(inputs=botm_inputs, logger=logger)
-        try:
-            botm_summary_json = Path(botm_summary.get("out_dir")) / "summary.json"
-        except Exception:
-            botm_summary_json = botm_out_dir / "summary.json"
-
-    # Common roots
-    recon_by_unit_root = well_out_dir / "reconstruction_outputs" / "by_unit"
-
-    summary: dict[str, Any] = {
-        "h5_path": str(inputs.h5_path),
-        "stream_id": inputs.stream_id,
-        "well_out_dir": str(well_out_dir),
-        "analysis_out_dir": str(analysis_out_dir),
-        "by_unit_dir": str(by_unit_dir),
-        "units": [],
-    }
-
-    if botm_out_dir is not None:
-        summary["botm_validation"] = {
-            "out_dir": str(botm_out_dir),
-            "summary_json": (str(botm_summary_json) if botm_summary_json is not None else None),
-            "enabled": True,
-        }
-    else:
-        summary["botm_validation"] = {
-            "enabled": False,
-        }
-
-    for uid in unit_ids:
-        out_unit_dir = by_unit_dir / f"unit_{uid}"
-        out_unit_dir.mkdir(parents=True, exist_ok=True)
-
-        # HARD REVISION: build a few multi-panel figures first, then compose the final
-        # unit summary grid from those figures. This improves spacing control.
-        footprints_root = templates_out_dir / "footprints"
-        topo_dir = footprints_root / "3D"
-        if not topo_dir.exists():
-            legacy = templates_out_dir / "topo_unit_footprints"
+    log_stage_start(logger=logger, stage="analysis", checkpoint_file=ckpt_file)
+    try:
+        # Unit discovery: default to templates merged_units (stable contract).
+        templates_out_dir = well_out_dir / "templates_outputs"
+        templates_dir = templates_out_dir / "templates"
+        merged_units_dir = templates_dir / "merged"
+        if not merged_units_dir.exists():
+            legacy = templates_out_dir / "merged_units"
             if legacy.exists():
-                topo_dir = legacy
-
-        footprints_zoomed_dir = footprints_root / "zoomed"
-        if not footprints_zoomed_dir.exists():
-            legacy = templates_out_dir / "footprints_zoomed"
-            if legacy.exists():
-                footprints_zoomed_dir = legacy
-
-        # Reconstruction outputs were reorganized under per-unit subdirs.
-        recon_unit_dir = recon_by_unit_root / f"unit_{uid}"
-        recon_branches_clean = recon_unit_dir / "branches" / "clean"
-        recon_branches_raw = recon_unit_dir / "branches" / "raw"
-
-        panels_dir = out_unit_dir / "panels"
-        panels_dir.mkdir(parents=True, exist_ok=True)
-
-        # Clean up legacy analysis-generated artifacts.
-        # Topo zoom is now rendered in templates stage as:
-        #   templates_outputs/footprints/3D/unit_<id>_zoom.png
-        if bool(inputs.force_restart):
+                merged_units_dir = legacy
+        discovered_unit_ids: list[Any] = []
+        for p in sorted(merged_units_dir.glob("unit_*") if merged_units_dir.exists() else []):
+            if not p.is_dir():
+                continue
             try:
-                legacy = panels_dir / "topo3d_zoom.png"
-                if legacy.exists():
-                    legacy.unlink()
+                discovered_unit_ids.append(int(p.name.split("unit_", 1)[1]))
             except Exception:
-                pass
+                discovered_unit_ids.append(p.name.split("unit_", 1)[1])
+
+        if inputs.unit_ids is not None:
+            unit_ids = list(inputs.unit_ids)
+        else:
+            unit_ids = list(discovered_unit_ids)
+
+        if inputs.unit_limit is not None:
+            unit_ids = unit_ids[: int(inputs.unit_limit)]
+
+        # Optional BOTM validation run (writes separate artifacts; does not alter grid montage).
+        botm_summary_json: Optional[Path] = None
+        botm_out_dir: Optional[Path] = None
+        if bool(getattr(inputs, "compute_botm_validation", False)):
+            from .botm_validation import BotmValidationInputs, write_botm_validation_outputs
+
+            botm_out_dir = analysis_out_dir / "botm_validation"
+            botm_inputs = BotmValidationInputs(
+                well_out_dir=well_out_dir,
+                h5_path=Path(inputs.h5_path),
+                stream_id=str(inputs.stream_id),
+                unit_ids=list(unit_ids),
+                n_events=int(getattr(inputs, "botm_n_events", 200)),
+                n_noise_windows=int(getattr(inputs, "botm_n_noise_windows", 2000)),
+                seed=int(getattr(inputs, "botm_seed", 0)),
+                prior_signal=float(getattr(inputs, "botm_prior_signal", 0.5)),
+                match_fraction_threshold=float(getattr(inputs, "botm_match_fraction_threshold", 0.70)),
+                sorter=str(getattr(inputs, "botm_sorter", "kilosort4")),
+                out_dir=botm_out_dir,
+                force_restart=bool(inputs.force_restart),
+            )
+
+            logger.info(
+                "BOTM validation enabled: out_dir=%s n_units=%d seed=%s n_events=%d n_noise_windows=%d",
+                str(botm_out_dir),
+                int(len(unit_ids)),
+                str(getattr(inputs, "botm_seed", 0)),
+                int(getattr(inputs, "botm_n_events", 200)),
+                int(getattr(inputs, "botm_n_noise_windows", 2000)),
+            )
+
+            botm_summary = write_botm_validation_outputs(inputs=botm_inputs, logger=logger)
             try:
-                legacy = panels_dir / "fig1_template_views.png"
-                if legacy.exists():
-                    legacy.unlink()
+                botm_summary_json = Path(botm_summary.get("out_dir")) / "summary.json"
             except Exception:
-                pass
-            try:
-                legacy = panels_dir / "channel_selection_all_zoom.png"
-                if legacy.exists():
-                    legacy.unlink()
-            except Exception:
-                pass
+                botm_summary_json = botm_out_dir / "summary.json"
 
-        # Source images (best-effort fallbacks for minor naming drift)
-        svg_supported = _svg_supported()
-        fp_ptp_log = _pick_first_existing(
-            [
-                (footprints_root / "full") / f"unit_{uid}_merged_contributing_footprint_ptp_log.png",
-                (footprints_root / "full") / f"unit_{uid}_merged_contributing_footprint_ptp_log_linear.png",
-                footprints_zoomed_dir / f"unit_{uid}_merged_contributing_footprint_ptp_log.png",
-                footprints_zoomed_dir / f"unit_{uid}_merged_contributing_footprint_ptp_linear_zoom.png",
-                footprints_zoomed_dir / f"unit_{uid}_merged_contributing_footprint_ptp_linear.png",
-            ]
-        )
-        fp_ptp_log = _prefer_svg_if_available(path=fp_ptp_log, svg_supported=svg_supported)
+        # Common roots
+        recon_by_unit_root = well_out_dir / "reconstruction_outputs" / "by_unit"
 
-        # Fig1 is intentionally disabled for now.
-
-        edges_png = _pick_first_existing(
-            [
-                recon_unit_dir / "maps" / "graph_edges.png",
-                recon_unit_dir / "graph_edges.png",
-            ]
-        )
-        edges_png = _prefer_svg_if_available(path=edges_png, svg_supported=svg_supported)
-
-        chan_all_src = _pick_first_existing(
-            [
-                recon_unit_dir / "maps" / "channel_selection_all.png",
-                recon_unit_dir / "channel_selection_all.png",
-            ]
-        )
-        chan_all_src = _prefer_svg_if_available(path=chan_all_src, svg_supported=svg_supported)
-
-        raw_zoom = _pick_first_existing(
-            [
-                recon_branches_raw / "branches_raw_zoom.png",
-                recon_unit_dir / "branches_raw_zoom.png",
-            ]
-        )
-        raw_zoom = _prefer_svg_if_available(path=raw_zoom, svg_supported=svg_supported)
-
-        vel_overlay = _pick_first_existing(
-            [
-                recon_branches_raw / "branch_velocities_overlay.png",
-                recon_branches_clean / "branch_velocities_overlay.png",
-                recon_unit_dir / "branch_velocities_overlay.png",
-            ]
-        )
-        vel_overlay = _prefer_svg_if_available(path=vel_overlay, svg_supported=svg_supported)
-
-        propagation = _pick_first_existing(
-            [
-                templates_out_dir / "propagation_plots" / f"unit_{uid}.png",
-                templates_out_dir / "propagation_plots" / f"unit_{uid}_propagation.png",
-            ]
-        )
-        propagation = _prefer_svg_if_available(path=propagation, svg_supported=svg_supported)
-
-        # Note: topo zooming/cropping is intentionally NOT done in analysis.
-        # Templates stage is responsible for writing `unit_<id>_zoom.png`.
-
-        # Fig 2 (Edges and Node Candidates): one row, respect native aspect ratios.
-        fig2_png = panels_dir / "fig2_edges_and_nodes.png"
-        _compose_row_figure_natural(
-            # Swap requested: Fig2 now shows footprint (instead of channel selection).
-            paths=[edges_png, fp_ptp_log],
-            out_png=fig2_png,
-            height_px=900,
-            force_restart=bool(inputs.force_restart),
-            logger=logger,
-        )
-
-        # Fig 3 (Reconstruction and Velocity): two rows.
-        fig3_png = panels_dir / "fig3_reconstruction_and_velocity.png"
-        _compose_fig3_recon_and_velocity_two_row(
-            raw_branches_png=raw_zoom,
-            branch_velocities_png=vel_overlay,
-            propagation_png=propagation,
-            out_png=fig3_png,
-            height_px=900,
-            force_restart=bool(inputs.force_restart),
-            logger=logger,
-        )
-
-        grid_png = out_unit_dir / "unit_summary_grid.png"
-        grid_pdf = out_unit_dir / "unit_summary_grid.pdf"
-
-        unit_record: dict[str, Any] = {
-            "unit_id": uid,
-            "inputs": {
-                "reconstruction_unit_dir": str(recon_by_unit_root / f"unit_{uid}"),
-                "templates_out_dir": str(templates_out_dir),
-            },
-            "outputs": {},
-            "status": "ok",
-            "error": None,
+        summary: dict[str, Any] = {
+            "h5_path": str(inputs.h5_path),
+            "stream_id": inputs.stream_id,
+            "well_out_dir": str(well_out_dir),
+            "analysis_out_dir": str(analysis_out_dir),
+            "by_unit_dir": str(by_unit_dir),
+            "units": [],
         }
 
-        try:
-            out_png2, out_pdf2, err = _compose_unit_summary_from_figs(
-                fig3_png=fig3_png,
-                fig2_png=fig2_png,
-                out_png=grid_png,
-                out_pdf=grid_pdf,
+        if botm_out_dir is not None:
+            summary["botm_validation"] = {
+                "out_dir": str(botm_out_dir),
+                "summary_json": (str(botm_summary_json) if botm_summary_json is not None else None),
+                "enabled": True,
+            }
+        else:
+            summary["botm_validation"] = {
+                "enabled": False,
+            }
+
+        for uid in unit_ids:
+            out_unit_dir = by_unit_dir / f"unit_{uid}"
+            out_unit_dir.mkdir(parents=True, exist_ok=True)
+
+            # HARD REVISION: build a few multi-panel figures first, then compose the final
+            # unit summary grid from those figures. This improves spacing control.
+            footprints_root = templates_out_dir / "footprints"
+            topo_dir = footprints_root / "3D"
+            if not topo_dir.exists():
+                legacy = templates_out_dir / "topo_unit_footprints"
+                if legacy.exists():
+                    topo_dir = legacy
+
+            footprints_zoomed_dir = footprints_root / "zoomed"
+            if not footprints_zoomed_dir.exists():
+                legacy = templates_out_dir / "footprints_zoomed"
+                if legacy.exists():
+                    footprints_zoomed_dir = legacy
+
+            # Reconstruction outputs were reorganized under per-unit subdirs.
+            recon_unit_dir = recon_by_unit_root / f"unit_{uid}"
+            recon_branches_clean = recon_unit_dir / "branches" / "clean"
+            recon_branches_raw = recon_unit_dir / "branches" / "raw"
+
+            panels_dir = out_unit_dir / "panels"
+            panels_dir.mkdir(parents=True, exist_ok=True)
+
+            # Clean up legacy analysis-generated artifacts.
+            # Topo zoom is now rendered in templates stage as:
+            #   templates_outputs/footprints/3D/unit_<id>_zoom.png
+            if bool(inputs.force_restart):
+                try:
+                    legacy = panels_dir / "topo3d_zoom.png"
+                    if legacy.exists():
+                        legacy.unlink()
+                except Exception:
+                    pass
+                try:
+                    legacy = panels_dir / "fig1_template_views.png"
+                    if legacy.exists():
+                        legacy.unlink()
+                except Exception:
+                    pass
+                try:
+                    legacy = panels_dir / "channel_selection_all_zoom.png"
+                    if legacy.exists():
+                        legacy.unlink()
+                except Exception:
+                    pass
+
+            # Source images (best-effort fallbacks for minor naming drift)
+            svg_supported = _svg_supported()
+            fp_ptp_log = _pick_first_existing(
+                [
+                    (footprints_root / "full") / f"unit_{uid}_merged_contributing_footprint_ptp_log.png",
+                    (footprints_root / "full") / f"unit_{uid}_merged_contributing_footprint_ptp_log_linear.png",
+                    footprints_zoomed_dir / f"unit_{uid}_merged_contributing_footprint_ptp_log.png",
+                    footprints_zoomed_dir / f"unit_{uid}_merged_contributing_footprint_ptp_linear_zoom.png",
+                    footprints_zoomed_dir / f"unit_{uid}_merged_contributing_footprint_ptp_linear.png",
+                ]
+            )
+            fp_ptp_log = _prefer_svg_if_available(path=fp_ptp_log, svg_supported=svg_supported)
+
+            # Fig1 is intentionally disabled for now.
+
+            edges_png = _pick_first_existing(
+                [
+                    recon_unit_dir / "maps" / "graph_edges.png",
+                    recon_unit_dir / "graph_edges.png",
+                ]
+            )
+            edges_png = _prefer_svg_if_available(path=edges_png, svg_supported=svg_supported)
+
+            chan_all_src = _pick_first_existing(
+                [
+                    recon_unit_dir / "maps" / "channel_selection_all.png",
+                    recon_unit_dir / "channel_selection_all.png",
+                ]
+            )
+            chan_all_src = _prefer_svg_if_available(path=chan_all_src, svg_supported=svg_supported)
+
+            raw_zoom = _pick_first_existing(
+                [
+                    recon_branches_raw / "branches_raw_zoom.png",
+                    recon_unit_dir / "branches_raw_zoom.png",
+                ]
+            )
+            raw_zoom = _prefer_svg_if_available(path=raw_zoom, svg_supported=svg_supported)
+
+            vel_overlay = _pick_first_existing(
+                [
+                    recon_branches_raw / "branch_velocities_overlay.png",
+                    recon_branches_clean / "branch_velocities_overlay.png",
+                    recon_unit_dir / "branch_velocities_overlay.png",
+                ]
+            )
+            vel_overlay = _prefer_svg_if_available(path=vel_overlay, svg_supported=svg_supported)
+
+            propagation = _pick_first_existing(
+                [
+                    templates_out_dir / "propagation_plots" / f"unit_{uid}.png",
+                    templates_out_dir / "propagation_plots" / f"unit_{uid}_propagation.png",
+                ]
+            )
+            propagation = _prefer_svg_if_available(path=propagation, svg_supported=svg_supported)
+
+            # Note: topo zooming/cropping is intentionally NOT done in analysis.
+            # Templates stage is responsible for writing `unit_<id>_zoom.png`.
+
+            # Fig 2 (Edges and Node Candidates): one row, respect native aspect ratios.
+            fig2_png = panels_dir / "fig2_edges_and_nodes.png"
+            _compose_row_figure_natural(
+                # Swap requested: Fig2 now shows footprint (instead of channel selection).
+                paths=[edges_png, fp_ptp_log],
+                out_png=fig2_png,
+                height_px=900,
                 force_restart=bool(inputs.force_restart),
                 logger=logger,
             )
-            unit_record["outputs"].update(
-                {
-                    "fig2_png": str(fig2_png),
-                    "fig3_png": str(fig3_png),
-                    "grid_png": str(out_png2) if out_png2 else None,
-                    "grid_pdf": str(out_pdf2) if out_pdf2 else None,
-                }
+
+            # Fig 3 (Reconstruction and Velocity): two rows.
+            fig3_png = panels_dir / "fig3_reconstruction_and_velocity.png"
+            _compose_fig3_recon_and_velocity_two_row(
+                raw_branches_png=raw_zoom,
+                branch_velocities_png=vel_overlay,
+                propagation_png=propagation,
+                out_png=fig3_png,
+                height_px=900,
+                force_restart=bool(inputs.force_restart),
+                logger=logger,
             )
-            if err:
+
+            grid_png = out_unit_dir / "unit_summary_grid.png"
+            grid_pdf = out_unit_dir / "unit_summary_grid.pdf"
+
+            unit_record: dict[str, Any] = {
+                "unit_id": uid,
+                "inputs": {
+                    "reconstruction_unit_dir": str(recon_by_unit_root / f"unit_{uid}"),
+                    "templates_out_dir": str(templates_out_dir),
+                },
+                "outputs": {},
+                "status": "ok",
+                "error": None,
+            }
+
+            try:
+                out_png2, out_pdf2, err = _compose_unit_summary_from_figs(
+                    fig3_png=fig3_png,
+                    fig2_png=fig2_png,
+                    out_png=grid_png,
+                    out_pdf=grid_pdf,
+                    force_restart=bool(inputs.force_restart),
+                    logger=logger,
+                )
+                unit_record["outputs"].update(
+                    {
+                        "fig2_png": str(fig2_png),
+                        "fig3_png": str(fig3_png),
+                        "grid_png": str(out_png2) if out_png2 else None,
+                        "grid_pdf": str(out_pdf2) if out_pdf2 else None,
+                    }
+                )
+                if err:
+                    unit_record["status"] = "error"
+                    unit_record["error"] = err
+            except Exception as e:
                 unit_record["status"] = "error"
-                unit_record["error"] = err
-        except Exception as e:
-            unit_record["status"] = "error"
-            unit_record["error"] = exception_to_error_dict(e)
+                unit_record["error"] = exception_to_error_dict(e)
 
-        summary["units"].append(unit_record)
+            summary["units"].append(unit_record)
 
-    _write_json(summary_json, summary)
+        _write_json(summary_json, summary)
 
-    ckpt = save_checkpoint(
-        checkpoint_file=ckpt_file,
-        state=ckpt,
-        stage=ProcessingStage.REPORTS_COMPLETE,
-        failed_stage=None,
-        error=None,
-        extra_fields={
-            "analysis_out_dir": str(analysis_out_dir),
-            "analysis_summary_json": str(summary_json),
-        },
-    )
+        ckpt = save_stage_completed(
+            checkpoint_file=ckpt_file,
+            state=ckpt,
+            stage=ProcessingStage.REPORTS_COMPLETE,
+            extra_fields={
+                "analysis_out_dir": str(analysis_out_dir),
+                "analysis_summary_json": str(summary_json),
+            },
+        )
+        log_stage_complete(
+            logger=logger,
+            stage="analysis",
+            checkpoint_file=ckpt_file,
+            extra={"analysis_summary_json": summary_json},
+        )
 
-    return AnalysisOutputs(
-        well_out_dir=well_out_dir,
-        analysis_out_dir=analysis_out_dir,
-        summary_json=summary_json,
-        by_unit_dir=by_unit_dir,
-    )
+        return AnalysisOutputs(
+            well_out_dir=well_out_dir,
+            analysis_out_dir=analysis_out_dir,
+            summary_json=summary_json,
+            by_unit_dir=by_unit_dir,
+        )
+    except Exception as e:
+        save_stage_failed(
+            checkpoint_file=ckpt_file,
+            state=ckpt,
+            stage=ProcessingStage.REPORTS,
+            error=e,
+        )
+        log_stage_failure(
+            logger=logger,
+            stage="analysis",
+            checkpoint_file=ckpt_file,
+            error=e,
+        )
+        raise

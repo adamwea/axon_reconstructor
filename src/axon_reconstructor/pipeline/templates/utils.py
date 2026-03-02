@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Optional
 
-from ..checkpointing import compute_checkpoint_file
+from ..shared_io import jsonable, jsonable_sequence, read_json, write_json
+from ..stage_checkpointing import compute_stage_checkpoint_file
 
 
 def _resample_template_time(*, template, up: int = 1, down: int = 1, method: str = "sinc"):
@@ -93,30 +93,17 @@ def _upsample_template_time(*, template, factor: int, method: str = "sinc"):
 
 
 def _read_json(path: Path) -> Any:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    return read_json(path)
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+    write_json(path, payload)
 
 
 def _jsonable(x: Any) -> Any:
     """Convert common non-JSON-native scalars into JSON-safe Python types."""
 
-    try:
-        import numpy as np  # type: ignore[import-not-found]
-
-        if isinstance(x, (np.integer, np.floating)):
-            return x.item()
-    except Exception:
-        pass
-    if isinstance(x, Path):
-        return str(x)
-    return x
+    return jsonable(x)
 
 
 def _jsonable_list(xs: Optional[list[Any]]) -> Optional[list[Any]]:
@@ -128,27 +115,18 @@ def _jsonable_list(xs: Optional[list[Any]]) -> Optional[list[Any]]:
 def _jsonable_sequence(xs: Any) -> Optional[list[Any]]:
     """Like `_jsonable_list`, but accepts list/tuple/numpy arrays (best effort)."""
 
-    if xs is None:
-        return None
-    try:
-        return [_jsonable(v) for v in list(xs)]
-    except Exception:
-        try:
-            return [_jsonable(xs)]
-        except Exception:
-            return None
+    return jsonable_sequence(xs)
 
 
 def _compute_templates_checkpoint_file(*, well_out_dir: Path, h5_path: Path, stream_id: str) -> Path:
     """Use a dedicated checkpoint file for templates."""
 
-    main_ckpt = compute_checkpoint_file(output_dir=well_out_dir, file_path=h5_path, stream_id=stream_id)
-    name = main_ckpt.name
-    if name.endswith("_checkpoint.json"):
-        name = name[: -len("_checkpoint.json")] + "_templates_checkpoint.json"
-    else:
-        name = main_ckpt.stem + "_templates_checkpoint.json"
-    return main_ckpt.with_name(name)
+    return compute_stage_checkpoint_file(
+        well_out_dir=well_out_dir,
+        h5_path=h5_path,
+        stream_id=stream_id,
+        stage_name="templates",
+    )
 
 
 def _try_get_electrode_ids(recording: Any) -> Optional[list[Any]]:

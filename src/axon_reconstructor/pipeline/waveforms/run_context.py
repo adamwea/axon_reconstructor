@@ -6,11 +6,11 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ..checkpointing import (
-    compute_checkpoint_file,
     load_checkpoint,
 )
-from ..pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
+from ..pipeline_logging import build_stage_logger
 from ..pipeline_driver import PREPROCESS_OUTPUTS_DIRNAME, _compute_mea_analysis_output_dir
+from ..stage_checkpointing import compute_stage_checkpoint_file
 
 from .constants import WAVEFORMS_OUTPUTS_DIRNAME
 from .utils import _epochs_to_intervals, _infer_cutout_ms, _read_json
@@ -24,13 +24,12 @@ def _compute_waveforms_checkpoint_file(*, well_out_dir: Path, h5_path: Path, str
     accidentally *regress* stage numbers (e.g. REPORTS_COMPLETE -> ANALYZER_COMPLETE).
     """
 
-    main_ckpt = compute_checkpoint_file(output_dir=well_out_dir, file_path=h5_path, stream_id=stream_id)
-    name = main_ckpt.name
-    if name.endswith("_checkpoint.json"):
-        name = name[: -len("_checkpoint.json")] + "_waveforms_checkpoint.json"
-    else:
-        name = main_ckpt.stem + "_waveforms_checkpoint.json"
-    return main_ckpt.with_name(name)
+    return compute_stage_checkpoint_file(
+        well_out_dir=well_out_dir,
+        h5_path=h5_path,
+        stream_id=stream_id,
+        stage_name="waveforms",
+    )
 
 
 def _compute_waveforms_out_dir(*, output_root: Path, data_file: Path, well: str) -> Path:
@@ -66,9 +65,10 @@ def _initialize_run_context(*, inputs, logger_name_prefix: str) -> _WaveformsRun
         well=inputs.stream_id,
     )
 
-    log_file = compute_pipeline_log_file(well_out_dir=well_out_dir, data_file=inputs.h5_path, stream_id=inputs.stream_id)
-    logger = setup_pipeline_logger(
-        log_file=log_file,
+    logger = build_stage_logger(
+        well_out_dir=well_out_dir,
+        data_file=inputs.h5_path,
+        stream_id=inputs.stream_id,
         logger_name=f"{logger_name_prefix}.{inputs.stream_id}",
         verbose=True,
     )

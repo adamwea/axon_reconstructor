@@ -30,6 +30,35 @@ def _now_utc() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
 
 
+def _scope_barrier_checkpoint_file(*, config: ScopeConfig) -> Path:
+    return Path(config.mea_output_root) / "scope_run_barrier_checkpoint.json"
+
+
+def _load_scope_barrier_checkpoint(*, checkpoint_file: Path, force_restart: bool) -> dict[str, Any]:
+    if bool(force_restart) or (not checkpoint_file.exists()):
+        return {"completed_stages": [], "stage_entries": {}}
+    try:
+        payload = json.loads(checkpoint_file.read_text(encoding="utf-8"))
+        completed = payload.get("completed_stages")
+        entries = payload.get("stage_entries")
+        return {
+            "completed_stages": list(completed) if isinstance(completed, list) else [],
+            "stage_entries": dict(entries) if isinstance(entries, dict) else {},
+        }
+    except Exception:
+        return {"completed_stages": [], "stage_entries": {}}
+
+
+def _save_scope_barrier_checkpoint(*, checkpoint_file: Path, barrier_state: dict[str, Any]) -> None:
+    checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "last_updated_utc": _now_utc(),
+        "completed_stages": list(barrier_state.get("completed_stages", [])),
+        "stage_entries": dict(barrier_state.get("stage_entries", {})),
+    }
+    checkpoint_file.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def _merge_stage_kwargs(*, stage: str, config: ScopeConfig, target: ScopeTarget) -> dict[str, Any]:
     out: dict[str, Any] = {}
     out.update(config.stage_kwargs.get(stage, {}))
@@ -334,6 +363,13 @@ def run_scope_stage_barriers(
         "stages": [],
     }
 
+    barrier_checkpoint_file = _scope_barrier_checkpoint_file(config=config)
+    summary["barrier_checkpoint_file"] = str(barrier_checkpoint_file)
+    barrier_state = _load_scope_barrier_checkpoint(
+        checkpoint_file=barrier_checkpoint_file,
+        force_restart=bool(config.force_restart),
+    )
+
     if dry_run:
         for stage in stage_order:
             stage_entries = []
@@ -367,12 +403,37 @@ def run_scope_stage_barriers(
         return summary
 
     for stage in stage_order:
+        if (not bool(config.force_restart)) and (stage in set(barrier_state.get("completed_stages", []))):
+            resumed_stage_entry = dict(
+                barrier_state.get("stage_entries", {}).get(
+                    stage,
+                    {
+                        "stage": stage,
+                        "results": [],
+                        "failed": 0,
+                    },
+                )
+            )
+            resumed_stage_entry["resumed_from_barrier_checkpoint"] = True
+            summary["stages"].append(resumed_stage_entry)
+            logger.info("Stage barrier resumed from checkpoint: %s", stage)
+            continue
+
         logger.info("Stage barrier starting: %s (targets=%d, parallelism=%d)", stage, len(targets), int(config.per_well_parallelism))
 
         if stage in {"unit_match", "merge_update"}:
             transition_summary = _run_transition_stage(stage=stage, config=config, targets=targets, summary=summary)
             summary["stages"].append(transition_summary)
             failed = int(transition_summary.get("failed", 0) or 0)
+            barrier_state.setdefault("stage_entries", {})[stage] = transition_summary
+            if failed == 0:
+                completed = list(barrier_state.get("completed_stages", []))
+                if stage not in completed:
+                    completed.append(stage)
+                barrier_state["completed_stages"] = completed
+            else:
+                barrier_state["completed_stages"] = [s for s in list(barrier_state.get("completed_stages", [])) if s != stage]
+            _save_scope_barrier_checkpoint(checkpoint_file=barrier_checkpoint_file, barrier_state=barrier_state)
             if failed > 0 and bool(config.fail_fast):
                 logger.error("Stage barrier failed: %s (failed=%d). Stopping because fail_fast=true", stage, int(failed))
                 break
@@ -423,7 +484,17 @@ def run_scope_stage_barriers(
 
         stage_results.sort(key=lambda x: (str(x.get("dataset_id")), str(x.get("stream_id"))))
         failed = sum(1 for r in stage_results if r.get("status") != "ok")
-        summary["stages"].append({"stage": stage, "results": stage_results, "failed": int(failed)})
+        stage_entry = {"stage": stage, "results": stage_results, "failed": int(failed)}
+        summary["stages"].append(stage_entry)
+        barrier_state.setdefault("stage_entries", {})[stage] = stage_entry
+        if failed == 0:
+            completed = list(barrier_state.get("completed_stages", []))
+            if stage not in completed:
+                completed.append(stage)
+            barrier_state["completed_stages"] = completed
+        else:
+            barrier_state["completed_stages"] = [s for s in list(barrier_state.get("completed_stages", [])) if s != stage]
+        _save_scope_barrier_checkpoint(checkpoint_file=barrier_checkpoint_file, barrier_state=barrier_state)
 
         if failed > 0 and bool(config.fail_fast):
             logger.error("Stage barrier failed: %s (failed=%d). Stopping because fail_fast=true", stage, int(failed))

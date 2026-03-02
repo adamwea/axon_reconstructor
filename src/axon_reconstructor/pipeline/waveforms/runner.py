@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from ..checkpointing import ProcessingStage, exception_to_error_dict, save_checkpoint
+from ..checkpointing import ProcessingStage
+from ..pipeline_logging import log_stage_complete, log_stage_failure, log_stage_start
+from ..stage_checkpointing import save_stage_completed, save_stage_failed, save_stage_started
 
 from .artifacts import _persist_channel_groups_json, _persist_filtering_and_exclusions, _write_waveform_extraction_params
 from .extraction import _extract_concat_waveforms, _extract_per_segment_waveforms
@@ -184,16 +186,16 @@ def extract_waveforms(
             spikesorting_waveforms_grid_pdf=spikesorting_waveforms_grid_pdf,
         )
 
-    ckpt = save_checkpoint(
+    ckpt = save_stage_started(
         checkpoint_file=ctx.ckpt_file,
         state=ctx.ckpt,
         stage=ProcessingStage.ANALYZER,
-        failed_stage=None,
-        error=None,
         extra_fields={
             "waveforms_out_dir": str(ctx.waveforms_out_dir),
         },
     )
+
+    log_stage_start(logger=ctx.logger, stage="waveforms", checkpoint_file=ctx.ckpt_file)
 
     ctx.logger.info("Waveform extraction starting: well_out_dir=%s", ctx.well_out_dir)
 
@@ -511,12 +513,10 @@ def extract_waveforms(
             logger=ctx.logger,
         )
 
-        ckpt = save_checkpoint(
+        ckpt = save_stage_completed(
             checkpoint_file=ctx.ckpt_file,
             state=ckpt,
             stage=ProcessingStage.ANALYZER_COMPLETE,
-            failed_stage=None,
-            error=None,
             extra_fields={
                 "waveforms_out_dir": str(ctx.waveforms_out_dir),
                 "concat_waveforms_dir": str(ctx.concat_waveforms_dir),
@@ -525,6 +525,16 @@ def extract_waveforms(
                 "waveforms_filtering_json": str(ctx.filtering_json),
                 "waveforms_grid_pdf": str(waveforms_grid_pdf) if waveforms_grid_pdf else None,
                 "spikesorting_waveforms_grid_pdf": None,
+            },
+        )
+
+        log_stage_complete(
+            logger=ctx.logger,
+            stage="waveforms",
+            checkpoint_file=ctx.ckpt_file,
+            extra={
+                "waveforms_grid_pdf": waveforms_grid_pdf,
+                "waveforms_filtering_json": ctx.filtering_json,
             },
         )
 
@@ -542,14 +552,17 @@ def extract_waveforms(
         )
 
     except Exception as e:
-        # Preserve the waveforms-specific checkpoint state (separate from the main pipeline
-        # checkpoint) so failures can be diagnosed and rerun without regressing stage numbers.
-        save_checkpoint(
+        save_stage_failed(
             checkpoint_file=ctx.ckpt_file,
             state=ckpt,
             stage=ProcessingStage.ANALYZER,
-            failed_stage="WAVEFORMS",
-            error=exception_to_error_dict(e),
+            error=e,
+        )
+        log_stage_failure(
+            logger=ctx.logger,
+            stage="waveforms",
+            checkpoint_file=ctx.ckpt_file,
+            error=e,
         )
         ctx.logger.exception("Waveform extraction FAILED")
         raise
