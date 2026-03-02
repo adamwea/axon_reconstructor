@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from axon_reconstructor.pipeline.pipeline_driver import _compute_mea_analysis_output_dir
+from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
 
 from .replot import replot_templates_outputs_from_disk
 from .runner import TemplateExtractInputs, TemplateExtractOutputs, extract_and_merge_templates
@@ -118,7 +118,7 @@ def build_templates_debug_config(*, args: Any, env: Any) -> TemplatesDebugConfig
     else:
         do_replot = env.env_bool("AXON_RECON_TEMPLATES_REPLOT_FROM_DISK", default=False)
 
-    well_out_dir = _compute_mea_analysis_output_dir(
+    well_out_dir = compute_mea_analysis_output_dir(
         output_root=mea_output_root,
         data_file=h5_path,
         well=stream_id,

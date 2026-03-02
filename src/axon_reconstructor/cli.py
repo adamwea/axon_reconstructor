@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from axon_reconstructor import env_utils
-from axon_reconstructor.pipeline.stage_cli_args import (
+from axon_reconstructor.pipeline.stage_driver import (
     add_stage_analysis_args,
     add_stage_common_required_args,
     add_stage_debug_controls,
@@ -312,94 +312,6 @@ def _cmd_gpu_interact(args: argparse.Namespace) -> int:
     return int(proc.returncode)
 
 
-def _cmd_run_reconstruction(args: argparse.Namespace) -> int:
-    # Import heavy pipeline only for the run subcommand.
-    from axon_reconstructor.pipeline.pipeline_driver import AxonReconstructor
-
-    recon = AxonReconstructor(
-        h5_parent_dirs=[args.h5_parent_dir],
-        mea_environment=args.mea_environment,
-        mea_analysis_output_root=args.mea_output_root,
-        mea_analysis_repo_root=args.mea_analysis_repo_root,
-        mea_analysis_docker_image=args.docker_image,
-        mea_auto_run_driver=bool(args.auto_run_driver),
-        force_restart=bool(getattr(args, "force_restart", False)),
-        enable_checkpointing=bool(getattr(args, "enable_checkpointing", True)),
-    )
-
-    recon.run_pipeline(
-        concatenate_switch=bool(args.concatenate),
-        sort_switch=True,
-        waveform_switch=bool(args.waveforms),
-        template_switch=bool(args.templates),
-        recon_switch=bool(args.reconstruct),
-        only_load_sortings=bool(args.only_load_sortings),
-    )
-
-    return 0
-
-
-def _cmd_pipeline(args: argparse.Namespace) -> int:
-    """Run the rebuilt pipeline on a targeted raw dataset.
-
-    This command is intended for iterative development/debugging of the new
-    preprocessing + spikesorting preparation steps.
-    """
-
-    from axon_reconstructor.pipeline.pipeline_driver import AxonReconstructor
-
-    data_path = Path(args.data_path).expanduser().resolve()
-    if not data_path.exists():
-        raise SystemExit(f"data_path not found: {data_path}")
-
-    recon = AxonReconstructor(
-        h5_parent_dirs=[data_path],
-        mea_environment=args.mea_environment,
-        mea_analysis_output_root=args.mea_output_root,
-        mea_analysis_repo_root=args.mea_analysis_repo_root,
-        mea_analysis_docker_image=args.docker_image,
-        mea_auto_run_driver=bool(args.auto_run_driver),
-        force_restart=bool(getattr(args, "force_restart", False)),
-        enable_checkpointing=bool(getattr(args, "enable_checkpointing", True)),
-    )
-
-    if args.list_streams:
-        try:
-            import h5py
-        except Exception as e:
-            raise SystemExit("--list-streams requires h5py") from e
-
-        if not data_path.is_file():
-            raise SystemExit("--list-streams requires data_path to be a single .h5 file")
-        with h5py.File(data_path, "r") as h5:
-            streams = list(h5["wells"].keys())
-        for s in streams:
-            print(s)
-        return 0
-
-    if args.stream_id:
-        if not data_path.is_file():
-            raise SystemExit("--stream-id requires data_path to be a single .h5 file")
-
-        recon.preprocess_for_spikesorting(
-            h5_path=data_path,
-            stream_id=args.stream_id,
-            n_jobs=int(args.n_jobs) if args.n_jobs else 8,
-        )
-        return 0
-
-    # Fallback: run the driver entrypoint (currently WIP for downstream steps).
-    recon.run_pipeline(
-        concatenate_switch=bool(args.concatenate),
-        sort_switch=bool(args.sort),
-        waveform_switch=bool(args.waveforms),
-        template_switch=bool(args.templates),
-        recon_switch=bool(args.reconstruct),
-        only_load_sortings=bool(args.only_load_sortings),
-    )
-    return 0
-
-
 def _load_stage_kwargs(args: argparse.Namespace) -> dict:
     kwargs: dict = {}
     if getattr(args, "stage_kwargs_file", None):
@@ -417,6 +329,8 @@ def _load_stage_kwargs(args: argparse.Namespace) -> dict:
 
 def _cmd_stage(args: argparse.Namespace) -> int:
     _load_explicit_env_file(args=args)
+
+    from axon_reconstructor.pipeline.stage_driver import StageExecutionContext, execute_stage
 
     stage = str(args.stage)
     stage_kwargs = _load_stage_kwargs(args)
@@ -466,98 +380,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         print(f"break-before-run enabled for stage '{stage}'", file=sys.stderr)
         pdb.set_trace()
 
-    if stage == "preprocess":
-        from axon_reconstructor.pipeline.pipeline_driver import AxonReconstructor
-
-        recon = AxonReconstructor(
-            h5_parent_dirs=[h5_path],
-            mea_analysis_output_root=str(mea_output_root),
-            force_restart=bool(force_restart),
-        )
-        multirec, common_el = recon.preprocess_for_spikesorting(
-            h5_path=h5_path,
-            stream_id=stream_id,
-            n_jobs=int(n_jobs),
-            overwrite_saved_recording=bool(force_restart),
-            **stage_kwargs,
-        )
-        print(f"preprocess complete: stream={stream_id} common_electrodes={len(common_el)}")
-        _ = multirec
-        return 0
-
-    if stage == "spikesort":
-        if mea_analysis_repo_root is None:
-            raise SystemExit("--mea-analysis-repo-root is required for stage 'spikesort'")
-
-        from axon_reconstructor.pipeline.spikesorting import SpikeSortingInputs, run_spikesorting_stage
-
-        inputs = SpikeSortingInputs(
-            h5_path=h5_path,
-            stream_id=stream_id,
-            mea_output_root=mea_output_root,
-            mea_analysis_repo_root=mea_analysis_repo_root,
-            sorter=str(sorter),
-            docker_image=docker_image,
-            n_jobs=int(n_jobs) if n_jobs else None,
-            chunk_duration=chunk_duration,
-            force_restart=bool(force_restart),
-            verbose=bool(debug_enabled),
-            **stage_kwargs,
-        )
-        outputs = run_spikesorting_stage(inputs=inputs, logger=logging.getLogger("axon_reconstructor.stage.spikesort"))
-        print(f"spikesort complete: sorter_output={outputs.sorter_output_dir}")
-        return 0
-
-    if stage == "waveforms":
-        from axon_reconstructor.pipeline.waveforms import WaveformExtractInputs, extract_waveforms
-
-        inputs = WaveformExtractInputs(
-            h5_path=h5_path,
-            stream_id=stream_id,
-            mea_output_root=mea_output_root,
-            sorter=str(sorter),
-            n_jobs=int(n_jobs),
-            force_restart=bool(force_restart),
-            debug_max_units=debug_max_units,
-            debug_max_segments=debug_max_segments,
-            **stage_kwargs,
-        )
-        outputs = extract_waveforms(inputs=inputs)
-        print(f"waveforms complete: out_dir={outputs.waveforms_out_dir}")
-        return 0
-
-    if stage == "templates":
-        from axon_reconstructor.pipeline.templates import TemplateExtractInputs, extract_and_merge_templates
-
-        inputs = TemplateExtractInputs(
-            h5_path=h5_path,
-            stream_id=stream_id,
-            mea_output_root=mea_output_root,
-            n_jobs=int(n_jobs),
-            force_restart=bool(force_restart),
-            **stage_kwargs,
-        )
-        outputs = extract_and_merge_templates(inputs=inputs)
-        print(f"templates complete: out_dir={outputs.templates_out_dir}")
-        return 0
-
-    if stage == "reconstruct":
-        from axon_reconstructor.pipeline.reconstruction import ReconstructionInputs, reconstruct_from_templates
-
-        inputs = ReconstructionInputs(
-            h5_path=h5_path,
-            stream_id=stream_id,
-            mea_output_root=mea_output_root,
-            force_restart=bool(force_restart),
-            **stage_kwargs,
-        )
-        outputs = reconstruct_from_templates(inputs=inputs)
-        print(f"reconstruction complete: out_dir={outputs.reconstruction_out_dir}")
-        return 0
-
     if stage == "analysis":
-        from axon_reconstructor.pipeline.analysis import AnalysisInputs, analyze_units
-
         if args.unit_ids:
             unit_ids = [int(value) for value in args.unit_ids]
         else:
@@ -609,10 +432,8 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             default="kilosort4",
         )
 
-        analysis_fields = {
-            "h5_path": h5_path,
-            "stream_id": stream_id,
-            "mea_output_root": mea_output_root,
+        stage_kwargs.update(
+            {
             "unit_ids": unit_ids,
             "unit_limit": unit_limit,
             "prefer_curated_waveforms_panels": bool(prefer_curated_waveforms_panels),
@@ -623,13 +444,46 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             "botm_prior_signal": float(botm_prior_signal),
             "botm_match_fraction_threshold": float(botm_match_fraction_threshold),
             "botm_sorter": str(botm_sorter),
-            "force_restart": bool(force_restart),
-        }
-        analysis_fields.update(stage_kwargs)
+            }
+        )
 
-        inputs = AnalysisInputs(**analysis_fields)
-        outputs = analyze_units(inputs=inputs)
-        print(f"analysis complete: out_dir={outputs.analysis_out_dir}")
+    context = StageExecutionContext(
+        h5_path=h5_path,
+        stream_id=stream_id,
+        mea_output_root=mea_output_root,
+        force_restart=bool(force_restart),
+        n_jobs=int(n_jobs),
+        sorter=str(sorter or "kilosort4"),
+        docker_image=docker_image,
+        chunk_duration=chunk_duration,
+        mea_analysis_repo_root=mea_analysis_repo_root,
+        verbose=bool(debug_enabled),
+    )
+    result = execute_stage(
+        stage=stage,
+        context=context,
+        stage_kwargs=stage_kwargs,
+        logger=logging.getLogger(f"axon_reconstructor.stage.{stage}"),
+    )
+
+    if stage == "preprocess":
+        n_common = result.artifacts.get("n_common_electrodes")
+        print(f"preprocess complete: stream={stream_id} common_electrodes={n_common}")
+        return 0
+    if stage == "spikesort":
+        print(f"spikesort complete: sorter_output={result.artifacts.get('sorter_output_dir')}")
+        return 0
+    if stage == "waveforms":
+        print(f"waveforms complete: out_dir={result.artifacts.get('waveforms_out_dir')}")
+        return 0
+    if stage == "templates":
+        print(f"templates complete: out_dir={result.artifacts.get('templates_out_dir')}")
+        return 0
+    if stage == "reconstruct":
+        print(f"reconstruction complete: out_dir={result.artifacts.get('reconstruction_out_dir')}")
+        return 0
+    if stage == "analysis":
+        print(f"analysis complete: out_dir={result.artifacts.get('analysis_out_dir')}")
         return 0
 
     raise SystemExit(f"Unsupported stage: {stage}")
@@ -639,7 +493,7 @@ def _cmd_scope_run(args: argparse.Namespace) -> int:
     _load_explicit_env_file(args=args)
 
     from axon_reconstructor.pipeline.scope_config import load_scope_config, summarize_scope_config, validate_scope_config
-    from axon_reconstructor.pipeline.stage_orchestrator import run_scope_stage_barriers, write_scope_run_summary
+    from axon_reconstructor.pipeline.stage_driver import run_scope_stage_barriers, write_scope_run_summary
 
     scope_config = load_scope_config(Path(args.config))
     errors = validate_scope_config(scope_config)
@@ -673,7 +527,7 @@ def _cmd_scope_run(args: argparse.Namespace) -> int:
 
 
 def _cmd_scope_config_build(args: argparse.Namespace) -> int:
-    from axon_reconstructor.pipeline.scope_config_builder import run_scope_config_build
+    from axon_reconstructor.pipeline.scope_config import run_scope_config_build
 
     return int(run_scope_config_build(args))
 
@@ -697,83 +551,6 @@ def main(argv: list[str] | None = None) -> int:
     p_cmd.add_argument("--n-jobs", type=int, default=None)
     p_cmd.add_argument("--chunk-duration", default=None)
     p_cmd.set_defaults(func=_cmd_mea_sort_cmd)
-
-    p_run = sub.add_parser(
-        "run",
-        help="Run axon reconstruction, loading MEA_Analysis sorter outputs from --mea-output-root.",
-    )
-    p_run.add_argument("h5_parent_dir", help="Directory to scan for raw .h5 files.")
-    _add_mea_common_flags(p_run)
-    p_run.add_argument("--docker-image", default=None, help="Docker image for lab auto-run (optional).")
-    p_run.add_argument(
-        "--auto-run-driver",
-        action="store_true",
-        help="If set, may invoke MEA_Analysis driver (lab mode) when sorter_output is missing.",
-    )
-    p_run.add_argument(
-        "--force-restart",
-        action="store_true",
-        help="Ignore existing axon_reconstructor checkpoint state (re-run stages).",
-    )
-    p_run.add_argument(
-        "--no-checkpoint",
-        dest="enable_checkpointing",
-        action="store_false",
-        default=True,
-        help="Disable axon_reconstructor JSON checkpointing.",
-    )
-    p_run.add_argument("--only-load-sortings", action="store_true", help="Legacy flag; kept for compatibility.")
-    p_run.add_argument("--no-concatenate", dest="concatenate", action="store_false", default=True)
-    p_run.add_argument("--no-waveforms", dest="waveforms", action="store_false", default=True)
-    p_run.add_argument("--no-templates", dest="templates", action="store_false", default=True)
-    p_run.add_argument("--no-reconstruct", dest="reconstruct", action="store_false", default=True)
-    p_run.set_defaults(func=_cmd_run_reconstruction)
-
-    p_pipe = sub.add_parser(
-        "pipeline",
-        help=(
-            "Run the rebuilt pipeline on a targeted dataset (development/debug command; "
-            "focuses on preprocessing + spikesorting preparation)."
-        ),
-    )
-    p_pipe.add_argument("data_path", help="Path to an MEA .raw.h5 file or a directory containing .h5 files.")
-    _add_mea_common_flags(p_pipe)
-    p_pipe.add_argument("--docker-image", default=None, help="Docker image for lab auto-run (optional).")
-    p_pipe.add_argument(
-        "--auto-run-driver",
-        action="store_true",
-        help="If set, may invoke MEA_Analysis driver (lab mode) when sorter_output is missing.",
-    )
-    p_pipe.add_argument(
-        "--force-restart",
-        action="store_true",
-        help="Ignore existing axon_reconstructor checkpoint state (re-run stages).",
-    )
-    p_pipe.add_argument(
-        "--no-checkpoint",
-        dest="enable_checkpointing",
-        action="store_false",
-        default=True,
-        help="Disable axon_reconstructor JSON checkpointing.",
-    )
-    p_pipe.add_argument("--only-load-sortings", action="store_true")
-    p_pipe.add_argument("--no-concatenate", dest="concatenate", action="store_false", default=True)
-    p_pipe.add_argument("--no-sort", dest="sort", action="store_false", default=True)
-    p_pipe.add_argument("--no-waveforms", dest="waveforms", action="store_false", default=True)
-    p_pipe.add_argument("--no-templates", dest="templates", action="store_false", default=True)
-    p_pipe.add_argument("--no-reconstruct", dest="reconstruct", action="store_false", default=True)
-    p_pipe.add_argument(
-        "--stream-id",
-        default=None,
-        help="If set, runs preprocessing for a specific well/stream (e.g. well000) and exits.",
-    )
-    p_pipe.add_argument(
-        "--list-streams",
-        action="store_true",
-        help="Print available stream ids (wells) in the given .h5 and exit.",
-    )
-    p_pipe.add_argument("--n-jobs", type=int, default=None)
-    p_pipe.set_defaults(func=_cmd_pipeline)
 
     p_gpu = sub.add_parser(
         "gpu-interact",

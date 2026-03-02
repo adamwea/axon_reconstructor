@@ -13,8 +13,8 @@ from ..checkpointing import (
     exception_to_error_dict,
     load_checkpoint,
 )
+from ..output_paths import compute_mea_analysis_output_dir
 from ..pipeline_logging import build_stage_logger, log_stage_complete, log_stage_failure, log_stage_start
-from ..pipeline_driver import _compute_mea_analysis_output_dir
 from ..shared_io import as_float_list, as_int_list, as_list, jsonable, read_json, write_json
 from ..stage_checkpointing import compute_stage_checkpoint_file, save_stage_completed, save_stage_failed, save_stage_started
 
@@ -487,7 +487,7 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
     - all-units morphology overview
     """
 
-    well_out_dir = _compute_mea_analysis_output_dir(
+    well_out_dir = compute_mea_analysis_output_dir(
         output_root=inputs.mea_output_root,
         data_file=inputs.h5_path,
         well=inputs.stream_id,

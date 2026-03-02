@@ -323,9 +323,9 @@ def main() -> None:
     stream_id = str(args.stream_id)
     mea_output_root = debug_env.env_required_path("AXON_RECON_MEA_OUTPUT_ROOT")
 
-    from axon_reconstructor.pipeline.pipeline_driver import _compute_mea_analysis_output_dir
+    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
 
-    well_out_dir = _compute_mea_analysis_output_dir(
+    well_out_dir = compute_mea_analysis_output_dir(
         output_root=mea_output_root,
         data_file=h5_path,
         well=stream_id,

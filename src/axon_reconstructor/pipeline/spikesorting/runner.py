@@ -17,10 +17,10 @@ from typing import Optional
 
 from ..checkpointing import ProcessingStage as AxonProcessingStage, load_checkpoint
 from ..pipeline_logging import log_stage_complete, log_stage_failure, log_stage_start
+from ..raw_preprocessing.constants import PREPROCESS_OUTPUTS_DIRNAME
 from ..stage_checkpointing import compute_stage_checkpoint_file, save_stage_completed, save_stage_failed, save_stage_started
 
 
-PREPROCESS_OUTPUTS_DIRNAME = "preprocess_outputs"
 SPIKESORTING_OUTPUTS_DIRNAME = "spikesorting_outputs"
 
 
@@ -252,9 +252,9 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         pass
 
     # Reuse axon_reconstructor's MEA_Analysis-style output path computation.
-    from axon_reconstructor.pipeline.pipeline_driver import _compute_mea_analysis_output_dir
+    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
 
-    well_out_dir = _compute_mea_analysis_output_dir(
+    well_out_dir = compute_mea_analysis_output_dir(
         output_root=inputs.mea_output_root,
         data_file=inputs.h5_path,
         well=inputs.stream_id,

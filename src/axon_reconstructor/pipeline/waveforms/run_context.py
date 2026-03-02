@@ -8,8 +8,9 @@ from typing import Any, Optional
 from ..checkpointing import (
     load_checkpoint,
 )
+from ..output_paths import compute_mea_analysis_output_dir
+from ..raw_preprocessing.constants import PREPROCESS_OUTPUTS_DIRNAME
 from ..pipeline_logging import build_stage_logger
-from ..pipeline_driver import PREPROCESS_OUTPUTS_DIRNAME, _compute_mea_analysis_output_dir
 from ..stage_checkpointing import compute_stage_checkpoint_file
 
 from .constants import WAVEFORMS_OUTPUTS_DIRNAME
@@ -33,7 +34,7 @@ def _compute_waveforms_checkpoint_file(*, well_out_dir: Path, h5_path: Path, str
 
 
 def _compute_waveforms_out_dir(*, output_root: Path, data_file: Path, well: str) -> Path:
-    return _compute_mea_analysis_output_dir(output_root=output_root, data_file=data_file, well=well) / WAVEFORMS_OUTPUTS_DIRNAME
+    return compute_mea_analysis_output_dir(output_root=output_root, data_file=data_file, well=well) / WAVEFORMS_OUTPUTS_DIRNAME
 
 
 @dataclass(frozen=True)
@@ -59,7 +60,7 @@ class _WaveformWindow:
 
 
 def _initialize_run_context(*, inputs, logger_name_prefix: str) -> _WaveformsRunContext:
-    well_out_dir = _compute_mea_analysis_output_dir(
+    well_out_dir = compute_mea_analysis_output_dir(
         output_root=inputs.mea_output_root,
         data_file=inputs.h5_path,
         well=inputs.stream_id,
