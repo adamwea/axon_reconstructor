@@ -9,6 +9,8 @@ from typing import Any
 STAGE_NAMES: tuple[str, ...] = (
     "preprocess",
     "spikesort",
+    "unit_match",
+    "merge_update",
     "waveforms",
     "templates",
     "reconstruct",
@@ -197,6 +199,28 @@ def validate_scope_config(cfg: ScopeConfig) -> list[str]:
 
     if "spikesort" in cfg.stage_order and cfg.mea_analysis_repo_root is None:
         errors.append("spikesort stage requested but mea_analysis_repo_root is not configured")
+
+    if "unit_match" in cfg.stage_order:
+        idx_unit_match = cfg.stage_order.index("unit_match")
+        if "spikesort" not in cfg.stage_order:
+            errors.append("unit_match stage requested but spikesort stage is missing from stage_order")
+        elif cfg.stage_order.index("spikesort") > idx_unit_match:
+            errors.append("unit_match stage must run after spikesort")
+
+        for downstream in ("waveforms", "templates", "reconstruct", "analysis"):
+            if downstream in cfg.stage_order and cfg.stage_order.index(downstream) < idx_unit_match:
+                errors.append(f"{downstream} must run after unit_match when unit_match is present")
+
+    if "merge_update" in cfg.stage_order:
+        idx_merge_update = cfg.stage_order.index("merge_update")
+        if "unit_match" not in cfg.stage_order:
+            errors.append("merge_update stage requested but unit_match stage is missing from stage_order")
+        elif cfg.stage_order.index("unit_match") > idx_merge_update:
+            errors.append("merge_update stage must run after unit_match")
+
+        for downstream in ("waveforms", "templates", "reconstruct", "analysis"):
+            if downstream in cfg.stage_order and cfg.stage_order.index(downstream) < idx_merge_update:
+                errors.append(f"{downstream} must run after merge_update when merge_update is present")
 
     return errors
 

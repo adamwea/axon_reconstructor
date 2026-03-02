@@ -11,6 +11,8 @@
   "stage_order": [
     "preprocess",
     "spikesort",
+    "unit_match",
+    "merge_update",
     "waveforms",
     "templates",
     "reconstruct",

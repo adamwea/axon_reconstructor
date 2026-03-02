@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .analysis import AnalysisInputs, analyze_units
-from .pipeline_driver import AxonReconstructor
+from .pipeline_driver import AxonReconstructor, _compute_mea_analysis_output_dir
 from .reconstruction import ReconstructionInputs, reconstruct_from_templates
 from .scope_config import ScopeConfig
 from .spikesorting import SpikeSortingInputs, run_spikesorting_stage
@@ -216,6 +216,99 @@ def _run_single_stage_target(*, stage: str, config: ScopeConfig, target: ScopeTa
     raise ValueError(f"Unsupported stage: {stage}")
 
 
+def _expected_sorter_output_dir(*, config: ScopeConfig, target: ScopeTarget) -> Path:
+    well_out_dir = _compute_mea_analysis_output_dir(
+        output_root=config.mea_output_root,
+        data_file=target.h5_path,
+        well=target.stream_id,
+    )
+    return well_out_dir / "spikesorting_outputs" / "sorter_output"
+
+
+def _run_transition_stage(
+    *,
+    stage: str,
+    config: ScopeConfig,
+    targets: list[ScopeTarget],
+    summary: dict[str, Any],
+) -> dict[str, Any]:
+    if stage == "unit_match":
+        stage_entries: list[dict[str, Any]] = []
+        for target in targets:
+            sorter_output_dir = _expected_sorter_output_dir(config=config, target=target)
+            if sorter_output_dir.exists():
+                stage_entries.append(
+                    {
+                        "status": "ok",
+                        "stage": stage,
+                        "dataset_id": target.dataset_id,
+                        "h5_path": str(target.h5_path),
+                        "stream_id": target.stream_id,
+                        "started_at": _now_utc(),
+                        "finished_at": _now_utc(),
+                        "gate": "spikesort_artifacts_ready",
+                        "sorter_output_dir": str(sorter_output_dir),
+                    }
+                )
+            else:
+                stage_entries.append(
+                    {
+                        "status": "error",
+                        "stage": stage,
+                        "dataset_id": target.dataset_id,
+                        "h5_path": str(target.h5_path),
+                        "stream_id": target.stream_id,
+                        "started_at": None,
+                        "finished_at": _now_utc(),
+                        "gate": "spikesort_artifacts_ready",
+                        "sorter_output_dir": str(sorter_output_dir),
+                        "error": "Missing spikesort artifacts required before unit_match",
+                    }
+                )
+
+        failed = sum(1 for entry in stage_entries if entry.get("status") != "ok")
+        return {"stage": stage, "results": stage_entries, "failed": int(failed)}
+
+    if stage == "merge_update":
+        unit_match_stage = next((s for s in summary.get("stages", []) if s.get("stage") == "unit_match"), None)
+        missing_or_failed_unit_match = unit_match_stage is None or int(unit_match_stage.get("failed", 0) or 0) > 0
+
+        stage_entries: list[dict[str, Any]] = []
+        for target in targets:
+            if missing_or_failed_unit_match:
+                stage_entries.append(
+                    {
+                        "status": "error",
+                        "stage": stage,
+                        "dataset_id": target.dataset_id,
+                        "h5_path": str(target.h5_path),
+                        "stream_id": target.stream_id,
+                        "started_at": None,
+                        "finished_at": _now_utc(),
+                        "gate": "merge_updates_after_unit_match",
+                        "error": "unit_match must complete successfully before merge_update",
+                    }
+                )
+            else:
+                stage_entries.append(
+                    {
+                        "status": "ok",
+                        "stage": stage,
+                        "dataset_id": target.dataset_id,
+                        "h5_path": str(target.h5_path),
+                        "stream_id": target.stream_id,
+                        "started_at": _now_utc(),
+                        "finished_at": _now_utc(),
+                        "gate": "merge_updates_after_unit_match",
+                    }
+                )
+
+        failed = sum(1 for entry in stage_entries if entry.get("status") != "ok")
+        return {"stage": stage, "results": stage_entries, "failed": int(failed)}
+
+    raise ValueError(f"Unsupported transition stage: {stage}")
+
+
 def run_scope_stage_barriers(
     *,
     config: ScopeConfig,
@@ -245,6 +338,21 @@ def run_scope_stage_barriers(
         for stage in stage_order:
             stage_entries = []
             for t in targets:
+                if stage in {"unit_match", "merge_update"}:
+                    gate_name = "spikesort_artifacts_ready" if stage == "unit_match" else "merge_updates_after_unit_match"
+                    stage_entries.append(
+                        {
+                            "status": "planned",
+                            "stage": stage,
+                            "dataset_id": t.dataset_id,
+                            "h5_path": str(t.h5_path),
+                            "stream_id": t.stream_id,
+                            "gate": gate_name,
+                            "stage_kwargs": _merge_stage_kwargs(stage=stage, config=config, target=t),
+                        }
+                    )
+                    continue
+
                 stage_entries.append(
                     {
                         "status": "planned",
@@ -260,6 +368,15 @@ def run_scope_stage_barriers(
 
     for stage in stage_order:
         logger.info("Stage barrier starting: %s (targets=%d, parallelism=%d)", stage, len(targets), int(config.per_well_parallelism))
+
+        if stage in {"unit_match", "merge_update"}:
+            transition_summary = _run_transition_stage(stage=stage, config=config, targets=targets, summary=summary)
+            summary["stages"].append(transition_summary)
+            failed = int(transition_summary.get("failed", 0) or 0)
+            if failed > 0 and bool(config.fail_fast):
+                logger.error("Stage barrier failed: %s (failed=%d). Stopping because fail_fast=true", stage, int(failed))
+                break
+            continue
 
         stage_results: list[dict[str, Any]] = []
         if int(config.per_well_parallelism) <= 1 or len(targets) <= 1:

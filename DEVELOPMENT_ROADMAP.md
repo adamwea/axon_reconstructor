@@ -137,7 +137,7 @@ Status legend:
 - Removed package script entrypoint: `axon-recon-smoke` from `pyproject.toml`.
 
 ### 3.1 Stage-by-stage optimization pass
-- Status: `IN PROGRESS`
+- Status: `DONE`
 - Scope:
   - Preprocess
   - Spikesort
@@ -185,7 +185,7 @@ Status legend:
     - `src/axon_reconstructor/pipeline/reconstruction/runner.py`
 
 ### 3.2 Extract shared helpers across stages
-- Status: `IN PROGRESS`
+- Status: `DONE`
 - Goal:
   - Identify common utilities and move into shared modules.
 - Deliverables:
@@ -194,7 +194,7 @@ Status legend:
   - [DONE] Stage-barrier orchestration helper with per-well parallel execution:
     - `src/axon_reconstructor/pipeline/stage_orchestrator.py`
   - [DONE] Reduced stage-invocation duplication by centralizing cross-stage orchestration and kwargs merging.
-  - [TODO] Continue extracting lower-level reusable IO/logging/plot/metrics helpers from stage internals.
+  - [DEFERRED → 4.x] Continue extracting lower-level reusable IO/logging/plot/metrics helpers from stage internals.
 
 ### 3.2a Pipeline-native scope config for multi-dataset execution
 - Status: `DONE`
@@ -242,12 +242,15 @@ Status legend:
     - `docs/examples/README.md`
 
 ### 3.2d UnitMatch readiness gate in orchestration flow
-- Status: `TODO`
+- Status: `DONE`
 - Goal:
   - Ensure downstream unit-matching prerequisites are satisfied by stage ordering.
 - Deliverables:
-  - Guarantee all spikesorting artifacts across configured timepoints are complete before unit matching.
-  - Add explicit transition points for: unit match → merge updates → waveform/template/reconstruction continuation.
+  - [DONE] Guarantee all spikesorting artifacts across configured timepoints are complete before unit matching.
+    - `scope-run` now enforces `unit_match` readiness by checking each target's expected `spikesorting_outputs/sorter_output` path.
+  - [DONE] Add explicit transition points for: unit match → merge updates → waveform/template/reconstruction continuation.
+    - Added stage-order support + validation for `unit_match` and `merge_update` in scope config.
+    - Added transition-stage execution in scope orchestrator with fail-fast semantics.
 
 ### 3.2e Debug-arg centralization into package CLI
 - Status: `DONE`
@@ -377,9 +380,10 @@ Compatibility/deprecation policy (approved):
   - deprecated/duplicate parser logic removed per approved transition window.
 
 ### 3.2g Package-first harness consolidation (post-3.2f cleanup)
-- Status: `IN PROGRESS`
+- Status: `DONE`
 - Goal:
   - Align the debug/project harness with package-first ownership so `tools/debug` behaves like a thin user-project layer and all major capabilities live in `axon_reconstructor`.
+  - Keep `tools/debug/debug.env` and `tools/debug/cross_well_config.yml` as stable project-template assets (not package feature implementations).
 - Deliverables:
   - Reduce temporary debug alias surface in `src/axon_reconstructor/cli.py` after the one-release compatibility window:
     - [DONE] removed `debug-*` subcommand registrations and handlers.
@@ -392,15 +396,19 @@ Compatibility/deprecation policy (approved):
     - [DONE] analysis execution moved into canonical `stage analysis` with package-owned analysis args/env resolution; retired `tools/debug/debug_analysis_step.py`.
     - [DONE] `analysis-deck` promoted as canonical package CLI command with package-owned implementation in `src/axon_reconstructor/pipeline/analysis/analysis_deck.py`.
   - Move scope-config conversion utility into package CLI:
-    - [IN PROGRESS] promote cross-well to scope config conversion into package-owned command.
+    - [DONE] promoted cross-well to scope config conversion into package-owned `scope-config-build` command.
     - [DONE] retired `tools/debug/build_scope_config.py` compatibility wrapper.
+  - Preserve editable project-style stage orchestration script in debug layer:
+    - [DONE] added `tools/debug/run_stage_combo.sh` for running any chosen combination of canonical `stage` commands.
+    - script contract: `--env-file` defaults from `tools/debug/debug.env`, optional stage list via `STAGES_CSV`, editable per-stage args in-script.
   - Re-assess wrapper helper lifetime:
     - [DONE] retired `tools/debug/_stage_wrapper.py` and removed deleted stage wrapper scripts.
   - Update docs/examples to treat `tools/debug` as optional project templates, not primary feature location.
-    - [IN PROGRESS] debug docs updated to canonical `stage`/`analysis-deck`/`scope-run` entrypoints.
+    - [DONE] debug docs updated to canonical `stage`/`analysis-deck`/`scope-run`/`scope-config-build` entrypoints and retained template assets.
+    - [DONE] added editable scope orchestration script docs for `tools/debug/run_scope_combo.sh`.
 
 ### 3.3 Docs + Roadmap Update Checkpoint
-- Status: `TODO`
+- Status: `DONE`
 
 ---
 
@@ -513,4 +521,4 @@ Compatibility/deprecation policy (approved):
 
 ## Immediate Next Item (for execution)
 
-`Phase 3.2d` — UnitMatch readiness gate in orchestration flow.
+`Phase 4.1` — Wire up and test partially implemented Radivojevic-style reconstruction.

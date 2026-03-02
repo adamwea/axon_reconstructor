@@ -23,6 +23,19 @@ python -m axon_reconstructor.cli stage waveforms \
   --n-jobs 16
 ```
 
+Generate a scope config directly from retained project-template assets:
+
+```bash
+python -m axon_reconstructor.cli scope-config-build \
+  --cross-well-config tools/debug/cross_well_config.yml \
+  --env-file tools/debug/debug.env \
+  --out tools/debug/logs/generated_scope_config.json \
+  --stage-order preprocess,spikesort,unit_match,merge_update,waveforms,templates,reconstruct,analysis
+```
+
+Then execute with `scope-run` (or use `tools/debug/run_scope_combo.sh` for an
+editable, script-first flow).
+
 ## `debug.env.example` key groups
 
 - **Paths**: `AXON_RECON_H5_PATH`, `AXON_RECON_STREAM_ID`, `AXON_RECON_MEA_OUTPUT_ROOT`
@@ -52,7 +65,7 @@ python -m axon_reconstructor.cli stage waveforms \
 - `datasets[]`: dataset/well targets for execution.
   - `h5_path`: source recording path.
   - `wells[].stream_id`: well/stream id.
-- `stage_order`: global stage barrier order.
+- `stage_order`: global stage barrier order (supports transition gates like `unit_match` and `merge_update`).
 - `per_well_parallelism`: number of wells processed concurrently within a stage barrier.
 - `stage_kwargs`: optional stage-specific keyword overrides.
 
