@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import concurrent.futures
-import json
 import logging
 import os
 import sys
@@ -11,13 +10,13 @@ from typing import Any, Optional
 
 from ..checkpointing import (
     ProcessingStage,
-    compute_checkpoint_file,
     exception_to_error_dict,
     load_checkpoint,
-    save_checkpoint,
 )
-from ..pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
+from ..pipeline_logging import build_stage_logger, log_stage_complete, log_stage_failure, log_stage_start
 from ..pipeline_driver import _compute_mea_analysis_output_dir
+from ..shared_io import as_float_list, as_int_list, as_list, jsonable, read_json, write_json
+from ..stage_checkpointing import compute_stage_checkpoint_file, save_stage_completed, save_stage_failed, save_stage_started
 
 from .plotting import write_all_units_overview_pdf, write_unit_reconstruction_pdfs
 
@@ -25,68 +24,27 @@ RECONSTRUCTION_OUTPUTS_DIRNAME = "reconstruction_outputs"
 
 
 def _read_json(path: Path) -> Any:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    return read_json(path)
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+    write_json(path, payload)
 
 
 def _jsonable(x: Any) -> Any:
-    try:
-        import numpy as np  # type: ignore[import-not-found]
-
-        if isinstance(x, (np.integer, np.floating)):
-            return x.item()
-    except Exception:
-        pass
-    if isinstance(x, Path):
-        return str(x)
-    return x
+    return jsonable(x)
 
 
 def _as_list(x: Any) -> list[Any]:
-    if x is None:
-        return []
-    if isinstance(x, (list, tuple)):
-        return list(x)
-    if isinstance(x, (str, bytes)):
-        return [x]
-    try:
-        import numpy as np  # type: ignore[import-not-found]
-
-        if isinstance(x, np.ndarray):
-            return x.ravel().tolist()
-    except Exception:
-        pass
-    try:
-        return list(x)
-    except Exception:
-        return [x]
+    return as_list(x)
 
 
 def _as_float_list(x: Any) -> list[float]:
-    out: list[float] = []
-    for v in _as_list(x):
-        try:
-            out.append(float(v))
-        except Exception:
-            continue
-    return out
+    return as_float_list(x)
 
 
 def _as_int_list(x: Any) -> list[int]:
-    out: list[int] = []
-    for v in _as_list(x):
-        try:
-            out.append(int(v))
-        except Exception:
-            continue
-    return out
+    return as_int_list(x)
 
 
 def _compute_raw_branches_fallback(*, uid: Any, gtr: Any) -> list[dict[str, Any]]:
@@ -128,13 +86,12 @@ def _write_branches_raw_json(*, uid: Any, gtr: Any, raw_branches_json: Path, log
 
 
 def _compute_reconstruction_checkpoint_file(*, well_out_dir: Path, h5_path: Path, stream_id: str) -> Path:
-    main_ckpt = compute_checkpoint_file(output_dir=well_out_dir, file_path=h5_path, stream_id=stream_id)
-    name = main_ckpt.name
-    if name.endswith("_checkpoint.json"):
-        name = name[: -len("_checkpoint.json")] + "_reconstruction_checkpoint.json"
-    else:
-        name = main_ckpt.stem + "_reconstruction_checkpoint.json"
-    return main_ckpt.with_name(name)
+    return compute_stage_checkpoint_file(
+        well_out_dir=well_out_dir,
+        h5_path=h5_path,
+        stream_id=stream_id,
+        stage_name="reconstruction",
+    )
 
 
 def _filter_kwargs_for_callable(fn: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -536,10 +493,12 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
         well=inputs.stream_id,
     )
 
-    log_file = compute_pipeline_log_file(well_out_dir=well_out_dir, data_file=inputs.h5_path, stream_id=inputs.stream_id)
-    logger = setup_pipeline_logger(
-        log_file=log_file,
-        logger_name=f"{logger_name_prefix}.{inputs.stream_id}.reconstruction",
+    logger = build_stage_logger(
+        well_out_dir=well_out_dir,
+        data_file=inputs.h5_path,
+        stream_id=inputs.stream_id,
+        stage_name="reconstruction",
+        logger_name_prefix=logger_name_prefix,
         verbose=True,
     )
 
@@ -583,14 +542,31 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
             all_units_overview_pdf=(all_units_overview_pdf if (all_units_overview_pdf and all_units_overview_pdf.exists()) else None),
         )
 
-    ckpt = save_checkpoint(
+    ckpt = save_stage_started(
         checkpoint_file=ckpt_file,
         state=ckpt,
         stage=ProcessingStage.ANALYZER,
-        failed_stage=None,
-        error=None,
+        out_dir=recon_out_dir,
         extra_fields={"reconstruction_out_dir": str(recon_out_dir)},
     )
+    log_stage_start(logger, stage="reconstruction", out_dir=str(recon_out_dir))
+
+    def _mark_failed_and_raise(exc: Exception | BaseException, *, failed_stage: str = "RECONSTRUCTION") -> None:
+        save_stage_failed(
+            checkpoint_file=ckpt_file,
+            state=ckpt,
+            stage=ProcessingStage.ANALYZER,
+            failed_stage=failed_stage,
+            error=exc,
+            extra_fields={"reconstruction_out_dir": str(recon_out_dir)},
+        )
+        log_stage_failure(
+            logger,
+            stage="reconstruction",
+            checkpoint_file=str(ckpt_file),
+            error=exc,
+        )
+        raise exc
 
     recon_out_dir.mkdir(parents=True, exist_ok=True)
     by_unit_dir.mkdir(parents=True, exist_ok=True)
@@ -611,22 +587,28 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
         if legacy.exists():
             full_channels_templates_dir = legacy
     if not merged_units_dir.exists():
-        raise FileNotFoundError(f"Missing merged templates at {merged_units_dir}")
+        _mark_failed_and_raise(FileNotFoundError(f"Missing merged templates at {merged_units_dir}"), failed_stage="RECON_INPUTS")
     if bool(inputs.use_full_channels_templates) and bool(inputs.require_full_channels_templates):
         if not full_channels_templates_dir.exists():
-            raise FileNotFoundError(
-                "Reconstruction is configured to require full-channel templates for axon_velocity, "
-                f"but {full_channels_templates_dir} does not exist. "
-                "Re-run templates with save_full_channels_templates=True, or set "
-                "ReconstructionInputs(require_full_channels_templates=False)."
+            _mark_failed_and_raise(
+                FileNotFoundError(
+                    "Reconstruction is configured to require full-channel templates for axon_velocity, "
+                    f"but {full_channels_templates_dir} does not exist. "
+                    "Re-run templates with save_full_channels_templates=True, or set "
+                    "ReconstructionInputs(require_full_channels_templates=False)."
+                ),
+                failed_stage="RECON_INPUTS",
             )
 
     try:
         import numpy as np  # type: ignore[import-not-found]
     except Exception as e:  # pragma: no cover
-        raise RuntimeError("Reconstruction requires numpy") from e
+        _mark_failed_and_raise(RuntimeError("Reconstruction requires numpy"), failed_stage="RECON_DEPENDENCIES")
 
-    av = _import_axon_velocity(repo_root=inputs.axon_velocity_repo_root)
+    try:
+        av = _import_axon_velocity(repo_root=inputs.axon_velocity_repo_root)
+    except Exception as e:
+        _mark_failed_and_raise(e, failed_stage="RECON_DEPENDENCIES")
 
     # Determine unit list.
     discovered_unit_ids: list[Any] = []
@@ -775,28 +757,30 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
         except Exception as e:
             logger.warning("Failed writing all-units overview pdf: %s", e)
 
-    _write_json(summary_json, summary)
+    try:
+        _write_json(summary_json, summary)
 
-    ckpt = save_checkpoint(
-        checkpoint_file=ckpt_file,
-        state=ckpt,
-        stage=ProcessingStage.ANALYZER_COMPLETE,
-        failed_stage=None,
-        error=None,
-        extra_fields={
-            "reconstruction_out_dir": str(recon_out_dir),
-            "reconstruction_summary_json": str(summary_json),
-            "all_units_overview_pdf": str(all_units_overview_pdf) if all_units_overview_pdf else None,
-        },
-    )
+        ckpt = save_stage_completed(
+            checkpoint_file=ckpt_file,
+            state=ckpt,
+            stage=ProcessingStage.ANALYZER_COMPLETE,
+            extra_fields={
+                "reconstruction_out_dir": str(recon_out_dir),
+                "reconstruction_summary_json": str(summary_json),
+                "all_units_overview_pdf": str(all_units_overview_pdf) if all_units_overview_pdf else None,
+            },
+        )
+        log_stage_complete(logger, stage="reconstruction", summary_json=str(summary_json), units=len(summary.get("units", [])))
 
-    return ReconstructionOutputs(
-        well_out_dir=well_out_dir,
-        reconstruction_out_dir=recon_out_dir,
-        summary_json=summary_json,
-        by_unit_dir=by_unit_dir,
-        all_units_overview_pdf=all_units_overview_pdf,
-    )
+        return ReconstructionOutputs(
+            well_out_dir=well_out_dir,
+            reconstruction_out_dir=recon_out_dir,
+            summary_json=summary_json,
+            by_unit_dir=by_unit_dir,
+            all_units_overview_pdf=all_units_overview_pdf,
+        )
+    except Exception as e:
+        _mark_failed_and_raise(e)
 
 
 __all__ = [

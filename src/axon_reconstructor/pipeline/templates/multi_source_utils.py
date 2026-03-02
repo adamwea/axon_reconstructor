@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Optional
 
-from ..checkpointing import compute_checkpoint_file
+from ..shared_io import read_json, write_json
+from ..stage_checkpointing import compute_stage_checkpoint_file
 
 
 def _try_get_recording_property(recording: Any, key: str):
@@ -191,21 +191,17 @@ def _get_unit_template_from_extension(*, analyzer, templates_ext, unit_id: Any):
 
 
 def _read_json(path: Path) -> Any:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    return read_json(path)
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+    write_json(path, payload)
 
 
 def _compute_templates_checkpoint_file(*, well_out_dir: Path, h5_path: Path, stream_id: str) -> Path:
-    main_ckpt = compute_checkpoint_file(output_dir=well_out_dir, file_path=h5_path, stream_id=stream_id)
-    name = main_ckpt.name
-    if name.endswith("_checkpoint.json"):
-        name = name[: -len("_checkpoint.json")] + "_templates_checkpoint.json"
-    else:
-        name = main_ckpt.stem + "_templates_checkpoint.json"
-    return main_ckpt.with_name(name)
+    return compute_stage_checkpoint_file(
+        well_out_dir=well_out_dir,
+        h5_path=h5_path,
+        stream_id=stream_id,
+        stage_name="templates",
+    )

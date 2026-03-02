@@ -24,10 +24,10 @@ from ..checkpointing import (
     ProcessingStage,
     exception_to_error_dict,
     load_checkpoint,
-    save_checkpoint,
 )
-from ..pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
+from ..pipeline_logging import build_stage_logger, log_stage_complete, log_stage_failure, log_stage_start
 from ..pipeline_driver import _compute_mea_analysis_output_dir
+from ..stage_checkpointing import save_stage_completed, save_stage_failed, save_stage_started
 
 
 TEMPLATES_OUTPUTS_DIRNAME = "templates_outputs"
@@ -156,9 +156,10 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         well=inputs.stream_id,
     )
 
-    log_file = compute_pipeline_log_file(well_out_dir=well_out_dir, data_file=inputs.h5_path, stream_id=inputs.stream_id)
-    logger = setup_pipeline_logger(
-        log_file=log_file,
+    logger = build_stage_logger(
+        well_out_dir=well_out_dir,
+        data_file=inputs.h5_path,
+        stream_id=inputs.stream_id,
         logger_name=f"{logger_name_prefix}.{inputs.stream_id}.templates",
         verbose=True,
     )
@@ -217,49 +218,65 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
             multi_source_templates_dir=(unit_segment_grids_dir if unit_segment_grids_dir is not None and unit_segment_grids_dir.exists() else None),
         )
 
-    ckpt = save_checkpoint(
+    ckpt = save_stage_started(
         checkpoint_file=ckpt_file,
         state=ckpt,
         stage=ProcessingStage.ANALYZER,
-        failed_stage=None,
-        error=None,
         extra_fields={"templates_out_dir": str(templates_out_dir)},
     )
+    log_stage_start(logger=logger, stage="templates", checkpoint_file=ckpt_file)
 
-    templates_out_dir.mkdir(parents=True, exist_ok=True)
-    templates_dir.mkdir(parents=True, exist_ok=True)
-    extracted_templates_dir.mkdir(parents=True, exist_ok=True)
-    merged_units_dir.mkdir(parents=True, exist_ok=True)
-    footprints_root_dir.mkdir(parents=True, exist_ok=True)
-    merged_unit_footprints_dir.mkdir(parents=True, exist_ok=True)
-    merged_unit_footprints_zoomed_dir.mkdir(parents=True, exist_ok=True)
-    merged_unit_full_chip_maps_dir.mkdir(parents=True, exist_ok=True)
-    if bool(inputs.save_full_channels_templates):
-        full_channels_templates_dir.mkdir(parents=True, exist_ok=True)
-    if bool(inputs.plot_topo_unit_footprints):
-        topo_unit_footprints_dir.mkdir(parents=True, exist_ok=True)
-    if bool(inputs.plot_propagation_plots):
-        propagation_plots_dir.mkdir(parents=True, exist_ok=True)
-    if unit_segment_grids_dir is not None:
-        unit_segment_grids_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        templates_out_dir.mkdir(parents=True, exist_ok=True)
+        templates_dir.mkdir(parents=True, exist_ok=True)
+        extracted_templates_dir.mkdir(parents=True, exist_ok=True)
+        merged_units_dir.mkdir(parents=True, exist_ok=True)
+        footprints_root_dir.mkdir(parents=True, exist_ok=True)
+        merged_unit_footprints_dir.mkdir(parents=True, exist_ok=True)
+        merged_unit_footprints_zoomed_dir.mkdir(parents=True, exist_ok=True)
+        merged_unit_full_chip_maps_dir.mkdir(parents=True, exist_ok=True)
+        if bool(inputs.save_full_channels_templates):
+            full_channels_templates_dir.mkdir(parents=True, exist_ok=True)
+        if bool(inputs.plot_topo_unit_footprints):
+            topo_unit_footprints_dir.mkdir(parents=True, exist_ok=True)
+        if bool(inputs.plot_propagation_plots):
+            propagation_plots_dir.mkdir(parents=True, exist_ok=True)
+        if unit_segment_grids_dir is not None:
+            unit_segment_grids_dir.mkdir(parents=True, exist_ok=True)
 
-    if bool(inputs.plot_axon_velocity_outputs):
-        axon_velocity_outputs_root_dir.mkdir(parents=True, exist_ok=True)
+        if bool(inputs.plot_axon_velocity_outputs):
+            axon_velocity_outputs_root_dir.mkdir(parents=True, exist_ok=True)
 
-    from .multi_source_utils import (
-        _get_unit_template_from_extension,
-        _load_waveforms_analyzers,
-        _normalize_id_for_compare,
-        _sparsity_unit_channel_indices,
-        _try_get_electrode_ids,
-    )
+        from .multi_source_utils import (
+            _get_unit_template_from_extension,
+            _load_waveforms_analyzers,
+            _normalize_id_for_compare,
+            _sparsity_unit_channel_indices,
+            _try_get_electrode_ids,
+        )
 
-    analyzers = _load_waveforms_analyzers(
-        well_out_dir=well_out_dir,
-        include_concat=bool(inputs.include_concat),
-        include_segments=bool(inputs.include_segments),
-        logger=logger,
-    )
+        analyzers = _load_waveforms_analyzers(
+            well_out_dir=well_out_dir,
+            include_concat=bool(inputs.include_concat),
+            include_segments=bool(inputs.include_segments),
+            logger=logger,
+        )
+    except Exception as e:
+        save_stage_failed(
+            checkpoint_file=ckpt_file,
+            state=ckpt,
+            stage=ProcessingStage.ANALYZER,
+            failed_stage="TEMPLATES",
+            error=exception_to_error_dict(e),
+            extra_fields={"templates_out_dir": str(templates_out_dir)},
+        )
+        log_stage_failure(
+            logger=logger,
+            stage="templates",
+            checkpoint_file=ckpt_file,
+            error=e,
+        )
+        raise
 
     # Unit list:
     # - If the user passes `unit_ids`, we treat that list as the curated set.
@@ -397,12 +414,10 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
 
     _write_json(summary_json, summary)
 
-    ckpt = save_checkpoint(
+    ckpt = save_stage_completed(
         checkpoint_file=ckpt_file,
         state=ckpt,
         stage=ProcessingStage.ANALYZER_COMPLETE,
-        failed_stage=None,
-        error=None,
         extra_fields={
             "templates_out_dir": str(templates_out_dir),
             "extracted_templates_dir": str(extracted_templates_dir),
@@ -412,6 +427,12 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
             "templates_summary_json": str(summary_json),
             "templates_grid_pdf": str(templates_grid_pdf) if templates_grid_pdf else None,
         },
+    )
+    log_stage_complete(
+        logger=logger,
+        stage="templates",
+        checkpoint_file=ckpt_file,
+        extra={"templates_summary_json": summary_json},
     )
 
     return TemplateExtractOutputs(

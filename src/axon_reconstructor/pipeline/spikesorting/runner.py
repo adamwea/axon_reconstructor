@@ -15,17 +15,43 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from ..checkpointing import ProcessingStage as AxonProcessingStage, load_checkpoint
+from ..pipeline_logging import log_stage_complete, log_stage_failure, log_stage_start
+from ..stage_checkpointing import compute_stage_checkpoint_file, save_stage_completed, save_stage_failed, save_stage_started
+
 
 PREPROCESS_OUTPUTS_DIRNAME = "preprocess_outputs"
 SPIKESORTING_OUTPUTS_DIRNAME = "spikesorting_outputs"
 
 
-def _setup_well_logger(*, well_out_dir: Path, h5_path: Path, stream_id: str, verbose: bool) -> logging.Logger:
-    from axon_reconstructor.pipeline.pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
+def _compute_spikesort_checkpoint_file(*, well_out_dir: Path, h5_path: Path, stream_id: str) -> Path:
+    return compute_stage_checkpoint_file(
+        well_out_dir=well_out_dir,
+        h5_path=h5_path,
+        stream_id=stream_id,
+        stage_name="spikesort",
+    )
 
-    log_file = compute_pipeline_log_file(well_out_dir=well_out_dir, data_file=h5_path, stream_id=stream_id)
-    return setup_pipeline_logger(
-        log_file=log_file,
+
+def _resolve_axon_spikesort_completed_stage(stage_value: int) -> AxonProcessingStage:
+    if int(stage_value) >= int(AxonProcessingStage.REPORTS_COMPLETE.value):
+        return AxonProcessingStage.REPORTS_COMPLETE
+    if int(stage_value) >= int(AxonProcessingStage.ANALYZER_COMPLETE.value):
+        return AxonProcessingStage.ANALYZER_COMPLETE
+    if int(stage_value) >= int(AxonProcessingStage.SORTING_COMPLETE.value):
+        return AxonProcessingStage.SORTING_COMPLETE
+    if int(stage_value) >= int(AxonProcessingStage.SORTING.value):
+        return AxonProcessingStage.SORTING
+    return AxonProcessingStage.SORTING
+
+
+def _setup_well_logger(*, well_out_dir: Path, h5_path: Path, stream_id: str, verbose: bool) -> logging.Logger:
+    from axon_reconstructor.pipeline.pipeline_logging import build_stage_logger
+
+    return build_stage_logger(
+        well_out_dir=well_out_dir,
+        data_file=h5_path,
+        stream_id=stream_id,
         logger_name=f"axon_reconstructor.{stream_id}",
         verbose=bool(verbose),
     )
@@ -236,6 +262,35 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
     except Exception:
         pass
 
+    axon_ckpt_file = _compute_spikesort_checkpoint_file(
+        well_out_dir=well_out_dir,
+        h5_path=inputs.h5_path,
+        stream_id=inputs.stream_id,
+    )
+    axon_ckpt = load_checkpoint(
+        checkpoint_file=axon_ckpt_file,
+        force_restart=bool(inputs.force_restart),
+        output_dir=well_out_dir,
+        file_path=inputs.h5_path,
+        stream_id=inputs.stream_id,
+    )
+    axon_ckpt = save_stage_started(
+        checkpoint_file=axon_ckpt_file,
+        state=axon_ckpt,
+        stage=AxonProcessingStage.SORTING,
+        extra_fields={
+            "spikesorting_out_dir": str(well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME),
+            "checkpoint_owner": "axon_reconstructor_wrapper",
+            "delegate_checkpoint_owner": "MEA_Analysis",
+        },
+    )
+    log_stage_start(
+        logger=logger,
+        stage="spikesort",
+        checkpoint_file=axon_ckpt_file,
+        note="outer-wrapper; MEA_Analysis checkpoint remains authoritative inside stage",
+    )
+
     preprocess_dir = _resolve_preprocess_dir(well_out_dir=well_out_dir)
     recording_dir = preprocess_dir / "preprocessed_recording"
     if not recording_dir.exists():
@@ -264,7 +319,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
 
     from MEA_Analysis.IPNAnalysis.mea_analysis_routine import (  # type: ignore[import-not-found]
         MEAPipeline,
-        ProcessingStage,
+        ProcessingStage as MEAProcessingStage,
     )
 
     auto_merge_presets = None
@@ -322,10 +377,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
 
     # Inject our preprocessed recording; skip MEA_Analysis preprocessing.
     pipeline.recording = recording
-    pipeline.state["stage"] = max(
-        int(pipeline.state.get("stage", 0)),
-        ProcessingStage.PREPROCESSING_COMPLETE.value,
-    )
+    pipeline.state["stage"] = max(int(pipeline.state.get("stage", 0)), MEAProcessingStage.PREPROCESSING_COMPLETE.value)
     pipeline.state["error"] = None
 
     logger.info(
@@ -339,27 +391,19 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         logger.info("Running MEA_Analysis Phase 2 sorting...")
         pipeline.run_sorting()
         logger.info("MEA_Analysis sorting finished; stage=%s", pipeline.state.get("stage"))
-    except Exception:
-        logger.exception("MEA_Analysis sorting FAILED")
-        raise
 
-    if inputs.run_analyzer:
-        try:
+        if inputs.run_analyzer:
             logger.info("Running MEA_Analysis Phase 3 analyzer (computes waveforms/templates/metrics)...")
             pipeline.run_analyzer()
             logger.info("MEA_Analysis analyzer finished; stage=%s", pipeline.state.get("stage"))
-        except Exception:
-            logger.exception("MEA_Analysis analyzer FAILED")
-            raise
 
-    if inputs.run_reports:
-        if not inputs.run_analyzer and pipeline.analyzer is None:
-            raise RuntimeError(
-                "Requested report generation but analyzer was not run and no existing analyzer was loaded. "
-                "Set run_analyzer=True or run once to populate analyzer_output."
-            )
+        if inputs.run_reports:
+            if not inputs.run_analyzer and pipeline.analyzer is None:
+                raise RuntimeError(
+                    "Requested report generation but analyzer was not run and no existing analyzer was loaded. "
+                    "Set run_analyzer=True or run once to populate analyzer_output."
+                )
 
-        try:
             logger.info(
                 "Running MEA_Analysis Phase 4 reports (plots/figures)... no_curation=%s export_to_phy=%s",
                 inputs.no_curation,
@@ -371,28 +415,67 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
                 export_phy=inputs.export_to_phy,
             )
             logger.info("MEA_Analysis reports finished; stage=%s", pipeline.state.get("stage"))
-        except Exception:
-            logger.exception("MEA_Analysis reports FAILED")
-            raise
 
-    sorter_output_dir = pipeline.output_dir / "sorter_output"
-    logger.info("Sorting output folder: %s", sorter_output_dir)
+        sorter_output_dir = pipeline.output_dir / "sorter_output"
+        logger.info("Sorting output folder: %s", sorter_output_dir)
 
-    if int(pipeline.state.get("stage", 0)) >= ProcessingStage.REPORTS_COMPLETE.value:
-        logger.info("MEA_Analysis completed successfully (REPORTS_COMPLETE)")
-    elif int(pipeline.state.get("stage", 0)) >= ProcessingStage.SORTING_COMPLETE.value:
-        logger.info("MEA_Analysis completed sorting successfully (SORTING_COMPLETE)")
+        if int(pipeline.state.get("stage", 0)) >= MEAProcessingStage.REPORTS_COMPLETE.value:
+            logger.info("MEA_Analysis completed successfully (REPORTS_COMPLETE)")
+        elif int(pipeline.state.get("stage", 0)) >= MEAProcessingStage.SORTING_COMPLETE.value:
+            logger.info("MEA_Analysis completed sorting successfully (SORTING_COMPLETE)")
 
-    analyzer_dir = pipeline.output_dir / "analyzer_output"
-    if inputs.run_reports:
-        logger.info("Reports/figures should be under: %s", pipeline.output_dir)
+        analyzer_dir = pipeline.output_dir / "analyzer_output"
+        if inputs.run_reports:
+            logger.info("Reports/figures should be under: %s", pipeline.output_dir)
 
-    return SpikeSortingOutputs(
-        recording_dir=recording_dir,
-        sorter_output_dir=sorter_output_dir,
-        output_dir=pipeline.output_dir,
-        analyzer_dir=analyzer_dir,
-    )
+        completed_stage = _resolve_axon_spikesort_completed_stage(int(pipeline.state.get("stage", 0) or 0))
+        axon_ckpt = save_stage_completed(
+            checkpoint_file=axon_ckpt_file,
+            state=axon_ckpt,
+            stage=completed_stage,
+            extra_fields={
+                "spikesorting_out_dir": str(pipeline.output_dir),
+                "sorter_output_dir": str(sorter_output_dir),
+                "analyzer_dir": str(analyzer_dir),
+                "mea_analysis_checkpoint_file": str(getattr(pipeline, "checkpoint_file", "")),
+                "checkpoint_owner": "axon_reconstructor_wrapper",
+                "delegate_checkpoint_owner": "MEA_Analysis",
+            },
+        )
+        log_stage_complete(
+            logger=logger,
+            stage="spikesort",
+            checkpoint_file=axon_ckpt_file,
+            completed_stage=str(completed_stage.name),
+            mea_stage=str(pipeline.state.get("stage")),
+        )
+
+        return SpikeSortingOutputs(
+            recording_dir=recording_dir,
+            sorter_output_dir=sorter_output_dir,
+            output_dir=pipeline.output_dir,
+            analyzer_dir=analyzer_dir,
+        )
+    except Exception as e:
+        save_stage_failed(
+            checkpoint_file=axon_ckpt_file,
+            state=axon_ckpt,
+            stage=AxonProcessingStage.SORTING,
+            failed_stage="SPIKESORT",
+            error=e,
+            extra_fields={
+                "spikesorting_out_dir": str(well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME),
+                "checkpoint_owner": "axon_reconstructor_wrapper",
+                "delegate_checkpoint_owner": "MEA_Analysis",
+            },
+        )
+        log_stage_failure(
+            logger=logger,
+            stage="spikesort",
+            checkpoint_file=axon_ckpt_file,
+            error=e,
+        )
+        raise
 
 
 def run_spikesorting_only(*, inputs: SpikeSortingInputs, logger: logging.Logger) -> SpikeSortingOutputs:

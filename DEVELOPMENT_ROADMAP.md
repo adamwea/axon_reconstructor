@@ -415,7 +415,7 @@ Compatibility/deprecation policy (approved):
 ## Phase 3.5 — Cross-Stage Runtime Hardening
 
 ### 3.5.1 Deferred helper extraction from Phase 3.2
-- Status: `TODO`
+- Status: `DONE`
 - Goal:
   - Complete deferred shared-helper extraction across all stages before reconstruction-backend expansion.
 - Deliverables:
@@ -426,7 +426,7 @@ Compatibility/deprecation policy (approved):
   - Add a short developer note listing moved helpers and module ownership boundaries.
 
 ### 3.5.2 Logging harmonization across pipeline stages
-- Status: `TODO`
+- Status: `DONE`
 - Goal:
   - Centralize and standardize logging behavior across preprocess/spikesort/waveforms/templates/reconstruct/analysis/scope orchestration.
 - Deliverables:
@@ -436,7 +436,7 @@ Compatibility/deprecation policy (approved):
   - Ensure scope summaries and stage outputs are consistently structured for CLI and file logs.
 
 ### 3.5.3 Checkpointing architecture review + optimization
-- Status: `TODO`
+- Status: `DONE`
 - Goal:
   - Review checkpoint behavior end-to-end and harden resume/restart semantics across all stages.
 - Deliverables:
@@ -444,9 +444,25 @@ Compatibility/deprecation policy (approved):
   - Identify and resolve gaps in restart semantics (`force_restart`, partial failures, fail-fast boundaries).
   - Standardize checkpoint read/write/update patterns and failure handling.
   - Add targeted validation scenarios for resume/retry behavior (single-stage + scope barrier contexts).
+  - [DONE] Added targeted runtime validation tests:
+    - `tests/test_stage_checkpointing.py`
+    - `tests/test_stage_orchestrator_runtime.py`
+  - [DONE] Added CLI-to-stage resume/checkpoint inventory + low-hanging follow-up plan:
+    - `docs/developer/resume_checkpoint_inventory.md`
 
 ### 3.5.4 Docs + Roadmap Update Checkpoint
-- Status: `TODO`
+- Status: `DONE`
+
+### 3.6 Resume/checkpoint low-hanging completion pass
+- Status: `DONE`
+- Goal:
+  - Complete additive, non-conflicting checkpoint/resume hardening identified in the 3.5.3 inventory.
+- Deliverables:
+  - 3.6.1 Spikesort stage wrapper checkpoint (axon-level, additive to MEA_Analysis checkpoints): `DONE`
+  - 3.6.2 Templates/reconstruct stage failure checkpoint parity (`save_stage_failed` on unhandled exceptions): `DONE`
+  - 3.6.3 Analysis global resume shortcut when complete outputs exist and `force_restart=False`: `DONE`
+  - 3.6.4 Analysis-deck command checkpoint artifact (`deck_started`/`deck_complete`/`deck_failed`): `DONE`
+  - 3.6.5 Scope-run barrier resume artifact for stage-level barrier progress: `DONE`
 
 ---
 
@@ -559,4 +575,4 @@ Compatibility/deprecation policy (approved):
 
 ## Immediate Next Item (for execution)
 
-`Phase 3.5.1` — Deferred helper extraction from Phase 3.2.
+`Phase 4.1` — Wire up and test partially implemented Radivojevic-style reconstruction.

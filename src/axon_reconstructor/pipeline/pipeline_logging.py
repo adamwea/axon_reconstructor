@@ -90,3 +90,47 @@ def setup_pipeline_logger(
         logger.addHandler(ch)
 
     return logger
+
+
+def build_stage_logger(
+    *,
+    well_out_dir: Path,
+    data_file: Path,
+    stream_id: str,
+    stage_name: str,
+    logger_name_prefix: str = "axon_reconstructor",
+    verbose: bool = True,
+) -> logging.Logger:
+    log_file = compute_pipeline_log_file(well_out_dir=well_out_dir, data_file=data_file, stream_id=stream_id)
+    return setup_pipeline_logger(
+        log_file=log_file,
+        logger_name=f"{logger_name_prefix}.{stream_id}.{stage_name}",
+        verbose=bool(verbose),
+    )
+
+
+def _format_stage_fields(*, fields: dict[str, object]) -> str:
+    if not fields:
+        return ""
+    parts: list[str] = []
+    for key in sorted(fields.keys()):
+        value = fields[key]
+        if value is None:
+            continue
+        parts.append(f"{key}={value}")
+    return " ".join(parts)
+
+
+def log_stage_start(logger: logging.Logger, *, stage: str, **fields: object) -> None:
+    suffix = _format_stage_fields(fields=fields)
+    logger.info("[%s] start%s%s", stage, ": " if suffix else "", suffix)
+
+
+def log_stage_complete(logger: logging.Logger, *, stage: str, **fields: object) -> None:
+    suffix = _format_stage_fields(fields=fields)
+    logger.info("[%s] complete%s%s", stage, ": " if suffix else "", suffix)
+
+
+def log_stage_failure(logger: logging.Logger, *, stage: str, **fields: object) -> None:
+    suffix = _format_stage_fields(fields=fields)
+    logger.error("[%s] failed%s%s", stage, ": " if suffix else "", suffix)
