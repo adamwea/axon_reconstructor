@@ -36,7 +36,7 @@ The rebuild currently uses SpikeInterface’s Maxwell extractor metadata:
 
 This logic lives in:
 
-- `axon_reconstructor.pipeline.raw_preprocessing.find_common_electrodes_from_segments`
+- `axon_reconstructor.pipeline.preprocessing.find_common_electrodes_from_segments`
 
 ### `.cfg` files
 
@@ -47,8 +47,8 @@ Some datasets provide `.cfg` files adjacent to the `.raw.h5` that describe chann
 
 Relevant code:
 
-- `axon_reconstructor.pipeline.raw_preprocessing.discover_cfg_files`
-- `axon_reconstructor.pipeline.raw_preprocessing.parse_cfg_channel_locations` (conservative placeholder)
+- `axon_reconstructor.pipeline.preprocessing.discover_cfg_files`
+- `axon_reconstructor.pipeline.preprocessing.parse_cfg_channel_locations` (conservative placeholder)
 
 ## Preprocessing: concatenation
 
@@ -63,7 +63,7 @@ Once we have the shared electrode set, we build a concatenated recording:
 
 Relevant code:
 
-- `axon_reconstructor.pipeline.raw_preprocessing.build_concatenated_recording`
+- `axon_reconstructor.pipeline.preprocessing.build_concatenated_recording`
 
 ### Notes / assumptions
 

@@ -16,9 +16,9 @@ def test_spikesort_recordings_mea_analysis_backend_loads_paths(tmp_path: Path, m
     from axon_reconstructor.pipeline.spikesorting import SpikeSortRequest, resolve_mea_sorter_output_dir
 
     # Create a plausible MEA_Analysis output layout:
-    #   <well_output_dir>/spikesorting_outputs/sorter_output/<some file>
+    #   <well_output_dir>/stg2_spikesorting_outputs/sorter_output/<some file>
     well_output_dir = tmp_path / "outputs" / "proj" / "date" / "run" / "file.h5" / "well001"
-    sorter_output_dir = well_output_dir / "spikesorting_outputs" / "sorter_output"
+    sorter_output_dir = well_output_dir / "stg2_spikesorting_outputs" / "sorter_output"
     sorter_output_dir.mkdir(parents=True)
     (sorter_output_dir / "spike_times.npy").write_bytes(b"\x93NUMPY")
 

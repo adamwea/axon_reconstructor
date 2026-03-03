@@ -132,7 +132,7 @@ Important implementation detail:
 
 The waveforms stage writes a JSON file:
 
-- `waveforms_outputs/channel_groups.json`
+- `stg3_waveforms_outputs/channel_groups.json`
 
 This is intended to make the above definitions concrete for each run. It includes:
 - `common_channel_ids` (concat/common intersection)

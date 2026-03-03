@@ -55,7 +55,7 @@ From earlier parts, the runner has:
 
 3. Best-effort channel-set logging:
 
-   - The runner also persists `waveforms_outputs/channel_groups.json` after per-segment extraction finishes.
+   - The runner also persists `stg3_waveforms_outputs/channel_groups.json` after per-segment extraction finishes.
    - This JSON is meant to make the channel-set definitions (common vs segment vs non-common, etc.) concrete for each run.
 
 ---

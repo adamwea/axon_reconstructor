@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from axon_reconstructor.pipeline.checkpointing import ProcessingStage, load_checkpoint
-from axon_reconstructor.pipeline.stage_checkpointing import (
+from axon_reconstructor.pipeline.checkpointing import (
     compute_stage_checkpoint_file,
     save_stage_completed,
     save_stage_failed,
@@ -57,7 +57,7 @@ def test_stage_checkpoint_roundtrip_started_then_completed(tmp_path: Path) -> No
         checkpoint_file=ckpt_file,
         state=state,
         stage=ProcessingStage.REPORTS,
-        out_dir=output_dir / "analysis_outputs",
+        out_dir=output_dir / "stg6_analysis_outputs",
         extra_fields={"analysis_out_dir": "abc"},
     )
 
@@ -78,7 +78,7 @@ def test_stage_checkpoint_roundtrip_started_then_completed(tmp_path: Path) -> No
 
     assert loaded.stage == ProcessingStage.REPORTS_COMPLETE.value
     assert loaded.failed_stage is None
-    assert loaded.extras.get("stage_out_dir") == str(output_dir / "analysis_outputs")
+    assert loaded.extras.get("stage_out_dir") == str(output_dir / "stg6_analysis_outputs")
     assert loaded.extras.get("analysis_summary_json") == "summary.json"
 
 

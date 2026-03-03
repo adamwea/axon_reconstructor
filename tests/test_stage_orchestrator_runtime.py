@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from axon_reconstructor.pipeline.scope_config import ScopeConfig, ScopeDatasetSpec, ScopeWellSpec
-from axon_reconstructor.pipeline.stage_driver import _build_targets, _expected_sorter_output_dir, run_scope_stage_barriers
+from axon_reconstructor.pipeline.pipeline_driver import _build_targets, _expected_sorter_output_dir, run_scope_stage_barriers
 
 
 def _make_mea_like_path(tmp_path: Path) -> Path:
@@ -99,7 +99,7 @@ def test_fail_fast_stops_later_stages(monkeypatch, tmp_path: Path) -> None:
             "stream_id": target.stream_id,
         }
 
-    import axon_reconstructor.pipeline.stage_driver as stage_driver
+    import axon_reconstructor.pipeline.pipeline_driver as stage_driver
 
     monkeypatch.setattr(stage_driver, "_run_single_stage_target", _fake_run_single_stage_target)
     summary = run_scope_stage_barriers(config=cfg, dry_run=False)
@@ -127,7 +127,7 @@ def test_non_fail_fast_continues_to_later_stages(monkeypatch, tmp_path: Path) ->
             "stream_id": target.stream_id,
         }
 
-    import axon_reconstructor.pipeline.stage_driver as stage_driver
+    import axon_reconstructor.pipeline.pipeline_driver as stage_driver
 
     monkeypatch.setattr(stage_driver, "_run_single_stage_target", _fake_run_single_stage_target)
     summary = run_scope_stage_barriers(config=cfg, dry_run=False)

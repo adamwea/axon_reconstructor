@@ -44,7 +44,7 @@ Analysis writes into the per-well pipeline log file:
 
 Outputs live under:
 
-- `<well_out_dir>/analysis_outputs/`
+- `<well_out_dir>/stg6_analysis_outputs/`
 
 Key artifacts:
 

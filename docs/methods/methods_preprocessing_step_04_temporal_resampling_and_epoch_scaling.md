@@ -3,7 +3,7 @@
 Scope: this document covers the optional temporal upsampling feature (paper-like “upsample to 200 kHz”) and the key invariants required to keep later stages correct.
 
 Primary code path:
-- `axon_reconstructor.pipeline.raw_preprocessing.runner.build_concatenated_recording(...)`
+- `axon_reconstructor.pipeline.preprocessing.runner.build_concatenated_recording(...)`
 
 Related modules:
 - `spikeinterface.preprocessing.resample(...)` (temporal resampling)

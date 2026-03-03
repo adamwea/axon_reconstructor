@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from axon_reconstructor import env_utils
-from axon_reconstructor.pipeline.stage_driver import (
+from axon_reconstructor.pipeline.pipeline_driver import (
     add_stage_analysis_args,
     add_stage_common_required_args,
     add_stage_debug_controls,
@@ -330,7 +330,7 @@ def _load_stage_kwargs(args: argparse.Namespace) -> dict:
 def _cmd_stage(args: argparse.Namespace) -> int:
     _load_explicit_env_file(args=args)
 
-    from axon_reconstructor.pipeline.stage_driver import StageExecutionContext, execute_stage
+    from axon_reconstructor.pipeline.pipeline_driver import StageExecutionContext, execute_stage
 
     stage = str(args.stage)
     stage_kwargs = _load_stage_kwargs(args)
@@ -493,7 +493,7 @@ def _cmd_scope_run(args: argparse.Namespace) -> int:
     _load_explicit_env_file(args=args)
 
     from axon_reconstructor.pipeline.scope_config import load_scope_config, summarize_scope_config, validate_scope_config
-    from axon_reconstructor.pipeline.stage_driver import run_scope_stage_barriers, write_scope_run_summary
+    from axon_reconstructor.pipeline.pipeline_driver import run_scope_stage_barriers, write_scope_run_summary
 
     scope_config = load_scope_config(Path(args.config))
     errors = validate_scope_config(scope_config)

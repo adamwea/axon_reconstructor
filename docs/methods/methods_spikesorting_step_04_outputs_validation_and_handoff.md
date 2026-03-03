@@ -8,7 +8,7 @@ Scope: this document describes what spikesorting is expected to produce on disk,
 
 Downstream stages expect a sorter output folder at:
 
-- `<well_out_dir>/spikesorting_outputs/sorter_output/`
+- `<well_out_dir>/stg2_spikesorting_outputs/sorter_output/`
 
 This folder is treated as the contract boundary. It is typically produced by MEA_Analysis Phase 2.
 
@@ -45,8 +45,8 @@ Stronger validation happens implicitly when later stages try to load the sorter 
 
 If MEA_Analysis Phase 3/4 are run, you will also see:
 
-- `<well>/spikesorting_outputs/analyzer_output/`
-- plots/reports under `<well>/spikesorting_outputs/` (structure varies)
+- `<well>/stg2_spikesorting_outputs/analyzer_output/`
+- plots/reports under `<well>/stg2_spikesorting_outputs/` (structure varies)
 
 These are useful for debugging sorting quality and for producing curated unit lists.
 
@@ -56,8 +56,8 @@ These are useful for debugging sorting quality and for producing curated unit li
 
 Waveforms stage typically does:
 
-- load the Stage 01 saved recording (`preprocess_outputs/preprocessed_recording/`)
-- load the sorter output (`spikesorting_outputs/sorter_output/`)
+- load the Stage 01 saved recording (`stg1_preprocess_outputs/preprocessed_recording/`)
+- load the sorter output (`stg2_spikesorting_outputs/sorter_output/`)
 - optionally load quality-metric outputs to decide curated vs uncurated units
 
 The waveforms step then performs its own spike-level boundary filtering using the preprocessing epoch JSONs.

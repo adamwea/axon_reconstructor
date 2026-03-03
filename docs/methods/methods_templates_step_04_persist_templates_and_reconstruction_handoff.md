@@ -6,7 +6,7 @@ Primary code path:
 - `axon_reconstructor.pipeline.templates.extraction._persist_unit_templates(...)`
 
 Key outputs live under:
-- `<well>/templates_outputs/`
+- `<well>/stg4_templates_outputs/`
 
 ---
 
@@ -21,10 +21,10 @@ For each unit, templates writes:
 
 For a unit `uid` and a source `src_name` (e.g. `concat`, `seg_...`):
 
-- `<well>/templates_outputs/extracted_templates/<src_name>/unit_<uid>.npy`
+- `<well>/stg4_templates_outputs/extracted_templates/<src_name>/unit_<uid>.npy`
   - numpy array shaped `(n_samples, n_channels_for_that_source)`
 
-- `<well>/templates_outputs/extracted_templates/<src_name>/unit_<uid>_meta.json`
+- `<well>/stg4_templates_outputs/extracted_templates/<src_name>/unit_<uid>_meta.json`
   - JSON metadata, including channel ids, electrode ids, sampling frequency, and plotting window hints.
 
 These are primarily for debugging/QC and for multi-source overlays.
@@ -33,7 +33,7 @@ These are primarily for debugging/QC and for multi-source overlays.
 
 For each `uid`, templates writes into:
 
-- `<well>/templates_outputs/merged_units/unit_<uid>/`
+- `<well>/stg4_templates_outputs/merged_units/unit_<uid>/`
 
 Core data:
 
@@ -77,7 +77,7 @@ Scientific intent:
 
 In addition to the unit-local `merged_units/unit_<id>/` outputs, templates writes “full chip” visualizations under:
 
-- `<well>/templates_outputs/full_chip_maps/`
+- `<well>/stg4_templates_outputs/full_chip_maps/`
 
 Per unit:
 
@@ -104,7 +104,7 @@ If `TemplateExtractInputs.save_full_channels_templates=True`, templates will als
 
 These outputs live under:
 
-- `<well>/templates_outputs/full_channels_templates/`
+- `<well>/stg4_templates_outputs/full_channels_templates/`
 
 ### 3.1 Recording electrode universe
 
@@ -122,7 +122,7 @@ This is used to distinguish “quiet” vs “present but noncontributing” in 
 
 For each unit `uid`:
 
-- `<well>/templates_outputs/full_channels_templates/unit_<uid>/full_template.npy`
+- `<well>/stg4_templates_outputs/full_channels_templates/unit_<uid>/full_template.npy`
   - array shaped `(n_samples, n_full_channels)`
   - the merged-contributing waveform placed into the chosen full-channel order
   - all non-contributing channels are zero
@@ -166,7 +166,7 @@ Scientific rationale:
 
 If `TemplateExtractInputs.plot_axon_velocity_outputs=True`, templates will attempt to generate an axon_velocity plot bundle under:
 
-- `<well>/templates_outputs/axon_velocity_outputs/unit_<uid>/...`
+- `<well>/stg4_templates_outputs/axon_velocity_outputs/unit_<uid>/...`
 
 This is best-effort and requires extra dependencies.
 

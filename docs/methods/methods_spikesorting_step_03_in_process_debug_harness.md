@@ -3,7 +3,7 @@
 Scope: this document covers the in-repo spikesorting debug harness that runs MEA_Analysis *in-process* (Python import) while using the Stage 01 saved recording.
 
 Primary script:
-- `src/axon_reconstructor/pipeline/spikesorting/runner.py`
+- `src/axon_reconstructor/pipeline/stg2_spikesorting/runner.py`
   - `run_spikesorting_stage(inputs=..., logger=...)`
 
 Canonical CLI entrypoint:
@@ -28,7 +28,7 @@ This harness provides a way to:
 
 The harness assumes Stage 01 has already produced:
 
-- `<well_out_dir>/preprocess_outputs/preprocessed_recording/`
+- `<well_out_dir>/stg1_preprocess_outputs/preprocessed_recording/`
 
 It requires:
 
@@ -47,14 +47,14 @@ This is a pragmatic development feature; it avoids forcing a formal install in e
 
 ---
 
-## 3. Re-homing MEA_Analysis outputs under `spikesorting_outputs/`
+## 3. Re-homing MEA_Analysis outputs under `stg2_spikesorting_outputs/`
 
 MEA_Analysis typically writes under the per-well output directory.
 
 axon_reconstructor keeps it stage-scoped by relocating:
 
-- `pipeline.output_dir = <well_out_dir>/spikesorting_outputs/`
-- `pipeline.checkpoint_file = <well_out_dir>/spikesorting_outputs/checkpoints/<...>_checkpoint.json`
+- `pipeline.output_dir = <well_out_dir>/stg2_spikesorting_outputs/`
+- `pipeline.checkpoint_file = <well_out_dir>/stg2_spikesorting_outputs/checkpoints/<...>_checkpoint.json`
 
 It then attempts to reload MEA_Analysis state from that new checkpoint location.
 
@@ -85,7 +85,7 @@ Then it runs:
 The harness returns a small struct with key paths:
 
 - `recording_dir` (the input recording folder)
-- `sorter_output_dir` (the produced `<well>/spikesorting_outputs/sorter_output`)
-- `analyzer_dir` (typically `<well>/spikesorting_outputs/analyzer_output`)
+- `sorter_output_dir` (the produced `<well>/stg2_spikesorting_outputs/sorter_output`)
+- `analyzer_dir` (typically `<well>/stg2_spikesorting_outputs/analyzer_output`)
 
 This is intended to make it easy to hand off to waveforms/templates stages.

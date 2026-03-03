@@ -38,11 +38,11 @@ Where:
 
 Within that per-well folder, spikesorting outputs live under:
 
-- `<well_out_dir>/spikesorting_outputs/`
+- `<well_out_dir>/stg2_spikesorting_outputs/`
 
-Within `spikesorting_outputs/`, the key contract directory is:
+Within `stg2_spikesorting_outputs/`, the key contract directory is:
 
-- `<well_out_dir>/spikesorting_outputs/sorter_output/`
+- `<well_out_dir>/stg2_spikesorting_outputs/sorter_output/`
 
 This is the folder later stages load (via SpikeInterface reader helpers).
 

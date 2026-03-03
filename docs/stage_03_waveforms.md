@@ -9,7 +9,7 @@ High-level entry point:
 Key feature that depends on Stage 01 preprocessing:
 
 - `filter_by_maxwell_epochs`: drops spikes whose waveform window would cross Maxwell snippet boundaries.
-  - This consumes `preprocess_outputs/maxwell_contiguous_epochs_<stream_id>.json`.
+  - This consumes `stg1_preprocess_outputs/maxwell_contiguous_epochs_<stream_id>.json`.
 
 ## Detailed stepwise docs
 

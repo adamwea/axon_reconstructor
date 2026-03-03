@@ -4,10 +4,10 @@ Scope: this document covers how preprocessing is *invoked* and how it decides wh
 
 Primary code paths:
 - User entry: `axon_reconstructor.pipeline.pipeline_driver.AxonReconstructor.preprocess_for_spikesorting(...)`
-- Core builder: `axon_reconstructor.pipeline.raw_preprocessing.runner.build_concatenated_recording(...)`
+- Core builder: `axon_reconstructor.pipeline.preprocessing.runner.build_concatenated_recording(...)`
 
 Related modules:
-- `axon_reconstructor.pipeline.raw_preprocessing.planning` (cfg discovery / plan object)
+- `axon_reconstructor.pipeline.preprocessing.planning` (cfg discovery / plan object)
 - `axon_reconstructor.pipeline.pipeline_driver` (per-well output dir contract, cache-safety)
 - `axon_reconstructor.pipeline.checkpointing` (checkpoint read/write)
 - `axon_reconstructor.pipeline.pipeline_logging` (per-well log)
@@ -43,7 +43,7 @@ Preprocessing turns a Maxwell `.raw.h5` **stream/well** (e.g. `well000`) into a 
 
 When `mea_analysis_output_root` is set, preprocessing writes into:
 
-- `<well_out_dir>/preprocess_outputs/`
+- `<well_out_dir>/stg1_preprocess_outputs/`
 
 Key artifacts in that folder:
 
@@ -74,12 +74,12 @@ Resume shortcut (filesystem-based) can happen when all of the following are true
 
 - the checkpoint stage indicates preprocessing is complete
 - `overwrite_saved_recording=False`
-- `<well>/preprocess_outputs/preprocessed_recording/` exists
-- `<well>/preprocess_outputs/common_electrodes.npy` exists
+- `<well>/stg1_preprocess_outputs/preprocessed_recording/` exists
+- `<well>/stg1_preprocess_outputs/common_electrodes.npy` exists
 
 Additionally, cache-safety for temporal resampling:
 
-- If `<well>/preprocess_outputs/preprocess_config.json` exists, it must match the requested resampling options.
+- If `<well>/stg1_preprocess_outputs/preprocess_config.json` exists, it must match the requested resampling options.
 - If resampling is requested but `preprocess_config.json` is missing, preprocessing re-runs (to avoid silently mixing cached outputs with incompatible sample coordinates).
 
 ---
@@ -92,8 +92,8 @@ If preprocessing does not resume, `preprocess_for_spikesorting(...)` calls:
 
 and passes:
 
-- `plot_output_dir=<well>/preprocess_outputs/` (when diagnostics are enabled)
-- `epoch_markers_output_dir=<well>/preprocess_outputs/`
+- `plot_output_dir=<well>/stg1_preprocess_outputs/` (when diagnostics are enabled)
+- `epoch_markers_output_dir=<well>/stg1_preprocess_outputs/`
 - any temporal resampling parameters (see Part 4)
 
 The returned `Recording` + common electrode list are then optionally persisted to disk under `preprocessed_recording/`.

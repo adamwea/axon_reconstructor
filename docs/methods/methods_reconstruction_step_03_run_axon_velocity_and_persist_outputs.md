@@ -61,7 +61,7 @@ So we use:
 
 Reconstruction reads `sampling_frequency_hz` from:
 
-- `<well>/templates_outputs/merged_units/unit_<id>/merged_contributing_template_meta.json`
+- `<well>/stg4_templates_outputs/merged_units/unit_<id>/merged_contributing_template_meta.json`
 
 If unavailable, it falls back to `10_000.0` Hz.
 
@@ -81,7 +81,7 @@ The returned object (`gtr`) is treated as a black box and accessed via best-effo
 
 Under:
 
-- `<well>/reconstruction_outputs/by_unit/unit_<id>/`
+- `<well>/stg5_reconstruction_outputs/by_unit/unit_<id>/`
 
 Reconstruction writes:
 

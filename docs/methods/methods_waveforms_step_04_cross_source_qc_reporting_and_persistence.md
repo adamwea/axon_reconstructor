@@ -5,10 +5,10 @@ Scope: This document continues directly after Part 3 ends. It begins after the r
 - finished enriching `filtering_summary` and `wf_rejection_rows` during waveform extraction.
 
 It ends immediately after the runner persists the waveforms-stage “audit artifacts”:
-- `waveforms_outputs/channel_groups.json`
-- `waveforms_outputs/best_channel_sources.xlsx`
-- `waveforms_outputs/waveform_filtering_summary.json`
-- `waveforms_outputs/wf_rejection_log.xlsx`
+- `stg3_waveforms_outputs/channel_groups.json`
+- `stg3_waveforms_outputs/best_channel_sources.xlsx`
+- `stg3_waveforms_outputs/waveform_filtering_summary.json`
+- `stg3_waveforms_outputs/wf_rejection_log.xlsx`
 
 Terminology note:
 - Channel-set names (all/common/segment/non-common/unique/non-unique) are defined in `methods_waveforms_channel_sets.md`.
@@ -25,7 +25,7 @@ Primary code paths:
 
 From earlier parts, the runner has already produced (best-effort):
 
-- `ctx.waveforms_out_dir` which is `<well_out_dir>/waveforms_outputs/`
+- `ctx.waveforms_out_dir` which is `<well_out_dir>/stg3_waveforms_outputs/`
 - `ctx.concat_waveforms_dir` which is `<waveforms_out_dir>/concat_waveforms/`
 - `ctx.segment_waveforms_dir` which is `<waveforms_out_dir>/segment_waveforms/` (only if `inputs.per_segment=True`)
 
@@ -49,7 +49,7 @@ And the runner already has these in memory:
 Immediately after per-segment extraction returns (or is skipped), the runner persists the channel bookkeeping dict:
 
 - Output path:
-  - `<well_out_dir>/waveforms_outputs/channel_groups.json`
+  - `<well_out_dir>/stg3_waveforms_outputs/channel_groups.json`
 
 Why this exists:
 - This file makes the “channel sets” concrete for a run (which channels were treated as **common channels**, what each segment’s **segment channels** were, and what the **non-common segment channels** were when exclusion succeeded).
@@ -93,7 +93,7 @@ Interpretation guidance:
 Whether or not warnings were emitted, the runner next writes an XLSX report that records the best-channel candidate(s) across sources.
 
 - Output path:
-  - `<well_out_dir>/waveforms_outputs/best_channel_sources.xlsx`
+  - `<well_out_dir>/stg3_waveforms_outputs/best_channel_sources.xlsx`
 
 Implementation entry point:
 - `axon_reconstructor.pipeline.waveforms.reporting._write_best_channel_sources_xlsx(...)`
@@ -133,7 +133,7 @@ Finally, the runner persists the filtering audit artifacts via:
 ### 4.1 `waveform_filtering_summary.json`
 
 - Output path:
-  - `<well_out_dir>/waveforms_outputs/waveform_filtering_summary.json`
+  - `<well_out_dir>/stg3_waveforms_outputs/waveform_filtering_summary.json`
 
 Content:
 - A JSON-serializable dict of aggregate counts produced during waveforms extraction.
@@ -145,7 +145,7 @@ Content:
 ### 4.2 `wf_rejection_log.xlsx`
 
 - Output path:
-  - `<well_out_dir>/waveforms_outputs/wf_rejection_log.xlsx`
+  - `<well_out_dir>/stg3_waveforms_outputs/wf_rejection_log.xlsx`
 
 Purpose:
 - A spike-level rejection log designed to be joinable to downstream waveforms/template computations.

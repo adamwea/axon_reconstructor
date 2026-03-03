@@ -3,10 +3,10 @@
 Scope: this document covers how preprocessing creates a single concatenated recording and attaches timing metadata that preserves triggered/snippet gaps when available.
 
 Primary code path:
-- `axon_reconstructor.pipeline.raw_preprocessing.runner.build_concatenated_recording(...)`
+- `axon_reconstructor.pipeline.preprocessing.runner.build_concatenated_recording(...)`
 
 Related modules:
-- `axon_reconstructor.pipeline.raw_preprocessing.h5_helpers`
+- `axon_reconstructor.pipeline.preprocessing.h5_helpers`
   - `_read_well_rec_frame_nos_and_trigger_settings(...)`
   - assay/data_store stats helpers (diagnostics)
 
@@ -100,4 +100,4 @@ When `epoch_markers_output_dir` is set, preprocessing writes:
 - `maxwell_contiguous_epochs_<stream_id>.json`
 - `concatenation_stitch_epochs_<stream_id>.json`
 
-to `<well_out_dir>/preprocess_outputs/`.
+to `<well_out_dir>/stg1_preprocess_outputs/`.

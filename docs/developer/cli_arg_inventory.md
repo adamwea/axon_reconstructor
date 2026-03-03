@@ -12,14 +12,14 @@ Important:
 
 Sources used:
 - `src/axon_reconstructor/cli.py`
-- `src/axon_reconstructor/pipeline/raw_preprocessing/debug_stage.py`
-- `src/axon_reconstructor/pipeline/spikesorting/debug_stage.py`
-- `src/axon_reconstructor/pipeline/waveforms/debug_stage.py`
-- `src/axon_reconstructor/pipeline/templates/debug_stage.py`
-- `src/axon_reconstructor/pipeline/reconstruction/debug_stage.py`
+- `src/axon_reconstructor/pipeline/stg1_preprocessing/debug_stage.py`
+- `src/axon_reconstructor/pipeline/stg2_spikesorting/debug_stage.py`
+- `src/axon_reconstructor/pipeline/stg3_waveforms/debug_stage.py`
+- `src/axon_reconstructor/pipeline/stg4_templates/debug_stage.py`
+- `src/axon_reconstructor/pipeline/stg5_reconstruction/debug_stage.py`
 - `src/axon_reconstructor/cli.py` (canonical `stage analysis` args)
-- `src/axon_reconstructor/pipeline/analysis/runner.py`
-- `src/axon_reconstructor/pipeline/analysis/analysis_deck.py`
+- `src/axon_reconstructor/pipeline/stg6_analysis/runner.py`
+- `src/axon_reconstructor/pipeline/stg6_analysis/analysis_deck.py`
 - `docs/examples/debug.env.example`
 
 Notes:
@@ -136,7 +136,7 @@ Notes:
 
 ## Open issues found in v0 inventory
 
-1. (resolved in 3.2g) `analysis-deck` normalization moved into package module `src/axon_reconstructor/pipeline/analysis/analysis_deck.py`.
+1. (resolved in 3.2g) `analysis-deck` normalization moved into package module `src/axon_reconstructor/pipeline/stg6_analysis/analysis_deck.py`.
 2. The same conceptual knobs have divergent names/default keys in some places (especially BOTM and unit-limit families).
 3. `--force` aliases and debug step orchestration flags should likely move to wrapper-only scope in the target model.
 4. Some flags are really substage-specific (`templates` replot controls, reconstruction summary/raw-only modes).
@@ -149,14 +149,14 @@ Notes:
 ## Provenance verification notes (legacy/debug rows)
 
 - Verified in stage debug builders (`CLI > env > code defaults` precedence):
-	- `src/axon_reconstructor/pipeline/raw_preprocessing/debug_stage.py`
-	- `src/axon_reconstructor/pipeline/spikesorting/debug_stage.py`
-	- `src/axon_reconstructor/pipeline/waveforms/debug_stage.py`
-	- `src/axon_reconstructor/pipeline/templates/debug_stage.py`
-	- `src/axon_reconstructor/pipeline/reconstruction/debug_stage.py`
+	- `src/axon_reconstructor/pipeline/stg1_preprocessing/debug_stage.py`
+	- `src/axon_reconstructor/pipeline/stg2_spikesorting/debug_stage.py`
+	- `src/axon_reconstructor/pipeline/stg3_waveforms/debug_stage.py`
+	- `src/axon_reconstructor/pipeline/stg4_templates/debug_stage.py`
+	- `src/axon_reconstructor/pipeline/stg5_reconstruction/debug_stage.py`
 - Verified in debug analysis wrappers (`CLI > env > module constants` precedence):
 	- `src/axon_reconstructor/cli.py` (`stage analysis` env/CLI resolution)
-	- `src/axon_reconstructor/pipeline/analysis/analysis_deck.py`
+	- `src/axon_reconstructor/pipeline/stg6_analysis/analysis_deck.py`
 - Verified debug orchestration path (`debug-steps`) is CLI-owned with no env fallback for `--steps`, `--stop-on-failure`, `--extra-args`.
 
 ## Owner sign-off markers (legacy/debug rows)

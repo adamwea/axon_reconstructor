@@ -26,8 +26,8 @@ Optional:
 
 `analyze_units(...)` is a “join” stage: it looks for artifacts produced earlier. Typical inputs include:
 
-- Templates plots and summary images under `<well_out_dir>/templates_outputs/...`
-- Reconstruction plots under `<well_out_dir>/reconstruction_outputs/...`
+- Templates plots and summary images under `<well_out_dir>/stg4_templates_outputs/...`
+- Reconstruction plots under `<well_out_dir>/stg5_reconstruction_outputs/...`
 - (Optionally) waveforms grids when available
 
 Missing inputs are not fatal: the grid renderer will place placeholders for missing panels.
@@ -36,7 +36,7 @@ Missing inputs are not fatal: the grid renderer will place placeholders for miss
 
 Under the per-well output directory:
 
-- `<well_out_dir>/analysis_outputs/`
+- `<well_out_dir>/stg6_analysis_outputs/`
   - `analysis_summary.json` (run summary)
   - `by_unit/<unit_id>/unit_summary_grid.png`
   - `by_unit/<unit_id>/unit_summary_grid.pdf`
