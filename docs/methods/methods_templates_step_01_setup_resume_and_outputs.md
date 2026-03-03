@@ -22,7 +22,7 @@ Key contract points (enforced by design and docs; not all are “hard” runtime
 
 - **Templates are sourced from waveforms-stage `SortingAnalyzer` artifacts** (specifically the `templates` extension). We do not re-run sorting.
 - **Spike-level exclusions belong to the waveforms stage**. Templates does not re-apply per-spike rejection files (e.g., deprecated `wf_exclusions.npz`).
-- **“Curation” here means unit selection only**: by default, templates runs only on curated units derived from spikesorting-stage quality metrics (`<well>/spikesorting_outputs/qm_unfiltered.xlsx`).
+- **“Curation” here means unit selection only**: by default, templates runs only on curated units derived from spikesorting-stage quality metrics (`<well>/stg2_spikesorting_outputs/qm_unfiltered.xlsx`).
 
 ---
 
@@ -55,34 +55,34 @@ This ensures the templates artifacts land alongside other stage outputs under th
 
 The templates stage writes under:
 
-- `<well_out_dir>/templates_outputs/`
+- `<well_out_dir>/stg4_templates_outputs/`
 
 Key paths (created before processing):
 
 - Data outputs
-  - `templates_out_dir = <well>/templates_outputs/`
-  - `extracted_templates_dir = <well>/templates_outputs/extracted_templates/`
+  - `templates_out_dir = <well>/stg4_templates_outputs/`
+  - `extracted_templates_dir = <well>/stg4_templates_outputs/extracted_templates/`
     - Per-source template arrays and per-unit meta JSON.
-  - `merged_units_dir = <well>/templates_outputs/merged_units/`
+  - `merged_units_dir = <well>/stg4_templates_outputs/merged_units/`
     - Per-unit merged outputs (the canonical handoff to reconstruction).
 
 - Plot outputs (top-level by plot type)
-  - `<well>/templates_outputs/footprints/`
-  - `<well>/templates_outputs/svgs/`
-  - `<well>/templates_outputs/full_chip_maps/`
-  - `<well>/templates_outputs/topo_unit_footprints/` (optional)
-  - `<well>/templates_outputs/propagation_plots/` (optional)
-  - `<well>/templates_outputs/unit_segment_grids/` (optional)
-  - `<well>/templates_outputs/axon_velocity_outputs/` (optional, requires extra deps)
+  - `<well>/stg4_templates_outputs/footprints/`
+  - `<well>/stg4_templates_outputs/svgs/`
+  - `<well>/stg4_templates_outputs/full_chip_maps/`
+  - `<well>/stg4_templates_outputs/topo_unit_footprints/` (optional)
+  - `<well>/stg4_templates_outputs/propagation_plots/` (optional)
+  - `<well>/stg4_templates_outputs/unit_segment_grids/` (optional)
+  - `<well>/stg4_templates_outputs/axon_velocity_outputs/` (optional, requires extra deps)
 
 - Summaries
-  - `<well>/templates_outputs/templates_summary.json`
+  - `<well>/stg4_templates_outputs/templates_summary.json`
 
 - Main grid PDF
-  - `<well>/templates_outputs/templates_grid.pdf` (if `inputs.plot_templates_grid_pdf=True`)
+  - `<well>/stg4_templates_outputs/templates_grid.pdf` (if `inputs.plot_templates_grid_pdf=True`)
 
 Notes:
-- Earlier versions of the pipeline wrote plots into a dedicated `merged_unit_plots/` directory. Current code writes plots directly under `templates_outputs/*`.
+- Earlier versions of the pipeline wrote plots into a dedicated `merged_unit_plots/` directory. Current code writes plots directly under `stg4_templates_outputs/*`.
 
 ---
 
@@ -152,20 +152,20 @@ This gives a durable record that templates started and where it intended to writ
 
 The runner ensures the following directories exist before processing units:
 
-- `templates_outputs/`
-- `templates_outputs/extracted_templates/`
-- `templates_outputs/merged_units/`
-- `templates_outputs/footprints/`
-- `templates_outputs/svgs/`
-- `templates_outputs/full_chip_maps/`
-- `templates_outputs/axon_velocity_outputs/`
+- `stg4_templates_outputs/`
+- `stg4_templates_outputs/extracted_templates/`
+- `stg4_templates_outputs/merged_units/`
+- `stg4_templates_outputs/footprints/`
+- `stg4_templates_outputs/svgs/`
+- `stg4_templates_outputs/full_chip_maps/`
+- `stg4_templates_outputs/axon_velocity_outputs/`
 
 Optional directories (created only if enabled):
 
-- `templates_outputs/full_channels_templates/` if `inputs.save_full_channels_templates=True`
-- `templates_outputs/topo_unit_footprints/` if `inputs.plot_topo_unit_footprints=True`
-- `templates_outputs/propagation_plots/` if `inputs.plot_propagation_plots=True`
-- `templates_outputs/unit_segment_grids/` if `inputs.plot_multi_source_templates_pdf=True`
+- `stg4_templates_outputs/full_channels_templates/` if `inputs.save_full_channels_templates=True`
+- `stg4_templates_outputs/topo_unit_footprints/` if `inputs.plot_topo_unit_footprints=True`
+- `stg4_templates_outputs/propagation_plots/` if `inputs.plot_propagation_plots=True`
+- `stg4_templates_outputs/unit_segment_grids/` if `inputs.plot_multi_source_templates_pdf=True`
 
 ---
 

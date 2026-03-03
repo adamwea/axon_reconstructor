@@ -23,7 +23,7 @@ Key contract points:
 
 - **Reconstruction consumes templates outputs**. It does not re-run sorting or waveform extraction.
 - **axon_velocity expects a dense full-channel template**. Therefore, this stage is designed to consume the templates-stage *full-channel* template artifacts (see Part 2).
-- Outputs are written under `<well>/reconstruction_outputs/`.
+- Outputs are written under `<well>/stg5_reconstruction_outputs/`.
 
 ---
 
@@ -54,23 +54,23 @@ Logger name:
 
 Reconstruction writes under:
 
-- `<well>/reconstruction_outputs/`
+- `<well>/stg5_reconstruction_outputs/`
 
 Key paths:
 
-- `reconstruction_out_dir = <well>/reconstruction_outputs/`
-- `by_unit_dir = <well>/reconstruction_outputs/by_unit/`
+- `reconstruction_out_dir = <well>/stg5_reconstruction_outputs/`
+- `by_unit_dir = <well>/stg5_reconstruction_outputs/by_unit/`
   - `unit_<id>/branches.json`
   - `unit_<id>/heuristics.json`
   - plus per-unit PDFs (if enabled)
 
 Summary:
 
-- `summary_json = <well>/reconstruction_outputs/reconstruction_summary.json`
+- `summary_json = <well>/stg5_reconstruction_outputs/reconstruction_summary.json`
 
 Optional:
 
-- `all_units_overview_pdf = <well>/reconstruction_outputs/all_units_morphology.pdf`
+- `all_units_overview_pdf = <well>/stg5_reconstruction_outputs/all_units_morphology.pdf`
 
 ---
 

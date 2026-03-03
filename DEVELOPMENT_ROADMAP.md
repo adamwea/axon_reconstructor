@@ -93,7 +93,7 @@ Status legend:
 - Deliverables:
   - [DONE] Move assets from `src/axon_reconstructor/devtools` into `tools/debug`, then remove `src/axon_reconstructor/devtools`.
   - [DONE] Remove compatibility shims under `tools/stepwise_debug_scripts`.
-  - [DONE] Move spikesorting stage logic into `src/axon_reconstructor/pipeline/spikesorting/runner.py`.
+  - [DONE] Move spikesorting stage logic into `src/axon_reconstructor/pipeline/stg2_spikesorting/runner.py`.
   - [DONE] Remove preprocessing debug intermediary (`tools/debug/preprocessing_debug.py`); debug entrypoint now calls pipeline stage API directly.
   - [DONE] Canonicalize smoke-test location to `tools/smoke_tests` (remove `src/axon_reconstructor/smoke` wrapper package and `axon-recon-smoke` script entrypoint).
   - [DONE] Inventory each `tools/debug` script by function ownership:
@@ -114,8 +114,8 @@ Status legend:
   - `debug_analysis_step.py`
   - `debug_analysis_deck.py`
 - Migrate to stage module (`src/axon_reconstructor/pipeline/...`):
-  - [DONE] `cross_well_analysis.py` → `pipeline/analysis/cross_well.py` (debug script now thin wrapper)
-  - [DONE] `spikesorting_debug.py` → `pipeline/spikesorting/runner.py`
+  - [DONE] `cross_well_analysis.py` → `pipeline/stg6_analysis/cross_well.py` (debug script now thin wrapper)
+  - [DONE] `spikesorting_debug.py` → `pipeline/stg2_spikesorting/runner.py`
   - [DONE] `debug_preprocessing_step.py` now calls `AxonReconstructor.preprocess_for_spikesorting(...)` directly (no intermediary module)
 - Migrate to shared utility:
   - [DONE] `debug_env.py` → shared config/env utility module (`src/axon_reconstructor/env_utils.py`); `tools/debug/debug_env.py` kept as thin compatibility adapter
@@ -154,12 +154,12 @@ Status legend:
 - Goal:
   - Refactor `tools/debug/cross_well_analysis.py` into pipeline-owned analysis modules.
 - Deliverables:
-  - [DONE] Move reusable analysis logic into `src/axon_reconstructor/pipeline/analysis/...`.
+  - [DONE] Move reusable analysis logic into `src/axon_reconstructor/pipeline/stg6_analysis/...`.
   - [DONE] Keep debug script as thin CLI adapter that imports pipeline code.
   - [DONE] Split plotting/statistics/deck generation into testable units:
-    - `src/axon_reconstructor/pipeline/analysis/cross_well_stats.py`
-    - `src/axon_reconstructor/pipeline/analysis/cross_well_plotting.py`
-    - `src/axon_reconstructor/pipeline/analysis/cross_well_decks.py`
+    - `src/axon_reconstructor/pipeline/stg6_analysis/cross_well_stats.py`
+    - `src/axon_reconstructor/pipeline/stg6_analysis/cross_well_plotting.py`
+    - `src/axon_reconstructor/pipeline/stg6_analysis/cross_well_decks.py`
     - `cross_well.py` now acts as orchestration and calls these modules.
 
 ### 3.1b Stage-owned integration for other debug scripts
@@ -168,13 +168,13 @@ Status legend:
   - Move non-analysis reusable logic from debug scripts into corresponding pipeline stages.
 - Deliverables:
   - [DONE] Preprocess helpers moved into preprocessing stage modules:
-    - `src/axon_reconstructor/pipeline/raw_preprocessing/debug_stage.py`
+    - `src/axon_reconstructor/pipeline/stg1_preprocessing/debug_stage.py`
   - [DONE] Spikesort helpers moved into spikesorting stage modules:
-    - `src/axon_reconstructor/pipeline/spikesorting/debug_stage.py`
+    - `src/axon_reconstructor/pipeline/stg2_spikesorting/debug_stage.py`
   - [DONE] Waveforms/templates/reconstruction helpers moved into stage modules:
-    - `src/axon_reconstructor/pipeline/waveforms/debug_stage.py`
-    - `src/axon_reconstructor/pipeline/templates/debug_stage.py`
-    - `src/axon_reconstructor/pipeline/reconstruction/debug_stage.py`
+    - `src/axon_reconstructor/pipeline/stg3_waveforms/debug_stage.py`
+    - `src/axon_reconstructor/pipeline/stg4_templates/debug_stage.py`
+    - `src/axon_reconstructor/pipeline/stg5_reconstruction/debug_stage.py`
   - [DONE] Debug entrypoints de-duplicated and reduced to thin adapters:
     - `tools/debug/debug_preprocessing_step.py`
     - `tools/debug/debug_spikesorting_step.py`
@@ -182,7 +182,7 @@ Status legend:
     - `tools/debug/debug_templates_step.py`
     - `tools/debug/debug_reconstruction_step.py`
   - [DONE] Reconstruction stage now owns axon-velocity import fallback/runtime path resolution via `ReconstructionInputs.axon_velocity_repo_root` in:
-    - `src/axon_reconstructor/pipeline/reconstruction/runner.py`
+    - `src/axon_reconstructor/pipeline/stg5_reconstruction/runner.py`
 
 ### 3.2 Extract shared helpers across stages
 - Status: `DONE`
@@ -392,9 +392,9 @@ Compatibility/deprecation policy (approved):
     - [DONE] removed `src/axon_reconstructor/pipeline/debug_cli_args.py` with alias subcommand retirement.
     - keep/adjust only the canonical `stage` arg registry structure needed for maintainability.
   - Migrate remaining heavy debug analysis utilities into package modules/commands:
-    - move reusable logic from `tools/debug/debug_analysis_step.py` and `tools/debug/debug_analysis_deck.py` into `src/axon_reconstructor/pipeline/analysis/...`,
+    - move reusable logic from `tools/debug/debug_analysis_step.py` and `tools/debug/debug_analysis_deck.py` into `src/axon_reconstructor/pipeline/stg6_analysis/...`,
     - [DONE] analysis execution moved into canonical `stage analysis` with package-owned analysis args/env resolution; retired `tools/debug/debug_analysis_step.py`.
-    - [DONE] `analysis-deck` promoted as canonical package CLI command with package-owned implementation in `src/axon_reconstructor/pipeline/analysis/analysis_deck.py`.
+    - [DONE] `analysis-deck` promoted as canonical package CLI command with package-owned implementation in `src/axon_reconstructor/pipeline/stg6_analysis/analysis_deck.py`.
   - Move scope-config conversion utility into package CLI:
     - [DONE] promoted cross-well to scope config conversion into package-owned `scope-config-build` command.
     - [DONE] retired `tools/debug/build_scope_config.py` compatibility wrapper.
@@ -524,6 +524,65 @@ Compatibility/deprecation policy (approved):
 3. 3.7.7b Review/implement stage driver consolidation with tests (DONE).
 4. 3.7.7c Review/implement scope config consolidation with tests (DONE).
 5. 3.7.7e Remove temporary compatibility shims after full migration (DONE).
+
+### 3.7.8 Pipeline nomenclature normalization (stage numbering + naming)
+- Status: `DONE`
+- Goal:
+  - Normalize pipeline naming to reduce ambiguity from mixed `stage_*`, unnumbered stage package names, and inconsistent output folder labels.
+  - Adopt canonical numbered stage package names while preserving ergonomic imports (`preprocessing`, `spikesorting`, etc.).
+- Proposed canonical naming:
+  - top-level stage runtime modules:
+    - `pipeline/pipeline_driver.py` → `pipeline/pipeline_driver.py`
+    - `pipeline/pipeline_checkpointing.py` → `pipeline/checkpointing.py`
+  - stage package directories:
+    - `pipeline/stg1_preprocessing/` → `pipeline/stg1_preprocessing/`
+    - `pipeline/stg2_spikesorting/` → `pipeline/stg2_spikesorting/`
+    - `pipeline/stg3_waveforms/` → `pipeline/stg3_waveforms/`
+    - `pipeline/stg4_templates/` → `pipeline/stg4_templates/`
+    - `pipeline/stg5_reconstruction/` → `pipeline/stg5_reconstruction/`
+    - `pipeline/stg6_analysis/` → `pipeline/stg6_analysis/`
+  - import ergonomics (public aliases):
+    - `pipeline.preprocessing` → forwards to `pipeline.stg1_preprocessing`
+    - `pipeline.spikesorting` → forwards to `pipeline.stg2_spikesorting`
+    - `pipeline.waveforms` → forwards to `pipeline.stg3_waveforms`
+    - `pipeline.templates` → forwards to `pipeline.stg4_templates`
+    - `pipeline.reconstruction` → forwards to `pipeline.stg5_reconstruction`
+    - `pipeline.analysis` → forwards to `pipeline.stg6_analysis`
+
+- Deliverables:
+  - 3.7.8a Rename top-level stage runtime module files (`DONE`)
+    - rename `stage_driver.py` and `stage_checkpointing.py` to `pipeline_*` equivalents.
+    - rewire all in-repo imports and update `pipeline/__init__.py` exports.
+    - add short-lived compatibility shim files at old paths only if needed for one migration tranche.
+  - 3.7.8b Rename all stage package directories to numbered `stgN_*` names (`DONE`)
+    - move each existing stage package directory to canonical `stgN_*` path.
+    - update intra-package relative imports and cross-stage imports.
+  - 3.7.8c Add ergonomic public import aliases (`DONE`)
+    - create alias packages/modules for `preprocessing`, `spikesorting`, `waveforms`, `templates`, `reconstruction`, `analysis`.
+    - ensure alias imports are stable for callers while canonical ownership remains `stgN_*`.
+  - 3.7.8d Rewire CLI + orchestrator to canonical `pipeline_*` + `stgN_*` ownership (`DONE`)
+    - update CLI/runtime imports, dispatch registry imports, and stage-service callsites.
+    - verify resume/checkpoint paths and scope-run behavior unchanged.
+  - 3.7.8e Output path nomenclature update to stage numbering (`DONE`)
+    - rename stage output directory labels to include `stg1`, `stg2`, etc. where stage-owned outputs are written.
+    - keep migration-safe handling for existing output layouts where needed (read old, write new, or explicit one-time break).
+  - 3.7.8f Tests and fixtures migration (`DONE`)
+    - update test imports/monkeypatch targets/fixtures for renamed modules and packages.
+    - update any hard-coded expected output paths for new stage-numbered directory names.
+  - 3.7.8g Docs and examples migration (`DONE`)
+    - update developer docs, ownership docs, and command examples referencing old module/package names.
+  - 3.7.8h Compatibility shim retirement (`DONE`)
+    - after parity verification, remove temporary shims for renamed modules and alias forwarders not intended to remain.
+
+#### 3.7.8 implementation order (proposed)
+1. 3.7.8a Rename top-level `stage_*.py` runtime modules to `pipeline_*.py`.
+2. 3.7.8b Rename stage package directories to `stgN_*` canonical names.
+3. 3.7.8c Add/verify ergonomic public import aliases (`preprocessing`, `spikesorting`, etc.).
+4. 3.7.8d Rewire CLI/orchestration imports and registry wiring.
+5. 3.7.8e Migrate stage output naming to explicit `stgN` labeling.
+6. 3.7.8f Update tests/fixtures; run targeted then broader regression.
+7. 3.7.8g Update docs/examples.
+8. 3.7.8h Remove short-lived compatibility shims.
 
 ---
 

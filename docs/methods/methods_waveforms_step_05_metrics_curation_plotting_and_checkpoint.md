@@ -23,14 +23,14 @@ Primary code paths:
 At this point, the waveforms runner has already:
 
 - produced the concat analyzer in:
-  - `<well_out_dir>/waveforms_outputs/concat_waveforms/`
+  - `<well_out_dir>/stg3_waveforms_outputs/concat_waveforms/`
 - optionally produced per-segment analyzers in:
-  - `<well_out_dir>/waveforms_outputs/segment_waveforms/segXX_<rec_name>/`
+  - `<well_out_dir>/stg3_waveforms_outputs/segment_waveforms/segXX_<rec_name>/`
 - persisted Part 4 audit artifacts:
-  - `waveforms_outputs/channel_groups.json`
-  - `waveforms_outputs/best_channel_sources.xlsx`
-  - `waveforms_outputs/waveform_filtering_summary.json`
-  - `waveforms_outputs/wf_rejection_log.xlsx`
+  - `stg3_waveforms_outputs/channel_groups.json`
+  - `stg3_waveforms_outputs/best_channel_sources.xlsx`
+  - `stg3_waveforms_outputs/waveform_filtering_summary.json`
+  - `stg3_waveforms_outputs/wf_rejection_log.xlsx`
 
 The remaining goal is:
 - apply MEA_Analysis-style curation thresholds (using spikesorting metrics),
@@ -39,7 +39,7 @@ The remaining goal is:
 
 Important design change:
 - The waveforms stage intentionally does **not** compute quality metrics or template metrics.
-- Curation is driven by the spikesorting stage’s `qm_unfiltered.xlsx` (under `spikesorting_outputs/`) to avoid metric drift due to parameterization (notably `presence_ratio.bin_duration_s`).
+- Curation is driven by the spikesorting stage’s `qm_unfiltered.xlsx` (under `stg2_spikesorting_outputs/`) to avoid metric drift due to parameterization (notably `presence_ratio.bin_duration_s`).
 
 ---
 
@@ -54,7 +54,7 @@ Implementation:
 
 What it does:
 - Loads spikesorting quality metrics from:
-  - `<well_out_dir>/spikesorting_outputs/qm_unfiltered.xlsx`
+  - `<well_out_dir>/stg2_spikesorting_outputs/qm_unfiltered.xlsx`
 - Runs MEA_Analysis-style curation logic on that table:
   - `clean_metrics, rejection_log = apply_mea_analysis_curation(q_metrics=qm, user_thresholds=None)`
 
@@ -166,4 +166,4 @@ After the waveforms stage finishes, later pipeline stages typically consume:
 - and the plotting artifacts for QC and downstream decisions.
 
 For quality metrics, later stages should use the spikesorting outputs:
-- `<well_out_dir>/spikesorting_outputs/qm_unfiltered.xlsx` (and any curated variants produced there)
+- `<well_out_dir>/stg2_spikesorting_outputs/qm_unfiltered.xlsx` (and any curated variants produced there)

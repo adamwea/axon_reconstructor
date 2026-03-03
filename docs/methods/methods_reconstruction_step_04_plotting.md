@@ -12,7 +12,7 @@ Primary code paths:
 
 If `ReconstructionInputs.write_unit_pdfs=True`, reconstruction attempts to write per-unit PDFs under:
 
-- `<well>/reconstruction_outputs/by_unit/unit_<id>/`
+- `<well>/stg5_reconstruction_outputs/by_unit/unit_<id>/`
 
 These plots are best-effort.
 
@@ -30,7 +30,7 @@ Scientific intent:
 
 If `ReconstructionInputs.write_all_units_overview_pdf=True`, reconstruction attempts to write:
 
-- `<well>/reconstruction_outputs/all_units_morphology.pdf`
+- `<well>/stg5_reconstruction_outputs/all_units_morphology.pdf`
 
 This plot is built from:
 

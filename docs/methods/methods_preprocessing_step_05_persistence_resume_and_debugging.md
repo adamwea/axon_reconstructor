@@ -15,7 +15,7 @@ Related scripts:
 
 When `save_recording=True` and `mea_analysis_output_root` is configured, preprocessing saves the concatenated recording into:
 
-- `<well_out_dir>/preprocess_outputs/preprocessed_recording/`
+- `<well_out_dir>/stg1_preprocess_outputs/preprocessed_recording/`
 
 This saved recording is the contract used by spikesorting debug harnesses and waveforms stage.
 
@@ -29,7 +29,7 @@ Problem:
 Solution:
 - preprocessing writes a small config file:
 
-  - `<well_out_dir>/preprocess_outputs/preprocess_config.json`
+  - `<well_out_dir>/stg1_preprocess_outputs/preprocess_config.json`
 
 It stores the “requested resampling config” (factor/rate/margin/dtype).
 

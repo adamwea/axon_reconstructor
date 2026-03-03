@@ -5,7 +5,7 @@ from pathlib import Path
 
 from axon_reconstructor.cli import _cmd_stage
 from axon_reconstructor.pipeline.scope_config import ScopeConfig, ScopeDatasetSpec, ScopeWellSpec
-from axon_reconstructor.pipeline.stage_driver import StageExecutionResult, run_scope_stage_barriers
+from axon_reconstructor.pipeline.pipeline_driver import StageExecutionResult, run_scope_stage_barriers
 
 
 def _make_mea_like_path(tmp_path: Path) -> Path:
@@ -56,7 +56,7 @@ def test_scope_orchestrator_dispatches_via_shared_stage_executor(monkeypatch, tm
         )
         return StageExecutionResult(stage=stage, artifacts={"n_common_electrodes": 123})
 
-    import axon_reconstructor.pipeline.stage_driver as stage_driver
+    import axon_reconstructor.pipeline.pipeline_driver as stage_driver
 
     monkeypatch.setattr(stage_driver, "execute_stage", _fake_execute_stage)
 
@@ -95,7 +95,7 @@ def test_stage_cli_dispatches_via_shared_stage_executor(monkeypatch, tmp_path: P
         )
         return StageExecutionResult(stage=stage, artifacts={"n_common_electrodes": 77})
 
-    import axon_reconstructor.pipeline.stage_driver as stage_driver
+    import axon_reconstructor.pipeline.pipeline_driver as stage_driver
 
     monkeypatch.setattr(stage_driver, "execute_stage", _fake_execute_stage)
 

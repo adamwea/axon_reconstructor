@@ -11,7 +11,7 @@ Primary code path:
 
 Reconstruction writes:
 
-- `<well>/reconstruction_outputs/reconstruction_summary.json`
+- `<well>/stg5_reconstruction_outputs/reconstruction_summary.json`
 
 The summary includes:
 

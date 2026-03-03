@@ -30,7 +30,7 @@ Related helper modules (called during this part):
       - Name is `{logger_name_prefix}.{stream_id}`.
 
    3. Create/resolve output directories:
-      1. `waveforms_out_dir = <well_out_dir>/waveforms_outputs/`
+      1. `waveforms_out_dir = <well_out_dir>/stg3_waveforms_outputs/`
       2. `concat_waveforms_dir = <waveforms_out_dir>/concat_waveforms/`
       3. `segment_waveforms_dir = <waveforms_out_dir>/segment_waveforms/` (only if `inputs.per_segment=True`)
 
@@ -121,7 +121,7 @@ Why this matters:
 1. Resolve sorter output directory for this well:
 
    1. `sorter_output_dir = _resolve_mea_sorter_output_dir(well_out_dir)`
-      - Prefers: `<well_out_dir>/spikesorting_outputs/sorter_output/`
+      - Prefers: `<well_out_dir>/stg2_spikesorting_outputs/sorter_output/`
       - Falls back to legacy: `<well_out_dir>/sorter_output/`
 
 2. Load sorting extractor:

@@ -15,31 +15,31 @@ This document inventories resume/restart behavior from CLI args down to stage ru
 
 Primary arg definitions:
 - `src/axon_reconstructor/cli.py`
-- `src/axon_reconstructor/pipeline/stage_driver.py`
+- `src/axon_reconstructor/pipeline/pipeline_driver.py`
 
 ## 2) Stage runtime checkpointing + resume logic
 
 | Stage | Checkpoint file | Checkpoint transitions | Resume gate (non-force) | Status |
 |---|---|---|---|---|
 | preprocess | main checkpoint (`*_checkpoint.json`) | `PREPROCESSING` -> `PREPROCESSING_COMPLETE` (+ failure) | Requires checkpoint stage complete + saved recording + `common_electrodes.npy` + config parity | Covered |
-| spikesort | MEA_Analysis checkpoint under `spikesorting_outputs/checkpoints` | MEA pipeline internal stages | Resume controlled by MEA_Analysis checkpoint/state; no axon stage-checkpoint wrapper yet | Partial |
+| spikesort | MEA_Analysis checkpoint under `stg2_spikesorting_outputs/checkpoints` | MEA pipeline internal stages | Resume controlled by MEA_Analysis checkpoint/state; no axon stage-checkpoint wrapper yet | Partial |
 | waveforms | stage checkpoint (`*_waveforms_checkpoint.json`) | `ANALYZER` -> `ANALYZER_COMPLETE` (+ failure) | `concat_waveforms_dir` existence shortcut, optional replot pass | Covered |
 | templates | stage checkpoint (`*_templates_checkpoint.json`) | `ANALYZER` -> `ANALYZER_COMPLETE` | `extracted_templates_dir` + `templates_summary.json` (+ grid if enabled) | Mostly covered |
 | reconstruct | stage checkpoint (`*_reconstruction_checkpoint.json`) | `ANALYZER` -> `ANALYZER_COMPLETE` | summary + by-unit outputs (+ overview if enabled), disabled in replot/branches-only modes | Mostly covered |
 | analysis | stage checkpoint (`*_analysis_checkpoint.json`) | `REPORTS` -> `REPORTS_COMPLETE` (+ failure) | No top-level stage early-return; per-artifact skip behavior controlled by `force_restart` | Covered (no global early-return) |
 
 Primary stage files:
-- `src/axon_reconstructor/pipeline/raw_preprocessing/main.py` (preprocess)
-- `src/axon_reconstructor/pipeline/spikesorting/runner.py`
-- `src/axon_reconstructor/pipeline/waveforms/runner.py`
-- `src/axon_reconstructor/pipeline/templates/runner.py`
-- `src/axon_reconstructor/pipeline/reconstruction/runner.py`
-- `src/axon_reconstructor/pipeline/analysis/runner.py`
-- `src/axon_reconstructor/pipeline/stage_checkpointing.py`
+- `src/axon_reconstructor/pipeline/stg1_preprocessing/main.py` (preprocess)
+- `src/axon_reconstructor/pipeline/stg2_spikesorting/runner.py`
+- `src/axon_reconstructor/pipeline/stg3_waveforms/runner.py`
+- `src/axon_reconstructor/pipeline/stg4_templates/runner.py`
+- `src/axon_reconstructor/pipeline/stg5_reconstruction/runner.py`
+- `src/axon_reconstructor/pipeline/stg6_analysis/runner.py`
+- `src/axon_reconstructor/pipeline/checkpointing.py`
 
 ## 3) Scope orchestration behavior
 
-`scope-run` (`src/axon_reconstructor/pipeline/stage_driver.py`) propagates `force_restart` from config to stage inputs, and maintains a barrier checkpoint artifact for stage-level progress. Transition gates (`unit_match`, `merge_update`) are readiness-gate checks.
+`scope-run` (`src/axon_reconstructor/pipeline/pipeline_driver.py`) propagates `force_restart` from config to stage inputs, and maintains a barrier checkpoint artifact for stage-level progress. Transition gates (`unit_match`, `merge_update`) are readiness-gate checks.
 
 ## 4) Low-hanging fruit (obvious + easy)
 

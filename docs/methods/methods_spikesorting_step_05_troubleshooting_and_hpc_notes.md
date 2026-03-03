@@ -7,7 +7,7 @@ Scope: this document collects common failure modes and practical debugging strat
 ## 1. “Sorter output not found”
 
 Symptoms:
-- downstream stages can’t find `spikesorting_outputs/sorter_output/`
+- downstream stages can’t find `stg2_spikesorting_outputs/sorter_output/`
 
 Checks:
 - confirm the per-well output directory is what you expect (relative_pattern + well)
@@ -58,7 +58,7 @@ axon_reconstructor CLI subcommands can pass these through.
 
 Both toolchains have checkpointing:
 
-- MEA_Analysis has its own per-run checkpoint JSON under `spikesorting_outputs/checkpoints/`.
+- MEA_Analysis has its own per-run checkpoint JSON under `stg2_spikesorting_outputs/checkpoints/`.
 - axon_reconstructor has a per-well pipeline checkpoint under the well root.
 
 If you suspect MEA_Analysis is resuming when you don’t want it to:

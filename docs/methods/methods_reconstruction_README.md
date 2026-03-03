@@ -21,5 +21,5 @@ This folder contains a step-by-step description of the reconstruction stage. It 
 
 ## Notes
 
-- Reconstruction defaults to consuming templates-stage full-channel templates under `templates_outputs/full_channels_templates/` because `axon_velocity` is most robust with dense templates on a deterministic geometry.
+- Reconstruction defaults to consuming templates-stage full-channel templates under `stg4_templates_outputs/full_channels_templates/` because `axon_velocity` is most robust with dense templates on a deterministic geometry.
 - Sampling frequency is currently sourced from the merged-contributing meta JSON when available.

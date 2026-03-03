@@ -6,7 +6,7 @@ This note defines canonical ownership after orchestration consolidation.
 
 - `axon-reconstructor scope-run`
   - Owns multi-target stage-barrier orchestration across datasets/wells.
-  - Uses `run_scope_stage_barriers(...)` in `src/axon_reconstructor/pipeline/stage_driver.py`.
+  - Uses `run_scope_stage_barriers(...)` in `src/axon_reconstructor/pipeline/pipeline_driver.py`.
 
 - `axon-reconstructor stage <stage>`
   - Owns single-target stage execution.
@@ -14,7 +14,7 @@ This note defines canonical ownership after orchestration consolidation.
 
 ## Shared execution registry
 
-- `src/axon_reconstructor/pipeline/stage_driver.py`
+- `src/axon_reconstructor/pipeline/pipeline_driver.py`
   - Canonical stage dispatch for preprocess/spikesort/waveforms/templates/reconstruct/analysis.
   - Canonical scope stage-barrier orchestration runtime for `scope-run`.
   - Canonical stage CLI argument registration helpers.
@@ -23,17 +23,17 @@ This note defines canonical ownership after orchestration consolidation.
 ## Stage service modules (implementation ownership)
 
 - Preprocess service:
-  - `run_preprocess_stage(...)` in `pipeline/raw_preprocessing/main.py`.
+  - `run_preprocess_stage(...)` in `pipeline/stg1_preprocessing/main.py`.
 - Spikesort service:
-  - `run_spikesorting_stage(...)` in `pipeline/spikesorting/runner.py`.
+  - `run_spikesorting_stage(...)` in `pipeline/stg2_spikesorting/runner.py`.
 - Waveforms service:
-  - `extract_waveforms(...)` in `pipeline/waveforms/runner.py`.
+  - `extract_waveforms(...)` in `pipeline/stg3_waveforms/runner.py`.
 - Templates service:
-  - `extract_and_merge_templates(...)` in `pipeline/templates/runner.py`.
+  - `extract_and_merge_templates(...)` in `pipeline/stg4_templates/runner.py`.
 - Reconstruction service:
-  - `reconstruct_from_templates(...)` in `pipeline/reconstruction/runner.py`.
+  - `reconstruct_from_templates(...)` in `pipeline/stg5_reconstruction/runner.py`.
 - Analysis service:
-  - `analyze_units(...)` in `pipeline/analysis/runner.py`.
+  - `analyze_units(...)` in `pipeline/stg6_analysis/runner.py`.
 
 ## Deprecated/removed orchestration ownership
 

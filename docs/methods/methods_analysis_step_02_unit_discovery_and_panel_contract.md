@@ -15,7 +15,7 @@ If `inputs.unit_ids` is provided:
 
 Otherwise, analysis discovers units from a stable contract in templates outputs:
 
-- `<well_out_dir>/templates_outputs/merged_units/`
+- `<well_out_dir>/stg4_templates_outputs/merged_units/`
 - each unit directory is expected to be named `unit_<id>`
 
 This is intentionally templates-driven because templates stage defines the “canonical unit set” handed to reconstruction.
@@ -31,22 +31,22 @@ For each unit id, analysis constructs a fixed list of panels (6 total) and attem
 Current mapping:
 
 1. Templates topo footprint:
-   - `<well>/templates_outputs/topo_unit_footprints/unit_<id>.png`
+   - `<well>/stg4_templates_outputs/topo_unit_footprints/unit_<id>.png`
 
 2. Templates zoomed merged contributing footprint:
-   - `<well>/templates_outputs/footprints_zoomed/unit_<id>_merged_contributing_footprint_ptp_linear_zoom.png`
+   - `<well>/stg4_templates_outputs/footprints_zoomed/unit_<id>_merged_contributing_footprint_ptp_linear_zoom.png`
 
 3. Templates propagation plot:
-   - `<well>/templates_outputs/propagation_plots/unit_<id>.png`
+   - `<well>/stg4_templates_outputs/propagation_plots/unit_<id>.png`
 
 4. Reconstruction branch velocities:
-   - `<well>/reconstruction_outputs/by_unit/unit_<id>/branch_velocities.png`
+   - `<well>/stg5_reconstruction_outputs/by_unit/unit_<id>/branch_velocities.png`
 
 5. Reconstruction raw branches (zoom):
-   - `<well>/reconstruction_outputs/by_unit/unit_<id>/branches_raw_zoom.png`
+   - `<well>/stg5_reconstruction_outputs/by_unit/unit_<id>/branches_raw_zoom.png`
 
 6. Reconstruction graph heuristics:
-   - `<well>/reconstruction_outputs/by_unit/unit_<id>/graph_heuristics.png`
+   - `<well>/stg5_reconstruction_outputs/by_unit/unit_<id>/graph_heuristics.png`
 
 ---
 

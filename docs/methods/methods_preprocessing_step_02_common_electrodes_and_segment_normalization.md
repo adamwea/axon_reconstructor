@@ -3,13 +3,13 @@
 Scope: this document covers how preprocessing turns per-segment Maxwell recordings into a set of per-segment SpikeInterface `Recording`s that all share the **same physical electrode set**.
 
 Primary code paths:
-- `axon_reconstructor.pipeline.raw_preprocessing.runner.build_concatenated_recording(...)`
+- `axon_reconstructor.pipeline.preprocessing.runner.build_concatenated_recording(...)`
 
 Related modules:
-- `axon_reconstructor.pipeline.raw_preprocessing.concatenation`
+- `axon_reconstructor.pipeline.preprocessing.concatenation`
   - `find_common_electrodes_from_segments(...)`
   - `_process_rec_segment_for_concatenation(...)`
-- `axon_reconstructor.pipeline.raw_preprocessing.utils` (`_ensure_maxwell_hdf5_plugin_path`)
+- `axon_reconstructor.pipeline.preprocessing.utils` (`_ensure_maxwell_hdf5_plugin_path`)
 
 ---
 

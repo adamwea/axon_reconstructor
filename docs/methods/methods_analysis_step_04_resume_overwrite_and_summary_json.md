@@ -23,7 +23,7 @@ This makes repeated runs cheap.
 
 Analysis writes a structured JSON summary at:
 
-- `<well>/analysis_outputs/analysis_summary.json`
+- `<well>/stg6_analysis_outputs/analysis_summary.json`
 
 It contains:
 

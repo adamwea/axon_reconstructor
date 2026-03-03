@@ -18,7 +18,7 @@ If enabled (`TemplateExtractInputs.plot_merged_contributing_footprints_linear_an
 ### 1.1 Footprint PTP maps (linear + log)
 
 Directory:
-- `<well>/templates_outputs/footprints/`
+- `<well>/stg4_templates_outputs/footprints/`
 
 Per unit:
 - `unit_<uid>_merged_contributing_footprint_ptp_linear.png`
@@ -30,7 +30,7 @@ Footprint definition:
 ### 1.2 Combined SVG panels (template overlay + footprint)
 
 Directory:
-- `<well>/templates_outputs/svgs/`
+- `<well>/stg4_templates_outputs/svgs/`
 
 Per unit:
 - `unit_<uid>_merged_contributing_template_footprint_linear.svg`
@@ -44,7 +44,7 @@ These are intended as compact per-unit “at a glance” QC summaries.
 
 If `TemplateExtractInputs.plot_templates_grid_pdf=True`, templates writes:
 
-- `<well>/templates_outputs/templates_grid.pdf`
+- `<well>/stg4_templates_outputs/templates_grid.pdf`
 
 Grid entries come from the list returned by `process_unit_list`.
 
@@ -53,7 +53,7 @@ Important behavior:
 - The grid is intended to represent the **merged-contributing** template per unit (not concat-only), because merged-contributing is the canonical reconstruction handoff.
 - The plotting window uses:
   - sampling rate from analyzers
-  - and `ms_before/ms_after` hints from `<well>/waveforms_outputs/waveform_extraction_params.json` when available.
+  - and `ms_before/ms_after` hints from `<well>/stg3_waveforms_outputs/waveform_extraction_params.json` when available.
 
 The runner writes the PDF only if it doesn’t exist yet, unless `force_restart=True`.
 
@@ -64,7 +64,7 @@ The runner writes the PDF only if it doesn’t exist yet, unless `force_restart=
 If `TemplateExtractInputs.plot_multi_source_templates_pdf=True`, templates creates:
 
 Directory:
-- `<well>/templates_outputs/unit_segment_grids/`
+- `<well>/stg4_templates_outputs/unit_segment_grids/`
 
 Per unit:
 - `unit_<uid>_templates.pdf`
@@ -82,7 +82,7 @@ Scientific purpose:
 
 If `TemplateExtractInputs.plot_topo_unit_footprints=True` and `save_full_channels_templates=True`, templates writes:
 
-- `<well>/templates_outputs/topo_unit_footprints/unit_<uid>.png`
+- `<well>/stg4_templates_outputs/topo_unit_footprints/unit_<uid>.png`
 
 This plot is generated from the dense `full_template.npy` so that:
 - non-contributing electrodes can be treated as zero
@@ -94,7 +94,7 @@ This plot is generated from the dense `full_template.npy` so that:
 
 If `TemplateExtractInputs.plot_propagation_plots=True`, templates writes per-unit propagation plots under:
 
-- `<well>/templates_outputs/propagation_plots/`
+- `<well>/stg4_templates_outputs/propagation_plots/`
 
 Implementation detail:
 - the call site still uses a legacy function name `write_unit_propagation_plots_pdf`, but current plotting tends to write PNG(s) into the provided directory.
@@ -108,7 +108,7 @@ Inputs include:
   - `propagation_channel_overlap`
 
 It also passes an `ap_timings_json_path` hint:
-- `<well>/templates_outputs/merged_units/unit_<uid>/ap_timings.json`
+- `<well>/stg4_templates_outputs/merged_units/unit_<uid>/ap_timings.json`
 
 This file may be produced by downstream stages; propagation plotting treats it as optional.
 
@@ -118,7 +118,7 @@ This file may be produced by downstream stages; propagation plotting treats it a
 
 After unit processing completes, the runner writes:
 
-- `<well>/templates_outputs/templates_summary.json`
+- `<well>/stg4_templates_outputs/templates_summary.json`
 
 This JSON contains:
 

@@ -22,8 +22,8 @@ Templates is a multi-source stage: it can combine templates computed from:
 
 Templates expects the waveforms stage to have written analyzers under:
 
-- `<well>/waveforms_outputs/concat_waveforms/`
-- `<well>/waveforms_outputs/segment_waveforms/<segment_name>/` (0+ segment folders)
+- `<well>/stg3_waveforms_outputs/concat_waveforms/`
+- `<well>/stg3_waveforms_outputs/segment_waveforms/<segment_name>/` (0+ segment folders)
 
 ### 1.2 Loader behavior
 
@@ -71,7 +71,7 @@ If `inputs.unit_ids is None`:
 2. Apply spikesorting-stage unit curation via `_apply_spikesorting_stage_unit_curation(...)`.
 
   - It reads spikesorting quality metrics from:
-    - `<well>/spikesorting_outputs/qm_unfiltered.xlsx`
+    - `<well>/stg2_spikesorting_outputs/qm_unfiltered.xlsx`
   - It applies `waveforms.curation.apply_mea_analysis_curation(q_metrics=qm, user_thresholds=None)` to derive the curated set.
 
 3. If `qm_unfiltered.xlsx` is found and pandas is available:
@@ -91,11 +91,11 @@ If `inputs.unit_ids is None`:
 
 If `inputs.require_curated_units=True` (default) and curated units cannot be derived:
 
-- templates raises a `RuntimeError` explaining that it expected `<well>/spikesorting_outputs/qm_unfiltered.xlsx`.
+- templates raises a `RuntimeError` explaining that it expected `<well>/stg2_spikesorting_outputs/qm_unfiltered.xlsx`.
 
 Ways to override:
 
-- run spikesorting first so `<well>/spikesorting_outputs/qm_unfiltered.xlsx` exists
+- run spikesorting first so `<well>/stg2_spikesorting_outputs/qm_unfiltered.xlsx` exists
 - pass `TemplateExtractInputs(unit_ids=[...])`
 - or set `require_curated_units=False`
 
@@ -126,7 +126,7 @@ This stage does **not** recompute or enforce the waveforms window; it uses best-
 
 If available, it reads the waveforms-stage params JSON:
 
-- `<well>/waveforms_outputs/waveform_extraction_params.json`
+- `<well>/stg3_waveforms_outputs/waveform_extraction_params.json`
 
 It attempts to extract:
 
@@ -141,7 +141,7 @@ If anything fails, both are left as `None` and plots fall back to a simple time 
 
 The runner builds a `summary` dict that will be written to:
 
-- `<well>/templates_outputs/templates_summary.json`
+- `<well>/stg4_templates_outputs/templates_summary.json`
 
 Important fields include:
 
@@ -157,7 +157,7 @@ Important fields include:
   - `applied` boolean
   - `n_curated_units`
 - a hint to waveforms best-channel provenance:
-  - `waveforms_best_channel_sources_xlsx` if `<well>/waveforms_outputs/best_channel_sources.xlsx` exists
+  - `waveforms_best_channel_sources_xlsx` if `<well>/stg3_waveforms_outputs/best_channel_sources.xlsx` exists
 - `units: []` (to be populated per unit)
 
 This `summary` is passed down into `process_unit_list(..., summary=summary)` so that per-unit persistence can append unit entries.

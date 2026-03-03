@@ -15,7 +15,7 @@ Downstream stages (sorting, waveforms/templates, reconstruction) assume a consis
 ## Primary APIs
 
 - High-level: `axon_reconstructor.pipeline.pipeline_driver.AxonReconstructor.preprocess_for_spikesorting(...)`
-- Core builder: `axon_reconstructor.pipeline.raw_preprocessing.build_concatenated_recording(...)`
+- Core builder: `axon_reconstructor.pipeline.preprocessing.build_concatenated_recording(...)`
 
 ## Inputs
 
@@ -57,7 +57,7 @@ Optional (temporal interpolation / upsampling):
 
 When `mea_analysis_output_root` is configured, outputs live under the MEA_Analysis-style per-well folder:
 
-- `<well_out_dir>/preprocess_outputs/`
+- `<well_out_dir>/stg1_preprocess_outputs/`
   - `preprocessed_recording/` (SpikeInterface binary recording; optional but recommended)
   - `common_electrodes.npy`
   - `preprocess_config.json` (cache-safety: prevents accidental resume with different resampling settings)

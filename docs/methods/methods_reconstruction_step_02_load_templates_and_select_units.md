@@ -11,7 +11,7 @@ Primary code path:
 
 Reconstruction expects templates to have written under:
 
-- `<well>/templates_outputs/`
+- `<well>/stg4_templates_outputs/`
 
 Key subdirectories:
 
@@ -31,7 +31,7 @@ Key subdirectories:
 
 Therefore, reconstruction defaults to consuming per-unit artifacts under:
 
-- `<well>/templates_outputs/full_channels_templates/unit_<id>/`
+- `<well>/stg4_templates_outputs/full_channels_templates/unit_<id>/`
 
 This is controlled by `ReconstructionInputs`:
 
@@ -48,7 +48,7 @@ For each unit `uid`, reconstruction tracks both:
 
 ### 3.1 Dense full-channel template (preferred)
 
-From `<well>/templates_outputs/full_channels_templates/unit_<uid>/`:
+From `<well>/stg4_templates_outputs/full_channels_templates/unit_<uid>/`:
 
 - `full_template.npy`
   - shape `(n_samples, n_full_channels)`
@@ -59,7 +59,7 @@ From `<well>/templates_outputs/full_channels_templates/unit_<uid>/`:
 
 ### 3.2 Merged contributing-channels metadata (best-effort)
 
-From `<well>/templates_outputs/merged_units/unit_<uid>/`:
+From `<well>/stg4_templates_outputs/merged_units/unit_<uid>/`:
 
 - `merged_contributing_template_meta.json`
   - used primarily to get `sampling_frequency_hz`
@@ -73,7 +73,7 @@ Note:
 
 Reconstruction discovers unit ids from:
 
-- `<well>/templates_outputs/merged_units/unit_*` directory names
+- `<well>/stg4_templates_outputs/merged_units/unit_*` directory names
 
 Selection rules:
 

@@ -77,7 +77,7 @@ Why this is computed:
 - Later, per-segment waveform extraction can optionally exclude these common channels and focus only on **non-common segment channels** (channels dropped during concatenation).
 
 Related artifact:
-- The waveforms stage persists `waveforms_outputs/channel_groups.json` (best-effort) so you can inspect these sets for a run.
+- The waveforms stage persists `stg3_waveforms_outputs/channel_groups.json` (best-effort) so you can inspect these sets for a run.
 
 ---
 
