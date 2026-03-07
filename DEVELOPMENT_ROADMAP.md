@@ -693,6 +693,40 @@ Compatibility/deprecation policy (approved):
 
 ---
 
+## Phase 8 — Branch-Type Tracking Expansion (Axon + Dendrite)
+
+### 8.1 Axon-vs-dendrite branch classification strategy
+- Status: `TODO`
+- Goal:
+  - Define a robust, auditable method to classify tracked branches as axonal vs dendritic within the existing unit-level reconstruction framework.
+- Deliverables:
+  - Short literature review of current methods for branch-type classification from extracellular morphology + propagation signatures.
+  - Candidate feature inventory (latency profile, propagation directionality, branch geometry, signal amplitude decay, neighborhood context).
+  - Decision framework for deterministic rules vs probabilistic classifier vs hybrid approach.
+
+### 8.2 Dendritic tracking feasibility + method design
+- Status: `TODO`
+- Goal:
+  - Determine what is needed to extend current tracking from axon-focused outputs to explicit dendritic tracking.
+- Deliverables:
+  - Gap analysis of current pipeline outputs/artifacts for dendritic inference readiness.
+  - Proposed pipeline insertion points (templates/reconstruction/analysis) for dendrite-specific processing.
+  - Minimal prototype plan with acceptance criteria and failure modes.
+
+### 8.3 Longitudinal axon development via unit matching
+- Status: `TODO`
+- Goal:
+  - Quantify axonal development trajectories across DIVs using `unit_match` continuity.
+- Deliverables:
+  - Per-unit longitudinal morphology metric set (e.g., branch count, path length proxies, covered area, conduction-related summaries).
+  - Time-series aggregation and visualization plan across matched units.
+  - Validation plan for biological plausibility and robustness under partial tracking.
+
+### 8.4 Docs + Roadmap Update Checkpoint
+- Status: `TODO`
+
+---
+
 ## Immediate Next Item (for execution)
 
 `Phase 4.1` — Wire up and test partially implemented Radivojevic-style reconstruction.
