@@ -107,6 +107,57 @@ def add_stage_execution_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_stage_reconstruct_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--recon-templates-variant-name",
+        type=str,
+        default=None,
+        help="Templates variant name for reconstruction input routing (env: AXON_RECON_RECON_TEMPLATES_VARIANT_NAME).",
+    )
+    parser.add_argument(
+        "--recon-variant-name",
+        type=str,
+        default=None,
+        help="Reconstruction variant name for output routing (env: AXON_RECON_RECON_VARIANT_NAME).",
+    )
+    parser.add_argument(
+        "--recon-top-n-density-requested",
+        type=str,
+        default=None,
+        help="Top-N units for density grid; accepts int or none/null/all (env: AXON_RECON_RECON_TOP_N_DENSITY_REQUESTED).",
+    )
+    parser.add_argument(
+        "--recon-write-top-density-grid",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable top-density grid write (env: AXON_RECON_RECON_WRITE_TOP_DENSITY_GRID).",
+    )
+    parser.add_argument(
+        "--recon-show-density-scale-debug-text",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable legacy density debug text (env: AXON_RECON_RECON_SHOW_DENSITY_SCALE_DEBUG_TEXT).",
+    )
+    parser.add_argument(
+        "--recon-show-density-scale-global-debug-text",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable global density debug panel (env: AXON_RECON_RECON_SHOW_DENSITY_SCALE_GLOBAL_DEBUG_TEXT).",
+    )
+    parser.add_argument(
+        "--recon-show-density-scale-local-debug-text",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable per-unit density debug text (env: AXON_RECON_RECON_SHOW_DENSITY_SCALE_LOCAL_DEBUG_TEXT).",
+    )
+    parser.add_argument(
+        "--recon-replot-top-density-grid-only",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Replot top-density grid only from existing reconstruction outputs (env: AXON_RECON_RECON_REPLOT_TOP_DENSITY_GRID_ONLY).",
+    )
+
+
 def add_stage_debug_controls(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--break-before-run",

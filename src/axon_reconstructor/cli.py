@@ -17,6 +17,7 @@ from axon_reconstructor.pipeline.pipeline_driver import (
     add_stage_debug_controls,
     add_stage_execution_args,
     add_stage_kwargs_args,
+    add_stage_reconstruct_args,
     add_stage_selector_arg,
     add_stage_spikesort_args,
 )
@@ -525,6 +526,70 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         if "waveforms_variant_name" not in stage_kwargs and waveforms_variant_name is not None:
             stage_kwargs["waveforms_variant_name"] = str(waveforms_variant_name)
 
+    if stage == "reconstruct":
+        templates_variant_name = _resolve_optional_str(
+            cli_value=getattr(args, "recon_templates_variant_name", None),
+            env_key="AXON_RECON_RECON_TEMPLATES_VARIANT_NAME",
+            default=None,
+        )
+        if "templates_variant_name" not in stage_kwargs and templates_variant_name is not None:
+            stage_kwargs["templates_variant_name"] = str(templates_variant_name)
+
+        reconstruction_variant_name = _resolve_optional_str(
+            cli_value=getattr(args, "recon_variant_name", None),
+            env_key="AXON_RECON_RECON_VARIANT_NAME",
+            default=None,
+        )
+        if "reconstruction_variant_name" not in stage_kwargs and reconstruction_variant_name is not None:
+            stage_kwargs["reconstruction_variant_name"] = str(reconstruction_variant_name)
+
+        top_n_density_raw = getattr(args, "recon_top_n_density_requested", None)
+        if top_n_density_raw is None:
+            top_n_density_raw = env_utils.env_str("AXON_RECON_RECON_TOP_N_DENSITY_REQUESTED", default=None)
+        top_n_density_requested = _parse_int_or_none_token(top_n_density_raw)
+        if "top_n_density_requested" not in stage_kwargs and top_n_density_requested is not None:
+            stage_kwargs["top_n_density_requested"] = top_n_density_requested
+
+        write_top_density_grid = _resolve_bool(
+            cli_value=getattr(args, "recon_write_top_density_grid", None),
+            env_key="AXON_RECON_RECON_WRITE_TOP_DENSITY_GRID",
+            default=True,
+        )
+        if "write_top_density_grid" not in stage_kwargs:
+            stage_kwargs["write_top_density_grid"] = bool(write_top_density_grid)
+
+        show_density_scale_debug_text = _resolve_bool(
+            cli_value=getattr(args, "recon_show_density_scale_debug_text", None),
+            env_key="AXON_RECON_RECON_SHOW_DENSITY_SCALE_DEBUG_TEXT",
+            default=False,
+        )
+        if "show_density_scale_debug_text" not in stage_kwargs:
+            stage_kwargs["show_density_scale_debug_text"] = bool(show_density_scale_debug_text)
+
+        show_density_scale_global_debug_text = _resolve_bool(
+            cli_value=getattr(args, "recon_show_density_scale_global_debug_text", None),
+            env_key="AXON_RECON_RECON_SHOW_DENSITY_SCALE_GLOBAL_DEBUG_TEXT",
+            default=False,
+        )
+        if "show_density_scale_global_debug_text" not in stage_kwargs:
+            stage_kwargs["show_density_scale_global_debug_text"] = bool(show_density_scale_global_debug_text)
+
+        show_density_scale_local_debug_text = _resolve_bool(
+            cli_value=getattr(args, "recon_show_density_scale_local_debug_text", None),
+            env_key="AXON_RECON_RECON_SHOW_DENSITY_SCALE_LOCAL_DEBUG_TEXT",
+            default=False,
+        )
+        if "show_density_scale_local_debug_text" not in stage_kwargs:
+            stage_kwargs["show_density_scale_local_debug_text"] = bool(show_density_scale_local_debug_text)
+
+        replot_top_density_grid_only = _resolve_bool(
+            cli_value=getattr(args, "recon_replot_top_density_grid_only", None),
+            env_key="AXON_RECON_RECON_REPLOT_TOP_DENSITY_GRID_ONLY",
+            default=False,
+        )
+        if "replot_top_density_grid_only" not in stage_kwargs:
+            stage_kwargs["replot_top_density_grid_only"] = bool(replot_top_density_grid_only)
+
     if stage == "analysis":
         if args.unit_ids:
             unit_ids = [int(value) for value in args.unit_ids]
@@ -737,6 +802,7 @@ def main(argv: list[str] | None = None) -> int:
     add_stage_common_required_args(p_stage)
     add_stage_spikesort_args(p_stage)
     add_stage_execution_args(p_stage)
+    add_stage_reconstruct_args(p_stage)
     add_stage_debug_controls(p_stage)
     add_stage_analysis_args(p_stage)
     add_stage_kwargs_args(p_stage)

@@ -88,6 +88,7 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
         if args.rerun_analyzer is None
         else bool(args.rerun_analyzer)
     )
+    force_merge_on_resume = env.env_bool("AXON_RECON_SPIKESORT_FORCE_MERGE_ON_RESUME", default=False)
     auto_merge_units = (
         env.env_bool("AXON_RECON_SPIKESORT_AUTO_MERGE_UNITS", default=False)
         if args.auto_merge_units is None
@@ -136,6 +137,7 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
         no_curation=(not bool(do_curation)),
         export_to_phy=False,
         force_rerun_analyzer=bool(force_rerun_analyzer),
+        force_merge_on_resume=bool(force_merge_on_resume),
         auto_merge_units=bool(auto_merge_units),
         auto_merge_template_diff_thresh=str(auto_merge_template_diff_thresh),
         post_merge_4x4_units=bool(post_merge_4x4_units),
