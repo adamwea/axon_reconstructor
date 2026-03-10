@@ -53,6 +53,42 @@ def add_stage_spikesort_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--sorter", default="kilosort4")
     parser.add_argument("--docker-image", default=None)
     parser.add_argument("--chunk-duration", default=None)
+    parser.add_argument(
+        "--ks-th-universal",
+        type=float,
+        default=None,
+        help="Override Kilosort4 Th_universal (env: AXON_RECON_KS_TH_UNIVERSAL).",
+    )
+    parser.add_argument(
+        "--ks-th-learned",
+        type=float,
+        default=None,
+        help="Override Kilosort4 Th_learned (env: AXON_RECON_KS_TH_LEARNED).",
+    )
+    parser.add_argument(
+        "--ks-th-single-ch",
+        type=float,
+        default=None,
+        help="Override Kilosort4 Th_single_ch (env: AXON_RECON_KS_TH_SINGLE_CH).",
+    )
+    parser.add_argument(
+        "--ks-cluster-downsampling",
+        type=int,
+        default=None,
+        help="Override Kilosort4 cluster_downsampling (env: AXON_RECON_KS_CLUSTER_DOWNSAMPLING).",
+    )
+    parser.add_argument(
+        "--ks-nearest-chans",
+        type=int,
+        default=None,
+        help="Override Kilosort4 nearest_chans (env: AXON_RECON_KS_NEAREST_CHANS).",
+    )
+    parser.add_argument(
+        "--ks-max-channel-distance",
+        type=float,
+        default=None,
+        help="Override Kilosort4 max_channel_distance (env: AXON_RECON_KS_MAX_CHANNEL_DISTANCE).",
+    )
 
 
 def add_stage_execution_args(parser: argparse.ArgumentParser) -> None:

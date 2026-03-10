@@ -62,6 +62,10 @@ def build_templates_debug_config(*, args: Any, env: Any) -> TemplatesDebugConfig
         if args.plot_multi_source_templates_pdf is None
         else bool(args.plot_multi_source_templates_pdf)
     )
+    zoomed_footprints_global_color_scale = env.env_bool(
+        "AXON_RECON_TEMPLATES_ZOOMED_FOOTPRINTS_GLOBAL_COLOR_SCALE",
+        default=False,
+    )
 
     require_curated_units = (
         env.env_bool("AXON_RECON_TEMPLATES_REQUIRE_CURATED_UNITS", default=True)
@@ -135,6 +139,7 @@ def build_templates_debug_config(*, args: Any, env: Any) -> TemplatesDebugConfig
         require_curated_units=bool(require_curated_units),
         plot_templates_grid_pdf=plot_templates_grid_pdf,
         plot_multi_source_templates_pdf=plot_multi_source_templates_pdf,
+        zoomed_footprints_global_color_scale=bool(zoomed_footprints_global_color_scale),
         top_channels_per_template=top_channels_per_template,
         template_time_upsample_factor=int(template_time_upsample_factor),
         template_time_upsample_method=str(template_time_upsample_method),

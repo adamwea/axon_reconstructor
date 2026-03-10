@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
+from datetime import datetime, timezone
+from time import perf_counter
+from typing import Any, Callable
 
 from .segments import (
     _append_segment_skip_summary,
@@ -256,6 +258,23 @@ def _extract_concat_waveforms(
     if concat_waveforms_dir.exists() and inputs.force_restart:
         shutil.rmtree(concat_waveforms_dir)
 
+    if concat_waveforms_dir.exists() and not inputs.force_restart:
+        try:
+            logger.info("Reusing existing concat waveforms analyzer -> %s", concat_waveforms_dir)
+            concat_analyzer = si.load_sorting_analyzer(concat_waveforms_dir)
+            _warn_early_negative_peaks_from_templates(analyzer=concat_analyzer, window=window, logger=logger)
+            return _best_ptp_channel_by_unit_from_templates(analyzer=concat_analyzer)
+        except Exception:
+            logger.warning(
+                "Failed to load existing concat analyzer at %s; recomputing concat waveforms.",
+                concat_waveforms_dir,
+                exc_info=True,
+            )
+            try:
+                shutil.rmtree(concat_waveforms_dir)
+            except Exception:
+                pass
+
     logger.info("Extracting concat waveforms -> %s", concat_waveforms_dir)
     concat_analyzer = si.create_sorting_analyzer(
         filtered_sorting,
@@ -264,14 +283,17 @@ def _extract_concat_waveforms(
         folder=concat_waveforms_dir,
         return_in_uV=True,
     )
+    random_spikes_params = {
+        "method": "uniform",
+        "seed": 0,
+    }
+    if inputs.max_spikes_per_unit is not None:
+        random_spikes_params["max_spikes_per_unit"] = int(inputs.max_spikes_per_unit)
+
     concat_analyzer.compute(
         ["random_spikes", "waveforms"],
         extension_params={
-            "random_spikes": {
-                "method": "uniform",
-                "max_spikes_per_unit": int(inputs.max_spikes_per_unit),
-                "seed": 0,
-            },
+            "random_spikes": random_spikes_params,
             "waveforms": {"ms_before": float(window.ms_before), "ms_after": float(window.ms_after)},
         },
         verbose=False,
@@ -312,6 +334,8 @@ def _extract_per_segment_waveforms(
     base_rej_fields: dict[str, Any],
     logger: Any,
     channel_groups: dict[str, Any] | None = None,
+    checkpoint_completed_sources: set[str] | None = None,
+    on_segment_completed: Callable[[str], None] | None = None,
 ) -> dict[Any, tuple[float, Any, str]]:
     """Extract per-segment waveforms and return best channel info across segments.
 
@@ -359,8 +383,75 @@ def _extract_per_segment_waveforms(
 
         import spikeinterface.full as si  # type: ignore[import-not-found]
 
+        segment_manifest: dict[str, Any] = {
+            "version": 1,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "force_restart": bool(getattr(inputs, "force_restart", False)),
+            "recompute_channel_groups_for_reused_segments": bool(
+                getattr(inputs, "recompute_channel_groups_for_reused_segments", False)
+            ),
+            "segments": [],
+            "summary": {
+                "n_expected": int(len(list(epochs.concat_epochs))),
+                "n_processed": 0,
+                "n_reused": 0,
+                "n_computed": 0,
+                "n_skipped": 0,
+                "timing_seconds": {
+                    "load_preprocess": 0.0,
+                    "spike_prep": 0.0,
+                    "analyzer": 0.0,
+                    "postprocess": 0.0,
+                    "total": 0.0,
+                },
+            },
+        }
+
+        cache_numpy = None
+        filtered_spike_cache: dict[Any, Any] = {}
+        unfiltered_spike_cache: dict[Any, Any] = {}
+        try:
+            import numpy as np  # type: ignore[import-not-found]
+
+            cache_numpy = np
+
+            for u in filtered_sorting.get_unit_ids():
+                arr = np.asarray(filtered_sorting.get_unit_spike_train(u), dtype=np.int64)
+                if arr.ndim != 1:
+                    arr = arr.reshape(-1)
+                filtered_spike_cache[u] = arr
+
+            for u in sorting_unfiltered.get_unit_ids():
+                arr = np.asarray(sorting_unfiltered.get_unit_spike_train(u), dtype=np.int64)
+                if arr.ndim != 1:
+                    arr = arr.reshape(-1)
+                unfiltered_spike_cache[u] = arr
+        except Exception:
+            cache_numpy = None
+            filtered_spike_cache = {}
+            unfiltered_spike_cache = {}
+
+        def _count_spikes_cached(*, cache: dict[Any, Any], start: int, end: int) -> int:
+            if cache_numpy is None or not cache:
+                return -1
+            total = 0
+            for arr in cache.values():
+                try:
+                    left = int(cache_numpy.searchsorted(arr, int(start), side="left"))
+                    right = int(cache_numpy.searchsorted(arr, int(end), side="left"))
+                    total += int(max(0, right - left))
+                except Exception:
+                    continue
+            return int(total)
+
         logger.info("Extracting per-segment waveforms -> %s", segment_waveforms_dir)
         for seg in epochs.concat_epochs:
+            seg_t_total_start = perf_counter()
+            seg_t_load_preprocess = 0.0
+            seg_t_spike_prep = 0.0
+            seg_t_analyzer = 0.0
+            seg_t_postprocess = 0.0
+
             spec = _parse_concat_epoch_segment(seg=seg, segment_waveforms_dir=segment_waveforms_dir)
             if spec is None:
                 continue
@@ -375,6 +466,128 @@ def _extract_per_segment_waveforms(
             if seg_dir.exists() and inputs.force_restart:
                 shutil.rmtree(seg_dir)
 
+            source_name = f"seg{int(seg_index):02d}_{rec_name}"
+            was_checkpoint_completed = bool(checkpoint_completed_sources and source_name in checkpoint_completed_sources)
+
+            manifest_entry: dict[str, Any] = {
+                "segment_index": int(seg_index),
+                "rec_name": str(rec_name),
+                "source_name": str(source_name),
+                "segment_dir": str(seg_dir),
+                "start_sample_concat": int(start),
+                "end_sample_concat": int(end_epoch),
+                "checkpoint_completed": bool(was_checkpoint_completed),
+                "status": "pending",
+                "timing_seconds": {},
+            }
+
+            if (
+                seg_dir.exists()
+                and not inputs.force_restart
+                and not bool(getattr(inputs, "recompute_channel_groups_for_reused_segments", False))
+            ):
+                try:
+                    seg_analyzer_existing = si.load_sorting_analyzer(seg_dir)
+
+                    try:
+                        seg_channel_ids_existing = list(seg_analyzer_existing.get_channel_ids())
+                    except Exception:
+                        seg_channel_ids_existing = []
+                    if seg_channel_ids_existing:
+                        seg_channel_id_sets[str(source_name)] = set(seg_channel_ids_existing)
+                        try:
+                            seg_additional_electrode_sets[str(source_name)] = set(int(x) for x in seg_channel_ids_existing)
+                        except Exception:
+                            pass
+
+                    try:
+                        seg_best_existing = _best_ptp_channel_by_unit_from_templates(analyzer=seg_analyzer_existing)
+                        for u, (ptp_uv, ch_id) in seg_best_existing.items():
+                            try:
+                                ptp_f = float(ptp_uv)
+                            except Exception:
+                                continue
+                            prev = best_by_unit.get(u)
+                            if prev is None or ptp_f > float(prev[0]):
+                                best_by_unit[u] = (ptp_f, ch_id, str(source_name))
+                    except Exception:
+                        pass
+
+                    try:
+                        in_seg_unfiltered_cached = _count_spikes_cached(cache=unfiltered_spike_cache, start=start, end=end)
+                        in_seg_filtered_cached = _count_spikes_cached(cache=filtered_spike_cache, start=start, end=end)
+                        if in_seg_unfiltered_cached >= 0 and in_seg_filtered_cached >= 0:
+                            logger.info(
+                                "Segment %s: reuse existing analyzer (spikes in concat window: unfiltered=%d, after-concat-filter=%d)",
+                                rec_name,
+                                int(in_seg_unfiltered_cached),
+                                int(in_seg_filtered_cached),
+                            )
+                    except Exception:
+                        pass
+
+                    _append_segment_skip_summary(
+                        filtering_summary=filtering_summary,
+                        seg_index=seg_index,
+                        rec_name=rec_name,
+                        raw_channels_total=None,
+                        excluded_common_channels_total=None,
+                        kept_additional_channels_total=None,
+                        skipped_reason="reused_existing_analyzer",
+                    )
+
+                    logger.info(
+                        "Segment %s: reusing existing waveform analyzer -> %s%s",
+                        rec_name,
+                        seg_dir,
+                        " (from checkpoint)" if was_checkpoint_completed else "",
+                    )
+
+                    seg_t_total = float(perf_counter() - seg_t_total_start)
+                    manifest_entry["status"] = "reused_existing_analyzer"
+                    manifest_entry["timing_seconds"] = {
+                        "load_preprocess": float(seg_t_load_preprocess),
+                        "spike_prep": float(seg_t_spike_prep),
+                        "analyzer": float(seg_t_analyzer),
+                        "postprocess": float(seg_t_postprocess),
+                        "total": float(seg_t_total),
+                    }
+                    segment_manifest["segments"].append(manifest_entry)
+
+                    segment_manifest["summary"]["n_processed"] += 1
+                    segment_manifest["summary"]["n_reused"] += 1
+                    segment_manifest["summary"]["timing_seconds"]["total"] += float(seg_t_total)
+
+                    logger.info(
+                        "Segment %s timings (s): load_preprocess=%.2f spike_prep=%.2f analyzer=%.2f postprocess=%.2f total=%.2f status=%s",
+                        rec_name,
+                        float(seg_t_load_preprocess),
+                        float(seg_t_spike_prep),
+                        float(seg_t_analyzer),
+                        float(seg_t_postprocess),
+                        float(seg_t_total),
+                        "reused_existing_analyzer",
+                    )
+
+                    if on_segment_completed is not None:
+                        try:
+                            on_segment_completed(str(source_name))
+                        except Exception:
+                            pass
+                    continue
+                except Exception:
+                    logger.warning(
+                        "Segment %s: existing analyzer at %s is not loadable; recomputing.",
+                        rec_name,
+                        seg_dir,
+                        exc_info=True,
+                    )
+                    try:
+                        shutil.rmtree(seg_dir)
+                    except Exception:
+                        pass
+
+            seg_t0 = perf_counter()
             seg_rec = _load_raw_segment_recording_segment_channels(
                 h5_path=inputs.h5_path,
                 stream_id=inputs.stream_id,
@@ -387,8 +600,7 @@ def _extract_per_segment_waveforms(
                 temporal_resample_margin_ms=float(seg_resample_margin_ms),
                 temporal_resample_dtype=(str(seg_resample_dtype) if seg_resample_dtype is not None else None),
             )
-
-            source_name = f"seg{int(seg_index):02d}_{rec_name}"
+            seg_t_load_preprocess += float(perf_counter() - seg_t0)
 
             # Attempt to record electrode ids (preferred) and raw channel ids (fallback).
             electrodes_all: list[int] | None = None
@@ -472,6 +684,32 @@ def _extract_per_segment_waveforms(
                             kept_additional_channels_total=kept_additional_channels_total,
                             skipped_reason="no_additional_channels",
                         )
+
+                        seg_t_total = float(perf_counter() - seg_t_total_start)
+                        manifest_entry["status"] = "skipped_no_additional_channels"
+                        manifest_entry["timing_seconds"] = {
+                            "load_preprocess": float(seg_t_load_preprocess),
+                            "spike_prep": float(seg_t_spike_prep),
+                            "analyzer": float(seg_t_analyzer),
+                            "postprocess": float(seg_t_postprocess),
+                            "total": float(seg_t_total),
+                        }
+                        segment_manifest["segments"].append(manifest_entry)
+                        segment_manifest["summary"]["n_processed"] += 1
+                        segment_manifest["summary"]["n_skipped"] += 1
+                        segment_manifest["summary"]["timing_seconds"]["load_preprocess"] += float(seg_t_load_preprocess)
+                        segment_manifest["summary"]["timing_seconds"]["total"] += float(seg_t_total)
+
+                        logger.info(
+                            "Segment %s timings (s): load_preprocess=%.2f spike_prep=%.2f analyzer=%.2f postprocess=%.2f total=%.2f status=%s",
+                            rec_name,
+                            float(seg_t_load_preprocess),
+                            float(seg_t_spike_prep),
+                            float(seg_t_analyzer),
+                            float(seg_t_postprocess),
+                            float(seg_t_total),
+                            "skipped_no_additional_channels",
+                        )
                         continue
                 except Exception:
                     pass
@@ -518,8 +756,11 @@ def _extract_per_segment_waveforms(
                 pass
 
             try:
-                in_seg_unfiltered = _count_spikes_in_concat_window(sorting=sorting_unfiltered, start=start, end=end)
-                in_seg_filtered = _count_spikes_in_concat_window(sorting=filtered_sorting, start=start, end=end)
+                in_seg_unfiltered = _count_spikes_cached(cache=unfiltered_spike_cache, start=start, end=end)
+                in_seg_filtered = _count_spikes_cached(cache=filtered_spike_cache, start=start, end=end)
+                if in_seg_unfiltered < 0 or in_seg_filtered < 0:
+                    in_seg_unfiltered = _count_spikes_in_concat_window(sorting=sorting_unfiltered, start=start, end=end)
+                    in_seg_filtered = _count_spikes_in_concat_window(sorting=filtered_sorting, start=start, end=end)
                 logger.info(
                     "Segment %s: spikes in concat window (unfiltered=%d, after-concat-filter=%d, excluded-at-concat=%d)",
                     rec_name,
@@ -546,53 +787,68 @@ def _extract_per_segment_waveforms(
             seg_removed_edge_total = 0
             seg_kept_total = 0
 
+            seg_t1 = perf_counter()
             for u in filtered_sorting.get_unit_ids():
-                st = filtered_sorting.get_unit_spike_train(u)
-                st_list = [int(x) for x in st]
-
-                local_all = [int(t - start) for t in st_list if start <= t < end]
-                local_all.sort()
+                local_all: list[int]
+                if cache_numpy is not None and u in filtered_spike_cache:
+                    arr = filtered_spike_cache[u]
+                    left = int(cache_numpy.searchsorted(arr, int(start), side="left"))
+                    right = int(cache_numpy.searchsorted(arr, int(end), side="left"))
+                    if right > left:
+                        local_all = [int(x) for x in (arr[left:right] - int(start)).tolist()]
+                    else:
+                        local_all = []
+                else:
+                    st = filtered_sorting.get_unit_spike_train(u)
+                    st_list = [int(x) for x in st]
+                    local_all = [int(t - start) for t in st_list if start <= t < end]
+                    local_all.sort()
                 seg_spikes_total += len(local_all)
 
-                kept_edges: list[int] = []
-                for t_local in local_all:
-                    if t_local - window.pre_samples < 0:
-                        continue
-                    if t_local + window.post_samples >= int(seg_len):
-                        continue
-                    kept_edges.append(int(t_local))
-
-                try:
-                    kept_edge_set = set(int(x) for x in kept_edges)
+                if bool(getattr(inputs, "filter_by_segment_bounds", True)):
+                    kept_edges: list[int] = []
                     for t_local in local_all:
-                        if int(t_local) in kept_edge_set:
+                        if t_local - window.pre_samples < 0:
                             continue
-                        if (int(t_local) - int(window.pre_samples) < 0) or (
-                            int(t_local) + int(window.post_samples) >= int(seg_len)
-                        ):
-                            t_concat = int(t_local) + int(start)
-                            wf_rejection_rows.append(
-                                {
-                                    **base_rej_fields,
-                                    "scope": "segment",
-                                    "source_name": str(source_name),
-                                    "segment_index": int(seg_index),
-                                    "rec_name": str(rec_name),
-                                    "unit_id": int(u),
-                                    "spike_sample_local": int(t_local),
-                                    "spike_sample_concat": int(t_concat),
-                                    "spike_time_s": float(t_concat) / float(window.fs_hz),
-                                    "reason": "waveform_window_outside_segment_bounds",
-                                }
-                            )
-                except Exception:
-                    pass
+                        if t_local + window.post_samples >= int(seg_len):
+                            continue
+                        kept_edges.append(int(t_local))
+
+                    try:
+                        kept_edge_set = set(int(x) for x in kept_edges)
+                        for t_local in local_all:
+                            if int(t_local) in kept_edge_set:
+                                continue
+                            if (int(t_local) - int(window.pre_samples) < 0) or (
+                                int(t_local) + int(window.post_samples) >= int(seg_len)
+                            ):
+                                t_concat = int(t_local) + int(start)
+                                wf_rejection_rows.append(
+                                    {
+                                        **base_rej_fields,
+                                        "scope": "segment",
+                                        "source_name": str(source_name),
+                                        "segment_index": int(seg_index),
+                                        "rec_name": str(rec_name),
+                                        "unit_id": int(u),
+                                        "spike_sample_local": int(t_local),
+                                        "spike_sample_concat": int(t_concat),
+                                        "spike_time_s": float(t_concat) / float(window.fs_hz),
+                                        "reason": "waveform_window_outside_segment_bounds",
+                                    }
+                                )
+                    except Exception:
+                        pass
+                else:
+                    kept_edges = [int(t_local) for t_local in local_all]
 
                 removed_edge = int(len(local_all) - len(kept_edges))
                 seg_removed_edge_total += int(removed_edge)
                 seg_kept_total += int(len(kept_edges))
 
                 unit_trains_seg[int(u)] = kept_edges
+
+            seg_t_spike_prep += float(perf_counter() - seg_t1)
 
             try:
                 logger.info(
@@ -614,17 +870,18 @@ def _extract_per_segment_waveforms(
             # Also drops units that ended up with zero kept spikes in this segment.
             # NOTE: upstream spikesorting may already take care of this already... but I guess it doesnt hurt.
             # -- aw 2026-02-01 21:51:12
-            try:
-                import spikeinterface.full as si  # type: ignore[import-not-found]
+            if bool(getattr(inputs, "segment_sort_safety_cleanup", True)):
+                try:
+                    import spikeinterface.full as si  # type: ignore[import-not-found]
 
-                seg_sort = si.remove_excess_spikes(seg_sort, seg_rec)
-                seg_sort = seg_sort.remove_empty_units()
-            except Exception:
-                logger.debug(
-                    "Segment %s: sorting cleanup (remove_excess_spikes/remove_empty_units) failed; continuing.",
-                    rec_name,
-                    exc_info=True,
-                )
+                    seg_sort = si.remove_excess_spikes(seg_sort, seg_rec)
+                    seg_sort = seg_sort.remove_empty_units()
+                except Exception:
+                    logger.debug(
+                        "Segment %s: sorting cleanup (remove_excess_spikes/remove_empty_units) failed; continuing.",
+                        rec_name,
+                        exc_info=True,
+                    )
 
             # SpikeInterface's SortingAnalyzer creation/auto-sparsity estimation
             # fails when there are zero units or zero spikes (e.g. empty segment
@@ -638,6 +895,38 @@ def _extract_per_segment_waveforms(
                     logger.info("Segment %s: no units after filtering; skipping per-segment waveforms.", rec_name)
                 except Exception:
                     pass
+                if on_segment_completed is not None:
+                    try:
+                        on_segment_completed(str(source_name))
+                    except Exception:
+                        pass
+
+                seg_t_total = float(perf_counter() - seg_t_total_start)
+                manifest_entry["status"] = "skipped_no_units_after_filtering"
+                manifest_entry["timing_seconds"] = {
+                    "load_preprocess": float(seg_t_load_preprocess),
+                    "spike_prep": float(seg_t_spike_prep),
+                    "analyzer": float(seg_t_analyzer),
+                    "postprocess": float(seg_t_postprocess),
+                    "total": float(seg_t_total),
+                }
+                segment_manifest["segments"].append(manifest_entry)
+                segment_manifest["summary"]["n_processed"] += 1
+                segment_manifest["summary"]["n_skipped"] += 1
+                segment_manifest["summary"]["timing_seconds"]["load_preprocess"] += float(seg_t_load_preprocess)
+                segment_manifest["summary"]["timing_seconds"]["spike_prep"] += float(seg_t_spike_prep)
+                segment_manifest["summary"]["timing_seconds"]["total"] += float(seg_t_total)
+
+                logger.info(
+                    "Segment %s timings (s): load_preprocess=%.2f spike_prep=%.2f analyzer=%.2f postprocess=%.2f total=%.2f status=%s",
+                    rec_name,
+                    float(seg_t_load_preprocess),
+                    float(seg_t_spike_prep),
+                    float(seg_t_analyzer),
+                    float(seg_t_postprocess),
+                    float(seg_t_total),
+                    "skipped_no_units_after_filtering",
+                )
                 continue
 
             try:
@@ -652,6 +941,38 @@ def _extract_per_segment_waveforms(
                         logger.info("Segment %s: no spikes after filtering; skipping per-segment waveforms.", rec_name)
                     except Exception:
                         pass
+                    if on_segment_completed is not None:
+                        try:
+                            on_segment_completed(str(source_name))
+                        except Exception:
+                            pass
+
+                    seg_t_total = float(perf_counter() - seg_t_total_start)
+                    manifest_entry["status"] = "skipped_no_spikes_after_filtering"
+                    manifest_entry["timing_seconds"] = {
+                        "load_preprocess": float(seg_t_load_preprocess),
+                        "spike_prep": float(seg_t_spike_prep),
+                        "analyzer": float(seg_t_analyzer),
+                        "postprocess": float(seg_t_postprocess),
+                        "total": float(seg_t_total),
+                    }
+                    segment_manifest["segments"].append(manifest_entry)
+                    segment_manifest["summary"]["n_processed"] += 1
+                    segment_manifest["summary"]["n_skipped"] += 1
+                    segment_manifest["summary"]["timing_seconds"]["load_preprocess"] += float(seg_t_load_preprocess)
+                    segment_manifest["summary"]["timing_seconds"]["spike_prep"] += float(seg_t_spike_prep)
+                    segment_manifest["summary"]["timing_seconds"]["total"] += float(seg_t_total)
+
+                    logger.info(
+                        "Segment %s timings (s): load_preprocess=%.2f spike_prep=%.2f analyzer=%.2f postprocess=%.2f total=%.2f status=%s",
+                        rec_name,
+                        float(seg_t_load_preprocess),
+                        float(seg_t_spike_prep),
+                        float(seg_t_analyzer),
+                        float(seg_t_postprocess),
+                        float(seg_t_total),
+                        "skipped_no_spikes_after_filtering",
+                    )
                     continue
             except Exception:
                 # Best-effort: if we can't determine spike counts, continue.
@@ -662,42 +983,73 @@ def _extract_per_segment_waveforms(
             except Exception:
                 pass
 
-            seg_analyzer = si.create_sorting_analyzer(
-                seg_sort,
-                seg_rec,
-                format="binary_folder",
-                folder=seg_dir,
-                return_in_uV=True,
-            )
-            seg_analyzer.compute(
-                ["random_spikes", "waveforms"],
-                extension_params={
-                    "random_spikes": {
-                        "method": "uniform",
-                        "max_spikes_per_unit": int(inputs.max_spikes_per_unit),
-                        "seed": 0,
-                    },
-                    "waveforms": {"ms_before": float(window.ms_before), "ms_after": float(window.ms_after)},
-                },
-                verbose=False,
-                n_jobs=max(1, int(inputs.n_jobs)),
-            )
+            loaded_existing_seg_analyzer = None
+            seg_t2 = perf_counter()
+            if seg_dir.exists() and not inputs.force_restart:
+                try:
+                    loaded_existing_seg_analyzer = si.load_sorting_analyzer(seg_dir)
+                    logger.info(
+                        "Segment %s: reusing existing waveform analyzer -> %s%s",
+                        rec_name,
+                        seg_dir,
+                        " (from checkpoint)" if was_checkpoint_completed else "",
+                    )
+                except Exception:
+                    logger.warning(
+                        "Segment %s: existing analyzer at %s is not loadable; recomputing.",
+                        rec_name,
+                        seg_dir,
+                        exc_info=True,
+                    )
+                    try:
+                        shutil.rmtree(seg_dir)
+                    except Exception:
+                        pass
 
-            seg_analyzer.compute(
-                [
-                    "spike_amplitudes",
-                    "templates",
-                    "noise_levels",
-                    "unit_locations",
-                ],
-                extension_params={
-                    "unit_locations": {"method": "monopolar_triangulation"},
-                },
-                verbose=False,
-                n_jobs=max(1, int(inputs.n_jobs)),
-            )
+            seg_analyzer = loaded_existing_seg_analyzer
+            if seg_analyzer is None:
+                seg_analyzer = si.create_sorting_analyzer(
+                    seg_sort,
+                    seg_rec,
+                    format="binary_folder",
+                    folder=seg_dir,
+                    return_in_uV=True,
+                )
+                random_spikes_params = {
+                    "method": "uniform",
+                    "seed": 0,
+                }
+                if inputs.max_spikes_per_unit is not None:
+                    random_spikes_params["max_spikes_per_unit"] = int(inputs.max_spikes_per_unit)
+
+                seg_analyzer.compute(
+                    ["random_spikes", "waveforms"],
+                    extension_params={
+                        "random_spikes": random_spikes_params,
+                        "waveforms": {"ms_before": float(window.ms_before), "ms_after": float(window.ms_after)},
+                    },
+                    verbose=False,
+                    n_jobs=max(1, int(inputs.n_jobs)),
+                )
+
+                seg_analyzer.compute(
+                    [
+                        "spike_amplitudes",
+                        "templates",
+                        "noise_levels",
+                        "unit_locations",
+                    ],
+                    extension_params={
+                        "unit_locations": {"method": "monopolar_triangulation"},
+                    },
+                    verbose=False,
+                    n_jobs=max(1, int(inputs.n_jobs)),
+                )
+
+            seg_t_analyzer += float(perf_counter() - seg_t2)
 
             # Track best channel by PTP for this segment (mean template).
+            seg_t3 = perf_counter()
             try:
                 source_name = f"seg{int(seg_index):02d}_{rec_name}"
                 seg_best = _best_ptp_channel_by_unit_from_templates(analyzer=seg_analyzer)
@@ -821,6 +1173,68 @@ def _extract_per_segment_waveforms(
                 )
             except Exception:
                 pass
+
+            seg_t_postprocess += float(perf_counter() - seg_t3)
+
+            seg_t_total = float(perf_counter() - seg_t_total_start)
+            manifest_entry["status"] = "computed"
+            manifest_entry["timing_seconds"] = {
+                "load_preprocess": float(seg_t_load_preprocess),
+                "spike_prep": float(seg_t_spike_prep),
+                "analyzer": float(seg_t_analyzer),
+                "postprocess": float(seg_t_postprocess),
+                "total": float(seg_t_total),
+            }
+            segment_manifest["segments"].append(manifest_entry)
+            segment_manifest["summary"]["n_processed"] += 1
+            segment_manifest["summary"]["n_computed"] += 1
+            segment_manifest["summary"]["timing_seconds"]["load_preprocess"] += float(seg_t_load_preprocess)
+            segment_manifest["summary"]["timing_seconds"]["spike_prep"] += float(seg_t_spike_prep)
+            segment_manifest["summary"]["timing_seconds"]["analyzer"] += float(seg_t_analyzer)
+            segment_manifest["summary"]["timing_seconds"]["postprocess"] += float(seg_t_postprocess)
+            segment_manifest["summary"]["timing_seconds"]["total"] += float(seg_t_total)
+
+            logger.info(
+                "Segment %s timings (s): load_preprocess=%.2f spike_prep=%.2f analyzer=%.2f postprocess=%.2f total=%.2f status=%s",
+                rec_name,
+                float(seg_t_load_preprocess),
+                float(seg_t_spike_prep),
+                float(seg_t_analyzer),
+                float(seg_t_postprocess),
+                float(seg_t_total),
+                "computed",
+            )
+
+            if on_segment_completed is not None:
+                try:
+                    on_segment_completed(str(source_name))
+                except Exception:
+                    pass
+
+        try:
+            import json
+
+            manifest_path = segment_waveforms_dir / "segment_execution_manifest.json"
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                json.dump(segment_manifest, f, indent=2)
+            logger.info("Waveforms segment manifest written -> %s", manifest_path)
+
+            ts = segment_manifest.get("summary", {}).get("timing_seconds", {})
+            logger.info(
+                "Per-segment timings aggregate (s): expected=%d processed=%d reused=%d computed=%d skipped=%d load_preprocess=%.2f spike_prep=%.2f analyzer=%.2f postprocess=%.2f total=%.2f",
+                int(segment_manifest.get("summary", {}).get("n_expected", 0)),
+                int(segment_manifest.get("summary", {}).get("n_processed", 0)),
+                int(segment_manifest.get("summary", {}).get("n_reused", 0)),
+                int(segment_manifest.get("summary", {}).get("n_computed", 0)),
+                int(segment_manifest.get("summary", {}).get("n_skipped", 0)),
+                float(ts.get("load_preprocess", 0.0)),
+                float(ts.get("spike_prep", 0.0)),
+                float(ts.get("analyzer", 0.0)),
+                float(ts.get("postprocess", 0.0)),
+                float(ts.get("total", 0.0)),
+            )
+        except Exception:
+            logger.debug("Failed to persist or log segment execution manifest", exc_info=True)
 
         # Once segments are processed, compute derived channel groups if requested.
         if channel_groups is not None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from ..checkpointing import ProcessingStage
 from ..pipeline_logging import log_stage_complete, log_stage_failure, log_stage_start
@@ -12,6 +12,7 @@ from .artifacts import _persist_channel_groups_json, _persist_filtering_and_excl
 from .extraction import _extract_concat_waveforms, _extract_per_segment_waveforms
 from .filtering import _filter_sorting_by_maxwell_epochs, _init_filtering_summary, _init_wf_rejection_log_fields
 from .run_context import _WaveformsRunContext, _initialize_run_context, _load_epoch_markers, _resolve_waveform_window
+from .segments import _parse_concat_epoch_segment
 from .steps import _apply_waveforms_curation, _plot_waveforms_outputs
 from .utils import _load_preprocessed_recording, _load_sorting_from_sorter_output_dir, _resolve_mea_sorter_output_dir
 
@@ -58,6 +59,20 @@ class WaveformExtractInputs:
     # If True, drop spikes whose waveform window would cross Maxwell snippet boundaries.
     filter_by_maxwell_epochs: bool = True
 
+    # If True, per-segment waveforms drop spikes whose waveform window crosses
+    # segment start/end bounds. Disable only for debugging sensitivity to edge
+    # exclusions.
+    filter_by_segment_bounds: bool = True
+
+    # If True, run segment-local safety cleanup (`remove_excess_spikes` and
+    # `remove_empty_units`) before creating per-segment analyzers.
+    # Can be disabled when segment bounds filtering is known to be sufficient.
+    segment_sort_safety_cleanup: bool = True
+
+    # If True, do not fast-skip checkpoint-complete/loadable segment analyzers;
+    # still walk full per-segment prep paths to recompute channel-group metadata.
+    recompute_channel_groups_for_reused_segments: bool = False
+
     # Deprecated (2026-01): historically we also *flagged* extracted per-segment random_spikes
     # against segment-local Maxwell intervals after waveforms were computed. This is redundant
     # when concat-time filtering is authoritative and does not mutate analyzers anyway.
@@ -91,6 +106,13 @@ class WaveformExtractOutputs:
 
 def _resume_if_possible(*, inputs: WaveformExtractInputs, ctx: _WaveformsRunContext) -> Optional[WaveformExtractOutputs]:
     if not inputs.force_restart and ctx.concat_waveforms_dir.exists():
+        if int(getattr(ctx.ckpt, "stage", 0)) < int(ProcessingStage.ANALYZER_COMPLETE.value):
+            ctx.logger.info(
+                "Waveforms outputs exist but checkpoint stage=%s (< ANALYZER_COMPLETE); continuing extraction resume.",
+                str(getattr(ctx.ckpt, "stage", None)),
+            )
+            return None
+
         ctx.logger.info("Resuming waveforms: existing outputs found at %s", ctx.concat_waveforms_dir)
 
         # Preferred (2026-02): grid outputs live under stg3_waveforms_outputs/grids.
@@ -297,6 +319,61 @@ def extract_waveforms(
         except Exception:
             pass
 
+        completed_segment_sources: set[str] = set()
+        expected_segment_sources: list[str] = []
+        if inputs.per_segment and epochs.concat_epochs and ctx.segment_waveforms_dir is not None:
+            try:
+                prior_completed = ctx.ckpt.extras.get("waveforms_completed_segment_sources", [])
+                if isinstance(prior_completed, list):
+                    completed_segment_sources = set(str(x) for x in prior_completed)
+            except Exception:
+                completed_segment_sources = set()
+
+            for seg in epochs.concat_epochs:
+                spec = _parse_concat_epoch_segment(seg=seg, segment_waveforms_dir=ctx.segment_waveforms_dir)
+                if spec is not None:
+                    expected_segment_sources.append(str(spec.seg_dir.name))
+
+            completed_segment_sources &= set(expected_segment_sources)
+
+            ckpt = save_stage_started(
+                checkpoint_file=ctx.ckpt_file,
+                state=ckpt,
+                stage=ProcessingStage.ANALYZER,
+                extra_fields={
+                    "waveforms_total_segments_expected": int(len(expected_segment_sources)),
+                    "waveforms_expected_segment_sources": list(expected_segment_sources),
+                    "waveforms_completed_segments_count": int(len(completed_segment_sources)),
+                    "waveforms_completed_segment_sources": sorted(completed_segment_sources),
+                },
+            )
+
+            if completed_segment_sources:
+                ctx.logger.info(
+                    "Waveforms resume progress from checkpoint: %d/%d segments marked complete.",
+                    int(len(completed_segment_sources)),
+                    int(len(expected_segment_sources)),
+                )
+
+        def _on_segment_completed(source_name: str) -> None:
+            nonlocal ckpt, completed_segment_sources
+            name = str(source_name)
+            if name in completed_segment_sources:
+                return
+            completed_segment_sources.add(name)
+            ckpt = save_stage_started(
+                checkpoint_file=ctx.ckpt_file,
+                state=ckpt,
+                stage=ProcessingStage.ANALYZER,
+                extra_fields={
+                    "waveforms_total_segments_expected": int(len(expected_segment_sources)),
+                    "waveforms_expected_segment_sources": list(expected_segment_sources),
+                    "waveforms_completed_segments_count": int(len(completed_segment_sources)),
+                    "waveforms_completed_segment_sources": sorted(completed_segment_sources),
+                    "waveforms_last_completed_segment": name,
+                },
+            )
+
         # Initialize structured summaries that are persisted for auditability:
         # - filtering_summary: aggregate counts and per-segment breakdowns
         # - wf_rejection_rows: spike-level reasons for exclusion (joinable downstream)
@@ -401,6 +478,8 @@ def extract_waveforms(
                 base_rej_fields=base_rej_fields,
                 logger=ctx.logger,
                 channel_groups=channel_groups,  # populated in-place
+                checkpoint_completed_sources=completed_segment_sources,
+                on_segment_completed=_on_segment_completed,
             )
 
         # Persist channel group info (best-effort, even if per-segment is disabled).

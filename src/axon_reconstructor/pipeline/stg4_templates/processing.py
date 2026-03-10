@@ -194,6 +194,7 @@ def process_unit_list(
     write_footprint_ptp_map=None,
     write_topo_unit_footprint_png=None,
     make_merged_contributing_footprint_plots: bool = True,
+    zoomed_footprints_global_color_scale: bool = False,
     make_axon_velocity_plots: bool = False,
     force_restart: bool,
     n_jobs: int,
@@ -305,6 +306,7 @@ def process_unit_list(
                 full_electrode_ids = None
 
     grid_entries: list[dict[str, Any]] = []
+    zoomed_footprint_jobs: list[dict[str, Any]] = []
 
     for uid in unit_list:
         sources_for_unit = _gather_template_sources_for_unit(
@@ -317,11 +319,40 @@ def process_unit_list(
         if not sources_for_unit:
             continue
 
+        n_waveforms_sum_for_unit: Optional[int] = None
+        try:
+            n_total = 0
+            for src in sources_for_unit:
+                an = src.get("_analyzer")
+                if an is None:
+                    continue
+                try:
+                    wf_ext = an.get_extension("waveforms") if an.has_extension("waveforms") else None
+                except Exception:
+                    wf_ext = None
+                if wf_ext is None:
+                    continue
+                try:
+                    wf = wf_ext.get_waveforms_one_unit(unit_id=uid)
+                    if wf is not None:
+                        n_total += int(getattr(wf, "shape", [0])[0])
+                except Exception:
+                    continue
+            if n_total > 0:
+                n_waveforms_sum_for_unit = int(n_total)
+        except Exception:
+            n_waveforms_sum_for_unit = None
+
         merged_contributing = _build_merged_contributing_template_for_unit(
             sources_for_unit=sources_for_unit,
             unit_id=uid,
             logger=logger,
         )
+        if merged_contributing is not None and n_waveforms_sum_for_unit is not None:
+            try:
+                merged_contributing["n_waveforms_sum"] = int(n_waveforms_sum_for_unit)
+            except Exception:
+                pass
         sources_for_unit_with_merged = list(sources_for_unit) + (
             [merged_contributing] if merged_contributing is not None else []
         )
@@ -398,6 +429,17 @@ def process_unit_list(
                         all_recorded_electrode_ids=all_recorded_electrode_ids,
                         zoom=True,
                     )
+
+                    if bool(zoomed_footprints_global_color_scale):
+                        zoomed_footprint_jobs.append(
+                            {
+                                "uid": uid,
+                                "locs": locs[:, :2],
+                                "amp": amp,
+                                "electrode_ids": merged_contributing_electrode_ids,
+                                "all_recorded_electrode_ids": all_recorded_electrode_ids,
+                            }
+                        )
             except Exception:
                 pass
 
@@ -427,6 +469,14 @@ def process_unit_list(
                 force_restart=bool(force_restart),
                 logger=logger,
             )
+            try:
+                if isinstance(unit_entry, dict):
+                    unit_entry["n_waveforms_sum"] = chosen.get("n_waveforms_sum") if chosen is not None else None
+                    unit_entry["n_contributing_channels"] = (
+                        chosen.get("n_contributing_channels") if chosen is not None else None
+                    )
+            except Exception:
+                pass
             if summary is not None:
                 summary.setdefault("units", []).append(unit_entry)
 
@@ -558,5 +608,75 @@ def process_unit_list(
                     )
             except Exception:
                 pass
+
+    if (
+        bool(zoomed_footprints_global_color_scale)
+        and merged_unit_footprints_zoomed_dir is not None
+        and write_footprint_ptp_map is not None
+        and zoomed_footprint_jobs
+    ):
+        try:
+            import numpy as np  # type: ignore[import-not-found]
+
+            finite_all = np.concatenate(
+                [
+                    np.asarray(job.get("amp"), dtype=float)[np.isfinite(np.asarray(job.get("amp"), dtype=float))]
+                    for job in zoomed_footprint_jobs
+                    if np.asarray(job.get("amp"), dtype=float).size
+                ],
+                axis=0,
+            )
+            pos_all = finite_all[finite_all > 0]
+
+            lin_vmin = float(np.nanmin(finite_all)) if finite_all.size else 0.0
+            lin_vmax = float(np.nanmax(finite_all)) if finite_all.size else 1.0
+            if not (lin_vmax > lin_vmin):
+                lin_vmax = lin_vmin + 1.0
+
+            log_vmin = float(np.nanmin(pos_all)) if pos_all.size else max(float(lin_vmin), 1e-9)
+            log_vmax = float(np.nanmax(pos_all)) if pos_all.size else max(float(lin_vmax), float(log_vmin) + 1e-9)
+            log_vmin = max(float(log_vmin), 1e-9)
+            if not (log_vmax > log_vmin):
+                log_vmax = log_vmin * 10.0
+
+            for job in zoomed_footprint_jobs:
+                uid = job.get("uid")
+                write_footprint_ptp_map(
+                    out_path=merged_unit_footprints_zoomed_dir / f"unit_{uid}_merged_contributing_footprint_ptp_linear_zoom.png",
+                    channel_locations_xy=job.get("locs"),
+                    footprint_ptp=job.get("amp"),
+                    title="",
+                    log_scale=False,
+                    electrode_ids=job.get("electrode_ids"),
+                    all_recorded_electrode_ids=job.get("all_recorded_electrode_ids"),
+                    zoom=True,
+                    fixed_vmin=float(lin_vmin),
+                    fixed_vmax=float(lin_vmax),
+                )
+                write_footprint_ptp_map(
+                    out_path=merged_unit_footprints_zoomed_dir / f"unit_{uid}_merged_contributing_footprint_ptp_log_zoom.png",
+                    channel_locations_xy=job.get("locs"),
+                    footprint_ptp=job.get("amp"),
+                    title="",
+                    log_scale=True,
+                    electrode_ids=job.get("electrode_ids"),
+                    all_recorded_electrode_ids=job.get("all_recorded_electrode_ids"),
+                    zoom=True,
+                    fixed_vmin=float(log_vmin),
+                    fixed_vmax=float(log_vmax),
+                )
+
+            if summary is not None:
+                summary.setdefault("footprints", {})
+                summary["footprints"]["zoomed_global_color_scale"] = {
+                    "enabled": True,
+                    "units": int(len(zoomed_footprint_jobs)),
+                    "linear_vmin": float(lin_vmin),
+                    "linear_vmax": float(lin_vmax),
+                    "log_vmin": float(log_vmin),
+                    "log_vmax": float(log_vmax),
+                }
+        except Exception:
+            pass
 
     return grid_entries

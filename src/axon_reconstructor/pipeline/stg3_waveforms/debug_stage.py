@@ -59,6 +59,12 @@ def build_waveforms_debug_config(*, args: Any, env: Any) -> WaveformsDebugConfig
 
     per_segment = env.env_bool("AXON_RECON_WF_PER_SEGMENT", default=True) if args.per_segment is None else bool(args.per_segment)
     filter_by_maxwell_epochs = env.env_bool("AXON_RECON_WF_FILTER_BY_MAXWELL_EPOCHS", default=True) if args.filter_by_maxwell_epochs is None else bool(args.filter_by_maxwell_epochs)
+    filter_by_segment_bounds = env.env_bool("AXON_RECON_WF_FILTER_BY_SEGMENT_BOUNDS", default=True)
+    segment_sort_safety_cleanup = env.env_bool("AXON_RECON_WF_SEGMENT_SORT_SAFETY_CLEANUP", default=True)
+    recompute_channel_groups_for_reused_segments = env.env_bool(
+        "AXON_RECON_WF_RECOMPUTE_CHANNEL_GROUPS_FOR_REUSED_SEGMENTS",
+        default=False,
+    )
 
     debug_max_units = int(args.debug_max_units) if args.debug_max_units is not None else env.env_int("AXON_RECON_WF_DEBUG_MAX_UNITS", default=None)
     debug_max_segments = int(args.debug_max_segments) if args.debug_max_segments is not None else env.env_int("AXON_RECON_WF_DEBUG_MAX_SEGMENTS", default=None)
@@ -74,6 +80,9 @@ def build_waveforms_debug_config(*, args: Any, env: Any) -> WaveformsDebugConfig
         max_spikes_per_unit=(int(max_spikes_per_unit) if max_spikes_per_unit is not None else None),
         per_segment=per_segment,
         filter_by_maxwell_epochs=filter_by_maxwell_epochs,
+        filter_by_segment_bounds=bool(filter_by_segment_bounds),
+        segment_sort_safety_cleanup=bool(segment_sort_safety_cleanup),
+        recompute_channel_groups_for_reused_segments=bool(recompute_channel_groups_for_reused_segments),
         force_restart=force_restart,
         force_replot=force_replot,
         debug_max_units=debug_max_units,

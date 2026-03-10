@@ -58,6 +58,12 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
 
     env_ks_batch_duration_s = env.env_float("AXON_RECON_KS_BATCH_DURATION_S", default=None)
     env_ks_batch_size = env.env_int("AXON_RECON_KS_BATCH_SIZE", default=None)
+    ks_th_universal = env.env_float("AXON_RECON_KS_TH_UNIVERSAL", default=None)
+    ks_th_learned = env.env_float("AXON_RECON_KS_TH_LEARNED", default=None)
+    ks_th_single_ch = env.env_float("AXON_RECON_KS_TH_SINGLE_CH", default=None)
+    ks_cluster_downsampling = env.env_int("AXON_RECON_KS_CLUSTER_DOWNSAMPLING", default=None)
+    ks_nearest_chans = env.env_int("AXON_RECON_KS_NEAREST_CHANS", default=None)
+    ks_max_channel_distance = env.env_float("AXON_RECON_KS_MAX_CHANNEL_DISTANCE", default=None)
     if args.ks_batch_size is not None:
         ks_batch_size = int(args.ks_batch_size)
         ks_batch_duration_s = None
@@ -113,6 +119,12 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
         cuda_visible_devices=cuda_visible_devices,
         ks_batch_duration_s=ks_batch_duration_s,
         ks_batch_size=ks_batch_size,
+        ks_th_universal=(float(ks_th_universal) if ks_th_universal is not None else None),
+        ks_th_learned=(float(ks_th_learned) if ks_th_learned is not None else None),
+        ks_th_single_ch=(float(ks_th_single_ch) if ks_th_single_ch is not None else None),
+        ks_cluster_downsampling=(int(ks_cluster_downsampling) if ks_cluster_downsampling is not None else None),
+        ks_nearest_chans=(int(ks_nearest_chans) if ks_nearest_chans is not None else None),
+        ks_max_channel_distance=(float(ks_max_channel_distance) if ks_max_channel_distance is not None else None),
         run_analyzer=True,
         run_reports=True,
         no_curation=(not bool(do_curation)),
