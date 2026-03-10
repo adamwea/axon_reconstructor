@@ -70,7 +70,8 @@ def _initialize_run_context(*, inputs, logger_name_prefix: str) -> _WaveformsRun
         well_out_dir=well_out_dir,
         data_file=inputs.h5_path,
         stream_id=inputs.stream_id,
-        logger_name=f"{logger_name_prefix}.{inputs.stream_id}",
+        stage_name="waveforms",
+        logger_name_prefix=logger_name_prefix,
         verbose=True,
     )
 

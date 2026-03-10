@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from pathlib import Path
 from typing import Any, Optional
 
 from .plotting import (
     _write_footprint_ptp_map,
+    _write_zoomed_footprints_grid_pdf,
     _write_templates_grid_pdf,
     _write_unit_segment_grids_pdf,
     _write_unit_segment_footprint_grids_pdf,
@@ -31,6 +33,143 @@ from ..checkpointing import save_stage_completed, save_stage_failed, save_stage_
 
 
 TEMPLATES_OUTPUTS_DIRNAME = "stg4_templates_outputs"
+
+
+def _parse_unit_id_from_footprint_name(path: Path) -> Optional[int]:
+    m = re.match(r"unit_(\d+)_", str(path.name))
+    if m is None:
+        return None
+    try:
+        return int(m.group(1))
+    except Exception:
+        return None
+
+
+def _coerce_int_or_none(x: Any) -> Optional[int]:
+    try:
+        if x is None:
+            return None
+        return int(x)
+    except Exception:
+        return None
+
+
+def _sort_footprint_images_by_spike_count(
+    *,
+    image_paths: list[Path],
+    unit_spike_counts: dict[int, int],
+) -> list[Path]:
+    def _key(p: Path):
+        uid = _parse_unit_id_from_footprint_name(p)
+        count = unit_spike_counts.get(int(uid), -1) if uid is not None else -1
+        uid_sort = int(uid) if uid is not None else 10**12
+        return (-int(count), uid_sort, str(p.name))
+
+    return sorted(image_paths, key=_key)
+
+
+def _build_footprint_grid_entries_from_summary(summary_obj: dict[str, Any]) -> list[dict[str, Any]]:
+    import numpy as np  # type: ignore[import-not-found]
+
+    out: list[dict[str, Any]] = []
+    for u in list(summary_obj.get("units", []) or []):
+        if not isinstance(u, dict):
+            continue
+        uid = _coerce_int_or_none(u.get("unit_id"))
+        if uid is None:
+            continue
+        n_wf = _coerce_int_or_none(u.get("n_waveforms_sum"))
+
+        merged_src = None
+        for s in list(u.get("sources", []) or []):
+            if isinstance(s, dict) and str(s.get("name")) == "merged_contributing":
+                merged_src = s
+                break
+        if not isinstance(merged_src, dict):
+            continue
+
+        try:
+            meta_json = merged_src.get("meta_json")
+            if not meta_json:
+                continue
+            meta = _read_json(Path(str(meta_json)))
+            if not isinstance(meta, dict):
+                continue
+
+            locs_path = meta.get("channel_locations_npy")
+            fp_path = meta.get("footprint_ptp_npy")
+            template_path = meta.get("template_npy")
+            eids_path = meta.get("electrode_ids_npy")
+            if not locs_path:
+                continue
+
+            locs = np.load(str(locs_path), allow_pickle=True)
+            amp = None
+            if fp_path:
+                amp = np.load(str(fp_path), allow_pickle=True)
+            elif template_path:
+                tmpl = np.load(str(template_path), allow_pickle=True)
+                amp = np.ptp(np.asarray(tmpl, dtype=float), axis=0)
+
+            if amp is None:
+                continue
+
+            eids = None
+            if eids_path:
+                try:
+                    eids = np.load(str(eids_path), allow_pickle=True)
+                except Exception:
+                    eids = None
+
+            contrib_locs_xy = np.asarray(locs, dtype=float)[:, :2]
+            contrib_keys = {
+                (round(float(x), 3), round(float(y), 3))
+                for x, y in contrib_locs_xy.tolist()
+            }
+            non_contrib_keys: set[tuple[float, float]] = set()
+
+            for src in list(u.get("sources", []) or []):
+                if not isinstance(src, dict):
+                    continue
+                if str(src.get("name")) == "merged_contributing":
+                    continue
+                try:
+                    src_meta_json = src.get("meta_json")
+                    if not src_meta_json:
+                        continue
+                    src_meta = _read_json(Path(str(src_meta_json)))
+                    if not isinstance(src_meta, dict):
+                        continue
+                    src_locs = src_meta.get("channel_locations")
+                    if src_locs is None:
+                        continue
+                    src_locs_xy = np.asarray(src_locs, dtype=float)
+                    if src_locs_xy.ndim != 2 or int(src_locs_xy.shape[1]) < 2:
+                        continue
+                    for x, y in src_locs_xy[:, :2].tolist():
+                        k = (round(float(x), 3), round(float(y), 3))
+                        if k in contrib_keys:
+                            continue
+                        non_contrib_keys.add(k)
+                except Exception:
+                    continue
+
+            non_contrib_locs_xy = [[float(x), float(y)] for (x, y) in sorted(non_contrib_keys)]
+
+            out.append(
+                {
+                    "unit_id": int(uid),
+                    "n_waveforms_sum": (int(n_wf) if n_wf is not None else None),
+                    "channel_locations_xy": contrib_locs_xy,
+                    "footprint_ptp": np.asarray(amp, dtype=float),
+                    "electrode_ids": (eids.tolist() if eids is not None else None),
+                    "non_contributing_locations_xy": non_contrib_locs_xy,
+                }
+            )
+        except Exception:
+            continue
+
+    return out
 
 
 @dataclass(frozen=True)
@@ -64,6 +203,9 @@ class TemplateExtractInputs:
 
     # Footprints
     plot_merged_contributing_footprints_linear_and_log: bool = True
+    # If True, rewrite zoomed merged-contributing footprints with shared global
+    # color limits across all processed units in this templates run.
+    zoomed_footprints_global_color_scale: bool = False
 
     # Save full-channels templates (zeros on non-contributing channels) for reconstruction.
     # These are persisted on a deterministic “full channels” axis (e.g. Maxwell full chip = 26,400).
@@ -160,7 +302,8 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         well_out_dir=well_out_dir,
         data_file=inputs.h5_path,
         stream_id=inputs.stream_id,
-        logger_name=f"{logger_name_prefix}.{inputs.stream_id}.templates",
+        stage_name="templates",
+        logger_name_prefix=logger_name_prefix,
         verbose=True,
     )
 
@@ -174,6 +317,15 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     merged_unit_footprints_dir = footprints_root_dir / "full"
     merged_unit_footprints_zoomed_dir = footprints_root_dir / "zoomed"
     merged_unit_full_chip_maps_dir = footprints_root_dir / "full_chip_maps"
+    footprint_grids_dir = footprints_root_dir / "grids"
+    merged_unit_footprints_zoomed_linear_grid_pdf = footprint_grids_dir / "merged_contributing_footprints_linear_zoom_grid.pdf"
+    merged_unit_footprints_zoomed_log_grid_pdf = footprint_grids_dir / "merged_contributing_footprints_log_zoom_grid.pdf"
+    merged_unit_footprints_zoomed_linear_grid_pages_dir = (
+        footprint_grids_dir / "merged_contributing_footprints_linear_zoom_grid_pages"
+    )
+    merged_unit_footprints_zoomed_log_grid_pages_dir = (
+        footprint_grids_dir / "merged_contributing_footprints_log_zoom_grid_pages"
+    )
 
     # Optional per-unit axon_velocity plot bundle (only created when enabled).
     axon_velocity_outputs_root_dir = templates_out_dir / "axon_velocity_outputs"
@@ -205,6 +357,138 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         resume_ok = resume_ok and templates_grid_pdf.exists()
 
     if resume_ok:
+        summary_existing = None
+        footprint_grid_entries: list[dict[str, Any]] = []
+        lin_vmin = None
+        lin_vmax = None
+        log_vmin = None
+        log_vmax = None
+        if summary_json.exists():
+            try:
+                summary_existing = _read_json(summary_json)
+                if isinstance(summary_existing, dict):
+                    footprint_grid_entries = _build_footprint_grid_entries_from_summary(summary_existing)
+                    try:
+                        zcs = ((summary_existing.get("footprints") or {}).get("zoomed_global_color_scale") or {})
+                        lin_vmin = zcs.get("linear_vmin")
+                        lin_vmax = zcs.get("linear_vmax")
+                        log_vmin = zcs.get("log_vmin")
+                        log_vmax = zcs.get("log_vmax")
+                    except Exception:
+                        pass
+            except Exception:
+                summary_existing = None
+
+        footprint_grid_entries = sorted(
+            footprint_grid_entries,
+            key=lambda x: (
+                -int(_coerce_int_or_none(x.get("n_waveforms_sum")) or -1),
+                int(_coerce_int_or_none(x.get("unit_id")) or 10**12),
+            ),
+        )
+
+        try:
+            merged_unit_footprints_dir.mkdir(parents=True, exist_ok=True)
+            merged_unit_footprints_zoomed_dir.mkdir(parents=True, exist_ok=True)
+            for e in footprint_grid_entries:
+                try:
+                    uid = e.get("unit_id")
+                    locs = e.get("channel_locations_xy")
+                    amp = e.get("footprint_ptp")
+                    eids = e.get("electrode_ids")
+                    _write_footprint_ptp_map(
+                        out_path=merged_unit_footprints_dir / f"unit_{uid}_merged_contributing_footprint_ptp_linear.png",
+                        channel_locations_xy=locs,
+                        footprint_ptp=amp,
+                        title=f"Unit {uid} contributing-channels footprint (PTP)",
+                        log_scale=False,
+                        electrode_ids=eids,
+                        all_recorded_electrode_ids=None,
+                    )
+                    _write_footprint_ptp_map(
+                        out_path=merged_unit_footprints_dir / f"unit_{uid}_merged_contributing_footprint_ptp_log.png",
+                        channel_locations_xy=locs,
+                        footprint_ptp=amp,
+                        title=f"Unit {uid} contributing-channels footprint (PTP, log)",
+                        log_scale=True,
+                        electrode_ids=eids,
+                        all_recorded_electrode_ids=None,
+                    )
+                    _write_footprint_ptp_map(
+                        out_path=merged_unit_footprints_zoomed_dir / f"unit_{uid}_merged_contributing_footprint_ptp_linear_zoom.png",
+                        channel_locations_xy=locs,
+                        footprint_ptp=amp,
+                        title="",
+                        log_scale=False,
+                        electrode_ids=eids,
+                        all_recorded_electrode_ids=None,
+                        zoom=True,
+                    )
+                    _write_footprint_ptp_map(
+                        out_path=merged_unit_footprints_zoomed_dir / f"unit_{uid}_merged_contributing_footprint_ptp_log_zoom.png",
+                        channel_locations_xy=locs,
+                        footprint_ptp=amp,
+                        title="",
+                        log_scale=True,
+                        electrode_ids=eids,
+                        all_recorded_electrode_ids=None,
+                        zoom=True,
+                    )
+                except Exception:
+                    continue
+
+            footprint_grids_dir.mkdir(parents=True, exist_ok=True)
+            if footprint_grid_entries:
+                _write_zoomed_footprints_grid_pdf(
+                    pdf_path=merged_unit_footprints_zoomed_linear_grid_pdf,
+                    entries=footprint_grid_entries,
+                    title="Merged contributing footprints (linear, zoomed)",
+                    log_scale=False,
+                    fixed_vmin=(float(lin_vmin) if lin_vmin is not None else None),
+                    fixed_vmax=(float(lin_vmax) if lin_vmax is not None else None),
+                    write_page_pngs=True,
+                    page_pngs_dir=merged_unit_footprints_zoomed_linear_grid_pages_dir,
+                )
+                _write_zoomed_footprints_grid_pdf(
+                    pdf_path=merged_unit_footprints_zoomed_log_grid_pdf,
+                    entries=footprint_grid_entries,
+                    title="Merged contributing footprints (log, zoomed)",
+                    log_scale=True,
+                    fixed_vmin=(float(log_vmin) if log_vmin is not None else None),
+                    fixed_vmax=(float(log_vmax) if log_vmax is not None else None),
+                    write_page_pngs=True,
+                    page_pngs_dir=merged_unit_footprints_zoomed_log_grid_pages_dir,
+                )
+        except Exception:
+            pass
+
+        if isinstance(summary_existing, dict):
+            try:
+                summary_existing["merged_unit_footprints_zoomed_linear_grid_pdf"] = (
+                    str(merged_unit_footprints_zoomed_linear_grid_pdf)
+                    if merged_unit_footprints_zoomed_linear_grid_pdf.exists()
+                    else None
+                )
+                summary_existing["merged_unit_footprints_zoomed_log_grid_pdf"] = (
+                    str(merged_unit_footprints_zoomed_log_grid_pdf)
+                    if merged_unit_footprints_zoomed_log_grid_pdf.exists()
+                    else None
+                )
+                summary_existing["merged_unit_footprints_zoomed_linear_grid_pages_dir"] = (
+                    str(merged_unit_footprints_zoomed_linear_grid_pages_dir)
+                    if merged_unit_footprints_zoomed_linear_grid_pages_dir.exists()
+                    else None
+                )
+                summary_existing["merged_unit_footprints_zoomed_log_grid_pages_dir"] = (
+                    str(merged_unit_footprints_zoomed_log_grid_pages_dir)
+                    if merged_unit_footprints_zoomed_log_grid_pages_dir.exists()
+                    else None
+                )
+                summary_existing["footprint_grid_sort"] = "n_waveforms_sum_desc"
+                _write_json(summary_json, summary_existing)
+            except Exception:
+                pass
+
         logger.info("Resuming templates: existing outputs found at %s", templates_out_dir)
         return TemplateExtractOutputs(
             well_out_dir=well_out_dir,
@@ -331,6 +615,10 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         "propagation_plots_dir": str(propagation_plots_dir) if bool(inputs.plot_propagation_plots) else None,
         "merged_unit_footprints_dir": str(merged_unit_footprints_dir),
         "merged_unit_footprints_zoomed_dir": str(merged_unit_footprints_zoomed_dir),
+        "merged_unit_footprints_zoomed_linear_grid_pdf": None,
+        "merged_unit_footprints_zoomed_log_grid_pdf": None,
+        "merged_unit_footprints_zoomed_linear_grid_pages_dir": None,
+        "merged_unit_footprints_zoomed_log_grid_pages_dir": None,
         "merged_unit_full_chip_maps_dir": str(merged_unit_full_chip_maps_dir),
         "axon_velocity_outputs_root_dir": str(axon_velocity_outputs_root_dir) if bool(inputs.plot_axon_velocity_outputs) else None,
         "curation": {
@@ -375,6 +663,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         write_footprint_ptp_map=_write_footprint_ptp_map,
         write_topo_unit_footprint_png=_write_topo_unit_footprint_png,
         make_merged_contributing_footprint_plots=bool(inputs.plot_merged_contributing_footprints_linear_and_log),
+        zoomed_footprints_global_color_scale=bool(inputs.zoomed_footprints_global_color_scale),
         make_axon_velocity_plots=bool(inputs.plot_axon_velocity_outputs),
         force_restart=bool(inputs.force_restart),
         n_jobs=int(inputs.n_jobs),
@@ -399,6 +688,23 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         summary=summary,
     )
 
+    unit_grid_entries = sorted(
+        unit_grid_entries,
+        key=lambda x: (
+            -int(_coerce_int_or_none(x.get("n_waveforms_sum")) or -1),
+            int(_coerce_int_or_none(x.get("unit_id")) or 10**12),
+        ),
+    )
+
+    footprint_grid_entries = _build_footprint_grid_entries_from_summary(summary)
+    footprint_grid_entries = sorted(
+        footprint_grid_entries,
+        key=lambda x: (
+            -int(_coerce_int_or_none(x.get("n_waveforms_sum")) or -1),
+            int(_coerce_int_or_none(x.get("unit_id")) or 10**12),
+        ),
+    )
+
     # Write grid PDFs.
     if templates_grid_pdf is not None:
         if (not templates_grid_pdf.exists()) or inputs.force_restart:
@@ -411,6 +717,60 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
                 top_channels=int(inputs.top_channels_per_template),
                 logger=logger,
             )
+
+    try:
+        footprint_grids_dir.mkdir(parents=True, exist_ok=True)
+        zcs = ((summary.get("footprints") or {}).get("zoomed_global_color_scale") or {})
+        lin_vmin = zcs.get("linear_vmin")
+        lin_vmax = zcs.get("linear_vmax")
+        log_vmin = zcs.get("log_vmin")
+        log_vmax = zcs.get("log_vmax")
+
+        if footprint_grid_entries:
+            _write_zoomed_footprints_grid_pdf(
+                pdf_path=merged_unit_footprints_zoomed_linear_grid_pdf,
+                entries=footprint_grid_entries,
+                title="Merged contributing footprints (linear, zoomed)",
+                log_scale=False,
+                fixed_vmin=(float(lin_vmin) if lin_vmin is not None else None),
+                fixed_vmax=(float(lin_vmax) if lin_vmax is not None else None),
+                write_page_pngs=True,
+                page_pngs_dir=merged_unit_footprints_zoomed_linear_grid_pages_dir,
+            )
+            _write_zoomed_footprints_grid_pdf(
+                pdf_path=merged_unit_footprints_zoomed_log_grid_pdf,
+                entries=footprint_grid_entries,
+                title="Merged contributing footprints (log, zoomed)",
+                log_scale=True,
+                fixed_vmin=(float(log_vmin) if log_vmin is not None else None),
+                fixed_vmax=(float(log_vmax) if log_vmax is not None else None),
+                write_page_pngs=True,
+                page_pngs_dir=merged_unit_footprints_zoomed_log_grid_pages_dir,
+            )
+    except Exception:
+        pass
+
+    summary["merged_unit_footprints_zoomed_linear_grid_pdf"] = (
+        str(merged_unit_footprints_zoomed_linear_grid_pdf)
+        if merged_unit_footprints_zoomed_linear_grid_pdf.exists()
+        else None
+    )
+    summary["merged_unit_footprints_zoomed_log_grid_pdf"] = (
+        str(merged_unit_footprints_zoomed_log_grid_pdf)
+        if merged_unit_footprints_zoomed_log_grid_pdf.exists()
+        else None
+    )
+    summary["merged_unit_footprints_zoomed_linear_grid_pages_dir"] = (
+        str(merged_unit_footprints_zoomed_linear_grid_pages_dir)
+        if merged_unit_footprints_zoomed_linear_grid_pages_dir.exists()
+        else None
+    )
+    summary["merged_unit_footprints_zoomed_log_grid_pages_dir"] = (
+        str(merged_unit_footprints_zoomed_log_grid_pages_dir)
+        if merged_unit_footprints_zoomed_log_grid_pages_dir.exists()
+        else None
+    )
+    summary["footprint_grid_sort"] = "n_waveforms_sum_desc"
 
     _write_json(summary_json, summary)
 

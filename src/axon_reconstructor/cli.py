@@ -89,6 +89,18 @@ def _resolve_optional_int(*, cli_value: int | None, env_key: str, default: int |
         raise SystemExit(f"Invalid integer for {env_key}: {parsed!r}") from e
 
 
+def _resolve_optional_float(*, cli_value: float | None, env_key: str, default: float | None = None) -> float | None:
+    if cli_value is not None:
+        return float(cli_value)
+    parsed = env_utils.env_typed(env_key, default=default)
+    if parsed is None:
+        return None
+    try:
+        return float(parsed)
+    except Exception as e:
+        raise SystemExit(f"Invalid float for {env_key}: {parsed!r}") from e
+
+
 def _parse_int_or_none_token(raw: str | int | None) -> int | None:
     if raw is None:
         return None
@@ -379,6 +391,83 @@ def _cmd_stage(args: argparse.Namespace) -> int:
 
         print(f"break-before-run enabled for stage '{stage}'", file=sys.stderr)
         pdb.set_trace()
+
+    if stage == "spikesort":
+        ks_overrides = {
+            "ks_th_universal": _resolve_optional_float(
+                cli_value=getattr(args, "ks_th_universal", None),
+                env_key="AXON_RECON_KS_TH_UNIVERSAL",
+                default=None,
+            ),
+            "ks_th_learned": _resolve_optional_float(
+                cli_value=getattr(args, "ks_th_learned", None),
+                env_key="AXON_RECON_KS_TH_LEARNED",
+                default=None,
+            ),
+            "ks_th_single_ch": _resolve_optional_float(
+                cli_value=getattr(args, "ks_th_single_ch", None),
+                env_key="AXON_RECON_KS_TH_SINGLE_CH",
+                default=None,
+            ),
+            "ks_cluster_downsampling": _resolve_optional_int(
+                cli_value=getattr(args, "ks_cluster_downsampling", None),
+                env_key="AXON_RECON_KS_CLUSTER_DOWNSAMPLING",
+                default=None,
+            ),
+            "ks_nearest_chans": _resolve_optional_int(
+                cli_value=getattr(args, "ks_nearest_chans", None),
+                env_key="AXON_RECON_KS_NEAREST_CHANS",
+                default=None,
+            ),
+            "ks_max_channel_distance": _resolve_optional_float(
+                cli_value=getattr(args, "ks_max_channel_distance", None),
+                env_key="AXON_RECON_KS_MAX_CHANNEL_DISTANCE",
+                default=None,
+            ),
+        }
+        for key, value in ks_overrides.items():
+            if key not in stage_kwargs and value is not None:
+                stage_kwargs[key] = value
+
+    if stage == "waveforms":
+        if "debug_max_units" not in stage_kwargs and debug_max_units is not None:
+            stage_kwargs["debug_max_units"] = int(debug_max_units)
+        if "debug_max_segments" not in stage_kwargs and debug_max_segments is not None:
+            stage_kwargs["debug_max_segments"] = int(debug_max_segments)
+
+        filter_by_maxwell_epochs = _resolve_bool(
+            cli_value=None,
+            env_key="AXON_RECON_WF_FILTER_BY_MAXWELL_EPOCHS",
+            default=True,
+        )
+        if "filter_by_maxwell_epochs" not in stage_kwargs:
+            stage_kwargs["filter_by_maxwell_epochs"] = bool(filter_by_maxwell_epochs)
+
+        filter_by_segment_bounds = _resolve_bool(
+            cli_value=None,
+            env_key="AXON_RECON_WF_FILTER_BY_SEGMENT_BOUNDS",
+            default=True,
+        )
+        if "filter_by_segment_bounds" not in stage_kwargs:
+            stage_kwargs["filter_by_segment_bounds"] = bool(filter_by_segment_bounds)
+
+        segment_sort_safety_cleanup = _resolve_bool(
+            cli_value=None,
+            env_key="AXON_RECON_WF_SEGMENT_SORT_SAFETY_CLEANUP",
+            default=True,
+        )
+        if "segment_sort_safety_cleanup" not in stage_kwargs:
+            stage_kwargs["segment_sort_safety_cleanup"] = bool(segment_sort_safety_cleanup)
+
+        recompute_channel_groups_for_reused_segments = _resolve_bool(
+            cli_value=None,
+            env_key="AXON_RECON_WF_RECOMPUTE_CHANNEL_GROUPS_FOR_REUSED_SEGMENTS",
+            default=False,
+        )
+        if "recompute_channel_groups_for_reused_segments" not in stage_kwargs:
+            stage_kwargs["recompute_channel_groups_for_reused_segments"] = bool(
+                recompute_channel_groups_for_reused_segments
+            )
 
     if stage == "analysis":
         if args.unit_ids:

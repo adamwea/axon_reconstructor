@@ -61,7 +61,8 @@ def _setup_well_logger(*, well_out_dir: Path, h5_path: Path, stream_id: str, ver
         well_out_dir=well_out_dir,
         data_file=h5_path,
         stream_id=stream_id,
-        logger_name=f"axon_reconstructor.{stream_id}",
+        stage_name="spikesort",
+        logger_name_prefix="axon_reconstructor",
         verbose=bool(verbose),
     )
 
@@ -87,6 +88,12 @@ class SpikeSortingInputs:
     # - `ks_batch_duration_s` is converted using the loaded recording's sampling rate.
     ks_batch_duration_s: Optional[float] = None
     ks_batch_size: Optional[int] = None
+    ks_th_universal: Optional[float] = None
+    ks_th_learned: Optional[float] = None
+    ks_th_single_ch: Optional[float] = None
+    ks_cluster_downsampling: Optional[int] = None
+    ks_nearest_chans: Optional[int] = None
+    ks_max_channel_distance: Optional[float] = None
 
     # Resource controls (best-effort): these primarily affect analyzer/reporting
     # steps that run in the current Python process.
@@ -156,6 +163,24 @@ def _relocate_mea_analysis_outputs(*, pipeline, well_out_dir: Path, logger: logg
 
     spikesorting_dir = well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME
     spikesorting_dir.mkdir(parents=True, exist_ok=True)
+
+    # Preserve/restore output_root expected by some MEA_Analysis report code paths
+    # (e.g., fixed-y burst plotting summary lookup).
+    try:
+        existing_output_dir = Path(getattr(pipeline, "output_dir"))
+        # output_dir is typically: <output_root>/<relative_pattern>/<well>
+        inferred_output_root = existing_output_dir.parent.parent
+    except Exception:
+        inferred_output_root = well_out_dir.parent.parent
+
+    try:
+        if getattr(pipeline, "output_root", None) is None:
+            setattr(pipeline, "output_root", Path(inferred_output_root))
+    except Exception:
+        try:
+            setattr(pipeline, "output_root", Path(inferred_output_root))
+        except Exception:
+            logger.debug("Could not set MEA_Analysis output_root attribute", exc_info=True)
 
     pipeline.output_dir = spikesorting_dir
 
@@ -323,7 +348,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
     except Exception:
         recording = si.load_extractor(recording_dir)
 
-    # Build optional sorter kwargs override (primarily for Kilosort4 memory tuning).
+    # Build optional sorter kwargs override (memory + sensitivity tuning).
     sorter_kwargs: dict = {}
     try:
         if inputs.ks_batch_size is not None:
@@ -331,6 +356,20 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         elif inputs.ks_batch_duration_s is not None:
             fs = float(recording.get_sampling_frequency())
             sorter_kwargs["batch_size"] = int(round(fs * float(inputs.ks_batch_duration_s)))
+
+        if inputs.ks_th_universal is not None:
+            sorter_kwargs["Th_universal"] = float(inputs.ks_th_universal)
+        if inputs.ks_th_learned is not None:
+            sorter_kwargs["Th_learned"] = float(inputs.ks_th_learned)
+        if inputs.ks_th_single_ch is not None:
+            sorter_kwargs["Th_single_ch"] = float(inputs.ks_th_single_ch)
+
+        if inputs.ks_cluster_downsampling is not None:
+            sorter_kwargs["cluster_downsampling"] = int(inputs.ks_cluster_downsampling)
+        if inputs.ks_nearest_chans is not None:
+            sorter_kwargs["nearest_chans"] = int(inputs.ks_nearest_chans)
+        if inputs.ks_max_channel_distance is not None:
+            sorter_kwargs["max_channel_distance"] = float(inputs.ks_max_channel_distance)
     except Exception:
         sorter_kwargs = {}
 

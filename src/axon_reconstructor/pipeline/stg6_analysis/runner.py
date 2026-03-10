@@ -807,7 +807,8 @@ def analyze_units(*, inputs: AnalysisInputs, logger_name_prefix: str = "axon_rec
         well_out_dir=well_out_dir,
         data_file=inputs.h5_path,
         stream_id=inputs.stream_id,
-        logger_name=f"{logger_name_prefix}.{inputs.stream_id}.analysis",
+        stage_name="analysis",
+        logger_name_prefix=logger_name_prefix,
         verbose=True,
     )
 

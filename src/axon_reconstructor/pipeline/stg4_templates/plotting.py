@@ -371,6 +371,374 @@ def _write_templates_grid_pdf(
     logger.info("Wrote templates grid PDF -> %s", pdf_path)
 
 
+def _write_image_grid_pdf(
+    *,
+    pdf_path: Path,
+    image_paths: list[Path],
+    title: str,
+    ncols: int = 5,
+    nrows: int = 5,
+) -> None:
+    """Write a paginated image grid PDF from pre-rendered image files."""
+
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+    import matplotlib.backends.backend_pdf as pdf
+
+    if not image_paths:
+        return
+
+    ncols = max(1, int(ncols))
+    nrows = max(1, int(nrows))
+    per_page = int(ncols * nrows)
+
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    with pdf.PdfPages(pdf_path) as out:
+        for i0 in range(0, len(image_paths), per_page):
+            chunk = image_paths[i0 : i0 + per_page]
+            fig, axes = plt.subplots(nrows, ncols, figsize=(11, 8.5), constrained_layout=False)
+            axes_list = list(axes.ravel()) if hasattr(axes, "ravel") else [axes]
+
+            for ax, img_path in zip(axes_list, chunk):
+                try:
+                    img = plt.imread(str(img_path))
+                    ax.imshow(img)
+                    ax.set_axis_off()
+                    stem = str(img_path.stem)
+                    uid_label = ""
+                    if stem.startswith("unit_"):
+                        try:
+                            uid_label = stem.split("_")[1]
+                        except Exception:
+                            uid_label = ""
+                    if uid_label:
+                        ax.set_title(f"unit {uid_label}", fontsize=8)
+                except Exception:
+                    ax.set_axis_off()
+
+            for j in range(len(chunk), len(axes_list)):
+                axes_list[j].set_axis_off()
+
+            try:
+                fig.suptitle(str(title), fontsize=12)
+                fig.subplots_adjust(left=0.005, right=0.995, bottom=0.005, top=0.965, wspace=0.005, hspace=0.08)
+            except Exception:
+                pass
+
+            out.savefig(fig, dpi=180, bbox_inches="tight", pad_inches=0.01)
+            plt.close(fig)
+
+
+def _nice_scalebar_um(target_um: float) -> float:
+    vals = [25.0, 50.0, 100.0, 200.0, 400.0, 800.0, 1600.0, 3200.0]
+    t = float(max(1.0, target_um))
+    best = vals[0]
+    for v in vals:
+        if v <= t:
+            best = v
+        else:
+            break
+    return float(best)
+
+
+def _square_zoom_limits(*, locs_xy, zoom_pad_um: float, zoom_pad_frac: float) -> tuple[float, float, float, float]:
+    import numpy as np  # type: ignore[import-not-found]
+
+    locs = np.asarray(locs_xy, dtype=float)
+    xs = locs[:, 0]
+    ys = locs[:, 1]
+    xmin, xmax = float(np.nanmin(xs)), float(np.nanmax(xs))
+    ymin, ymax = float(np.nanmin(ys)), float(np.nanmax(ys))
+    dx = max(0.0, xmax - xmin)
+    dy = max(0.0, ymax - ymin)
+    span = max(dx, dy, 1.0)
+    pad = max(float(zoom_pad_um), float(zoom_pad_frac) * span)
+    half = 0.5 * span + pad
+    cx = 0.5 * (xmin + xmax)
+    cy = 0.5 * (ymin + ymax)
+    return (cx - half, cx + half, cy - half, cy + half)
+
+
+def _compute_footprint_norm(
+    *,
+    amp,
+    log_scale: bool,
+    fixed_vmin: float | None = None,
+    fixed_vmax: float | None = None,
+):
+    import numpy as np  # type: ignore[import-not-found]
+    import matplotlib.colors as mcolors
+
+    arr = np.asarray(amp, dtype=float)
+    finite = arr[np.isfinite(arr)]
+    if bool(log_scale):
+        pos = finite[finite > 0]
+        vmin = float(fixed_vmin) if fixed_vmin is not None else (float(np.nanmin(pos)) if pos.size else 1e-9)
+        vmax = float(fixed_vmax) if fixed_vmax is not None else (float(np.nanmax(pos)) if pos.size else 1.0)
+        vmin = max(vmin, 1e-9)
+        if not (vmax > vmin):
+            vmax = vmin * 10.0
+        return mcolors.LogNorm(vmin=vmin, vmax=vmax)
+
+    vmin = float(fixed_vmin) if fixed_vmin is not None else (float(np.nanmin(finite)) if finite.size else 0.0)
+    vmax = float(fixed_vmax) if fixed_vmax is not None else (float(np.nanmax(finite)) if finite.size else 1.0)
+    if not (vmax > vmin):
+        vmax = vmin + 1.0
+    return mcolors.Normalize(vmin=vmin, vmax=vmax)
+
+
+def _apply_square_zoom_to_axis(*, ax, locs_xy, zoom_pad_um: float, zoom_pad_frac: float) -> None:
+    x0, x1, y0, y1 = _square_zoom_limits(
+        locs_xy=locs_xy,
+        zoom_pad_um=float(zoom_pad_um),
+        zoom_pad_frac=float(zoom_pad_frac),
+    )
+    ax.set_xlim(x0, x1)
+    ax.set_ylim(y0, y1)
+
+
+def _draw_footprint_channels(
+    *,
+    ax,
+    channel_locations_xy,
+    footprint_ptp,
+    norm,
+    non_contributing_locations_xy=None,
+    cmap: str = "viridis",
+    channel_pitch_um: float = CHIP_PITCH_UM,
+):
+    import numpy as np  # type: ignore[import-not-found]
+    from matplotlib.collections import PatchCollection
+    from matplotlib.patches import Rectangle, Circle
+
+    locs = np.asarray(channel_locations_xy, dtype=float)
+    amp = np.asarray(footprint_ptp, dtype=float)
+    if locs.ndim != 2 or int(locs.shape[1]) < 2 or amp.ndim != 1 or int(locs.shape[0]) != int(amp.shape[0]):
+        return None
+
+    half = 0.5 * float(channel_pitch_um)
+    rects = [
+        Rectangle((float(x) - half, float(y) - half), float(channel_pitch_um), float(channel_pitch_um))
+        for x, y in locs[:, :2].tolist()
+    ]
+
+    contrib = PatchCollection(rects, cmap=cmap, norm=norm, linewidths=0.0, edgecolors="none", zorder=4)
+    contrib.set_array(np.asarray(amp, dtype=float))
+    ax.add_collection(contrib)
+
+    if non_contributing_locations_xy is not None:
+        try:
+            nc = np.asarray(non_contributing_locations_xy, dtype=float)
+            if nc.ndim == 2 and int(nc.shape[1]) >= 2 and int(nc.shape[0]) > 0:
+                rad = float(channel_pitch_um) * 0.22
+                circles = [Circle((float(x), float(y)), radius=rad) for x, y in nc[:, :2].tolist()]
+                nonc = PatchCollection(
+                    circles,
+                    facecolor=(0.55, 0.55, 0.55, 0.75),
+                    edgecolors="none",
+                    linewidths=0.0,
+                    zorder=3,
+                )
+                ax.add_collection(nonc)
+        except Exception:
+            pass
+
+    return contrib
+
+
+def _write_zoomed_footprints_grid_pdf(
+    *,
+    pdf_path: Path,
+    entries: list[dict[str, Any]],
+    title: str,
+    log_scale: bool,
+    fixed_vmin: float | None = None,
+    fixed_vmax: float | None = None,
+    ncols: int = 5,
+    nrows: int = 5,
+    zoom_pad_um: float = 120.0,
+    zoom_pad_frac: float = 0.06,
+    write_page_pngs: bool = True,
+    page_pngs_dir: Optional[Path] = None,
+) -> None:
+    """Write zoomed footprint grid directly from arrays (no PNG dependency)."""
+
+    import numpy as np  # type: ignore[import-not-found]
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+    import matplotlib.backends.backend_pdf as pdf
+    from matplotlib.cm import ScalarMappable
+
+    if not entries:
+        return
+
+    ncols = max(1, int(ncols))
+    nrows = max(1, int(nrows))
+    per_page = int(ncols * nrows)
+
+    amp_concat = []
+    for e in entries:
+        amp = np.asarray(e.get("footprint_ptp"), dtype=float)
+        finite = amp[np.isfinite(amp)]
+        if finite.size:
+            amp_concat.append(finite)
+    amp_all = np.concatenate(amp_concat, axis=0) if amp_concat else np.asarray([], dtype=float)
+    norm = _compute_footprint_norm(
+        amp=amp_all,
+        log_scale=bool(log_scale),
+        fixed_vmin=fixed_vmin,
+        fixed_vmax=fixed_vmax,
+    )
+
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    if bool(write_page_pngs):
+        if page_pngs_dir is None:
+            page_pngs_dir = pdf_path.parent / f"{pdf_path.stem}_pages"
+        page_pngs_dir.mkdir(parents=True, exist_ok=True)
+
+    page_num = 0
+    with pdf.PdfPages(pdf_path) as out:
+        for i0 in range(0, len(entries), per_page):
+            page_num += 1
+            chunk = entries[i0 : i0 + per_page]
+            fig, axes = plt.subplots(nrows, ncols, figsize=(11, 8.5), constrained_layout=False)
+            axes_list = list(axes.ravel()) if hasattr(axes, "ravel") else [axes]
+
+            for ax, e in zip(axes_list, chunk):
+                try:
+                    uid = e.get("unit_id")
+                    n_wf = e.get("n_waveforms_sum")
+                    locs = np.asarray(e.get("channel_locations_xy"), dtype=float)
+                    amp = np.asarray(e.get("footprint_ptp"), dtype=float)
+                    non_contrib_locs = e.get("non_contributing_locations_xy")
+                    if locs.ndim != 2 or locs.shape[1] < 2 or amp.ndim != 1 or int(locs.shape[0]) != int(amp.shape[0]):
+                        ax.set_axis_off()
+                        continue
+
+                    _draw_footprint_channels(
+                        ax=ax,
+                        channel_locations_xy=locs[:, :2],
+                        footprint_ptp=amp,
+                        norm=norm,
+                        non_contributing_locations_xy=non_contrib_locs,
+                        cmap="viridis",
+                        channel_pitch_um=float(CHIP_PITCH_UM),
+                    )
+
+                    _apply_square_zoom_to_axis(
+                        ax=ax,
+                        locs_xy=locs[:, :2],
+                        zoom_pad_um=float(zoom_pad_um),
+                        zoom_pad_frac=float(zoom_pad_frac),
+                    )
+                    x0, x1 = ax.get_xlim()
+                    ax.set_aspect("equal", adjustable="box")
+                    ax.set_axis_off()
+
+                    span_um = float(x1 - x0)
+                    sb_um = _nice_scalebar_um(0.22 * span_um)
+                    _draw_prominent_scalebar(
+                        ax=ax,
+                        scalebar_um=float(sb_um),
+                        label=f"{int(round(float(sb_um)))} µm",
+                        loc=4,
+                    )
+
+                    lbl = f"unit {uid}"
+                    if n_wf is not None:
+                        lbl = f"unit {uid}  n={int(n_wf)}"
+                    ax.set_title(lbl, fontsize=8)
+                except Exception:
+                    ax.set_axis_off()
+
+            for j in range(len(chunk), len(axes_list)):
+                axes_list[j].set_axis_off()
+
+            sm = ScalarMappable(norm=norm, cmap=plt.get_cmap("viridis"))
+            sm.set_array([])
+            cax = fig.add_axes([0.94, 0.10, 0.015, 0.80])
+            cb = fig.colorbar(sm, cax=cax)
+            cb.set_label("PTP (µV)", fontsize=9)
+            cb.ax.tick_params(labelsize=8)
+
+            fig.suptitle(str(title), fontsize=11)
+            fig.subplots_adjust(left=0.005, right=0.935, bottom=0.01, top=0.96, wspace=0.01, hspace=0.11)
+
+            out.savefig(fig, dpi=220, bbox_inches="tight", pad_inches=0.01)
+            if bool(write_page_pngs):
+                try:
+                    png_path = page_pngs_dir / f"{pdf_path.stem}_page_{int(page_num):03d}.png"
+                    fig.savefig(png_path, dpi=220, bbox_inches="tight", pad_inches=0.01)
+                except Exception:
+                    pass
+            plt.close(fig)
+
+
+def _draw_prominent_scalebar(
+    *,
+    ax,
+    scalebar_um: float,
+    label: str,
+    loc: int = 4,
+) -> None:
+    try:
+        x0, x1 = ax.get_xlim()
+        y0, y1 = ax.get_ylim()
+        dx = float(x1 - x0)
+        dy = float(y1 - y0)
+        if not (dx > 0 and dy > 0):
+            return
+
+        bar_len = float(max(1.0, scalebar_um))
+        margin_x = 0.06 * dx
+        margin_y = 0.08 * dy
+
+        if int(loc) in (1, 4):
+            x_start = float(x1) - margin_x - bar_len
+            text_ha = "right"
+            text_x = float(x1) - margin_x
+        else:
+            x_start = float(x0) + margin_x
+            text_ha = "left"
+            text_x = float(x0) + margin_x
+
+        if int(loc) in (3, 4):
+            y_bar = float(y0) + margin_y
+            text_va = "bottom"
+            text_y = y_bar + 0.018 * dy
+        else:
+            y_bar = float(y1) - margin_y
+            text_va = "top"
+            text_y = y_bar - 0.018 * dy
+
+        line = ax.plot(
+            [x_start, x_start + bar_len],
+            [y_bar, y_bar],
+            color="black",
+            lw=3.0,
+            solid_capstyle="butt",
+            zorder=25,
+        )[0]
+
+        txt = ax.text(
+            text_x,
+            text_y,
+            str(label),
+            ha=text_ha,
+            va=text_va,
+            fontsize=5,
+            color="black",
+            zorder=26,
+        )
+        _ = txt
+    except Exception:
+        return
+
+
 def _write_unit_segment_grids_pdf(
     *,
     pdf_path: Path,
@@ -1418,8 +1786,13 @@ def _write_footprint_ptp_map(
     electrode_ids: Any = None,
     all_recorded_electrode_ids: Any = None,
     zoom: bool = False,
-    zoom_pad_um: float = 200.0,
-    zoom_pad_frac: float = 0.10,
+    zoom_pad_um: float = 120.0,
+    zoom_pad_frac: float = 0.06,
+    show_scalebar: bool = True,
+    scalebar_um: float = 200.0,
+    scalebar_loc: int = 4,
+    fixed_vmin: float | None = None,
+    fixed_vmax: float | None = None,
 ) -> None:
     """Write a footprint PTP amplitude map as a single image.
 
@@ -1432,8 +1805,6 @@ def _write_footprint_ptp_map(
     matplotlib.use("Agg", force=True)
     import matplotlib.pyplot as plt
 
-    from matplotlib.colors import LogNorm
-
     amp = np.asarray(footprint_ptp, dtype=float)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1441,32 +1812,15 @@ def _write_footprint_ptp_map(
     # Prefer full-chip rendering when electrode ids are available.
     e_trip = _electrode_ids_to_rowcol(electrode_ids=electrode_ids)
     if e_trip is not None and amp.ndim == 1 and int(amp.size) == int(e_trip[0].size):
-        fig = plt.figure(figsize=(6.2, 3.9))
+        fig = plt.figure(figsize=(5.6, 3.4))
         ax = fig.add_subplot(111)
 
-        # Norm for colormap.
-        norm = None
-        if bool(log_scale):
-            try:
-                pos = amp[np.isfinite(amp) & (amp > 0)]
-                if pos.size:
-                    vmin = float(np.nanmin(pos))
-                    vmax = float(np.nanmax(pos))
-                    vmin = max(vmin, 1e-9)
-                    if vmax > vmin:
-                        norm = LogNorm(vmin=vmin, vmax=vmax)
-            except Exception:
-                norm = None
-        if norm is None:
-            try:
-                finite = amp[np.isfinite(amp)]
-                vmin = float(np.nanmin(finite)) if finite.size else 0.0
-                vmax = float(np.nanmax(finite)) if finite.size else 1.0
-                if not (vmax > vmin):
-                    vmax = vmin + 1.0
-                norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
-            except Exception:
-                norm = matplotlib.colors.Normalize(vmin=0.0, vmax=1.0)
+        norm = _compute_footprint_norm(
+            amp=amp,
+            log_scale=bool(log_scale),
+            fixed_vmin=fixed_vmin,
+            fixed_vmax=fixed_vmax,
+        )
 
         values = {int(e): float(v) for e, v in zip(e_trip[0].tolist(), amp.tolist()) if np.isfinite(v)}
         _render_full_chip_value_map(
@@ -1479,6 +1833,32 @@ def _write_footprint_ptp_map(
             cbar_label="PTP (µV)",
         )
 
+        if bool(show_scalebar):
+            try:
+                add_scalebar = _try_get_add_scalebar()
+                if add_scalebar is not None:
+                    add_scalebar(
+                        ax,
+                        matchx=False,
+                        matchy=False,
+                        sizex=float(scalebar_um),
+                        labelx=f"{int(round(float(scalebar_um)))} µm",
+                        sizey=0,
+                        loc=int(scalebar_loc),
+                        hidex=True,
+                        hidey=True,
+                        barcolor="white",
+                        barwidth=4,
+                    )
+            except Exception:
+                pass
+            _draw_prominent_scalebar(
+                ax=ax,
+                scalebar_um=float(scalebar_um),
+                label=f"{int(round(float(scalebar_um)))} µm",
+                loc=int(scalebar_loc),
+            )
+
         if bool(zoom):
             try:
                 # Convert contributing electrode ids to µm coordinates.
@@ -1486,21 +1866,22 @@ def _write_footprint_ptp_map(
                 rows = e_trip[1].astype(float)
                 xs = cols * float(CHIP_PITCH_UM)
                 ys = rows * float(CHIP_PITCH_UM)
-
-                xmin, xmax = float(np.min(xs)), float(np.max(xs))
-                ymin, ymax = float(np.min(ys)), float(np.max(ys))
-                dx = max(xmax - xmin, 0.0)
-                dy = max(ymax - ymin, 0.0)
-                pad_x = max(float(zoom_pad_um), float(zoom_pad_frac) * dx)
-                pad_y = max(float(zoom_pad_um), float(zoom_pad_frac) * dy)
-                ax.set_xlim(xmin - pad_x, xmax + pad_x)
-                ax.set_ylim(ymin - pad_y, ymax + pad_y)
+                locs_xy = np.column_stack([xs, ys])
+                _apply_square_zoom_to_axis(
+                    ax=ax,
+                    locs_xy=locs_xy,
+                    zoom_pad_um=float(zoom_pad_um),
+                    zoom_pad_frac=float(zoom_pad_frac),
+                )
             except Exception:
                 pass
-        fig.tight_layout()
-        fig.savefig(out_path, dpi=220)
         try:
-            fig.savefig(out_path.with_suffix(".svg"), format="svg")
+            fig.subplots_adjust(left=0.02, right=0.98, bottom=0.02, top=0.98)
+        except Exception:
+            pass
+        fig.savefig(out_path, dpi=240, bbox_inches="tight", pad_inches=0.01)
+        try:
+            fig.savefig(out_path.with_suffix(".svg"), format="svg", bbox_inches="tight", pad_inches=0.01)
         except Exception:
             pass
         plt.close(fig)
@@ -1519,21 +1900,33 @@ def _write_footprint_ptp_map(
     ax.set_ylabel("y")
     ax.set_aspect("equal", adjustable="box")
 
-    norm = None
-    if bool(log_scale):
-        try:
-            pos = amp[np.isfinite(amp) & (amp > 0)]
-            if pos.size:
-                vmin = float(np.nanmin(pos))
-                vmax = float(np.nanmax(pos))
-                vmin = max(vmin, 1e-9)
-                if vmax > vmin:
-                    norm = LogNorm(vmin=vmin, vmax=vmax)
-        except Exception:
-            norm = None
+    norm = _compute_footprint_norm(
+        amp=amp,
+        log_scale=bool(log_scale),
+        fixed_vmin=fixed_vmin,
+        fixed_vmax=fixed_vmax,
+    )
 
     sc = ax.scatter(locs[:, 0], locs[:, 1], c=amp, s=18, cmap=cmap, norm=norm, marker="s", linewidths=0)
     fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04, label="PTP")
+
+    if bool(show_scalebar):
+        try:
+            add_scalebar = _try_get_add_scalebar()
+            if add_scalebar is not None:
+                add_scalebar(
+                    ax,
+                    matchx=False,
+                    matchy=False,
+                    sizex=float(scalebar_um),
+                    labelx=f"{int(round(float(scalebar_um)))} µm",
+                    sizey=0,
+                    loc=int(scalebar_loc),
+                    hidex=True,
+                    hidey=True,
+                )
+        except Exception:
+            pass
 
     if bool(zoom):
         try:
@@ -1541,17 +1934,19 @@ def _write_footprint_ptp_map(
             xs = locs[good, 0]
             ys = locs[good, 1]
             if xs.size and ys.size:
-                xmin, xmax = float(np.min(xs)), float(np.max(xs))
-                ymin, ymax = float(np.min(ys)), float(np.max(ys))
-                dx = max(xmax - xmin, 0.0)
-                dy = max(ymax - ymin, 0.0)
-                pad_x = max(float(zoom_pad_um), float(zoom_pad_frac) * dx)
-                pad_y = max(float(zoom_pad_um), float(zoom_pad_frac) * dy)
-                ax.set_xlim(xmin - pad_x, xmax + pad_x)
-                ax.set_ylim(ymin - pad_y, ymax + pad_y)
+                locs_xy = np.column_stack([xs, ys])
+                _apply_square_zoom_to_axis(
+                    ax=ax,
+                    locs_xy=locs_xy,
+                    zoom_pad_um=float(zoom_pad_um),
+                    zoom_pad_frac=float(zoom_pad_frac),
+                )
         except Exception:
             pass
-    fig.tight_layout()
+    try:
+        fig.subplots_adjust(left=0.02, right=0.98, bottom=0.02, top=0.98)
+    except Exception:
+        pass
     fig.savefig(out_path, dpi=220)
     try:
         fig.savefig(out_path.with_suffix(".svg"), format="svg")
@@ -1769,6 +2164,8 @@ def _write_full_chip_template_peak_latency_map_png(
 
 __all__ = [
     "_write_templates_grid_pdf",
+    "_write_image_grid_pdf",
+    "_write_zoomed_footprints_grid_pdf",
     "_write_unit_segment_grids_pdf",
     "_write_unit_segment_footprint_grids_pdf",
     "_write_footprint_ptp_map",

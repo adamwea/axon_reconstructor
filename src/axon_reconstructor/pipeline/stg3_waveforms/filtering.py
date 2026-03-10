@@ -8,6 +8,7 @@ from .utils import _filter_spike_train_by_intervals, _to_numpy_sorting
 def _init_filtering_summary(*, inputs, window, epochs) -> dict[str, Any]:
     return {
         "filter_by_maxwell_epochs": bool(inputs.filter_by_maxwell_epochs),
+        "filter_by_segment_bounds": bool(getattr(inputs, "filter_by_segment_bounds", True)),
         "ms_before": float(window.ms_before),
         "ms_after": float(window.ms_after),
         "pre_samples": int(window.pre_samples),

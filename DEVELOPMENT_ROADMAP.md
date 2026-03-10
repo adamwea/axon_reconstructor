@@ -588,6 +588,47 @@ Compatibility/deprecation policy (approved):
 
 ## Phase 4 — Reconstruction Engines Alignment
 
+### 4.0 Single-neuron footprinting + reconstruction debug workflow
+- Status: `IN PROGRESS`
+- Goal:
+  - Create a repeatable, minimal runner to debug footprinting and reconstruction behavior for a single selected unit, then use it to confirm/fix unit-level issues.
+- Deliverables:
+  - 4.0a Add one-command single-unit stage runner in debug tools (`DONE`)
+    - added `tools/debug/run_single_unit_reconstruct.sh`.
+    - supports selecting a target unit via `UNIT_DIR`/`UNIT_ID`, optional `FORCE_RESTART=1`, and stage-minimal single-unit kwargs for templates/reconstruct.
+    - defaults GIF generation off (`ENABLE_GIFS=0`; opt-in via `ENABLE_GIFS=1`).
+  - 4.0b Footprinting/reconstruction validation on target neuron (`TODO`)
+    - run the single-unit workflow on the target unit and capture stage-by-stage artifacts/logs.
+    - confirm expected unit outputs under current naming (`stg5_reconstruction_outputs/by_unit/unit_<id>`).
+    - [DONE] Added template footprint panel improvements for batch QC:
+      - per-panel sizebars on footprint maps;
+      - optional shared global color scale for zoomed merged-contributing footprints across units in a templates run (`zoomed_footprints_global_color_scale`).
+  - 4.0c Fix pass for confirmed unit-level footprinting/reconstruction issues (`TODO`)
+    - implement targeted fixes for root-cause issues found in 4.0b.
+    - rerun single-unit debug workflow + targeted regression tests.
+  - 4.0d Waveforms runtime optimization pass (concurrent with 4.0b/4.0c) (`TODO`)
+    - Scope:
+      - apply high- and medium-impact reductions to Stage 3 redundant compute while preserving current scientific outputs.
+    - Deliverables:
+      - 4.0d.1 Early per-segment reuse short-circuit (`DONE`)
+        - in `stg3_waveforms/extraction.py`, check for a loadable existing segment analyzer at the top of each segment loop.
+        - when present, skip expensive pre-work (`seg_rec` load/preprocess, per-unit spike filtering/edge checks, `seg_sort` construction).
+      - 4.0d.2 Apriori spike index cache + segment binning (`DONE`)
+        - precompute per-unit spike arrays once per run and derive segment-local slices via boundary indexing (e.g., searchsorted) instead of rescanning all spikes per segment.
+        - reuse that cache for both extraction and summary accounting paths.
+      - 4.0d.3 Apriori unfiltered/filtered count derivation (`DONE`)
+        - replace repeated per-segment calls to `_count_spikes_in_concat_window` with counts derived from the pre-binned spike indices for unfiltered and filtered sortings.
+      - 4.0d.4 Segment cleanup gating (`DONE`)
+        - make `remove_excess_spikes` / `remove_empty_units` optional behind a strict safety/debug flag when in-window/edge filtering has already guaranteed bounds.
+      - 4.0d.5 Channel bookkeeping skip on checkpoint-complete segments (`DONE`)
+        - when a segment analyzer is checkpoint-complete and loadable, skip expensive segment channel/electrode bookkeeping unless channel-group recomputation is explicitly requested.
+      - 4.0d.6 Segment manifest + selective execution (`DONE`)
+        - build a stage-start manifest (segment bounds, expected analyzer folder, checkpoint state, validation/loadability status).
+        - execute compute only for missing/invalid segments; treat completed segments as metadata-only unless forced restart.
+      - 4.0d.7 Runtime instrumentation + acceptance report (`IN PROGRESS`)
+        - add timing logs for per-segment phases (load/preprocess, spike prep, analyzer compute, postprocess) and emit aggregate stage timing summary.
+        - validate no scientific-output regressions and document expected wall-time improvement on the single-unit debug workflow.
+
 ### 4.1 Wire up and test partially implemented Radivojevic-style reconstruction
 - Status: `TODO`
 - Deliverables:
