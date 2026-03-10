@@ -405,6 +405,54 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
             except Exception:
                 summary_existing = None
 
+        if isinstance(summary_existing, dict):
+            try:
+                existing_units = [u for u in list(summary_existing.get("units", []) or []) if isinstance(u, dict)]
+                existing_by_id = {
+                    str(u.get("unit_id")): u
+                    for u in existing_units
+                    if u.get("unit_id") is not None
+                }
+
+                discovered_ids: list[Any] = []
+                for p in sorted(merged_units_dir.glob("unit_*")):
+                    if not p.is_dir():
+                        continue
+                    tok = p.name.split("unit_", 1)[-1]
+                    try:
+                        discovered_ids.append(int(tok))
+                    except Exception:
+                        discovered_ids.append(tok)
+
+                refreshed_units: list[dict[str, Any]] = []
+                for uid in discovered_ids:
+                    uid_key = str(uid)
+                    if uid_key in existing_by_id:
+                        refreshed_units.append(existing_by_id[uid_key])
+                        continue
+
+                    meta_json = merged_units_dir / f"unit_{uid}" / "merged_contributing_template_meta.json"
+                    placeholder: dict[str, Any] = {
+                        "unit_id": _jsonable(uid),
+                        "n_waveforms_sum": 0,
+                        "sources": [
+                            {
+                                "name": "merged_contributing",
+                                "meta_json": (str(meta_json) if meta_json.exists() else None),
+                            }
+                        ],
+                    }
+                    refreshed_units.append(placeholder)
+
+                summary_existing["units"] = refreshed_units
+                logger.info(
+                    "Templates resume: refreshed summary units from merged templates on disk (%d -> %d)",
+                    len(existing_units),
+                    len(refreshed_units),
+                )
+            except Exception:
+                pass
+
         footprint_grid_entries = sorted(
             footprint_grid_entries,
             key=lambda x: (

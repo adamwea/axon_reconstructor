@@ -161,6 +161,10 @@ class ReconstructionInputs:
     # If True, annotate per-unit local amplitude statistics in each unit subplot.
     show_density_scale_local_debug_text: bool = False
 
+    # If True, only replot/update the top-density grid from existing reconstruction
+    # outputs/summary and return without running per-unit reconstruction.
+    replot_top_density_grid_only: bool = False
+
     # axon_velocity params (merged onto defaults). Only keys accepted by
     # axon_velocity.compute_graph_propagation_velocity are passed through.
     axon_velocity_params: Optional[dict[str, Any]] = None
@@ -267,6 +271,72 @@ def _run_single_unit_reconstruction(
 
     out_unit_dir = Path(reconstruction_out_dir) / "by_unit" / f"unit_{uid}"
     out_unit_dir.mkdir(parents=True, exist_ok=True)
+    unit_checkpoint_json = out_unit_dir / "unit_reconstruction_checkpoint.json"
+    unit_summary_json = out_unit_dir / "unit_reconstruction_summary.json"
+
+    def _load_existing_completed_unit_result() -> Optional[dict[str, Any]]:
+        try:
+            ckpt_payload = _read_json(unit_checkpoint_json)
+            if not isinstance(ckpt_payload, dict):
+                return None
+            if str(ckpt_payload.get("status", "")).lower() != "completed":
+                return None
+
+            existing_summary = _read_json(unit_summary_json)
+            if not isinstance(existing_summary, dict):
+                return None
+            if str(existing_summary.get("status", "")).lower() != "ok":
+                return None
+
+            existing_polylines: list[dict[str, Any]] = []
+            branches_json_path = (existing_summary.get("outputs") or {}).get("branches_json")
+            if branches_json_path:
+                try:
+                    branches_payload = _read_json(Path(str(branches_json_path)))
+                    branches = list((branches_payload or {}).get("branches", []) or [])
+                    for br in branches:
+                        if not isinstance(br, dict):
+                            continue
+                        poly = br.get("polyline_xy")
+                        if isinstance(poly, list) and len(poly) >= 2:
+                            existing_polylines.append(
+                                {
+                                    "unit_id": _jsonable(uid),
+                                    "branch_index": int(br.get("branch_index", 0)),
+                                    "polyline_xy": poly,
+                                }
+                            )
+                except Exception:
+                    pass
+
+            existing_locs_path: Optional[str] = None
+            try:
+                selected_src = str((existing_summary.get("inputs") or {}).get("selected_template_source", ""))
+                merged_locs_path = str((existing_summary.get("inputs") or {}).get("merged_contributing", {}).get("channel_locations_npy", ""))
+                full_locs_path = str((existing_summary.get("inputs") or {}).get("full_channels", {}).get("full_channel_locations_xy_npy", ""))
+                if selected_src == "full_channels_templates" and full_locs_path:
+                    existing_locs_path = full_locs_path
+                elif merged_locs_path:
+                    existing_locs_path = merged_locs_path
+                elif full_locs_path:
+                    existing_locs_path = full_locs_path
+            except Exception:
+                existing_locs_path = None
+
+            existing_summary["resume_skipped_completed"] = True
+            return {
+                "unit_summary": existing_summary,
+                "unit_polylines": existing_polylines,
+                "overview_locations_npy": existing_locs_path,
+            }
+        except Exception:
+            return None
+
+    if not bool(force_restart):
+        existing_result = _load_existing_completed_unit_result()
+        if existing_result is not None:
+            logger.info("Unit %s already completed; skipping via unit checkpoint", uid)
+            return existing_result
 
     unit_summary: dict[str, Any] = {
         "unit_id": _jsonable(uid),
@@ -484,8 +554,35 @@ def _run_single_unit_reconstruction(
         unit_summary["status"] = "error"
         unit_summary["error"] = exception_to_error_dict(e)
         try:
+            _write_json(unit_summary_json, unit_summary)
+            _write_json(
+                unit_checkpoint_json,
+                {
+                    "unit_id": _jsonable(uid),
+                    "status": "failed",
+                    "unit_summary_json": str(unit_summary_json),
+                    "error": unit_summary["error"],
+                },
+            )
+        except Exception:
+            pass
+        try:
             if out_unit_dir.exists() and out_unit_dir.is_dir() and (not any(out_unit_dir.iterdir())):
                 out_unit_dir.rmdir()
+        except Exception:
+            pass
+
+    if str(unit_summary.get("status", "")).lower() == "ok":
+        try:
+            _write_json(unit_summary_json, unit_summary)
+            _write_json(
+                unit_checkpoint_json,
+                {
+                    "unit_id": _jsonable(uid),
+                    "status": "completed",
+                    "unit_summary_json": str(unit_summary_json),
+                },
+            )
         except Exception:
             pass
 
@@ -571,6 +668,44 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
         except Exception:
             top_n_density_requested = None
 
+    def _load_all_unit_summaries_from_by_unit_dir() -> list[dict[str, Any]]:
+        units_out: list[dict[str, Any]] = []
+        for p in sorted(by_unit_dir.glob("unit_*")):
+            if not p.is_dir():
+                continue
+            tok = p.name.split("unit_", 1)[-1]
+            try:
+                uid: Any = int(tok)
+            except Exception:
+                uid = tok
+
+            unit_summary_path = p / "unit_reconstruction_summary.json"
+            if unit_summary_path.exists():
+                try:
+                    payload = _read_json(unit_summary_path)
+                    if isinstance(payload, dict):
+                        if payload.get("unit_id") is None:
+                            payload["unit_id"] = _jsonable(uid)
+                        units_out.append(payload)
+                        continue
+                except Exception:
+                    pass
+
+            fallback: dict[str, Any] = {
+                "unit_id": _jsonable(uid),
+                "inputs": {},
+                "outputs": {
+                    "branches_raw_json": (str(p / "branches_raw.json") if (p / "branches_raw.json").exists() else None),
+                    "branches_json": (str(p / "branches.json") if (p / "branches.json").exists() else None),
+                    "heuristics_json": (str(p / "heuristics.json") if (p / "heuristics.json").exists() else None),
+                },
+                "status": ("ok" if (p / "branches_raw.json").exists() else "unknown"),
+                "error": None,
+            }
+            units_out.append(fallback)
+
+        return units_out
+
     ckpt_file = compute_stage_checkpoint_file(
         well_out_dir=well_out_dir,
         h5_path=inputs.h5_path,
@@ -585,6 +720,80 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
         stream_id=inputs.stream_id,
     )
 
+    # Grid-only mode: update top-density grid from existing reconstruction outputs
+    # without recomputing per-unit reconstruction.
+    if bool(getattr(inputs, "replot_top_density_grid_only", False)):
+        if not by_unit_dir.exists():
+            raise FileNotFoundError(
+                "replot_top_density_grid_only requires existing reconstruction outputs in the active reconstruction "
+                f"out_dir={recon_out_dir}. Missing required artifact: by_unit_dir={by_unit_dir}. "
+                "Run reconstruction once without --recon-replot-top-density-grid-only (or disable AXON_RECON_RECON_REPLOT_TOP_DENSITY_GRID_ONLY) "
+                "to create per-unit outputs before using grid-only mode."
+            )
+
+        if summary_json.exists():
+            summary_existing_raw = _read_json(summary_json)
+            summary_existing = summary_existing_raw if isinstance(summary_existing_raw, dict) else {}
+        else:
+            summary_existing = {
+                "h5_path": str(inputs.h5_path),
+                "stream_id": inputs.stream_id,
+                "well_out_dir": str(well_out_dir),
+                "templates_variant_name": (templates_variant if templates_variant else None),
+                "reconstruction_variant_name": (reconstruction_variant if reconstruction_variant else None),
+                "templates_out_dir": str(templates_out_dir),
+                "reconstruction_out_dir": str(recon_out_dir),
+                "units": [],
+            }
+
+        existing_units = [u for u in list(summary_existing.get("units", []) or []) if isinstance(u, dict)]
+        refreshed_units = _load_all_unit_summaries_from_by_unit_dir()
+        summary_existing["units"] = refreshed_units
+        logger.info(
+            "Reconstruction grid-only: refreshed summary units from by_unit on disk (%d -> %d)",
+            len(existing_units),
+            len(refreshed_units),
+        )
+
+        selected_unit_ids: list[Any] = []
+        for u in list((summary_existing or {}).get("units", []) or []):
+            if isinstance(u, dict) and (u.get("unit_id") is not None):
+                selected_unit_ids.append(u.get("unit_id"))
+
+        if not selected_unit_ids:
+            for p in sorted(by_unit_dir.glob("unit_*")):
+                if not p.is_dir():
+                    continue
+                tok = p.name.split("unit_", 1)[-1]
+                try:
+                    selected_unit_ids.append(int(tok))
+                except Exception:
+                    selected_unit_ids.append(tok)
+
+        if bool(inputs.write_top_density_grid):
+            density_grid = write_top_density_raw_branch_footprint_grid(
+                templates_out_dir=templates_out_dir,
+                reconstruction_out_dir=recon_out_dir,
+                selected_unit_ids=selected_unit_ids,
+                top_n=top_n_density_requested,
+                show_scale_debug_text=bool(inputs.show_density_scale_debug_text),
+                show_global_debug_text=bool(inputs.show_density_scale_global_debug_text),
+                show_local_debug_text=bool(inputs.show_density_scale_local_debug_text),
+                logger=logger,
+            )
+            if isinstance(density_grid, dict) and density_grid:
+                summary_existing.update({k: v for k, v in density_grid.items() if v is not None})
+                _write_json(summary_json, summary_existing)
+
+        logger.info("Replotted top-density grid only from existing reconstruction outputs at %s", recon_out_dir)
+        return ReconstructionOutputs(
+            well_out_dir=well_out_dir,
+            reconstruction_out_dir=recon_out_dir,
+            summary_json=summary_json,
+            by_unit_dir=by_unit_dir,
+            all_units_overview_pdf=(all_units_overview_pdf if (all_units_overview_pdf and all_units_overview_pdf.exists()) else None),
+        )
+
     # Resume shortcut.
     if (
         (not inputs.force_restart)
@@ -595,7 +804,16 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
         and by_unit_dir.exists()
     ):
         try:
-            summary_existing = _read_json(summary_json)
+            summary_existing_raw = _read_json(summary_json)
+            summary_existing = summary_existing_raw if isinstance(summary_existing_raw, dict) else {}
+            existing_units = [u for u in list(summary_existing.get("units", []) or []) if isinstance(u, dict)]
+            refreshed_units = _load_all_unit_summaries_from_by_unit_dir()
+            summary_existing["units"] = refreshed_units
+            logger.info(
+                "Reconstruction resume: refreshed summary units from by_unit on disk (%d -> %d)",
+                len(existing_units),
+                len(refreshed_units),
+            )
             selected_unit_ids: list[Any] = []
             for u in list((summary_existing or {}).get("units", []) or []):
                 if isinstance(u, dict) and (u.get("unit_id") is not None):
@@ -746,9 +964,10 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
     all_locations: list[Any] = []
 
     unit_workers = max(1, int(inputs.unit_workers))
+    total_units = len(unit_ids)
     if unit_workers > 1:
         _ensure_low_level_thread_caps_for_parallel_units()
-        logger.info("Reconstructing %d units with unit_workers=%d", len(unit_ids), unit_workers)
+    logger.info("Reconstructing %d units with unit_workers=%d", total_units, unit_workers)
 
     def _accumulate_unit_result(result: dict[str, Any]) -> None:
         unit_summary = dict(result.get("unit_summary") or {})
@@ -771,7 +990,9 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
             logger.warning("Failed loading overview locations for unit %s: %s", unit_summary.get("unit_id"), e)
 
     if unit_workers == 1:
-        for uid in unit_ids:
+        completed_units = 0
+        for idx, uid in enumerate(unit_ids, start=1):
+            logger.info("[reconstruction] unit start %d/%d: unit_id=%s", idx, total_units, uid)
             result = _run_single_unit_reconstruction(
                 uid=uid,
                 reconstruction_out_dir=recon_out_dir,
@@ -787,10 +1008,22 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                 recompute_branches_raw_only=bool(inputs.recompute_branches_raw_only),
             )
             _accumulate_unit_result(result)
+            completed_units += 1
+            unit_status = str((result.get("unit_summary") or {}).get("status", "unknown"))
+            resume_skipped = bool((result.get("unit_summary") or {}).get("resume_skipped_completed", False))
+            logger.info(
+                "[reconstruction] unit done %d/%d: unit_id=%s status=%s resume_skipped=%s",
+                completed_units,
+                total_units,
+                uid,
+                unit_status,
+                str(resume_skipped).lower(),
+            )
     else:
         futures: dict[concurrent.futures.Future[dict[str, Any]], Any] = {}
         with concurrent.futures.ProcessPoolExecutor(max_workers=unit_workers) as pool:
             for uid in unit_ids:
+                logger.info("[reconstruction] unit queued: unit_id=%s", uid)
                 fut = pool.submit(
                     _run_single_unit_reconstruction,
                     uid=uid,
@@ -808,6 +1041,7 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                 )
                 futures[fut] = uid
 
+            completed_units = 0
             for fut in concurrent.futures.as_completed(futures):
                 uid = futures[fut]
                 try:
@@ -825,6 +1059,17 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                         "overview_locations_npy": None,
                     }
                 _accumulate_unit_result(result)
+                completed_units += 1
+                unit_status = str((result.get("unit_summary") or {}).get("status", "unknown"))
+                resume_skipped = bool((result.get("unit_summary") or {}).get("resume_skipped_completed", False))
+                logger.info(
+                    "[reconstruction] unit done %d/%d: unit_id=%s status=%s resume_skipped=%s",
+                    completed_units,
+                    total_units,
+                    uid,
+                    unit_status,
+                    str(resume_skipped).lower(),
+                )
 
     # Keep summary stable in unit_id order.
     id_to_index = {str(_jsonable(uid)): i for i, uid in enumerate(unit_ids)}

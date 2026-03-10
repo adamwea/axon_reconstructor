@@ -124,6 +124,11 @@ class SpikeSortingInputs:
 
     # Analyzer options (default-off)
     force_rerun_analyzer: bool = False
+    # Testing override: force merge phase to run on resume by asking MEA_Analysis
+    # to rerun analyzer pipeline steps.
+    force_merge_on_resume: bool = False
+    unitmatch_merge_units: bool = False
+    unitmatch_dry_run: bool = True
     auto_merge_units: bool = False
     # CSV string like "0.05,0.15,0.25"; only used if auto_merge_units=True
     auto_merge_template_diff_thresh: str = "0.05,0.15,0.25"
@@ -716,10 +721,12 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         cleanup=False,
         force_restart=inputs.force_restart,
         sorter_kwargs=(sorter_kwargs if sorter_kwargs else None),
+        unitmatch_merge_units=bool(inputs.unitmatch_merge_units),
+        unitmatch_dry_run=bool(inputs.unitmatch_dry_run),
         auto_merge_units=bool(inputs.auto_merge_units),
         auto_merge_presets=auto_merge_presets,
         auto_merge_steps_params=auto_merge_steps_params,
-        force_rerun_analyzer=bool(inputs.force_rerun_analyzer),
+        force_rerun_analyzer=bool(inputs.force_rerun_analyzer or inputs.force_merge_on_resume),
     )
 
     if sorter_kwargs:
@@ -752,6 +759,13 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         logger.info("Running MEA_Analysis Phase 2 sorting...")
         pipeline.run_sorting()
         logger.info("MEA_Analysis sorting finished; stage=%s", pipeline.state.get("stage"))
+
+        # Run optional merge stage explicitly so UnitMatch/auto-merge logic is
+        # exercised when stg2 invokes MEA_Analysis methods directly.
+        if hasattr(pipeline, "run_optional_merge_phase"):
+            logger.info("Running MEA_Analysis Phase 2.5 optional merge...")
+            pipeline.run_optional_merge_phase()
+            logger.info("MEA_Analysis merge phase finished; stage=%s", pipeline.state.get("stage"))
 
         if inputs.run_analyzer:
             logger.info("Running MEA_Analysis Phase 3 analyzer (computes waveforms/templates/metrics)...")
