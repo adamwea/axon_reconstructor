@@ -327,7 +327,12 @@ def _load_raw_segment_recording_full_channels(
     )
 
 
-def _resolve_mea_sorter_output_dir(*, well_out_dir: Path) -> Path:
+def _resolve_mea_sorter_output_dir(*, well_out_dir: Path, use_merged_spikesorting_4x4: bool = False) -> Path:
+    if bool(use_merged_spikesorting_4x4):
+        merged = well_out_dir / "stg2_spikesorting_outputs" / "sorter_output_merged_4x4"
+        if merged.exists():
+            return merged
+
     p = well_out_dir / "stg2_spikesorting_outputs" / "sorter_output"
     if p.exists():
         return p
@@ -346,7 +351,12 @@ def _load_sorting_from_sorter_output_dir(*, sorter_output_dir: Path, sorter: str
         try:
             return si.read_sorter_folder(sorter_output_dir, sorter_name=sorter)
         except TypeError:
-            return si.read_sorter_folder(sorter_output_dir, sorter)
+            try:
+                return si.read_sorter_folder(sorter_output_dir, sorter)
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     try:
         return si.load_extractor(sorter_output_dir)

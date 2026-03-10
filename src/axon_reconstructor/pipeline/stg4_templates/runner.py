@@ -181,11 +181,23 @@ class TemplateExtractInputs:
     include_concat: bool = True
     include_segments: bool = True
 
+    # Optional input/output variant routing.
+    # - If `waveforms_variant_name` is set (e.g. "merged4x4"), templates reads
+    #   from `<well>/stg3_waveforms_outputs_<variant>`.
+    # - If `templates_variant_name` is set, templates writes to
+    #   `<well>/stg4_templates_outputs_<variant>` and uses a variant checkpoint.
+    # - If `templates_variant_name` is omitted, it defaults to
+    #   `waveforms_variant_name` when provided.
+    waveforms_variant_name: Optional[str] = None
+    templates_variant_name: Optional[str] = None
+
     unit_ids: Optional[list[Any]] = None
     unit_limit: Optional[int] = None
 
     # Templates should only run on curated units derived from spikesorting metrics.
     # If True and `unit_ids` is None, this requires `<well>/stg2_spikesorting_outputs/qm_unfiltered.xlsx`.
+    # Note: for merged-variant runs (e.g. merged4x4), curation is auto-disabled
+    # unless `require_curated_units` is explicitly set to True via stage kwargs.
     require_curated_units: bool = True
 
     # Optional SpikeInterface auto-merge of units (best-effort).
@@ -307,7 +319,16 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         verbose=True,
     )
 
-    templates_out_dir = well_out_dir / TEMPLATES_OUTPUTS_DIRNAME
+    waveforms_variant = str(inputs.waveforms_variant_name).strip() if inputs.waveforms_variant_name else ""
+    templates_variant = str(inputs.templates_variant_name).strip() if inputs.templates_variant_name else ""
+    if not templates_variant:
+        templates_variant = waveforms_variant
+
+    waveforms_dirname = "stg3_waveforms_outputs" + (f"_{waveforms_variant}" if waveforms_variant else "")
+    templates_outputs_dirname = TEMPLATES_OUTPUTS_DIRNAME + (f"_{templates_variant}" if templates_variant else "")
+    templates_stage_name = "templates" + (f"_{templates_variant}" if templates_variant else "")
+
+    templates_out_dir = well_out_dir / templates_outputs_dirname
     templates_dir = templates_out_dir / "templates"
     extracted_templates_dir = templates_dir / "sources"
     merged_units_dir = templates_dir / "merged"
@@ -342,7 +363,12 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     # Intentionally disabled.
     templates_grid_panels_dir = None
 
-    ckpt_file = _compute_templates_checkpoint_file(well_out_dir=well_out_dir, h5_path=inputs.h5_path, stream_id=inputs.stream_id)
+    ckpt_file = _compute_templates_checkpoint_file(
+        well_out_dir=well_out_dir,
+        h5_path=inputs.h5_path,
+        stream_id=inputs.stream_id,
+        stage_name=templates_stage_name,
+    )
     ckpt = load_checkpoint(
         checkpoint_file=ckpt_file,
         force_restart=bool(inputs.force_restart),
@@ -541,6 +567,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
 
         analyzers = _load_waveforms_analyzers(
             well_out_dir=well_out_dir,
+            waveforms_dirname=waveforms_dirname,
             include_concat=bool(inputs.include_concat),
             include_segments=bool(inputs.include_segments),
             logger=logger,
@@ -567,18 +594,31 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     # - Otherwise, we require spikesorting-stage curation (default).
     curation_qm_xlsx: Optional[Path] = None
     curated_units_norm: Optional[list[Any]] = None
+    merged_variant_mode = (
+        bool(waveforms_variant) and ("merged" in str(waveforms_variant).lower())
+    ) or (
+        bool(templates_variant) and ("merged" in str(templates_variant).lower())
+    )
+    require_curated_units_effective = bool(inputs.require_curated_units)
+    if merged_variant_mode and bool(inputs.require_curated_units):
+        require_curated_units_effective = False
+        logger.info(
+            "Merged-variant templates run detected; disabling spikesorting curation and processing all units"
+        )
+
     if inputs.unit_ids is not None:
         unit_ids = list(inputs.unit_ids)
     else:
         # Start from concat (or first analyzer) as the universe, then strictly filter.
         unit_ids = list(analyzers[0][1].sorting.unit_ids)
-        unit_ids, curated_units_norm, curation_qm_xlsx = _apply_spikesorting_stage_unit_curation(
-            unit_ids=unit_ids,
-            well_out_dir=well_out_dir,
-            normalize_id_for_compare=_normalize_id_for_compare,
-            logger=logger,
-        )
-        if bool(inputs.require_curated_units) and curated_units_norm is None:
+        if require_curated_units_effective:
+            unit_ids, curated_units_norm, curation_qm_xlsx = _apply_spikesorting_stage_unit_curation(
+                unit_ids=unit_ids,
+                well_out_dir=well_out_dir,
+                normalize_id_for_compare=_normalize_id_for_compare,
+                logger=logger,
+            )
+        if bool(require_curated_units_effective) and curated_units_norm is None:
             raise RuntimeError(
                 "Templates stage is configured to require curated units from spikesorting metrics, "
                 "but curated units could not be derived (expected <well>/stg2_spikesorting_outputs/qm_unfiltered.xlsx). "
@@ -591,6 +631,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
 
     fs_hz, ms_before, ms_after = _infer_template_plot_window(
         well_out_dir=well_out_dir,
+        waveforms_out_dir=(well_out_dir / waveforms_dirname),
         analyzers=analyzers,
         read_json=_read_json,
     )
@@ -599,12 +640,15 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
     time_upsample_method = str(getattr(inputs, "template_time_upsample_method", "sinc") or "sinc")
     fs_hz_effective = float(fs_hz) * float(time_upsample_factor) if time_upsample_factor > 1 else float(fs_hz)
 
-    waveforms_out_dir = well_out_dir / "stg3_waveforms_outputs"
+    waveforms_out_dir = well_out_dir / waveforms_dirname
 
     summary: dict[str, Any] = {
         "h5_path": str(inputs.h5_path),
         "stream_id": inputs.stream_id,
         "well_out_dir": str(well_out_dir),
+        "waveforms_variant_name": (waveforms_variant if waveforms_variant else None),
+        "templates_variant_name": (templates_variant if templates_variant else None),
+        "waveforms_out_dir": str(waveforms_out_dir),
         "templates_out_dir": str(templates_out_dir),
         "sources": [name for name, _ in analyzers],
         "templates_grid_pdf": str(templates_grid_pdf) if templates_grid_pdf else None,
@@ -624,6 +668,7 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         "curation": {
             "qm_unfiltered_xlsx": str(curation_qm_xlsx) if curation_qm_xlsx else None,
             "applied": bool(curated_units_norm is not None),
+            "require_curated_units_effective": bool(require_curated_units_effective),
             "n_curated_units": int(len(curated_units_norm)) if curated_units_norm is not None else None,
         },
         "waveforms_best_channel_sources_xlsx": (

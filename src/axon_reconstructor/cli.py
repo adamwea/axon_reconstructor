@@ -429,6 +429,46 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             if key not in stage_kwargs and value is not None:
                 stage_kwargs[key] = value
 
+        post_merge_4x4 = _resolve_bool(
+            cli_value=None,
+            env_key="AXON_RECON_SPIKESORT_POST_MERGE_4X4",
+            default=False,
+        )
+        if "post_merge_4x4_units" not in stage_kwargs:
+            stage_kwargs["post_merge_4x4_units"] = bool(post_merge_4x4)
+
+        post_merge_block_size = _resolve_int(
+            cli_value=None,
+            env_key="AXON_RECON_SPIKESORT_POST_MERGE_BLOCK_SIZE_CHANNELS",
+            default=4,
+        )
+        if "post_merge_block_size_channels" not in stage_kwargs:
+            stage_kwargs["post_merge_block_size_channels"] = int(post_merge_block_size)
+
+        post_merge_recursive = _resolve_bool(
+            cli_value=None,
+            env_key="AXON_RECON_SPIKESORT_POST_MERGE_RECURSIVE",
+            default=True,
+        )
+        if "post_merge_recursive" not in stage_kwargs:
+            stage_kwargs["post_merge_recursive"] = bool(post_merge_recursive)
+
+        post_merge_max_iterations = _resolve_int(
+            cli_value=None,
+            env_key="AXON_RECON_SPIKESORT_POST_MERGE_MAX_ITERATIONS",
+            default=8,
+        )
+        if "post_merge_max_iterations" not in stage_kwargs:
+            stage_kwargs["post_merge_max_iterations"] = int(post_merge_max_iterations)
+
+        post_merge_pitch_um = _resolve_optional_float(
+            cli_value=None,
+            env_key="AXON_RECON_SPIKESORT_POST_MERGE_CHANNEL_PITCH_UM",
+            default=17.5,
+        )
+        if "post_merge_channel_pitch_um" not in stage_kwargs and post_merge_pitch_um is not None:
+            stage_kwargs["post_merge_channel_pitch_um"] = float(post_merge_pitch_um)
+
     if stage == "waveforms":
         if "debug_max_units" not in stage_kwargs and debug_max_units is not None:
             stage_kwargs["debug_max_units"] = int(debug_max_units)
@@ -468,6 +508,22 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             stage_kwargs["recompute_channel_groups_for_reused_segments"] = bool(
                 recompute_channel_groups_for_reused_segments
             )
+
+        use_merged_spikesorting_4x4 = _resolve_bool(
+            cli_value=None,
+            env_key="AXON_RECON_WF_USE_MERGED_SPIKESORTING_4X4",
+            default=False,
+        )
+        if "use_merged_spikesorting_4x4" not in stage_kwargs:
+            stage_kwargs["use_merged_spikesorting_4x4"] = bool(use_merged_spikesorting_4x4)
+
+        waveforms_variant_name = _resolve_optional_str(
+            cli_value=None,
+            env_key="AXON_RECON_WF_VARIANT_NAME",
+            default=None,
+        )
+        if "waveforms_variant_name" not in stage_kwargs and waveforms_variant_name is not None:
+            stage_kwargs["waveforms_variant_name"] = str(waveforms_variant_name)
 
     if stage == "analysis":
         if args.unit_ids:

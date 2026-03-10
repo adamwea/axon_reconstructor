@@ -99,6 +99,12 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
         else str(args.auto_merge_template_diff_thresh)
     )
 
+    post_merge_4x4_units = env.env_bool("AXON_RECON_SPIKESORT_POST_MERGE_4X4", default=False)
+    post_merge_block_size_channels = int(env.env_int("AXON_RECON_SPIKESORT_POST_MERGE_BLOCK_SIZE_CHANNELS", default=4) or 4)
+    post_merge_recursive = env.env_bool("AXON_RECON_SPIKESORT_POST_MERGE_RECURSIVE", default=True)
+    post_merge_max_iterations = int(env.env_int("AXON_RECON_SPIKESORT_POST_MERGE_MAX_ITERATIONS", default=8) or 8)
+    post_merge_channel_pitch_um = float(env.env_float("AXON_RECON_SPIKESORT_POST_MERGE_CHANNEL_PITCH_UM", default=17.5) or 17.5)
+
     inputs = SpikeSortingInputs(
         h5_path=h5_path,
         stream_id=stream_id,
@@ -132,6 +138,11 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
         force_rerun_analyzer=bool(force_rerun_analyzer),
         auto_merge_units=bool(auto_merge_units),
         auto_merge_template_diff_thresh=str(auto_merge_template_diff_thresh),
+        post_merge_4x4_units=bool(post_merge_4x4_units),
+        post_merge_block_size_channels=int(post_merge_block_size_channels),
+        post_merge_recursive=bool(post_merge_recursive),
+        post_merge_max_iterations=int(post_merge_max_iterations),
+        post_merge_channel_pitch_um=float(post_merge_channel_pitch_um),
     )
 
     return SpikesortingDebugConfig(inputs=inputs, break_before_run=bool(break_before_run))

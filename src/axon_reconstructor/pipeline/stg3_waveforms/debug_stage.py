@@ -65,6 +65,8 @@ def build_waveforms_debug_config(*, args: Any, env: Any) -> WaveformsDebugConfig
         "AXON_RECON_WF_RECOMPUTE_CHANNEL_GROUPS_FOR_REUSED_SEGMENTS",
         default=False,
     )
+    use_merged_spikesorting_4x4 = env.env_bool("AXON_RECON_WF_USE_MERGED_SPIKESORTING_4X4", default=False)
+    waveforms_variant_name = env.env_str("AXON_RECON_WF_VARIANT_NAME", default=None)
 
     debug_max_units = int(args.debug_max_units) if args.debug_max_units is not None else env.env_int("AXON_RECON_WF_DEBUG_MAX_UNITS", default=None)
     debug_max_segments = int(args.debug_max_segments) if args.debug_max_segments is not None else env.env_int("AXON_RECON_WF_DEBUG_MAX_SEGMENTS", default=None)
@@ -83,6 +85,8 @@ def build_waveforms_debug_config(*, args: Any, env: Any) -> WaveformsDebugConfig
         filter_by_segment_bounds=bool(filter_by_segment_bounds),
         segment_sort_safety_cleanup=bool(segment_sort_safety_cleanup),
         recompute_channel_groups_for_reused_segments=bool(recompute_channel_groups_for_reused_segments),
+        use_merged_spikesorting_4x4=bool(use_merged_spikesorting_4x4),
+        waveforms_variant_name=(str(waveforms_variant_name) if waveforms_variant_name is not None else None),
         force_restart=force_restart,
         force_replot=force_replot,
         debug_max_units=debug_max_units,

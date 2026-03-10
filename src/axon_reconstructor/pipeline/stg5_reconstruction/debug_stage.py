@@ -139,6 +139,20 @@ def build_reconstruction_debug_config(*, args: Any, env: Any) -> ReconstructionD
         else bool(args.recompute_branches_raw_only)
     )
 
+    top_n_density_requested = _env_int_or_none(
+        env=env,
+        name="AXON_RECON_RECON_TOP_N_DENSITY_REQUESTED",
+        default=None,
+    )
+    if getattr(args, "top_n_density_requested", None) is not None:
+        top_n_density_requested = _parse_int_or_none(str(getattr(args, "top_n_density_requested")))
+
+    write_top_density_grid = (
+        env.env_bool("AXON_RECON_RECON_WRITE_TOP_DENSITY_GRID", default=True)
+        if getattr(args, "write_top_density_grid", None) is None
+        else bool(getattr(args, "write_top_density_grid"))
+    )
+
     inputs = ReconstructionInputs(
         h5_path=h5_path,
         stream_id=stream_id,
@@ -153,6 +167,8 @@ def build_reconstruction_debug_config(*, args: Any, env: Any) -> ReconstructionD
         force_restart=force_restart,
         replot_summaries_only=replot_summaries_only,
         recompute_branches_raw_only=recompute_branches_raw_only,
+        top_n_density_requested=top_n_density_requested,
+        write_top_density_grid=write_top_density_grid,
         axon_velocity_repo_root=axon_velocity_repo_root,
     )
 
