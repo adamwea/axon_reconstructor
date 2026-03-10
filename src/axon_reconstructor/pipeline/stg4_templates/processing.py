@@ -83,7 +83,13 @@ def _format_overlap_resolved_line(*, merged_units_dir: Path, unit_id: Any, max_s
     return "overlap-resolved: " + ", ".join(shown) + suffix
 
 
-def _infer_template_plot_window(*, well_out_dir: Path, analyzers: list[tuple[str, Any]], read_json) -> tuple[float, Optional[float], Optional[float]]:
+def _infer_template_plot_window(
+    *,
+    well_out_dir: Path,
+    waveforms_out_dir: Path,
+    analyzers: list[tuple[str, Any]],
+    read_json,
+) -> tuple[float, Optional[float], Optional[float]]:
     """Infer sampling frequency + ms window for template plotting.
 
     Prefers reading waveforms-stage params JSON when available.
@@ -97,7 +103,7 @@ def _infer_template_plot_window(*, well_out_dir: Path, analyzers: list[tuple[str
     except Exception:
         fs_hz = 10_000.0
 
-    wf_params_json = well_out_dir / "stg3_waveforms_outputs" / "waveform_extraction_params.json"
+    wf_params_json = waveforms_out_dir / "waveform_extraction_params.json"
     if wf_params_json.exists():
         try:
             params = read_json(wf_params_json)

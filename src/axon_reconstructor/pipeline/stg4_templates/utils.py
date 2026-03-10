@@ -118,14 +118,20 @@ def _jsonable_sequence(xs: Any) -> Optional[list[Any]]:
     return jsonable_sequence(xs)
 
 
-def _compute_templates_checkpoint_file(*, well_out_dir: Path, h5_path: Path, stream_id: str) -> Path:
+def _compute_templates_checkpoint_file(
+    *,
+    well_out_dir: Path,
+    h5_path: Path,
+    stream_id: str,
+    stage_name: str = "templates",
+) -> Path:
     """Use a dedicated checkpoint file for templates."""
 
     return compute_stage_checkpoint_file(
         well_out_dir=well_out_dir,
         h5_path=h5_path,
         stream_id=stream_id,
-        stage_name="templates",
+        stage_name=str(stage_name),
     )
 
 

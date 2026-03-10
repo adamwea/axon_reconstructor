@@ -249,6 +249,7 @@ def execute_stage(
             artifacts={
                 "sorter_output_dir": str(out.sorter_output_dir),
                 "output_dir": str(out.output_dir),
+                "merged_sorter_output_dir": (str(out.merged_sorter_output_dir) if out.merged_sorter_output_dir is not None else None),
             },
         )
 

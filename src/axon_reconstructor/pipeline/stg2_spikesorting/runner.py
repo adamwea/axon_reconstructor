@@ -11,9 +11,10 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from ..checkpointing import ProcessingStage as AxonProcessingStage, load_checkpoint
 from ..pipeline_logging import log_stage_complete, log_stage_failure, log_stage_start
@@ -127,6 +128,14 @@ class SpikeSortingInputs:
     # CSV string like "0.05,0.15,0.25"; only used if auto_merge_units=True
     auto_merge_template_diff_thresh: str = "0.05,0.15,0.25"
 
+    # Optional post-processing: recursively merge units that fall in the same
+    # 4x4 (configurable) channel block based on unit primary channel location.
+    post_merge_4x4_units: bool = False
+    post_merge_block_size_channels: int = 4
+    post_merge_recursive: bool = True
+    post_merge_max_iterations: int = 8
+    post_merge_channel_pitch_um: float = 17.5
+
     # If True, ignore existing MEA_Analysis checkpoints for this run.
     force_restart: bool = False
 
@@ -137,6 +146,302 @@ class SpikeSortingOutputs:
     sorter_output_dir: Path
     output_dir: Path
     analyzer_dir: Path
+    merged_sorter_output_dir: Optional[Path] = None
+
+
+def _save_sorting_folder(*, sorting: Any, out_dir: Path, overwrite: bool) -> None:
+    import shutil
+
+    if out_dir.exists() and bool(overwrite):
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+    if out_dir.exists() and (not bool(overwrite)):
+        return
+
+    out_dir.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        sorting.save(folder=out_dir)
+    except TypeError:
+        sorting.save(folder=out_dir, overwrite=True)
+
+
+def _compute_unit_primary_locations(
+    *,
+    sorting: Any,
+    analyzer: Any,
+    logger: logging.Logger,
+) -> dict[Any, tuple[float, float]]:
+    import numpy as np  # type: ignore[import-not-found]
+
+    from ..stg4_templates.multi_source_utils import _get_unit_template_from_extension, _sparsity_unit_channel_indices
+
+    locations_xy = np.asarray(analyzer.recording.get_channel_locations(), dtype=float)[:, :2]
+    channel_ids = list(analyzer.recording.get_channel_ids())
+
+    templates_ext = analyzer.get_extension("templates") if analyzer.has_extension("templates") else None
+    if templates_ext is None:
+        analyzer.compute(["templates"], verbose=False, n_jobs=1)
+        templates_ext = analyzer.get_extension("templates") if analyzer.has_extension("templates") else None
+    if templates_ext is None:
+        return {}
+
+    sparsity = getattr(analyzer, "sparsity", None)
+    by_unit: dict[Any, tuple[float, float]] = {}
+    for uid in list(sorting.get_unit_ids()):
+        try:
+            tmpl = _get_unit_template_from_extension(analyzer=analyzer, templates_ext=templates_ext, unit_id=uid)
+            if tmpl is None:
+                continue
+            tmpl_arr = np.asarray(tmpl, dtype=float)
+            if tmpl_arr.ndim != 2 or int(tmpl_arr.shape[1]) <= 0:
+                continue
+
+            ptp = np.ptp(tmpl_arr, axis=0)
+            local_best = int(np.argmax(ptp))
+
+            ch_indices = _sparsity_unit_channel_indices(sparsity=sparsity, unit_id=uid)
+            if ch_indices is not None and int(len(ch_indices)) == int(ptp.shape[0]):
+                global_ch_index = int(ch_indices[local_best])
+            elif int(ptp.shape[0]) == int(len(channel_ids)):
+                global_ch_index = int(local_best)
+            else:
+                continue
+
+            if global_ch_index < 0 or global_ch_index >= int(locations_xy.shape[0]):
+                continue
+            loc = locations_xy[global_ch_index]
+            by_unit[uid] = (float(loc[0]), float(loc[1]))
+        except Exception:
+            continue
+
+    logger.info("Post-merge location map: %d/%d units localized", len(by_unit), len(list(sorting.get_unit_ids())))
+    return by_unit
+
+
+def _build_merge_groups_by_block(
+    *,
+    unit_locations_xy: dict[Any, tuple[float, float]],
+    block_size_channels: int,
+    channel_pitch_um: float,
+) -> list[list[Any]]:
+    import math
+
+    block_um = float(max(1, int(block_size_channels))) * float(channel_pitch_um)
+    groups_by_key: dict[tuple[int, int], list[Any]] = {}
+    for uid, (x_um, y_um) in unit_locations_xy.items():
+        key = (int(math.floor(float(x_um) / block_um)), int(math.floor(float(y_um) / block_um)))
+        groups_by_key.setdefault(key, []).append(uid)
+
+    groups = [list(v) for v in groups_by_key.values() if int(len(v)) > 1]
+    groups.sort(key=lambda g: (-len(g), str(g[0]) if g else ""))
+    return groups
+
+
+def _write_unit_locations_png(
+    *,
+    unit_locations_xy: dict[Any, tuple[float, float]],
+    out_path: Path,
+    title: str,
+) -> None:
+    if not unit_locations_xy:
+        return
+
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+    import numpy as np  # type: ignore[import-not-found]
+
+    pts = np.asarray(list(unit_locations_xy.values()), dtype=float)
+    if pts.ndim != 2 or int(pts.shape[1]) < 2:
+        return
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(8.0, 5.0))
+    ax.scatter(
+        pts[:, 0],
+        pts[:, 1],
+        s=20,
+        c="black",
+        marker="o",
+        linewidths=0,
+        alpha=0.85,
+    )
+    ax.set_title(str(title), fontsize=11)
+    ax.set_xlabel("x (µm)")
+    ax.set_ylabel("y (µm)")
+    ax.set_aspect("equal", adjustable="box")
+    try:
+        ax.grid(False)
+    except Exception:
+        pass
+
+    fig.savefig(out_path, dpi=220, bbox_inches="tight", pad_inches=0.02)
+    plt.close(fig)
+
+
+def _run_post_merge_4x4(
+    *,
+    sorting: Any,
+    recording: Any,
+    out_dir: Path,
+    logger: logging.Logger,
+    block_size_channels: int,
+    recursive: bool,
+    max_iterations: int,
+    channel_pitch_um: float,
+    force_restart: bool,
+) -> tuple[Any, dict[str, Any]]:
+    import spikeinterface.full as si  # type: ignore[import-not-found]
+    from spikeinterface.curation import MergeUnitsSorting  # type: ignore[import-not-found]
+
+    meta_json = out_dir.parent / f"{out_dir.name}_meta.json"
+    if out_dir.exists() and meta_json.exists() and (not bool(force_restart)):
+        try:
+            merged = si.load_extractor(out_dir)
+            meta = json.loads(meta_json.read_text(encoding="utf-8"))
+            if not isinstance(meta, dict):
+                meta = {}
+
+            existing_locations_png = meta.get("locations_png") if isinstance(meta.get("locations_png"), str) else None
+            needs_locations_backfill = True
+            if existing_locations_png is not None:
+                try:
+                    needs_locations_backfill = (not Path(existing_locations_png).exists())
+                except Exception:
+                    needs_locations_backfill = True
+
+            if needs_locations_backfill:
+                try:
+                    analyzer_cached = si.create_sorting_analyzer(
+                        sorting=merged,
+                        recording=recording,
+                        format="memory",
+                        sparse=True,
+                    )
+                    try:
+                        analyzer_cached.compute(["templates"], verbose=False, n_jobs=1)
+                    except Exception:
+                        analyzer_cached.compute(["random_spikes", "waveforms", "templates"], verbose=False, n_jobs=1)
+
+                    locs_cached = _compute_unit_primary_locations(
+                        sorting=merged,
+                        analyzer=analyzer_cached,
+                        logger=logger,
+                    )
+                    locations_png_cached = out_dir.parent / f"locations_{int(len(list(merged.get_unit_ids())))}_units_merged_4x4.png"
+                    _write_unit_locations_png(
+                        unit_locations_xy=locs_cached,
+                        out_path=locations_png_cached,
+                        title=f"Merged unit locations ({int(len(list(merged.get_unit_ids())))} units)",
+                    )
+                    if locations_png_cached.exists():
+                        meta["locations_png"] = str(locations_png_cached)
+                        try:
+                            meta_json.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            return merged, meta
+        except Exception:
+            pass
+
+    current_sorting = sorting
+    merges_per_iter: list[int] = []
+    units_per_iter: list[int] = [int(len(list(current_sorting.get_unit_ids())))]
+    latest_unit_locs: dict[Any, tuple[float, float]] = {}
+
+    max_iter = int(max(1, int(max_iterations))) if bool(recursive) else 1
+    for i in range(max_iter):
+        analyzer = si.create_sorting_analyzer(
+            sorting=current_sorting,
+            recording=recording,
+            format="memory",
+            sparse=True,
+        )
+        try:
+            analyzer.compute(["templates"], verbose=False, n_jobs=1)
+        except Exception:
+            try:
+                analyzer.compute(["random_spikes", "waveforms", "templates"], verbose=False, n_jobs=1)
+            except Exception:
+                break
+
+        unit_locs = _compute_unit_primary_locations(sorting=current_sorting, analyzer=analyzer, logger=logger)
+        latest_unit_locs = dict(unit_locs)
+        groups = _build_merge_groups_by_block(
+            unit_locations_xy=unit_locs,
+            block_size_channels=int(block_size_channels),
+            channel_pitch_um=float(channel_pitch_um),
+        )
+
+        if not groups:
+            merges_per_iter.append(0)
+            break
+
+        logger.info("Post-merge iteration %d: merging %d groups", int(i + 1), int(len(groups)))
+        try:
+            current_sorting = MergeUnitsSorting(current_sorting, units_to_merge=groups)
+        except Exception as e:
+            logger.warning("Post-merge iteration %d failed: %s", int(i + 1), e)
+            break
+
+        try:
+            current_sorting = current_sorting.remove_empty_units()
+        except Exception:
+            pass
+
+        merges_per_iter.append(int(len(groups)))
+        units_per_iter.append(int(len(list(current_sorting.get_unit_ids()))))
+
+    _save_sorting_folder(sorting=current_sorting, out_dir=out_dir, overwrite=bool(force_restart))
+
+    if not latest_unit_locs:
+        try:
+            analyzer_final = si.create_sorting_analyzer(
+                sorting=current_sorting,
+                recording=recording,
+                format="memory",
+                sparse=True,
+            )
+            try:
+                analyzer_final.compute(["templates"], verbose=False, n_jobs=1)
+            except Exception:
+                analyzer_final.compute(["random_spikes", "waveforms", "templates"], verbose=False, n_jobs=1)
+            latest_unit_locs = _compute_unit_primary_locations(sorting=current_sorting, analyzer=analyzer_final, logger=logger)
+        except Exception:
+            latest_unit_locs = {}
+
+    locations_png = out_dir.parent / f"locations_{int(len(list(current_sorting.get_unit_ids())))}_units_merged_4x4.png"
+    try:
+        _write_unit_locations_png(
+            unit_locations_xy=latest_unit_locs,
+            out_path=locations_png,
+            title=f"Merged unit locations ({int(len(list(current_sorting.get_unit_ids())))} units)",
+        )
+    except Exception:
+        pass
+
+    meta = {
+        "enabled": True,
+        "block_size_channels": int(block_size_channels),
+        "channel_pitch_um": float(channel_pitch_um),
+        "recursive": bool(recursive),
+        "max_iterations": int(max_iterations),
+        "merges_per_iteration": merges_per_iter,
+        "unit_counts_per_iteration": units_per_iter,
+        "n_units_final": int(len(list(current_sorting.get_unit_ids()))),
+        "merged_sorter_output_dir": str(out_dir),
+        "locations_png": (str(locations_png) if locations_png.exists() else None),
+    }
+    try:
+        meta_json.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+    return current_sorting, meta
 
 
 def _resolve_preprocess_dir(*, well_out_dir: Path) -> Path:
@@ -473,6 +778,29 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
             logger.info("MEA_Analysis reports finished; stage=%s", pipeline.state.get("stage"))
 
         sorter_output_dir = pipeline.output_dir / "sorter_output"
+        merged_sorter_output_dir: Optional[Path] = None
+        merged_meta: Optional[dict[str, Any]] = None
+
+        if bool(inputs.post_merge_4x4_units):
+            merged_sorter_output_dir = pipeline.output_dir / "sorter_output_merged_4x4"
+            logger.info(
+                "Running optional post-merge (4x4 blocks): recursive=%s block_size=%d",
+                bool(inputs.post_merge_recursive),
+                int(inputs.post_merge_block_size_channels),
+            )
+            _merged_sorting, merged_meta = _run_post_merge_4x4(
+                sorting=pipeline.sorting,
+                recording=recording,
+                out_dir=merged_sorter_output_dir,
+                logger=logger,
+                block_size_channels=int(inputs.post_merge_block_size_channels),
+                recursive=bool(inputs.post_merge_recursive),
+                max_iterations=int(inputs.post_merge_max_iterations),
+                channel_pitch_um=float(inputs.post_merge_channel_pitch_um),
+                force_restart=bool(inputs.force_restart),
+            )
+            logger.info("Post-merge sorting saved -> %s", merged_sorter_output_dir)
+
         logger.info("Sorting output folder: %s", sorter_output_dir)
 
         if int(pipeline.state.get("stage", 0)) >= MEAProcessingStage.REPORTS_COMPLETE.value:
@@ -493,6 +821,13 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
                 "spikesorting_out_dir": str(pipeline.output_dir),
                 "sorter_output_dir": str(sorter_output_dir),
                 "analyzer_dir": str(analyzer_dir),
+                "merged_sorter_output_dir": (str(merged_sorter_output_dir) if merged_sorter_output_dir is not None else None),
+                "merged_locations_png": (
+                    str((merged_meta or {}).get("locations_png"))
+                    if isinstance((merged_meta or {}).get("locations_png"), str)
+                    else None
+                ),
+                "post_merge_4x4": (merged_meta if merged_meta is not None else {"enabled": False}),
                 "recording_profile": str(recording_profile),
                 "mea_analysis_checkpoint_file": str(getattr(pipeline, "checkpoint_file", "")),
                 "checkpoint_owner": "axon_reconstructor_wrapper",
@@ -512,6 +847,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
             sorter_output_dir=sorter_output_dir,
             output_dir=pipeline.output_dir,
             analyzer_dir=analyzer_dir,
+            merged_sorter_output_dir=merged_sorter_output_dir,
         )
     except Exception as e:
         save_stage_failed(

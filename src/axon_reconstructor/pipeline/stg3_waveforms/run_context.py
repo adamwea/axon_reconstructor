@@ -17,7 +17,7 @@ from .constants import WAVEFORMS_OUTPUTS_DIRNAME
 from .utils import _epochs_to_intervals, _infer_cutout_ms, _read_json
 
 
-def _compute_waveforms_checkpoint_file(*, well_out_dir: Path, h5_path: Path, stream_id: str) -> Path:
+def _compute_waveforms_checkpoint_file(*, well_out_dir: Path, h5_path: Path, stream_id: str, variant_name: Optional[str] = None) -> Path:
     """Use a dedicated checkpoint file for waveforms.
 
     The MEA_Analysis-style stage machine (PREPROCESSING..REPORTS_COMPLETE) doesn't
@@ -25,16 +25,23 @@ def _compute_waveforms_checkpoint_file(*, well_out_dir: Path, h5_path: Path, str
     accidentally *regress* stage numbers (e.g. REPORTS_COMPLETE -> ANALYZER_COMPLETE).
     """
 
+    stage_name = "waveforms"
+    if variant_name is not None and str(variant_name).strip():
+        stage_name = f"waveforms_{str(variant_name).strip()}"
+
     return compute_stage_checkpoint_file(
         well_out_dir=well_out_dir,
         h5_path=h5_path,
         stream_id=stream_id,
-        stage_name="waveforms",
+        stage_name=stage_name,
     )
 
 
-def _compute_waveforms_out_dir(*, output_root: Path, data_file: Path, well: str) -> Path:
-    return compute_mea_analysis_output_dir(output_root=output_root, data_file=data_file, well=well) / WAVEFORMS_OUTPUTS_DIRNAME
+def _compute_waveforms_out_dir(*, output_root: Path, data_file: Path, well: str, variant_name: Optional[str] = None) -> Path:
+    dirname = WAVEFORMS_OUTPUTS_DIRNAME
+    if variant_name is not None and str(variant_name).strip():
+        dirname = f"{WAVEFORMS_OUTPUTS_DIRNAME}_{str(variant_name).strip()}"
+    return compute_mea_analysis_output_dir(output_root=output_root, data_file=data_file, well=well) / dirname
 
 
 @dataclass(frozen=True)
@@ -75,10 +82,12 @@ def _initialize_run_context(*, inputs, logger_name_prefix: str) -> _WaveformsRun
         verbose=True,
     )
 
+    variant_name = getattr(inputs, "waveforms_variant_name", None)
     waveforms_out_dir = _compute_waveforms_out_dir(
         output_root=inputs.mea_output_root,
         data_file=inputs.h5_path,
         well=inputs.stream_id,
+        variant_name=(str(variant_name).strip() if variant_name is not None else None),
     )
     waveforms_out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -88,7 +97,12 @@ def _initialize_run_context(*, inputs, logger_name_prefix: str) -> _WaveformsRun
     params_json = waveforms_out_dir / "waveform_extraction_params.json"
     filtering_json = waveforms_out_dir / "waveform_filtering_summary.json"
 
-    ckpt_file = _compute_waveforms_checkpoint_file(well_out_dir=well_out_dir, h5_path=inputs.h5_path, stream_id=inputs.stream_id)
+    ckpt_file = _compute_waveforms_checkpoint_file(
+        well_out_dir=well_out_dir,
+        h5_path=inputs.h5_path,
+        stream_id=inputs.stream_id,
+        variant_name=(str(variant_name).strip() if variant_name is not None else None),
+    )
     ckpt = load_checkpoint(
         checkpoint_file=ckpt_file,
         force_restart=bool(inputs.force_restart),

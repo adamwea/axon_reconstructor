@@ -126,6 +126,7 @@ def _ensure_analyzer_extensions(*, analyzer, extension_names: list[str], logger,
 def _load_waveforms_analyzers(
     *,
     well_out_dir: Path,
+    waveforms_dirname: str = "stg3_waveforms_outputs",
     include_concat: bool,
     include_segments: bool,
     logger,
@@ -137,7 +138,7 @@ def _load_waveforms_analyzers(
 
     import spikeinterface.full as si  # type: ignore[import-not-found]
 
-    waveforms_out_dir = well_out_dir / "stg3_waveforms_outputs"
+    waveforms_out_dir = well_out_dir / str(waveforms_dirname)
     concat_waveforms_dir = waveforms_out_dir / "concat_waveforms"
     segment_waveforms_dir = waveforms_out_dir / "segment_waveforms"
 

@@ -18,7 +18,11 @@ from ..pipeline_logging import build_stage_logger, log_stage_complete, log_stage
 from ..shared_io import as_float_list, as_int_list, as_list, jsonable, read_json, write_json
 from ..checkpointing import compute_stage_checkpoint_file, save_stage_completed, save_stage_failed, save_stage_started
 
-from .plotting import write_all_units_overview_pdf, write_unit_reconstruction_pdfs
+from .plotting import (
+    write_all_units_overview_pdf,
+    write_top_density_raw_branch_footprint_grid,
+    write_unit_reconstruction_pdfs,
+)
 
 RECONSTRUCTION_OUTPUTS_DIRNAME = "stg5_reconstruction_outputs"
 
@@ -113,6 +117,16 @@ class ReconstructionInputs:
     stream_id: str
     mea_output_root: Path
 
+    # Optional variant routing.
+    # - If `templates_variant_name` is set (e.g. "merged4x4"), reconstruction reads
+    #   templates from `<well>/stg4_templates_outputs_<variant>`.
+    # - If `reconstruction_variant_name` is set, reconstruction writes to
+    #   `<well>/stg5_reconstruction_outputs_<variant>` and uses a variant checkpoint.
+    # - If `reconstruction_variant_name` is omitted, it defaults to
+    #   `templates_variant_name` when provided.
+    templates_variant_name: Optional[str] = None
+    reconstruction_variant_name: Optional[str] = None
+
     # Units to reconstruct. If None, reconstruct all units found under stg4_templates_outputs/templates/merged.
     unit_ids: Optional[list[Any]] = None
     unit_limit: Optional[int] = None
@@ -129,6 +143,23 @@ class ReconstructionInputs:
 
     # If True, raise if full-channel templates are missing.
     require_full_channels_templates: bool = True
+
+    # Number of units to include in the footprint-density ranking/grid artifact.
+    # If None (or non-positive), include all available candidates.
+    top_n_density_requested: Optional[int] = None
+
+    # If True, write the raw-branch + log-footprint density ranking grid artifact.
+    write_top_density_grid: bool = True
+
+    # If True, annotate raw detected amplitude min/max in the last subplot of the
+    # top-density grids (debugging aid).
+    show_density_scale_debug_text: bool = False
+
+    # If True, annotate global amplitude statistics in a dedicated debug panel.
+    show_density_scale_global_debug_text: bool = False
+
+    # If True, annotate per-unit local amplitude statistics in each unit subplot.
+    show_density_scale_local_debug_text: bool = False
 
     # axon_velocity params (merged onto defaults). Only keys accepted by
     # axon_velocity.compute_graph_propagation_velocity are passed through.
@@ -210,6 +241,7 @@ def _import_axon_velocity(*, repo_root: Optional[Path] = None) -> Any:
 def _run_single_unit_reconstruction(
     *,
     uid: Any,
+    reconstruction_out_dir: Path,
     merged_units_dir: Path,
     full_channels_templates_dir: Path,
     use_full_channels_templates: bool,
@@ -233,7 +265,7 @@ def _run_single_unit_reconstruction(
     full_locs_npy = full_unit_dir / "full_channel_locations_xy.npy"
     full_meta_json = full_unit_dir / "full_template_meta.json"
 
-    out_unit_dir = merged_units_dir.parent.parent.parent / RECONSTRUCTION_OUTPUTS_DIRNAME / "by_unit" / f"unit_{uid}"
+    out_unit_dir = Path(reconstruction_out_dir) / "by_unit" / f"unit_{uid}"
     out_unit_dir.mkdir(parents=True, exist_ok=True)
 
     unit_summary: dict[str, Any] = {
@@ -502,7 +534,20 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
         verbose=True,
     )
 
-    recon_out_dir = well_out_dir / RECONSTRUCTION_OUTPUTS_DIRNAME
+    templates_variant = str(inputs.templates_variant_name).strip() if inputs.templates_variant_name else ""
+    reconstruction_variant = (
+        str(inputs.reconstruction_variant_name).strip() if inputs.reconstruction_variant_name else ""
+    )
+    if not reconstruction_variant:
+        reconstruction_variant = templates_variant
+
+    templates_outputs_dirname = "stg4_templates_outputs" + (f"_{templates_variant}" if templates_variant else "")
+    reconstruction_outputs_dirname = RECONSTRUCTION_OUTPUTS_DIRNAME + (
+        f"_{reconstruction_variant}" if reconstruction_variant else ""
+    )
+    reconstruction_stage_name = "reconstruction" + (f"_{reconstruction_variant}" if reconstruction_variant else "")
+
+    recon_out_dir = well_out_dir / reconstruction_outputs_dirname
     by_unit_dir = recon_out_dir / "by_unit"
     summary_json = recon_out_dir / "reconstruction_summary.json"
     if bool(inputs.replot_summaries_only) and bool(inputs.recompute_branches_raw_only):
@@ -515,7 +560,23 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
         else (recon_out_dir / "all_units_morphology.pdf" if inputs.write_all_units_overview_pdf else None)
     )
 
-    ckpt_file = _compute_reconstruction_checkpoint_file(well_out_dir=well_out_dir, h5_path=inputs.h5_path, stream_id=inputs.stream_id)
+    templates_out_dir = well_out_dir / templates_outputs_dirname
+    top_n_density_raw = getattr(inputs, "top_n_density_requested", None)
+    if top_n_density_raw is None:
+        top_n_density_requested: Optional[int] = None
+    else:
+        try:
+            top_n_parsed = int(top_n_density_raw)
+            top_n_density_requested = top_n_parsed if top_n_parsed > 0 else None
+        except Exception:
+            top_n_density_requested = None
+
+    ckpt_file = compute_stage_checkpoint_file(
+        well_out_dir=well_out_dir,
+        h5_path=inputs.h5_path,
+        stream_id=inputs.stream_id,
+        stage_name=reconstruction_stage_name,
+    )
     ckpt = load_checkpoint(
         checkpoint_file=ckpt_file,
         force_restart=bool(inputs.force_restart),
@@ -533,6 +594,33 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
         and ((all_units_overview_pdf is None) or all_units_overview_pdf.exists())
         and by_unit_dir.exists()
     ):
+        try:
+            summary_existing = _read_json(summary_json)
+            selected_unit_ids: list[Any] = []
+            for u in list((summary_existing or {}).get("units", []) or []):
+                if isinstance(u, dict) and (u.get("unit_id") is not None):
+                    selected_unit_ids.append(u.get("unit_id"))
+
+            if bool(inputs.write_top_density_grid):
+                density_grid = write_top_density_raw_branch_footprint_grid(
+                    templates_out_dir=templates_out_dir,
+                    reconstruction_out_dir=recon_out_dir,
+                    selected_unit_ids=selected_unit_ids,
+                    top_n=top_n_density_requested,
+                    show_scale_debug_text=bool(inputs.show_density_scale_debug_text),
+                    show_global_debug_text=bool(inputs.show_density_scale_global_debug_text),
+                    show_local_debug_text=bool(inputs.show_density_scale_local_debug_text),
+                    logger=logger,
+                )
+                if isinstance(density_grid, dict) and density_grid:
+                    summary_existing.update({k: v for k, v in density_grid.items() if v is not None})
+                    _write_json(summary_json, summary_existing)
+        except Exception as e:
+            logger.exception("Resume replot of top-density grid failed")
+            raise RuntimeError(
+                "Resume replot of top-density grid failed; aborting resume to avoid stale grid artifacts."
+            ) from e
+
         logger.info("Resuming reconstruction: existing outputs found at %s", recon_out_dir)
         return ReconstructionOutputs(
             well_out_dir=well_out_dir,
@@ -571,7 +659,6 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
     recon_out_dir.mkdir(parents=True, exist_ok=True)
     by_unit_dir.mkdir(parents=True, exist_ok=True)
 
-    templates_out_dir = well_out_dir / "stg4_templates_outputs"
     templates_dir = templates_out_dir / "templates"
 
     merged_units_dir = templates_dir / "merged"
@@ -638,6 +725,9 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
         "h5_path": str(inputs.h5_path),
         "stream_id": inputs.stream_id,
         "well_out_dir": str(well_out_dir),
+        "templates_variant_name": (templates_variant if templates_variant else None),
+        "reconstruction_variant_name": (reconstruction_variant if reconstruction_variant else None),
+        "templates_out_dir": str(templates_out_dir),
         "templates_merged_units_dir": str(merged_units_dir),
         "templates_full_channels_templates_dir": (
             str(full_channels_templates_dir) if full_channels_templates_dir.exists() else None
@@ -684,6 +774,7 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
         for uid in unit_ids:
             result = _run_single_unit_reconstruction(
                 uid=uid,
+                reconstruction_out_dir=recon_out_dir,
                 merged_units_dir=merged_units_dir,
                 full_channels_templates_dir=full_channels_templates_dir,
                 use_full_channels_templates=bool(inputs.use_full_channels_templates),
@@ -703,6 +794,7 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                 fut = pool.submit(
                     _run_single_unit_reconstruction,
                     uid=uid,
+                    reconstruction_out_dir=recon_out_dir,
                     merged_units_dir=merged_units_dir,
                     full_channels_templates_dir=full_channels_templates_dir,
                     use_full_channels_templates=bool(inputs.use_full_channels_templates),
@@ -756,6 +848,24 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                     summary["all_units_overview_png"] = str(all_units_overview_png)
         except Exception as e:
             logger.warning("Failed writing all-units overview pdf: %s", e)
+
+    # Top-density (spikes/channel/area) raw-branch morphology overlays on log footprints.
+    if bool(inputs.write_top_density_grid) and (not bool(inputs.recompute_branches_raw_only)):
+        try:
+            density_grid = write_top_density_raw_branch_footprint_grid(
+                templates_out_dir=templates_out_dir,
+                reconstruction_out_dir=recon_out_dir,
+                selected_unit_ids=list(unit_ids),
+                top_n=top_n_density_requested,
+                show_scale_debug_text=bool(inputs.show_density_scale_debug_text),
+                show_global_debug_text=bool(inputs.show_density_scale_global_debug_text),
+                show_local_debug_text=bool(inputs.show_density_scale_local_debug_text),
+                logger=logger,
+            )
+            if isinstance(density_grid, dict) and density_grid:
+                summary.update({k: v for k, v in density_grid.items() if v is not None})
+        except Exception as e:
+            logger.warning("Failed writing top-density raw-branch footprint grid: %s", e)
 
     try:
         _write_json(summary_json, summary)
