@@ -37,6 +37,26 @@ def _has_file_handler(logger: logging.Logger, log_file: Path) -> bool:
     return False
 
 
+def _get_file_handler(logger: logging.Logger, log_file: Path) -> logging.FileHandler | None:
+    target = str(Path(log_file))
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            try:
+                if str(Path(handler.baseFilename)) == target:
+                    return handler
+            except Exception:
+                continue
+    return None
+
+
+def _get_console_handler(logger: logging.Logger) -> logging.StreamHandler | None:
+    # FileHandler inherits StreamHandler, so explicitly exclude file handlers.
+    for handler in logger.handlers:
+        if isinstance(handler, logging.StreamHandler) and (not isinstance(handler, logging.FileHandler)):
+            return handler
+    return None
+
+
 def setup_pipeline_logger(
     *,
     log_file: Path,
@@ -67,27 +87,38 @@ def setup_pipeline_logger(
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
     logger = logging.getLogger(logger_name)
-    logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+    # Keep logger open to DEBUG and let handlers enforce effective verbosity.
+    logger.setLevel(logging.DEBUG)
     logger.propagate = False
 
     formatter = logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s")
 
     # File handler (append). Only attach once per log file.
-    if not _has_file_handler(logger, log_file):
+    file_level = logging.DEBUG if verbose else logging.INFO
+    existing_fh = _get_file_handler(logger, log_file)
+    if existing_fh is None:
         fh = logging.FileHandler(log_file, mode="a")
         try:
             fh.stream.write("\n" + "=" * 80 + "\n")
         except Exception:
             pass
         fh.setFormatter(formatter)
+        fh.setLevel(file_level)
         logger.addHandler(fh)
+    else:
+        existing_fh.setLevel(file_level)
 
     # Stream handler (stdout). Attach at most one.
     stream = stream if stream is not None else sys.stdout
-    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+    console_level = logging.DEBUG if verbose else logging.INFO
+    existing_ch = _get_console_handler(logger)
+    if existing_ch is None:
         ch = logging.StreamHandler(stream)
         ch.setFormatter(formatter)
+        ch.setLevel(console_level)
         logger.addHandler(ch)
+    else:
+        existing_ch.setLevel(console_level)
 
     return logger
 

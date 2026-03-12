@@ -82,7 +82,7 @@ class SpikeSortingInputs:
     sorter: str = "kilosort4"
     docker_image: Optional[str] = None
     recording_num: str = "rec0000"
-    verbose: bool = True
+    verbose: bool = False
 
     # Optional Kilosort tuning (applied via MEA_Analysis sorter_kwargs override).
     # - If both are provided, `ks_batch_size` wins.
@@ -473,6 +473,7 @@ def _relocate_mea_analysis_outputs(*, pipeline, well_out_dir: Path, logger: logg
 
     spikesorting_dir = well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME
     spikesorting_dir.mkdir(parents=True, exist_ok=True)
+    logger.info("Relocating MEA_Analysis outputs under %s", spikesorting_dir)
 
     # Preserve/restore output_root expected by some MEA_Analysis report code paths
     # (e.g., fixed-y burst plotting summary lookup).
@@ -506,13 +507,21 @@ def _relocate_mea_analysis_outputs(*, pipeline, well_out_dir: Path, logger: logg
         pipeline.state = pipeline._load_checkpoint()
     except Exception as e:
         logger.warning("Could not reload MEA_Analysis checkpoint from stg2_spikesorting_outputs: %s", e)
+    else:
+        logger.info(
+            "MEA_Analysis checkpoint re-homed: %s (stage=%s)",
+            pipeline.checkpoint_file,
+            pipeline.state.get("stage"),
+        )
 
     # Re-home the MEA_Analysis log file too (best-effort)
     try:
-        log_file = spikesorting_dir / f"{pipeline.run_id}_{pipeline.stream_id}_pipeline.log"
+        # Keep MEA_Analysis logging in the unified per-well pipeline log.
+        log_file = well_out_dir / f"{pipeline.run_id}_{pipeline.stream_id}_pipeline.log"
         mea_logger = logging.getLogger(f"mea_{pipeline.stream_id}")
         mea_logger.handlers.clear()
         pipeline.logger = pipeline._setup_logger(log_file)
+        logger.info("MEA_Analysis logger attached to unified well log: %s", log_file)
     except Exception as e:
         logger.debug("Could not reset MEA_Analysis logger handlers: %s", e)
 
@@ -532,6 +541,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
     """Load saved preprocessed recording and run spikesorting stage."""
 
     _ensure_mea_analysis_importable(inputs.mea_analysis_repo_root)
+    logger.debug("MEA_Analysis import path ready from repo root: %s", inputs.mea_analysis_repo_root)
 
     # Apply environment-level resource controls as early as possible.
     # These can affect numpy/scipy/tensor backends and may propagate to subprocesses.
@@ -552,6 +562,48 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
             os.environ["CUDA_VISIBLE_DEVICES"] = str(inputs.cuda_visible_devices)
         except Exception:
             pass
+
+    def _env_or_none(name: str) -> str | None:
+        value = os.environ.get(name)
+        if value is None:
+            return None
+        token = str(value).strip()
+        return token if token else None
+
+    logger.info(
+        "Spikesort runtime snapshot: pid=%s cpu_count=%s stream_id=%s sorter=%s docker_image=%s",
+        os.getpid(),
+        os.cpu_count(),
+        inputs.stream_id,
+        inputs.sorter,
+        inputs.docker_image,
+    )
+
+    logger.info(
+        "Spikesort runtime config: verbose=%s n_jobs=%s chunk_duration=%s force_restart=%s",
+        bool(inputs.verbose),
+        inputs.n_jobs,
+        inputs.chunk_duration,
+        bool(inputs.force_restart),
+    )
+    logger.info(
+        "Spikesort resources: omp=%s mkl=%s openblas=%s numexpr=%s torch=%s torch_interop=%s cuda_visible_devices=%s",
+        inputs.omp_threads,
+        inputs.mkl_threads,
+        inputs.openblas_threads,
+        inputs.numexpr_threads,
+        inputs.torch_threads,
+        inputs.torch_interop_threads,
+        inputs.cuda_visible_devices,
+    )
+    logger.info(
+        "Spikesort effective thread env: OMP_NUM_THREADS=%s MKL_NUM_THREADS=%s OPENBLAS_NUM_THREADS=%s NUMEXPR_NUM_THREADS=%s CUDA_VISIBLE_DEVICES=%s",
+        _env_or_none("OMP_NUM_THREADS"),
+        _env_or_none("MKL_NUM_THREADS"),
+        _env_or_none("OPENBLAS_NUM_THREADS"),
+        _env_or_none("NUMEXPR_NUM_THREADS"),
+        _env_or_none("CUDA_VISIBLE_DEVICES"),
+    )
 
     import spikeinterface.full as si  # type: ignore[import-not-found]
 
@@ -618,6 +670,12 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         file_path=inputs.h5_path,
         stream_id=inputs.stream_id,
     )
+    logger.info(
+        "Wrapper checkpoint loaded: file=%s previous_stage=%s force_restart=%s",
+        axon_ckpt_file,
+        axon_ckpt.stage,
+        bool(inputs.force_restart),
+    )
     axon_ckpt = save_stage_started(
         checkpoint_file=axon_ckpt_file,
         state=axon_ckpt,
@@ -645,6 +703,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
 
     preprocess_dir = _resolve_preprocess_dir(well_out_dir=well_out_dir)
     recording_dir = preprocess_dir / "preprocessed_recording"
+    logger.info("Resolved preprocessing outputs dir: %s", preprocess_dir)
     if not recording_dir.exists():
         raise FileNotFoundError(
             "Saved preprocessed recording folder not found. "
@@ -656,7 +715,18 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
     try:
         recording = si.load(recording_dir)
     except Exception:
+        logger.warning("si.load(recording_dir) failed; retrying with si.load_extractor")
         recording = si.load_extractor(recording_dir)
+
+    try:
+        logger.info(
+            "Loaded recording: segments=%d channels=%d fs_hz=%.3f",
+            int(recording.get_num_segments()),
+            int(len(recording.get_channel_ids())),
+            float(recording.get_sampling_frequency()),
+        )
+    except Exception:
+        logger.debug("Could not summarize loaded recording", exc_info=True)
 
     # Build optional sorter kwargs override (memory + sensitivity tuning).
     sorter_kwargs: dict = {}
@@ -707,6 +777,12 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
                 "Invalid auto-merge template diff thresh '%s'; using MEA_Analysis defaults",
                 str(inputs.auto_merge_template_diff_thresh),
             )
+    logger.info(
+        "Merge config: unitmatch_merge_units=%s unitmatch_dry_run=%s auto_merge_units=%s",
+        bool(inputs.unitmatch_merge_units),
+        bool(inputs.unitmatch_dry_run),
+        bool(inputs.auto_merge_units),
+    )
 
     logger.info("Initializing MEA_Analysis pipeline object (sorting/analyzer/reports)")
     pipeline = MEAPipeline(
@@ -731,6 +807,8 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
 
     if sorter_kwargs:
         logger.info("MEA_Analysis sorter kwargs override: %s", sorter_kwargs)
+    else:
+        logger.info("MEA_Analysis sorter kwargs override: using defaults")
 
     # Best-effort: if MEA_Analysis pipeline object supports resource hints, attach them.
     try:
@@ -747,6 +825,10 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
     pipeline.recording = recording
     pipeline.state["stage"] = max(int(pipeline.state.get("stage", 0)), MEAProcessingStage.PREPROCESSING_COMPLETE.value)
     pipeline.state["error"] = None
+    logger.info(
+        "Injected preprocessed recording into MEA_Analysis pipeline; starting stage=%s",
+        pipeline.state.get("stage"),
+    )
 
     logger.info(
         "Starting MEA_Analysis run: sorter=%s docker_image=%s force_restart=%s",
@@ -766,11 +848,15 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
             logger.info("Running MEA_Analysis Phase 2.5 optional merge...")
             pipeline.run_optional_merge_phase()
             logger.info("MEA_Analysis merge phase finished; stage=%s", pipeline.state.get("stage"))
+        else:
+            logger.info("Skipping MEA_Analysis Phase 2.5 optional merge: method not available")
 
         if inputs.run_analyzer:
             logger.info("Running MEA_Analysis Phase 3 analyzer (computes waveforms/templates/metrics)...")
             pipeline.run_analyzer()
             logger.info("MEA_Analysis analyzer finished; stage=%s", pipeline.state.get("stage"))
+        else:
+            logger.info("Skipping MEA_Analysis Phase 3 analyzer (run_analyzer=False)")
 
         if inputs.run_reports:
             if not inputs.run_analyzer and pipeline.analyzer is None:
@@ -790,6 +876,8 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
                 export_phy=inputs.export_to_phy,
             )
             logger.info("MEA_Analysis reports finished; stage=%s", pipeline.state.get("stage"))
+        else:
+            logger.info("Skipping MEA_Analysis Phase 4 reports (run_reports=False)")
 
         sorter_output_dir = pipeline.output_dir / "sorter_output"
         merged_sorter_output_dir: Optional[Path] = None
@@ -814,6 +902,8 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
                 force_restart=bool(inputs.force_restart),
             )
             logger.info("Post-merge sorting saved -> %s", merged_sorter_output_dir)
+        else:
+            logger.info("Skipping optional post-merge (4x4 blocks): disabled")
 
         logger.info("Sorting output folder: %s", sorter_output_dir)
 
@@ -864,6 +954,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
             merged_sorter_output_dir=merged_sorter_output_dir,
         )
     except Exception as e:
+        logger.exception("Spikesorting stage raised an exception before completion")
         save_stage_failed(
             checkpoint_file=axon_ckpt_file,
             state=axon_ckpt,
