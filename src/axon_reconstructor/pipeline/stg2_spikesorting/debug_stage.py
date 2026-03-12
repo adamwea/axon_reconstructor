@@ -14,6 +14,12 @@ class SpikesortingDebugConfig:
 
 
 def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebugConfig:
+    verbose = (
+        env.env_bool("AXON_RECON_SPIKESORT_VERBOSE", default=False)
+        if getattr(args, "verbose", None) is None
+        else bool(getattr(args, "verbose"))
+    )
+
     mea_analysis_repo_root = (
         Path(args.mea_analysis_repo_root)
         if args.mea_analysis_repo_root is not None
@@ -114,7 +120,7 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
         sorter=sorter,
         docker_image=docker_image,
         force_restart=force_restart,
-        verbose=True,
+        verbose=bool(verbose),
         n_jobs=int(n_jobs),
         chunk_duration=str(chunk_duration),
         torch_threads=int(torch_threads),
