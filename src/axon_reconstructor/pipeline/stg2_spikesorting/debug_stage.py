@@ -48,18 +48,6 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
     n_jobs = int(args.n_jobs) if args.n_jobs is not None else int(env.env_int("AXON_RECON_N_JOBS", default=16) or 16)
     chunk_duration = str(args.chunk_duration) if args.chunk_duration is not None else (env.env_str("AXON_RECON_CHUNK_DURATION", default="1s") or "1s")
 
-    omp_threads = int(args.omp_threads) if args.omp_threads is not None else int(env.env_int("AXON_RECON_OMP_THREADS", default=n_jobs) or n_jobs)
-    mkl_threads = int(args.mkl_threads) if args.mkl_threads is not None else int(env.env_int("AXON_RECON_MKL_THREADS", default=n_jobs) or n_jobs)
-    openblas_threads = int(args.openblas_threads) if args.openblas_threads is not None else int(env.env_int("AXON_RECON_OPENBLAS_THREADS", default=n_jobs) or n_jobs)
-    numexpr_threads = int(args.numexpr_threads) if args.numexpr_threads is not None else int(env.env_int("AXON_RECON_NUMEXPR_THREADS", default=n_jobs) or n_jobs)
-
-    torch_threads = int(args.torch_threads) if args.torch_threads is not None else int(env.env_int("AXON_RECON_TORCH_THREADS", default=n_jobs) or n_jobs)
-    torch_interop_threads = (
-        int(args.torch_interop_threads)
-        if args.torch_interop_threads is not None
-        else int(env.env_int("AXON_RECON_TORCH_INTEROP_THREADS", default=min(8, max(1, torch_threads // 2))) or min(8, max(1, torch_threads // 2)))
-    )
-
     cuda_visible_devices = str(args.cuda_visible_devices) if args.cuda_visible_devices is not None else env.env_str("AXON_RECON_CUDA_VISIBLE_DEVICES", default=None)
 
     env_ks_batch_duration_s = env.env_float("AXON_RECON_KS_BATCH_DURATION_S", default=None)
@@ -106,12 +94,6 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
         else str(args.auto_merge_template_diff_thresh)
     )
 
-    post_merge_4x4_units = env.env_bool("AXON_RECON_SPIKESORT_POST_MERGE_4X4", default=False)
-    post_merge_block_size_channels = int(env.env_int("AXON_RECON_SPIKESORT_POST_MERGE_BLOCK_SIZE_CHANNELS", default=4) or 4)
-    post_merge_recursive = env.env_bool("AXON_RECON_SPIKESORT_POST_MERGE_RECURSIVE", default=True)
-    post_merge_max_iterations = int(env.env_int("AXON_RECON_SPIKESORT_POST_MERGE_MAX_ITERATIONS", default=8) or 8)
-    post_merge_channel_pitch_um = float(env.env_float("AXON_RECON_SPIKESORT_POST_MERGE_CHANNEL_PITCH_UM", default=17.5) or 17.5)
-
     inputs = SpikeSortingInputs(
         h5_path=h5_path,
         stream_id=stream_id,
@@ -123,12 +105,6 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
         verbose=bool(verbose),
         n_jobs=int(n_jobs),
         chunk_duration=str(chunk_duration),
-        torch_threads=int(torch_threads),
-        torch_interop_threads=int(torch_interop_threads),
-        omp_threads=int(omp_threads),
-        mkl_threads=int(mkl_threads),
-        openblas_threads=int(openblas_threads),
-        numexpr_threads=int(numexpr_threads),
         cuda_visible_devices=cuda_visible_devices,
         ks_batch_duration_s=ks_batch_duration_s,
         ks_batch_size=ks_batch_size,
@@ -146,11 +122,6 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
         force_merge_on_resume=bool(force_merge_on_resume),
         auto_merge_units=bool(auto_merge_units),
         auto_merge_template_diff_thresh=str(auto_merge_template_diff_thresh),
-        post_merge_4x4_units=bool(post_merge_4x4_units),
-        post_merge_block_size_channels=int(post_merge_block_size_channels),
-        post_merge_recursive=bool(post_merge_recursive),
-        post_merge_max_iterations=int(post_merge_max_iterations),
-        post_merge_channel_pitch_um=float(post_merge_channel_pitch_um),
     )
 
     return SpikesortingDebugConfig(inputs=inputs, break_before_run=bool(break_before_run))

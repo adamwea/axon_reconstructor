@@ -291,6 +291,23 @@ def execute_stage(
             "chunk_duration": context.chunk_duration,
         }
         spikesort_fields.update(kwargs)
+
+        # Backward-compatibility: ignore deprecated post-merge 4x4 fields.
+        for deprecated_key in [
+            "post_merge_4x4_units",
+            "post_merge_block_size_channels",
+            "post_merge_recursive",
+            "post_merge_max_iterations",
+            "post_merge_channel_pitch_um",
+            "omp_threads",
+            "mkl_threads",
+            "openblas_threads",
+            "numexpr_threads",
+            "torch_threads",
+            "torch_interop_threads",
+        ]:
+            spikesort_fields.pop(deprecated_key, None)
+
         out = run_spikesorting_stage(
             inputs=SpikeSortingInputs(**spikesort_fields),
             logger=logger or logging.getLogger(f"axon_reconstructor.stage.{context.stream_id}.spikesort"),
