@@ -13,10 +13,6 @@ class WaveformsDebugConfig:
     inputs: WaveformExtractInputs
     n_jobs: int
     chunk_duration: str
-    omp_threads: int
-    mkl_threads: int
-    openblas_threads: int
-    numexpr_threads: int
     cuda_visible_devices: Optional[str]
 
 
@@ -33,10 +29,6 @@ def build_waveforms_debug_config(*, args: Any, env: Any) -> WaveformsDebugConfig
     n_jobs = int(args.n_jobs) if args.n_jobs is not None else int(env.env_int("AXON_RECON_N_JOBS", default=16) or 16)
     chunk_duration = str(args.chunk_duration) if args.chunk_duration is not None else (env.env_str("AXON_RECON_CHUNK_DURATION", default="2s") or "2s")
 
-    omp_threads = int(args.omp_threads) if args.omp_threads is not None else int(env.env_int("AXON_RECON_OMP_THREADS", default=n_jobs) or n_jobs)
-    mkl_threads = int(args.mkl_threads) if args.mkl_threads is not None else int(env.env_int("AXON_RECON_MKL_THREADS", default=n_jobs) or n_jobs)
-    openblas_threads = int(args.openblas_threads) if args.openblas_threads is not None else int(env.env_int("AXON_RECON_OPENBLAS_THREADS", default=n_jobs) or n_jobs)
-    numexpr_threads = int(args.numexpr_threads) if args.numexpr_threads is not None else int(env.env_int("AXON_RECON_NUMEXPR_THREADS", default=n_jobs) or n_jobs)
     cuda_visible_devices = str(args.cuda_visible_devices) if args.cuda_visible_devices is not None else env.env_str("AXON_RECON_CUDA_VISIBLE_DEVICES", default=None)
 
     if args.force_restart is not None:
@@ -56,6 +48,8 @@ def build_waveforms_debug_config(*, args: Any, env: Any) -> WaveformsDebugConfig
         if args.max_spikes_per_unit is not None
         else env.env_int("AXON_RECON_WF_MAX_SPIKES_PER_UNIT", default=None)
     )
+    if max_spikes_per_unit is not None and int(max_spikes_per_unit) < 0:
+        max_spikes_per_unit = None
 
     per_segment = env.env_bool("AXON_RECON_WF_PER_SEGMENT", default=True) if args.per_segment is None else bool(args.per_segment)
     filter_by_maxwell_epochs = env.env_bool("AXON_RECON_WF_FILTER_BY_MAXWELL_EPOCHS", default=True) if args.filter_by_maxwell_epochs is None else bool(args.filter_by_maxwell_epochs)
@@ -65,7 +59,9 @@ def build_waveforms_debug_config(*, args: Any, env: Any) -> WaveformsDebugConfig
         "AXON_RECON_WF_RECOMPUTE_CHANNEL_GROUPS_FOR_REUSED_SEGMENTS",
         default=False,
     )
-    use_merged_spikesorting_4x4 = env.env_bool("AXON_RECON_WF_USE_MERGED_SPIKESORTING_4X4", default=False)
+    prefer_merged_sorting = env.env_bool("AXON_RECON_WF_PREFER_MERGED_SORTING", default=False)
+    merged_sorting_dir_raw = env.env_str("AXON_RECON_WF_MERGED_SORTING_DIR", default=None)
+    merged_sorting_dir = Path(merged_sorting_dir_raw) if merged_sorting_dir_raw else None
     waveforms_variant_name = env.env_str("AXON_RECON_WF_VARIANT_NAME", default=None)
 
     debug_max_units = int(args.debug_max_units) if args.debug_max_units is not None else env.env_int("AXON_RECON_WF_DEBUG_MAX_UNITS", default=None)
@@ -85,7 +81,8 @@ def build_waveforms_debug_config(*, args: Any, env: Any) -> WaveformsDebugConfig
         filter_by_segment_bounds=bool(filter_by_segment_bounds),
         segment_sort_safety_cleanup=bool(segment_sort_safety_cleanup),
         recompute_channel_groups_for_reused_segments=bool(recompute_channel_groups_for_reused_segments),
-        use_merged_spikesorting_4x4=bool(use_merged_spikesorting_4x4),
+        merged_sorting_dir=merged_sorting_dir,
+        prefer_merged_sorting=bool(prefer_merged_sorting),
         waveforms_variant_name=(str(waveforms_variant_name) if waveforms_variant_name is not None else None),
         force_restart=force_restart,
         force_replot=force_replot,
@@ -97,21 +94,11 @@ def build_waveforms_debug_config(*, args: Any, env: Any) -> WaveformsDebugConfig
         inputs=inputs,
         n_jobs=int(n_jobs),
         chunk_duration=str(chunk_duration),
-        omp_threads=int(omp_threads),
-        mkl_threads=int(mkl_threads),
-        openblas_threads=int(openblas_threads),
-        numexpr_threads=int(numexpr_threads),
         cuda_visible_devices=(str(cuda_visible_devices) if cuda_visible_devices is not None else None),
     )
 
 
 def apply_waveforms_runtime_hints(*, config: WaveformsDebugConfig, env: Any, debug_enabled: bool, logger: Any) -> None:
-    env.apply_thread_env(
-        omp=config.omp_threads,
-        mkl=config.mkl_threads,
-        openblas=config.openblas_threads,
-        numexpr=config.numexpr_threads,
-    )
     if config.cuda_visible_devices is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(config.cuda_visible_devices)
 

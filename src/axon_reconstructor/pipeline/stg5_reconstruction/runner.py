@@ -118,7 +118,7 @@ class ReconstructionInputs:
     mea_output_root: Path
 
     # Optional variant routing.
-    # - If `templates_variant_name` is set (e.g. "merged4x4"), reconstruction reads
+    # - If `templates_variant_name` is set (e.g. "merged"), reconstruction reads
     #   templates from `<well>/stg4_templates_outputs_<variant>`.
     # - If `reconstruction_variant_name` is set, reconstruction writes to
     #   `<well>/stg5_reconstruction_outputs_<variant>` and uses a variant checkpoint.
@@ -200,17 +200,6 @@ class ReconstructionOutputs:
     summary_json: Path
     by_unit_dir: Path
     all_units_overview_pdf: Optional[Path]
-
-
-def _ensure_low_level_thread_caps_for_parallel_units() -> None:
-    for env_name in (
-        "OMP_NUM_THREADS",
-        "OPENBLAS_NUM_THREADS",
-        "MKL_NUM_THREADS",
-        "NUMEXPR_NUM_THREADS",
-        "VECLIB_MAXIMUM_THREADS",
-    ):
-        os.environ.setdefault(env_name, "1")
 
 
 def _import_axon_velocity(*, repo_root: Optional[Path] = None) -> Any:
@@ -965,8 +954,6 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
 
     unit_workers = max(1, int(inputs.unit_workers))
     total_units = len(unit_ids)
-    if unit_workers > 1:
-        _ensure_low_level_thread_caps_for_parallel_units()
     logger.info("Reconstructing %d units with unit_workers=%d", total_units, unit_workers)
 
     def _accumulate_unit_result(result: dict[str, Any]) -> None:

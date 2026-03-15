@@ -10,7 +10,6 @@ from .runner import SpikeSortingInputs
 @dataclass(frozen=True)
 class SpikesortingDebugConfig:
     inputs: SpikeSortingInputs
-    break_before_run: bool
 
 
 def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebugConfig:
@@ -42,8 +41,6 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
         force_restart = True
     else:
         force_restart = env.env_bool("AXON_RECON_FORCE_RESTART", default=False)
-
-    break_before_run = env.env_bool("AXON_RECON_BREAK_BEFORE_RUN", default=False) if args.break_before_run is None else bool(args.break_before_run)
 
     n_jobs = int(args.n_jobs) if args.n_jobs is not None else int(env.env_int("AXON_RECON_N_JOBS", default=16) or 16)
     chunk_duration = str(args.chunk_duration) if args.chunk_duration is not None else (env.env_str("AXON_RECON_CHUNK_DURATION", default="1s") or "1s")
@@ -82,7 +79,31 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
         if args.rerun_analyzer is None
         else bool(args.rerun_analyzer)
     )
-    force_merge_on_resume = env.env_bool("AXON_RECON_SPIKESORT_FORCE_MERGE_ON_RESUME", default=False)
+    resume_from = (
+        str(args.resume_from)
+        if getattr(args, "resume_from", None) is not None
+        else env.env_str("AXON_RECON_SPIKESORT_RESUME_FROM", default=None)
+    )
+    unitmatch_merge_units = (
+        env.env_bool("AXON_RECON_SPIKESORT_UNITMATCH_MERGE_UNITS", default=False)
+        if getattr(args, "unitmatch_merge_units", None) is None
+        else bool(getattr(args, "unitmatch_merge_units"))
+    )
+    unitmatch_dry_run = (
+        env.env_bool("AXON_RECON_SPIKESORT_UNITMATCH_DRY_RUN", default=True)
+        if getattr(args, "unitmatch_dry_run", None) is None
+        else bool(getattr(args, "unitmatch_dry_run"))
+    )
+    unitmatch_scored_dry_run = (
+        env.env_bool("AXON_RECON_SPIKESORT_UNITMATCH_SCORED_DRY_RUN", default=True)
+        if getattr(args, "unitmatch_scored_dry_run", None) is None
+        else bool(getattr(args, "unitmatch_scored_dry_run"))
+    )
+    unitmatch_output_subdir_name = (
+        str(getattr(args, "unitmatch_output_subdir_name"))
+        if getattr(args, "unitmatch_output_subdir_name", None) is not None
+        else (env.env_str("AXON_RECON_SPIKESORT_UNITMATCH_OUTPUT_SUBDIR_NAME", default="unitmatch_outputs") or "unitmatch_outputs")
+    )
     auto_merge_units = (
         env.env_bool("AXON_RECON_SPIKESORT_AUTO_MERGE_UNITS", default=False)
         if args.auto_merge_units is None
@@ -93,6 +114,21 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
         if args.auto_merge_template_diff_thresh is None
         else str(args.auto_merge_template_diff_thresh)
     )
+
+    um_kwargs = {
+        "merge_units": bool(unitmatch_merge_units),
+        "dry_run": bool(unitmatch_dry_run),
+        "scored_dry_run": bool(unitmatch_scored_dry_run),
+        "output_subdir_name": str(unitmatch_output_subdir_name),
+    }
+    am_kwargs = {
+        "enabled": bool(auto_merge_units),
+        "template_diff_thresh": str(auto_merge_template_diff_thresh),
+    }
+    option_kwargs = {
+        "force_rerun_analyzer": bool(force_rerun_analyzer),
+        "cuda_visible_devices": cuda_visible_devices,
+    }
 
     inputs = SpikeSortingInputs(
         h5_path=h5_path,
@@ -118,10 +154,10 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
         run_reports=True,
         no_curation=(not bool(do_curation)),
         export_to_phy=False,
-        force_rerun_analyzer=bool(force_rerun_analyzer),
-        force_merge_on_resume=bool(force_merge_on_resume),
-        auto_merge_units=bool(auto_merge_units),
-        auto_merge_template_diff_thresh=str(auto_merge_template_diff_thresh),
+        resume_from=(str(resume_from).strip() if resume_from else None),
+        um_kwargs=um_kwargs,
+        am_kwargs=am_kwargs,
+        option_kwargs=option_kwargs,
     )
 
-    return SpikesortingDebugConfig(inputs=inputs, break_before_run=bool(break_before_run))
+    return SpikesortingDebugConfig(inputs=inputs)

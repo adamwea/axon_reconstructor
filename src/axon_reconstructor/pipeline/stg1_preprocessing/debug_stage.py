@@ -11,7 +11,6 @@ class PreprocessingDebugInputs:
     stream_id: str
     n_jobs: int
     mea_output_root: Path
-    break_before_run: bool
     force_restart: bool
     temporal_resample_factor: Optional[int]
     temporal_resample_rate_hz: Optional[int]
@@ -29,11 +28,6 @@ def build_preprocessing_debug_inputs(*, args: Any, env: Any) -> PreprocessingDeb
         else env.env_required_path("AXON_RECON_MEA_OUTPUT_ROOT")
     )
 
-    break_before_run = (
-        env.env_bool("AXON_RECON_BREAK_BEFORE_RUN", default=False)
-        if args.break_before_run is None
-        else bool(args.break_before_run)
-    )
     force_restart = (
         env.env_bool("AXON_RECON_FORCE_RESTART", default=False)
         if args.force_restart is None
@@ -66,7 +60,6 @@ def build_preprocessing_debug_inputs(*, args: Any, env: Any) -> PreprocessingDeb
         stream_id=stream_id,
         n_jobs=int(n_jobs),
         mea_output_root=mea_output_root,
-        break_before_run=bool(break_before_run),
         force_restart=bool(force_restart),
         temporal_resample_factor=temporal_resample_factor,
         temporal_resample_rate_hz=temporal_resample_rate_hz,

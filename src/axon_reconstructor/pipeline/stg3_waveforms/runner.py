@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -24,12 +24,15 @@ class WaveformExtractInputs:
     mea_output_root: Path
     sorter: str = "kilosort4"
 
-    # If True, load spikesorting from stage-2 post-merge output
-    # `<well>/stg2_spikesorting_outputs/sorter_output_merged_4x4`.
-    use_merged_spikesorting_4x4: bool = False
+    # Optional explicit merged sorting folder produced by stage-2 UnitMatch merge.
+    merged_sorting_dir: Optional[Path] = None
+
+    # If True, prefer canonical stage-2 merged artifact:
+    # `<well>/stg2_spikesorting_outputs/unitmatch_outputs/final_merged_sorting`.
+    prefer_merged_sorting: bool = False
 
     # Optional suffix for separate waveforms outputs/checkpoints.
-    # Example: "merged4x4" -> `stg3_waveforms_outputs_merged4x4`.
+    # Example: "merged" -> `stg3_waveforms_outputs_merged`.
     waveforms_variant_name: Optional[str] = None
 
     # Waveform window. If None, try to infer from trigger_pre/post.
@@ -176,9 +179,6 @@ def extract_waveforms(
     waveforms that cross Maxwell snippet discontinuities.
     """
 
-    if bool(inputs.use_merged_spikesorting_4x4) and (inputs.waveforms_variant_name is None):
-        inputs = replace(inputs, waveforms_variant_name="merged4x4")
-
     ctx = _initialize_run_context(inputs=inputs, logger_name_prefix=logger_name_prefix)
 
     # Fast-path resume: if prior outputs exist and we're not forcing a restart,
@@ -245,7 +245,13 @@ def extract_waveforms(
         # Load spikesorting results. Spike times are in the concatenated time base.
         sorter_output_dir = _resolve_mea_sorter_output_dir(
             well_out_dir=ctx.well_out_dir,
-            use_merged_spikesorting_4x4=bool(inputs.use_merged_spikesorting_4x4),
+            merged_sorting_dir=inputs.merged_sorting_dir,
+            prefer_merged_sorting=bool(inputs.prefer_merged_sorting),
+        )
+        ctx.logger.info(
+            "Waveforms sorting source resolved to: %s (prefer_merged_sorting=%s)",
+            sorter_output_dir,
+            bool(inputs.prefer_merged_sorting),
         )
         sorting = _load_sorting_from_sorter_output_dir(sorter_output_dir=sorter_output_dir, sorter=inputs.sorter)
 

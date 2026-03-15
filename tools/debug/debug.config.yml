@@ -1,0 +1,174 @@
+paths:
+  h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5
+  stream_id: well001
+  mea_output_root: /home/adamm/dev/symlinks/local_RBS_data/outputs
+  mea_analysis_repo_root: /home/adamm/dev/pkgs/MEA_Analysis
+  axon_velocity_repo_root: /home/adamm/dev/pkgs/axon_velocity
+
+resources:
+  # Global fallbacks when a stage-specific resources block omits a key.
+  n_jobs: 24
+  chunk_duration: 1s
+
+stages:
+  preprocess:
+    execution:
+      debug: false
+      force_restart: false
+      force_replot: false
+    resources:
+      workers_total: 24
+      well_workers: 1
+      stage_workers: 24
+
+  spikesort:
+    execution:
+      debug: false
+      force_restart: false
+      force_replot: false
+    resources:
+      workers_total: 24
+      well_workers: 1
+      stage_workers: 24
+      chunk_duration: 1s
+    sorter: kilosort4
+    docker_image: adammwea/benshalomlab_spikesorter_pythonpatch:v3
+    #resume_from: null
+    resume_from: merge
+    rerun_analyzer: false
+    curation: true
+    auto_merge_units: false
+    auto_merge_template_diff_thresh: 0.05,0.15,0.25
+    kilosort:
+      batch_duration_s: 0.75
+      thresholds:
+        universal: 8
+        learned: 7
+        single_ch: 5
+      clustering:
+        downsampling: 15
+      channels:
+        nearest: 12
+        max_distance: 40
+    unitmatch:
+      merge_units: true
+      dry_run: false
+      output_subdir_name: unitmatch_outputs
+      throughput_subdir_name: unitmatch_throughput
+      max_spikes_per_unit: -1
+      oversplit_min_probability: 0.95
+      limits:
+        # max_candidate_pairs: 20000
+        # oversplit_max_suggestions: 2000
+          max_candidate_pairs: -1
+          oversplit_max_suggestions: -1
+      apply_merges: true
+      recursive: true
+      iterations:
+        #max: 5
+        max: -1
+        keep_all: true
+
+  waveforms:
+    execution:
+      debug: false
+      force_restart: false
+      force_replot: false
+    resources:
+      workers_total: 24
+      well_workers: 1
+      stage_workers: 24
+    ms_before: 1
+    ms_after: 2
+    #max_spikes_per_unit: 1000000
+    max_spikes_per_unit: -1
+    per_segment: true
+    filter_by_maxwell_epochs: false
+    filter_by_segment_bounds: false
+    prefer_merged_sorting: false
+    merged_sorting_dir: null
+    debug:
+      max_units: null
+      max_segments: null
+
+  templates:
+    execution:
+      debug: false
+      force_restart: false
+      force_replot: false
+    resources:
+      workers_total: 24
+      well_workers: 1
+      stage_workers: 24
+    include_concat: true
+    include_segments: true
+    footprint_unit_limit: null
+    templates_unit_limit: null
+    top_channels_per_template: 10
+    plot_grid_pdf: true
+    plot_multi_source_pdf: true
+    replot_from_disk: false
+    require_curated_units: true
+    time_upsample:
+      factor: 10
+      method: sinc
+
+  reconstruct:
+    execution:
+      debug: false
+      force_restart: false
+      force_replot: false
+    resources:
+      workers_total: 24
+      well_workers: 1
+      stage_workers: 24
+      unit_workers: 1
+    unit_limit: 1000
+    write_unit_pdfs: true
+    write_all_units_overview_pdf: true
+    write_top_density_grid: true
+    top_n_density_requested: all
+    templates_variant_name: null
+    variant_name: null
+    replot_top_density_grid_only: false
+    show_density_scale_debug_text: false
+    show_density_scale_global_debug_text: false
+    show_density_scale_local_debug_text: false
+    verbose: false
+    write_template_movie_gif: false
+    av:
+      min_points_after_branching: 2
+      min_path_length: 17.5
+      min_path_points: 4
+      max_peak_latency_for_splitting: 0.5
+      kurt_threshold: 0.25
+      n_neighbors: 8
+      distance_exp: 1
+      remove_isolated: false
+      detect_threshold: 0.005
+      min_selected_points: 25
+      mad_threshold: 10
+      min_outlier_tracking_error: 200
+      neighbor_radius: 50
+      split_paths: true
+      theilsen_maxiter: 8000
+
+  analysis:
+    execution:
+      debug: false
+      force_restart: false
+      force_replot: false
+    resources:
+      workers_total: 24
+      well_workers: 1
+      stage_workers: 24
+      unit_workers: 1
+    prefer_curated_waveforms_panels: true
+    botm:
+      enable: false
+      n_spike: 200
+      n_noise: 2000
+      seed: 0
+      sorter: kilosort4
+      channel_match_fraction_threshold: 0.7
+      channel_match_prior_signal: 0.5

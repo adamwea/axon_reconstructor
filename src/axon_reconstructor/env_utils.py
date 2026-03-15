@@ -281,19 +281,6 @@ def env_int_list(key: str) -> list[int] | None:
     return out
 
 
-def apply_thread_env(*, omp: int | None, mkl: int | None, openblas: int | None, numexpr: int | None) -> None:
-    """Best-effort set common CPU thread env vars."""
-
-    if omp is not None:
-        os.environ["OMP_NUM_THREADS"] = str(int(omp))
-    if mkl is not None:
-        os.environ["MKL_NUM_THREADS"] = str(int(mkl))
-    if openblas is not None:
-        os.environ["OPENBLAS_NUM_THREADS"] = str(int(openblas))
-    if numexpr is not None:
-        os.environ["NUMEXPR_NUM_THREADS"] = str(int(numexpr))
-
-
 def merge_json_overrides(base: dict[str, Any], *, json_str: str | None = None, json_path: Path | None = None) -> dict[str, Any]:
     """Merge optional JSON overrides into a dict (returns a new dict)."""
 

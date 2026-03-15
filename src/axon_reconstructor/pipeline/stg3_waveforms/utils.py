@@ -327,11 +327,20 @@ def _load_raw_segment_recording_full_channels(
     )
 
 
-def _resolve_mea_sorter_output_dir(*, well_out_dir: Path, use_merged_spikesorting_4x4: bool = False) -> Path:
-    if bool(use_merged_spikesorting_4x4):
-        merged = well_out_dir / "stg2_spikesorting_outputs" / "sorter_output_merged_4x4"
-        if merged.exists():
-            return merged
+def _resolve_mea_sorter_output_dir(
+    *,
+    well_out_dir: Path,
+    merged_sorting_dir: Path | None = None,
+    prefer_merged_sorting: bool = False,
+) -> Path:
+    if merged_sorting_dir is not None:
+        explicit_merged = Path(merged_sorting_dir)
+        if explicit_merged.exists():
+            return explicit_merged
+
+    canonical_merged = well_out_dir / "stg2_spikesorting_outputs" / "unitmatch_outputs" / "final_merged_sorting"
+    if bool(prefer_merged_sorting) and canonical_merged.exists():
+        return canonical_merged
 
     p = well_out_dir / "stg2_spikesorting_outputs" / "sorter_output"
     if p.exists():
