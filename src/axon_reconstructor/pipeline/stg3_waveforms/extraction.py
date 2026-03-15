@@ -287,7 +287,7 @@ def _extract_concat_waveforms(
         "method": "uniform",
         "seed": 0,
     }
-    if inputs.max_spikes_per_unit is not None:
+    if inputs.max_spikes_per_unit is not None and int(inputs.max_spikes_per_unit) >= 0:
         random_spikes_params["max_spikes_per_unit"] = int(inputs.max_spikes_per_unit)
 
     concat_analyzer.compute(
@@ -1019,7 +1019,7 @@ def _extract_per_segment_waveforms(
                     "method": "uniform",
                     "seed": 0,
                 }
-                if inputs.max_spikes_per_unit is not None:
+                if inputs.max_spikes_per_unit is not None and int(inputs.max_spikes_per_unit) >= 0:
                     random_spikes_params["max_spikes_per_unit"] = int(inputs.max_spikes_per_unit)
 
                 seg_analyzer.compute(

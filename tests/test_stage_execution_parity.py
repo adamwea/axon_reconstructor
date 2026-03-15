@@ -106,7 +106,7 @@ def test_stage_cli_dispatches_via_shared_stage_executor(monkeypatch, tmp_path: P
         stage_kwargs=None,
         debug=False,
         force_restart=False,
-        break_before_run=False,
+        force_replot=False,
         n_jobs=4,
         sorter="kilosort4",
         docker_image=None,

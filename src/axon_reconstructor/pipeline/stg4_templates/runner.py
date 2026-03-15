@@ -182,7 +182,7 @@ class TemplateExtractInputs:
     include_segments: bool = True
 
     # Optional input/output variant routing.
-    # - If `waveforms_variant_name` is set (e.g. "merged4x4"), templates reads
+    # - If `waveforms_variant_name` is set (e.g. "merged"), templates reads
     #   from `<well>/stg3_waveforms_outputs_<variant>`.
     # - If `templates_variant_name` is set, templates writes to
     #   `<well>/stg4_templates_outputs_<variant>` and uses a variant checkpoint.
@@ -196,7 +196,7 @@ class TemplateExtractInputs:
 
     # Templates should only run on curated units derived from spikesorting metrics.
     # If True and `unit_ids` is None, this requires `<well>/stg2_spikesorting_outputs/qm_unfiltered.xlsx`.
-    # Note: for merged-variant runs (e.g. merged4x4), curation is auto-disabled
+    # Note: for merged-variant runs, curation is auto-disabled
     # unless `require_curated_units` is explicitly set to True via stage kwargs.
     require_curated_units: bool = True
 

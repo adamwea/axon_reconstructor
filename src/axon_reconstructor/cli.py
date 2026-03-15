@@ -11,15 +11,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from axon_reconstructor import env_utils
+from axon_reconstructor.runtime_config import RuntimeConfig
 from axon_reconstructor.pipeline.pipeline_driver import (
     add_stage_analysis_args,
     add_stage_common_required_args,
-    add_stage_debug_controls,
     add_stage_execution_args,
     add_stage_kwargs_args,
     add_stage_reconstruct_args,
     add_stage_selector_arg,
     add_stage_spikesort_args,
+    add_stage_waveforms_args,
 )
 
 
@@ -112,6 +113,284 @@ def _parse_int_or_none_token(raw: str | int | None) -> int | None:
         return int(token)
     except Exception as e:
         raise SystemExit(f"Invalid int-or-none token: {raw!r}") from e
+
+
+def _parse_int_or_unlimited_to_optional(raw: str | int | None) -> int | None:
+    if raw is None:
+        return None
+    token = str(raw).strip().lower()
+    if token in {"", "none", "null", "all", "unlimited", "inf", "infinite"}:
+        return None
+    try:
+        value = int(token)
+    except Exception as e:
+        raise SystemExit(f"Invalid int-or-unlimited token: {raw!r}") from e
+    return None if value < 0 else int(value)
+
+
+def _resolve_required_str_cfg(
+    *,
+    cli_value: str | None,
+    cfg: RuntimeConfig,
+    cfg_path: str,
+    env_key: str,
+    cli_flag: str,
+) -> str:
+    if cli_value is not None and str(cli_value).strip() != "":
+        return str(cli_value)
+    cfg_value = cfg.get_str(cfg_path, default=None)
+    if cfg_value is not None:
+        return str(cfg_value)
+    env_value = env_utils.env_str(env_key, default=None)
+    if env_value is not None:
+        return str(env_value)
+    raise SystemExit(f"{cli_flag} is required (CLI/YAML/env)")
+
+
+def _resolve_required_path_cfg(
+    *,
+    cli_value: str | Path | None,
+    cfg: RuntimeConfig,
+    cfg_path: str,
+    env_key: str,
+    cli_flag: str,
+) -> Path:
+    if cli_value is not None and str(cli_value).strip() != "":
+        return Path(cli_value).expanduser().resolve()
+    cfg_value = cfg.get_path(cfg_path, default=None)
+    if cfg_value is not None:
+        return cfg_value
+    env_value = env_utils.env_path(env_key, default=None)
+    if env_value is not None:
+        return Path(env_value).expanduser().resolve()
+    raise SystemExit(f"{cli_flag} is required (CLI/YAML/env)")
+
+
+def _resolve_bool_cfg(
+    *,
+    cli_value: bool | None,
+    cfg: RuntimeConfig,
+    cfg_path: str,
+    env_key: str,
+    default: bool,
+) -> bool:
+    if cli_value is not None:
+        return bool(cli_value)
+    cfg_value = cfg.get_bool(cfg_path, default=None)
+    if cfg_value is not None:
+        return bool(cfg_value)
+    return bool(env_utils.env_bool(env_key, default=default))
+
+
+def _resolve_stage_bool_cfg(
+    *,
+    stage: str,
+    flag_name: str,
+    cli_value: bool | None,
+    cfg: RuntimeConfig,
+    env_key: str,
+    default: bool,
+    global_fallback_path: str | None,
+) -> bool:
+    if cli_value is not None:
+        return bool(cli_value)
+    stage_value = cfg.get_bool(f"stages.{stage}.execution.{flag_name}", default=None)
+    if stage_value is not None:
+        return bool(stage_value)
+    if global_fallback_path:
+        global_value = cfg.get_bool(global_fallback_path, default=None)
+        if global_value is not None:
+            return bool(global_value)
+    return bool(env_utils.env_bool(env_key, default=default))
+
+
+def _resolve_int_cfg(
+    *,
+    cli_value: int | None,
+    cfg: RuntimeConfig,
+    cfg_path: str,
+    env_key: str,
+    default: int,
+) -> int:
+    if cli_value is not None:
+        return int(cli_value)
+    cfg_value = cfg.get_int(cfg_path, default=None)
+    if cfg_value is not None:
+        return int(cfg_value)
+    env_value = env_utils.env_int(env_key, default=None)
+    if env_value is None:
+        return int(default)
+    return int(env_value)
+
+
+def _resolve_optional_int_cfg(
+    *,
+    cli_value: int | None,
+    cfg: RuntimeConfig,
+    cfg_path: str,
+    env_key: str,
+    default: int | None = None,
+) -> int | None:
+    if cli_value is not None:
+        return int(cli_value)
+    cfg_value = cfg.get_int(cfg_path, default=None)
+    if cfg_value is not None:
+        return int(cfg_value)
+    parsed = env_utils.env_typed(env_key, default=default)
+    if parsed is None:
+        return None
+    try:
+        return int(parsed)
+    except Exception as e:
+        raise SystemExit(f"Invalid integer for {env_key}: {parsed!r}") from e
+
+
+def _resolve_optional_float_cfg(
+    *,
+    cli_value: float | None,
+    cfg: RuntimeConfig,
+    cfg_path: str,
+    env_key: str,
+    default: float | None = None,
+) -> float | None:
+    if cli_value is not None:
+        return float(cli_value)
+    cfg_value = cfg.get_float(cfg_path, default=None)
+    if cfg_value is not None:
+        return float(cfg_value)
+    parsed = env_utils.env_typed(env_key, default=default)
+    if parsed is None:
+        return None
+    try:
+        return float(parsed)
+    except Exception as e:
+        raise SystemExit(f"Invalid float for {env_key}: {parsed!r}") from e
+
+
+def _resolve_optional_path_cfg(
+    *,
+    cli_value: str | Path | None,
+    cfg: RuntimeConfig,
+    cfg_path: str,
+    env_key: str,
+) -> Path | None:
+    if cli_value is not None and str(cli_value).strip() != "":
+        return Path(cli_value).expanduser().resolve()
+    cfg_value = cfg.get_path(cfg_path, default=None)
+    if cfg_value is not None:
+        return cfg_value
+    env_value = env_utils.env_path(env_key, default=None)
+    if env_value is None:
+        return None
+    return Path(env_value).expanduser().resolve()
+
+
+def _resolve_optional_str_cfg(
+    *,
+    cli_value: str | None,
+    cfg: RuntimeConfig,
+    cfg_path: str,
+    env_key: str,
+    default: str | None = None,
+) -> str | None:
+    if cli_value is not None and str(cli_value).strip() != "":
+        return str(cli_value)
+    cfg_value = cfg.get_str(cfg_path, default=None)
+    if cfg_value is not None:
+        return str(cfg_value)
+    return env_utils.env_str(env_key, default=default)
+
+
+def _first_cfg_int(cfg: RuntimeConfig, paths: list[str]) -> int | None:
+    for path in paths:
+        parsed = cfg.get_int(path, default=None)
+        if parsed is not None:
+            return int(parsed)
+    return None
+
+
+def _first_cfg_str(cfg: RuntimeConfig, paths: list[str]) -> str | None:
+    for path in paths:
+        parsed = cfg.get_str(path, default=None)
+        if parsed is not None and str(parsed).strip() != "":
+            return str(parsed)
+    return None
+
+
+def _logical_cores() -> int:
+    return max(1, int(os.cpu_count() or 1))
+
+
+def _clamp_worker_count(*, value: int, label: str, stage: str, logger: logging.Logger) -> int:
+    if int(value) < 1:
+        raise SystemExit(f"Invalid {label} for stage '{stage}': {value}. Expected >= 1.")
+    max_workers = _logical_cores()
+    if int(value) > max_workers:
+        logger.warning(
+            "Clamping %s for stage=%s from %d to logical core limit %d",
+            label,
+            stage,
+            int(value),
+            int(max_workers),
+        )
+        return int(max_workers)
+    return int(value)
+
+
+def _resolve_stage_resource_int(
+    *,
+    cfg: RuntimeConfig,
+    stage: str,
+    stage_paths: list[str],
+    global_path: str | None,
+    env_key: str | None,
+    cli_value: int | None,
+    default: int,
+    clamp: bool,
+    label: str,
+    logger: logging.Logger,
+) -> int:
+    if cli_value is not None:
+        out = int(cli_value)
+    else:
+        stage_value = _first_cfg_int(cfg, stage_paths)
+        if stage_value is not None:
+            out = int(stage_value)
+        else:
+            global_value = cfg.get_int(global_path, default=None) if global_path else None
+            if global_value is not None:
+                out = int(global_value)
+            else:
+                env_value = env_utils.env_int(env_key, default=None) if env_key else None
+                out = int(env_value) if env_value is not None else int(default)
+    if clamp:
+        return _clamp_worker_count(value=int(out), label=label, stage=stage, logger=logger)
+    return int(out)
+
+
+def _resolve_stage_resource_str(
+    *,
+    cfg: RuntimeConfig,
+    stage_paths: list[str],
+    global_path: str | None,
+    env_key: str | None,
+    cli_value: str | None,
+    default: str | None,
+) -> str | None:
+    if cli_value is not None and str(cli_value).strip() != "":
+        return str(cli_value)
+    stage_value = _first_cfg_str(cfg, stage_paths)
+    if stage_value is not None:
+        return str(stage_value)
+    if global_path:
+        global_value = cfg.get_str(global_path, default=None)
+        if global_value is not None and str(global_value).strip() != "":
+            return str(global_value)
+    if env_key:
+        env_value = env_utils.env_str(env_key, default=None)
+        if env_value is not None and str(env_value).strip() != "":
+            return str(env_value)
+    return default
 
 
 def _cmd_analysis_deck(args: argparse.Namespace) -> int:
@@ -342,58 +621,443 @@ def _load_stage_kwargs(args: argparse.Namespace) -> dict:
 
 def _cmd_stage(args: argparse.Namespace) -> int:
     _load_explicit_env_file(args=args)
+    config_path = getattr(args, "config", None)
+    if config_path is None:
+        env_file = getattr(args, "env_file", None)
+        candidates: list[Path] = []
+        if env_file is not None:
+            candidates.append(Path(env_file).expanduser().resolve().with_name("debug.config.yml"))
+            candidates.append(Path(env_file).expanduser().resolve().with_name("debug.config.yaml"))
+        candidates.append(Path("tools/debug/debug.config.yml").expanduser().resolve())
+        candidates.append(Path("tools/debug/debug.config.yaml").expanduser().resolve())
+        for candidate in candidates:
+            if candidate.exists() and candidate.is_file():
+                config_path = candidate
+                break
+
+    runtime_config = RuntimeConfig.load(config_path)
+    stage_logger = logging.getLogger("axon_reconstructor.stage")
 
     from axon_reconstructor.pipeline.pipeline_driver import StageExecutionContext, execute_stage
 
     stage = str(args.stage)
     stage_kwargs = _load_stage_kwargs(args)
 
-    debug_enabled = _resolve_bool(cli_value=getattr(args, "debug", None), env_key="AXON_RECON_DEBUG", default=False)
-    force_restart = _resolve_bool(
-        cli_value=getattr(args, "force_restart", None), env_key="AXON_RECON_FORCE_RESTART", default=False
+    debug_enabled = _resolve_stage_bool_cfg(
+        stage=stage,
+        flag_name="debug",
+        cli_value=getattr(args, "debug", None),
+        cfg=runtime_config,
+        env_key="AXON_RECON_DEBUG",
+        default=False,
+        global_fallback_path="global.debug",
     )
-    break_before_run = _resolve_bool(
-        cli_value=getattr(args, "break_before_run", None), env_key="AXON_RECON_BREAK_BEFORE_RUN", default=False
+    force_restart = _resolve_stage_bool_cfg(
+        stage=stage,
+        flag_name="force_restart",
+        cli_value=getattr(args, "force_restart", None),
+        cfg=runtime_config,
+        env_key="AXON_RECON_FORCE_RESTART",
+        default=False,
+        global_fallback_path="global.force_restart",
     )
-    n_jobs = _resolve_int(cli_value=getattr(args, "n_jobs", None), env_key="AXON_RECON_N_JOBS", default=8)
-    sorter = _resolve_optional_str(
+    force_replot = _resolve_stage_bool_cfg(
+        stage=stage,
+        flag_name="force_replot",
+        cli_value=getattr(args, "force_replot", None),
+        cfg=runtime_config,
+        env_key="AXON_RECON_FORCE_REPLOT",
+        default=False,
+        global_fallback_path="global.force_replot",
+    )
+    stage_workers = _resolve_stage_resource_int(
+        cfg=runtime_config,
+        stage=stage,
+        stage_paths=[
+            f"stages.{stage}.resources.stage_workers",
+            f"stages.{stage}.resources.workers_total",
+            f"stages.{stage}.resources.n_jobs",
+        ],
+        global_path="resources.n_jobs",
+        env_key="AXON_RECON_N_JOBS",
+        cli_value=getattr(args, "n_jobs", None),
+        default=8,
+        clamp=True,
+        label="stage_workers",
+        logger=stage_logger,
+    )
+    stage_well_workers = _resolve_stage_resource_int(
+        cfg=runtime_config,
+        stage=stage,
+        stage_paths=[f"stages.{stage}.resources.well_workers"],
+        global_path=None,
+        env_key=None,
+        cli_value=None,
+        default=1,
+        clamp=True,
+        label="well_workers",
+        logger=stage_logger,
+    )
+    if int(stage_well_workers) > 1:
+        stage_logger.info(
+            "stage resources.well_workers=%d configured for stage=%s; ignored for direct `stage` command (used by scope-run orchestration).",
+            int(stage_well_workers),
+            stage,
+        )
+    if "n_jobs" in stage_kwargs:
+        stage_kwargs["n_jobs"] = _clamp_worker_count(
+            value=int(stage_kwargs["n_jobs"]),
+            label="stage_kwargs.n_jobs",
+            stage=stage,
+            logger=stage_logger,
+        )
+    sorter = _resolve_optional_str_cfg(
         cli_value=getattr(args, "sorter", None), env_key="AXON_RECON_SORTER", default="kilosort4"
+        , cfg=runtime_config, cfg_path="stages.spikesort.sorter"
     )
-    docker_image = _resolve_optional_str(cli_value=getattr(args, "docker_image", None), env_key="AXON_RECON_DOCKER_IMAGE")
-    chunk_duration = _resolve_optional_str(
-        cli_value=getattr(args, "chunk_duration", None), env_key="AXON_RECON_CHUNK_DURATION"
+    docker_image = _resolve_optional_str_cfg(
+        cli_value=getattr(args, "docker_image", None),
+        cfg=runtime_config,
+        cfg_path="stages.spikesort.docker_image",
+        env_key="AXON_RECON_DOCKER_IMAGE",
     )
-    mea_analysis_repo_root = _resolve_optional_path(
+    chunk_duration = _resolve_stage_resource_str(
+        cfg=runtime_config,
+        stage_paths=[f"stages.{stage}.resources.chunk_duration"],
+        global_path="resources.chunk_duration",
+        env_key="AXON_RECON_CHUNK_DURATION",
+        cli_value=getattr(args, "chunk_duration", None),
+        default=None,
+    )
+    mea_analysis_repo_root = _resolve_optional_path_cfg(
         cli_value=getattr(args, "mea_analysis_repo_root", None), env_key="AXON_RECON_MEA_ANALYSIS_REPO_ROOT"
+        , cfg=runtime_config, cfg_path="paths.mea_analysis_repo_root"
     )
-    debug_max_units = _resolve_optional_int(
+    debug_max_units = _resolve_optional_int_cfg(
         cli_value=getattr(args, "debug_max_units", None), env_key="AXON_RECON_WF_DEBUG_MAX_UNITS", default=None
+        , cfg=runtime_config, cfg_path="stages.waveforms.debug.max_units"
     )
-    debug_max_segments = _resolve_optional_int(
+    debug_max_segments = _resolve_optional_int_cfg(
         cli_value=getattr(args, "debug_max_segments", None), env_key="AXON_RECON_WF_DEBUG_MAX_SEGMENTS", default=None
+        , cfg=runtime_config, cfg_path="stages.waveforms.debug.max_segments"
     )
 
     if bool(debug_enabled):
         logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s", force=True)
 
-    h5_path = _resolve_required_path(cli_value=args.h5_path, env_key="AXON_RECON_H5_PATH", cli_flag="--h5-path")
+    h5_path = _resolve_required_path_cfg(
+        cli_value=args.h5_path,
+        cfg=runtime_config,
+        cfg_path="paths.h5_path",
+        env_key="AXON_RECON_H5_PATH",
+        cli_flag="--h5-path",
+    )
     if not h5_path.exists():
         raise SystemExit(f"h5 path not found: {h5_path}")
 
-    stream_id = _resolve_required_str(cli_value=args.stream_id, env_key="AXON_RECON_STREAM_ID", cli_flag="--stream-id")
-    mea_output_root = _resolve_required_path(
+    stream_id = _resolve_required_str_cfg(
+        cli_value=args.stream_id,
+        cfg=runtime_config,
+        cfg_path="paths.stream_id",
+        env_key="AXON_RECON_STREAM_ID",
+        cli_flag="--stream-id",
+    )
+    mea_output_root = _resolve_required_path_cfg(
         cli_value=args.mea_output_root,
+        cfg=runtime_config,
+        cfg_path="paths.mea_output_root",
         env_key="AXON_RECON_MEA_OUTPUT_ROOT",
         cli_flag="--mea-output-root",
     )
 
-    if bool(break_before_run) and stage in {"preprocess", "spikesort"}:
-        import pdb
+    if bool(force_replot) and stage != "waveforms":
+        stage_logger.info(
+            "force_replot is currently applied only by the waveforms stage; ignoring for stage=%s",
+            stage,
+        )
 
-        print(f"break-before-run enabled for stage '{stage}'", file=sys.stderr)
-        pdb.set_trace()
+    stage_logger.info(
+        "Effective stage resources: stage=%s stage_workers=%d well_workers=%d chunk_duration=%s",
+        stage,
+        int(stage_workers),
+        int(stage_well_workers),
+        str(chunk_duration),
+    )
 
     if stage == "spikesort":
+        legacy_flat_spikesort_keys = {
+            "unitmatch_merge_units",
+            "unitmatch_dry_run",
+            "unitmatch_scored_dry_run",
+            "unitmatch_output_subdir_name",
+            "unitmatch_throughput_subdir_name",
+            "unitmatch_max_candidate_pairs",
+            "unitmatch_oversplit_min_probability",
+            "unitmatch_oversplit_max_suggestions",
+            "unitmatch_apply_merges",
+            "unitmatch_recursive",
+            "unitmatch_max_iterations",
+            "unitmatch_max_spikes_per_unit",
+            "unitmatch_keep_all_iterations",
+            "auto_merge_units",
+            "auto_merge_template_diff_thresh",
+        }
+        legacy_present = sorted([k for k in legacy_flat_spikesort_keys if k in stage_kwargs])
+        if legacy_present:
+            raise ValueError(
+                "Spikesort stage kwargs now require grouped keys (um_kwargs/am_kwargs/option_kwargs); "
+                f"legacy flat keys are not supported: {', '.join(legacy_present)}"
+            )
+
+        resume_from = _resolve_optional_str_cfg(
+            cli_value=getattr(args, "resume_from", None),
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.resume_from",
+            env_key="AXON_RECON_SPIKESORT_RESUME_FROM",
+            default=None,
+        )
+        if "resume_from" not in stage_kwargs and resume_from is not None:
+            stage_kwargs["resume_from"] = str(resume_from)
+
+        um_kwargs = stage_kwargs.get("um_kwargs")
+        if um_kwargs is None:
+            um_kwargs = {}
+        elif not isinstance(um_kwargs, dict):
+            raise ValueError("stage_kwargs.um_kwargs must be a mapping")
+
+        am_kwargs = stage_kwargs.get("am_kwargs")
+        if am_kwargs is None:
+            am_kwargs = {}
+        elif not isinstance(am_kwargs, dict):
+            raise ValueError("stage_kwargs.am_kwargs must be a mapping")
+
+        option_kwargs = stage_kwargs.get("option_kwargs")
+        if option_kwargs is None:
+            option_kwargs = {}
+        elif not isinstance(option_kwargs, dict):
+            raise ValueError("stage_kwargs.option_kwargs must be a mapping")
+
+        unitmatch_merge_units = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.unitmatch.merge_units",
+            env_key="AXON_RECON_SPIKESORT_UNITMATCH_MERGE_UNITS",
+            default=False,
+        )
+        if "merge_units" not in um_kwargs:
+            um_kwargs["merge_units"] = bool(unitmatch_merge_units)
+
+        unitmatch_dry_run = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.unitmatch.dry_run",
+            env_key="AXON_RECON_SPIKESORT_UNITMATCH_DRY_RUN",
+            default=True,
+        )
+        if "dry_run" not in um_kwargs:
+            um_kwargs["dry_run"] = bool(unitmatch_dry_run)
+
+        unitmatch_scored_dry_run = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.unitmatch.scored_dry_run",
+            env_key="AXON_RECON_SPIKESORT_UNITMATCH_SCORED_DRY_RUN",
+            default=True,
+        )
+        if "scored_dry_run" not in um_kwargs:
+            um_kwargs["scored_dry_run"] = bool(unitmatch_scored_dry_run)
+
+        unitmatch_output_subdir_name = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.unitmatch.output_subdir_name",
+            env_key="AXON_RECON_SPIKESORT_UNITMATCH_OUTPUT_SUBDIR_NAME",
+            default="unitmatch_outputs",
+        )
+        if "output_subdir_name" not in um_kwargs and unitmatch_output_subdir_name is not None:
+            um_kwargs["output_subdir_name"] = str(unitmatch_output_subdir_name)
+
+        unitmatch_throughput_subdir_name = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.unitmatch.throughput_subdir_name",
+            env_key="AXON_RECON_SPIKESORT_UNITMATCH_THROUGHPUT_SUBDIR_NAME",
+            default="unitmatch_throughput",
+        )
+        if "throughput_subdir_name" not in um_kwargs and unitmatch_throughput_subdir_name is not None:
+            um_kwargs["throughput_subdir_name"] = str(unitmatch_throughput_subdir_name)
+
+        unitmatch_oversplit_min_probability = _resolve_optional_float_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.unitmatch.oversplit_min_probability",
+            env_key="AXON_RECON_SPIKESORT_UNITMATCH_OVERSPLIT_MIN_PROBABILITY",
+            default=None,
+        )
+        if "oversplit_min_probability" not in um_kwargs and unitmatch_oversplit_min_probability is not None:
+            um_kwargs["oversplit_min_probability"] = float(unitmatch_oversplit_min_probability)
+
+        unitmatch_apply_merges = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.unitmatch.apply_merges",
+            env_key="AXON_RECON_SPIKESORT_UNITMATCH_APPLY_MERGES",
+            default=False,
+        )
+        if "apply_merges" not in um_kwargs:
+            um_kwargs["apply_merges"] = bool(unitmatch_apply_merges)
+
+        unitmatch_recursive = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.unitmatch.recursive",
+            env_key="AXON_RECON_SPIKESORT_UNITMATCH_RECURSIVE",
+            default=False,
+        )
+        if "recursive" not in um_kwargs:
+            um_kwargs["recursive"] = bool(unitmatch_recursive)
+
+        if runtime_config.has("stages.spikesort.unitmatch.uncapped_iterations"):
+            stage_logger.warning(
+                "Deprecated config key stages.spikesort.unitmatch.uncapped_iterations is ignored; use stages.spikesort.unitmatch.iterations.max=-1 for uncapped recursion."
+            )
+
+        unitmatch_keep_all_iterations = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.unitmatch.keep_all_iterations",
+            env_key="AXON_RECON_SPIKESORT_UNITMATCH_KEEP_ALL_ITERATIONS",
+            default=True,
+        )
+        if "keep_all_iterations" not in um_kwargs:
+            um_kwargs["keep_all_iterations"] = bool(unitmatch_keep_all_iterations)
+
+        max_candidate_pairs_cfg = runtime_config.get_int_or_unlimited(
+            "stages.spikesort.unitmatch.max_candidate_pairs", default=None
+        )
+        if max_candidate_pairs_cfg is None:
+            max_candidate_pairs_cfg = runtime_config.get_int_or_unlimited(
+                "stages.spikesort.unitmatch.limits.max_candidate_pairs", default=None
+            )
+        max_candidate_pairs_env = env_utils.env_str("AXON_RECON_SPIKESORT_UNITMATCH_MAX_CANDIDATE_PAIRS", default=None)
+        max_candidate_pairs_env_parsed = None
+        if max_candidate_pairs_env is not None:
+            max_candidate_pairs_env_parsed = RuntimeConfig({"v": max_candidate_pairs_env}).get_int_or_unlimited("v", default=None)
+        max_candidate_pairs = max_candidate_pairs_cfg if max_candidate_pairs_cfg is not None else max_candidate_pairs_env_parsed
+        if "max_candidate_pairs" not in um_kwargs and max_candidate_pairs is not None:
+            um_kwargs["max_candidate_pairs"] = int(max_candidate_pairs)
+
+        oversplit_max_suggestions_cfg = runtime_config.get_int_or_unlimited(
+            "stages.spikesort.unitmatch.oversplit_max_suggestions", default=None
+        )
+        if oversplit_max_suggestions_cfg is None:
+            oversplit_max_suggestions_cfg = runtime_config.get_int_or_unlimited(
+                "stages.spikesort.unitmatch.limits.oversplit_max_suggestions", default=None
+            )
+        oversplit_max_suggestions_env = env_utils.env_str("AXON_RECON_SPIKESORT_UNITMATCH_OVERSPLIT_MAX_SUGGESTIONS", default=None)
+        oversplit_max_suggestions_env_parsed = None
+        if oversplit_max_suggestions_env is not None:
+            oversplit_max_suggestions_env_parsed = RuntimeConfig({"v": oversplit_max_suggestions_env}).get_int_or_unlimited("v", default=None)
+        oversplit_max_suggestions = (
+            oversplit_max_suggestions_cfg
+            if oversplit_max_suggestions_cfg is not None
+            else oversplit_max_suggestions_env_parsed
+        )
+        if "oversplit_max_suggestions" not in um_kwargs and oversplit_max_suggestions is not None:
+            um_kwargs["oversplit_max_suggestions"] = int(oversplit_max_suggestions)
+
+        max_iterations_cfg = runtime_config.get_int_or_unlimited(
+            "stages.spikesort.unitmatch.max_iterations", default=None
+        )
+        if max_iterations_cfg is None:
+            max_iterations_cfg = runtime_config.get_int_or_unlimited(
+                "stages.spikesort.unitmatch.iterations.max", default=None
+            )
+        max_iterations_env = env_utils.env_str("AXON_RECON_SPIKESORT_UNITMATCH_MAX_ITERATIONS", default=None)
+        max_iterations_env_parsed = None
+        if max_iterations_env is not None:
+            max_iterations_env_parsed = RuntimeConfig({"v": max_iterations_env}).get_int_or_unlimited("v", default=None)
+        max_iterations = max_iterations_cfg if max_iterations_cfg is not None else max_iterations_env_parsed
+        if "max_iterations" not in um_kwargs and max_iterations is not None:
+            um_kwargs["max_iterations"] = int(max_iterations)
+
+        max_spikes_per_unit_cfg = runtime_config.get_int_or_unlimited(
+            "stages.spikesort.unitmatch.max_spikes_per_unit", default=None
+        )
+        max_spikes_per_unit_env = env_utils.env_str("AXON_RECON_SPIKESORT_UNITMATCH_MAX_SPIKES_PER_UNIT", default=None)
+        max_spikes_per_unit_env_parsed = None
+        if max_spikes_per_unit_env is not None:
+            max_spikes_per_unit_env_parsed = RuntimeConfig({"v": max_spikes_per_unit_env}).get_int_or_unlimited("v", default=None)
+        max_spikes_per_unit = (
+            max_spikes_per_unit_cfg if max_spikes_per_unit_cfg is not None else max_spikes_per_unit_env_parsed
+        )
+        if "max_spikes_per_unit" not in um_kwargs and max_spikes_per_unit is not None:
+            um_kwargs["max_spikes_per_unit"] = int(max_spikes_per_unit)
+
+        unitmatch_generate_reports = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.unitmatch.generate_reports",
+            env_key="AXON_RECON_SPIKESORT_UNITMATCH_GENERATE_REPORTS",
+            default=True,
+        )
+        if "generate_reports" not in um_kwargs:
+            um_kwargs["generate_reports"] = bool(unitmatch_generate_reports)
+
+        unitmatch_report_subdir_name = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.unitmatch.report_subdir_name",
+            env_key="AXON_RECON_SPIKESORT_UNITMATCH_REPORT_SUBDIR_NAME",
+            default="unitmatch_reports",
+        )
+        if "report_subdir_name" not in um_kwargs and unitmatch_report_subdir_name is not None:
+            um_kwargs["report_subdir_name"] = str(unitmatch_report_subdir_name)
+
+        unitmatch_report_max_heatmap_units = _resolve_optional_int_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.unitmatch.report_max_heatmap_units",
+            env_key="AXON_RECON_SPIKESORT_UNITMATCH_REPORT_MAX_HEATMAP_UNITS",
+            default=200,
+        )
+        if "report_max_heatmap_units" not in um_kwargs and unitmatch_report_max_heatmap_units is not None:
+            um_kwargs["report_max_heatmap_units"] = int(unitmatch_report_max_heatmap_units)
+
+        auto_merge_units = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.auto_merge_units",
+            env_key="AXON_RECON_SPIKESORT_AUTO_MERGE_UNITS",
+            default=False,
+        )
+        if "enabled" not in am_kwargs:
+            am_kwargs["enabled"] = bool(auto_merge_units)
+
+        auto_merge_template_diff_thresh = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.auto_merge_template_diff_thresh",
+            env_key="AXON_RECON_SPIKESORT_AUTO_MERGE_TEMPLATE_DIFF_THRESH",
+            default="0.05,0.15,0.25",
+        )
+        if "template_diff_thresh" not in am_kwargs and auto_merge_template_diff_thresh is not None:
+            am_kwargs["template_diff_thresh"] = str(auto_merge_template_diff_thresh)
+
+        force_rerun_analyzer = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.rerun_analyzer",
+            env_key="AXON_RECON_SPIKESORT_RERUN_ANALYZER",
+            default=False,
+        )
+        if "force_rerun_analyzer" not in option_kwargs:
+            option_kwargs["force_rerun_analyzer"] = bool(force_rerun_analyzer)
+
+        stage_kwargs["um_kwargs"] = um_kwargs
+        stage_kwargs["am_kwargs"] = am_kwargs
+        stage_kwargs["option_kwargs"] = option_kwargs
+
         ks_overrides = {
             "ks_th_universal": _resolve_optional_float(
                 cli_value=getattr(args, "ks_th_universal", None),
@@ -431,29 +1095,62 @@ def _cmd_stage(args: argparse.Namespace) -> int:
                 stage_kwargs[key] = value
 
     if stage == "waveforms":
+        max_spikes_per_unit_raw: str | int | None = getattr(args, "max_spikes_per_unit", None)
+        if max_spikes_per_unit_raw is None:
+            max_spikes_per_unit_cfg = runtime_config.get_int_or_unlimited("stages.waveforms.max_spikes_per_unit", default=None)
+            max_spikes_per_unit_raw = max_spikes_per_unit_cfg
+        if max_spikes_per_unit_raw is None:
+            max_spikes_per_unit_raw = env_utils.env_str("AXON_RECON_WF_MAX_SPIKES_PER_UNIT", default=None)
+        max_spikes_per_unit = _parse_int_or_unlimited_to_optional(max_spikes_per_unit_raw)
+
         if "debug_max_units" not in stage_kwargs and debug_max_units is not None:
             stage_kwargs["debug_max_units"] = int(debug_max_units)
         if "debug_max_segments" not in stage_kwargs and debug_max_segments is not None:
             stage_kwargs["debug_max_segments"] = int(debug_max_segments)
+        if "force_replot" not in stage_kwargs:
+            stage_kwargs["force_replot"] = bool(force_replot)
+        if "max_spikes_per_unit" not in stage_kwargs and max_spikes_per_unit is not None:
+            stage_kwargs["max_spikes_per_unit"] = int(max_spikes_per_unit)
 
-        filter_by_maxwell_epochs = _resolve_bool(
+        prefer_merged_sorting = _resolve_bool(
+            cli_value=getattr(args, "prefer_merged_sorting", None),
+            env_key="AXON_RECON_WF_PREFER_MERGED_SORTING",
+            default=False,
+        )
+        if "prefer_merged_sorting" not in stage_kwargs:
+            stage_kwargs["prefer_merged_sorting"] = bool(prefer_merged_sorting)
+
+        merged_sorting_dir = _resolve_optional_path(
+            cli_value=getattr(args, "merged_sorting_dir", None),
+            env_key="AXON_RECON_WF_MERGED_SORTING_DIR",
+        )
+        if "merged_sorting_dir" not in stage_kwargs and merged_sorting_dir is not None:
+            stage_kwargs["merged_sorting_dir"] = str(merged_sorting_dir)
+
+        filter_by_maxwell_epochs = _resolve_bool_cfg(
             cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.waveforms.filter_by_maxwell_epochs",
             env_key="AXON_RECON_WF_FILTER_BY_MAXWELL_EPOCHS",
             default=True,
         )
         if "filter_by_maxwell_epochs" not in stage_kwargs:
             stage_kwargs["filter_by_maxwell_epochs"] = bool(filter_by_maxwell_epochs)
 
-        filter_by_segment_bounds = _resolve_bool(
+        filter_by_segment_bounds = _resolve_bool_cfg(
             cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.waveforms.filter_by_segment_bounds",
             env_key="AXON_RECON_WF_FILTER_BY_SEGMENT_BOUNDS",
             default=True,
         )
         if "filter_by_segment_bounds" not in stage_kwargs:
             stage_kwargs["filter_by_segment_bounds"] = bool(filter_by_segment_bounds)
 
-        segment_sort_safety_cleanup = _resolve_bool(
+        segment_sort_safety_cleanup = _resolve_bool_cfg(
             cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.waveforms.segment_sort_safety_cleanup",
             env_key="AXON_RECON_WF_SEGMENT_SORT_SAFETY_CLEANUP",
             default=True,
         )
@@ -470,16 +1167,10 @@ def _cmd_stage(args: argparse.Namespace) -> int:
                 recompute_channel_groups_for_reused_segments
             )
 
-        use_merged_spikesorting_4x4 = _resolve_bool(
+        waveforms_variant_name = _resolve_optional_str_cfg(
             cli_value=None,
-            env_key="AXON_RECON_WF_USE_MERGED_SPIKESORTING_4X4",
-            default=False,
-        )
-        if "use_merged_spikesorting_4x4" not in stage_kwargs:
-            stage_kwargs["use_merged_spikesorting_4x4"] = bool(use_merged_spikesorting_4x4)
-
-        waveforms_variant_name = _resolve_optional_str(
-            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.waveforms.variant_name",
             env_key="AXON_RECON_WF_VARIANT_NAME",
             default=None,
         )
@@ -487,6 +1178,45 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             stage_kwargs["waveforms_variant_name"] = str(waveforms_variant_name)
 
     if stage == "reconstruct":
+        if "unit_workers" in stage_kwargs:
+            stage_kwargs["unit_workers"] = _clamp_worker_count(
+                value=int(stage_kwargs["unit_workers"]),
+                label="stage_kwargs.unit_workers",
+                stage=stage,
+                logger=stage_logger,
+            )
+        else:
+            unit_workers = _resolve_stage_resource_int(
+                cfg=runtime_config,
+                stage=stage,
+                stage_paths=[
+                    "stages.reconstruct.resources.unit_workers",
+                    "stages.reconstruct.unit_workers",
+                ],
+                global_path=None,
+                env_key="AXON_RECON_RECON_UNIT_WORKERS",
+                cli_value=None,
+                default=1,
+                clamp=True,
+                label="unit_workers",
+                logger=stage_logger,
+            )
+            stage_kwargs["unit_workers"] = int(unit_workers)
+
+    if stage == "templates":
+        template_unit_workers = _first_cfg_int(
+            runtime_config,
+            [
+                "stages.templates.resources.unit_workers",
+                "stages.templates.resources.template_unit_workers",
+            ],
+        )
+        if template_unit_workers is not None and int(template_unit_workers) > 1:
+            stage_logger.info(
+                "templates resources unit worker settings are not yet implemented; configured value=%d is currently no-op.",
+                int(template_unit_workers),
+            )
+
         templates_variant_name = _resolve_optional_str(
             cli_value=getattr(args, "recon_templates_variant_name", None),
             env_key="AXON_RECON_RECON_TEMPLATES_VARIANT_NAME",
@@ -551,6 +1281,19 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             stage_kwargs["replot_top_density_grid_only"] = bool(replot_top_density_grid_only)
 
     if stage == "analysis":
+        analysis_unit_workers = _first_cfg_int(
+            runtime_config,
+            [
+                "stages.analysis.resources.unit_workers",
+                "stages.analysis.resources.analysis_unit_workers",
+            ],
+        )
+        if analysis_unit_workers is not None and int(analysis_unit_workers) > 1:
+            stage_logger.info(
+                "analysis resources unit worker settings are not yet implemented; configured value=%d is currently no-op.",
+                int(analysis_unit_workers),
+            )
+
         if args.unit_ids:
             unit_ids = [int(value) for value in args.unit_ids]
         else:
@@ -622,7 +1365,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         stream_id=stream_id,
         mea_output_root=mea_output_root,
         force_restart=bool(force_restart),
-        n_jobs=int(n_jobs),
+        n_jobs=int(stage_workers),
         sorter=str(sorter or "kilosort4"),
         docker_image=docker_image,
         chunk_duration=chunk_duration,
@@ -758,12 +1501,18 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Optional .env file to load before resolving stage args (CLI flags override env values).",
     )
+    p_stage.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Optional YAML/JSON runtime config file. Precedence: CLI > config > env > defaults.",
+    )
     add_stage_selector_arg(p_stage)
     add_stage_common_required_args(p_stage)
     add_stage_spikesort_args(p_stage)
+    add_stage_waveforms_args(p_stage)
     add_stage_execution_args(p_stage)
     add_stage_reconstruct_args(p_stage)
-    add_stage_debug_controls(p_stage)
     add_stage_analysis_args(p_stage)
     add_stage_kwargs_args(p_stage)
     p_stage.set_defaults(func=_cmd_stage)

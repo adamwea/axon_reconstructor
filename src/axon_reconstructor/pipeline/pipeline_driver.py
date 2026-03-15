@@ -54,6 +54,11 @@ def add_stage_spikesort_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--docker-image", default=None)
     parser.add_argument("--chunk-duration", default=None)
     parser.add_argument(
+        "--resume-from",
+        default=None,
+        help="Resume MEA_Analysis from stage token (e.g. merge) (env: AXON_RECON_SPIKESORT_RESUME_FROM).",
+    )
+    parser.add_argument(
         "--ks-th-universal",
         type=float,
         default=None,
@@ -91,6 +96,38 @@ def add_stage_spikesort_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_stage_waveforms_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--prefer-merged-sorting",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Prefer canonical merged sorting artifact from unitmatch_outputs/final_merged_sorting (env: AXON_RECON_WF_PREFER_MERGED_SORTING).",
+    )
+    parser.add_argument(
+        "--merged-sorting-dir",
+        default=None,
+        help="Optional explicit merged sorting folder override (env: AXON_RECON_WF_MERGED_SORTING_DIR).",
+    )
+    parser.add_argument(
+        "--max-spikes-per-unit",
+        type=str,
+        default=None,
+        help="Waveforms random_spikes cap per unit; accepts int or uncapped tokens (-1/all/unlimited/none).",
+    )
+    parser.add_argument(
+        "--debug-max-units",
+        type=int,
+        default=None,
+        help="Limit waveforms stage to first N units (env: AXON_RECON_WF_DEBUG_MAX_UNITS).",
+    )
+    parser.add_argument(
+        "--debug-max-segments",
+        type=int,
+        default=None,
+        help="Limit waveforms stage to first N segments when per-segment extraction is enabled (env: AXON_RECON_WF_DEBUG_MAX_SEGMENTS).",
+    )
+
+
 def add_stage_execution_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--n-jobs", type=int, default=None, help="Override worker count (env fallback: AXON_RECON_N_JOBS).")
     parser.add_argument(
@@ -98,6 +135,12 @@ def add_stage_execution_args(parser: argparse.ArgumentParser) -> None:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Override restart behavior (env fallback: AXON_RECON_FORCE_RESTART).",
+    )
+    parser.add_argument(
+        "--force-replot",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override replot behavior (env fallback: AXON_RECON_FORCE_REPLOT).",
     )
     parser.add_argument(
         "--debug",
@@ -155,27 +198,6 @@ def add_stage_reconstruct_args(parser: argparse.ArgumentParser) -> None:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Replot top-density grid only from existing reconstruction outputs (env: AXON_RECON_RECON_REPLOT_TOP_DENSITY_GRID_ONLY).",
-    )
-
-
-def add_stage_debug_controls(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--break-before-run",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Drop into debugger before running preprocess/spikesort stage logic (env: AXON_RECON_BREAK_BEFORE_RUN).",
-    )
-    parser.add_argument(
-        "--debug-max-units",
-        type=int,
-        default=None,
-        help="Limit waveforms stage to first N units (env: AXON_RECON_WF_DEBUG_MAX_UNITS).",
-    )
-    parser.add_argument(
-        "--debug-max-segments",
-        type=int,
-        default=None,
-        help="Limit waveforms stage to first N segments when per-segment extraction is enabled (env: AXON_RECON_WF_DEBUG_MAX_SEGMENTS).",
     )
 
 
@@ -292,22 +314,6 @@ def execute_stage(
         }
         spikesort_fields.update(kwargs)
 
-        # Backward-compatibility: ignore deprecated post-merge 4x4 fields.
-        for deprecated_key in [
-            "post_merge_4x4_units",
-            "post_merge_block_size_channels",
-            "post_merge_recursive",
-            "post_merge_max_iterations",
-            "post_merge_channel_pitch_um",
-            "omp_threads",
-            "mkl_threads",
-            "openblas_threads",
-            "numexpr_threads",
-            "torch_threads",
-            "torch_interop_threads",
-        ]:
-            spikesort_fields.pop(deprecated_key, None)
-
         out = run_spikesorting_stage(
             inputs=SpikeSortingInputs(**spikesort_fields),
             logger=logger or logging.getLogger(f"axon_reconstructor.stage.{context.stream_id}.spikesort"),
@@ -317,6 +323,7 @@ def execute_stage(
             artifacts={
                 "sorter_output_dir": str(out.sorter_output_dir),
                 "output_dir": str(out.output_dir),
+                "merged_sorting_dir": (str(out.merged_sorting_dir) if out.merged_sorting_dir is not None else None),
                 "merged_sorter_output_dir": (str(out.merged_sorter_output_dir) if out.merged_sorter_output_dir is not None else None),
             },
         )
@@ -331,6 +338,8 @@ def execute_stage(
             "force_restart": bool(context.force_restart),
         }
         waveform_fields.update(kwargs)
+        if waveform_fields.get("merged_sorting_dir") is not None:
+            waveform_fields["merged_sorting_dir"] = Path(waveform_fields["merged_sorting_dir"]).expanduser().resolve()
         out = extract_waveforms(inputs=WaveformExtractInputs(**waveform_fields))
         return StageExecutionResult(stage=stage, artifacts={"waveforms_out_dir": str(out.waveforms_out_dir)})
 

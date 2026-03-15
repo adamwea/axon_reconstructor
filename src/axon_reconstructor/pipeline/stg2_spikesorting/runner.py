@@ -13,7 +13,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from ..checkpointing import ProcessingStage as AxonProcessingStage, load_checkpoint
 from ..pipeline_logging import log_stage_complete, log_stage_failure, log_stage_start
@@ -79,17 +79,14 @@ class SpikeSortingInputs:
 
     # Analyzer options (default-off)
     force_rerun_analyzer: bool = False
-    # Testing override: force merge phase to run on resume by asking MEA_Analysis
-    # to rerun analyzer pipeline steps.
-    force_merge_on_resume: bool = False
-    unitmatch_merge_units: bool = False
-    unitmatch_dry_run: bool = True
-    auto_merge_units: bool = False
-    # CSV string like "0.05,0.15,0.25"; only used if auto_merge_units=True
-    auto_merge_template_diff_thresh: str = "0.05,0.15,0.25"
+    um_kwargs: Optional[dict[str, Any]] = None
+    am_kwargs: Optional[dict[str, Any]] = None
+    option_kwargs: Optional[dict[str, Any]] = None
 
     # If True, ignore existing MEA_Analysis checkpoints for this run.
     force_restart: bool = False
+    # Optional checkpoint rewind stage in MEA_Analysis (e.g. "merge").
+    resume_from: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -98,6 +95,7 @@ class SpikeSortingOutputs:
     sorter_output_dir: Path
     output_dir: Path
     analyzer_dir: Path
+    merged_sorting_dir: Optional[Path] = None
     merged_sorter_output_dir: Optional[Path] = None
 
 
@@ -316,11 +314,21 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         ProcessingStage as MEAProcessingStage,
     )
 
+    um_kwargs = dict(inputs.um_kwargs or {})
+    am_kwargs = dict(inputs.am_kwargs or {})
+    option_kwargs = dict(inputs.option_kwargs or {})
+    option_kwargs.setdefault("cuda_visible_devices", inputs.cuda_visible_devices)
+    option_kwargs.setdefault("force_rerun_analyzer", bool(inputs.force_rerun_analyzer))
+    option_kwargs.setdefault("skip_preprocessing", True)
+    option_kwargs.setdefault("preprocessed_recording", recording)
+
     logger.info(
-        "Merge config: unitmatch_merge_units=%s unitmatch_dry_run=%s auto_merge_units=%s",
-        bool(inputs.unitmatch_merge_units),
-        bool(inputs.unitmatch_dry_run),
-        bool(inputs.auto_merge_units),
+        "Merge config: unitmatch_merge_units=%s unitmatch_dry_run=%s unitmatch_apply_merges=%s unitmatch_recursive=%s auto_merge_units=%s",
+        bool(um_kwargs.get("merge_units", False)),
+        bool(um_kwargs.get("dry_run", True)),
+        bool(um_kwargs.get("apply_merges", False)),
+        bool(um_kwargs.get("recursive", False)),
+        bool(am_kwargs.get("enabled", False)),
     )
 
     logger.info("Initializing MEA_Analysis pipeline options (sorting/analyzer/reports)")
@@ -336,16 +344,13 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         verbose=inputs.verbose,
         cleanup=False,
         force_restart=inputs.force_restart,
-        sorter_kwargs=(sorter_kwargs if sorter_kwargs else None),
-        unitmatch_merge_units=bool(inputs.unitmatch_merge_units),
-        unitmatch_dry_run=bool(inputs.unitmatch_dry_run),
-        auto_merge_units=bool(inputs.auto_merge_units),
-        force_rerun_analyzer=bool(inputs.force_rerun_analyzer or inputs.force_merge_on_resume),
-        preprocessed_recording=recording,
-        skip_preprocessing=True,
+        resume_from=inputs.resume_from,
         n_jobs=inputs.n_jobs,
         chunk_duration=inputs.chunk_duration,
-        cuda_visible_devices=inputs.cuda_visible_devices,
+        sorter_kwargs=(sorter_kwargs if sorter_kwargs else None),
+        um_kwargs=um_kwargs,
+        am_kwargs=am_kwargs,
+        option_kwargs=option_kwargs,
         skip_spikesorting=False,
         run_analyzer=bool(inputs.run_analyzer),
         run_reports=bool(inputs.run_reports),
@@ -356,7 +361,6 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         plot_debug=False,
         raster_sort=None,
         fixed_y=False,
-        auto_merge_template_diff_thresh=str(inputs.auto_merge_template_diff_thresh),
     )
 
     if sorter_kwargs:
@@ -376,6 +380,9 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         pipeline = run_result.pipeline
 
         sorter_output_dir = pipeline.output_dir / "sorter_output"
+        merged_sorting_dir = pipeline.output_dir / "unitmatch_outputs" / "final_merged_sorting"
+        if not merged_sorting_dir.exists():
+            merged_sorting_dir = None
         merged_sorter_output_dir: Optional[Path] = None
 
         logger.info("Sorting output folder: %s", sorter_output_dir)
@@ -407,6 +414,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
                 "spikesorting_out_dir": str(pipeline.output_dir),
                 "sorter_output_dir": str(sorter_output_dir),
                 "analyzer_dir": str(analyzer_dir),
+                "merged_sorting_dir": (str(merged_sorting_dir) if merged_sorting_dir is not None else None),
                 "recording_profile": str(recording_profile),
                 "mea_analysis_checkpoint_file": str(getattr(pipeline, "checkpoint_file", "")),
                 "checkpoint_owner": "axon_reconstructor_wrapper",
@@ -426,6 +434,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
             sorter_output_dir=sorter_output_dir,
             output_dir=pipeline.output_dir,
             analyzer_dir=analyzer_dir,
+            merged_sorting_dir=merged_sorting_dir,
             merged_sorter_output_dir=merged_sorter_output_dir,
         )
     except Exception as e:
