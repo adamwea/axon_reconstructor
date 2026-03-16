@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..stg1_preprocessing.constants import PREPROCESS_OUTPUTS_DIRNAME
-from ..stg1_preprocessing.utils import _ensure_maxwell_hdf5_plugin_path
+from ..stg1_mea_analysis.constants import PREPROCESS_OUTPUTS_DIRNAME
+from ..stg1_mea_analysis.utils import _ensure_maxwell_hdf5_plugin_path
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ def _infer_cutout_ms(*, h5_path: Path, stream_id: str, fs_hz: float) -> tuple[fl
     """Infer ms_before/ms_after from trigger_pre/trigger_post when available."""
 
     try:
-        from ..stg1_preprocessing.h5_helpers import _read_well_rec_frame_nos_and_trigger_settings
+        from ..stg1_mea_analysis.h5_helpers import _read_well_rec_frame_nos_and_trigger_settings
 
         import h5py  # type: ignore[import-not-found]
 

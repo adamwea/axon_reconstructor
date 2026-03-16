@@ -6,6 +6,7 @@ This package is where the end-to-end reconstruction pipeline objects live.
 import sys
 
 from .alias_modules import analysis, preprocessing, reconstruction, spikesorting, templates, waveforms
+from . import runner
 from .alias_modules.analysis import AnalysisInputs, AnalysisOutputs, analyze_units
 from .alias_modules.preprocessing import run_preprocess_stage
 from .alias_modules.reconstruction import ReconstructionInputs, ReconstructionOutputs, reconstruct_from_templates
@@ -18,6 +19,7 @@ sys.modules[__name__ + ".waveforms"] = waveforms
 sys.modules[__name__ + ".templates"] = templates
 sys.modules[__name__ + ".reconstruction"] = reconstruction
 sys.modules[__name__ + ".analysis"] = analysis
+sys.modules[__name__ + ".runner"] = runner
 
 __all__ = [
     "AnalysisInputs",

@@ -18,7 +18,7 @@ from typing import Any, Optional
 from ..checkpointing import ProcessingStage as AxonProcessingStage, load_checkpoint
 from ..pipeline_logging import log_stage_complete, log_stage_failure, log_stage_start
 from ..checkpointing import compute_stage_checkpoint_file, save_stage_completed, save_stage_failed, save_stage_started
-from ..stg1_preprocessing.constants import PREPROCESS_OUTPUTS_DIRNAME
+from ..stg1_mea_analysis.constants import PREPROCESS_OUTPUTS_DIRNAME
 
 
 SPIKESORTING_OUTPUTS_DIRNAME = "stg2_spikesorting_outputs"
@@ -329,6 +329,11 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         bool(um_kwargs.get("apply_merges", False)),
         bool(um_kwargs.get("recursive", False)),
         bool(am_kwargs.get("enabled", False)),
+    )
+    logger.info(
+        "Preprocess topology config forwarded: expect_multisegment=%s multiseg_mode=%s",
+        option_kwargs.get("expect_multisegment", None),
+        option_kwargs.get("multiseg_mode", None),
     )
 
     logger.info("Initializing MEA_Analysis pipeline options (sorting/analyzer/reports)")

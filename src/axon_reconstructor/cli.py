@@ -12,7 +12,7 @@ from pathlib import Path
 
 from axon_reconstructor import env_utils
 from axon_reconstructor.runtime_config import RuntimeConfig
-from axon_reconstructor.pipeline.pipeline_driver import (
+from axon_reconstructor.pipeline.runner import (
     add_stage_analysis_args,
     add_stage_common_required_args,
     add_stage_execution_args,
@@ -638,7 +638,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
     runtime_config = RuntimeConfig.load(config_path)
     stage_logger = logging.getLogger("axon_reconstructor.stage")
 
-    from axon_reconstructor.pipeline.pipeline_driver import StageExecutionContext, execute_stage
+    from axon_reconstructor.pipeline.runner import StageExecutionContext, execute_stage
 
     stage = str(args.stage)
     stage_kwargs = _load_stage_kwargs(args)
@@ -1054,6 +1054,26 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         if "force_rerun_analyzer" not in option_kwargs:
             option_kwargs["force_rerun_analyzer"] = bool(force_rerun_analyzer)
 
+        expect_multisegment = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.multiseg.expect_multisegment",
+            env_key="AXON_RECON_SPIKESORT_EXPECT_MULTISEGMENT",
+            default=None,
+        )
+        if "expect_multisegment" not in option_kwargs and expect_multisegment is not None:
+            option_kwargs["expect_multisegment"] = str(expect_multisegment)
+
+        multiseg_mode = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.spikesort.multiseg.mode",
+            env_key="AXON_RECON_SPIKESORT_MULTISEG_MODE",
+            default="none",
+        )
+        if "multiseg_mode" not in option_kwargs and multiseg_mode is not None:
+            option_kwargs["multiseg_mode"] = str(multiseg_mode)
+
         stage_kwargs["um_kwargs"] = um_kwargs
         stage_kwargs["am_kwargs"] = am_kwargs
         stage_kwargs["option_kwargs"] = option_kwargs
@@ -1406,7 +1426,7 @@ def _cmd_scope_run(args: argparse.Namespace) -> int:
     _load_explicit_env_file(args=args)
 
     from axon_reconstructor.pipeline.scope_config import load_scope_config, summarize_scope_config, validate_scope_config
-    from axon_reconstructor.pipeline.pipeline_driver import run_scope_stage_barriers, write_scope_run_summary
+    from axon_reconstructor.pipeline.runner import run_scope_stage_barriers, write_scope_run_summary
 
     scope_config = load_scope_config(Path(args.config))
     errors = validate_scope_config(scope_config)

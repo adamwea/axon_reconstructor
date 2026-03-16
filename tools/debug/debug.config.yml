@@ -5,6 +5,12 @@ paths:
   mea_analysis_repo_root: /home/adamm/dev/pkgs/MEA_Analysis
   axon_velocity_repo_root: /home/adamm/dev/pkgs/axon_velocity
 
+python:
+  # User-agnostic template path; ${HOME} expands per user.
+  executable_path: ${HOME}/miniconda3/envs/axon_recon/bin/python
+  # Preferred fallback when executable_path is absent on a machine.
+  conda_env_name: axon_recon
+
 resources:
   # Global fallbacks when a stage-specific resources block omits a key.
   n_jobs: 24

@@ -79,6 +79,8 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
         if args.rerun_analyzer is None
         else bool(args.rerun_analyzer)
     )
+    expect_multisegment = env.env_str("AXON_RECON_SPIKESORT_EXPECT_MULTISEGMENT", default=None)
+    multiseg_mode = env.env_str("AXON_RECON_SPIKESORT_MULTISEG_MODE", default="none")
     resume_from = (
         str(args.resume_from)
         if getattr(args, "resume_from", None) is not None
@@ -128,6 +130,8 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
     option_kwargs = {
         "force_rerun_analyzer": bool(force_rerun_analyzer),
         "cuda_visible_devices": cuda_visible_devices,
+        "expect_multisegment": expect_multisegment,
+        "multiseg_mode": multiseg_mode,
     }
 
     inputs = SpikeSortingInputs(

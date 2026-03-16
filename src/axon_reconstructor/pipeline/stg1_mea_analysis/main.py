@@ -5,17 +5,11 @@ The heavy concatenation implementation lives in .runner to keep this module orch
 
 from __future__ import annotations
 
+import importlib
 import logging
 from pathlib import Path
 from typing import Optional
 
-from ..checkpointing import (
-    ProcessingStage,
-    compute_checkpoint_file,
-    exception_to_error_dict,
-    load_checkpoint,
-    save_checkpoint,
-)
 from ..output_paths import compute_mea_analysis_output_dir
 from ..pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
 from .constants import PREPROCESS_OUTPUTS_DIRNAME
@@ -23,6 +17,17 @@ from .constants import PREPROCESS_OUTPUTS_DIRNAME
 from .concatenation import find_common_electrodes_from_segments
 from .planning import RawPreprocessPlan, build_preprocess_plan, discover_cfg_files, parse_cfg_channel_locations
 from .runner import build_concatenated_recording
+
+
+def _mea_checkpoint_api():
+    mod = importlib.import_module("MEA_Analysis.IPNAnalysis.multiseg_utils.preprocess_multiseg_h5.checkpoint")
+    return {
+        "ProcessingStage": getattr(mod, "ProcessingStage"),
+        "compute_checkpoint_file": getattr(mod, "compute_checkpoint_file"),
+        "exception_to_error_dict": getattr(mod, "exception_to_error_dict"),
+        "load_checkpoint": getattr(mod, "load_checkpoint"),
+        "save_checkpoint": getattr(mod, "save_checkpoint"),
+    }
 
 
 def run_preprocess_stage(
@@ -42,6 +47,13 @@ def run_preprocess_stage(
     overwrite_saved_recording: bool = True,
     logger: Optional[logging.Logger] = None,
 ) -> tuple[object, list[int]]:
+    ckpt_api = _mea_checkpoint_api()
+    ProcessingStage = ckpt_api["ProcessingStage"]
+    compute_checkpoint_file = ckpt_api["compute_checkpoint_file"]
+    exception_to_error_dict = ckpt_api["exception_to_error_dict"]
+    load_checkpoint = ckpt_api["load_checkpoint"]
+    save_checkpoint = ckpt_api["save_checkpoint"]
+
     plan = build_preprocess_plan(h5_path=h5_path, stream_id=stream_id)
 
     logger = logger or logging.getLogger("axon_reconstructor.preprocess")
@@ -280,6 +292,7 @@ def run_preprocess_stage(
         )
 
     return multirec, common_el
+
 
 __all__ = [
     "RawPreprocessPlan",

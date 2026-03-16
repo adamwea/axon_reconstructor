@@ -9,7 +9,7 @@ from ..checkpointing import (
     load_checkpoint,
 )
 from ..output_paths import compute_mea_analysis_output_dir
-from ..stg1_preprocessing.constants import PREPROCESS_OUTPUTS_DIRNAME
+from ..stg1_mea_analysis.constants import PREPROCESS_OUTPUTS_DIRNAME
 from ..pipeline_logging import build_stage_logger
 from ..checkpointing import compute_stage_checkpoint_file
 

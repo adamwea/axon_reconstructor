@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from importlib import import_module
 
-_target = import_module("axon_reconstructor.pipeline.stg1_preprocessing")
+_target = import_module("axon_reconstructor.pipeline.stg1_mea_analysis")
 
 __all__ = list(getattr(_target, "__all__", []))
 __doc__ = getattr(_target, "__doc__", __doc__)
