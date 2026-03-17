@@ -57,6 +57,11 @@ Optional (temporal interpolation / upsampling):
 
 When `mea_analysis_output_root` is configured, outputs live under the MEA_Analysis-style per-well folder:
 
+- `stages.mea_analysis.phases.preprocessing.execution.save_binary`
+   - `true`: persist the preprocessed recording folder using SpikeInterface binary format
+   - `false`: run preprocessing in-memory without writing the recording artifacts
+- `stages.mea_analysis.phases.preprocessing.outputs.preprocessed_recording` controls the relative destination path for that saved recording when `save_binary=true`.
+
 - `<well_out_dir>/stg1_preprocess_outputs/`
   - `preprocessed_recording/` (SpikeInterface binary recording; optional but recommended)
   - `common_electrodes.npy`

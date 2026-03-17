@@ -57,11 +57,30 @@ def _get_console_handler(logger: logging.Logger) -> logging.StreamHandler | None
     return None
 
 
+def _coerce_log_level(level: int | str | None, *, fallback: int) -> int:
+    if level is None:
+        return int(fallback)
+    if isinstance(level, int):
+        return int(level)
+    token = str(level).strip()
+    if token == "":
+        return int(fallback)
+    # Accept both numeric strings and level names (e.g. INFO, debug).
+    if token.isdigit():
+        return int(token)
+    mapped = logging.getLevelName(token.upper())
+    if isinstance(mapped, int):
+        return int(mapped)
+    raise ValueError(f"Invalid logging level: {level!r}")
+
+
 def setup_pipeline_logger(
     *,
     log_file: Path,
     logger_name: str,
     verbose: bool = True,
+    console_level: int | str | None = None,
+    file_level: int | str | None = None,
     stream: Optional[object] = None,
 ) -> logging.Logger:
     """Create/return a MEA_Analysis-like logger.
@@ -91,10 +110,11 @@ def setup_pipeline_logger(
     logger.setLevel(logging.DEBUG)
     logger.propagate = False
 
-    formatter = logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s")
+    formatter = logging.Formatter("[%(name)s] [%(levelname)s] %(message)s")
 
     # File handler (append). Only attach once per log file.
-    file_level = logging.DEBUG if verbose else logging.INFO
+    default_level = logging.DEBUG if verbose else logging.INFO
+    effective_file_level = _coerce_log_level(file_level, fallback=default_level)
     existing_fh = _get_file_handler(logger, log_file)
     if existing_fh is None:
         fh = logging.FileHandler(log_file, mode="a")
@@ -103,22 +123,22 @@ def setup_pipeline_logger(
         except Exception:
             pass
         fh.setFormatter(formatter)
-        fh.setLevel(file_level)
+        fh.setLevel(effective_file_level)
         logger.addHandler(fh)
     else:
-        existing_fh.setLevel(file_level)
+        existing_fh.setLevel(effective_file_level)
 
     # Stream handler (stdout). Attach at most one.
     stream = stream if stream is not None else sys.stdout
-    console_level = logging.DEBUG if verbose else logging.INFO
+    effective_console_level = _coerce_log_level(console_level, fallback=default_level)
     existing_ch = _get_console_handler(logger)
     if existing_ch is None:
         ch = logging.StreamHandler(stream)
         ch.setFormatter(formatter)
-        ch.setLevel(console_level)
+        ch.setLevel(effective_console_level)
         logger.addHandler(ch)
     else:
-        existing_ch.setLevel(console_level)
+        existing_ch.setLevel(effective_console_level)
 
     return logger
 
@@ -131,12 +151,16 @@ def build_stage_logger(
     stage_name: str,
     logger_name_prefix: str = "axon_reconstructor",
     verbose: bool = True,
+    console_level: int | str | None = None,
+    file_level: int | str | None = None,
 ) -> logging.Logger:
     log_file = compute_pipeline_log_file(well_out_dir=well_out_dir, data_file=data_file, stream_id=stream_id)
     return setup_pipeline_logger(
         log_file=log_file,
         logger_name=f"{logger_name_prefix}.{stream_id}.{stage_name}",
         verbose=bool(verbose),
+        console_level=console_level,
+        file_level=file_level,
     )
 
 

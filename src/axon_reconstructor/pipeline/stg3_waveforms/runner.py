@@ -255,55 +255,61 @@ def extract_waveforms(
         )
         sorting = _load_sorting_from_sorter_output_dir(sorter_output_dir=sorter_output_dir, sorter=inputs.sorter)
 
-        # Postprocessing parity with MEA_Analysis (after pairing sorting with the concat recording):
-        # remove spikes that fall beyond the recording length, then drop any units that
-        # became empty as a result. This prevents analyzer-time indexing errors and
-        # keeps downstream metrics consistent.
-        # NOTE: this step may not be necessery if the sorter output is already cleaned. aw 2026-02-01 21:47:35
         try:
-            import spikeinterface.full as si  # type: ignore[import-not-found]
-
-            sorting = si.remove_excess_spikes(sorting, recording)
-            sorting = sorting.remove_empty_units()
-        except Exception:
-            ctx.logger.debug(
-                "Sorting cleanup (remove_excess_spikes/remove_empty_units) failed; continuing without cleanup.",
-                exc_info=True,
+            from MEA_Analysis.IPNAnalysis.multiseg_utils.extract_multiseg_wfs import (
+                harmonize_waveform_sorting,
             )
 
-        # Optional debug limit: restrict to a subset of units early to reduce compute.
-        try:
-            if inputs.debug_max_units is not None:
-                max_units = int(inputs.debug_max_units)
-                if max_units > 0:
-                    try:
-                        unit_ids = list(sorting.get_unit_ids())
-                    except Exception:
-                        unit_ids = list(getattr(sorting, "unit_ids", []))
-
-                    if unit_ids:
-                        try:
-                            unit_ids_sorted = sorted(unit_ids)
-                        except Exception:
-                            unit_ids_sorted = sorted(unit_ids, key=lambda x: str(x))
-
-                        keep = unit_ids_sorted[:max_units]
-                        try:
-                            sorting = sorting.select_units(unit_ids=keep)
-                        except Exception:
-                            # Some Sorting implementations use positional args.
-                            try:
-                                sorting = sorting.select_units(keep)
-                            except Exception:
-                                pass
-
-                        ctx.logger.warning(
-                            "DEBUG: limiting waveforms to first %d units (of %d)",
-                            int(len(keep)),
-                            int(len(unit_ids_sorted)),
-                        )
+            sorting = harmonize_waveform_sorting(
+                sorting=sorting,
+                recording=recording,
+                debug_max_units=inputs.debug_max_units,
+                logger=ctx.logger,
+            )
         except Exception:
-            pass
+            # Fallback local behavior if shared MEA helper is unavailable.
+            try:
+                import spikeinterface.full as si  # type: ignore[import-not-found]
+
+                sorting = si.remove_excess_spikes(sorting, recording)
+                sorting = sorting.remove_empty_units()
+            except Exception:
+                ctx.logger.debug(
+                    "Sorting cleanup (remove_excess_spikes/remove_empty_units) failed; continuing without cleanup.",
+                    exc_info=True,
+                )
+
+            try:
+                if inputs.debug_max_units is not None:
+                    max_units = int(inputs.debug_max_units)
+                    if max_units > 0:
+                        try:
+                            unit_ids = list(sorting.get_unit_ids())
+                        except Exception:
+                            unit_ids = list(getattr(sorting, "unit_ids", []))
+
+                        if unit_ids:
+                            try:
+                                unit_ids_sorted = sorted(unit_ids)
+                            except Exception:
+                                unit_ids_sorted = sorted(unit_ids, key=lambda x: str(x))
+
+                            keep = unit_ids_sorted[:max_units]
+                            try:
+                                sorting = sorting.select_units(unit_ids=keep)
+                            except Exception:
+                                try:
+                                    sorting = sorting.select_units(keep)
+                                except Exception:
+                                    pass
+
+                            ctx.logger.warning(
+                                "DEBUG: limiting waveforms to first %d units (of %d)",
+                                int(len(keep)),
+                                int(len(unit_ids_sorted)),
+                            )
+            except Exception:
+                pass
 
         # Load epoch marker JSONs produced during preprocessing.
         # Scientific rationale: Maxwell recordings can contain snippet discontinuities;

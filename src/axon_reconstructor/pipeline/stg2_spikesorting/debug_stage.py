@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -79,8 +80,20 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
         if args.rerun_analyzer is None
         else bool(args.rerun_analyzer)
     )
-    expect_multisegment = env.env_str("AXON_RECON_SPIKESORT_EXPECT_MULTISEGMENT", default=None)
-    multiseg_mode = env.env_str("AXON_RECON_SPIKESORT_MULTISEG_MODE", default="none")
+    multiseg_mode = env.env_bool("AXON_RECON_SPIKESORT_MULTISEG_MODE", default=False)
+    waveform_prefer_merged_sorting = env.env_bool("AXON_RECON_WF_PREFER_MERGED_SORTING", default=False)
+    waveform_merged_sorting_dir = env.env_str("AXON_RECON_WF_MERGED_SORTING_DIR", default=None)
+    enable_phase_output_overrides = env.env_bool("AXON_RECON_MEA_ENABLE_PHASE_OUTPUT_OVERRIDES", default=False)
+    phase_output_paths_json = env.env_str("AXON_RECON_MEA_PHASE_OUTPUT_PATHS_JSON", default=None)
+    phase_output_paths: dict[str, Any] = {}
+    if bool(enable_phase_output_overrides) and phase_output_paths_json:
+        try:
+            parsed = json.loads(str(phase_output_paths_json))
+            if isinstance(parsed, dict):
+                phase_output_paths = parsed
+        except Exception:
+            phase_output_paths = {}
+
     resume_from = (
         str(args.resume_from)
         if getattr(args, "resume_from", None) is not None
@@ -130,8 +143,10 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
     option_kwargs = {
         "force_rerun_analyzer": bool(force_rerun_analyzer),
         "cuda_visible_devices": cuda_visible_devices,
-        "expect_multisegment": expect_multisegment,
-        "multiseg_mode": multiseg_mode,
+        "multiseg_mode": bool(multiseg_mode),
+        "waveform_prefer_merged_sorting": bool(waveform_prefer_merged_sorting),
+        "waveform_merged_sorting_dir": waveform_merged_sorting_dir,
+        "phase_output_paths": phase_output_paths,
     }
 
     inputs = SpikeSortingInputs(

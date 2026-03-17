@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from axon_reconstructor import env_utils
+from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+from axon_reconstructor.pipeline.pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
 from axon_reconstructor.runtime_config import RuntimeConfig
 from axon_reconstructor.pipeline.runner import (
     add_stage_analysis_args,
@@ -202,6 +204,46 @@ def _resolve_stage_bool_cfg(
         if global_value is not None:
             return bool(global_value)
     return bool(env_utils.env_bool(env_key, default=default))
+
+
+def _resolve_stage_log_level_cfg(
+    *,
+    stage: str,
+    cfg: RuntimeConfig,
+    target: str,
+    debug_enabled: bool,
+) -> str:
+    cfg_paths = [
+        f"stages.{stage}.logging.{target}_level",
+        f"stages.mea_analysis.logging.{target}_level",
+        f"global.logging.{target}_level",
+    ]
+    env_key = f"AXON_RECON_LOG_{target.upper()}_LEVEL"
+
+    raw: object | None = None
+    for path in cfg_paths:
+        if cfg.has(path):
+            raw = cfg.get(path, None)
+            break
+    if raw is None:
+        raw = env_utils.env_str(env_key, default=None)
+
+    if raw is None:
+        return "DEBUG" if bool(debug_enabled) else "INFO"
+
+    token = str(raw).strip()
+    if token == "":
+        return "DEBUG" if bool(debug_enabled) else "INFO"
+    if token.isdigit():
+        return token
+
+    level_name = token.upper()
+    resolved = logging.getLevelName(level_name)
+    if not isinstance(resolved, int):
+        raise SystemExit(
+            f"Invalid logging level for {target}_level: {raw!r}. Use DEBUG/INFO/WARNING/ERROR/CRITICAL or integer level."
+        )
+    return level_name
 
 
 def _resolve_int_cfg(
@@ -674,6 +716,9 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         cfg=runtime_config,
         stage=stage,
         stage_paths=[
+            "stages.mea_analysis.resources.stage_workers",
+            "stages.mea_analysis.resources.workers_total",
+            "stages.mea_analysis.resources.n_jobs",
             f"stages.{stage}.resources.stage_workers",
             f"stages.{stage}.resources.workers_total",
             f"stages.{stage}.resources.n_jobs",
@@ -689,7 +734,10 @@ def _cmd_stage(args: argparse.Namespace) -> int:
     stage_well_workers = _resolve_stage_resource_int(
         cfg=runtime_config,
         stage=stage,
-        stage_paths=[f"stages.{stage}.resources.well_workers"],
+        stage_paths=[
+            "stages.mea_analysis.resources.well_workers",
+            f"stages.{stage}.resources.well_workers",
+        ],
         global_path=None,
         env_key=None,
         cli_value=None,
@@ -713,17 +761,20 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         )
     sorter = _resolve_optional_str_cfg(
         cli_value=getattr(args, "sorter", None), env_key="AXON_RECON_SORTER", default="kilosort4"
-        , cfg=runtime_config, cfg_path="stages.spikesort.sorter"
+        , cfg=runtime_config, cfg_path="stages.mea_analysis.phases.spikesorting.sorter"
     )
     docker_image = _resolve_optional_str_cfg(
         cli_value=getattr(args, "docker_image", None),
         cfg=runtime_config,
-        cfg_path="stages.spikesort.docker_image",
+        cfg_path="stages.mea_analysis.phases.spikesorting.docker_image",
         env_key="AXON_RECON_DOCKER_IMAGE",
     )
     chunk_duration = _resolve_stage_resource_str(
         cfg=runtime_config,
-        stage_paths=[f"stages.{stage}.resources.chunk_duration"],
+        stage_paths=[
+            "stages.mea_analysis.resources.chunk_duration",
+            f"stages.{stage}.resources.chunk_duration",
+        ],
         global_path="resources.chunk_duration",
         env_key="AXON_RECON_CHUNK_DURATION",
         cli_value=getattr(args, "chunk_duration", None),
@@ -735,15 +786,15 @@ def _cmd_stage(args: argparse.Namespace) -> int:
     )
     debug_max_units = _resolve_optional_int_cfg(
         cli_value=getattr(args, "debug_max_units", None), env_key="AXON_RECON_WF_DEBUG_MAX_UNITS", default=None
-        , cfg=runtime_config, cfg_path="stages.waveforms.debug.max_units"
+        , cfg=runtime_config, cfg_path="stages.mea_analysis.phases.analyzer.waveforms.debug.max_units"
     )
     debug_max_segments = _resolve_optional_int_cfg(
         cli_value=getattr(args, "debug_max_segments", None), env_key="AXON_RECON_WF_DEBUG_MAX_SEGMENTS", default=None
-        , cfg=runtime_config, cfg_path="stages.waveforms.debug.max_segments"
+        , cfg=runtime_config, cfg_path="stages.mea_analysis.phases.analyzer.waveforms.debug.max_segments"
     )
 
     if bool(debug_enabled):
-        logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s", force=True)
+        logging.basicConfig(level=logging.DEBUG, format="[%(name)s] [%(levelname)s] %(message)s", force=True)
 
     h5_path = _resolve_required_path_cfg(
         cli_value=args.h5_path,
@@ -770,11 +821,647 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         cli_flag="--mea-output-root",
     )
 
-    if bool(force_replot) and stage != "waveforms":
+    console_log_level = _resolve_stage_log_level_cfg(
+        stage=stage,
+        cfg=runtime_config,
+        target="terminal",
+        debug_enabled=bool(debug_enabled),
+    )
+    file_log_level = _resolve_stage_log_level_cfg(
+        stage=stage,
+        cfg=runtime_config,
+        target="file",
+        debug_enabled=bool(debug_enabled),
+    )
+    well_out_dir = compute_mea_analysis_output_dir(
+        output_root=mea_output_root,
+        data_file=h5_path,
+        well=stream_id,
+    )
+    stage_log_file = compute_pipeline_log_file(
+        well_out_dir=well_out_dir,
+        data_file=h5_path,
+        stream_id=stream_id,
+    )
+    stage_logger = setup_pipeline_logger(
+        log_file=stage_log_file,
+        logger_name=f"{__name__}[stream={stream_id}][stage={stage}]",
+        verbose=bool(debug_enabled),
+        console_level=console_log_level,
+        file_level=file_log_level,
+        stream=sys.__stdout__,
+    )
+    stage_logger.info(
+        "Logger levels: terminal=%s file=%s",
+        str(console_log_level),
+        str(file_log_level),
+    )
+
+    if bool(force_replot) and stage not in {"waveforms", "preprocess"}:
         stage_logger.info(
             "force_replot is currently applied only by the waveforms stage; ignoring for stage=%s",
             stage,
         )
+
+    if stage == "preprocess":
+        preprocess_force_replot = _resolve_bool_cfg(
+            cli_value=getattr(args, "force_replot", None),
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.execution.force_replot",
+            env_key="AXON_RECON_PREPROCESS_FORCE_REPLOT",
+            default=bool(force_replot),
+        )
+        save_binary = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.execution.save_binary",
+            env_key="AXON_RECON_PREPROCESS_SAVE_BINARY",
+            default=True,
+        )
+        preprocess_root = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.preprocess_root",
+            env_key="AXON_RECON_PREPROCESS_ROOT",
+            default=None,
+        )
+        if preprocess_root is None:
+            preprocess_root = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.outputs.multiseg.multiseg_preprocess_outputs",
+                env_key="AXON_RECON_PREPROCESS_MULTISEG_OUTPUTS",
+                default=None,
+            )
+
+        centered_in_root = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.centered.in_root",
+            env_key="AXON_RECON_PREPROCESS_CENTERED_IN_ROOT",
+            default=True,
+        )
+        preprocessed_in_root = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.preprocessed.in_root",
+            env_key="AXON_RECON_PREPROCESS_PREPROCESSED_IN_ROOT",
+            default=True,
+        )
+        reports_in_root = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.reports.in_root",
+            env_key="AXON_RECON_PREPROCESS_REPORTS_IN_ROOT",
+            default=False,
+        )
+        data_in_root = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.data.in_root",
+            env_key="AXON_RECON_PREPROCESS_DATA_IN_ROOT",
+            default=True,
+        )
+
+        concat_recording = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.centered.concat_recording",
+            env_key="AXON_RECON_PREPROCESSED_RECORDING",
+            default=None,
+        )
+        if concat_recording is None:
+            concat_recording = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.outputs.multiseg.concat_recording",
+                env_key="AXON_RECON_PREPROCESSED_RECORDING",
+                default=None,
+            )
+        if concat_recording is None:
+            concat_recording = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.outputs.preprocessed_recording",
+                env_key="AXON_RECON_PREPROCESSED_RECORDING",
+                default=None,
+            )
+        preprocessed_concat = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.preprocessed.concat_recording",
+            env_key="AXON_RECON_PREPROCESSED_RECORDING",
+            default=None,
+        )
+        if preprocessed_concat is None:
+            preprocessed_concat = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.outputs.multiseg.preprocessed_concat",
+                env_key="AXON_RECON_PREPROCESSED_RECORDING",
+                default=None,
+            )
+        common_electrodes = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.data.common_electrodes",
+            env_key="AXON_RECON_COMMON_ELECTRODES",
+            default=None,
+        )
+        if common_electrodes is None:
+            common_electrodes = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.preprocessed.common_electrodes",
+            env_key="AXON_RECON_COMMON_ELECTRODES",
+            default=None,
+            )
+        if common_electrodes is None:
+            common_electrodes = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.outputs.multiseg.common_electrodes",
+                env_key="AXON_RECON_COMMON_ELECTRODES",
+                default=None,
+            )
+        preprocess_config = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.reports.preprocess_config",
+            env_key="AXON_RECON_PREPROCESS_CONFIG",
+            default=None,
+        )
+        if preprocess_config is None:
+            preprocess_config = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.outputs.preprocess_config",
+                env_key="AXON_RECON_PREPROCESS_CONFIG",
+                default=None,
+            )
+
+        assay_stats = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.reports.assay_stats",
+            env_key="AXON_RECON_PREPROCESS_ASSAY_STATS",
+            default=None,
+        )
+        multiseg_preprocess_outputs = preprocess_root
+        centered_segments = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.centered.segments_dir",
+            env_key="AXON_RECON_PREPROCESS_CENTERED_SEGMENTS",
+            default=None,
+        )
+        if centered_segments is None:
+            centered_segments = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.outputs.multiseg.centered_segments",
+                env_key="AXON_RECON_PREPROCESS_CENTERED_SEGMENTS",
+                default=None,
+            )
+        preprocessed_segments = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.preprocessed.segments_dir",
+            env_key="AXON_RECON_PREPROCESS_PREPROCESSED_SEGMENTS",
+            default=None,
+        )
+        if preprocessed_segments is None:
+            preprocessed_segments = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.outputs.multiseg.preprocessed_segments",
+                env_key="AXON_RECON_PREPROCESS_PREPROCESSED_SEGMENTS",
+                default=None,
+            )
+
+        maxwell_epochs = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.reports.maxwell_epochs",
+            env_key="AXON_RECON_PREPROCESS_MAXWELL_EPOCHS",
+            default=None,
+        )
+        if maxwell_epochs is None:
+            maxwell_epochs = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.outputs.multiseg.maxwell_epochs",
+                env_key="AXON_RECON_PREPROCESS_MAXWELL_EPOCHS",
+                default=None,
+            )
+        concat_epochs = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.reports.concat_epochs",
+            env_key="AXON_RECON_PREPROCESS_CONCAT_EPOCHS",
+            default=None,
+        )
+        if concat_epochs is None:
+            concat_epochs = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.outputs.multiseg.concat_epochs",
+                env_key="AXON_RECON_PREPROCESS_CONCAT_EPOCHS",
+                default=None,
+            )
+        channels_report = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.reports.channels",
+            env_key="AXON_RECON_PREPROCESS_CHANNELS_JSON",
+            default=None,
+        )
+        if channels_report is None:
+            channels_report = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.outputs.channels",
+                env_key="AXON_RECON_PREPROCESS_CHANNELS_JSON",
+                default=None,
+            )
+        channel_layouts = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.reports.channel_layouts_dir",
+            env_key="AXON_RECON_PREPROCESS_CHANNEL_LAYOUTS",
+            default=None,
+        )
+        if channel_layouts is None:
+            channel_layouts = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.centered.channel_layouts_dir",
+            env_key="AXON_RECON_PREPROCESS_CHANNEL_LAYOUTS",
+            default=None,
+            )
+        if channel_layouts is None:
+            channel_layouts = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.outputs.diagnostics.channel_layouts",
+                env_key="AXON_RECON_PREPROCESS_CHANNEL_LAYOUTS",
+                default=None,
+            )
+        channel_layout_heatmap = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.reports.channel_layout_heatmap",
+            env_key="AXON_RECON_PREPROCESS_CHANNEL_LAYOUT_HEATMAP_PATH",
+            default=None,
+        )
+        segment_traces = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.centered.segment_traces_dir",
+            env_key="AXON_RECON_PREPROCESS_SEGMENT_TRACES",
+            default=None,
+        )
+        if segment_traces is None:
+            segment_traces = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.outputs.diagnostics.segment_traces",
+                env_key="AXON_RECON_PREPROCESS_SEGMENT_TRACES",
+                default=None,
+            )
+        preprocessed_segment_traces = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.preprocessed.segment_traces_dir",
+            env_key="AXON_RECON_PREPROCESS_PREPROCESSED_SEGMENT_TRACES",
+            default=None,
+        )
+        if preprocessed_segment_traces is None:
+            preprocessed_segment_traces = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.outputs.multiseg.preprocessed_segment_traces",
+                env_key="AXON_RECON_PREPROCESS_PREPROCESSED_SEGMENT_TRACES",
+                default=None,
+            )
+        concat_cluster_reps = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.centered.concat_trace_plot",
+            env_key="AXON_RECON_PREPROCESS_CONCAT_CLUSTER_REPS",
+            default=None,
+        )
+        if concat_cluster_reps is None:
+            concat_cluster_reps = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.outputs.diagnostics.concat_cluster_reps",
+                env_key="AXON_RECON_PREPROCESS_CONCAT_CLUSTER_REPS",
+                default=None,
+            )
+        preprocessed_concat_cluster_reps = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.outputs.preprocessed.concat_trace_plot",
+            env_key="AXON_RECON_PREPROCESS_PREPROCESSED_CONCAT_CLUSTER_REPS",
+            default=None,
+        )
+        if preprocessed_concat_cluster_reps is None:
+            preprocessed_concat_cluster_reps = _resolve_optional_str_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.outputs.multiseg.preprocessed_concat_cluster_reps",
+                env_key="AXON_RECON_PREPROCESS_PREPROCESSED_CONCAT_CLUSTER_REPS",
+                default=None,
+            )
+        n_trace_channels = _resolve_optional_int_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.multiseg.plot.n_trace_channels",
+            env_key="AXON_RECON_PREPROCESS_N_TRACE_CHANNELS",
+            default=24,
+        )
+        if n_trace_channels is None:
+            n_trace_channels = _resolve_optional_int_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.outputs.diagnostics.n_trace_channels",
+                env_key="AXON_RECON_PREPROCESS_N_TRACE_CHANNELS",
+                default=24,
+            )
+        plot_centered_traces = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.multiseg.plot.centered_traces",
+            env_key="AXON_RECON_PREPROCESS_PLOT_CENTERED",
+            default=True,
+        )
+        plot_preprocessed_traces = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.multiseg.plot.preprocessed_traces",
+            env_key="AXON_RECON_PREPROCESS_PLOT_PREPROCESSED",
+            default=True,
+        )
+        plot_channel_layouts = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.multiseg.plot.channel_layouts",
+            env_key="AXON_RECON_PREPROCESS_PLOT_CHANNEL_LAYOUTS",
+            default=True,
+        )
+        plot_channel_layout_heatmap = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.multiseg.plot.channel_layout_heatmap",
+            env_key="AXON_RECON_PREPROCESS_PLOT_CHANNEL_LAYOUT_HEATMAP",
+            default=False,
+        )
+        centered_outputs_enabled = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.multiseg.enable_outputs",
+            env_key="AXON_RECON_PREPROCESS_CENTERED_ENABLE",
+            default=True,
+        )
+        if not runtime_config.has("stages.mea_analysis.phases.preprocessing.multiseg.enable_outputs"):
+            centered_outputs_enabled = _resolve_bool_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.multiseg.centered.enable_outputs",
+                env_key="AXON_RECON_PREPROCESS_CENTERED_ENABLE",
+                default=True,
+            )
+        centered_recordings_enabled = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.multiseg.centered_recordings",
+            env_key="AXON_RECON_PREPROCESS_CENTERED_RECORDINGS",
+            default=bool(centered_outputs_enabled),
+        )
+        if not runtime_config.has("stages.mea_analysis.phases.preprocessing.multiseg.centered_recordings"):
+            centered_recordings_enabled = _resolve_bool_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.multiseg.centered.centered_recordings",
+                env_key="AXON_RECON_PREPROCESS_CENTERED_RECORDINGS",
+                default=bool(centered_outputs_enabled),
+            )
+        if not runtime_config.has("stages.mea_analysis.phases.preprocessing.multiseg.centered_recordings") and not runtime_config.has("stages.mea_analysis.phases.preprocessing.multiseg.centered.centered_recordings"):
+            centered_recordings_enabled = _resolve_bool_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.multiseg.centered.recordings",
+                env_key="AXON_RECON_PREPROCESS_CENTERED_RECORDINGS",
+                default=bool(centered_outputs_enabled),
+            )
+        preprocessed_recordings_enabled = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.multiseg.preprocessed_recordings",
+            env_key="AXON_RECON_PREPROCESS_PREPROCESSED_RECORDINGS",
+            default=True,
+        )
+        if not runtime_config.has("stages.mea_analysis.phases.preprocessing.multiseg.preprocessed_recordings"):
+            preprocessed_recordings_enabled = _resolve_bool_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.multiseg.centered.preprocessed_recordings",
+                env_key="AXON_RECON_PREPROCESS_PREPROCESSED_RECORDINGS",
+                default=True,
+            )
+        centered_plots_enabled = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.preprocessing.multiseg.plots",
+            env_key="AXON_RECON_PREPROCESS_CENTERED_PLOTS",
+            default=bool(centered_outputs_enabled),
+        )
+        if not runtime_config.has("stages.mea_analysis.phases.preprocessing.multiseg.plots"):
+            centered_plots_enabled = _resolve_bool_cfg(
+                cli_value=None,
+                cfg=runtime_config,
+                cfg_path="stages.mea_analysis.phases.preprocessing.multiseg.centered.plots",
+                env_key="AXON_RECON_PREPROCESS_CENTERED_PLOTS",
+                default=bool(centered_outputs_enabled),
+            )
+
+        hdmea_cfg = runtime_config.get("HDMEA", {})
+        hdmea_geometry: dict[str, object] = {}
+        if isinstance(hdmea_cfg, dict):
+            brand = hdmea_cfg.get("brand")
+            device = hdmea_cfg.get("device")
+            if brand is not None and str(brand).strip() != "":
+                hdmea_geometry["brand"] = str(brand).strip()
+            if device is not None and str(device).strip() != "":
+                hdmea_geometry["device"] = str(device).strip()
+
+            pitch_raw = hdmea_cfg.get("pitch_um", hdmea_cfg.get("channel_pitch_um"))
+            if pitch_raw is not None:
+                try:
+                    hdmea_geometry["pitch_um"] = float(pitch_raw)
+                except Exception:
+                    pass
+
+            count_raw = hdmea_cfg.get("electrode_count", hdmea_cfg.get("n_electrodes"))
+            if count_raw is not None:
+                try:
+                    hdmea_geometry["electrode_count"] = int(count_raw)
+                except Exception:
+                    pass
+            per_well_raw = hdmea_cfg.get("electrodes_per_well")
+            if per_well_raw is not None:
+                try:
+                    hdmea_geometry["electrodes_per_well"] = int(per_well_raw)
+                except Exception:
+                    pass
+            sampling_rate_raw = hdmea_cfg.get("sampling_rate_hz")
+            if sampling_rate_raw is not None:
+                try:
+                    hdmea_geometry["sampling_rate_hz"] = float(sampling_rate_raw)
+                except Exception:
+                    pass
+
+            phys = hdmea_cfg.get("physical_size_mm", hdmea_cfg.get("dimensions_mm"))
+            if isinstance(phys, dict):
+                w_raw = phys.get("x", phys.get("width"))
+                h_raw = phys.get("y", phys.get("height"))
+            else:
+                w_raw = hdmea_cfg.get("width_mm")
+                h_raw = hdmea_cfg.get("height_mm")
+
+            active_area = hdmea_cfg.get("active_sensing_area_mm")
+            if isinstance(active_area, dict):
+                aw_raw = active_area.get("x", active_area.get("width"))
+                ah_raw = active_area.get("y", active_area.get("height"))
+                if aw_raw is not None:
+                    try:
+                        hdmea_geometry["active_width_mm"] = float(aw_raw)
+                    except Exception:
+                        pass
+                if ah_raw is not None:
+                    try:
+                        hdmea_geometry["active_height_mm"] = float(ah_raw)
+                    except Exception:
+                        pass
+
+            if w_raw is not None:
+                try:
+                    hdmea_geometry["physical_width_mm"] = float(w_raw)
+                except Exception:
+                    pass
+            if h_raw is not None:
+                try:
+                    hdmea_geometry["physical_height_mm"] = float(h_raw)
+                except Exception:
+                    pass
+
+            grid = hdmea_cfg.get("grid", hdmea_cfg.get("dimensions"))
+            if isinstance(grid, dict):
+                gx_raw = grid.get("x", grid.get("width"))
+                gy_raw = grid.get("y", grid.get("height"))
+                if gx_raw is not None:
+                    try:
+                        hdmea_geometry["grid_x"] = int(gx_raw)
+                    except Exception:
+                        pass
+                if gy_raw is not None:
+                    try:
+                        hdmea_geometry["grid_y"] = int(gy_raw)
+                    except Exception:
+                        pass
+
+            el_size = hdmea_cfg.get("electrode_size_um")
+            if isinstance(el_size, dict):
+                esx_raw = el_size.get("x", el_size.get("width"))
+                esy_raw = el_size.get("y", el_size.get("height"))
+                if esx_raw is not None:
+                    try:
+                        hdmea_geometry["electrode_size_x_um"] = float(esx_raw)
+                    except Exception:
+                        pass
+                if esy_raw is not None:
+                    try:
+                        hdmea_geometry["electrode_size_y_um"] = float(esy_raw)
+                    except Exception:
+                        pass
+
+        if "preprocess_root_relpath" not in stage_kwargs and preprocess_root is not None:
+            stage_kwargs["preprocess_root_relpath"] = str(preprocess_root)
+        if "centered_in_root" not in stage_kwargs:
+            stage_kwargs["centered_in_root"] = bool(centered_in_root)
+        if "preprocessed_in_root" not in stage_kwargs:
+            stage_kwargs["preprocessed_in_root"] = bool(preprocessed_in_root)
+        if "reports_in_root" not in stage_kwargs:
+            stage_kwargs["reports_in_root"] = bool(reports_in_root)
+        if "data_in_root" not in stage_kwargs:
+            stage_kwargs["data_in_root"] = bool(data_in_root)
+        if "concat_recording_relpath" not in stage_kwargs and concat_recording is not None:
+            stage_kwargs["concat_recording_relpath"] = str(concat_recording)
+        if "preprocessed_recording_relpath" not in stage_kwargs and preprocessed_concat is not None:
+            stage_kwargs["preprocessed_recording_relpath"] = str(preprocessed_concat)
+        if "preprocessed_recording_relpath" not in stage_kwargs and concat_recording is not None:
+            stage_kwargs["preprocessed_recording_relpath"] = str(concat_recording)
+        if "preprocessed_concat_relpath" not in stage_kwargs and preprocessed_concat is not None:
+            stage_kwargs["preprocessed_concat_relpath"] = str(preprocessed_concat)
+        if "common_electrodes_relpath" not in stage_kwargs and common_electrodes is not None:
+            stage_kwargs["common_electrodes_relpath"] = str(common_electrodes)
+        if "preprocess_config_relpath" not in stage_kwargs and preprocess_config is not None:
+            stage_kwargs["preprocess_config_relpath"] = str(preprocess_config)
+        if "multiseg_preprocess_outputs_relpath" not in stage_kwargs and multiseg_preprocess_outputs is not None:
+            stage_kwargs["multiseg_preprocess_outputs_relpath"] = str(multiseg_preprocess_outputs)
+        if "centered_segments_relpath" not in stage_kwargs and centered_segments is not None:
+            stage_kwargs["centered_segments_relpath"] = str(centered_segments)
+        if "preprocessed_segments_relpath" not in stage_kwargs and preprocessed_segments is not None:
+            stage_kwargs["preprocessed_segments_relpath"] = str(preprocessed_segments)
+        if "assay_stats_relpath" not in stage_kwargs and assay_stats is not None:
+            stage_kwargs["assay_stats_relpath"] = str(assay_stats)
+        if "maxwell_epochs_relpath" not in stage_kwargs and maxwell_epochs is not None:
+            stage_kwargs["maxwell_epochs_relpath"] = str(maxwell_epochs)
+        if "concat_epochs_relpath" not in stage_kwargs and concat_epochs is not None:
+            stage_kwargs["concat_epochs_relpath"] = str(concat_epochs)
+        if "channels_relpath" not in stage_kwargs and channels_report is not None:
+            stage_kwargs["channels_relpath"] = str(channels_report)
+        if "channel_layouts_relpath" not in stage_kwargs and channel_layouts is not None:
+            stage_kwargs["channel_layouts_relpath"] = str(channel_layouts)
+        if "channel_layout_heatmap_relpath" not in stage_kwargs and channel_layout_heatmap is not None:
+            stage_kwargs["channel_layout_heatmap_relpath"] = str(channel_layout_heatmap)
+        if "segment_traces_relpath" not in stage_kwargs and segment_traces is not None:
+            stage_kwargs["segment_traces_relpath"] = str(segment_traces)
+        if "preprocessed_segment_traces_relpath" not in stage_kwargs and preprocessed_segment_traces is not None:
+            stage_kwargs["preprocessed_segment_traces_relpath"] = str(preprocessed_segment_traces)
+        if "concat_cluster_reps_relpath" not in stage_kwargs and concat_cluster_reps is not None:
+            stage_kwargs["concat_cluster_reps_relpath"] = str(concat_cluster_reps)
+        if "preprocessed_concat_cluster_reps_relpath" not in stage_kwargs and preprocessed_concat_cluster_reps is not None:
+            stage_kwargs["preprocessed_concat_cluster_reps_relpath"] = str(preprocessed_concat_cluster_reps)
+        if "n_trace_channels" not in stage_kwargs and n_trace_channels is not None:
+            stage_kwargs["n_trace_channels"] = int(n_trace_channels)
+        if "plot_centered_traces" not in stage_kwargs:
+            stage_kwargs["plot_centered_traces"] = bool(plot_centered_traces)
+        if "plot_preprocessed_traces" not in stage_kwargs:
+            stage_kwargs["plot_preprocessed_traces"] = bool(plot_preprocessed_traces)
+        if "plot_channel_layouts" not in stage_kwargs:
+            stage_kwargs["plot_channel_layouts"] = bool(plot_channel_layouts)
+        if "channel_layout_heatmap_enabled" not in stage_kwargs:
+            stage_kwargs["channel_layout_heatmap_enabled"] = bool(plot_channel_layout_heatmap)
+        if "enable_centered_outputs" not in stage_kwargs:
+            stage_kwargs["enable_centered_outputs"] = bool(centered_outputs_enabled)
+        if "enable_centered_recordings" not in stage_kwargs:
+            stage_kwargs["enable_centered_recordings"] = bool(centered_recordings_enabled)
+        if "enable_centered_plots" not in stage_kwargs:
+            stage_kwargs["enable_centered_plots"] = bool(centered_plots_enabled)
+        if "enable_preprocessed_recordings" not in stage_kwargs:
+            stage_kwargs["enable_preprocessed_recordings"] = bool(preprocessed_recordings_enabled)
+        if "hdmea_geometry" not in stage_kwargs and hdmea_geometry:
+            stage_kwargs["hdmea_geometry"] = dict(hdmea_geometry)
+        if "save_recording" not in stage_kwargs:
+            stage_kwargs["save_recording"] = bool(save_binary)
+        if "force_replot" not in stage_kwargs:
+            stage_kwargs["force_replot"] = bool(preprocess_force_replot)
+        if bool(preprocess_force_replot):
+            stage_logger.info("Preprocess force_replot enabled: diagnostics plots will be refreshed")
+        stage_kwargs.setdefault("console_log_level", console_log_level)
+        stage_kwargs.setdefault("file_log_level", file_log_level)
 
     stage_logger.info(
         "Effective stage resources: stage=%s stage_workers=%d well_workers=%d chunk_duration=%s",
@@ -812,12 +1499,42 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         resume_from = _resolve_optional_str_cfg(
             cli_value=getattr(args, "resume_from", None),
             cfg=runtime_config,
-            cfg_path="stages.spikesort.resume_from",
+            cfg_path="stages.mea_analysis.phases.spikesorting.resume_from",
             env_key="AXON_RECON_SPIKESORT_RESUME_FROM",
             default=None,
         )
         if "resume_from" not in stage_kwargs and resume_from is not None:
             stage_kwargs["resume_from"] = str(resume_from)
+
+        target_phase = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.spikesorting.target_phase",
+            env_key="AXON_RECON_SPIKESORT_TARGET_PHASE",
+            default=None,
+        )
+        if "target_phase" not in stage_kwargs and target_phase is not None:
+            stage_kwargs["target_phase"] = str(target_phase)
+
+        run_analyzer = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.analyzer.enabled",
+            env_key="AXON_RECON_SPIKESORT_RUN_ANALYZER",
+            default=True,
+        )
+        if "run_analyzer" not in stage_kwargs:
+            stage_kwargs["run_analyzer"] = bool(run_analyzer)
+
+        run_reports = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.reports.enabled",
+            env_key="AXON_RECON_SPIKESORT_RUN_REPORTS",
+            default=True,
+        )
+        if "run_reports" not in stage_kwargs:
+            stage_kwargs["run_reports"] = bool(run_reports)
 
         um_kwargs = stage_kwargs.get("um_kwargs")
         if um_kwargs is None:
@@ -840,7 +1557,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         unitmatch_merge_units = _resolve_bool_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.spikesort.unitmatch.merge_units",
+            cfg_path="stages.mea_analysis.phases.merge.unitmatch.merge_units",
             env_key="AXON_RECON_SPIKESORT_UNITMATCH_MERGE_UNITS",
             default=False,
         )
@@ -850,7 +1567,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         unitmatch_dry_run = _resolve_bool_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.spikesort.unitmatch.dry_run",
+            cfg_path="stages.mea_analysis.phases.merge.unitmatch.dry_run",
             env_key="AXON_RECON_SPIKESORT_UNITMATCH_DRY_RUN",
             default=True,
         )
@@ -860,7 +1577,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         unitmatch_scored_dry_run = _resolve_bool_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.spikesort.unitmatch.scored_dry_run",
+            cfg_path="stages.mea_analysis.phases.merge.unitmatch.scored_dry_run",
             env_key="AXON_RECON_SPIKESORT_UNITMATCH_SCORED_DRY_RUN",
             default=True,
         )
@@ -870,7 +1587,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         unitmatch_output_subdir_name = _resolve_optional_str_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.spikesort.unitmatch.output_subdir_name",
+            cfg_path="stages.mea_analysis.phases.merge.unitmatch.output_subdir_name",
             env_key="AXON_RECON_SPIKESORT_UNITMATCH_OUTPUT_SUBDIR_NAME",
             default="unitmatch_outputs",
         )
@@ -880,7 +1597,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         unitmatch_throughput_subdir_name = _resolve_optional_str_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.spikesort.unitmatch.throughput_subdir_name",
+            cfg_path="stages.mea_analysis.phases.merge.unitmatch.throughput_subdir_name",
             env_key="AXON_RECON_SPIKESORT_UNITMATCH_THROUGHPUT_SUBDIR_NAME",
             default="unitmatch_throughput",
         )
@@ -890,7 +1607,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         unitmatch_oversplit_min_probability = _resolve_optional_float_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.spikesort.unitmatch.oversplit_min_probability",
+            cfg_path="stages.mea_analysis.phases.merge.unitmatch.oversplit_min_probability",
             env_key="AXON_RECON_SPIKESORT_UNITMATCH_OVERSPLIT_MIN_PROBABILITY",
             default=None,
         )
@@ -900,7 +1617,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         unitmatch_apply_merges = _resolve_bool_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.spikesort.unitmatch.apply_merges",
+            cfg_path="stages.mea_analysis.phases.merge.unitmatch.apply_merges",
             env_key="AXON_RECON_SPIKESORT_UNITMATCH_APPLY_MERGES",
             default=False,
         )
@@ -910,7 +1627,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         unitmatch_recursive = _resolve_bool_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.spikesort.unitmatch.recursive",
+            cfg_path="stages.mea_analysis.phases.merge.unitmatch.recursive",
             env_key="AXON_RECON_SPIKESORT_UNITMATCH_RECURSIVE",
             default=False,
         )
@@ -919,13 +1636,13 @@ def _cmd_stage(args: argparse.Namespace) -> int:
 
         if runtime_config.has("stages.spikesort.unitmatch.uncapped_iterations"):
             stage_logger.warning(
-                "Deprecated config key stages.spikesort.unitmatch.uncapped_iterations is ignored; use stages.spikesort.unitmatch.iterations.max=-1 for uncapped recursion."
+                "Deprecated config key stages.spikesort.unitmatch.uncapped_iterations is ignored; use stages.mea_analysis.phases.merge.unitmatch.iterations.max=-1 for uncapped recursion."
             )
 
         unitmatch_keep_all_iterations = _resolve_bool_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.spikesort.unitmatch.keep_all_iterations",
+            cfg_path="stages.mea_analysis.phases.merge.unitmatch.keep_all_iterations",
             env_key="AXON_RECON_SPIKESORT_UNITMATCH_KEEP_ALL_ITERATIONS",
             default=True,
         )
@@ -933,11 +1650,11 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             um_kwargs["keep_all_iterations"] = bool(unitmatch_keep_all_iterations)
 
         max_candidate_pairs_cfg = runtime_config.get_int_or_unlimited(
-            "stages.spikesort.unitmatch.max_candidate_pairs", default=None
+            "stages.mea_analysis.phases.merge.unitmatch.max_candidate_pairs", default=None
         )
         if max_candidate_pairs_cfg is None:
             max_candidate_pairs_cfg = runtime_config.get_int_or_unlimited(
-                "stages.spikesort.unitmatch.limits.max_candidate_pairs", default=None
+                "stages.mea_analysis.phases.merge.unitmatch.limits.max_candidate_pairs", default=None
             )
         max_candidate_pairs_env = env_utils.env_str("AXON_RECON_SPIKESORT_UNITMATCH_MAX_CANDIDATE_PAIRS", default=None)
         max_candidate_pairs_env_parsed = None
@@ -948,11 +1665,11 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             um_kwargs["max_candidate_pairs"] = int(max_candidate_pairs)
 
         oversplit_max_suggestions_cfg = runtime_config.get_int_or_unlimited(
-            "stages.spikesort.unitmatch.oversplit_max_suggestions", default=None
+            "stages.mea_analysis.phases.merge.unitmatch.oversplit_max_suggestions", default=None
         )
         if oversplit_max_suggestions_cfg is None:
             oversplit_max_suggestions_cfg = runtime_config.get_int_or_unlimited(
-                "stages.spikesort.unitmatch.limits.oversplit_max_suggestions", default=None
+                "stages.mea_analysis.phases.merge.unitmatch.limits.oversplit_max_suggestions", default=None
             )
         oversplit_max_suggestions_env = env_utils.env_str("AXON_RECON_SPIKESORT_UNITMATCH_OVERSPLIT_MAX_SUGGESTIONS", default=None)
         oversplit_max_suggestions_env_parsed = None
@@ -967,11 +1684,11 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             um_kwargs["oversplit_max_suggestions"] = int(oversplit_max_suggestions)
 
         max_iterations_cfg = runtime_config.get_int_or_unlimited(
-            "stages.spikesort.unitmatch.max_iterations", default=None
+            "stages.mea_analysis.phases.merge.unitmatch.max_iterations", default=None
         )
         if max_iterations_cfg is None:
             max_iterations_cfg = runtime_config.get_int_or_unlimited(
-                "stages.spikesort.unitmatch.iterations.max", default=None
+                "stages.mea_analysis.phases.merge.unitmatch.iterations.max", default=None
             )
         max_iterations_env = env_utils.env_str("AXON_RECON_SPIKESORT_UNITMATCH_MAX_ITERATIONS", default=None)
         max_iterations_env_parsed = None
@@ -982,7 +1699,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             um_kwargs["max_iterations"] = int(max_iterations)
 
         max_spikes_per_unit_cfg = runtime_config.get_int_or_unlimited(
-            "stages.spikesort.unitmatch.max_spikes_per_unit", default=None
+            "stages.mea_analysis.phases.merge.unitmatch.max_spikes_per_unit", default=None
         )
         max_spikes_per_unit_env = env_utils.env_str("AXON_RECON_SPIKESORT_UNITMATCH_MAX_SPIKES_PER_UNIT", default=None)
         max_spikes_per_unit_env_parsed = None
@@ -997,7 +1714,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         unitmatch_generate_reports = _resolve_bool_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.spikesort.unitmatch.generate_reports",
+            cfg_path="stages.mea_analysis.phases.merge.unitmatch.generate_reports",
             env_key="AXON_RECON_SPIKESORT_UNITMATCH_GENERATE_REPORTS",
             default=True,
         )
@@ -1007,7 +1724,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         unitmatch_report_subdir_name = _resolve_optional_str_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.spikesort.unitmatch.report_subdir_name",
+            cfg_path="stages.mea_analysis.phases.merge.unitmatch.report_subdir_name",
             env_key="AXON_RECON_SPIKESORT_UNITMATCH_REPORT_SUBDIR_NAME",
             default="unitmatch_reports",
         )
@@ -1017,7 +1734,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         unitmatch_report_max_heatmap_units = _resolve_optional_int_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.spikesort.unitmatch.report_max_heatmap_units",
+            cfg_path="stages.mea_analysis.phases.merge.unitmatch.report_max_heatmap_units",
             env_key="AXON_RECON_SPIKESORT_UNITMATCH_REPORT_MAX_HEATMAP_UNITS",
             default=200,
         )
@@ -1027,7 +1744,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         auto_merge_units = _resolve_bool_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.spikesort.auto_merge_units",
+            cfg_path="stages.mea_analysis.phases.spikesorting.auto_merge_units",
             env_key="AXON_RECON_SPIKESORT_AUTO_MERGE_UNITS",
             default=False,
         )
@@ -1037,7 +1754,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         auto_merge_template_diff_thresh = _resolve_optional_str_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.spikesort.auto_merge_template_diff_thresh",
+            cfg_path="stages.mea_analysis.phases.spikesorting.auto_merge_template_diff_thresh",
             env_key="AXON_RECON_SPIKESORT_AUTO_MERGE_TEMPLATE_DIFF_THRESH",
             default="0.05,0.15,0.25",
         )
@@ -1047,32 +1764,55 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         force_rerun_analyzer = _resolve_bool_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.spikesort.rerun_analyzer",
+            cfg_path="stages.mea_analysis.phases.spikesorting.rerun_analyzer",
             env_key="AXON_RECON_SPIKESORT_RERUN_ANALYZER",
             default=False,
         )
         if "force_rerun_analyzer" not in option_kwargs:
             option_kwargs["force_rerun_analyzer"] = bool(force_rerun_analyzer)
 
-        expect_multisegment = _resolve_optional_str_cfg(
+        multiseg_mode = _resolve_bool_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.spikesort.multiseg.expect_multisegment",
-            env_key="AXON_RECON_SPIKESORT_EXPECT_MULTISEGMENT",
-            default=None,
-        )
-        if "expect_multisegment" not in option_kwargs and expect_multisegment is not None:
-            option_kwargs["expect_multisegment"] = str(expect_multisegment)
-
-        multiseg_mode = _resolve_optional_str_cfg(
-            cli_value=None,
-            cfg=runtime_config,
-            cfg_path="stages.spikesort.multiseg.mode",
+            cfg_path="stages.mea_analysis.multiseg_mode",
             env_key="AXON_RECON_SPIKESORT_MULTISEG_MODE",
-            default="none",
+            default=False,
         )
         if "multiseg_mode" not in option_kwargs and multiseg_mode is not None:
-            option_kwargs["multiseg_mode"] = str(multiseg_mode)
+            option_kwargs["multiseg_mode"] = bool(multiseg_mode)
+
+        waveform_prefer_merged_sorting = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.analyzer.waveforms.prefer_merged_sorting",
+            env_key="AXON_RECON_WF_PREFER_MERGED_SORTING",
+            default=False,
+        )
+        if "waveform_prefer_merged_sorting" not in option_kwargs:
+            option_kwargs["waveform_prefer_merged_sorting"] = bool(waveform_prefer_merged_sorting)
+
+        waveform_merged_sorting_dir = _resolve_optional_str_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.phases.analyzer.waveforms.merged_sorting_dir",
+            env_key="AXON_RECON_WF_MERGED_SORTING_DIR",
+            default=None,
+        )
+        if "waveform_merged_sorting_dir" not in option_kwargs and waveform_merged_sorting_dir is not None:
+            option_kwargs["waveform_merged_sorting_dir"] = str(waveform_merged_sorting_dir)
+
+        enable_phase_output_overrides = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.mea_analysis.enable_phase_output_overrides",
+            env_key="AXON_RECON_MEA_ENABLE_PHASE_OUTPUT_OVERRIDES",
+            default=False,
+        )
+        if bool(enable_phase_output_overrides) and "phase_output_paths" not in option_kwargs:
+            phase_output_paths_cfg = runtime_config.get("stages.mea_analysis.phases", default=None)
+            if isinstance(phase_output_paths_cfg, dict) and phase_output_paths_cfg:
+                option_kwargs["phase_output_paths"] = dict(phase_output_paths_cfg)
+                stage_logger.info("Enabled MEA phase output path overrides from stages.mea_analysis.phases")
 
         stage_kwargs["um_kwargs"] = um_kwargs
         stage_kwargs["am_kwargs"] = am_kwargs
@@ -1117,7 +1857,10 @@ def _cmd_stage(args: argparse.Namespace) -> int:
     if stage == "waveforms":
         max_spikes_per_unit_raw: str | int | None = getattr(args, "max_spikes_per_unit", None)
         if max_spikes_per_unit_raw is None:
-            max_spikes_per_unit_cfg = runtime_config.get_int_or_unlimited("stages.waveforms.max_spikes_per_unit", default=None)
+            max_spikes_per_unit_cfg = runtime_config.get_int_or_unlimited(
+                "stages.mea_analysis.phases.analyzer.waveforms.max_spikes_per_unit",
+                default=None,
+            )
             max_spikes_per_unit_raw = max_spikes_per_unit_cfg
         if max_spikes_per_unit_raw is None:
             max_spikes_per_unit_raw = env_utils.env_str("AXON_RECON_WF_MAX_SPIKES_PER_UNIT", default=None)
@@ -1150,7 +1893,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         filter_by_maxwell_epochs = _resolve_bool_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.waveforms.filter_by_maxwell_epochs",
+            cfg_path="stages.mea_analysis.phases.analyzer.waveforms.filter_by_maxwell_epochs",
             env_key="AXON_RECON_WF_FILTER_BY_MAXWELL_EPOCHS",
             default=True,
         )
@@ -1160,7 +1903,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         filter_by_segment_bounds = _resolve_bool_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.waveforms.filter_by_segment_bounds",
+            cfg_path="stages.mea_analysis.phases.analyzer.waveforms.filter_by_segment_bounds",
             env_key="AXON_RECON_WF_FILTER_BY_SEGMENT_BOUNDS",
             default=True,
         )
@@ -1170,7 +1913,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         segment_sort_safety_cleanup = _resolve_bool_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.waveforms.segment_sort_safety_cleanup",
+            cfg_path="stages.mea_analysis.phases.analyzer.waveforms.segment_sort_safety_cleanup",
             env_key="AXON_RECON_WF_SEGMENT_SORT_SAFETY_CLEANUP",
             default=True,
         )
@@ -1190,7 +1933,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         waveforms_variant_name = _resolve_optional_str_cfg(
             cli_value=None,
             cfg=runtime_config,
-            cfg_path="stages.waveforms.variant_name",
+            cfg_path="stages.mea_analysis.phases.analyzer.waveforms.variant_name",
             env_key="AXON_RECON_WF_VARIANT_NAME",
             default=None,
         )
@@ -1392,31 +2135,35 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         mea_analysis_repo_root=mea_analysis_repo_root,
         verbose=bool(debug_enabled),
     )
-    result = execute_stage(
-        stage=stage,
-        context=context,
-        stage_kwargs=stage_kwargs,
-        logger=logging.getLogger(f"axon_reconstructor.stage.{stage}"),
-    )
+    try:
+        result = execute_stage(
+            stage=stage,
+            context=context,
+            stage_kwargs=stage_kwargs,
+            logger=stage_logger,
+        )
+    except Exception:
+        stage_logger.exception("Stage execution failed: stage=%s stream=%s", stage, stream_id)
+        raise
 
     if stage == "preprocess":
         n_common = result.artifacts.get("n_common_electrodes")
-        print(f"preprocess complete: stream={stream_id} common_electrodes={n_common}")
+        stage_logger.info("preprocess complete: stream=%s common_electrodes=%s", stream_id, n_common)
         return 0
     if stage == "spikesort":
-        print(f"spikesort complete: sorter_output={result.artifacts.get('sorter_output_dir')}")
+        stage_logger.info("spikesort complete: sorter_output=%s", result.artifacts.get("sorter_output_dir"))
         return 0
     if stage == "waveforms":
-        print(f"waveforms complete: out_dir={result.artifacts.get('waveforms_out_dir')}")
+        stage_logger.info("waveforms complete: out_dir=%s", result.artifacts.get("waveforms_out_dir"))
         return 0
     if stage == "templates":
-        print(f"templates complete: out_dir={result.artifacts.get('templates_out_dir')}")
+        stage_logger.info("templates complete: out_dir=%s", result.artifacts.get("templates_out_dir"))
         return 0
     if stage == "reconstruct":
-        print(f"reconstruction complete: out_dir={result.artifacts.get('reconstruction_out_dir')}")
+        stage_logger.info("reconstruction complete: out_dir=%s", result.artifacts.get("reconstruction_out_dir"))
         return 0
     if stage == "analysis":
-        print(f"analysis complete: out_dir={result.artifacts.get('analysis_out_dir')}")
+        stage_logger.info("analysis complete: out_dir=%s", result.artifacts.get("analysis_out_dir"))
         return 0
 
     raise SystemExit(f"Unsupported stage: {stage}")
@@ -1436,7 +2183,7 @@ def _cmd_scope_run(args: argparse.Namespace) -> int:
 
     debug_enabled = _resolve_bool(cli_value=getattr(args, "debug", None), env_key="AXON_RECON_DEBUG", default=False)
     if bool(debug_enabled):
-        logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s", force=True)
+        logging.basicConfig(level=logging.DEBUG, format="[%(name)s] [%(levelname)s] %(message)s", force=True)
 
     logger = logging.getLogger("axon_reconstructor.scope")
     logger.info("Scope summary: %s", summarize_scope_config(scope_config))

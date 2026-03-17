@@ -291,6 +291,7 @@ def execute_stage(
             "force_restart": bool(context.force_restart),
             "n_jobs": int(context.n_jobs),
             "overwrite_saved_recording": bool(context.force_restart),
+            "logger": logger,
         }
         preprocess_kwargs.update(kwargs)
         _, common_el = run_preprocess_stage(**preprocess_kwargs)

@@ -162,6 +162,25 @@ def _load_epoch_markers(*, well_out_dir: Path, stream_id: str) -> _EpochInputs:
     maxwell_epochs_path = preprocess_dir / f"maxwell_contiguous_epochs_{stream_id}.json"
     concat_epochs_path = preprocess_dir / f"concatenation_stitch_epochs_{stream_id}.json"
 
+    try:
+        from MEA_Analysis.IPNAnalysis.multiseg_utils.extract_multiseg_wfs import (
+            resolve_waveform_epoch_marker_paths,
+        )
+
+        resolved_paths = resolve_waveform_epoch_marker_paths(
+            output_dir=well_out_dir,
+            stream_id=stream_id,
+            preprocess_outputs_dirname=PREPROCESS_OUTPUTS_DIRNAME,
+        )
+        maxwell_epochs_path = Path(resolved_paths.get("maxwell", maxwell_epochs_path))
+        concat_epochs_path = Path(resolved_paths.get("concat", concat_epochs_path))
+        try:
+            preprocess_dir = maxwell_epochs_path.parent if maxwell_epochs_path.parent.exists() else preprocess_dir
+        except Exception:
+            pass
+    except Exception:
+        pass
+
     maxwell_epochs: list[dict] = []
     maxwell_intervals: list[tuple[int, int]] = []
     concat_epochs: list[dict] = []

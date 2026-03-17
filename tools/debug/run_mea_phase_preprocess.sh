@@ -3,10 +3,11 @@ set -euo pipefail
 
 # Runs only stage-1 preprocessing via the canonical runner entrypoint.
 # Usage:
-#   bash tools/debug/run_preprocess_only_stage.sh [--config <path>] [extra stage args...]
+#   bash tools/debug/run_mea_phase_preprocess.sh [--config <path>] [extra stage args...]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+CALLER_PWD="$(pwd)"
 cd "$REPO_ROOT"
 
 CONFIG_PATH="${REPO_ROOT}/tools/debug/debug.config.yml"
@@ -15,12 +16,12 @@ if [[ "${1:-}" == "--help" ]] || [[ "${1:-}" == "-h" ]]; then
 Run preprocessing stage only.
 
 Usage:
-  bash tools/debug/run_preprocess_only_stage.sh [--config <path>] [extra stage args...]
+  bash tools/debug/run_mea_phase_preprocess.sh [--config <path>] [extra stage args...]
 
 Examples:
-  bash tools/debug/run_preprocess_only_stage.sh
-  bash tools/debug/run_preprocess_only_stage.sh --force-restart
-  bash tools/debug/run_preprocess_only_stage.sh --config tools/debug/debug.config.yml --debug
+  bash tools/debug/run_mea_phase_preprocess.sh
+  bash tools/debug/run_mea_phase_preprocess.sh --force-restart
+  bash tools/debug/run_mea_phase_preprocess.sh --config tools/debug/debug.config.yml --debug
 EOF
   exit 0
 fi
@@ -28,6 +29,14 @@ fi
 if [[ "${1:-}" == "--config" ]]; then
   CONFIG_PATH="${2:?missing config path after --config}"
   shift 2
+fi
+
+if [[ "${CONFIG_PATH}" != /* ]]; then
+  if [[ -f "${CALLER_PWD}/${CONFIG_PATH}" ]]; then
+    CONFIG_PATH="${CALLER_PWD}/${CONFIG_PATH}"
+  elif [[ -f "${REPO_ROOT}/${CONFIG_PATH}" ]]; then
+    CONFIG_PATH="${REPO_ROOT}/${CONFIG_PATH}"
+  fi
 fi
 
 if [[ ! -f "$CONFIG_PATH" ]]; then

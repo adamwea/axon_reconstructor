@@ -79,6 +79,18 @@ def _infer_cutout_ms(*, h5_path: Path, stream_id: str, fs_hz: float) -> tuple[fl
 
 
 def _load_preprocessed_recording(*, well_out_dir: Path) -> Any:
+    try:
+        from MEA_Analysis.IPNAnalysis.multiseg_utils.extract_multiseg_wfs import (
+            load_preprocessed_recording_from_output_dir,
+        )
+
+        return load_preprocessed_recording_from_output_dir(
+            output_dir=well_out_dir,
+            preprocess_outputs_dirname=PREPROCESS_OUTPUTS_DIRNAME,
+        )
+    except Exception:
+        pass
+
     recording_dir = well_out_dir / PREPROCESS_OUTPUTS_DIRNAME / "preprocessed_recording"
     if not recording_dir.exists():
         raise FileNotFoundError(f"preprocessed_recording not found: {recording_dir}")
@@ -333,6 +345,20 @@ def _resolve_mea_sorter_output_dir(
     merged_sorting_dir: Path | None = None,
     prefer_merged_sorting: bool = False,
 ) -> Path:
+    try:
+        from MEA_Analysis.IPNAnalysis.multiseg_utils.extract_multiseg_wfs import (
+            resolve_waveform_sorting_source_dir,
+        )
+
+        source = resolve_waveform_sorting_source_dir(
+            output_dir=well_out_dir,
+            merged_sorting_dir=merged_sorting_dir,
+            prefer_merged_sorting=prefer_merged_sorting,
+        )
+        return Path(source.source_dir)
+    except Exception:
+        pass
+
     if merged_sorting_dir is not None:
         explicit_merged = Path(merged_sorting_dir)
         if explicit_merged.exists():
@@ -354,6 +380,13 @@ def _resolve_mea_sorter_output_dir(
 
 
 def _load_sorting_from_sorter_output_dir(*, sorter_output_dir: Path, sorter: str) -> Any:
+    try:
+        from MEA_Analysis.IPNAnalysis.multiseg_utils.extract_multiseg_wfs import load_sorting_from_output_dir
+
+        return load_sorting_from_output_dir(sorter_output_dir=sorter_output_dir, sorter=sorter)
+    except Exception:
+        pass
+
     import spikeinterface.full as si  # type: ignore[import-not-found]
 
     if hasattr(si, "read_sorter_folder"):
@@ -376,6 +409,13 @@ def _load_sorting_from_sorter_output_dir(*, sorter_output_dir: Path, sorter: str
 
 
 def _epochs_to_intervals(epochs: list[dict]) -> list[tuple[int, int]]:
+    try:
+        from MEA_Analysis.IPNAnalysis.multiseg_utils.extract_multiseg_wfs import epochs_to_intervals
+
+        return epochs_to_intervals(epochs)
+    except Exception:
+        pass
+
     intervals: list[tuple[int, int]] = []
     for e in epochs:
         try:
@@ -390,6 +430,18 @@ def _epochs_to_intervals(epochs: list[dict]) -> list[tuple[int, int]]:
 
 
 def _maxwell_epochs_to_segment_local_intervals(*, maxwell_epochs: list[dict], segment_index: int) -> list[tuple[int, int]]:
+    try:
+        from MEA_Analysis.IPNAnalysis.multiseg_utils.extract_multiseg_wfs import (
+            maxwell_epochs_to_segment_local_intervals,
+        )
+
+        return maxwell_epochs_to_segment_local_intervals(
+            maxwell_epochs=maxwell_epochs,
+            segment_index=segment_index,
+        )
+    except Exception:
+        pass
+
     intervals: list[tuple[int, int]] = []
     for e in maxwell_epochs:
         try:
@@ -413,6 +465,20 @@ def _filter_spike_train_by_intervals(
     pre_samples: int,
     post_samples: int,
 ) -> tuple[list[int], int, int, list[int], list[int]]:
+    try:
+        from MEA_Analysis.IPNAnalysis.multiseg_utils.extract_multiseg_wfs import (
+            filter_spike_train_by_intervals,
+        )
+
+        return filter_spike_train_by_intervals(
+            spike_train=spike_train,
+            intervals=intervals,
+            pre_samples=pre_samples,
+            post_samples=post_samples,
+        )
+    except Exception:
+        pass
+
     if not intervals:
         return spike_train, 0, 0, [], []
 

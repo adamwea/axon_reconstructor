@@ -87,6 +87,8 @@ class SpikeSortingInputs:
     force_restart: bool = False
     # Optional checkpoint rewind stage in MEA_Analysis (e.g. "merge").
     resume_from: Optional[str] = None
+    # Optional isolated MEA phase target (e.g. "sorting").
+    target_phase: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -206,7 +208,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
             data_file=inputs.h5_path,
             stream_id=inputs.stream_id,
             stage_name="spikesort",
-            logger_name_prefix="axon_reconstructor",
+            logger_name_prefix="axon_reconstructor.pipeline.stg2_spikesorting",
             verbose=inputs.verbose,
         )
     except Exception:
@@ -258,6 +260,14 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
 
     preprocess_dir = _resolve_preprocess_dir(well_out_dir=well_out_dir)
     recording_dir = preprocess_dir / "preprocessed_recording"
+    if not recording_dir.exists():
+        alt_grouped_preprocessed = preprocess_dir / "preprocessed" / "concat_recording"
+        if alt_grouped_preprocessed.exists():
+            recording_dir = alt_grouped_preprocessed
+    if not recording_dir.exists():
+        alt_multiseg_preprocessed = preprocess_dir / "multiseg_preprocess_outputs" / "preprocessed_concat"
+        if alt_multiseg_preprocessed.exists():
+            recording_dir = alt_multiseg_preprocessed
     logger.info("Resolved preprocessing outputs dir: %s", preprocess_dir)
     if not recording_dir.exists():
         raise FileNotFoundError(
@@ -331,9 +341,8 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         bool(am_kwargs.get("enabled", False)),
     )
     logger.info(
-        "Preprocess topology config forwarded: expect_multisegment=%s multiseg_mode=%s",
-        option_kwargs.get("expect_multisegment", None),
-        option_kwargs.get("multiseg_mode", None),
+        "Preprocess topology config forwarded: multiseg_mode=%s",
+        bool(option_kwargs.get("multiseg_mode", False)),
     )
 
     logger.info("Initializing MEA_Analysis pipeline options (sorting/analyzer/reports)")
@@ -350,6 +359,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         cleanup=False,
         force_restart=inputs.force_restart,
         resume_from=inputs.resume_from,
+        target_phase=inputs.target_phase,
         n_jobs=inputs.n_jobs,
         chunk_duration=inputs.chunk_duration,
         sorter_kwargs=(sorter_kwargs if sorter_kwargs else None),
@@ -385,7 +395,16 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         pipeline = run_result.pipeline
 
         sorter_output_dir = pipeline.output_dir / "sorter_output"
-        merged_sorting_dir = pipeline.output_dir / "unitmatch_outputs" / "final_merged_sorting"
+        try:
+            from MEA_Analysis.IPNAnalysis.multiseg_utils.spikesort_multiseg_h5 import (
+                resolve_unitmatch_artifact_paths,
+            )
+
+            merged_sorting_dir = resolve_unitmatch_artifact_paths(
+                output_dir=pipeline.output_dir,
+            ).final_merged_sorting
+        except Exception:
+            merged_sorting_dir = pipeline.output_dir / "unitmatch_outputs" / "final_merged_sorting"
         if not merged_sorting_dir.exists():
             merged_sorting_dir = None
         merged_sorter_output_dir: Optional[Path] = None
