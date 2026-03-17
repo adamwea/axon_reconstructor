@@ -151,6 +151,53 @@ class ReconstructionInputs:
     # If True, write the raw-branch + log-footprint density ranking grid artifact.
     write_top_density_grid: bool = True
 
+    # Grid output controls.
+    grid_output_subdir: str = "grids"
+    grid_write_pdf: bool = True
+    grid_write_png: bool = True
+    grid_write_ranking_json: bool = True
+    grid_log_basename: str = "raw_branch_log_footprint_top_density_grid"
+    grid_linear_basename: str = "raw_branch_linear_footprint_top_density_grid"
+    grid_ranking_filename: str = "raw_branch_log_footprint_top_density_ranking.json"
+    grid_ncols: int = 5
+    grid_dpi: int = 220
+    grid_draw_zoom_range_box: bool = False
+    grid_panel_background_color: str = "black"
+    grid_branch_color: str = "red"
+    grid_branch_outline_color: str = "white"
+    grid_node_radius_um: float = 5.0
+    grid_soma_node_radius_um: float = 10.0
+    grid_soma_node_color: str = "yellow"
+    grid_sort_by: str = "density"
+    grid_zoom_priority: str = "branches"
+    grid_zoom_padding_percent: float = 20.0
+    grid_force_soma_centering: bool = False
+    grid_soma_xy_show: bool = False
+    grid_soma_xy_color: str = "white"
+    grid_soma_xy_fontsize: float = 5.0
+    grid_soma_xy_location: str = "bottom left"
+    grid_show_unit_id_in_plot: bool = True
+    grid_unit_id_fontsize: float = 6.0
+    grid_unit_id_color: str = "white"
+    grid_show_minimap: bool = True
+    grid_minimap_position: str = "bottomright"
+    grid_minimap_size: float = 0.20
+    grid_minimap_outline_color: str = "white"
+    grid_minimap_chip_width_mm: float = 3.85
+    grid_minimap_chip_height_mm: float = 2.10
+    grid_minimap_inner_box_linestyle: str = "dotted"
+    grid_minimap_inner_box_linewidth: float = 0.8
+    grid_minimap_include_footprint: bool = False
+    grid_minimap_prevent_occlusions: bool = False
+    grid_legend_show: bool = False
+    grid_legend_location: str = "first_empty_panel"
+    grid_legend_fontsize: float = 6.0
+    grid_legend_fontcolor: str = "white"
+    grid_legend_marker_size: float = 3.0
+    grid_legend_show_nodes_in_legend: bool = True
+    grid_legend_show_footprint_in_legend: bool = True
+    grid_emit_debug_logs: bool = False
+
     # If True, annotate raw detected amplitude min/max in the last subplot of the
     # top-density grids (debugging aid).
     show_density_scale_debug_text: bool = False
@@ -176,6 +223,8 @@ class ReconstructionInputs:
     # Plotting / outputs
     write_unit_pdfs: bool = True
     write_all_units_overview_pdf: bool = True
+    # If False, skip writing per-unit template_movie.gif files.
+    write_template_movie_gif: bool = False
 
     # If True, skip axon_velocity tracking and only (re)render per-unit summary plots
     # from already-written reconstruction/templates artifacts on disk.
@@ -184,6 +233,11 @@ class ReconstructionInputs:
     # If True, run axon_velocity tracking but only (re)write branches_raw.json (raw paths)
     # and skip all other per-unit plots/outputs.
     recompute_branches_raw_only: bool = False
+
+    # Explicit controls for per-unit reconstruction artifacts.
+    per_unit_write_branches_raw_json: bool = True
+    per_unit_write_branches_json: bool = True
+    per_unit_write_heuristics_json: bool = True
 
     # Runtime
     verbose: bool = False
@@ -243,8 +297,12 @@ def _run_single_unit_reconstruction(
     params: dict[str, Any],
     force_restart: bool,
     write_unit_pdfs: bool,
+    write_template_movie_gif: bool,
     replot_summaries_only: bool,
     recompute_branches_raw_only: bool,
+    per_unit_write_branches_raw_json: bool,
+    per_unit_write_branches_json: bool,
+    per_unit_write_heuristics_json: bool,
 ) -> dict[str, Any]:
     logger = logging.getLogger("axon_reconstructor.reconstruction.unit")
 
@@ -432,12 +490,18 @@ def _run_single_unit_reconstruction(
 
             gtr = av.compute_graph_propagation_velocity(tmpl_ch_by_t, locs_xy, float(fs_hz), **params)
 
-            raw_branches_json = out_unit_dir / "branches_raw.json"
-            raw_path, raw_warn = _write_branches_raw_json(uid=uid, gtr=gtr, raw_branches_json=raw_branches_json, logger=logger)
-            if raw_path is not None:
-                unit_summary["outputs"]["branches_raw_json"] = raw_path
-            if raw_warn is not None:
-                logger.warning("Unit %s: %s", uid, raw_warn)
+            if bool(per_unit_write_branches_raw_json):
+                raw_branches_json = out_unit_dir / "branches_raw.json"
+                raw_path, raw_warn = _write_branches_raw_json(
+                    uid=uid,
+                    gtr=gtr,
+                    raw_branches_json=raw_branches_json,
+                    logger=logger,
+                )
+                if raw_path is not None:
+                    unit_summary["outputs"]["branches_raw_json"] = raw_path
+                if raw_warn is not None:
+                    logger.warning("Unit %s: %s", uid, raw_warn)
 
             return {
                 "unit_summary": unit_summary,
@@ -509,21 +573,25 @@ def _run_single_unit_reconstruction(
         branches_json = out_unit_dir / "branches.json"
         raw_branches_json = out_unit_dir / "branches_raw.json"
         heuristics_json = out_unit_dir / "heuristics.json"
-        _write_json(branches_json, {"unit_id": _jsonable(uid), "branches": branches_out})
-        _write_json(heuristics_json, {"unit_id": _jsonable(uid), "heuristics": heuristics})
+        if bool(per_unit_write_branches_json):
+            _write_json(branches_json, {"unit_id": _jsonable(uid), "branches": branches_out})
+            unit_summary["outputs"]["branches_json"] = str(branches_json)
 
-        raw_path, raw_warn = _write_branches_raw_json(uid=uid, gtr=gtr, raw_branches_json=raw_branches_json, logger=logger)
-        if raw_path is not None:
-            unit_summary["outputs"]["branches_raw_json"] = raw_path
-        if raw_warn is not None:
-            logger.warning("Unit %s: %s", uid, raw_warn)
+        if bool(per_unit_write_heuristics_json):
+            _write_json(heuristics_json, {"unit_id": _jsonable(uid), "heuristics": heuristics})
+            unit_summary["outputs"]["heuristics_json"] = str(heuristics_json)
 
-        unit_summary["outputs"].update(
-            {
-                "branches_json": str(branches_json),
-                "heuristics_json": str(heuristics_json),
-            }
-        )
+        if bool(per_unit_write_branches_raw_json):
+            raw_path, raw_warn = _write_branches_raw_json(
+                uid=uid,
+                gtr=gtr,
+                raw_branches_json=raw_branches_json,
+                logger=logger,
+            )
+            if raw_path is not None:
+                unit_summary["outputs"]["branches_raw_json"] = raw_path
+            if raw_warn is not None:
+                logger.warning("Unit %s: %s", uid, raw_warn)
 
         if write_unit_pdfs:
             try:
@@ -533,6 +601,7 @@ def _run_single_unit_reconstruction(
                     locs_xy=locs_xy,
                     out_unit_dir=out_unit_dir,
                     force_restart=bool(force_restart),
+                    write_template_movie_gif=bool(write_template_movie_gif),
                     logger=logger,
                 )
                 unit_summary["outputs"].update(plot_outputs)
@@ -765,6 +834,51 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                 reconstruction_out_dir=recon_out_dir,
                 selected_unit_ids=selected_unit_ids,
                 top_n=top_n_density_requested,
+                output_subdir=str(inputs.grid_output_subdir),
+                write_pdf=bool(inputs.grid_write_pdf),
+                write_png=bool(inputs.grid_write_png),
+                write_ranking_json=bool(inputs.grid_write_ranking_json),
+                log_basename=str(inputs.grid_log_basename),
+                linear_basename=str(inputs.grid_linear_basename),
+                ranking_filename=str(inputs.grid_ranking_filename),
+                ncols=int(inputs.grid_ncols),
+                dpi=int(inputs.grid_dpi),
+                draw_zoom_range_box=bool(inputs.grid_draw_zoom_range_box),
+                panel_background_color=str(inputs.grid_panel_background_color),
+                branch_color=str(inputs.grid_branch_color),
+                branch_outline_color=str(inputs.grid_branch_outline_color),
+                node_radius_um=float(inputs.grid_node_radius_um),
+                soma_node_radius_um=float(inputs.grid_soma_node_radius_um),
+                soma_node_color=str(inputs.grid_soma_node_color),
+                sort_by=str(inputs.grid_sort_by),
+                zoom_priority=str(inputs.grid_zoom_priority),
+                zoom_padding_percent=float(inputs.grid_zoom_padding_percent),
+                force_soma_centering=bool(inputs.grid_force_soma_centering),
+                soma_xy_show=bool(inputs.grid_soma_xy_show),
+                soma_xy_color=str(inputs.grid_soma_xy_color),
+                soma_xy_fontsize=float(inputs.grid_soma_xy_fontsize),
+                soma_xy_location=str(inputs.grid_soma_xy_location),
+                show_unit_id_in_plot=bool(inputs.grid_show_unit_id_in_plot),
+                unit_id_fontsize=float(inputs.grid_unit_id_fontsize),
+                unit_id_color=str(inputs.grid_unit_id_color),
+                show_minimap=bool(inputs.grid_show_minimap),
+                minimap_position=str(inputs.grid_minimap_position),
+                minimap_size=float(inputs.grid_minimap_size),
+                minimap_outline_color=str(inputs.grid_minimap_outline_color),
+                minimap_chip_width_mm=float(inputs.grid_minimap_chip_width_mm),
+                minimap_chip_height_mm=float(inputs.grid_minimap_chip_height_mm),
+                minimap_inner_box_linestyle=str(inputs.grid_minimap_inner_box_linestyle),
+                minimap_inner_box_linewidth=float(inputs.grid_minimap_inner_box_linewidth),
+                minimap_include_footprint=bool(inputs.grid_minimap_include_footprint),
+                minimap_prevent_occlusions=bool(inputs.grid_minimap_prevent_occlusions),
+                legend_show=bool(inputs.grid_legend_show),
+                legend_location=str(inputs.grid_legend_location),
+                legend_fontsize=float(inputs.grid_legend_fontsize),
+                legend_fontcolor=str(inputs.grid_legend_fontcolor),
+                legend_marker_size=float(inputs.grid_legend_marker_size),
+                legend_show_nodes_in_legend=bool(inputs.grid_legend_show_nodes_in_legend),
+                legend_show_footprint_in_legend=bool(inputs.grid_legend_show_footprint_in_legend),
+                emit_debug_logs=bool(inputs.grid_emit_debug_logs),
                 show_scale_debug_text=bool(inputs.show_density_scale_debug_text),
                 show_global_debug_text=bool(inputs.show_density_scale_global_debug_text),
                 show_local_debug_text=bool(inputs.show_density_scale_local_debug_text),
@@ -814,6 +928,51 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                     reconstruction_out_dir=recon_out_dir,
                     selected_unit_ids=selected_unit_ids,
                     top_n=top_n_density_requested,
+                    output_subdir=str(inputs.grid_output_subdir),
+                    write_pdf=bool(inputs.grid_write_pdf),
+                    write_png=bool(inputs.grid_write_png),
+                    write_ranking_json=bool(inputs.grid_write_ranking_json),
+                    log_basename=str(inputs.grid_log_basename),
+                    linear_basename=str(inputs.grid_linear_basename),
+                    ranking_filename=str(inputs.grid_ranking_filename),
+                    ncols=int(inputs.grid_ncols),
+                    dpi=int(inputs.grid_dpi),
+                    draw_zoom_range_box=bool(inputs.grid_draw_zoom_range_box),
+                    panel_background_color=str(inputs.grid_panel_background_color),
+                    branch_color=str(inputs.grid_branch_color),
+                    branch_outline_color=str(inputs.grid_branch_outline_color),
+                    node_radius_um=float(inputs.grid_node_radius_um),
+                    soma_node_radius_um=float(inputs.grid_soma_node_radius_um),
+                    soma_node_color=str(inputs.grid_soma_node_color),
+                    sort_by=str(inputs.grid_sort_by),
+                    zoom_priority=str(inputs.grid_zoom_priority),
+                    zoom_padding_percent=float(inputs.grid_zoom_padding_percent),
+                    force_soma_centering=bool(inputs.grid_force_soma_centering),
+                    soma_xy_show=bool(inputs.grid_soma_xy_show),
+                    soma_xy_color=str(inputs.grid_soma_xy_color),
+                    soma_xy_fontsize=float(inputs.grid_soma_xy_fontsize),
+                    soma_xy_location=str(inputs.grid_soma_xy_location),
+                    show_unit_id_in_plot=bool(inputs.grid_show_unit_id_in_plot),
+                    unit_id_fontsize=float(inputs.grid_unit_id_fontsize),
+                    unit_id_color=str(inputs.grid_unit_id_color),
+                    show_minimap=bool(inputs.grid_show_minimap),
+                    minimap_position=str(inputs.grid_minimap_position),
+                    minimap_size=float(inputs.grid_minimap_size),
+                    minimap_outline_color=str(inputs.grid_minimap_outline_color),
+                    minimap_chip_width_mm=float(inputs.grid_minimap_chip_width_mm),
+                    minimap_chip_height_mm=float(inputs.grid_minimap_chip_height_mm),
+                    minimap_inner_box_linestyle=str(inputs.grid_minimap_inner_box_linestyle),
+                    minimap_inner_box_linewidth=float(inputs.grid_minimap_inner_box_linewidth),
+                    minimap_include_footprint=bool(inputs.grid_minimap_include_footprint),
+                    minimap_prevent_occlusions=bool(inputs.grid_minimap_prevent_occlusions),
+                    legend_show=bool(inputs.grid_legend_show),
+                    legend_location=str(inputs.grid_legend_location),
+                    legend_fontsize=float(inputs.grid_legend_fontsize),
+                    legend_fontcolor=str(inputs.grid_legend_fontcolor),
+                    legend_marker_size=float(inputs.grid_legend_marker_size),
+                    legend_show_nodes_in_legend=bool(inputs.grid_legend_show_nodes_in_legend),
+                    legend_show_footprint_in_legend=bool(inputs.grid_legend_show_footprint_in_legend),
+                    emit_debug_logs=bool(inputs.grid_emit_debug_logs),
                     show_scale_debug_text=bool(inputs.show_density_scale_debug_text),
                     show_global_debug_text=bool(inputs.show_density_scale_global_debug_text),
                     show_local_debug_text=bool(inputs.show_density_scale_local_debug_text),
@@ -991,8 +1150,12 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                 params=params,
                 force_restart=bool(inputs.force_restart),
                 write_unit_pdfs=bool(inputs.write_unit_pdfs),
+                write_template_movie_gif=bool(inputs.write_template_movie_gif),
                 replot_summaries_only=bool(inputs.replot_summaries_only),
                 recompute_branches_raw_only=bool(inputs.recompute_branches_raw_only),
+                per_unit_write_branches_raw_json=bool(inputs.per_unit_write_branches_raw_json),
+                per_unit_write_branches_json=bool(inputs.per_unit_write_branches_json),
+                per_unit_write_heuristics_json=bool(inputs.per_unit_write_heuristics_json),
             )
             _accumulate_unit_result(result)
             completed_units += 1
@@ -1023,8 +1186,12 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                     params=params,
                     force_restart=bool(inputs.force_restart),
                     write_unit_pdfs=bool(inputs.write_unit_pdfs),
+                    write_template_movie_gif=bool(inputs.write_template_movie_gif),
                     replot_summaries_only=bool(inputs.replot_summaries_only),
                     recompute_branches_raw_only=bool(inputs.recompute_branches_raw_only),
+                    per_unit_write_branches_raw_json=bool(inputs.per_unit_write_branches_raw_json),
+                    per_unit_write_branches_json=bool(inputs.per_unit_write_branches_json),
+                    per_unit_write_heuristics_json=bool(inputs.per_unit_write_heuristics_json),
                 )
                 futures[fut] = uid
 
@@ -1089,6 +1256,51 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                 reconstruction_out_dir=recon_out_dir,
                 selected_unit_ids=list(unit_ids),
                 top_n=top_n_density_requested,
+                output_subdir=str(inputs.grid_output_subdir),
+                write_pdf=bool(inputs.grid_write_pdf),
+                write_png=bool(inputs.grid_write_png),
+                write_ranking_json=bool(inputs.grid_write_ranking_json),
+                log_basename=str(inputs.grid_log_basename),
+                linear_basename=str(inputs.grid_linear_basename),
+                ranking_filename=str(inputs.grid_ranking_filename),
+                ncols=int(inputs.grid_ncols),
+                dpi=int(inputs.grid_dpi),
+                draw_zoom_range_box=bool(inputs.grid_draw_zoom_range_box),
+                panel_background_color=str(inputs.grid_panel_background_color),
+                branch_color=str(inputs.grid_branch_color),
+                branch_outline_color=str(inputs.grid_branch_outline_color),
+                node_radius_um=float(inputs.grid_node_radius_um),
+                soma_node_radius_um=float(inputs.grid_soma_node_radius_um),
+                soma_node_color=str(inputs.grid_soma_node_color),
+                sort_by=str(inputs.grid_sort_by),
+                zoom_priority=str(inputs.grid_zoom_priority),
+                zoom_padding_percent=float(inputs.grid_zoom_padding_percent),
+                force_soma_centering=bool(inputs.grid_force_soma_centering),
+                soma_xy_show=bool(inputs.grid_soma_xy_show),
+                soma_xy_color=str(inputs.grid_soma_xy_color),
+                soma_xy_fontsize=float(inputs.grid_soma_xy_fontsize),
+                soma_xy_location=str(inputs.grid_soma_xy_location),
+                show_unit_id_in_plot=bool(inputs.grid_show_unit_id_in_plot),
+                unit_id_fontsize=float(inputs.grid_unit_id_fontsize),
+                unit_id_color=str(inputs.grid_unit_id_color),
+                show_minimap=bool(inputs.grid_show_minimap),
+                minimap_position=str(inputs.grid_minimap_position),
+                minimap_size=float(inputs.grid_minimap_size),
+                minimap_outline_color=str(inputs.grid_minimap_outline_color),
+                minimap_chip_width_mm=float(inputs.grid_minimap_chip_width_mm),
+                minimap_chip_height_mm=float(inputs.grid_minimap_chip_height_mm),
+                minimap_inner_box_linestyle=str(inputs.grid_minimap_inner_box_linestyle),
+                minimap_inner_box_linewidth=float(inputs.grid_minimap_inner_box_linewidth),
+                minimap_include_footprint=bool(inputs.grid_minimap_include_footprint),
+                minimap_prevent_occlusions=bool(inputs.grid_minimap_prevent_occlusions),
+                legend_show=bool(inputs.grid_legend_show),
+                legend_location=str(inputs.grid_legend_location),
+                legend_fontsize=float(inputs.grid_legend_fontsize),
+                legend_fontcolor=str(inputs.grid_legend_fontcolor),
+                legend_marker_size=float(inputs.grid_legend_marker_size),
+                legend_show_nodes_in_legend=bool(inputs.grid_legend_show_nodes_in_legend),
+                legend_show_footprint_in_legend=bool(inputs.grid_legend_show_footprint_in_legend),
+                emit_debug_logs=bool(inputs.grid_emit_debug_logs),
                 show_scale_debug_text=bool(inputs.show_density_scale_debug_text),
                 show_global_debug_text=bool(inputs.show_density_scale_global_debug_text),
                 show_local_debug_text=bool(inputs.show_density_scale_local_debug_text),

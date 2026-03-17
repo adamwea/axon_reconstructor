@@ -1,5 +1,6 @@
 paths:
-  h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5
+  #h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5
+  h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/data.raw.h5
   stream_id: well001
   mea_output_root: /home/adamm/dev/symlinks/local_RBS_data/outputs
   mea_analysis_repo_root: /home/adamm/dev/pkgs/MEA_Analysis
@@ -16,6 +17,8 @@ stages:
       debug: false
       force_restart: false
       force_replot: false
+    plot:
+      segment_traces: false
     resources:
       workers_total: 24
       well_workers: 1
@@ -33,8 +36,8 @@ stages:
       chunk_duration: 1s
     sorter: kilosort4
     docker_image: adammwea/benshalomlab_spikesorter_pythonpatch:v3
-    #resume_from: null
-    resume_from: merge
+    resume_from: null
+    #resume_from: merge
     rerun_analyzer: false
     curation: true
     auto_merge_units: false
@@ -51,7 +54,7 @@ stages:
         nearest: 12
         max_distance: 40
     unitmatch:
-      merge_units: true
+      merge_units: false
       dry_run: false
       output_subdir_name: unitmatch_outputs
       throughput_subdir_name: unitmatch_throughput
@@ -83,6 +86,7 @@ stages:
     #max_spikes_per_unit: 1000000
     max_spikes_per_unit: -1
     per_segment: true
+    per_segment_only_additional_channels: false
     filter_by_maxwell_epochs: false
     filter_by_segment_bounds: false
     prefer_merged_sorting: false
@@ -117,12 +121,13 @@ stages:
     execution:
       debug: false
       force_restart: false
-      force_replot: false
+      force_replot: true
     resources:
       workers_total: 24
       well_workers: 1
       stage_workers: 24
-      unit_workers: 1
+      #unit_workers: 12 # for some reason, having this many workers causes memory issues in the current implementation. WSL crashes.
+      unit_workers: 8
     unit_limit: 1000
     write_unit_pdfs: true
     write_all_units_overview_pdf: true
@@ -136,16 +141,82 @@ stages:
     show_density_scale_local_debug_text: false
     verbose: false
     write_template_movie_gif: false
+    per_unit_outputs:
+      write_branches_raw_json: true
+      write_branches_json: true
+      write_heuristics_json: true
+    grids:
+      # Output folder inside reconstruction output dir.
+      output_subdir: grids
+      # Toggle file outputs independently.
+      write_pdf: true
+      write_png: true
+      write_ranking_json: true
+      # Basenames (no extension) for the two grid variants.
+      log_basename: raw_branch_grid_log
+      linear_basename: raw_branch_grid_linear
+      ranking_filename: raw_branch_grid_ranking.json
+      # Plot style/layout controls.
+      ncols: 5
+      dpi: 220
+      draw_zoom_range_box: false
+      panel_background_color: black
+      branch_color: red
+      branch_outline_color: white
+      show_unit_id_in_plot: true # top right corner of each panel
+      unit_id_fontsize: 6
+      unit_id_color: white
+      show_minimap: true # Basically just a square in a rectangle. small rectangle in the corner of each panel showing the full grid with the zoom range highlighted.
+      minimap_position: topleft # topleft, topright, bottomleft, bottomright
+      minimap_size: 0.4 # fraction of the panel size for the minimap
+      minimap_outline_color: white
+      minimap_chip_width_mm: 3.85
+      minimap_chip_height_mm: 2.10
+      minimap_inner_box_linestyle: solid # solid, dotted, dashed
+      minimap_inner_box_linewidth: 0.6
+      minimap_include_footprint: true # whether to show the footprint heatmap of the neuron in minimap
+      #if true, check if any nodes or branches are occluded by the minimap and if so,
+      # increase zoom span as needed to prevent occlusion. Only applies if show_minimap is true.
+      minimap_prevent_occlusions: true
+      node_radius_um: 5
+      soma_node_radius_um: 8
+      soma_node_color: orange # e.g. cyan, yellow, magenta
+      zoom_priority: "branches" # channels or branches. If channels, zoom range is determined by the channels contributing to the branch. If branches, zoom range is determined by the spatial extent of the branch itself (with some padding).
+      zoom_padding_percent: 20 # percentage padding of selected zoom span (20 => 20%)
+      sort_by: "total_branch_length" # density
+      # whether to force the grid to be centered on the soma.
+      # e.g. if zoom_priority is "branches", while force_soma_centering is false, the grid will be zoomed to the branches.
+      # however if force_soma_centering is true AND zoom_priority is "branches", the grid will be centered on the soma
+      # and zoom span will increase as needed to include the branches (with zoom_padding_percent padding).
+      # similar adjustments are made when zoom_priority is "channels" as needed and so long centering is possible
+      # given the spatial distribution of the channels and branches.
+      force_soma_centering: true
+      soma_xy_coords: # print soma xy coordinates on the panel.
+        show: true
+        color: white
+        fontsize: 4
+        location: bottom left
+      legend:
+        show: true
+        location: first_empty_panel # e.g. upper right, lower left, etc. or first_empty_panel to automatically place in the first empty panel starting from top left
+        fontsize: 10
+        fontcolor: black
+        marker_size: 9
+        show_nodes_in_legend: true
+        show_footprint_in_legend: false # not even sure what this would look like. 
+
+      # Extra logger output for candidate counts/selected units/path resolution.
+      emit_debug_logs: false
     av:
       min_points_after_branching: 2
       min_path_length: 17.5
       min_path_points: 4
-      max_peak_latency_for_splitting: 0.5
-      kurt_threshold: 0.25
+      max_peak_latency_for_splitting: 2.0
+      kurt_threshold: -10.0
       n_neighbors: 8
       distance_exp: 1
       remove_isolated: false
-      detect_threshold: 0.005
+      detect_threshold: 0.0001
       min_selected_points: 25
       mad_threshold: 10
       min_outlier_tracking_error: 200

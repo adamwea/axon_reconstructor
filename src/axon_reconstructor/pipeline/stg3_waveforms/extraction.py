@@ -11,7 +11,12 @@ from .segments import (
     _count_spikes_in_concat_window,
     _parse_concat_epoch_segment,
 )
-from .utils import _load_preprocess_requested_cfg, _load_raw_segment_recording_segment_channels, _to_numpy_sorting
+from .utils import (
+    _load_preprocess_requested_cfg,
+    _load_preprocessed_segment_recording,
+    _load_raw_segment_recording_segment_channels,
+    _to_numpy_sorting,
+)
 
 
 def _best_ptp_channel_by_unit_from_templates(*, analyzer: Any) -> dict[Any, tuple[float, Any]]:
@@ -588,18 +593,43 @@ def _extract_per_segment_waveforms(
                         pass
 
             seg_t0 = perf_counter()
-            seg_rec = _load_raw_segment_recording_segment_channels(
-                h5_path=inputs.h5_path,
-                stream_id=inputs.stream_id,
-                rec_name=rec_name,
-                center_chunk_size=10_000,
-                preprocess_like_mea_analysis=bool(
-                    getattr(inputs, "per_segment_preprocess_like_mea_analysis", True)
-                ),
-                target_sampling_frequency_hz=float(target_fs_hz),
-                temporal_resample_margin_ms=float(seg_resample_margin_ms),
-                temporal_resample_dtype=(str(seg_resample_dtype) if seg_resample_dtype is not None else None),
-            )
+            seg_rec = None
+            preprocess_dir = getattr(epochs, "preprocess_dir", None)
+            if preprocess_dir is not None:
+                try:
+                    seg_rec = _load_preprocessed_segment_recording(
+                        preprocess_dir=preprocess_dir,
+                        segment_index=int(seg_index),
+                        rec_name=str(rec_name),
+                        target_sampling_frequency_hz=float(target_fs_hz),
+                        temporal_resample_margin_ms=float(seg_resample_margin_ms),
+                        temporal_resample_dtype=(str(seg_resample_dtype) if seg_resample_dtype is not None else None),
+                    )
+                    logger.info(
+                        "Segment %s: loaded preprocessed segment recording from stg1 outputs",
+                        rec_name,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Segment %s: failed loading stg1 preprocessed segment recording; "
+                        "falling back to raw+local preprocessing (%s)",
+                        rec_name,
+                        e,
+                    )
+
+            if seg_rec is None:
+                seg_rec = _load_raw_segment_recording_segment_channels(
+                    h5_path=inputs.h5_path,
+                    stream_id=inputs.stream_id,
+                    rec_name=rec_name,
+                    center_chunk_size=10_000,
+                    preprocess_like_mea_analysis=bool(
+                        getattr(inputs, "per_segment_preprocess_like_mea_analysis", True)
+                    ),
+                    target_sampling_frequency_hz=float(target_fs_hz),
+                    temporal_resample_margin_ms=float(seg_resample_margin_ms),
+                    temporal_resample_dtype=(str(seg_resample_dtype) if seg_resample_dtype is not None else None),
+                )
             seg_t_load_preprocess += float(perf_counter() - seg_t0)
 
             # Attempt to record electrode ids (preferred) and raw channel ids (fallback).

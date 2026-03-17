@@ -9,6 +9,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from axon_reconstructor import env_utils
 from axon_reconstructor.runtime_config import RuntimeConfig
@@ -776,6 +777,17 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             stage,
         )
 
+    if stage == "preprocess":
+        plot_segment_traces = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.preprocess.plot.segment_traces",
+            env_key="AXON_RECON_PREPROCESS_PLOT_SEGMENT_TRACES",
+            default=True,
+        )
+        if "plot_segment_traces" not in stage_kwargs:
+            stage_kwargs["plot_segment_traces"] = bool(plot_segment_traces)
+
     stage_logger.info(
         "Effective stage resources: stage=%s stage_workers=%d well_workers=%d chunk_duration=%s",
         stage,
@@ -1095,6 +1107,40 @@ def _cmd_stage(args: argparse.Namespace) -> int:
                 stage_kwargs[key] = value
 
     if stage == "waveforms":
+        per_segment = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.waveforms.per_segment",
+            env_key="AXON_RECON_WF_PER_SEGMENT",
+            default=True,
+        )
+        if "per_segment" not in stage_kwargs:
+            stage_kwargs["per_segment"] = bool(per_segment)
+
+        per_segment_preprocess_like_mea_analysis = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.waveforms.per_segment_preprocess_like_mea_analysis",
+            env_key="AXON_RECON_WF_PER_SEGMENT_PREPROCESS_LIKE_MEA_ANALYSIS",
+            default=True,
+        )
+        if "per_segment_preprocess_like_mea_analysis" not in stage_kwargs:
+            stage_kwargs["per_segment_preprocess_like_mea_analysis"] = bool(
+                per_segment_preprocess_like_mea_analysis
+            )
+
+        per_segment_only_additional_channels = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.waveforms.per_segment_only_additional_channels",
+            env_key="AXON_RECON_WF_PER_SEGMENT_ONLY_ADDITIONAL_CHANNELS",
+            default=True,
+        )
+        if "per_segment_only_additional_channels" not in stage_kwargs:
+            stage_kwargs["per_segment_only_additional_channels"] = bool(
+                per_segment_only_additional_channels
+            )
+
         max_spikes_per_unit_raw: str | int | None = getattr(args, "max_spikes_per_unit", None)
         if max_spikes_per_unit_raw is None:
             max_spikes_per_unit_cfg = runtime_config.get_int_or_unlimited("stages.waveforms.max_spikes_per_unit", default=None)
@@ -1203,7 +1249,59 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             )
             stage_kwargs["unit_workers"] = int(unit_workers)
 
-    if stage == "templates":
+        av_params = stage_kwargs.get("axon_velocity_params")
+        if av_params is None:
+            av_params = {}
+        elif not isinstance(av_params, dict):
+            raise ValueError("stage_kwargs.axon_velocity_params must be a mapping")
+
+        av_cfg = runtime_config.get("stages.reconstruct.av", default=None)
+        if av_cfg is not None:
+            if not isinstance(av_cfg, dict):
+                raise ValueError("stages.reconstruct.av must be a mapping/object")
+            for key, value in av_cfg.items():
+                av_params[str(key)] = value
+
+        # Optional env-level overrides for AV parameters.
+        av_param_keys = [
+            "upsample",
+            "init_delay",
+            "detect_threshold",
+            "kurt_threshold",
+            "peak_std_threshold",
+            "peak_std_distance",
+            "remove_isolated",
+            "detection_type",
+            "min_selected_points",
+            "min_path_length",
+            "min_path_points",
+            "min_points_after_branching",
+            "r2_threshold",
+            "max_distance_for_edge",
+            "max_distance_to_init",
+            "mad_threshold",
+            "n_neighbors",
+            "init_amp_peak_ratio",
+            "edge_dist_amp_ratio",
+            "distance_exp",
+            "max_peak_latency_for_splitting",
+            "r2_threshold_for_outliers",
+            "min_outlier_tracking_error",
+            "theilsen_maxiter",
+            "neighbor_radius",
+            "split_paths",
+        ]
+        for key in av_param_keys:
+            env_key = f"AXON_RECON_AV_{str(key).upper()}"
+            raw = env_utils.env_str(env_key, default=None)
+            if raw is None:
+                continue
+            av_params[key] = env_utils.parse_typed_value(raw)
+
+        if av_params:
+            stage_kwargs["axon_velocity_params"] = dict(av_params)
+
+    if stage == "reconstruct":
         template_unit_workers = _first_cfg_int(
             runtime_config,
             [
@@ -1248,6 +1346,16 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         if "write_top_density_grid" not in stage_kwargs:
             stage_kwargs["write_top_density_grid"] = bool(write_top_density_grid)
 
+        write_template_movie_gif = _resolve_bool_cfg(
+            cli_value=None,
+            cfg=runtime_config,
+            cfg_path="stages.reconstruct.write_template_movie_gif",
+            env_key="AXON_RECON_RECON_WRITE_TEMPLATE_MOVIE_GIF",
+            default=False,
+        )
+        if "write_template_movie_gif" not in stage_kwargs:
+            stage_kwargs["write_template_movie_gif"] = bool(write_template_movie_gif)
+
         show_density_scale_debug_text = _resolve_bool(
             cli_value=getattr(args, "recon_show_density_scale_debug_text", None),
             env_key="AXON_RECON_RECON_SHOW_DENSITY_SCALE_DEBUG_TEXT",
@@ -1279,6 +1387,162 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         )
         if "replot_top_density_grid_only" not in stage_kwargs:
             stage_kwargs["replot_top_density_grid_only"] = bool(replot_top_density_grid_only)
+
+        grids_cfg = runtime_config.get("stages.reconstruct.grids", default=None)
+        if grids_cfg is not None and not isinstance(grids_cfg, dict):
+            raise ValueError("stages.reconstruct.grids must be a mapping/object")
+        grids_cfg = grids_cfg if isinstance(grids_cfg, dict) else {}
+
+        def _cfg_or_default(key: str, default: Any) -> Any:
+            return grids_cfg.get(key, default) if isinstance(grids_cfg, dict) else default
+
+        if "grid_output_subdir" not in stage_kwargs:
+            stage_kwargs["grid_output_subdir"] = str(_cfg_or_default("output_subdir", "grids"))
+        if "grid_write_pdf" not in stage_kwargs:
+            stage_kwargs["grid_write_pdf"] = bool(_cfg_or_default("write_pdf", True))
+        if "grid_write_png" not in stage_kwargs:
+            stage_kwargs["grid_write_png"] = bool(_cfg_or_default("write_png", True))
+        if "grid_write_ranking_json" not in stage_kwargs:
+            stage_kwargs["grid_write_ranking_json"] = bool(_cfg_or_default("write_ranking_json", True))
+        if "grid_log_basename" not in stage_kwargs:
+            stage_kwargs["grid_log_basename"] = str(
+                _cfg_or_default("log_basename", "raw_branch_log_footprint_top_density_grid")
+            )
+        if "grid_linear_basename" not in stage_kwargs:
+            stage_kwargs["grid_linear_basename"] = str(
+                _cfg_or_default("linear_basename", "raw_branch_linear_footprint_top_density_grid")
+            )
+        if "grid_ranking_filename" not in stage_kwargs:
+            stage_kwargs["grid_ranking_filename"] = str(
+                _cfg_or_default("ranking_filename", "raw_branch_log_footprint_top_density_ranking.json")
+            )
+        if "grid_ncols" not in stage_kwargs:
+            stage_kwargs["grid_ncols"] = int(_cfg_or_default("ncols", 5))
+        if "grid_dpi" not in stage_kwargs:
+            stage_kwargs["grid_dpi"] = int(_cfg_or_default("dpi", 220))
+        if "grid_draw_zoom_range_box" not in stage_kwargs:
+            stage_kwargs["grid_draw_zoom_range_box"] = bool(_cfg_or_default("draw_zoom_range_box", False))
+        if "grid_panel_background_color" not in stage_kwargs:
+            stage_kwargs["grid_panel_background_color"] = str(_cfg_or_default("panel_background_color", "black"))
+        if "grid_branch_color" not in stage_kwargs:
+            stage_kwargs["grid_branch_color"] = str(_cfg_or_default("branch_color", "red"))
+        if "grid_branch_outline_color" not in stage_kwargs:
+            stage_kwargs["grid_branch_outline_color"] = str(_cfg_or_default("branch_outline_color", "white"))
+        if "grid_node_radius_um" not in stage_kwargs:
+            stage_kwargs["grid_node_radius_um"] = float(_cfg_or_default("node_radius_um", 5.0))
+        if "grid_soma_node_radius_um" not in stage_kwargs:
+            stage_kwargs["grid_soma_node_radius_um"] = float(_cfg_or_default("soma_node_radius_um", 10.0))
+        if "grid_soma_node_color" not in stage_kwargs:
+            stage_kwargs["grid_soma_node_color"] = str(_cfg_or_default("soma_node_color", "yellow"))
+        if "grid_zoom_priority" not in stage_kwargs:
+            stage_kwargs["grid_zoom_priority"] = str(_cfg_or_default("zoom_priority", "branches"))
+        if "grid_zoom_padding_percent" not in stage_kwargs:
+            stage_kwargs["grid_zoom_padding_percent"] = float(
+                _cfg_or_default("zoom_padding_percent", _cfg_or_default("zoom_padding_um", 20.0))
+            )
+        if "grid_force_soma_centering" not in stage_kwargs:
+            stage_kwargs["grid_force_soma_centering"] = bool(_cfg_or_default("force_soma_centering", False))
+        soma_xy_cfg = grids_cfg.get("soma_xy_coords", None) if isinstance(grids_cfg, dict) else None
+        if soma_xy_cfg is not None and not isinstance(soma_xy_cfg, dict):
+            raise ValueError("stages.reconstruct.grids.soma_xy_coords must be a mapping/object")
+        soma_xy_cfg = soma_xy_cfg if isinstance(soma_xy_cfg, dict) else {}
+
+        def _soma_xy_or_default(key: str, default: Any) -> Any:
+            return soma_xy_cfg.get(key, default) if isinstance(soma_xy_cfg, dict) else default
+
+        if "grid_soma_xy_show" not in stage_kwargs:
+            stage_kwargs["grid_soma_xy_show"] = bool(_soma_xy_or_default("show", False))
+        if "grid_soma_xy_color" not in stage_kwargs:
+            stage_kwargs["grid_soma_xy_color"] = str(_soma_xy_or_default("color", "white"))
+        if "grid_soma_xy_fontsize" not in stage_kwargs:
+            stage_kwargs["grid_soma_xy_fontsize"] = float(_soma_xy_or_default("fontsize", 5.0))
+        if "grid_soma_xy_location" not in stage_kwargs:
+            stage_kwargs["grid_soma_xy_location"] = str(_soma_xy_or_default("location", "bottom left"))
+        if "grid_sort_by" not in stage_kwargs:
+            stage_kwargs["grid_sort_by"] = str(_cfg_or_default("sort_by", "density"))
+        if "grid_show_unit_id_in_plot" not in stage_kwargs:
+            stage_kwargs["grid_show_unit_id_in_plot"] = bool(_cfg_or_default("show_unit_id_in_plot", True))
+        if "grid_unit_id_fontsize" not in stage_kwargs:
+            stage_kwargs["grid_unit_id_fontsize"] = float(_cfg_or_default("unit_id_fontsize", 6.0))
+        if "grid_unit_id_color" not in stage_kwargs:
+            stage_kwargs["grid_unit_id_color"] = str(_cfg_or_default("unit_id_color", "white"))
+        if "grid_show_minimap" not in stage_kwargs:
+            stage_kwargs["grid_show_minimap"] = bool(_cfg_or_default("show_minimap", True))
+        if "grid_minimap_position" not in stage_kwargs:
+            stage_kwargs["grid_minimap_position"] = str(_cfg_or_default("minimap_position", "bottomright"))
+        if "grid_minimap_size" not in stage_kwargs:
+            stage_kwargs["grid_minimap_size"] = float(_cfg_or_default("minimap_size", 0.20))
+        if "grid_minimap_outline_color" not in stage_kwargs:
+            stage_kwargs["grid_minimap_outline_color"] = str(_cfg_or_default("minimap_outline_color", "white"))
+        if "grid_minimap_chip_width_mm" not in stage_kwargs:
+            stage_kwargs["grid_minimap_chip_width_mm"] = float(_cfg_or_default("minimap_chip_width_mm", 3.85))
+        if "grid_minimap_chip_height_mm" not in stage_kwargs:
+            stage_kwargs["grid_minimap_chip_height_mm"] = float(_cfg_or_default("minimap_chip_height_mm", 2.10))
+        if "grid_minimap_inner_box_linestyle" not in stage_kwargs:
+            stage_kwargs["grid_minimap_inner_box_linestyle"] = str(
+                _cfg_or_default("minimap_inner_box_linestyle", "dotted")
+            )
+        if "grid_minimap_inner_box_linewidth" not in stage_kwargs:
+            stage_kwargs["grid_minimap_inner_box_linewidth"] = float(
+                _cfg_or_default("minimap_inner_box_linewidth", 0.8)
+            )
+        if "grid_minimap_include_footprint" not in stage_kwargs:
+            stage_kwargs["grid_minimap_include_footprint"] = bool(
+                _cfg_or_default("minimap_include_footprint", False)
+            )
+        if "grid_minimap_prevent_occlusions" not in stage_kwargs:
+            stage_kwargs["grid_minimap_prevent_occlusions"] = bool(
+                _cfg_or_default("minimap_prevent_occlusions", False)
+            )
+        legend_cfg = grids_cfg.get("legend", None) if isinstance(grids_cfg, dict) else None
+        if legend_cfg is not None and not isinstance(legend_cfg, dict):
+            raise ValueError("stages.reconstruct.grids.legend must be a mapping/object")
+        legend_cfg = legend_cfg if isinstance(legend_cfg, dict) else {}
+
+        def _legend_or_default(key: str, default: Any) -> Any:
+            return legend_cfg.get(key, default) if isinstance(legend_cfg, dict) else default
+
+        if "grid_legend_show" not in stage_kwargs:
+            stage_kwargs["grid_legend_show"] = bool(_legend_or_default("show", False))
+        if "grid_legend_location" not in stage_kwargs:
+            stage_kwargs["grid_legend_location"] = str(_legend_or_default("location", "first_empty_panel"))
+        if "grid_legend_fontsize" not in stage_kwargs:
+            stage_kwargs["grid_legend_fontsize"] = float(_legend_or_default("fontsize", 6.0))
+        if "grid_legend_fontcolor" not in stage_kwargs:
+            stage_kwargs["grid_legend_fontcolor"] = str(_legend_or_default("fontcolor", "white"))
+        if "grid_legend_marker_size" not in stage_kwargs:
+            stage_kwargs["grid_legend_marker_size"] = float(_legend_or_default("marker_size", 3.0))
+        if "grid_legend_show_nodes_in_legend" not in stage_kwargs:
+            stage_kwargs["grid_legend_show_nodes_in_legend"] = bool(
+                _legend_or_default("show_nodes_in_legend", True)
+            )
+        if "grid_legend_show_footprint_in_legend" not in stage_kwargs:
+            stage_kwargs["grid_legend_show_footprint_in_legend"] = bool(
+                _legend_or_default("show_footprint_in_legend", True)
+            )
+        if "grid_emit_debug_logs" not in stage_kwargs:
+            stage_kwargs["grid_emit_debug_logs"] = bool(_cfg_or_default("emit_debug_logs", False))
+
+        per_unit_cfg = runtime_config.get("stages.reconstruct.per_unit_outputs", default=None)
+        if per_unit_cfg is not None and not isinstance(per_unit_cfg, dict):
+            raise ValueError("stages.reconstruct.per_unit_outputs must be a mapping/object")
+        per_unit_cfg = per_unit_cfg if isinstance(per_unit_cfg, dict) else {}
+
+        def _per_unit_cfg_or_default(key: str, default: Any) -> Any:
+            return per_unit_cfg.get(key, default) if isinstance(per_unit_cfg, dict) else default
+
+        if "per_unit_write_branches_raw_json" not in stage_kwargs:
+            stage_kwargs["per_unit_write_branches_raw_json"] = bool(
+                _per_unit_cfg_or_default("write_branches_raw_json", True)
+            )
+        if "per_unit_write_branches_json" not in stage_kwargs:
+            stage_kwargs["per_unit_write_branches_json"] = bool(
+                _per_unit_cfg_or_default("write_branches_json", True)
+            )
+        if "per_unit_write_heuristics_json" not in stage_kwargs:
+            stage_kwargs["per_unit_write_heuristics_json"] = bool(
+                _per_unit_cfg_or_default("write_heuristics_json", True)
+            )
 
     if stage == "analysis":
         analysis_unit_workers = _first_cfg_int(

@@ -341,6 +341,50 @@ def write_top_density_raw_branch_footprint_grid(
     reconstruction_out_dir: Path,
     selected_unit_ids: list[Any],
     top_n: Optional[int],
+    output_subdir: str = "grids",
+    write_pdf: bool = True,
+    write_png: bool = True,
+    write_ranking_json: bool = True,
+    log_basename: str = "raw_branch_log_footprint_top_density_grid",
+    linear_basename: str = "raw_branch_linear_footprint_top_density_grid",
+    ranking_filename: str = "raw_branch_log_footprint_top_density_ranking.json",
+    ncols: int = 5,
+    dpi: int = 220,
+    panel_background_color: str = "black",
+    branch_color: str = "red",
+    branch_outline_color: str = "white",
+    node_radius_um: float = 5.0,
+    soma_node_radius_um: float = 10.0,
+    soma_node_color: str = "yellow",
+    sort_by: str = "density",
+    zoom_priority: str = "branches",
+    zoom_padding_percent: float = 20.0,
+    force_soma_centering: bool = False,
+    soma_xy_show: bool = False,
+    soma_xy_color: str = "white",
+    soma_xy_fontsize: float = 5.0,
+    soma_xy_location: str = "bottom left",
+    show_unit_id_in_plot: bool = True,
+    unit_id_fontsize: float = 6.0,
+    unit_id_color: str = "white",
+    show_minimap: bool = True,
+    minimap_position: str = "bottomright",
+    minimap_size: float = 0.20,
+    minimap_outline_color: str = "white",
+    minimap_chip_width_mm: float = 3.85,
+    minimap_chip_height_mm: float = 2.10,
+    minimap_inner_box_linestyle: str = "dotted",
+    minimap_inner_box_linewidth: float = 0.8,
+    minimap_include_footprint: bool = False,
+    minimap_prevent_occlusions: bool = False,
+    legend_show: bool = False,
+    legend_location: str = "first_empty_panel",
+    legend_fontsize: float = 6.0,
+    legend_fontcolor: str = "white",
+    legend_marker_size: float = 3.0,
+    legend_show_nodes_in_legend: bool = True,
+    legend_show_footprint_in_legend: bool = True,
+    emit_debug_logs: bool = False,
     show_scale_debug_text: bool = False,
     show_global_debug_text: bool = False,
     show_local_debug_text: bool = False,
@@ -349,11 +393,12 @@ def write_top_density_raw_branch_footprint_grid(
 ) -> dict[str, Any]:
     """Write a top-N grid of raw-branch morphologies over log-zoom footprints.
 
-    Ranking metric (higher is better):
-        density = n_waveforms_sum / n_channels / footprint_area_um2
+        Ranking metric (higher is better):
+            - sort_by="density": density = n_waveforms_sum / n_channels / footprint_area_um2
+            - sort_by="total_branch_length": total reconstructed branch length in um
 
-    where `footprint_area_um2` is the axis-aligned area of contributing channel
-    locations expanded by one inferred pitch on each dimension.
+        where `footprint_area_um2` is the axis-aligned area of contributing channel
+        locations expanded by one inferred pitch on each dimension.
     """
 
     try:
@@ -413,6 +458,80 @@ def write_top_density_raw_branch_footprint_grid(
         denom = float(max(1, int(n_ch))) * area
         return float(n_wf) / float(max(1e-12, denom)), area
 
+    def _compute_total_branch_length_um(*, uid: Any, locs_xy: Any, branches_raw_json: Path) -> float:
+        try:
+            raw_payload = _read_json(Path(branches_raw_json))
+            raw_branches = list((raw_payload or {}).get("branches", []) or [])
+        except Exception:
+            return 0.0
+
+        if not raw_branches:
+            return 0.0
+
+        locs = np.asarray(locs_xy, dtype=float)
+        if locs.ndim != 2 or int(locs.shape[0]) <= 1:
+            return 0.0
+
+        full_locs_xy = None
+        try:
+            full_locs_npy = (
+                Path(templates_out_dir)
+                / "templates"
+                / "full"
+                / f"unit_{uid}"
+                / "full_channel_locations_xy.npy"
+            )
+            if full_locs_npy.exists():
+                full_locs_xy = np.asarray(np.load(str(full_locs_npy), allow_pickle=True), dtype=float)[:, :2]
+        except Exception:
+            full_locs_xy = None
+
+        def _map_branch_indices(branch_channels: list[int]) -> list[int]:
+            if not branch_channels:
+                return []
+
+            merged_n = int(locs.shape[0])
+            if max(branch_channels) < merged_n:
+                return [int(c) for c in branch_channels if 0 <= int(c) < merged_n]
+
+            if full_locs_xy is None:
+                return []
+
+            mapped: list[int] = []
+            used: set[int] = set()
+            for c in branch_channels:
+                ci = int(c)
+                if ci < 0 or ci >= int(full_locs_xy.shape[0]):
+                    continue
+                xy = full_locs_xy[ci, :2]
+                d = np.sqrt(np.sum((locs - xy) ** 2, axis=1))
+                if d.size == 0:
+                    continue
+                mi = int(np.argmin(d))
+                if float(d[mi]) <= 5.0 and mi not in used:
+                    mapped.append(mi)
+                    used.add(mi)
+            return mapped
+
+        total_len = 0.0
+        for br in raw_branches:
+            try:
+                chs = [int(c) for c in list(br.get("channels", []) or []) if isinstance(c, (int, float))]
+                if len(chs) < 2:
+                    continue
+                chs = _map_branch_indices(chs)
+                if len(chs) < 2:
+                    continue
+                pts = locs[np.asarray(chs, dtype=int), :2]
+                if int(pts.shape[0]) < 2:
+                    continue
+                seg = np.diff(np.asarray(pts, dtype=float), axis=0)
+                total_len += float(np.sum(np.sqrt(np.sum(seg * seg, axis=1))))
+            except Exception:
+                continue
+
+        return float(total_len)
+
     # Build candidate rows from templates summary.
     # Keep a separate pool for scale stats that does not require reconstruction outputs,
     # so vmax is not biased toward only successfully reconstructed/high-SNR units.
@@ -469,10 +588,17 @@ def write_top_density_raw_branch_footprint_grid(
         if not branches_raw_json.exists():
             continue
 
+        total_branch_length_um = _compute_total_branch_length_um(
+            uid=uid,
+            locs_xy=locs_xy,
+            branches_raw_json=branches_raw_json,
+        )
+
         candidates.append(
             {
                 "unit_id": uid,
                 "density": float(density),
+                "total_branch_length_um": float(total_branch_length_um),
                 "n_waveforms_sum": int(n_wf),
                 "n_channels": int(n_ch),
                 "area_um2": float(area_um2),
@@ -486,25 +612,63 @@ def write_top_density_raw_branch_footprint_grid(
         logger.info("No candidates available for raw-branch footprint-density grid")
         return {}
 
-    candidates = sorted(
-        candidates,
-        key=lambda r: (-float(r.get("density", 0.0)), -int(r.get("n_waveforms_sum", 0)), int(r.get("unit_id", 10**12))),
-    )
+    sort_mode = str(sort_by or "density").strip().lower()
+    if sort_mode in {"total_branch_length", "branch_length", "total_branch_length_um"}:
+        candidates = sorted(
+            candidates,
+            key=lambda r: (
+                -float(r.get("total_branch_length_um", 0.0)),
+                -float(r.get("density", 0.0)),
+                -int(r.get("n_waveforms_sum", 0)),
+                int(r.get("unit_id", 10**12)),
+            ),
+        )
+        ranking_metric = "total_branch_length_um"
+        ranking_sort_by = "total_branch_length"
+    else:
+        candidates = sorted(
+            candidates,
+            key=lambda r: (
+                -float(r.get("density", 0.0)),
+                -int(r.get("n_waveforms_sum", 0)),
+                int(r.get("unit_id", 10**12)),
+            ),
+        )
+        ranking_metric = "n_waveforms_sum / n_channels / area_um2"
+        ranking_sort_by = "density"
     if top_n is None:
         top = list(candidates)
     else:
         top = candidates[: max(1, int(top_n))]
 
     # Rendering.
-    out_dir = Path(reconstruction_out_dir) / "grids"
+    out_dir = Path(reconstruction_out_dir) / str(output_subdir or "grids")
     out_dir.mkdir(parents=True, exist_ok=True)
-    log_pdf_path = out_dir / "raw_branch_log_footprint_top_density_grid.pdf"
-    log_png_path = out_dir / "raw_branch_log_footprint_top_density_grid.png"
-    linear_pdf_path = out_dir / "raw_branch_linear_footprint_top_density_grid.pdf"
-    linear_png_path = out_dir / "raw_branch_linear_footprint_top_density_grid.png"
+    log_pdf_path = out_dir / f"{str(log_basename)}.pdf"
+    log_png_path = out_dir / f"{str(log_basename)}.png"
+    linear_pdf_path = out_dir / f"{str(linear_basename)}.pdf"
+    linear_png_path = out_dir / f"{str(linear_basename)}.png"
 
-    ncols = 5
+    ncols = max(1, int(ncols))
+    dpi = max(72, int(dpi))
     nrows = max(1, int(np.ceil(float(len(top)) / float(ncols))))
+
+    if bool(emit_debug_logs):
+        logger.info(
+            "Top-density grid config: out_dir=%s write_pdf=%s write_png=%s write_ranking_json=%s ncols=%d dpi=%d top_n=%s",
+            out_dir,
+            bool(write_pdf),
+            bool(write_png),
+            bool(write_ranking_json),
+            int(ncols),
+            int(dpi),
+            "all" if top_n is None else int(top_n),
+        )
+        logger.info(
+            "Top-density grid candidates: total=%d selected=%d",
+            int(len(candidates)),
+            int(len(top)),
+        )
 
     # Compute color scaling from all eligible template units (not only reconstructed
     # candidates or displayed top-N) so gradients are stable across method variants.
@@ -656,7 +820,8 @@ def write_top_density_raw_branch_footprint_grid(
         except Exception:
             return
 
-    from matplotlib.patches import Rectangle
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Circle, Rectangle
 
     def _fmt_tick_plain(v: float) -> str:
         vv = float(v)
@@ -689,8 +854,9 @@ def write_top_density_raw_branch_footprint_grid(
             uid = row["unit_id"]
             locs_xy = np.asarray(row["locs_xy"], dtype=float)
             amp = np.asarray(row["footprint_ptp"], dtype=float).reshape(-1)
-            ax.set_facecolor("black")
+            ax.set_facecolor(str(panel_background_color))
             branch_points_xy: list[Any] = []
+            soma_xy: tuple[float, float] | None = None
 
             # Draw footprint channels as true 17.5um x 17.5um squares in data coordinates.
             # This preserves physical scale against the zoom/scalebar across subplots.
@@ -712,9 +878,11 @@ def write_top_density_raw_branch_footprint_grid(
 
             # Overlay raw branches using channel indices on same merged-contributing axis.
             n_branches_plotted = 0
+            branch_channel_pts: Any | None = None
             try:
                 raw_payload = _read_json(Path(str(row["branches_raw_json"])))
                 raw_branches = list((raw_payload or {}).get("branches", []) or [])
+                mapped_branch_channels: list[list[int]] = []
 
                 # Branch channel indices are produced against the template source used in
                 # reconstruction (often full-channel templates). The footprint grid uses
@@ -770,25 +938,104 @@ def write_top_density_raw_branch_footprint_grid(
                     chs = _map_branch_indices(chs)
                     if len(chs) < 2:
                         continue
+                    mapped_branch_channels.append([int(c) for c in chs])
                     pts = locs_xy[np.asarray(chs, dtype=int), :2]
+                    # Optional outline under branch traces for visibility on bright footprint regions.
+                    if str(branch_outline_color).strip():
+                        ax.plot(
+                            pts[:, 0],
+                            pts[:, 1],
+                            color=str(branch_outline_color),
+                            lw=2.2,
+                            alpha=0.9,
+                            zorder=2,
+                        )
                     ax.plot(
                         pts[:, 0],
                         pts[:, 1],
-                        color="red",
+                        color=str(branch_color),
                         lw=0.9,
                         alpha=0.95,
                         zorder=3,
                     )
-                    ax.scatter(
-                        pts[:, 0],
-                        pts[:, 1],
-                        color="red",
-                        s=8,
-                        linewidths=0,
-                        zorder=4,
-                    )
                     branch_points_xy.append(np.asarray(pts, dtype=float))
                     n_branches_plotted += 1
+
+                # Draw node markers with soma candidate highlighted.
+                soma_ch: int | None = None
+                if mapped_branch_channels:
+                    b0 = list(mapped_branch_channels[0])
+                    counts: dict[int, int] = {}
+                    for br in mapped_branch_channels[1:]:
+                        for ch in set(int(c) for c in br):
+                            counts[int(ch)] = int(counts.get(int(ch), 0) + 1)
+                    if b0:
+                        best_score = -1
+                        best_idx = 10**9
+                        best_ch = int(b0[0])
+                        for i, ch in enumerate(b0):
+                            score = int(counts.get(int(ch), 0))
+                            if score > best_score or (score == best_score and i < best_idx):
+                                best_score = score
+                                best_idx = i
+                                best_ch = int(ch)
+                        soma_ch = int(best_ch)
+
+                node_r = max(0.1, float(node_radius_um))
+                soma_r = max(node_r, float(soma_node_radius_um))
+                outline_color = str(branch_outline_color).strip()
+                edge_c = outline_color if outline_color else "none"
+                edge_lw = 0.55 if outline_color else 0.0
+
+                all_nodes: set[int] = set()
+                for br in mapped_branch_channels:
+                    all_nodes.update(int(c) for c in br)
+
+                if all_nodes:
+                    try:
+                        branch_channel_pts = np.asarray(
+                            locs_xy[np.asarray(sorted(int(c) for c in all_nodes), dtype=int), :2],
+                            dtype=float,
+                        )
+                    except Exception:
+                        branch_channel_pts = None
+
+                for ch in sorted(all_nodes):
+                    if soma_ch is not None and int(ch) == int(soma_ch):
+                        continue
+                    try:
+                        x = float(locs_xy[int(ch), 0])
+                        y = float(locs_xy[int(ch), 1])
+                        ax.add_patch(
+                            Circle(
+                                (x, y),
+                                radius=float(node_r),
+                                facecolor=str(branch_color),
+                                edgecolor=edge_c,
+                                linewidth=float(edge_lw),
+                                zorder=4,
+                            )
+                        )
+                    except Exception:
+                        continue
+
+                if soma_ch is not None:
+                    try:
+                        sx = float(locs_xy[int(soma_ch), 0])
+                        sy = float(locs_xy[int(soma_ch), 1])
+                        soma_xy = (float(sx), float(sy))
+                        ax.add_patch(
+                            Circle(
+                                (sx, sy),
+                                radius=float(soma_r),
+                                facecolor=str(soma_node_color),
+                                edgecolor=edge_c,
+                                linewidth=float(edge_lw),
+                                zorder=5,
+                            )
+                        )
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -806,37 +1053,114 @@ def write_top_density_raw_branch_footprint_grid(
                 except Exception:
                     high_amp_pts = None
 
-                if branch_points_xy:
-                    all_branch_pts = np.vstack(branch_points_xy)
-                    pts_for_zoom = all_branch_pts
-                    if high_amp_pts is not None and int(high_amp_pts.shape[0]) > 0:
-                        pts_for_zoom = np.vstack([pts_for_zoom, high_amp_pts])
+                priority = str(zoom_priority or "branches").strip().lower()
+                pad_pct_raw = max(0.0, float(zoom_padding_percent))
+                pad_frac = (pad_pct_raw / 100.0) if pad_pct_raw > 1.0 else pad_pct_raw
 
+                if priority == "channels":
+                    if branch_channel_pts is not None and int(getattr(branch_channel_pts, "shape", [0])[0]) > 0:
+                        pts_for_zoom = branch_channel_pts
+                    elif high_amp_pts is not None and int(high_amp_pts.shape[0]) > 0:
+                        pts_for_zoom = high_amp_pts
+                    else:
+                        pts_for_zoom = np.asarray(locs_xy, dtype=float)
+                else:
+                    # Default: branch-priority zoom
+                    if branch_points_xy:
+                        pts_for_zoom = np.vstack(branch_points_xy)
+                    elif branch_channel_pts is not None and int(getattr(branch_channel_pts, "shape", [0])[0]) > 0:
+                        pts_for_zoom = branch_channel_pts
+                    elif high_amp_pts is not None and int(high_amp_pts.shape[0]) > 0:
+                        pts_for_zoom = high_amp_pts
+                    else:
+                        pts_for_zoom = np.asarray(locs_xy, dtype=float)
+
+                if int(getattr(pts_for_zoom, "shape", [0])[0]) > 0:
                     xmin, xmax = float(np.min(pts_for_zoom[:, 0])), float(np.max(pts_for_zoom[:, 0]))
                     ymin, ymax = float(np.min(pts_for_zoom[:, 1])), float(np.max(pts_for_zoom[:, 1]))
-                    span_x = max(1e-6, (xmax - xmin))
-                    span_y = max(1e-6, (ymax - ymin))
-                    span = max(span_x, span_y)
-                    # Generous branch-centric padding so traces are readable but not cramped.
-                    pad = max(45.0, 0.40 * span)
                 else:
-                    if high_amp_pts is not None and int(high_amp_pts.shape[0]) > 0:
-                        xmin, xmax = float(np.min(high_amp_pts[:, 0])), float(np.max(high_amp_pts[:, 0]))
-                        ymin, ymax = float(np.min(high_amp_pts[:, 1])), float(np.max(high_amp_pts[:, 1]))
-                        span_x = max(1e-6, (xmax - xmin))
-                        span_y = max(1e-6, (ymax - ymin))
-                        span = max(span_x, span_y)
-                        pad = max(45.0, 0.40 * span)
-                    else:
-                        xmin, xmax = float(np.min(locs_xy[:, 0])), float(np.max(locs_xy[:, 0]))
-                        ymin, ymax = float(np.min(locs_xy[:, 1])), float(np.max(locs_xy[:, 1]))
-                        pad = 25.0
+                    xmin, xmax = float(np.min(locs_xy[:, 0])), float(np.max(locs_xy[:, 0]))
+                    ymin, ymax = float(np.min(locs_xy[:, 1])), float(np.max(locs_xy[:, 1]))
 
                 cx = 0.5 * (xmin + xmax)
                 cy = 0.5 * (ymin + ymax)
                 span_x = max(1e-6, (xmax - xmin))
                 span_y = max(1e-6, (ymax - ymin))
-                half_span = 0.5 * max(span_x, span_y) + float(pad)
+                span = max(span_x, span_y)
+
+                if bool(force_soma_centering) and (soma_xy is not None):
+                    sx, sy = float(soma_xy[0]), float(soma_xy[1])
+                    req_half = max(
+                        abs(float(xmin) - sx),
+                        abs(float(xmax) - sx),
+                        abs(float(ymin) - sy),
+                        abs(float(ymax) - sy),
+                        1e-6,
+                    )
+                    base_half = max(0.5 * span, req_half)
+                    cx, cy = sx, sy
+                    half_span = base_half * (1.0 + (2.0 * pad_frac))
+                else:
+                    half_span = 0.5 * span + (pad_frac * span)
+
+                if bool(show_minimap) and bool(minimap_prevent_occlusions):
+                    occ_pts_list: list[Any] = []
+                    if branch_points_xy:
+                        try:
+                            occ_pts_list.append(np.vstack(branch_points_xy))
+                        except Exception:
+                            pass
+                    if branch_channel_pts is not None and int(getattr(branch_channel_pts, "shape", [0])[0]) > 0:
+                        occ_pts_list.append(np.asarray(branch_channel_pts, dtype=float))
+
+                    if occ_pts_list:
+                        try:
+                            occ_pts = np.vstack(occ_pts_list)
+                        except Exception:
+                            occ_pts = None
+
+                        if occ_pts is not None and int(getattr(occ_pts, "shape", [0])[0]) > 0:
+                            size = min(0.45, max(0.08, float(minimap_size)))
+                            chip_w_mm = max(1e-9, float(minimap_chip_width_mm))
+                            chip_h_mm = max(1e-9, float(minimap_chip_height_mm))
+                            chip_aspect = chip_w_mm / chip_h_mm
+                            ins_w = float(size)
+                            ins_h = float(max(0.06, size / max(1e-9, chip_aspect)))
+                            margin = 0.03
+                            pos = str(minimap_position or "bottomright").strip().lower()
+                            if pos not in {"topleft", "topright", "bottomleft", "bottomright"}:
+                                pos = "bottomright"
+                            if pos == "topleft":
+                                x0_ins, y0_ins = margin, 1.0 - ins_h - margin
+                            elif pos == "topright":
+                                x0_ins, y0_ins = 1.0 - ins_w - margin, 1.0 - ins_h - margin
+                            elif pos == "bottomleft":
+                                x0_ins, y0_ins = margin, margin
+                            else:
+                                x0_ins, y0_ins = 1.0 - ins_w - margin, margin
+
+                            x1_ins = x0_ins + ins_w
+                            y1_ins = y0_ins + ins_h
+
+                            def _has_occlusion(test_half_span: float) -> bool:
+                                hs = max(1e-6, float(test_half_span))
+                                x0 = float(cx) - hs
+                                x1 = float(cx) + hs
+                                y0 = float(cy) - hs
+                                y1 = float(cy) + hs
+                                fx = (np.asarray(occ_pts[:, 0], dtype=float) - x0) / max(1e-12, (x1 - x0))
+                                fy = (np.asarray(occ_pts[:, 1], dtype=float) - y0) / max(1e-12, (y1 - y0))
+                                in_x = np.logical_and(fx >= x0_ins, fx <= x1_ins)
+                                in_y = np.logical_and(fy >= y0_ins, fy <= y1_ins)
+                                return bool(np.any(np.logical_and(in_x, in_y)))
+
+                            hs = float(half_span)
+                            for _ in range(8):
+                                if not _has_occlusion(hs):
+                                    break
+                                hs *= 1.20
+                            half_span = float(hs)
+
                 zoom_x0, zoom_x1 = (cx - half_span), (cx + half_span)
                 zoom_y0, zoom_y1 = (cy - half_span), (cy + half_span)
                 ax.set_xlim(zoom_x0, zoom_x1)
@@ -866,11 +1190,56 @@ def write_top_density_raw_branch_footprint_grid(
             for spine in ax.spines.values():
                 spine.set_visible(False)
             ax.set_title(
-                f"u{uid}  d={float(row['density']):.2e}  br={int(n_branches_plotted)}\nWf={int(row['n_waveforms_sum'])} Ch={int(row['n_channels'])}",
+                f"d={float(row['density']):.2e}  br={int(n_branches_plotted)}\nWf={int(row['n_waveforms_sum'])} Ch={int(row['n_channels'])}",
                 fontsize=7,
                 pad=1.5,
                 color="white",
             )
+            if bool(show_unit_id_in_plot):
+                try:
+                    ax.text(
+                        0.98,
+                        0.98,
+                        f"u{uid}",
+                        transform=ax.transAxes,
+                        ha="right",
+                        va="top",
+                        fontsize=float(unit_id_fontsize),
+                        color=str(unit_id_color),
+                        zorder=11,
+                        bbox={"facecolor": "black", "alpha": 0.30, "pad": 1.5, "edgecolor": "none"},
+                    )
+                except Exception:
+                    pass
+            if bool(soma_xy_show) and (soma_xy is not None):
+                try:
+                    sx, sy = float(soma_xy[0]), float(soma_xy[1])
+                    loc_raw = str(soma_xy_location or "bottom left").strip().lower().replace("_", " ")
+                    loc_map = {
+                        "top left": (0.02, 0.98, "left", "top"),
+                        "topleft": (0.02, 0.98, "left", "top"),
+                        "top right": (0.98, 0.98, "right", "top"),
+                        "topright": (0.98, 0.98, "right", "top"),
+                        "bottom left": (0.02, 0.02, "left", "bottom"),
+                        "bottomleft": (0.02, 0.02, "left", "bottom"),
+                        "bottom right": (0.98, 0.02, "right", "bottom"),
+                        "bottomright": (0.98, 0.02, "right", "bottom"),
+                    }
+                    tx, ty, ha, va = loc_map.get(loc_raw, (0.02, 0.02, "left", "bottom"))
+                    ax.text(
+                        float(tx),
+                        float(ty),
+                        f"({sx:.1f}, {sy:.1f}) um",
+                        transform=ax.transAxes,
+                        ha=str(ha),
+                        va=str(va),
+                        fontsize=max(4.0, float(soma_xy_fontsize)),
+                        color=str(soma_xy_color),
+                        zorder=11,
+                        bbox={"facecolor": "black", "alpha": 0.30, "pad": 1.5, "edgecolor": "none"},
+                    )
+                except Exception:
+                    pass
             if None not in (zoom_x0, zoom_x1, zoom_y0, zoom_y1):
                 _add_scalebar(
                     ax,
@@ -879,6 +1248,162 @@ def write_top_density_raw_branch_footprint_grid(
                     zoom_y0=float(zoom_y0),
                     zoom_y1=float(zoom_y1),
                 )
+
+            if bool(show_minimap):
+                try:
+                    size = float(minimap_size)
+                    size = min(0.45, max(0.08, size))
+
+                    chip_w_mm = max(1e-9, float(minimap_chip_width_mm))
+                    chip_h_mm = max(1e-9, float(minimap_chip_height_mm))
+                    chip_aspect = chip_w_mm / chip_h_mm
+                    ins_w = size
+                    ins_h = max(0.06, size / max(1e-9, chip_aspect))
+
+                    pos = str(minimap_position or "bottomright").strip().lower()
+                    if pos not in {"topleft", "topright", "bottomleft", "bottomright"}:
+                        pos = "bottomright"
+                    margin = 0.03
+                    if pos == "topleft":
+                        x0_ins, y0_ins = margin, 1.0 - ins_h - margin
+                    elif pos == "topright":
+                        x0_ins, y0_ins = 1.0 - ins_w - margin, 1.0 - ins_h - margin
+                    elif pos == "bottomleft":
+                        x0_ins, y0_ins = margin, margin
+                    else:
+                        x0_ins, y0_ins = 1.0 - ins_w - margin, margin
+
+                    mini = ax.inset_axes([x0_ins, y0_ins, ins_w, ins_h])
+                    mini.set_facecolor(str(panel_background_color))
+                    mini.set_xticks([])
+                    mini.set_yticks([])
+                    for sp in mini.spines.values():
+                        sp.set_visible(False)
+
+                    if bool(minimap_include_footprint):
+                        try:
+                            ch_pitch_um = 17.5
+                            amp_for_mini = np.maximum(amp, 1e-12) if bool(use_log_norm) else np.maximum(amp, 0.0)
+                            mini_facecolors = cmap_render(norm(amp_for_mini))
+                            for (x, y), fc in zip(locs_xy[:, :2], mini_facecolors):
+                                mini.add_patch(
+                                    Rectangle(
+                                        (float(x) - 0.5 * ch_pitch_um, float(y) - 0.5 * ch_pitch_um),
+                                        ch_pitch_um,
+                                        ch_pitch_um,
+                                        facecolor=fc,
+                                        edgecolor="none",
+                                        alpha=0.95,
+                                        zorder=1,
+                                    )
+                                )
+                        except Exception:
+                            pass
+
+                    # Use full-chip coordinate frame when available; fallback to current panel extents.
+                    chip_xy = locs_xy
+                    try:
+                        full_locs_npy = (
+                            Path(templates_out_dir)
+                            / "templates"
+                            / "full"
+                            / f"unit_{uid}"
+                            / "full_channel_locations_xy.npy"
+                        )
+                        if full_locs_npy.exists():
+                            chip_xy = np.asarray(np.load(str(full_locs_npy), allow_pickle=True), dtype=float)[:, :2]
+                    except Exception:
+                        chip_xy = locs_xy
+
+                    chip_x0 = float(np.min(chip_xy[:, 0]))
+                    chip_x1 = float(np.max(chip_xy[:, 0]))
+                    chip_y0 = float(np.min(chip_xy[:, 1]))
+                    chip_y1 = float(np.max(chip_xy[:, 1]))
+
+                    chip_w = max(1e-9, chip_x1 - chip_x0)
+                    chip_h = max(1e-9, chip_y1 - chip_y0)
+
+                    # Draw a full-chip rectangle in chip-coordinate units.
+                    mini.add_patch(
+                        Rectangle(
+                            (chip_x0, chip_y0),
+                            chip_w,
+                            chip_h,
+                            fill=False,
+                            edgecolor=str(minimap_outline_color),
+                            linewidth=0.9,
+                            zorder=2,
+                        )
+                    )
+
+                    # Draw current zoom window as a *square* in chip coordinates.
+                    if None not in (zoom_x0, zoom_x1, zoom_y0, zoom_y1):
+                        zx0 = float(zoom_x0)
+                        zx1 = float(zoom_x1)
+                        zy0 = float(zoom_y0)
+                        zy1 = float(zoom_y1)
+
+                        cx = 0.5 * (zx0 + zx1)
+                        cy = 0.5 * (zy0 + zy1)
+                        side = max(abs(zx1 - zx0), abs(zy1 - zy0))
+                        side = float(np.clip(side, 1e-4, min(chip_w, chip_h)))
+
+                        x0 = cx - 0.5 * side
+                        x1 = cx + 0.5 * side
+                        y0 = cy - 0.5 * side
+                        y1 = cy + 0.5 * side
+
+                        # Keep square box inside chip frame while preserving side length.
+                        if x0 < chip_x0:
+                            dx = chip_x0 - x0
+                            x0 += dx
+                            x1 += dx
+                        if x1 > chip_x1:
+                            dx = x1 - chip_x1
+                            x0 -= dx
+                            x1 -= dx
+                        if y0 < chip_y0:
+                            dy = chip_y0 - y0
+                            y0 += dy
+                            y1 += dy
+                        if y1 > chip_y1:
+                            dy = y1 - chip_y1
+                            y0 -= dy
+                            y1 -= dy
+
+                        x0 = float(np.clip(x0, chip_x0, chip_x1))
+                        x1 = float(np.clip(x1, chip_x0, chip_x1))
+                        y0 = float(np.clip(y0, chip_y0, chip_y1))
+                        y1 = float(np.clip(y1, chip_y0, chip_y1))
+
+                        ls_raw = str(minimap_inner_box_linestyle or "dotted").strip().lower()
+                        if ls_raw in {"solid", "-"}:
+                            ls = "solid"
+                        elif ls_raw in {"dotted", ":", "dot"}:
+                            ls = (0, (1.0, 1.0))
+                        elif ls_raw in {"dashed", "--", "dash"}:
+                            ls = (0, (3.0, 2.0))
+                        else:
+                            ls = (0, (1.0, 1.0))
+                        inner_lw = max(0.1, float(minimap_inner_box_linewidth))
+
+                        mini.add_patch(
+                            Rectangle(
+                                (x0, y0),
+                                max(1e-4, x1 - x0),
+                                max(1e-4, y1 - y0),
+                                fill=False,
+                                edgecolor=str(minimap_outline_color),
+                                linewidth=float(inner_lw),
+                                linestyle=ls,
+                                zorder=3,
+                            )
+                        )
+
+                    mini.set_xlim(chip_x0, chip_x1)
+                    mini.set_ylim(chip_y0, chip_y1)
+                except Exception:
+                    pass
 
             if bool(effective_local_debug):
                 try:
@@ -958,6 +1483,86 @@ def write_top_density_raw_branch_footprint_grid(
             except Exception:
                 pass
 
+        if bool(legend_show):
+            try:
+                leg_marker = max(1.0, float(legend_marker_size))
+                leg_font = max(4.0, float(legend_fontsize))
+                leg_handles: list[Any] = []
+                if bool(legend_show_footprint_in_legend):
+                    leg_handles.append(
+                        Line2D(
+                            [0],
+                            [0],
+                            marker="s",
+                            linestyle="None",
+                            markerfacecolor="white",
+                            markeredgecolor="none",
+                            markersize=leg_marker * 1.6,
+                            label="Footprint",
+                        )
+                    )
+                leg_handles.extend(
+                    [
+                        Line2D([0], [0], color=str(branch_color), lw=1.2, label="Branch"),
+                        Line2D([0], [0], marker="o", linestyle="None", markerfacecolor=str(soma_node_color), markeredgecolor=str(branch_outline_color), markeredgewidth=0.5, markersize=leg_marker * 1.4, label="Soma node"),
+                    ]
+                )
+                if bool(legend_show_nodes_in_legend):
+                    leg_handles.append(
+                        Line2D(
+                            [0],
+                            [0],
+                            marker="o",
+                            linestyle="None",
+                            markerfacecolor=str(branch_color),
+                            markeredgecolor=str(branch_outline_color),
+                            markeredgewidth=0.5,
+                            markersize=leg_marker,
+                            label="Branch node",
+                        )
+                    )
+
+                loc_raw = str(legend_location or "first_empty_panel").strip().lower()
+                if loc_raw == "first_empty_panel":
+                    reserved_idxs: set[int] = set()
+                    if reserved_debug_axis_index is not None:
+                        reserved_idxs.add(int(reserved_debug_axis_index))
+                    leg_idx = None
+                    for j in range(len(top), len(axes_list)):
+                        if int(j) in reserved_idxs:
+                            continue
+                        leg_idx = int(j)
+                        break
+                    if leg_idx is not None:
+                        lax = axes_list[leg_idx]
+                        lax.set_axis_on()
+                        lax.set_facecolor("black")
+                        lax.set_xticks([])
+                        lax.set_yticks([])
+                        for spine in lax.spines.values():
+                            spine.set_visible(False)
+                        lg = lax.legend(
+                            handles=leg_handles,
+                            loc="center",
+                            frameon=False,
+                            fontsize=leg_font,
+                            handlelength=1.4,
+                            handletextpad=0.6,
+                        )
+                        for txt in lg.get_texts():
+                            txt.set_color(str(legend_fontcolor))
+                    elif axes_list:
+                        lg = axes_list[0].legend(handles=leg_handles, loc="upper right", frameon=False, fontsize=leg_font)
+                        for txt in lg.get_texts():
+                            txt.set_color(str(legend_fontcolor))
+                else:
+                    if axes_list:
+                        lg = axes_list[0].legend(handles=leg_handles, loc=loc_raw, frameon=False, fontsize=leg_font)
+                        for txt in lg.get_texts():
+                            txt.set_color(str(legend_fontcolor))
+            except Exception:
+                pass
+
         for j in range(len(top), len(axes_list)):
             if reserved_debug_axis_index is not None and int(j) == int(reserved_debug_axis_index):
                 continue
@@ -1006,8 +1611,10 @@ def write_top_density_raw_branch_footprint_grid(
         except Exception:
             pass
 
-        fig.savefig(pdf_path, dpi=220, bbox_inches="tight", pad_inches=0.02)
-        fig.savefig(png_path, dpi=220, bbox_inches="tight", pad_inches=0.02)
+        if bool(write_pdf):
+            fig.savefig(pdf_path, dpi=int(dpi), bbox_inches="tight", pad_inches=0.02)
+        if bool(write_png):
+            fig.savefig(png_path, dpi=int(dpi), bbox_inches="tight", pad_inches=0.02)
         plt.close(fig)
 
     _render_grid(
@@ -1029,15 +1636,17 @@ def write_top_density_raw_branch_footprint_grid(
         use_log_tick_format=False,
     )
 
-    ranking_json = out_dir / "raw_branch_log_footprint_top_density_ranking.json"
+    ranking_json = out_dir / str(ranking_filename)
     ranking_payload = {
-        "metric": "n_waveforms_sum / n_channels / area_um2",
+        "metric": ranking_metric,
+        "sort_by": ranking_sort_by,
         "top_n_requested": (int(top_n) if top_n is not None else "all"),
         "top_n_written": int(len(top)),
         "units": [
             {
                 "unit_id": r.get("unit_id"),
                 "density": float(r.get("density", 0.0)),
+            "total_branch_length_um": float(r.get("total_branch_length_um", 0.0)),
                 "n_waveforms_sum": int(r.get("n_waveforms_sum", 0)),
                 "n_channels": int(r.get("n_channels", 0)),
                 "area_um2": float(r.get("area_um2", 0.0)),
@@ -1046,19 +1655,20 @@ def write_top_density_raw_branch_footprint_grid(
             for r in top
         ],
     }
-    try:
-        from ..shared_io import write_json
+    if bool(write_ranking_json):
+        try:
+            from ..shared_io import write_json
 
-        write_json(ranking_json, ranking_payload)
-    except Exception:
-        pass
+            write_json(ranking_json, ranking_payload)
+        except Exception:
+            pass
 
     return {
-        "raw_branch_log_footprint_top_density_grid_pdf": str(log_pdf_path),
-        "raw_branch_log_footprint_top_density_grid_png": str(log_png_path),
-        "raw_branch_linear_footprint_top_density_grid_pdf": str(linear_pdf_path),
-        "raw_branch_linear_footprint_top_density_grid_png": str(linear_png_path),
-        "raw_branch_log_footprint_top_density_ranking_json": str(ranking_json),
+        "raw_branch_log_footprint_top_density_grid_pdf": (str(log_pdf_path) if bool(write_pdf) else None),
+        "raw_branch_log_footprint_top_density_grid_png": (str(log_png_path) if bool(write_png) else None),
+        "raw_branch_linear_footprint_top_density_grid_pdf": (str(linear_pdf_path) if bool(write_pdf) else None),
+        "raw_branch_linear_footprint_top_density_grid_png": (str(linear_png_path) if bool(write_png) else None),
+        "raw_branch_log_footprint_top_density_ranking_json": (str(ranking_json) if bool(write_ranking_json) else None),
         "raw_branch_log_footprint_top_density_units": [r.get("unit_id") for r in top],
     }
 

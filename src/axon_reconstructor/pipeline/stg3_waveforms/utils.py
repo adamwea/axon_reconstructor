@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..stg1_preprocessing.constants import PREPROCESS_OUTPUTS_DIRNAME
+from ..stg1_preprocessing.preprocessing import apply_standard_preprocessing
 from ..stg1_preprocessing.utils import _ensure_maxwell_hdf5_plugin_path
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,134 @@ def _load_preprocessed_recording(*, well_out_dir: Path) -> Any:
         return si.load_extractor(recording_dir)
 
 
+def _load_per_segment_manifest(*, preprocess_dir: Path) -> dict[str, Any] | None:
+    manifest_path = Path(preprocess_dir) / "per_segment_preprocessed" / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        payload = _read_json(manifest_path)
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
+def _resample_recording_to_target(
+    *,
+    recording: Any,
+    rec_name: str,
+    target_sampling_frequency_hz: float | None,
+    temporal_resample_margin_ms: float,
+    temporal_resample_dtype: str | None,
+) -> Any:
+    if target_sampling_frequency_hz is None:
+        return recording
+
+    try:
+        import numpy as np  # type: ignore[import-not-found]
+        import spikeinterface.preprocessing as spre  # type: ignore[import-not-found]
+
+        current_fs = float(recording.get_sampling_frequency())
+        target_fs = float(target_sampling_frequency_hz)
+
+        current_fs_i = int(round(current_fs))
+        target_fs_i = int(round(target_fs))
+        if current_fs_i <= 0 or target_fs_i <= 0:
+            raise RuntimeError(f"Invalid sampling frequency (current={current_fs}, target={target_fs})")
+
+        if current_fs_i == target_fs_i:
+            return recording
+
+        dtype = None
+        if temporal_resample_dtype is not None:
+            try:
+                dtype = np.dtype(str(temporal_resample_dtype))
+            except Exception:
+                dtype = None
+
+        logger.info(
+            "Resampling segment recording %s: fs %d -> %d Hz (margin_ms=%.1f dtype=%s)",
+            str(rec_name),
+            int(current_fs_i),
+            int(target_fs_i),
+            float(temporal_resample_margin_ms),
+            str(temporal_resample_dtype),
+        )
+
+        return spre.resample(
+            recording,
+            resample_rate=int(target_fs_i),
+            margin_ms=float(temporal_resample_margin_ms),
+            dtype=dtype,
+            skip_checks=False,
+        )
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to resample segment recording rec={rec_name} to target_fs={target_sampling_frequency_hz}: {e}"
+        ) from e
+
+
+def _load_preprocessed_segment_recording(
+    *,
+    preprocess_dir: Path,
+    segment_index: int,
+    rec_name: str,
+    target_sampling_frequency_hz: float | None = None,
+    temporal_resample_margin_ms: float = 100.0,
+    temporal_resample_dtype: str | None = None,
+) -> Any:
+    """Load a preprocessed segment recording persisted by stage-1 outputs."""
+
+    try:
+        import spikeinterface.full as si  # type: ignore[import-not-found]
+    except Exception as e:  # pragma: no cover
+        raise RuntimeError("waveform extraction requires spikeinterface installed") from e
+
+    preprocess_dir = Path(preprocess_dir)
+    segment_root = preprocess_dir / "per_segment_preprocessed"
+    manifest = _load_per_segment_manifest(preprocess_dir=preprocess_dir)
+
+    seg_dir: Path | None = None
+    if isinstance(manifest, dict):
+        segments = manifest.get("segments")
+        if isinstance(segments, list):
+            for item in segments:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    item_idx = int(item.get("segment_index"))
+                except Exception:
+                    continue
+                item_name = str(item.get("rec_name", ""))
+                if item_idx == int(segment_index) and item_name == str(rec_name):
+                    item_folder = item.get("folder")
+                    if item_folder is not None:
+                        seg_dir = Path(str(item_folder))
+                    break
+
+    if seg_dir is None:
+        seg_token = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(rec_name)).strip("_")
+        if not seg_token:
+            seg_token = f"segment_{int(segment_index):03d}"
+        seg_dir = segment_root / f"{int(segment_index):03d}_{seg_token}"
+
+    if not seg_dir.exists():
+        raise FileNotFoundError(f"preprocessed segment recording not found: {seg_dir}")
+
+    try:
+        seg_rec = si.load(seg_dir)
+    except Exception:
+        seg_rec = si.load_extractor(seg_dir)
+
+    seg_rec = _resample_recording_to_target(
+        recording=seg_rec,
+        rec_name=str(rec_name),
+        target_sampling_frequency_hz=target_sampling_frequency_hz,
+        temporal_resample_margin_ms=temporal_resample_margin_ms,
+        temporal_resample_dtype=temporal_resample_dtype,
+    )
+    return seg_rec
+
+
 def _load_raw_segment_recording_segment_channels(
     *,
     h5_path: Path,
@@ -135,173 +264,20 @@ def _load_raw_segment_recording_segment_channels(
     except Exception:
         pass
 
-    # Optional: mimic MEA_Analysis preprocessing (see MEA_Analysis/IPNAnalysis/mea_analysis_routine.py)
-    # so per-segment waveforms are extracted from a signal more comparable to the sorter input.
     if preprocess_like_mea_analysis:
-        try:
-            import spikeinterface.preprocessing as spre  # type: ignore[import-not-found]
-
-            # 1) Unsigned -> signed conversion (if needed)
-            #
-            # Maxwell / acquisition pipelines sometimes store samples as uint (e.g. uint16)
-            # with an implicit offset. Treating that as centered around 0 breaks filtering
-            # and re-referencing (large DC offsets, incorrect baselines). MEA_Analysis does
-            # this conversion before any filtering/reference operations.
-            try:
-                if rec_centered.get_dtype().kind == "u":
-                    rec_centered = spre.unsigned_to_signed(rec_centered)
-            except Exception:
-                logger.debug(
-                    "MEA_Analysis-like preprocessing: unsigned_to_signed failed; continuing without conversion. "
-                    "h5=%s stream_id=%s rec=%s dtype=%s",
-                    h5_path,
-                    stream_id,
-                    rec_name,
-                    getattr(rec_centered, "get_dtype", lambda: None)(),
-                    exc_info=True,
-                )
-
-            # 2) High-pass filter (~AP band)
-            #
-            # MEA_Analysis uses a 300 Hz high-pass for spike sorting. This removes slow
-            # drift and LFP-like components so waveform shapes/peaks are comparable to
-            # the sorter input.
-            try:
-                rec_centered = spre.highpass_filter(rec_centered, freq_min=300)
-            except Exception:
-                logger.debug(
-                    "MEA_Analysis-like preprocessing: highpass_filter(freq_min=300) failed; continuing without HP. "
-                    "h5=%s stream_id=%s rec=%s",
-                    h5_path,
-                    stream_id,
-                    rec_name,
-                    exc_info=True,
-                )
-
-            # 3) Common reference (median)
-            #
-            # MEA_Analysis applies local common-median reference (CMR) when channel
-            # locations are available (intended to preserve local network activity while
-            # reducing common-mode noise). If locations are missing/malformed, it falls
-            # back to global median reference.
-            #
-            # Note: in SpikeInterface, `local_radius` is an (inner_radius, outer_radius)
-            # annulus in the same distance units as the probe geometry. Setting
-            # `local_radius=(0, R)` yields a simple circular neighborhood of radius R.
-            try:
-                rec_centered = spre.common_reference(
-                    rec_centered,
-                    reference="local",
-                    operator="median",
-                    local_radius=(0, 250),
-                )
-            except Exception:
-                logger.debug(
-                    "MEA_Analysis-like preprocessing: local common_reference(median, radius=(250,250)) failed; "
-                    "falling back to global. h5=%s stream_id=%s rec=%s",
-                    h5_path,
-                    stream_id,
-                    rec_name,
-                    exc_info=True,
-                )
-                try:
-                    rec_centered = spre.common_reference(rec_centered, reference="global", operator="median")
-                except Exception:
-                    logger.debug(
-                        "MEA_Analysis-like preprocessing: global common_reference(median) also failed; continuing "
-                        "without re-referencing. h5=%s stream_id=%s rec=%s",
-                        h5_path,
-                        stream_id,
-                        rec_name,
-                        exc_info=True,
-                    )
-
-            # 4) Annotate filter status
-            #
-            # SpikeInterface components sometimes use this metadata to decide whether
-            # additional filtering is required (or to report provenance).
-            try:
-                rec_centered.annotate(is_filtered=True)
-            except Exception:
-                logger.debug(
-                    "MEA_Analysis-like preprocessing: annotate(is_filtered=True) failed; continuing. "
-                    "h5=%s stream_id=%s rec=%s",
-                    h5_path,
-                    stream_id,
-                    rec_name,
-                    exc_info=True,
-                )
-
-            # 5) Force float32
-            #
-            # MEA_Analysis converts to float32 before saving/running the sorter. Keeping
-            # float32 here reduces risk of dtype-dependent differences (e.g. int scaling/
-            # rounding affecting peak timing/amplitudes) and avoids some downstream
-            # crashes that occur with integer dtypes.
-            try:
-                if rec_centered.get_dtype() != "float32":
-                    rec_centered = spre.astype(rec_centered, "float32")
-            except Exception:
-                logger.debug(
-                    "MEA_Analysis-like preprocessing: astype(float32) failed; continuing without cast. "
-                    "h5=%s stream_id=%s rec=%s dtype=%s",
-                    h5_path,
-                    stream_id,
-                    rec_name,
-                    getattr(rec_centered, "get_dtype", lambda: None)(),
-                    exc_info=True,
-                )
-        except Exception:
-            # If spikeinterface.preprocessing isn't available, proceed without this parity step.
-            pass
+        rec_centered = apply_standard_preprocessing(recording=rec_centered, logger=logger)
 
     # IMPORTANT: If preprocessing applied temporal resampling, the concatenated recording
     # (and all downstream spike times/epoch markers) are in the resampled time base.
     # Per-segment waveforms load raw segments directly from the H5, so we must resample
     # them here to keep segment-local indexing consistent.
-    if target_sampling_frequency_hz is not None:
-        try:
-            import numpy as np  # type: ignore[import-not-found]
-            import spikeinterface.preprocessing as spre  # type: ignore[import-not-found]
-
-            current_fs = float(rec_centered.get_sampling_frequency())
-            target_fs = float(target_sampling_frequency_hz)
-
-            current_fs_i = int(round(current_fs))
-            target_fs_i = int(round(target_fs))
-            if current_fs_i <= 0 or target_fs_i <= 0:
-                raise RuntimeError(f"Invalid sampling frequency (current={current_fs}, target={target_fs})")
-
-            if current_fs_i != target_fs_i:
-                dtype = None
-                if temporal_resample_dtype is not None:
-                    try:
-                        dtype = np.dtype(str(temporal_resample_dtype))
-                    except Exception:
-                        dtype = None
-
-                logger.info(
-                    "Resampling segment recording %s: fs %d -> %d Hz (margin_ms=%.1f dtype=%s)",
-                    str(rec_name),
-                    int(current_fs_i),
-                    int(target_fs_i),
-                    float(temporal_resample_margin_ms),
-                    str(temporal_resample_dtype),
-                )
-
-                rec_centered = spre.resample(
-                    rec_centered,
-                    resample_rate=int(target_fs_i),
-                    margin_ms=float(temporal_resample_margin_ms),
-                    dtype=dtype,
-                    skip_checks=False,
-                )
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to resample segment recording rec={rec_name} to target_fs={target_sampling_frequency_hz}: {e}"
-            ) from e
-
-    return rec_centered
+    return _resample_recording_to_target(
+        recording=rec_centered,
+        rec_name=str(rec_name),
+        target_sampling_frequency_hz=target_sampling_frequency_hz,
+        temporal_resample_margin_ms=temporal_resample_margin_ms,
+        temporal_resample_dtype=temporal_resample_dtype,
+    )
 
 
 def _load_raw_segment_recording_full_channels(
@@ -492,6 +468,7 @@ __all__ = [
     "_write_json",
     "_infer_cutout_ms",
     "_load_preprocessed_recording",
+    "_load_preprocessed_segment_recording",
     "_load_raw_segment_recording_full_channels",
     "_load_raw_segment_recording_segment_channels",
     "_resolve_mea_sorter_output_dir",
