@@ -134,6 +134,7 @@ def write_unit_reconstruction_pdfs(
     locs_xy: Any,
     out_unit_dir: Path,
     force_restart: bool,
+    write_template_movie_gif: bool | None = None,
     logger: Any,
 ) -> dict[str, str]:
     """Write per-unit reconstruction PDFs.
@@ -168,13 +169,14 @@ def write_unit_reconstruction_pdfs(
     summary_raw_png = out_unit_dir / "summary_raw.png"
     template_movie_gif = out_unit_dir / "template_movie.gif"
 
-    write_template_movie_gif = str(os.getenv("AXON_RECON_RECON_WRITE_TEMPLATE_MOVIE_GIF", "1")).strip().lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
-        "",
-    }
+    if write_template_movie_gif is None:
+        write_template_movie_gif = str(os.getenv("AXON_RECON_RECON_WRITE_TEMPLATE_MOVIE_GIF", "1")).strip().lower() not in {
+            "0",
+            "false",
+            "no",
+            "off",
+            "",
+        }
 
     crop_template_movie_gif = (
         str(os.getenv("AXON_RECON_RECON_TEMPLATE_MOVIE_GIF_CROP", "1")).strip().lower()

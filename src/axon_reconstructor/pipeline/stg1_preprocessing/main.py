@@ -5,6 +5,7 @@ The heavy concatenation implementation lives in .runner to keep this module orch
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Optional
@@ -34,6 +35,7 @@ def run_preprocess_stage(
     enable_checkpointing: bool = True,
     n_jobs: int = 8,
     plot_layouts: bool = True,
+    plot_segment_traces: bool = True,
     temporal_resample_factor: Optional[int] = None,
     temporal_resample_rate_hz: Optional[int] = None,
     temporal_resample_margin_ms: float = 100.0,
@@ -90,6 +92,8 @@ def run_preprocess_stage(
     common_el_path = None
     epoch_maxwell_path = None
     epoch_concat_path = None
+    per_segment_preprocessed_dir = None
+    per_segment_manifest_path = None
 
     if enable_checkpointing and well_out_dir is not None:
         checkpoint_file = compute_checkpoint_file(
@@ -111,6 +115,8 @@ def run_preprocess_stage(
         common_el_path = preprocess_dir / "common_electrodes.npy"
         epoch_maxwell_path = preprocess_dir / f"maxwell_contiguous_epochs_{stream_id}.json"
         epoch_concat_path = preprocess_dir / f"concatenation_stitch_epochs_{stream_id}.json"
+        per_segment_preprocessed_dir = preprocess_dir / "per_segment_preprocessed"
+        per_segment_manifest_path = per_segment_preprocessed_dir / "manifest.json"
 
     preprocess_cfg_path = (preprocess_dir / "preprocess_config.json") if preprocess_dir is not None else None
     requested_cfg = {
@@ -127,8 +133,10 @@ def run_preprocess_stage(
         and checkpoint_state.stage >= ProcessingStage.PREPROCESSING_COMPLETE.value
         and recording_dir is not None
         and common_el_path is not None
+        and per_segment_manifest_path is not None
         and recording_dir.exists()
         and common_el_path.exists()
+        and per_segment_manifest_path.exists()
     ):
         try:
             import numpy as np  # type: ignore[import-not-found]
@@ -170,17 +178,24 @@ def run_preprocess_stage(
         )
 
     try:
-        multirec, common_el = build_concatenated_recording(
+        build_result = build_concatenated_recording(
             h5_path=plan.h5_path,
             stream_id=plan.stream_id,
             n_jobs=n_jobs,
             plot_output_dir=plot_dir,
+            plot_segment_traces=bool(plot_segment_traces),
             epoch_markers_output_dir=(preprocess_dir if preprocess_dir is not None else plot_dir),
             temporal_resample_factor=(int(temporal_resample_factor) if temporal_resample_factor is not None else None),
             temporal_resample_rate_hz=(int(temporal_resample_rate_hz) if temporal_resample_rate_hz is not None else None),
             temporal_resample_margin_ms=float(temporal_resample_margin_ms),
             temporal_resample_dtype=(str(temporal_resample_dtype) if temporal_resample_dtype is not None else None),
+            return_artifacts=True,
         )
+        if len(build_result) == 3:
+            multirec, common_el, preprocess_artifacts = build_result
+        else:
+            multirec, common_el = build_result
+            preprocess_artifacts = {}
         logger.info("Preprocessed recording built; common electrodes=%d", len(common_el))
         if epoch_maxwell_path is not None and epoch_concat_path is not None:
             if epoch_maxwell_path.exists():
@@ -243,6 +258,64 @@ def run_preprocess_stage(
                 else:
                     logger.info("Preprocessed recording already exists at %s; not overwriting", recording_dir)
 
+                # Persist per-segment preprocessed recordings for downstream segment registration.
+                segment_recordings = list(preprocess_artifacts.get("segment_recordings_preprocessed", []) or [])
+                segment_names = [str(x) for x in list(preprocess_artifacts.get("rec_names", []) or [])]
+                segment_stats = list(preprocess_artifacts.get("segment_stats", []) or [])
+                if per_segment_preprocessed_dir is not None and per_segment_manifest_path is not None:
+                    if per_segment_preprocessed_dir.exists() and overwrite_saved_recording:
+                        import shutil
+
+                        shutil.rmtree(per_segment_preprocessed_dir)
+                    per_segment_preprocessed_dir.mkdir(parents=True, exist_ok=True)
+
+                    manifest_segments: list[dict] = []
+                    for seg_idx, seg_rec in enumerate(segment_recordings):
+                        rec_name = segment_names[seg_idx] if seg_idx < len(segment_names) else f"segment_{seg_idx:03d}"
+                        seg_token = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(rec_name)).strip("_")
+                        if not seg_token:
+                            seg_token = f"segment_{seg_idx:03d}"
+                        seg_dir = per_segment_preprocessed_dir / f"{seg_idx:03d}_{seg_token}"
+                        seg_rec.save(
+                            folder=seg_dir,
+                            format="binary",
+                            overwrite=True,
+                            n_jobs=n_jobs,
+                            chunk_duration="1s",
+                            progress_bar=False,
+                        )
+                        seg_entry = {
+                            "segment_index": int(seg_idx),
+                            "rec_name": str(rec_name),
+                            "folder": str(seg_dir),
+                        }
+                        if seg_idx < len(segment_stats) and isinstance(segment_stats[seg_idx], dict):
+                            seg_entry.update({
+                                "fs_hz": float(segment_stats[seg_idx].get("fs", 0.0) or 0.0),
+                                "n_samples": int(segment_stats[seg_idx].get("n_samples", 0) or 0),
+                                "n_channels": int(segment_stats[seg_idx].get("n_channels", 0) or 0),
+                            })
+                        manifest_segments.append(seg_entry)
+
+                    per_segment_manifest_path.write_text(
+                        json.dumps(
+                            {
+                                "version": 1,
+                                "stream_id": str(stream_id),
+                                "segments": manifest_segments,
+                            },
+                            indent=2,
+                            sort_keys=True,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+                    logger.info(
+                        "Saved %d preprocessed segment recording(s) under %s",
+                        len(manifest_segments),
+                        per_segment_preprocessed_dir,
+                    )
+
                 np.save(common_el_path, np.asarray(common_el, dtype=np.int64))
             except Exception as e:
                 logger.error("Failed to save preprocessed recording artifacts: %s", e)
@@ -264,6 +337,24 @@ def run_preprocess_stage(
         common_electrodes_path = str(common_el_path) if common_el_path and common_el_path.exists() else None
         maxwell_epochs_path = str(epoch_maxwell_path) if epoch_maxwell_path and epoch_maxwell_path.exists() else None
         concat_epochs_path = str(epoch_concat_path) if epoch_concat_path and epoch_concat_path.exists() else None
+        per_segment_preprocessed_dir_str = (
+            str(per_segment_preprocessed_dir)
+            if per_segment_preprocessed_dir is not None and per_segment_preprocessed_dir.exists()
+            else None
+        )
+        per_segment_manifest_path_str = (
+            str(per_segment_manifest_path)
+            if per_segment_manifest_path is not None and per_segment_manifest_path.exists()
+            else None
+        )
+        per_segment_count = 0
+        if per_segment_manifest_path is not None and per_segment_manifest_path.exists():
+            try:
+                payload = json.loads(per_segment_manifest_path.read_text(encoding="utf-8"))
+                segs = payload.get("segments") if isinstance(payload, dict) else []
+                per_segment_count = int(len(segs)) if isinstance(segs, list) else 0
+            except Exception:
+                per_segment_count = 0
         _ = save_checkpoint(
             checkpoint_file=checkpoint_file,
             state=checkpoint_state,
@@ -276,6 +367,9 @@ def run_preprocess_stage(
                 "n_common_electrodes": len(common_el),
                 "maxwell_epochs_path": maxwell_epochs_path,
                 "concat_epochs_path": concat_epochs_path,
+                "per_segment_preprocessed_dir": per_segment_preprocessed_dir_str,
+                "per_segment_manifest_path": per_segment_manifest_path_str,
+                "n_preprocessed_segments": int(per_segment_count),
             },
         )
 

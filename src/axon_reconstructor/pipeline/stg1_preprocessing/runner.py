@@ -10,7 +10,11 @@ from .utils import _ensure_maxwell_hdf5_plugin_path
 
 from .planning import RawPreprocessPlan, build_preprocess_plan, discover_cfg_files, parse_cfg_channel_locations
 
-from .concatenation import find_common_electrodes_from_segments, _process_rec_segment_for_concatenation
+from .concatenation import (
+    find_common_electrodes_from_segments,
+    _load_centered_segment_with_electrode_channel_ids,
+)
+from .preprocessing import apply_standard_preprocessing
 
 from .h5_helpers import (
     _read_well_rec_frame_nos_and_trigger_settings,
@@ -40,9 +44,11 @@ def build_concatenated_recording(
     temporal_resample_margin_ms: float = 100.0,
     temporal_resample_dtype: Optional[str] = None,
     plot_output_dir: Optional[Path] = None,
+    plot_segment_traces: bool = True,
     epoch_markers_output_dir: Optional[Path] = None,
-) -> tuple[object, list[int]]:
-    """Load per-segment recordings, center, slice to shared electrodes, and concatenate.
+    return_artifacts: bool = False,
+) -> tuple[object, list[int]] | tuple[object, list[int], dict[str, object]]:
+    """Load per-segment recordings, center + preprocess full segments, then slice for concat.
 
     Returns `(multirecording, common_electrodes)`.
     """
@@ -102,34 +108,16 @@ def build_concatenated_recording(
             "skipping cross-segment channel intersection/slicing and concatenation",
             flush=True,
         )
-        if hasattr(se, "read_maxwell"):
-            rec = se.read_maxwell(file_path=str(h5_path), stream_id=stream_id, rec_name=rec_name)
-        else:  # pragma: no cover
-            rec = se.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_name)
+        rec_single, seg_stat = _load_centered_segment_with_electrode_channel_ids(
+            h5_path=h5_path,
+            stream_id=stream_id,
+            rec_name=rec_name,
+            center_chunk_size=center_chunk_size,
+        )
 
-        fs = float(rec.get_sampling_frequency())
-        n_samples = int(rec.get_num_samples())
-        chunk = min(center_chunk_size, rec.get_num_samples()) - 100
-        chunk = max(chunk, 100)
-        rec_centered = si.center(rec, chunk_size=chunk)
-
-        rec_el = np.asarray(rec.get_property("contact_vector")["electrode"], dtype=int)
-        if int(np.unique(rec_el).size) != int(rec_el.size):
-            raise RuntimeError(
-                f"Duplicate electrode ids found in contact_vector for segment {rec_name}; cannot map electrodes reliably"
-            )
-
-        common_el = [int(e) for e in rec_el.tolist()]
-        rec_single = rec_centered.rename_channels(common_el)
-        rec_list = [rec_single]
-        seg_stats = [
-            {
-                "rec_name": str(rec_name),
-                "fs": fs,
-                "n_samples": n_samples,
-                "n_channels": int(rec_single.get_num_channels()),
-            }
-        ]
+        common_el = [int(e) for e in np.asarray(rec_single.get_channel_ids(), dtype=int).tolist()]
+        rec_list_full = [rec_single]
+        seg_stats = [seg_stat]
     else:
         rec_names, common_el = find_common_electrodes_from_segments(h5_path=h5_path, stream_id=stream_id)
         print(
@@ -167,17 +155,14 @@ def build_concatenated_recording(
             from functools import partial
 
             process = partial(
-                _process_rec_segment_for_concatenation,
+                _load_centered_segment_with_electrode_channel_ids,
                 h5_path=h5_path,
                 stream_id=stream_id,
-                common_el=common_el,
                 center_chunk_size=center_chunk_size,
-                expected_xy_by_electrode=expected_xy_by_electrode,
-                expected_xy_atol=0.0,
             )
             results = list(ex.map(lambda rn: process(rec_name=rn), rec_names))
 
-        rec_list = [r for r, _ in results]
+        rec_list_full = [r for r, _ in results]
         seg_stats = [s for _, s in results]
 
         print(
@@ -224,14 +209,43 @@ def build_concatenated_recording(
                 flush=True,
             )
 
+    # Apply preprocessing parity before concatenation so both concat and saved segments
+    # can be derived from identically preprocessed segment recordings.
+    pre_t0 = time.perf_counter()
+    preprocessed_rec_list_full = [apply_standard_preprocessing(recording=rec) for rec in rec_list_full]
+
+    if is_single_segment:
+        preprocessed_rec_list_concat = preprocessed_rec_list_full
+    else:
+        preprocessed_rec_list_concat = [
+            seg_rec.select_channels([int(el) for el in common_el])
+            for seg_rec in preprocessed_rec_list_full
+        ]
+
+        # Validate that selected channels remain aligned with the shared electrode set.
+        for rn, seg_rec in zip(rec_names, preprocessed_rec_list_concat, strict=False):
+            seg_ch = np.asarray(seg_rec.get_channel_ids(), dtype=int)
+            exp_ch = np.asarray(common_el, dtype=int)
+            if seg_ch.shape != exp_ch.shape or not np.array_equal(seg_ch, exp_ch):
+                raise RuntimeError(
+                    f"Post-preprocess common-channel selection mismatch for segment {rn}; "
+                    "refusing to concatenate potentially misaligned channels."
+                )
+
+    print(
+        f"[axon_reconstructor] MEA-style preprocessing applied to {len(preprocessed_rec_list_full)} segment recording(s) "
+        f"in {time.perf_counter() - pre_t0:.2f}s",
+        flush=True,
+    )
+
     t_concat = time.perf_counter()
     if is_single_segment:
-        multirecording = rec_list[0]
+        multirecording = preprocessed_rec_list_concat[0]
     else:
-        multirecording = si.concatenate_recordings(rec_list)
+        multirecording = si.concatenate_recordings(preprocessed_rec_list_concat)
 
     # Precompute segment stitch epochs in concatenated sample coordinates.
-    seg_lengths = [int(r.get_num_samples()) for r in rec_list]
+    seg_lengths = [int(r.get_num_samples()) for r in preprocessed_rec_list_concat]
     seg_offsets: list[int] = []
     acc = 0
     for n_frames in seg_lengths:
@@ -329,7 +343,7 @@ def build_concatenated_recording(
             # For per-segment plots, use relative time so each figure spans ~0..100s.
             if plot_output_dir is not None:
                 try:
-                    rec_list[seg_index].set_times(times_rel.astype(float, copy=False))
+                    preprocessed_rec_list_full[seg_index].set_times(times_rel.astype(float, copy=False))
                 except Exception:
                     pass
 
@@ -530,7 +544,8 @@ def build_concatenated_recording(
         # optional temporal resampling (which scales sample indices).
         plot_output_dir = Path(plot_output_dir)
         segment_traces_dir = plot_output_dir / "segment_traces"
-        segment_traces_dir.mkdir(parents=True, exist_ok=True)
+        if bool(plot_segment_traces):
+            segment_traces_dir.mkdir(parents=True, exist_ok=True)
         stitch_frames: list[int] = []
         try:
             # Stitch points are the start of each segment after the first.
@@ -589,17 +604,29 @@ def build_concatenated_recording(
             # Also plot the same representative channel for each segment individually.
             # These segment plots use the per-segment time vector derived from `frame_nos`
             # (relative seconds within segment) so internal gaps/snippets are visible.
-            for rn, seg_rec in zip(rec_names, rec_list, strict=False):
-                _plot_concat_cluster_traces(
-                    recording=seg_rec,
-                    channel_ids=rep_keep,
-                    stitch_frames=[],
-                    out_path=segment_traces_dir / f"segment_trace_{stream_id}_{rn}.png",
-                    title=f"Segment trace ({stream_id} / {rn})",
-                )
+            if bool(plot_segment_traces):
+                for rn, seg_rec in zip(rec_names, preprocessed_rec_list_full, strict=False):
+                    _plot_concat_cluster_traces(
+                        recording=seg_rec,
+                        channel_ids=rep_keep,
+                        stitch_frames=[],
+                        out_path=segment_traces_dir / f"segment_trace_{stream_id}_{rn}.png",
+                        title=f"Segment trace ({stream_id} / {rn})",
+                    )
+            else:
+                print("[axon_reconstructor] segment trace plots disabled by config", flush=True)
             
         except Exception:
             # Don't fail preprocessing if plotting diagnostics can't be generated.
             pass
+
+    if bool(return_artifacts):
+        artifacts: dict[str, object] = {
+            "rec_names": [str(rn) for rn in rec_names],
+            "segment_recordings_preprocessed": preprocessed_rec_list_full,
+            "segment_recordings_preprocessed_concat": preprocessed_rec_list_concat,
+            "segment_stats": seg_stats,
+        }
+        return multirecording, common_el, artifacts
 
     return multirecording, common_el
