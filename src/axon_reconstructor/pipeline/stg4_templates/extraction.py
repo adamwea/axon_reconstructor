@@ -32,6 +32,25 @@ def _gather_template_sources_for_unit(
 
     sources_for_unit: list[dict[str, Any]] = []
 
+    # Defensive carry-through of waveforms-stage channel policy:
+    # if concat is present, per-segment sources should contribute only channels
+    # outside concat/common electrodes.
+    common_electrode_ids: Optional[set[int]] = None
+    try:
+        concat_an = None
+        for src_name, src_an in analyzers:
+            if str(src_name) == "concat":
+                concat_an = src_an
+                break
+        if concat_an is not None:
+            concat_el_ids = try_get_electrode_ids(concat_an.recording)
+            if concat_el_ids is not None:
+                electrodes = np.asarray(concat_el_ids, dtype=int)
+                if electrodes.size > 0:
+                    common_electrode_ids = set(int(x) for x in electrodes.tolist())
+    except Exception:
+        common_electrode_ids = None
+
     for name, an in analyzers:
         tmpl = None
         try:
@@ -116,6 +135,23 @@ def _gather_template_sources_for_unit(
                 pass
 
         if tmpl.shape[1] != locs.shape[0]:
+            continue
+
+        # Enforce "segments contribute only non-common channels" if possible.
+        if common_electrode_ids and str(name) != "concat" and el_ids is not None:
+            try:
+                el_arr = np.asarray(el_ids, dtype=object)
+                keep_mask = np.asarray([int(x) not in common_electrode_ids for x in el_arr], dtype=bool)
+                if int(keep_mask.size) == int(tmpl.shape[1]) and (not bool(np.all(keep_mask))):
+                    tmpl = tmpl[:, keep_mask]
+                    locs = locs[keep_mask, :]
+                    if ch_ids is not None:
+                        ch_ids = list(np.asarray(ch_ids, dtype=object)[keep_mask])
+                    el_ids = list(el_arr[keep_mask])
+            except Exception:
+                pass
+
+        if int(tmpl.shape[1]) == 0:
             continue
 
         sources_for_unit.append(

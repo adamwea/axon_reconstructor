@@ -91,7 +91,6 @@ class ScopeDatasetSpec:
 @dataclass(frozen=True)
 class ScopeConfig:
     mea_output_root: Path
-    mea_analysis_repo_root: Path | None
     sorter: str
     docker_image: str | None
     n_jobs: int
@@ -166,11 +165,6 @@ def load_scope_config(path: Path) -> ScopeConfig:
 
     cfg = ScopeConfig(
         mea_output_root=Path(mea_output_root_raw).expanduser(),
-        mea_analysis_repo_root=(
-            Path(payload["mea_analysis_repo_root"]).expanduser().resolve()
-            if payload.get("mea_analysis_repo_root") is not None
-            else None
-        ),
         sorter=str(payload.get("sorter", "kilosort4")),
         docker_image=(str(payload["docker_image"]) if payload.get("docker_image") is not None else None),
         n_jobs=int(payload.get("n_jobs", 8)),
@@ -199,9 +193,6 @@ def validate_scope_config(cfg: ScopeConfig) -> list[str]:
                 continue
             if not str(well.stream_id).strip():
                 errors.append(f"dataset {dataset.h5_path} has empty stream_id")
-
-    if "spikesort" in cfg.stage_order and cfg.mea_analysis_repo_root is None:
-        errors.append("spikesort stage requested but mea_analysis_repo_root is not configured")
 
     if "unit_match" in cfg.stage_order:
         idx_unit_match = cfg.stage_order.index("unit_match")
@@ -302,14 +293,6 @@ def run_scope_config_build(args: argparse.Namespace) -> int:
     if str(mea_output_root).strip() == "." or str(mea_output_root).strip() == "":
         raise ValueError("mea_output_root must be provided via --mea-output-root or AXON_RECON_MEA_OUTPUT_ROOT")
 
-    mea_analysis_repo_root_value: str | None = None
-    if args.mea_analysis_repo_root is not None:
-        mea_analysis_repo_root_value = str(Path(args.mea_analysis_repo_root).expanduser().resolve())
-    else:
-        env_repo = _env_str("AXON_RECON_MEA_ANALYSIS_REPO_ROOT", None)
-        if env_repo is not None:
-            mea_analysis_repo_root_value = str(Path(env_repo).expanduser().resolve())
-
     sorter = args.sorter or _env_str("AXON_RECON_SORTER", "kilosort4") or "kilosort4"
     docker_image = args.docker_image or _env_str("AXON_RECON_DOCKER_IMAGE", None)
     n_jobs = int(args.n_jobs) if args.n_jobs is not None else int(_env_int("AXON_RECON_N_JOBS", 8))
@@ -356,10 +339,10 @@ def run_scope_config_build(args: argparse.Namespace) -> int:
         raise ValueError("No datasets/wells were parsed from cross_well config")
 
     stage_kwargs: dict[str, dict[str, Any]] = {}
-    if args.recon_unit_workers is not None or args.recon_json_only:
+    if args.recon_n_jobs is not None or args.recon_json_only:
         recon_kwargs: dict[str, Any] = {}
-        if args.recon_unit_workers is not None:
-            recon_kwargs["unit_workers"] = int(args.recon_unit_workers)
+        if args.recon_n_jobs is not None:
+            recon_kwargs["n_jobs"] = int(args.recon_n_jobs)
         if args.recon_json_only:
             recon_kwargs["write_unit_pdfs"] = False
             recon_kwargs["write_all_units_overview_pdf"] = False
@@ -367,7 +350,6 @@ def run_scope_config_build(args: argparse.Namespace) -> int:
 
     scope_payload: dict[str, Any] = {
         "mea_output_root": str(mea_output_root),
-        "mea_analysis_repo_root": mea_analysis_repo_root_value,
         "sorter": str(sorter),
         "docker_image": docker_image,
         "n_jobs": int(n_jobs),

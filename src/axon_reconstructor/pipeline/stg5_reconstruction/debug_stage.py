@@ -121,12 +121,12 @@ def build_reconstruction_debug_config(*, args: Any, env: Any) -> ReconstructionD
         else bool(args.write_all_units_overview_pdf)
     )
     verbose = env.env_bool("AXON_RECON_RECON_VERBOSE", default=False) if args.verbose is None else bool(args.verbose)
-    unit_workers = (
-        int(env.env_int("AXON_RECON_RECON_UNIT_WORKERS", default=1) or 1)
-        if args.unit_workers is None
-        else int(args.unit_workers)
+    n_jobs = (
+        int(env.env_int("AXON_RECON_RECON_N_JOBS", default=1) or 1)
+        if args.n_jobs is None
+        else int(args.n_jobs)
     )
-    unit_workers = max(1, unit_workers)
+    n_jobs = max(1, n_jobs)
 
     replot_summaries_only = (
         env.env_bool("AXON_RECON_RECON_REPLOT_SUMMARIES_ONLY", default=False)
@@ -163,7 +163,7 @@ def build_reconstruction_debug_config(*, args: Any, env: Any) -> ReconstructionD
         write_unit_pdfs=write_unit_pdfs,
         write_all_units_overview_pdf=write_all_units_overview_pdf,
         verbose=verbose,
-        unit_workers=unit_workers,
+        n_jobs=n_jobs,
         force_restart=force_restart,
         replot_summaries_only=replot_summaries_only,
         recompute_branches_raw_only=recompute_branches_raw_only,

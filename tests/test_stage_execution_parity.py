@@ -19,7 +19,6 @@ def test_scope_orchestrator_dispatches_via_shared_stage_executor(monkeypatch, tm
     h5_path = _make_mea_like_path(tmp_path)
     cfg = ScopeConfig(
         mea_output_root=tmp_path / "outputs",
-        mea_analysis_repo_root=None,
         sorter="kilosort4",
         docker_image=None,
         n_jobs=2,
@@ -111,7 +110,6 @@ def test_stage_cli_dispatches_via_shared_stage_executor(monkeypatch, tmp_path: P
         sorter="kilosort4",
         docker_image=None,
         chunk_duration=None,
-        mea_analysis_repo_root=None,
         debug_max_units=None,
         debug_max_segments=None,
         h5_path=h5_path,
@@ -136,5 +134,5 @@ def test_stage_cli_dispatches_via_shared_stage_executor(monkeypatch, tmp_path: P
     stage, details = calls[0]
     assert stage == "preprocess"
     assert details["stream_id"] == "well001"
-    assert details["n_jobs"] == 4
+    assert details["n_jobs"] == 2
     assert details["force_restart"] is False

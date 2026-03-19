@@ -45,6 +45,28 @@ class RuntimeConfig:
             raise ValueError("Runtime config root must be a mapping/object")
         return cls(payload)
 
+    @staticmethod
+    def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+        out: dict[str, Any] = dict(base)
+        for key, value in override.items():
+            if (
+                key in out
+                and isinstance(out.get(key), dict)
+                and isinstance(value, dict)
+            ):
+                out[key] = RuntimeConfig._deep_merge(dict(out[key]), value)
+            else:
+                out[key] = value
+        return out
+
+    @classmethod
+    def load_multiple(cls, paths: list[str | Path]) -> "RuntimeConfig":
+        merged: dict[str, Any] = {}
+        for path in list(paths):
+            cfg = cls.load(path)
+            merged = cls._deep_merge(merged, dict(cfg._payload))
+        return cls(merged)
+
     def has(self, path: str) -> bool:
         marker = object()
         return self.get(path, marker) is not marker

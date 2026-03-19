@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -39,9 +38,6 @@ class SpikeSortingInputs:
     stream_id: str
 
     mea_output_root: Path
-
-    # Where MEA_Analysis repo lives (needed so imports work when not installed).
-    mea_analysis_repo_root: Path
 
     # MEA_Analysis options
     sorter: str = "kilosort4"
@@ -114,22 +110,8 @@ def _resolve_preprocess_dir(*, well_out_dir: Path) -> Path:
     return new_dir
 
 
-def _ensure_mea_analysis_importable(mea_analysis_repo_root: Path) -> None:
-    """Make `import MEA_Analysis...` work in ad-hoc debug sessions."""
-
-    mea_analysis_repo_root = Path(mea_analysis_repo_root).expanduser().resolve()
-    # To import `MEA_Analysis`, Python must have the *parent* directory on sys.path.
-    # Example: /home/.../pkgs is on sys.path, then /home/.../pkgs/MEA_Analysis is importable.
-    mea_analysis_parent = mea_analysis_repo_root.parent
-    if str(mea_analysis_parent) not in sys.path:
-        sys.path.insert(0, str(mea_analysis_parent))
-
-
 def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger) -> SpikeSortingOutputs:
     """Load saved preprocessed recording and run spikesorting stage."""
-
-    _ensure_mea_analysis_importable(inputs.mea_analysis_repo_root)
-    logger.debug("MEA_Analysis import path ready from repo root: %s", inputs.mea_analysis_repo_root)
 
     # Apply environment-level resource controls as early as possible.
     # These can affect subprocess behavior.
@@ -308,11 +290,17 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
     except Exception:
         sorter_kwargs = {}
 
-    from MEA_Analysis.IPNAnalysis.mea_analysis_routine import (  # type: ignore[import-not-found]
-        MEARunOptions,
-        run_mea_pipeline,
-        ProcessingStage as MEAProcessingStage,
-    )
+    try:
+        from IPNAnalysis.mea_analysis_routine import (  # type: ignore[import-not-found]
+            MEARunOptions,
+            run_mea_pipeline,
+            ProcessingStage as MEAProcessingStage,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "Spikesorting requires MEA_Analysis installed in the active environment "
+            "(IPNAnalysis importable)."
+        ) from exc
 
     um_kwargs = dict(inputs.um_kwargs or {})
     am_kwargs = dict(inputs.am_kwargs or {})

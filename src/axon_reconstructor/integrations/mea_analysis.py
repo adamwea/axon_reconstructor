@@ -142,9 +142,9 @@ def validate_sorter_output_dir(sorter_output_dir: os.PathLike[str] | str) -> boo
 
 @dataclass(frozen=True)
 class MEAAnalysisRunSpec:
-    mea_analysis_repo_root: Path
     path: Path
     output_dir: Path
+    python_cmd: Sequence[str] = ("python3",)
     sorter: str = "kilosort4"
     reference: Optional[Path] = None
     assay_types: Sequence[str] = ("network today", "network today/best")
@@ -175,10 +175,14 @@ def build_run_pipeline_driver_cmd(spec: MEAAnalysisRunSpec) -> list[str]:
     external runtime dependencies.
     """
 
-    driver = spec.mea_analysis_repo_root / "IPNAnalysis" / "run_pipeline_driver.py"
+    python_cmd = [str(token) for token in spec.python_cmd if str(token).strip() != ""]
+    if not python_cmd:
+        python_cmd = ["python3"]
+
     argv: list[str] = [
-        "python3",
-        str(driver),
+        *python_cmd,
+        "-m",
+        "IPNAnalysis.run_pipeline_driver",
         str(spec.path),
         "--output-dir",
         str(spec.output_dir),

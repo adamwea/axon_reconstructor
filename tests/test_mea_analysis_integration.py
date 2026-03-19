@@ -70,11 +70,7 @@ def test_validate_sorter_output_dir(tmp_path: Path):
 
 
 def test_build_run_pipeline_driver_cmd_includes_hpc_flags(tmp_path: Path):
-    mea_repo = tmp_path / "MEA_Analysis"
-    (mea_repo / "IPNAnalysis").mkdir(parents=True)
-
     spec = MEAAnalysisRunSpec(
-        mea_analysis_repo_root=mea_repo,
         path=tmp_path / "raw",
         output_dir=tmp_path / "out",
         sorter="kilosort4",
@@ -92,7 +88,8 @@ def test_build_run_pipeline_driver_cmd_includes_hpc_flags(tmp_path: Path):
 
     # Basic structure
     assert argv[0] == "python3"
-    assert argv[1].endswith("IPNAnalysis/run_pipeline_driver.py")
+    assert argv[1] == "-m"
+    assert argv[2] == "IPNAnalysis.run_pipeline_driver"
 
     # Core args
     assert "--output-dir" in argv
@@ -112,3 +109,17 @@ def test_build_run_pipeline_driver_cmd_includes_hpc_flags(tmp_path: Path):
     assert "0" in argv
     assert "8" in argv
     assert "1s" in argv
+
+
+def test_build_run_pipeline_driver_cmd_uses_custom_python_launcher(tmp_path: Path):
+    spec = MEAAnalysisRunSpec(
+        path=tmp_path / "raw",
+        output_dir=tmp_path / "out",
+        sorter="kilosort4",
+        python_cmd=("conda", "run", "-n", "axon_recon", "python"),
+    )
+
+    argv = build_run_pipeline_driver_cmd(spec)
+
+    assert argv[:5] == ["conda", "run", "-n", "axon_recon", "python"]
+    assert argv[5:7] == ["-m", "IPNAnalysis.run_pipeline_driver"]

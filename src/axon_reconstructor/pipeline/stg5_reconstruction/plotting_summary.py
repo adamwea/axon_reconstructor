@@ -213,6 +213,12 @@ def write_unit_summary_plots_from_disk(
     locs_xy: Any,
     fs_hz: Optional[float],
     force_restart: bool,
+    branches_relpath: str = "branches.json",
+    heuristics_relpath: str = "heuristics.json",
+    branches_raw_relpath: str = "branches_raw.json",
+    summary_relpath: str = "summary.png",
+    summary_clean_relpath: str = "summary_clean.png",
+    summary_raw_relpath: str = "summary_raw.png",
     logger: Any,
 ) -> dict[str, str]:
     """(Re)render summary plots without needing a live GraphAxonTracking object."""
@@ -228,9 +234,9 @@ def write_unit_summary_plots_from_disk(
         logger.warning("Plotting dependencies unavailable: %s", e)
         return outputs
 
-    branches_json = Path(out_unit_dir) / "branches.json"
-    heuristics_json = Path(out_unit_dir) / "heuristics.json"
-    raw_json = Path(out_unit_dir) / "branches_raw.json"
+    branches_json = Path(out_unit_dir) / Path(str(branches_relpath)).expanduser()
+    heuristics_json = Path(out_unit_dir) / Path(str(heuristics_relpath)).expanduser()
+    raw_json = Path(out_unit_dir) / Path(str(branches_raw_relpath)).expanduser()
 
     branches_clean: list[dict[str, Any]] = []
     init_channel: Optional[int] = None
@@ -266,9 +272,9 @@ def write_unit_summary_plots_from_disk(
     if fs_hz is None:
         fs_hz = 10_000.0
 
-    summary_clean_png = Path(out_unit_dir) / "summary_clean.png"
-    summary_raw_png = Path(out_unit_dir) / "summary_raw.png"
-    summary_png = Path(out_unit_dir) / "summary.png"
+    summary_clean_png = Path(out_unit_dir) / Path(str(summary_clean_relpath)).expanduser()
+    summary_raw_png = Path(out_unit_dir) / Path(str(summary_raw_relpath)).expanduser()
+    summary_png = Path(out_unit_dir) / Path(str(summary_relpath)).expanduser()
 
     if (force_restart or (not summary_clean_png.exists())) and branches_clean:
         try:
@@ -377,6 +383,10 @@ def write_top_density_raw_branch_footprint_grid(
     minimap_inner_box_linewidth: float = 0.8,
     minimap_include_footprint: bool = False,
     minimap_prevent_occlusions: bool = False,
+    minimap_clearance_um: float = 2.0,
+    minimap_linewidth_buffer_pt: float = 0.5,
+    minimap_occlusion_max_iters: int = 8,
+    minimap_occlusion_growth_factor: float = 1.20,
     legend_show: bool = False,
     legend_location: str = "first_empty_panel",
     legend_fontsize: float = 6.0,
@@ -585,6 +595,18 @@ def write_top_density_raw_branch_footprint_grid(
             continue
 
         branches_raw_json = Path(reconstruction_out_dir) / "by_unit" / f"unit_{uid}" / "branches_raw.json"
+        if not branches_raw_json.exists():
+            try:
+                unit_summary_json = Path(reconstruction_out_dir) / "by_unit" / f"unit_{uid}" / "unit_reconstruction_summary.json"
+                if unit_summary_json.exists():
+                    unit_payload = _read_json(unit_summary_json)
+                    candidate_raw = (unit_payload or {}).get("outputs", {}).get("branches_raw_json")
+                    if candidate_raw:
+                        candidate_path = Path(str(candidate_raw))
+                        if candidate_path.exists():
+                            branches_raw_json = candidate_path
+            except Exception:
+                pass
         if not branches_raw_json.exists():
             continue
 
@@ -931,6 +953,9 @@ def write_top_density_raw_branch_footprint_grid(
                             used.add(mi)
                     return mapped
 
+                branch_outline_lw_pt = 2.2 if str(branch_outline_color).strip() else 0.0
+                branch_main_lw_pt = 0.9
+
                 for bi, br in enumerate(raw_branches):
                     chs = [int(c) for c in list(br.get("channels", []) or []) if isinstance(c, (int, float))]
                     if len(chs) < 2:
@@ -946,7 +971,7 @@ def write_top_density_raw_branch_footprint_grid(
                             pts[:, 0],
                             pts[:, 1],
                             color=str(branch_outline_color),
-                            lw=2.2,
+                            lw=float(branch_outline_lw_pt),
                             alpha=0.9,
                             zorder=2,
                         )
@@ -954,7 +979,7 @@ def write_top_density_raw_branch_footprint_grid(
                         pts[:, 0],
                         pts[:, 1],
                         color=str(branch_color),
-                        lw=0.9,
+                        lw=float(branch_main_lw_pt),
                         alpha=0.95,
                         zorder=3,
                     )
@@ -1036,6 +1061,19 @@ def write_top_density_raw_branch_footprint_grid(
                         )
                     except Exception:
                         pass
+
+                node_collision_geom: list[tuple[float, float, float, bool]] = []
+                try:
+                    for ch in sorted(all_nodes):
+                        if soma_ch is not None and int(ch) == int(soma_ch):
+                            continue
+                        nx = float(locs_xy[int(ch), 0])
+                        ny = float(locs_xy[int(ch), 1])
+                        node_collision_geom.append((float(nx), float(ny), float(node_r), False))
+                    if soma_xy is not None:
+                        node_collision_geom.append((float(soma_xy[0]), float(soma_xy[1]), float(soma_r), True))
+                except Exception:
+                    node_collision_geom = []
             except Exception:
                 pass
 
@@ -1142,7 +1180,104 @@ def write_top_density_raw_branch_footprint_grid(
                             x1_ins = x0_ins + ins_w
                             y1_ins = y0_ins + ins_h
 
-                            def _has_occlusion(test_half_span: float) -> bool:
+                            def _segments_for_occlusion() -> list[tuple[float, float, float, float]]:
+                                segs: list[tuple[float, float, float, float]] = []
+                                try:
+                                    for bpts in branch_points_xy:
+                                        arr = np.asarray(bpts, dtype=float)
+                                        if arr.ndim != 2 or arr.shape[0] < 2:
+                                            continue
+                                        for i in range(int(arr.shape[0]) - 1):
+                                            segs.append((float(arr[i, 0]), float(arr[i, 1]), float(arr[i + 1, 0]), float(arr[i + 1, 1])))
+                                except Exception:
+                                    return []
+                                return segs
+
+                            segs_for_occlusion = _segments_for_occlusion()
+
+                            def _point_in_rect(px: float, py: float, rx0: float, ry0: float, rx1: float, ry1: float) -> bool:
+                                return (px >= rx0) and (px <= rx1) and (py >= ry0) and (py <= ry1)
+
+                            def _seg_intersects_seg(
+                                ax0: float,
+                                ay0: float,
+                                ax1: float,
+                                ay1: float,
+                                bx0: float,
+                                by0: float,
+                                bx1: float,
+                                by1: float,
+                            ) -> bool:
+                                def _orient(px: float, py: float, qx: float, qy: float, rx: float, ry: float) -> float:
+                                    return (qy - py) * (rx - qx) - (qx - px) * (ry - qy)
+
+                                def _on_seg(px: float, py: float, qx: float, qy: float, rx: float, ry: float) -> bool:
+                                    return min(px, rx) <= qx <= max(px, rx) and min(py, ry) <= qy <= max(py, ry)
+
+                                o1 = _orient(ax0, ay0, ax1, ay1, bx0, by0)
+                                o2 = _orient(ax0, ay0, ax1, ay1, bx1, by1)
+                                o3 = _orient(bx0, by0, bx1, by1, ax0, ay0)
+                                o4 = _orient(bx0, by0, bx1, by1, ax1, ay1)
+
+                                if (o1 * o2 < 0.0) and (o3 * o4 < 0.0):
+                                    return True
+                                eps = 1e-12
+                                if abs(o1) <= eps and _on_seg(ax0, ay0, bx0, by0, ax1, ay1):
+                                    return True
+                                if abs(o2) <= eps and _on_seg(ax0, ay0, bx1, by1, ax1, ay1):
+                                    return True
+                                if abs(o3) <= eps and _on_seg(bx0, by0, ax0, ay0, bx1, by1):
+                                    return True
+                                if abs(o4) <= eps and _on_seg(bx0, by0, ax1, ay1, bx1, by1):
+                                    return True
+                                return False
+
+                            def _segment_hits_rect_with_buffer(
+                                x0s: float,
+                                y0s: float,
+                                x1s: float,
+                                y1s: float,
+                                rx0: float,
+                                ry0: float,
+                                rx1: float,
+                                ry1: float,
+                                rb: float,
+                            ) -> bool:
+                                ex0 = rx0 - rb
+                                ey0 = ry0 - rb
+                                ex1 = rx1 + rb
+                                ey1 = ry1 + rb
+
+                                if max(x0s, x1s) < ex0 or min(x0s, x1s) > ex1:
+                                    return False
+                                if max(y0s, y1s) < ey0 or min(y0s, y1s) > ey1:
+                                    return False
+
+                                if _point_in_rect(x0s, y0s, ex0, ey0, ex1, ey1) or _point_in_rect(x1s, y1s, ex0, ey0, ex1, ey1):
+                                    return True
+
+                                return (
+                                    _seg_intersects_seg(x0s, y0s, x1s, y1s, ex0, ey0, ex1, ey0)
+                                    or _seg_intersects_seg(x0s, y0s, x1s, y1s, ex1, ey0, ex1, ey1)
+                                    or _seg_intersects_seg(x0s, y0s, x1s, y1s, ex1, ey1, ex0, ey1)
+                                    or _seg_intersects_seg(x0s, y0s, x1s, y1s, ex0, ey1, ex0, ey0)
+                                )
+
+                            def _pt_to_data_um(test_half_span: float, pt: float) -> float:
+                                try:
+                                    hs = max(1e-6, float(test_half_span))
+                                    span = 2.0 * hs
+                                    bbox = ax.get_window_extent()
+                                    w_px = max(1.0, float(getattr(bbox, "width", 1.0)))
+                                    h_px = max(1.0, float(getattr(bbox, "height", 1.0)))
+                                    px_per_pt = float(getattr(fig, "dpi", 100.0)) / 72.0
+                                    d_x = span / w_px
+                                    d_y = span / h_px
+                                    return float(pt) * px_per_pt * max(d_x, d_y)
+                                except Exception:
+                                    return 0.0
+
+                            def _has_occlusion(test_half_span: float) -> tuple[bool, str]:
                                 hs = max(1e-6, float(test_half_span))
                                 x0 = float(cx) - hs
                                 x1 = float(cx) + hs
@@ -1152,13 +1287,73 @@ def write_top_density_raw_branch_footprint_grid(
                                 fy = (np.asarray(occ_pts[:, 1], dtype=float) - y0) / max(1e-12, (y1 - y0))
                                 in_x = np.logical_and(fx >= x0_ins, fx <= x1_ins)
                                 in_y = np.logical_and(fy >= y0_ins, fy <= y1_ins)
-                                return bool(np.any(np.logical_and(in_x, in_y)))
+                                if bool(np.any(np.logical_and(in_x, in_y))):
+                                    return True, "point"
+
+                                # Geometry-aware checks: node circles and branch strokes.
+                                clearance_um = max(0.0, float(minimap_clearance_um))
+                                stroke_um = _pt_to_data_um(
+                                    hs,
+                                    max(0.0, 0.5 * max(float(branch_main_lw_pt), float(branch_outline_lw_pt)) + float(minimap_linewidth_buffer_pt)),
+                                )
+
+                                # Node circles
+                                try:
+                                    for nx, ny, nr, is_soma in node_collision_geom:
+                                        fnx = (float(nx) - x0) / max(1e-12, (x1 - x0))
+                                        fny = (float(ny) - y0) / max(1e-12, (y1 - y0))
+                                        rn = max(0.0, (float(nr) + clearance_um) / max(1e-12, (2.0 * hs)))
+                                        dx = max(float(x0_ins) - fnx, 0.0, fnx - float(x1_ins))
+                                        dy = max(float(y0_ins) - fny, 0.0, fny - float(y1_ins))
+                                        if (dx * dx + dy * dy) <= (rn * rn):
+                                            return True, ("soma" if bool(is_soma) else "node")
+                                except Exception:
+                                    pass
+
+                                # Branch segments with line buffer.
+                                try:
+                                    rb = max(0.0, (clearance_um + stroke_um) / max(1e-12, (2.0 * hs)))
+                                    for sx0, sy0, sx1, sy1 in segs_for_occlusion:
+                                        fsx0 = (float(sx0) - x0) / max(1e-12, (x1 - x0))
+                                        fsy0 = (float(sy0) - y0) / max(1e-12, (y1 - y0))
+                                        fsx1 = (float(sx1) - x0) / max(1e-12, (x1 - x0))
+                                        fsy1 = (float(sy1) - y0) / max(1e-12, (y1 - y0))
+                                        if _segment_hits_rect_with_buffer(
+                                            fsx0,
+                                            fsy0,
+                                            fsx1,
+                                            fsy1,
+                                            float(x0_ins),
+                                            float(y0_ins),
+                                            float(x1_ins),
+                                            float(y1_ins),
+                                            float(rb),
+                                        ):
+                                            return True, "branch"
+                                except Exception:
+                                    pass
+
+                                return False, "none"
 
                             hs = float(half_span)
-                            for _ in range(8):
-                                if not _has_occlusion(hs):
+                            occ_iters = max(1, int(minimap_occlusion_max_iters))
+                            growth = max(1.01, float(minimap_occlusion_growth_factor))
+                            last_reason = "none"
+                            for _ in range(occ_iters):
+                                has_occ, reason = _has_occlusion(hs)
+                                last_reason = str(reason)
+                                if not has_occ:
                                     break
-                                hs *= 1.20
+                                hs *= growth
+                            if bool(emit_debug_logs):
+                                logger.debug(
+                                    "Grid occlusion adjust unit=%s initial_half_span=%.3f final_half_span=%.3f iters=%d reason=%s",
+                                    str(uid),
+                                    float(half_span),
+                                    float(hs),
+                                    int(occ_iters),
+                                    str(last_reason),
+                                )
                             half_span = float(hs)
 
                 zoom_x0, zoom_x1 = (cx - half_span), (cx + half_span)

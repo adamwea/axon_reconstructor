@@ -18,16 +18,30 @@ def _read_json(path: Path) -> Any:
         return json.load(f)
 
 
-def _compute_unit_output_layout(*, out_unit_dir: Path) -> dict[str, Path]:
+def _compute_unit_output_layout(
+    *,
+    out_unit_dir: Path,
+    branches_root_relpath: str = "branches",
+    branches_clean_relpath: str = "branches/clean",
+    branches_raw_relpath: str = "branches/raw",
+    morphology_relpath: str = "morphology",
+    heuristics_relpath: str = "heuristics",
+    maps_relpath: str = "maps",
+) -> dict[str, Path]:
     out_unit_dir = Path(out_unit_dir)
-    branches_root = out_unit_dir / "branches"
+
+    def _resolve(p: str) -> Path:
+        rel = Path(str(p)).expanduser()
+        return rel if rel.is_absolute() else (out_unit_dir / rel)
+
+    branches_root = _resolve(branches_root_relpath)
     return {
         "branches_root": branches_root,
-        "branches_clean": branches_root / "clean",
-        "branches_raw": branches_root / "raw",
-        "morphology": out_unit_dir / "morphology",
-        "heuristics": out_unit_dir / "heuristics",
-        "maps": out_unit_dir / "maps",
+        "branches_clean": _resolve(branches_clean_relpath),
+        "branches_raw": _resolve(branches_raw_relpath),
+        "morphology": _resolve(morphology_relpath),
+        "heuristics": _resolve(heuristics_relpath),
+        "maps": _resolve(maps_relpath),
     }
 
 
@@ -92,28 +106,49 @@ def _with_suffix(path: Path, suffix: str) -> Path:
     return path.with_suffix(suffix)
 
 
-def _save_fig_pdf_and_png(*, fig: Any, pdf_path: Path, png_path: Path, dpi: int = 150) -> None:
+def _save_fig_pdf_and_png(
+    *,
+    fig: Any,
+    pdf_path: Path,
+    png_path: Path,
+    dpi: int = 150,
+    write_png: bool = True,
+    write_svg: bool = False,
+    svg_path: Path | None = None,
+) -> None:
     pdf_path = Path(pdf_path)
     png_path = Path(png_path)
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(pdf_path, dpi=dpi, bbox_inches="tight", facecolor="white")
-    fig.savefig(png_path, dpi=dpi, bbox_inches="tight", facecolor="white")
-    # Optional vector output for downstream compositing.
-    try:
-        fig.savefig(pdf_path.with_suffix(".svg"), format="svg", bbox_inches="tight", facecolor="white")
-    except Exception:
-        pass
+    if bool(write_png):
+        fig.savefig(png_path, dpi=dpi, bbox_inches="tight", facecolor="white")
+    if bool(write_svg):
+        try:
+            svg_out = Path(svg_path) if svg_path is not None else pdf_path.with_suffix(".svg")
+            fig.savefig(svg_out, format="svg", bbox_inches="tight", facecolor="white")
+        except Exception:
+            pass
 
 
-def _save_fig_png(*, fig: Any, png_path: Path, dpi: int) -> None:
+def _save_fig_png(
+    *,
+    fig: Any,
+    png_path: Path,
+    dpi: int,
+    write_png: bool = True,
+    write_svg: bool = False,
+    svg_path: Path | None = None,
+) -> None:
     png_path = Path(png_path)
     png_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(png_path, dpi=dpi, bbox_inches="tight", facecolor="white")
-    # Optional vector output for downstream compositing.
-    try:
-        fig.savefig(png_path.with_suffix(".svg"), format="svg", bbox_inches="tight", facecolor="white")
-    except Exception:
-        pass
+    if bool(write_png):
+        fig.savefig(png_path, dpi=dpi, bbox_inches="tight", facecolor="white")
+    if bool(write_svg):
+        try:
+            svg_out = Path(svg_path) if svg_path is not None else png_path.with_suffix(".svg")
+            fig.savefig(svg_out, format="svg", bbox_inches="tight", facecolor="white")
+        except Exception:
+            pass
 
 
 def _minimal_axes(ax: Any) -> None:

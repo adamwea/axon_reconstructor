@@ -73,7 +73,6 @@ def validate_sorter_output(sorter_output_dir: Path) -> bool:
 
 def build_mea_analysis_driver_cmd(
     *,
-    mea_repo_root: Path,
     data_file: Path,
     output_root: Path,
     sorter: str = "kilosort4",
@@ -93,7 +92,6 @@ def build_mea_analysis_driver_cmd(
     from axon_reconstructor.integrations.mea_analysis import MEAAnalysisRunSpec, build_run_pipeline_driver_cmd
 
     spec = MEAAnalysisRunSpec(
-        mea_analysis_repo_root=Path(mea_repo_root),
         path=Path(data_file),
         output_dir=Path(output_root),
         sorter=sorter,

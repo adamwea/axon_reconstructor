@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+from copy import deepcopy
 import logging
 import os
 import sys
@@ -189,6 +190,10 @@ class ReconstructionInputs:
     grid_minimap_inner_box_linewidth: float = 0.8
     grid_minimap_include_footprint: bool = False
     grid_minimap_prevent_occlusions: bool = False
+    grid_minimap_clearance_um: float = 2.0
+    grid_minimap_linewidth_buffer_pt: float = 0.5
+    grid_minimap_occlusion_max_iters: int = 8
+    grid_minimap_occlusion_growth_factor: float = 1.20
     grid_legend_show: bool = False
     grid_legend_location: str = "first_empty_panel"
     grid_legend_fontsize: float = 6.0
@@ -238,13 +243,90 @@ class ReconstructionInputs:
     per_unit_write_branches_raw_json: bool = True
     per_unit_write_branches_json: bool = True
     per_unit_write_heuristics_json: bool = True
+    per_unit_branches_raw_relpath: str = "branches_raw.json"
+    per_unit_branches_relpath: str = "branches.json"
+    per_unit_heuristics_relpath: str = "heuristics.json"
+    per_unit_branches_root_relpath: str = "branches"
+    per_unit_branches_clean_dir_relpath: str = "branches/clean"
+    per_unit_branches_raw_dir_relpath: str = "branches/raw"
+    per_unit_morphology_dir_relpath: str = "morphology"
+    per_unit_heuristics_dir_relpath: str = "heuristics"
+    per_unit_maps_dir_relpath: str = "maps"
+    per_unit_template_relpath: str = "template.png"
+    per_unit_template_zoom_relpath: str = "template_zoom.png"
+    per_unit_template_movie_relpath: str = "template_movie.gif"
+    per_unit_summary_relpath: str = "summary.png"
+    per_unit_summary_clean_relpath: str = "summary_clean.png"
+    per_unit_summary_raw_relpath: str = "summary_raw.png"
+    per_unit_amplitude_map_relpath: str = "maps/amplitude_map.png"
+    per_unit_amplitude_map_zoom_relpath: str = "maps/amplitude_map_zoom.png"
+    per_unit_peak_latency_map_relpath: str = "maps/peak_latency_map.png"
+    per_unit_peak_latency_map_zoom_relpath: str = "maps/peak_latency_map_zoom.png"
+    per_unit_peak_std_map_relpath: str = "maps/peak_std_map.png"
+    per_unit_peak_std_map_zoom_relpath: str = "maps/peak_std_map_zoom.png"
+    per_unit_channel_selection_detect_relpath: str = "maps/channel_selection_detect.png"
+    per_unit_channel_selection_kurt_relpath: str = "maps/channel_selection_kurt.png"
+    per_unit_channel_selection_delay_relpath: str = "maps/channel_selection_delay.png"
+    per_unit_channel_selection_all_relpath: str = "maps/channel_selection_all.png"
+    per_unit_graph_nodes_relpath: str = "maps/graph_nodes.png"
+    per_unit_graph_edges_relpath: str = "maps/graph_edges.png"
+    per_unit_graph_heuristics_relpath: str = "heuristics/graph_heuristics.png"
+    per_unit_morphology_pdf_relpath: str = "morphology/morphology.pdf"
+    per_unit_morphology_zoom_pdf_relpath: str = "morphology/morphology_zoom.pdf"
+    per_unit_branches_raw_clean_pdf_relpath: str = "branches/raw/branches_raw_clean.pdf"
+    per_unit_branches_raw_pdf_relpath: str = "branches/raw/branches_raw.pdf"
+    per_unit_branches_raw_zoom_pdf_relpath: str = "branches/raw/branches_raw_zoom.pdf"
+    per_unit_branches_clean_pdf_relpath: str = "branches/clean/branches_clean.pdf"
+    per_unit_branches_clean_zoom_pdf_relpath: str = "branches/clean/branches_clean_zoom.pdf"
+    per_unit_branch_velocities_pdf_relpath: str = "branches/clean/branch_velocities.pdf"
+    per_unit_branch_velocities_raw_overlay_pdf_relpath: str = "branches/raw/branch_velocities_overlay.pdf"
+    per_unit_branch_velocities_overlay_pdf_relpath: str = "branches/clean/branch_velocities_overlay.pdf"
+    per_unit_branch_velocity_template_relpath: str = "branches/clean/branch_{index:02d}_velocity"
+    per_unit_write_template: bool = True
+    per_unit_write_template_zoom: bool = True
+    per_unit_write_template_movie: bool = True
+    per_unit_write_summary: bool = True
+    per_unit_write_summary_clean: bool = True
+    per_unit_write_summary_raw: bool = True
+    per_unit_write_amplitude_map: bool = True
+    per_unit_write_amplitude_map_zoom: bool = True
+    per_unit_write_peak_latency_map: bool = True
+    per_unit_write_peak_latency_map_zoom: bool = True
+    per_unit_write_peak_std_map: bool = True
+    per_unit_write_peak_std_map_zoom: bool = True
+    per_unit_write_channel_selection_detect: bool = True
+    per_unit_write_channel_selection_kurt: bool = True
+    per_unit_write_channel_selection_delay: bool = True
+    per_unit_write_channel_selection_all: bool = True
+    per_unit_write_graph_nodes: bool = True
+    per_unit_write_graph_edges: bool = True
+    per_unit_write_graph_heuristics: bool = True
+    per_unit_write_morphology_pdf: bool = True
+    per_unit_write_morphology_zoom_pdf: bool = True
+    per_unit_write_branches_raw_clean_pdf: bool = True
+    per_unit_write_branches_raw_pdf: bool = True
+    per_unit_write_branches_raw_zoom_pdf: bool = True
+    per_unit_write_branches_clean_pdf: bool = True
+    per_unit_write_branches_clean_zoom_pdf: bool = True
+    per_unit_write_branch_velocities_pdf: bool = True
+    per_unit_write_branch_velocities_raw_overlay_pdf: bool = True
+    per_unit_write_branch_velocities_overlay_pdf: bool = True
+    per_unit_write_branch_velocity_template: bool = True
+    # Optional raw per-unit output schema (nested categories/formats).
+    per_unit_outputs_schema: Optional[dict[str, Any]] = None
 
     # Runtime
     verbose: bool = False
-    unit_workers: int = 1
+    n_jobs: int = 1
 
     # Resume controls
     force_restart: bool = False
+    # If True, bypass per-unit completed checkpoints for selected units without
+    # requiring a full stage-level restart.
+    force_restart_per_unit: bool = False
+    # If True, force re-rendering per-unit plots without rewriting reconstruction
+    # json artifacts (branches/heuristics/checkpoints/summary).
+    force_replot_per_unit: bool = False
 
 
 @dataclass(frozen=True)
@@ -285,6 +367,42 @@ def _import_axon_velocity(*, repo_root: Optional[Path] = None) -> Any:
         ) from e
 
 
+def _get_default_graph_velocity_params_compat(*, av: Any, logger: logging.Logger) -> dict[str, Any]:
+    """Resolve graph-velocity defaults across axon_velocity API variants."""
+    try:
+        fn = getattr(av, "get_default_graph_velocity_params", None)
+        if callable(fn):
+            out = fn()
+            return dict(out) if isinstance(out, dict) else {}
+    except Exception as e:
+        logger.warning("axon_velocity.get_default_graph_velocity_params failed: %s", e)
+
+    # Some installs expose the function on the submodule rather than top-level.
+    try:
+        sub = getattr(av, "axon_velocity", None)
+        fn_sub = getattr(sub, "get_default_graph_velocity_params", None)
+        if callable(fn_sub):
+            out = fn_sub()
+            return dict(out) if isinstance(out, dict) else {}
+    except Exception as e:
+        logger.warning("axon_velocity.axon_velocity.get_default_graph_velocity_params failed: %s", e)
+
+    # Last-resort fallback from class defaults.
+    try:
+        cls = getattr(av, "GraphAxonTracking", None)
+        defaults = getattr(cls, "default_params", None)
+        if isinstance(defaults, dict):
+            logger.warning(
+                "axon_velocity default-params helper missing; using GraphAxonTracking.default_params fallback"
+            )
+            return deepcopy(defaults)
+    except Exception as e:
+        logger.warning("GraphAxonTracking.default_params fallback failed: %s", e)
+
+    logger.warning("Unable to resolve axon_velocity default params; proceeding with empty defaults")
+    return {}
+
+
 def _run_single_unit_reconstruction(
     *,
     uid: Any,
@@ -296,6 +414,8 @@ def _run_single_unit_reconstruction(
     axon_velocity_repo_root: Optional[Path],
     params: dict[str, Any],
     force_restart: bool,
+    force_restart_per_unit: bool,
+    force_replot_per_unit: bool,
     write_unit_pdfs: bool,
     write_template_movie_gif: bool,
     replot_summaries_only: bool,
@@ -303,6 +423,76 @@ def _run_single_unit_reconstruction(
     per_unit_write_branches_raw_json: bool,
     per_unit_write_branches_json: bool,
     per_unit_write_heuristics_json: bool,
+    per_unit_branches_raw_relpath: str,
+    per_unit_branches_relpath: str,
+    per_unit_heuristics_relpath: str,
+    per_unit_branches_root_relpath: str,
+    per_unit_branches_clean_dir_relpath: str,
+    per_unit_branches_raw_dir_relpath: str,
+    per_unit_morphology_dir_relpath: str,
+    per_unit_heuristics_dir_relpath: str,
+    per_unit_maps_dir_relpath: str,
+    per_unit_template_relpath: str,
+    per_unit_template_zoom_relpath: str,
+    per_unit_template_movie_relpath: str,
+    per_unit_summary_relpath: str,
+    per_unit_summary_clean_relpath: str,
+    per_unit_summary_raw_relpath: str,
+    per_unit_amplitude_map_relpath: str,
+    per_unit_amplitude_map_zoom_relpath: str,
+    per_unit_peak_latency_map_relpath: str,
+    per_unit_peak_latency_map_zoom_relpath: str,
+    per_unit_peak_std_map_relpath: str,
+    per_unit_peak_std_map_zoom_relpath: str,
+    per_unit_channel_selection_detect_relpath: str,
+    per_unit_channel_selection_kurt_relpath: str,
+    per_unit_channel_selection_delay_relpath: str,
+    per_unit_channel_selection_all_relpath: str,
+    per_unit_graph_nodes_relpath: str,
+    per_unit_graph_edges_relpath: str,
+    per_unit_graph_heuristics_relpath: str,
+    per_unit_morphology_pdf_relpath: str,
+    per_unit_morphology_zoom_pdf_relpath: str,
+    per_unit_branches_raw_clean_pdf_relpath: str,
+    per_unit_branches_raw_pdf_relpath: str,
+    per_unit_branches_raw_zoom_pdf_relpath: str,
+    per_unit_branches_clean_pdf_relpath: str,
+    per_unit_branches_clean_zoom_pdf_relpath: str,
+    per_unit_branch_velocities_pdf_relpath: str,
+    per_unit_branch_velocities_raw_overlay_pdf_relpath: str,
+    per_unit_branch_velocities_overlay_pdf_relpath: str,
+    per_unit_branch_velocity_template_relpath: str,
+    per_unit_write_template: bool,
+    per_unit_write_template_zoom: bool,
+    per_unit_write_template_movie: bool,
+    per_unit_write_summary: bool,
+    per_unit_write_summary_clean: bool,
+    per_unit_write_summary_raw: bool,
+    per_unit_write_amplitude_map: bool,
+    per_unit_write_amplitude_map_zoom: bool,
+    per_unit_write_peak_latency_map: bool,
+    per_unit_write_peak_latency_map_zoom: bool,
+    per_unit_write_peak_std_map: bool,
+    per_unit_write_peak_std_map_zoom: bool,
+    per_unit_write_channel_selection_detect: bool,
+    per_unit_write_channel_selection_kurt: bool,
+    per_unit_write_channel_selection_delay: bool,
+    per_unit_write_channel_selection_all: bool,
+    per_unit_write_graph_nodes: bool,
+    per_unit_write_graph_edges: bool,
+    per_unit_write_graph_heuristics: bool,
+    per_unit_write_morphology_pdf: bool,
+    per_unit_write_morphology_zoom_pdf: bool,
+    per_unit_write_branches_raw_clean_pdf: bool,
+    per_unit_write_branches_raw_pdf: bool,
+    per_unit_write_branches_raw_zoom_pdf: bool,
+    per_unit_write_branches_clean_pdf: bool,
+    per_unit_write_branches_clean_zoom_pdf: bool,
+    per_unit_write_branch_velocities_pdf: bool,
+    per_unit_write_branch_velocities_raw_overlay_pdf: bool,
+    per_unit_write_branch_velocities_overlay_pdf: bool,
+    per_unit_write_branch_velocity_template: bool,
+    per_unit_outputs_schema: Optional[dict[str, Any]],
 ) -> dict[str, Any]:
     logger = logging.getLogger("axon_reconstructor.reconstruction.unit")
 
@@ -379,7 +569,7 @@ def _run_single_unit_reconstruction(
         except Exception:
             return None
 
-    if not bool(force_restart):
+    if (not bool(force_restart)) and (not bool(force_restart_per_unit)) and (not bool(force_replot_per_unit)):
         existing_result = _load_existing_completed_unit_result()
         if existing_result is not None:
             logger.info("Unit %s already completed; skipping via unit checkpoint", uid)
@@ -463,7 +653,13 @@ def _run_single_unit_reconstruction(
                 template_ch_by_t=tmpl_ch_by_t,
                 locs_xy=locs_xy,
                 fs_hz=fs_hz_for_summary,
-                force_restart=bool(force_restart),
+                force_restart=bool(force_restart or force_restart_per_unit or force_replot_per_unit),
+                branches_relpath=str(per_unit_branches_relpath),
+                heuristics_relpath=str(per_unit_heuristics_relpath),
+                branches_raw_relpath=str(per_unit_branches_raw_relpath),
+                summary_relpath=str(per_unit_summary_relpath),
+                summary_clean_relpath=str(per_unit_summary_clean_relpath),
+                summary_raw_relpath=str(per_unit_summary_raw_relpath),
                 logger=logger,
             )
             unit_summary["outputs"].update(out)
@@ -491,7 +687,8 @@ def _run_single_unit_reconstruction(
             gtr = av.compute_graph_propagation_velocity(tmpl_ch_by_t, locs_xy, float(fs_hz), **params)
 
             if bool(per_unit_write_branches_raw_json):
-                raw_branches_json = out_unit_dir / "branches_raw.json"
+                raw_branches_json = out_unit_dir / Path(str(per_unit_branches_raw_relpath)).expanduser()
+                raw_branches_json.parent.mkdir(parents=True, exist_ok=True)
                 raw_path, raw_warn = _write_branches_raw_json(
                     uid=uid,
                     gtr=gtr,
@@ -570,9 +767,12 @@ def _run_single_unit_reconstruction(
         except Exception:
             pass
 
-        branches_json = out_unit_dir / "branches.json"
-        raw_branches_json = out_unit_dir / "branches_raw.json"
-        heuristics_json = out_unit_dir / "heuristics.json"
+        branches_json = out_unit_dir / Path(str(per_unit_branches_relpath)).expanduser()
+        raw_branches_json = out_unit_dir / Path(str(per_unit_branches_raw_relpath)).expanduser()
+        heuristics_json = out_unit_dir / Path(str(per_unit_heuristics_relpath)).expanduser()
+        branches_json.parent.mkdir(parents=True, exist_ok=True)
+        raw_branches_json.parent.mkdir(parents=True, exist_ok=True)
+        heuristics_json.parent.mkdir(parents=True, exist_ok=True)
         if bool(per_unit_write_branches_json):
             _write_json(branches_json, {"unit_id": _jsonable(uid), "branches": branches_out})
             unit_summary["outputs"]["branches_json"] = str(branches_json)
@@ -600,8 +800,77 @@ def _run_single_unit_reconstruction(
                     gtr=gtr,
                     locs_xy=locs_xy,
                     out_unit_dir=out_unit_dir,
-                    force_restart=bool(force_restart),
+                    force_restart=bool(force_restart or force_restart_per_unit or force_replot_per_unit),
                     write_template_movie_gif=bool(write_template_movie_gif),
+                    branches_root_relpath=str(per_unit_branches_root_relpath),
+                    branches_clean_dir_relpath=str(per_unit_branches_clean_dir_relpath),
+                    branches_raw_dir_relpath=str(per_unit_branches_raw_dir_relpath),
+                    morphology_dir_relpath=str(per_unit_morphology_dir_relpath),
+                    heuristics_dir_relpath=str(per_unit_heuristics_dir_relpath),
+                    maps_dir_relpath=str(per_unit_maps_dir_relpath),
+                    template_relpath=str(per_unit_template_relpath),
+                    template_zoom_relpath=str(per_unit_template_zoom_relpath),
+                    template_movie_relpath=str(per_unit_template_movie_relpath),
+                    summary_relpath=str(per_unit_summary_relpath),
+                    summary_clean_relpath=str(per_unit_summary_clean_relpath),
+                    summary_raw_relpath=str(per_unit_summary_raw_relpath),
+                    amplitude_map_relpath=str(per_unit_amplitude_map_relpath),
+                    amplitude_map_zoom_relpath=str(per_unit_amplitude_map_zoom_relpath),
+                    peak_latency_map_relpath=str(per_unit_peak_latency_map_relpath),
+                    peak_latency_map_zoom_relpath=str(per_unit_peak_latency_map_zoom_relpath),
+                    peak_std_map_relpath=str(per_unit_peak_std_map_relpath),
+                    peak_std_map_zoom_relpath=str(per_unit_peak_std_map_zoom_relpath),
+                    channel_selection_detect_relpath=str(per_unit_channel_selection_detect_relpath),
+                    channel_selection_kurt_relpath=str(per_unit_channel_selection_kurt_relpath),
+                    channel_selection_delay_relpath=str(per_unit_channel_selection_delay_relpath),
+                    channel_selection_all_relpath=str(per_unit_channel_selection_all_relpath),
+                    graph_nodes_relpath=str(per_unit_graph_nodes_relpath),
+                    graph_edges_relpath=str(per_unit_graph_edges_relpath),
+                    graph_heuristics_relpath=str(per_unit_graph_heuristics_relpath),
+                    morphology_pdf_relpath=str(per_unit_morphology_pdf_relpath),
+                    morphology_zoom_pdf_relpath=str(per_unit_morphology_zoom_pdf_relpath),
+                    branches_raw_clean_pdf_relpath=str(per_unit_branches_raw_clean_pdf_relpath),
+                    branches_raw_pdf_relpath=str(per_unit_branches_raw_pdf_relpath),
+                    branches_raw_zoom_pdf_relpath=str(per_unit_branches_raw_zoom_pdf_relpath),
+                    branches_clean_pdf_relpath=str(per_unit_branches_clean_pdf_relpath),
+                    branches_clean_zoom_pdf_relpath=str(per_unit_branches_clean_zoom_pdf_relpath),
+                    branch_velocities_pdf_relpath=str(per_unit_branch_velocities_pdf_relpath),
+                    branch_velocities_raw_overlay_pdf_relpath=str(
+                        per_unit_branch_velocities_raw_overlay_pdf_relpath
+                    ),
+                    branch_velocities_overlay_pdf_relpath=str(per_unit_branch_velocities_overlay_pdf_relpath),
+                    branch_velocity_template_relpath=str(per_unit_branch_velocity_template_relpath),
+                    write_template=bool(per_unit_write_template),
+                    write_template_zoom=bool(per_unit_write_template_zoom),
+                    write_template_movie=bool(per_unit_write_template_movie),
+                    write_summary=bool(per_unit_write_summary),
+                    write_summary_clean=bool(per_unit_write_summary_clean),
+                    write_summary_raw=bool(per_unit_write_summary_raw),
+                    write_amplitude_map=bool(per_unit_write_amplitude_map),
+                    write_amplitude_map_zoom=bool(per_unit_write_amplitude_map_zoom),
+                    write_peak_latency_map=bool(per_unit_write_peak_latency_map),
+                    write_peak_latency_map_zoom=bool(per_unit_write_peak_latency_map_zoom),
+                    write_peak_std_map=bool(per_unit_write_peak_std_map),
+                    write_peak_std_map_zoom=bool(per_unit_write_peak_std_map_zoom),
+                    write_channel_selection_detect=bool(per_unit_write_channel_selection_detect),
+                    write_channel_selection_kurt=bool(per_unit_write_channel_selection_kurt),
+                    write_channel_selection_delay=bool(per_unit_write_channel_selection_delay),
+                    write_channel_selection_all=bool(per_unit_write_channel_selection_all),
+                    write_graph_nodes=bool(per_unit_write_graph_nodes),
+                    write_graph_edges=bool(per_unit_write_graph_edges),
+                    write_graph_heuristics=bool(per_unit_write_graph_heuristics),
+                    write_morphology_pdf=bool(per_unit_write_morphology_pdf),
+                    write_morphology_zoom_pdf=bool(per_unit_write_morphology_zoom_pdf),
+                    write_branches_raw_clean_pdf=bool(per_unit_write_branches_raw_clean_pdf),
+                    write_branches_raw_pdf=bool(per_unit_write_branches_raw_pdf),
+                    write_branches_raw_zoom_pdf=bool(per_unit_write_branches_raw_zoom_pdf),
+                    write_branches_clean_pdf=bool(per_unit_write_branches_clean_pdf),
+                    write_branches_clean_zoom_pdf=bool(per_unit_write_branches_clean_zoom_pdf),
+                    write_branch_velocities_pdf=bool(per_unit_write_branch_velocities_pdf),
+                    write_branch_velocities_raw_overlay_pdf=bool(per_unit_write_branch_velocities_raw_overlay_pdf),
+                    write_branch_velocities_overlay_pdf=bool(per_unit_write_branch_velocities_overlay_pdf),
+                    write_branch_velocity_template=bool(per_unit_write_branch_velocity_template),
+                    per_unit_outputs_schema=per_unit_outputs_schema,
                     logger=logger,
                 )
                 unit_summary["outputs"].update(plot_outputs)
@@ -611,26 +880,27 @@ def _run_single_unit_reconstruction(
     except Exception as e:
         unit_summary["status"] = "error"
         unit_summary["error"] = exception_to_error_dict(e)
-        try:
-            _write_json(unit_summary_json, unit_summary)
-            _write_json(
-                unit_checkpoint_json,
-                {
-                    "unit_id": _jsonable(uid),
-                    "status": "failed",
-                    "unit_summary_json": str(unit_summary_json),
-                    "error": unit_summary["error"],
-                },
-            )
-        except Exception:
-            pass
+        if not bool(force_replot_per_unit):
+            try:
+                _write_json(unit_summary_json, unit_summary)
+                _write_json(
+                    unit_checkpoint_json,
+                    {
+                        "unit_id": _jsonable(uid),
+                        "status": "failed",
+                        "unit_summary_json": str(unit_summary_json),
+                        "error": unit_summary["error"],
+                    },
+                )
+            except Exception:
+                pass
         try:
             if out_unit_dir.exists() and out_unit_dir.is_dir() and (not any(out_unit_dir.iterdir())):
                 out_unit_dir.rmdir()
         except Exception:
             pass
 
-    if str(unit_summary.get("status", "")).lower() == "ok":
+    if (str(unit_summary.get("status", "")).lower() == "ok") and (not bool(force_replot_per_unit)):
         try:
             _write_json(unit_summary_json, unit_summary)
             _write_json(
@@ -753,11 +1023,27 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                 "unit_id": _jsonable(uid),
                 "inputs": {},
                 "outputs": {
-                    "branches_raw_json": (str(p / "branches_raw.json") if (p / "branches_raw.json").exists() else None),
-                    "branches_json": (str(p / "branches.json") if (p / "branches.json").exists() else None),
-                    "heuristics_json": (str(p / "heuristics.json") if (p / "heuristics.json").exists() else None),
+                    "branches_raw_json": (
+                        str(p / Path(str(inputs.per_unit_branches_raw_relpath)).expanduser())
+                        if (p / Path(str(inputs.per_unit_branches_raw_relpath)).expanduser()).exists()
+                        else None
+                    ),
+                    "branches_json": (
+                        str(p / Path(str(inputs.per_unit_branches_relpath)).expanduser())
+                        if (p / Path(str(inputs.per_unit_branches_relpath)).expanduser()).exists()
+                        else None
+                    ),
+                    "heuristics_json": (
+                        str(p / Path(str(inputs.per_unit_heuristics_relpath)).expanduser())
+                        if (p / Path(str(inputs.per_unit_heuristics_relpath)).expanduser()).exists()
+                        else None
+                    ),
                 },
-                "status": ("ok" if (p / "branches_raw.json").exists() else "unknown"),
+                "status": (
+                    "ok"
+                    if (p / Path(str(inputs.per_unit_branches_raw_relpath)).expanduser()).exists()
+                    else "unknown"
+                ),
                 "error": None,
             }
             units_out.append(fallback)
@@ -871,6 +1157,10 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                 minimap_inner_box_linewidth=float(inputs.grid_minimap_inner_box_linewidth),
                 minimap_include_footprint=bool(inputs.grid_minimap_include_footprint),
                 minimap_prevent_occlusions=bool(inputs.grid_minimap_prevent_occlusions),
+                minimap_clearance_um=float(inputs.grid_minimap_clearance_um),
+                minimap_linewidth_buffer_pt=float(inputs.grid_minimap_linewidth_buffer_pt),
+                minimap_occlusion_max_iters=int(inputs.grid_minimap_occlusion_max_iters),
+                minimap_occlusion_growth_factor=float(inputs.grid_minimap_occlusion_growth_factor),
                 legend_show=bool(inputs.grid_legend_show),
                 legend_location=str(inputs.grid_legend_location),
                 legend_fontsize=float(inputs.grid_legend_fontsize),
@@ -897,15 +1187,34 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
             all_units_overview_pdf=(all_units_overview_pdf if (all_units_overview_pdf and all_units_overview_pdf.exists()) else None),
         )
 
-    # Resume shortcut.
-    if (
+    explicit_unit_ids_requested = inputs.unit_ids is not None
+    resume_shortcut_eligible = (
         (not inputs.force_restart)
+        and (not bool(inputs.force_restart_per_unit))
+        and (not bool(inputs.force_replot_per_unit))
         and (not bool(inputs.replot_summaries_only))
         and (not bool(inputs.recompute_branches_raw_only))
+        and (not bool(explicit_unit_ids_requested))
         and summary_json.exists()
         and ((all_units_overview_pdf is None) or all_units_overview_pdf.exists())
         and by_unit_dir.exists()
-    ):
+    )
+
+    if not resume_shortcut_eligible:
+        logger.info(
+            "Reconstruction resume shortcut disabled: force_restart=%s force_restart_per_unit=%s force_replot_per_unit=%s replot_summaries_only=%s recompute_branches_raw_only=%s explicit_unit_ids=%s summary_exists=%s by_unit_exists=%s",
+            str(bool(inputs.force_restart)).lower(),
+            str(bool(inputs.force_restart_per_unit)).lower(),
+            str(bool(inputs.force_replot_per_unit)).lower(),
+            str(bool(inputs.replot_summaries_only)).lower(),
+            str(bool(inputs.recompute_branches_raw_only)).lower(),
+            str(bool(explicit_unit_ids_requested)).lower(),
+            str(bool(summary_json.exists())).lower(),
+            str(bool(by_unit_dir.exists())).lower(),
+        )
+
+    # Resume shortcut.
+    if resume_shortcut_eligible:
         try:
             summary_existing_raw = _read_json(summary_json)
             summary_existing = summary_existing_raw if isinstance(summary_existing_raw, dict) else {}
@@ -965,6 +1274,10 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                     minimap_inner_box_linewidth=float(inputs.grid_minimap_inner_box_linewidth),
                     minimap_include_footprint=bool(inputs.grid_minimap_include_footprint),
                     minimap_prevent_occlusions=bool(inputs.grid_minimap_prevent_occlusions),
+                    minimap_clearance_um=float(inputs.grid_minimap_clearance_um),
+                    minimap_linewidth_buffer_pt=float(inputs.grid_minimap_linewidth_buffer_pt),
+                    minimap_occlusion_max_iters=int(inputs.grid_minimap_occlusion_max_iters),
+                    minimap_occlusion_growth_factor=float(inputs.grid_minimap_occlusion_growth_factor),
                     legend_show=bool(inputs.grid_legend_show),
                     legend_location=str(inputs.grid_legend_location),
                     legend_fontsize=float(inputs.grid_legend_fontsize),
@@ -1078,10 +1391,35 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
     else:
         unit_ids = list(discovered_unit_ids)
 
+    logger.info(
+        "Reconstruction unit selection: discovered=%d explicit=%s selected_initial=%d",
+        len(discovered_unit_ids),
+        str(inputs.unit_ids),
+        len(unit_ids),
+    )
+
+    if inputs.unit_ids is not None:
+        discovered_keys = {str(_jsonable(u)) for u in discovered_unit_ids}
+        missing_ids = [u for u in unit_ids if str(_jsonable(u)) not in discovered_keys]
+        if missing_ids:
+            logger.warning(
+                "Requested unit_ids not found in templates merged units: %s",
+                str(missing_ids),
+            )
+
     if inputs.unit_limit is not None:
         unit_ids = unit_ids[: int(inputs.unit_limit)]
 
-    params = av.get_default_graph_velocity_params()
+    logger.info(
+        "Reconstruction execution plan: total_units=%d unit_limit=%s n_jobs=%d force_restart_per_unit=%s force_replot_per_unit=%s",
+        len(unit_ids),
+        str(inputs.unit_limit),
+        int(max(1, int(inputs.n_jobs))),
+        str(bool(inputs.force_restart_per_unit)).lower(),
+        str(bool(inputs.force_replot_per_unit)).lower(),
+    )
+
+    params = _get_default_graph_velocity_params_compat(av=av, logger=logger)
     if inputs.axon_velocity_params:
         params.update(dict(inputs.axon_velocity_params))
     params = _filter_kwargs_for_callable(av.compute_graph_propagation_velocity, params)
@@ -1104,16 +1442,16 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
             "use_full_channels_templates": bool(inputs.use_full_channels_templates),
             "require_full_channels_templates": bool(inputs.require_full_channels_templates),
         },
-        "unit_workers": int(max(1, int(inputs.unit_workers))),
+        "n_jobs": int(max(1, int(inputs.n_jobs))),
         "units": [],
     }
 
     all_unit_polylines: list[dict[str, Any]] = []
     all_locations: list[Any] = []
 
-    unit_workers = max(1, int(inputs.unit_workers))
+    n_jobs = max(1, int(inputs.n_jobs))
     total_units = len(unit_ids)
-    logger.info("Reconstructing %d units with unit_workers=%d", total_units, unit_workers)
+    logger.info("Reconstructing %d units with n_jobs=%d", total_units, n_jobs)
 
     def _accumulate_unit_result(result: dict[str, Any]) -> None:
         unit_summary = dict(result.get("unit_summary") or {})
@@ -1135,7 +1473,7 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
         except Exception as e:
             logger.warning("Failed loading overview locations for unit %s: %s", unit_summary.get("unit_id"), e)
 
-    if unit_workers == 1:
+    if n_jobs == 1:
         completed_units = 0
         for idx, uid in enumerate(unit_ids, start=1):
             logger.info("[reconstruction] unit start %d/%d: unit_id=%s", idx, total_units, uid)
@@ -1149,6 +1487,8 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                 axon_velocity_repo_root=inputs.axon_velocity_repo_root,
                 params=params,
                 force_restart=bool(inputs.force_restart),
+                force_restart_per_unit=bool(inputs.force_restart_per_unit),
+                force_replot_per_unit=bool(inputs.force_replot_per_unit),
                 write_unit_pdfs=bool(inputs.write_unit_pdfs),
                 write_template_movie_gif=bool(inputs.write_template_movie_gif),
                 replot_summaries_only=bool(inputs.replot_summaries_only),
@@ -1156,6 +1496,78 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                 per_unit_write_branches_raw_json=bool(inputs.per_unit_write_branches_raw_json),
                 per_unit_write_branches_json=bool(inputs.per_unit_write_branches_json),
                 per_unit_write_heuristics_json=bool(inputs.per_unit_write_heuristics_json),
+                per_unit_branches_raw_relpath=str(inputs.per_unit_branches_raw_relpath),
+                per_unit_branches_relpath=str(inputs.per_unit_branches_relpath),
+                per_unit_heuristics_relpath=str(inputs.per_unit_heuristics_relpath),
+                per_unit_branches_root_relpath=str(inputs.per_unit_branches_root_relpath),
+                per_unit_branches_clean_dir_relpath=str(inputs.per_unit_branches_clean_dir_relpath),
+                per_unit_branches_raw_dir_relpath=str(inputs.per_unit_branches_raw_dir_relpath),
+                per_unit_morphology_dir_relpath=str(inputs.per_unit_morphology_dir_relpath),
+                per_unit_heuristics_dir_relpath=str(inputs.per_unit_heuristics_dir_relpath),
+                per_unit_maps_dir_relpath=str(inputs.per_unit_maps_dir_relpath),
+                per_unit_template_relpath=str(inputs.per_unit_template_relpath),
+                per_unit_template_zoom_relpath=str(inputs.per_unit_template_zoom_relpath),
+                per_unit_template_movie_relpath=str(inputs.per_unit_template_movie_relpath),
+                per_unit_summary_relpath=str(inputs.per_unit_summary_relpath),
+                per_unit_summary_clean_relpath=str(inputs.per_unit_summary_clean_relpath),
+                per_unit_summary_raw_relpath=str(inputs.per_unit_summary_raw_relpath),
+                per_unit_amplitude_map_relpath=str(inputs.per_unit_amplitude_map_relpath),
+                per_unit_amplitude_map_zoom_relpath=str(inputs.per_unit_amplitude_map_zoom_relpath),
+                per_unit_peak_latency_map_relpath=str(inputs.per_unit_peak_latency_map_relpath),
+                per_unit_peak_latency_map_zoom_relpath=str(inputs.per_unit_peak_latency_map_zoom_relpath),
+                per_unit_peak_std_map_relpath=str(inputs.per_unit_peak_std_map_relpath),
+                per_unit_peak_std_map_zoom_relpath=str(inputs.per_unit_peak_std_map_zoom_relpath),
+                per_unit_channel_selection_detect_relpath=str(inputs.per_unit_channel_selection_detect_relpath),
+                per_unit_channel_selection_kurt_relpath=str(inputs.per_unit_channel_selection_kurt_relpath),
+                per_unit_channel_selection_delay_relpath=str(inputs.per_unit_channel_selection_delay_relpath),
+                per_unit_channel_selection_all_relpath=str(inputs.per_unit_channel_selection_all_relpath),
+                per_unit_graph_nodes_relpath=str(inputs.per_unit_graph_nodes_relpath),
+                per_unit_graph_edges_relpath=str(inputs.per_unit_graph_edges_relpath),
+                per_unit_graph_heuristics_relpath=str(inputs.per_unit_graph_heuristics_relpath),
+                per_unit_morphology_pdf_relpath=str(inputs.per_unit_morphology_pdf_relpath),
+                per_unit_morphology_zoom_pdf_relpath=str(inputs.per_unit_morphology_zoom_pdf_relpath),
+                per_unit_branches_raw_clean_pdf_relpath=str(inputs.per_unit_branches_raw_clean_pdf_relpath),
+                per_unit_branches_raw_pdf_relpath=str(inputs.per_unit_branches_raw_pdf_relpath),
+                per_unit_branches_raw_zoom_pdf_relpath=str(inputs.per_unit_branches_raw_zoom_pdf_relpath),
+                per_unit_branches_clean_pdf_relpath=str(inputs.per_unit_branches_clean_pdf_relpath),
+                per_unit_branches_clean_zoom_pdf_relpath=str(inputs.per_unit_branches_clean_zoom_pdf_relpath),
+                per_unit_branch_velocities_pdf_relpath=str(inputs.per_unit_branch_velocities_pdf_relpath),
+                per_unit_branch_velocities_raw_overlay_pdf_relpath=str(
+                    inputs.per_unit_branch_velocities_raw_overlay_pdf_relpath
+                ),
+                per_unit_branch_velocities_overlay_pdf_relpath=str(inputs.per_unit_branch_velocities_overlay_pdf_relpath),
+                per_unit_branch_velocity_template_relpath=str(inputs.per_unit_branch_velocity_template_relpath),
+                per_unit_write_template=bool(inputs.per_unit_write_template),
+                per_unit_write_template_zoom=bool(inputs.per_unit_write_template_zoom),
+                per_unit_write_template_movie=bool(inputs.per_unit_write_template_movie),
+                per_unit_write_summary=bool(inputs.per_unit_write_summary),
+                per_unit_write_summary_clean=bool(inputs.per_unit_write_summary_clean),
+                per_unit_write_summary_raw=bool(inputs.per_unit_write_summary_raw),
+                per_unit_write_amplitude_map=bool(inputs.per_unit_write_amplitude_map),
+                per_unit_write_amplitude_map_zoom=bool(inputs.per_unit_write_amplitude_map_zoom),
+                per_unit_write_peak_latency_map=bool(inputs.per_unit_write_peak_latency_map),
+                per_unit_write_peak_latency_map_zoom=bool(inputs.per_unit_write_peak_latency_map_zoom),
+                per_unit_write_peak_std_map=bool(inputs.per_unit_write_peak_std_map),
+                per_unit_write_peak_std_map_zoom=bool(inputs.per_unit_write_peak_std_map_zoom),
+                per_unit_write_channel_selection_detect=bool(inputs.per_unit_write_channel_selection_detect),
+                per_unit_write_channel_selection_kurt=bool(inputs.per_unit_write_channel_selection_kurt),
+                per_unit_write_channel_selection_delay=bool(inputs.per_unit_write_channel_selection_delay),
+                per_unit_write_channel_selection_all=bool(inputs.per_unit_write_channel_selection_all),
+                per_unit_write_graph_nodes=bool(inputs.per_unit_write_graph_nodes),
+                per_unit_write_graph_edges=bool(inputs.per_unit_write_graph_edges),
+                per_unit_write_graph_heuristics=bool(inputs.per_unit_write_graph_heuristics),
+                per_unit_write_morphology_pdf=bool(inputs.per_unit_write_morphology_pdf),
+                per_unit_write_morphology_zoom_pdf=bool(inputs.per_unit_write_morphology_zoom_pdf),
+                per_unit_write_branches_raw_clean_pdf=bool(inputs.per_unit_write_branches_raw_clean_pdf),
+                per_unit_write_branches_raw_pdf=bool(inputs.per_unit_write_branches_raw_pdf),
+                per_unit_write_branches_raw_zoom_pdf=bool(inputs.per_unit_write_branches_raw_zoom_pdf),
+                per_unit_write_branches_clean_pdf=bool(inputs.per_unit_write_branches_clean_pdf),
+                per_unit_write_branches_clean_zoom_pdf=bool(inputs.per_unit_write_branches_clean_zoom_pdf),
+                per_unit_write_branch_velocities_pdf=bool(inputs.per_unit_write_branch_velocities_pdf),
+                per_unit_write_branch_velocities_raw_overlay_pdf=bool(inputs.per_unit_write_branch_velocities_raw_overlay_pdf),
+                per_unit_write_branch_velocities_overlay_pdf=bool(inputs.per_unit_write_branch_velocities_overlay_pdf),
+                per_unit_write_branch_velocity_template=bool(inputs.per_unit_write_branch_velocity_template),
+                per_unit_outputs_schema=inputs.per_unit_outputs_schema,
             )
             _accumulate_unit_result(result)
             completed_units += 1
@@ -1171,7 +1583,7 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
             )
     else:
         futures: dict[concurrent.futures.Future[dict[str, Any]], Any] = {}
-        with concurrent.futures.ProcessPoolExecutor(max_workers=unit_workers) as pool:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=n_jobs) as pool:
             for uid in unit_ids:
                 logger.info("[reconstruction] unit queued: unit_id=%s", uid)
                 fut = pool.submit(
@@ -1185,6 +1597,8 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                     axon_velocity_repo_root=inputs.axon_velocity_repo_root,
                     params=params,
                     force_restart=bool(inputs.force_restart),
+                    force_restart_per_unit=bool(inputs.force_restart_per_unit),
+                    force_replot_per_unit=bool(inputs.force_replot_per_unit),
                     write_unit_pdfs=bool(inputs.write_unit_pdfs),
                     write_template_movie_gif=bool(inputs.write_template_movie_gif),
                     replot_summaries_only=bool(inputs.replot_summaries_only),
@@ -1192,6 +1606,80 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                     per_unit_write_branches_raw_json=bool(inputs.per_unit_write_branches_raw_json),
                     per_unit_write_branches_json=bool(inputs.per_unit_write_branches_json),
                     per_unit_write_heuristics_json=bool(inputs.per_unit_write_heuristics_json),
+                    per_unit_branches_raw_relpath=str(inputs.per_unit_branches_raw_relpath),
+                    per_unit_branches_relpath=str(inputs.per_unit_branches_relpath),
+                    per_unit_heuristics_relpath=str(inputs.per_unit_heuristics_relpath),
+                    per_unit_branches_root_relpath=str(inputs.per_unit_branches_root_relpath),
+                    per_unit_branches_clean_dir_relpath=str(inputs.per_unit_branches_clean_dir_relpath),
+                    per_unit_branches_raw_dir_relpath=str(inputs.per_unit_branches_raw_dir_relpath),
+                    per_unit_morphology_dir_relpath=str(inputs.per_unit_morphology_dir_relpath),
+                    per_unit_heuristics_dir_relpath=str(inputs.per_unit_heuristics_dir_relpath),
+                    per_unit_maps_dir_relpath=str(inputs.per_unit_maps_dir_relpath),
+                    per_unit_template_relpath=str(inputs.per_unit_template_relpath),
+                    per_unit_template_zoom_relpath=str(inputs.per_unit_template_zoom_relpath),
+                    per_unit_template_movie_relpath=str(inputs.per_unit_template_movie_relpath),
+                    per_unit_summary_relpath=str(inputs.per_unit_summary_relpath),
+                    per_unit_summary_clean_relpath=str(inputs.per_unit_summary_clean_relpath),
+                    per_unit_summary_raw_relpath=str(inputs.per_unit_summary_raw_relpath),
+                    per_unit_amplitude_map_relpath=str(inputs.per_unit_amplitude_map_relpath),
+                    per_unit_amplitude_map_zoom_relpath=str(inputs.per_unit_amplitude_map_zoom_relpath),
+                    per_unit_peak_latency_map_relpath=str(inputs.per_unit_peak_latency_map_relpath),
+                    per_unit_peak_latency_map_zoom_relpath=str(inputs.per_unit_peak_latency_map_zoom_relpath),
+                    per_unit_peak_std_map_relpath=str(inputs.per_unit_peak_std_map_relpath),
+                    per_unit_peak_std_map_zoom_relpath=str(inputs.per_unit_peak_std_map_zoom_relpath),
+                    per_unit_channel_selection_detect_relpath=str(inputs.per_unit_channel_selection_detect_relpath),
+                    per_unit_channel_selection_kurt_relpath=str(inputs.per_unit_channel_selection_kurt_relpath),
+                    per_unit_channel_selection_delay_relpath=str(inputs.per_unit_channel_selection_delay_relpath),
+                    per_unit_channel_selection_all_relpath=str(inputs.per_unit_channel_selection_all_relpath),
+                    per_unit_graph_nodes_relpath=str(inputs.per_unit_graph_nodes_relpath),
+                    per_unit_graph_edges_relpath=str(inputs.per_unit_graph_edges_relpath),
+                    per_unit_graph_heuristics_relpath=str(inputs.per_unit_graph_heuristics_relpath),
+                    per_unit_morphology_pdf_relpath=str(inputs.per_unit_morphology_pdf_relpath),
+                    per_unit_morphology_zoom_pdf_relpath=str(inputs.per_unit_morphology_zoom_pdf_relpath),
+                    per_unit_branches_raw_clean_pdf_relpath=str(inputs.per_unit_branches_raw_clean_pdf_relpath),
+                    per_unit_branches_raw_pdf_relpath=str(inputs.per_unit_branches_raw_pdf_relpath),
+                    per_unit_branches_raw_zoom_pdf_relpath=str(inputs.per_unit_branches_raw_zoom_pdf_relpath),
+                    per_unit_branches_clean_pdf_relpath=str(inputs.per_unit_branches_clean_pdf_relpath),
+                    per_unit_branches_clean_zoom_pdf_relpath=str(inputs.per_unit_branches_clean_zoom_pdf_relpath),
+                    per_unit_branch_velocities_pdf_relpath=str(inputs.per_unit_branch_velocities_pdf_relpath),
+                    per_unit_branch_velocities_raw_overlay_pdf_relpath=str(
+                        inputs.per_unit_branch_velocities_raw_overlay_pdf_relpath
+                    ),
+                    per_unit_branch_velocities_overlay_pdf_relpath=str(
+                        inputs.per_unit_branch_velocities_overlay_pdf_relpath
+                    ),
+                    per_unit_branch_velocity_template_relpath=str(inputs.per_unit_branch_velocity_template_relpath),
+                    per_unit_write_template=bool(inputs.per_unit_write_template),
+                    per_unit_write_template_zoom=bool(inputs.per_unit_write_template_zoom),
+                    per_unit_write_template_movie=bool(inputs.per_unit_write_template_movie),
+                    per_unit_write_summary=bool(inputs.per_unit_write_summary),
+                    per_unit_write_summary_clean=bool(inputs.per_unit_write_summary_clean),
+                    per_unit_write_summary_raw=bool(inputs.per_unit_write_summary_raw),
+                    per_unit_write_amplitude_map=bool(inputs.per_unit_write_amplitude_map),
+                    per_unit_write_amplitude_map_zoom=bool(inputs.per_unit_write_amplitude_map_zoom),
+                    per_unit_write_peak_latency_map=bool(inputs.per_unit_write_peak_latency_map),
+                    per_unit_write_peak_latency_map_zoom=bool(inputs.per_unit_write_peak_latency_map_zoom),
+                    per_unit_write_peak_std_map=bool(inputs.per_unit_write_peak_std_map),
+                    per_unit_write_peak_std_map_zoom=bool(inputs.per_unit_write_peak_std_map_zoom),
+                    per_unit_write_channel_selection_detect=bool(inputs.per_unit_write_channel_selection_detect),
+                    per_unit_write_channel_selection_kurt=bool(inputs.per_unit_write_channel_selection_kurt),
+                    per_unit_write_channel_selection_delay=bool(inputs.per_unit_write_channel_selection_delay),
+                    per_unit_write_channel_selection_all=bool(inputs.per_unit_write_channel_selection_all),
+                    per_unit_write_graph_nodes=bool(inputs.per_unit_write_graph_nodes),
+                    per_unit_write_graph_edges=bool(inputs.per_unit_write_graph_edges),
+                    per_unit_write_graph_heuristics=bool(inputs.per_unit_write_graph_heuristics),
+                    per_unit_write_morphology_pdf=bool(inputs.per_unit_write_morphology_pdf),
+                    per_unit_write_morphology_zoom_pdf=bool(inputs.per_unit_write_morphology_zoom_pdf),
+                    per_unit_write_branches_raw_clean_pdf=bool(inputs.per_unit_write_branches_raw_clean_pdf),
+                    per_unit_write_branches_raw_pdf=bool(inputs.per_unit_write_branches_raw_pdf),
+                    per_unit_write_branches_raw_zoom_pdf=bool(inputs.per_unit_write_branches_raw_zoom_pdf),
+                    per_unit_write_branches_clean_pdf=bool(inputs.per_unit_write_branches_clean_pdf),
+                    per_unit_write_branches_clean_zoom_pdf=bool(inputs.per_unit_write_branches_clean_zoom_pdf),
+                    per_unit_write_branch_velocities_pdf=bool(inputs.per_unit_write_branch_velocities_pdf),
+                    per_unit_write_branch_velocities_raw_overlay_pdf=bool(inputs.per_unit_write_branch_velocities_raw_overlay_pdf),
+                    per_unit_write_branch_velocities_overlay_pdf=bool(inputs.per_unit_write_branch_velocities_overlay_pdf),
+                    per_unit_write_branch_velocity_template=bool(inputs.per_unit_write_branch_velocity_template),
+                    per_unit_outputs_schema=inputs.per_unit_outputs_schema,
                 )
                 futures[fut] = uid
 
@@ -1293,6 +1781,10 @@ def reconstruct_from_templates(*, inputs: ReconstructionInputs, logger_name_pref
                 minimap_inner_box_linewidth=float(inputs.grid_minimap_inner_box_linewidth),
                 minimap_include_footprint=bool(inputs.grid_minimap_include_footprint),
                 minimap_prevent_occlusions=bool(inputs.grid_minimap_prevent_occlusions),
+                minimap_clearance_um=float(inputs.grid_minimap_clearance_um),
+                minimap_linewidth_buffer_pt=float(inputs.grid_minimap_linewidth_buffer_pt),
+                minimap_occlusion_max_iters=int(inputs.grid_minimap_occlusion_max_iters),
+                minimap_occlusion_growth_factor=float(inputs.grid_minimap_occlusion_growth_factor),
                 legend_show=bool(inputs.grid_legend_show),
                 legend_location=str(inputs.grid_legend_location),
                 legend_fontsize=float(inputs.grid_legend_fontsize),

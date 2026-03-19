@@ -193,14 +193,23 @@ def _tee_stdout_to_file(out_path: Path):
 
             def write(self, s):
                 self._a.write(s)
-                self._b.write(s)
+                try:
+                    self._b.write(s)
+                except Exception:
+                    # If the file side has been closed but a logger still references
+                    # this tee stream, keep writing to terminal without failing.
+                    pass
                 return len(s)
 
             def flush(self):
                 try:
                     self._a.flush()
                 finally:
-                    self._b.flush()
+                    try:
+                        self._b.flush()
+                    except Exception:
+                        # Mirror write(): file-side flush is best effort only.
+                        pass
 
         tee = _Tee(sys.stdout, f)
         with contextlib.redirect_stdout(tee):
