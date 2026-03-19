@@ -119,13 +119,18 @@ def _save_fig_pdf_and_png(
     pdf_path = Path(pdf_path)
     png_path = Path(png_path)
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(pdf_path, dpi=dpi, bbox_inches="tight", facecolor="white")
+    face = None
+    try:
+        face = fig.get_facecolor()
+    except Exception:
+        face = None
+    fig.savefig(pdf_path, dpi=dpi, bbox_inches="tight", facecolor=face)
     if bool(write_png):
-        fig.savefig(png_path, dpi=dpi, bbox_inches="tight", facecolor="white")
+        fig.savefig(png_path, dpi=dpi, bbox_inches="tight", facecolor=face)
     if bool(write_svg):
         try:
             svg_out = Path(svg_path) if svg_path is not None else pdf_path.with_suffix(".svg")
-            fig.savefig(svg_out, format="svg", bbox_inches="tight", facecolor="white")
+            fig.savefig(svg_out, format="svg", bbox_inches="tight", facecolor=face)
         except Exception:
             pass
 
@@ -141,12 +146,17 @@ def _save_fig_png(
 ) -> None:
     png_path = Path(png_path)
     png_path.parent.mkdir(parents=True, exist_ok=True)
+    face = None
+    try:
+        face = fig.get_facecolor()
+    except Exception:
+        face = None
     if bool(write_png):
-        fig.savefig(png_path, dpi=dpi, bbox_inches="tight", facecolor="white")
+        fig.savefig(png_path, dpi=dpi, bbox_inches="tight", facecolor=face)
     if bool(write_svg):
         try:
             svg_out = Path(svg_path) if svg_path is not None else png_path.with_suffix(".svg")
-            fig.savefig(svg_out, format="svg", bbox_inches="tight", facecolor="white")
+            fig.savefig(svg_out, format="svg", bbox_inches="tight", facecolor=face)
         except Exception:
             pass
 

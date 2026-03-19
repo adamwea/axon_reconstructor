@@ -84,6 +84,118 @@ def _compute_zoom_limits_from_xy(
     return xmin - pad_x, xmax + pad_x, ymin - pad_y, ymax + pad_y
 
 
+def _normalize_template_channel_scope(raw: Any) -> str:
+    """Normalize template channel-scope option for full-template plotting.
+
+    Supported values:
+    - contributing_channels (aliases: contributing, branches)
+    - recorded_channels (aliases: recorded, recorded channel(s))
+    - all_channels (aliases: all, all channel(s))
+    """
+
+    v = str(raw or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if v in {"contributing", "contributing_channel", "contributing_channels", "branches"}:
+        return "contributing_channels"
+    if v in {"recorded", "recorded_channel", "recorded_channels"}:
+        return "recorded_channels"
+    if v in {"all", "all_channel", "all_channels"}:
+        return "all_channels"
+    return "all_channels"
+
+
+def _make_square_limits(
+    xmin: float,
+    xmax: float,
+    ymin: float,
+    ymax: float,
+    *,
+    center_x: float | None = None,
+    center_y: float | None = None,
+) -> tuple[float, float, float, float]:
+    """Expand the short side so (x, y) span forms a square."""
+
+    w = float(xmax - xmin)
+    h = float(ymax - ymin)
+    side = max(w, h)
+
+    cx = float((xmin + xmax) / 2.0) if center_x is None else float(center_x)
+    cy = float((ymin + ymax) / 2.0) if center_y is None else float(center_y)
+    half = float(side / 2.0)
+
+    return cx - half, cx + half, cy - half, cy + half
+
+
+def _apply_template_style(
+    *,
+    fig: Any,
+    ax: Any,
+    background: str,
+    signal_color: str,
+) -> None:
+    """Apply template plot styling for background and signal traces."""
+
+    bg = str(background or "").strip().lower()
+    sig = str(signal_color or "").strip() or "white"
+
+    if bg == "black":
+        try:
+            fig.patch.set_facecolor("black")
+        except Exception:
+            pass
+        try:
+            ax.set_facecolor("black")
+        except Exception:
+            pass
+
+        try:
+            ax.tick_params(colors="white")
+        except Exception:
+            pass
+        try:
+            for spine in ax.spines.values():
+                spine.set_color("white")
+        except Exception:
+            pass
+        try:
+            ax.xaxis.label.set_color("white")
+            ax.yaxis.label.set_color("white")
+            ax.title.set_color("white")
+        except Exception:
+            pass
+    else:
+        _force_white_background(fig)
+
+    try:
+        _recolor_noncolormapped_artists(ax, color=sig)
+    except Exception:
+        pass
+    # Fallback recoloring for artists not handled by helper.
+    try:
+        for ln in getattr(ax, "lines", []) or []:
+            try:
+                ln.set_color(sig)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    try:
+        for coll in getattr(ax, "collections", []) or []:
+            try:
+                coll.set_color(sig)
+            except Exception:
+                pass
+            try:
+                coll.set_edgecolor(sig)
+            except Exception:
+                pass
+            try:
+                coll.set_facecolor(sig)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def _as_list(x: Any) -> list[Any]:
     if x is None:
         return []
@@ -316,14 +428,59 @@ def write_unit_reconstruction_pdfs(
             w_gif = bool(default_write_gif)
         return w_gif, rel
 
+    # Support both nested and flat template schema shapes:
+    # nested: template.full.{write_png,write_svg,relpath,channel_scope}
+    # flat:   template.{write_png,write_svg,relpath,channel_scope}
+    flat_template_cfg = _schema_get(("template",), default={})
+    if not isinstance(flat_template_cfg, dict):
+        flat_template_cfg = {}
+
+    use_flat_template_cfg = False
+    if isinstance(flat_template_cfg, dict) and flat_template_cfg:
+        has_nested_full = isinstance(_schema_get(("template", "full"), default=None), dict)
+        flat_has_direct_fields = any(
+            k in flat_template_cfg
+            for k in (
+                "write_png",
+                "write_svg",
+                "relpath",
+                "channel_scope",
+                "background",
+                "signal_color",
+                "zoom_priority",
+            )
+        )
+        use_flat_template_cfg = bool(flat_has_direct_fields and (not has_nested_full))
+
+    tpl_cfg_path = ("template",) if use_flat_template_cfg else ("template", "full")
     tpl_png, tpl_svg, template_relpath, template_svg_relpath = _resolve_png_spec(
-        cfg_path=("template", "full"),
+        cfg_path=tpl_cfg_path,
         default_relpath=template_relpath,
         default_write_png=bool(write_template),
     )
     write_template = bool(tpl_png or tpl_svg)
     write_template_png = bool(tpl_png)
     write_template_svg = bool(tpl_svg)
+
+    template_channel_scope = _normalize_template_channel_scope(
+        _schema_get(("template", "full", "channel_scope"), None)
+    )
+    template_force_center_soma = bool(_schema_get(("template", "full", "force_center_soma"), False))
+    template_force_square_aspect = bool(_schema_get(("template", "full", "force_square_aspect"), False))
+    template_background = str(_schema_get(("template", "full", "background"), "white") or "white")
+    template_signal_color = str(_schema_get(("template", "full", "signal_color"), "black") or "black")
+    if use_flat_template_cfg:
+        template_channel_scope = _normalize_template_channel_scope(
+            flat_template_cfg.get("channel_scope", template_channel_scope)
+        )
+        template_force_center_soma = bool(
+            flat_template_cfg.get("force_center_soma", template_force_center_soma)
+        )
+        template_force_square_aspect = bool(
+            flat_template_cfg.get("force_square_aspect", template_force_square_aspect)
+        )
+        template_background = str(flat_template_cfg.get("background", template_background) or template_background)
+        template_signal_color = str(flat_template_cfg.get("signal_color", template_signal_color) or template_signal_color)
 
     tplz_png, tplz_svg, template_zoom_relpath, template_zoom_svg_relpath = _resolve_png_spec(
         cfg_path=("template", "zoom"),
@@ -737,32 +894,189 @@ def write_unit_reconstruction_pdfs(
 
     contributing_channels: list[int] = []
     try:
-        contrib_set: set[int] = set()
-        for br in _as_list(getattr(gtr, "branches", None)):
-            if isinstance(br, dict):
-                chans = _as_int_list(br.get("channels"))
-            else:
-                try:
-                    chans = _as_int_list(getattr(br, "channels", None))
-                except Exception:
-                    chans = []
-            for ch in chans:
-                if 0 <= ch < locs_xy.shape[0]:
-                    contrib_set.add(int(ch))
-        contributing_channels = sorted(contrib_set)
+        # Preferred definition: channels from stage-4 merged contributing template.
+        # Resolve from the current well output dir and this unit id.
+        well_out_dir = Path(out_unit_dir).resolve().parents[2]
+        merged_glob = list(
+            well_out_dir.glob(
+                f"stg4_templates_outputs*/templates/merged/unit_{int(uid)}/merged_contributing_channel_locations.npy"
+            )
+        )
+        merged_loc_path = merged_glob[0] if merged_glob else None
+
+        if merged_loc_path is not None and merged_loc_path.exists():
+            merged_locs = np.asarray(np.load(merged_loc_path))
+            if merged_locs.ndim == 2 and merged_locs.shape[1] >= 2:
+                loc_map: dict[tuple[float, float], int] = {}
+                for i in range(int(locs_xy.shape[0])):
+                    key = (round(float(locs_xy[i, 0]), 6), round(float(locs_xy[i, 1]), 6))
+                    if key not in loc_map:
+                        loc_map[key] = int(i)
+
+                contrib_idx: list[int] = []
+                for row in merged_locs:
+                    x = float(row[0])
+                    y = float(row[1])
+                    key = (round(x, 6), round(y, 6))
+                    idx = loc_map.get(key)
+                    if idx is None:
+                        # Fallback: nearest-neighbor match in full-channel coordinates.
+                        d2 = (locs_xy[:, 0] - x) ** 2 + (locs_xy[:, 1] - y) ** 2
+                        idx = int(np.argmin(d2))
+                    if 0 <= int(idx) < int(locs_xy.shape[0]):
+                        contrib_idx.append(int(idx))
+                contributing_channels = sorted(set(contrib_idx))
+
+        # Backward fallback: branch channels when merged channel map is unavailable.
+        if not contributing_channels:
+            contrib_set: set[int] = set()
+            for br in _as_list(getattr(gtr, "branches", None)):
+                if isinstance(br, dict):
+                    chans = _as_int_list(br.get("channels"))
+                else:
+                    try:
+                        chans = _as_int_list(getattr(br, "channels", None))
+                    except Exception:
+                        chans = []
+                for ch in chans:
+                    if 0 <= ch < locs_xy.shape[0]:
+                        contrib_set.add(int(ch))
+            contributing_channels = sorted(contrib_set)
     except Exception:
         contributing_channels = []
 
-    if write_template and ((not template_png.exists()) or force_restart) and (template is not None):
+    soma_channel: int | None = None
+    soma_xy: tuple[float, float] | None = None
+    try:
+        init_ch = int(getattr(gtr, "init_channel", -1))
+        if 0 <= init_ch < int(locs_xy.shape[0]):
+            soma_channel = int(init_ch)
+            soma_xy = (float(locs_xy[init_ch, 0]), float(locs_xy[init_ch, 1]))
+    except Exception:
+        soma_channel = None
+        soma_xy = None
+
+    # Prefer stage-4 templates as plotting source so channel-scope options map
+    # directly to full/merged template definitions on disk.
+    template_plot = template
+    template_locs = np.asarray(locs_xy)
+    try:
+        well_out_dir = Path(out_unit_dir).resolve().parents[2]
+        stage4_roots = sorted(list(well_out_dir.glob("stg4_templates_outputs*")))
+        stage4_root = stage4_roots[0] if stage4_roots else None
+        if stage4_root is not None and stage4_root.exists():
+            full_template_path = stage4_root / "templates" / "full" / f"unit_{int(uid)}" / "full_template.npy"
+            full_locs_path = stage4_root / "templates" / "full" / f"unit_{int(uid)}" / "full_channel_locations_xy.npy"
+            merged_template_path = (
+                stage4_root / "templates" / "merged" / f"unit_{int(uid)}" / "merged_contributing_template.npy"
+            )
+            merged_locs_path = (
+                stage4_root / "templates" / "merged" / f"unit_{int(uid)}" / "merged_contributing_channel_locations.npy"
+            )
+
+            if (
+                template_channel_scope == "contributing_channels"
+                and merged_template_path.exists()
+                and merged_locs_path.exists()
+            ):
+                merged_template = np.asarray(np.load(merged_template_path))
+                merged_locs = np.asarray(np.load(merged_locs_path))[:, :2]
+                if merged_template.ndim == 2:
+                    if merged_template.shape[0] == int(merged_locs.shape[0]):
+                        template_plot = merged_template
+                    elif merged_template.shape[1] == int(merged_locs.shape[0]):
+                        template_plot = merged_template.T
+                    else:
+                        template_plot = merged_template
+                else:
+                    template_plot = merged_template
+                template_locs = merged_locs
+            elif full_template_path.exists() and full_locs_path.exists():
+                full_template = np.asarray(np.load(full_template_path))
+                full_locs = np.asarray(np.load(full_locs_path))[:, :2]
+
+                full_template_cf = full_template
+                if full_template.ndim == 2:
+                    if full_template.shape[0] == int(full_locs.shape[0]):
+                        full_template_cf = full_template
+                    elif full_template.shape[1] == int(full_locs.shape[0]):
+                        full_template_cf = full_template.T
+
+                if template_channel_scope == "recorded_channels":
+                    keep_idx: list[int] = []
+                    try:
+                        if full_template_cf.ndim == 2:
+                            if full_template_cf.shape[0] == int(full_locs.shape[0]):
+                                per_ch_max = np.nanmax(np.abs(full_template_cf), axis=1)
+                            else:
+                                per_ch_max = np.array([], dtype=float)
+                            eps = float(np.finfo(float).eps)
+                            keep_idx = [int(i) for i, v in enumerate(per_ch_max.tolist()) if float(v) > eps]
+                    except Exception:
+                        keep_idx = []
+
+                    if keep_idx:
+                        template_plot = full_template_cf[keep_idx, :]
+                        template_locs = full_locs[keep_idx, :]
+                    else:
+                        template_plot = full_template_cf
+                        template_locs = full_locs
+                else:
+                    # all_channels (or fallback)
+                    template_plot = full_template_cf
+                    template_locs = full_locs
+    except Exception:
+        template_plot = template
+        template_locs = np.asarray(locs_xy)
+
+    contributing_scope_points: list[list[float]] = [
+        [float(x), float(y)] for x, y in np.asarray(template_locs)[:, :2].tolist()
+    ] if template_locs is not None else []
+
+    if write_template and ((not template_png.exists()) or force_restart) and (template_plot is not None):
         try:
             from axon_velocity.plotting import plot_template as av_plot_template  # type: ignore[import-not-found]
 
             fig = plt.figure(figsize=(13, 10))
             ax = fig.add_subplot(111)
             with plt.rc_context(_white_bg_rc_params()):
-                _ = av_plot_template(template=template, locations=locs_xy, ax=ax)
+                _ = av_plot_template(template=template_plot, locations=template_locs, ax=ax)
             _thin_lines_and_markers(ax, lw=0.45, ms=1.5, alpha=0.9)
-            _force_white_background(fig)
+
+            if contributing_scope_points:
+                xmin, xmax, ymin, ymax = _compute_zoom_limits_from_xy(
+                    contributing_scope_points,
+                    pad_frac=0.03,
+                    pad_abs=10.0,
+                )
+                if template_force_square_aspect:
+                    cx = soma_xy[0] if (template_force_center_soma and soma_xy is not None) else None
+                    cy = soma_xy[1] if (template_force_center_soma and soma_xy is not None) else None
+                    xmin, xmax, ymin, ymax = _make_square_limits(
+                        xmin,
+                        xmax,
+                        ymin,
+                        ymax,
+                        center_x=cx,
+                        center_y=cy,
+                    )
+                elif template_force_center_soma and soma_xy is not None:
+                    w = float(xmax - xmin)
+                    h = float(ymax - ymin)
+                    xmin = float(soma_xy[0] - (w / 2.0))
+                    xmax = float(soma_xy[0] + (w / 2.0))
+                    ymin = float(soma_xy[1] - (h / 2.0))
+                    ymax = float(soma_xy[1] + (h / 2.0))
+                ax.set_xlim(xmin, xmax)
+                ax.set_ylim(ymin, ymax)
+                ax.set_aspect("equal", adjustable="box")
+
+            _apply_template_style(
+                fig=fig,
+                ax=ax,
+                background=template_background,
+                signal_color=template_signal_color,
+            )
             _save_fig_png(
                 fig=fig,
                 png_path=template_png,
@@ -775,20 +1089,46 @@ def write_unit_reconstruction_pdfs(
         except Exception as e:
             logger.warning("Template plotting failed for unit %s: %s", uid, e)
 
-    if write_template_zoom and ((not template_zoom_png.exists()) or force_restart) and (template is not None) and branch_xy_points:
+    if write_template_zoom and ((not template_zoom_png.exists()) or force_restart) and (template_plot is not None):
         try:
             from axon_velocity.plotting import plot_template as av_plot_template  # type: ignore[import-not-found]
 
             fig = plt.figure(figsize=(11, 9))
             ax = fig.add_subplot(111)
             with plt.rc_context(_white_bg_rc_params()):
-                _ = av_plot_template(template=template, locations=locs_xy, ax=ax)
+                _ = av_plot_template(template=template_plot, locations=template_locs, ax=ax)
             _thin_lines_and_markers(ax, lw=0.45, ms=1.5, alpha=0.9)
-            xmin, xmax, ymin, ymax = _compute_zoom_limits_from_xy(branch_xy_points)
+            zoom_points = contributing_scope_points if contributing_scope_points else branch_xy_points
+            if not zoom_points:
+                raise ValueError("No points available for template zoom")
+            xmin, xmax, ymin, ymax = _compute_zoom_limits_from_xy(zoom_points)
+            if template_force_square_aspect:
+                cx = soma_xy[0] if (template_force_center_soma and soma_xy is not None) else None
+                cy = soma_xy[1] if (template_force_center_soma and soma_xy is not None) else None
+                xmin, xmax, ymin, ymax = _make_square_limits(
+                    xmin,
+                    xmax,
+                    ymin,
+                    ymax,
+                    center_x=cx,
+                    center_y=cy,
+                )
+            elif template_force_center_soma and soma_xy is not None:
+                w = float(xmax - xmin)
+                h = float(ymax - ymin)
+                xmin = float(soma_xy[0] - (w / 2.0))
+                xmax = float(soma_xy[0] + (w / 2.0))
+                ymin = float(soma_xy[1] - (h / 2.0))
+                ymax = float(soma_xy[1] + (h / 2.0))
             ax.set_xlim(xmin, xmax)
             ax.set_ylim(ymin, ymax)
             ax.set_aspect("equal", adjustable="box")
-            _force_white_background(fig)
+            _apply_template_style(
+                fig=fig,
+                ax=ax,
+                background=template_background,
+                signal_color=template_signal_color,
+            )
             _save_fig_png(
                 fig=fig,
                 png_path=template_zoom_png,

@@ -150,16 +150,70 @@ stages:
       write_heuristics_json: true
       heuristics_relpath: heuristics.json
 
-      # Template and summary
+      # Template
       template:
-        full:
-          write_png: true
-          write_svg: false
-          relpath: template_full
-        zoom:
-          write_png: true
-          write_svg: false
-          relpath: template_zoom
+        write_png: true
+        write_svg: false
+        relpath: template
+        # Full-template channel scope:
+        # - contributing_channels: only channels with non-zero template signal.
+        # - recorded_channels: only channels that were actually recorded in the source data.
+        # - all_channels: all channels present in full template locations - i.e. all channels physically present on the MEA regardless of whether they had signal or were recorded.
+        channel_scope: contributing_channels
+        background: black
+        signal_color: white
+        force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
+        force_square_aspect: true # increase template plot size to make it square (with padding) regardless of the spatial distribution of the channels.
+        show_scale_bar: true
+        scale_bar_color: white
+
+      # Amplitude Map
+      amplitude_map:
+        write_png: true
+        write_svg: false
+        relpath: amplitude_map
+        # Plot style/layout controls.
+        panel_background_color: black
+        branch_color: red
+        #branch_color: cyan
+        branch_outline_color: white
+        show_minimap: true # Basically just a square in a rectangle. small rectangle in the corner of each panel showing the full grid with the zoom range highlighted.
+        minimap_position: topleft # topleft, topright, bottomleft, bottomright
+        minimap_size: 0.4 # fraction of the panel size for the minimap
+        minimap_outline_color: white
+        minimap_chip_width_mm: 3.85
+        minimap_chip_height_mm: 2.10
+        minimap_inner_box_linestyle: solid # solid, dotted, dashed
+        minimap_inner_box_linewidth: 0.6
+        minimap_include_footprint: true # whether to show the footprint heatmap of the neuron in minimap
+        #if true, check if any nodes or branches are occluded by the minimap and if so,
+        # increase zoom span as needed to prevent occlusion. Only applies if show_minimap is true.
+        minimap_prevent_occlusions: true
+        # Extra data-space clearance around nodes/branches when testing minimap occlusion.
+        minimap_clearance_um: 2.0
+        # Additional display-space buffer added to branch stroke width during occlusion tests.
+        minimap_linewidth_buffer_pt: 0.5
+        # Iterative zoom expansion controls for minimap occlusion avoidance.
+        minimap_occlusion_max_iters: 10
+        minimap_occlusion_growth_factor: 1.15
+        node_radius_um: 5
+        soma_node_radius_um: 8
+        soma_node_color: orange # e.g. cyan, yellow, magenta
+        zoom_priority: "branches" # channels or branches. If channels, zoom range is determined by the channels contributing to the branch. If branches, zoom range is determined by the spatial extent of the branch itself (with some padding).
+        zoom_padding_percent: 20 # percentage padding of selected zoom span (20 => 20%)
+        # whether to force the grid to be centered on the soma.
+        # e.g. if zoom_priority is "branches", while force_soma_centering is false, the grid will be zoomed to the branches.
+        # however if force_soma_centering is true AND zoom_priority is "branches", the grid will be centered on the soma
+        # and zoom span will increase as needed to include the branches (with zoom_padding_percent padding).
+        # similar adjustments are made when zoom_priority is "channels" as needed and so long centering is possible
+        # given the spatial distribution of the channels and branches.
+        force_soma_centering: false
+        soma_xy_coords: # print soma xy coordinates on the panel.
+          show: true
+          color: white
+          fontsize: 6
+          location: bottom left
+      
       write_template_movie: false
       template_movie_relpath: template_movie.gif
       write_summary: false
@@ -170,8 +224,6 @@ stages:
       summary_raw_relpath: summary_raw.png
 
       # Maps
-      write_amplitude_map: false
-      amplitude_map_relpath: maps/amplitude_map.png
       write_amplitude_map_zoom: false
       amplitude_map_zoom_relpath: maps/amplitude_map_zoom.png
       write_peak_latency_map: false
