@@ -135,6 +135,73 @@ def write_unit_reconstruction_pdfs(
     out_unit_dir: Path,
     force_restart: bool,
     write_template_movie_gif: bool | None = None,
+    branches_root_relpath: str = "branches",
+    branches_clean_dir_relpath: str = "branches/clean",
+    branches_raw_dir_relpath: str = "branches/raw",
+    morphology_dir_relpath: str = "morphology",
+    heuristics_dir_relpath: str = "heuristics",
+    maps_dir_relpath: str = "maps",
+    template_relpath: str = "template.png",
+    template_zoom_relpath: str = "template_zoom.png",
+    template_movie_relpath: str = "template_movie.gif",
+    summary_relpath: str = "summary.png",
+    summary_clean_relpath: str = "summary_clean.png",
+    summary_raw_relpath: str = "summary_raw.png",
+    amplitude_map_relpath: str = "maps/amplitude_map.png",
+    amplitude_map_zoom_relpath: str = "maps/amplitude_map_zoom.png",
+    peak_latency_map_relpath: str = "maps/peak_latency_map.png",
+    peak_latency_map_zoom_relpath: str = "maps/peak_latency_map_zoom.png",
+    peak_std_map_relpath: str = "maps/peak_std_map.png",
+    peak_std_map_zoom_relpath: str = "maps/peak_std_map_zoom.png",
+    channel_selection_detect_relpath: str = "maps/channel_selection_detect.png",
+    channel_selection_kurt_relpath: str = "maps/channel_selection_kurt.png",
+    channel_selection_delay_relpath: str = "maps/channel_selection_delay.png",
+    channel_selection_all_relpath: str = "maps/channel_selection_all.png",
+    graph_nodes_relpath: str = "maps/graph_nodes.png",
+    graph_edges_relpath: str = "maps/graph_edges.png",
+    graph_heuristics_relpath: str = "heuristics/graph_heuristics.png",
+    morphology_pdf_relpath: str = "morphology/morphology.pdf",
+    morphology_zoom_pdf_relpath: str = "morphology/morphology_zoom.pdf",
+    branches_raw_clean_pdf_relpath: str = "branches/raw/branches_raw_clean.pdf",
+    branches_raw_pdf_relpath: str = "branches/raw/branches_raw.pdf",
+    branches_raw_zoom_pdf_relpath: str = "branches/raw/branches_raw_zoom.pdf",
+    branches_clean_pdf_relpath: str = "branches/clean/branches_clean.pdf",
+    branches_clean_zoom_pdf_relpath: str = "branches/clean/branches_clean_zoom.pdf",
+    branch_velocities_pdf_relpath: str = "branches/clean/branch_velocities.pdf",
+    branch_velocities_raw_overlay_pdf_relpath: str = "branches/raw/branch_velocities_overlay.pdf",
+    branch_velocities_overlay_pdf_relpath: str = "branches/clean/branch_velocities_overlay.pdf",
+    branch_velocity_template_relpath: str = "branches/clean/branch_{index:02d}_velocity",
+    write_template: bool = True,
+    write_template_zoom: bool = True,
+    write_template_movie: bool = True,
+    write_summary: bool = True,
+    write_summary_clean: bool = True,
+    write_summary_raw: bool = True,
+    write_amplitude_map: bool = True,
+    write_amplitude_map_zoom: bool = True,
+    write_peak_latency_map: bool = True,
+    write_peak_latency_map_zoom: bool = True,
+    write_peak_std_map: bool = True,
+    write_peak_std_map_zoom: bool = True,
+    write_channel_selection_detect: bool = True,
+    write_channel_selection_kurt: bool = True,
+    write_channel_selection_delay: bool = True,
+    write_channel_selection_all: bool = True,
+    write_graph_nodes: bool = True,
+    write_graph_edges: bool = True,
+    write_graph_heuristics: bool = True,
+    write_morphology_pdf: bool = True,
+    write_morphology_zoom_pdf: bool = True,
+    write_branches_raw_clean_pdf: bool = True,
+    write_branches_raw_pdf: bool = True,
+    write_branches_raw_zoom_pdf: bool = True,
+    write_branches_clean_pdf: bool = True,
+    write_branches_clean_zoom_pdf: bool = True,
+    write_branch_velocities_pdf: bool = True,
+    write_branch_velocities_raw_overlay_pdf: bool = True,
+    write_branch_velocities_overlay_pdf: bool = True,
+    write_branch_velocity_template: bool = True,
+    per_unit_outputs_schema: dict[str, Any] | None = None,
     logger: Any,
 ) -> dict[str, str]:
     """Write per-unit reconstruction PDFs.
@@ -144,7 +211,23 @@ def write_unit_reconstruction_pdfs(
 
     outputs: dict[str, str] = {}
 
-    layout = _compute_unit_output_layout(out_unit_dir=out_unit_dir)
+    def _unit_path(relpath: str) -> Path:
+        return Path(out_unit_dir) / Path(str(relpath)).expanduser()
+
+    def _unit_output_path(relpath: str) -> Path:
+        p = _unit_path(relpath)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+
+    layout = _compute_unit_output_layout(
+        out_unit_dir=out_unit_dir,
+        branches_root_relpath=branches_root_relpath,
+        branches_clean_relpath=branches_clean_dir_relpath,
+        branches_raw_relpath=branches_raw_dir_relpath,
+        morphology_relpath=morphology_dir_relpath,
+        heuristics_relpath=heuristics_dir_relpath,
+        maps_relpath=maps_dir_relpath,
+    )
     _ensure_unit_output_layout(layout)
     _maybe_migrate_legacy_unit_outputs(out_unit_dir=out_unit_dir, layout=layout)
 
@@ -162,12 +245,404 @@ def write_unit_reconstruction_pdfs(
     template = getattr(gtr, "template", None)
     fs = getattr(gtr, "fs", None)
 
-    template_png = out_unit_dir / "template.png"
-    template_zoom_png = out_unit_dir / "template_zoom.png"
-    summary_png = out_unit_dir / "summary.png"
-    summary_clean_png = out_unit_dir / "summary_clean.png"
-    summary_raw_png = out_unit_dir / "summary_raw.png"
-    template_movie_gif = out_unit_dir / "template_movie.gif"
+    schema = per_unit_outputs_schema if isinstance(per_unit_outputs_schema, dict) else {}
+
+    def _schema_get(path: tuple[str, ...], default: Any = None) -> Any:
+        cur: Any = schema
+        for key in path:
+            if not isinstance(cur, dict) or key not in cur:
+                return default
+            cur = cur[key]
+        return cur
+
+    def _normalize_relpath(relpath: str, *, ext: str) -> str:
+        raw = str(relpath).strip()
+        if not raw:
+            return raw
+        p = Path(raw)
+        if p.suffix == "":
+            p = p.with_suffix(ext)
+        return str(p)
+
+    def _resolve_png_spec(
+        *,
+        cfg_path: tuple[str, ...],
+        default_relpath: str,
+        default_write_png: bool,
+        default_write_svg: bool = False,
+    ) -> tuple[bool, bool, str, str]:
+        cfg = _schema_get(cfg_path, default={})
+        if isinstance(cfg, dict):
+            rel = _normalize_relpath(str(cfg.get("relpath", default_relpath)), ext=".png")
+            w_png = bool(cfg.get("write_png", default_write_png))
+            w_svg = bool(cfg.get("write_svg", default_write_svg))
+        else:
+            rel = _normalize_relpath(default_relpath, ext=".png")
+            w_png = bool(default_write_png)
+            w_svg = bool(default_write_svg)
+        svg_rel = str(Path(rel).with_suffix(".svg"))
+        return w_png, w_svg, rel, svg_rel
+
+    def _resolve_pdf_spec(
+        *,
+        cfg_path: tuple[str, ...],
+        default_relpath: str,
+        default_write_pdf: bool,
+        default_write_png: bool = True,
+        default_write_svg: bool = False,
+    ) -> tuple[bool, bool, bool, str, str, str]:
+        cfg = _schema_get(cfg_path, default={})
+        if isinstance(cfg, dict):
+            rel = _normalize_relpath(str(cfg.get("relpath", default_relpath)), ext=".pdf")
+            w_pdf = bool(cfg.get("write_pdf", default_write_pdf))
+            w_png = bool(cfg.get("write_png", default_write_png))
+            w_svg = bool(cfg.get("write_svg", default_write_svg))
+        else:
+            rel = _normalize_relpath(default_relpath, ext=".pdf")
+            w_pdf = bool(default_write_pdf)
+            w_png = bool(default_write_png)
+            w_svg = bool(default_write_svg)
+        png_rel = str(Path(rel).with_suffix(".png"))
+        svg_rel = str(Path(rel).with_suffix(".svg"))
+        return w_pdf, w_png, w_svg, rel, png_rel, svg_rel
+
+    def _resolve_gif_spec(*, cfg_path: tuple[str, ...], default_relpath: str, default_write_gif: bool) -> tuple[bool, str]:
+        cfg = _schema_get(cfg_path, default={})
+        if isinstance(cfg, dict):
+            rel = _normalize_relpath(str(cfg.get("relpath", default_relpath)), ext=".gif")
+            w_gif = bool(cfg.get("write_gif", default_write_gif))
+        else:
+            rel = _normalize_relpath(default_relpath, ext=".gif")
+            w_gif = bool(default_write_gif)
+        return w_gif, rel
+
+    tpl_png, tpl_svg, template_relpath, template_svg_relpath = _resolve_png_spec(
+        cfg_path=("template", "full"),
+        default_relpath=template_relpath,
+        default_write_png=bool(write_template),
+    )
+    write_template = bool(tpl_png or tpl_svg)
+    write_template_png = bool(tpl_png)
+    write_template_svg = bool(tpl_svg)
+
+    tplz_png, tplz_svg, template_zoom_relpath, template_zoom_svg_relpath = _resolve_png_spec(
+        cfg_path=("template", "zoom"),
+        default_relpath=template_zoom_relpath,
+        default_write_png=bool(write_template_zoom),
+    )
+    write_template_zoom = bool(tplz_png or tplz_svg)
+    write_template_zoom_png = bool(tplz_png)
+    write_template_zoom_svg = bool(tplz_svg)
+
+    mov_gif, template_movie_relpath = _resolve_gif_spec(
+        cfg_path=("movie", "template"),
+        default_relpath=template_movie_relpath,
+        default_write_gif=bool(write_template_movie),
+    )
+    write_template_movie = bool(mov_gif)
+
+    sum_png, sum_svg, summary_relpath, summary_svg_relpath = _resolve_png_spec(
+        cfg_path=("summary", "full"),
+        default_relpath=summary_relpath,
+        default_write_png=bool(write_summary),
+    )
+    write_summary = bool(sum_png or sum_svg)
+    write_summary_png = bool(sum_png)
+    write_summary_svg = bool(sum_svg)
+
+    sumc_png, sumc_svg, summary_clean_relpath, summary_clean_svg_relpath = _resolve_png_spec(
+        cfg_path=("summary", "clean"),
+        default_relpath=summary_clean_relpath,
+        default_write_png=bool(write_summary_clean),
+    )
+    write_summary_clean = bool(sumc_png or sumc_svg)
+    write_summary_clean_png = bool(sumc_png)
+    write_summary_clean_svg = bool(sumc_svg)
+
+    sumr_png, sumr_svg, summary_raw_relpath, summary_raw_svg_relpath = _resolve_png_spec(
+        cfg_path=("summary", "raw"),
+        default_relpath=summary_raw_relpath,
+        default_write_png=bool(write_summary_raw),
+    )
+    write_summary_raw = bool(sumr_png or sumr_svg)
+    write_summary_raw_png = bool(sumr_png)
+    write_summary_raw_svg = bool(sumr_svg)
+
+    amp_png, amp_svg, amplitude_map_relpath, amplitude_map_svg_relpath = _resolve_png_spec(
+        cfg_path=("maps", "amplitude", "full"),
+        default_relpath=amplitude_map_relpath,
+        default_write_png=bool(write_amplitude_map),
+    )
+    write_amplitude_map = bool(amp_png or amp_svg)
+    write_amplitude_map_png = bool(amp_png)
+    write_amplitude_map_svg = bool(amp_svg)
+
+    ampz_png, ampz_svg, amplitude_map_zoom_relpath, amplitude_map_zoom_svg_relpath = _resolve_png_spec(
+        cfg_path=("maps", "amplitude", "zoom"),
+        default_relpath=amplitude_map_zoom_relpath,
+        default_write_png=bool(write_amplitude_map_zoom),
+    )
+    write_amplitude_map_zoom = bool(ampz_png or ampz_svg)
+    write_amplitude_map_zoom_png = bool(ampz_png)
+    write_amplitude_map_zoom_svg = bool(ampz_svg)
+
+    lat_png, lat_svg, peak_latency_map_relpath, peak_latency_map_svg_relpath = _resolve_png_spec(
+        cfg_path=("maps", "peak_latency", "full"),
+        default_relpath=peak_latency_map_relpath,
+        default_write_png=bool(write_peak_latency_map),
+    )
+    write_peak_latency_map = bool(lat_png or lat_svg)
+    write_peak_latency_map_png = bool(lat_png)
+    write_peak_latency_map_svg = bool(lat_svg)
+
+    latz_png, latz_svg, peak_latency_map_zoom_relpath, peak_latency_map_zoom_svg_relpath = _resolve_png_spec(
+        cfg_path=("maps", "peak_latency", "zoom"),
+        default_relpath=peak_latency_map_zoom_relpath,
+        default_write_png=bool(write_peak_latency_map_zoom),
+    )
+    write_peak_latency_map_zoom = bool(latz_png or latz_svg)
+    write_peak_latency_map_zoom_png = bool(latz_png)
+    write_peak_latency_map_zoom_svg = bool(latz_svg)
+
+    std_png, std_svg, peak_std_map_relpath, peak_std_map_svg_relpath = _resolve_png_spec(
+        cfg_path=("maps", "peak_std", "full"),
+        default_relpath=peak_std_map_relpath,
+        default_write_png=bool(write_peak_std_map),
+    )
+    write_peak_std_map = bool(std_png or std_svg)
+    write_peak_std_map_png = bool(std_png)
+    write_peak_std_map_svg = bool(std_svg)
+
+    stdz_png, stdz_svg, peak_std_map_zoom_relpath, peak_std_map_zoom_svg_relpath = _resolve_png_spec(
+        cfg_path=("maps", "peak_std", "zoom"),
+        default_relpath=peak_std_map_zoom_relpath,
+        default_write_png=bool(write_peak_std_map_zoom),
+    )
+    write_peak_std_map_zoom = bool(stdz_png or stdz_svg)
+    write_peak_std_map_zoom_png = bool(stdz_png)
+    write_peak_std_map_zoom_svg = bool(stdz_svg)
+
+    cdet_png, cdet_svg, channel_selection_detect_relpath, channel_selection_detect_svg_relpath = _resolve_png_spec(
+        cfg_path=("maps", "channel_selection", "detect"),
+        default_relpath=channel_selection_detect_relpath,
+        default_write_png=bool(write_channel_selection_detect),
+    )
+    write_channel_selection_detect = bool(cdet_png or cdet_svg)
+    write_channel_selection_detect_png = bool(cdet_png)
+    write_channel_selection_detect_svg = bool(cdet_svg)
+
+    ckurt_png, ckurt_svg, channel_selection_kurt_relpath, channel_selection_kurt_svg_relpath = _resolve_png_spec(
+        cfg_path=("maps", "channel_selection", "kurt"),
+        default_relpath=channel_selection_kurt_relpath,
+        default_write_png=bool(write_channel_selection_kurt),
+    )
+    write_channel_selection_kurt = bool(ckurt_png or ckurt_svg)
+    write_channel_selection_kurt_png = bool(ckurt_png)
+    write_channel_selection_kurt_svg = bool(ckurt_svg)
+
+    cdel_png, cdel_svg, channel_selection_delay_relpath, channel_selection_delay_svg_relpath = _resolve_png_spec(
+        cfg_path=("maps", "channel_selection", "delay"),
+        default_relpath=channel_selection_delay_relpath,
+        default_write_png=bool(write_channel_selection_delay),
+    )
+    write_channel_selection_delay = bool(cdel_png or cdel_svg)
+    write_channel_selection_delay_png = bool(cdel_png)
+    write_channel_selection_delay_svg = bool(cdel_svg)
+
+    call_png, call_svg, channel_selection_all_relpath, channel_selection_all_svg_relpath = _resolve_png_spec(
+        cfg_path=("maps", "channel_selection", "all"),
+        default_relpath=channel_selection_all_relpath,
+        default_write_png=bool(write_channel_selection_all),
+    )
+    write_channel_selection_all = bool(call_png or call_svg)
+    write_channel_selection_all_png = bool(call_png)
+    write_channel_selection_all_svg = bool(call_svg)
+
+    gn_png, gn_svg, graph_nodes_relpath, graph_nodes_svg_relpath = _resolve_png_spec(
+        cfg_path=("graph", "nodes"),
+        default_relpath=graph_nodes_relpath,
+        default_write_png=bool(write_graph_nodes),
+    )
+    write_graph_nodes = bool(gn_png or gn_svg)
+    write_graph_nodes_png = bool(gn_png)
+    write_graph_nodes_svg = bool(gn_svg)
+
+    ge_png, ge_svg, graph_edges_relpath, graph_edges_svg_relpath = _resolve_png_spec(
+        cfg_path=("graph", "edges"),
+        default_relpath=graph_edges_relpath,
+        default_write_png=bool(write_graph_edges),
+    )
+    write_graph_edges = bool(ge_png or ge_svg)
+    write_graph_edges_png = bool(ge_png)
+    write_graph_edges_svg = bool(ge_svg)
+
+    gh_png, gh_svg, graph_heuristics_relpath, graph_heuristics_svg_relpath = _resolve_png_spec(
+        cfg_path=("graph", "heuristics"),
+        default_relpath=graph_heuristics_relpath,
+        default_write_png=bool(write_graph_heuristics),
+    )
+    write_graph_heuristics = bool(gh_png or gh_svg)
+    write_graph_heuristics_png = bool(gh_png)
+    write_graph_heuristics_svg = bool(gh_svg)
+
+    (
+        write_morphology_pdf,
+        write_morphology_png,
+        write_morphology_svg,
+        morphology_pdf_relpath,
+        morphology_png_relpath,
+        morphology_svg_relpath,
+    ) = _resolve_pdf_spec(
+        cfg_path=("morphology", "full"),
+        default_relpath=morphology_pdf_relpath,
+        default_write_pdf=bool(write_morphology_pdf),
+    )
+
+    (
+        write_morphology_zoom_pdf,
+        write_morphology_zoom_png,
+        write_morphology_zoom_svg,
+        morphology_zoom_pdf_relpath,
+        morphology_zoom_png_relpath,
+        morphology_zoom_svg_relpath,
+    ) = _resolve_pdf_spec(
+        cfg_path=("morphology", "zoom"),
+        default_relpath=morphology_zoom_pdf_relpath,
+        default_write_pdf=bool(write_morphology_zoom_pdf),
+    )
+
+    (
+        write_branches_raw_clean_pdf,
+        write_branches_raw_clean_png,
+        write_branches_raw_clean_svg,
+        branches_raw_clean_pdf_relpath,
+        branches_raw_clean_png_relpath,
+        branches_raw_clean_svg_relpath,
+    ) = _resolve_pdf_spec(
+        cfg_path=("branches", "raw_clean"),
+        default_relpath=branches_raw_clean_pdf_relpath,
+        default_write_pdf=bool(write_branches_raw_clean_pdf),
+    )
+
+    (
+        write_branches_raw_pdf,
+        write_branches_raw_png,
+        write_branches_raw_svg,
+        branches_raw_pdf_relpath,
+        branches_raw_png_relpath,
+        branches_raw_svg_relpath,
+    ) = _resolve_pdf_spec(
+        cfg_path=("branches", "raw"),
+        default_relpath=branches_raw_pdf_relpath,
+        default_write_pdf=bool(write_branches_raw_pdf),
+    )
+
+    (
+        write_branches_raw_zoom_pdf,
+        write_branches_raw_zoom_png,
+        write_branches_raw_zoom_svg,
+        branches_raw_zoom_pdf_relpath,
+        branches_raw_zoom_png_relpath,
+        branches_raw_zoom_svg_relpath,
+    ) = _resolve_pdf_spec(
+        cfg_path=("branches", "raw_zoom"),
+        default_relpath=branches_raw_zoom_pdf_relpath,
+        default_write_pdf=bool(write_branches_raw_zoom_pdf),
+    )
+
+    (
+        write_branches_clean_pdf,
+        write_branches_clean_png,
+        write_branches_clean_svg,
+        branches_clean_pdf_relpath,
+        branches_clean_png_relpath,
+        branches_clean_svg_relpath,
+    ) = _resolve_pdf_spec(
+        cfg_path=("branches", "clean"),
+        default_relpath=branches_clean_pdf_relpath,
+        default_write_pdf=bool(write_branches_clean_pdf),
+    )
+
+    (
+        write_branches_clean_zoom_pdf,
+        write_branches_clean_zoom_png,
+        write_branches_clean_zoom_svg,
+        branches_clean_zoom_pdf_relpath,
+        branches_clean_zoom_png_relpath,
+        branches_clean_zoom_svg_relpath,
+    ) = _resolve_pdf_spec(
+        cfg_path=("branches", "clean_zoom"),
+        default_relpath=branches_clean_zoom_pdf_relpath,
+        default_write_pdf=bool(write_branches_clean_zoom_pdf),
+    )
+
+    (
+        write_branch_velocities_pdf,
+        write_branch_velocities_png,
+        write_branch_velocities_svg,
+        branch_velocities_pdf_relpath,
+        branch_velocities_png_relpath,
+        branch_velocities_svg_relpath,
+    ) = _resolve_pdf_spec(
+        cfg_path=("branches", "velocities"),
+        default_relpath=branch_velocities_pdf_relpath,
+        default_write_pdf=bool(write_branch_velocities_pdf),
+    )
+
+    (
+        write_branch_velocities_raw_overlay_pdf,
+        write_branch_velocities_raw_overlay_png,
+        write_branch_velocities_raw_overlay_svg,
+        branch_velocities_raw_overlay_pdf_relpath,
+        branch_velocities_raw_overlay_png_relpath,
+        branch_velocities_raw_overlay_svg_relpath,
+    ) = _resolve_pdf_spec(
+        cfg_path=("branches", "velocities_raw_overlay"),
+        default_relpath=branch_velocities_raw_overlay_pdf_relpath,
+        default_write_pdf=bool(write_branch_velocities_raw_overlay_pdf),
+    )
+
+    (
+        write_branch_velocities_overlay_pdf,
+        write_branch_velocities_overlay_png,
+        write_branch_velocities_overlay_svg,
+        branch_velocities_overlay_pdf_relpath,
+        branch_velocities_overlay_png_relpath,
+        branch_velocities_overlay_svg_relpath,
+    ) = _resolve_pdf_spec(
+        cfg_path=("branches", "velocities_overlay"),
+        default_relpath=branch_velocities_overlay_pdf_relpath,
+        default_write_pdf=bool(write_branch_velocities_overlay_pdf),
+    )
+
+    branch_template_cfg = _schema_get(("branches", "velocity_template"), default={})
+    write_branch_velocity_template_pdf = bool(write_branch_velocity_template)
+    write_branch_velocity_template_png = True
+    write_branch_velocity_template_svg = False
+    if isinstance(branch_template_cfg, dict):
+        branch_velocity_template_relpath = str(
+            branch_template_cfg.get("relpath", branch_velocity_template_relpath)
+        )
+        write_branch_velocity_template_pdf = bool(
+            branch_template_cfg.get("write_pdf", write_branch_velocity_template_pdf)
+        )
+        write_branch_velocity_template_png = bool(branch_template_cfg.get("write_png", True))
+        write_branch_velocity_template_svg = bool(branch_template_cfg.get("write_svg", False))
+    write_branch_velocity_template = bool(
+        write_branch_velocity_template_pdf or write_branch_velocity_template_png or write_branch_velocity_template_svg
+    )
+
+    template_png = _unit_path(template_relpath)
+    template_svg = _unit_path(template_svg_relpath)
+    template_zoom_png = _unit_path(template_zoom_relpath)
+    template_zoom_svg = _unit_path(template_zoom_svg_relpath)
+    summary_png = _unit_path(summary_relpath)
+    summary_svg = _unit_path(summary_svg_relpath)
+    summary_clean_png = _unit_path(summary_clean_relpath)
+    summary_clean_svg = _unit_path(summary_clean_svg_relpath)
+    summary_raw_png = _unit_path(summary_raw_relpath)
+    summary_raw_svg = _unit_path(summary_raw_svg_relpath)
+    template_movie_gif = _unit_path(template_movie_relpath)
 
     if write_template_movie_gif is None:
         write_template_movie_gif = str(os.getenv("AXON_RECON_RECON_WRITE_TEMPLATE_MOVIE_GIF", "1")).strip().lower() not in {
@@ -278,7 +753,7 @@ def write_unit_reconstruction_pdfs(
     except Exception:
         contributing_channels = []
 
-    if ((not template_png.exists()) or force_restart) and (template is not None):
+    if write_template and ((not template_png.exists()) or force_restart) and (template is not None):
         try:
             from axon_velocity.plotting import plot_template as av_plot_template  # type: ignore[import-not-found]
 
@@ -288,12 +763,19 @@ def write_unit_reconstruction_pdfs(
                 _ = av_plot_template(template=template, locations=locs_xy, ax=ax)
             _thin_lines_and_markers(ax, lw=0.45, ms=1.5, alpha=0.9)
             _force_white_background(fig)
-            _save_fig_png(fig=fig, png_path=template_png, dpi=DPI_HI)
+            _save_fig_png(
+                fig=fig,
+                png_path=template_png,
+                dpi=DPI_HI,
+                write_png=bool(write_template_png),
+                write_svg=bool(write_template_svg),
+                svg_path=template_svg,
+            )
             plt.close(fig)
         except Exception as e:
             logger.warning("Template plotting failed for unit %s: %s", uid, e)
 
-    if ((not template_zoom_png.exists()) or force_restart) and (template is not None) and branch_xy_points:
+    if write_template_zoom and ((not template_zoom_png.exists()) or force_restart) and (template is not None) and branch_xy_points:
         try:
             from axon_velocity.plotting import plot_template as av_plot_template  # type: ignore[import-not-found]
 
@@ -307,22 +789,38 @@ def write_unit_reconstruction_pdfs(
             ax.set_ylim(ymin, ymax)
             ax.set_aspect("equal", adjustable="box")
             _force_white_background(fig)
-            _save_fig_png(fig=fig, png_path=template_zoom_png, dpi=DPI_HI)
+            _save_fig_png(
+                fig=fig,
+                png_path=template_zoom_png,
+                dpi=DPI_HI,
+                write_png=bool(write_template_zoom_png),
+                write_svg=bool(write_template_zoom_svg),
+                svg_path=template_zoom_svg,
+            )
             plt.close(fig)
         except Exception as e:
             logger.warning("Template zoom plotting failed for unit %s: %s", uid, e)
 
     # Summary + template animation are generated via axon_velocity.
 
-    if template_png.exists():
+    if write_template_png and template_png.exists():
         outputs["template_png"] = str(template_png)
-    if template_zoom_png.exists():
+    if write_template_svg and template_svg.exists():
+        outputs["template_svg"] = str(template_svg)
+    if write_template_zoom_png and template_zoom_png.exists():
         outputs["template_zoom_png"] = str(template_zoom_png)
+    if write_template_zoom_svg and template_zoom_svg.exists():
+        outputs["template_zoom_svg"] = str(template_zoom_svg)
     # summary_png + template_movie_gif are written later.
 
-    # Maps into <unit>/maps/
-    maps_dir = Path(layout["maps"])
-    if (template is not None) and (fs is not None):
+    if (
+        write_amplitude_map
+        or write_amplitude_map_zoom
+        or write_peak_latency_map
+        or write_peak_latency_map_zoom
+        or write_peak_std_map
+        or write_peak_std_map_zoom
+    ) and (template is not None) and (fs is not None):
         try:
             from axon_velocity.plotting import (  # type: ignore[import-not-found]
                 plot_amplitude_map as av_plot_amplitude_map,
@@ -330,175 +828,342 @@ def write_unit_reconstruction_pdfs(
                 plot_peak_std_map as av_plot_peak_std_map,
             )
 
-            def _write_map(fn: Any, out_png: Path, out_zoom_png: Path) -> None:
-                if (out_png.exists() and (not force_restart)) and (out_zoom_png.exists() or (not branch_xy_points)):
+            def _write_map(
+                fn: Any,
+                out_png: Path,
+                out_zoom_png: Path,
+                out_svg: Path,
+                out_zoom_svg: Path,
+                *,
+                write_png: bool,
+                write_svg: bool,
+                write_zoom_png: bool,
+                write_zoom_svg: bool,
+            ) -> None:
+                if not (write_png or write_svg or write_zoom_png or write_zoom_svg):
                     return
+                if (not force_restart):
+                    png_ready = (not write_png) or out_png.exists()
+                    svg_ready = (not write_svg) or out_svg.exists()
+                    zoom_ready = (not write_zoom_png) or ((not branch_xy_points) or out_zoom_png.exists())
+                    zoom_svg_ready = (not write_zoom_svg) or ((not branch_xy_points) or out_zoom_svg.exists())
+                    if png_ready and svg_ready and zoom_ready and zoom_svg_ready:
+                        return
                 fig = plt.figure(figsize=(8.5, 7.5))
                 ax = fig.add_subplot(111)
                 with plt.rc_context(_white_bg_rc_params()):
                     _ = fn(ax=ax)
                 _force_white_background(fig)
-                _save_fig_png(fig=fig, png_path=out_png, dpi=DPI_HI)
-                if branch_xy_points:
+                if write_png or write_svg:
+                    _save_fig_png(
+                        fig=fig,
+                        png_path=out_png,
+                        dpi=DPI_HI,
+                        write_png=bool(write_png),
+                        write_svg=bool(write_svg),
+                        svg_path=out_svg,
+                    )
+                if (write_zoom_png or write_zoom_svg) and branch_xy_points:
                     xmin, xmax, ymin, ymax = _compute_zoom_limits_from_xy(branch_xy_points)
                     ax.set_xlim(xmin, xmax)
                     ax.set_ylim(ymin, ymax)
                     ax.set_aspect("equal", adjustable="box")
-                    _save_fig_png(fig=fig, png_path=out_zoom_png, dpi=DPI_HI)
+                    _save_fig_png(
+                        fig=fig,
+                        png_path=out_zoom_png,
+                        dpi=DPI_HI,
+                        write_png=bool(write_zoom_png),
+                        write_svg=bool(write_zoom_svg),
+                        svg_path=out_zoom_svg,
+                    )
                 plt.close(fig)
 
-            amp_png = maps_dir / "amplitude_map.png"
-            amp_zoom_png = maps_dir / "amplitude_map_zoom.png"
-            _write_map(lambda ax: av_plot_amplitude_map(template, locs_xy, log=True, ax=ax), amp_png, amp_zoom_png)
+            amp_png = _unit_output_path(amplitude_map_relpath)
+            amp_zoom_png = _unit_output_path(amplitude_map_zoom_relpath)
+            amp_svg = _unit_output_path(amplitude_map_svg_relpath)
+            amp_zoom_svg = _unit_output_path(amplitude_map_zoom_svg_relpath)
+            _write_map(
+                lambda ax: av_plot_amplitude_map(template, locs_xy, log=True, ax=ax),
+                amp_png,
+                amp_zoom_png,
+                amp_svg,
+                amp_zoom_svg,
+                write_png=bool(write_amplitude_map),
+                write_svg=bool(write_amplitude_map_svg),
+                write_zoom_png=bool(write_amplitude_map_zoom),
+                write_zoom_svg=bool(write_amplitude_map_zoom_svg),
+            )
 
-            lat_png = maps_dir / "peak_latency_map.png"
-            lat_zoom_png = maps_dir / "peak_latency_map_zoom.png"
-            _write_map(lambda ax: av_plot_peak_latency_map(template, locs_xy, float(fs), ax=ax), lat_png, lat_zoom_png)
+            lat_png = _unit_output_path(peak_latency_map_relpath)
+            lat_zoom_png = _unit_output_path(peak_latency_map_zoom_relpath)
+            lat_svg = _unit_output_path(peak_latency_map_svg_relpath)
+            lat_zoom_svg = _unit_output_path(peak_latency_map_zoom_svg_relpath)
+            _write_map(
+                lambda ax: av_plot_peak_latency_map(template, locs_xy, float(fs), ax=ax),
+                lat_png,
+                lat_zoom_png,
+                lat_svg,
+                lat_zoom_svg,
+                write_png=bool(write_peak_latency_map),
+                write_svg=bool(write_peak_latency_map_svg),
+                write_zoom_png=bool(write_peak_latency_map_zoom),
+                write_zoom_svg=bool(write_peak_latency_map_zoom_svg),
+            )
 
-            std_png = maps_dir / "peak_std_map.png"
-            std_zoom_png = maps_dir / "peak_std_map_zoom.png"
-            _write_map(lambda ax: av_plot_peak_std_map(template, locs_xy, float(fs), ax=ax), std_png, std_zoom_png)
+            std_png = _unit_output_path(peak_std_map_relpath)
+            std_zoom_png = _unit_output_path(peak_std_map_zoom_relpath)
+            std_svg = _unit_output_path(peak_std_map_svg_relpath)
+            std_zoom_svg = _unit_output_path(peak_std_map_zoom_svg_relpath)
+            _write_map(
+                lambda ax: av_plot_peak_std_map(template, locs_xy, float(fs), ax=ax),
+                std_png,
+                std_zoom_png,
+                std_svg,
+                std_zoom_svg,
+                write_png=bool(write_peak_std_map),
+                write_svg=bool(write_peak_std_map_svg),
+                write_zoom_png=bool(write_peak_std_map_zoom),
+                write_zoom_svg=bool(write_peak_std_map_zoom_svg),
+            )
 
-            for p, k in [
-                (amp_png, "amplitude_map_png"),
-                (amp_zoom_png, "amplitude_map_zoom_png"),
-                (lat_png, "peak_latency_map_png"),
-                (lat_zoom_png, "peak_latency_map_zoom_png"),
-                (std_png, "peak_std_map_png"),
-                (std_zoom_png, "peak_std_map_zoom_png"),
+            for p, k, enabled in [
+                (amp_png, "amplitude_map_png", bool(write_amplitude_map)),
+                (amp_zoom_png, "amplitude_map_zoom_png", bool(write_amplitude_map_zoom)),
+                (lat_png, "peak_latency_map_png", bool(write_peak_latency_map)),
+                (lat_zoom_png, "peak_latency_map_zoom_png", bool(write_peak_latency_map_zoom)),
+                (std_png, "peak_std_map_png", bool(write_peak_std_map)),
+                (std_zoom_png, "peak_std_map_zoom_png", bool(write_peak_std_map_zoom)),
             ]:
+                if not enabled:
+                    continue
+                if p.exists():
+                    outputs[k] = str(p)
+            for p, k, enabled in [
+                (amp_svg, "amplitude_map_svg", bool(write_amplitude_map_svg)),
+                (amp_zoom_svg, "amplitude_map_zoom_svg", bool(write_amplitude_map_zoom_svg)),
+                (lat_svg, "peak_latency_map_svg", bool(write_peak_latency_map_svg)),
+                (lat_zoom_svg, "peak_latency_map_zoom_svg", bool(write_peak_latency_map_zoom_svg)),
+                (std_svg, "peak_std_map_svg", bool(write_peak_std_map_svg)),
+                (std_zoom_svg, "peak_std_map_zoom_svg", bool(write_peak_std_map_zoom_svg)),
+            ]:
+                if not enabled:
+                    continue
                 if p.exists():
                     outputs[k] = str(p)
         except Exception as e:
             logger.warning("Map plotting failed for unit %s: %s", uid, e)
 
     # Channel selection maps (Detection/Kurtosis/Delay/All) into maps/.
-    try:
-        chan_sets = {
-            "detect": getattr(gtr, "_selected_channels_detect", None),
-            "kurt": getattr(gtr, "_selected_channels_kurt", None),
-            "delay": getattr(gtr, "_selected_channels_init", None),
-            "all": getattr(gtr, "selected_channels", None),
-        }
+    if (
+        write_channel_selection_detect
+        or write_channel_selection_kurt
+        or write_channel_selection_delay
+        or write_channel_selection_all
+    ):
+        try:
+            chan_sets = {
+                "detect": getattr(gtr, "_selected_channels_detect", None),
+                "kurt": getattr(gtr, "_selected_channels_kurt", None),
+                "delay": getattr(gtr, "_selected_channels_init", None),
+                "all": getattr(gtr, "selected_channels", None),
+            }
 
-        def _as_ch_list(v: Any) -> list[int]:
-            if v is None:
-                return []
-            try:
-                return [int(x) for x in list(v)]
-            except Exception:
-                return []
-
-        for name, raw in chan_sets.items():
-            sel = _as_ch_list(raw)
-            if not sel:
-                continue
-            out_png = maps_dir / f"channel_selection_{name}.png"
-            if out_png.exists() and (not force_restart):
-                continue
-            fig = plt.figure(figsize=(8.5, 7.5))
-            ax = fig.add_subplot(111)
-            with plt.rc_context(_white_bg_rc_params()):
-                ax.plot(locs_xy[:, 0], locs_xy[:, 1], marker=".", color="0.65", ls="", alpha=0.15)
-                ax.plot(locs_xy[sel, 0], locs_xy[sel, 1], marker=".", color="k", ls="", alpha=0.75)
+            def _as_ch_list(v: Any) -> list[int]:
+                if v is None:
+                    return []
                 try:
-                    init_ch = int(getattr(gtr, "init_channel"))
-                    ax.plot(locs_xy[init_ch, 0], locs_xy[init_ch, 1], marker="o", color="r", ms=4, ls="")
+                    return [int(x) for x in list(v)]
                 except Exception:
-                    pass
-                ax.set_aspect("equal", adjustable="box")
-                ax.axis("off")
-                ax.set_title(f"Channel selection: {name}")
-            _force_white_background(fig)
-            _save_fig_png(fig=fig, png_path=out_png, dpi=DPI_HI)
-            plt.close(fig)
-            outputs[f"channel_selection_{name}_png"] = str(out_png)
-    except Exception as e:
-        logger.warning("Channel selection map plotting failed for unit %s: %s", uid, e)
+                    return []
+
+            ch_sel_paths = {
+                "detect": (
+                    _unit_output_path(channel_selection_detect_relpath),
+                    _unit_output_path(channel_selection_detect_svg_relpath),
+                    bool(write_channel_selection_detect_png),
+                    bool(write_channel_selection_detect_svg),
+                ),
+                "kurt": (
+                    _unit_output_path(channel_selection_kurt_relpath),
+                    _unit_output_path(channel_selection_kurt_svg_relpath),
+                    bool(write_channel_selection_kurt_png),
+                    bool(write_channel_selection_kurt_svg),
+                ),
+                "delay": (
+                    _unit_output_path(channel_selection_delay_relpath),
+                    _unit_output_path(channel_selection_delay_svg_relpath),
+                    bool(write_channel_selection_delay_png),
+                    bool(write_channel_selection_delay_svg),
+                ),
+                "all": (
+                    _unit_output_path(channel_selection_all_relpath),
+                    _unit_output_path(channel_selection_all_svg_relpath),
+                    bool(write_channel_selection_all_png),
+                    bool(write_channel_selection_all_svg),
+                ),
+            }
+
+            for name, raw in chan_sets.items():
+                out_info = ch_sel_paths.get(name)
+                if out_info is not None and (not out_info[2]) and (not out_info[3]):
+                    continue
+                sel = _as_ch_list(raw)
+                if not sel:
+                    continue
+                out_png = (out_info[0] if out_info is not None else _unit_output_path(f"maps/channel_selection_{name}.png"))
+                out_svg = (
+                    out_info[1]
+                    if out_info is not None
+                    else _unit_output_path(f"maps/channel_selection_{name}.svg")
+                )
+                write_png_local = bool(out_info[2]) if out_info is not None else True
+                write_svg_local = bool(out_info[3]) if out_info is not None else False
+                if out_png.exists() and (not force_restart) and (not write_svg_local or out_svg.exists()):
+                    continue
+                fig = plt.figure(figsize=(8.5, 7.5))
+                ax = fig.add_subplot(111)
+                with plt.rc_context(_white_bg_rc_params()):
+                    ax.plot(locs_xy[:, 0], locs_xy[:, 1], marker=".", color="0.65", ls="", alpha=0.15)
+                    ax.plot(locs_xy[sel, 0], locs_xy[sel, 1], marker=".", color="k", ls="", alpha=0.75)
+                    try:
+                        init_ch = int(getattr(gtr, "init_channel"))
+                        ax.plot(locs_xy[init_ch, 0], locs_xy[init_ch, 1], marker="o", color="r", ms=4, ls="")
+                    except Exception:
+                        pass
+                    ax.set_aspect("equal", adjustable="box")
+                    ax.axis("off")
+                    ax.set_title(f"Channel selection: {name}")
+                _force_white_background(fig)
+                _save_fig_png(
+                    fig=fig,
+                    png_path=out_png,
+                    dpi=DPI_HI,
+                    write_png=write_png_local,
+                    write_svg=write_svg_local,
+                    svg_path=out_svg,
+                )
+                plt.close(fig)
+                if write_png_local and out_png.exists():
+                    outputs[f"channel_selection_{name}_png"] = str(out_png)
+                if write_svg_local and out_svg.exists():
+                    outputs[f"channel_selection_{name}_svg"] = str(out_svg)
+        except Exception as e:
+            logger.warning("Channel selection map plotting failed for unit %s: %s", uid, e)
 
     # Graph: nodes + edges as separate PNGs into maps/, plus a combined overview into heuristics/ for analysis.
-    try:
-        import matplotlib as mpl
+    if write_graph_nodes or write_graph_edges or write_graph_heuristics:
+        try:
+            import matplotlib as mpl
 
-        graph_nodes_png = maps_dir / "graph_nodes.png"
-        graph_edges_png = maps_dir / "graph_edges.png"
-        graph_combined_png = Path(layout["heuristics"]) / "graph_heuristics.png"
+            graph_nodes_png = _unit_output_path(graph_nodes_relpath)
+            graph_nodes_svg = _unit_output_path(graph_nodes_svg_relpath)
+            graph_edges_png = _unit_output_path(graph_edges_relpath)
+            graph_edges_svg = _unit_output_path(graph_edges_svg_relpath)
+            graph_combined_png = _unit_output_path(graph_heuristics_relpath)
+            graph_combined_svg = _unit_output_path(graph_heuristics_svg_relpath)
 
-        if ((not graph_nodes_png.exists()) or force_restart) and hasattr(gtr, "_plot_nodes"):
-            fig = plt.figure(figsize=(8.5, 7.5))
-            ax = fig.add_subplot(111)
-            with plt.rc_context(_white_bg_rc_params()):
-                _ = getattr(gtr, "_plot_nodes")(ax=ax)
-            _force_white_background(fig)
-            try:
-                import numpy as np  # type: ignore[import-not-found]
-
-                node_h = getattr(gtr, "_node_heuristic", None)
-                if node_h is not None:
-                    node_h = np.asarray(node_h)
-                    if node_h.size > 0:
-                        norm = mpl.colors.Normalize(vmin=float(np.min(node_h)), vmax=float(np.max(node_h)))
-                        sm = mpl.cm.ScalarMappable(norm=norm, cmap=plt.get_cmap("viridis"))
-                        fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.04, label="node heuristic")
-            except Exception:
-                pass
-            _save_fig_png(fig=fig, png_path=graph_nodes_png, dpi=DPI_HI)
-            plt.close(fig)
-
-        if ((not graph_edges_png.exists()) or force_restart) and hasattr(gtr, "_plot_edges"):
-            fig = plt.figure(figsize=(8.5, 7.5))
-            ax = fig.add_subplot(111)
-            with plt.rc_context(_white_bg_rc_params()):
-                _ = getattr(gtr, "_plot_edges")(ax=ax)
-            _force_white_background(fig)
-            try:
-                import numpy as np  # type: ignore[import-not-found]
-
-                heuristics = []
-                for _n1, _n2, d in getattr(gtr, "graph").edges.data():
-                    heuristics.append(d.get("heur"))
-                heur = np.asarray([h for h in heuristics if h is not None], dtype=float)
-                if heur.size > 0:
-                    norm = mpl.colors.Normalize(vmin=float(np.min(heur)), vmax=float(np.max(heur)))
-                    sm = mpl.cm.ScalarMappable(norm=norm, cmap=plt.get_cmap("rainbow"))
-                    fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.04, label="edge heuristic")
-            except Exception:
-                pass
-            _save_fig_png(fig=fig, png_path=graph_edges_png, dpi=DPI_HI)
-            plt.close(fig)
-
-        if (not graph_combined_png.exists()) or force_restart:
-            try:
-                fig = plt.figure(figsize=(16, 7.5))
-                ax1 = fig.add_subplot(1, 2, 1)
-                ax2 = fig.add_subplot(1, 2, 2)
+            if write_graph_nodes and ((not graph_nodes_png.exists()) or force_restart) and hasattr(gtr, "_plot_nodes"):
+                fig = plt.figure(figsize=(8.5, 7.5))
+                ax = fig.add_subplot(111)
                 with plt.rc_context(_white_bg_rc_params()):
-                    if hasattr(gtr, "_plot_nodes"):
-                        _ = getattr(gtr, "_plot_nodes")(ax=ax1)
-                    if hasattr(gtr, "_plot_edges"):
-                        _ = getattr(gtr, "_plot_edges")(ax=ax2)
-                ax1.set_title("Graph nodes")
-                ax2.set_title("Graph edges")
+                    _ = getattr(gtr, "_plot_nodes")(ax=ax)
                 _force_white_background(fig)
-                _save_fig_png(fig=fig, png_path=graph_combined_png, dpi=DPI_HI)
-                plt.close(fig)
-            except Exception:
-                pass
+                try:
+                    import numpy as np  # type: ignore[import-not-found]
 
-        if graph_nodes_png.exists():
-            outputs["graph_nodes_png"] = str(graph_nodes_png)
-        if graph_edges_png.exists():
-            outputs["graph_edges_png"] = str(graph_edges_png)
-        if graph_combined_png.exists():
-            outputs["graph_heuristics_png"] = str(graph_combined_png)
-    except Exception as e:
-        logger.warning("Graph plotting failed for unit %s: %s", uid, e)
+                    node_h = getattr(gtr, "_node_heuristic", None)
+                    if node_h is not None:
+                        node_h = np.asarray(node_h)
+                        if node_h.size > 0:
+                            norm = mpl.colors.Normalize(vmin=float(np.min(node_h)), vmax=float(np.max(node_h)))
+                            sm = mpl.cm.ScalarMappable(norm=norm, cmap=plt.get_cmap("viridis"))
+                            fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.04, label="node heuristic")
+                except Exception:
+                    pass
+                _save_fig_png(
+                    fig=fig,
+                    png_path=graph_nodes_png,
+                    dpi=DPI_HI,
+                    write_png=bool(write_graph_nodes_png),
+                    write_svg=bool(write_graph_nodes_svg),
+                    svg_path=graph_nodes_svg,
+                )
+                plt.close(fig)
+
+            if write_graph_edges and ((not graph_edges_png.exists()) or force_restart) and hasattr(gtr, "_plot_edges"):
+                fig = plt.figure(figsize=(8.5, 7.5))
+                ax = fig.add_subplot(111)
+                with plt.rc_context(_white_bg_rc_params()):
+                    _ = getattr(gtr, "_plot_edges")(ax=ax)
+                _force_white_background(fig)
+                try:
+                    import numpy as np  # type: ignore[import-not-found]
+
+                    heuristics = []
+                    for _n1, _n2, d in getattr(gtr, "graph").edges.data():
+                        heuristics.append(d.get("heur"))
+                    heur = np.asarray([h for h in heuristics if h is not None], dtype=float)
+                    if heur.size > 0:
+                        norm = mpl.colors.Normalize(vmin=float(np.min(heur)), vmax=float(np.max(heur)))
+                        sm = mpl.cm.ScalarMappable(norm=norm, cmap=plt.get_cmap("rainbow"))
+                        fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.04, label="edge heuristic")
+                except Exception:
+                    pass
+                _save_fig_png(
+                    fig=fig,
+                    png_path=graph_edges_png,
+                    dpi=DPI_HI,
+                    write_png=bool(write_graph_edges_png),
+                    write_svg=bool(write_graph_edges_svg),
+                    svg_path=graph_edges_svg,
+                )
+                plt.close(fig)
+
+            if write_graph_heuristics and ((not graph_combined_png.exists()) or force_restart):
+                try:
+                    fig = plt.figure(figsize=(16, 7.5))
+                    ax1 = fig.add_subplot(1, 2, 1)
+                    ax2 = fig.add_subplot(1, 2, 2)
+                    with plt.rc_context(_white_bg_rc_params()):
+                        if hasattr(gtr, "_plot_nodes"):
+                            _ = getattr(gtr, "_plot_nodes")(ax=ax1)
+                        if hasattr(gtr, "_plot_edges"):
+                            _ = getattr(gtr, "_plot_edges")(ax=ax2)
+                    ax1.set_title("Graph nodes")
+                    ax2.set_title("Graph edges")
+                    _force_white_background(fig)
+                    _save_fig_png(
+                        fig=fig,
+                        png_path=graph_combined_png,
+                        dpi=DPI_HI,
+                        write_png=bool(write_graph_heuristics_png),
+                        write_svg=bool(write_graph_heuristics_svg),
+                        svg_path=graph_combined_svg,
+                    )
+                    plt.close(fig)
+                except Exception:
+                    pass
+
+            if write_graph_nodes_png and graph_nodes_png.exists():
+                outputs["graph_nodes_png"] = str(graph_nodes_png)
+            if write_graph_nodes_svg and graph_nodes_svg.exists():
+                outputs["graph_nodes_svg"] = str(graph_nodes_svg)
+            if write_graph_edges_png and graph_edges_png.exists():
+                outputs["graph_edges_png"] = str(graph_edges_png)
+            if write_graph_edges_svg and graph_edges_svg.exists():
+                outputs["graph_edges_svg"] = str(graph_edges_svg)
+            if write_graph_heuristics_png and graph_combined_png.exists():
+                outputs["graph_heuristics_png"] = str(graph_combined_png)
+            if write_graph_heuristics_svg and graph_combined_svg.exists():
+                outputs["graph_heuristics_svg"] = str(graph_combined_svg)
+        except Exception as e:
+            logger.warning("Graph plotting failed for unit %s: %s", uid, e)
 
     # Always write a simple morphology PDF.
-    morphology_dir = Path(layout["morphology"])
-    morphology_pdf = morphology_dir / "morphology.pdf"
+    morphology_pdf = _unit_output_path(morphology_pdf_relpath)
     morphology_png = _with_suffix(morphology_pdf, ".png")
-    if (not morphology_pdf.exists()) or force_restart:
+    morphology_svg = _with_suffix(morphology_pdf, ".svg")
+    if write_morphology_pdf and ((not morphology_pdf.exists()) or force_restart):
         try:
             fig = plt.figure(figsize=(8, 6))
             ax = fig.add_subplot(111)
@@ -521,20 +1186,31 @@ def write_unit_reconstruction_pdfs(
             ax.set_aspect("equal", adjustable="box")
             ax.set_xlabel("x")
             ax.set_ylabel("y")
-            _save_fig_pdf_and_png(fig=fig, pdf_path=morphology_pdf, png_path=morphology_png, dpi=DPI_STD)
+            _save_fig_pdf_and_png(
+                fig=fig,
+                pdf_path=morphology_pdf,
+                png_path=morphology_png,
+                dpi=DPI_STD,
+                write_png=bool(write_morphology_png),
+                write_svg=bool(write_morphology_svg),
+                svg_path=morphology_svg,
+            )
             plt.close(fig)
         except Exception as e:
             logger.warning("Morphology plotting failed for unit %s: %s", uid, e)
 
-    if morphology_pdf.exists():
+    if write_morphology_pdf and morphology_pdf.exists():
         outputs["morphology_pdf"] = str(morphology_pdf)
-    if morphology_png.exists():
+    if write_morphology_png and morphology_png.exists():
         outputs["morphology_png"] = str(morphology_png)
+    if write_morphology_svg and morphology_svg.exists():
+        outputs["morphology_svg"] = str(morphology_svg)
 
     # Zoomed-in morphology around the reconstruction.
-    morphology_zoom_pdf = morphology_dir / "morphology_zoom.pdf"
+    morphology_zoom_pdf = _unit_output_path(morphology_zoom_pdf_relpath)
     morphology_zoom_png = _with_suffix(morphology_zoom_pdf, ".png")
-    if (not morphology_zoom_pdf.exists()) or force_restart:
+    morphology_zoom_svg = _with_suffix(morphology_zoom_pdf, ".svg")
+    if write_morphology_zoom_pdf and ((not morphology_zoom_pdf.exists()) or force_restart):
         try:
             fig = plt.figure(figsize=(8, 6))
             ax = fig.add_subplot(111)
@@ -566,25 +1242,31 @@ def write_unit_reconstruction_pdfs(
             ax.set_aspect("equal", adjustable="box")
             ax.set_xlabel("x")
             ax.set_ylabel("y")
-            _save_fig_pdf_and_png(fig=fig, pdf_path=morphology_zoom_pdf, png_path=morphology_zoom_png, dpi=DPI_STD)
+            _save_fig_pdf_and_png(
+                fig=fig,
+                pdf_path=morphology_zoom_pdf,
+                png_path=morphology_zoom_png,
+                dpi=DPI_STD,
+                write_png=bool(write_morphology_zoom_png),
+                write_svg=bool(write_morphology_zoom_svg),
+                svg_path=morphology_zoom_svg,
+            )
             plt.close(fig)
         except Exception as e:
             logger.warning("Zoom morphology plotting failed for unit %s: %s", uid, e)
 
-    if morphology_zoom_pdf.exists():
+    if write_morphology_zoom_pdf and morphology_zoom_pdf.exists():
         outputs["morphology_zoom_pdf"] = str(morphology_zoom_pdf)
-    if morphology_zoom_png.exists():
+    if write_morphology_zoom_png and morphology_zoom_png.exists():
         outputs["morphology_zoom_png"] = str(morphology_zoom_png)
-
-    heuristics_dir = Path(layout["heuristics"])
+    if write_morphology_zoom_svg and morphology_zoom_svg.exists():
+        outputs["morphology_zoom_svg"] = str(morphology_zoom_svg)
 
     # Raw + clean branches (axon_velocity built-in). This explicitly shows pre/post clean_paths.
-    branches_raw_dir = Path(layout["branches_raw"])
-    branches_clean_dir = Path(layout["branches_clean"])
-
-    branches_pdf = branches_raw_dir / "branches_raw_clean.pdf"
+    branches_pdf = _unit_output_path(branches_raw_clean_pdf_relpath)
     branches_png = _with_suffix(branches_pdf, ".png")
-    if (not branches_pdf.exists()) or force_restart:
+    branches_svg = _with_suffix(branches_pdf, ".svg")
+    if write_branches_raw_clean_pdf and ((not branches_pdf.exists()) or force_restart):
         try:
             # Custom two-panel plot with zoom for visibility.
             fig = plt.figure(figsize=(14, 6.5))
@@ -612,21 +1294,32 @@ def write_unit_reconstruction_pdfs(
                     ax.set_ylim(ymin, ymax)
                     ax.set_aspect("equal", adjustable="box")
             _force_white_background(fig)
-            _save_fig_pdf_and_png(fig=fig, pdf_path=branches_pdf, png_path=branches_png, dpi=DPI_STD)
+            _save_fig_pdf_and_png(
+                fig=fig,
+                pdf_path=branches_pdf,
+                png_path=branches_png,
+                dpi=DPI_STD,
+                write_png=bool(write_branches_raw_clean_png),
+                write_svg=bool(write_branches_raw_clean_svg),
+                svg_path=branches_svg,
+            )
             plt.close(fig)
         except Exception as e:
             logger.warning("Branches (raw+clean) plotting failed for unit %s: %s", uid, e)
 
-    if branches_pdf.exists():
+    if write_branches_raw_clean_pdf and branches_pdf.exists():
         outputs["branches_raw_clean_pdf"] = str(branches_pdf)
-    if branches_png.exists():
+    if write_branches_raw_clean_png and branches_png.exists():
         outputs["branches_raw_clean_png"] = str(branches_png)
+    if write_branches_raw_clean_svg and branches_svg.exists():
+        outputs["branches_raw_clean_svg"] = str(branches_svg)
 
     # Raw branches only (axon_velocity built-in). This is useful when you want to see
     # everything before clean_paths duplicate-removal.
-    raw_branches_pdf = branches_raw_dir / "branches_raw.pdf"
+    raw_branches_pdf = _unit_output_path(branches_raw_pdf_relpath)
     raw_branches_png = _with_suffix(raw_branches_pdf, ".png")
-    if (not raw_branches_pdf.exists()) or force_restart:
+    raw_branches_svg = _with_suffix(raw_branches_pdf, ".svg")
+    if write_branches_raw_pdf and ((not raw_branches_pdf.exists()) or force_restart):
         try:
             plot_fn = getattr(gtr, "plot_raw_branches", None)
             if callable(plot_fn):
@@ -636,20 +1329,31 @@ def write_unit_reconstruction_pdfs(
                     _ = plot_fn(plot_full_template=True, ax=ax)
                 _minimal_axes(ax)
                 _force_white_background(fig)
-                _save_fig_pdf_and_png(fig=fig, pdf_path=raw_branches_pdf, png_path=raw_branches_png, dpi=DPI_STD)
+                _save_fig_pdf_and_png(
+                    fig=fig,
+                    pdf_path=raw_branches_pdf,
+                    png_path=raw_branches_png,
+                    dpi=DPI_STD,
+                    write_png=bool(write_branches_raw_png),
+                    write_svg=bool(write_branches_raw_svg),
+                    svg_path=raw_branches_svg,
+                )
                 plt.close(fig)
         except Exception as e:
             logger.warning("Raw branches plotting failed for unit %s: %s", uid, e)
 
-    if raw_branches_pdf.exists():
+    if write_branches_raw_pdf and raw_branches_pdf.exists():
         outputs["branches_raw_pdf"] = str(raw_branches_pdf)
-    if raw_branches_png.exists():
+    if write_branches_raw_png and raw_branches_png.exists():
         outputs["branches_raw_png"] = str(raw_branches_png)
+    if write_branches_raw_svg and raw_branches_svg.exists():
+        outputs["branches_raw_svg"] = str(raw_branches_svg)
 
     # Zoomed raw branches (use raw path channels to compute limits).
-    raw_branches_zoom_pdf = branches_raw_dir / "branches_raw_zoom.pdf"
+    raw_branches_zoom_pdf = _unit_output_path(branches_raw_zoom_pdf_relpath)
     raw_branches_zoom_png = _with_suffix(raw_branches_zoom_pdf, ".png")
-    if (not raw_branches_zoom_pdf.exists()) or force_restart:
+    raw_branches_zoom_svg = _with_suffix(raw_branches_zoom_pdf, ".svg")
+    if write_branches_raw_zoom_pdf and ((not raw_branches_zoom_pdf.exists()) or force_restart):
         try:
             plot_fn = getattr(gtr, "plot_raw_branches", None)
             paths_raw = getattr(gtr, "_paths_raw", None)
@@ -669,20 +1373,31 @@ def write_unit_reconstruction_pdfs(
                 ax.set_ylim(ymin, ymax)
                 _minimal_axes(ax)
                 _force_white_background(fig)
-                _save_fig_pdf_and_png(fig=fig, pdf_path=raw_branches_zoom_pdf, png_path=raw_branches_zoom_png, dpi=DPI_STD)
+                _save_fig_pdf_and_png(
+                    fig=fig,
+                    pdf_path=raw_branches_zoom_pdf,
+                    png_path=raw_branches_zoom_png,
+                    dpi=DPI_STD,
+                    write_png=bool(write_branches_raw_zoom_png),
+                    write_svg=bool(write_branches_raw_zoom_svg),
+                    svg_path=raw_branches_zoom_svg,
+                )
                 plt.close(fig)
         except Exception as e:
             logger.warning("Raw branches zoom plotting failed for unit %s: %s", uid, e)
 
-    if raw_branches_zoom_pdf.exists():
+    if write_branches_raw_zoom_pdf and raw_branches_zoom_pdf.exists():
         outputs["branches_raw_zoom_pdf"] = str(raw_branches_zoom_pdf)
-    if raw_branches_zoom_png.exists():
+    if write_branches_raw_zoom_png and raw_branches_zoom_png.exists():
         outputs["branches_raw_zoom_png"] = str(raw_branches_zoom_png)
+    if write_branches_raw_zoom_svg and raw_branches_zoom_svg.exists():
+        outputs["branches_raw_zoom_svg"] = str(raw_branches_zoom_svg)
 
     # Clean branches (axon_velocity built-in). This shows post-clean_paths results.
-    clean_branches_pdf = branches_clean_dir / "branches_clean.pdf"
+    clean_branches_pdf = _unit_output_path(branches_clean_pdf_relpath)
     clean_branches_png = _with_suffix(clean_branches_pdf, ".png")
-    if (not clean_branches_pdf.exists()) or force_restart:
+    clean_branches_svg = _with_suffix(clean_branches_pdf, ".svg")
+    if write_branches_clean_pdf and ((not clean_branches_pdf.exists()) or force_restart):
         try:
             plot_fn = getattr(gtr, "plot_clean_branches", None)
             if callable(plot_fn):
@@ -691,20 +1406,31 @@ def write_unit_reconstruction_pdfs(
                 with plt.rc_context(_white_bg_rc_params()):
                     _ = plot_fn(plot_full_template=True, ax=ax)
                 _force_white_background(fig)
-                _save_fig_pdf_and_png(fig=fig, pdf_path=clean_branches_pdf, png_path=clean_branches_png, dpi=DPI_STD)
+                _save_fig_pdf_and_png(
+                    fig=fig,
+                    pdf_path=clean_branches_pdf,
+                    png_path=clean_branches_png,
+                    dpi=DPI_STD,
+                    write_png=bool(write_branches_clean_png),
+                    write_svg=bool(write_branches_clean_svg),
+                    svg_path=clean_branches_svg,
+                )
                 plt.close(fig)
         except Exception as e:
             logger.warning("Clean branches plotting failed for unit %s: %s", uid, e)
 
-    if clean_branches_pdf.exists():
+    if write_branches_clean_pdf and clean_branches_pdf.exists():
         outputs["branches_clean_pdf"] = str(clean_branches_pdf)
-    if clean_branches_png.exists():
+    if write_branches_clean_png and clean_branches_png.exists():
         outputs["branches_clean_png"] = str(clean_branches_png)
+    if write_branches_clean_svg and clean_branches_svg.exists():
+        outputs["branches_clean_svg"] = str(clean_branches_svg)
 
     # Zoomed clean branches (use clean branch channel lists to compute limits).
-    clean_branches_zoom_pdf = branches_clean_dir / "branches_clean_zoom.pdf"
+    clean_branches_zoom_pdf = _unit_output_path(branches_clean_zoom_pdf_relpath)
     clean_branches_zoom_png = _with_suffix(clean_branches_zoom_pdf, ".png")
-    if (not clean_branches_zoom_pdf.exists()) or force_restart:
+    clean_branches_zoom_svg = _with_suffix(clean_branches_zoom_pdf, ".svg")
+    if write_branches_clean_zoom_pdf and ((not clean_branches_zoom_pdf.exists()) or force_restart):
         try:
             plot_fn = getattr(gtr, "plot_clean_branches", None)
             clean_xy_points: list[list[float]] = []
@@ -726,21 +1452,32 @@ def write_unit_reconstruction_pdfs(
                 ax.set_xlim(xmin, xmax)
                 ax.set_ylim(ymin, ymax)
                 _force_white_background(fig)
-                _save_fig_pdf_and_png(fig=fig, pdf_path=clean_branches_zoom_pdf, png_path=clean_branches_zoom_png, dpi=DPI_STD)
+                _save_fig_pdf_and_png(
+                    fig=fig,
+                    pdf_path=clean_branches_zoom_pdf,
+                    png_path=clean_branches_zoom_png,
+                    dpi=DPI_STD,
+                    write_png=bool(write_branches_clean_zoom_png),
+                    write_svg=bool(write_branches_clean_zoom_svg),
+                    svg_path=clean_branches_zoom_svg,
+                )
                 plt.close(fig)
         except Exception as e:
             logger.warning("Clean branches zoom plotting failed for unit %s: %s", uid, e)
 
-    if clean_branches_zoom_pdf.exists():
+    if write_branches_clean_zoom_pdf and clean_branches_zoom_pdf.exists():
         outputs["branches_clean_zoom_pdf"] = str(clean_branches_zoom_pdf)
-    if clean_branches_zoom_png.exists():
+    if write_branches_clean_zoom_png and clean_branches_zoom_png.exists():
         outputs["branches_clean_zoom_png"] = str(clean_branches_zoom_png)
+    if write_branches_clean_zoom_svg and clean_branches_zoom_svg.exists():
+        outputs["branches_clean_zoom_svg"] = str(clean_branches_zoom_svg)
 
     # axon_velocity built-in branch velocities plot.
     # Clean branch velocities (for analysis panel).
-    velocities_pdf = branches_clean_dir / "branch_velocities.pdf"
+    velocities_pdf = _unit_output_path(branch_velocities_pdf_relpath)
     velocities_png = _with_suffix(velocities_pdf, ".png")
-    if (not velocities_pdf.exists()) or force_restart:
+    velocities_svg = _with_suffix(velocities_pdf, ".svg")
+    if write_branch_velocities_pdf and ((not velocities_pdf.exists()) or force_restart):
         try:
             plot_fn = getattr(gtr, "plot_velocities", None)
             if callable(plot_fn):
@@ -748,20 +1485,31 @@ def write_unit_reconstruction_pdfs(
                     fig = plot_fn()
                 _force_white_background(fig)
                 _recolor_noncolormapped_artists(fig)
-                _save_fig_pdf_and_png(fig=fig, pdf_path=velocities_pdf, png_path=velocities_png, dpi=DPI_STD)
+                _save_fig_pdf_and_png(
+                    fig=fig,
+                    pdf_path=velocities_pdf,
+                    png_path=velocities_png,
+                    dpi=DPI_STD,
+                    write_png=bool(write_branch_velocities_png),
+                    write_svg=bool(write_branch_velocities_svg),
+                    svg_path=velocities_svg,
+                )
                 plt.close(fig)
         except Exception as e:
             logger.warning("Branch velocities plotting failed for unit %s: %s", uid, e)
 
-    if velocities_pdf.exists():
+    if write_branch_velocities_pdf and velocities_pdf.exists():
         outputs["branch_velocities_pdf"] = str(velocities_pdf)
-    if velocities_png.exists():
+    if write_branch_velocities_png and velocities_png.exists():
         outputs["branch_velocities_png"] = str(velocities_png)
+    if write_branch_velocities_svg and velocities_svg.exists():
+        outputs["branch_velocities_svg"] = str(velocities_svg)
 
     # Raw velocity plot (separate) under branches/raw.
-    raw_vel_pdf = branches_raw_dir / "branch_velocities_overlay.pdf"
+    raw_vel_pdf = _unit_output_path(branch_velocities_raw_overlay_pdf_relpath)
     raw_vel_png = _with_suffix(raw_vel_pdf, ".png")
-    if (not raw_vel_pdf.exists()) or force_restart:
+    raw_vel_svg = _with_suffix(raw_vel_pdf, ".svg")
+    if write_branch_velocities_raw_overlay_pdf and ((not raw_vel_pdf.exists()) or force_restart):
         try:
             with plt.rc_context(_white_bg_rc_params()):
                 # Thinner + taller so it fills the narrow analysis slot.
@@ -769,22 +1517,30 @@ def write_unit_reconstruction_pdfs(
                 ax = fig.add_subplot(111)
                 _plot_raw_branch_velocities(uid=uid, gtr=gtr, ax=ax, logger=logger)
                 _force_white_background(fig)
-                _save_fig_pdf_and_png(fig=fig, pdf_path=raw_vel_pdf, png_path=raw_vel_png, dpi=DPI_STD)
+                _save_fig_pdf_and_png(
+                    fig=fig,
+                    pdf_path=raw_vel_pdf,
+                    png_path=raw_vel_png,
+                    dpi=DPI_STD,
+                    write_png=bool(write_branch_velocities_raw_overlay_png),
+                    write_svg=bool(write_branch_velocities_raw_overlay_svg),
+                    svg_path=raw_vel_svg,
+                )
                 plt.close(fig)
         except Exception as e:
             logger.warning("Raw branch velocities plotting failed for unit %s: %s", uid, e)
 
-    if raw_vel_pdf.exists():
+    if write_branch_velocities_raw_overlay_pdf and raw_vel_pdf.exists():
         outputs["branch_velocities_raw_overlay_pdf"] = str(raw_vel_pdf)
-    if raw_vel_png.exists():
+    if write_branch_velocities_raw_overlay_png and raw_vel_png.exists():
         outputs["branch_velocities_raw_overlay_png"] = str(raw_vel_png)
+    if write_branch_velocities_raw_overlay_svg and raw_vel_svg.exists():
+        outputs["branch_velocities_raw_overlay_svg"] = str(raw_vel_svg)
 
-    per_branch_dir = branches_clean_dir
-    per_branch_dir.mkdir(parents=True, exist_ok=True)
-
-    overlay_pdf = per_branch_dir / "branch_velocities_overlay.pdf"
+    overlay_pdf = _unit_output_path(branch_velocities_overlay_pdf_relpath)
     overlay_png = _with_suffix(overlay_pdf, ".png")
-    if (not overlay_pdf.exists()) or force_restart:
+    overlay_svg = _with_suffix(overlay_pdf, ".svg")
+    if write_branch_velocities_overlay_pdf and ((not overlay_pdf.exists()) or force_restart):
         try:
             branches_for_plot = _as_list(getattr(gtr, "branches", None))
             if branches_for_plot:
@@ -827,19 +1583,35 @@ def write_unit_reconstruction_pdfs(
                     except Exception:
                         pass
                     ax.legend(loc="best", fontsize=8, frameon=False, ncol=2)
-                    _save_fig_pdf_and_png(fig=fig, pdf_path=overlay_pdf, png_path=overlay_png, dpi=DPI_STD)
+                    _save_fig_pdf_and_png(
+                        fig=fig,
+                        pdf_path=overlay_pdf,
+                        png_path=overlay_png,
+                        dpi=DPI_STD,
+                        write_png=bool(write_branch_velocities_overlay_png),
+                        write_svg=bool(write_branch_velocities_overlay_svg),
+                        svg_path=overlay_svg,
+                    )
                 plt.close(fig)
         except Exception as e:
             logger.warning("Overlay velocity plotting failed for unit %s: %s", uid, e)
 
-    if overlay_pdf.exists():
+    if write_branch_velocities_overlay_pdf and overlay_pdf.exists():
         outputs["branch_velocities_overlay_pdf"] = str(overlay_pdf)
-    if overlay_png.exists():
+    if write_branch_velocities_overlay_png and overlay_png.exists():
         outputs["branch_velocities_overlay_png"] = str(overlay_png)
+    if write_branch_velocities_overlay_svg and overlay_svg.exists():
+        outputs["branch_velocities_overlay_svg"] = str(overlay_svg)
 
     for bi, br in enumerate(_as_list(getattr(gtr, "branches", None))):
-        br_pdf = per_branch_dir / f"branch_{bi:02d}_velocity.pdf"
+        if not write_branch_velocity_template:
+            continue
+        br_base = _unit_output_path(str(branch_velocity_template_relpath).format(index=int(bi)))
+        if br_base.suffix:
+            br_base = br_base.with_suffix("")
+        br_pdf = br_base.with_suffix(".pdf")
         br_png = _with_suffix(br_pdf, ".png")
+        br_svg = _with_suffix(br_pdf, ".svg")
         if br_pdf.exists() and (not force_restart):
             continue
         try:
@@ -881,17 +1653,27 @@ def write_unit_reconstruction_pdfs(
                 pass
             ax.set_title("  ".join(title_bits))
 
-            _save_fig_pdf_and_png(fig=fig, pdf_path=br_pdf, png_path=br_png, dpi=DPI_STD)
+            _save_fig_pdf_and_png(
+                fig=fig,
+                pdf_path=br_pdf,
+                png_path=br_png,
+                dpi=DPI_STD,
+                write_png=bool(write_branch_velocity_template_png),
+                write_svg=bool(write_branch_velocity_template_svg),
+                svg_path=br_svg,
+            )
             plt.close(fig)
         except Exception:
             continue
 
         if br_pdf.exists():
             outputs[f"branch_{bi:02d}_velocity_pdf"] = str(br_pdf)
-        if br_png.exists():
+        if write_branch_velocity_template_png and br_png.exists():
             outputs[f"branch_{bi:02d}_velocity_png"] = str(br_png)
+        if write_branch_velocity_template_svg and br_svg.exists():
+            outputs[f"branch_{bi:02d}_velocity_svg"] = str(br_svg)
 
-    if write_template_movie_gif and ((not template_movie_gif.exists()) or force_restart) and (template is not None):
+    if write_template_movie and write_template_movie_gif and ((not template_movie_gif.exists()) or force_restart) and (template is not None):
         try:
             from axon_velocity.plotting import play_template_map as av_play_template_map  # type: ignore[import-not-found]
             from matplotlib.animation import PillowWriter
@@ -1110,7 +1892,7 @@ def write_unit_reconstruction_pdfs(
         except Exception as e:
             logger.warning("Template animation failed for unit %s: %s", uid, e)
 
-    if template_movie_gif.exists():
+    if write_template_movie and template_movie_gif.exists():
         outputs["template_movie_gif"] = str(template_movie_gif)
 
     # Summary plots: one for clean branches + one for raw paths.
@@ -1133,7 +1915,7 @@ def write_unit_reconstruction_pdfs(
     except Exception:
         branches_raw = []
 
-    if (force_restart or (not summary_clean_png.exists())) and branches_clean:
+    if write_summary_clean and (force_restart or (not summary_clean_png.exists())) and branches_clean:
         try:
             with plt.rc_context(_white_bg_rc_params()):
                 fig = _plot_summary_from_parts(
@@ -1145,12 +1927,19 @@ def write_unit_reconstruction_pdfs(
                     title_suffix=" (clean)",
                 )
             _force_white_background(fig)
-            _save_fig_png(fig=fig, png_path=summary_clean_png, dpi=DPI_HI)
+            _save_fig_png(
+                fig=fig,
+                png_path=summary_clean_png,
+                dpi=DPI_HI,
+                write_png=bool(write_summary_clean_png),
+                write_svg=bool(write_summary_clean_svg),
+                svg_path=summary_clean_svg,
+            )
             plt.close(fig)
         except Exception as e:
             logger.warning("Clean summary plotting failed for unit %s: %s", uid, e)
 
-    if (force_restart or (not summary_raw_png.exists())):
+    if write_summary_raw and (force_restart or (not summary_raw_png.exists())):
         try:
             # Do not fall back: only write raw summary if raw branches exist.
             if not branches_raw:
@@ -1169,30 +1958,39 @@ def write_unit_reconstruction_pdfs(
                         title_suffix=" (raw)",
                     )
                 _force_white_background(fig)
-                _save_fig_png(fig=fig, png_path=summary_raw_png, dpi=DPI_HI)
+                _save_fig_png(
+                    fig=fig,
+                    png_path=summary_raw_png,
+                    dpi=DPI_HI,
+                    write_png=bool(write_summary_raw_png),
+                    write_svg=bool(write_summary_raw_svg),
+                    svg_path=summary_raw_svg,
+                )
                 plt.close(fig)
         except Exception as e:
             logger.warning("Raw summary plotting failed for unit %s: %s", uid, e)
 
     # Back-compat: keep summary.png as clean summary.
     try:
-        if summary_clean_png.exists() and (force_restart or (not summary_png.exists())):
+        if write_summary and summary_clean_png.exists() and (force_restart or (not summary_png.exists())):
             import shutil
 
             shutil.copyfile(summary_clean_png, summary_png)
+            if write_summary_svg and summary_clean_svg.exists():
+                shutil.copyfile(summary_clean_svg, summary_svg)
     except Exception:
         pass
 
-    for p, k in [
-        (summary_clean_png, "summary_clean_png"),
-        (summary_raw_png, "summary_raw_png"),
-        (summary_png, "summary_png"),
+    for p, k, enabled in [
+        (summary_clean_png, "summary_clean_png", bool(write_summary_clean_png)),
+        (summary_raw_png, "summary_raw_png", bool(write_summary_raw_png)),
+        (summary_png, "summary_png", bool(write_summary_png)),
+        (summary_clean_svg, "summary_clean_svg", bool(write_summary_clean_svg)),
+        (summary_raw_svg, "summary_raw_svg", bool(write_summary_raw_svg)),
+        (summary_svg, "summary_svg", bool(write_summary_svg)),
     ]:
-        if p.exists():
+        if enabled and p.exists():
             outputs[k] = str(p)
-            svg = p.with_suffix(".svg")
-            if svg.exists():
-                outputs[k.replace("_png", "_svg")] = str(svg)
 
     return outputs
 

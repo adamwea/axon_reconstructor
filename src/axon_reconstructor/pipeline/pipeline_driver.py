@@ -24,7 +24,7 @@ STAGE_CHOICES = ("preprocess", "spikesort", "waveforms", "templates", "reconstru
 
 
 def add_stage_selector_arg(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("stage", choices=STAGE_CHOICES)
+    parser.add_argument("stage", choices=(*STAGE_CHOICES, "all"))
 
 
 def add_stage_common_required_args(parser: argparse.ArgumentParser) -> None:
@@ -49,7 +49,6 @@ def add_stage_common_required_args(parser: argparse.ArgumentParser) -> None:
 
 
 def add_stage_spikesort_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--mea-analysis-repo-root", default=None, help="Required for spikesort stage")
     parser.add_argument("--sorter", default="kilosort4")
     parser.add_argument("--docker-image", default=None)
     parser.add_argument("--chunk-duration", default=None)
@@ -151,6 +150,30 @@ def add_stage_execution_args(parser: argparse.ArgumentParser) -> None:
 
 
 def add_stage_reconstruct_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--unit-id",
+        type=int,
+        default=None,
+        help="Reconstruct/replot only a single unit id (reconstruct stage convenience).",
+    )
+    parser.add_argument(
+        "--force-restart-per-unit",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Force per-unit recomputation for selected unit_ids by bypassing per-unit completed checkpoints; "
+            "does not imply full stage restart."
+        ),
+    )
+    parser.add_argument(
+        "--force-replot-per-unit",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Force per-unit plot rewrite while preserving reconstruction JSON branch/heuristic artifacts; "
+            "also disables top-density grid for this run."
+        ),
+    )
     parser.add_argument(
         "--recon-templates-variant-name",
         type=str,
@@ -263,7 +286,6 @@ class StageExecutionContext:
     sorter: str = "kilosort4"
     docker_image: Optional[str] = None
     chunk_duration: Optional[str] = None
-    mea_analysis_repo_root: Optional[Path] = None
     verbose: bool = False
 
 
@@ -297,14 +319,10 @@ def execute_stage(
         return StageExecutionResult(stage=stage, artifacts={"n_common_electrodes": int(len(common_el))})
 
     if stage == "spikesort":
-        if context.mea_analysis_repo_root is None:
-            raise RuntimeError("spikesort stage requires mea_analysis_repo_root")
-
         spikesort_fields = {
             "h5_path": context.h5_path,
             "stream_id": context.stream_id,
             "mea_output_root": context.mea_output_root,
-            "mea_analysis_repo_root": context.mea_analysis_repo_root,
             "sorter": context.sorter,
             "docker_image": context.docker_image,
             "force_restart": bool(context.force_restart),
@@ -360,9 +378,11 @@ def execute_stage(
             "h5_path": context.h5_path,
             "stream_id": context.stream_id,
             "mea_output_root": context.mea_output_root,
+            "n_jobs": int(context.n_jobs),
             "force_restart": bool(context.force_restart),
         }
         recon_fields.update(kwargs)
+
         out = reconstruct_from_templates(inputs=ReconstructionInputs(**recon_fields))
         return StageExecutionResult(
             stage=stage,
@@ -470,7 +490,6 @@ def _run_single_stage_target(*, stage: str, config: ScopeConfig, target: ScopeTa
         sorter=config.sorter,
         docker_image=config.docker_image,
         chunk_duration=config.chunk_duration,
-        mea_analysis_repo_root=config.mea_analysis_repo_root,
         verbose=True,
     )
     result = execute_stage(

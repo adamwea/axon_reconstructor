@@ -19,11 +19,6 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
         else bool(getattr(args, "verbose"))
     )
 
-    mea_analysis_repo_root = (
-        Path(args.mea_analysis_repo_root)
-        if args.mea_analysis_repo_root is not None
-        else env.env_required_path("AXON_RECON_MEA_ANALYSIS_REPO_ROOT")
-    )
     h5_path = Path(args.h5_path) if args.h5_path is not None else env.env_required_path("AXON_RECON_H5_PATH")
     stream_id = str(args.stream_id) if args.stream_id is not None else env.env_required_str("AXON_RECON_STREAM_ID")
     mea_output_root = (
@@ -134,7 +129,6 @@ def build_spikesorting_debug_config(*, args: Any, env: Any) -> SpikesortingDebug
         h5_path=h5_path,
         stream_id=stream_id,
         mea_output_root=mea_output_root,
-        mea_analysis_repo_root=mea_analysis_repo_root,
         sorter=sorter,
         docker_image=docker_image,
         force_restart=force_restart,

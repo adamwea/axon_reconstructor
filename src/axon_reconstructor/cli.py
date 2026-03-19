@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import logging
 import os
@@ -338,6 +339,45 @@ def _clamp_worker_count(*, value: int, label: str, stage: str, logger: logging.L
     return int(value)
 
 
+def _resolve_runtime_max_workers(
+    *,
+    cfg: RuntimeConfig,
+    cli_value: int | None,
+    logger: logging.Logger,
+) -> int:
+    if cli_value is not None:
+        out = int(cli_value)
+    else:
+        cfg_value = _first_cfg_int(cfg, ["resources.max_workers", "resources.n_jobs"])
+        if cfg_value is not None:
+            out = int(cfg_value)
+        else:
+            env_value = env_utils.env_int("AXON_RECON_MAX_WORKERS", default=None)
+            if env_value is None:
+                env_value = env_utils.env_int("AXON_RECON_N_JOBS", default=None)
+            out = int(env_value) if env_value is not None else 8
+
+    if int(out) < 1:
+        raise SystemExit(f"Invalid resources.max_workers: {out}. Expected >= 1.")
+
+    logical_cores = _logical_cores()
+    if int(out) > int(logical_cores):
+        raise SystemExit(
+            "Invalid resources.max_workers: "
+            f"{int(out)} exceeds available logical cores ({int(logical_cores)})."
+        )
+
+    warn_threshold = max(1.0, 0.75 * float(logical_cores))
+    if float(out) >= warn_threshold:
+        logger.warning(
+            "resources.max_workers=%d is >= 75%% of logical cores (%d). High utilization may increase contention.",
+            int(out),
+            int(logical_cores),
+        )
+
+    return int(out)
+
+
 def _resolve_stage_resource_int(
     *,
     cfg: RuntimeConfig,
@@ -394,6 +434,74 @@ def _resolve_stage_resource_str(
     return default
 
 
+def _discover_runtime_config_path(*, args: argparse.Namespace) -> Path | None:
+    explicit = getattr(args, "config", None)
+    if explicit is not None:
+        return Path(explicit).expanduser().resolve()
+
+    env_file = getattr(args, "env_file", None)
+    candidates: list[Path] = []
+    if env_file is not None:
+        env_path = Path(env_file).expanduser().resolve()
+        candidates.append(env_path.with_name("debug.runtime.yml"))
+        candidates.append(env_path.with_name("debug.runtime.yaml"))
+        candidates.append(env_path.with_name("debug.config.yml"))
+        candidates.append(env_path.with_name("debug.config.yaml"))
+    candidates.append(Path("tools/debug/debug.runtime.yml").expanduser().resolve())
+    candidates.append(Path("tools/debug/debug.runtime.yaml").expanduser().resolve())
+    candidates.append(Path("tools/debug/debug.config.yml").expanduser().resolve())
+    candidates.append(Path("tools/debug/debug.config.yaml").expanduser().resolve())
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
+
+def _resolve_mea_python_cmd(*, args: argparse.Namespace, logger: logging.Logger) -> list[str]:
+    config_path = _discover_runtime_config_path(args=args)
+    if config_path is None:
+        return ["python3"]
+
+    try:
+        cfg = RuntimeConfig.load(config_path)
+    except Exception as e:
+        logger.warning("Failed to load runtime config at %s; using python3 (%s)", str(config_path), str(e))
+        return ["python3"]
+
+    executable_token = cfg.get_str("env.python.executable_path", default=None)
+    if executable_token:
+        expanded = os.path.expandvars(str(executable_token))
+        executable_path = Path(expanded).expanduser()
+        if executable_path.exists() and executable_path.is_file():
+            return [str(executable_path.resolve())]
+        logger.warning(
+            "Configured env.python.executable_path not found at %s; falling back to conda env/python3",
+            str(executable_path),
+        )
+
+    conda_env_name = cfg.get_str("env.python.conda_env_name", default=None)
+    if conda_env_name:
+        return ["conda", "run", "-n", str(conda_env_name), "python"]
+
+    return ["python3"]
+
+
+def _insert_python_unbuffered_flag(argv: list[str]) -> list[str]:
+    py_idx = -1
+    for i, token in enumerate(argv):
+        if "python" in str(token).strip().lower():
+            py_idx = i
+            break
+
+    if py_idx < 0:
+        return list(argv)
+
+    if py_idx + 1 < len(argv) and str(argv[py_idx + 1]).strip() == "-u":
+        return list(argv)
+
+    return [*argv[: py_idx + 1], "-u", *argv[py_idx + 1 :]]
+
+
 def _cmd_analysis_deck(args: argparse.Namespace) -> int:
     _load_explicit_env_file(args=args)
     from axon_reconstructor.pipeline.analysis.analysis_deck import run_with_args
@@ -414,11 +522,6 @@ def _add_mea_common_flags(parser: argparse.ArgumentParser) -> None:
         help="Output root used by MEA_Analysis (this is what axon_reconstructor will read from).",
     )
     parser.add_argument(
-        "--mea-analysis-repo-root",
-        default=None,
-        help="Path to the MEA_Analysis repo root (needed to build an executable driver command).",
-    )
-    parser.add_argument(
         "--sorter",
         default="kilosort4",
         help="Sorter name passed to MEA_Analysis (default: kilosort4).",
@@ -426,11 +529,10 @@ def _add_mea_common_flags(parser: argparse.ArgumentParser) -> None:
 
 
 def _cmd_mea_sort_cmd(args: argparse.Namespace) -> int:
+    _load_explicit_env_file(args=args)
     from axon_reconstructor.integrations.mea_analysis import MEAAnalysisRunSpec, build_run_pipeline_driver_cmd
 
-    repo_root = args.mea_analysis_repo_root
-    if repo_root is None:
-        raise SystemExit("--mea-analysis-repo-root is required to print a runnable command")
+    logger = logging.getLogger("axon_reconstructor.mea_sort_cmd")
 
     docker = None
     if args.mea_environment == "lab":
@@ -443,9 +545,9 @@ def _cmd_mea_sort_cmd(args: argparse.Namespace) -> int:
         scratch_dir = os.environ.get("SLURM_TMPDIR")
 
     spec = MEAAnalysisRunSpec(
-        mea_analysis_repo_root=Path(repo_root),
         path=Path(args.data_path),
         output_dir=Path(args.mea_output_root),
+        python_cmd=_resolve_mea_python_cmd(args=args, logger=logger),
         sorter=args.sorter,
         docker=docker,
         cuda_visible_devices=args.cuda_visible_devices,
@@ -496,7 +598,11 @@ def _cmd_gpu_interact(args: argparse.Namespace) -> int:
     Intentionally avoids smoke-test debug knobs (no --debug, no DEBUG console env).
     """
 
+    _load_explicit_env_file(args=args)
+
     from axon_reconstructor.integrations.mea_analysis import MEAAnalysisRunSpec, build_run_pipeline_driver_cmd
+
+    logger = logging.getLogger("axon_reconstructor.gpu_interact")
 
     defaults = _gpu_interact_defaults()
 
@@ -505,10 +611,6 @@ def _cmd_gpu_interact(args: argparse.Namespace) -> int:
         raise SystemExit(
             "--account is required (or set env GPU_SMOKE_SALLOC_ACCOUNT)."
         )
-
-    mea_repo_root = args.mea_analysis_repo_root
-    if mea_repo_root is None:
-        raise SystemExit("--mea-analysis-repo-root is required")
 
     shifter_image = args.shifter_image or os.environ.get("SHIFTER_IMAGE")
     if not shifter_image:
@@ -525,9 +627,9 @@ def _cmd_gpu_interact(args: argparse.Namespace) -> int:
 
     # Build a base driver argv (no scratch here; scratch is optionally injected on the compute node).
     spec = MEAAnalysisRunSpec(
-        mea_analysis_repo_root=Path(mea_repo_root).expanduser().resolve(),
         path=data_path,
         output_dir=output_root,
+        python_cmd=_resolve_mea_python_cmd(args=args, logger=logger),
         sorter=args.sorter,
         require_gpu=True,
         cuda_visible_devices=cuda_visible_devices,
@@ -539,17 +641,13 @@ def _cmd_gpu_interact(args: argparse.Namespace) -> int:
     )
     driver_argv = build_run_pipeline_driver_cmd(spec)
 
-    # The driver argv starts with python3 + absolute driver path. We want to run inside the container
-    # with unbuffered stdout like the smoke tests.
-    # Example: python3 -u /path/to/run_pipeline_driver.py ...
-    if len(driver_argv) >= 2 and driver_argv[0] == "python3":
-        driver_argv = ["python3", "-u", *driver_argv[1:]]
+    # Run with unbuffered stdout like the smoke tests.
+    driver_argv = _insert_python_unbuffered_flag(driver_argv)
 
     # Inside the compute node + container, optionally use SLURM_TMPDIR as scratch.
     driver_cmd_str = " ".join(shlex.quote(x) for x in driver_argv)
     container_script = (
         "set -euo pipefail\n"
-        f"cd {shlex.quote(str(Path(mea_repo_root).expanduser().resolve()))}\n"
         "SCRATCH_DIR=\"${SLURM_TMPDIR:-}\"\n"
         "CMD=(" + driver_cmd_str + ")\n"
         "if [[ -n \"$SCRATCH_DIR\" ]]; then\n"
@@ -623,25 +721,159 @@ def _load_stage_kwargs(args: argparse.Namespace) -> dict:
 def _cmd_stage(args: argparse.Namespace) -> int:
     _load_explicit_env_file(args=args)
     config_path = getattr(args, "config", None)
+    selected_by_default_discovery = False
+    stage_logger = logging.getLogger("axon_reconstructor.stage")
     if config_path is None:
         env_file = getattr(args, "env_file", None)
         candidates: list[Path] = []
         if env_file is not None:
+            candidates.append(Path(env_file).expanduser().resolve().with_name("debug.runtime.yml"))
+            candidates.append(Path(env_file).expanduser().resolve().with_name("debug.runtime.yaml"))
             candidates.append(Path(env_file).expanduser().resolve().with_name("debug.config.yml"))
             candidates.append(Path(env_file).expanduser().resolve().with_name("debug.config.yaml"))
+        candidates.append(Path("tools/debug/debug.runtime.yml").expanduser().resolve())
+        candidates.append(Path("tools/debug/debug.runtime.yaml").expanduser().resolve())
         candidates.append(Path("tools/debug/debug.config.yml").expanduser().resolve())
         candidates.append(Path("tools/debug/debug.config.yaml").expanduser().resolve())
         for candidate in candidates:
             if candidate.exists() and candidate.is_file():
                 config_path = candidate
+                selected_by_default_discovery = True
                 break
 
-    runtime_config = RuntimeConfig.load(config_path)
-    stage_logger = logging.getLogger("axon_reconstructor.stage")
+    merge_paths: list[Path] = []
+    runtime_config: RuntimeConfig
+    if config_path is not None:
+        config_path_resolved = Path(config_path).expanduser().resolve()
+        merge_paths.append(config_path_resolved)
+
+        # First load runtime config to inspect explicit companion data file path.
+        runtime_cfg_only = RuntimeConfig.load(config_path_resolved)
+
+        data_cfg_token = runtime_cfg_only.get_str("data", None)
+        if data_cfg_token:
+            data_cfg_path = Path(str(data_cfg_token)).expanduser()
+            if not data_cfg_path.is_absolute():
+                data_cfg_path = (config_path_resolved.parent / data_cfg_path).resolve()
+            else:
+                data_cfg_path = data_cfg_path.resolve()
+            if not data_cfg_path.exists() or not data_cfg_path.is_file():
+                raise FileNotFoundError(
+                    f"Runtime config data file not found: {data_cfg_path} (from data={data_cfg_token!r} in {config_path_resolved})"
+                )
+            merge_paths.append(data_cfg_path)
+
+        # Backward-compatible fallback: auto-merge sibling debug.data.yml when using split runtime name.
+        if len(merge_paths) < 2:
+            config_name = config_path_resolved.name.lower()
+            using_split_runtime_name = config_name in {"debug.runtime.yml", "debug.runtime.yaml"}
+            if using_split_runtime_name:
+                data_candidate_yml = config_path_resolved.with_name("debug.data.yml")
+                data_candidate_yaml = config_path_resolved.with_name("debug.data.yaml")
+                if data_candidate_yml.exists() and data_candidate_yml.is_file():
+                    merge_paths.append(data_candidate_yml)
+                elif data_candidate_yaml.exists() and data_candidate_yaml.is_file():
+                    merge_paths.append(data_candidate_yaml)
+
+    if len(merge_paths) >= 2:
+        runtime_config = RuntimeConfig.load_multiple([str(p) for p in merge_paths])
+    elif len(merge_paths) == 1:
+        runtime_config = RuntimeConfig.load(merge_paths[0])
+    else:
+        runtime_config = RuntimeConfig.load(None)
+
+    selected_runtime_datasets: list[dict[str, Any]] = []
+    datasets_block = runtime_config.get("datasets", None)
+
+    if isinstance(datasets_block, list):
+        for item in datasets_block:
+            if not isinstance(item, dict):
+                continue
+            include_token = item.get("include_in_runtime", item.get("enabled", item.get("include", False)))
+            try:
+                include_it = bool(include_token)
+            except Exception:
+                include_it = False
+            if not include_it:
+                continue
+
+            ds_h5 = item.get("raw_data_h5_path", None)
+            if ds_h5 is None:
+                ds_h5 = item.get("h5_path", None)
+            if ds_h5 is None:
+                continue
+            ds_h5_str = str(ds_h5).strip()
+            if not ds_h5_str:
+                continue
+
+            selected_runtime_datasets.append(item)
+
+    # Backward compatibility: if no explicit selection given and no datasets matched,
+    # still honor legacy datasets.active/datasets.h5_path keys when present.
+    ds0 = runtime_config.get("datasets.active.h5_path", None)
+    if ds0 is None:
+        ds0 = runtime_config.get("datasets.h5_path", None)
+
+    if ds0 is None and selected_runtime_datasets:
+        selected_dataset = selected_runtime_datasets[0]
+        candidate = selected_dataset.get("raw_data_h5_path", None)
+        if candidate is None:
+            candidate = selected_dataset.get("h5_path", None)
+        if candidate is not None:
+            ds0 = candidate
+
+    # Normalize useful compatibility paths from selected dataset + top-level output_root.
+    if ds0 is not None or runtime_config.get("output_root", None) is not None:
+        payload = dict(getattr(runtime_config, "_payload", {}) or {})
+        paths_payload = payload.get("paths")
+        if not isinstance(paths_payload, dict):
+            paths_payload = {}
+
+        if ds0 is not None and paths_payload.get("h5_path") is None:
+            paths_payload["h5_path"] = ds0
+
+        if selected_runtime_datasets and paths_payload.get("stream_id") is None:
+            wells_block = selected_runtime_datasets[0].get("wells", None)
+            if isinstance(wells_block, list):
+                for w in wells_block:
+                    if isinstance(w, dict) and w.get("well_id") is not None:
+                        token = str(w.get("well_id")).strip()
+                        if token:
+                            paths_payload["stream_id"] = token
+                            break
+
+        if paths_payload.get("mea_output_root") is None:
+            output_root = runtime_config.get("output_root", None)
+            if output_root is not None:
+                paths_payload["mea_output_root"] = output_root
+
+        payload["paths"] = paths_payload
+        runtime_config = RuntimeConfig(payload)
+
+    if selected_by_default_discovery and merge_paths:
+        merged_display = " + ".join(str(p) for p in merge_paths[1:])
+        stage_logger.info(
+            "Loaded runtime config from %s%s",
+            merge_paths[0],
+            (f" + {merged_display}" if len(merge_paths) > 1 else ""),
+        )
 
     from axon_reconstructor.pipeline.pipeline_driver import StageExecutionContext, execute_stage
 
     stage = str(args.stage)
+    if stage == "all":
+        all_stages = ("preprocess", "spikesort", "waveforms", "templates", "reconstruct", "analysis")
+        for stage_name in all_stages:
+            stage_logger.info("stage all: starting %s", stage_name)
+            nested_args = argparse.Namespace(**vars(args))
+            nested_args.stage = stage_name
+            rc = int(_cmd_stage(nested_args))
+            if rc != 0:
+                stage_logger.error("stage all: stage %s failed with code %d", stage_name, rc)
+                return rc
+            stage_logger.info("stage all: completed %s", stage_name)
+        return 0
+
     stage_kwargs = _load_stage_kwargs(args)
 
     debug_enabled = _resolve_stage_bool_cfg(
@@ -671,22 +903,38 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         default=False,
         global_fallback_path="global.force_replot",
     )
-    stage_workers = _resolve_stage_resource_int(
+    runtime_max_workers = _resolve_runtime_max_workers(
+        cfg=runtime_config,
+        cli_value=getattr(args, "n_jobs", None),
+        logger=stage_logger,
+    )
+
+    stage_max_workers = _resolve_stage_resource_int(
         cfg=runtime_config,
         stage=stage,
         stage_paths=[
+            f"stages.{stage}.resources.max_stage_workers",
             f"stages.{stage}.resources.stage_workers",
             f"stages.{stage}.resources.workers_total",
             f"stages.{stage}.resources.n_jobs",
         ],
-        global_path="resources.n_jobs",
-        env_key="AXON_RECON_N_JOBS",
-        cli_value=getattr(args, "n_jobs", None),
-        default=8,
+        global_path=None,
+        env_key=None,
+        cli_value=None,
+        default=int(runtime_max_workers),
         clamp=True,
-        label="stage_workers",
+        label="max_stage_workers",
         logger=stage_logger,
     )
+    if int(stage_max_workers) > int(runtime_max_workers):
+        stage_logger.warning(
+            "Clamping max_stage_workers for stage=%s from %d to max_workers=%d",
+            stage,
+            int(stage_max_workers),
+            int(runtime_max_workers),
+        )
+        stage_max_workers = int(runtime_max_workers)
+
     stage_well_workers = _resolve_stage_resource_int(
         cfg=runtime_config,
         stage=stage,
@@ -699,19 +947,31 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         label="well_workers",
         logger=stage_logger,
     )
+    if int(stage_well_workers) > int(stage_max_workers):
+        stage_logger.warning(
+            "Clamping well_workers for stage=%s from %d to max_stage_workers=%d",
+            stage,
+            int(stage_well_workers),
+            int(stage_max_workers),
+        )
+        stage_well_workers = int(stage_max_workers)
+
+    derived_stage_n_jobs = max(1, int(stage_max_workers) // int(stage_well_workers))
+
     if int(stage_well_workers) > 1:
         stage_logger.info(
-            "stage resources.well_workers=%d configured for stage=%s; ignored for direct `stage` command (used by scope-run orchestration).",
+            "stage resources.well_workers=%d configured for stage=%s; used when multiple dataset/well runs are selected.",
             int(stage_well_workers),
             stage,
         )
     if "n_jobs" in stage_kwargs:
-        stage_kwargs["n_jobs"] = _clamp_worker_count(
-            value=int(stage_kwargs["n_jobs"]),
-            label="stage_kwargs.n_jobs",
-            stage=stage,
-            logger=stage_logger,
+        stage_logger.warning(
+            "Ignoring stage_kwargs.n_jobs=%s for stage=%s; using derived n_jobs=%d from max_stage_workers/well_workers",
+            str(stage_kwargs.get("n_jobs")),
+            stage,
+            int(derived_stage_n_jobs),
         )
+    stage_kwargs["n_jobs"] = int(derived_stage_n_jobs)
     sorter = _resolve_optional_str_cfg(
         cli_value=getattr(args, "sorter", None), env_key="AXON_RECON_SORTER", default="kilosort4"
         , cfg=runtime_config, cfg_path="stages.spikesort.sorter"
@@ -730,10 +990,6 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         cli_value=getattr(args, "chunk_duration", None),
         default=None,
     )
-    mea_analysis_repo_root = _resolve_optional_path_cfg(
-        cli_value=getattr(args, "mea_analysis_repo_root", None), env_key="AXON_RECON_MEA_ANALYSIS_REPO_ROOT"
-        , cfg=runtime_config, cfg_path="paths.mea_analysis_repo_root"
-    )
     debug_max_units = _resolve_optional_int_cfg(
         cli_value=getattr(args, "debug_max_units", None), env_key="AXON_RECON_WF_DEBUG_MAX_UNITS", default=None
         , cfg=runtime_config, cfg_path="stages.waveforms.debug.max_units"
@@ -746,30 +1002,61 @@ def _cmd_stage(args: argparse.Namespace) -> int:
     if bool(debug_enabled):
         logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s", force=True)
 
-    h5_path = _resolve_required_path_cfg(
+    h5_path_optional = _resolve_optional_path_cfg(
         cli_value=args.h5_path,
         cfg=runtime_config,
         cfg_path="paths.h5_path",
         env_key="AXON_RECON_H5_PATH",
-        cli_flag="--h5-path",
     )
-    if not h5_path.exists():
-        raise SystemExit(f"h5 path not found: {h5_path}")
-
-    stream_id = _resolve_required_str_cfg(
+    stream_id_optional = _resolve_optional_str_cfg(
         cli_value=args.stream_id,
         cfg=runtime_config,
         cfg_path="paths.stream_id",
         env_key="AXON_RECON_STREAM_ID",
-        cli_flag="--stream-id",
+        default=None,
     )
-    mea_output_root = _resolve_required_path_cfg(
+    mea_output_root_optional = _resolve_optional_path_cfg(
         cli_value=args.mea_output_root,
         cfg=runtime_config,
         cfg_path="paths.mea_output_root",
         env_key="AXON_RECON_MEA_OUTPUT_ROOT",
-        cli_flag="--mea-output-root",
     )
+
+    run_multi_dataset = (
+        len(selected_runtime_datasets) >= 1
+        and getattr(args, "h5_path", None) is None
+    )
+
+    if (
+        not run_multi_dataset
+        and getattr(args, "h5_path", None) is None
+        and isinstance(datasets_block, list)
+        and len(datasets_block) > 0
+        and len(selected_runtime_datasets) == 0
+    ):
+        raise SystemExit(
+            "No datasets selected for runtime. Set datasets[].include_in_runtime=true in data config, or pass --h5-path explicitly."
+        )
+
+    if run_multi_dataset:
+        stage_logger.info(
+            "Running stage=%s across %d datasets (well_workers=%d)",
+            stage,
+            len(selected_runtime_datasets),
+            int(stage_well_workers),
+        )
+    else:
+        if h5_path_optional is None:
+            raise SystemExit("--h5-path is required (CLI/YAML/env)")
+        h5_path = Path(h5_path_optional)
+        if not h5_path.exists():
+            raise SystemExit(f"h5 path not found: {h5_path}")
+        if stream_id_optional is None:
+            raise SystemExit("--stream-id is required (CLI/YAML/env)")
+        stream_id = str(stream_id_optional)
+        if mea_output_root_optional is None:
+            raise SystemExit("--mea-output-root is required (CLI/YAML/env)")
+        mea_output_root = Path(mea_output_root_optional)
 
     if bool(force_replot) and stage != "waveforms":
         stage_logger.info(
@@ -789,10 +1076,12 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             stage_kwargs["plot_segment_traces"] = bool(plot_segment_traces)
 
     stage_logger.info(
-        "Effective stage resources: stage=%s stage_workers=%d well_workers=%d chunk_duration=%s",
+        "Effective stage resources: stage=%s max_workers=%d max_stage_workers=%d well_workers=%d derived_n_jobs=%d chunk_duration=%s",
         stage,
-        int(stage_workers),
+        int(runtime_max_workers),
+        int(stage_max_workers),
         int(stage_well_workers),
+        int(derived_stage_n_jobs),
         str(chunk_duration),
     )
 
@@ -1224,30 +1513,13 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             stage_kwargs["waveforms_variant_name"] = str(waveforms_variant_name)
 
     if stage == "reconstruct":
-        if "unit_workers" in stage_kwargs:
-            stage_kwargs["unit_workers"] = _clamp_worker_count(
-                value=int(stage_kwargs["unit_workers"]),
-                label="stage_kwargs.unit_workers",
-                stage=stage,
-                logger=stage_logger,
+        if "n_jobs" in stage_kwargs:
+            stage_logger.warning(
+                "Ignoring stage_kwargs.n_jobs=%s for reconstruct; using derived n_jobs=%d from max_stage_workers/well_workers",
+                str(stage_kwargs.get("n_jobs")),
+                int(derived_stage_n_jobs),
             )
-        else:
-            unit_workers = _resolve_stage_resource_int(
-                cfg=runtime_config,
-                stage=stage,
-                stage_paths=[
-                    "stages.reconstruct.resources.unit_workers",
-                    "stages.reconstruct.unit_workers",
-                ],
-                global_path=None,
-                env_key="AXON_RECON_RECON_UNIT_WORKERS",
-                cli_value=None,
-                default=1,
-                clamp=True,
-                label="unit_workers",
-                logger=stage_logger,
-            )
-            stage_kwargs["unit_workers"] = int(unit_workers)
+        stage_kwargs["n_jobs"] = int(derived_stage_n_jobs)
 
         av_params = stage_kwargs.get("axon_velocity_params")
         if av_params is None:
@@ -1302,18 +1574,35 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             stage_kwargs["axon_velocity_params"] = dict(av_params)
 
     if stage == "reconstruct":
-        template_unit_workers = _first_cfg_int(
-            runtime_config,
-            [
-                "stages.templates.resources.unit_workers",
-                "stages.templates.resources.template_unit_workers",
-            ],
+        cli_unit_ids: list[int] = []
+        unit_id_single = getattr(args, "unit_id", None)
+        if unit_id_single is not None:
+            cli_unit_ids.append(int(unit_id_single))
+        if getattr(args, "unit_ids", None):
+            cli_unit_ids.extend(int(value) for value in list(getattr(args, "unit_ids", []) or []))
+        if cli_unit_ids and ("unit_ids" not in stage_kwargs):
+            dedup_ids = list(dict.fromkeys(int(x) for x in cli_unit_ids))
+            stage_kwargs["unit_ids"] = dedup_ids
+
+        force_restart_per_unit = _resolve_bool_cfg(
+            cli_value=getattr(args, "force_restart_per_unit", None),
+            cfg=runtime_config,
+            cfg_path="stages.reconstruct.execution.force_restart_per_unit",
+            env_key="AXON_RECON_RECON_FORCE_RESTART_PER_UNIT",
+            default=False,
         )
-        if template_unit_workers is not None and int(template_unit_workers) > 1:
-            stage_logger.info(
-                "templates resources unit worker settings are not yet implemented; configured value=%d is currently no-op.",
-                int(template_unit_workers),
-            )
+        if "force_restart_per_unit" not in stage_kwargs:
+            stage_kwargs["force_restart_per_unit"] = bool(force_restart_per_unit)
+
+        force_replot_per_unit = _resolve_bool_cfg(
+            cli_value=getattr(args, "force_replot_per_unit", None),
+            cfg=runtime_config,
+            cfg_path="stages.reconstruct.execution.force_replot_per_unit",
+            env_key="AXON_RECON_RECON_FORCE_REPLOT_PER_UNIT",
+            default=False,
+        )
+        if "force_replot_per_unit" not in stage_kwargs:
+            stage_kwargs["force_replot_per_unit"] = bool(force_replot_per_unit)
 
         templates_variant_name = _resolve_optional_str(
             cli_value=getattr(args, "recon_templates_variant_name", None),
@@ -1387,6 +1676,26 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         )
         if "replot_top_density_grid_only" not in stage_kwargs:
             stage_kwargs["replot_top_density_grid_only"] = bool(replot_top_density_grid_only)
+
+        if bool(stage_kwargs.get("force_replot_per_unit", False)):
+            # Per-unit replot loops should avoid expensive/global artifacts.
+            stage_kwargs["write_top_density_grid"] = False
+            stage_kwargs["replot_top_density_grid_only"] = False
+
+            # Preserve existing reconstruction data artifacts used for plotting.
+            stage_kwargs["per_unit_write_branches_raw_json"] = False
+            stage_kwargs["per_unit_write_branches_json"] = False
+            stage_kwargs["per_unit_write_heuristics_json"] = False
+
+        stage_logger.info(
+            "Reconstruct options: unit_ids=%s force_restart_per_unit=%s force_replot_per_unit=%s write_top_density_grid=%s replot_top_density_grid_only=%s per_unit_write_template=%s",
+            str(stage_kwargs.get("unit_ids")),
+            str(bool(stage_kwargs.get("force_restart_per_unit", False))).lower(),
+            str(bool(stage_kwargs.get("force_replot_per_unit", False))).lower(),
+            str(bool(stage_kwargs.get("write_top_density_grid", True))).lower(),
+            str(bool(stage_kwargs.get("replot_top_density_grid_only", False))).lower(),
+            str(bool(stage_kwargs.get("per_unit_write_template", True))).lower(),
+        )
 
         grids_cfg = runtime_config.get("stages.reconstruct.grids", default=None)
         if grids_cfg is not None and not isinstance(grids_cfg, dict):
@@ -1494,6 +1803,22 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             stage_kwargs["grid_minimap_prevent_occlusions"] = bool(
                 _cfg_or_default("minimap_prevent_occlusions", False)
             )
+        if "grid_minimap_clearance_um" not in stage_kwargs:
+            stage_kwargs["grid_minimap_clearance_um"] = float(
+                _cfg_or_default("minimap_clearance_um", 2.0)
+            )
+        if "grid_minimap_linewidth_buffer_pt" not in stage_kwargs:
+            stage_kwargs["grid_minimap_linewidth_buffer_pt"] = float(
+                _cfg_or_default("minimap_linewidth_buffer_pt", 0.5)
+            )
+        if "grid_minimap_occlusion_max_iters" not in stage_kwargs:
+            stage_kwargs["grid_minimap_occlusion_max_iters"] = int(
+                _cfg_or_default("minimap_occlusion_max_iters", 8)
+            )
+        if "grid_minimap_occlusion_growth_factor" not in stage_kwargs:
+            stage_kwargs["grid_minimap_occlusion_growth_factor"] = float(
+                _cfg_or_default("minimap_occlusion_growth_factor", 1.20)
+            )
         legend_cfg = grids_cfg.get("legend", None) if isinstance(grids_cfg, dict) else None
         if legend_cfg is not None and not isinstance(legend_cfg, dict):
             raise ValueError("stages.reconstruct.grids.legend must be a mapping/object")
@@ -1528,6 +1853,9 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             raise ValueError("stages.reconstruct.per_unit_outputs must be a mapping/object")
         per_unit_cfg = per_unit_cfg if isinstance(per_unit_cfg, dict) else {}
 
+        if "per_unit_outputs_schema" not in stage_kwargs:
+            stage_kwargs["per_unit_outputs_schema"] = dict(per_unit_cfg)
+
         def _per_unit_cfg_or_default(key: str, default: Any) -> Any:
             return per_unit_cfg.get(key, default) if isinstance(per_unit_cfg, dict) else default
 
@@ -1543,21 +1871,293 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             stage_kwargs["per_unit_write_heuristics_json"] = bool(
                 _per_unit_cfg_or_default("write_heuristics_json", True)
             )
-
-    if stage == "analysis":
-        analysis_unit_workers = _first_cfg_int(
-            runtime_config,
-            [
-                "stages.analysis.resources.unit_workers",
-                "stages.analysis.resources.analysis_unit_workers",
-            ],
-        )
-        if analysis_unit_workers is not None and int(analysis_unit_workers) > 1:
-            stage_logger.info(
-                "analysis resources unit worker settings are not yet implemented; configured value=%d is currently no-op.",
-                int(analysis_unit_workers),
+        if "per_unit_branches_raw_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_branches_raw_relpath"] = str(
+                _per_unit_cfg_or_default("branches_raw_relpath", "branches_raw.json")
+            )
+        if "per_unit_branches_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_branches_relpath"] = str(
+                _per_unit_cfg_or_default("branches_relpath", "branches.json")
+            )
+        if "per_unit_heuristics_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_heuristics_relpath"] = str(
+                _per_unit_cfg_or_default("heuristics_relpath", "heuristics.json")
+            )
+        if "per_unit_branches_root_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_branches_root_relpath"] = str(
+                _per_unit_cfg_or_default("branches_root_relpath", "branches")
+            )
+        if "per_unit_branches_clean_dir_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_branches_clean_dir_relpath"] = str(
+                _per_unit_cfg_or_default("branches_clean_dir_relpath", "branches/clean")
+            )
+        if "per_unit_branches_raw_dir_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_branches_raw_dir_relpath"] = str(
+                _per_unit_cfg_or_default("branches_raw_dir_relpath", "branches/raw")
+            )
+        if "per_unit_morphology_dir_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_morphology_dir_relpath"] = str(
+                _per_unit_cfg_or_default("morphology_dir_relpath", "morphology")
+            )
+        if "per_unit_heuristics_dir_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_heuristics_dir_relpath"] = str(
+                _per_unit_cfg_or_default("heuristics_dir_relpath", "heuristics")
+            )
+        if "per_unit_maps_dir_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_maps_dir_relpath"] = str(
+                _per_unit_cfg_or_default("maps_dir_relpath", "maps")
+            )
+        if "per_unit_template_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_template_relpath"] = str(
+                _per_unit_cfg_or_default("template_relpath", "template.png")
+            )
+        if "per_unit_template_zoom_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_template_zoom_relpath"] = str(
+                _per_unit_cfg_or_default("template_zoom_relpath", "template_zoom.png")
+            )
+        if "per_unit_template_movie_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_template_movie_relpath"] = str(
+                _per_unit_cfg_or_default("template_movie_relpath", "template_movie.gif")
+            )
+        if "per_unit_summary_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_summary_relpath"] = str(
+                _per_unit_cfg_or_default("summary_relpath", "summary.png")
+            )
+        if "per_unit_summary_clean_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_summary_clean_relpath"] = str(
+                _per_unit_cfg_or_default("summary_clean_relpath", "summary_clean.png")
+            )
+        if "per_unit_summary_raw_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_summary_raw_relpath"] = str(
+                _per_unit_cfg_or_default("summary_raw_relpath", "summary_raw.png")
+            )
+        if "per_unit_amplitude_map_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_amplitude_map_relpath"] = str(
+                _per_unit_cfg_or_default("amplitude_map_relpath", "maps/amplitude_map.png")
+            )
+        if "per_unit_amplitude_map_zoom_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_amplitude_map_zoom_relpath"] = str(
+                _per_unit_cfg_or_default("amplitude_map_zoom_relpath", "maps/amplitude_map_zoom.png")
+            )
+        if "per_unit_peak_latency_map_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_peak_latency_map_relpath"] = str(
+                _per_unit_cfg_or_default("peak_latency_map_relpath", "maps/peak_latency_map.png")
+            )
+        if "per_unit_peak_latency_map_zoom_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_peak_latency_map_zoom_relpath"] = str(
+                _per_unit_cfg_or_default("peak_latency_map_zoom_relpath", "maps/peak_latency_map_zoom.png")
+            )
+        if "per_unit_peak_std_map_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_peak_std_map_relpath"] = str(
+                _per_unit_cfg_or_default("peak_std_map_relpath", "maps/peak_std_map.png")
+            )
+        if "per_unit_peak_std_map_zoom_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_peak_std_map_zoom_relpath"] = str(
+                _per_unit_cfg_or_default("peak_std_map_zoom_relpath", "maps/peak_std_map_zoom.png")
+            )
+        if "per_unit_channel_selection_detect_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_channel_selection_detect_relpath"] = str(
+                _per_unit_cfg_or_default("channel_selection_detect_relpath", "maps/channel_selection_detect.png")
+            )
+        if "per_unit_channel_selection_kurt_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_channel_selection_kurt_relpath"] = str(
+                _per_unit_cfg_or_default("channel_selection_kurt_relpath", "maps/channel_selection_kurt.png")
+            )
+        if "per_unit_channel_selection_delay_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_channel_selection_delay_relpath"] = str(
+                _per_unit_cfg_or_default("channel_selection_delay_relpath", "maps/channel_selection_delay.png")
+            )
+        if "per_unit_channel_selection_all_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_channel_selection_all_relpath"] = str(
+                _per_unit_cfg_or_default("channel_selection_all_relpath", "maps/channel_selection_all.png")
+            )
+        if "per_unit_graph_nodes_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_graph_nodes_relpath"] = str(
+                _per_unit_cfg_or_default("graph_nodes_relpath", "maps/graph_nodes.png")
+            )
+        if "per_unit_graph_edges_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_graph_edges_relpath"] = str(
+                _per_unit_cfg_or_default("graph_edges_relpath", "maps/graph_edges.png")
+            )
+        if "per_unit_graph_heuristics_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_graph_heuristics_relpath"] = str(
+                _per_unit_cfg_or_default("graph_heuristics_relpath", "heuristics/graph_heuristics.png")
+            )
+        if "per_unit_morphology_pdf_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_morphology_pdf_relpath"] = str(
+                _per_unit_cfg_or_default("morphology_pdf_relpath", "morphology/morphology.pdf")
+            )
+        if "per_unit_morphology_zoom_pdf_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_morphology_zoom_pdf_relpath"] = str(
+                _per_unit_cfg_or_default("morphology_zoom_pdf_relpath", "morphology/morphology_zoom.pdf")
+            )
+        if "per_unit_branches_raw_clean_pdf_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_branches_raw_clean_pdf_relpath"] = str(
+                _per_unit_cfg_or_default("branches_raw_clean_pdf_relpath", "branches/raw/branches_raw_clean.pdf")
+            )
+        if "per_unit_branches_raw_pdf_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_branches_raw_pdf_relpath"] = str(
+                _per_unit_cfg_or_default("branches_raw_pdf_relpath", "branches/raw/branches_raw.pdf")
+            )
+        if "per_unit_branches_raw_zoom_pdf_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_branches_raw_zoom_pdf_relpath"] = str(
+                _per_unit_cfg_or_default("branches_raw_zoom_pdf_relpath", "branches/raw/branches_raw_zoom.pdf")
+            )
+        if "per_unit_branches_clean_pdf_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_branches_clean_pdf_relpath"] = str(
+                _per_unit_cfg_or_default("branches_clean_pdf_relpath", "branches/clean/branches_clean.pdf")
+            )
+        if "per_unit_branches_clean_zoom_pdf_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_branches_clean_zoom_pdf_relpath"] = str(
+                _per_unit_cfg_or_default("branches_clean_zoom_pdf_relpath", "branches/clean/branches_clean_zoom.pdf")
+            )
+        if "per_unit_branch_velocities_pdf_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_branch_velocities_pdf_relpath"] = str(
+                _per_unit_cfg_or_default("branch_velocities_pdf_relpath", "branches/clean/branch_velocities.pdf")
+            )
+        if "per_unit_branch_velocities_raw_overlay_pdf_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_branch_velocities_raw_overlay_pdf_relpath"] = str(
+                _per_unit_cfg_or_default(
+                    "branch_velocities_raw_overlay_pdf_relpath",
+                    "branches/raw/branch_velocities_overlay.pdf",
+                )
+            )
+        if "per_unit_branch_velocities_overlay_pdf_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_branch_velocities_overlay_pdf_relpath"] = str(
+                _per_unit_cfg_or_default(
+                    "branch_velocities_overlay_pdf_relpath",
+                    "branches/clean/branch_velocities_overlay.pdf",
+                )
+            )
+        if "per_unit_branch_velocity_template_relpath" not in stage_kwargs:
+            stage_kwargs["per_unit_branch_velocity_template_relpath"] = str(
+                _per_unit_cfg_or_default(
+                    "branch_velocity_template_relpath",
+                    "branches/clean/branch_{index:02d}_velocity",
+                )
+            )
+        if "per_unit_write_template" not in stage_kwargs:
+            stage_kwargs["per_unit_write_template"] = bool(
+                _per_unit_cfg_or_default("write_template", True)
+            )
+        if "per_unit_write_template_zoom" not in stage_kwargs:
+            stage_kwargs["per_unit_write_template_zoom"] = bool(
+                _per_unit_cfg_or_default("write_template_zoom", True)
+            )
+        if "per_unit_write_template_movie" not in stage_kwargs:
+            stage_kwargs["per_unit_write_template_movie"] = bool(
+                _per_unit_cfg_or_default("write_template_movie", True)
+            )
+        if "per_unit_write_summary" not in stage_kwargs:
+            stage_kwargs["per_unit_write_summary"] = bool(
+                _per_unit_cfg_or_default("write_summary", True)
+            )
+        if "per_unit_write_summary_clean" not in stage_kwargs:
+            stage_kwargs["per_unit_write_summary_clean"] = bool(
+                _per_unit_cfg_or_default("write_summary_clean", True)
+            )
+        if "per_unit_write_summary_raw" not in stage_kwargs:
+            stage_kwargs["per_unit_write_summary_raw"] = bool(
+                _per_unit_cfg_or_default("write_summary_raw", True)
+            )
+        if "per_unit_write_amplitude_map" not in stage_kwargs:
+            stage_kwargs["per_unit_write_amplitude_map"] = bool(
+                _per_unit_cfg_or_default("write_amplitude_map", True)
+            )
+        if "per_unit_write_amplitude_map_zoom" not in stage_kwargs:
+            stage_kwargs["per_unit_write_amplitude_map_zoom"] = bool(
+                _per_unit_cfg_or_default("write_amplitude_map_zoom", True)
+            )
+        if "per_unit_write_peak_latency_map" not in stage_kwargs:
+            stage_kwargs["per_unit_write_peak_latency_map"] = bool(
+                _per_unit_cfg_or_default("write_peak_latency_map", True)
+            )
+        if "per_unit_write_peak_latency_map_zoom" not in stage_kwargs:
+            stage_kwargs["per_unit_write_peak_latency_map_zoom"] = bool(
+                _per_unit_cfg_or_default("write_peak_latency_map_zoom", True)
+            )
+        if "per_unit_write_peak_std_map" not in stage_kwargs:
+            stage_kwargs["per_unit_write_peak_std_map"] = bool(
+                _per_unit_cfg_or_default("write_peak_std_map", True)
+            )
+        if "per_unit_write_peak_std_map_zoom" not in stage_kwargs:
+            stage_kwargs["per_unit_write_peak_std_map_zoom"] = bool(
+                _per_unit_cfg_or_default("write_peak_std_map_zoom", True)
+            )
+        if "per_unit_write_channel_selection_detect" not in stage_kwargs:
+            stage_kwargs["per_unit_write_channel_selection_detect"] = bool(
+                _per_unit_cfg_or_default("write_channel_selection_detect", True)
+            )
+        if "per_unit_write_channel_selection_kurt" not in stage_kwargs:
+            stage_kwargs["per_unit_write_channel_selection_kurt"] = bool(
+                _per_unit_cfg_or_default("write_channel_selection_kurt", True)
+            )
+        if "per_unit_write_channel_selection_delay" not in stage_kwargs:
+            stage_kwargs["per_unit_write_channel_selection_delay"] = bool(
+                _per_unit_cfg_or_default("write_channel_selection_delay", True)
+            )
+        if "per_unit_write_channel_selection_all" not in stage_kwargs:
+            stage_kwargs["per_unit_write_channel_selection_all"] = bool(
+                _per_unit_cfg_or_default("write_channel_selection_all", True)
+            )
+        if "per_unit_write_graph_nodes" not in stage_kwargs:
+            stage_kwargs["per_unit_write_graph_nodes"] = bool(
+                _per_unit_cfg_or_default("write_graph_nodes", True)
+            )
+        if "per_unit_write_graph_edges" not in stage_kwargs:
+            stage_kwargs["per_unit_write_graph_edges"] = bool(
+                _per_unit_cfg_or_default("write_graph_edges", True)
+            )
+        if "per_unit_write_graph_heuristics" not in stage_kwargs:
+            stage_kwargs["per_unit_write_graph_heuristics"] = bool(
+                _per_unit_cfg_or_default("write_graph_heuristics", True)
+            )
+        if "per_unit_write_morphology_pdf" not in stage_kwargs:
+            stage_kwargs["per_unit_write_morphology_pdf"] = bool(
+                _per_unit_cfg_or_default("write_morphology_pdf", True)
+            )
+        if "per_unit_write_morphology_zoom_pdf" not in stage_kwargs:
+            stage_kwargs["per_unit_write_morphology_zoom_pdf"] = bool(
+                _per_unit_cfg_or_default("write_morphology_zoom_pdf", True)
+            )
+        if "per_unit_write_branches_raw_clean_pdf" not in stage_kwargs:
+            stage_kwargs["per_unit_write_branches_raw_clean_pdf"] = bool(
+                _per_unit_cfg_or_default("write_branches_raw_clean_pdf", True)
+            )
+        if "per_unit_write_branches_raw_pdf" not in stage_kwargs:
+            stage_kwargs["per_unit_write_branches_raw_pdf"] = bool(
+                _per_unit_cfg_or_default("write_branches_raw_pdf", True)
+            )
+        if "per_unit_write_branches_raw_zoom_pdf" not in stage_kwargs:
+            stage_kwargs["per_unit_write_branches_raw_zoom_pdf"] = bool(
+                _per_unit_cfg_or_default("write_branches_raw_zoom_pdf", True)
+            )
+        if "per_unit_write_branches_clean_pdf" not in stage_kwargs:
+            stage_kwargs["per_unit_write_branches_clean_pdf"] = bool(
+                _per_unit_cfg_or_default("write_branches_clean_pdf", True)
+            )
+        if "per_unit_write_branches_clean_zoom_pdf" not in stage_kwargs:
+            stage_kwargs["per_unit_write_branches_clean_zoom_pdf"] = bool(
+                _per_unit_cfg_or_default("write_branches_clean_zoom_pdf", True)
+            )
+        if "per_unit_write_branch_velocities_pdf" not in stage_kwargs:
+            stage_kwargs["per_unit_write_branch_velocities_pdf"] = bool(
+                _per_unit_cfg_or_default("write_branch_velocities_pdf", True)
+            )
+        if "per_unit_write_branch_velocities_raw_overlay_pdf" not in stage_kwargs:
+            stage_kwargs["per_unit_write_branch_velocities_raw_overlay_pdf"] = bool(
+                _per_unit_cfg_or_default("write_branch_velocities_raw_overlay_pdf", True)
+            )
+        if "per_unit_write_branch_velocities_overlay_pdf" not in stage_kwargs:
+            stage_kwargs["per_unit_write_branch_velocities_overlay_pdf"] = bool(
+                _per_unit_cfg_or_default("write_branch_velocities_overlay_pdf", True)
+            )
+        if "per_unit_write_branch_velocity_template" not in stage_kwargs:
+            stage_kwargs["per_unit_write_branch_velocity_template"] = bool(
+                _per_unit_cfg_or_default("write_branch_velocity_template", True)
             )
 
+    if stage == "analysis":
         if args.unit_ids:
             unit_ids = [int(value) for value in args.unit_ids]
         else:
@@ -1624,16 +2224,143 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             }
         )
 
+    if run_multi_dataset:
+        from copy import deepcopy
+
+        runs: list[tuple[str, str, StageExecutionContext]] = []
+        data_output_root = runtime_config.get("output_root", None)
+        for idx, ds in enumerate(selected_runtime_datasets, start=1):
+            ds_h5_raw = ds.get("raw_data_h5_path")
+            if ds_h5_raw is None:
+                ds_h5_raw = ds.get("h5_path")
+            if ds_h5_raw is None:
+                raise SystemExit(f"Dataset #{idx}: missing raw_data_h5_path")
+            ds_h5 = Path(str(ds_h5_raw)).expanduser().resolve()
+            ds_id = str(ds.get("dataset_id") or f"dataset_{idx}:{ds_h5.name}")
+            if not ds_h5.exists():
+                raise SystemExit(f"Dataset {ds_id}: h5 path not found: {ds_h5}")
+
+            wells_block = ds.get("wells", None)
+            available_well_ids: list[str] = []
+            if isinstance(wells_block, list):
+                for w in wells_block:
+                    if not isinstance(w, dict):
+                        continue
+                    wid = w.get("well_id", None)
+                    if wid is None:
+                        continue
+                    token = str(wid).strip()
+                    if token:
+                        available_well_ids.append(token)
+
+            selected_well_ids: list[str] = []
+            if getattr(args, "stream_id", None) is not None:
+                selected_well_ids = [str(getattr(args, "stream_id")).strip()]
+            elif available_well_ids:
+                selected_well_ids = list(available_well_ids)
+            elif stream_id_optional is not None:
+                selected_well_ids = [str(stream_id_optional)]
+
+            if not selected_well_ids:
+                raise SystemExit(
+                    f"Dataset {ds_id}: no selected well_ids available (define dataset wells[].well_id or pass --stream-id)."
+                )
+
+            ds_out_root_raw = ds.get("mea_output_root")
+            if ds_out_root_raw is None:
+                ds_out_root_raw = data_output_root
+            if ds_out_root_raw is None:
+                ds_out_root_raw = mea_output_root_optional
+            if ds_out_root_raw is None:
+                raise SystemExit(
+                    f"Dataset {ds_id}: missing mea_output_root (set top-level output_root in data config or --mea-output-root)"
+                )
+            ds_out_root = Path(str(ds_out_root_raw)).expanduser().resolve()
+
+            for ds_stream in selected_well_ids:
+                ds_ctx = StageExecutionContext(
+                    h5_path=ds_h5,
+                    stream_id=str(ds_stream),
+                    mea_output_root=ds_out_root,
+                    force_restart=bool(force_restart),
+                    n_jobs=int(derived_stage_n_jobs),
+                    sorter=str(sorter or "kilosort4"),
+                    docker_image=docker_image,
+                    chunk_duration=chunk_duration,
+                    verbose=bool(debug_enabled),
+                )
+                runs.append((ds_id, str(ds_stream), ds_ctx))
+
+        failures = 0
+        if int(stage_well_workers) <= 1:
+            for ds_id, ds_stream, ds_ctx in runs:
+                stage_logger.info("[dataset] starting %s stream=%s", ds_id, ds_stream)
+                result = execute_stage(
+                    stage=stage,
+                    context=ds_ctx,
+                    stage_kwargs=deepcopy(stage_kwargs),
+                    logger=logging.getLogger(f"axon_reconstructor.stage.{stage}.{ds_stream}"),
+                )
+                if stage == "preprocess":
+                    n_common = result.artifacts.get("n_common_electrodes")
+                    print(f"preprocess complete [{ds_id}]: stream={ds_stream} common_electrodes={n_common}")
+                if stage == "spikesort":
+                    print(f"spikesort complete [{ds_id}]: sorter_output={result.artifacts.get('sorter_output_dir')}")
+                if stage == "waveforms":
+                    print(f"waveforms complete [{ds_id}]: out_dir={result.artifacts.get('waveforms_out_dir')}")
+                if stage == "templates":
+                    print(f"templates complete [{ds_id}]: out_dir={result.artifacts.get('templates_out_dir')}")
+                if stage == "reconstruct":
+                    print(f"reconstruction complete [{ds_id}]: out_dir={result.artifacts.get('reconstruction_out_dir')}")
+                if stage == "analysis":
+                    print(f"analysis complete [{ds_id}]: out_dir={result.artifacts.get('analysis_out_dir')}")
+        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=int(stage_well_workers)) as pool:
+                fut_to_meta: dict[Any, tuple[str, str]] = {}
+                for ds_id, ds_stream, ds_ctx in runs:
+                    fut = pool.submit(
+                        execute_stage,
+                        stage=stage,
+                        context=ds_ctx,
+                        stage_kwargs=deepcopy(stage_kwargs),
+                        logger=logging.getLogger(f"axon_reconstructor.stage.{stage}.{ds_stream}"),
+                    )
+                    fut_to_meta[fut] = (ds_id, ds_stream)
+
+                for fut in concurrent.futures.as_completed(fut_to_meta):
+                    ds_id, ds_stream = fut_to_meta[fut]
+                    try:
+                        result = fut.result()
+                        if stage == "preprocess":
+                            n_common = result.artifacts.get("n_common_electrodes")
+                            print(f"preprocess complete [{ds_id}]: stream={ds_stream} common_electrodes={n_common}")
+                        if stage == "spikesort":
+                            print(f"spikesort complete [{ds_id}]: sorter_output={result.artifacts.get('sorter_output_dir')}")
+                        if stage == "waveforms":
+                            print(f"waveforms complete [{ds_id}]: out_dir={result.artifacts.get('waveforms_out_dir')}")
+                        if stage == "templates":
+                            print(f"templates complete [{ds_id}]: out_dir={result.artifacts.get('templates_out_dir')}")
+                        if stage == "reconstruct":
+                            print(f"reconstruction complete [{ds_id}]: out_dir={result.artifacts.get('reconstruction_out_dir')}")
+                        if stage == "analysis":
+                            print(f"analysis complete [{ds_id}]: out_dir={result.artifacts.get('analysis_out_dir')}")
+                    except Exception as e:
+                        failures += 1
+                        stage_logger.error("[dataset] failed %s stream=%s: %s", ds_id, ds_stream, e)
+
+        if failures > 0:
+            raise SystemExit(f"{failures} dataset run(s) failed")
+        return 0
+
     context = StageExecutionContext(
         h5_path=h5_path,
         stream_id=stream_id,
         mea_output_root=mea_output_root,
         force_restart=bool(force_restart),
-        n_jobs=int(stage_workers),
+        n_jobs=int(derived_stage_n_jobs),
         sorter=str(sorter or "kilosort4"),
         docker_image=docker_image,
         chunk_duration=chunk_duration,
-        mea_analysis_repo_root=mea_analysis_repo_root,
         verbose=bool(debug_enabled),
     )
     result = execute_stage(
@@ -1664,6 +2391,82 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         return 0
 
     raise SystemExit(f"Unsupported stage: {stage}")
+
+
+def _parse_stage_list_tokens(raw_tokens: list[str]) -> list[str]:
+    text = " ".join(str(t) for t in list(raw_tokens or [])).strip()
+    if not text:
+        raise SystemExit("No stages provided. Example: stages templates reconstruct")
+
+    # Accept flexible forms such as:
+    #   templates reconstruct
+    #   templates,reconstruct
+    #   [templates, recon]
+    text = text.strip().strip("[]")
+    if not text:
+        raise SystemExit("No stages provided. Example: stages [templates, recon]")
+
+    prelim: list[str] = []
+    for chunk in text.split(","):
+        for tok in chunk.strip().split():
+            if tok:
+                prelim.append(tok)
+
+    alias = {
+        "pre": "preprocess",
+        "prep": "preprocess",
+        "sort": "spikesort",
+        "spike": "spikesort",
+        "spikesorting": "spikesort",
+        "waveform": "waveforms",
+        "template": "templates",
+        "recon": "reconstruct",
+        "reconstruction": "reconstruct",
+        "analyse": "analysis",
+        "analyze": "analysis",
+    }
+    canonical_order = ["preprocess", "spikesort", "waveforms", "templates", "reconstruct", "analysis"]
+    valid = set(canonical_order)
+
+    out: list[str] = []
+    for raw in prelim:
+        t = str(raw).strip().lower()
+        t = alias.get(t, t)
+        if t == "all":
+            out.extend(canonical_order)
+            continue
+        if t not in valid:
+            raise SystemExit(
+                f"Unsupported stage token: {raw}. Supported: {', '.join(canonical_order)} (plus alias 'recon')."
+            )
+        out.append(t)
+
+    # De-duplicate while preserving order.
+    dedup: list[str] = []
+    seen: set[str] = set()
+    for s in out:
+        if s in seen:
+            continue
+        dedup.append(s)
+        seen.add(s)
+    return dedup
+
+
+def _cmd_stages(args: argparse.Namespace) -> int:
+    _load_explicit_env_file(args=args)
+    stage_list = _parse_stage_list_tokens(list(getattr(args, "stages", []) or []))
+    logger = logging.getLogger("axon_reconstructor.stage")
+
+    for stage_name in stage_list:
+        logger.info("stages: starting %s", stage_name)
+        nested_args = argparse.Namespace(**vars(args))
+        nested_args.stage = stage_name
+        rc = int(_cmd_stage(nested_args))
+        if rc != 0:
+            logger.error("stages: stage %s failed with code %d", stage_name, rc)
+            return rc
+        logger.info("stages: completed %s", stage_name)
+    return 0
 
 
 def _cmd_scope_run(args: argparse.Namespace) -> int:
@@ -1718,6 +2521,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Print a MEA_Analysis run_pipeline_driver.py command for spikesorting (NERSC or lab presets).",
     )
     p_cmd.add_argument("data_path", help="Path to an MEA data file or directory.")
+    p_cmd.add_argument(
+        "--env-file",
+        type=Path,
+        default=None,
+        help="Optional .env file to load before resolving command args (CLI flags override env values).",
+    )
+    p_cmd.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Optional runtime config file; used for env.python launcher fallback.",
+    )
     _add_mea_common_flags(p_cmd)
     p_cmd.add_argument("--docker-image", default=None, help="Docker image for lab server execution.")
     p_cmd.add_argument("--scratch-dir", default=None, help="Scratch dir for NERSC (defaults to $SLURM_TMPDIR if set).")
@@ -1737,6 +2552,18 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     p_gpu.add_argument("data_path", help="Path to an MEA data file or directory.")
+    p_gpu.add_argument(
+        "--env-file",
+        type=Path,
+        default=None,
+        help="Optional .env file to load before resolving command args (CLI flags override env values).",
+    )
+    p_gpu.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Optional runtime config file; used for env.python launcher fallback.",
+    )
     _add_mea_common_flags(p_gpu)
     p_gpu.add_argument("--account", default=None, help="Slurm project/account (e.g. m2043_g).")
     p_gpu.add_argument("--qos", default=None, help="Slurm qos (default: interactive).")
@@ -1780,6 +2607,36 @@ def main(argv: list[str] | None = None) -> int:
     add_stage_analysis_args(p_stage)
     add_stage_kwargs_args(p_stage)
     p_stage.set_defaults(func=_cmd_stage)
+
+    p_stages = sub.add_parser(
+        "stages",
+        help="Run multiple pipeline stages in sequence (e.g. 'stages [templates, recon]').",
+    )
+    p_stages.add_argument(
+        "--env-file",
+        type=Path,
+        default=None,
+        help="Optional .env file to load before resolving stage args (CLI flags override env values).",
+    )
+    p_stages.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Optional YAML/JSON runtime config file. Precedence: CLI > config > env > defaults.",
+    )
+    p_stages.add_argument(
+        "stages",
+        nargs="+",
+        help="Stages list. Accepts forms like: templates reconstruct | templates,reconstruct | [templates, recon]",
+    )
+    add_stage_common_required_args(p_stages)
+    add_stage_spikesort_args(p_stages)
+    add_stage_waveforms_args(p_stages)
+    add_stage_execution_args(p_stages)
+    add_stage_reconstruct_args(p_stages)
+    add_stage_analysis_args(p_stages)
+    add_stage_kwargs_args(p_stages)
+    p_stages.set_defaults(func=_cmd_stages)
 
     p_analysis_deck = sub.add_parser(
         "analysis-deck",
@@ -1842,10 +2699,9 @@ def main(argv: list[str] | None = None) -> int:
     p_scope_build.add_argument("--n-jobs", type=int, default=None)
     p_scope_build.add_argument("--chunk-duration", default=None)
     p_scope_build.add_argument("--mea-output-root", type=Path, default=None)
-    p_scope_build.add_argument("--mea-analysis-repo-root", type=Path, default=None)
     p_scope_build.add_argument("--sorter", default=None)
     p_scope_build.add_argument("--docker-image", default=None)
-    p_scope_build.add_argument("--recon-unit-workers", type=int, default=None)
+    p_scope_build.add_argument("--recon-n-jobs", type=int, default=None)
     p_scope_build.add_argument("--recon-json-only", action="store_true")
     p_scope_build.set_defaults(func=_cmd_scope_config_build)
 

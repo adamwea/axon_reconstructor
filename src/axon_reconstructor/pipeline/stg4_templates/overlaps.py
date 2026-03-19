@@ -283,8 +283,19 @@ def mean_waveform_from_contributions(
 
     import numpy as np  # type: ignore[import-not-found]
 
+    debug_enabled = bool(getattr(logger, "isEnabledFor", lambda *_: False)(10))
+
     if not contributions:
+        if debug_enabled:
+            logger.debug("Overlap: no contributions provided")
         return None
+
+    if debug_enabled:
+        logger.debug(
+            "Overlap: begin mean-waveform merge with n_contributions=%d max_spikes_per_contribution=%s",
+            int(len(contributions)),
+            str(max_spikes_per_contribution),
+        )
 
     stacked: list[np.ndarray] = []
     used = 0
@@ -304,6 +315,15 @@ def mean_waveform_from_contributions(
                 wfs = None
             wf_cache[cache_key] = wfs
 
+        if debug_enabled:
+            logger.debug(
+                "Overlap: contribution source=%s unit=%s channel_ref=%s waveforms_shape=%s",
+                c.source_name,
+                c.unit_id,
+                c.channel_ref,
+                (None if wfs is None else tuple(wfs.shape)),
+            )
+
         if wfs is None:
             if logger is not None:
                 logger.debug("Overlap: no waveforms for %s unit=%s", c.source_name, c.unit_id)
@@ -321,6 +341,13 @@ def mean_waveform_from_contributions(
 
         n_spikes, n_samples, n_ch = wfs.shape
         if n_spikes <= 0 or n_samples <= 0 or n_ch <= 0:
+            if debug_enabled:
+                logger.debug(
+                    "Overlap: invalid waveform dimensions source=%s unit=%s shape=%s",
+                    c.source_name,
+                    c.unit_id,
+                    tuple(wfs.shape),
+                )
             continue
 
         ch_i = _resolve_waveforms_channel_axis_index(
@@ -342,6 +369,16 @@ def mean_waveform_from_contributions(
 
         sel = wfs[:, :, int(ch_i)]
 
+        if debug_enabled:
+            logger.debug(
+                "Overlap: selected waveforms source=%s unit=%s channel_axis_index=%d n_spikes=%d n_samples=%d",
+                c.source_name,
+                c.unit_id,
+                int(ch_i),
+                int(sel.shape[0]),
+                int(sel.shape[1]),
+            )
+
         # Robust per-spike baseline subtraction to avoid DC offsets propagating into
         # overlap-resolved templates. We intentionally do this here (templates stage)
         # because source templates may have slightly different baselines across segments.
@@ -361,16 +398,38 @@ def mean_waveform_from_contributions(
             else:
                 idx = rng_choice(n_spikes, k)
             sel = sel[idx, :]
+            if debug_enabled:
+                logger.debug(
+                    "Overlap: downsampled contribution source=%s unit=%s from %d to %d spikes",
+                    c.source_name,
+                    c.unit_id,
+                    int(n_spikes),
+                    int(k),
+                )
 
         if sel.ndim == 2 and sel.shape[0] > 0 and sel.shape[1] > 0:
             stacked.append(np.asarray(sel, dtype=float))
             used += int(sel.shape[0])
+            if debug_enabled:
+                logger.debug(
+                    "Overlap: accepted contribution source=%s unit=%s stacked_spikes_now=%d",
+                    c.source_name,
+                    c.unit_id,
+                    int(used),
+                )
 
     if not stacked:
+        if debug_enabled:
+            logger.debug("Overlap: merge aborted because no valid contributions remained after filtering")
         return None
 
     all_wfs = np.concatenate(stacked, axis=0)
     if all_wfs.ndim != 2 or all_wfs.shape[0] == 0:
+        if debug_enabled:
+            logger.debug(
+                "Overlap: merge aborted after concatenate due to invalid shape=%s",
+                tuple(all_wfs.shape) if hasattr(all_wfs, "shape") else None,
+            )
         return None
 
     mean_wf = np.mean(all_wfs, axis=0)
@@ -381,11 +440,15 @@ def mean_waveform_from_contributions(
     except Exception:
         pass
 
-    if logger is not None:
-        logger.info(
+    if logger is not None and debug_enabled:
+        logger.debug(
             "Overlap: mean-waveform merge used %d spikes across %d contributions",
             int(used),
             int(len(contributions)),
+        )
+        logger.debug(
+            "Overlap: merge success output_samples=%d",
+            int(mean_wf.shape[0]),
         )
 
     return np.asarray(mean_wf, dtype=float)

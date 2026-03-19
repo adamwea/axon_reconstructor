@@ -263,6 +263,14 @@ def _build_merged_contributing_template_for_unit(
     if not sources_for_unit:
         return None
 
+    debug_enabled = bool(getattr(logger, "isEnabledFor", lambda *_: False)(10))
+    if debug_enabled:
+        logger.debug(
+            "merged_contributing: unit=%s start with %d template sources",
+            unit_id,
+            int(len(sources_for_unit)),
+        )
+
     n_samples = int(np.asarray(sources_for_unit[0]["template"]).shape[0])
 
     try:
@@ -294,6 +302,18 @@ def _build_merged_contributing_template_for_unit(
         ch_ids = src.get("channel_ids")
         el_ids = src.get("electrode_ids")
 
+        if debug_enabled:
+            logger.debug(
+                "merged_contributing: unit=%s source=%s tmpl_shape=%s locs_shape=%s has_channel_ids=%s has_electrode_ids=%s has_analyzer=%s",
+                unit_id,
+                name,
+                tuple(tmpl.shape),
+                tuple(locs.shape),
+                bool(ch_ids is not None),
+                bool(el_ids is not None),
+                bool(src.get("_analyzer") is not None),
+            )
+
         if tmpl.ndim != 2 or tmpl.shape[0] != n_samples:
             logger.warning("Skipping %s for merged_contributing: bad template shape %s", name, tmpl.shape)
             continue
@@ -311,6 +331,15 @@ def _build_merged_contributing_template_for_unit(
 
             if key in key_to_index:
                 overlap_count += 1
+                if debug_enabled:
+                    logger.debug(
+                        "merged_contributing: unit=%s overlap key=%s source=%s channel_col=%d existing_index=%d",
+                        unit_id,
+                        key,
+                        name,
+                        int(j),
+                        int(key_to_index.get(key, -1)),
+                    )
 
                 # Track overlap contributions for later waveform-mean merge.
                 try:
@@ -336,6 +365,15 @@ def _build_merged_contributing_template_for_unit(
                                 channel_ref=(ch_ref if ch_ref is not None else int(j)),
                             )
                         )
+                        if debug_enabled:
+                            logger.debug(
+                                "merged_contributing: unit=%s overlap key=%s appended contribution source=%s channel_ref=%s n_contribs=%d",
+                                unit_id,
+                                key,
+                                name,
+                                (ch_ref if ch_ref is not None else int(j)),
+                                int(len(contribs_by_key.get(key, []))),
+                            )
                 except Exception:
                     pass
 
@@ -384,6 +422,15 @@ def _build_merged_contributing_template_for_unit(
                             channel_ref=(ch_ref if ch_ref is not None else int(j)),
                         )
                     )
+                    if debug_enabled:
+                        logger.debug(
+                            "merged_contributing: unit=%s seed key=%s source=%s channel_ref=%s n_contribs=%d",
+                            unit_id,
+                            key,
+                            name,
+                            (ch_ref if ch_ref is not None else int(j)),
+                            int(len(contribs_by_key.get(key, []))),
+                        )
             except Exception:
                 pass
 
@@ -393,23 +440,58 @@ def _build_merged_contributing_template_for_unit(
     # Resolve overlaps by recomputing the per-channel waveform using the mean of
     # all contributing waveforms across sources.
     overlap_resolved = 0
+    merge_issue_reason_counts: dict[str, int] = {
+        "missing_key_index": 0,
+        "merge_exception": 0,
+        "merge_returned_none": 0,
+        "sample_mismatch": 0,
+    }
+    no_merge_needed_single_contribution = 0
+    resolve_targets = 0
     for key, contribs in contribs_by_key.items():
         if len(contribs) <= 1:
+            no_merge_needed_single_contribution += 1
             continue
+        resolve_targets += 1
         idx = key_to_index.get(key)
         if idx is None:
+            merge_issue_reason_counts["missing_key_index"] += 1
             continue
 
         try:
             merged_wf = mean_waveform_from_contributions(contributions=contribs, logger=logger)
-        except Exception:
+        except Exception as exc:
             merged_wf = None
+            merge_issue_reason_counts["merge_exception"] += 1
+            if debug_enabled:
+                logger.debug(
+                    "merged_contributing: unit=%s overlap key=%s merge exception: %s",
+                    unit_id,
+                    key,
+                    exc,
+                )
 
         if merged_wf is None:
             # Fallback: keep the first template column (existing behavior).
+            merge_issue_reason_counts["merge_returned_none"] += 1
+            if debug_enabled:
+                logger.debug(
+                    "merged_contributing: unit=%s overlap key=%s unresolved (mean_waveform_from_contributions returned None); keeping first",
+                    unit_id,
+                    key,
+                )
             continue
 
         if int(merged_wf.shape[0]) != int(n_samples):
+            merge_issue_reason_counts["sample_mismatch"] += 1
+            if debug_enabled:
+                logger.debug(
+                    "merged_contributing: unit=%s overlap key=%s unresolved (sample mismatch merged=%d expected=%d); keeping first",
+                    unit_id,
+                    key,
+                    int(merged_wf.shape[0]),
+                    int(n_samples),
+                )
             continue
 
         # Ensure overlap-resolved waveform is centered too.
@@ -420,6 +502,13 @@ def _build_merged_contributing_template_for_unit(
         except Exception:
             contributing_waveforms[idx] = merged_wf
         overlap_resolved += 1
+        if debug_enabled:
+            logger.debug(
+                "merged_contributing: unit=%s overlap key=%s resolved via mean_waveforms at output_channel_index=%d",
+                unit_id,
+                key,
+                int(idx),
+            )
         try:
             overlap_details.append(
                 {
@@ -434,11 +523,29 @@ def _build_merged_contributing_template_for_unit(
             pass
 
     if overlap_count:
-        logger.warning(
-            "merged_contributing: encountered %d overlapping channels; resolved=%d via mean-waveforms (kept first otherwise)",
-            int(overlap_count),
-            int(overlap_resolved),
-        )
+        unresolved = int(sum(int(v) for v in merge_issue_reason_counts.values()))
+        if debug_enabled:
+            logger.debug(
+                "merged_contributing: unit=%s overlap summary encountered=%d resolve_targets=%d resolved=%d unresolved=%d no_merge_needed=%d merge_issue_reasons=%s",
+                unit_id,
+                int(overlap_count),
+                int(resolve_targets),
+                int(overlap_resolved),
+                int(unresolved),
+                int(no_merge_needed_single_contribution),
+                merge_issue_reason_counts,
+            )
+        if unresolved > 0:
+            logger.warning(
+                "merged_contributing: encountered %d overlapping channels; resolve_targets=%d; resolved=%d via mean-waveforms; unresolved=%d kept-first fallback; "
+                "no_merge_needed=%d (single contribution) "
+                "(typically missing/invalid raw waveform contribution or unresolved channel mapping)",
+                int(overlap_count),
+                int(resolve_targets),
+                int(overlap_resolved),
+                int(unresolved),
+                int(no_merge_needed_single_contribution),
+            )
 
     merged = np.stack(contributing_waveforms, axis=1)
     merged_locs = np.stack(contributing_locs, axis=0)
@@ -452,6 +559,7 @@ def _build_merged_contributing_template_for_unit(
         "channel_source_names": contributing_source_names,
         "stats": {
             "overlap_encountered": int(overlap_count),
+            "overlap_resolve_targets": int(resolve_targets),
             "overlap_resolved": int(overlap_resolved),
             "overlap_strategy": "mean_waveforms",
             "n_contributing_channels": int(merged.shape[1]),

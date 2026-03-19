@@ -1,14 +1,19 @@
-paths:
-  #h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5
-  h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/data.raw.h5
-  stream_id: well001
-  mea_output_root: /home/adamm/dev/symlinks/local_RBS_data/outputs
-  mea_analysis_repo_root: /home/adamm/dev/pkgs/MEA_Analysis
-  axon_velocity_repo_root: /home/adamm/dev/pkgs/axon_velocity
+# Debug runtime configuration for axon reconstructor.
+# This file is meant to be used in conjunction with debug.data.yml, which contains dataset-specific information.
+
+# Data set config is seperated from runtime config.
+data: ./debug.data.yml
+
+env:
+  python:
+    # User-agnostic template path; ${HOME} expands per user.
+    executable_path: ${HOME}/miniconda3/envs/axon_recon/bin/python
+    # Preferred fallback when executable_path is absent on a machine.
+    conda_env_name: axon_recon
 
 resources:
   # Global fallbacks when a stage-specific resources block omits a key.
-  n_jobs: 24
+  max_workers: 24
   chunk_duration: 1s
 
 stages:
@@ -20,9 +25,8 @@ stages:
     plot:
       segment_traces: false
     resources:
-      workers_total: 24
-      well_workers: 1
-      stage_workers: 24
+      max_stage_workers: 24
+      well_workers: 2
 
   spikesort:
     execution:
@@ -30,9 +34,8 @@ stages:
       force_restart: false
       force_replot: false
     resources:
-      workers_total: 24
-      well_workers: 1
-      stage_workers: 24
+      max_stage_workers: 24
+      well_workers: 2
       chunk_duration: 1s
     sorter: kilosort4
     docker_image: adammwea/benshalomlab_spikesorter_pythonpatch:v3
@@ -78,9 +81,8 @@ stages:
       force_restart: false
       force_replot: false
     resources:
-      workers_total: 24
-      well_workers: 1
-      stage_workers: 24
+      max_stage_workers: 24
+      well_workers: 2
     ms_before: 1
     ms_after: 2
     #max_spikes_per_unit: 1000000
@@ -97,13 +99,13 @@ stages:
 
   templates:
     execution:
-      debug: false
+      debug: false 
       force_restart: false
       force_replot: false
+      force_replot_per_unit: false #TODO: Make sure this is wired up
     resources:
-      workers_total: 24
-      well_workers: 1
-      stage_workers: 24
+      max_stage_workers: 24
+      well_workers: 2
     include_concat: true
     include_segments: true
     footprint_unit_limit: null
@@ -122,12 +124,10 @@ stages:
       debug: false
       force_restart: false
       force_replot: true
+      force_replot_per_unit: false #TODO: Make sure this is wired up
     resources:
-      workers_total: 24
-      well_workers: 1
-      stage_workers: 24
-      #unit_workers: 12 # for some reason, having this many workers causes memory issues in the current implementation. WSL crashes.
-      unit_workers: 8
+      max_stage_workers: 8
+      well_workers: 2
     unit_limit: 1000
     write_unit_pdfs: true
     write_all_units_overview_pdf: true
@@ -142,9 +142,88 @@ stages:
     verbose: false
     write_template_movie_gif: false
     per_unit_outputs:
+      # JSON artifacts
       write_branches_raw_json: true
+      branches_raw_relpath: branches_raw.json
       write_branches_json: true
+      branches_relpath: branches.json
       write_heuristics_json: true
+      heuristics_relpath: heuristics.json
+
+      # Template and summary
+      template:
+        full:
+          write_png: true
+          write_svg: false
+          relpath: template_full
+        zoom:
+          write_png: true
+          write_svg: false
+          relpath: template_zoom
+      write_template_movie: false
+      template_movie_relpath: template_movie.gif
+      write_summary: false
+      summary_relpath: summary.png
+      write_summary_clean: false
+      summary_clean_relpath: summary_clean.png
+      write_summary_raw: false
+      summary_raw_relpath: summary_raw.png
+
+      # Maps
+      write_amplitude_map: false
+      amplitude_map_relpath: maps/amplitude_map.png
+      write_amplitude_map_zoom: false
+      amplitude_map_zoom_relpath: maps/amplitude_map_zoom.png
+      write_peak_latency_map: false
+      peak_latency_map_relpath: maps/peak_latency_map.png
+      write_peak_latency_map_zoom: false
+      peak_latency_map_zoom_relpath: maps/peak_latency_map_zoom.png
+      write_peak_std_map: false
+      peak_std_map_relpath: maps/peak_std_map.png
+      write_peak_std_map_zoom: false
+      peak_std_map_zoom_relpath: maps/peak_std_map_zoom.png
+      write_channel_selection_detect: false
+      channel_selection_detect_relpath: maps/channel_selection_detect.png
+      write_channel_selection_kurt: false
+      channel_selection_kurt_relpath: maps/channel_selection_kurt.png
+      write_channel_selection_delay: false
+      channel_selection_delay_relpath: maps/channel_selection_delay.png
+      write_channel_selection_all: false
+      channel_selection_all_relpath: maps/channel_selection_all.png
+
+      # Graph views
+      write_graph_nodes: false
+      graph_nodes_relpath: maps/graph_nodes.png
+      write_graph_edges: false
+      graph_edges_relpath: maps/graph_edges.png
+      write_graph_heuristics: false
+      graph_heuristics_relpath: heuristics/graph_heuristics.png
+
+      # Morphology
+      write_morphology_pdf: false
+      morphology_pdf_relpath: morphology/morphology.pdf
+      write_morphology_zoom_pdf: false
+      morphology_zoom_pdf_relpath: morphology/morphology_zoom.pdf
+
+      # Branch plots
+      write_branches_raw_clean_pdf: false
+      branches_raw_clean_pdf_relpath: branches/raw/branches_raw_clean.pdf
+      write_branches_raw_pdf: false
+      branches_raw_pdf_relpath: branches/raw/branches_raw.pdf
+      write_branches_raw_zoom_pdf: false
+      branches_raw_zoom_pdf_relpath: branches/raw/branches_raw_zoom.pdf
+      write_branches_clean_pdf: false
+      branches_clean_pdf_relpath: branches/clean/branches_clean.pdf
+      write_branches_clean_zoom_pdf: false
+      branches_clean_zoom_pdf_relpath: branches/clean/branches_clean_zoom.pdf
+      write_branch_velocities_pdf: false
+      branch_velocities_pdf_relpath: branches/clean/branch_velocities.pdf
+      write_branch_velocities_raw_overlay_pdf: false
+      branch_velocities_raw_overlay_pdf_relpath: branches/raw/branch_velocities_overlay.pdf
+      write_branch_velocities_overlay_pdf: false
+      branch_velocities_overlay_pdf_relpath: branches/clean/branch_velocities_overlay.pdf
+      write_branch_velocity_template: false
+      branch_velocity_template_relpath: branches/clean/branch_{index:02d}_velocity
     grids:
       # Output folder inside reconstruction output dir.
       output_subdir: grids
@@ -162,6 +241,7 @@ stages:
       draw_zoom_range_box: false
       panel_background_color: black
       branch_color: red
+      #branch_color: cyan
       branch_outline_color: white
       show_unit_id_in_plot: true # top right corner of each panel
       unit_id_fontsize: 6
@@ -178,6 +258,13 @@ stages:
       #if true, check if any nodes or branches are occluded by the minimap and if so,
       # increase zoom span as needed to prevent occlusion. Only applies if show_minimap is true.
       minimap_prevent_occlusions: true
+      # Extra data-space clearance around nodes/branches when testing minimap occlusion.
+      minimap_clearance_um: 2.0
+      # Additional display-space buffer added to branch stroke width during occlusion tests.
+      minimap_linewidth_buffer_pt: 0.5
+      # Iterative zoom expansion controls for minimap occlusion avoidance.
+      minimap_occlusion_max_iters: 10
+      minimap_occlusion_growth_factor: 1.15
       node_radius_um: 5
       soma_node_radius_um: 8
       soma_node_color: orange # e.g. cyan, yellow, magenta
@@ -194,7 +281,7 @@ stages:
       soma_xy_coords: # print soma xy coordinates on the panel.
         show: true
         color: white
-        fontsize: 4
+        fontsize: 6
         location: bottom left
       legend:
         show: true
@@ -208,20 +295,49 @@ stages:
       # Extra logger output for candidate counts/selected units/path resolution.
       emit_debug_logs: false
     av:
+      upsample: 1
+      init_delay: 0
+      # default: 3
       min_points_after_branching: 2
+      # default: 100
       min_path_length: 17.5
+      # default: 5
       min_path_points: 4
-      max_peak_latency_for_splitting: 2.0
+      # default: 0.5
+      # max_peak_latency_for_splitting: 2.0
+      max_peak_latency_for_splitting: 0.5
+      # default: 0.3
       kurt_threshold: -10.0
+      peak_std_threshold: null
+      peak_std_distance: 30
+      # default: 3
       n_neighbors: 8
-      distance_exp: 1
+      # default: 2
+      # distance_exp: 1
+      distance_exp: 2
+      # default: true
       remove_isolated: false
+      detection_type: "relative" # "relative" or "absolute". relative means the detect_threshold is relative to the expected amplitude of the branch at that location, while absolute means the detect_threshold is an absolute value in microvolts.
+      # default: 0.01
       detect_threshold: 0.0001
-      min_selected_points: 25
+      # default: 30
+      min_selected_points: 30
+      r2_threshold: 0.9
+      max_distance_for_edge: 100
+      max_distance_to_init: 200
+      # default: 8
       mad_threshold: 10
-      min_outlier_tracking_error: 200
-      neighbor_radius: 50
+      init_amp_peak_ratio: 0.2
+      edge_dist_amp_ratio: 0.3
+      r2_threshold_for_outliers: 0.98
+      # default: 50
+      # min_outlier_tracking_error: 200
+      min_outlier_tracking_error: 50
+      # default: 100
+      # neighbor_radius: 50
+      neighbor_radius: 100
       split_paths: true
+      # default: 2000
       theilsen_maxiter: 8000
 
   analysis:
@@ -230,10 +346,8 @@ stages:
       force_restart: false
       force_replot: false
     resources:
-      workers_total: 24
+      max_stage_workers: 24
       well_workers: 1
-      stage_workers: 24
-      unit_workers: 1
     prefer_curated_waveforms_panels: true
     botm:
       enable: false

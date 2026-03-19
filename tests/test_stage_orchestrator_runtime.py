@@ -24,7 +24,6 @@ def _build_scope_config(*, tmp_path: Path, stage_order: list[str], fail_fast: bo
     )
     return ScopeConfig(
         mea_output_root=tmp_path / "outputs",
-        mea_analysis_repo_root=None,
         sorter="kilosort4",
         docker_image=None,
         n_jobs=1,
