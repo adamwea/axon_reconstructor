@@ -1845,6 +1845,115 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             stage_kwargs["grid_legend_show_footprint_in_legend"] = bool(
                 _legend_or_default("show_footprint_in_legend", True)
             )
+
+        local_cb_cfg = grids_cfg.get("local_color_bars", None) if isinstance(grids_cfg, dict) else None
+        if local_cb_cfg is not None and not isinstance(local_cb_cfg, dict):
+            raise ValueError("stages.reconstruct.grids.local_color_bars must be a mapping/object")
+        local_cb_cfg = local_cb_cfg if isinstance(local_cb_cfg, dict) else {}
+
+        def _local_cb_or_default(key: str, default: Any) -> Any:
+            return local_cb_cfg.get(key, default) if isinstance(local_cb_cfg, dict) else default
+
+        if "grid_local_color_bars_show" not in stage_kwargs:
+            stage_kwargs["grid_local_color_bars_show"] = bool(_local_cb_or_default("show", False))
+        if "grid_local_color_bars_location" not in stage_kwargs:
+            stage_kwargs["grid_local_color_bars_location"] = str(_local_cb_or_default("location", "topright"))
+        if "grid_local_color_bars_fontsize" not in stage_kwargs:
+            stage_kwargs["grid_local_color_bars_fontsize"] = float(_local_cb_or_default("fontsize", 5.0))
+        if "grid_local_color_bars_fontcolor" not in stage_kwargs:
+            stage_kwargs["grid_local_color_bars_fontcolor"] = str(_local_cb_or_default("fontcolor", "white"))
+        if "grid_local_color_bars_length_fraction" not in stage_kwargs:
+            stage_kwargs["grid_local_color_bars_length_fraction"] = float(
+                _local_cb_or_default("length_fraction", 0.26)
+            )
+        if "grid_local_color_bars_pad_fraction" not in stage_kwargs:
+            stage_kwargs["grid_local_color_bars_pad_fraction"] = float(_local_cb_or_default("pad_fraction", 0.01))
+        if "grid_local_color_bars_show_ticks" not in stage_kwargs:
+            stage_kwargs["grid_local_color_bars_show_ticks"] = _local_cb_or_default("show_ticks", None)
+
+        global_cb_cfg = grids_cfg.get("global_color_bar", None) if isinstance(grids_cfg, dict) else None
+        if global_cb_cfg is not None and not isinstance(global_cb_cfg, dict):
+            raise ValueError("stages.reconstruct.grids.global_color_bar must be a mapping/object")
+        global_cb_cfg = global_cb_cfg if isinstance(global_cb_cfg, dict) else {}
+
+        def _global_cb_or_default(key: str, default: Any) -> Any:
+            return global_cb_cfg.get(key, default) if isinstance(global_cb_cfg, dict) else default
+
+        if "grid_global_color_bar_show" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_show"] = bool(_global_cb_or_default("show", True))
+        if "grid_global_color_bar_location" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_location"] = str(_global_cb_or_default("location", "topright"))
+        if "grid_global_color_bar_fontsize" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_fontsize"] = float(_global_cb_or_default("fontsize", 6.0))
+        if "grid_global_color_bar_fontcolor" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_fontcolor"] = str(_global_cb_or_default("fontcolor", "white"))
+        if "grid_global_color_bar_length_fraction" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_length_fraction"] = float(
+                _global_cb_or_default("length_fraction", 0.30)
+            )
+        if "grid_global_color_bar_pad_fraction" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_pad_fraction"] = float(_global_cb_or_default("pad_fraction", 0.02))
+        if "grid_global_color_bar_low_color" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_low_color"] = str(_global_cb_or_default("low_color", "blue"))
+        if "grid_global_color_bar_mid_color" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_mid_color"] = str(_global_cb_or_default("mid_color", "white"))
+        if "grid_global_color_bar_high_color" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_high_color"] = str(_global_cb_or_default("high_color", "red"))
+        if "grid_global_color_bar_force_low_value" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_force_low_value"] = _global_cb_or_default("force_low_value", None)
+        if "grid_global_color_bar_force_high_value" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_force_high_value"] = _global_cb_or_default("force_high_value", None)
+        if "grid_global_color_bar_show_ticks" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_show_ticks"] = _global_cb_or_default("show_ticks", None)
+        if "grid_global_color_bar_percentile_low" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_percentile_low"] = float(
+                _global_cb_or_default("percentile_low", 5.0)
+            )
+        if "grid_global_color_bar_percentile_high_linear" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_percentile_high_linear"] = float(
+                _global_cb_or_default("percentile_high_linear", 99.0)
+            )
+        if "grid_global_color_bar_percentile_high_log" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_percentile_high_log"] = float(
+                _global_cb_or_default("percentile_high_log", 99.5)
+            )
+        if "grid_global_color_bar_knot_anchor_values" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_knot_anchor_values"] = _global_cb_or_default(
+                "knot_anchor_values", [1.0, 10.0]
+            )
+        if "grid_global_color_bar_knot_y1_min" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_knot_y1_min"] = float(
+                _global_cb_or_default("knot_y1_min", 0.02)
+            )
+        if "grid_global_color_bar_knot_y1_max" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_knot_y1_max"] = float(
+                _global_cb_or_default("knot_y1_max", 0.90)
+            )
+        if "grid_global_color_bar_knot_y2_min" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_knot_y2_min"] = float(
+                _global_cb_or_default("knot_y2_min", 0.07)
+            )
+        if "grid_global_color_bar_knot_y2_max" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_knot_y2_max"] = float(
+                _global_cb_or_default("knot_y2_max", 0.98)
+            )
+        if "grid_global_color_bar_knot_min_gap" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_knot_min_gap"] = float(
+                _global_cb_or_default("knot_min_gap", 0.05)
+            )
+        if "grid_global_color_bar_linear_cap_rounding_mode" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_linear_cap_rounding_mode"] = str(
+                _global_cb_or_default("linear_cap_rounding_mode", "ceil_step")
+            )
+        if "grid_global_color_bar_linear_cap_rounding_step" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_linear_cap_rounding_step"] = float(
+                _global_cb_or_default("linear_cap_rounding_step", 10.0)
+            )
+        if "grid_global_color_bar_linear_cap_min_vmax" not in stage_kwargs:
+            stage_kwargs["grid_global_color_bar_linear_cap_min_vmax"] = float(
+                _global_cb_or_default("linear_cap_min_vmax", 11.0)
+            )
+
         if "grid_emit_debug_logs" not in stage_kwargs:
             stage_kwargs["grid_emit_debug_logs"] = bool(_cfg_or_default("emit_debug_logs", False))
 
@@ -2042,7 +2151,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             )
         if "per_unit_write_template_zoom" not in stage_kwargs:
             stage_kwargs["per_unit_write_template_zoom"] = bool(
-                _per_unit_cfg_or_default("write_template_zoom", True)
+                _per_unit_cfg_or_default("write_template_zoom", False)
             )
         if "per_unit_write_template_movie" not in stage_kwargs:
             stage_kwargs["per_unit_write_template_movie"] = bool(

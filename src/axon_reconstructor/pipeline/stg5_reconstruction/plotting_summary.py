@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from .plotting_core import (
     _force_white_background,
@@ -12,6 +12,12 @@ from .plotting_core import (
     _white_bg_rc_params,
     _with_suffix,
 )
+from .plotting_shared import add_axes_scalebar as _shared_add_axes_scalebar
+from .plotting_shared import colorbar_axes_bounds as _shared_colorbar_axes_bounds
+from .plotting_shared import normalize_corner_location as _shared_normalize_corner_location
+from .plotting_shared import normalize_minimap_linestyle as _shared_normalize_minimap_linestyle
+from .plotting_shared import parse_show_ticks_spec as _shared_parse_show_ticks_spec
+from .plotting_shared import resolve_colorbar_ticks as _shared_resolve_colorbar_ticks
 
 def compute_raw_branches_for_summary(*, uid: Any, gtr: Any) -> list[dict[str, Any]]:
     """Compute a raw-branches list compatible with axon_velocity plotting helpers.
@@ -394,6 +400,37 @@ def write_top_density_raw_branch_footprint_grid(
     legend_marker_size: float = 3.0,
     legend_show_nodes_in_legend: bool = True,
     legend_show_footprint_in_legend: bool = True,
+    local_color_bars_show: bool = False,
+    local_color_bars_location: str = "topright",
+    local_color_bars_fontsize: float = 5.0,
+    local_color_bars_fontcolor: str = "white",
+    local_color_bars_length_fraction: float = 0.26,
+    local_color_bars_pad_fraction: float = 0.01,
+    local_color_bars_show_ticks: Any = None,
+    global_color_bar_show: bool = True,
+    global_color_bar_location: str = "topright",
+    global_color_bar_fontsize: float = 6.0,
+    global_color_bar_fontcolor: str = "white",
+    global_color_bar_length_fraction: float = 0.30,
+    global_color_bar_pad_fraction: float = 0.02,
+    global_color_bar_low_color: str = "blue",
+    global_color_bar_mid_color: str = "white",
+    global_color_bar_high_color: str = "red",
+    global_color_bar_force_low_value: float | None = None,
+    global_color_bar_force_high_value: float | None = None,
+    global_color_bar_show_ticks: Any = None,
+    global_color_bar_percentile_low: float = 5.0,
+    global_color_bar_percentile_high_linear: float = 99.0,
+    global_color_bar_percentile_high_log: float = 99.5,
+    global_color_bar_knot_anchor_values: Sequence[float] = (1.0, 10.0),
+    global_color_bar_knot_y1_min: float = 0.02,
+    global_color_bar_knot_y1_max: float = 0.90,
+    global_color_bar_knot_y2_min: float = 0.07,
+    global_color_bar_knot_y2_max: float = 0.98,
+    global_color_bar_knot_min_gap: float = 0.05,
+    global_color_bar_linear_cap_rounding_mode: str = "ceil_step",
+    global_color_bar_linear_cap_rounding_step: float = 10.0,
+    global_color_bar_linear_cap_min_vmax: float = 11.0,
     emit_debug_logs: bool = False,
     show_scale_debug_text: bool = False,
     show_global_debug_text: bool = False,
@@ -705,6 +742,56 @@ def write_top_density_raw_branch_footprint_grid(
     import matplotlib.cm as mcm
     import matplotlib.ticker as mticker
 
+    local_ticks_spec = _shared_parse_show_ticks_spec(local_color_bars_show_ticks)
+    global_ticks_spec = _shared_parse_show_ticks_spec(global_color_bar_show_ticks)
+
+    try:
+        pct_low = float(global_color_bar_percentile_low)
+    except Exception:
+        pct_low = 5.0
+    try:
+        pct_high_linear = float(global_color_bar_percentile_high_linear)
+    except Exception:
+        pct_high_linear = 99.0
+    try:
+        pct_high_log = float(global_color_bar_percentile_high_log)
+    except Exception:
+        pct_high_log = 99.5
+    pct_low = float(np.clip(pct_low, 0.0, 100.0))
+    pct_high_linear = float(np.clip(pct_high_linear, 0.0, 100.0))
+    pct_high_log = float(np.clip(pct_high_log, 0.0, 100.0))
+
+    anchors_raw = list(global_color_bar_knot_anchor_values) if global_color_bar_knot_anchor_values is not None else [1.0, 10.0]
+    if len(anchors_raw) < 2:
+        anchors_raw = [1.0, 10.0]
+    try:
+        anchor_1 = float(anchors_raw[0])
+        anchor_2 = float(anchors_raw[1])
+    except Exception:
+        anchor_1, anchor_2 = 1.0, 10.0
+    if not np.isfinite(anchor_1):
+        anchor_1 = 1.0
+    if not np.isfinite(anchor_2):
+        anchor_2 = 10.0
+    if anchor_1 > anchor_2:
+        anchor_1, anchor_2 = anchor_2, anchor_1
+
+    y1_min = float(np.clip(float(global_color_bar_knot_y1_min), 0.0, 1.0))
+    y1_max = float(np.clip(float(global_color_bar_knot_y1_max), y1_min, 1.0))
+    y2_min = float(np.clip(float(global_color_bar_knot_y2_min), 0.0, 1.0))
+    y2_max = float(np.clip(float(global_color_bar_knot_y2_max), y2_min, 1.0))
+    y_gap = float(max(0.0, float(global_color_bar_knot_min_gap)))
+
+    round_mode = str(global_color_bar_linear_cap_rounding_mode or "ceil_step").strip().lower()
+    try:
+        round_step = float(global_color_bar_linear_cap_rounding_step)
+    except Exception:
+        round_step = 10.0
+    try:
+        linear_cap_min_vmax = float(global_color_bar_linear_cap_min_vmax)
+    except Exception:
+        linear_cap_min_vmax = 11.0
+
     def _round_up_nice(x: float) -> float:
         try:
             if not np.isfinite(x) or x <= 0:
@@ -731,13 +818,32 @@ def write_top_density_raw_branch_footprint_grid(
         except Exception:
             return 10.0
 
+    def _round_up_step(x: float, step: float) -> float:
+        try:
+            if not np.isfinite(x):
+                return float(max(1.0, step))
+            s = max(1e-12, float(step))
+            return float(s * np.ceil(float(x) / s))
+        except Exception:
+            return float(max(1.0, step))
+
     if all_amp_pos.size:
-        log_vmin = float(np.percentile(all_amp_pos, 5))
-        log_vmax = float(np.percentile(all_amp_pos, 99.5))
+        log_vmin = float(np.percentile(all_amp_pos, pct_low))
+        log_vmax = float(np.percentile(all_amp_pos, pct_high_log))
     else:
         log_vmin, log_vmax = 1e-3, 1.0
     if log_vmax <= log_vmin:
         log_vmax = log_vmin * 1.01
+    if global_color_bar_force_low_value is not None:
+        try:
+            log_vmin = max(1e-12, float(global_color_bar_force_low_value))
+        except Exception:
+            pass
+    if global_color_bar_force_high_value is not None:
+        try:
+            log_vmax = max(log_vmin * 1.01, float(global_color_bar_force_high_value))
+        except Exception:
+            pass
     log_norm = mcolors.LogNorm(vmin=max(1e-12, float(log_vmin)), vmax=max(float(log_vmax), float(log_vmin) * 1.01))
 
     # Dynamic piecewise anchored scaling for the comparison panel,
@@ -745,14 +851,32 @@ def write_top_density_raw_branch_footprint_grid(
     detected_amp_max = float(np.max(all_amp_raw)) if all_amp_raw.size else 1.0
     dyn_vmax_raw = float('nan')
     if all_amp_pos.size:
-        dyn_vmax_raw = float(np.percentile(all_amp_pos, 99.0))
+        dyn_vmax_raw = float(np.percentile(all_amp_pos, pct_high_linear))
         dyn_vmin = 0.0
         if dyn_vmax_raw <= dyn_vmin * 1.01:
             dyn_vmax_raw = dyn_vmin * 1.01
-        dyn_vmax = float(max(11.0, _round_up_10(dyn_vmax_raw)))
+        if round_mode in {"none", "off", "disabled"}:
+            dyn_vmax_rounded = float(dyn_vmax_raw)
+        elif round_mode in {"nice", "nice_1_2_5", "1-2-5"}:
+            dyn_vmax_rounded = float(_round_up_nice(dyn_vmax_raw))
+        elif round_mode in {"ceil_step", "step", "round_step"}:
+            dyn_vmax_rounded = float(_round_up_step(dyn_vmax_raw, round_step))
+        else:
+            dyn_vmax_rounded = float(_round_up_10(dyn_vmax_raw))
+        dyn_vmax = float(max(linear_cap_min_vmax, dyn_vmax_rounded))
     else:
         dyn_vmin = 0.0
         dyn_vmax = 100.0
+    if global_color_bar_force_low_value is not None:
+        try:
+            dyn_vmin = float(global_color_bar_force_low_value)
+        except Exception:
+            pass
+    if global_color_bar_force_high_value is not None:
+        try:
+            dyn_vmax = float(global_color_bar_force_high_value)
+        except Exception:
+            pass
     if dyn_vmax <= dyn_vmin:
         dyn_vmax = dyn_vmin + 1.0
     if all_amp_raw.size:
@@ -766,10 +890,18 @@ def write_top_density_raw_branch_footprint_grid(
         idx = int(np.searchsorted(amp_sorted, float(v), side="right"))
         return float(idx) / float(max(1, amp_sorted.size))
 
-    y1 = float(np.clip(_pct_rank(1.0), 0.02, 0.90))
-    y2 = float(np.clip(_pct_rank(10.0), y1 + 0.05, 0.98))
+    anchor_1 = float(np.clip(anchor_1, dyn_vmin, dyn_vmax))
+    anchor_2 = float(np.clip(anchor_2, dyn_vmin, dyn_vmax))
+    if anchor_2 <= anchor_1:
+        anchor_2 = min(dyn_vmax, anchor_1 + max(1e-6, 0.01 * max(1.0, dyn_vmax - dyn_vmin)))
 
-    x_knots = np.asarray([float(dyn_vmin), 1.0, 10.0, float(dyn_vmax)], dtype=float)
+    y1 = float(np.clip(_pct_rank(anchor_1), y1_min, y1_max))
+    y2_lo = max(y2_min, y1 + y_gap)
+    y2 = float(np.clip(_pct_rank(anchor_2), y2_lo, y2_max))
+    if y2 <= y1:
+        y2 = min(1.0, y1 + max(1e-6, y_gap))
+
+    x_knots = np.asarray([float(dyn_vmin), float(anchor_1), float(anchor_2), float(dyn_vmax)], dtype=float)
     y_knots = np.asarray([0.0, y1, y2, 1.0], dtype=float)
 
     def _piecewise_forward(x: Any) -> Any:
@@ -795,19 +927,18 @@ def write_top_density_raw_branch_footprint_grid(
     blue_pos = float(np.clip(white_pos * 0.45, 0.05, white_pos - 0.02))
 
     cmap_log = LinearSegmentedColormap.from_list(
-        "black_blue_white_orange_red",
-        ["#000000", "#1f4fff", "#ffffff", "#ff8c00", "#ff0000"],
+        "black_low_mid_high",
+        ["#000000", str(global_color_bar_low_color), str(global_color_bar_mid_color), str(global_color_bar_high_color)],
         N=256,
     )
 
     cmap_linear = LinearSegmentedColormap.from_list(
-        "black_blue_white_orange_red_linear_dynamic",
+        "black_low_mid_high_linear_dynamic",
         [
             (0.0, "#000000"),
-            (blue_pos, "#1f4fff"),
-            (white_pos, "#ffffff"),
-            (orange_pos, "#ff8c00"),
-            (1.0, "#ff0000"),
+            (blue_pos, str(global_color_bar_low_color)),
+            (white_pos, str(global_color_bar_mid_color)),
+            (1.0, str(global_color_bar_high_color)),
         ],
         N=256,
     )
@@ -1436,7 +1567,7 @@ def write_top_density_raw_branch_footprint_grid(
                 except Exception:
                     pass
             if None not in (zoom_x0, zoom_x1, zoom_y0, zoom_y1):
-                _add_scalebar(
+                _shared_add_axes_scalebar(
                     ax,
                     zoom_x0=float(zoom_x0),
                     zoom_x1=float(zoom_x1),
@@ -1571,15 +1702,7 @@ def write_top_density_raw_branch_footprint_grid(
                         y0 = float(np.clip(y0, chip_y0, chip_y1))
                         y1 = float(np.clip(y1, chip_y0, chip_y1))
 
-                        ls_raw = str(minimap_inner_box_linestyle or "dotted").strip().lower()
-                        if ls_raw in {"solid", "-"}:
-                            ls = "solid"
-                        elif ls_raw in {"dotted", ":", "dot"}:
-                            ls = (0, (1.0, 1.0))
-                        elif ls_raw in {"dashed", "--", "dash"}:
-                            ls = (0, (3.0, 2.0))
-                        else:
-                            ls = (0, (1.0, 1.0))
+                        ls = _shared_normalize_minimap_linestyle(minimap_inner_box_linestyle)
                         inner_lw = max(0.1, float(minimap_inner_box_linewidth))
 
                         mini.add_patch(
@@ -1597,6 +1720,41 @@ def write_top_density_raw_branch_footprint_grid(
 
                     mini.set_xlim(chip_x0, chip_x1)
                     mini.set_ylim(chip_y0, chip_y1)
+                except Exception:
+                    pass
+
+            if bool(local_color_bars_show):
+                try:
+                    loc_cb = _shared_normalize_corner_location(local_color_bars_location, default="topright")
+                    cb_len = min(0.95, max(0.06, float(local_color_bars_length_fraction)))
+                    cb_pad = min(0.20, max(0.0, float(local_color_bars_pad_fraction)))
+                    cb_w = 0.035
+                    if loc_cb in {"topleft", "bottomleft"}:
+                        cb_x = cb_pad
+                    else:
+                        cb_x = 1.0 - cb_w - cb_pad
+                    if loc_cb in {"topleft", "topright"}:
+                        cb_y = 1.0 - cb_len - cb_pad
+                    else:
+                        cb_y = cb_pad
+                    cax_local = ax.inset_axes([float(cb_x), float(cb_y), float(cb_w), float(cb_len)])
+                    local_sm = mcm.ScalarMappable(norm=norm, cmap=cmap_render)
+                    local_sm.set_array([])
+                    cb_local = fig.colorbar(local_sm, cax=cax_local)
+                    ticks_local, labels_local = _shared_resolve_colorbar_ticks(
+                        tick_spec=local_ticks_spec,
+                        vmin=float(getattr(norm, "vmin", dyn_vmin)),
+                        vmax=float(getattr(norm, "vmax", dyn_vmax)),
+                        detected_amp_max=detected_amp_max,
+                    )
+                    cb_local.set_ticks(ticks_local)
+                    if labels_local is not None:
+                        cb_local.set_ticklabels(labels_local)
+                    cb_local.ax.tick_params(
+                        labelsize=max(4.0, float(local_color_bars_fontsize)),
+                        colors=str(local_color_bars_fontcolor),
+                    )
+                    cb_local.outline.set_edgecolor(str(local_color_bars_fontcolor))
                 except Exception:
                     pass
 
@@ -1763,46 +1921,39 @@ def write_top_density_raw_branch_footprint_grid(
                 continue
             axes_list[j].set_axis_off()
 
-        try:
-            cax = fig.add_axes([0.92, 0.16, 0.015, 0.72])
-            cb = fig.colorbar(color_mappable, cax=cax)
-            cb.set_label(f"{colorbar_label} [µV]", fontsize=8, color="black")
-            if bool(use_log_tick_format):
-                cb.ax.yaxis.set_major_locator(mticker.LogLocator(base=10.0, numticks=6))
-                cb.ax.yaxis.set_major_formatter(mticker.LogFormatterSciNotation(base=10.0))
-                cb.ax.yaxis.set_minor_locator(mticker.NullLocator())
-                cb.update_ticks()
-            else:
-                # Dynamic-log panel: show linear-value ticks (1, 10, and top).
-                # If detected max exceeds displayed vmax, show top label as ">vmax".
-                top_tick = float(dyn_vmax)
-                tick_vals = [1.0, 10.0, top_tick]
-                tick_vals.append(top_tick)
-                dedup_sorted_ticks: list[float] = []
-                for tv in sorted({float(t) for t in tick_vals if float(dyn_vmin) <= float(t) <= float(dyn_vmax)}):
-                    if (not dedup_sorted_ticks) or abs(tv - dedup_sorted_ticks[-1]) > 1e-9:
-                        dedup_sorted_ticks.append(tv)
-                if not dedup_sorted_ticks:
-                    dedup_sorted_ticks = [float(dyn_vmax)]
-                cb.set_ticks(dedup_sorted_ticks)
-                cb.update_ticks()
-                if detected_amp_max > float(dyn_vmax) + 1e-9:
-                    tick_labels: list[str] = []
-                    for tv in dedup_sorted_ticks:
-                        if abs(tv - top_tick) <= 1e-9:
-                            tick_labels.append(f">{_fmt_tick_plain(top_tick)}")
-                        else:
-                            tick_labels.append(_fmt_tick_plain(tv))
+        if bool(global_color_bar_show):
+            try:
+                cax = fig.add_axes(
+                    _shared_colorbar_axes_bounds(
+                        location=global_color_bar_location,
+                        length_fraction=float(global_color_bar_length_fraction),
+                        pad_fraction=float(global_color_bar_pad_fraction),
+                    )
+                )
+                cb = fig.colorbar(color_mappable, cax=cax)
+                cb.set_label(f"{colorbar_label} [µV]", fontsize=max(4.0, float(global_color_bar_fontsize)), color=str(global_color_bar_fontcolor))
+
+                tick_vals, tick_labels = _shared_resolve_colorbar_ticks(
+                    tick_spec=global_ticks_spec,
+                    vmin=float(getattr(norm, "vmin", dyn_vmin)),
+                    vmax=float(getattr(norm, "vmax", dyn_vmax)),
+                    detected_amp_max=detected_amp_max,
+                )
+                cb.set_ticks(tick_vals)
+                if tick_labels is not None:
                     cb.set_ticklabels(tick_labels)
-                else:
-                    cb.ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, pos: _fmt_tick_plain(float(x))))
-            cb.ax.tick_params(labelsize=7, colors="black")
-            cb.outline.set_edgecolor("black")
-        except Exception:
-            pass
+                elif bool(use_log_tick_format):
+                    cb.ax.yaxis.set_major_locator(mticker.LogLocator(base=10.0, numticks=6))
+                    cb.ax.yaxis.set_minor_locator(mticker.NullLocator())
+
+                cb.ax.tick_params(labelsize=max(4.0, float(global_color_bar_fontsize)), colors=str(global_color_bar_fontcolor))
+                cb.outline.set_edgecolor(str(global_color_bar_fontcolor))
+            except Exception:
+                pass
 
         try:
-            fig.subplots_adjust(left=0.02, right=0.90, bottom=0.03, top=0.97, wspace=0.06, hspace=0.25)
+            right_margin = 0.90 if bool(global_color_bar_show) else 0.98
+            fig.subplots_adjust(left=0.02, right=float(right_margin), bottom=0.03, top=0.97, wspace=0.06, hspace=0.25)
         except Exception:
             pass
 

@@ -129,43 +129,63 @@ stages:
       max_stage_workers: 8
       well_workers: 2
     unit_limit: 1000
-    write_unit_pdfs: true
-    write_all_units_overview_pdf: true
-    write_top_density_grid: true
-    top_n_density_requested: all
-    templates_variant_name: null
-    variant_name: null
-    replot_top_density_grid_only: false
-    show_density_scale_debug_text: false
-    show_density_scale_global_debug_text: false
-    show_density_scale_local_debug_text: false
-    verbose: false
-    write_template_movie_gif: false
-    per_unit_outputs:
-      # JSON artifacts
-      write_branches_raw_json: true
-      branches_raw_relpath: branches_raw.json
-      write_branches_json: true
-      branches_relpath: branches.json
-      write_heuristics_json: true
-      heuristics_relpath: heuristics.json
 
-      # Template
-      template:
-        write_png: true
-        write_svg: false
-        relpath: template
-        # Full-template channel scope:
-        # - contributing_channels: only channels with non-zero template signal.
-        # - recorded_channels: only channels that were actually recorded in the source data.
-        # - all_channels: all channels present in full template locations - i.e. all channels physically present on the MEA regardless of whether they had signal or were recorded.
-        channel_scope: contributing_channels
-        background: black
-        signal_color: white
-        force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
-        force_square_aspect: true # increase template plot size to make it square (with padding) regardless of the spatial distribution of the channels.
-        show_scale_bar: true
-        scale_bar_color: white
+    # write_unit_pdfs: true
+    # write_all_units_overview_pdf: true
+    # write_top_density_grid: true
+    # top_n_density_requested: all
+    # templates_variant_name: null
+    # variant_name: null
+    # replot_top_density_grid_only: false
+    # show_density_scale_debug_text: false
+    # show_density_scale_global_debug_text: false
+    # show_density_scale_local_debug_text: false
+    # verbose: false
+    # write_template_movie_gif: false
+
+    outputs:
+      output_rel_root: recon_outputs
+      per_unit_outputs:
+        
+        # Base rel dir for all outputs for a given unit. Can be formatted with {unit_id} if desired, 
+        # but should not include file name or extension components since those are specified separately for each output type below.
+        unit_reldir: units/{unit_id:04d}/
+        
+        # JSON artifacts
+        write_branches_raw_json: false
+        branches_raw_relpath: branches_raw.json
+        write_branches_json: false
+        branches_relpath: branches.json
+        write_heuristics_json: false
+        heuristics_relpath: heuristics.json
+
+        # GTR artifacts
+        write_gtr_pkl: true
+        gtr_pkl_relpath: gtr.pkl
+        write_gtr_json: false
+        gtr_json_relpath: gtr.json
+
+        # Template
+        template:
+          write_png: true
+          write_svg: false
+          relpath: template
+          # Full-template channel scope:
+          # - contributing_channels: only channels with non-zero template signal.
+          # - recorded_channels: only channels that were actually recorded in the source data.
+          # - all_channels: all channels present in full template locations - i.e. all channels physically present on the MEA regardless of whether they had signal or were recorded.
+          channel_scope: contributing_channels
+          background: black
+          signal_color: white
+          force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
+          force_square_aspect: true # increase template plot size to make it square (with padding) regardless of the spatial distribution of the channels.
+          show_scale_bar: true
+          scale_bar_color: white
+          scale_bar_text_offset_frac: 0.02 # move label closer/farther from bar in axis-height fractions
+          scale_bar_y_offset_frac: 0.06 # vertical offset of bar from lower edge in axis-height fractions
+          scale_bar_fontsize: 6
+          scale_bar_linewidth: 1.8
+          #scale_bar_length_um: null # optional fixed bar length; when null uses auto 50/100 um
 
       # Amplitude Map
       amplitude_map:
@@ -199,15 +219,42 @@ stages:
         node_radius_um: 5
         soma_node_radius_um: 8
         soma_node_color: orange # e.g. cyan, yellow, magenta
-        zoom_priority: "branches" # channels or branches. If channels, zoom range is determined by the channels contributing to the branch. If branches, zoom range is determined by the spatial extent of the branch itself (with some padding).
+        #zoom_priority: "branches" # channels or branches. If channels, zoom range is determined by the channels contributing to the branch. If branches, zoom range is determined by the spatial extent of the branch itself (with some padding).
+        zoom_priority: "channels" # channels or branches. If channels, zoom range is determined by the channels contributing to the branch. If branches, zoom range is determined by the spatial extent of the branch itself (with some padding).
         zoom_padding_percent: 20 # percentage padding of selected zoom span (20 => 20%)
-        # whether to force the grid to be centered on the soma.
+        # whether to force the plot to be centered on the soma.
         # e.g. if zoom_priority is "branches", while force_soma_centering is false, the grid will be zoomed to the branches.
         # however if force_soma_centering is true AND zoom_priority is "branches", the grid will be centered on the soma
         # and zoom span will increase as needed to include the branches (with zoom_padding_percent padding).
         # similar adjustments are made when zoom_priority is "channels" as needed and so long centering is possible
         # given the spatial distribution of the channels and branches.
         force_soma_centering: false
+        color_bar:
+          show: true
+          location: topright
+          fontsize: 6
+          fontcolor: white
+          length_fraction: 0.3 # length of color bar as fraction of axis height
+          pad_fraction: 0.02 # padding between color bar and axis in figure height fractions
+          high_color: red
+          mid_color: white
+          low_color: blue
+          force_low_value: 0
+          force_high_value: null # if null, determined by data
+          scale: linear # linear or log
+          percentile_low: 5.0 # lower percentile used for vmin reference
+          percentile_high_linear: 99.0 # cap percentile used for linear vmax before rounding
+          percentile_high_log: 99.5 # cap percentile used for log vmax
+          knot_anchor_values: [1.0, 10.0] # piecewise anchors for percentile-ranked transfer in linear mode
+          knot_y1_min: 0.02 # lower bound for first knot y position
+          knot_y1_max: 0.90 # upper bound for first knot y position
+          knot_y2_min: 0.07 # lower bound for second knot y position
+          knot_y2_max: 0.98 # upper bound for second knot y position
+          knot_min_gap: 0.05 # minimum y-gap enforced between first and second knot
+          linear_cap_rounding_mode: ceil_step # ceil_step | nice | none
+          linear_cap_rounding_step: 10.0 # step used by ceil_step mode
+          linear_cap_min_vmax: 11.0 # floor for final linear vmax after rounding
+          show_ticks: [1, 10, dynamic_high] # dynamic_high -> top tick; shown as ">top" when capped by percentile
         soma_xy_coords: # print soma xy coordinates on the panel.
           show: true
           color: white
@@ -330,6 +377,39 @@ stages:
       # similar adjustments are made when zoom_priority is "channels" as needed and so long centering is possible
       # given the spatial distribution of the channels and branches.
       force_soma_centering: true
+      local_color_bars:
+        show: false
+        location: topright
+        fontsize: 5
+        fontcolor: white
+        length_fraction: 0.26 # length of per-panel color bar as fraction of panel height
+        pad_fraction: 0.01 # inset padding from panel edge in panel-fraction units
+        show_ticks: [1, 10, dynamic_high]
+      global_color_bar:
+        show: true
+        location: topright
+        fontsize: 6
+        fontcolor: white
+        length_fraction: 0.3 # length of color bar as fraction of figure height
+        pad_fraction: 0.02 # padding between color bar and figure edge in figure height fractions
+        high_color: red
+        mid_color: white
+        low_color: blue
+        force_low_value: 0
+        force_high_value: null # if null, determined by data
+        percentile_low: 5.0 # lower percentile used for vmin reference
+        percentile_high_linear: 99.0 # cap percentile used for linear vmax before rounding
+        percentile_high_log: 99.5 # cap percentile used for log vmax
+        knot_anchor_values: [1.0, 10.0] # piecewise anchors for percentile-ranked transfer in linear mode
+        knot_y1_min: 0.02 # lower bound for first knot y position
+        knot_y1_max: 0.90 # upper bound for first knot y position
+        knot_y2_min: 0.07 # lower bound for second knot y position
+        knot_y2_max: 0.98 # upper bound for second knot y position
+        knot_min_gap: 0.05 # minimum y-gap enforced between first and second knot
+        linear_cap_rounding_mode: ceil_step # ceil_step | nice | none
+        linear_cap_rounding_step: 10.0 # step used by ceil_step mode
+        linear_cap_min_vmax: 11.0 # floor for final linear vmax after rounding
+        show_ticks: [1, 10, dynamic_high]
       soma_xy_coords: # print soma xy coordinates on the panel.
         show: true
         color: white

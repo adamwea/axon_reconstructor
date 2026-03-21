@@ -22,6 +22,12 @@ from .plotting_core import (
     _white_bg_rc_params,
     _with_suffix,
 )
+from .plotting_shared import add_axes_scalebar as _shared_add_axes_scalebar
+from .plotting_shared import colorbar_axes_bounds as _shared_colorbar_axes_bounds
+from .plotting_shared import draw_footprint_squares as _shared_draw_footprint_squares
+from .plotting_shared import normalize_minimap_linestyle as _shared_normalize_minimap_linestyle
+from .plotting_shared import parse_show_ticks_spec as _shared_parse_show_ticks_spec
+from .plotting_shared import resolve_colorbar_ticks as _shared_resolve_colorbar_ticks
 from .plotting_summary import _plot_summary_from_parts, compute_raw_branches_for_summary
 
 
@@ -196,6 +202,74 @@ def _apply_template_style(
         pass
 
 
+def _add_axes_scalebar(
+    ax: Any,
+    *,
+    color: str = "white",
+    bar_um: float | None = None,
+    y_offset_frac: float = 0.06,
+    text_offset_frac: float = 0.02,
+    fontsize: float = 6.0,
+    linewidth: float = 1.8,
+) -> None:
+    """Draw a simple horizontal scalebar in axis data coordinates."""
+
+    try:
+        x0, x1 = ax.get_xlim()
+        y0, y1 = ax.get_ylim()
+    except Exception:
+        return
+
+    try:
+        span_x = max(1.0, float(abs(x1 - x0)))
+        span_y = max(1.0, float(abs(y1 - y0)))
+        if bar_um is None:
+            bar = 100.0 if span_x >= 180.0 else 50.0
+        else:
+            bar = max(1.0, float(bar_um))
+
+        margin = y_offset_frac * span_x
+        x_right = float(max(x0, x1)) - margin
+        x_left = x_right - bar
+        y_bar = float(min(y0, y1)) + y_offset_frac * span_y
+
+        if x_left <= float(min(x0, x1)):
+            x_left = float(min(x0, x1)) + margin
+            x_right = x_left + bar
+
+        ax.plot(
+            [x_left, x_right],
+            [y_bar, y_bar],
+            color=str(color),
+            lw=max(0.1, float(linewidth)),
+            solid_capstyle="butt",
+            zorder=20,
+        )
+        ax.text(
+            (x_left + x_right) * 0.5,
+            y_bar + text_offset_frac * span_y,
+            f"{int(round(bar))} um",
+            color=str(color),
+            fontsize=max(1.0, float(fontsize)),
+            ha="center",
+            va="bottom",
+            zorder=21,
+        )
+    except Exception:
+        return
+
+
+def _normalize_minimap_linestyle(raw: Any) -> str | tuple[Any, ...]:
+    v = str(raw or "dotted").strip().lower()
+    if v in {"solid", "-"}:
+        return "solid"
+    if v in {"dotted", ":", "dot"}:
+        return (0, (1.0, 1.0))
+    if v in {"dashed", "--", "dash"}:
+        return (0, (3.0, 2.0))
+    return (0, (1.0, 1.0))
+
+
 def _as_list(x: Any) -> list[Any]:
     if x is None:
         return []
@@ -284,7 +358,7 @@ def write_unit_reconstruction_pdfs(
     branch_velocities_overlay_pdf_relpath: str = "branches/clean/branch_velocities_overlay.pdf",
     branch_velocity_template_relpath: str = "branches/clean/branch_{index:02d}_velocity",
     write_template: bool = True,
-    write_template_zoom: bool = True,
+    write_template_zoom: bool = False,
     write_template_movie: bool = True,
     write_summary: bool = True,
     write_summary_clean: bool = True,
@@ -482,6 +556,64 @@ def write_unit_reconstruction_pdfs(
         template_background = str(flat_template_cfg.get("background", template_background) or template_background)
         template_signal_color = str(flat_template_cfg.get("signal_color", template_signal_color) or template_signal_color)
 
+    template_show_scale_bar = bool(_schema_get(("template", "full", "show_scale_bar"), False))
+    template_scale_bar_color = str(_schema_get(("template", "full", "scale_bar_color"), "white") or "white")
+    try:
+        template_scale_bar_text_offset_frac = float(_schema_get(("template", "full", "scale_bar_text_offset_frac"), 0.02))
+    except Exception:
+        template_scale_bar_text_offset_frac = 0.02
+    try:
+        template_scale_bar_y_offset_frac = float(_schema_get(("template", "full", "scale_bar_y_offset_frac"), 0.06))
+    except Exception:
+        template_scale_bar_y_offset_frac = 0.06
+    try:
+        template_scale_bar_fontsize = float(_schema_get(("template", "full", "scale_bar_fontsize"), 6.0))
+    except Exception:
+        template_scale_bar_fontsize = 6.0
+    try:
+        template_scale_bar_linewidth = float(_schema_get(("template", "full", "scale_bar_linewidth"), 1.8))
+    except Exception:
+        template_scale_bar_linewidth = 1.8
+    raw_template_scale_bar_length_um = _schema_get(("template", "full", "scale_bar_length_um"), None)
+    try:
+        template_scale_bar_length_um = None if raw_template_scale_bar_length_um is None else float(raw_template_scale_bar_length_um)
+    except Exception:
+        template_scale_bar_length_um = None
+    if use_flat_template_cfg:
+        template_show_scale_bar = bool(flat_template_cfg.get("show_scale_bar", template_show_scale_bar))
+        template_scale_bar_color = str(
+            flat_template_cfg.get("scale_bar_color", template_scale_bar_color) or template_scale_bar_color
+        )
+        try:
+            template_scale_bar_text_offset_frac = float(
+                flat_template_cfg.get("scale_bar_text_offset_frac", template_scale_bar_text_offset_frac)
+            )
+        except Exception:
+            pass
+        try:
+            template_scale_bar_y_offset_frac = float(
+                flat_template_cfg.get("scale_bar_y_offset_frac", template_scale_bar_y_offset_frac)
+            )
+        except Exception:
+            pass
+        try:
+            template_scale_bar_fontsize = float(
+                flat_template_cfg.get("scale_bar_fontsize", template_scale_bar_fontsize)
+            )
+        except Exception:
+            pass
+        try:
+            template_scale_bar_linewidth = float(
+                flat_template_cfg.get("scale_bar_linewidth", template_scale_bar_linewidth)
+            )
+        except Exception:
+            pass
+        raw_len = flat_template_cfg.get("scale_bar_length_um", template_scale_bar_length_um)
+        try:
+            template_scale_bar_length_um = None if raw_len is None else float(raw_len)
+        except Exception:
+            pass
+
     tplz_png, tplz_svg, template_zoom_relpath, template_zoom_svg_relpath = _resolve_png_spec(
         cfg_path=("template", "zoom"),
         default_relpath=template_zoom_relpath,
@@ -525,6 +657,196 @@ def write_unit_reconstruction_pdfs(
     write_summary_raw_png = bool(sumr_png)
     write_summary_raw_svg = bool(sumr_svg)
 
+    amplitude_cfg = _schema_get(("amplitude_map",), default={})
+    if not isinstance(amplitude_cfg, dict):
+        amplitude_cfg = {}
+
+    has_nested_amplitude_cfg = bool(
+        isinstance(amplitude_cfg, dict)
+        and any(
+            k in amplitude_cfg
+            for k in (
+                "write_png",
+                "write_svg",
+                "relpath",
+                "panel_background_color",
+                "show_minimap",
+                "zoom_priority",
+                "force_soma_centering",
+                "zoom_padding_percent",
+                "soma_xy_coords",
+                "color_bar",
+            )
+        )
+    )
+
+    amp_cfg_rel_default = _with_suffix(amplitude_map_relpath, ".png")
+    amp_cfg_svg_default = _with_suffix(amplitude_map_relpath, ".svg")
+    amp_cfg_rel = str(amplitude_cfg.get("relpath", amp_cfg_rel_default) or amp_cfg_rel_default)
+    amp_cfg_rel = _normalize_relpath(amp_cfg_rel, ext=".png")
+    amp_cfg_svg_rel = _with_suffix(amp_cfg_rel, ".svg")
+    amp_cfg_write_png = bool(amplitude_cfg.get("write_png", bool(write_amplitude_map)))
+    amp_cfg_write_svg = bool(amplitude_cfg.get("write_svg", False))
+
+    amp_panel_background_color = str(amplitude_cfg.get("panel_background_color", "white") or "white")
+    amp_branch_color = str(amplitude_cfg.get("branch_color", "red") or "red")
+    amp_branch_outline_color = str(amplitude_cfg.get("branch_outline_color", "white") or "white")
+    amp_show_minimap = bool(amplitude_cfg.get("show_minimap", False))
+    amp_minimap_position = str(amplitude_cfg.get("minimap_position", "bottomright") or "bottomright")
+    try:
+        amp_minimap_size = float(amplitude_cfg.get("minimap_size", 0.20))
+    except Exception:
+        amp_minimap_size = 0.20
+    amp_minimap_outline_color = str(amplitude_cfg.get("minimap_outline_color", "white") or "white")
+    try:
+        amp_minimap_chip_width_mm = float(amplitude_cfg.get("minimap_chip_width_mm", 3.85))
+    except Exception:
+        amp_minimap_chip_width_mm = 3.85
+    try:
+        amp_minimap_chip_height_mm = float(amplitude_cfg.get("minimap_chip_height_mm", 2.10))
+    except Exception:
+        amp_minimap_chip_height_mm = 2.10
+    amp_minimap_inner_box_linestyle = str(amplitude_cfg.get("minimap_inner_box_linestyle", "dotted") or "dotted")
+    try:
+        amp_minimap_inner_box_linewidth = float(amplitude_cfg.get("minimap_inner_box_linewidth", 0.8))
+    except Exception:
+        amp_minimap_inner_box_linewidth = 0.8
+    amp_minimap_include_footprint = bool(amplitude_cfg.get("minimap_include_footprint", False))
+    amp_minimap_prevent_occlusions = bool(amplitude_cfg.get("minimap_prevent_occlusions", False))
+    try:
+        amp_minimap_clearance_um = float(amplitude_cfg.get("minimap_clearance_um", 2.0))
+    except Exception:
+        amp_minimap_clearance_um = 2.0
+    try:
+        amp_minimap_linewidth_buffer_pt = float(amplitude_cfg.get("minimap_linewidth_buffer_pt", 0.5))
+    except Exception:
+        amp_minimap_linewidth_buffer_pt = 0.5
+    try:
+        amp_minimap_occlusion_max_iters = int(amplitude_cfg.get("minimap_occlusion_max_iters", 8))
+    except Exception:
+        amp_minimap_occlusion_max_iters = 8
+    try:
+        amp_minimap_occlusion_growth_factor = float(amplitude_cfg.get("minimap_occlusion_growth_factor", 1.2))
+    except Exception:
+        amp_minimap_occlusion_growth_factor = 1.2
+    amp_show_scale_bar = bool(amplitude_cfg.get("show_scale_bar", True))
+    amp_scale_bar_color = str(amplitude_cfg.get("scale_bar_color", "white") or "white")
+
+    amp_soma_xy_cfg = amplitude_cfg.get("soma_xy_coords", {}) if isinstance(amplitude_cfg, dict) else {}
+    if not isinstance(amp_soma_xy_cfg, dict):
+        amp_soma_xy_cfg = {}
+    amp_soma_xy_show = bool(amp_soma_xy_cfg.get("show", True))
+    amp_soma_xy_color = str(amp_soma_xy_cfg.get("color", "white") or "white")
+    try:
+        amp_soma_xy_fontsize = float(amp_soma_xy_cfg.get("fontsize", 6.0))
+    except Exception:
+        amp_soma_xy_fontsize = 6.0
+    amp_soma_xy_location = str(amp_soma_xy_cfg.get("location", "bottom left") or "bottom left")
+
+    amp_colorbar_cfg = amplitude_cfg.get("color_bar", {}) if isinstance(amplitude_cfg, dict) else {}
+    if not isinstance(amp_colorbar_cfg, dict):
+        amp_colorbar_cfg = {}
+    amp_colorbar_show = bool(amp_colorbar_cfg.get("show", False))
+    amp_colorbar_location = str(amp_colorbar_cfg.get("location", "topright") or "topright")
+    try:
+        amp_colorbar_fontsize = float(amp_colorbar_cfg.get("fontsize", 6.0))
+    except Exception:
+        amp_colorbar_fontsize = 6.0
+    amp_colorbar_fontcolor = str(amp_colorbar_cfg.get("fontcolor", "white") or "white")
+    try:
+        amp_colorbar_length_fraction = float(amp_colorbar_cfg.get("length_fraction", 0.30))
+    except Exception:
+        amp_colorbar_length_fraction = 0.30
+    try:
+        amp_colorbar_pad_fraction = float(amp_colorbar_cfg.get("pad_fraction", 0.02))
+    except Exception:
+        amp_colorbar_pad_fraction = 0.02
+    amp_colorbar_high_color = str(amp_colorbar_cfg.get("high_color", "red") or "red")
+    amp_colorbar_mid_color = str(amp_colorbar_cfg.get("mid_color", "white") or "white")
+    amp_colorbar_low_color = str(amp_colorbar_cfg.get("low_color", "blue") or "blue")
+    amp_colorbar_force_low_value = amp_colorbar_cfg.get("force_low_value", None)
+    amp_colorbar_force_high_value = amp_colorbar_cfg.get("force_high_value", None)
+    amp_colorbar_scale_raw = str(amp_colorbar_cfg.get("scale", "linear") or "linear").strip().lower()
+    amp_colorbar_scale = "log" if amp_colorbar_scale_raw == "log" else "linear"
+    amp_colorbar_show_ticks = _shared_parse_show_ticks_spec(amp_colorbar_cfg.get("show_ticks", None))
+    try:
+        amp_colorbar_percentile_low = float(amp_colorbar_cfg.get("percentile_low", 5.0))
+    except Exception:
+        amp_colorbar_percentile_low = 5.0
+    try:
+        amp_colorbar_percentile_high_linear = float(amp_colorbar_cfg.get("percentile_high_linear", 99.0))
+    except Exception:
+        amp_colorbar_percentile_high_linear = 99.0
+    try:
+        amp_colorbar_percentile_high_log = float(amp_colorbar_cfg.get("percentile_high_log", 99.5))
+    except Exception:
+        amp_colorbar_percentile_high_log = 99.5
+    anchors_raw = amp_colorbar_cfg.get("knot_anchor_values", [1.0, 10.0])
+    if isinstance(anchors_raw, (list, tuple)) and len(anchors_raw) >= 2:
+        try:
+            amp_colorbar_knot_anchor_values = [float(anchors_raw[0]), float(anchors_raw[1])]
+        except Exception:
+            amp_colorbar_knot_anchor_values = [1.0, 10.0]
+    else:
+        amp_colorbar_knot_anchor_values = [1.0, 10.0]
+    try:
+        amp_colorbar_knot_y1_min = float(amp_colorbar_cfg.get("knot_y1_min", 0.02))
+    except Exception:
+        amp_colorbar_knot_y1_min = 0.02
+    try:
+        amp_colorbar_knot_y1_max = float(amp_colorbar_cfg.get("knot_y1_max", 0.90))
+    except Exception:
+        amp_colorbar_knot_y1_max = 0.90
+    try:
+        amp_colorbar_knot_y2_min = float(amp_colorbar_cfg.get("knot_y2_min", 0.07))
+    except Exception:
+        amp_colorbar_knot_y2_min = 0.07
+    try:
+        amp_colorbar_knot_y2_max = float(amp_colorbar_cfg.get("knot_y2_max", 0.98))
+    except Exception:
+        amp_colorbar_knot_y2_max = 0.98
+    try:
+        amp_colorbar_knot_min_gap = float(amp_colorbar_cfg.get("knot_min_gap", 0.05))
+    except Exception:
+        amp_colorbar_knot_min_gap = 0.05
+    amp_colorbar_linear_cap_rounding_mode = str(
+        amp_colorbar_cfg.get("linear_cap_rounding_mode", "ceil_step") or "ceil_step"
+    )
+    try:
+        amp_colorbar_linear_cap_rounding_step = float(amp_colorbar_cfg.get("linear_cap_rounding_step", 10.0))
+    except Exception:
+        amp_colorbar_linear_cap_rounding_step = 10.0
+    try:
+        amp_colorbar_linear_cap_min_vmax = float(amp_colorbar_cfg.get("linear_cap_min_vmax", 11.0))
+    except Exception:
+        amp_colorbar_linear_cap_min_vmax = 11.0
+
+    try:
+        amp_node_radius_um = float(amplitude_cfg.get("node_radius_um", 5.0))
+    except Exception:
+        amp_node_radius_um = 5.0
+    try:
+        amp_soma_node_radius_um = float(amplitude_cfg.get("soma_node_radius_um", 8.0))
+    except Exception:
+        amp_soma_node_radius_um = 8.0
+    amp_soma_node_color = str(amplitude_cfg.get("soma_node_color", "orange") or "orange")
+    amp_zoom_priority = str(amplitude_cfg.get("zoom_priority", "branches") or "branches").strip().lower()
+    if amp_zoom_priority not in {"branches", "channels"}:
+        amp_zoom_priority = "branches"
+    try:
+        amp_zoom_padding_percent = float(amplitude_cfg.get("zoom_padding_percent", 20.0))
+    except Exception:
+        amp_zoom_padding_percent = 20.0
+    amp_zoom_pad_frac = max(0.0, amp_zoom_padding_percent) / 100.0
+    amp_force_soma_centering = bool(amplitude_cfg.get("force_soma_centering", False))
+
+    if has_nested_amplitude_cfg and (amp_cfg_write_png or amp_cfg_write_svg):
+        amplitude_map_relpath = amp_cfg_rel
+        amplitude_map_svg_relpath = amp_cfg_svg_rel
+        write_amplitude_map = bool(amp_cfg_write_png or amp_cfg_write_svg)
+        write_amplitude_map_png = bool(amp_cfg_write_png)
+        write_amplitude_map_svg = bool(amp_cfg_write_svg)
+
     amp_png, amp_svg, amplitude_map_relpath, amplitude_map_svg_relpath = _resolve_png_spec(
         cfg_path=("maps", "amplitude", "full"),
         default_relpath=amplitude_map_relpath,
@@ -542,6 +864,14 @@ def write_unit_reconstruction_pdfs(
     write_amplitude_map_zoom = bool(ampz_png or ampz_svg)
     write_amplitude_map_zoom_png = bool(ampz_png)
     write_amplitude_map_zoom_svg = bool(ampz_svg)
+
+    # Nested `amplitude_map` schema takes precedence over legacy flat/map defaults.
+    if has_nested_amplitude_cfg and (amp_cfg_write_png or amp_cfg_write_svg):
+        amplitude_map_relpath = amp_cfg_rel
+        amplitude_map_svg_relpath = amp_cfg_svg_rel
+        write_amplitude_map = bool(amp_cfg_write_png or amp_cfg_write_svg)
+        write_amplitude_map_png = bool(amp_cfg_write_png)
+        write_amplitude_map_svg = bool(amp_cfg_write_svg)
 
     lat_png, lat_svg, peak_latency_map_relpath, peak_latency_map_svg_relpath = _resolve_png_spec(
         cfg_path=("maps", "peak_latency", "full"),
@@ -1077,6 +1407,16 @@ def write_unit_reconstruction_pdfs(
                 background=template_background,
                 signal_color=template_signal_color,
             )
+            if template_show_scale_bar:
+                _add_axes_scalebar(
+                    ax,
+                    color=template_scale_bar_color,
+                    bar_um=template_scale_bar_length_um,
+                    y_offset_frac=template_scale_bar_y_offset_frac,
+                    text_offset_frac=template_scale_bar_text_offset_frac,
+                    fontsize=template_scale_bar_fontsize,
+                    linewidth=template_scale_bar_linewidth,
+                )
             _save_fig_png(
                 fig=fig,
                 png_path=template_png,
@@ -1129,6 +1469,16 @@ def write_unit_reconstruction_pdfs(
                 background=template_background,
                 signal_color=template_signal_color,
             )
+            if template_show_scale_bar:
+                _add_axes_scalebar(
+                    ax,
+                    color=template_scale_bar_color,
+                    bar_um=template_scale_bar_length_um,
+                    y_offset_frac=template_scale_bar_y_offset_frac,
+                    text_offset_frac=template_scale_bar_text_offset_frac,
+                    fontsize=template_scale_bar_fontsize,
+                    linewidth=template_scale_bar_linewidth,
+                )
             _save_fig_png(
                 fig=fig,
                 png_path=template_zoom_png,
@@ -1140,6 +1490,18 @@ def write_unit_reconstruction_pdfs(
             plt.close(fig)
         except Exception as e:
             logger.warning("Template zoom plotting failed for unit %s: %s", uid, e)
+
+    if (not write_template_zoom) and force_restart:
+        try:
+            if template_zoom_png.exists():
+                template_zoom_png.unlink()
+        except Exception:
+            pass
+        try:
+            if template_zoom_svg.exists():
+                template_zoom_svg.unlink()
+        except Exception:
+            pass
 
     # Summary + template animation are generated via axon_velocity.
 
@@ -1153,17 +1515,29 @@ def write_unit_reconstruction_pdfs(
         outputs["template_zoom_svg"] = str(template_zoom_svg)
     # summary_png + template_movie_gif are written later.
 
+    amp_template_src = template if template is not None else template_plot
+    amp_locs_src = np.asarray(locs_xy) if template is not None else np.asarray(template_locs)
+    can_plot_amp = (
+        amp_template_src is not None
+        and isinstance(amp_locs_src, np.ndarray)
+        and amp_locs_src.ndim == 2
+        and amp_locs_src.shape[1] >= 2
+    )
+    can_plot_latency_std = bool((template is not None) and (fs is not None))
+
     if (
-        write_amplitude_map
-        or write_amplitude_map_zoom
-        or write_peak_latency_map
-        or write_peak_latency_map_zoom
-        or write_peak_std_map
-        or write_peak_std_map_zoom
-    ) and (template is not None) and (fs is not None):
+        (write_amplitude_map or write_amplitude_map_zoom) and can_plot_amp
+    ) or (
+        (
+            write_peak_latency_map
+            or write_peak_latency_map_zoom
+            or write_peak_std_map
+            or write_peak_std_map_zoom
+        )
+        and can_plot_latency_std
+    ):
         try:
             from axon_velocity.plotting import (  # type: ignore[import-not-found]
-                plot_amplitude_map as av_plot_amplitude_map,
                 plot_peak_latency_map as av_plot_peak_latency_map,
                 plot_peak_std_map as av_plot_peak_std_map,
             )
@@ -1179,6 +1553,7 @@ def write_unit_reconstruction_pdfs(
                 write_svg: bool,
                 write_zoom_png: bool,
                 write_zoom_svg: bool,
+                styled: bool = False,
             ) -> None:
                 if not (write_png or write_svg or write_zoom_png or write_zoom_svg):
                     return
@@ -1192,9 +1567,441 @@ def write_unit_reconstruction_pdfs(
                 fig = plt.figure(figsize=(8.5, 7.5))
                 ax = fig.add_subplot(111)
                 with plt.rc_context(_white_bg_rc_params()):
-                    _ = fn(ax=ax)
-                _force_white_background(fig)
+                    if callable(fn):
+                        _ = fn(ax=ax)
+
+                map_zoom_points = branch_xy_points
+                amp_color_meta: dict[str, Any] | None = None
+                if styled:
+                    # Custom amplitude-map base rendering shared with grid-style channel footprint panels.
+                    try:
+                        tmpl = np.asarray(amp_template_src)
+                        locs_amp = np.asarray(amp_locs_src)
+                        tmpl_cf = tmpl
+                        if tmpl.ndim == 2:
+                            if tmpl.shape[0] == int(locs_amp.shape[0]):
+                                tmpl_cf = tmpl
+                            elif tmpl.shape[1] == int(locs_amp.shape[0]):
+                                tmpl_cf = tmpl.T
+                        if tmpl_cf.ndim == 2 and tmpl_cf.shape[0] == int(locs_amp.shape[0]):
+                            amp_vals = np.nanmax(tmpl_cf, axis=1) - np.nanmin(tmpl_cf, axis=1)
+                            amp_vals_for_scale = np.asarray(amp_vals, dtype=float)
+                            try:
+                                contrib_idx = [
+                                    int(ch)
+                                    for ch in list(contributing_channels or [])
+                                    if 0 <= int(ch) < int(amp_vals_for_scale.shape[0])
+                                ]
+                                if contrib_idx:
+                                    amp_vals_for_scale = np.asarray(amp_vals_for_scale[contrib_idx], dtype=float)
+                            except Exception:
+                                amp_vals_for_scale = np.asarray(amp_vals, dtype=float)
+
+                            amp_color_meta = _shared_draw_footprint_squares(
+                                ax,
+                                locs_xy=locs_amp,
+                                amp=np.asarray(amp_vals, dtype=float),
+                                scale_amp=np.asarray(amp_vals_for_scale, dtype=float),
+                                use_log_norm=(amp_colorbar_scale == "log"),
+                                scale_mode=amp_colorbar_scale,
+                                low_color=amp_colorbar_low_color,
+                                mid_color=amp_colorbar_mid_color,
+                                high_color=amp_colorbar_high_color,
+                                force_low_value=amp_colorbar_force_low_value,
+                                force_high_value=amp_colorbar_force_high_value,
+                                percentile_low=amp_colorbar_percentile_low,
+                                percentile_high_linear=amp_colorbar_percentile_high_linear,
+                                percentile_high_log=amp_colorbar_percentile_high_log,
+                                knot_anchor_values=amp_colorbar_knot_anchor_values,
+                                knot_y1_min=amp_colorbar_knot_y1_min,
+                                knot_y1_max=amp_colorbar_knot_y1_max,
+                                knot_y2_min=amp_colorbar_knot_y2_min,
+                                knot_y2_max=amp_colorbar_knot_y2_max,
+                                knot_min_gap=amp_colorbar_knot_min_gap,
+                                linear_cap_rounding_mode=amp_colorbar_linear_cap_rounding_mode,
+                                linear_cap_rounding_step=amp_colorbar_linear_cap_rounding_step,
+                                linear_cap_min_vmax=amp_colorbar_linear_cap_min_vmax,
+                            )
+                    except Exception:
+                        pass
+
+                    bg = str(amp_panel_background_color or "white").strip().lower()
+                    if bg == "black":
+                        try:
+                            fig.patch.set_facecolor("black")
+                        except Exception:
+                            pass
+                        try:
+                            ax.set_facecolor("black")
+                            ax.tick_params(colors="white")
+                            for spine in ax.spines.values():
+                                spine.set_color("white")
+                        except Exception:
+                            pass
+                    else:
+                        _force_white_background(fig)
+
+                    # Branch overlays and soma marker improve spatial context.
+                    try:
+                        from matplotlib.patches import Circle, Rectangle
+                    except Exception:
+                        Circle = None  # type: ignore[assignment]
+                        Rectangle = None  # type: ignore[assignment]
+
+                    node_points: list[tuple[float, float]] = []
+                    try:
+                        for br in _as_list(getattr(gtr, "branches", None)):
+                            chans = _as_int_list(br.get("channels")) if isinstance(br, dict) else _as_int_list(getattr(br, "channels", None))
+                            pts = [
+                                (float(locs_xy[ch, 0]), float(locs_xy[ch, 1]))
+                                for ch in chans
+                                if 0 <= int(ch) < int(locs_xy.shape[0])
+                            ]
+                            if len(pts) >= 2:
+                                xs = [p[0] for p in pts]
+                                ys = [p[1] for p in pts]
+                                ax.plot(xs, ys, color=str(amp_branch_outline_color), lw=1.8, alpha=0.95, zorder=6)
+                                ax.plot(xs, ys, color=str(amp_branch_color), lw=1.1, alpha=0.95, zorder=7)
+                            node_points.extend(pts)
+                    except Exception:
+                        node_points = []
+
+                    try:
+                        if Circle is not None:
+                            for x, y in node_points:
+                                ax.add_patch(
+                                    Circle(
+                                        (x, y),
+                                        radius=max(0.1, float(amp_node_radius_um)),
+                                        facecolor=str(amp_branch_color),
+                                        edgecolor=str(amp_branch_outline_color),
+                                        linewidth=0.4,
+                                        alpha=0.95,
+                                        zorder=8,
+                                    )
+                                )
+                            if soma_xy is not None:
+                                ax.add_patch(
+                                    Circle(
+                                        (float(soma_xy[0]), float(soma_xy[1])),
+                                        radius=max(0.1, float(amp_soma_node_radius_um)),
+                                        facecolor=str(amp_soma_node_color),
+                                        edgecolor=str(amp_branch_outline_color),
+                                        linewidth=0.6,
+                                        alpha=0.98,
+                                        zorder=9,
+                                    )
+                                )
+                    except Exception:
+                        pass
+
+                    if bool(amp_soma_xy_show) and (soma_xy is not None):
+                        try:
+                            loc_raw = str(amp_soma_xy_location or "bottom left").strip().lower().replace("_", " ")
+                            loc_map = {
+                                "top left": (0.02, 0.98, "left", "top"),
+                                "topleft": (0.02, 0.98, "left", "top"),
+                                "top right": (0.98, 0.98, "right", "top"),
+                                "topright": (0.98, 0.98, "right", "top"),
+                                "bottom left": (0.02, 0.02, "left", "bottom"),
+                                "bottomleft": (0.02, 0.02, "left", "bottom"),
+                                "bottom right": (0.98, 0.02, "right", "bottom"),
+                                "bottomright": (0.98, 0.02, "right", "bottom"),
+                            }
+                            tx, ty, ha, va = loc_map.get(loc_raw, (0.02, 0.02, "left", "bottom"))
+                            ax.text(
+                                float(tx),
+                                float(ty),
+                                f"({float(soma_xy[0]):.1f}, {float(soma_xy[1]):.1f}) um",
+                                transform=ax.transAxes,
+                                ha=str(ha),
+                                va=str(va),
+                                fontsize=max(4.0, float(amp_soma_xy_fontsize)),
+                                color=str(amp_soma_xy_color),
+                                zorder=11,
+                                bbox={"facecolor": "black", "alpha": 0.30, "pad": 1.5, "edgecolor": "none"},
+                            )
+                        except Exception:
+                            pass
+
+                    channel_zoom_points: list[list[float]] = []
+                    try:
+                        for ch in contributing_channels:
+                            if 0 <= int(ch) < int(locs_xy.shape[0]):
+                                channel_zoom_points.append([float(locs_xy[ch, 0]), float(locs_xy[ch, 1])])
+                    except Exception:
+                        channel_zoom_points = []
+
+                    if amp_zoom_priority == "channels" and channel_zoom_points:
+                        map_zoom_points = channel_zoom_points
+                    elif branch_xy_points:
+                        map_zoom_points = branch_xy_points
+                    elif channel_zoom_points:
+                        map_zoom_points = channel_zoom_points
+
+                    if map_zoom_points:
+                        xmin, xmax, ymin, ymax = _compute_zoom_limits_from_xy(
+                            map_zoom_points,
+                            pad_frac=amp_zoom_pad_frac,
+                            pad_abs=20.0,
+                        )
+                        if amp_force_soma_centering and soma_xy is not None:
+                            w = float(xmax - xmin)
+                            h = float(ymax - ymin)
+                            xmin = float(soma_xy[0] - (w / 2.0))
+                            xmax = float(soma_xy[0] + (w / 2.0))
+                            ymin = float(soma_xy[1] - (h / 2.0))
+                            ymax = float(soma_xy[1] + (h / 2.0))
+
+                        # Force square zoom for per-unit amplitude panel to match grid behavior.
+                        sq_cx = soma_xy[0] if (amp_force_soma_centering and soma_xy is not None) else None
+                        sq_cy = soma_xy[1] if (amp_force_soma_centering and soma_xy is not None) else None
+                        xmin, xmax, ymin, ymax = _make_square_limits(
+                            xmin,
+                            xmax,
+                            ymin,
+                            ymax,
+                            center_x=sq_cx,
+                            center_y=sq_cy,
+                        )
+
+                        if amp_show_minimap and amp_minimap_prevent_occlusions:
+                            occ_pts = np.asarray(map_zoom_points, dtype=float)
+                            if occ_pts.ndim == 2 and occ_pts.shape[0] > 0:
+                                size = min(0.45, max(0.08, float(amp_minimap_size)))
+                                chip_aspect = max(
+                                    1e-6,
+                                    float(amp_minimap_chip_width_mm) / max(1e-6, float(amp_minimap_chip_height_mm)),
+                                )
+                                ins_w = float(size)
+                                ins_h = float(max(0.06, size / chip_aspect))
+                                margin = 0.03
+                                pos = str(amp_minimap_position or "bottomright").strip().lower()
+                                if pos not in {"topleft", "topright", "bottomleft", "bottomright"}:
+                                    pos = "bottomright"
+                                if pos == "topleft":
+                                    x0_ins, y0_ins = margin, 1.0 - ins_h - margin
+                                elif pos == "topright":
+                                    x0_ins, y0_ins = 1.0 - ins_w - margin, 1.0 - ins_h - margin
+                                elif pos == "bottomleft":
+                                    x0_ins, y0_ins = margin, margin
+                                else:
+                                    x0_ins, y0_ins = 1.0 - ins_w - margin, margin
+                                x1_ins = x0_ins + ins_w
+                                y1_ins = y0_ins + ins_h
+
+                                occ_iters = max(1, int(amp_minimap_occlusion_max_iters))
+                                growth = max(1.01, float(amp_minimap_occlusion_growth_factor))
+                                clearance_um = max(0.0, float(amp_minimap_clearance_um)) + max(
+                                    0.0, float(amp_minimap_linewidth_buffer_pt)
+                                )
+
+                                def _has_occ(_xmin: float, _xmax: float, _ymin: float, _ymax: float) -> bool:
+                                    dx = max(1e-12, float(_xmax - _xmin))
+                                    dy = max(1e-12, float(_ymax - _ymin))
+                                    cfx = clearance_um / dx
+                                    cfy = clearance_um / dy
+                                    fx = (occ_pts[:, 0] - _xmin) / dx
+                                    fy = (occ_pts[:, 1] - _ymin) / dy
+                                    in_x = np.logical_and(fx >= (x0_ins - cfx), fx <= (x1_ins + cfx))
+                                    in_y = np.logical_and(fy >= (y0_ins - cfy), fy <= (y1_ins + cfy))
+                                    return bool(np.any(np.logical_and(in_x, in_y)))
+
+                                for _ in range(occ_iters):
+                                    if not _has_occ(xmin, xmax, ymin, ymax):
+                                        break
+                                    side = max(float(xmax - xmin), float(ymax - ymin)) * growth
+                                    cx = 0.5 * (float(xmin) + float(xmax))
+                                    cy = 0.5 * (float(ymin) + float(ymax))
+                                    half = 0.5 * side
+                                    xmin, xmax = cx - half, cx + half
+                                    ymin, ymax = cy - half, cy + half
+
+                        ax.set_xlim(xmin, xmax)
+                        ax.set_ylim(ymin, ymax)
+                        ax.set_aspect("equal", adjustable="box")
+
+                    if amp_show_minimap:
+                        try:
+                            pos_raw = str(amp_minimap_position or "bottomright").strip().lower()
+                            size = min(0.45, max(0.08, float(amp_minimap_size)))
+                            margin = 0.03
+                            chip_aspect = max(1e-6, float(amp_minimap_chip_width_mm) / max(1e-6, float(amp_minimap_chip_height_mm)))
+                            ins_w = size
+                            ins_h = max(0.06, size / chip_aspect)
+                            pos_map = {
+                                "topleft": (margin, 1.0 - ins_h - margin),
+                                "topright": (1.0 - ins_w - margin, 1.0 - ins_h - margin),
+                                "bottomleft": (margin, margin),
+                                "bottomright": (1.0 - ins_w - margin, margin),
+                            }
+                            x_in, y_in = pos_map.get(pos_raw, pos_map["bottomright"])
+                            inset = ax.inset_axes([x_in, y_in, ins_w, ins_h])
+
+                            chip_xy = np.asarray(locs_xy)
+                            try:
+                                well_out_dir = Path(out_unit_dir).resolve().parents[2]
+                                stage4_roots = sorted(list(well_out_dir.glob("stg4_templates_outputs*")))
+                                stage4_root = stage4_roots[0] if stage4_roots else None
+                                if stage4_root is not None and stage4_root.exists():
+                                    full_locs_path = (
+                                        stage4_root
+                                        / "templates"
+                                        / "full"
+                                        / f"unit_{int(uid)}"
+                                        / "full_channel_locations_xy.npy"
+                                    )
+                                    if full_locs_path.exists():
+                                        chip_xy = np.asarray(np.load(full_locs_path), dtype=float)[:, :2]
+                            except Exception:
+                                chip_xy = np.asarray(locs_xy)
+
+                            xmin_chip = float(np.nanmin(chip_xy[:, 0]))
+                            xmax_chip = float(np.nanmax(chip_xy[:, 0]))
+                            ymin_chip = float(np.nanmin(chip_xy[:, 1]))
+                            ymax_chip = float(np.nanmax(chip_xy[:, 1]))
+
+                            inset.set_facecolor(str(amp_panel_background_color))
+                            inset.set_xlim(xmin_chip, xmax_chip)
+                            inset.set_ylim(ymin_chip, ymax_chip)
+                            inset.set_aspect("equal", adjustable="box")
+                            inset.set_xticks([])
+                            inset.set_yticks([])
+
+                            if amp_minimap_include_footprint:
+                                try:
+                                    _shared_draw_footprint_squares(
+                                        inset,
+                                        locs_xy=np.asarray(locs_xy, dtype=float),
+                                        amp=np.asarray(amp_vals, dtype=float) if "amp_vals" in locals() else np.ones(int(locs_xy.shape[0]), dtype=float),
+                                        scale_amp=np.asarray(amp_vals_for_scale, dtype=float) if "amp_vals_for_scale" in locals() else None,
+                                        use_log_norm=(amp_colorbar_scale == "log"),
+                                        scale_mode=amp_colorbar_scale,
+                                        low_color=amp_colorbar_low_color,
+                                        mid_color=amp_colorbar_mid_color,
+                                        high_color=amp_colorbar_high_color,
+                                        force_low_value=amp_colorbar_force_low_value,
+                                        force_high_value=amp_colorbar_force_high_value,
+                                        percentile_low=amp_colorbar_percentile_low,
+                                        percentile_high_linear=amp_colorbar_percentile_high_linear,
+                                        percentile_high_log=amp_colorbar_percentile_high_log,
+                                        knot_anchor_values=amp_colorbar_knot_anchor_values,
+                                        knot_y1_min=amp_colorbar_knot_y1_min,
+                                        knot_y1_max=amp_colorbar_knot_y1_max,
+                                        knot_y2_min=amp_colorbar_knot_y2_min,
+                                        knot_y2_max=amp_colorbar_knot_y2_max,
+                                        knot_min_gap=amp_colorbar_knot_min_gap,
+                                        linear_cap_rounding_mode=amp_colorbar_linear_cap_rounding_mode,
+                                        linear_cap_rounding_step=amp_colorbar_linear_cap_rounding_step,
+                                        linear_cap_min_vmax=amp_colorbar_linear_cap_min_vmax,
+                                    )
+                                except Exception:
+                                    pass
+
+                            if Rectangle is not None:
+                                xlim = ax.get_xlim()
+                                ylim = ax.get_ylim()
+                                x0, x1 = float(min(xlim)), float(max(xlim))
+                                y0, y1 = float(min(ylim)), float(max(ylim))
+                                cx_v = 0.5 * (x0 + x1)
+                                cy_v = 0.5 * (y0 + y1)
+                                side = max(x1 - x0, y1 - y0)
+                                xmin_v = cx_v - (side / 2.0)
+                                xmax_v = cx_v + (side / 2.0)
+                                ymin_v = cy_v - (side / 2.0)
+                                ymax_v = cy_v + (side / 2.0)
+                                if xmin_v < xmin_chip:
+                                    shift = xmin_chip - xmin_v
+                                    xmin_v += shift
+                                    xmax_v += shift
+                                if xmax_v > xmax_chip:
+                                    shift = xmax_v - xmax_chip
+                                    xmin_v -= shift
+                                    xmax_v -= shift
+                                if ymin_v < ymin_chip:
+                                    shift = ymin_chip - ymin_v
+                                    ymin_v += shift
+                                    ymax_v += shift
+                                if ymax_v > ymax_chip:
+                                    shift = ymax_v - ymax_chip
+                                    ymin_v -= shift
+                                    ymax_v -= shift
+
+                                inset.add_patch(
+                                    Rectangle(
+                                        (xmin_chip, ymin_chip),
+                                        xmax_chip - xmin_chip,
+                                        ymax_chip - ymin_chip,
+                                        facecolor="none",
+                                        edgecolor=str(amp_minimap_outline_color),
+                                        linewidth=0.7,
+                                        zorder=3,
+                                    )
+                                )
+                                inset.add_patch(
+                                    Rectangle(
+                                        (xmin_v, ymin_v),
+                                        xmax_v - xmin_v,
+                                        ymax_v - ymin_v,
+                                        facecolor="none",
+                                        edgecolor=str(amp_minimap_outline_color),
+                                        linewidth=max(0.1, float(amp_minimap_inner_box_linewidth)),
+                                        linestyle=_shared_normalize_minimap_linestyle(amp_minimap_inner_box_linestyle),
+                                        zorder=4,
+                                    )
+                                )
+
+                            for spine in inset.spines.values():
+                                spine.set_color(str(amp_minimap_outline_color))
+                                spine.set_linewidth(0.7)
+                        except Exception:
+                            pass
+
+                    if bool(amp_colorbar_show) and isinstance(amp_color_meta, dict):
+                        try:
+                            import matplotlib.cm as mcm
+
+                            cax_bounds = _shared_colorbar_axes_bounds(
+                                location=amp_colorbar_location,
+                                length_fraction=float(amp_colorbar_length_fraction),
+                                pad_fraction=float(amp_colorbar_pad_fraction),
+                            )
+                            cax = fig.add_axes(cax_bounds)
+                            sm = mcm.ScalarMappable(norm=amp_color_meta.get("norm"), cmap=amp_color_meta.get("cmap"))
+                            sm.set_array([])
+                            cb = fig.colorbar(sm, cax=cax)
+                            tick_vals, tick_labels = _shared_resolve_colorbar_ticks(
+                                tick_spec=amp_colorbar_show_ticks,
+                                vmin=float(amp_color_meta.get("vmin", 0.0)),
+                                vmax=float(amp_color_meta.get("vmax", 1.0)),
+                                detected_amp_max=(
+                                    float(np.nanmax(amp_vals_for_scale))
+                                    if "amp_vals_for_scale" in locals()
+                                    else (float(np.nanmax(amp_vals)) if "amp_vals" in locals() else None)
+                                ),
+                            )
+                            cb.set_ticks(tick_vals)
+                            if tick_labels is not None:
+                                cb.set_ticklabels(tick_labels)
+                            cb.ax.tick_params(labelsize=max(4.0, float(amp_colorbar_fontsize)), colors=str(amp_colorbar_fontcolor))
+                            cb.outline.set_edgecolor(str(amp_colorbar_fontcolor))
+                        except Exception:
+                            pass
+                else:
+                    _force_white_background(fig)
+
                 if write_png or write_svg:
+                    if styled and amp_show_scale_bar:
+                        x0, x1 = ax.get_xlim()
+                        y0, y1 = ax.get_ylim()
+                        _shared_add_axes_scalebar(
+                            ax,
+                            zoom_x0=float(min(x0, x1)),
+                            zoom_x1=float(max(x0, x1)),
+                            zoom_y0=float(min(y0, y1)),
+                            zoom_y1=float(max(y0, y1)),
+                            color=amp_scale_bar_color,
+                        )
                     _save_fig_png(
                         fig=fig,
                         png_path=out_png,
@@ -1203,11 +2010,42 @@ def write_unit_reconstruction_pdfs(
                         write_svg=bool(write_svg),
                         svg_path=out_svg,
                     )
-                if (write_zoom_png or write_zoom_svg) and branch_xy_points:
-                    xmin, xmax, ymin, ymax = _compute_zoom_limits_from_xy(branch_xy_points)
+                if (write_zoom_png or write_zoom_svg) and map_zoom_points:
+                    xmin, xmax, ymin, ymax = _compute_zoom_limits_from_xy(
+                        map_zoom_points,
+                        pad_frac=amp_zoom_pad_frac if styled else 0.08,
+                        pad_abs=20.0,
+                    )
+                    if styled and amp_force_soma_centering and soma_xy is not None:
+                        w = float(xmax - xmin)
+                        h = float(ymax - ymin)
+                        xmin = float(soma_xy[0] - (w / 2.0))
+                        xmax = float(soma_xy[0] + (w / 2.0))
+                        ymin = float(soma_xy[1] - (h / 2.0))
+                        ymax = float(soma_xy[1] + (h / 2.0))
+                    if styled:
+                        sq_cx = soma_xy[0] if (amp_force_soma_centering and soma_xy is not None) else None
+                        sq_cy = soma_xy[1] if (amp_force_soma_centering and soma_xy is not None) else None
+                        xmin, xmax, ymin, ymax = _make_square_limits(
+                            xmin,
+                            xmax,
+                            ymin,
+                            ymax,
+                            center_x=sq_cx,
+                            center_y=sq_cy,
+                        )
                     ax.set_xlim(xmin, xmax)
                     ax.set_ylim(ymin, ymax)
                     ax.set_aspect("equal", adjustable="box")
+                    if styled and amp_show_scale_bar:
+                        _shared_add_axes_scalebar(
+                            ax,
+                            zoom_x0=float(xmin),
+                            zoom_x1=float(xmax),
+                            zoom_y0=float(ymin),
+                            zoom_y1=float(ymax),
+                            color=amp_scale_bar_color,
+                        )
                     _save_fig_png(
                         fig=fig,
                         png_path=out_zoom_png,
@@ -1222,49 +2060,53 @@ def write_unit_reconstruction_pdfs(
             amp_zoom_png = _unit_output_path(amplitude_map_zoom_relpath)
             amp_svg = _unit_output_path(amplitude_map_svg_relpath)
             amp_zoom_svg = _unit_output_path(amplitude_map_zoom_svg_relpath)
-            _write_map(
-                lambda ax: av_plot_amplitude_map(template, locs_xy, log=True, ax=ax),
-                amp_png,
-                amp_zoom_png,
-                amp_svg,
-                amp_zoom_svg,
-                write_png=bool(write_amplitude_map),
-                write_svg=bool(write_amplitude_map_svg),
-                write_zoom_png=bool(write_amplitude_map_zoom),
-                write_zoom_svg=bool(write_amplitude_map_zoom_svg),
-            )
+            if can_plot_amp:
+                _write_map(
+                    None,
+                    amp_png,
+                    amp_zoom_png,
+                    amp_svg,
+                    amp_zoom_svg,
+                    write_png=bool(write_amplitude_map),
+                    write_svg=bool(write_amplitude_map_svg),
+                    write_zoom_png=bool(write_amplitude_map_zoom),
+                    write_zoom_svg=bool(write_amplitude_map_zoom_svg),
+                    styled=True,
+                )
 
             lat_png = _unit_output_path(peak_latency_map_relpath)
             lat_zoom_png = _unit_output_path(peak_latency_map_zoom_relpath)
             lat_svg = _unit_output_path(peak_latency_map_svg_relpath)
             lat_zoom_svg = _unit_output_path(peak_latency_map_zoom_svg_relpath)
-            _write_map(
-                lambda ax: av_plot_peak_latency_map(template, locs_xy, float(fs), ax=ax),
-                lat_png,
-                lat_zoom_png,
-                lat_svg,
-                lat_zoom_svg,
-                write_png=bool(write_peak_latency_map),
-                write_svg=bool(write_peak_latency_map_svg),
-                write_zoom_png=bool(write_peak_latency_map_zoom),
-                write_zoom_svg=bool(write_peak_latency_map_zoom_svg),
-            )
+            if can_plot_latency_std:
+                _write_map(
+                    lambda ax: av_plot_peak_latency_map(template, locs_xy, float(fs), ax=ax),
+                    lat_png,
+                    lat_zoom_png,
+                    lat_svg,
+                    lat_zoom_svg,
+                    write_png=bool(write_peak_latency_map),
+                    write_svg=bool(write_peak_latency_map_svg),
+                    write_zoom_png=bool(write_peak_latency_map_zoom),
+                    write_zoom_svg=bool(write_peak_latency_map_zoom_svg),
+                )
 
             std_png = _unit_output_path(peak_std_map_relpath)
             std_zoom_png = _unit_output_path(peak_std_map_zoom_relpath)
             std_svg = _unit_output_path(peak_std_map_svg_relpath)
             std_zoom_svg = _unit_output_path(peak_std_map_zoom_svg_relpath)
-            _write_map(
-                lambda ax: av_plot_peak_std_map(template, locs_xy, float(fs), ax=ax),
-                std_png,
-                std_zoom_png,
-                std_svg,
-                std_zoom_svg,
-                write_png=bool(write_peak_std_map),
-                write_svg=bool(write_peak_std_map_svg),
-                write_zoom_png=bool(write_peak_std_map_zoom),
-                write_zoom_svg=bool(write_peak_std_map_zoom_svg),
-            )
+            if can_plot_latency_std:
+                _write_map(
+                    lambda ax: av_plot_peak_std_map(template, locs_xy, float(fs), ax=ax),
+                    std_png,
+                    std_zoom_png,
+                    std_svg,
+                    std_zoom_svg,
+                    write_png=bool(write_peak_std_map),
+                    write_svg=bool(write_peak_std_map_svg),
+                    write_zoom_png=bool(write_peak_std_map_zoom),
+                    write_zoom_svg=bool(write_peak_std_map_zoom_svg),
+                )
 
             for p, k, enabled in [
                 (amp_png, "amplitude_map_png", bool(write_amplitude_map)),
