@@ -57,9 +57,18 @@ def _get_template_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
 	if isinstance(stage_block, dict) and stage_block:
 		return dict(stage_block)
 
+	# Migration alias: existing runtime configs may still use `template_plot`.
+	stage_block_alias = runtime_config.get("stages.templates.outputs.per_unit_outputs.template_plot", {})
+	if isinstance(stage_block_alias, dict) and stage_block_alias:
+		return dict(stage_block_alias)
+
 	legacy_block = runtime_config.get("stages.reconstruct.outputs.per_unit_outputs.template", {})
-	if isinstance(legacy_block, dict):
+	if isinstance(legacy_block, dict) and legacy_block:
 		return dict(legacy_block)
+
+	legacy_block_alias = runtime_config.get("stages.reconstruct.outputs.per_unit_outputs.template_plot", {})
+	if isinstance(legacy_block_alias, dict) and legacy_block_alias:
+		return dict(legacy_block_alias)
 
 	return {}
 

@@ -102,22 +102,182 @@ stages:
       debug: false 
       force_restart: false
       force_replot: false
+
+      # Do not load segments or rebuild templates.
+      # Just force replotting of existing templates from disk. Useful for iterating on plot formatting without having to rebuild templates.
       force_replot_per_unit: false #TODO: Make sure this is wired up
+      
+      # If true, will only build templates for units that have been manually curated by MEA_Analysis during waveforms stage.
+      require_curated_units: true
+      
+      # limit number of unit templates to build for debugging purposes. Set to -1 or null for no limit.
+      unit_limit: -1
+
+      spikeinterface:
+        template_extraction:
+          sources:
+            include_concat: true
+            include_segments: true
     resources:
       max_stage_workers: 24
       well_workers: 2
-    include_concat: true
-    include_segments: true
-    footprint_unit_limit: null
-    templates_unit_limit: null
-    top_channels_per_template: 10
-    plot_grid_pdf: true
-    plot_multi_source_pdf: true
-    replot_from_disk: false
-    require_curated_units: true
-    time_upsample:
-      factor: 10
-      method: sinc
+
+    # All outputs from templates stage
+    outputs:
+      output_rel_root: template_outputs
+      per_unit_outputs:
+
+        # Base rel dir for all outputs for a given unit. Can be formatted with {unit_id} if desired,
+        # but should not include file name or extension components since those are specified separately for each output type below.
+        unit_reldir: units/{unit_id:04d}/
+
+        # Template plot - plot of the spatial footprint of the template waveforms across the MEA channels,
+        # showing the waveform shapes on each channel as well as the relative amplitudes across channels. Useful for assessing template quality and spatial distribution.
+        template_plot:
+          write_png: true
+          write_svg: false
+          relpath: template
+          # Full-template channel scope:
+          # - contributing_channels: only channels with non-zero template signal.
+          # - recorded_channels: only channels that were actually recorded in the source data.
+          # - all_channels: all channels present in full template locations - i.e. all channels physically present on the MEA regardless of whether they had signal or were recorded.
+          channel_scope: contributing_channels
+          background: black
+          signal_color: white
+          force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
+          force_square_aspect: true # increase template plot size to make it square (with padding) regardless of the spatial distribution of the channels.
+          show_scale_bar: true
+          scale_bar_color: white
+          scale_bar_text_offset_frac: 0.02 # move label closer/farther from bar in axis-height fractions
+          scale_bar_y_offset_frac: 0.06 # vertical offset of bar from lower edge in axis-height fractions
+          scale_bar_fontsize: 6
+          scale_bar_linewidth: 1.8
+          #scale_bar_length_um: null # optional fixed bar length; when null uses auto 50/100 um
+
+        template_wf_overlay:
+          write_pdf: false
+          pdf_relpath: template_wf_overlay.pdf
+          write_png: true
+          png_relpath: template_wf_overlay.png
+          top_channels_per_template: 10
+          
+          # whether to include an additional plot of the mean waveform across the *all* channels for each template, averaged across those channels.
+          include_mean: true 
+
+          include_scale_bar: true
+          scale_bar_color: black
+          scale_bar_fontsize: 6
+          scale_bar_linewidth: 1.8
+          background: white
+
+        footprint_plots:
+          
+          # The footprint amplitude map shows the relative amplitude of the template waveform on each channel, typically normalized to the amplitude on the main channel. 
+          # This can be useful for visualizing the spatial extent of the neuron's electrical footprint across the MEA and identifying potential axonal branches.
+          amplitude_map:
+            write_png: true
+            write_svg: false
+            relpath: footprint_amplitude_map
+            background: black
+            color_map: viridis
+            show_color_bar: true
+            color_bar_location: topright
+            color_bar_fontsize: 6
+            color_bar_length_fraction: 0.3 # length of color bar as fraction of axis height
+            color_bar_pad_fraction: 0.02 # padding between color bar and axis in figure height fractions
+            force_low_value: 0
+            force_high_value: null # if null, determined by data
+            scale: linear # linear or log
+            percentile_low: 5.0 # lower percentile used for vmin reference
+            percentile_high_linear: 99.0 # cap percentile used for linear vmax before rounding
+            percentile_high_log: 99.5 # cap percentile used for log vmax
+            knot_anchor_values: [1.0, 10.0] # piecewise anchors for percentile-ranked transfer in linear mode
+            knot_y1_min: 0.02 # lower bound for first knot y position
+            knot_y1_max: 0.90 # upper bound for first knot y position
+            knot_y2_min: 0.07 # lower bound for second knot y position
+            knot_y2_max: 0.98 # upper bound for second knot y position
+            knot_min_gap: 0.05 # minimum y-gap enforced between first and second knot
+            linear_cap_rounding_mode: ceil_step # ceil_step | nice | none
+            linear_cap_rounding_step: 10.0 # step used by ceil_step mode
+            linear_cap_min_vmax: 11.0 # floor for final linear vmax after rounding
+          
+          # The footprint peak latency map shows the latency of the peak of the template waveform on each channel, relative to the latency of the peak on the main channel. 
+          # This can be useful for assessing the spatial distribution of latencies across the MEA and identifying potential axonal propagation patterns.
+          peak_latency_map:
+            write_png: true
+            write_svg: false
+            relpath: footprint_peak_latency_map
+            background: black
+            color_map: viridis
+            show_color_bar: true
+            color_bar_location: topright
+            color_bar_fontsize: 6
+            color_bar_length_fraction: 0.3 # length of color bar as fraction of axis height
+            color_bar_pad_fraction: 0.02 # padding between color bar and axis in figure height fractions
+            force_low_value: 0
+            force_high_value: null # if null, determined by data
+            scale: linear # linear or log
+            percentile_low: 5.0 # lower percentile used for vmin reference
+            percentile_high_linear: 99.0 # cap percentile used for linear vmax before rounding
+            percentile_high_log: 99.5 # cap percentile used for log vmax
+            knot_anchor_values: [1.0, 10.0] # piecewise anchors for percentile-ranked transfer in linear mode
+            knot_y1_min: 0.02 # lower bound for first knot y position
+            knot_y1_max: 0.90 # upper bound for first knot y position
+            knot_y2_min: 0.07 # lower bound for second knot y position
+            knot_y2_max: 0.98 # upper bound for second knot y position
+            knot_min_gap: 0.05 # minimum y-gap enforced between first and second knot
+            linear_cap_rounding_mode: ceil_step # ceil_step | nice | none
+            linear_cap_rounding_step: 10.0 # step used by ceil_step mode
+            linear_cap_min_vmax: 11.0 # floor for final linear vmax after rounding
+            show_ticks: [1, 10, dynamic_high] # dynamic_high -> top tick; shown as ">top" when capped by percentile
+
+          # The footprint latency map shows the latency of the template waveform on each channel, relative to the latency of the peak on the main channel.
+          # This can be useful for assessing the spatial distribution of latencies across the MEA and identifying potential axonal propagation patterns, 
+          # especially when considered alongside the amplitude map.
+          latency_map:
+            write_png: true
+            write_svg: false
+            relpath: footprint_latency_map
+            background: black
+            color_map: viridis
+            show_color_bar: true
+            color_bar_location: topright
+            color_bar_fontsize: 6
+            color_bar_length_fraction: 0.3 # length of color bar as fraction of axis height
+            color_bar_pad_fraction: 0.02 # padding between color bar and axis in figure height fractions
+            force_low_value: 0
+            force_high_value: null # if null, determined by data
+            scale: linear # linear or log
+            percentile_low: 5.0 # lower percentile used for vmin reference
+            percentile_high_linear: 99.0 # cap percentile used for linear vmax before rounding
+            percentile_high_log: 99.5 # cap percentile used for log vmax
+            knot_anchor_values: [1.0, 10.0] # piecewise anchors for percentile-ranked transfer in linear mode
+            knot_y1_min: 0.02 # lower bound for first knot y position
+            knot_y1_max: 0.90 # upper bound for first knot y position
+            knot_y2_min: 0.07 # lower bound for second knot y position
+            knot_y2_max: 0.98 # upper bound for second knot y position
+            knot_min_gap: 0.05 # minimum y-gap enforced between first and second knot
+            linear_cap_rounding_mode: ceil_step # ceil_step | nice | none
+            linear_cap_rounding_step: 10.0 # step used by ceil_step mode
+            linear_cap_min_vmax: 11.0 # floor for final linear vmax after rounding
+            show_ticks: [1, 10, dynamic_high] # dynamic_high -> top tick; shown as ">top" when capped by percentile
+      
+      reports:
+        wf_overlay_grid:
+          write_pdf: false
+          pdf_relpath: wf_overlay_grid.pdf
+          write_png: true
+          png_relpath: wf_overlay_grid.png
+          top_channels_per_template: 10
+
+        
+        plot_multi_source_pdf: true
+        replot_from_disk: false
+
+        time_upsample:
+          factor: 10
+          method: sinc
+  # Templates stage updated to Pipeline V2 above this line. -------------------------
 
   reconstruct:
     execution:
@@ -129,19 +289,6 @@ stages:
       max_stage_workers: 8
       well_workers: 2
     unit_limit: 1000
-
-    # write_unit_pdfs: true
-    # write_all_units_overview_pdf: true
-    # write_top_density_grid: true
-    # top_n_density_requested: all
-    # templates_variant_name: null
-    # variant_name: null
-    # replot_top_density_grid_only: false
-    # show_density_scale_debug_text: false
-    # show_density_scale_global_debug_text: false
-    # show_density_scale_local_debug_text: false
-    # verbose: false
-    # write_template_movie_gif: false
 
     outputs:
       output_rel_root: recon_outputs
@@ -165,27 +312,7 @@ stages:
         write_gtr_json: false
         gtr_json_relpath: gtr.json
 
-        # Template
-        template:
-          write_png: true
-          write_svg: false
-          relpath: template
-          # Full-template channel scope:
-          # - contributing_channels: only channels with non-zero template signal.
-          # - recorded_channels: only channels that were actually recorded in the source data.
-          # - all_channels: all channels present in full template locations - i.e. all channels physically present on the MEA regardless of whether they had signal or were recorded.
-          channel_scope: contributing_channels
-          background: black
-          signal_color: white
-          force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
-          force_square_aspect: true # increase template plot size to make it square (with padding) regardless of the spatial distribution of the channels.
-          show_scale_bar: true
-          scale_bar_color: white
-          scale_bar_text_offset_frac: 0.02 # move label closer/farther from bar in axis-height fractions
-          scale_bar_y_offset_frac: 0.06 # vertical offset of bar from lower edge in axis-height fractions
-          scale_bar_fontsize: 6
-          scale_bar_linewidth: 1.8
-          #scale_bar_length_um: null # optional fixed bar length; when null uses auto 50/100 um
+  ## Reconstruct Stage Updated to Pipeline V2 above this line. -------------------------
 
       # Amplitude Map
       amplitude_map:
