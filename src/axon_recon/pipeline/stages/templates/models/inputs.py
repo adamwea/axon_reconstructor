@@ -29,6 +29,7 @@ class TemplateCirclesPlotConfig(TemplatePlotConfig):
 	write_png: bool = False
 	write_svg: bool = False
 	relpath: str = "template_circles"
+	circle_size_scale_factor: float = 1.0
 	size_by: str = "amplitude"
 	color_by: str = "latency"
 	color_bar_units: str = ""

@@ -341,7 +341,8 @@ def render_template_circles_plot(
 	size_norm = np.nan_to_num(size_norm, nan=0.0, posinf=0.0, neginf=0.0)
 	if float(np.max(size_norm)) > 0.0:
 		size_norm = size_norm / float(np.max(size_norm))
-	sizes = 8.0 + 42.0 * size_norm
+	size_scale = max(0.0, float(getattr(config, "circle_size_scale_factor", 1.0)))
+	sizes = (8.0 + 42.0 * size_norm) * size_scale
 
 	peak_idx = int(np.argmax(amp)) if amp.size > 0 else 0
 
@@ -502,7 +503,8 @@ def render_template_circles_plot_v2(
 	size_norm = np.nan_to_num(size_norm, nan=0.0, posinf=0.0, neginf=0.0)
 	if float(np.max(size_norm)) > 0.0:
 		size_norm = size_norm / float(np.max(size_norm))
-	sizes = 8.0 + 42.0 * size_norm
+	size_scale = max(0.0, float(getattr(config, "circle_size_scale_factor", 1.0)))
+	sizes = (8.0 + 42.0 * size_norm) * size_scale
 
 	peak_idx = int(np.argmax(amp)) if amp.size > 0 else 0
 

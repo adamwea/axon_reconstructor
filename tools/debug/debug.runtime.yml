@@ -137,320 +137,321 @@ stages:
       well_workers: 2
 
     # All outputs from templates stage
-  outputs:
-    output_rel_root: template_outputs
-    per_unit_outputs:
+    outputs:
+      output_rel_root: template_outputs
+      per_unit_outputs:
 
-      # Base rel dir for all outputs for a given unit. Can be formatted with {unit_id} if desired,
-      # but should not include file name or extension components since those are specified separately for each output type below.
-      unit_reldir: units/{unit_id:04d}/
+        # Base rel dir for all outputs for a given unit. Can be formatted with {unit_id} if desired,
+        # but should not include file name or extension components since those are specified separately for each output type below.
+        unit_reldir: units/{unit_id:04d}/
 
-      ## Per-Unit Data Artifacts
-      # merged_template: the final merged template waveform for the unit, typically averaged across all segments and/or concatenated segments. 
-      # This is the main data artifact representing the spatial footprint and waveform shape of the neuron across the MEA channels, and is used for downstream analyses and plotting.
-      # Will usually be sparse. Should only contain channel / electrodes non-zero signal in the template in at least one template source (segments and / or concat)
-      merged_template:
-        write_npy: true # Usually it's enough to write the merged_template. square, scan, and/or full templates can be derived as needed downstream.
-        npy_relpath: merged_template.npy
+        ## Per-Unit Data Artifacts
+        # merged_template: the final merged template waveform for the unit, typically averaged across all segments and/or concatenated segments. 
+        # This is the main data artifact representing the spatial footprint and waveform shape of the neuron across the MEA channels, and is used for downstream analyses and plotting.
+        # Will usually be sparse. Should only contain channel / electrodes non-zero signal in the template in at least one template source (segments and / or concat)
+        merged_template:
+          write_npy: true # Usually it's enough to write the merged_template. square, scan, and/or full templates can be derived as needed downstream.
+          npy_relpath: merged_template.npy
 
-      # square_template: a version of the merged template that has been padded to have a square channel layout, with dimensions equal to the max spatial extent of the template 
-      # across x and y.
-      # padding can be zeros, ones, or nans as specified in square_template_padding_value. 
-      # This can be useful for certain types of analyses or plotting that require a rectangular input format, while still preserving the spatial relationships between channels.
-      square_template:
-        write_npy: false
-        npy_relpath: square_template.npy
-        padding_value: zero # zero, one, or nan
+        # square_template: a version of the merged template that has been padded to have a square channel layout, with dimensions equal to the max spatial extent of the template 
+        # across x and y.
+        # padding can be zeros, ones, or nans as specified in square_template_padding_value. 
+        # This can be useful for certain types of analyses or plotting that require a rectangular input format, while still preserving the spatial relationships between channels.
+        square_template:
+          write_npy: false
+          npy_relpath: square_template.npy
+          padding_value: zero # zero, one, or nan
 
-      # scan_template: a version of the merged template that includes all electrodes present in the source recording data across all segments.
-      # Dimensions are determined by the full spatial extent of the MEA channels present in the recording, which may be larger than the spatial extent of the template signal itself. 
-      # Padded with zeros, ones, or nans as specified in scan_template_padding_value for channels that are not part of the template.
-      scan_template:
-        write_npy: false
-        npy_relpath: scan_template.npy
-        padding_value: zero # zero, one, or nan
+        # scan_template: a version of the merged template that includes all electrodes present in the source recording data across all segments.
+        # Dimensions are determined by the full spatial extent of the MEA channels present in the recording, which may be larger than the spatial extent of the template signal itself. 
+        # Padded with zeros, ones, or nans as specified in scan_template_padding_value for channels that are not part of the template.
+        scan_template:
+          write_npy: false
+          npy_relpath: scan_template.npy
+          padding_value: zero # zero, one, or nan
 
-      # full_template: a version of the merged template that includes all electrodes present in the full probe, including channels that were not explicitly recorded in the source data 
-      # but are present in the MEA layout. By default, we assume the full probe layout corresponds to the maxone and maxtwo channel coordinates in the template locations, 
-      # but this can be overridden by specifying a custom full probe layout in the data config.
-      # Copied from debug.data.yml for reference.
-      # Probe: # https://www.mxwbio.com/products/maxtwo
-      #   brand: maxwell
-      #   device: maxtwo_HDMEA
-      #   plate_format: 6-well
-      #   # Per-well active sensing area (used for geometry-aware channel layout plotting).
-      #   active_sensing_area_mm:
-      #     x: 3.85
-      #     y: 2.10
-      #     z: null
-      #   electrodes_per_well: 26400
-      #   # Keep for future runtime checks and resampling defaults.
-      #   sampling_rate_hz: 10000
-      #   pitch_um: 17.5
-      #   electrode_size_um:
-      #     x: 12.0
-      #     y: 8.8
-      full_template:
-        write_npy: false
-        npy_relpath: full_template.npy
-        padding_value: zero # zero, one, or nan
+        # full_template: a version of the merged template that includes all electrodes present in the full probe, including channels that were not explicitly recorded in the source data 
+        # but are present in the MEA layout. By default, we assume the full probe layout corresponds to the maxone and maxtwo channel coordinates in the template locations, 
+        # but this can be overridden by specifying a custom full probe layout in the data config.
+        # Copied from debug.data.yml for reference.
+        # Probe: # https://www.mxwbio.com/products/maxtwo
+        #   brand: maxwell
+        #   device: maxtwo_HDMEA
+        #   plate_format: 6-well
+        #   # Per-well active sensing area (used for geometry-aware channel layout plotting).
+        #   active_sensing_area_mm:
+        #     x: 3.85
+        #     y: 2.10
+        #     z: null
+        #   electrodes_per_well: 26400
+        #   # Keep for future runtime checks and resampling defaults.
+        #   sampling_rate_hz: 10000
+        #   pitch_um: 17.5
+        #   electrode_size_um:
+        #     x: 12.0
+        #     y: 8.8
+        full_template:
+          write_npy: false
+          npy_relpath: full_template.npy
+          padding_value: zero # zero, one, or nan
 
-        ## Per-Unit Plots
-        # Template plot - plot of the spatial footprint of the template waveforms across the MEA channels,
-        # showing the waveform shapes on each channel as well as the relative amplitudes across channels. Useful for assessing template quality and spatial distribution.
-        template_plots:
-          waveforms:
+          ## Per-Unit Plots
+          # Template plot - plot of the spatial footprint of the template waveforms across the MEA channels,
+          # showing the waveform shapes on each channel as well as the relative amplitudes across channels. Useful for assessing template quality and spatial distribution.
+          template_plots:
+            waveforms:
+              write_png: true
+              write_svg: false
+              relpath: template_waveforms
+              # Full-template channel scope:
+              # - contributing_channels: only channels with non-zero template signal.
+              # - recorded_channels: only channels that were actually recorded in the source data.
+              # - all_channels: all channels present in full template locations - i.e. all channels physically present on the MEA regardless of whether they had signal or were recorded.
+              channel_scope: contributing_channels
+              background: black
+              signal_color: white
+              force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
+              force_square_aspect: true # increase template plot size to make it square (with padding) regardless of the spatial distribution of the channels.
+              show_scale_bar: true
+              scale_bar_color: white
+              scale_bar_text_offset_frac: 0.02 # move label closer/farther from bar in axis-height fractions
+              scale_bar_y_offset_frac: 0.06 # vertical offset of bar from lower edge in axis-height fractions
+              scale_bar_fontsize: 6
+              scale_bar_linewidth: 1.8
+              #scale_bar_length_um: null # optional fixed bar length; when null uses auto 50/100 um
+            circles:
+              write_png: true
+              write_svg: false
+              relpath: template_circles
+              channel_scope: contributing_channels
+              background: black
+              signal_color: white
+              force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
+              force_square_aspect: true # increase template plot size to make it square (with padding) regardless of the spatial distribution of the channels.
+              show_scale_bar: true
+              scale_bar_color: white
+              scale_bar_text_offset_frac: 0.02 # move label closer/farther from bar in axis-height fractions
+              scale_bar_y_offset_frac: 0.06 # vertical offset of bar from lower edge in axis-height fractions
+              scale_bar_fontsize: 18
+              scale_bar_linewidth: 6
+              circle_size_scale_factor: 5.5 # scaling factor for circle sizes; larger values make circles bigger overall
+              #scale_bar_length_um: null # optional fixed bar length; when null uses auto 50/100 um
+              size_by: amplitude # amplitude or latency; if amplitude, channel circle sizes are scaled by the relative amplitude of the template on each channel. If latency, channel circle sizes are scaled by the relative latency of the template on each channel.
+              color_by: latency # amplitude or latency; if amplitude, channel colors are determined by the relative amplitude of the template on each channel. If latency, channel colors are determined by the relative latency of the template on each channel.
+              color_bar:
+                units: "ms" # label for color bar units
+                title: "Latency (ms)" # title to show above color bar; if empty string, no title is shown and only tick labels with units are shown.
+                show_axes_title: false # whether to show the "Latency (ms)" title above the color bar, or just the tick labels with units.
+                show_unit_label: true # whether to show tick labels on the color bar, which include the units (e.g. "10 ms") or just the numeric value (e.g. "10")
+                tick_decimal_places: 3 # controls tick label precision and dynamic 0/5-style tick density (more precision -> more candidate ticks)
+                tick_target_count: 10 # optional desired number of ticks; <=0 or omitted lets renderer pick automatically
+          template_wf_overlay:
+            write_pdf: false
+            pdf_relpath: template_wf_overlay.pdf
             write_png: true
-            write_svg: false
-            relpath: template_waveforms
-            # Full-template channel scope:
-            # - contributing_channels: only channels with non-zero template signal.
-            # - recorded_channels: only channels that were actually recorded in the source data.
-            # - all_channels: all channels present in full template locations - i.e. all channels physically present on the MEA regardless of whether they had signal or were recorded.
-            channel_scope: contributing_channels
-            background: black
-            signal_color: white
-            force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
-            force_square_aspect: true # increase template plot size to make it square (with padding) regardless of the spatial distribution of the channels.
-            show_scale_bar: true
-            scale_bar_color: white
-            scale_bar_text_offset_frac: 0.02 # move label closer/farther from bar in axis-height fractions
-            scale_bar_y_offset_frac: 0.06 # vertical offset of bar from lower edge in axis-height fractions
+            png_relpath: template_wf_overlay.png
+            top_channels_per_template: 10
+            #style: propagation # propogation or overlay. 
+            style: overlay # currently we have overlay implemented as the default, I want the wfs overlayed on eachother with the same x and y axis.
+            
+            # whether to include an additional plot of the mean waveform across the *all* channels for each template, averaged across those channels.
+            include_mean: true 
+
+            include_scale_bar: true
+            scale_bar_color: black
             scale_bar_fontsize: 6
             scale_bar_linewidth: 1.8
-            #scale_bar_length_um: null # optional fixed bar length; when null uses auto 50/100 um
-          circles:
-            write_png: true
-            write_svg: false
-            relpath: template_circles
-            channel_scope: contributing_channels
-            background: black
-            signal_color: white
-            force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
-            force_square_aspect: true # increase template plot size to make it square (with padding) regardless of the spatial distribution of the channels.
-            show_scale_bar: true
-            scale_bar_color: white
-            scale_bar_text_offset_frac: 0.02 # move label closer/farther from bar in axis-height fractions
-            scale_bar_y_offset_frac: 0.06 # vertical offset of bar from lower edge in axis-height fractions
-            scale_bar_fontsize: 18
-            scale_bar_linewidth: 6
-            #scale_bar_length_um: null # optional fixed bar length; when null uses auto 50/100 um
-            size_by: amplitude # amplitude or latency; if amplitude, channel circle sizes are scaled by the relative amplitude of the template on each channel. If latency, channel circle sizes are scaled by the relative latency of the template on each channel.
-            color_by: latency # amplitude or latency; if amplitude, channel colors are determined by the relative amplitude of the template on each channel. If latency, channel colors are determined by the relative latency of the template on each channel.
-            color_bar:
-              units: "ms" # label for color bar units
-              title: "Latency (ms)" # title to show above color bar; if empty string, no title is shown and only tick labels with units are shown.
-              show_axes_title: false # whether to show the "Latency (ms)" title above the color bar, or just the tick labels with units.
-              show_unit_label: true # whether to show tick labels on the color bar, which include the units (e.g. "10 ms") or just the numeric value (e.g. "10")
-              tick_decimal_places: 3 # controls tick label precision and dynamic 0/5-style tick density (more precision -> more candidate ticks)
-              tick_target_count: 10 # optional desired number of ticks; <=0 or omitted lets renderer pick automatically
-        template_wf_overlay:
-          write_pdf: false
-          pdf_relpath: template_wf_overlay.pdf
-          write_png: true
-          png_relpath: template_wf_overlay.png
-          top_channels_per_template: 10
-          #style: propagation # propogation or overlay. 
-          style: overlay # currently we have overlay implemented as the default, I want the wfs overlayed on eachother with the same x and y axis.
-          
-          # whether to include an additional plot of the mean waveform across the *all* channels for each template, averaged across those channels.
-          include_mean: true 
+            background: white
 
-          include_scale_bar: true
-          scale_bar_color: black
-          scale_bar_fontsize: 6
-          scale_bar_linewidth: 1.8
-          background: white
+          footprint_plots:
+            
+            # The footprint amplitude map shows the relative amplitude of the template waveform on each channel, typically normalized to the amplitude on the main channel. 
+            # This can be useful for visualizing the spatial extent of the neuron's electrical footprint across the MEA and identifying potential axonal branches.
+            amplitude_map:
+              write_png: true
+              write_svg: false
+              relpath: footprint_amplitude_map
+              background: black
+              color_map: viridis
+              template: 
+                shape: square # square, scan, or full
+                padding_value: zero # zero, one, or nan; only applies if template shape is square or scan
+              color_bar:
+                show_color_bar: true
+                color_bar_location: topright
+                color_bar_fontsize: 6
+                color_bar_length_fraction: 0.3 # length of color bar as fraction of axis height
+                color_bar_pad_fraction: 0.02 # padding between color bar and axis in figure height fractions
+                force_low_value: 0
+                force_high_value: null # if null, determined by data
+                scale: linear # linear or log
+                percentile_low: 5.0 # lower percentile used for vmin reference
+                percentile_high_linear: 99.0 # cap percentile used for linear vmax before rounding
+                percentile_high_log: 99.5 # cap percentile used for log vmax
+                knot_anchor_values: [1.0, 10.0] # piecewise anchors for percentile-ranked transfer in linear mode
+                knot_y1_min: 0.02 # lower bound for first knot y position
+                knot_y1_max: 0.90 # upper bound for first knot y position
+                knot_y2_min: 0.07 # lower bound for second knot y position
+                knot_y2_max: 0.98 # upper bound for second knot y position
+                knot_min_gap: 0.05 # minimum y-gap enforced between first and second knot
+                linear_cap_rounding_mode: ceil_step # ceil_step | nice | none
+                linear_cap_rounding_step: 10.0 # step used by ceil_step mode
+                linear_cap_min_vmax: 11.0 # floor for final linear vmax after rounding
+            
+            # The footprint latency map shows the latency of the template waveform on each channel, relative to the latency of the peak on the main channel.
+            # This can be useful for assessing the spatial distribution of latencies across the MEA and identifying potential axonal propagation patterns, 
+            # especially when considered alongside the amplitude map.
+            latency_map:
+              write_png: true
+              write_svg: false
+              relpath: footprint_latency_map
+              background: black
+              color_map: viridis
+              template: 
+                shape: square
+                padding_value: zero
+              color_bar:
+                show_color_bar: true
+                color_bar_location: topright
+                color_bar_fontsize: 6
+                color_bar_length_fraction: 0.3 # length of color bar as fraction of axis height
+                color_bar_pad_fraction: 0.02 # padding between color bar and axis in figure height fractions
+                force_low_value: 0
+                force_high_value: null # if null, determined by data
+                scale: linear # linear or log
+                percentile_low: 5.0 # lower percentile used for vmin reference
+                percentile_high_linear: 99.0 # cap percentile used for linear vmax before rounding
+                percentile_high_log: 99.5 # cap percentile used for log vmax
+                knot_anchor_values: [1.0, 10.0] # piecewise anchors for percentile-ranked transfer in linear mode
+                knot_y1_min: 0.02 # lower bound for first knot y position
+                knot_y1_max: 0.90 # upper bound for first knot y position
+                knot_y2_min: 0.07 # lower bound for second knot y position
+                knot_y2_max: 0.98 # upper bound for second knot y position
+                knot_min_gap: 0.05 # minimum y-gap enforced between first and second knot
+                linear_cap_rounding_mode: ceil_step # ceil_step | nice | none
+                linear_cap_rounding_step: 10.0 # step used by ceil_step mode
+                linear_cap_min_vmax: 11.0 # floor for final linear vmax after rounding
+                show_ticks: [1, 10, dynamic_high] # dynamic_high -> top tick; shown as ">top" when capped by percentile
 
-        footprint_plots:
-          
-          # The footprint amplitude map shows the relative amplitude of the template waveform on each channel, typically normalized to the amplitude on the main channel. 
-          # This can be useful for visualizing the spatial extent of the neuron's electrical footprint across the MEA and identifying potential axonal branches.
-          amplitude_map:
-            write_png: true
-            write_svg: false
-            relpath: footprint_amplitude_map
-            background: black
-            color_map: viridis
-            template: 
-              shape: square # square, scan, or full
-              padding_value: zero # zero, one, or nan; only applies if template shape is square or scan
-            color_bar:
-              show_color_bar: true
-              color_bar_location: topright
-              color_bar_fontsize: 6
-              color_bar_length_fraction: 0.3 # length of color bar as fraction of axis height
-              color_bar_pad_fraction: 0.02 # padding between color bar and axis in figure height fractions
-              force_low_value: 0
-              force_high_value: null # if null, determined by data
-              scale: linear # linear or log
-              percentile_low: 5.0 # lower percentile used for vmin reference
-              percentile_high_linear: 99.0 # cap percentile used for linear vmax before rounding
-              percentile_high_log: 99.5 # cap percentile used for log vmax
-              knot_anchor_values: [1.0, 10.0] # piecewise anchors for percentile-ranked transfer in linear mode
-              knot_y1_min: 0.02 # lower bound for first knot y position
-              knot_y1_max: 0.90 # upper bound for first knot y position
-              knot_y2_min: 0.07 # lower bound for second knot y position
-              knot_y2_max: 0.98 # upper bound for second knot y position
-              knot_min_gap: 0.05 # minimum y-gap enforced between first and second knot
-              linear_cap_rounding_mode: ceil_step # ceil_step | nice | none
-              linear_cap_rounding_step: 10.0 # step used by ceil_step mode
-              linear_cap_min_vmax: 11.0 # floor for final linear vmax after rounding
-          
-          # The footprint latency map shows the latency of the template waveform on each channel, relative to the latency of the peak on the main channel.
-          # This can be useful for assessing the spatial distribution of latencies across the MEA and identifying potential axonal propagation patterns, 
-          # especially when considered alongside the amplitude map.
-          latency_map:
-            write_png: true
-            write_svg: false
-            relpath: footprint_latency_map
-            background: black
-            color_map: viridis
-            template: 
-              shape: square
-              padding_value: zero
-            color_bar:
-              show_color_bar: true
-              color_bar_location: topright
-              color_bar_fontsize: 6
-              color_bar_length_fraction: 0.3 # length of color bar as fraction of axis height
-              color_bar_pad_fraction: 0.02 # padding between color bar and axis in figure height fractions
-              force_low_value: 0
-              force_high_value: null # if null, determined by data
-              scale: linear # linear or log
-              percentile_low: 5.0 # lower percentile used for vmin reference
-              percentile_high_linear: 99.0 # cap percentile used for linear vmax before rounding
-              percentile_high_log: 99.5 # cap percentile used for log vmax
-              knot_anchor_values: [1.0, 10.0] # piecewise anchors for percentile-ranked transfer in linear mode
-              knot_y1_min: 0.02 # lower bound for first knot y position
-              knot_y1_max: 0.90 # upper bound for first knot y position
-              knot_y2_min: 0.07 # lower bound for second knot y position
-              knot_y2_max: 0.98 # upper bound for second knot y position
-              knot_min_gap: 0.05 # minimum y-gap enforced between first and second knot
-              linear_cap_rounding_mode: ceil_step # ceil_step | nice | none
-              linear_cap_rounding_step: 10.0 # step used by ceil_step mode
-              linear_cap_min_vmax: 11.0 # floor for final linear vmax after rounding
-              show_ticks: [1, 10, dynamic_high] # dynamic_high -> top tick; shown as ">top" when capped by percentile
+          topographical_footprints:
+            amplitude:
+              write_png: true
+              write_svg: false
+              relpath: topographical_amplitude_footprint
+              background: black
+              color_map: viridis
+              template: 
+                shape: square
+                padding_value: zero
+              color_bar:
+                show_color_bar: true
+                color_bar_location: topright
+                color_bar_fontsize: 6
+                color_bar_length_fraction: 0.3 # length of color bar as fraction of axis height
+                color_bar_pad_fraction: 0.02 # padding between color bar and axis in figure height fractions
+                force_low_value: 0
+                force_high_value: null # if null, determined by data
+                scale: linear # linear or log
+                percentile_low: 5.0 # lower percentile used for vmin reference
+                percentile_high_linear: 99.0 # cap percentile used for linear vmax before rounding
+                percentile_high_log: 99.5 # cap percentile used for log vmax
+                knot_anchor_values: [1.0, 10.0] # piecewise anchors for percentile-ranked transfer in linear mode
+                knot_y1_min: 0.02 # lower bound for first knot y position
+                knot_y1_max: 0.90 # upper bound for first knot y position
+                knot_y2_min: 0.07 # lower bound for second knot y position
+                knot_y2_max: 0.98 # upper bound for second knot y position
+                knot_min_gap: 0.05 # minimum y-gap enforced between first and second knot
+                linear_cap_rounding_mode: ceil_step # ceil_step | nice | none
+                linear_cap_rounding_step: 10.0 # step used by ceil_step mode
+                linear_cap_min_vmax: 11.0 # floor for final linear vmax after rounding
+                show_ticks: [1, 10, dynamic_high] # dynamic_high -> top tick; shown as ">top" when capped by percentile
+              elevation_deg: 35
+              azimuth_deg: -60
+              marker_size: 14
 
-        topographical_footprints:
-          amplitude:
-            write_png: true
-            write_svg: false
-            relpath: topographical_amplitude_footprint
-            background: black
-            color_map: viridis
-            template: 
-              shape: square
-              padding_value: zero
-            color_bar:
-              show_color_bar: true
-              color_bar_location: topright
-              color_bar_fontsize: 6
-              color_bar_length_fraction: 0.3 # length of color bar as fraction of axis height
-              color_bar_pad_fraction: 0.02 # padding between color bar and axis in figure height fractions
-              force_low_value: 0
-              force_high_value: null # if null, determined by data
-              scale: linear # linear or log
-              percentile_low: 5.0 # lower percentile used for vmin reference
-              percentile_high_linear: 99.0 # cap percentile used for linear vmax before rounding
-              percentile_high_log: 99.5 # cap percentile used for log vmax
-              knot_anchor_values: [1.0, 10.0] # piecewise anchors for percentile-ranked transfer in linear mode
-              knot_y1_min: 0.02 # lower bound for first knot y position
-              knot_y1_max: 0.90 # upper bound for first knot y position
-              knot_y2_min: 0.07 # lower bound for second knot y position
-              knot_y2_max: 0.98 # upper bound for second knot y position
-              knot_min_gap: 0.05 # minimum y-gap enforced between first and second knot
-              linear_cap_rounding_mode: ceil_step # ceil_step | nice | none
-              linear_cap_rounding_step: 10.0 # step used by ceil_step mode
-              linear_cap_min_vmax: 11.0 # floor for final linear vmax after rounding
-              show_ticks: [1, 10, dynamic_high] # dynamic_high -> top tick; shown as ">top" when capped by percentile
-            elevation_deg: 35
-            azimuth_deg: -60
-            marker_size: 14
+            latency:
+              write_png: true
+              write_svg: false
+              relpath: topographical_latency_footprint
+              background: black
+              color_map: viridis
+              template: 
+                shape: square
+                padding_value: zero
+              color_bar:
+                show_color_bar: true
+                color_bar_location: topright
+                color_bar_fontsize: 6
+                color_bar_length_fraction: 0.3 # length of color bar as fraction of axis height
+                color_bar_pad_fraction: 0.02 # padding between color bar and axis in figure height fractions
+                force_low_value: 0
+                force_high_value: null # if null, determined by data
+                scale: linear # linear or log
+                percentile_low: 5.0 # lower percentile used for vmin reference
+                percentile_high_linear: 99.0 # cap percentile used for linear vmax before rounding
+                percentile_high_log: 99.5 # cap percentile used for log vmax
+                knot_anchor_values: [1.0, 10.0] # piecewise anchors for percentile-ranked transfer in linear mode
+                knot_y1_min: 0.02 # lower bound for first knot y position
+                knot_y1_max: 0.90 # upper bound for first knot y position
+                knot_y2_min: 0.07 # lower bound for second knot y position
+                knot_y2_max: 0.98 # upper bound for second knot y position
+                knot_min_gap: 0.05 # minimum y-gap enforced between first and second knot
+                linear_cap_rounding_mode: ceil_step # ceil_step | nice | none
+                linear_cap_rounding_step: 10.0 # step used by ceil_step mode
+                linear_cap_min_vmax: 11.0 # floor for final linear vmax after rounding
+                show_ticks: [1, 10, dynamic_high] # dynamic_high -> top tick; shown as ">top" when capped by percentile
+              elevation_deg: 35
+              azimuth_deg: -60
+              marker_size: 14
 
-          latency:
+          propagation_plots:
+            write_pdf: false
+            pdf_relpath: propagation_plot.pdf
             write_png: true
-            write_svg: false
-            relpath: topographical_latency_footprint
-            background: black
-            color_map: viridis
-            template: 
-              shape: square
-              padding_value: zero
-            color_bar:
-              show_color_bar: true
-              color_bar_location: topright
-              color_bar_fontsize: 6
-              color_bar_length_fraction: 0.3 # length of color bar as fraction of axis height
-              color_bar_pad_fraction: 0.02 # padding between color bar and axis in figure height fractions
-              force_low_value: 0
-              force_high_value: null # if null, determined by data
-              scale: linear # linear or log
-              percentile_low: 5.0 # lower percentile used for vmin reference
-              percentile_high_linear: 99.0 # cap percentile used for linear vmax before rounding
-              percentile_high_log: 99.5 # cap percentile used for log vmax
-              knot_anchor_values: [1.0, 10.0] # piecewise anchors for percentile-ranked transfer in linear mode
-              knot_y1_min: 0.02 # lower bound for first knot y position
-              knot_y1_max: 0.90 # upper bound for first knot y position
-              knot_y2_min: 0.07 # lower bound for second knot y position
-              knot_y2_max: 0.98 # upper bound for second knot y position
-              knot_min_gap: 0.05 # minimum y-gap enforced between first and second knot
-              linear_cap_rounding_mode: ceil_step # ceil_step | nice | none
-              linear_cap_rounding_step: 10.0 # step used by ceil_step mode
-              linear_cap_min_vmax: 11.0 # floor for final linear vmax after rounding
-              show_ticks: [1, 10, dynamic_high] # dynamic_high -> top tick; shown as ">top" when capped by percentile
-            elevation_deg: 35
-            azimuth_deg: -60
-            marker_size: 14
-
-        propagation_plots:
-          write_pdf: false
-          pdf_relpath: propagation_plot.pdf
-          write_png: true
-          png_relpath: propagation_plot.png
-          top_channels: 25
-          channels_per_panel: 25
-          channel_overlap: 5
-          background: white
-          show_electrode_ids: false
-          trace_gain: 1.0
-          trace_spacing: 1.0
-          latency_map:
-            show: true
-            color_map: viridis
-            force_square_aspect: true
-            title: "Latency Map"
-            fontsize: 6 #update this with a font that is smaller than the current
-            template: top_channels_only #square
-            color_bar:
-              show_color_bar: true
-              color_bar_location: topright
-              color_bar_fontsize: 6
-              color_bar_length_fraction: 0.3 # length of color bar as fraction of axis height
-              color_bar_height_fraction: 0.02 # height of color bar as fraction of axis height
-              color_bar_pad_fraction: 0.02 # padding between color bar and axis in figure height fractions
-              force_low_value: 0
-              force_high_value: null # if null, determined by data
-              scale: linear # linear or log
-              percentile_low: 5.0 # lower percentile used for vmin reference
-              percentile_high_linear: 99.0 # cap percentile used for linear vmax before rounding
-              percentile_high_log: 99.5 # cap percentile used for log vmax
-              knot_anchor_values: [1.0, 10.0] # piecewise anchors for percentile-ranked transfer in linear mode
-              knot_y1_min: 0.02 # lower bound for first knot y position
-              knot_y1_max: 0.90 # upper bound for first knot y position
-              knot_y2_min: 0.07 # lower bound for second knot y position
-              knot_y2_max: 0.98 # upper bound for second knot y position
-              knot_min_gap: 0.05 # minimum y-gap enforced between first and second knot
-              linear_cap_rounding_mode: ceil_step # ceil_step | nice | none
-              linear_cap_rounding_step: 10.0 # step used by ceil_step mode
-              linear_cap_min_vmax: 11.0 # floor for final linear vmax after rounding
-              show_ticks: [1, 10, dynamic_high] # dynamic_high -> top tick; shown as ">top" when capped by percentile
-            axes:
+            png_relpath: propagation_plot.png
+            top_channels: 25
+            channels_per_panel: 25
+            channel_overlap: 5
+            background: white
+            show_electrode_ids: false
+            trace_gain: 1.0
+            trace_spacing: 1.0
+            latency_map:
               show: true
-              xlabel: "x (um)"
-              ylabel: "y (um)"
-              label_fontsize: 6 #update this with a font that is smaller than the current
-              tick_fontsize: 5 #update this with a font that is smaller than the current
+              color_map: viridis
+              force_square_aspect: true
+              title: "Latency Map"
+              fontsize: 6 #update this with a font that is smaller than the current
+              template: top_channels_only #square
+              color_bar:
+                show_color_bar: true
+                color_bar_location: topright
+                color_bar_fontsize: 6
+                color_bar_length_fraction: 0.3 # length of color bar as fraction of axis height
+                color_bar_height_fraction: 0.02 # height of color bar as fraction of axis height
+                color_bar_pad_fraction: 0.02 # padding between color bar and axis in figure height fractions
+                force_low_value: 0
+                force_high_value: null # if null, determined by data
+                scale: linear # linear or log
+                percentile_low: 5.0 # lower percentile used for vmin reference
+                percentile_high_linear: 99.0 # cap percentile used for linear vmax before rounding
+                percentile_high_log: 99.5 # cap percentile used for log vmax
+                knot_anchor_values: [1.0, 10.0] # piecewise anchors for percentile-ranked transfer in linear mode
+                knot_y1_min: 0.02 # lower bound for first knot y position
+                knot_y1_max: 0.90 # upper bound for first knot y position
+                knot_y2_min: 0.07 # lower bound for second knot y position
+                knot_y2_max: 0.98 # upper bound for second knot y position
+                knot_min_gap: 0.05 # minimum y-gap enforced between first and second knot
+                linear_cap_rounding_mode: ceil_step # ceil_step | nice | none
+                linear_cap_rounding_step: 10.0 # step used by ceil_step mode
+                linear_cap_min_vmax: 11.0 # floor for final linear vmax after rounding
+                show_ticks: [1, 10, dynamic_high] # dynamic_high -> top tick; shown as ">top" when capped by percentile
+              axes:
+                show: true
+                xlabel: "x (um)"
+                ylabel: "y (um)"
+                label_fontsize: 6 #update this with a font that is smaller than the current
+                tick_fontsize: 5 #update this with a font that is smaller than the current
 
       
       ## Reports

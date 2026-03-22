@@ -391,6 +391,7 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 			        template_plots:
 			          circles:
 			            write_png: true
+			            circle_size_scale_factor: 0.5
 			            color_by: latency
 			            color_bar:
 			              units: ms
@@ -407,6 +408,7 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 
 	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.per_unit_outputs.template_circles.color_bar_units == "ms"
+	assert inputs.per_unit_outputs.template_circles.circle_size_scale_factor == 0.5
 	assert inputs.per_unit_outputs.template_circles.color_bar_title == "Latency (ms)"
 	assert inputs.per_unit_outputs.template_circles.color_bar_show_axes_title is False
 	assert inputs.per_unit_outputs.template_circles.color_bar_show_unit_labels is True

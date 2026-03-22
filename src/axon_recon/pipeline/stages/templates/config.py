@@ -636,6 +636,7 @@ def parse_templates_stage_config(
 			if tpl_circles_cfg.get("scale_bar_length_um", None) is None
 			else _as_float(tpl_circles_cfg.get("scale_bar_length_um", None), 0.0)
 		),
+		circle_size_scale_factor=max(0.0, _as_float(tpl_circles_cfg.get("circle_size_scale_factor", 1.0), 1.0)),
 		size_by=_normalize_template_metric(tpl_circles_cfg.get("size_by", "amplitude"), "amplitude"),
 		color_by=_normalize_template_metric(tpl_circles_cfg.get("color_by", "latency"), "latency"),
 		color_bar_units=str(
