@@ -118,6 +118,18 @@ stages:
           sources:
             include_concat: true
             include_segments: true
+      
+      merge:
+        enable: true
+        # mean_all_waveforms: merge all overlapping source waveforms equally (v1 behavior)
+        # weighted_by_channel_waveform_count: weighted average by per-source waveform count at overlapping channels
+        method: mean_all_waveforms
+        centering_method: pre_peak_robust_baseline
+        weighting_mode: per_channel_waveform_count
+        max_waveforms_per_source_channel: 500
+        overlap_match_priority: [electrode_id, channel_id, location]
+        location_tolerance_um: 1.0
+
     resources:
       max_stage_workers: 24
       well_workers: 2
@@ -131,6 +143,57 @@ stages:
         # but should not include file name or extension components since those are specified separately for each output type below.
         unit_reldir: units/{unit_id:04d}/
 
+        ## Per-Unit Data Artifacts
+        # merged_template: the final merged template waveform for the unit, typically averaged across all segments and/or concatenated segments. 
+        # This is the main data artifact representing the spatial footprint and waveform shape of the neuron across the MEA channels, and is used for downstream analyses and plotting.
+        # Will usually be sparse. Should only contain channel / electrodes non-zero signal in the template in at least one template source (segments and / or concat)
+        merged_template:
+          write_npy: true # Usually it's enough to write the merged_template. square, scan, and/or full templates can be derived as needed downstream.
+          npy_relpath: merged_template.npy
+
+        # square_template: a version of the merged template that has been padded to have a square channel layout, with dimensions equal to the max spatial extent of the template 
+        # across x and y.
+        # padding can be zeros, ones, or nans as specified in square_template_padding_value. 
+        # This can be useful for certain types of analyses or plotting that require a rectangular input format, while still preserving the spatial relationships between channels.
+        square_template:
+          write_npy: false
+          npy_relpath: square_template.npy
+          padding_value: zero # zero, one, or nan
+
+        # scan_template: a version of the merged template that includes all electrodes present in the source recording data across all segments.
+        # Dimensions are determined by the full spatial extent of the MEA channels present in the recording, which may be larger than the spatial extent of the template signal itself. 
+        # Padded with zeros, ones, or nans as specified in scan_template_padding_value for channels that are not part of the template.
+        scan_template:
+          write_npy: false
+          npy_relpath: scan_template.npy
+          padding_value: zero # zero, one, or nan
+
+        # full_template: a version of the merged template that includes all electrodes present in the full probe, including channels that were not explicitly recorded in the source data 
+        # but are present in the MEA layout. By default, we assume the full probe layout corresponds to the maxone and maxtwo channel coordinates in the template locations, 
+        # but this can be overridden by specifying a custom full probe layout in the data config.
+        # Copied from debug.data.yml for reference.
+        # Probe: # https://www.mxwbio.com/products/maxtwo
+        #   brand: maxwell
+        #   device: maxtwo_HDMEA
+        #   plate_format: 6-well
+        #   # Per-well active sensing area (used for geometry-aware channel layout plotting).
+        #   active_sensing_area_mm:
+        #     x: 3.85
+        #     y: 2.10
+        #     z: null
+        #   electrodes_per_well: 26400
+        #   # Keep for future runtime checks and resampling defaults.
+        #   sampling_rate_hz: 10000
+        #   pitch_um: 17.5
+        #   electrode_size_um:
+        #     x: 12.0
+        #     y: 8.8
+        full_template:
+          write_npy: false
+          npy_relpath: full_template.npy
+          padding_value: zero # zero, one, or nan
+
+        ## Per-Unit Plots
         # Template plot - plot of the spatial footprint of the template waveforms across the MEA channels,
         # showing the waveform shapes on each channel as well as the relative amplitudes across channels. Useful for assessing template quality and spatial distribution.
         template_plot:
@@ -261,7 +324,44 @@ stages:
             linear_cap_rounding_step: 10.0 # step used by ceil_step mode
             linear_cap_min_vmax: 11.0 # floor for final linear vmax after rounding
             show_ticks: [1, 10, dynamic_high] # dynamic_high -> top tick; shown as ">top" when capped by percentile
+
+        topographical_footprints:
+          amplitude:
+            write_png: true
+            write_svg: false
+            relpath: topographical_amplitude_footprint
+            background: black
+            color_map: viridis
+            show_color_bar: true
+            elevation_deg: 35
+            azimuth_deg: -60
+            marker_size: 14
+
+          latency:
+            write_png: true
+            write_svg: false
+            relpath: topographical_latency_footprint
+            background: black
+            color_map: viridis
+            show_color_bar: true
+            elevation_deg: 35
+            azimuth_deg: -60
+            marker_size: 14
+
+        propagation_plots:
+          write_pdf: false
+          pdf_relpath: propagation_plot.pdf
+          write_png: true
+          png_relpath: propagation_plot.png
+          top_channels: 25
+          channels_per_panel: 25
+          channel_overlap: 5
+          background: white
+          show_electrode_ids: false
+          trace_gain: 1.0
+          trace_spacing: 1.0
       
+      ## Reports
       reports:
         wf_overlay_grid:
           write_pdf: false
@@ -269,14 +369,29 @@ stages:
           write_png: true
           png_relpath: wf_overlay_grid.png
           top_channels_per_template: 10
+          
+          # I think this was just for the wf overlay grid report...
+          # but it may go in other place. 
+          # TODO: assess where else this type of upsampling might go. 
+          # Maybe just need to upsample after spikesorting.
+          time_upsample:
+            factor: 10
+            method: sinc
 
-        
-        plot_multi_source_pdf: true
-        replot_from_disk: false
+        footprint_grids:
+          amplitude_map_grid:
+            write_pdf: false
+            pdf_relpath: amplitude_map_grid.pdf
+            write_png: true
+            png_relpath: amplitude_map_grid.png
 
-        time_upsample:
-          factor: 10
-          method: sinc
+          latency_map_grid:
+            write_pdf: false
+            pdf_relpath: latency_map_grid.pdf
+            write_png: true
+            png_relpath: latency_map_grid.png
+
+
   # Templates stage updated to Pipeline V2 above this line. -------------------------
 
   reconstruct:

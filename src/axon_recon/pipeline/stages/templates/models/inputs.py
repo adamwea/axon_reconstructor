@@ -25,9 +25,199 @@ class TemplatePlotConfig:
 
 
 @dataclass(frozen=True)
+class TemplateWaveformOverlayConfig:
+	write_pdf: bool = False
+	pdf_relpath: str = "template_wf_overlay.pdf"
+	write_png: bool = True
+	png_relpath: str = "template_wf_overlay.png"
+	top_channels_per_template: int = 10
+	include_mean: bool = True
+	include_scale_bar: bool = True
+	scale_bar_color: str = "black"
+	scale_bar_fontsize: float = 6.0
+	scale_bar_linewidth: float = 1.8
+	background: str = "white"
+
+
+@dataclass(frozen=True)
+class TimeUpsampleConfig:
+	enabled: bool = False
+	factor: int = 1
+	method: str = "sinc"
+
+
+@dataclass(frozen=True)
+class FootprintMapConfig:
+	write_png: bool = True
+	write_svg: bool = False
+	relpath: str = "footprint_map"
+	background: str = "black"
+	color_map: str = "viridis"
+	show_color_bar: bool = True
+	color_bar_location: str = "topright"
+	color_bar_fontsize: float = 6.0
+	color_bar_length_fraction: float = 0.3
+	color_bar_pad_fraction: float = 0.02
+	force_low_value: float | None = 0.0
+	force_high_value: float | None = None
+	scale: str = "linear"
+	percentile_low: float = 5.0
+	percentile_high_linear: float = 99.0
+	percentile_high_log: float = 99.5
+	knot_anchor_values: tuple[float, float] = (1.0, 10.0)
+	knot_y1_min: float = 0.02
+	knot_y1_max: float = 0.90
+	knot_y2_min: float = 0.07
+	knot_y2_max: float = 0.98
+	knot_min_gap: float = 0.05
+	linear_cap_rounding_mode: str = "ceil_step"
+	linear_cap_rounding_step: float = 10.0
+	linear_cap_min_vmax: float = 11.0
+	show_ticks: tuple[Any, ...] = (1, 10, "dynamic_high")
+
+
+@dataclass(frozen=True)
+class FootprintPlotsConfig:
+	amplitude_map: FootprintMapConfig = field(
+		default_factory=lambda: FootprintMapConfig(relpath="footprint_amplitude_map")
+	)
+	peak_latency_map: FootprintMapConfig = field(
+		default_factory=lambda: FootprintMapConfig(relpath="footprint_peak_latency_map")
+	)
+	latency_map: FootprintMapConfig = field(
+		default_factory=lambda: FootprintMapConfig(relpath="footprint_latency_map")
+	)
+
+
+@dataclass(frozen=True)
+class TopographicalFootprintConfig:
+	write_png: bool = True
+	write_svg: bool = False
+	relpath: str = "topographical_footprint"
+	background: str = "black"
+	color_map: str = "viridis"
+	show_color_bar: bool = True
+	elevation_deg: float = 35.0
+	azimuth_deg: float = -60.0
+	marker_size: float = 14.0
+
+
+@dataclass(frozen=True)
+class TopographicalFootprintsConfig:
+	amplitude: TopographicalFootprintConfig = field(
+		default_factory=lambda: TopographicalFootprintConfig(relpath="topographical_amplitude_footprint")
+	)
+	latency: TopographicalFootprintConfig = field(
+		default_factory=lambda: TopographicalFootprintConfig(relpath="topographical_latency_footprint")
+	)
+
+
+@dataclass(frozen=True)
+class PropagationPlotConfig:
+	write_pdf: bool = False
+	pdf_relpath: str = "propagation_plot.pdf"
+	write_png: bool = True
+	png_relpath: str = "propagation_plot.png"
+	top_channels: int = 25
+	channels_per_panel: int = 25
+	channel_overlap: int = 5
+	background: str = "white"
+	show_electrode_ids: bool = False
+	trace_gain: float = 1.0
+	trace_spacing: float = 1.0
+
+
+@dataclass(frozen=True)
+class TemplateArtifactConfig:
+	write_npy: bool = False
+	npy_relpath: str = "template.npy"
+	padding_value: str = "zero"
+
+
+@dataclass(frozen=True)
+class MergeConfig:
+	enable: bool = True
+	method: str = "mean_all_waveforms"
+	centering_method: str = "pre_peak_robust_baseline"
+	weighting_mode: str = "per_channel_waveform_count"
+	max_waveforms_per_source_channel: int = 500
+	overlap_match_priority: tuple[str, ...] = ("electrode_id", "channel_id", "location")
+	location_tolerance_um: float = 1.0
+
+
+@dataclass(frozen=True)
+class WfOverlayGridReportConfig:
+	write_pdf: bool = False
+	pdf_relpath: str = "wf_overlay_grid.pdf"
+	write_png: bool = True
+	png_relpath: str = "wf_overlay_grid.png"
+	top_channels_per_template: int = 10
+
+
+@dataclass(frozen=True)
+class FootprintMapGridReportConfig:
+	write_pdf: bool = False
+	pdf_relpath: str = "footprint_map_grid.pdf"
+	write_png: bool = True
+	png_relpath: str = "footprint_map_grid.png"
+
+
+@dataclass(frozen=True)
+class FootprintGridsReportConfig:
+	amplitude_map_grid: FootprintMapGridReportConfig = field(
+		default_factory=lambda: FootprintMapGridReportConfig(
+			pdf_relpath="amplitude_map_grid.pdf",
+			png_relpath="amplitude_map_grid.png",
+		)
+	)
+	latency_map_grid: FootprintMapGridReportConfig = field(
+		default_factory=lambda: FootprintMapGridReportConfig(
+			pdf_relpath="latency_map_grid.pdf",
+			png_relpath="latency_map_grid.png",
+		)
+	)
+
+
+@dataclass(frozen=True)
+class MultiSourcePdfReportConfig:
+	enabled: bool = False
+	pdf_relpath: str = "reports/template_multi_source.pdf"
+
+
+@dataclass(frozen=True)
+class ReportsConfig:
+	plot_multi_source_pdf: MultiSourcePdfReportConfig = field(default_factory=MultiSourcePdfReportConfig)
+	replot_from_disk: bool = False
+	time_upsample: TimeUpsampleConfig = field(default_factory=TimeUpsampleConfig)
+	wf_overlay_grid: WfOverlayGridReportConfig = field(default_factory=WfOverlayGridReportConfig)
+	footprint_grids: FootprintGridsReportConfig = field(default_factory=FootprintGridsReportConfig)
+
+	@property
+	def foot_print_grids(self) -> FootprintGridsReportConfig:
+		# Compatibility alias for older schema spelling.
+		return self.footprint_grids
+
+
+@dataclass(frozen=True)
 class PerUnitTemplatesOutputsConfig:
 	unit_reldir: str = "units/{unit_id:04d}/"
+	merged_template: TemplateArtifactConfig = field(
+		default_factory=lambda: TemplateArtifactConfig(write_npy=True, npy_relpath="merged_template.npy")
+	)
+	square_template: TemplateArtifactConfig = field(
+		default_factory=lambda: TemplateArtifactConfig(write_npy=False, npy_relpath="square_template.npy", padding_value="zero")
+	)
+	scan_template: TemplateArtifactConfig = field(
+		default_factory=lambda: TemplateArtifactConfig(write_npy=False, npy_relpath="scan_template.npy", padding_value="zero")
+	)
+	full_template: TemplateArtifactConfig = field(
+		default_factory=lambda: TemplateArtifactConfig(write_npy=False, npy_relpath="full_template.npy", padding_value="zero")
+	)
 	template: TemplatePlotConfig = field(default_factory=TemplatePlotConfig)
+	template_wf_overlay: TemplateWaveformOverlayConfig = field(default_factory=TemplateWaveformOverlayConfig)
+	footprint_plots: FootprintPlotsConfig = field(default_factory=FootprintPlotsConfig)
+	topographical_footprints: TopographicalFootprintsConfig = field(default_factory=TopographicalFootprintsConfig)
+	propagation_plots: PropagationPlotConfig = field(default_factory=PropagationPlotConfig)
 
 
 @dataclass(frozen=True)
@@ -38,10 +228,16 @@ class TemplatesInputs:
 
 	output_rel_root: str = "templates_outputs"
 	per_unit_outputs: PerUnitTemplatesOutputsConfig = field(default_factory=PerUnitTemplatesOutputsConfig)
+	reports: ReportsConfig = field(default_factory=ReportsConfig)
 
 	unit_ids: list[Any] | None = None
 	unit_limit: int | None = None
 
 	force_restart: bool = False
 	force_replot: bool = False
+	force_replot_per_unit: bool = False
+	require_curated_units: bool = True
+	include_concat: bool = True
+	include_segments: bool = True
+	merge: MergeConfig = field(default_factory=MergeConfig)
 	n_jobs: int = 1

@@ -19,3 +19,4 @@ class TemplatesResult:
 	templates_out_dir: Path
 	summary_json: Path
 	units: list[UnitTemplatesResult]
+	report_outputs: dict[str, str] = field(default_factory=dict)
