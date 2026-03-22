@@ -206,6 +206,214 @@ def test_load_templates_config_prefers_canonical_template_key_over_alias(tmp_pat
 	assert inputs.per_unit_outputs.template.write_png is True
 
 
+def test_load_templates_config_parses_template_plots_waveforms_and_circles(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    outputs:
+			      per_unit_outputs:
+			        template_plots:
+			          waveforms:
+			            write_png: true
+			            relpath: maps/template_waveforms
+			            channel_scope: all_channels
+			          circles:
+			            write_png: true
+			            write_svg: true
+			            relpath: maps/template_circles
+			            channel_scope: recorded_channels
+			            size_by: latency
+			            color_by: amplitude
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.per_unit_outputs.template.relpath == "maps/template_waveforms"
+	assert inputs.per_unit_outputs.template.channel_scope == "all_channels"
+	assert inputs.per_unit_outputs.template_circles.write_png is True
+	assert inputs.per_unit_outputs.template_circles.write_svg is True
+	assert inputs.per_unit_outputs.template_circles.relpath == "maps/template_circles"
+	assert inputs.per_unit_outputs.template_circles.channel_scope == "recorded_channels"
+	assert inputs.per_unit_outputs.template_circles.size_by == "latency"
+	assert inputs.per_unit_outputs.template_circles.color_by == "amplitude"
+
+
+def test_load_templates_config_parses_template_plots_nested_under_full_template(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    outputs:
+			      per_unit_outputs:
+			        full_template:
+			          write_npy: false
+			          template_plots:
+			            waveforms:
+			              write_png: true
+			              relpath: nested/template_waveforms
+			              channel_scope: all_channels
+			            circles:
+			              write_png: true
+			              relpath: nested/template_circles
+			              channel_scope: contributing_channels
+			              size_by: amplitude
+			              color_by: latency
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.per_unit_outputs.template.relpath == "nested/template_waveforms"
+	assert inputs.per_unit_outputs.template.channel_scope == "all_channels"
+	assert inputs.per_unit_outputs.template_circles.write_png is True
+	assert inputs.per_unit_outputs.template_circles.relpath == "nested/template_circles"
+	assert inputs.per_unit_outputs.template_circles.channel_scope == "contributing_channels"
+	assert inputs.per_unit_outputs.template_circles.size_by == "amplitude"
+	assert inputs.per_unit_outputs.template_circles.color_by == "latency"
+
+
+def test_load_templates_config_parses_global_outputs_schema(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    execution:
+			      force_restart: false
+			  outputs:
+			    output_rel_root: template_outputs
+			    per_unit_outputs:
+			      full_template:
+			        template_plots:
+			          waveforms:
+			            write_png: true
+			            relpath: global/template_waveforms
+			          circles:
+			            write_png: true
+			            relpath: global/template_circles
+			            size_by: latency
+			            color_by: amplitude
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.output_rel_root == "template_outputs"
+	assert inputs.per_unit_outputs.template.relpath == "global/template_waveforms"
+	assert inputs.per_unit_outputs.template_circles.write_png is True
+	assert inputs.per_unit_outputs.template_circles.relpath == "global/template_circles"
+	assert inputs.per_unit_outputs.template_circles.size_by == "latency"
+	assert inputs.per_unit_outputs.template_circles.color_by == "amplitude"
+
+
+def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  outputs:
+			    per_unit_outputs:
+			      full_template:
+			        template_plots:
+			          circles:
+			            write_png: true
+			            color_by: latency
+			            color_bar:
+			              units: ms
+			              title: Latency (ms)
+			              show_axes_title: false
+			              show_unit_label: true
+			              tick_decimal_places: 3
+			              tick_target_count: 10
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.per_unit_outputs.template_circles.color_bar_units == "ms"
+	assert inputs.per_unit_outputs.template_circles.color_bar_title == "Latency (ms)"
+	assert inputs.per_unit_outputs.template_circles.color_bar_show_axes_title is False
+	assert inputs.per_unit_outputs.template_circles.color_bar_show_unit_labels is True
+	assert inputs.per_unit_outputs.template_circles.color_bar_tick_decimal_places == 3
+	assert inputs.per_unit_outputs.template_circles.color_bar_tick_target_count == 10
+
+
 def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(
@@ -523,6 +731,21 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 			          show_electrode_ids: true
 			          trace_gain: 1.5
 			          trace_spacing: 1.3
+			          latency_map:
+			            show: true
+			            color_map: cividis
+			            force_square_aspect: false
+			            title: Latency map test
+			            fontsize: 9
+			            template: full
+			            color_bar:
+			              show_color_bar: false
+			              color_bar_fontsize: 8
+			              color_bar_length_fraction: 0.25
+			              color_bar_pad_fraction: 0.03
+			              force_low_value: 2
+			              force_high_value: 30
+			              scale: linear
 			"""
 		).strip()
 		+ "\n",
@@ -560,6 +783,19 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 	assert prop.show_electrode_ids is True
 	assert prop.trace_gain == 1.5
 	assert prop.trace_spacing == 1.3
+	assert prop.latency_map.show is True
+	assert prop.latency_map.color_map == "cividis"
+	assert prop.latency_map.force_square_aspect is False
+	assert prop.latency_map.title == "Latency map test"
+	assert prop.latency_map.fontsize == 9
+	assert prop.latency_map.template_shape == "full"
+	assert prop.latency_map.show_color_bar is False
+	assert prop.latency_map.color_bar_fontsize == 8
+	assert prop.latency_map.color_bar_length_fraction == 0.25
+	assert prop.latency_map.color_bar_pad_fraction == 0.03
+	assert prop.latency_map.force_low_value == 2
+	assert prop.latency_map.force_high_value == 30
+	assert prop.latency_map.scale == "linear"
 
 
 def test_load_templates_config_parses_merge_and_template_artifact_knobs(tmp_path: Path) -> None:
@@ -634,3 +870,124 @@ def test_load_templates_config_parses_merge_and_template_artifact_knobs(tmp_path
 	assert inputs.per_unit_outputs.scan_template.padding_value == "one"
 	assert inputs.per_unit_outputs.full_template.write_npy is True
 	assert inputs.per_unit_outputs.full_template.padding_value == "zero"
+
+
+def test_load_templates_config_parses_nested_alias_keys_from_debug_runtime(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    execution:
+			      merge:
+			        max_waveforms_per_source_channel: -1
+			    outputs:
+			      per_unit_outputs:
+			        footprint_plots:
+			          amplitude_map:
+			            color_bar:
+			              show_color_bar: false
+			              color_bar_location: bottomright
+			              color_bar_fontsize: 9
+			              force_low_value: 2
+			              scale: log
+			            template:
+			              shape: full
+			          latency_map:
+			            template:
+			              shape: scan
+			        propagation_plots:
+			          latency_map:
+			            template: full
+			      reports:
+			        footprint_grids:
+			          amplitude_map_grid:
+			            template: full
+			          latency_map_grid:
+			            template: scan
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+
+	assert inputs.merge.max_waveforms_per_source_channel is None
+
+	amp = inputs.per_unit_outputs.footprint_plots.amplitude_map
+	assert amp.show_color_bar is False
+	assert amp.color_bar_location == "bottomright"
+	assert amp.color_bar_fontsize == 9
+	assert amp.force_low_value == 2
+	assert amp.scale == "log"
+	assert amp.template_shape == "full"
+
+	lat = inputs.per_unit_outputs.footprint_plots.latency_map
+	assert lat.template_shape == "scan"
+
+	assert inputs.per_unit_outputs.propagation_plots.latency_map.template_shape == "full"
+
+	assert inputs.reports.footprint_grids.amplitude_map_grid.template_shape == "full"
+	assert inputs.reports.footprint_grids.latency_map_grid.template_shape == "scan"
+
+
+def test_load_templates_inputs_includes_probe_geometry_from_data_config(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			Probe:
+			  pitch_um: 17.5
+			  electrode_size_um:
+			    x: 12.0
+			    y: 8.8
+			  active_sensing_area_mm:
+			    x: 3.85
+			    y: 2.10
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates: {{}}
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.probe_geometry is not None
+	assert inputs.probe_geometry.pitch_um == 17.5
+	assert inputs.probe_geometry.electrode_size_um_x == 12.0
+	assert inputs.probe_geometry.electrode_size_um_y == 8.8
+	assert inputs.probe_geometry.active_area_um_x == 3850.0
+	assert inputs.probe_geometry.active_area_um_y == 2100.0

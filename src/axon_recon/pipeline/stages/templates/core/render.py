@@ -8,7 +8,9 @@ import numpy as np  # type: ignore[import-not-found]
 from ..models.inputs import (
 	FootprintMapGridReportConfig,
 	FootprintMapConfig,
+	ProbeGeometryConfig,
 	PropagationPlotConfig,
+	TemplateCirclesPlotConfig,
 	TemplatePlotConfig,
 	TemplateWaveformOverlayConfig,
 	TopographicalFootprintConfig,
@@ -157,6 +159,42 @@ def _time_upsample_template(template: np.ndarray, upsample: TimeUpsampleConfig) 
 	raise ValueError(f"Unsupported template time upsample method: {upsample.method!r}")
 
 
+def _probe_electrode_dims_um(probe_geometry: ProbeGeometryConfig | None) -> tuple[float, float] | None:
+	if probe_geometry is None:
+		return None
+	if probe_geometry.pitch_um is not None:
+		side = float(max(1e-6, float(probe_geometry.pitch_um)))
+		return side, side
+	dx = probe_geometry.electrode_size_um_x
+	dy = probe_geometry.electrode_size_um_y
+	if dx is None and dy is None:
+		return None
+	dx_val = float(max(1e-6, dx if dx is not None else dy))
+	dy_val = float(max(1e-6, dy if dy is not None else dx))
+	# Use square electrode glyphs/bases to match the probe's square contact shape.
+	# If x/y differ in config, keep the larger side to avoid tiny dot-like rendering.
+	side = float(max(dx_val, dy_val))
+	return side, side
+
+
+def _fallback_square_side_um(locs_xy: np.ndarray) -> float:
+	# Reconstruct parity fallback for missing probe geometry.
+	default_side = 17.5
+	try:
+		xs = np.unique(np.asarray(locs_xy[:, 0], dtype=float))
+		ys = np.unique(np.asarray(locs_xy[:, 1], dtype=float))
+		dx = np.diff(np.sort(xs)) if xs.size > 1 else np.asarray([], dtype=float)
+		dy = np.diff(np.sort(ys)) if ys.size > 1 else np.asarray([], dtype=float)
+		candidates = np.concatenate([dx, dy]) if (dx.size > 0 or dy.size > 0) else np.asarray([], dtype=float)
+		candidates = candidates[np.isfinite(candidates)]
+		candidates = candidates[candidates > 1e-6]
+		if candidates.size > 0:
+			return float(np.median(candidates))
+	except Exception:
+		pass
+	return float(default_side)
+
+
 def render_template_plot(
 	*,
 	template: Any,
@@ -188,10 +226,18 @@ def render_template_plot(
 	fig = plt.figure(figsize=(10, 8))
 	ax = fig.add_subplot(111)
 
-	size = np.ones_like(amp, dtype=float)
-	if amp.size > 0 and float(np.max(amp)) > 0:
-		size = 8.0 + 40.0 * (amp / float(np.max(amp)))
-	ax.scatter(locs[:, 0], locs[:, 1], s=size, c=signal_color, alpha=0.9, linewidths=0.0)
+	# Draw each channel's waveform at its physical XY location.
+	pitch_side = _fallback_square_side_um(locs)
+	half_width = float(max(1.0, 0.42 * pitch_side))
+	max_abs = float(np.max(np.abs(template_c_by_t))) if template_c_by_t.size > 0 else 0.0
+	if max_abs <= float(np.finfo(float).eps):
+		max_abs = 1.0
+	vertical_scale = float(max(1.0, 0.42 * pitch_side) / max_abs)
+	x_axis = np.linspace(-half_width, half_width, int(template_c_by_t.shape[1]), dtype=float)
+	for ch in range(int(template_c_by_t.shape[0])):
+		x_trace = float(locs[ch, 0]) + x_axis
+		y_trace = float(locs[ch, 1]) + (template_c_by_t[ch, :] * vertical_scale)
+		ax.plot(x_trace, y_trace, color=signal_color, linewidth=0.7, alpha=0.9)
 	ax.set_xlabel("x (um)")
 	ax.set_ylabel("y (um)")
 
@@ -214,6 +260,15 @@ def render_template_plot(
 		xmin, xmax = cx - (w / 2.0), cx + (w / 2.0)
 		ymin, ymax = cy - (h / 2.0), cy + (h / 2.0)
 
+	xmin, xmax, ymin, ymax = _expand_limits_for_glyph_half_size(
+		xmin=xmin,
+		xmax=xmax,
+		ymin=ymin,
+		ymax=ymax,
+		half_dx=half_width,
+		half_dy=max(1.0, 0.42 * pitch_side),
+	)
+
 	ax.set_xlim(xmin, xmax)
 	ax.set_ylim(ymin, ymax)
 	ax.set_aspect("equal", adjustable="box")
@@ -234,16 +289,426 @@ def render_template_plot(
 	return outputs
 
 
+def render_template_circles_plot(
+	*,
+	template: Any,
+	locations_xy: Any,
+	config: TemplateCirclesPlotConfig,
+	png_path: Path,
+	svg_path: Path,
+	probe_geometry: ProbeGeometryConfig | None = None,
+) -> dict[str, str]:
+	import matplotlib
+
+	matplotlib.use("Agg")
+	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+
+	locs = np.asarray(locations_xy, dtype=float)
+	if locs.ndim != 2 or int(locs.shape[1]) < 2:
+		raise ValueError(f"Expected locations shape (n,2+), got {getattr(locs, 'shape', None)}")
+	locs = locs[:, :2]
+
+	template_c_by_t = _as_template_channels_by_time(template, int(locs.shape[0]))
+	if int(template_c_by_t.shape[0]) != int(locs.shape[0]):
+		raise ValueError(
+			f"Template/locations size mismatch: template_channels={template_c_by_t.shape[0]} locations={locs.shape[0]}"
+		)
+
+	amp = np.ptp(template_c_by_t, axis=1)
+	min_idx = np.argmin(template_c_by_t, axis=1).astype(float)
+	ref = float(min_idx[int(np.argmax(amp))]) if min_idx.size > 0 else 0.0
+	lat_samples = min_idx - ref
+	lat, latency_units_label = _convert_latency_samples_to_units(
+		lat_samples,
+		units=str(config.color_bar_units or ""),
+		probe_geometry=probe_geometry,
+	)
+
+	size_metric = amp if str(config.size_by) == "amplitude" else np.abs(lat)
+	color_metric = amp if str(config.color_by) == "amplitude" else lat
+	color_values = np.asarray(color_metric, dtype=float)
+	vmin = float(np.nanmin(color_values)) if color_values.size > 0 else 0.0
+	vmax = float(np.nanmax(color_values)) if color_values.size > 0 else 1.0
+	if not np.isfinite(vmin):
+		vmin = 0.0
+	if not np.isfinite(vmax):
+		vmax = 1.0
+	if vmax <= vmin:
+		vmax = vmin + 1.0
+	color_norm = plt.Normalize(vmin=vmin, vmax=vmax)
+
+	size_norm = np.asarray(size_metric, dtype=float)
+	size_norm = np.nan_to_num(size_norm, nan=0.0, posinf=0.0, neginf=0.0)
+	if float(np.max(size_norm)) > 0.0:
+		size_norm = size_norm / float(np.max(size_norm))
+	sizes = 8.0 + 42.0 * size_norm
+
+	peak_idx = int(np.argmax(amp)) if amp.size > 0 else 0
+
+	fig = plt.figure(figsize=(10, 8))
+	ax = fig.add_subplot(111)
+	circles_cmap = _maybe_reversed_colormap("viridis", reverse=(str(config.color_by) == "latency"))
+	sc = ax.scatter(
+		locs[:, 0],
+		locs[:, 1],
+		s=sizes,
+		c=color_values,
+		cmap=circles_cmap,
+		norm=color_norm,
+		alpha=0.92,
+		linewidths=0.0,
+	)
+	ax.set_xlabel("x (um)")
+	ax.set_ylabel("y (um)")
+
+	xmin, xmax, ymin, ymax = _compute_plot_limits(locs)
+	if bool(config.force_square_aspect):
+		center = None
+		if bool(config.force_center_soma) and 0 <= peak_idx < int(locs.shape[0]):
+			center = (float(locs[peak_idx, 0]), float(locs[peak_idx, 1]))
+		xmin, xmax, ymin, ymax = _make_square_limits(xmin, xmax, ymin, ymax, center_xy=center)
+	elif bool(config.force_center_soma) and 0 <= peak_idx < int(locs.shape[0]):
+		cx, cy = float(locs[peak_idx, 0]), float(locs[peak_idx, 1])
+		w = float(xmax - xmin)
+		h = float(ymax - ymin)
+		xmin, xmax = cx - (w / 2.0), cx + (w / 2.0)
+		ymin, ymax = cy - (h / 2.0), cy + (h / 2.0)
+
+	ax.set_xlim(xmin, xmax)
+	ax.set_ylim(ymin, ymax)
+	ax.set_aspect("equal", adjustable="box")
+	_apply_style(fig, ax, config=config)
+	_add_scale_bar(ax, config=config)
+
+	# Use Matplotlib-managed colorbar geometry so savefig tight-bbox and DPI scaling stay consistent.
+	cbar_mappable = plt.cm.ScalarMappable(norm=color_norm, cmap=plt.get_cmap(circles_cmap))
+	cbar_mappable.set_array(color_values)
+	cbar = fig.colorbar(cbar_mappable, ax=ax, fraction=0.04, pad=0.03, extend="neither")
+	label_color = "white" if str(config.background or "").strip().lower() == "black" else "black"
+	show_axes_title = bool(config.color_bar_show_axes_title)
+	show_unit_labels = bool(config.color_bar_show_unit_labels)
+	color_bar_title = str(config.color_bar_title or "").strip()
+	unit_token = str(latency_units_label or "").strip()
+	# Keep colorbar fully opaque and avoid edge seams at bin boundaries.
+	try:
+		if getattr(cbar, "solids", None) is not None:
+			cbar.solids.set_alpha(1.0)
+			cbar.solids.set_edgecolor("face")
+	except Exception:
+		pass
+	if str(config.color_by) == "latency" and unit_token and unit_token != "samples":
+		decimals = int(max(0, min(6, int(getattr(config, "color_bar_tick_decimal_places", 3)))))
+		target_count_raw = getattr(config, "color_bar_tick_target_count", None)
+		target_count = None if target_count_raw is None else int(target_count_raw)
+		ticks = _ticks_ending_in_0_or_5_with_max(
+			vmin=vmin,
+			vmax=vmax,
+			decimal_places=decimals,
+			target_count=target_count,
+		)
+		if ticks is not None and len(ticks) > 0:
+			labels = [f"{float(t):.{decimals}f} {unit_token}" for t in ticks] if show_unit_labels else [f"{float(t):.{decimals}f}" for t in ticks]
+			cbar.set_ticks(ticks, labels=labels)
+	if show_axes_title:
+		if str(config.color_by) == "amplitude":
+			cbar.set_label("", fontsize=7, color=label_color)
+			units_token = str(config.color_bar_units or "").strip()
+			if color_bar_title:
+				cbar.ax.set_title(color_bar_title, fontsize=7, color=label_color, pad=4)
+			elif units_token:
+				cbar.ax.set_title(units_token, fontsize=7, color=label_color, pad=4)
+			elif not units_token:
+				cbar.ax.set_title("")
+		else:
+			cbar.set_label("", fontsize=7, color=label_color)
+			if color_bar_title:
+				cbar.ax.set_title(color_bar_title, fontsize=7, color=label_color, pad=4)
+			else:
+				fallback_title = f"Latency ({unit_token})" if (unit_token and unit_token != "samples") else "Latency"
+				cbar.ax.set_title(fallback_title, fontsize=7, color=label_color, pad=4)
+	else:
+		# Hide axis-level colorbar title/label and keep only tick values.
+		cbar.set_label("")
+		cbar.ax.set_title("")
+	if str(config.background or "").strip().lower() == "black":
+		cbar.ax.tick_params(colors="white")
+		cbar.outline.set_edgecolor("white")
+		if show_axes_title:
+			cbar.set_label(cbar.ax.get_ylabel(), color="white", fontsize=7)
+
+	outputs: dict[str, str] = {}
+	if bool(config.write_png):
+		png_path.parent.mkdir(parents=True, exist_ok=True)
+		fig.savefig(png_path, dpi=220, bbox_inches="tight", facecolor=fig.get_facecolor())
+		outputs["template_circles_png"] = str(png_path)
+	if bool(config.write_svg):
+		svg_path.parent.mkdir(parents=True, exist_ok=True)
+		fig.savefig(svg_path, format="svg", bbox_inches="tight", facecolor=fig.get_facecolor())
+		outputs["template_circles_svg"] = str(svg_path)
+
+	plt.close(fig)
+	return outputs
+
+
+def render_template_circles_plot_v2(
+	*,
+	template: Any,
+	locations_xy: Any,
+	config: TemplateCirclesPlotConfig,
+	png_path: Path,
+	svg_path: Path,
+	probe_geometry: ProbeGeometryConfig | None = None,
+) -> dict[str, str]:
+	import matplotlib
+
+	matplotlib.use("Agg")
+	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+
+	locs = np.asarray(locations_xy, dtype=float)
+	if locs.ndim != 2 or int(locs.shape[1]) < 2:
+		raise ValueError(f"Expected locations shape (n,2+), got {getattr(locs, 'shape', None)}")
+	locs = locs[:, :2]
+
+	template_c_by_t = _as_template_channels_by_time(template, int(locs.shape[0]))
+	if int(template_c_by_t.shape[0]) != int(locs.shape[0]):
+		raise ValueError(
+			f"Template/locations size mismatch: template_channels={template_c_by_t.shape[0]} locations={locs.shape[0]}"
+		)
+
+	amp = np.ptp(template_c_by_t, axis=1)
+	min_idx = np.argmin(template_c_by_t, axis=1).astype(float)
+	ref = float(min_idx[int(np.argmax(amp))]) if min_idx.size > 0 else 0.0
+	lat_samples = min_idx - ref
+	lat, latency_units_label = _convert_latency_samples_to_units(
+		lat_samples,
+		units=str(config.color_bar_units or ""),
+		probe_geometry=probe_geometry,
+	)
+
+	size_metric = amp if str(config.size_by) == "amplitude" else np.abs(lat)
+	color_metric = amp if str(config.color_by) == "amplitude" else lat
+	color_values = np.asarray(color_metric, dtype=float)
+	vmin = float(np.nanmin(color_values)) if color_values.size > 0 else 0.0
+	vmax = float(np.nanmax(color_values)) if color_values.size > 0 else 1.0
+	if not np.isfinite(vmin):
+		vmin = 0.0
+	if not np.isfinite(vmax):
+		vmax = 1.0
+	if vmax <= vmin:
+		vmax = vmin + 1.0
+	color_norm = plt.Normalize(vmin=vmin, vmax=vmax)
+
+	size_norm = np.asarray(size_metric, dtype=float)
+	size_norm = np.nan_to_num(size_norm, nan=0.0, posinf=0.0, neginf=0.0)
+	if float(np.max(size_norm)) > 0.0:
+		size_norm = size_norm / float(np.max(size_norm))
+	sizes = 8.0 + 42.0 * size_norm
+
+	peak_idx = int(np.argmax(amp)) if amp.size > 0 else 0
+
+	fig = plt.figure(figsize=(10, 8))
+	ax = fig.add_subplot(111)
+	circles_cmap = _maybe_reversed_colormap("viridis", reverse=(str(config.color_by) == "latency"))
+	ax.scatter(
+		locs[:, 0],
+		locs[:, 1],
+		s=sizes,
+		c=color_values,
+		cmap=circles_cmap,
+		norm=color_norm,
+		alpha=0.92,
+		linewidths=0.0,
+	)
+	ax.set_xlabel("x (um)")
+	ax.set_ylabel("y (um)")
+
+	xmin, xmax, ymin, ymax = _compute_plot_limits(locs)
+	if bool(config.force_square_aspect):
+		center = None
+		if bool(config.force_center_soma) and 0 <= peak_idx < int(locs.shape[0]):
+			center = (float(locs[peak_idx, 0]), float(locs[peak_idx, 1]))
+		xmin, xmax, ymin, ymax = _make_square_limits(xmin, xmax, ymin, ymax, center_xy=center)
+	elif bool(config.force_center_soma) and 0 <= peak_idx < int(locs.shape[0]):
+		cx, cy = float(locs[peak_idx, 0]), float(locs[peak_idx, 1])
+		w = float(xmax - xmin)
+		h = float(ymax - ymin)
+		xmin, xmax = cx - (w / 2.0), cx + (w / 2.0)
+		ymin, ymax = cy - (h / 2.0), cy + (h / 2.0)
+
+	ax.set_xlim(xmin, xmax)
+	ax.set_ylim(ymin, ymax)
+	ax.set_aspect("equal", adjustable="box")
+	_apply_style(fig, ax, config=config)
+	_add_scale_bar(ax, config=config)
+
+	# v2: build a boundary-based colorbar to avoid renderer interpolation seams/caps.
+	# Keep the marker colormap continuous while forcing deterministic colorbar patch bounds.
+	bounds = np.linspace(vmin, vmax, 257, dtype=float)
+	boundary_norm = plt.matplotlib.colors.BoundaryNorm(boundaries=bounds, ncolors=plt.get_cmap(circles_cmap).N, clip=True)
+	cbar_mappable = plt.cm.ScalarMappable(norm=boundary_norm, cmap=plt.get_cmap(circles_cmap))
+	cbar_mappable.set_array(color_values)
+	cbar = fig.colorbar(
+		cbar_mappable,
+		ax=ax,
+		fraction=0.04,
+		pad=0.03,
+		extend="neither",
+		boundaries=bounds,
+		spacing="proportional",
+	)
+
+	label_color = "white" if str(config.background or "").strip().lower() == "black" else "black"
+	show_axes_title = bool(config.color_bar_show_axes_title)
+	show_unit_labels = bool(config.color_bar_show_unit_labels)
+	color_bar_title = str(config.color_bar_title or "").strip()
+	unit_token = str(latency_units_label or "").strip()
+
+	try:
+		if getattr(cbar, "solids", None) is not None:
+			cbar.solids.set_alpha(1.0)
+			cbar.solids.set_edgecolor("face")
+	except Exception:
+		pass
+
+	if str(config.color_by) == "latency" and unit_token and unit_token != "samples":
+		decimals = int(max(0, min(6, int(getattr(config, "color_bar_tick_decimal_places", 3)))))
+		target_count_raw = getattr(config, "color_bar_tick_target_count", None)
+		target_count = None if target_count_raw is None else int(target_count_raw)
+		ticks = _ticks_ending_in_0_or_5_with_max(
+			vmin=vmin,
+			vmax=vmax,
+			decimal_places=decimals,
+			target_count=target_count,
+		)
+		if ticks is not None and len(ticks) > 0:
+			labels = [f"{float(t):.{decimals}f} {unit_token}" for t in ticks] if show_unit_labels else [f"{float(t):.{decimals}f}" for t in ticks]
+			cbar.set_ticks(ticks, labels=labels)
+
+	if show_axes_title:
+		if str(config.color_by) == "amplitude":
+			cbar.set_label("", fontsize=7, color=label_color)
+			units_token = str(config.color_bar_units or "").strip()
+			if color_bar_title:
+				cbar.ax.set_title(color_bar_title, fontsize=7, color=label_color, pad=4)
+			elif units_token:
+				cbar.ax.set_title(units_token, fontsize=7, color=label_color, pad=4)
+			else:
+				cbar.ax.set_title("")
+		else:
+			cbar.set_label("", fontsize=7, color=label_color)
+			if color_bar_title:
+				cbar.ax.set_title(color_bar_title, fontsize=7, color=label_color, pad=4)
+			else:
+				fallback_title = f"Latency ({unit_token})" if (unit_token and unit_token != "samples") else "Latency"
+				cbar.ax.set_title(fallback_title, fontsize=7, color=label_color, pad=4)
+	else:
+		cbar.set_label("")
+		cbar.ax.set_title("")
+
+	if str(config.background or "").strip().lower() == "black":
+		cbar.ax.tick_params(colors="white")
+		cbar.outline.set_edgecolor("white")
+		if show_axes_title:
+			cbar.set_label(cbar.ax.get_ylabel(), color="white", fontsize=7)
+
+	outputs: dict[str, str] = {}
+	if bool(config.write_png):
+		png_path.parent.mkdir(parents=True, exist_ok=True)
+		fig.savefig(png_path, dpi=220, bbox_inches="tight", facecolor=fig.get_facecolor())
+		outputs["template_circles_png"] = str(png_path)
+	if bool(config.write_svg):
+		svg_path.parent.mkdir(parents=True, exist_ok=True)
+		fig.savefig(svg_path, format="svg", bbox_inches="tight", facecolor=fig.get_facecolor())
+		outputs["template_circles_svg"] = str(svg_path)
+
+	plt.close(fig)
+	return outputs
+
+
+def _convert_latency_samples_to_units(
+	latency_samples: np.ndarray,
+	*,
+	units: str,
+	probe_geometry: ProbeGeometryConfig | None,
+) -> tuple[np.ndarray, str]:
+	arr = np.asarray(latency_samples, dtype=float)
+	unit = str(units or "").strip().lower()
+	if unit in {"", "sample", "samples"}:
+		return arr, "samples"
+
+	fs_hz = None if probe_geometry is None else probe_geometry.sampling_rate_hz
+	if fs_hz is None or fs_hz <= 0:
+		# Fall back to samples if no valid sample rate is available.
+		return arr, "samples"
+
+	if unit in {"s", "sec", "second", "seconds"}:
+		return arr / float(fs_hz), "s"
+	if unit in {"ms", "millisecond", "milliseconds"}:
+		return (arr / float(fs_hz)) * 1_000.0, "ms"
+	if unit in {"us", "microsecond", "microseconds"}:
+		return (arr / float(fs_hz)) * 1_000_000.0, "us"
+
+	# Unknown token: keep values in samples and reflect fallback in label.
+	return arr, "samples"
+
+
+def _ticks_ending_in_0_or_5_with_max(
+	*,
+	vmin: float,
+	vmax: float,
+	decimal_places: int = 3,
+	target_count: int | None = None,
+) -> np.ndarray:
+	vmin_f = float(vmin)
+	vmax_f = float(vmax)
+	if not np.isfinite(vmin_f) or not np.isfinite(vmax_f):
+		return np.asarray([], dtype=float)
+	if vmax_f <= vmin_f:
+		return np.asarray([vmax_f], dtype=float)
+
+	decimals = int(max(0, min(6, int(decimal_places))))
+	if target_count is None:
+		target = int(max(6, min(16, 6 + (decimals * 2))))
+	else:
+		target = int(max(3, min(24, int(target_count))))
+
+	span = float(vmax_f - vmin_f)
+	base_step = float(5.0 * (10.0 ** (-decimals)))
+	if base_step <= float(np.finfo(float).eps):
+		base_step = float(np.finfo(float).eps)
+
+	multiplier = max(1, int(np.ceil(span / (base_step * float(max(1, target - 1))))))
+	step = base_step * float(multiplier)
+
+	start = float(np.ceil(vmin_f / step) * step)
+	ticks = np.arange(start, vmax_f + (0.25 * step), step, dtype=float)
+	ticks = ticks[np.isfinite(ticks)]
+	ticks = ticks[(ticks >= (vmin_f - 1e-12)) & (ticks <= (vmax_f + 1e-12))]
+
+	if ticks.size == 0:
+		ticks = np.asarray([vmax_f], dtype=float)
+
+	atol = max(1e-12, abs(step) * 1e-6)
+	if not np.any(np.isclose(ticks, vmax_f, rtol=0.0, atol=atol)):
+		ticks = np.append(ticks, vmax_f)
+
+	ticks = np.unique(np.round(ticks, 12))
+	ticks.sort()
+	return ticks
+
+
 def _render_topographical_footprint(
 	*,
 	locations_xy: Any,
 	values: np.ndarray,
 	config: TopographicalFootprintConfig,
+	probe_geometry: ProbeGeometryConfig | None,
 	title: str,
 	png_path: Path,
 	svg_path: Path,
 	output_key_png: str,
 	output_key_svg: str,
+	reverse_color_map: bool = False,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -273,15 +738,50 @@ def _render_topographical_footprint(
 		ax.set_facecolor("white")
 		text_color = "black"
 
-	sc = ax.scatter(
-		locs[:, 0],
-		locs[:, 1],
-		vals,
-		c=vals,
-		cmap=str(config.color_map),
-		s=max(1.0, float(config.marker_size)),
-		depthshade=True,
+	cmap = plt.get_cmap(_maybe_reversed_colormap(str(config.color_map), reverse=bool(reverse_color_map)))
+	vmin = float(np.nanmin(vals)) if vals.size > 0 else 0.0
+	vmax = float(np.nanmax(vals)) if vals.size > 0 else 1.0
+	if not np.isfinite(vmin):
+		vmin = 0.0
+	if not np.isfinite(vmax):
+		vmax = 1.0
+	if vmax <= vmin:
+		vmax = vmin + 1.0
+	norm = plt.Normalize(vmin=vmin, vmax=vmax)
+	colors = cmap(norm(vals))
+	dims = _probe_electrode_dims_um(probe_geometry)
+	if dims is None:
+		side = _fallback_square_side_um(locs[:, :2])
+		dx = dy = float(side)
+	else:
+		dx, dy = dims
+	z0 = np.minimum(vals, 0.0)
+	dz = np.abs(vals)
+	ax.bar3d(
+		locs[:, 0] - (dx / 2.0),
+		locs[:, 1] - (dy / 2.0),
+		z0,
+		np.full(locs.shape[0], dx, dtype=float),
+		np.full(locs.shape[0], dy, dtype=float),
+		dz,
+		color=colors,
+		shade=True,
+		zsort="average",
 	)
+	xmin, xmax, ymin, ymax = _limits_for_template_shape(
+		locs[:, :2],
+		template_shape=str(config.template_shape),
+	)
+	xmin, xmax, ymin, ymax = _expand_limits_for_glyph_half_size(
+		xmin=xmin,
+		xmax=xmax,
+		ymin=ymin,
+		ymax=ymax,
+		half_dx=float(dx) / 2.0,
+		half_dy=float(dy) / 2.0,
+	)
+	ax.set_xlim(xmin, xmax)
+	ax.set_ylim(ymin, ymax)
 	ax.view_init(elev=float(config.elevation_deg), azim=float(config.azimuth_deg))
 	ax.set_xlabel("x (um)", color=text_color)
 	ax.set_ylabel("y (um)", color=text_color)
@@ -289,7 +789,9 @@ def _render_topographical_footprint(
 	ax.set_title(title, color=text_color)
 
 	if bool(config.show_color_bar):
-		cbar = fig.colorbar(sc, ax=ax, fraction=0.035, pad=0.08)
+		sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+		sm.set_array(vals)
+		cbar = fig.colorbar(sm, ax=ax, fraction=0.035, pad=0.08)
 		cbar.ax.tick_params(colors=text_color)
 
 	outputs: dict[str, str] = {}
@@ -313,6 +815,7 @@ def render_topographical_amplitude_footprint(
 	config: TopographicalFootprintConfig,
 	png_path: Path,
 	svg_path: Path,
+	probe_geometry: ProbeGeometryConfig | None = None,
 ) -> dict[str, str]:
 	t = np.asarray(template)
 	if t.ndim != 2:
@@ -322,11 +825,13 @@ def render_topographical_amplitude_footprint(
 		locations_xy=locations_xy,
 		values=amp,
 		config=config,
+		probe_geometry=probe_geometry,
 		title="Topographical footprint amplitude",
 		png_path=png_path,
 		svg_path=svg_path,
 		output_key_png="topographical_amplitude_footprint_png",
 		output_key_svg="topographical_amplitude_footprint_svg",
+		reverse_color_map=False,
 	)
 
 
@@ -337,6 +842,7 @@ def render_topographical_latency_footprint(
 	config: TopographicalFootprintConfig,
 	png_path: Path,
 	svg_path: Path,
+	probe_geometry: ProbeGeometryConfig | None = None,
 ) -> dict[str, str]:
 	t = np.asarray(template)
 	if t.ndim != 2:
@@ -348,11 +854,13 @@ def render_topographical_latency_footprint(
 		locations_xy=locations_xy,
 		values=lat,
 		config=config,
+		probe_geometry=probe_geometry,
 		title="Topographical footprint latency",
 		png_path=png_path,
 		svg_path=svg_path,
 		output_key_png="topographical_latency_footprint_png",
 		output_key_svg="topographical_latency_footprint_svg",
+		reverse_color_map=True,
 	)
 
 
@@ -363,6 +871,7 @@ def render_propagation_plot(
 	config: PropagationPlotConfig,
 	pdf_path: Path,
 	png_path: Path,
+	probe_geometry: ProbeGeometryConfig | None = None,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -451,12 +960,100 @@ def render_propagation_plot(
 		if panel_i == n_panels - 1:
 			ax.set_xlabel("sample", color=text_color)
 
-	sc = map_ax.scatter(locs[selected, 0], locs[selected, 1], c=lat_idx, cmap="viridis", s=25)
-	map_ax.set_title("Selected channels by peak latency", color=text_color)
-	map_ax.set_xlabel("x (um)", color=text_color)
-	map_ax.set_ylabel("y (um)", color=text_color)
-	map_ax.set_aspect("equal", adjustable="box")
-	fig.colorbar(sc, ax=map_ax, fraction=0.046, pad=0.04)
+	if bool(config.latency_map.show):
+		from matplotlib.collections import PatchCollection  # type: ignore[import-not-found]
+		from matplotlib.patches import Rectangle  # type: ignore[import-not-found]
+
+		map_locs = locs[selected, :2]
+		dims = _probe_electrode_dims_um(probe_geometry)
+		if dims is None:
+			side = _fallback_square_side_um(map_locs)
+			dx = dy = float(side)
+		else:
+			dx, dy = dims
+		patches = [
+			Rectangle((float(x) - (dx / 2.0), float(y) - (dy / 2.0)), width=float(dx), height=float(dy))
+			for x, y in map_locs
+		]
+		edge_color = "white" if bg == "black" else "black"
+		sc = PatchCollection(
+			patches,
+			cmap=_maybe_reversed_colormap(str(config.latency_map.color_map), reverse=True),
+			linewidths=0.25,
+			edgecolors=edge_color,
+			antialiaseds=False,
+		)
+		lat_values = np.asarray(lat_idx, dtype=float)
+		vmin, vmax = _map_values_to_limits(
+			lat_values,
+			FootprintMapConfig(
+				force_low_value=config.latency_map.force_low_value,
+				force_high_value=config.latency_map.force_high_value,
+				scale=str(config.latency_map.scale),
+				percentile_low=float(config.latency_map.percentile_low),
+				percentile_high_linear=float(config.latency_map.percentile_high_linear),
+				percentile_high_log=float(config.latency_map.percentile_high_log),
+				linear_cap_rounding_mode=str(config.latency_map.linear_cap_rounding_mode),
+				linear_cap_rounding_step=float(config.latency_map.linear_cap_rounding_step),
+				linear_cap_min_vmax=float(config.latency_map.linear_cap_min_vmax),
+			),
+		)
+		if str(config.latency_map.scale).lower() == "log":
+			from matplotlib.colors import LogNorm  # type: ignore[import-not-found]
+
+			vmin_eff = max(1e-9, float(vmin))
+			lat_plot = np.clip(lat_values, vmin_eff, None)
+			sc.set_norm(LogNorm(vmin=vmin_eff, vmax=max(vmin_eff * 1.0001, float(vmax))))
+			sc.set_array(lat_plot)
+		else:
+			sc.set_array(lat_values)
+			sc.set_clim(float(vmin), float(vmax))
+		map_ax.add_collection(sc)
+		xmin, xmax, ymin, ymax = _compute_plot_limits(map_locs, pad_frac=0.01, pad_abs=max(1.0, float(dx * 0.2)))
+		xmin, xmax, ymin, ymax = _expand_limits_for_glyph_half_size(
+			xmin=xmin,
+			xmax=xmax,
+			ymin=ymin,
+			ymax=ymax,
+			half_dx=float(dx) / 2.0,
+			half_dy=float(dy) / 2.0,
+		)
+		map_ax.set_xlim(xmin, xmax)
+		map_ax.set_ylim(ymin, ymax)
+		map_ax.set_title(str(config.latency_map.title), color=text_color, fontsize=float(config.latency_map.fontsize))
+		if bool(config.latency_map.axes.show):
+			map_ax.set_xlabel(
+				str(config.latency_map.axes.xlabel),
+				color=text_color,
+				fontsize=float(config.latency_map.axes.label_fontsize),
+			)
+			map_ax.set_ylabel(
+				str(config.latency_map.axes.ylabel),
+				color=text_color,
+				fontsize=float(config.latency_map.axes.label_fontsize),
+			)
+			map_ax.tick_params(labelsize=float(config.latency_map.axes.tick_fontsize), colors=text_color)
+		else:
+			map_ax.set_xlabel("")
+			map_ax.set_ylabel("")
+			map_ax.set_xticks([])
+			map_ax.set_yticks([])
+		if bool(config.latency_map.force_square_aspect):
+			map_ax.set_aspect("equal", adjustable="box")
+		if bool(config.latency_map.show_color_bar):
+			cbar = fig.colorbar(
+				sc,
+				ax=map_ax,
+				fraction=float(config.latency_map.color_bar_length_fraction),
+				pad=float(config.latency_map.color_bar_pad_fraction),
+			)
+			cbar.ax.tick_params(labelsize=float(config.latency_map.color_bar_fontsize), colors=text_color)
+			try:
+				cbar.outline.set_edgecolor(text_color)
+			except Exception:
+				pass
+	else:
+		map_ax.axis("off")
 
 	outputs: dict[str, str] = {}
 	if bool(config.write_png):
@@ -521,26 +1118,40 @@ def render_template_wf_overlay(
 		trace_color = "black"
 		mean_color = "red"
 
-	for idx, ch in enumerate(selected):
-		offset = float(idx) * offset_step
-		ax.plot(x, selected_templates[idx, :] + offset, color=trace_color, linewidth=0.9, alpha=0.9)
-		ax.text(
-			x[0],
-			offset,
-			f"ch {int(ch)}",
-			fontsize=6,
-			color=trace_color,
-			verticalalignment="bottom",
-			horizontalalignment="left",
-		)
+	style = str(getattr(config, "style", "overlay") or "overlay").strip().lower()
+	if style in {"stack", "stacked"}:
+		for idx, ch in enumerate(selected):
+			offset = float(idx) * offset_step
+			ax.plot(x, selected_templates[idx, :] + offset, color=trace_color, linewidth=0.9, alpha=0.9)
+			ax.text(
+				x[0],
+				offset,
+				f"ch {int(ch)}",
+				fontsize=6,
+				color=trace_color,
+				verticalalignment="bottom",
+				horizontalalignment="left",
+			)
+	else:
+		for idx, ch in enumerate(selected):
+			ax.plot(x, selected_templates[idx, :], color=trace_color, linewidth=0.9, alpha=0.4)
+			ax.text(
+				x[0],
+				selected_templates[idx, 0],
+				f"ch {int(ch)}",
+				fontsize=6,
+				color=trace_color,
+				verticalalignment="bottom",
+				horizontalalignment="left",
+			)
 
 	if bool(config.include_mean):
 		mean_t = np.mean(selected_templates, axis=0)
-		mean_offset = float(len(selected)) * offset_step
+		mean_offset = float(len(selected)) * offset_step if style in {"stack", "stacked"} else 0.0
 		ax.plot(x, mean_t + mean_offset, color=mean_color, linewidth=1.4, alpha=0.95)
 		ax.text(
 			x[0],
-			mean_offset,
+			float(mean_t[0]) + mean_offset,
 			"mean",
 			fontsize=6,
 			color=mean_color,
@@ -549,8 +1160,8 @@ def render_template_wf_overlay(
 		)
 
 	ax.set_xlabel("sample")
-	ax.set_ylabel("amplitude + offset")
-	ax.set_title("Template waveforms (top channels)")
+	ax.set_ylabel("amplitude + offset" if style in {"stack", "stacked"} else "amplitude")
+	ax.set_title(f"Template waveforms (top channels, style={style})")
 
 	if bool(config.include_scale_bar):
 		x0, x1 = ax.get_xlim()
@@ -609,7 +1220,6 @@ def render_multi_source_pdf(
 				("template", outputs.get("template_png")),
 				("overlay", outputs.get("template_wf_overlay_png")),
 				("amp", outputs.get("footprint_amplitude_map_png")),
-				("peak-lat", outputs.get("footprint_peak_latency_map_png")),
 				("lat", outputs.get("footprint_latency_map_png")),
 			]
 			paths = [(label, Path(str(p))) for label, p in image_candidates if p]
@@ -762,16 +1372,49 @@ def _map_values_to_limits(values: np.ndarray, config: FootprintMapConfig) -> tup
 	return float(vmin), float(vmax)
 
 
+def _limits_for_template_shape(
+	points_xy: np.ndarray,
+	*,
+	template_shape: str,
+	pad_frac: float = 0.01,
+	pad_abs: float = 1.0,
+) -> tuple[float, float, float, float]:
+	xmin, xmax, ymin, ymax = _compute_plot_limits(points_xy, pad_frac=float(pad_frac), pad_abs=float(pad_abs))
+	shape = str(template_shape or "square").strip().lower().replace("-", "_").replace(" ", "_")
+	if shape == "square":
+		return _make_square_limits(xmin, xmax, ymin, ymax)
+	return xmin, xmax, ymin, ymax
+
+
+def _expand_limits_for_glyph_half_size(
+	*,
+	xmin: float,
+	xmax: float,
+	ymin: float,
+	ymax: float,
+	half_dx: float,
+	half_dy: float,
+) -> tuple[float, float, float, float]:
+	return (
+		float(xmin) - float(max(0.0, half_dx)),
+		float(xmax) + float(max(0.0, half_dx)),
+		float(ymin) - float(max(0.0, half_dy)),
+		float(ymax) + float(max(0.0, half_dy)),
+	)
+
+
 def _render_footprint_map(
 	*,
 	locations_xy: np.ndarray,
 	values: np.ndarray,
 	config: FootprintMapConfig,
+	probe_geometry: ProbeGeometryConfig | None,
 	title: str,
 	png_path: Path,
 	svg_path: Path,
 	output_key_png: str,
 	output_key_svg: str,
+	reverse_color_map: bool = False,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -813,17 +1456,47 @@ def _render_footprint_map(
 	else:
 		vals_plot = vals
 
-	sc = ax.scatter(
-		locs[:, 0],
-		locs[:, 1],
-		c=vals_plot,
-		cmap=str(config.color_map),
-		norm=norm,
-		vmin=(None if norm is not None else vmin),
-		vmax=(None if norm is not None else vmax),
-		s=20,
-		linewidths=0.0,
+	dims = _probe_electrode_dims_um(probe_geometry)
+	from matplotlib.collections import PatchCollection  # type: ignore[import-not-found]
+	from matplotlib.patches import Rectangle  # type: ignore[import-not-found]
+
+	if dims is None:
+		side = _fallback_square_side_um(locs[:, :2])
+		dx = dy = float(side)
+	else:
+		dx, dy = dims
+	patches = [
+		Rectangle((float(x) - (dx / 2.0), float(y) - (dy / 2.0)), width=float(dx), height=float(dy))
+		for x, y in locs[:, :2]
+	]
+	edge_color = "white" if bg == "black" else "black"
+	sc = PatchCollection(
+		patches,
+		cmap=_maybe_reversed_colormap(str(config.color_map), reverse=bool(reverse_color_map)),
+		linewidths=0.25,
+		edgecolors=edge_color,
+		antialiaseds=False,
 	)
+	sc.set_array(np.asarray(vals_plot, dtype=float))
+	if norm is not None:
+		sc.set_norm(norm)
+	else:
+		sc.set_clim(vmin, vmax)
+	ax.add_collection(sc)
+	xmin, xmax, ymin, ymax = _limits_for_template_shape(
+		locs,
+		template_shape=str(config.template_shape),
+	)
+	xmin, xmax, ymin, ymax = _expand_limits_for_glyph_half_size(
+		xmin=xmin,
+		xmax=xmax,
+		ymin=ymin,
+		ymax=ymax,
+		half_dx=float(dx) / 2.0,
+		half_dy=float(dy) / 2.0,
+	)
+	ax.set_xlim(xmin, xmax)
+	ax.set_ylim(ymin, ymax)
 	ax.set_aspect("equal", adjustable="box")
 	ax.set_xlabel("x (um)", color=text_color)
 	ax.set_ylabel("y (um)", color=text_color)
@@ -858,6 +1531,7 @@ def render_footprint_amplitude_map(
 	config: FootprintMapConfig,
 	png_path: Path,
 	svg_path: Path,
+	probe_geometry: ProbeGeometryConfig | None = None,
 ) -> dict[str, str]:
 	t = np.asarray(template)
 	if t.ndim != 2:
@@ -867,37 +1541,13 @@ def render_footprint_amplitude_map(
 		locations_xy=np.asarray(locations_xy),
 		values=amp,
 		config=config,
+		probe_geometry=probe_geometry,
 		title="Template footprint amplitude",
 		png_path=png_path,
 		svg_path=svg_path,
 		output_key_png="footprint_amplitude_map_png",
 		output_key_svg="footprint_amplitude_map_svg",
-	)
-
-
-def render_footprint_peak_latency_map(
-	*,
-	template: Any,
-	locations_xy: Any,
-	config: FootprintMapConfig,
-	png_path: Path,
-	svg_path: Path,
-) -> dict[str, str]:
-	t = np.asarray(template)
-	if t.ndim != 2:
-		raise ValueError("Peak latency map requires 2D template")
-	peak_idx = np.argmax(np.abs(t), axis=1).astype(float)
-	ref = float(peak_idx[int(np.argmax(np.ptp(t, axis=1)))]) if peak_idx.size > 0 else 0.0
-	peak_latency = peak_idx - ref
-	return _render_footprint_map(
-		locations_xy=np.asarray(locations_xy),
-		values=peak_latency,
-		config=config,
-		title="Template peak latency",
-		png_path=png_path,
-		svg_path=svg_path,
-		output_key_png="footprint_peak_latency_map_png",
-		output_key_svg="footprint_peak_latency_map_svg",
+		reverse_color_map=False,
 	)
 
 
@@ -908,6 +1558,7 @@ def render_footprint_latency_map(
 	config: FootprintMapConfig,
 	png_path: Path,
 	svg_path: Path,
+	probe_geometry: ProbeGeometryConfig | None = None,
 ) -> dict[str, str]:
 	t = np.asarray(template)
 	if t.ndim != 2:
@@ -919,9 +1570,18 @@ def render_footprint_latency_map(
 		locations_xy=np.asarray(locations_xy),
 		values=lat,
 		config=config,
+		probe_geometry=probe_geometry,
 		title="Template latency",
 		png_path=png_path,
 		svg_path=svg_path,
 		output_key_png="footprint_latency_map_png",
 		output_key_svg="footprint_latency_map_svg",
+		reverse_color_map=True,
 	)
+
+
+def _maybe_reversed_colormap(cmap_name: str, *, reverse: bool) -> str:
+	name = str(cmap_name or "viridis").strip() or "viridis"
+	if not reverse or name.endswith("_r"):
+		return name
+	return f"{name}_r"

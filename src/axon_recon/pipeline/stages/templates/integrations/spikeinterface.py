@@ -242,6 +242,25 @@ def _template_payload_for_unit(
 	if channel_ids is not None and len(channel_ids) != int(t_ch_by_t.shape[0]):
 		channel_ids = None
 
+	# Keep only channels with non-flat waveforms so merged_contributing remains truly contributing.
+	ptp = np.ptp(t_ch_by_t, axis=1)
+	keep = np.where(ptp > float(np.finfo(float).eps))[0]
+	if int(keep.size) == 0:
+		# Fallback: preserve at least one channel if all channels are numerically flat.
+		keep = np.asarray([int(np.argmax(np.max(np.abs(t_ch_by_t), axis=1)))], dtype=int)
+	t_ch_by_t = t_ch_by_t[keep, :]
+	locs = locs[keep, :]
+	if electrode_ids is not None:
+		try:
+			electrode_ids = list(np.asarray(electrode_ids, dtype=object)[keep])
+		except Exception:
+			electrode_ids = None
+	if channel_ids is not None:
+		try:
+			channel_ids = list(np.asarray(channel_ids, dtype=object)[keep])
+		except Exception:
+			channel_ids = None
+
 	waveform_count = 1
 	try:
 		sorting = analyzer.sorting
@@ -274,7 +293,7 @@ def _merge_sources_per_channel(
 	enable_merge: bool,
 	merge_method: str,
 	centering_method: str,
-	max_waveforms_per_source_channel: int,
+	max_waveforms_per_source_channel: int | None,
 	overlap_match_priority: tuple[str, ...],
 	location_tolerance_um: float,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -284,7 +303,12 @@ def _merge_sources_per_channel(
 	merge_method_norm = _normalize_merge_method(merge_method)
 	match_priority = _normalize_overlap_priorities(overlap_match_priority)
 	loc_tol = max(1e-6, float(location_tolerance_um))
-	max_wf = max(1, int(max_waveforms_per_source_channel))
+	max_wf: int | None
+	if max_waveforms_per_source_channel is None:
+		max_wf = None
+	else:
+		parsed = int(max_waveforms_per_source_channel)
+		max_wf = None if parsed <= 0 else parsed
 	target_t = int(sources[0][0].shape[1])
 	bucket_waveforms: dict[str, np.ndarray] = {}
 	bucket_weights: dict[str, float] = {}
@@ -324,7 +348,8 @@ def _merge_sources_per_channel(
 			wave = _center_waveform(wave, centering_method)
 			weight = 1.0
 			if merge_method_norm == "weighted_by_channel_waveform_count":
-				weight = float(min(max_wf, max(1, int(source_waveform_count))))
+				source_count = max(1, int(source_waveform_count))
+				weight = float(source_count if max_wf is None else min(max_wf, source_count))
 
 			if canonical_key in bucket_waveforms:
 				if bool(enable_merge):
@@ -388,7 +413,7 @@ def materialize_templates_from_spikeinterface(
 	enable_merge: bool = True,
 	merge_method: str = "mean_all_waveforms",
 	centering_method: str = "pre_peak_robust_baseline",
-	max_waveforms_per_source_channel: int = 500,
+	max_waveforms_per_source_channel: int | None = 500,
 	overlap_match_priority: tuple[str, ...] = ("electrode_id", "channel_id", "location"),
 	location_tolerance_um: float = 1.0,
 ) -> tuple[Path, Path]:

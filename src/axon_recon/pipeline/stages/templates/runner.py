@@ -14,9 +14,10 @@ from .core.render import (
 	render_footprint_amplitude_map,
 	render_footprint_map_grid,
 	render_footprint_latency_map,
-	render_footprint_peak_latency_map,
 	render_multi_source_pdf,
 	render_propagation_plot,
+	render_template_circles_plot,
+	render_template_circles_plot_v2,
 	render_template_plot,
 	render_template_wf_overlay,
 	render_topographical_amplitude_footprint,
@@ -179,6 +180,21 @@ def _select_template_for_scope(
 	return merged_template, merged_locs, "merged_contributing"
 
 
+def _select_template_for_shape(
+	*,
+	merged_template: np.ndarray,
+	merged_locs: np.ndarray,
+	full_payload: tuple[np.ndarray, np.ndarray] | None,
+	template_shape: str,
+) -> tuple[np.ndarray, np.ndarray, str]:
+	shape = str(template_shape or "square").strip().lower().replace("-", "_").replace(" ", "_")
+	if shape in {"full", "scan"} and full_payload is not None:
+		full_template, full_locs = full_payload
+		return full_template, full_locs, "full_channels"
+	# `square` and unknown values use merged contributing channels.
+	return merged_template, merged_locs, "merged_contributing"
+
+
 def _build_unit_ids(inputs: TemplatesInputs, merged_units_dir: Path) -> list[Any]:
 	discovered = _discover_unit_ids(merged_units_dir)
 	unit_ids = list(inputs.unit_ids) if inputs.unit_ids is not None else discovered
@@ -242,7 +258,12 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 	def _ensure_templates_dirs() -> tuple[Path, Path]:
 		nonlocal merged_units_dir, full_channels_templates_dir
 		if merged_units_dir is None or full_channels_templates_dir is None:
-			prefer_spikeinterface = bool(inputs.force_restart) and (not bool(inputs.reports.replot_from_disk))
+			prefer_spikeinterface = (
+				bool(inputs.force_restart)
+				and (not bool(inputs.force_replot))
+				and (not bool(inputs.force_replot_per_unit))
+				and (not bool(inputs.reports.replot_from_disk))
+			)
 			if prefer_spikeinterface:
 				try:
 					LOGGER.info(
@@ -260,7 +281,11 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 						enable_merge=bool(inputs.merge.enable),
 						merge_method=str(inputs.merge.method),
 						centering_method=str(inputs.merge.centering_method),
-						max_waveforms_per_source_channel=int(max(1, int(inputs.merge.max_waveforms_per_source_channel))),
+						max_waveforms_per_source_channel=(
+							None
+							if inputs.merge.max_waveforms_per_source_channel is None
+							else int(inputs.merge.max_waveforms_per_source_channel)
+						),
 						overlap_match_priority=tuple(inputs.merge.overlap_match_priority),
 						location_tolerance_um=float(inputs.merge.location_tolerance_um),
 					)
@@ -294,7 +319,11 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 					enable_merge=bool(inputs.merge.enable),
 					merge_method=str(inputs.merge.method),
 					centering_method=str(inputs.merge.centering_method),
-					max_waveforms_per_source_channel=int(max(1, int(inputs.merge.max_waveforms_per_source_channel))),
+					max_waveforms_per_source_channel=(
+						None
+						if inputs.merge.max_waveforms_per_source_channel is None
+						else int(inputs.merge.max_waveforms_per_source_channel)
+					),
 					overlap_match_priority=tuple(inputs.merge.overlap_match_priority),
 					location_tolerance_um=float(inputs.merge.location_tolerance_um),
 				)
@@ -302,7 +331,12 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			full_channels_templates_dir = full_channels_templates_dir_resolved
 		return merged_units_dir, full_channels_templates_dir
 
-	if bool(inputs.reports.replot_from_disk) and (not bool(inputs.force_restart)):
+	if (
+		bool(inputs.reports.replot_from_disk)
+		and (not bool(inputs.force_restart))
+		and (not bool(inputs.force_replot))
+		and (not bool(inputs.force_replot_per_unit))
+	):
 		if inputs.unit_ids is not None:
 			unit_ids = list(inputs.unit_ids)
 		else:
@@ -329,7 +363,11 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		)
 		paths["unit_dir"].mkdir(parents=True, exist_ok=True)
 
-		if (not bool(inputs.force_restart)) and (not bool(inputs.force_replot_per_unit)):
+		if (
+			(not bool(inputs.force_restart))
+			and (not bool(inputs.force_replot))
+			and (not bool(inputs.force_replot_per_unit))
+		):
 			existing_result = _load_unit_result_from_summary(
 				unit_id=unit_id,
 				unit_summary_json=paths["unit_summary_json"],
@@ -383,7 +421,57 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				full_payload=full_payload,
 				channel_scope=inputs.per_unit_outputs.template.channel_scope,
 			)
+			template_circles, locs_circles, circles_source = _select_template_for_scope(
+				merged_template=merged_template,
+				merged_locs=merged_locs,
+				full_payload=full_payload,
+				channel_scope=inputs.per_unit_outputs.template_circles.channel_scope,
+			)
 			unit_summary["selected_template_source"] = source
+
+			amp_template, amp_locs, amp_source = _select_template_for_shape(
+				merged_template=merged_template,
+				merged_locs=merged_locs,
+				full_payload=full_payload,
+				template_shape=inputs.per_unit_outputs.footprint_plots.amplitude_map.template_shape,
+			)
+			lat_template, lat_locs, lat_source = _select_template_for_shape(
+				merged_template=merged_template,
+				merged_locs=merged_locs,
+				full_payload=full_payload,
+				template_shape=inputs.per_unit_outputs.footprint_plots.latency_map.template_shape,
+			)
+			topo_amp_template, topo_amp_locs, topo_amp_source = _select_template_for_shape(
+				merged_template=merged_template,
+				merged_locs=merged_locs,
+				full_payload=full_payload,
+				template_shape=inputs.per_unit_outputs.topographical_footprints.amplitude.template_shape,
+			)
+			topo_lat_template, topo_lat_locs, topo_lat_source = _select_template_for_shape(
+				merged_template=merged_template,
+				merged_locs=merged_locs,
+				full_payload=full_payload,
+				template_shape=inputs.per_unit_outputs.topographical_footprints.latency.template_shape,
+			)
+			prop_shape = str(inputs.per_unit_outputs.propagation_plots.latency_map.template_shape or "top_channels_only")
+			if prop_shape.strip().lower().replace("-", "_").replace(" ", "_") == "top_channels_only":
+				prop_template, prop_locs, prop_source = template_plot, locs_plot, source
+			else:
+				prop_template, prop_locs, prop_source = _select_template_for_shape(
+					merged_template=merged_template,
+					merged_locs=merged_locs,
+					full_payload=full_payload,
+					template_shape=prop_shape,
+				)
+			unit_summary["selected_template_sources"] = {
+				"template": source,
+				"template_circles": circles_source,
+				"footprint_amplitude_map": amp_source,
+				"footprint_latency_map": lat_source,
+				"topographical_amplitude": topo_amp_source,
+				"topographical_latency": topo_lat_source,
+				"propagation": prop_source,
+			}
 
 			outputs = render_template_plot(
 				template=template_plot,
@@ -393,6 +481,16 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				svg_path=paths["template_svg"],
 			)
 			unit_summary["outputs"].update(outputs)
+
+			circles_outputs = render_template_circles_plot_v2(
+				template=template_circles,
+				locations_xy=locs_circles,
+				config=inputs.per_unit_outputs.template_circles,
+				png_path=paths["template_circles_png"],
+				svg_path=paths["template_circles_svg"],
+				probe_geometry=inputs.probe_geometry,
+			)
+			unit_summary["outputs"].update(circles_outputs)
 
 			overlay_outputs = render_template_wf_overlay(
 				template=template_plot,
@@ -404,56 +502,52 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			unit_summary["outputs"].update(overlay_outputs)
 
 			amp_outputs = render_footprint_amplitude_map(
-				template=template_plot,
-				locations_xy=locs_plot,
+				template=amp_template,
+				locations_xy=amp_locs,
 				config=inputs.per_unit_outputs.footprint_plots.amplitude_map,
+				probe_geometry=inputs.probe_geometry,
 				png_path=paths["footprint_amplitude_map_png"],
 				svg_path=paths["footprint_amplitude_map_svg"],
 			)
 			unit_summary["outputs"].update(amp_outputs)
 
-			peak_lat_outputs = render_footprint_peak_latency_map(
-				template=template_plot,
-				locations_xy=locs_plot,
-				config=inputs.per_unit_outputs.footprint_plots.peak_latency_map,
-				png_path=paths["footprint_peak_latency_map_png"],
-				svg_path=paths["footprint_peak_latency_map_svg"],
-			)
-			unit_summary["outputs"].update(peak_lat_outputs)
-
 			lat_outputs = render_footprint_latency_map(
-				template=template_plot,
-				locations_xy=locs_plot,
+				template=lat_template,
+				locations_xy=lat_locs,
 				config=inputs.per_unit_outputs.footprint_plots.latency_map,
+				probe_geometry=inputs.probe_geometry,
 				png_path=paths["footprint_latency_map_png"],
 				svg_path=paths["footprint_latency_map_svg"],
 			)
 			unit_summary["outputs"].update(lat_outputs)
 
 			topo_amp_outputs = render_topographical_amplitude_footprint(
-				template=template_plot,
-				locations_xy=locs_plot,
+				template=topo_amp_template,
+				locations_xy=topo_amp_locs,
 				config=inputs.per_unit_outputs.topographical_footprints.amplitude,
+				probe_geometry=inputs.probe_geometry,
 				png_path=paths["topographical_amplitude_footprint_png"],
 				svg_path=paths["topographical_amplitude_footprint_svg"],
 			)
 			unit_summary["outputs"].update(topo_amp_outputs)
 
 			topo_lat_outputs = render_topographical_latency_footprint(
-				template=template_plot,
-				locations_xy=locs_plot,
+				template=topo_lat_template,
+				locations_xy=topo_lat_locs,
 				config=inputs.per_unit_outputs.topographical_footprints.latency,
+				probe_geometry=inputs.probe_geometry,
 				png_path=paths["topographical_latency_footprint_png"],
 				svg_path=paths["topographical_latency_footprint_svg"],
 			)
 			unit_summary["outputs"].update(topo_lat_outputs)
 
 			prop_outputs = render_propagation_plot(
-				template=template_plot,
-				locations_xy=locs_plot,
+				template=prop_template,
+				locations_xy=prop_locs,
 				config=inputs.per_unit_outputs.propagation_plots,
 				pdf_path=paths["propagation_plot_pdf"],
 				png_path=paths["propagation_plot_png"],
+				probe_geometry=inputs.probe_geometry,
 			)
 			unit_summary["outputs"].update(prop_outputs)
 		except Exception as exc:
@@ -471,7 +565,12 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 
 	unit_results: list[UnitTemplatesResult] = []
 	units_to_process = list(unit_ids)
-	if bool(inputs.reports.replot_from_disk) and (not bool(inputs.force_restart)):
+	if (
+		bool(inputs.reports.replot_from_disk)
+		and (not bool(inputs.force_restart))
+		and (not bool(inputs.force_replot))
+		and (not bool(inputs.force_replot_per_unit))
+	):
 		units_to_process = []
 		for unit_id in unit_ids:
 			paths = resolve_unit_output_paths(
@@ -592,7 +691,9 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			"method": str(inputs.merge.method),
 			"centering_method": str(inputs.merge.centering_method),
 			"weighting_mode": str(inputs.merge.weighting_mode),
-			"max_waveforms_per_source_channel": int(max(1, int(inputs.merge.max_waveforms_per_source_channel))),
+			"max_waveforms_per_source_channel": (
+				None if inputs.merge.max_waveforms_per_source_channel is None else int(inputs.merge.max_waveforms_per_source_channel)
+			),
 			"overlap_match_priority": list(inputs.merge.overlap_match_priority),
 			"location_tolerance_um": float(inputs.merge.location_tolerance_um),
 		},

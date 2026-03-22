@@ -11,7 +11,11 @@ from .execution.results import MultiTargetStageResult
 from .stages.reconstruct.api import run_reconstruct
 from .stages.reconstruct.config import build_reconstruction_inputs_for_target, parse_reconstruction_stage_config
 from .stages.templates.api import run_templates
-from .stages.templates.config import build_templates_inputs_for_target, parse_templates_stage_config
+from .stages.templates.config import (
+	build_templates_inputs_for_target,
+	parse_probe_geometry_from_data_config,
+	parse_templates_stage_config,
+)
 
 
 def run_reconstruct_from_runtime(
@@ -66,8 +70,10 @@ def run_templates_from_runtime(
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
 	targets = select_execution_targets(bundle=bundle)
 	parallelism = resolve_stage_parallelism(bundle=bundle, stage_name="templates")
+	probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
 	stage_config = parse_templates_stage_config(
 		runtime_config=bundle.runtime_config,
+		probe_geometry=probe_geometry,
 		unit_id_override=unit_id_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
@@ -78,6 +84,7 @@ def run_templates_from_runtime(
 			target=target,
 			stage_config=stage_config,
 			unit_workers=int(parallelism.unit_workers),
+			probe_geometry=probe_geometry,
 		)
 		return run_templates(inputs)
 

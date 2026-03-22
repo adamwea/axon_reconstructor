@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import shutil
+import time
 
 import numpy as np  # type: ignore[import-not-found]
 
@@ -15,6 +16,7 @@ from axon_recon.pipeline.stages.templates.models.inputs import (
 	PerUnitTemplatesOutputsConfig,
 	PropagationPlotConfig,
 	ReportsConfig,
+	TemplateCirclesPlotConfig,
 	TemplateWaveformOverlayConfig,
 	TemplatePlotConfig,
 	TimeUpsampleConfig,
@@ -101,6 +103,38 @@ def test_run_templates_stage_writes_png(tmp_path: Path) -> None:
 	assert str(merged_npy) == result.units[0].outputs.get("merged_template_npy")
 
 
+def test_run_templates_stage_writes_template_circles_png(tmp_path: Path) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			template=TemplatePlotConfig(write_png=False, write_svg=False),
+			template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=False, relpath="template_circles"),
+		),
+		unit_ids=[94],
+		force_restart=True,
+		n_jobs=1,
+	)
+
+	result = run_templates_stage(inputs)
+	assert len(result.units) == 1
+	assert result.units[0].status == "ok"
+
+	circles_png = well_out_dir / "templates_outputs" / "units" / "0094" / "template_circles.png"
+	assert circles_png.exists()
+	assert str(circles_png) == result.units[0].outputs.get("template_circles_png")
+
+
 def test_run_templates_stage_writes_overlay_and_grid(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
@@ -182,7 +216,6 @@ def test_run_templates_stage_writes_footprint_maps(tmp_path: Path) -> None:
 			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
 			footprint_plots=FootprintPlotsConfig(
 				amplitude_map=FootprintMapConfig(write_png=True, write_svg=False, relpath="maps/footprint_amp"),
-				peak_latency_map=FootprintMapConfig(write_png=True, write_svg=False, relpath="maps/footprint_peak_lat"),
 				latency_map=FootprintMapConfig(write_png=True, write_svg=False, relpath="maps/footprint_lat"),
 			),
 			topographical_footprints=TopographicalFootprintsConfig(
@@ -222,21 +255,18 @@ def test_run_templates_stage_writes_footprint_maps(tmp_path: Path) -> None:
 	assert result.units[0].status == "ok"
 
 	amp_png = well_out_dir / "templates_outputs" / "units" / "0094" / "maps" / "footprint_amp.png"
-	peak_lat_png = well_out_dir / "templates_outputs" / "units" / "0094" / "maps" / "footprint_peak_lat.png"
 	lat_png = well_out_dir / "templates_outputs" / "units" / "0094" / "maps" / "footprint_lat.png"
 	topo_amp_png = well_out_dir / "templates_outputs" / "units" / "0094" / "maps" / "topo_amp.png"
 	topo_lat_png = well_out_dir / "templates_outputs" / "units" / "0094" / "maps" / "topo_lat.png"
 	prop_png = well_out_dir / "templates_outputs" / "units" / "0094" / "maps" / "propagation.png"
 	prop_pdf = well_out_dir / "templates_outputs" / "units" / "0094" / "maps" / "propagation.pdf"
 	assert amp_png.exists()
-	assert peak_lat_png.exists()
 	assert lat_png.exists()
 	assert topo_amp_png.exists()
 	assert topo_lat_png.exists()
 	assert prop_png.exists()
 	assert prop_pdf.exists()
 	assert str(amp_png) == result.units[0].outputs.get("footprint_amplitude_map_png")
-	assert str(peak_lat_png) == result.units[0].outputs.get("footprint_peak_latency_map_png")
 	assert str(lat_png) == result.units[0].outputs.get("footprint_latency_map_png")
 	assert str(topo_amp_png) == result.units[0].outputs.get("topographical_amplitude_footprint_png")
 	assert str(topo_lat_png) == result.units[0].outputs.get("topographical_latency_footprint_png")
@@ -479,3 +509,72 @@ def test_run_templates_stage_force_restart_prefers_spikeinterface_materializatio
 	assert called["value"] is True
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
+
+
+def test_run_templates_stage_force_replot_rerenders_visual_outputs(tmp_path: Path) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+
+	first_inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			template=TemplatePlotConfig(write_png=True, write_svg=False),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=True),
+		),
+		reports=ReportsConfig(
+			plot_multi_source_pdf=MultiSourcePdfReportConfig(enabled=False),
+			replot_from_disk=False,
+			time_upsample=TimeUpsampleConfig(enabled=False, factor=1, method="linear"),
+			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=True),
+		),
+		unit_ids=[94],
+		require_curated_units=False,
+		force_restart=True,
+		n_jobs=1,
+	)
+	first_result = run_templates_stage(first_inputs)
+	assert len(first_result.units) == 1
+	assert first_result.units[0].status == "ok"
+
+	template_png = well_out_dir / "templates_outputs" / "units" / "0094" / "template.png"
+	assert template_png.exists()
+	mtime_before = template_png.stat().st_mtime_ns
+
+	time.sleep(0.02)
+
+	second_inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			template=TemplatePlotConfig(write_png=True, write_svg=False),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=True),
+		),
+		reports=ReportsConfig(
+			plot_multi_source_pdf=MultiSourcePdfReportConfig(enabled=False),
+			replot_from_disk=True,
+			time_upsample=TimeUpsampleConfig(enabled=False, factor=1, method="linear"),
+			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=True),
+		),
+		unit_ids=[94],
+		require_curated_units=False,
+		force_restart=False,
+		force_replot=True,
+		n_jobs=1,
+	)
+	second_result = run_templates_stage(second_inputs)
+	assert len(second_result.units) == 1
+	assert second_result.units[0].status == "ok"
+
+	mtime_after = template_png.stat().st_mtime_ns
+	assert mtime_after > mtime_before

@@ -62,13 +62,13 @@ def resolve_unit_output_paths(
 	scan_template_npy = _render_npy_path(unit_dir, npy_relpath=per_unit_outputs.scan_template.npy_relpath)
 	full_template_npy = _render_npy_path(unit_dir, npy_relpath=per_unit_outputs.full_template.npy_relpath)
 	template_png, template_svg = _render_template_paths(unit_dir, per_unit_outputs.template.relpath)
+	template_circles_png, template_circles_svg = _render_template_paths(unit_dir, per_unit_outputs.template_circles.relpath)
 	overlay_pdf, overlay_png = _render_pdf_png_paths(
 		unit_dir,
 		pdf_relpath=per_unit_outputs.template_wf_overlay.pdf_relpath,
 		png_relpath=per_unit_outputs.template_wf_overlay.png_relpath,
 	)
 	amp_png, amp_svg = _render_template_paths(unit_dir, per_unit_outputs.footprint_plots.amplitude_map.relpath)
-	peak_lat_png, peak_lat_svg = _render_template_paths(unit_dir, per_unit_outputs.footprint_plots.peak_latency_map.relpath)
 	lat_png, lat_svg = _render_template_paths(unit_dir, per_unit_outputs.footprint_plots.latency_map.relpath)
 	topo_amp_png, topo_amp_svg = _render_template_paths(unit_dir, per_unit_outputs.topographical_footprints.amplitude.relpath)
 	topo_lat_png, topo_lat_svg = _render_template_paths(unit_dir, per_unit_outputs.topographical_footprints.latency.relpath)
@@ -87,12 +87,12 @@ def resolve_unit_output_paths(
 		"full_template_npy": full_template_npy,
 		"template_png": template_png,
 		"template_svg": template_svg,
+		"template_circles_png": template_circles_png,
+		"template_circles_svg": template_circles_svg,
 		"template_wf_overlay_pdf": overlay_pdf,
 		"template_wf_overlay_png": overlay_png,
 		"footprint_amplitude_map_png": amp_png,
 		"footprint_amplitude_map_svg": amp_svg,
-		"footprint_peak_latency_map_png": peak_lat_png,
-		"footprint_peak_latency_map_svg": peak_lat_svg,
 		"footprint_latency_map_png": lat_png,
 		"footprint_latency_map_svg": lat_svg,
 		"topographical_amplitude_footprint_png": topo_amp_png,

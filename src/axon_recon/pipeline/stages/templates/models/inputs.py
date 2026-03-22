@@ -25,12 +25,34 @@ class TemplatePlotConfig:
 
 
 @dataclass(frozen=True)
+class TemplateCirclesPlotConfig(TemplatePlotConfig):
+	write_png: bool = False
+	write_svg: bool = False
+	relpath: str = "template_circles"
+	size_by: str = "amplitude"
+	color_by: str = "latency"
+	color_bar_units: str = ""
+	color_bar_title: str = ""
+	color_bar_show_axes_title: bool = True
+	color_bar_show_unit_labels: bool = True
+	color_bar_tick_decimal_places: int = 3
+	color_bar_tick_target_count: int | None = None
+
+
+@dataclass(frozen=True)
+class TemplatePlotsConfig:
+	waveforms: TemplatePlotConfig = field(default_factory=TemplatePlotConfig)
+	circles: TemplateCirclesPlotConfig = field(default_factory=TemplateCirclesPlotConfig)
+
+
+@dataclass(frozen=True)
 class TemplateWaveformOverlayConfig:
 	write_pdf: bool = False
 	pdf_relpath: str = "template_wf_overlay.pdf"
 	write_png: bool = True
 	png_relpath: str = "template_wf_overlay.png"
 	top_channels_per_template: int = 10
+	style: str = "overlay"
 	include_mean: bool = True
 	include_scale_bar: bool = True
 	scale_bar_color: str = "black"
@@ -53,6 +75,8 @@ class FootprintMapConfig:
 	relpath: str = "footprint_map"
 	background: str = "black"
 	color_map: str = "viridis"
+	template_shape: str = "square"
+	template_padding_value: str = "zero"
 	show_color_bar: bool = True
 	color_bar_location: str = "topright"
 	color_bar_fontsize: float = 6.0
@@ -81,9 +105,6 @@ class FootprintPlotsConfig:
 	amplitude_map: FootprintMapConfig = field(
 		default_factory=lambda: FootprintMapConfig(relpath="footprint_amplitude_map")
 	)
-	peak_latency_map: FootprintMapConfig = field(
-		default_factory=lambda: FootprintMapConfig(relpath="footprint_peak_latency_map")
-	)
 	latency_map: FootprintMapConfig = field(
 		default_factory=lambda: FootprintMapConfig(relpath="footprint_latency_map")
 	)
@@ -96,7 +117,29 @@ class TopographicalFootprintConfig:
 	relpath: str = "topographical_footprint"
 	background: str = "black"
 	color_map: str = "viridis"
+	template_shape: str = "square"
+	template_padding_value: str = "zero"
 	show_color_bar: bool = True
+	color_bar_location: str = "topright"
+	color_bar_fontsize: float = 6.0
+	color_bar_length_fraction: float = 0.3
+	color_bar_pad_fraction: float = 0.02
+	force_low_value: float | None = 0.0
+	force_high_value: float | None = None
+	scale: str = "linear"
+	percentile_low: float = 5.0
+	percentile_high_linear: float = 99.0
+	percentile_high_log: float = 99.5
+	knot_anchor_values: tuple[float, float] = (1.0, 10.0)
+	knot_y1_min: float = 0.02
+	knot_y1_max: float = 0.90
+	knot_y2_min: float = 0.07
+	knot_y2_max: float = 0.98
+	knot_min_gap: float = 0.05
+	linear_cap_rounding_mode: str = "ceil_step"
+	linear_cap_rounding_step: float = 10.0
+	linear_cap_min_vmax: float = 11.0
+	show_ticks: tuple[Any, ...] = (1, 10, "dynamic_high")
 	elevation_deg: float = 35.0
 	azimuth_deg: float = -60.0
 	marker_size: float = 14.0
@@ -113,6 +156,47 @@ class TopographicalFootprintsConfig:
 
 
 @dataclass(frozen=True)
+class PropagationAxesConfig:
+	show: bool = True
+	xlabel: str = "x (um)"
+	ylabel: str = "y (um)"
+	label_fontsize: float = 6.0
+	tick_fontsize: float = 5.0
+
+
+@dataclass(frozen=True)
+class PropagationLatencyMapConfig:
+	show: bool = True
+	color_map: str = "viridis"
+	force_square_aspect: bool = True
+	title: str = "Latency Map"
+	fontsize: float = 6.0
+	template_shape: str = "top_channels_only"
+	show_color_bar: bool = True
+	color_bar_location: str = "topright"
+	color_bar_fontsize: float = 6.0
+	color_bar_length_fraction: float = 0.3
+	color_bar_pad_fraction: float = 0.02
+	force_low_value: float | None = 0.0
+	force_high_value: float | None = None
+	scale: str = "linear"
+	percentile_low: float = 5.0
+	percentile_high_linear: float = 99.0
+	percentile_high_log: float = 99.5
+	knot_anchor_values: tuple[float, float] = (1.0, 10.0)
+	knot_y1_min: float = 0.02
+	knot_y1_max: float = 0.90
+	knot_y2_min: float = 0.07
+	knot_y2_max: float = 0.98
+	knot_min_gap: float = 0.05
+	linear_cap_rounding_mode: str = "ceil_step"
+	linear_cap_rounding_step: float = 10.0
+	linear_cap_min_vmax: float = 11.0
+	show_ticks: tuple[Any, ...] = (1, 10, "dynamic_high")
+	axes: PropagationAxesConfig = field(default_factory=PropagationAxesConfig)
+
+
+@dataclass(frozen=True)
 class PropagationPlotConfig:
 	write_pdf: bool = False
 	pdf_relpath: str = "propagation_plot.pdf"
@@ -125,6 +209,7 @@ class PropagationPlotConfig:
 	show_electrode_ids: bool = False
 	trace_gain: float = 1.0
 	trace_spacing: float = 1.0
+	latency_map: PropagationLatencyMapConfig = field(default_factory=PropagationLatencyMapConfig)
 
 
 @dataclass(frozen=True)
@@ -140,7 +225,7 @@ class MergeConfig:
 	method: str = "mean_all_waveforms"
 	centering_method: str = "pre_peak_robust_baseline"
 	weighting_mode: str = "per_channel_waveform_count"
-	max_waveforms_per_source_channel: int = 500
+	max_waveforms_per_source_channel: int | None = 500
 	overlap_match_priority: tuple[str, ...] = ("electrode_id", "channel_id", "location")
 	location_tolerance_um: float = 1.0
 
@@ -160,6 +245,8 @@ class FootprintMapGridReportConfig:
 	pdf_relpath: str = "footprint_map_grid.pdf"
 	write_png: bool = True
 	png_relpath: str = "footprint_map_grid.png"
+	template_shape: str = "square"
+	global_color_scale: bool = True
 
 
 @dataclass(frozen=True)
@@ -214,10 +301,26 @@ class PerUnitTemplatesOutputsConfig:
 		default_factory=lambda: TemplateArtifactConfig(write_npy=False, npy_relpath="full_template.npy", padding_value="zero")
 	)
 	template: TemplatePlotConfig = field(default_factory=TemplatePlotConfig)
+	template_circles: TemplateCirclesPlotConfig = field(default_factory=TemplateCirclesPlotConfig)
 	template_wf_overlay: TemplateWaveformOverlayConfig = field(default_factory=TemplateWaveformOverlayConfig)
 	footprint_plots: FootprintPlotsConfig = field(default_factory=FootprintPlotsConfig)
 	topographical_footprints: TopographicalFootprintsConfig = field(default_factory=TopographicalFootprintsConfig)
 	propagation_plots: PropagationPlotConfig = field(default_factory=PropagationPlotConfig)
+
+	@property
+	def template_plots(self) -> TemplatePlotsConfig:
+		# Compatibility convenience for new nested runtime schema.
+		return TemplatePlotsConfig(waveforms=self.template, circles=self.template_circles)
+
+
+@dataclass(frozen=True)
+class ProbeGeometryConfig:
+	pitch_um: float | None = None
+	electrode_size_um_x: float | None = None
+	electrode_size_um_y: float | None = None
+	active_area_um_x: float | None = None
+	active_area_um_y: float | None = None
+	sampling_rate_hz: float | None = None
 
 
 @dataclass(frozen=True)
@@ -240,4 +343,5 @@ class TemplatesInputs:
 	include_concat: bool = True
 	include_segments: bool = True
 	merge: MergeConfig = field(default_factory=MergeConfig)
+	probe_geometry: ProbeGeometryConfig | None = None
 	n_jobs: int = 1
