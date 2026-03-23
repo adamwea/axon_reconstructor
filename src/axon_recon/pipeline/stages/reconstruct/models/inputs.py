@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
+
 
 @dataclass(frozen=True)
 class PerUnitOutputsConfig:
@@ -24,6 +26,10 @@ class PerUnitOutputsConfig:
 	write_gtr_json: bool = False
 	gtr_json_relpath: str = "gtr.json"
 
+	write_amplitude_map_png: bool = False
+	amplitude_map_png_relpath: str = "amplitude_map.png"
+	amplitude_map_heatmap: SharedHeatmapConfig = field(default_factory=SharedHeatmapConfig)
+
 
 @dataclass(frozen=True)
 class ReconstructionInputs:
@@ -32,6 +38,11 @@ class ReconstructionInputs:
 	mea_output_root: Path
 
 	output_rel_root: str = "recon_outputs"
+	write_summary_png: bool = False
+	summary_png_relpath: str = "summary.png"
+	summary_grid_ncols: int = 5
+	write_report_md: bool = False
+	report_md_relpath: str = "report.md"
 	per_unit_outputs: PerUnitOutputsConfig = field(default_factory=PerUnitOutputsConfig)
 
 	unit_ids: list[Any] | None = None

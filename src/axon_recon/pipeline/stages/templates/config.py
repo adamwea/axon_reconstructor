@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from axon_reconstructor.runtime_config import RuntimeConfig
+from axon_recon.pipeline.shared.plotting import build_stage_plot_block
 
 from ...execution.context import ExecutionTarget
 from .models.inputs import (
@@ -110,9 +111,9 @@ def _output_paths(*suffixes: str) -> tuple[str, ...]:
 
 
 def _get_template_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
-	return _first_dict_block(
-		runtime_config,
-		(
+	return build_stage_plot_block(
+		runtime_config=runtime_config,
+		stage_paths=(
 			*_output_paths("per_unit_outputs.template_plots.waveforms"),
 			*_output_paths("per_unit_outputs.full_template.template_plots.waveforms"),
 			*_output_paths("per_unit_outputs.template"),
@@ -120,16 +121,29 @@ def _get_template_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
 			"stages.reconstruct.outputs.per_unit_outputs.template",
 			"stages.reconstruct.outputs.per_unit_outputs.template_plot",
 		),
+		global_paths=(
+			"default",
+			"template",
+			"template_plots.default",
+			"template_plots.waveforms",
+		),
 	)
 
 
 def _get_template_circles_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
-	return _first_dict_block(
-		runtime_config,
-		(
+	return build_stage_plot_block(
+		runtime_config=runtime_config,
+		stage_paths=(
 			*_output_paths("per_unit_outputs.template_plots.circles"),
 			*_output_paths("per_unit_outputs.full_template.template_plots.circles"),
 			*_output_paths("per_unit_outputs.template_circles"),
+		),
+		global_paths=(
+			"default",
+			"template",
+			"template_plots.default",
+			"template_plots.circles",
+			"circles",
 		),
 	)
 
@@ -186,31 +200,48 @@ def _get_reports_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
 
 
 def _get_footprint_map_block(runtime_config: RuntimeConfig, map_name: str) -> dict[str, Any]:
-	return _first_dict_block(
-		runtime_config,
-		(
+	return build_stage_plot_block(
+		runtime_config=runtime_config,
+		stage_paths=(
 			*_output_paths(f"per_unit_outputs.footprint_plots.{map_name}"),
 			*_output_paths(f"per_unit_outputs.full_template.footprint_plots.{map_name}"),
+		),
+		global_paths=(
+			"default",
+			"footprint_plots.default",
+			f"footprint_plots.{map_name}",
+			"maps.default",
+			f"maps.{map_name}",
 		),
 	)
 
 
 def _get_topographical_footprint_block(runtime_config: RuntimeConfig, map_name: str) -> dict[str, Any]:
-	return _first_dict_block(
-		runtime_config,
-		(
+	return build_stage_plot_block(
+		runtime_config=runtime_config,
+		stage_paths=(
 			*_output_paths(f"per_unit_outputs.topographical_footprints.{map_name}"),
 			*_output_paths(f"per_unit_outputs.full_template.topographical_footprints.{map_name}"),
+		),
+		global_paths=(
+			"default",
+			"topographical_footprints.default",
+			f"topographical_footprints.{map_name}",
 		),
 	)
 
 
 def _get_propagation_plots_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
-	return _first_dict_block(
-		runtime_config,
-		(
+	return build_stage_plot_block(
+		runtime_config=runtime_config,
+		stage_paths=(
 			*_output_paths("per_unit_outputs.propagation_plots"),
 			*_output_paths("per_unit_outputs.full_template.propagation_plots"),
+		),
+		global_paths=(
+			"default",
+			"propagation_plots.default",
+			"propagation_plots",
 		),
 	)
 

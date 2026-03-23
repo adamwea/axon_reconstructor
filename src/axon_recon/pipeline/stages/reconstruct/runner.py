@@ -15,10 +15,13 @@ from .core.reconstruct import (
 	compute_raw_branches_payload,
 	load_templates_for_unit,
 )
+from .core.summary_plots import write_amplitude_map_summary_png
+from .core.unit_plots import write_unit_amplitude_map_png
 from .integrations.axon_velocity import compute_graph_tracking, import_axon_velocity
 from .io import read_json, resolve_unit_output_paths, write_json
 from .models.inputs import ReconstructionInputs
 from .models.results import ReconstructionResult, UnitReconstructionResult
+from .reporting.slides import write_reconstruct_report_markdown
 
 
 LOGGER = logging.getLogger("axon_recon.reconstruct")
@@ -153,6 +156,18 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 				write_json(paths["gtr_json"], payload)
 				unit_summary["outputs"]["gtr_json"] = str(paths["gtr_json"])
 
+			if bool(inputs.per_unit_outputs.write_amplitude_map_png):
+				amplitude_map_path = paths["amplitude_map_png"]
+				if bool(inputs.force_replot) or (not amplitude_map_path.exists()):
+					write_unit_amplitude_map_png(
+						output_png=amplitude_map_path,
+						template_ch_by_t=template_ch_by_t,
+						locs_xy=locs_xy,
+						heatmap_config=inputs.per_unit_outputs.amplitude_map_heatmap,
+					)
+				if amplitude_map_path.exists():
+					unit_summary["outputs"]["amplitude_map_png"] = str(amplitude_map_path)
+
 		except Exception as exc:
 			unit_summary["status"] = "error"
 			unit_summary["error"] = str(exc)
@@ -184,6 +199,46 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 	# Keep summary output deterministic across serial/threaded modes.
 	unit_results.sort(key=lambda r: str(r.unit_id))
 
+	stage_outputs: dict[str, str] = {}
+	if bool(inputs.write_summary_png):
+		summary_png = reconstruction_out_dir / Path(str(inputs.summary_png_relpath)).expanduser()
+		entries: list[tuple[Any, Path]] = []
+		for item in unit_results:
+			p = item.outputs.get("amplitude_map_png") if isinstance(item.outputs, dict) else None
+			if p:
+				entries.append((item.unit_id, Path(str(p))))
+		if entries:
+			wrote = write_amplitude_map_summary_png(
+				entries=entries,
+				output_png=summary_png,
+				ncols=int(max(1, int(inputs.summary_grid_ncols))),
+			)
+			if wrote and summary_png.exists():
+				stage_outputs["summary_png"] = str(summary_png)
+
+	unit_rows = [
+		{
+			"unit_id": u.unit_id,
+			"status": u.status,
+			"outputs": u.outputs,
+			"error": u.error,
+		}
+		for u in unit_results
+	]
+
+	if bool(inputs.write_report_md):
+		report_md = reconstruction_out_dir / Path(str(inputs.report_md_relpath)).expanduser()
+		write_reconstruct_report_markdown(
+			output_md=report_md,
+			h5_path=inputs.h5_path,
+			stream_id=inputs.stream_id,
+			reconstruction_out_dir=reconstruction_out_dir,
+			stage_outputs=stage_outputs,
+			unit_rows=unit_rows,
+		)
+		if report_md.exists():
+			stage_outputs["report_md"] = str(report_md)
+
 	summary_json = reconstruction_out_dir / "reconstruction_summary.json"
 	summary_payload = {
 		"h5_path": str(inputs.h5_path),
@@ -191,15 +246,8 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 		"n_jobs": int(max(1, int(inputs.n_jobs))),
 		"well_out_dir": str(well_out_dir),
 		"reconstruction_out_dir": str(reconstruction_out_dir),
-		"units": [
-			{
-				"unit_id": u.unit_id,
-				"status": u.status,
-				"outputs": u.outputs,
-				"error": u.error,
-			}
-			for u in unit_results
-		],
+		"outputs": stage_outputs,
+		"units": unit_rows,
 	}
 	write_json(summary_json, summary_payload)
 

@@ -4,6 +4,11 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np  # type: ignore[import-not-found]
+from axon_recon.pipeline.shared.plotting import colorbar_axes_bounds
+from axon_recon.pipeline.shared.plotting import compute_value_limits
+from axon_recon.pipeline.shared.plotting import normalize_corner_location
+from axon_recon.pipeline.shared.plotting import prepare_linear_or_log_mapping
+from axon_recon.pipeline.shared.plotting import ticks_ending_in_0_or_5_with_max
 
 from ..models.inputs import (
 	FootprintMapGridReportConfig,
@@ -661,42 +666,41 @@ def _ticks_ending_in_0_or_5_with_max(
 	decimal_places: int = 3,
 	target_count: int | None = None,
 ) -> np.ndarray:
-	vmin_f = float(vmin)
-	vmax_f = float(vmax)
-	if not np.isfinite(vmin_f) or not np.isfinite(vmax_f):
-		return np.asarray([], dtype=float)
-	if vmax_f <= vmin_f:
-		return np.asarray([vmax_f], dtype=float)
+	return ticks_ending_in_0_or_5_with_max(
+		vmin=vmin,
+		vmax=vmax,
+		decimal_places=decimal_places,
+		target_count=target_count,
+	)
 
-	decimals = int(max(0, min(6, int(decimal_places))))
-	if target_count is None:
-		target = int(max(6, min(16, 6 + (decimals * 2))))
-	else:
-		target = int(max(3, min(24, int(target_count))))
 
-	span = float(vmax_f - vmin_f)
-	base_step = float(5.0 * (10.0 ** (-decimals)))
-	if base_step <= float(np.finfo(float).eps):
-		base_step = float(np.finfo(float).eps)
-
-	multiplier = max(1, int(np.ceil(span / (base_step * float(max(1, target - 1))))))
-	step = base_step * float(multiplier)
-
-	start = float(np.ceil(vmin_f / step) * step)
-	ticks = np.arange(start, vmax_f + (0.25 * step), step, dtype=float)
-	ticks = ticks[np.isfinite(ticks)]
-	ticks = ticks[(ticks >= (vmin_f - 1e-12)) & (ticks <= (vmax_f + 1e-12))]
-
-	if ticks.size == 0:
-		ticks = np.asarray([vmax_f], dtype=float)
-
-	atol = max(1e-12, abs(step) * 1e-6)
-	if not np.any(np.isclose(ticks, vmax_f, rtol=0.0, atol=atol)):
-		ticks = np.append(ticks, vmax_f)
-
-	ticks = np.unique(np.round(ticks, 12))
-	ticks.sort()
-	return ticks
+def _add_location_aware_colorbar(
+	*,
+	fig: Any,
+	ax: Any,
+	mappable: Any,
+	location: str,
+	length_fraction: float,
+	pad_fraction: float,
+	default_fraction: float,
+	default_pad: float,
+) -> Any:
+	loc = normalize_corner_location(location, default="topright")
+	if loc == "topright":
+		return fig.colorbar(
+			mappable,
+			ax=ax,
+			fraction=float(default_fraction),
+			pad=float(default_pad),
+		)
+	cax = fig.add_axes(
+		colorbar_axes_bounds(
+			location=loc,
+			length_fraction=float(length_fraction),
+			pad_fraction=float(pad_fraction),
+		)
+	)
+	return fig.colorbar(mappable, cax=cax)
 
 
 def _render_topographical_footprint(
@@ -741,16 +745,25 @@ def _render_topographical_footprint(
 		text_color = "black"
 
 	cmap = plt.get_cmap(_maybe_reversed_colormap(str(config.color_map), reverse=bool(reverse_color_map)))
-	vmin = float(np.nanmin(vals)) if vals.size > 0 else 0.0
-	vmax = float(np.nanmax(vals)) if vals.size > 0 else 1.0
-	if not np.isfinite(vmin):
-		vmin = 0.0
-	if not np.isfinite(vmax):
-		vmax = 1.0
-	if vmax <= vmin:
-		vmax = vmin + 1.0
-	norm = plt.Normalize(vmin=vmin, vmax=vmax)
-	colors = cmap(norm(vals))
+	vmin, vmax = compute_value_limits(
+		values=np.asarray(vals, dtype=float),
+		scale=str(config.scale),
+		percentile_low=float(config.percentile_low),
+		percentile_high_linear=float(config.percentile_high_linear),
+		percentile_high_log=float(config.percentile_high_log),
+		force_low_value=config.force_low_value,
+		force_high_value=config.force_high_value,
+		linear_cap_rounding_mode=str(config.linear_cap_rounding_mode),
+		linear_cap_rounding_step=float(config.linear_cap_rounding_step),
+		linear_cap_min_vmax=float(config.linear_cap_min_vmax),
+	)
+	vals_plot, norm, _, _ = prepare_linear_or_log_mapping(
+		values=vals,
+		scale=str(config.scale),
+		vmin=float(vmin),
+		vmax=float(vmax),
+	)
+	colors = cmap(norm(vals_plot))
 	dims = _probe_electrode_dims_um(probe_geometry)
 	if dims is None:
 		side = _fallback_square_side_um(locs[:, :2])
@@ -792,8 +805,17 @@ def _render_topographical_footprint(
 
 	if bool(config.show_color_bar):
 		sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
-		sm.set_array(vals)
-		cbar = fig.colorbar(sm, ax=ax, fraction=0.035, pad=0.08)
+		sm.set_array(vals_plot)
+		cbar = _add_location_aware_colorbar(
+			fig=fig,
+			ax=ax,
+			mappable=sm,
+			location=str(config.color_bar_location),
+			length_fraction=float(config.color_bar_length_fraction),
+			pad_fraction=float(config.color_bar_pad_fraction),
+			default_fraction=0.035,
+			default_pad=0.08,
+		)
 		cbar.ax.tick_params(colors=text_color)
 
 	outputs: dict[str, str] = {}
@@ -1000,16 +1022,18 @@ def render_propagation_plot(
 				linear_cap_min_vmax=float(config.latency_map.linear_cap_min_vmax),
 			),
 		)
-		if str(config.latency_map.scale).lower() == "log":
-			from matplotlib.colors import LogNorm  # type: ignore[import-not-found]
-
-			vmin_eff = max(1e-9, float(vmin))
-			lat_plot = np.clip(lat_values, vmin_eff, None)
-			sc.set_norm(LogNorm(vmin=vmin_eff, vmax=max(vmin_eff * 1.0001, float(vmax))))
+		lat_plot, lat_norm, vmin_eff, vmax_eff = prepare_linear_or_log_mapping(
+			values=lat_values,
+			scale=str(config.latency_map.scale),
+			vmin=float(vmin),
+			vmax=float(vmax),
+		)
+		if lat_norm is not None:
+			sc.set_norm(lat_norm)
 			sc.set_array(lat_plot)
 		else:
-			sc.set_array(lat_values)
-			sc.set_clim(float(vmin), float(vmax))
+			sc.set_array(lat_plot)
+			sc.set_clim(float(vmin_eff), float(vmax_eff))
 		map_ax.add_collection(sc)
 		xmin, xmax, ymin, ymax = _compute_plot_limits(map_locs, pad_frac=0.01, pad_abs=max(1.0, float(dx * 0.2)))
 		xmin, xmax, ymin, ymax = _expand_limits_for_glyph_half_size(
@@ -1043,11 +1067,15 @@ def render_propagation_plot(
 		if bool(config.latency_map.force_square_aspect):
 			map_ax.set_aspect("equal", adjustable="box")
 		if bool(config.latency_map.show_color_bar):
-			cbar = fig.colorbar(
-				sc,
+			cbar = _add_location_aware_colorbar(
+				fig=fig,
 				ax=map_ax,
-				fraction=float(config.latency_map.color_bar_length_fraction),
-				pad=float(config.latency_map.color_bar_pad_fraction),
+				mappable=sc,
+				location=str(config.latency_map.color_bar_location),
+				length_fraction=float(config.latency_map.color_bar_length_fraction),
+				pad_fraction=float(config.latency_map.color_bar_pad_fraction),
+				default_fraction=float(config.latency_map.color_bar_length_fraction),
+				default_pad=float(config.latency_map.color_bar_pad_fraction),
 			)
 			cbar.ax.tick_params(labelsize=float(config.latency_map.color_bar_fontsize), colors=text_color)
 			try:
@@ -1350,28 +1378,18 @@ def render_image_grid(
 
 
 def _map_values_to_limits(values: np.ndarray, config: FootprintMapConfig) -> tuple[float, float]:
-	v = np.asarray(values, dtype=float)
-	v = v[np.isfinite(v)]
-	if v.size == 0:
-		return 0.0, 1.0
-	vmin = float(np.percentile(v, float(config.percentile_low)))
-	high_pct = float(config.percentile_high_log if str(config.scale).lower() == "log" else config.percentile_high_linear)
-	vmax = float(np.percentile(v, high_pct))
-	if config.force_low_value is not None:
-		vmin = float(config.force_low_value)
-	if config.force_high_value is not None:
-		vmax = float(config.force_high_value)
-	if str(config.linear_cap_rounding_mode).lower() == "ceil_step":
-		step = max(1e-9, float(config.linear_cap_rounding_step))
-		vmax = np.ceil(vmax / step) * step
-		vmax = max(vmax, float(config.linear_cap_min_vmax))
-	if not np.isfinite(vmin):
-		vmin = float(np.min(v))
-	if not np.isfinite(vmax):
-		vmax = float(np.max(v))
-	if vmax <= vmin:
-		vmax = vmin + 1.0
-	return float(vmin), float(vmax)
+	return compute_value_limits(
+		values=np.asarray(values, dtype=float),
+		scale=str(config.scale),
+		percentile_low=float(config.percentile_low),
+		percentile_high_linear=float(config.percentile_high_linear),
+		percentile_high_log=float(config.percentile_high_log),
+		force_low_value=config.force_low_value,
+		force_high_value=config.force_high_value,
+		linear_cap_rounding_mode=str(config.linear_cap_rounding_mode),
+		linear_cap_rounding_step=float(config.linear_cap_rounding_step),
+		linear_cap_min_vmax=float(config.linear_cap_min_vmax),
+	)
 
 
 def _limits_for_template_shape(
@@ -1448,15 +1466,12 @@ def _render_footprint_map(
 		ax.set_facecolor("white")
 		text_color = "black"
 
-	norm = None
-	if str(config.scale).lower() == "log":
-		from matplotlib.colors import LogNorm  # type: ignore[import-not-found]
-
-		vmin_eff = max(1e-9, vmin)
-		vals_plot = np.clip(vals, vmin_eff, None)
-		norm = LogNorm(vmin=vmin_eff, vmax=max(vmin_eff * 1.0001, vmax))
-	else:
-		vals_plot = vals
+	vals_plot, norm, vmin_eff, vmax_eff = prepare_linear_or_log_mapping(
+		values=vals,
+		scale=str(config.scale),
+		vmin=float(vmin),
+		vmax=float(vmax),
+	)
 
 	dims = _probe_electrode_dims_um(probe_geometry)
 	from matplotlib.collections import PatchCollection  # type: ignore[import-not-found]
@@ -1483,7 +1498,7 @@ def _render_footprint_map(
 	if norm is not None:
 		sc.set_norm(norm)
 	else:
-		sc.set_clim(vmin, vmax)
+		sc.set_clim(vmin_eff, vmax_eff)
 	ax.add_collection(sc)
 	xmin, xmax, ymin, ymax = _limits_for_template_shape(
 		locs,
@@ -1505,7 +1520,16 @@ def _render_footprint_map(
 	ax.set_title(title, color=text_color)
 
 	if bool(config.show_color_bar):
-		cbar = fig.colorbar(sc, ax=ax, fraction=float(config.color_bar_length_fraction), pad=float(config.color_bar_pad_fraction))
+		cbar = _add_location_aware_colorbar(
+			fig=fig,
+			ax=ax,
+			mappable=sc,
+			location=str(config.color_bar_location),
+			length_fraction=float(config.color_bar_length_fraction),
+			pad_fraction=float(config.color_bar_pad_fraction),
+			default_fraction=float(config.color_bar_length_fraction),
+			default_pad=float(config.color_bar_pad_fraction),
+		)
 		cbar.ax.tick_params(labelsize=float(config.color_bar_fontsize), colors=text_color)
 		try:
 			cbar.outline.set_edgecolor(text_color)

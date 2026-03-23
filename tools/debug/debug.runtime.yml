@@ -17,6 +17,72 @@ resources:
   chunk_duration: 1s
 
 global_heatmap_plotting:
+  # Shared defaults for heatmap-like plots across templates and reconstruct/recon.
+  # Stage/output blocks can override any of these values.
+  default:
+    background: black
+    color_map: viridis
+    color_bar:
+      show_color_bar: true
+      color_bar_location: topright
+      color_bar_fontsize: 6
+      color_bar_length_fraction: 0.3
+      color_bar_pad_fraction: 0.02
+      force_low_value: 0
+      force_high_value: null
+      scale: linear
+      percentile_low: 5.0
+      percentile_high_linear: 99.0
+      percentile_high_log: 99.5
+      knot_anchor_values: [1.0, 10.0]
+      knot_y1_min: 0.02
+      knot_y1_max: 0.90
+      knot_y2_min: 0.07
+      knot_y2_max: 0.98
+      knot_min_gap: 0.05
+      linear_cap_rounding_mode: ceil_step
+      linear_cap_rounding_step: 10.0
+      linear_cap_min_vmax: 11.0
+      show_ticks: [1, 10, dynamic_high]
+
+  template_plots:
+    waveforms:
+      background: black
+      signal_color: white
+      show_scale_bar: true
+      scale_bar_color: white
+    circles:
+      background: black
+      signal_color: white
+      show_scale_bar: true
+      scale_bar_color: white
+      color_bar:
+        units: ms
+        show_axes_title: false
+        show_unit_label: true
+        tick_decimal_places: 3
+        tick_target_count: 10
+
+  footprint_plots:
+    default:
+      template:
+        shape: square
+        padding_value: zero
+
+  topographical_footprints:
+    default:
+      template:
+        shape: square
+        padding_value: zero
+      elevation_deg: 35
+      azimuth_deg: -60
+      marker_size: 14
+
+  propagation_plots:
+    default:
+      background: white
+      latency_map:
+        show: true
 
 stages:
   preprocess:
@@ -525,6 +591,39 @@ stages:
         write_gtr_json: false
         gtr_json_relpath: gtr.json
 
+        # Per-unit amplitude map (v2 shared heatmap path)
+        write_amplitude_map_png: true
+        amplitude_map_png_relpath: maps/amplitude_map.png
+        amplitude_map:
+          relpath: maps/amplitude_map
+          panel_background_color: black
+          color_bar:
+            show: true
+            location: topright
+            fontsize: 6
+            fontcolor: white
+            length_fraction: 0.3
+            pad_fraction: 0.02
+            high_color: red
+            mid_color: white
+            low_color: blue
+            force_low_value: 0
+            force_high_value: null
+            scale: linear
+            percentile_low: 5.0
+            percentile_high_linear: 99.0
+            percentile_high_log: 99.5
+            knot_anchor_values: [1.0, 10.0]
+            knot_y1_min: 0.02
+            knot_y1_max: 0.90
+            knot_y2_min: 0.07
+            knot_y2_max: 0.98
+            knot_min_gap: 0.05
+            linear_cap_rounding_mode: ceil_step
+            linear_cap_rounding_step: 10.0
+            linear_cap_min_vmax: 11.0
+            show_ticks: [1, 10, dynamic_high]
+
   ## Reconstruct Stage Updated to Pipeline V2 above this line. -------------------------
 
       # Amplitude Map
@@ -605,6 +704,8 @@ stages:
       template_movie_relpath: template_movie.gif
       write_summary: false
       summary_relpath: summary.png
+      write_report_md: false
+      report_md_relpath: report.md
       write_summary_clean: false
       summary_clean_relpath: summary_clean.png
       write_summary_raw: false

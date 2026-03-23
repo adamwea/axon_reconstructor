@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import numpy as np
+
+from axon_recon.pipeline.stages.reconstruct.models.inputs import PerUnitOutputsConfig
+from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionInputs
+from axon_recon.pipeline.stages.reconstruct.runner import run_reconstruct_stage
+
+
+def test_run_reconstruct_stage_emits_summary_and_report_outputs(tmp_path: Path, monkeypatch) -> None:
+	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
+
+	well_out_dir = tmp_path / "well001"
+	well_out_dir.mkdir(parents=True, exist_ok=True)
+
+	def _fake_compute_mea_analysis_output_dir(*, output_root: Path, data_file: Path, well: str) -> Path:
+		return well_out_dir
+
+	def _fake_resolve_templates_dirs(_well_out_dir: Path) -> tuple[Path, Path, Path]:
+		templates_out = tmp_path / "templates_out"
+		merged = tmp_path / "templates_merged"
+		full = tmp_path / "templates_full"
+		templates_out.mkdir(parents=True, exist_ok=True)
+		merged.mkdir(parents=True, exist_ok=True)
+		full.mkdir(parents=True, exist_ok=True)
+		return templates_out, merged, full
+
+	def _fake_import_axon_velocity(*, repo_root):
+		return object()
+
+	def _fake_load_templates_for_unit(**kwargs):
+		template = np.array([[-5.0, -10.0, -3.0], [-2.0, -4.0, -1.0], [-1.0, -6.0, -2.0]], dtype=float)
+		locs = np.array([[0.0, 0.0], [17.5, 0.0], [0.0, 17.5]], dtype=float)
+		return template, locs, 10_000.0, "merged_contributing"
+
+	def _fake_compute_graph_tracking(**kwargs):
+		return object()
+
+	def _fake_write_unit_amplitude_map_png(**kwargs):
+		out = Path(kwargs["output_png"])
+		out.parent.mkdir(parents=True, exist_ok=True)
+		out.write_bytes(b"png")
+
+	def _fake_write_amplitude_map_summary_png(*, entries, output_png: Path, ncols: int, title: str = "") -> bool:
+		output_png.parent.mkdir(parents=True, exist_ok=True)
+		output_png.write_bytes(b"summary")
+		return True
+
+	monkeypatch.setattr(reconstruct_runner, "compute_mea_analysis_output_dir", _fake_compute_mea_analysis_output_dir)
+	monkeypatch.setattr(reconstruct_runner, "_resolve_templates_dirs", _fake_resolve_templates_dirs)
+	monkeypatch.setattr(reconstruct_runner, "import_axon_velocity", _fake_import_axon_velocity)
+	monkeypatch.setattr(reconstruct_runner, "load_templates_for_unit", _fake_load_templates_for_unit)
+	monkeypatch.setattr(reconstruct_runner, "compute_graph_tracking", _fake_compute_graph_tracking)
+	monkeypatch.setattr(reconstruct_runner, "write_unit_amplitude_map_png", _fake_write_unit_amplitude_map_png)
+	monkeypatch.setattr(reconstruct_runner, "write_amplitude_map_summary_png", _fake_write_amplitude_map_summary_png)
+
+	inputs = ReconstructionInputs(
+		h5_path=tmp_path / "input.raw.h5",
+		stream_id="well001",
+		mea_output_root=tmp_path,
+		output_rel_root="recon_outputs",
+		write_summary_png=True,
+		summary_png_relpath="reports/summary.png",
+		summary_grid_ncols=2,
+		write_report_md=True,
+		report_md_relpath="reports/report.md",
+		unit_ids=[1, 2],
+		n_jobs=1,
+		per_unit_outputs=PerUnitOutputsConfig(
+			write_branches_raw_json=False,
+			write_branches_json=False,
+			write_heuristics_json=False,
+			write_gtr_pkl=False,
+			write_gtr_json=False,
+			write_amplitude_map_png=True,
+			amplitude_map_png_relpath="maps/amplitude_map.png",
+		),
+	)
+
+	result = run_reconstruct_stage(inputs)
+	assert result.summary_json.exists()
+
+	payload = json.loads(result.summary_json.read_text(encoding="utf-8"))
+	outputs = payload.get("outputs", {})
+	assert "summary_png" in outputs
+	assert "report_md" in outputs
+	assert Path(outputs["summary_png"]).exists()
+	assert Path(outputs["report_md"]).exists()
+
+	units = payload.get("units", [])
+	assert len(units) == 2
+	for unit in units:
+		assert unit.get("status") == "ok"
+		assert "amplitude_map_png" in dict(unit.get("outputs", {}))

@@ -97,5 +97,6 @@ def resolve_unit_output_paths(
 		"heuristics_json": unit_dir / Path(str(per_unit_outputs.heuristics_relpath)).expanduser(),
 		"gtr_pkl": unit_dir / Path(str(per_unit_outputs.gtr_pkl_relpath)).expanduser(),
 		"gtr_json": unit_dir / Path(str(per_unit_outputs.gtr_json_relpath)).expanduser(),
+		"amplitude_map_png": unit_dir / Path(str(per_unit_outputs.amplitude_map_png_relpath)).expanduser(),
 	}
 

@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from axon_reconstructor.runtime_config import RuntimeConfig
+from axon_recon.pipeline.shared.plotting import build_stage_plot_block
+from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
 
 from ...execution.context import ExecutionTarget
 from .models.inputs import PerUnitOutputsConfig, ReconstructionInputs
@@ -32,9 +34,55 @@ def _resolve_data_config_path(runtime_config_path: Path, data_ref: str | None) -
 	return p
 
 
+def _deep_merge_dict(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+	merged = dict(base)
+	for key, value in override.items():
+		existing = merged.get(key)
+		if isinstance(existing, dict) and isinstance(value, dict):
+			merged[key] = _deep_merge_dict(existing, value)
+		else:
+			merged[key] = value
+	return merged
+
+
+def _normalize_png_relpath(raw: Any, default: str) -> str:
+	text = str(raw).strip() if raw is not None else str(default)
+	if not text:
+		text = str(default)
+	if "." not in Path(text).name:
+		return f"{text}.png"
+	return text
+
+
+def _get_reconstruct_amplitude_map_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
+	stage_block = build_stage_plot_block(
+		runtime_config=runtime_config,
+		stage_paths=(
+			"stages.reconstruct.outputs.amplitude_map",
+		),
+		global_paths=(
+			"default",
+			"reconstruct",
+			"reconstruct.amplitude_map",
+			"footprint",
+			"footprint_plots.default",
+			"footprint_plots.amplitude_map",
+		),
+	)
+	per_unit_block = runtime_config.get("stages.reconstruct.outputs.per_unit_outputs.amplitude_map", {})
+	if isinstance(per_unit_block, dict) and per_unit_block:
+		return _deep_merge_dict(stage_block, dict(per_unit_block))
+	return stage_block
+
+
 @dataclass(frozen=True)
 class ReconstructionStageConfig:
 	output_rel_root: str
+	write_summary_png: bool
+	summary_png_relpath: str
+	summary_grid_ncols: int
+	write_report_md: bool
+	report_md_relpath: str
 	per_unit_outputs: PerUnitOutputsConfig
 	unit_ids: list[int] | None
 	unit_limit: int | None
@@ -58,6 +106,7 @@ def parse_reconstruction_stage_config(
 	outputs_cfg = stage_cfg.get("outputs", {}) if isinstance(stage_cfg.get("outputs", {}), dict) else {}
 	per_unit_cfg = outputs_cfg.get("per_unit_outputs", {}) if isinstance(outputs_cfg.get("per_unit_outputs", {}), dict) else {}
 	av_cfg = stage_cfg.get("av", {}) if isinstance(stage_cfg.get("av", {}), dict) else {}
+	amplitude_map_cfg = _get_reconstruct_amplitude_map_block(runtime_config)
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
 	force_replot = _as_bool(execution_cfg.get("force_replot", False), False)
@@ -79,6 +128,28 @@ def parse_reconstruction_stage_config(
 
 	unit_ids = [int(unit_id_override)] if unit_id_override is not None else None
 
+	write_summary_png = _as_bool(outputs_cfg.get("write_summary", False), False)
+	summary_png_relpath = _normalize_png_relpath(outputs_cfg.get("summary_relpath", "summary.png"), "summary.png")
+	write_report_md = _as_bool(outputs_cfg.get("write_report_md", False), False)
+	report_md_relpath = str(outputs_cfg.get("report_md_relpath", "report.md"))
+	try:
+		summary_grid_ncols = max(1, int(outputs_cfg.get("summary_grid_ncols", 5)))
+	except Exception:
+		summary_grid_ncols = 5
+
+	if "write_amplitude_map_png" in per_unit_cfg:
+		write_amplitude_map_png = _as_bool(per_unit_cfg.get("write_amplitude_map_png", False), False)
+	else:
+		write_amplitude_map_png = _as_bool(amplitude_map_cfg.get("write_png", False), False)
+
+	if "amplitude_map_png_relpath" in per_unit_cfg:
+		amplitude_map_png_relpath = str(per_unit_cfg.get("amplitude_map_png_relpath", "amplitude_map.png"))
+	else:
+		amplitude_map_png_relpath = _normalize_png_relpath(
+			amplitude_map_cfg.get("relpath", "amplitude_map"),
+			"amplitude_map.png",
+		)
+
 	per_unit = PerUnitOutputsConfig(
 		unit_reldir=str(per_unit_cfg.get("unit_reldir", "units/{unit_id:04d}/")),
 		write_branches_raw_json=_as_bool(per_unit_cfg.get("write_branches_raw_json", True), True),
@@ -91,10 +162,18 @@ def parse_reconstruction_stage_config(
 		gtr_pkl_relpath=str(per_unit_cfg.get("gtr_pkl_relpath", "gtr.pkl")),
 		write_gtr_json=_as_bool(per_unit_cfg.get("write_gtr_json", False), False),
 		gtr_json_relpath=str(per_unit_cfg.get("gtr_json_relpath", "gtr.json")),
+		write_amplitude_map_png=write_amplitude_map_png,
+		amplitude_map_png_relpath=amplitude_map_png_relpath,
+		amplitude_map_heatmap=SharedHeatmapConfig.from_block(amplitude_map_cfg),
 	)
 
 	return ReconstructionStageConfig(
 		output_rel_root=str(outputs_cfg.get("output_rel_root", "recon_outputs")),
+		write_summary_png=write_summary_png,
+		summary_png_relpath=summary_png_relpath,
+		summary_grid_ncols=summary_grid_ncols,
+		write_report_md=write_report_md,
+		report_md_relpath=report_md_relpath,
 		per_unit_outputs=per_unit,
 		unit_ids=unit_ids,
 		unit_limit=unit_limit,
@@ -117,6 +196,11 @@ def build_reconstruction_inputs_for_target(
 		stream_id=target.stream_id,
 		mea_output_root=target.mea_output_root,
 		output_rel_root=stage_config.output_rel_root,
+		write_summary_png=stage_config.write_summary_png,
+		summary_png_relpath=stage_config.summary_png_relpath,
+		summary_grid_ncols=stage_config.summary_grid_ncols,
+		write_report_md=stage_config.write_report_md,
+		report_md_relpath=stage_config.report_md_relpath,
 		per_unit_outputs=stage_config.per_unit_outputs,
 		unit_ids=stage_config.unit_ids,
 		unit_limit=stage_config.unit_limit,
@@ -175,6 +259,11 @@ def load_reconstruction_inputs_from_runtime(
 		stream_id=stream_id,
 		mea_output_root=output_root,
 		output_rel_root=stage_cfg.output_rel_root,
+		write_summary_png=stage_cfg.write_summary_png,
+		summary_png_relpath=stage_cfg.summary_png_relpath,
+		summary_grid_ncols=stage_cfg.summary_grid_ncols,
+		write_report_md=stage_cfg.write_report_md,
+		report_md_relpath=stage_cfg.report_md_relpath,
 		per_unit_outputs=stage_cfg.per_unit_outputs,
 		unit_ids=stage_cfg.unit_ids,
 		unit_limit=stage_cfg.unit_limit,
