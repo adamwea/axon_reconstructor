@@ -16,6 +16,8 @@ resources:
   max_workers: 24
   chunk_duration: 1s
 
+global_heatmap_plotting:
+
 stages:
   preprocess:
     execution:
