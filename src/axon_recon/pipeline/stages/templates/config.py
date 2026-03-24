@@ -152,6 +152,8 @@ def _get_template_wf_overlay_block(runtime_config: RuntimeConfig) -> dict[str, A
 	return _first_dict_block(
 		runtime_config,
 		(
+			*_output_paths("per_unit_outputs.extremum_ch_wf_overlay"),
+			*_output_paths("per_unit_outputs.full_template.extremum_ch_wf_overlay"),
 			*_output_paths("per_unit_outputs.template_wf_overlay"),
 			*_output_paths("per_unit_outputs.full_template.template_wf_overlay"),
 		),
@@ -750,17 +752,34 @@ def parse_templates_stage_config(
 		),
 	)
 	tpl_wf_overlay = TemplateWaveformOverlayConfig(
+		debug_mode=_as_bool(tpl_wf_overlay_cfg.get("debug_mode", False), False),
 		write_pdf=_as_bool(tpl_wf_overlay_cfg.get("write_pdf", False), False),
-		pdf_relpath=str(tpl_wf_overlay_cfg.get("pdf_relpath", "template_wf_overlay.pdf")),
+		pdf_relpath=str(tpl_wf_overlay_cfg.get("pdf_relpath", "extremum_ch_wf_overlay.pdf")),
 		write_png=_as_bool(tpl_wf_overlay_cfg.get("write_png", True), True),
-		png_relpath=str(tpl_wf_overlay_cfg.get("png_relpath", "template_wf_overlay.png")),
+		png_relpath=str(tpl_wf_overlay_cfg.get("png_relpath", "extremum_ch_wf_overlay.png")),
 		top_channels_per_template=max(1, _as_int(tpl_wf_overlay_cfg.get("top_channels_per_template", 10), 10)),
 		style=str(tpl_wf_overlay_cfg.get("style", "overlay")),
+		show_title=_as_bool(tpl_wf_overlay_cfg.get("show_title", False), False),
+		show_axes=_as_bool(tpl_wf_overlay_cfg.get("show_axes", False), False),
+		show_channel_labels=_as_bool(tpl_wf_overlay_cfg.get("show_channel_labels", False), False),
+		show_top_channel_info=_as_bool(tpl_wf_overlay_cfg.get("show_top_channel_info", True), True),
+		show_waveform_count_info=_as_bool(tpl_wf_overlay_cfg.get("show_waveform_count_info", True), True),
 		include_mean=_as_bool(tpl_wf_overlay_cfg.get("include_mean", True), True),
+		max_waveforms_to_show=max(1, _as_int(tpl_wf_overlay_cfg.get("max_waveforms_to_show", 100), 100)),
+		waveform_sampling_mode=str(tpl_wf_overlay_cfg.get("waveform_sampling_mode", "uniform")),
+		random_seed=(
+			None
+			if tpl_wf_overlay_cfg.get("random_seed", 0) is None
+			else _as_int(tpl_wf_overlay_cfg.get("random_seed", 0), 0)
+		),
 		include_scale_bar=_as_bool(tpl_wf_overlay_cfg.get("include_scale_bar", True), True),
 		scale_bar_color=str(tpl_wf_overlay_cfg.get("scale_bar_color", "black")),
 		scale_bar_fontsize=_as_float(tpl_wf_overlay_cfg.get("scale_bar_fontsize", 6.0), 6.0),
 		scale_bar_linewidth=_as_float(tpl_wf_overlay_cfg.get("scale_bar_linewidth", 1.8), 1.8),
+		scale_bar_time_fraction=_as_float(tpl_wf_overlay_cfg.get("scale_bar_time_fraction", 0.10), 0.10),
+		scale_bar_amp_fraction=_as_float(tpl_wf_overlay_cfg.get("scale_bar_amp_fraction", 0.10), 0.10),
+		scale_bar_time_label_offset_frac=_as_float(tpl_wf_overlay_cfg.get("scale_bar_time_label_offset_frac", 0.03), 0.03),
+		scale_bar_amp_label_offset_frac=_as_float(tpl_wf_overlay_cfg.get("scale_bar_amp_label_offset_frac", 0.02), 0.02),
 		background=str(tpl_wf_overlay_cfg.get("background", "white")),
 	)
 	reports = ReportsConfig(
@@ -817,10 +836,10 @@ def parse_templates_stage_config(
 		channel_overlap=max(0, _as_int(propagation_cfg.get("channel_overlap", 5), 5)),
 		background=str(propagation_cfg.get("background", "white")),
 		show_electrode_ids=_as_bool(propagation_cfg.get("show_electrode_ids", False), False),
-		channel_label_fontsize=_as_float(propagation_cfg.get("channel_label_fontsize", 6.0), 6.0),
-		channel_label_x_offset_frac=_as_float(propagation_cfg.get("channel_label_x_offset_frac", 0.01), 0.01),
-		channel_label_y_offset_frac=_as_float(propagation_cfg.get("channel_label_y_offset_frac", 0.0), 0.0),
-		channel_label_alignment=str(propagation_cfg.get("channel_label_alignment", "left")),
+		electrode_label_fontsize=_as_float(propagation_cfg.get("electrode_label_fontsize", propagation_cfg.get("channel_label_fontsize", 6.0)), 6.0),
+		electrode_label_x_offset_frac=_as_float(propagation_cfg.get("electrode_label_x_offset_frac", propagation_cfg.get("channel_label_x_offset_frac", 0.01)), 0.01),
+		electrode_label_y_offset_frac=_as_float(propagation_cfg.get("electrode_label_y_offset_frac", propagation_cfg.get("channel_label_y_offset_frac", 0.0)), 0.0),
+		electrode_label_alignment=str(propagation_cfg.get("electrode_label_alignment", propagation_cfg.get("channel_label_alignment", "left"))),
 		trace_gain=_as_float(propagation_cfg.get("trace_gain", 1.0), 1.0),
 		trace_spacing=_as_float(propagation_cfg.get("trace_spacing", 1.0), 1.0),
 		peak_marker_height_frac=_as_float(propagation_cfg.get("peak_marker_height_frac", 0.24), 0.24),
@@ -832,7 +851,10 @@ def parse_templates_stage_config(
 		scale_bar_amp_fraction=_as_float(propagation_cfg.get("scale_bar_amp_fraction", 0.20), 0.20),
 		force_amp_frac_to_max_amp=_as_bool(propagation_cfg.get("force_amp_frac_to_max_amp", False), False),
 		debug_max_amps_at_each_channel=_as_bool(propagation_cfg.get("debug_max_amps_at_each_channel", False), False),
-		bold_max_amp_channel_label=_as_bool(propagation_cfg.get("bold_max_amp_channel_label", False), False),
+		bold_max_amp_electrode_label=_as_bool(
+			propagation_cfg.get("bold_max_amp_electrode_label", propagation_cfg.get("bold_max_amp_channel_label", False)),
+			False,
+		),
 		scale_bar_linewidth=_as_float(propagation_cfg.get("scale_bar_linewidth", 1.8), 1.8),
 		scale_bar_fontsize=_as_float(propagation_cfg.get("scale_bar_fontsize", 7.0), 7.0),
 		scale_bar_time_label_offset_frac=_as_float(propagation_cfg.get("scale_bar_time_label_offset_frac", 0.04), 0.04),

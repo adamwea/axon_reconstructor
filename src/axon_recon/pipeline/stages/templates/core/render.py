@@ -217,7 +217,7 @@ def _add_propagation_scale_bars(
 	y0, y1 = ax.get_ylim()
 	span_x = float(max(1.0, abs(x1 - x0)))
 	span_y = float(max(1.0, abs(y1 - y0)))
-	anchor_x_frac = float(min(1.0, max(0.0, anchor_x_frac)))
+	anchor_x_frac = float(anchor_x_frac)
 	anchor_y_frac = float(min(1.0, max(0.0, anchor_y_frac)))
 	time_fraction = float(min(1.0, max(1e-6, time_fraction)))
 	amp_fraction = float(min(1.0, max(1e-6, amp_fraction)))
@@ -251,17 +251,28 @@ def _add_propagation_scale_bars(
 	amp_label = f"{_format_no_sci(amp_uv, max_decimals=3)} uV"
 
 	# Place an L-shaped scale bar with configurable anchor in axis-fraction units.
-	anchor_x = float(min(x0, x1)) + (anchor_x_frac * span_x)
+	# For propagation, anchor_x_frac controls the LEFT edge of the time bar so
+	# small negative values can nudge it slightly left of the plotting window.
+	x_left = float(min(x0, x1)) + (anchor_x_frac * span_x)
+	x_right = x_left + time_bar_samples
+	x_min = float(min(x0, x1))
+	x_max = float(max(x0, x1))
+	if x_right > (x_max - 1.0):
+		x_left -= float(x_right - (x_max - 1.0))
+		x_right = x_left + time_bar_samples
+	min_left = float(x_min - (0.15 * span_x))
+	if x_left < min_left:
+		x_left = min_left
+		x_right = x_left + time_bar_samples
+
 	anchor_y = float(min(y0, y1)) + (anchor_y_frac * span_y)
-	anchor_x = float(min(max(anchor_x, min(x0, x1) + 1.0), max(x0, x1) - 1.0))
 	anchor_y = float(min(max(anchor_y, min(y0, y1) + 1.0), max(y0, y1) - 1.0))
-	x_left = anchor_x - time_bar_samples
 	y_top = anchor_y + amp_bar_plot
 
-	ax.plot([x_left, anchor_x], [anchor_y, anchor_y], color=text_color, lw=linewidth, solid_capstyle="butt")
+	ax.plot([x_left, x_right], [anchor_y, anchor_y], color=text_color, lw=linewidth, solid_capstyle="butt")
 	ax.plot([x_left, x_left], [anchor_y, y_top], color=text_color, lw=linewidth, solid_capstyle="butt")
 	ax.text(
-		(x_left + anchor_x) / 2.0,
+		(x_left + x_right) / 2.0,
 		anchor_y - (time_label_offset_frac * span_y),
 		time_label,
 		color=text_color,
@@ -1019,6 +1030,7 @@ def render_propagation_plot(
 	pdf_path: Path,
 	png_path: Path,
 	probe_geometry: ProbeGeometryConfig | None = None,
+	channel_labels_by_row: list[Any] | None = None,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -1038,12 +1050,12 @@ def render_propagation_plot(
 	top_n = max(1, min(int(config.top_channels), int(t.shape[0])))
 	selected = np.argsort(-ptp)[:top_n]
 	selected_abs_max = np.max(np.abs(t[selected, :]), axis=1)
-	max_amp_channel = int(selected[int(np.argmax(selected_abs_max))]) if selected.size > 0 else None
+	max_amp_electrode = int(selected[int(np.argmax(selected_abs_max))]) if selected.size > 0 else None
 	if bool(getattr(config, "debug_max_amps_at_each_channel", False)):
 		amps_by_channel = {
 			int(ch): float(amp) for ch, amp in zip(selected.tolist(), selected_abs_max.tolist(), strict=False)
 		}
-		debug_msg = f"Propagation plot debug: max amplitude at each plotted channel before gain (uV): {amps_by_channel}"
+		debug_msg = f"Propagation plot debug: max amplitude at each plotted electrode before gain (uV): {amps_by_channel}"
 		print(debug_msg)
 		LOGGER.info(debug_msg)
 	lat_idx = np.argmax(np.abs(t[selected, :]), axis=1).astype(float)
@@ -1095,16 +1107,21 @@ def render_propagation_plot(
 	trace_gain = float(max(1e-9, float(config.trace_gain)))
 	peak_marker_height_frac = float(max(1e-6, float(getattr(config, "peak_marker_height_frac", 0.24))))
 	peak_marker_linewidth = float(max(0.2, float(getattr(config, "peak_marker_linewidth", 1.4))))
-	label_alignment = str(getattr(config, "channel_label_alignment", "left") or "left").strip().lower()
+	label_alignment = str(getattr(config, "electrode_label_alignment", getattr(config, "channel_label_alignment", "left")) or "left").strip().lower()
 	if label_alignment not in {"left", "center", "right"}:
 		label_alignment = "left"
 	for panel_i, panel_inds in enumerate(panels):
 		ax = trace_axes[panel_i]
-		label_x_offset = float(config.channel_label_x_offset_frac) * float(max(1, x.shape[0]))
-		label_y_offset = float(config.channel_label_y_offset_frac) * float(offset_step)
+		label_x_offset = float(getattr(config, "electrode_label_x_offset_frac", getattr(config, "channel_label_x_offset_frac", 0.01))) * float(max(1, x.shape[0]))
+		label_y_offset = float(getattr(config, "electrode_label_y_offset_frac", getattr(config, "channel_label_y_offset_frac", 0.0))) * float(offset_step)
 		min_label_x: float | None = None
 		for i_local, idx in enumerate(panel_inds):
 			ch = int(selected[int(idx)])
+			label_id = ch
+			if channel_labels_by_row is not None and 0 <= int(ch) < int(len(channel_labels_by_row)):
+				candidate = channel_labels_by_row[int(ch)]
+				if candidate is not None:
+					label_id = candidate
 			off = float(i_local) * offset_step
 			y = (t[ch, :] * trace_gain) + off
 			ax.plot(x, y, color=trace_color, linewidth=0.9, alpha=0.95)
@@ -1119,24 +1136,25 @@ def render_propagation_plot(
 				linewidth=peak_marker_linewidth,
 				solid_capstyle="butt",
 			)
-			ax.text(
-				x[0] + label_x_offset,
-				off + label_y_offset,
-				f"ch {int(ch)}",
-				color=text_color,
-				fontsize=float(config.channel_label_fontsize),
-				fontweight=(
-					"bold"
-					if bool(getattr(config, "bold_max_amp_channel_label", False)) and max_amp_channel is not None and int(ch) == max_amp_channel
-					else "normal"
-				),
-				horizontalalignment=label_alignment,
-				verticalalignment="center",
-			)
-			if min_label_x is None:
-				min_label_x = float(x[0] + label_x_offset)
-			else:
-				min_label_x = min(min_label_x, float(x[0] + label_x_offset))
+			if bool(getattr(config, "show_electrode_ids", False)):
+				ax.text(
+					x[0] + label_x_offset,
+					off + label_y_offset,
+					f"eid {label_id}",
+					color=text_color,
+					fontsize=float(getattr(config, "electrode_label_fontsize", getattr(config, "channel_label_fontsize", 6.0))),
+					fontweight=(
+						"bold"
+						if bool(getattr(config, "bold_max_amp_electrode_label", getattr(config, "bold_max_amp_channel_label", False))) and max_amp_electrode is not None and int(ch) == max_amp_electrode
+						else "normal"
+					),
+					horizontalalignment=label_alignment,
+					verticalalignment="center",
+				)
+				if min_label_x is None:
+					min_label_x = float(x[0] + label_x_offset)
+				else:
+					min_label_x = min(min_label_x, float(x[0] + label_x_offset))
 
 		if min_label_x is not None:
 			x_left, x_right = ax.get_xlim()
@@ -1204,6 +1222,11 @@ def render_template_wf_overlay(
 	time_upsample: TimeUpsampleConfig,
 	pdf_path: Path,
 	png_path: Path,
+	probe_geometry: ProbeGeometryConfig | None = None,
+	waveform_traces: Any | None = None,
+	top_electrode_id: Any | None = None,
+	top_channel_id: Any | None = None,
+	total_waveforms_at_channel: int | None = None,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -1214,19 +1237,72 @@ def render_template_wf_overlay(
 	if t.ndim != 2:
 		raise ValueError(f"Expected 2D template array for overlay, got shape={getattr(t, 'shape', None)}")
 	t = _time_upsample_template(t, time_upsample)
+	debug_mode = bool(getattr(config, "debug_mode", False))
 
 	n_channels, n_samples = int(t.shape[0]), int(t.shape[1])
 	if n_channels <= 0 or n_samples <= 0:
 		raise ValueError("Template overlay received empty template")
 
-	ptp = np.ptp(t, axis=1)
-	top_n = max(1, int(config.top_channels_per_template))
-	order = np.argsort(-ptp)
-	selected = order[: min(top_n, n_channels)]
+	effective_sr_hz: float | None = None
+	if probe_geometry is not None and probe_geometry.sampling_rate_hz is not None and float(probe_geometry.sampling_rate_hz) > 0.0:
+		effective_sr_hz = float(probe_geometry.sampling_rate_hz)
+	if top_electrode_id is None and top_channel_id is not None:
+		top_electrode_id = top_channel_id
 
-	x = np.arange(n_samples, dtype=float)
-	selected_templates = t[selected, :]
-	offset_step = float(max(1e-6, np.max(np.ptp(selected_templates, axis=1)) * 1.4))
+	# Waveform-level overlay path: show sampled waveforms from the unit's top channel.
+	wf_all = None
+	if waveform_traces is not None:
+		wf_arr = np.asarray(waveform_traces, dtype=float)
+		if wf_arr.ndim == 2 and int(wf_arr.shape[0]) > 0 and int(wf_arr.shape[1]) > 1:
+			wf_all = _time_upsample_template(wf_arr, time_upsample)
+
+	if wf_all is not None:
+		n_total = int(wf_all.shape[0])
+		n_show_target = int(max(1, int(getattr(config, "max_waveforms_to_show", 100))))
+		n_show = int(min(n_total, n_show_target))
+		mode = str(getattr(config, "waveform_sampling_mode", "uniform") or "uniform").strip().lower()
+		if n_show >= n_total:
+			show_idx = np.arange(n_total, dtype=int)
+		elif mode in {"random", "rand"}:
+			seed = getattr(config, "random_seed", 0)
+			rng = np.random.default_rng(None if seed is None else int(seed))
+			show_idx = np.sort(rng.choice(n_total, size=n_show, replace=False).astype(int))
+		elif mode in {"first", "head"}:
+			show_idx = np.arange(n_show, dtype=int)
+		else:
+			# Default deterministic uniform coverage across all sampled waveforms.
+			show_idx = np.linspace(0, n_total - 1, n_show, dtype=int)
+		wf_show = wf_all[show_idx, :]
+		mean_wave = np.mean(wf_all, axis=0) if bool(config.include_mean) else None
+		offset_step = float(max(1e-6, np.max(np.ptp(wf_show, axis=1)) * 1.2))
+		if debug_mode:
+			print(
+				"[template_wf_overlay][debug] mode=waveform "
+				f"top_electrode_id={top_electrode_id} "
+				f"total_waveforms_at_channel={total_waveforms_at_channel} "
+				f"wf_all_shape={tuple(wf_all.shape)} "
+				f"wf_show_shape={tuple(wf_show.shape)} "
+				f"sampling_mode={mode} seed={getattr(config, 'random_seed', None)}",
+				flush=True,
+			)
+	else:
+		# Fallback path for legacy call sites without waveform traces.
+		ptp = np.ptp(t, axis=1)
+		top_n = max(1, int(config.top_channels_per_template))
+		order = np.argsort(-ptp)
+		selected = order[: min(top_n, n_channels)]
+		wf_show = np.asarray(t[selected, :], dtype=float)
+		n_total = int(wf_show.shape[0])
+		mean_wave = np.mean(wf_show, axis=0) if bool(config.include_mean) else None
+		offset_step = float(max(1e-6, np.max(np.ptp(wf_show, axis=1)) * 1.2))
+		if debug_mode:
+			print(
+				"[template_wf_overlay][debug] mode=legacy_template_fallback "
+				f"template_shape={tuple(t.shape)} wf_show_shape={tuple(wf_show.shape)}",
+				flush=True,
+			)
+
+	x = np.arange(int(wf_show.shape[1]), dtype=float)
 
 	fig = plt.figure(figsize=(10, 6))
 	ax = fig.add_subplot(111)
@@ -1235,7 +1311,6 @@ def render_template_wf_overlay(
 	if bg == "black":
 		fig.patch.set_facecolor("black")
 		ax.set_facecolor("black")
-		ax.tick_params(colors="white")
 		for spine in ax.spines.values():
 			spine.set_color("white")
 		trace_color = "white"
@@ -1248,70 +1323,112 @@ def render_template_wf_overlay(
 
 	style = str(getattr(config, "style", "overlay") or "overlay").strip().lower()
 	if style in {"stack", "stacked"}:
-		for idx, ch in enumerate(selected):
+		for idx in range(int(wf_show.shape[0])):
 			offset = float(idx) * offset_step
-			ax.plot(x, selected_templates[idx, :] + offset, color=trace_color, linewidth=0.9, alpha=0.9)
-			ax.text(
-				x[0],
-				offset,
-				f"ch {int(ch)}",
-				fontsize=6,
-				color=trace_color,
-				verticalalignment="bottom",
-				horizontalalignment="left",
-			)
+			ax.plot(x, wf_show[idx, :] + offset, color=trace_color, linewidth=0.9, alpha=0.7)
 	else:
-		for idx, ch in enumerate(selected):
-			ax.plot(x, selected_templates[idx, :], color=trace_color, linewidth=0.9, alpha=0.4)
+		for idx in range(int(wf_show.shape[0])):
+			ax.plot(x, wf_show[idx, :], color=trace_color, linewidth=0.9, alpha=0.25)
+
+	if mean_wave is not None:
+		mean_offset = float(wf_show.shape[0]) * offset_step if style in {"stack", "stacked"} else 0.0
+		ax.plot(x, mean_wave + mean_offset, color=mean_color, linewidth=1.5, alpha=0.95)
+		if bool(getattr(config, "show_channel_labels", False)):
 			ax.text(
 				x[0],
-				selected_templates[idx, 0],
-				f"ch {int(ch)}",
+				float(mean_wave[0]) + mean_offset,
+				"mean",
 				fontsize=6,
-				color=trace_color,
+				color=mean_color,
 				verticalalignment="bottom",
 				horizontalalignment="left",
 			)
 
-	if bool(config.include_mean):
-		mean_t = np.mean(selected_templates, axis=0)
-		mean_offset = float(len(selected)) * offset_step if style in {"stack", "stacked"} else 0.0
-		ax.plot(x, mean_t + mean_offset, color=mean_color, linewidth=1.4, alpha=0.95)
+	info_lines: list[str] = []
+	if bool(getattr(config, "show_top_channel_info", True)):
+		label = "unknown" if top_electrode_id is None else str(top_electrode_id)
+		info_lines.append(f"extremum eid: {label}")
+	if bool(getattr(config, "show_waveform_count_info", True)):
+		total_count = int(n_total if total_waveforms_at_channel is None else max(0, int(total_waveforms_at_channel)))
+		info_lines.append(f"wfs at eid: {total_count}")
+		info_lines.append(f"wfs shown: {int(wf_show.shape[0])}")
+	if info_lines:
 		ax.text(
-			x[0],
-			float(mean_t[0]) + mean_offset,
-			"mean",
+			0.01,
+			0.99,
+			"\n".join(info_lines),
+			transform=ax.transAxes,
 			fontsize=6,
-			color=mean_color,
-			verticalalignment="bottom",
+			color=trace_color,
 			horizontalalignment="left",
+			verticalalignment="top",
 		)
 
-	ax.set_xlabel("sample")
-	ax.set_ylabel("amplitude + offset" if style in {"stack", "stacked"} else "amplitude")
-	ax.set_title(f"Template waveforms (top channels, style={style})")
+	if bool(getattr(config, "show_axes", False)):
+		ax.set_xlabel("sample")
+		ax.set_ylabel("amplitude + offset" if style in {"stack", "stacked"} else "amplitude")
+	else:
+		ax.set_xticks([])
+		ax.set_yticks([])
+		for spine in ax.spines.values():
+			spine.set_visible(False)
+
+	if bool(getattr(config, "show_title", False)):
+		ax.set_title(f"Extremum-channel waveforms (style={style})")
+
+	if debug_mode:
+		print(
+			"[template_wf_overlay][debug] "
+			f"show_top_channel_info={bool(getattr(config, 'show_top_channel_info', True))} "
+			f"show_waveform_count_info={bool(getattr(config, 'show_waveform_count_info', True))} "
+			f"show_axes={bool(getattr(config, 'show_axes', False))} "
+			f"show_title={bool(getattr(config, 'show_title', False))} "
+			f"background={str(config.background)} "
+			f"effective_sr_hz={effective_sr_hz}",
+			flush=True,
+		)
 
 	if bool(config.include_scale_bar):
 		x0, x1 = ax.get_xlim()
 		y0, y1 = ax.get_ylim()
 		span_x = max(1.0, float(abs(x1 - x0)))
 		span_y = max(1.0, float(abs(y1 - y0)))
-		bar_x = max(5.0, span_x * 0.1)
-		bar_y = max(1e-6, span_y * 0.1)
+		time_fraction = float(min(1.0, max(1e-6, float(getattr(config, "scale_bar_time_fraction", 0.10)))))
+		amp_fraction = float(min(1.0, max(1e-6, float(getattr(config, "scale_bar_amp_fraction", 0.10)))))
+		time_label_offset_frac = float(max(0.0, float(getattr(config, "scale_bar_time_label_offset_frac", 0.03))))
+		amp_label_offset_frac = float(max(0.0, float(getattr(config, "scale_bar_amp_label_offset_frac", 0.02))))
+		bar_x = float(min(max(1.0, _nice_scale_value(span_x * time_fraction)), span_x * 0.30))
+		bar_y = float(min(max(1e-6, _nice_scale_value(span_y * amp_fraction)), span_y * 0.30))
 		x_left = float(min(x0, x1)) + 0.05 * span_x
 		y_bot = float(min(y0, y1)) + 0.08 * span_y
 		color = str(config.scale_bar_color)
 		lw = float(config.scale_bar_linewidth)
-		ax.plot([x_left, x_left + bar_x], [y_bot, y_bot], color=color, lw=lw)
-		ax.plot([x_left, x_left], [y_bot, y_bot + bar_y], color=color, lw=lw)
+		ax.plot([x_left, x_left + bar_x], [y_bot, y_bot], color=color, lw=lw, solid_capstyle="butt")
+		ax.plot([x_left, x_left], [y_bot, y_bot + bar_y], color=color, lw=lw, solid_capstyle="butt")
+		if effective_sr_hz is not None and float(effective_sr_hz) > 0.0:
+			time_ms = float((bar_x / float(effective_sr_hz)) * 1000.0)
+			time_label = f"{_format_no_sci(time_ms, max_decimals=3)} ms"
+		else:
+			time_label = f"{int(round(bar_x))} samples"
+		amp_label = f"{_format_no_sci(float(bar_y), max_decimals=3)} uV"
 		ax.text(
-			x_left + bar_x,
-			y_bot,
-			f" {int(round(bar_x))} samples",
+			x_left + (bar_x * 0.5),
+			y_bot - (time_label_offset_frac * span_y),
+			time_label,
 			fontsize=float(config.scale_bar_fontsize),
 			color=color,
-			horizontalalignment="left",
+			horizontalalignment="center",
+			verticalalignment="top",
+		)
+		ax.text(
+			x_left - (amp_label_offset_frac * span_x),
+			y_bot + (bar_y * 0.5),
+			amp_label,
+			fontsize=float(config.scale_bar_fontsize),
+			color=color,
+			horizontalalignment="right",
 			verticalalignment="center",
+			rotation=90,
 		)
 
 	outputs: dict[str, str] = {}
@@ -1319,10 +1436,20 @@ def render_template_wf_overlay(
 		png_path.parent.mkdir(parents=True, exist_ok=True)
 		fig.savefig(png_path, dpi=220, bbox_inches="tight", facecolor=fig.get_facecolor())
 		outputs["template_wf_overlay_png"] = str(png_path)
+		outputs["extremum_ch_wf_overlay_png"] = str(png_path)
 	if bool(config.write_pdf):
 		pdf_path.parent.mkdir(parents=True, exist_ok=True)
 		fig.savefig(pdf_path, format="pdf", bbox_inches="tight", facecolor=fig.get_facecolor())
 		outputs["template_wf_overlay_pdf"] = str(pdf_path)
+		outputs["extremum_ch_wf_overlay_pdf"] = str(pdf_path)
+
+	if debug_mode:
+		print(
+			"[template_wf_overlay][debug] "
+			f"wrote_png={outputs.get('template_wf_overlay_png')} "
+			f"wrote_pdf={outputs.get('template_wf_overlay_pdf')}",
+			flush=True,
+		)
 
 	plt.close(fig)
 	return outputs

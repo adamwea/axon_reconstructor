@@ -105,7 +105,7 @@ def test_build_unit_source_payload_contract_with_get_unit_template() -> None:
 
 	payload = build_unit_source_payload(analyzer=analyzer, unit_id=94)
 	assert payload is not None
-	t_ch_by_t, locs_xy, electrode_ids, channel_ids, waveform_count, sampling_rate_hz = payload
+	t_ch_by_t, locs_xy, electrode_ids, channel_ids, waveform_count, sampling_rate_hz, top_wf, top_id, top_count = payload
 
 	assert t_ch_by_t.shape == (2, 4)
 	np.testing.assert_allclose(locs_xy, np.asarray([[20.0, 0.0], [0.0, 0.0]], dtype=float))
@@ -113,6 +113,9 @@ def test_build_unit_source_payload_contract_with_get_unit_template() -> None:
 	assert channel_ids == [2, 0]
 	assert waveform_count == 5
 	assert sampling_rate_hz == 10_000.0
+	assert top_wf is None
+	assert top_id in {100, 102}
+	assert top_count is None
 
 
 def test_build_unit_source_payload_contract_with_get_templates_fallback() -> None:
@@ -129,8 +132,11 @@ def test_build_unit_source_payload_contract_with_get_templates_fallback() -> Non
 
 	payload = build_unit_source_payload(analyzer=analyzer, unit_id=94)
 	assert payload is not None
-	t_ch_by_t, _, _, _, _, _ = payload
+	t_ch_by_t, _, _, _, _, _, top_wf, top_id, top_count = payload
 	assert t_ch_by_t.shape[0] >= 1
+	assert top_wf is None
+	assert top_id is not None
+	assert top_count is None
 
 
 def test_build_unit_source_payload_returns_none_when_templates_unavailable() -> None:

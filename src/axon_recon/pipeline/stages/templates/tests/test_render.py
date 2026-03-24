@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np  # type: ignore[import-not-found]
 
 from axon_recon.pipeline.stages.templates.core.render import render_propagation_plot
+from axon_recon.pipeline.stages.templates.core.render import render_template_wf_overlay
 from axon_recon.pipeline.stages.templates.core.render import render_topographical_amplitude_footprint
 from axon_recon.pipeline.stages.templates.core.render import _expand_limits_for_glyph_half_size
 from axon_recon.pipeline.stages.templates.core.render import _probe_electrode_dims_um
@@ -17,6 +18,8 @@ from axon_recon.pipeline.stages.templates.models.inputs import (
 	ProbeGeometryConfig,
 	PropagationLatencyMapConfig,
 	PropagationPlotConfig,
+	TemplateWaveformOverlayConfig,
+	TimeUpsampleConfig,
 	TopographicalFootprintConfig,
 )
 
@@ -51,9 +54,9 @@ def test_render_propagation_plot_respects_panel_chunk_knobs(tmp_path: Path) -> N
 			channel_overlap=2,
 			background="white",
 			show_electrode_ids=True,
-			channel_label_fontsize=7.5,
-			channel_label_x_offset_frac=0.02,
-			channel_label_y_offset_frac=0.1,
+			electrode_label_fontsize=7.5,
+			electrode_label_x_offset_frac=0.02,
+			electrode_label_y_offset_frac=0.1,
 			show_scale_bar=True,
 			scale_bar_anchor_x_frac=0.85,
 			scale_bar_anchor_y_frac=0.20,
@@ -121,7 +124,7 @@ def test_render_propagation_plot_without_latency_map_uses_single_column_layout(t
 	assert outputs.get("propagation_plot_png") == str(png_path)
 
 
-def test_render_propagation_plot_accepts_negative_channel_label_x_offset(tmp_path: Path, monkeypatch) -> None:
+def test_render_propagation_plot_accepts_negative_electrode_label_x_offset(tmp_path: Path, monkeypatch) -> None:
 	import matplotlib.axes
 
 	n_channels = 6
@@ -136,7 +139,7 @@ def test_render_propagation_plot_accepts_negative_channel_label_x_offset(tmp_pat
 	orig_text = matplotlib.axes.Axes.text
 
 	def _spy_text(self, x, y, s, *args, **kwargs):
-		if isinstance(s, str) and s.startswith("ch "):
+		if isinstance(s, str) and s.startswith("eid "):
 			seen_text_x.append(float(x))
 		return orig_text(self, x, y, s, *args, **kwargs)
 
@@ -153,7 +156,8 @@ def test_render_propagation_plot_accepts_negative_channel_label_x_offset(tmp_pat
 			top_channels=6,
 			channels_per_panel=6,
 			channel_overlap=0,
-			channel_label_x_offset_frac=-0.15,
+			show_electrode_ids=True,
+			electrode_label_x_offset_frac=-0.15,
 		),
 		pdf_path=tmp_path / "unused.pdf",
 		png_path=png_path,
@@ -166,7 +170,7 @@ def test_render_propagation_plot_accepts_negative_channel_label_x_offset(tmp_pat
 	assert min(seen_text_x) < 0.0
 
 
-def test_render_propagation_plot_honors_channel_label_alignment(tmp_path: Path, monkeypatch) -> None:
+def test_render_propagation_plot_honors_electrode_label_alignment(tmp_path: Path, monkeypatch) -> None:
 	import matplotlib.axes
 
 	n_channels = 4
@@ -181,7 +185,7 @@ def test_render_propagation_plot_honors_channel_label_alignment(tmp_path: Path, 
 	orig_text = matplotlib.axes.Axes.text
 
 	def _spy_text(self, x, y, s, *args, **kwargs):
-		if isinstance(s, str) and s.startswith("ch "):
+		if isinstance(s, str) and s.startswith("eid "):
 			seen_alignments.append(str(kwargs.get("horizontalalignment", "")))
 		return orig_text(self, x, y, s, *args, **kwargs)
 
@@ -198,7 +202,8 @@ def test_render_propagation_plot_honors_channel_label_alignment(tmp_path: Path, 
 			top_channels=4,
 			channels_per_panel=4,
 			channel_overlap=0,
-			channel_label_alignment="right",
+			show_electrode_ids=True,
+			electrode_label_alignment="right",
 		),
 		pdf_path=tmp_path / "unused.pdf",
 		png_path=png_path,
@@ -210,7 +215,261 @@ def test_render_propagation_plot_honors_channel_label_alignment(tmp_path: Path, 
 	assert all(a == "right" for a in seen_alignments)
 
 
-def test_render_propagation_plot_bolds_max_amplitude_channel_label(tmp_path: Path, monkeypatch) -> None:
+def test_render_template_wf_overlay_defaults_hide_title_axes_and_channel_labels(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	t = np.asarray(
+		[
+			[0.0, -2.0, 0.5, 0.0, 0.0, 0.0],
+			[0.0, -1.0, 0.4, 0.0, 0.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	seen_channel_labels: list[str] = []
+	title_calls = 0
+	xlabel_calls = 0
+	ylabel_calls = 0
+
+	orig_text = matplotlib.axes.Axes.text
+	orig_set_title = matplotlib.axes.Axes.set_title
+	orig_set_xlabel = matplotlib.axes.Axes.set_xlabel
+	orig_set_ylabel = matplotlib.axes.Axes.set_ylabel
+
+	def _spy_text(self, x, y, s, *args, **kwargs):
+		if isinstance(s, str) and s.startswith("eid "):
+			seen_channel_labels.append(s)
+		return orig_text(self, x, y, s, *args, **kwargs)
+
+	def _spy_set_title(self, *args, **kwargs):
+		nonlocal title_calls
+		title_calls += 1
+		return orig_set_title(self, *args, **kwargs)
+
+	def _spy_set_xlabel(self, *args, **kwargs):
+		nonlocal xlabel_calls
+		xlabel_calls += 1
+		return orig_set_xlabel(self, *args, **kwargs)
+
+	def _spy_set_ylabel(self, *args, **kwargs):
+		nonlocal ylabel_calls
+		ylabel_calls += 1
+		return orig_set_ylabel(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "text", _spy_text)
+	monkeypatch.setattr(matplotlib.axes.Axes, "set_title", _spy_set_title)
+	monkeypatch.setattr(matplotlib.axes.Axes, "set_xlabel", _spy_set_xlabel)
+	monkeypatch.setattr(matplotlib.axes.Axes, "set_ylabel", _spy_set_ylabel)
+
+	png_path = tmp_path / "overlay_defaults.png"
+	outputs = render_template_wf_overlay(
+		template=t,
+		config=TemplateWaveformOverlayConfig(
+			write_pdf=False,
+			write_png=True,
+			png_relpath="overlay_defaults.png",
+			include_mean=False,
+			include_scale_bar=False,
+		),
+		time_upsample=TimeUpsampleConfig(enabled=False, factor=1, method="sinc"),
+		pdf_path=tmp_path / "unused.pdf",
+		png_path=png_path,
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10000.0),
+	)
+
+	assert png_path.exists()
+	assert outputs.get("template_wf_overlay_png") == str(png_path)
+	assert len(seen_channel_labels) == 0
+	assert title_calls == 0
+	assert xlabel_calls == 0
+	assert ylabel_calls == 0
+
+
+def test_render_template_wf_overlay_scale_bar_labels_use_ms_and_uv_with_sampling_rate(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	t = np.asarray(
+		[
+			[0.0, -2.0, 0.5, 0.0, 0.0, 0.0],
+			[0.0, -1.0, 0.4, 0.0, 0.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	seen_texts: list[str] = []
+	orig_text = matplotlib.axes.Axes.text
+
+	def _spy_text(self, x, y, s, *args, **kwargs):
+		if isinstance(s, str):
+			seen_texts.append(s)
+		return orig_text(self, x, y, s, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "text", _spy_text)
+
+	png_path = tmp_path / "overlay_scalebar_units.png"
+	render_template_wf_overlay(
+		template=t,
+		config=TemplateWaveformOverlayConfig(
+			write_pdf=False,
+			write_png=True,
+			png_relpath="overlay_scalebar_units.png",
+			include_mean=False,
+			include_scale_bar=True,
+			show_channel_labels=False,
+		),
+		time_upsample=TimeUpsampleConfig(enabled=True, factor=10, method="sinc"),
+		pdf_path=tmp_path / "unused.pdf",
+		png_path=png_path,
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10000.0),
+	)
+
+	assert png_path.exists()
+	assert any("ms" in s.lower() for s in seen_texts)
+	assert any("uv" in s.lower() for s in seen_texts)
+	assert all("samples" not in s.lower() for s in seen_texts)
+
+
+def test_render_template_wf_overlay_hides_mean_label_when_channel_labels_hidden(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	t = np.asarray(
+		[
+			[0.0, -2.0, 0.5, 0.0, 0.0, 0.0],
+			[0.0, -1.0, 0.4, 0.0, 0.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	seen_texts: list[str] = []
+	orig_text = matplotlib.axes.Axes.text
+
+	def _spy_text(self, x, y, s, *args, **kwargs):
+		if isinstance(s, str):
+			seen_texts.append(s)
+		return orig_text(self, x, y, s, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "text", _spy_text)
+
+	png_path = tmp_path / "overlay_no_mean_label.png"
+	render_template_wf_overlay(
+		template=t,
+		config=TemplateWaveformOverlayConfig(
+			write_pdf=False,
+			write_png=True,
+			png_relpath="overlay_no_mean_label.png",
+			include_mean=True,
+			include_scale_bar=False,
+			show_channel_labels=False,
+		),
+		time_upsample=TimeUpsampleConfig(enabled=False, factor=1, method="sinc"),
+		pdf_path=tmp_path / "unused.pdf",
+		png_path=png_path,
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10000.0),
+	)
+
+	assert png_path.exists()
+	assert all(str(s).strip().lower() != "mean" for s in seen_texts)
+
+
+def test_render_template_wf_overlay_waveform_info_text_uses_top_channel_and_counts(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	wf = np.tile(np.linspace(-2.0, 1.0, 30, dtype=float), (200, 1))
+	template = np.vstack([np.linspace(-1.0, 0.0, 30), np.linspace(-0.5, 0.0, 30)]).astype(float)
+
+	seen_texts: list[str] = []
+	orig_text = matplotlib.axes.Axes.text
+
+	def _spy_text(self, x, y, s, *args, **kwargs):
+		if isinstance(s, str):
+			seen_texts.append(s)
+		return orig_text(self, x, y, s, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "text", _spy_text)
+
+	png_path = tmp_path / "overlay_waveform_info.png"
+	render_template_wf_overlay(
+		template=template,
+		config=TemplateWaveformOverlayConfig(
+			write_pdf=False,
+			write_png=True,
+			png_relpath="overlay_waveform_info.png",
+			include_mean=False,
+			max_waveforms_to_show=50,
+			show_top_channel_info=True,
+			show_waveform_count_info=True,
+		),
+		time_upsample=TimeUpsampleConfig(enabled=False, factor=1, method="sinc"),
+		pdf_path=tmp_path / "unused.pdf",
+		png_path=png_path,
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10000.0),
+		waveform_traces=wf,
+		top_electrode_id=11,
+		total_waveforms_at_channel=200,
+	)
+
+	assert png_path.exists()
+	joined = "\n".join(seen_texts).lower()
+	assert "extremum eid: 11" in joined
+	assert "wfs at eid: 200" in joined
+	assert "wfs shown: 50" in joined
+
+
+def test_render_template_wf_overlay_mean_uses_all_waveforms_not_display_subset(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	# Mean of all waveforms at sample 0 is 5.0; subset mean would be 0.0.
+	wf = np.asarray(
+		[
+			[0.0, 0.0, 0.0, 0.0],
+			[0.0, 0.0, 0.0, 0.0],
+			[10.0, 10.0, 10.0, 10.0],
+			[10.0, 10.0, 10.0, 10.0],
+		],
+		dtype=float,
+	)
+	template = np.vstack([np.linspace(-1.0, 0.0, 4), np.linspace(-0.5, 0.0, 4)]).astype(float)
+
+	mean_line_first_y: list[float] = []
+	orig_plot = matplotlib.axes.Axes.plot
+
+	def _spy_plot(self, xdata, ydata, *args, **kwargs):
+		if str(kwargs.get("color", "")) == "red" and float(kwargs.get("linewidth", 0.0)) >= 1.4:
+			y_arr = np.asarray(ydata, dtype=float)
+			if y_arr.ndim == 1 and y_arr.size > 0:
+				mean_line_first_y.append(float(y_arr[0]))
+		return orig_plot(self, xdata, ydata, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "plot", _spy_plot)
+
+	png_path = tmp_path / "overlay_mean_all.png"
+	render_template_wf_overlay(
+		template=template,
+		config=TemplateWaveformOverlayConfig(
+			write_pdf=False,
+			write_png=True,
+			png_relpath="overlay_mean_all.png",
+			include_mean=True,
+			max_waveforms_to_show=2,
+			waveform_sampling_mode="first",
+			show_channel_labels=False,
+			include_scale_bar=False,
+		),
+		time_upsample=TimeUpsampleConfig(enabled=False, factor=1, method="sinc"),
+		pdf_path=tmp_path / "unused.pdf",
+		png_path=png_path,
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10000.0),
+		waveform_traces=wf,
+		top_electrode_id=2,
+		total_waveforms_at_channel=4,
+	)
+
+	assert png_path.exists()
+	assert len(mean_line_first_y) >= 1
+	assert np.isclose(mean_line_first_y[-1], 5.0)
+
+
+def test_render_propagation_plot_bolds_max_amplitude_electrode_label(tmp_path: Path, monkeypatch) -> None:
 	import matplotlib.axes
 
 	n_channels = 4
@@ -233,7 +492,7 @@ def test_render_propagation_plot_bolds_max_amplitude_channel_label(tmp_path: Pat
 	orig_text = matplotlib.axes.Axes.text
 
 	def _spy_text(self, x, y, s, *args, **kwargs):
-		if isinstance(s, str) and s.startswith("ch "):
+		if isinstance(s, str) and s.startswith("eid "):
 			try:
 				ch = int(s.split(" ")[1])
 			except Exception:
@@ -254,7 +513,8 @@ def test_render_propagation_plot_bolds_max_amplitude_channel_label(tmp_path: Pat
 			top_channels=4,
 			channels_per_panel=4,
 			channel_overlap=0,
-			bold_max_amp_channel_label=True,
+			show_electrode_ids=True,
+			bold_max_amp_electrode_label=True,
 		),
 		pdf_path=tmp_path / "unused.pdf",
 		png_path=png_path,

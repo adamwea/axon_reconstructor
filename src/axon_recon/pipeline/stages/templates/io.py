@@ -117,6 +117,8 @@ def resolve_unit_output_paths(
 		"template_circles_svg": template_circles_svg,
 		"template_wf_overlay_pdf": overlay_pdf,
 		"template_wf_overlay_png": overlay_png,
+		"extremum_ch_wf_overlay_pdf": overlay_pdf,
+		"extremum_ch_wf_overlay_png": overlay_png,
 		"footprint_amplitude_map_png": amp_png,
 		"footprint_amplitude_map_svg": amp_svg,
 		"footprint_latency_map_png": lat_png,
@@ -186,3 +188,84 @@ def write_materialized_unit_templates(
 	full_dir.mkdir(parents=True, exist_ok=True)
 	np.save(full_dir / "full_template.npy", np.asarray(full_template, dtype=float))
 	np.save(full_dir / "full_channel_locations_xy.npy", np.asarray(full_locations_xy, dtype=float))
+
+
+def write_materialized_overlay_waveforms(
+	*,
+	merged_units_dir: Path,
+	unit_id: Any,
+	waveforms_by_t: np.ndarray,
+	top_electrode_id: Any,
+	total_waveforms_at_channel: int,
+) -> None:
+	if isinstance(top_electrode_id, np.generic):
+		top_electrode_id = top_electrode_id.item()
+	merged_dir = merged_units_dir / f"unit_{unit_id}"
+	merged_dir.mkdir(parents=True, exist_ok=True)
+	np.save(merged_dir / "overlay_top_channel_waveforms.npy", np.asarray(waveforms_by_t, dtype=float))
+	write_json(
+		merged_dir / "overlay_top_channel_meta.json",
+		{
+			"top_electrode_id": top_electrode_id,
+			"top_channel_id": top_electrode_id,
+			"total_waveforms_at_channel": int(max(0, int(total_waveforms_at_channel))),
+		},
+	)
+
+
+def write_materialized_merged_electrode_ids(
+	*,
+	merged_units_dir: Path,
+	unit_id: Any,
+	electrode_ids: list[Any] | None,
+) -> None:
+	merged_dir = merged_units_dir / f"unit_{unit_id}"
+	merged_dir.mkdir(parents=True, exist_ok=True)
+	if electrode_ids is None:
+		write_json(merged_dir / "merged_contributing_electrode_ids.json", {"electrode_ids": None})
+		return
+	serialized: list[Any] = []
+	for eid in list(electrode_ids):
+		if isinstance(eid, np.generic):
+			serialized.append(eid.item())
+		else:
+			serialized.append(eid)
+	write_json(merged_dir / "merged_contributing_electrode_ids.json", {"electrode_ids": serialized})
+
+
+def load_materialized_merged_electrode_ids(*, merged_unit_dir: Path) -> list[Any] | None:
+	meta_path = merged_unit_dir / "merged_contributing_electrode_ids.json"
+	if not meta_path.exists():
+		return None
+	try:
+		meta = read_json(meta_path)
+		if not isinstance(meta, dict):
+			return None
+		electrode_ids = meta.get("electrode_ids", None)
+		if electrode_ids is None:
+			return None
+		if not isinstance(electrode_ids, list):
+			return None
+		return list(electrode_ids)
+	except Exception:
+		return None
+
+
+def load_materialized_overlay_waveforms(
+	*,
+	merged_unit_dir: Path,
+) -> tuple[np.ndarray, Any, int] | None:
+	wf_path = merged_unit_dir / "overlay_top_channel_waveforms.npy"
+	meta_path = merged_unit_dir / "overlay_top_channel_meta.json"
+	if (not wf_path.exists()) or (not meta_path.exists()):
+		return None
+	try:
+		waveforms = np.asarray(np.load(wf_path), dtype=float)
+		meta = read_json(meta_path)
+		if waveforms.ndim != 2 or not isinstance(meta, dict):
+			return None
+		top_electrode_id = meta.get("top_electrode_id", meta.get("top_channel_id", None))
+		total = int(max(0, int(meta.get("total_waveforms_at_channel", int(waveforms.shape[0])))))
+		return waveforms, top_electrode_id, total
+	except Exception:
+		return None

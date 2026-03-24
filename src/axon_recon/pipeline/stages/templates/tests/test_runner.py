@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import shutil
 import time
@@ -64,6 +65,14 @@ def _make_templates_artifacts(well_out_dir: Path) -> None:
 	)
 	np.save(full_unit_dir / "full_template.npy", full_template)
 	np.save(full_unit_dir / "full_channel_locations_xy.npy", full_locs)
+
+	# Materialized per-unit overlay payload for top-channel waveform plotting.
+	wf = np.tile(np.sin(np.linspace(-1.0, 1.0, 40, dtype=float)), (120, 1))
+	np.save(merged_unit_dir / "overlay_top_channel_waveforms.npy", wf)
+	(merged_unit_dir / "overlay_top_channel_meta.json").write_text(
+		json.dumps({"top_electrode_id": 0, "total_waveforms_at_channel": int(wf.shape[0])}),
+		encoding="utf-8",
+	)
 
 
 def test_run_templates_stage_writes_png(tmp_path: Path) -> None:

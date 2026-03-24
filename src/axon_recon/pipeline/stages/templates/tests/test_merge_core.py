@@ -48,7 +48,7 @@ def test_merge_sources_per_channel_means_overlapping_waveforms() -> None:
 		20,
 	)
 
-	merged_template, merged_locs = merge_sources_per_channel(
+	merged_template, merged_locs, merged_eids = merge_sources_per_channel(
 		[source1, source2],
 		enable_merge=True,
 		merge_method="mean_all_waveforms",
@@ -62,6 +62,8 @@ def test_merge_sources_per_channel_means_overlapping_waveforms() -> None:
 	assert merged_template.shape == (3, 2)
 	np.testing.assert_allclose(merged_template[0, :], np.asarray([2.0, 2.0], dtype=float))
 	assert merged_locs.shape == (3, 2)
+	assert merged_eids is not None
+	assert merged_eids[0] == "10"
 
 
 def test_merge_sources_per_channel_weighted_with_cap() -> None:
@@ -80,7 +82,7 @@ def test_merge_sources_per_channel_weighted_with_cap() -> None:
 		10,
 	)
 
-	merged_template, _ = merge_sources_per_channel(
+	merged_template, _, _ = merge_sources_per_channel(
 		[source1, source2],
 		enable_merge=True,
 		merge_method="weighted_average",
@@ -130,7 +132,8 @@ def test_materialize_unit_templates_by_unit_orchestrates_payload_collection() ->
 	)
 
 	assert set(out.keys()) == {94}
-	merged_template, _, full_template, _ = out[94]
+	merged_template, _, full_template, _, merged_eids = out[94]
 	np.testing.assert_allclose(merged_template, np.asarray([[2.0, 2.0]], dtype=float))
 	# Concat payload should be selected for full template.
 	np.testing.assert_allclose(full_template, np.asarray([[1.0, 1.0]], dtype=float))
+	assert merged_eids is not None and merged_eids[0] == "10"

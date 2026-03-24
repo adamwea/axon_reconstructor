@@ -130,7 +130,7 @@ def build_unit_source_payload(
 	*,
 	analyzer: Any,
 	unit_id: Any,
-) -> tuple[np.ndarray, np.ndarray, list[Any] | None, list[Any] | None, int, float | None] | None:
+) -> tuple[np.ndarray, np.ndarray, list[Any] | None, list[Any] | None, int, float | None, np.ndarray | None, Any, int | None] | None:
 	t = _extract_unit_template(analyzer, unit_id)
 	if t is None:
 		return None
@@ -153,6 +153,35 @@ def build_unit_source_payload(
 		return None
 	t_ch_by_t, locs_xy, electrode_ids, channel_ids = normalized
 
+	top_electrode_waveforms: np.ndarray | None = None
+	top_electrode_id: Any = None
+	top_electrode_waveform_count: int | None = None
+	try:
+		ptp = np.ptp(t_ch_by_t, axis=1)
+		top_local_idx = int(np.argmax(ptp)) if int(ptp.size) > 0 else 0
+		if electrode_ids is not None and int(top_local_idx) < len(electrode_ids):
+			top_electrode_id = electrode_ids[int(top_local_idx)]
+		elif channel_ids is not None and int(top_local_idx) < len(channel_ids):
+			top_electrode_id = channel_ids[int(top_local_idx)]
+		else:
+			top_electrode_id = int(top_local_idx)
+
+		if analyzer.has_extension("waveforms"):
+			wf_ext = analyzer.get_extension("waveforms")
+			wf_all = np.asarray(wf_ext.get_waveforms_one_unit(unit_id=unit_id, force_dense=False), dtype=float)
+			if wf_all.ndim == 3 and int(wf_all.shape[0]) > 0 and int(wf_all.shape[1]) > 0 and int(wf_all.shape[2]) > 0:
+				# Expected sparse-path case: channels match normalized template channels.
+				if int(wf_all.shape[2]) == int(t_ch_by_t.shape[0]):
+					top_electrode_waveforms = np.asarray(wf_all[:, :, int(top_local_idx)], dtype=float)
+				# Dense-path fallback: channel axis may be full recording channels.
+				elif int(wf_all.shape[2]) > int(top_local_idx):
+					top_electrode_waveforms = np.asarray(wf_all[:, :, int(top_local_idx)], dtype=float)
+				if top_electrode_waveforms is not None and top_electrode_waveforms.ndim == 2:
+					top_electrode_waveform_count = int(top_electrode_waveforms.shape[0])
+	except Exception:
+		top_electrode_waveforms = None
+		top_electrode_waveform_count = None
+
 	waveform_count = 1
 	try:
 		sorting = analyzer.sorting
@@ -174,7 +203,17 @@ def build_unit_source_payload(
 	except Exception:
 		sampling_rate_hz = None
 
-	return t_ch_by_t, locs_xy, electrode_ids, channel_ids, int(waveform_count), sampling_rate_hz
+	return (
+		t_ch_by_t,
+		locs_xy,
+		electrode_ids,
+		channel_ids,
+		int(waveform_count),
+		sampling_rate_hz,
+		top_electrode_waveforms,
+		top_electrode_id,
+		top_electrode_waveform_count,
+	)
 
 
 def load_spikeinterface_analyzers(

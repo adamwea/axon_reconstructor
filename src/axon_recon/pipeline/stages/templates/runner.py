@@ -25,8 +25,15 @@ from .core.render import (
 	render_topographical_latency_footprint,
 	render_wf_overlay_grid,
 )
-from .io import read_json, resolve_report_output_paths, resolve_unit_output_paths, write_json
-from .models.inputs import ProbeGeometryConfig, TemplatesInputs
+from .io import (
+	load_materialized_overlay_waveforms,
+	load_materialized_merged_electrode_ids,
+	read_json,
+	resolve_report_output_paths,
+	resolve_unit_output_paths,
+	write_json,
+)
+from .models.inputs import ProbeGeometryConfig, TemplatesInputs, TimeUpsampleConfig
 from .models.results import TemplatesResult, UnitTemplatesResult
 
 
@@ -352,6 +359,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 	def _ensure_templates_dirs() -> tuple[Path, Path]:
 		nonlocal merged_units_dir, full_channels_templates_dir, upsampling_decisions_by_unit
 		if merged_units_dir is None or full_channels_templates_dir is None:
+			overlay_debug_mode = bool(getattr(inputs.per_unit_outputs.template_wf_overlay, "debug_mode", False))
 			prefer_spikeinterface = (
 				bool(inputs.force_restart)
 				and (not bool(inputs.force_replot))
@@ -385,6 +393,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 						),
 						overlap_match_priority=tuple(inputs.merge.overlap_match_priority),
 						location_tolerance_um=float(inputs.merge.location_tolerance_um),
+						debug_overlay=overlay_debug_mode,
 					)
 					if len(materialize_out) == 3:
 						merged_units_dir_resolved, full_channels_templates_dir_resolved, upsampling_decisions_by_unit = materialize_out
@@ -431,6 +440,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 					),
 					overlap_match_priority=tuple(inputs.merge.overlap_match_priority),
 					location_tolerance_um=float(inputs.merge.location_tolerance_um),
+					debug_overlay=overlay_debug_mode,
 				)
 				if len(materialize_out) == 3:
 					merged_units_dir_resolved, full_channels_templates_dir_resolved, upsampling_decisions_by_unit = materialize_out
@@ -511,8 +521,10 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			merged_units_dir_resolved, full_channels_templates_dir_resolved = _ensure_templates_dirs()
 			merged_dir = merged_units_dir_resolved / f"unit_{unit_id}"
 			full_dir = full_channels_templates_dir_resolved / f"unit_{unit_id}"
+			overlay_debug_mode = bool(getattr(inputs.per_unit_outputs.template_wf_overlay, "debug_mode", False))
 
 			merged_template, merged_locs = _load_merged_unit(merged_dir)
+			merged_electrode_ids = load_materialized_merged_electrode_ids(merged_unit_dir=merged_dir)
 			full_payload = _load_full_unit(full_dir) if full_channels_templates_dir_resolved.exists() else None
 
 			if bool(inputs.per_unit_outputs.merged_template.write_npy):
@@ -645,14 +657,64 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			)
 			unit_summary["outputs"].update(circles_outputs)
 
-			overlay_outputs = render_template_wf_overlay(
-				template=template_plot,
-				config=inputs.per_unit_outputs.template_wf_overlay,
-				time_upsample=inputs.reports.time_upsample,
-				pdf_path=paths["template_wf_overlay_pdf"],
-				png_path=paths["template_wf_overlay_png"],
-			)
-			unit_summary["outputs"].update(overlay_outputs)
+			overlay_payload = load_materialized_overlay_waveforms(merged_unit_dir=merged_dir)
+			if overlay_payload is None:
+				if overlay_debug_mode:
+					print(
+						"[template_wf_overlay][debug] "
+						f"unit={unit_id} missing overlay artifact under {merged_dir}",
+						flush=True,
+					)
+				unit_summary["outputs"]["template_wf_overlay_error"] = (
+					"Skipped overlay: missing top-electrode waveform artifact for unit"
+				)
+				unit_summary["outputs"]["extremum_ch_wf_overlay_error"] = unit_summary["outputs"]["template_wf_overlay_error"]
+			else:
+				overlay_waveforms, overlay_top_electrode_id, overlay_total_count = overlay_payload
+				overlay_time_upsample = TimeUpsampleConfig(enabled=False, factor=1, method=str(inputs.reports.time_upsample.method))
+				if isinstance(decision_for_unit, dict):
+					if bool(decision_for_unit.get("applied", False)):
+						overlay_time_upsample = TimeUpsampleConfig(
+							enabled=True,
+							factor=max(1, int(decision_for_unit.get("factor", 1))),
+							method=str(decision_for_unit.get("method", inputs.reports.time_upsample.method)),
+						)
+				elif bool(inputs.reports.time_upsample.enabled):
+					# Legacy fallback when no per-unit decision is available.
+					overlay_time_upsample = inputs.reports.time_upsample
+				# Prefer merged-template electrode-id label for consistent cross-plot channel identity.
+				if merged_electrode_ids is not None and int(template_plot.shape[0]) > 0 and int(len(merged_electrode_ids)) >= int(template_plot.shape[0]):
+					try:
+						overlay_top_idx = int(np.argmax(np.ptp(template_plot, axis=1)))
+						overlay_top_electrode_id = merged_electrode_ids[overlay_top_idx]
+					except Exception:
+						pass
+				if overlay_debug_mode:
+					print(
+						"[template_wf_overlay][debug] "
+						f"unit={unit_id} loaded overlay payload "
+						f"waveforms_shape={tuple(np.asarray(overlay_waveforms).shape)} "
+						f"top_electrode_id={overlay_top_electrode_id} total={overlay_total_count}",
+						flush=True,
+					)
+				overlay_outputs = render_template_wf_overlay(
+					template=template_plot,
+					config=inputs.per_unit_outputs.template_wf_overlay,
+					time_upsample=overlay_time_upsample,
+					pdf_path=paths["template_wf_overlay_pdf"],
+					png_path=paths["template_wf_overlay_png"],
+					probe_geometry=unit_probe_geometry,
+					waveform_traces=overlay_waveforms,
+					top_electrode_id=overlay_top_electrode_id,
+					total_waveforms_at_channel=overlay_total_count,
+				)
+				if overlay_debug_mode:
+					print(
+						"[template_wf_overlay][debug] "
+						f"unit={unit_id} overlay outputs={overlay_outputs}",
+						flush=True,
+					)
+				unit_summary["outputs"].update(overlay_outputs)
 
 			amp_outputs = render_footprint_amplitude_map(
 				template=amp_template,
@@ -701,6 +763,11 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				pdf_path=paths["propagation_plot_pdf"],
 				png_path=paths["propagation_plot_png"],
 				probe_geometry=unit_probe_geometry,
+				channel_labels_by_row=(
+					merged_electrode_ids
+					if (prop_source == "merged_contributing" and merged_electrode_ids is not None and int(len(merged_electrode_ids)) == int(prop_template.shape[0]))
+					else None
+				),
 			)
 			unit_summary["outputs"].update(prop_outputs)
 		except Exception as exc:

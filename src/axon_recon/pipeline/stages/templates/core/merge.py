@@ -107,7 +107,7 @@ def merge_sources_per_channel(
 	max_waveforms_per_source_channel: int | None,
 	overlap_match_priority: tuple[str, ...],
 	location_tolerance_um: float,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, list[Any] | None]:
 	if not sources:
 		raise ValueError("No template sources to merge")
 
@@ -177,12 +177,19 @@ def merge_sources_per_channel(
 	keys = sorted(bucket_waveforms.keys())
 	merged_waves = []
 	merged_locs = []
+	merged_electrode_ids: list[Any] = []
 	for key in keys:
 		den = max(1e-12, float(bucket_weights[key]))
 		merged_waves.append(bucket_waveforms[key] / den)
 		merged_locs.append(bucket_locations[key])
+		if str(key).startswith("eid:"):
+			merged_electrode_ids.append(str(key).split(":", 1)[1])
+		else:
+			merged_electrode_ids.append(None)
 
-	return np.vstack(merged_waves), np.asarray(merged_locs, dtype=float)
+	if all(eid is None for eid in merged_electrode_ids):
+		return np.vstack(merged_waves), np.asarray(merged_locs, dtype=float), None
+	return np.vstack(merged_waves), np.asarray(merged_locs, dtype=float), merged_electrode_ids
 
 
 def materialize_unit_templates_from_sources(
@@ -196,7 +203,7 @@ def materialize_unit_templates_from_sources(
 	location_tolerance_um: float,
 	execution_upsampling: TimeUpsampleConfig | None = None,
 	raw_sampling_rate_hz: float | None = None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[Any] | None] | None:
 	"""Build merged + full templates for one unit from named source payloads."""
 	materialized, _ = materialize_unit_templates_from_sources_with_meta(
 		source_payloads=source_payloads,
@@ -223,7 +230,7 @@ def materialize_unit_templates_from_sources_with_meta(
 	location_tolerance_um: float,
 	execution_upsampling: TimeUpsampleConfig | None = None,
 	raw_sampling_rate_hz: float | None = None,
-) -> tuple[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None, dict[str, Any]]:
+) -> tuple[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[Any] | None] | None, dict[str, Any]]:
 	"""Build merged + full templates plus upsampling decision metadata."""
 	if not source_payloads:
 		return None, {
@@ -330,7 +337,7 @@ def materialize_unit_templates_from_sources_with_meta(
 		decision["skip_reason"] = ("disabled" if not bool(execution_upsampling.enabled) else "factor_le_1")
 
 	payloads = [payload for _, payload in prepared_payloads]
-	merged_template, merged_locs = merge_sources_per_channel(
+	merged_template, merged_locs, merged_electrode_ids = merge_sources_per_channel(
 		payloads,
 		enable_merge=bool(enable_merge),
 		merge_method=merge_method,
@@ -348,14 +355,14 @@ def materialize_unit_templates_from_sources_with_meta(
 			full_locs = payload[1]
 			break
 
-	return (merged_template, merged_locs, full_template, full_locs), decision
+	return (merged_template, merged_locs, full_template, full_locs, merged_electrode_ids), decision
 
 
 def materialize_unit_templates_by_unit(
 	*,
 	analyzers: list[tuple[str, Any]],
 	unit_ids: list[Any],
-	payload_builder: Callable[..., tuple[np.ndarray, np.ndarray, list[Any] | None, list[Any] | None, int, float | None] | None],
+	payload_builder: Callable[..., tuple[Any, ...] | None],
 	enable_merge: bool,
 	merge_method: str,
 	centering_method: str,
@@ -364,9 +371,9 @@ def materialize_unit_templates_by_unit(
 	location_tolerance_um: float,
 	execution_upsampling: TimeUpsampleConfig | None = None,
 	raw_sampling_rate_hz: float | None = None,
-) -> dict[Any, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+) -> dict[Any, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[Any] | None]]:
 	"""Orchestrate per-unit merge materialization from extracted analyzer payloads."""
-	results: dict[Any, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = {}
+	results: dict[Any, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[Any] | None]] = {}
 	for uid in unit_ids:
 		source_payloads: list[tuple[str, tuple[Any, ...]]] = []
 		for src_name, analyzer in analyzers:
@@ -396,7 +403,7 @@ def materialize_unit_templates_by_unit_with_meta(
 	*,
 	analyzers: list[tuple[str, Any]],
 	unit_ids: list[Any],
-	payload_builder: Callable[..., tuple[np.ndarray, np.ndarray, list[Any] | None, list[Any] | None, int, float | None] | None],
+	payload_builder: Callable[..., tuple[Any, ...] | None],
 	enable_merge: bool,
 	merge_method: str,
 	centering_method: str,
@@ -405,8 +412,8 @@ def materialize_unit_templates_by_unit_with_meta(
 	location_tolerance_um: float,
 	execution_upsampling: TimeUpsampleConfig | None = None,
 	raw_sampling_rate_hz: float | None = None,
-) -> tuple[dict[Any, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]], dict[Any, dict[str, Any]]]:
-	results: dict[Any, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = {}
+) -> tuple[dict[Any, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[Any] | None]], dict[Any, dict[str, Any]]]:
+	results: dict[Any, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[Any] | None]] = {}
 	decisions: dict[Any, dict[str, Any]] = {}
 	for uid in unit_ids:
 		source_payloads: list[tuple[str, tuple[Any, ...]]] = []
@@ -449,9 +456,14 @@ def materialize_templates_from_spikeinterface(
 	max_waveforms_per_source_channel: int | None = 500,
 	overlap_match_priority: tuple[str, ...] = ("electrode_id", "channel_id", "location"),
 	location_tolerance_um: float = 1.0,
+	debug_overlay: bool = False,
 ) -> tuple[Path, Path, dict[Any, dict[str, Any]]]:
 	"""Build templates artifacts expected by templates v2 from SpikeInterface analyzers."""
-	from ..io import resolve_materialized_templates_dirs, write_materialized_unit_templates
+	from ..io import (
+		resolve_materialized_templates_dirs,
+		write_materialized_overlay_waveforms,
+		write_materialized_unit_templates,
+	)
 	from ..integrations.spikeinterface_extract import build_unit_source_payload, load_spikeinterface_analyzers
 
 	analyzers = load_spikeinterface_analyzers(
@@ -491,7 +503,7 @@ def materialize_templates_from_spikeinterface(
 	)
 
 	for uid, materialized in materialized_by_unit.items():
-		merged_template, merged_locs, full_template, full_locs = materialized
+		merged_template, merged_locs, full_template, full_locs, merged_electrode_ids = materialized
 		write_materialized_unit_templates(
 			merged_units_dir=merged_units_dir,
 			full_channels_templates_dir=full_channels_templates_dir,
@@ -501,5 +513,90 @@ def materialize_templates_from_spikeinterface(
 			full_template=full_template,
 			full_locations_xy=full_locs,
 		)
+		from ..io import write_materialized_merged_electrode_ids
+		write_materialized_merged_electrode_ids(
+			merged_units_dir=merged_units_dir,
+			unit_id=uid,
+			electrode_ids=merged_electrode_ids,
+		)
+
+		# Persist top-electrode waveform snippets for waveform-level overlay rendering.
+		selected_payload: tuple[Any, ...] | None = None
+		for src_name, analyzer in analyzers:
+			payload = build_unit_source_payload(analyzer=analyzer, unit_id=uid)
+			if payload is None or len(payload) < 9:
+				if bool(debug_overlay):
+					print(
+						"[template_wf_overlay][debug] "
+						f"unit={uid} source={src_name} payload_missing_or_short",
+						flush=True,
+					)
+				continue
+			if payload[6] is None:
+				if bool(debug_overlay):
+					print(
+						"[template_wf_overlay][debug] "
+						f"unit={uid} source={src_name} top_electrode_waveforms=None",
+						flush=True,
+					)
+				continue
+			if str(src_name) == "concat":
+				selected_payload = payload
+				if bool(debug_overlay):
+					print(
+						"[template_wf_overlay][debug] "
+						f"unit={uid} selected source=concat for overlay artifact",
+						flush=True,
+					)
+				break
+			if selected_payload is None:
+				selected_payload = payload
+				if bool(debug_overlay):
+					print(
+						"[template_wf_overlay][debug] "
+						f"unit={uid} selected source={src_name} for overlay artifact",
+						flush=True,
+					)
+
+		if selected_payload is not None:
+			try:
+				wf = np.asarray(selected_payload[6], dtype=float)
+				top_electrode_id = selected_payload[7]
+				total = int(selected_payload[8]) if selected_payload[8] is not None else int(wf.shape[0])
+				if wf.ndim == 2 and int(wf.shape[0]) > 0 and int(wf.shape[1]) > 0:
+					write_materialized_overlay_waveforms(
+						merged_units_dir=merged_units_dir,
+						unit_id=uid,
+						waveforms_by_t=wf,
+						top_electrode_id=top_electrode_id,
+						total_waveforms_at_channel=total,
+					)
+					if bool(debug_overlay):
+						print(
+							"[template_wf_overlay][debug] "
+							f"unit={uid} wrote overlay artifact shape={tuple(wf.shape)} "
+							f"top_electrode_id={top_electrode_id} total={total}",
+							flush=True,
+						)
+				elif bool(debug_overlay):
+					print(
+						"[template_wf_overlay][debug] "
+						f"unit={uid} overlay payload had invalid shape={tuple(np.asarray(wf).shape)}",
+						flush=True,
+					)
+			except Exception as exc:
+				if bool(debug_overlay):
+					print(
+						"[template_wf_overlay][debug] "
+						f"unit={uid} failed writing overlay artifact (exception={exc!r})",
+						flush=True,
+					)
+				LOGGER.debug("Failed writing overlay waveform artifact for unit %s", uid, exc_info=True)
+		elif bool(debug_overlay):
+			print(
+				"[template_wf_overlay][debug] "
+				f"unit={uid} no source produced top-electrode waveforms; artifact not written",
+				flush=True,
+			)
 
 	return merged_units_dir, full_channels_templates_dir, upsampling_decisions_by_unit

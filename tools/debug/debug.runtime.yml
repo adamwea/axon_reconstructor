@@ -258,7 +258,7 @@ stages:
             scale_bar_color: white
             scale_bar_text_offset_frac: 0.02 # move label closer/farther from bar in axis-height fractions
             scale_bar_y_offset_frac: 0.06 # vertical offset of bar from lower edge in axis-height fractions
-            scale_bar_fontsize: 6
+            scale_bar_fontsize: 18
             scale_bar_linewidth: 1.8
             #scale_bar_length_um: null # optional fixed bar length; when null uses auto 50/100 um
           circles:
@@ -287,22 +287,36 @@ stages:
               show_unit_label: true # whether to show tick labels on the color bar, which include the units (e.g. "10 ms") or just the numeric value (e.g. "10")
               tick_decimal_places: 3 # controls tick label precision and dynamic 0/5-style tick density (more precision -> more candidate ticks)
               tick_target_count: 10 # optional desired number of ticks; <=0 or omitted lets renderer pick automatically
-        template_wf_overlay:
+        extremum_ch_wf_overlay:
+          debug_mode: true # if true, will include additional debug info in the plot such as unit_id, template source, and applied upsampling factor and method, which can be useful for verifying that the correct templates are being plotted and that upsampling is being applied as expected.
           write_pdf: false
-          pdf_relpath: template_wf_overlay.pdf
+          pdf_relpath: extremum_ch_wf_overlay.pdf
           write_png: true
-          png_relpath: template_wf_overlay.png
+          png_relpath: extremum_ch_wf_overlay.png
           top_channels_per_template: 10
           #style: propagation # propogation or overlay. 
           style: overlay # currently we have overlay implemented as the default, I want the wfs overlayed on eachother with the same x and y axis.
+
+          show_title: false
+          show_axes: false
+          show_channel_labels: false
+          show_top_channel_info: true
+          show_waveform_count_info: true
           
           # whether to include an additional plot of the mean waveform across the *all* channels for each template, averaged across those channels.
           include_mean: true 
+          max_waveforms_to_show: 100 # number of top-channel waveforms drawn for this unit overlay; mean still uses all sampled waveforms
+          waveform_sampling_mode: uniform # uniform, first, or random
+          random_seed: 0 # used when waveform_sampling_mode=random; set null for non-deterministic sampling
 
           include_scale_bar: true
           scale_bar_color: black
           scale_bar_fontsize: 6
           scale_bar_linewidth: 1.8
+          scale_bar_time_fraction: 0.10
+          scale_bar_amp_fraction: 0.10
+          scale_bar_time_label_offset_frac: 0.03
+          scale_bar_amp_label_offset_frac: 0.02
           background: white
 
         footprint_plots:
@@ -363,27 +377,28 @@ stages:
           channels_per_panel: 25
           channel_overlap: 5
           background: white
-          show_electrode_ids: false
-          channel_label_fontsize: 6
-          channel_label_x_offset_frac: -0.005
-          channel_label_y_offset_frac: 0.0
-          channel_label_alignment: right # left, center, or right alignment of channel labels relative to the channel location
+          show_electrode_ids: true
+          electrode_label_fontsize: 6
+          electrode_label_x_offset_frac: -0.005
+          electrode_label_y_offset_frac: 0.0
+          electrode_label_alignment: right # left, center, or right alignment of electrode labels relative to the electrode location
           trace_gain: 2.0
           trace_spacing: 1.0
           peak_marker_height_frac: 0.50 # relative marker height vs per-channel vertical spacing; increase for taller peak ticks
           peak_marker_linewidth: 0.5 # linewidth (pt) for peak tick marks
           show_scale_bar: true
-          scale_bar_anchor_x_frac: 0.00
+          scale_bar_anchor_x_frac: -0.12
           scale_bar_anchor_y_frac: 0.09
           scale_bar_time_fraction: 0.075
           scale_bar_amp_fraction: 0.5
           force_amp_frac_to_max_amp: true # if true, will ignore the scale_bar_amp_fraction and instead set the amplitude fraction to correspond to the max amplitude across all channels in the plot, ensuring the scale bar always reflects the actual amplitude values in the plot.
           debug_max_amps_at_each_channel: false # if true, will print the max amplitude value at each channel in the debug info for the plot, which can be useful for verifying that the scale bar amplitude fraction is set appropriately relative to the actual amplitudes in the plot.
-          bold_max_amp_channel_label: true # whether to bold the channel label for the channel with the maximum amplitude in the plot, which can help visually identify the main channel in the propagation plot.
+          bold_max_amp_electrode_label: true # whether to bold the electrode label for the electrode with the maximum amplitude in the plot, which can help visually identify the main electrode in the propagation plot.
           scale_bar_linewidth: 1.8
           scale_bar_fontsize: 7
-          scale_bar_time_label_offset_frac: 0.04
-          scale_bar_amp_label_offset_frac: 0.02
+          scale_bar_time_label_offset_frac: 0.02
+          scale_bar_amp_label_offset_frac: 0.01
+          abbreviate_post_ap_signal: true # whether to abbreviate the post-peak portion of the traces in the plot.
       
       ## Reports
       reports:

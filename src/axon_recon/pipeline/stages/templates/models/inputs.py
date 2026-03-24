@@ -48,17 +48,30 @@ class TemplatePlotsConfig:
 
 @dataclass(frozen=True)
 class TemplateWaveformOverlayConfig:
+	debug_mode: bool = False
 	write_pdf: bool = False
-	pdf_relpath: str = "template_wf_overlay.pdf"
+	pdf_relpath: str = "extremum_ch_wf_overlay.pdf"
 	write_png: bool = True
-	png_relpath: str = "template_wf_overlay.png"
+	png_relpath: str = "extremum_ch_wf_overlay.png"
 	top_channels_per_template: int = 10
 	style: str = "overlay"
+	show_title: bool = False
+	show_axes: bool = False
+	show_channel_labels: bool = False
+	show_top_channel_info: bool = True
+	show_waveform_count_info: bool = True
 	include_mean: bool = True
+	max_waveforms_to_show: int = 100
+	waveform_sampling_mode: str = "uniform"
+	random_seed: int | None = 0
 	include_scale_bar: bool = True
 	scale_bar_color: str = "black"
 	scale_bar_fontsize: float = 6.0
 	scale_bar_linewidth: float = 1.8
+	scale_bar_time_fraction: float = 0.10
+	scale_bar_amp_fraction: float = 0.10
+	scale_bar_time_label_offset_frac: float = 0.03
+	scale_bar_amp_label_offset_frac: float = 0.02
 	background: str = "white"
 
 
@@ -213,10 +226,10 @@ class PropagationPlotConfig:
 	channel_overlap: int = 5
 	background: str = "white"
 	show_electrode_ids: bool = False
-	channel_label_fontsize: float = 6.0
-	channel_label_x_offset_frac: float = 0.01
-	channel_label_y_offset_frac: float = 0.0
-	channel_label_alignment: str = "left"
+	electrode_label_fontsize: float = 6.0
+	electrode_label_x_offset_frac: float = 0.01
+	electrode_label_y_offset_frac: float = 0.0
+	electrode_label_alignment: str = "left"
 	trace_gain: float = 1.0
 	trace_spacing: float = 1.0
 	peak_marker_height_frac: float = 0.24
@@ -228,12 +241,32 @@ class PropagationPlotConfig:
 	scale_bar_amp_fraction: float = 0.20
 	force_amp_frac_to_max_amp: bool = False
 	debug_max_amps_at_each_channel: bool = False
-	bold_max_amp_channel_label: bool = False
+	bold_max_amp_electrode_label: bool = False
 	scale_bar_linewidth: float = 1.8
 	scale_bar_fontsize: float = 7.0
 	scale_bar_time_label_offset_frac: float = 0.04
 	scale_bar_amp_label_offset_frac: float = 0.02
 	latency_map: PropagationLatencyMapConfig = field(default_factory=PropagationLatencyMapConfig)
+
+	@property
+	def channel_label_fontsize(self) -> float:
+		return self.electrode_label_fontsize
+
+	@property
+	def channel_label_x_offset_frac(self) -> float:
+		return self.electrode_label_x_offset_frac
+
+	@property
+	def channel_label_y_offset_frac(self) -> float:
+		return self.electrode_label_y_offset_frac
+
+	@property
+	def channel_label_alignment(self) -> str:
+		return self.electrode_label_alignment
+
+	@property
+	def bold_max_amp_channel_label(self) -> bool:
+		return self.bold_max_amp_electrode_label
 
 
 @dataclass(frozen=True)
@@ -354,6 +387,11 @@ class PerUnitTemplatesOutputsConfig:
 	def template_plots(self) -> TemplatePlotsConfig:
 		# Compatibility convenience for new nested runtime schema.
 		return TemplatePlotsConfig(waveforms=self.template, circles=self.template_circles)
+
+	@property
+	def extremum_ch_wf_overlay(self) -> TemplateWaveformOverlayConfig:
+		# Alias for clearer external naming while preserving internal field compatibility.
+		return self.template_wf_overlay
 
 
 @dataclass(frozen=True)

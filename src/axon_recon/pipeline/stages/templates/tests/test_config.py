@@ -461,6 +461,9 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			          write_png: false
 			          png_relpath: reports/grid.png
 			          top_channels_per_template: 15
+			          show_title: true
+			          show_axes: true
+			          show_channel_labels: true
 			          time_upsample:
 			            factor: 3
 			            method: linear
@@ -477,16 +480,29 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			            png_relpath: reports/latency_map_grid.png
 			      per_unit_outputs:
 			        template_wf_overlay:
+			          debug_mode: true
 			          write_pdf: true
 			          pdf_relpath: reports/wf_overlay.pdf
 			          write_png: true
 			          png_relpath: reports/wf_overlay.png
 			          top_channels_per_template: 12
+			          show_title: false
+			          show_axes: false
+			          show_channel_labels: false
+			          show_top_channel_info: false
+			          show_waveform_count_info: false
 			          include_mean: false
+			          max_waveforms_to_show: 77
+			          waveform_sampling_mode: random
+			          random_seed: 123
 			          include_scale_bar: true
 			          scale_bar_color: red
 			          scale_bar_fontsize: 9
 			          scale_bar_linewidth: 2.2
+			          scale_bar_time_fraction: 0.12
+			          scale_bar_amp_fraction: 0.16
+			          scale_bar_time_label_offset_frac: 0.05
+			          scale_bar_amp_label_offset_frac: 0.03
 			          background: black
 			"""
 		).strip()
@@ -503,16 +519,29 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert inputs.include_segments is True
 
 	overlay = inputs.per_unit_outputs.template_wf_overlay
+	assert overlay.debug_mode is True
 	assert overlay.write_pdf is True
 	assert overlay.pdf_relpath == "reports/wf_overlay.pdf"
 	assert overlay.write_png is True
 	assert overlay.png_relpath == "reports/wf_overlay.png"
 	assert overlay.top_channels_per_template == 12
+	assert overlay.show_title is False
+	assert overlay.show_axes is False
+	assert overlay.show_channel_labels is False
+	assert overlay.show_top_channel_info is False
+	assert overlay.show_waveform_count_info is False
+	assert overlay.max_waveforms_to_show == 77
+	assert overlay.waveform_sampling_mode == "random"
+	assert overlay.random_seed == 123
 	assert overlay.include_mean is False
 	assert overlay.include_scale_bar is True
 	assert overlay.scale_bar_color == "red"
 	assert overlay.scale_bar_fontsize == 9
 	assert overlay.scale_bar_linewidth == 2.2
+	assert overlay.scale_bar_time_fraction == 0.12
+	assert overlay.scale_bar_amp_fraction == 0.16
+	assert overlay.scale_bar_time_label_offset_frac == 0.05
+	assert overlay.scale_bar_amp_label_offset_frac == 0.03
 	assert overlay.background == "black"
 
 	grid = inputs.reports.wf_overlay_grid
@@ -846,10 +875,10 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 			          channel_overlap: 3
 			          background: black
 			          show_electrode_ids: true
-			          channel_label_fontsize: 8
-			          channel_label_x_offset_frac: 0.03
-			          channel_label_y_offset_frac: 0.2
-			          channel_label_alignment: right
+			          electrode_label_fontsize: 8
+			          electrode_label_x_offset_frac: 0.03
+			          electrode_label_y_offset_frac: 0.2
+			          electrode_label_alignment: right
 			          trace_gain: 1.5
 			          trace_spacing: 1.3
 			          peak_marker_height_frac: 0.35
@@ -861,7 +890,7 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 			          scale_bar_amp_fraction: 0.3
 			          force_amp_frac_to_max_amp: true
 			          debug_max_amps_at_each_channel: true
-			          bold_max_amp_channel_label: true
+			          bold_max_amp_electrode_label: true
 			          scale_bar_linewidth: 2.4
 			          scale_bar_fontsize: 9
 			          scale_bar_time_label_offset_frac: 0.05
@@ -919,10 +948,10 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 	assert prop.channel_overlap == 3
 	assert prop.background == "black"
 	assert prop.show_electrode_ids is True
-	assert prop.channel_label_fontsize == 8
-	assert prop.channel_label_x_offset_frac == 0.03
-	assert prop.channel_label_y_offset_frac == 0.2
-	assert prop.channel_label_alignment == "right"
+	assert prop.electrode_label_fontsize == 8
+	assert prop.electrode_label_x_offset_frac == 0.03
+	assert prop.electrode_label_y_offset_frac == 0.2
+	assert prop.electrode_label_alignment == "right"
 	assert prop.trace_gain == 1.5
 	assert prop.trace_spacing == 1.3
 	assert prop.peak_marker_height_frac == 0.35
@@ -934,7 +963,7 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 	assert prop.scale_bar_amp_fraction == 0.3
 	assert prop.force_amp_frac_to_max_amp is True
 	assert prop.debug_max_amps_at_each_channel is True
-	assert prop.bold_max_amp_channel_label is True
+	assert prop.bold_max_amp_electrode_label is True
 	assert prop.scale_bar_linewidth == 2.4
 	assert prop.scale_bar_fontsize == 9
 	assert prop.scale_bar_time_label_offset_frac == 0.05
