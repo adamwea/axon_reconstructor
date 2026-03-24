@@ -662,7 +662,7 @@ def test_load_templates_config_applies_global_heatmap_defaults(tmp_path: Path) -
 		dedent(
 			f"""
 			data: {data_path}
-			global_heatmap_plotting:
+			global_heatmap_defaults:
 			  default:
 			    background: white
 			    color_map: magma
@@ -729,7 +729,7 @@ def test_load_templates_config_stage_values_override_global_heatmap_defaults(tmp
 		dedent(
 			f"""
 			data: {data_path}
-			global_heatmap_plotting:
+			global_heatmap_defaults:
 			  circles:
 			    color_bar:
 			      units: us
@@ -838,13 +838,29 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 			          pdf_relpath: maps/propagation.pdf
 			          write_png: true
 			          png_relpath: maps/propagation.png
+			          show_title: false
+			          title_template: "Panel {{start}}-{{end}} of {{total}}"
+			          title_fontsize: 11
 			          top_channels: 30
 			          channels_per_panel: 12
 			          channel_overlap: 3
 			          background: black
 			          show_electrode_ids: true
+			          channel_label_fontsize: 8
+			          channel_label_x_offset_frac: 0.03
+			          channel_label_y_offset_frac: 0.2
+			          channel_label_alignment: right
 			          trace_gain: 1.5
 			          trace_spacing: 1.3
+			          show_scale_bar: true
+			          scale_bar_anchor_x_frac: 0.85
+			          scale_bar_anchor_y_frac: 0.18
+			          scale_bar_time_fraction: 0.2
+			          scale_bar_amp_fraction: 0.3
+			          scale_bar_linewidth: 2.4
+			          scale_bar_fontsize: 9
+			          scale_bar_time_label_offset_frac: 0.05
+			          scale_bar_amp_label_offset_frac: 0.04
 			          latency_map:
 			            show: true
 			            color_map: cividis
@@ -890,13 +906,29 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 	assert prop.pdf_relpath == "maps/propagation.pdf"
 	assert prop.write_png is True
 	assert prop.png_relpath == "maps/propagation.png"
+	assert prop.show_title is False
+	assert prop.title_template == "Panel {start}-{end} of {total}"
+	assert prop.title_fontsize == 11
 	assert prop.top_channels == 30
 	assert prop.channels_per_panel == 12
 	assert prop.channel_overlap == 3
 	assert prop.background == "black"
 	assert prop.show_electrode_ids is True
+	assert prop.channel_label_fontsize == 8
+	assert prop.channel_label_x_offset_frac == 0.03
+	assert prop.channel_label_y_offset_frac == 0.2
+	assert prop.channel_label_alignment == "right"
 	assert prop.trace_gain == 1.5
 	assert prop.trace_spacing == 1.3
+	assert prop.show_scale_bar is True
+	assert prop.scale_bar_anchor_x_frac == 0.85
+	assert prop.scale_bar_anchor_y_frac == 0.18
+	assert prop.scale_bar_time_fraction == 0.2
+	assert prop.scale_bar_amp_fraction == 0.3
+	assert prop.scale_bar_linewidth == 2.4
+	assert prop.scale_bar_fontsize == 9
+	assert prop.scale_bar_time_label_offset_frac == 0.05
+	assert prop.scale_bar_amp_label_offset_frac == 0.04
 	assert prop.latency_map.show is True
 	assert prop.latency_map.color_map == "cividis"
 	assert prop.latency_map.force_square_aspect is False
@@ -948,6 +980,7 @@ def test_load_templates_config_parses_merge_and_template_artifact_knobs(tmp_path
 			        merged_template:
 			          write_npy: true
 			          npy_relpath: arrays/merged.npy
+			          channel_locations_npy_relpath: arrays/merged_locs.npy
 			        square_template:
 			          write_npy: true
 			          npy_relpath: arrays/square.npy
@@ -959,6 +992,7 @@ def test_load_templates_config_parses_merge_and_template_artifact_knobs(tmp_path
 			        full_template:
 			          write_npy: true
 			          npy_relpath: arrays/full.npy
+			          channel_locations_npy_relpath: arrays/full_locs.npy
 			          padding_value: zero
 			"""
 		).strip()
@@ -971,19 +1005,65 @@ def test_load_templates_config_parses_merge_and_template_artifact_knobs(tmp_path
 	assert inputs.merge.enable is True
 	assert inputs.merge.method == "weighted_average"
 	assert inputs.merge.centering_method == "pre_peak_robust_baseline"
-	assert inputs.merge.weighting_mode == "per_channel_waveform_count"
 	assert inputs.merge.max_waveforms_per_source_channel == 123
 	assert inputs.merge.overlap_match_priority == ("electrode_id", "channel_id", "location")
 	assert inputs.merge.location_tolerance_um == 2.5
 
 	assert inputs.per_unit_outputs.merged_template.write_npy is True
 	assert inputs.per_unit_outputs.merged_template.npy_relpath == "arrays/merged.npy"
+	assert inputs.per_unit_outputs.merged_template.channel_locations_npy_relpath == "arrays/merged_locs.npy"
 	assert inputs.per_unit_outputs.square_template.write_npy is True
 	assert inputs.per_unit_outputs.square_template.padding_value == "nan"
+	assert inputs.per_unit_outputs.square_template.channel_locations_npy_relpath == "square_channel_locations.npy"
 	assert inputs.per_unit_outputs.scan_template.write_npy is True
 	assert inputs.per_unit_outputs.scan_template.padding_value == "one"
+	assert inputs.per_unit_outputs.scan_template.channel_locations_npy_relpath == "scan_channel_locations.npy"
 	assert inputs.per_unit_outputs.full_template.write_npy is True
+	assert inputs.per_unit_outputs.full_template.channel_locations_npy_relpath == "arrays/full_locs.npy"
 	assert inputs.per_unit_outputs.full_template.padding_value == "zero"
+
+
+def test_load_templates_config_parses_execution_upsampling_block(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    execution:
+			      upsampling:
+			        enable: true
+			        method: sinc
+			        factor: 10
+			        mismatch_tolerance_hz: 0.25
+			        raw_rate_fallback_hz: 10000
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.execution_upsampling.enabled is True
+	assert inputs.execution_upsampling.factor == 10
+	assert inputs.execution_upsampling.method == "sinc"
+	assert inputs.execution_upsampling.mismatch_tolerance_hz == 0.25
+	assert inputs.execution_upsampling.raw_rate_fallback_hz == 10000
 
 
 def test_load_templates_config_parses_nested_alias_keys_from_debug_runtime(tmp_path: Path) -> None:

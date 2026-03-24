@@ -375,10 +375,16 @@ def _build_time_upsample_config(raw_cfg: dict[str, Any]) -> TimeUpsampleConfig:
 	factor = max(1, _as_int(raw_cfg.get("factor", 1), 1))
 	enabled_raw = raw_cfg.get("enabled", None)
 	enabled = _as_bool(enabled_raw, factor > 1) if enabled_raw is not None else bool(factor > 1)
+	raw_fallback_raw = raw_cfg.get("raw_rate_fallback_hz", None)
+	raw_rate_fallback_hz = None if raw_fallback_raw in {None, ""} else _as_float(raw_fallback_raw, 0.0)
+	if raw_rate_fallback_hz is not None and raw_rate_fallback_hz <= 0.0:
+		raw_rate_fallback_hz = None
 	return TimeUpsampleConfig(
 		enabled=bool(enabled),
 		factor=int(factor),
 		method=str(raw_cfg.get("method", "sinc")),
+		mismatch_tolerance_hz=max(0.0, _as_float(raw_cfg.get("mismatch_tolerance_hz", 0.5), 0.5)),
+		raw_rate_fallback_hz=raw_rate_fallback_hz,
 	)
 
 
@@ -468,10 +474,20 @@ def _build_propagation_latency_map_config(raw_cfg: dict[str, Any]) -> Propagatio
 	)
 
 
-def _build_template_artifact_config(raw_cfg: dict[str, Any], *, relpath_default: str) -> TemplateArtifactConfig:
+def _build_template_artifact_config(
+	raw_cfg: dict[str, Any],
+	*,
+	relpath_default: str,
+	channel_locations_relpath_default: str | None,
+) -> TemplateArtifactConfig:
+	if "channel_locations_npy_relpath" in raw_cfg:
+		loc_relpath_raw = raw_cfg.get("channel_locations_npy_relpath", None)
+	else:
+		loc_relpath_raw = channel_locations_relpath_default
 	return TemplateArtifactConfig(
 		write_npy=_as_bool(raw_cfg.get("write_npy", False), False),
 		npy_relpath=str(raw_cfg.get("npy_relpath", relpath_default)),
+		channel_locations_npy_relpath=(None if loc_relpath_raw in {None, ""} else str(loc_relpath_raw)),
 		padding_value=_normalize_padding_value(raw_cfg.get("padding_value", "zero")),
 	)
 
@@ -503,6 +519,7 @@ class TemplatesStageConfig:
 	require_curated_units: bool
 	include_concat: bool
 	include_segments: bool
+	execution_upsampling: TimeUpsampleConfig
 	merge: MergeConfig
 	probe_geometry: ProbeGeometryConfig | None = None
 
@@ -570,12 +587,13 @@ def parse_templates_stage_config(
 	spk_tpl_extract_sources = spk_tpl_extract.get("sources", {}) if isinstance(spk_tpl_extract.get("sources", {}), dict) else {}
 	include_concat = _as_bool(spk_tpl_extract_sources.get("include_concat", True), True)
 	include_segments = _as_bool(spk_tpl_extract_sources.get("include_segments", True), True)
+	execution_upsampling_cfg = execution_cfg.get("upsampling", {}) if isinstance(execution_cfg.get("upsampling", {}), dict) else {}
+	execution_upsampling = _build_time_upsample_config(execution_upsampling_cfg)
 	merge_cfg = _get_merge_block(runtime_config)
 	merge = MergeConfig(
 		enable=_as_bool(merge_cfg.get("enable", True), True),
 		method=str(merge_cfg.get("method", "mean_all_waveforms")),
 		centering_method=str(merge_cfg.get("centering_method", "pre_peak_robust_baseline")),
-		weighting_mode=str(merge_cfg.get("weighting_mode", "per_channel_waveform_count")),
 		max_waveforms_per_source_channel=_parse_max_waveforms_per_source_channel(
 			merge_cfg.get("max_waveforms_per_source_channel", 500),
 			500,
@@ -791,13 +809,29 @@ def parse_templates_stage_config(
 		pdf_relpath=str(propagation_cfg.get("pdf_relpath", "propagation_plot.pdf")),
 		write_png=_as_bool(propagation_cfg.get("write_png", True), True),
 		png_relpath=str(propagation_cfg.get("png_relpath", "propagation_plot.png")),
+		show_title=_as_bool(propagation_cfg.get("show_title", True), True),
+		title_template=str(propagation_cfg.get("title_template", "Propagation traces {start}-{end} / {total}")),
+		title_fontsize=_as_float(propagation_cfg.get("title_fontsize", 9.0), 9.0),
 		top_channels=max(1, _as_int(propagation_cfg.get("top_channels", 25), 25)),
 		channels_per_panel=max(1, _as_int(propagation_cfg.get("channels_per_panel", 25), 25)),
 		channel_overlap=max(0, _as_int(propagation_cfg.get("channel_overlap", 5), 5)),
 		background=str(propagation_cfg.get("background", "white")),
 		show_electrode_ids=_as_bool(propagation_cfg.get("show_electrode_ids", False), False),
+		channel_label_fontsize=_as_float(propagation_cfg.get("channel_label_fontsize", 6.0), 6.0),
+		channel_label_x_offset_frac=_as_float(propagation_cfg.get("channel_label_x_offset_frac", 0.01), 0.01),
+		channel_label_y_offset_frac=_as_float(propagation_cfg.get("channel_label_y_offset_frac", 0.0), 0.0),
+		channel_label_alignment=str(propagation_cfg.get("channel_label_alignment", "left")),
 		trace_gain=_as_float(propagation_cfg.get("trace_gain", 1.0), 1.0),
 		trace_spacing=_as_float(propagation_cfg.get("trace_spacing", 1.0), 1.0),
+		show_scale_bar=_as_bool(propagation_cfg.get("show_scale_bar", True), True),
+		scale_bar_anchor_x_frac=_as_float(propagation_cfg.get("scale_bar_anchor_x_frac", 0.92), 0.92),
+		scale_bar_anchor_y_frac=_as_float(propagation_cfg.get("scale_bar_anchor_y_frac", 0.12), 0.12),
+		scale_bar_time_fraction=_as_float(propagation_cfg.get("scale_bar_time_fraction", 0.15), 0.15),
+		scale_bar_amp_fraction=_as_float(propagation_cfg.get("scale_bar_amp_fraction", 0.20), 0.20),
+		scale_bar_linewidth=_as_float(propagation_cfg.get("scale_bar_linewidth", 1.8), 1.8),
+		scale_bar_fontsize=_as_float(propagation_cfg.get("scale_bar_fontsize", 7.0), 7.0),
+		scale_bar_time_label_offset_frac=_as_float(propagation_cfg.get("scale_bar_time_label_offset_frac", 0.04), 0.04),
+		scale_bar_amp_label_offset_frac=_as_float(propagation_cfg.get("scale_bar_amp_label_offset_frac", 0.02), 0.02),
 		latency_map=_build_propagation_latency_map_config(
 			_get_nested_block(propagation_cfg, "latency_map")
 		),
@@ -805,10 +839,26 @@ def parse_templates_stage_config(
 
 	per_unit = PerUnitTemplatesOutputsConfig(
 		unit_reldir=_get_unit_reldir(runtime_config),
-		merged_template=_build_template_artifact_config(merged_template_cfg, relpath_default="merged_template.npy"),
-		square_template=_build_template_artifact_config(square_template_cfg, relpath_default="square_template.npy"),
-		scan_template=_build_template_artifact_config(scan_template_cfg, relpath_default="scan_template.npy"),
-		full_template=_build_template_artifact_config(full_template_cfg, relpath_default="full_template.npy"),
+		merged_template=_build_template_artifact_config(
+			merged_template_cfg,
+			relpath_default="merged_template.npy",
+			channel_locations_relpath_default="merged_channel_locations.npy",
+		),
+		square_template=_build_template_artifact_config(
+			square_template_cfg,
+			relpath_default="square_template.npy",
+			channel_locations_relpath_default="square_channel_locations.npy",
+		),
+		scan_template=_build_template_artifact_config(
+			scan_template_cfg,
+			relpath_default="scan_template.npy",
+			channel_locations_relpath_default="scan_channel_locations.npy",
+		),
+		full_template=_build_template_artifact_config(
+			full_template_cfg,
+			relpath_default="full_template.npy",
+			channel_locations_relpath_default="full_channel_locations_xy.npy",
+		),
 		template=tpl,
 		template_circles=tpl_circles,
 		template_wf_overlay=tpl_wf_overlay,
@@ -829,6 +879,7 @@ def parse_templates_stage_config(
 		require_curated_units=require_curated_units,
 		include_concat=include_concat,
 		include_segments=include_segments,
+		execution_upsampling=execution_upsampling,
 		merge=merge,
 		probe_geometry=probe_geometry,
 	)
@@ -857,6 +908,7 @@ def build_templates_inputs_for_target(
 		require_curated_units=stage_config.require_curated_units,
 		include_concat=stage_config.include_concat,
 		include_segments=stage_config.include_segments,
+		execution_upsampling=stage_config.execution_upsampling,
 		merge=stage_config.merge,
 		probe_geometry=resolved_probe_geometry,
 		n_jobs=max(1, int(unit_workers)),
@@ -920,6 +972,7 @@ def load_templates_inputs_from_runtime(
 		require_curated_units=stage_cfg.require_curated_units,
 		include_concat=stage_cfg.include_concat,
 		include_segments=stage_cfg.include_segments,
+		execution_upsampling=stage_cfg.execution_upsampling,
 		merge=stage_cfg.merge,
 		probe_geometry=stage_cfg.probe_geometry,
 		n_jobs=1,

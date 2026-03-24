@@ -28,7 +28,7 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 		dedent(
 			f"""
 			data: {data_path}
-			global_heatmap_plotting:
+			global_heatmap_defaults:
 			  default:
 			    color_bar:
 			      show_ticks: [1, 5, dynamic_high]
@@ -83,4 +83,49 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert inputs.per_unit_outputs.amplitude_map_heatmap.scale == "log"
 	assert inputs.per_unit_outputs.amplitude_map_heatmap.linear_cap_rounding_step == 5.0
 	assert inputs.unit_ids == [94]
+
+
+def test_load_config_reconstruct_legacy_stage_block_without_global_defaults(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  reconstruct:
+			    outputs:
+			      amplitude_map:
+			        write_png: true
+			        relpath: maps/legacy_stage_amp
+			        panel_background_color: white
+			        color_bar:
+			          low_color: teal
+			          show_ticks: [1, 3, dynamic_high]
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.per_unit_outputs.write_amplitude_map_png is True
+	assert inputs.per_unit_outputs.amplitude_map_png_relpath == "maps/legacy_stage_amp.png"
+	heat = inputs.per_unit_outputs.amplitude_map_heatmap
+	assert heat.background == "white"
+	assert heat.low_color == "teal"
+	assert heat.show_ticks == (1, 3, "dynamic_high")
 

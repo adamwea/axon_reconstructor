@@ -40,7 +40,10 @@ def _merge_global_defaults(
     runtime_config: RuntimeConfig,
     global_paths: tuple[str, ...],
 ) -> dict[str, Any]:
-    root = runtime_config.get("global_heatmap_plotting", {})
+    root = runtime_config.get("global_heatmap_defaults", {})
+    if not isinstance(root, dict) or not root:
+        # Backward-compat alias during transition window.
+        root = runtime_config.get("global_heatmap_plotting", {})
     if not isinstance(root, dict) or not root:
         return {}
 

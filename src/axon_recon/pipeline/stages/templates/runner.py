@@ -9,7 +9,7 @@ import numpy as np  # type: ignore[import-not-found]
 
 from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir #TODO: dont import this from v1
 
-from .integrations import materialize_templates_from_spikeinterface
+from .core.merge import materialize_templates_from_spikeinterface
 from .core.render import (
 	render_footprint_amplitude_map,
 	render_footprint_map_grid,
@@ -50,6 +50,17 @@ def _build_square_template(template_c_by_t: np.ndarray, *, padding_mode: str) ->
 	pad_val = _pad_value_from_mode(padding_mode)
 	out = np.full((target, int(t.shape[1])), pad_val, dtype=float)
 	out[:n_channels, :] = t
+	return out
+
+
+def _build_square_locations(locations_xy: np.ndarray, *, target_channels: int) -> np.ndarray:
+	locs = np.asarray(locations_xy, dtype=float)
+	if locs.ndim != 2 or int(locs.shape[1]) < 2:
+		raise ValueError(f"Unexpected locations shape for square template: {locs.shape}")
+	if target_channels <= int(locs.shape[0]):
+		return np.asarray(locs[:target_channels, :2], dtype=float)
+	out = np.full((target_channels, 2), np.nan, dtype=float)
+	out[: int(locs.shape[0]), :] = locs[:, :2]
 	return out
 
 
@@ -254,9 +265,10 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 
 	merged_units_dir: Path | None = None
 	full_channels_templates_dir: Path | None = None
+	upsampling_decisions_by_unit: dict[Any, dict[str, Any]] = {}
 
 	def _ensure_templates_dirs() -> tuple[Path, Path]:
-		nonlocal merged_units_dir, full_channels_templates_dir
+		nonlocal merged_units_dir, full_channels_templates_dir, upsampling_decisions_by_unit
 		if merged_units_dir is None or full_channels_templates_dir is None:
 			prefer_spikeinterface = (
 				bool(inputs.force_restart)
@@ -272,12 +284,15 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 						bool(inputs.include_concat),
 						bool(inputs.include_segments),
 					)
-					merged_units_dir_resolved, full_channels_templates_dir_resolved = materialize_templates_from_spikeinterface(
+					materialize_out = materialize_templates_from_spikeinterface(
 						well_out_dir=well_out_dir,
 						templates_out_dir=templates_out_dir,
+						raw_data_h5_path=inputs.h5_path,
+						stream_id=str(inputs.stream_id),
 						unit_ids=(list(inputs.unit_ids) if inputs.unit_ids is not None else None),
 						include_concat=bool(inputs.include_concat),
 						include_segments=bool(inputs.include_segments),
+						execution_upsampling=inputs.execution_upsampling,
 						enable_merge=bool(inputs.merge.enable),
 						merge_method=str(inputs.merge.method),
 						centering_method=str(inputs.merge.centering_method),
@@ -289,6 +304,11 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 						overlap_match_priority=tuple(inputs.merge.overlap_match_priority),
 						location_tolerance_um=float(inputs.merge.location_tolerance_um),
 					)
+					if len(materialize_out) == 3:
+						merged_units_dir_resolved, full_channels_templates_dir_resolved, upsampling_decisions_by_unit = materialize_out
+					else:
+						merged_units_dir_resolved, full_channels_templates_dir_resolved = materialize_out  # type: ignore[misc]
+						upsampling_decisions_by_unit = {}
 					merged_units_dir = merged_units_dir_resolved
 					full_channels_templates_dir = full_channels_templates_dir_resolved
 					return merged_units_dir, full_channels_templates_dir
@@ -310,12 +330,15 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 					bool(inputs.include_concat),
 					bool(inputs.include_segments),
 				)
-				merged_units_dir_resolved, full_channels_templates_dir_resolved = materialize_templates_from_spikeinterface(
+				materialize_out = materialize_templates_from_spikeinterface(
 					well_out_dir=well_out_dir,
 					templates_out_dir=templates_out_dir,
+					raw_data_h5_path=inputs.h5_path,
+					stream_id=str(inputs.stream_id),
 					unit_ids=(list(inputs.unit_ids) if inputs.unit_ids is not None else None),
 					include_concat=bool(inputs.include_concat),
 					include_segments=bool(inputs.include_segments),
+					execution_upsampling=inputs.execution_upsampling,
 					enable_merge=bool(inputs.merge.enable),
 					merge_method=str(inputs.merge.method),
 					centering_method=str(inputs.merge.centering_method),
@@ -327,6 +350,11 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 					overlap_match_priority=tuple(inputs.merge.overlap_match_priority),
 					location_tolerance_um=float(inputs.merge.location_tolerance_um),
 				)
+				if len(materialize_out) == 3:
+					merged_units_dir_resolved, full_channels_templates_dir_resolved, upsampling_decisions_by_unit = materialize_out
+				else:
+					merged_units_dir_resolved, full_channels_templates_dir_resolved = materialize_out  # type: ignore[misc]
+					upsampling_decisions_by_unit = {}
 			merged_units_dir = merged_units_dir_resolved
 			full_channels_templates_dir = full_channels_templates_dir_resolved
 		return merged_units_dir, full_channels_templates_dir
@@ -381,6 +409,8 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			"error": None,
 			"outputs": {},
 		}
+		if unit_id in upsampling_decisions_by_unit:
+			unit_summary["upsampling"] = dict(upsampling_decisions_by_unit[unit_id])
 		try:
 			merged_units_dir_resolved, full_channels_templates_dir_resolved = _ensure_templates_dirs()
 			merged_dir = merged_units_dir_resolved / f"unit_{unit_id}"
@@ -393,27 +423,54 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				paths["merged_template_npy"].parent.mkdir(parents=True, exist_ok=True)
 				np.save(paths["merged_template_npy"], merged_template)
 				unit_summary["outputs"]["merged_template_npy"] = str(paths["merged_template_npy"])
+				merged_locs_path = paths.get("merged_template_channel_locations_npy")
+				if merged_locs_path is not None:
+					merged_locs_path.parent.mkdir(parents=True, exist_ok=True)
+					np.save(merged_locs_path, merged_locs)
+					unit_summary["outputs"]["merged_template_channel_locations_npy"] = str(merged_locs_path)
 
 			if bool(inputs.per_unit_outputs.full_template.write_npy):
-				full_template_to_write = merged_template if full_payload is None else full_payload[0]
+				if full_payload is None:
+					full_template_to_write = merged_template
+					full_locations_to_write = merged_locs
+				else:
+					full_template_to_write = full_payload[0]
+					full_locations_to_write = full_payload[1]
 				paths["full_template_npy"].parent.mkdir(parents=True, exist_ok=True)
 				np.save(paths["full_template_npy"], full_template_to_write)
 				unit_summary["outputs"]["full_template_npy"] = str(paths["full_template_npy"])
+				full_locs_path = paths.get("full_template_channel_locations_npy")
+				if full_locs_path is not None:
+					full_locs_path.parent.mkdir(parents=True, exist_ok=True)
+					np.save(full_locs_path, full_locations_to_write)
+					unit_summary["outputs"]["full_template_channel_locations_npy"] = str(full_locs_path)
 
 			if bool(inputs.per_unit_outputs.scan_template.write_npy):
 				scan_template_to_write = merged_template if full_payload is None else full_payload[0]
+				scan_locations_to_write = merged_locs if full_payload is None else full_payload[1]
 				paths["scan_template_npy"].parent.mkdir(parents=True, exist_ok=True)
 				np.save(paths["scan_template_npy"], scan_template_to_write)
 				unit_summary["outputs"]["scan_template_npy"] = str(paths["scan_template_npy"])
+				scan_locs_path = paths.get("scan_template_channel_locations_npy")
+				if scan_locs_path is not None:
+					scan_locs_path.parent.mkdir(parents=True, exist_ok=True)
+					np.save(scan_locs_path, scan_locations_to_write)
+					unit_summary["outputs"]["scan_template_channel_locations_npy"] = str(scan_locs_path)
 
 			if bool(inputs.per_unit_outputs.square_template.write_npy):
 				sq = _build_square_template(
 					merged_template,
 					padding_mode=str(inputs.per_unit_outputs.square_template.padding_value),
 				)
+				sq_locs = _build_square_locations(merged_locs, target_channels=int(sq.shape[0]))
 				paths["square_template_npy"].parent.mkdir(parents=True, exist_ok=True)
 				np.save(paths["square_template_npy"], sq)
 				unit_summary["outputs"]["square_template_npy"] = str(paths["square_template_npy"])
+				square_locs_path = paths.get("square_template_channel_locations_npy")
+				if square_locs_path is not None:
+					square_locs_path.parent.mkdir(parents=True, exist_ok=True)
+					np.save(square_locs_path, sq_locs)
+					unit_summary["outputs"]["square_template_channel_locations_npy"] = str(square_locs_path)
 
 			template_plot, locs_plot, source = _select_template_for_scope(
 				merged_template=merged_template,
@@ -690,13 +747,24 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			"enable": bool(inputs.merge.enable),
 			"method": str(inputs.merge.method),
 			"centering_method": str(inputs.merge.centering_method),
-			"weighting_mode": str(inputs.merge.weighting_mode),
 			"max_waveforms_per_source_channel": (
 				None if inputs.merge.max_waveforms_per_source_channel is None else int(inputs.merge.max_waveforms_per_source_channel)
 			),
 			"overlap_match_priority": list(inputs.merge.overlap_match_priority),
 			"location_tolerance_um": float(inputs.merge.location_tolerance_um),
 		},
+		"execution_upsampling": {
+			"enabled": bool(inputs.execution_upsampling.enabled),
+			"factor": int(max(1, int(inputs.execution_upsampling.factor))),
+			"method": str(inputs.execution_upsampling.method),
+			"mismatch_tolerance_hz": float(max(0.0, float(inputs.execution_upsampling.mismatch_tolerance_hz))),
+			"raw_rate_fallback_hz": (
+				None
+				if inputs.execution_upsampling.raw_rate_fallback_hz is None
+				else float(inputs.execution_upsampling.raw_rate_fallback_hz)
+			),
+		},
+		"upsampling_decisions_by_unit": {str(k): v for k, v in upsampling_decisions_by_unit.items()},
 		"units": [
 			{
 				"unit_id": u.unit_id,

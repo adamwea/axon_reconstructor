@@ -67,6 +67,8 @@ class TimeUpsampleConfig:
 	enabled: bool = False
 	factor: int = 1
 	method: str = "sinc"
+	mismatch_tolerance_hz: float = 0.5
+	raw_rate_fallback_hz: float | None = None
 
 
 @dataclass(frozen=True)
@@ -203,13 +205,29 @@ class PropagationPlotConfig:
 	pdf_relpath: str = "propagation_plot.pdf"
 	write_png: bool = True
 	png_relpath: str = "propagation_plot.png"
+	show_title: bool = True
+	title_template: str = "Propagation traces {start}-{end} / {total}"
+	title_fontsize: float = 9.0
 	top_channels: int = 25
 	channels_per_panel: int = 25
 	channel_overlap: int = 5
 	background: str = "white"
 	show_electrode_ids: bool = False
+	channel_label_fontsize: float = 6.0
+	channel_label_x_offset_frac: float = 0.01
+	channel_label_y_offset_frac: float = 0.0
+	channel_label_alignment: str = "left"
 	trace_gain: float = 1.0
 	trace_spacing: float = 1.0
+	show_scale_bar: bool = True
+	scale_bar_anchor_x_frac: float = 0.92
+	scale_bar_anchor_y_frac: float = 0.12
+	scale_bar_time_fraction: float = 0.15
+	scale_bar_amp_fraction: float = 0.20
+	scale_bar_linewidth: float = 1.8
+	scale_bar_fontsize: float = 7.0
+	scale_bar_time_label_offset_frac: float = 0.04
+	scale_bar_amp_label_offset_frac: float = 0.02
 	latency_map: PropagationLatencyMapConfig = field(default_factory=PropagationLatencyMapConfig)
 
 
@@ -217,6 +235,7 @@ class PropagationPlotConfig:
 class TemplateArtifactConfig:
 	write_npy: bool = False
 	npy_relpath: str = "template.npy"
+	channel_locations_npy_relpath: str | None = None
 	padding_value: str = "zero"
 
 
@@ -225,7 +244,6 @@ class MergeConfig:
 	enable: bool = True
 	method: str = "mean_all_waveforms"
 	centering_method: str = "pre_peak_robust_baseline"
-	weighting_mode: str = "per_channel_waveform_count"
 	max_waveforms_per_source_channel: int | None = 500
 	overlap_match_priority: tuple[str, ...] = ("electrode_id", "channel_id", "location")
 	location_tolerance_um: float = 1.0
@@ -290,16 +308,35 @@ class ReportsConfig:
 class PerUnitTemplatesOutputsConfig:
 	unit_reldir: str = "units/{unit_id:04d}/"
 	merged_template: TemplateArtifactConfig = field(
-		default_factory=lambda: TemplateArtifactConfig(write_npy=True, npy_relpath="merged_template.npy")
+		default_factory=lambda: TemplateArtifactConfig(
+			write_npy=True,
+			npy_relpath="merged_template.npy",
+			channel_locations_npy_relpath="merged_channel_locations.npy",
+		)
 	)
 	square_template: TemplateArtifactConfig = field(
-		default_factory=lambda: TemplateArtifactConfig(write_npy=False, npy_relpath="square_template.npy", padding_value="zero")
+		default_factory=lambda: TemplateArtifactConfig(
+			write_npy=False,
+			npy_relpath="square_template.npy",
+			channel_locations_npy_relpath="square_channel_locations.npy",
+			padding_value="zero",
+		)
 	)
 	scan_template: TemplateArtifactConfig = field(
-		default_factory=lambda: TemplateArtifactConfig(write_npy=False, npy_relpath="scan_template.npy", padding_value="zero")
+		default_factory=lambda: TemplateArtifactConfig(
+			write_npy=False,
+			npy_relpath="scan_template.npy",
+			channel_locations_npy_relpath="scan_channel_locations.npy",
+			padding_value="zero",
+		)
 	)
 	full_template: TemplateArtifactConfig = field(
-		default_factory=lambda: TemplateArtifactConfig(write_npy=False, npy_relpath="full_template.npy", padding_value="zero")
+		default_factory=lambda: TemplateArtifactConfig(
+			write_npy=False,
+			npy_relpath="full_template.npy",
+			channel_locations_npy_relpath="full_channel_locations_xy.npy",
+			padding_value="zero",
+		)
 	)
 	template: TemplatePlotConfig = field(default_factory=TemplatePlotConfig)
 	template_circles: TemplateCirclesPlotConfig = field(default_factory=TemplateCirclesPlotConfig)
@@ -343,6 +380,7 @@ class TemplatesInputs:
 	require_curated_units: bool = True
 	include_concat: bool = True
 	include_segments: bool = True
+	execution_upsampling: TimeUpsampleConfig = field(default_factory=TimeUpsampleConfig)
 	merge: MergeConfig = field(default_factory=MergeConfig)
 	probe_geometry: ProbeGeometryConfig | None = None
 	n_jobs: int = 1

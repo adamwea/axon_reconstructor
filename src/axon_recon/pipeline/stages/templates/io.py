@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from .models.inputs import PerUnitTemplatesOutputsConfig
 
 
@@ -58,9 +60,29 @@ def resolve_unit_output_paths(
 	unit_rel = format_unit_reldir(per_unit_outputs.unit_reldir, unit_id)
 	unit_dir = templates_out_dir / unit_rel
 	merged_template_npy = _render_npy_path(unit_dir, npy_relpath=per_unit_outputs.merged_template.npy_relpath)
+	merged_template_channel_locations_npy = (
+		None
+		if per_unit_outputs.merged_template.channel_locations_npy_relpath is None
+		else _render_npy_path(unit_dir, npy_relpath=per_unit_outputs.merged_template.channel_locations_npy_relpath)
+	)
 	square_template_npy = _render_npy_path(unit_dir, npy_relpath=per_unit_outputs.square_template.npy_relpath)
+	square_template_channel_locations_npy = (
+		None
+		if per_unit_outputs.square_template.channel_locations_npy_relpath is None
+		else _render_npy_path(unit_dir, npy_relpath=per_unit_outputs.square_template.channel_locations_npy_relpath)
+	)
 	scan_template_npy = _render_npy_path(unit_dir, npy_relpath=per_unit_outputs.scan_template.npy_relpath)
+	scan_template_channel_locations_npy = (
+		None
+		if per_unit_outputs.scan_template.channel_locations_npy_relpath is None
+		else _render_npy_path(unit_dir, npy_relpath=per_unit_outputs.scan_template.channel_locations_npy_relpath)
+	)
 	full_template_npy = _render_npy_path(unit_dir, npy_relpath=per_unit_outputs.full_template.npy_relpath)
+	full_template_channel_locations_npy = (
+		None
+		if per_unit_outputs.full_template.channel_locations_npy_relpath is None
+		else _render_npy_path(unit_dir, npy_relpath=per_unit_outputs.full_template.channel_locations_npy_relpath)
+	)
 	template_png, template_svg = _render_template_paths(unit_dir, per_unit_outputs.template.relpath)
 	template_circles_png, template_circles_svg = _render_template_paths(unit_dir, per_unit_outputs.template_circles.relpath)
 	overlay_pdf, overlay_png = _render_pdf_png_paths(
@@ -82,9 +104,13 @@ def resolve_unit_output_paths(
 		"unit_dir": unit_dir,
 		"unit_summary_json": unit_dir / "unit_templates_summary.json",
 		"merged_template_npy": merged_template_npy,
+		"merged_template_channel_locations_npy": merged_template_channel_locations_npy,
 		"square_template_npy": square_template_npy,
+		"square_template_channel_locations_npy": square_template_channel_locations_npy,
 		"scan_template_npy": scan_template_npy,
+		"scan_template_channel_locations_npy": scan_template_channel_locations_npy,
 		"full_template_npy": full_template_npy,
+		"full_template_channel_locations_npy": full_template_channel_locations_npy,
 		"template_png": template_png,
 		"template_svg": template_svg,
 		"template_circles_png": template_circles_png,
@@ -130,3 +156,33 @@ def resolve_report_output_paths(*, templates_out_dir: Path, reports: Any) -> dic
 		"footprint_latency_map_grid_png": lat_grid_png,
 		"multi_source_pdf": multi_source_pdf,
 	}
+
+
+def resolve_materialized_templates_dirs(*, templates_out_dir: Path) -> tuple[Path, Path]:
+	templates_root = templates_out_dir / "templates"
+	merged_units_dir = templates_root / "merged"
+	full_channels_templates_dir = templates_root / "full"
+	merged_units_dir.mkdir(parents=True, exist_ok=True)
+	full_channels_templates_dir.mkdir(parents=True, exist_ok=True)
+	return merged_units_dir, full_channels_templates_dir
+
+
+def write_materialized_unit_templates(
+	*,
+	merged_units_dir: Path,
+	full_channels_templates_dir: Path,
+	unit_id: Any,
+	merged_template: np.ndarray,
+	merged_locations_xy: np.ndarray,
+	full_template: np.ndarray,
+	full_locations_xy: np.ndarray,
+) -> None:
+	merged_dir = merged_units_dir / f"unit_{unit_id}"
+	merged_dir.mkdir(parents=True, exist_ok=True)
+	np.save(merged_dir / "merged_contributing_template.npy", np.asarray(merged_template, dtype=float))
+	np.save(merged_dir / "merged_contributing_channel_locations.npy", np.asarray(merged_locations_xy, dtype=float))
+
+	full_dir = full_channels_templates_dir / f"unit_{unit_id}"
+	full_dir.mkdir(parents=True, exist_ok=True)
+	np.save(full_dir / "full_template.npy", np.asarray(full_template, dtype=float))
+	np.save(full_dir / "full_channel_locations_xy.npy", np.asarray(full_locations_xy, dtype=float))

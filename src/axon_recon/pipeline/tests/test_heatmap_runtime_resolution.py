@@ -33,7 +33,7 @@ def test_reconstruct_amplitude_map_precedence_output_over_stage_over_global(tmp_
         dedent(
             f"""
             data: {data_path}
-            global_heatmap_plotting:
+            global_heatmap_defaults:
               default:
                 color_bar:
                   scale: log
@@ -84,7 +84,7 @@ def test_templates_footprint_precedence_stage_over_global(tmp_path: Path) -> Non
         dedent(
             f"""
             data: {data_path}
-            global_heatmap_plotting:
+            global_heatmap_defaults:
               default:
                 background: white
                 color_bar:

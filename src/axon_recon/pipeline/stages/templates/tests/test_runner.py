@@ -16,6 +16,7 @@ from axon_recon.pipeline.stages.templates.models.inputs import (
 	PerUnitTemplatesOutputsConfig,
 	PropagationPlotConfig,
 	ReportsConfig,
+	TemplateArtifactConfig,
 	TemplateCirclesPlotConfig,
 	TemplateWaveformOverlayConfig,
 	TemplatePlotConfig,
@@ -133,6 +134,79 @@ def test_run_templates_stage_writes_template_circles_png(tmp_path: Path) -> None
 	circles_png = well_out_dir / "templates_outputs" / "units" / "0094" / "template_circles.png"
 	assert circles_png.exists()
 	assert str(circles_png) == result.units[0].outputs.get("template_circles_png")
+
+
+def test_run_templates_stage_writes_channel_locations_for_all_template_artifacts(tmp_path: Path) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			merged_template=TemplateArtifactConfig(
+				write_npy=True,
+				npy_relpath="arrays/merged.npy",
+				channel_locations_npy_relpath="arrays/merged_locs.npy",
+			),
+			square_template=TemplateArtifactConfig(
+				write_npy=True,
+				npy_relpath="arrays/square.npy",
+				channel_locations_npy_relpath="arrays/square_locs.npy",
+				padding_value="zero",
+			),
+			scan_template=TemplateArtifactConfig(
+				write_npy=True,
+				npy_relpath="arrays/scan.npy",
+				channel_locations_npy_relpath="arrays/scan_locs.npy",
+				padding_value="zero",
+			),
+			full_template=TemplateArtifactConfig(
+				write_npy=True,
+				npy_relpath="arrays/full.npy",
+				channel_locations_npy_relpath="arrays/full_locs.npy",
+				padding_value="zero",
+			),
+			template=TemplatePlotConfig(write_png=False, write_svg=False),
+			template_circles=TemplateCirclesPlotConfig(write_png=False, write_svg=False),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
+		),
+		unit_ids=[94],
+		require_curated_units=False,
+		force_restart=True,
+		n_jobs=1,
+	)
+
+	result = run_templates_stage(inputs)
+	assert len(result.units) == 1
+	assert result.units[0].status == "ok"
+
+	unit_dir = well_out_dir / "templates_outputs" / "units" / "0094" / "arrays"
+	merged_locs = np.load(unit_dir / "merged_locs.npy")
+	square_locs = np.load(unit_dir / "square_locs.npy")
+	scan_locs = np.load(unit_dir / "scan_locs.npy")
+	full_locs = np.load(unit_dir / "full_locs.npy")
+
+	np.testing.assert_allclose(
+		merged_locs,
+		np.asarray([[0.0, 0.0], [20.0, 0.0], [10.0, 18.0]], dtype=float),
+	)
+	assert square_locs.shape == (4, 2)
+	np.testing.assert_allclose(square_locs[:3, :], merged_locs)
+	assert np.all(np.isnan(square_locs[3, :]))
+	np.testing.assert_allclose(scan_locs, full_locs)
+
+	assert result.units[0].outputs.get("merged_template_channel_locations_npy", "").endswith("arrays/merged_locs.npy")
+	assert result.units[0].outputs.get("square_template_channel_locations_npy", "").endswith("arrays/square_locs.npy")
+	assert result.units[0].outputs.get("scan_template_channel_locations_npy", "").endswith("arrays/scan_locs.npy")
+	assert result.units[0].outputs.get("full_template_channel_locations_npy", "").endswith("arrays/full_locs.npy")
 
 
 def test_run_templates_stage_writes_overlay_and_grid(tmp_path: Path) -> None:
@@ -509,6 +583,83 @@ def test_run_templates_stage_force_restart_prefers_spikeinterface_materializatio
 	assert called["value"] is True
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
+
+
+def test_run_templates_stage_writes_upsampling_decisions_to_summaries(tmp_path: Path, monkeypatch) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+
+	def _fake_materialize(*, well_out_dir: Path, templates_out_dir: Path, unit_ids, include_concat: bool, include_segments: bool, **kwargs):
+		assert include_concat is True
+		assert include_segments is True
+		assert unit_ids == [94]
+		merged_dir = templates_out_dir / "templates" / "merged" / "unit_94"
+		full_dir = templates_out_dir / "templates" / "full" / "unit_94"
+		merged_dir.mkdir(parents=True, exist_ok=True)
+		full_dir.mkdir(parents=True, exist_ok=True)
+		t = np.vstack([np.sin(np.linspace(-1.0, 1.0, 40)), np.cos(np.linspace(-1.0, 1.0, 40))])
+		locs = np.asarray([[0.0, 0.0], [20.0, 0.0]], dtype=float)
+		np.save(merged_dir / "merged_contributing_template.npy", t)
+		np.save(merged_dir / "merged_contributing_channel_locations.npy", locs)
+		np.save(full_dir / "full_template.npy", t)
+		np.save(full_dir / "full_channel_locations_xy.npy", locs)
+		return (
+			merged_dir.parent,
+			full_dir.parent,
+			{
+				94: {
+					"enabled": True,
+					"applied": True,
+					"factor": 10,
+					"method": "sinc",
+					"raw_hz": 10000.0,
+					"analyzer_hz": 10000.0,
+					"target_hz": 100000.0,
+					"skip_reason": None,
+				}
+			},
+		)
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.materialize_templates_from_spikeinterface",
+		_fake_materialize,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			template=TemplatePlotConfig(write_png=False, write_svg=False),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
+		),
+		reports=ReportsConfig(
+			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
+		),
+		unit_ids=[94],
+		require_curated_units=False,
+		force_restart=True,
+		n_jobs=1,
+	)
+
+	result = run_templates_stage(inputs)
+	assert len(result.units) == 1
+	assert result.units[0].status == "ok"
+
+	unit_summary_json = well_out_dir / "templates_outputs" / "units" / "0094" / "unit_templates_summary.json"
+	summary_payload = (unit_summary_json).read_text(encoding="utf-8")
+	assert '"upsampling"' in summary_payload
+	assert '"applied": true' in summary_payload
+
+	templates_summary_json = well_out_dir / "templates_outputs" / "templates_summary.json"
+	templates_summary_payload = templates_summary_json.read_text(encoding="utf-8")
+	assert '"upsampling_decisions_by_unit"' in templates_summary_payload
+	assert '"execution_upsampling"' in templates_summary_payload
 
 
 def test_run_templates_stage_force_replot_rerenders_visual_outputs(tmp_path: Path) -> None:

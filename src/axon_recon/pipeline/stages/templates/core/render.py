@@ -164,6 +164,98 @@ def _time_upsample_template(template: np.ndarray, upsample: TimeUpsampleConfig) 
 	raise ValueError(f"Unsupported template time upsample method: {upsample.method!r}")
 
 
+def _nice_scale_value(value: float) -> float:
+	v = float(max(1e-12, abs(value)))
+	exp = float(np.floor(np.log10(v)))
+	base = v / float(10.0**exp)
+	if base <= 1.0:
+		nice = 1.0
+	elif base <= 2.0:
+		nice = 2.0
+	elif base <= 5.0:
+		nice = 5.0
+	else:
+		nice = 10.0
+	return float(nice * (10.0**exp))
+
+
+def _add_propagation_scale_bars(
+	*,
+	ax: Any,
+	n_samples: int,
+	trace_offset_step: float,
+	trace_gain: float,
+	probe_geometry: ProbeGeometryConfig | None,
+	text_color: str,
+	anchor_x_frac: float,
+	anchor_y_frac: float,
+	time_fraction: float,
+	amp_fraction: float,
+	linewidth: float,
+	fontsize: float,
+	time_label_offset_frac: float,
+	amp_label_offset_frac: float,
+) -> None:
+	x0, x1 = ax.get_xlim()
+	y0, y1 = ax.get_ylim()
+	span_x = float(max(1.0, abs(x1 - x0)))
+	span_y = float(max(1.0, abs(y1 - y0)))
+	anchor_x_frac = float(min(1.0, max(0.0, anchor_x_frac)))
+	anchor_y_frac = float(min(1.0, max(0.0, anchor_y_frac)))
+	time_fraction = float(min(1.0, max(1e-6, time_fraction)))
+	amp_fraction = float(min(1.0, max(1e-6, amp_fraction)))
+	time_label_offset_frac = float(max(0.0, time_label_offset_frac))
+	amp_label_offset_frac = float(max(0.0, amp_label_offset_frac))
+	linewidth = float(max(0.1, linewidth))
+	fontsize = float(max(1.0, fontsize))
+
+	# Time bar length in samples, with optional ms label when sampling rate is known.
+	target_time_samples = _nice_scale_value(max(1.0, float(n_samples) * time_fraction))
+	time_bar_samples = float(min(max(1.0, target_time_samples), span_x * 0.30))
+	sr_hz = None if probe_geometry is None else probe_geometry.sampling_rate_hz
+	if sr_hz is not None and float(sr_hz) > 0.0:
+		time_ms = (time_bar_samples / float(sr_hz)) * 1000.0
+		time_label = f"{time_ms:.2g} ms"
+	else:
+		time_label = f"{int(round(time_bar_samples))} samples"
+
+	# Amplitude bar in template units (a.u.) accounting for applied trace gain.
+	target_amp = _nice_scale_value(max(1e-6, abs(trace_offset_step) * 0.5 / max(1e-9, abs(trace_gain))))
+	amp_bar_units = float(min(max(1e-6, target_amp), (span_y * amp_fraction) / max(1e-9, abs(trace_gain))))
+	amp_bar_plot = float(amp_bar_units * trace_gain)
+	amp_label = f"{amp_bar_units:.2g} a.u."
+
+	# Place an L-shaped scale bar with configurable anchor in axis-fraction units.
+	anchor_x = float(min(x0, x1)) + (anchor_x_frac * span_x)
+	anchor_y = float(min(y0, y1)) + (anchor_y_frac * span_y)
+	anchor_x = float(min(max(anchor_x, min(x0, x1) + 1.0), max(x0, x1) - 1.0))
+	anchor_y = float(min(max(anchor_y, min(y0, y1) + 1.0), max(y0, y1) - 1.0))
+	x_left = anchor_x - time_bar_samples
+	y_top = anchor_y + amp_bar_plot
+
+	ax.plot([x_left, anchor_x], [anchor_y, anchor_y], color=text_color, lw=linewidth, solid_capstyle="butt")
+	ax.plot([x_left, x_left], [anchor_y, y_top], color=text_color, lw=linewidth, solid_capstyle="butt")
+	ax.text(
+		(x_left + anchor_x) / 2.0,
+		anchor_y - (time_label_offset_frac * span_y),
+		time_label,
+		color=text_color,
+		horizontalalignment="center",
+		verticalalignment="top",
+		fontsize=fontsize,
+	)
+	ax.text(
+		x_left - (amp_label_offset_frac * span_x),
+		(anchor_y + y_top) / 2.0,
+		amp_label,
+		color=text_color,
+		horizontalalignment="right",
+		verticalalignment="center",
+		rotation=90,
+		fontsize=fontsize,
+	)
+
+
 def _probe_electrode_dims_um(probe_geometry: ProbeGeometryConfig | None) -> tuple[float, float] | None:
 	if probe_geometry is None:
 		return None
@@ -763,7 +855,13 @@ def _render_topographical_footprint(
 		vmin=float(vmin),
 		vmax=float(vmax),
 	)
-	colors = cmap(norm(vals_plot))
+	if norm is None:
+		from matplotlib.colors import Normalize  # type: ignore[import-not-found]
+
+		mappable_norm = Normalize(vmin=float(vmin), vmax=float(vmax))
+	else:
+		mappable_norm = norm
+	colors = cmap(mappable_norm(vals_plot))
 	dims = _probe_electrode_dims_um(probe_geometry)
 	if dims is None:
 		side = _fallback_square_side_um(locs[:, :2])
@@ -804,7 +902,7 @@ def _render_topographical_footprint(
 	ax.set_title(title, color=text_color)
 
 	if bool(config.show_color_bar):
-		sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+		sm = plt.cm.ScalarMappable(norm=mappable_norm, cmap=cmap)
 		sm.set_array(vals_plot)
 		cbar = _add_location_aware_colorbar(
 			fig=fig,
@@ -937,14 +1035,13 @@ def render_propagation_plot(
 
 	n_panels = max(1, len(panels))
 	fig = plt.figure(figsize=(13, 2.8 * n_panels + 1.0))
-	gs = fig.add_gridspec(nrows=n_panels, ncols=2, width_ratios=[2.2, 1.0], hspace=0.35, wspace=0.2)
+	gs = fig.add_gridspec(nrows=n_panels, ncols=1, hspace=0.35)
 	trace_axes = [fig.add_subplot(gs[i, 0]) for i in range(n_panels)]
-	map_ax = fig.add_subplot(gs[:, 1])
 
 	bg = str(config.background or "").strip().lower()
 	if bg == "black":
 		fig.patch.set_facecolor("black")
-		for ax in trace_axes + [map_ax]:
+		for ax in trace_axes:
 			ax.set_facecolor("black")
 			ax.tick_params(colors="white")
 			for spine in ax.spines.values():
@@ -953,7 +1050,7 @@ def render_propagation_plot(
 		text_color = "white"
 	else:
 		fig.patch.set_facecolor("white")
-		for ax in trace_axes + [map_ax]:
+		for ax in trace_axes:
 			ax.set_facecolor("white")
 		trace_color = "black"
 		text_color = "black"
@@ -962,8 +1059,14 @@ def render_propagation_plot(
 	base_step = float(max(1e-6, np.max(np.ptp(t[selected, :], axis=1))))
 	offset_step = base_step * max(0.2, float(config.trace_spacing))
 	trace_gain = float(max(1e-9, float(config.trace_gain)))
+	label_alignment = str(getattr(config, "channel_label_alignment", "left") or "left").strip().lower()
+	if label_alignment not in {"left", "center", "right"}:
+		label_alignment = "left"
 	for panel_i, panel_inds in enumerate(panels):
 		ax = trace_axes[panel_i]
+		label_x_offset = float(config.channel_label_x_offset_frac) * float(max(1, x.shape[0]))
+		label_y_offset = float(config.channel_label_y_offset_frac) * float(offset_step)
+		min_label_x: float | None = None
 		for i_local, idx in enumerate(panel_inds):
 			ch = int(selected[int(idx)])
 			off = float(i_local) * offset_step
@@ -971,119 +1074,61 @@ def render_propagation_plot(
 			ax.plot(x, y, color=trace_color, linewidth=0.9, alpha=0.95)
 			pk = float(np.argmax(np.abs(t[ch, :])))
 			ax.scatter([pk], [y[int(pk)]], color="red", s=10)
-			if bool(config.show_electrode_ids):
-				ax.text(x[0], off, f"ch {int(ch)}", color=text_color, fontsize=6)
+			ax.text(
+				x[0] + label_x_offset,
+				off + label_y_offset,
+				f"ch {int(ch)}",
+				color=text_color,
+				fontsize=float(config.channel_label_fontsize),
+				horizontalalignment=label_alignment,
+				verticalalignment="center",
+			)
+			if min_label_x is None:
+				min_label_x = float(x[0] + label_x_offset)
+			else:
+				min_label_x = min(min_label_x, float(x[0] + label_x_offset))
+
+		if min_label_x is not None:
+			x_left, x_right = ax.get_xlim()
+			if float(min_label_x) < float(x_left):
+				pad = max(1.0, float(0.02 * abs(x_right - x_left)))
+				ax.set_xlim(float(min_label_x) - pad, float(x_right))
 
 		start_idx = int(panel_inds[0])
 		end_idx = int(panel_inds[-1])
-		ax.set_title(
-			f"Propagation traces {start_idx + 1}-{end_idx + 1} / {n_selected}",
-			color=text_color,
-		)
-		ax.set_ylabel("amplitude + offset", color=text_color)
-		if panel_i == n_panels - 1:
-			ax.set_xlabel("sample", color=text_color)
-
-	if bool(config.latency_map.show):
-		from matplotlib.collections import PatchCollection  # type: ignore[import-not-found]
-		from matplotlib.patches import Rectangle  # type: ignore[import-not-found]
-
-		map_locs = locs[selected, :2]
-		dims = _probe_electrode_dims_um(probe_geometry)
-		if dims is None:
-			side = _fallback_square_side_um(map_locs)
-			dx = dy = float(side)
-		else:
-			dx, dy = dims
-		patches = [
-			Rectangle((float(x) - (dx / 2.0), float(y) - (dy / 2.0)), width=float(dx), height=float(dy))
-			for x, y in map_locs
-		]
-		edge_color = "white" if bg == "black" else "black"
-		sc = PatchCollection(
-			patches,
-			cmap=_maybe_reversed_colormap(str(config.latency_map.color_map), reverse=True),
-			linewidths=0.25,
-			edgecolors=edge_color,
-			antialiaseds=False,
-		)
-		lat_values = np.asarray(lat_idx, dtype=float)
-		vmin, vmax = _map_values_to_limits(
-			lat_values,
-			FootprintMapConfig(
-				force_low_value=config.latency_map.force_low_value,
-				force_high_value=config.latency_map.force_high_value,
-				scale=str(config.latency_map.scale),
-				percentile_low=float(config.latency_map.percentile_low),
-				percentile_high_linear=float(config.latency_map.percentile_high_linear),
-				percentile_high_log=float(config.latency_map.percentile_high_log),
-				linear_cap_rounding_mode=str(config.latency_map.linear_cap_rounding_mode),
-				linear_cap_rounding_step=float(config.latency_map.linear_cap_rounding_step),
-				linear_cap_min_vmax=float(config.latency_map.linear_cap_min_vmax),
-			),
-		)
-		lat_plot, lat_norm, vmin_eff, vmax_eff = prepare_linear_or_log_mapping(
-			values=lat_values,
-			scale=str(config.latency_map.scale),
-			vmin=float(vmin),
-			vmax=float(vmax),
-		)
-		if lat_norm is not None:
-			sc.set_norm(lat_norm)
-			sc.set_array(lat_plot)
-		else:
-			sc.set_array(lat_plot)
-			sc.set_clim(float(vmin_eff), float(vmax_eff))
-		map_ax.add_collection(sc)
-		xmin, xmax, ymin, ymax = _compute_plot_limits(map_locs, pad_frac=0.01, pad_abs=max(1.0, float(dx * 0.2)))
-		xmin, xmax, ymin, ymax = _expand_limits_for_glyph_half_size(
-			xmin=xmin,
-			xmax=xmax,
-			ymin=ymin,
-			ymax=ymax,
-			half_dx=float(dx) / 2.0,
-			half_dy=float(dy) / 2.0,
-		)
-		map_ax.set_xlim(xmin, xmax)
-		map_ax.set_ylim(ymin, ymax)
-		map_ax.set_title(str(config.latency_map.title), color=text_color, fontsize=float(config.latency_map.fontsize))
-		if bool(config.latency_map.axes.show):
-			map_ax.set_xlabel(
-				str(config.latency_map.axes.xlabel),
-				color=text_color,
-				fontsize=float(config.latency_map.axes.label_fontsize),
-			)
-			map_ax.set_ylabel(
-				str(config.latency_map.axes.ylabel),
-				color=text_color,
-				fontsize=float(config.latency_map.axes.label_fontsize),
-			)
-			map_ax.tick_params(labelsize=float(config.latency_map.axes.tick_fontsize), colors=text_color)
-		else:
-			map_ax.set_xlabel("")
-			map_ax.set_ylabel("")
-			map_ax.set_xticks([])
-			map_ax.set_yticks([])
-		if bool(config.latency_map.force_square_aspect):
-			map_ax.set_aspect("equal", adjustable="box")
-		if bool(config.latency_map.show_color_bar):
-			cbar = _add_location_aware_colorbar(
-				fig=fig,
-				ax=map_ax,
-				mappable=sc,
-				location=str(config.latency_map.color_bar_location),
-				length_fraction=float(config.latency_map.color_bar_length_fraction),
-				pad_fraction=float(config.latency_map.color_bar_pad_fraction),
-				default_fraction=float(config.latency_map.color_bar_length_fraction),
-				default_pad=float(config.latency_map.color_bar_pad_fraction),
-			)
-			cbar.ax.tick_params(labelsize=float(config.latency_map.color_bar_fontsize), colors=text_color)
+		if bool(config.show_title):
+			title_template = str(config.title_template or "Propagation traces {start}-{end} / {total}")
 			try:
-				cbar.outline.set_edgecolor(text_color)
+				title = title_template.format(start=start_idx + 1, end=end_idx + 1, total=n_selected)
 			except Exception:
-				pass
-	else:
-		map_ax.axis("off")
+				title = f"Propagation traces {start_idx + 1}-{end_idx + 1} / {n_selected}"
+			ax.set_title(
+				title,
+				color=text_color,
+				fontsize=float(config.title_fontsize),
+			)
+		ax.set_xticks([])
+		ax.set_yticks([])
+		for spine in ax.spines.values():
+			spine.set_visible(False)
+
+	if bool(config.show_scale_bar):
+		_add_propagation_scale_bars(
+			ax=trace_axes[-1],
+			n_samples=int(t.shape[1]),
+			trace_offset_step=offset_step,
+			trace_gain=trace_gain,
+			probe_geometry=probe_geometry,
+			text_color=text_color,
+			anchor_x_frac=float(config.scale_bar_anchor_x_frac),
+			anchor_y_frac=float(config.scale_bar_anchor_y_frac),
+			time_fraction=float(config.scale_bar_time_fraction),
+			amp_fraction=float(config.scale_bar_amp_fraction),
+			linewidth=float(config.scale_bar_linewidth),
+			fontsize=float(config.scale_bar_fontsize),
+			time_label_offset_frac=float(config.scale_bar_time_label_offset_frac),
+			amp_label_offset_frac=float(config.scale_bar_amp_label_offset_frac),
+		)
 
 	outputs: dict[str, str] = {}
 	if bool(config.write_png):
