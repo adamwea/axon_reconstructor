@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+from dataclasses import replace
 import logging
 from pathlib import Path
 from typing import Any
@@ -25,11 +26,55 @@ from .core.render import (
 	render_wf_overlay_grid,
 )
 from .io import read_json, resolve_report_output_paths, resolve_unit_output_paths, write_json
-from .models.inputs import TemplatesInputs
+from .models.inputs import ProbeGeometryConfig, TemplatesInputs
 from .models.results import TemplatesResult, UnitTemplatesResult
 
 
 LOGGER = logging.getLogger("axon_recon.templates")
+
+
+def _as_positive_float_or_none(value: Any) -> float | None:
+	try:
+		parsed = float(value)
+	except Exception:
+		return None
+	if not np.isfinite(parsed) or parsed <= 0.0:
+		return None
+	return float(parsed)
+
+
+def _effective_probe_geometry_for_unit(
+	*,
+	base_probe_geometry: ProbeGeometryConfig | None,
+	upsampling_decision: dict[str, Any] | None,
+) -> ProbeGeometryConfig | None:
+	if not isinstance(upsampling_decision, dict):
+		return base_probe_geometry
+
+	target_hz = _as_positive_float_or_none(upsampling_decision.get("target_hz", None))
+	applied = bool(upsampling_decision.get("applied", False))
+	analyzer_hz = _as_positive_float_or_none(upsampling_decision.get("analyzer_hz", None))
+	raw_hz = _as_positive_float_or_none(upsampling_decision.get("raw_hz", None))
+
+	effective_hz: float | None = None
+	if applied and target_hz is not None:
+		effective_hz = float(target_hz)
+	elif analyzer_hz is not None:
+		effective_hz = float(analyzer_hz)
+	elif raw_hz is not None:
+		effective_hz = float(raw_hz)
+
+	if effective_hz is None:
+		return base_probe_geometry
+
+	if base_probe_geometry is None:
+		return ProbeGeometryConfig(sampling_rate_hz=float(effective_hz))
+
+	current_hz = _as_positive_float_or_none(base_probe_geometry.sampling_rate_hz)
+	if current_hz is not None and abs(float(current_hz) - float(effective_hz)) <= 1e-9:
+		return base_probe_geometry
+
+	return replace(base_probe_geometry, sampling_rate_hz=float(effective_hz))
 
 
 def _pad_value_from_mode(mode: str) -> float:
@@ -254,6 +299,43 @@ def _load_unit_result_from_summary(*, unit_id: Any, unit_summary_json: Path) -> 
 		return None
 
 
+def _load_persisted_upsampling_decision(*, unit_summary_json: Path) -> dict[str, Any] | None:
+	if not unit_summary_json.exists():
+		return None
+	try:
+		existing = read_json(unit_summary_json)
+		if not isinstance(existing, dict):
+			return None
+		upsampling = existing.get("upsampling", None)
+		if isinstance(upsampling, dict) and upsampling:
+			return dict(upsampling)
+	except Exception:
+		return None
+	return None
+
+
+def _infer_replot_upsampling_decision(*, inputs: TemplatesInputs) -> dict[str, Any] | None:
+	base_hz = None if inputs.probe_geometry is None else _as_positive_float_or_none(inputs.probe_geometry.sampling_rate_hz)
+	if base_hz is None:
+		return None
+	if (not bool(inputs.execution_upsampling.enabled)) or int(inputs.execution_upsampling.factor) <= 1:
+		return None
+	target_hz = float(base_hz) * float(max(1, int(inputs.execution_upsampling.factor)))
+	if target_hz <= float(base_hz):
+		return None
+	return {
+		"enabled": True,
+		"method": str(inputs.execution_upsampling.method),
+		"factor": int(max(1, int(inputs.execution_upsampling.factor))),
+		"raw_hz": float(base_hz),
+		"analyzer_hz": float(base_hz),
+		"target_hz": float(target_hz),
+		"applied": True,
+		"skip_reason": None,
+		"rate_source": "replot_inferred_from_execution",
+	}
+
+
 def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 	well_out_dir = compute_mea_analysis_output_dir(
 		output_root=inputs.mea_output_root,
@@ -409,8 +491,22 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			"error": None,
 			"outputs": {},
 		}
-		if unit_id in upsampling_decisions_by_unit:
-			unit_summary["upsampling"] = dict(upsampling_decisions_by_unit[unit_id])
+		decision_for_unit = upsampling_decisions_by_unit.get(unit_id, None)
+		if decision_for_unit is None:
+			decision_for_unit = _load_persisted_upsampling_decision(unit_summary_json=paths["unit_summary_json"])
+		if decision_for_unit is None and (bool(inputs.force_replot) or bool(inputs.force_replot_per_unit)):
+			decision_for_unit = _infer_replot_upsampling_decision(inputs=inputs)
+		if isinstance(decision_for_unit, dict):
+			unit_summary["upsampling"] = dict(decision_for_unit)
+		unit_probe_geometry = _effective_probe_geometry_for_unit(
+			base_probe_geometry=inputs.probe_geometry,
+			upsampling_decision=decision_for_unit,
+		)
+		unit_summary["effective_sampling_rate_hz"] = (
+			None
+			if unit_probe_geometry is None
+			else _as_positive_float_or_none(unit_probe_geometry.sampling_rate_hz)
+		)
 		try:
 			merged_units_dir_resolved, full_channels_templates_dir_resolved = _ensure_templates_dirs()
 			merged_dir = merged_units_dir_resolved / f"unit_{unit_id}"
@@ -545,7 +641,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				config=inputs.per_unit_outputs.template_circles,
 				png_path=paths["template_circles_png"],
 				svg_path=paths["template_circles_svg"],
-				probe_geometry=inputs.probe_geometry,
+				probe_geometry=unit_probe_geometry,
 			)
 			unit_summary["outputs"].update(circles_outputs)
 
@@ -562,7 +658,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				template=amp_template,
 				locations_xy=amp_locs,
 				config=inputs.per_unit_outputs.footprint_plots.amplitude_map,
-				probe_geometry=inputs.probe_geometry,
+				probe_geometry=unit_probe_geometry,
 				png_path=paths["footprint_amplitude_map_png"],
 				svg_path=paths["footprint_amplitude_map_svg"],
 			)
@@ -572,7 +668,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				template=lat_template,
 				locations_xy=lat_locs,
 				config=inputs.per_unit_outputs.footprint_plots.latency_map,
-				probe_geometry=inputs.probe_geometry,
+				probe_geometry=unit_probe_geometry,
 				png_path=paths["footprint_latency_map_png"],
 				svg_path=paths["footprint_latency_map_svg"],
 			)
@@ -582,7 +678,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				template=topo_amp_template,
 				locations_xy=topo_amp_locs,
 				config=inputs.per_unit_outputs.topographical_footprints.amplitude,
-				probe_geometry=inputs.probe_geometry,
+				probe_geometry=unit_probe_geometry,
 				png_path=paths["topographical_amplitude_footprint_png"],
 				svg_path=paths["topographical_amplitude_footprint_svg"],
 			)
@@ -592,7 +688,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				template=topo_lat_template,
 				locations_xy=topo_lat_locs,
 				config=inputs.per_unit_outputs.topographical_footprints.latency,
-				probe_geometry=inputs.probe_geometry,
+				probe_geometry=unit_probe_geometry,
 				png_path=paths["topographical_latency_footprint_png"],
 				svg_path=paths["topographical_latency_footprint_svg"],
 			)
@@ -604,7 +700,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				config=inputs.per_unit_outputs.propagation_plots,
 				pdf_path=paths["propagation_plot_pdf"],
 				png_path=paths["propagation_plot_png"],
-				probe_geometry=inputs.probe_geometry,
+				probe_geometry=unit_probe_geometry,
 			)
 			unit_summary["outputs"].update(prop_outputs)
 		except Exception as exc:

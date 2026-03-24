@@ -852,11 +852,16 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 			          channel_label_alignment: right
 			          trace_gain: 1.5
 			          trace_spacing: 1.3
+			          peak_marker_height_frac: 0.35
+			          peak_marker_linewidth: 2.2
 			          show_scale_bar: true
 			          scale_bar_anchor_x_frac: 0.85
 			          scale_bar_anchor_y_frac: 0.18
 			          scale_bar_time_fraction: 0.2
 			          scale_bar_amp_fraction: 0.3
+			          force_amp_frac_to_max_amp: true
+			          debug_max_amps_at_each_channel: true
+			          bold_max_amp_channel_label: true
 			          scale_bar_linewidth: 2.4
 			          scale_bar_fontsize: 9
 			          scale_bar_time_label_offset_frac: 0.05
@@ -920,11 +925,16 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 	assert prop.channel_label_alignment == "right"
 	assert prop.trace_gain == 1.5
 	assert prop.trace_spacing == 1.3
+	assert prop.peak_marker_height_frac == 0.35
+	assert prop.peak_marker_linewidth == 2.2
 	assert prop.show_scale_bar is True
 	assert prop.scale_bar_anchor_x_frac == 0.85
 	assert prop.scale_bar_anchor_y_frac == 0.18
 	assert prop.scale_bar_time_fraction == 0.2
 	assert prop.scale_bar_amp_fraction == 0.3
+	assert prop.force_amp_frac_to_max_amp is True
+	assert prop.debug_max_amps_at_each_channel is True
+	assert prop.bold_max_amp_channel_label is True
 	assert prop.scale_bar_linewidth == 2.4
 	assert prop.scale_bar_fontsize == 9
 	assert prop.scale_bar_time_label_offset_frac == 0.05

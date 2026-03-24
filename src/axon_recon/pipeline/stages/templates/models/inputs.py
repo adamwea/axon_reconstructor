@@ -219,11 +219,16 @@ class PropagationPlotConfig:
 	channel_label_alignment: str = "left"
 	trace_gain: float = 1.0
 	trace_spacing: float = 1.0
+	peak_marker_height_frac: float = 0.24
+	peak_marker_linewidth: float = 1.4
 	show_scale_bar: bool = True
 	scale_bar_anchor_x_frac: float = 0.92
 	scale_bar_anchor_y_frac: float = 0.12
 	scale_bar_time_fraction: float = 0.15
 	scale_bar_amp_fraction: float = 0.20
+	force_amp_frac_to_max_amp: bool = False
+	debug_max_amps_at_each_channel: bool = False
+	bold_max_amp_channel_label: bool = False
 	scale_bar_linewidth: float = 1.8
 	scale_bar_fontsize: float = 7.0
 	scale_bar_time_label_offset_frac: float = 0.04

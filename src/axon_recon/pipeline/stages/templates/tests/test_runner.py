@@ -14,6 +14,7 @@ from axon_recon.pipeline.stages.templates.models.inputs import (
 	FootprintPlotsConfig,
 	MultiSourcePdfReportConfig,
 	PerUnitTemplatesOutputsConfig,
+	ProbeGeometryConfig,
 	PropagationPlotConfig,
 	ReportsConfig,
 	TemplateArtifactConfig,
@@ -655,11 +656,317 @@ def test_run_templates_stage_writes_upsampling_decisions_to_summaries(tmp_path: 
 	summary_payload = (unit_summary_json).read_text(encoding="utf-8")
 	assert '"upsampling"' in summary_payload
 	assert '"applied": true' in summary_payload
+	assert '"effective_sampling_rate_hz": 100000.0' in summary_payload
 
 	templates_summary_json = well_out_dir / "templates_outputs" / "templates_summary.json"
 	templates_summary_payload = templates_summary_json.read_text(encoding="utf-8")
 	assert '"upsampling_decisions_by_unit"' in templates_summary_payload
 	assert '"execution_upsampling"' in templates_summary_payload
+
+
+def test_run_templates_stage_passes_effective_sampling_rate_to_timing_renderers(tmp_path: Path, monkeypatch) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+
+	def _fake_materialize(*, templates_out_dir: Path, **kwargs):
+		_ = kwargs
+		merged_dir = templates_out_dir / "templates" / "merged" / "unit_94"
+		full_dir = templates_out_dir / "templates" / "full" / "unit_94"
+		merged_dir.mkdir(parents=True, exist_ok=True)
+		full_dir.mkdir(parents=True, exist_ok=True)
+		t = np.vstack([np.sin(np.linspace(-1.0, 1.0, 40)), np.cos(np.linspace(-1.0, 1.0, 40))])
+		locs = np.asarray([[0.0, 0.0], [20.0, 0.0]], dtype=float)
+		np.save(merged_dir / "merged_contributing_template.npy", t)
+		np.save(merged_dir / "merged_contributing_channel_locations.npy", locs)
+		np.save(full_dir / "full_template.npy", t)
+		np.save(full_dir / "full_channel_locations_xy.npy", locs)
+		return (
+			merged_dir.parent,
+			full_dir.parent,
+			{
+				94: {
+					"enabled": True,
+					"applied": True,
+					"factor": 10,
+					"method": "sinc",
+					"raw_hz": 10000.0,
+					"analyzer_hz": 10000.0,
+					"target_hz": 100000.0,
+					"skip_reason": None,
+				}
+			},
+		)
+
+	received_hz: dict[str, float | None] = {
+		"circles": None,
+		"footprint_latency": None,
+		"topographical_latency": None,
+		"propagation": None,
+	}
+
+	def _fake_template_plot(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_template_circles_plot_v2(*, probe_geometry=None, **kwargs):
+		_ = kwargs
+		received_hz["circles"] = None if probe_geometry is None else probe_geometry.sampling_rate_hz
+		return {}
+
+	def _fake_overlay(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_amp_map(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_latency_map(*, probe_geometry=None, **kwargs):
+		_ = kwargs
+		received_hz["footprint_latency"] = None if probe_geometry is None else probe_geometry.sampling_rate_hz
+		return {}
+
+	def _fake_topo_amp(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_topo_latency(*, probe_geometry=None, **kwargs):
+		_ = kwargs
+		received_hz["topographical_latency"] = None if probe_geometry is None else probe_geometry.sampling_rate_hz
+		return {}
+
+	def _fake_propagation(*, probe_geometry=None, **kwargs):
+		_ = kwargs
+		received_hz["propagation"] = None if probe_geometry is None else probe_geometry.sampling_rate_hz
+		return {}
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.materialize_templates_from_spikeinterface",
+		_fake_materialize,
+	)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", _fake_template_plot)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot_v2", _fake_template_circles_plot_v2)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", _fake_overlay)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", _fake_amp_map)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", _fake_latency_map)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", _fake_topo_amp)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", _fake_topo_latency)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", _fake_propagation)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			template=TemplatePlotConfig(write_png=False, write_svg=False),
+			template_circles=TemplateCirclesPlotConfig(write_png=False, write_svg=False),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
+		),
+		reports=ReportsConfig(
+			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
+		),
+		unit_ids=[94],
+		require_curated_units=False,
+		force_restart=True,
+		n_jobs=1,
+	)
+
+	result = run_templates_stage(inputs)
+	assert len(result.units) == 1
+	assert result.units[0].status == "ok"
+
+	assert received_hz["circles"] == 100_000.0
+	assert received_hz["footprint_latency"] == 100_000.0
+	assert received_hz["topographical_latency"] == 100_000.0
+	assert received_hz["propagation"] == 100_000.0
+
+
+def test_force_replot_reuses_persisted_sampling_metadata_for_timing_renderers(tmp_path: Path, monkeypatch) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+
+	unit_summary_json = well_out_dir / "templates_outputs" / "units" / "0094" / "unit_templates_summary.json"
+	unit_summary_json.parent.mkdir(parents=True, exist_ok=True)
+	unit_summary_json.write_text(
+		"""{
+	  "unit_id": 94,
+	  "status": "ok",
+	  "upsampling": {
+	    "enabled": true,
+	    "applied": true,
+	    "raw_hz": 10000.0,
+	    "analyzer_hz": 10000.0,
+	    "target_hz": 100000.0,
+	    "skip_reason": null
+	  },
+	  "effective_sampling_rate_hz": 100000.0,
+	  "outputs": {}
+	}
+	""",
+		encoding="utf-8",
+	)
+
+	received: dict[str, float | None] = {"prop": None}
+
+	def _fake_template_plot(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_template_circles_plot_v2(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_overlay(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_amp_map(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_latency_map(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_topo_amp(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_topo_latency(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_propagation(*, probe_geometry=None, **kwargs):
+		_ = kwargs
+		received["prop"] = None if probe_geometry is None else probe_geometry.sampling_rate_hz
+		return {}
+
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", _fake_template_plot)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot_v2", _fake_template_circles_plot_v2)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", _fake_overlay)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", _fake_amp_map)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", _fake_latency_map)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", _fake_topo_amp)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", _fake_topo_latency)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", _fake_propagation)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			template=TemplatePlotConfig(write_png=False, write_svg=False),
+			template_circles=TemplateCirclesPlotConfig(write_png=False, write_svg=False),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
+		),
+		reports=ReportsConfig(
+			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
+		),
+		unit_ids=[94],
+		require_curated_units=False,
+		force_restart=False,
+		force_replot=True,
+		n_jobs=1,
+	)
+
+	result = run_templates_stage(inputs)
+	assert len(result.units) == 1
+	assert result.units[0].status == "ok"
+	assert received["prop"] == 100_000.0
+
+
+def test_force_replot_infers_sampling_rate_from_execution_when_metadata_missing(tmp_path: Path, monkeypatch) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+
+	received: dict[str, float | None] = {"prop": None}
+
+	def _fake_template_plot(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_template_circles_plot_v2(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_overlay(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_amp_map(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_latency_map(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_topo_amp(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_topo_latency(**kwargs):
+		_ = kwargs
+		return {}
+
+	def _fake_propagation(*, probe_geometry=None, **kwargs):
+		_ = kwargs
+		received["prop"] = None if probe_geometry is None else probe_geometry.sampling_rate_hz
+		return {}
+
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", _fake_template_plot)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot_v2", _fake_template_circles_plot_v2)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", _fake_overlay)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", _fake_amp_map)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", _fake_latency_map)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", _fake_topo_amp)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", _fake_topo_latency)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", _fake_propagation)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		execution_upsampling=TimeUpsampleConfig(enabled=True, factor=10, method="sinc"),
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			template=TemplatePlotConfig(write_png=False, write_svg=False),
+			template_circles=TemplateCirclesPlotConfig(write_png=False, write_svg=False),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
+		),
+		reports=ReportsConfig(
+			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
+		),
+		unit_ids=[94],
+		require_curated_units=False,
+		force_restart=False,
+		force_replot=True,
+		n_jobs=1,
+	)
+
+	result = run_templates_stage(inputs)
+	assert len(result.units) == 1
+	assert result.units[0].status == "ok"
+	assert received["prop"] == 100_000.0
 
 
 def test_run_templates_stage_force_replot_rerenders_visual_outputs(tmp_path: Path) -> None:

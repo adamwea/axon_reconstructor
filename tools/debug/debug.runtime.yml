@@ -356,7 +356,7 @@ stages:
           pdf_relpath: propagation_plot.pdf
           write_png: true
           png_relpath: propagation_plot.png
-          show_title: true
+          show_title: false
           title_template: "Propagation traces {start}-{end} / {total}"
           title_fontsize: 9
           top_channels: 25
@@ -370,11 +370,16 @@ stages:
           channel_label_alignment: right # left, center, or right alignment of channel labels relative to the channel location
           trace_gain: 2.0
           trace_spacing: 1.0
+          peak_marker_height_frac: 0.50 # relative marker height vs per-channel vertical spacing; increase for taller peak ticks
+          peak_marker_linewidth: 0.5 # linewidth (pt) for peak tick marks
           show_scale_bar: true
-          scale_bar_anchor_x_frac: 0.92
-          scale_bar_anchor_y_frac: 0.12
-          scale_bar_time_fraction: 0.15
-          scale_bar_amp_fraction: 0.20
+          scale_bar_anchor_x_frac: 0.00
+          scale_bar_anchor_y_frac: 0.09
+          scale_bar_time_fraction: 0.075
+          scale_bar_amp_fraction: 0.5
+          force_amp_frac_to_max_amp: true # if true, will ignore the scale_bar_amp_fraction and instead set the amplitude fraction to correspond to the max amplitude across all channels in the plot, ensuring the scale bar always reflects the actual amplitude values in the plot.
+          debug_max_amps_at_each_channel: false # if true, will print the max amplitude value at each channel in the debug info for the plot, which can be useful for verifying that the scale bar amplitude fraction is set appropriately relative to the actual amplitudes in the plot.
+          bold_max_amp_channel_label: true # whether to bold the channel label for the channel with the maximum amplitude in the plot, which can help visually identify the main channel in the propagation plot.
           scale_bar_linewidth: 1.8
           scale_bar_fontsize: 7
           scale_bar_time_label_offset_frac: 0.04

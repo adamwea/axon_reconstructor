@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,9 @@ from ..models.inputs import (
 	TimeUpsampleConfig,
 	WfOverlayGridReportConfig,
 )
+
+
+LOGGER = logging.getLogger("axon_recon.templates.render")
 
 
 def _as_template_channels_by_time(template: Any, n_channels: int) -> np.ndarray:
@@ -179,6 +183,17 @@ def _nice_scale_value(value: float) -> float:
 	return float(nice * (10.0**exp))
 
 
+def _format_no_sci(value: float, *, max_decimals: int = 6) -> str:
+	# Render plain decimal labels (no scientific notation) for plot annotations.
+	decimals = max(0, int(max_decimals))
+	text = f"{float(value):.{decimals}f}"
+	if "." in text:
+		text = text.rstrip("0").rstrip(".")
+	if text in {"", "-0"}:
+		return "0"
+	return text
+
+
 def _add_propagation_scale_bars(
 	*,
 	ax: Any,
@@ -195,6 +210,8 @@ def _add_propagation_scale_bars(
 	fontsize: float,
 	time_label_offset_frac: float,
 	amp_label_offset_frac: float,
+	max_trace_amplitude_units: float | None = None,
+	force_amp_frac_to_max_amp: bool = False,
 ) -> None:
 	x0, x1 = ax.get_xlim()
 	y0, y1 = ax.get_ylim()
@@ -215,15 +232,23 @@ def _add_propagation_scale_bars(
 	sr_hz = None if probe_geometry is None else probe_geometry.sampling_rate_hz
 	if sr_hz is not None and float(sr_hz) > 0.0:
 		time_ms = (time_bar_samples / float(sr_hz)) * 1000.0
-		time_label = f"{time_ms:.2g} ms"
+		time_label = f"{_format_no_sci(time_ms, max_decimals=3)} ms"
 	else:
 		time_label = f"{int(round(time_bar_samples))} samples"
 
-	# Amplitude bar in template units (a.u.) accounting for applied trace gain.
-	target_amp = _nice_scale_value(max(1e-6, abs(trace_offset_step) * 0.5 / max(1e-9, abs(trace_gain))))
-	amp_bar_units = float(min(max(1e-6, target_amp), (span_y * amp_fraction) / max(1e-9, abs(trace_gain))))
+	# Amplitude bar can be tied either to plotted y-span or to max trace amplitude in template units.
+	max_units_by_span = float((span_y * 0.45) / max(1e-9, abs(trace_gain)))
+	if bool(force_amp_frac_to_max_amp) and max_trace_amplitude_units is not None and float(max_trace_amplitude_units) > 0.0:
+		desired_amp_units = float(max(1e-6, max_trace_amplitude_units))
+		# In forced mode, use the actual pre-gain max amplitude (no round-up inflation).
+		amp_bar_units = float(min(max(1e-6, desired_amp_units), max_units_by_span))
+	else:
+		desired_amp_plot = float(max(1e-6, span_y * amp_fraction * 0.35))
+		amp_bar_plot = float(min(max(1e-6, _nice_scale_value(desired_amp_plot)), span_y * 0.45))
+		amp_bar_units = float(amp_bar_plot / max(1e-9, abs(trace_gain)))
 	amp_bar_plot = float(amp_bar_units * trace_gain)
-	amp_label = f"{amp_bar_units:.2g} a.u."
+	amp_uv = float(amp_bar_units)
+	amp_label = f"{_format_no_sci(amp_uv, max_decimals=3)} uV"
 
 	# Place an L-shaped scale bar with configurable anchor in axis-fraction units.
 	anchor_x = float(min(x0, x1)) + (anchor_x_frac * span_x)
@@ -1012,6 +1037,15 @@ def render_propagation_plot(
 	ptp = np.ptp(t, axis=1)
 	top_n = max(1, min(int(config.top_channels), int(t.shape[0])))
 	selected = np.argsort(-ptp)[:top_n]
+	selected_abs_max = np.max(np.abs(t[selected, :]), axis=1)
+	max_amp_channel = int(selected[int(np.argmax(selected_abs_max))]) if selected.size > 0 else None
+	if bool(getattr(config, "debug_max_amps_at_each_channel", False)):
+		amps_by_channel = {
+			int(ch): float(amp) for ch, amp in zip(selected.tolist(), selected_abs_max.tolist(), strict=False)
+		}
+		debug_msg = f"Propagation plot debug: max amplitude at each plotted channel before gain (uV): {amps_by_channel}"
+		print(debug_msg)
+		LOGGER.info(debug_msg)
 	lat_idx = np.argmax(np.abs(t[selected, :]), axis=1).astype(float)
 	order = np.argsort(lat_idx)
 	selected = selected[order]
@@ -1059,6 +1093,8 @@ def render_propagation_plot(
 	base_step = float(max(1e-6, np.max(np.ptp(t[selected, :], axis=1))))
 	offset_step = base_step * max(0.2, float(config.trace_spacing))
 	trace_gain = float(max(1e-9, float(config.trace_gain)))
+	peak_marker_height_frac = float(max(1e-6, float(getattr(config, "peak_marker_height_frac", 0.24))))
+	peak_marker_linewidth = float(max(0.2, float(getattr(config, "peak_marker_linewidth", 1.4))))
 	label_alignment = str(getattr(config, "channel_label_alignment", "left") or "left").strip().lower()
 	if label_alignment not in {"left", "center", "right"}:
 		label_alignment = "left"
@@ -1073,13 +1109,27 @@ def render_propagation_plot(
 			y = (t[ch, :] * trace_gain) + off
 			ax.plot(x, y, color=trace_color, linewidth=0.9, alpha=0.95)
 			pk = float(np.argmax(np.abs(t[ch, :])))
-			ax.scatter([pk], [y[int(pk)]], color="red", s=10)
+			peak_y = float(y[int(pk)])
+			marker_height = float(max(1.2, peak_marker_height_frac * offset_step))
+			marker_half = float(0.5 * marker_height)
+			ax.plot(
+				[pk, pk],
+				[peak_y - marker_half, peak_y + marker_half],
+				color="black",
+				linewidth=peak_marker_linewidth,
+				solid_capstyle="butt",
+			)
 			ax.text(
 				x[0] + label_x_offset,
 				off + label_y_offset,
 				f"ch {int(ch)}",
 				color=text_color,
 				fontsize=float(config.channel_label_fontsize),
+				fontweight=(
+					"bold"
+					if bool(getattr(config, "bold_max_amp_channel_label", False)) and max_amp_channel is not None and int(ch) == max_amp_channel
+					else "normal"
+				),
 				horizontalalignment=label_alignment,
 				verticalalignment="center",
 			)
@@ -1113,11 +1163,14 @@ def render_propagation_plot(
 			spine.set_visible(False)
 
 	if bool(config.show_scale_bar):
+		max_trace_amp_units = float(np.max(np.abs(t[selected, :])))
 		_add_propagation_scale_bars(
 			ax=trace_axes[-1],
 			n_samples=int(t.shape[1]),
 			trace_offset_step=offset_step,
 			trace_gain=trace_gain,
+			max_trace_amplitude_units=max_trace_amp_units,
+			force_amp_frac_to_max_amp=bool(config.force_amp_frac_to_max_amp),
 			probe_geometry=probe_geometry,
 			text_color=text_color,
 			anchor_x_frac=float(config.scale_bar_anchor_x_frac),
