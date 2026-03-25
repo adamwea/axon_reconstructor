@@ -186,6 +186,7 @@ def _get_reports_wf_overlay_grid_block(runtime_config: RuntimeConfig) -> dict[st
 	return _first_dict_block(
 		runtime_config,
 		(
+			*_output_paths("reports.grids.wf_overlay_grid"),
 			*_output_paths("reports.wf_overlay_grid"),
 			*_output_paths("per_unit_outputs.reports.wf_overlay_grid"),
 		),
@@ -196,6 +197,7 @@ def _get_reports_footprint_grids_block(runtime_config: RuntimeConfig) -> dict[st
 	stage_block = _first_dict_block(
 		runtime_config,
 		(
+			*_output_paths("reports.grids.footprint_grids"),
 			*_output_paths("reports.footprint_grids"),
 			*_output_paths("per_unit_outputs.reports.footprint_grids"),
 		),
@@ -207,6 +209,7 @@ def _get_reports_footprint_grids_block(runtime_config: RuntimeConfig) -> dict[st
 	return _first_dict_block(
 		runtime_config,
 		(
+			*_output_paths("reports.grids.foot_print_grids"),
 			*_output_paths("reports.foot_print_grids"),
 			*_output_paths("per_unit_outputs.reports.foot_print_grids"),
 		),
@@ -340,6 +343,119 @@ def _get_nested_block(raw_cfg: dict[str, Any], key: str) -> dict[str, Any]:
 	return {}
 
 
+def _nested_or_flat(
+	raw_cfg: dict[str, Any],
+	*,
+	block: str,
+	key: str,
+	flat_keys: tuple[str, ...],
+	default: Any,
+) -> Any:
+	nested = _get_nested_block(raw_cfg, block)
+	if key in nested:
+		return nested.get(key)
+	for flat_key in flat_keys:
+		if flat_key in raw_cfg:
+			return raw_cfg.get(flat_key)
+	return default
+
+
+def _nested_path_or_flat(
+	raw_cfg: dict[str, Any],
+	*,
+	path: tuple[str, ...],
+	key: str,
+	flat_keys: tuple[str, ...],
+	default: Any,
+) -> Any:
+	block: Any = raw_cfg
+	for path_key in path:
+		if not isinstance(block, dict):
+			block = {}
+			break
+		next_block = block.get(path_key, {})
+		if not isinstance(next_block, dict):
+			next_block = {}
+		block = next_block
+	if isinstance(block, dict) and key in block:
+		return block.get(key)
+	for flat_key in flat_keys:
+		if flat_key in raw_cfg:
+			return raw_cfg.get(flat_key)
+	return default
+
+
+def _build_footprint_grid_report_config(
+	raw_cfg: dict[str, Any],
+	*,
+	pdf_relpath_default: str,
+	png_relpath_default: str,
+) -> FootprintMapGridReportConfig:
+	return FootprintMapGridReportConfig(
+		write_pdf=_as_bool(
+			_nested_or_flat(raw_cfg, block="output", key="write_pdf", flat_keys=("write_pdf",), default=False),
+			False,
+		),
+		pdf_relpath=str(
+			_nested_or_flat(raw_cfg, block="output", key="pdf_relpath", flat_keys=("pdf_relpath",), default=pdf_relpath_default)
+		),
+		write_png=_as_bool(
+			_nested_or_flat(raw_cfg, block="output", key="write_png", flat_keys=("write_png",), default=True),
+			True,
+		),
+		png_relpath=str(
+			_nested_or_flat(raw_cfg, block="output", key="png_relpath", flat_keys=("png_relpath",), default=png_relpath_default)
+		),
+		show_title=_as_bool(
+			_nested_or_flat(raw_cfg, block="display", key="show_title", flat_keys=("show_title",), default=True),
+			True,
+		),
+		template_shape=_normalize_template_shape(
+			_nested_or_flat(
+				raw_cfg,
+				block="render",
+				key="template",
+				flat_keys=("template_shape", "template"),
+				default="square",
+			),
+			"square",
+		),
+		global_color_scale=_as_bool(
+			_nested_or_flat(raw_cfg, block="render", key="global_color_scale", flat_keys=("global_color_scale",), default=True),
+			True,
+		),
+		subplot_background_color=str(
+			_nested_or_flat(
+				raw_cfg,
+				block="render",
+				key="subplot_background_color",
+				flat_keys=("subplot_background_color",),
+				default="white",
+			)
+		),
+		figure_background_color=str(
+			_nested_or_flat(
+				raw_cfg,
+				block="render",
+				key="figure_background_color",
+				flat_keys=("figure_background_color",),
+				default="white",
+			)
+		),
+		render_mode=_normalize_grid_render_mode(
+			_nested_or_flat(raw_cfg, block="render", key="mode", flat_keys=("render_mode",), default="direct_replot"),
+			"direct_replot",
+		),
+		dpi=max(
+			72.0,
+			_as_float(
+				_nested_or_flat(raw_cfg, block="render", key="dpi", flat_keys=("dpi",), default=300.0),
+				300.0,
+			),
+		),
+	)
+
+
 def _normalize_overlap_priority(raw: Any) -> tuple[str, ...]:
 	items = _as_tuple(raw, ("electrode_id", "channel_id", "location"))
 	norm: list[str] = []
@@ -364,11 +480,11 @@ def _build_footprint_map_config(raw_cfg: dict[str, Any], *, relpath_default: str
 	template_cfg = _get_nested_block(raw_cfg, "template")
 	color_bar_cfg = _get_nested_block(raw_cfg, "color_bar")
 	return FootprintMapConfig(
-		write_png=_as_bool(raw_cfg.get("write_png", True), True),
-		write_svg=_as_bool(raw_cfg.get("write_svg", False), False),
-		relpath=str(raw_cfg.get("relpath", relpath_default)),
-		background=str(raw_cfg.get("background", "black")),
-		color_map=str(raw_cfg.get("color_map", "viridis")),
+		write_png=_as_bool(_nested_or_flat(raw_cfg, block="output", key="write_png", flat_keys=("write_png",), default=True), True),
+		write_svg=_as_bool(_nested_or_flat(raw_cfg, block="output", key="write_svg", flat_keys=("write_svg",), default=False), False),
+		relpath=str(_nested_or_flat(raw_cfg, block="output", key="relpath", flat_keys=("relpath",), default=relpath_default)),
+		background=str(_nested_or_flat(raw_cfg, block="render", key="background", flat_keys=("background",), default="black")),
+		color_map=str(_nested_or_flat(raw_cfg, block="render", key="color_map", flat_keys=("color_map",), default="viridis")),
 		template_shape=_normalize_template_shape(template_cfg.get("shape", raw_cfg.get("template_shape", "square")), "square"),
 		template_padding_value=_normalize_padding_value(template_cfg.get("padding_value", raw_cfg.get("template_padding_value", "zero"))),
 		show_color_bar=_as_bool(color_bar_cfg.get("show", color_bar_cfg.get("show_color_bar", raw_cfg.get("show_color_bar", True))), True),
@@ -416,11 +532,11 @@ def _build_topographical_footprint_config(raw_cfg: dict[str, Any], *, relpath_de
 	template_cfg = _get_nested_block(raw_cfg, "template")
 	color_bar_cfg = _get_nested_block(raw_cfg, "color_bar")
 	return TopographicalFootprintConfig(
-		write_png=_as_bool(raw_cfg.get("write_png", True), True),
-		write_svg=_as_bool(raw_cfg.get("write_svg", False), False),
-		relpath=str(raw_cfg.get("relpath", relpath_default)),
-		background=str(raw_cfg.get("background", "black")),
-		color_map=str(raw_cfg.get("color_map", "viridis")),
+		write_png=_as_bool(_nested_or_flat(raw_cfg, block="output", key="write_png", flat_keys=("write_png",), default=True), True),
+		write_svg=_as_bool(_nested_or_flat(raw_cfg, block="output", key="write_svg", flat_keys=("write_svg",), default=False), False),
+		relpath=str(_nested_or_flat(raw_cfg, block="output", key="relpath", flat_keys=("relpath",), default=relpath_default)),
+		background=str(_nested_or_flat(raw_cfg, block="render", key="background", flat_keys=("background",), default="black")),
+		color_map=str(_nested_or_flat(raw_cfg, block="render", key="color_map", flat_keys=("color_map",), default="viridis")),
 		template_shape=_normalize_template_shape(template_cfg.get("shape", raw_cfg.get("template_shape", "square")), "square"),
 		template_padding_value=_normalize_padding_value(template_cfg.get("padding_value", raw_cfg.get("template_padding_value", "zero"))),
 		show_color_bar=_as_bool(color_bar_cfg.get("show", color_bar_cfg.get("show_color_bar", raw_cfg.get("show_color_bar", True))), True),
@@ -444,9 +560,9 @@ def _build_topographical_footprint_config(raw_cfg: dict[str, Any], *, relpath_de
 		linear_cap_rounding_step=_as_float(color_bar_cfg.get("linear_cap_rounding_step", raw_cfg.get("linear_cap_rounding_step", 10.0)), 10.0),
 		linear_cap_min_vmax=_as_float(color_bar_cfg.get("linear_cap_min_vmax", raw_cfg.get("linear_cap_min_vmax", 11.0)), 11.0),
 		show_ticks=tuple(_as_tuple(color_bar_cfg.get("show_ticks", raw_cfg.get("show_ticks", (1, 10, "dynamic_high"))), (1, 10, "dynamic_high"))),
-		elevation_deg=_as_float(raw_cfg.get("elevation_deg", 35.0), 35.0),
-		azimuth_deg=_as_float(raw_cfg.get("azimuth_deg", -60.0), -60.0),
-		marker_size=_as_float(raw_cfg.get("marker_size", 14.0), 14.0),
+		elevation_deg=_as_float(_nested_or_flat(raw_cfg, block="display", key="elevation_deg", flat_keys=("elevation_deg",), default=35.0), 35.0),
+		azimuth_deg=_as_float(_nested_or_flat(raw_cfg, block="display", key="azimuth_deg", flat_keys=("azimuth_deg",), default=-60.0), -60.0),
+		marker_size=_as_float(_nested_or_flat(raw_cfg, block="display", key="marker_size", flat_keys=("marker_size",), default=14.0), 14.0),
 	)
 
 
@@ -664,27 +780,79 @@ def parse_templates_stage_config(
 	if not time_upsample_cfg_raw:
 		time_upsample_cfg_raw = report_overlay_grid_cfg.get("time_upsample", {}) if isinstance(report_overlay_grid_cfg.get("time_upsample", {}), dict) else {}
 	tpl = TemplatePlotConfig(
-		write_png=_as_bool(tpl_cfg.get("write_png", True), True),
-		write_svg=_as_bool(tpl_cfg.get("write_svg", False), False),
-		dpi=max(72.0, _as_float(tpl_cfg.get("dpi", 300.0), 300.0)),
-		relpath=str(tpl_cfg.get("relpath", "template")),
-		channel_scope=_normalize_channel_scope(tpl_cfg.get("channel_scope", "contributing_channels")),
-		background=str(tpl_cfg.get("background", "black")),
-		signal_color=str(tpl_cfg.get("signal_color", "white")),
-		force_center_soma=_as_bool(tpl_cfg.get("force_center_soma", False), False),
-		force_square_aspect=_as_bool(tpl_cfg.get("force_square_aspect", True), True),
-		show_scale_bar=_as_bool(tpl_cfg.get("show_scale_bar", True), True),
-		scale_bar_color=str(tpl_cfg.get("scale_bar_color", "white")),
-		scale_bar_text_offset_frac=_as_float(tpl_cfg.get("scale_bar_text_offset_frac", 0.02), 0.02),
-		scale_bar_y_offset_frac=_as_float(tpl_cfg.get("scale_bar_y_offset_frac", 0.06), 0.06),
-		scale_bar_fontsize=_as_float(tpl_cfg.get("scale_bar_fontsize", 6.0), 6.0),
-		scale_bar_linewidth=_as_float(tpl_cfg.get("scale_bar_linewidth", 1.8), 1.8),
+		write_png=_as_bool(_nested_or_flat(tpl_cfg, block="output", key="write_png", flat_keys=("write_png",), default=True), True),
+		write_svg=_as_bool(_nested_or_flat(tpl_cfg, block="output", key="write_svg", flat_keys=("write_svg",), default=False), False),
+		dpi=max(72.0, _as_float(_nested_or_flat(tpl_cfg, block="output", key="dpi", flat_keys=("dpi",), default=300.0), 300.0)),
+		relpath=str(_nested_or_flat(tpl_cfg, block="output", key="relpath", flat_keys=("relpath",), default="template")),
+		channel_scope=_normalize_channel_scope(_nested_or_flat(tpl_cfg, block="display", key="channel_scope", flat_keys=("channel_scope",), default="contributing_channels")),
+		background=str(_nested_or_flat(tpl_cfg, block="render", key="background", flat_keys=("background",), default="black")),
+		signal_color=str(_nested_or_flat(tpl_cfg, block="render", key="signal_color", flat_keys=("signal_color",), default="white")),
+		force_center_soma=_as_bool(_nested_or_flat(tpl_cfg, block="display", key="force_center_soma", flat_keys=("force_center_soma",), default=False), False),
+		force_square_aspect=_as_bool(_nested_or_flat(tpl_cfg, block="display", key="force_square_aspect", flat_keys=("force_square_aspect",), default=True), True),
+		show_scale_bar=_as_bool(_nested_or_flat(tpl_cfg, block="display", key="show_scale_bar", flat_keys=("show_scale_bar",), default=True), True),
+		scale_bar_color=str(_nested_or_flat(tpl_cfg, block="render", key="scale_bar_color", flat_keys=("scale_bar_color",), default="white")),
+		scale_bar_text_offset_frac=_as_float(
+			_nested_path_or_flat(
+				tpl_cfg,
+				path=("display", "scale_bar"),
+				key="text_offset_frac",
+				flat_keys=("scale_bar_text_offset_frac",),
+				default=0.02,
+			),
+			0.02,
+		),
+		scale_bar_y_offset_frac=_as_float(
+			_nested_path_or_flat(
+				tpl_cfg,
+				path=("display", "scale_bar"),
+				key="y_offset_frac",
+				flat_keys=("scale_bar_y_offset_frac",),
+				default=0.06,
+			),
+			0.06,
+		),
+		scale_bar_fontsize=_as_float(
+			_nested_path_or_flat(
+				tpl_cfg,
+				path=("display", "scale_bar"),
+				key="fontsize",
+				flat_keys=("scale_bar_fontsize",),
+				default=6.0,
+			),
+			6.0,
+		),
+		scale_bar_linewidth=_as_float(
+			_nested_path_or_flat(
+				tpl_cfg,
+				path=("display", "scale_bar"),
+				key="linewidth",
+				flat_keys=("scale_bar_linewidth",),
+				default=1.8,
+			),
+			1.8,
+		),
 		scale_bar_length_um=(
 			None
-			if tpl_cfg.get("scale_bar_length_um", None) is None
-			else _as_float(tpl_cfg.get("scale_bar_length_um", None), 0.0)
+			if _nested_path_or_flat(
+				tpl_cfg,
+				path=("display", "scale_bar"),
+				key="length_um",
+				flat_keys=("scale_bar_length_um",),
+				default=None,
+			)
+			is None
+			else _as_float(
+				_nested_path_or_flat(
+					tpl_cfg,
+					path=("display", "scale_bar"),
+					key="length_um",
+					flat_keys=("scale_bar_length_um",),
+					default=None,
+				),
+				0.0,
+			)
 		),
-		show_axes=_as_bool(tpl_cfg.get("show_axes", True), True),
+		show_axes=_as_bool(_nested_or_flat(tpl_cfg, block="display", key="show_axes", flat_keys=("show_axes",), default=True), True),
 		unit_id_label=UnitIdLabelConfig(
 			show=_as_bool(_get_nested_block(tpl_cfg, "unit_id_label").get("show", False), False),
 			fontsize=_as_float(_get_nested_block(tpl_cfg, "unit_id_label").get("fontsize", 12.0), 12.0),
@@ -722,27 +890,79 @@ def parse_templates_stage_config(
 		# circles:
 		#   color_bar:
 		#     units: ms
-		write_png=_as_bool(tpl_circles_cfg.get("write_png", False), False),
-		write_svg=_as_bool(tpl_circles_cfg.get("write_svg", False), False),
-		dpi=max(72.0, _as_float(tpl_circles_cfg.get("dpi", tpl_cfg.get("dpi", 300.0)), 300.0)),
-		relpath=str(tpl_circles_cfg.get("relpath", "template_circles")),
-		channel_scope=_normalize_channel_scope(tpl_circles_cfg.get("channel_scope", "contributing_channels")),
-		background=str(tpl_circles_cfg.get("background", "black")),
-		signal_color=str(tpl_circles_cfg.get("signal_color", "white")),
-		force_center_soma=_as_bool(tpl_circles_cfg.get("force_center_soma", False), False),
-		force_square_aspect=_as_bool(tpl_circles_cfg.get("force_square_aspect", True), True),
-		show_scale_bar=_as_bool(tpl_circles_cfg.get("show_scale_bar", True), True),
-		scale_bar_color=str(tpl_circles_cfg.get("scale_bar_color", "white")),
-		scale_bar_text_offset_frac=_as_float(tpl_circles_cfg.get("scale_bar_text_offset_frac", 0.02), 0.02),
-		scale_bar_y_offset_frac=_as_float(tpl_circles_cfg.get("scale_bar_y_offset_frac", 0.06), 0.06),
-		scale_bar_fontsize=_as_float(tpl_circles_cfg.get("scale_bar_fontsize", 6.0), 6.0),
-		scale_bar_linewidth=_as_float(tpl_circles_cfg.get("scale_bar_linewidth", 1.8), 1.8),
+		write_png=_as_bool(_nested_or_flat(tpl_circles_cfg, block="output", key="write_png", flat_keys=("write_png",), default=False), False),
+		write_svg=_as_bool(_nested_or_flat(tpl_circles_cfg, block="output", key="write_svg", flat_keys=("write_svg",), default=False), False),
+		dpi=max(72.0, _as_float(_nested_or_flat(tpl_circles_cfg, block="output", key="dpi", flat_keys=("dpi",), default=tpl.dpi), 300.0)),
+		relpath=str(_nested_or_flat(tpl_circles_cfg, block="output", key="relpath", flat_keys=("relpath",), default="template_circles")),
+		channel_scope=_normalize_channel_scope(_nested_or_flat(tpl_circles_cfg, block="display", key="channel_scope", flat_keys=("channel_scope",), default="contributing_channels")),
+		background=str(_nested_or_flat(tpl_circles_cfg, block="render", key="background", flat_keys=("background",), default="black")),
+		signal_color=str(_nested_or_flat(tpl_circles_cfg, block="render", key="signal_color", flat_keys=("signal_color",), default="white")),
+		force_center_soma=_as_bool(_nested_or_flat(tpl_circles_cfg, block="display", key="force_center_soma", flat_keys=("force_center_soma",), default=False), False),
+		force_square_aspect=_as_bool(_nested_or_flat(tpl_circles_cfg, block="display", key="force_square_aspect", flat_keys=("force_square_aspect",), default=True), True),
+		show_scale_bar=_as_bool(_nested_or_flat(tpl_circles_cfg, block="display", key="show_scale_bar", flat_keys=("show_scale_bar",), default=True), True),
+		scale_bar_color=str(_nested_or_flat(tpl_circles_cfg, block="render", key="scale_bar_color", flat_keys=("scale_bar_color",), default="white")),
+		scale_bar_text_offset_frac=_as_float(
+			_nested_path_or_flat(
+				tpl_circles_cfg,
+				path=("display", "scale_bar"),
+				key="text_offset_frac",
+				flat_keys=("scale_bar_text_offset_frac",),
+				default=0.02,
+			),
+			0.02,
+		),
+		scale_bar_y_offset_frac=_as_float(
+			_nested_path_or_flat(
+				tpl_circles_cfg,
+				path=("display", "scale_bar"),
+				key="y_offset_frac",
+				flat_keys=("scale_bar_y_offset_frac",),
+				default=0.06,
+			),
+			0.06,
+		),
+		scale_bar_fontsize=_as_float(
+			_nested_path_or_flat(
+				tpl_circles_cfg,
+				path=("display", "scale_bar"),
+				key="fontsize",
+				flat_keys=("scale_bar_fontsize",),
+				default=6.0,
+			),
+			6.0,
+		),
+		scale_bar_linewidth=_as_float(
+			_nested_path_or_flat(
+				tpl_circles_cfg,
+				path=("display", "scale_bar"),
+				key="linewidth",
+				flat_keys=("scale_bar_linewidth",),
+				default=1.8,
+			),
+			1.8,
+		),
 		scale_bar_length_um=(
 			None
-			if tpl_circles_cfg.get("scale_bar_length_um", None) is None
-			else _as_float(tpl_circles_cfg.get("scale_bar_length_um", None), 0.0)
+			if _nested_path_or_flat(
+				tpl_circles_cfg,
+				path=("display", "scale_bar"),
+				key="length_um",
+				flat_keys=("scale_bar_length_um",),
+				default=None,
+			)
+			is None
+			else _as_float(
+				_nested_path_or_flat(
+					tpl_circles_cfg,
+					path=("display", "scale_bar"),
+					key="length_um",
+					flat_keys=("scale_bar_length_um",),
+					default=None,
+				),
+				0.0,
+			)
 		),
-		show_axes=_as_bool(tpl_circles_cfg.get("show_axes", True), True),
+		show_axes=_as_bool(_nested_or_flat(tpl_circles_cfg, block="display", key="show_axes", flat_keys=("show_axes",), default=True), True),
 		unit_id_label=UnitIdLabelConfig(
 			show=_as_bool(_get_nested_block(tpl_circles_cfg, "unit_id_label").get("show", False), False),
 			fontsize=_as_float(_get_nested_block(tpl_circles_cfg, "unit_id_label").get("fontsize", 12.0), 12.0),
@@ -773,8 +993,8 @@ def parse_templates_stage_config(
 				default="top",
 			),
 		),
-		size_by=_normalize_template_metric(tpl_circles_cfg.get("size_by", "amplitude"), "amplitude"),
-		color_by=_normalize_template_metric(tpl_circles_cfg.get("color_by", "latency"), "latency"),
+		size_by=_normalize_template_metric(_nested_or_flat(tpl_circles_cfg, block="display", key="size_by", flat_keys=("size_by",), default="amplitude"), "amplitude"),
+		color_by=_normalize_template_metric(_nested_or_flat(tpl_circles_cfg, block="display", key="color_by", flat_keys=("color_by",), default="latency"), "latency"),
 		color_bar_units=str(
 			(_get_nested_block(tpl_circles_cfg, "color_bar").get("units", tpl_circles_cfg.get("color_bar_units", "")) or "")
 		).strip(),
@@ -837,35 +1057,141 @@ def parse_templates_stage_config(
 		),
 	)
 	tpl_wf_overlay = TemplateWaveformOverlayConfig(
-		debug_mode=_as_bool(tpl_wf_overlay_cfg.get("debug_mode", False), False),
-		write_pdf=_as_bool(tpl_wf_overlay_cfg.get("write_pdf", False), False),
-		pdf_relpath=str(tpl_wf_overlay_cfg.get("pdf_relpath", "extremum_ch_wf_overlay.pdf")),
-		write_png=_as_bool(tpl_wf_overlay_cfg.get("write_png", True), True),
-		png_relpath=str(tpl_wf_overlay_cfg.get("png_relpath", "extremum_ch_wf_overlay.png")),
-		top_channels_per_template=max(1, _as_int(tpl_wf_overlay_cfg.get("top_channels_per_template", 10), 10)),
-		style=str(tpl_wf_overlay_cfg.get("style", "overlay")),
-		show_title=_as_bool(tpl_wf_overlay_cfg.get("show_title", False), False),
-		show_axes=_as_bool(tpl_wf_overlay_cfg.get("show_axes", False), False),
-		show_channel_labels=_as_bool(tpl_wf_overlay_cfg.get("show_channel_labels", False), False),
-		show_top_channel_info=_as_bool(tpl_wf_overlay_cfg.get("show_top_channel_info", True), True),
-		show_waveform_count_info=_as_bool(tpl_wf_overlay_cfg.get("show_waveform_count_info", True), True),
-		include_mean=_as_bool(tpl_wf_overlay_cfg.get("include_mean", True), True),
-		max_waveforms_to_show=max(1, _as_int(tpl_wf_overlay_cfg.get("max_waveforms_to_show", 100), 100)),
-		waveform_sampling_mode=str(tpl_wf_overlay_cfg.get("waveform_sampling_mode", "uniform")),
+		debug_mode=_as_bool(
+			_nested_or_flat(tpl_wf_overlay_cfg, block="display", key="debug_mode", flat_keys=("debug_mode",), default=False),
+			False,
+		),
+		write_pdf=_as_bool(
+			_nested_or_flat(tpl_wf_overlay_cfg, block="output", key="write_pdf", flat_keys=("write_pdf",), default=False),
+			False,
+		),
+		pdf_relpath=str(
+			_nested_or_flat(
+				tpl_wf_overlay_cfg,
+				block="output",
+				key="pdf_relpath",
+				flat_keys=("pdf_relpath",),
+				default="extremum_ch_wf_overlay.pdf",
+			)
+		),
+		write_png=_as_bool(
+			_nested_or_flat(tpl_wf_overlay_cfg, block="output", key="write_png", flat_keys=("write_png",), default=True),
+			True,
+		),
+		png_relpath=str(
+			_nested_or_flat(
+				tpl_wf_overlay_cfg,
+				block="output",
+				key="png_relpath",
+				flat_keys=("png_relpath",),
+				default="extremum_ch_wf_overlay.png",
+			)
+		),
+		top_channels_per_template=max(
+			1,
+			_as_int(
+				_nested_or_flat(
+					tpl_wf_overlay_cfg,
+					block="display",
+					key="top_channels_per_template",
+					flat_keys=("top_channels_per_template",),
+					default=10,
+				),
+				10,
+			),
+		),
+		style=str(_nested_or_flat(tpl_wf_overlay_cfg, block="display", key="style", flat_keys=("style",), default="overlay")),
+		show_title=_as_bool(
+			_nested_or_flat(tpl_wf_overlay_cfg, block="display", key="show_title", flat_keys=("show_title",), default=False),
+			False,
+		),
+		show_axes=_as_bool(
+			_nested_or_flat(tpl_wf_overlay_cfg, block="display", key="show_axes", flat_keys=("show_axes",), default=False),
+			False,
+		),
+		show_channel_labels=_as_bool(
+			_nested_or_flat(tpl_wf_overlay_cfg, block="display", key="show_channel_labels", flat_keys=("show_channel_labels",), default=False),
+			False,
+		),
+		show_top_channel_info=_as_bool(
+			_nested_or_flat(tpl_wf_overlay_cfg, block="display", key="show_top_channel_info", flat_keys=("show_top_channel_info",), default=True),
+			True,
+		),
+		show_waveform_count_info=_as_bool(
+			_nested_or_flat(tpl_wf_overlay_cfg, block="display", key="show_waveform_count_info", flat_keys=("show_waveform_count_info",), default=True),
+			True,
+		),
+		include_mean=_as_bool(
+			_nested_or_flat(tpl_wf_overlay_cfg, block="display", key="include_mean", flat_keys=("include_mean",), default=True),
+			True,
+		),
+		max_waveforms_to_show=max(
+			1,
+			_as_int(
+				_nested_or_flat(tpl_wf_overlay_cfg, block="display", key="max_waveforms_to_show", flat_keys=("max_waveforms_to_show",), default=100),
+				100,
+			),
+		),
+		waveform_sampling_mode=str(
+			_nested_or_flat(
+				tpl_wf_overlay_cfg,
+				block="display",
+				key="waveform_sampling_mode",
+				flat_keys=("waveform_sampling_mode",),
+				default="uniform",
+			)
+		),
 		random_seed=(
 			None
-			if tpl_wf_overlay_cfg.get("random_seed", 0) is None
-			else _as_int(tpl_wf_overlay_cfg.get("random_seed", 0), 0)
+			if _nested_or_flat(tpl_wf_overlay_cfg, block="display", key="random_seed", flat_keys=("random_seed",), default=0) is None
+			else _as_int(_nested_or_flat(tpl_wf_overlay_cfg, block="display", key="random_seed", flat_keys=("random_seed",), default=0), 0)
 		),
-		include_scale_bar=_as_bool(tpl_wf_overlay_cfg.get("include_scale_bar", True), True),
-		scale_bar_color=str(tpl_wf_overlay_cfg.get("scale_bar_color", "black")),
-		scale_bar_fontsize=_as_float(tpl_wf_overlay_cfg.get("scale_bar_fontsize", 6.0), 6.0),
-		scale_bar_linewidth=_as_float(tpl_wf_overlay_cfg.get("scale_bar_linewidth", 1.8), 1.8),
-		scale_bar_time_fraction=_as_float(tpl_wf_overlay_cfg.get("scale_bar_time_fraction", 0.10), 0.10),
-		scale_bar_amp_fraction=_as_float(tpl_wf_overlay_cfg.get("scale_bar_amp_fraction", 0.10), 0.10),
-		scale_bar_time_label_offset_frac=_as_float(tpl_wf_overlay_cfg.get("scale_bar_time_label_offset_frac", 0.03), 0.03),
-		scale_bar_amp_label_offset_frac=_as_float(tpl_wf_overlay_cfg.get("scale_bar_amp_label_offset_frac", 0.02), 0.02),
-		background=str(tpl_wf_overlay_cfg.get("background", "white")),
+		include_scale_bar=_as_bool(
+			_nested_or_flat(tpl_wf_overlay_cfg, block="scale_bar", key="include", flat_keys=("include_scale_bar",), default=True),
+			True,
+		),
+		scale_bar_color=str(
+			_nested_or_flat(tpl_wf_overlay_cfg, block="scale_bar", key="color", flat_keys=("scale_bar_color",), default="black")
+		),
+		scale_bar_fontsize=_as_float(
+			_nested_or_flat(tpl_wf_overlay_cfg, block="scale_bar", key="fontsize", flat_keys=("scale_bar_fontsize",), default=6.0),
+			6.0,
+		),
+		scale_bar_linewidth=_as_float(
+			_nested_or_flat(tpl_wf_overlay_cfg, block="scale_bar", key="linewidth", flat_keys=("scale_bar_linewidth",), default=1.8),
+			1.8,
+		),
+		scale_bar_time_fraction=_as_float(
+			_nested_or_flat(tpl_wf_overlay_cfg, block="scale_bar", key="time_fraction", flat_keys=("scale_bar_time_fraction",), default=0.10),
+			0.10,
+		),
+		scale_bar_amp_fraction=_as_float(
+			_nested_or_flat(tpl_wf_overlay_cfg, block="scale_bar", key="amp_fraction", flat_keys=("scale_bar_amp_fraction",), default=0.10),
+			0.10,
+		),
+		scale_bar_time_label_offset_frac=_as_float(
+			_nested_or_flat(
+				tpl_wf_overlay_cfg,
+				block="scale_bar",
+				key="time_label_offset_frac",
+				flat_keys=("scale_bar_time_label_offset_frac",),
+				default=0.03,
+			),
+			0.03,
+		),
+		scale_bar_amp_label_offset_frac=_as_float(
+			_nested_or_flat(
+				tpl_wf_overlay_cfg,
+				block="scale_bar",
+				key="amp_label_offset_frac",
+				flat_keys=("scale_bar_amp_label_offset_frac",),
+				default=0.02,
+			),
+			0.02,
+		),
+		background=str(
+			_nested_or_flat(tpl_wf_overlay_cfg, block="render", key="background", flat_keys=("background",), default="white")
+		),
 	)
 	reports = ReportsConfig(
 		plot_multi_source_pdf=MultiSourcePdfReportConfig(
@@ -875,47 +1201,78 @@ def parse_templates_stage_config(
 		replot_from_disk=_as_bool(reports_cfg.get("replot_from_disk", False), False),
 		time_upsample=_build_time_upsample_config(time_upsample_cfg_raw),
 		wf_overlay_grid=WfOverlayGridReportConfig(
-			write_pdf=_as_bool(report_overlay_grid_cfg.get("write_pdf", False), False),
-			pdf_relpath=str(report_overlay_grid_cfg.get("pdf_relpath", "wf_overlay_grid.pdf")),
-			write_png=_as_bool(report_overlay_grid_cfg.get("write_png", True), True),
-			png_relpath=str(report_overlay_grid_cfg.get("png_relpath", "wf_overlay_grid.png")),
-			top_channels_per_template=max(1, _as_int(report_overlay_grid_cfg.get("top_channels_per_template", 10), 10)),
-			render_mode=_normalize_grid_render_mode(report_overlay_grid_cfg.get("render_mode", "direct_replot"), "direct_replot"),
-			dpi=max(72.0, _as_float(report_overlay_grid_cfg.get("dpi", 300.0), 300.0)),
+			write_pdf=_as_bool(
+				_nested_or_flat(report_overlay_grid_cfg, block="output", key="write_pdf", flat_keys=("write_pdf",), default=False),
+				False,
+			),
+			pdf_relpath=str(
+				_nested_or_flat(report_overlay_grid_cfg, block="output", key="pdf_relpath", flat_keys=("pdf_relpath",), default="wf_overlay_grid.pdf")
+			),
+			write_png=_as_bool(
+				_nested_or_flat(report_overlay_grid_cfg, block="output", key="write_png", flat_keys=("write_png",), default=True),
+				True,
+			),
+			png_relpath=str(
+				_nested_or_flat(report_overlay_grid_cfg, block="output", key="png_relpath", flat_keys=("png_relpath",), default="wf_overlay_grid.png")
+			),
+			top_channels_per_template=max(
+				1,
+				_as_int(
+					_nested_or_flat(
+						report_overlay_grid_cfg,
+						block="display",
+						key="top_channels_per_template",
+						flat_keys=("top_channels_per_template",),
+						default=10,
+					),
+					10,
+				),
+			),
+			subplot_background_color=str(
+				_nested_or_flat(
+					report_overlay_grid_cfg,
+					block="render",
+					key="subplot_background_color",
+					flat_keys=("subplot_background_color",),
+					default="white",
+				)
+			),
+			figure_background_color=str(
+				_nested_or_flat(
+					report_overlay_grid_cfg,
+					block="render",
+					key="figure_background_color",
+					flat_keys=("figure_background_color",),
+					default="white",
+				)
+			),
+			render_mode=_normalize_grid_render_mode(
+				_nested_or_flat(report_overlay_grid_cfg, block="render", key="mode", flat_keys=("render_mode",), default="direct_replot"),
+				"direct_replot",
+			),
+			dpi=max(
+				72.0,
+				_as_float(
+					_nested_or_flat(report_overlay_grid_cfg, block="render", key="dpi", flat_keys=("dpi",), default=300.0),
+					300.0,
+				),
+			),
 		),
 		footprint_grids=FootprintGridsReportConfig(
-			circles_map_grid=FootprintMapGridReportConfig(
-				write_pdf=_as_bool((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("write_pdf", False), False),
-				pdf_relpath=str((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("pdf_relpath", "circles_map_grid.pdf")),
-				write_png=_as_bool((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("write_png", True), True),
-				png_relpath=str((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("png_relpath", "circles_map_grid.png")),
-				show_title=_as_bool((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("show_title", True), True),
-				template_shape=_normalize_template_shape((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("template_shape", (footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("template", "square")), "square"),
-				global_color_scale=_as_bool((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("global_color_scale", True), True),
-				render_mode=_normalize_grid_render_mode((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("render_mode", "direct_replot"), "direct_replot"),
-				dpi=max(72.0, _as_float((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("dpi", 300.0), 300.0)),
+			circles_map_grid=_build_footprint_grid_report_config(
+				(footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}),
+				pdf_relpath_default="circles_map_grid.pdf",
+				png_relpath_default="circles_map_grid.png",
 			),
-			amplitude_map_grid=FootprintMapGridReportConfig(
-				write_pdf=_as_bool((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("write_pdf", False), False),
-				pdf_relpath=str((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("pdf_relpath", "amplitude_map_grid.pdf")),
-				write_png=_as_bool((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("write_png", True), True),
-				png_relpath=str((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("png_relpath", "amplitude_map_grid.png")),
-				show_title=_as_bool((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("show_title", True), True),
-				template_shape=_normalize_template_shape((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("template_shape", (footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("template", "square")), "square"),
-				global_color_scale=_as_bool((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("global_color_scale", True), True),
-				render_mode=_normalize_grid_render_mode((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("render_mode", "direct_replot"), "direct_replot"),
-				dpi=max(72.0, _as_float((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("dpi", 300.0), 300.0)),
+			amplitude_map_grid=_build_footprint_grid_report_config(
+				(footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}),
+				pdf_relpath_default="amplitude_map_grid.pdf",
+				png_relpath_default="amplitude_map_grid.png",
 			),
-			latency_map_grid=FootprintMapGridReportConfig(
-				write_pdf=_as_bool((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("write_pdf", False), False),
-				pdf_relpath=str((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("pdf_relpath", "latency_map_grid.pdf")),
-				write_png=_as_bool((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("write_png", True), True),
-				png_relpath=str((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("png_relpath", "latency_map_grid.png")),
-				show_title=_as_bool((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("show_title", True), True),
-				template_shape=_normalize_template_shape((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("template_shape", (footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("template", "square")), "square"),
-				global_color_scale=_as_bool((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("global_color_scale", True), True),
-				render_mode=_normalize_grid_render_mode((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("render_mode", "direct_replot"), "direct_replot"),
-				dpi=max(72.0, _as_float((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("dpi", 300.0), 300.0)),
+			latency_map_grid=_build_footprint_grid_report_config(
+				(footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}),
+				pdf_relpath_default="latency_map_grid.pdf",
+				png_relpath_default="latency_map_grid.png",
 			),
 		),
 	)
@@ -928,41 +1285,82 @@ def parse_templates_stage_config(
 		latency=_build_topographical_footprint_config(topo_lat_cfg, relpath_default="topographical_latency_footprint"),
 	)
 	propagation_plots = PropagationPlotConfig(
-		write_pdf=_as_bool(propagation_cfg.get("write_pdf", False), False),
-		pdf_relpath=str(propagation_cfg.get("pdf_relpath", "propagation_plot.pdf")),
-		write_png=_as_bool(propagation_cfg.get("write_png", True), True),
-		png_relpath=str(propagation_cfg.get("png_relpath", "propagation_plot.png")),
-		show_title=_as_bool(propagation_cfg.get("show_title", True), True),
-		title_template=str(propagation_cfg.get("title_template", "Propagation traces {start}-{end} / {total}")),
-		title_fontsize=_as_float(propagation_cfg.get("title_fontsize", 9.0), 9.0),
-		top_channels=max(1, _as_int(propagation_cfg.get("top_channels", 25), 25)),
-		channels_per_panel=max(1, _as_int(propagation_cfg.get("channels_per_panel", 25), 25)),
-		channel_overlap=max(0, _as_int(propagation_cfg.get("channel_overlap", 5), 5)),
-		background=str(propagation_cfg.get("background", "white")),
-		show_electrode_ids=_as_bool(propagation_cfg.get("show_electrode_ids", False), False),
-		electrode_label_fontsize=_as_float(propagation_cfg.get("electrode_label_fontsize", propagation_cfg.get("channel_label_fontsize", 6.0)), 6.0),
-		electrode_label_x_offset_frac=_as_float(propagation_cfg.get("electrode_label_x_offset_frac", propagation_cfg.get("channel_label_x_offset_frac", 0.01)), 0.01),
-		electrode_label_y_offset_frac=_as_float(propagation_cfg.get("electrode_label_y_offset_frac", propagation_cfg.get("channel_label_y_offset_frac", 0.0)), 0.0),
-		electrode_label_alignment=str(propagation_cfg.get("electrode_label_alignment", propagation_cfg.get("channel_label_alignment", "left"))),
-		trace_gain=_as_float(propagation_cfg.get("trace_gain", 1.0), 1.0),
-		trace_spacing=_as_float(propagation_cfg.get("trace_spacing", 1.0), 1.0),
-		peak_marker_height_frac=_as_float(propagation_cfg.get("peak_marker_height_frac", 0.24), 0.24),
-		peak_marker_linewidth=_as_float(propagation_cfg.get("peak_marker_linewidth", 1.4), 1.4),
-		show_scale_bar=_as_bool(propagation_cfg.get("show_scale_bar", True), True),
-		scale_bar_anchor_x_frac=_as_float(propagation_cfg.get("scale_bar_anchor_x_frac", 0.92), 0.92),
-		scale_bar_anchor_y_frac=_as_float(propagation_cfg.get("scale_bar_anchor_y_frac", 0.12), 0.12),
-		scale_bar_time_fraction=_as_float(propagation_cfg.get("scale_bar_time_fraction", 0.15), 0.15),
-		scale_bar_amp_fraction=_as_float(propagation_cfg.get("scale_bar_amp_fraction", 0.20), 0.20),
-		force_amp_frac_to_max_amp=_as_bool(propagation_cfg.get("force_amp_frac_to_max_amp", False), False),
-		debug_max_amps_at_each_channel=_as_bool(propagation_cfg.get("debug_max_amps_at_each_channel", False), False),
+		write_pdf=_as_bool(_nested_or_flat(propagation_cfg, block="output", key="write_pdf", flat_keys=("write_pdf",), default=False), False),
+		pdf_relpath=str(_nested_or_flat(propagation_cfg, block="output", key="pdf_relpath", flat_keys=("pdf_relpath",), default="propagation_plot.pdf")),
+		write_png=_as_bool(_nested_or_flat(propagation_cfg, block="output", key="write_png", flat_keys=("write_png",), default=True), True),
+		png_relpath=str(_nested_or_flat(propagation_cfg, block="output", key="png_relpath", flat_keys=("png_relpath",), default="propagation_plot.png")),
+		show_title=_as_bool(_nested_or_flat(propagation_cfg, block="display", key="show_title", flat_keys=("show_title",), default=True), True),
+		title_template=str(_nested_or_flat(propagation_cfg, block="display", key="title_template", flat_keys=("title_template",), default="Propagation traces {start}-{end} / {total}")),
+		title_fontsize=_as_float(_nested_or_flat(propagation_cfg, block="display", key="title_fontsize", flat_keys=("title_fontsize",), default=9.0), 9.0),
+		top_channels=max(1, _as_int(_nested_or_flat(propagation_cfg, block="display", key="top_channels", flat_keys=("top_channels",), default=25), 25)),
+		channels_per_panel=max(1, _as_int(_nested_or_flat(propagation_cfg, block="display", key="channels_per_panel", flat_keys=("channels_per_panel",), default=25), 25)),
+		channel_overlap=max(0, _as_int(_nested_or_flat(propagation_cfg, block="display", key="channel_overlap", flat_keys=("channel_overlap",), default=5), 5)),
+		background=str(_nested_or_flat(propagation_cfg, block="render", key="background", flat_keys=("background",), default="white")),
+		show_electrode_ids=_as_bool(_nested_or_flat(propagation_cfg, block="labels", key="show_electrode_ids", flat_keys=("show_electrode_ids",), default=False), False),
+		electrode_label_fontsize=_as_float(
+			_nested_or_flat(
+				propagation_cfg,
+				block="labels",
+				key="electrode_label_fontsize",
+				flat_keys=("electrode_label_fontsize", "channel_label_fontsize"),
+				default=6.0,
+			),
+			6.0,
+		),
+		electrode_label_x_offset_frac=_as_float(
+			_nested_or_flat(
+				propagation_cfg,
+				block="labels",
+				key="electrode_label_x_offset_frac",
+				flat_keys=("electrode_label_x_offset_frac", "channel_label_x_offset_frac"),
+				default=0.01,
+			),
+			0.01,
+		),
+		electrode_label_y_offset_frac=_as_float(
+			_nested_or_flat(
+				propagation_cfg,
+				block="labels",
+				key="electrode_label_y_offset_frac",
+				flat_keys=("electrode_label_y_offset_frac", "channel_label_y_offset_frac"),
+				default=0.0,
+			),
+			0.0,
+		),
+		electrode_label_alignment=str(
+			_nested_or_flat(
+				propagation_cfg,
+				block="labels",
+				key="electrode_label_alignment",
+				flat_keys=("electrode_label_alignment", "channel_label_alignment"),
+				default="left",
+			)
+		),
+		trace_gain=_as_float(_nested_or_flat(propagation_cfg, block="render", key="trace_gain", flat_keys=("trace_gain",), default=1.0), 1.0),
+		trace_spacing=_as_float(_nested_or_flat(propagation_cfg, block="render", key="trace_spacing", flat_keys=("trace_spacing",), default=1.0), 1.0),
+		peak_marker_height_frac=_as_float(_nested_or_flat(propagation_cfg, block="render", key="peak_marker_height_frac", flat_keys=("peak_marker_height_frac",), default=0.24), 0.24),
+		peak_marker_linewidth=_as_float(_nested_or_flat(propagation_cfg, block="render", key="peak_marker_linewidth", flat_keys=("peak_marker_linewidth",), default=1.4), 1.4),
+		show_scale_bar=_as_bool(_nested_or_flat(propagation_cfg, block="scale_bar", key="show", flat_keys=("show_scale_bar",), default=True), True),
+		scale_bar_anchor_x_frac=_as_float(_nested_or_flat(propagation_cfg, block="scale_bar", key="anchor_x_frac", flat_keys=("scale_bar_anchor_x_frac",), default=0.92), 0.92),
+		scale_bar_anchor_y_frac=_as_float(_nested_or_flat(propagation_cfg, block="scale_bar", key="anchor_y_frac", flat_keys=("scale_bar_anchor_y_frac",), default=0.12), 0.12),
+		scale_bar_time_fraction=_as_float(_nested_or_flat(propagation_cfg, block="scale_bar", key="time_fraction", flat_keys=("scale_bar_time_fraction",), default=0.15), 0.15),
+		scale_bar_amp_fraction=_as_float(_nested_or_flat(propagation_cfg, block="scale_bar", key="amp_fraction", flat_keys=("scale_bar_amp_fraction",), default=0.20), 0.20),
+		force_amp_frac_to_max_amp=_as_bool(_nested_or_flat(propagation_cfg, block="scale_bar", key="force_amp_frac_to_max_amp", flat_keys=("force_amp_frac_to_max_amp",), default=False), False),
+		debug_max_amps_at_each_channel=_as_bool(_nested_or_flat(propagation_cfg, block="scale_bar", key="debug_max_amps_at_each_channel", flat_keys=("debug_max_amps_at_each_channel",), default=False), False),
 		bold_max_amp_electrode_label=_as_bool(
-			propagation_cfg.get("bold_max_amp_electrode_label", propagation_cfg.get("bold_max_amp_channel_label", False)),
+			_nested_or_flat(
+				propagation_cfg,
+				block="labels",
+				key="bold_max_amp_electrode_label",
+				flat_keys=("bold_max_amp_electrode_label", "bold_max_amp_channel_label"),
+				default=False,
+			),
 			False,
 		),
-		scale_bar_linewidth=_as_float(propagation_cfg.get("scale_bar_linewidth", 1.8), 1.8),
-		scale_bar_fontsize=_as_float(propagation_cfg.get("scale_bar_fontsize", 7.0), 7.0),
-		scale_bar_time_label_offset_frac=_as_float(propagation_cfg.get("scale_bar_time_label_offset_frac", 0.04), 0.04),
-		scale_bar_amp_label_offset_frac=_as_float(propagation_cfg.get("scale_bar_amp_label_offset_frac", 0.02), 0.02),
+		scale_bar_linewidth=_as_float(_nested_or_flat(propagation_cfg, block="scale_bar", key="linewidth", flat_keys=("scale_bar_linewidth",), default=1.8), 1.8),
+		scale_bar_fontsize=_as_float(_nested_or_flat(propagation_cfg, block="scale_bar", key="fontsize", flat_keys=("scale_bar_fontsize",), default=7.0), 7.0),
+		scale_bar_time_label_offset_frac=_as_float(_nested_or_flat(propagation_cfg, block="scale_bar", key="time_label_offset_frac", flat_keys=("scale_bar_time_label_offset_frac",), default=0.04), 0.04),
+		scale_bar_amp_label_offset_frac=_as_float(_nested_or_flat(propagation_cfg, block="scale_bar", key="amp_label_offset_frac", flat_keys=("scale_bar_amp_label_offset_frac",), default=0.02), 0.02),
 		abbreviate_post_ap_signal=_as_bool(
 			_get_nested_block(propagation_cfg, "post_ap_abbrev").get("enabled", propagation_cfg.get("abbreviate_post_ap_signal", False)),
 			False,

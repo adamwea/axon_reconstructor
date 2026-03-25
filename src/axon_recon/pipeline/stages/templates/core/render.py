@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 from pathlib import Path
 from typing import Any
@@ -1715,9 +1716,13 @@ def _render_wf_overlay_grid_replot(
 	ncols = min(4, max(1, int(np.ceil(np.sqrt(n)))))
 	nrows = int(np.ceil(float(n) / float(ncols)))
 	fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4.2 * ncols, 3.2 * nrows))
+	fig.set_facecolor(str(getattr(config, "figure_background_color", "white") or "white"))
 	if not isinstance(axes, np.ndarray):
 		axes = np.asarray([axes])
 	ax_list = list(axes.ravel())
+	subplot_bg = str(getattr(config, "subplot_background_color", "white") or "white")
+	panel_overlay_config = replace(overlay_config, background=subplot_bg)
+	title_color = "white" if subplot_bg.strip().lower() == "black" else "black"
 
 	for idx, ax in enumerate(ax_list):
 		if idx >= n:
@@ -1727,7 +1732,7 @@ def _render_wf_overlay_grid_replot(
 		_draw_template_wf_overlay_panel(
 			ax=ax,
 			template=np.asarray(payload["template"]),
-			config=overlay_config,
+			config=panel_overlay_config,
 			time_upsample=report_time_upsample,
 			probe_geometry=probe_geometry,
 			waveform_traces=payload.get("waveform_traces", None),
@@ -1735,7 +1740,7 @@ def _render_wf_overlay_grid_replot(
 			total_waveforms_at_channel=payload.get("total_waveforms_at_channel", None),
 		)
 		uid = payload.get("unit_id", "?")
-		ax.set_title(f"unit {uid}", fontsize=7)
+		ax.set_title(f"unit {uid}", fontsize=7, color=title_color)
 
 	outputs: dict[str, str] = {}
 	if bool(config.write_png):
@@ -1783,6 +1788,9 @@ def render_footprint_map_grid(
 			circles_config=circles_config,
 			probe_geometry=probe_geometry,
 			dpi=max(72.0, float(getattr(config, "dpi", 300.0))),
+			global_color_scale=bool(getattr(config, "global_color_scale", True)),
+			subplot_background_color=str(getattr(config, "subplot_background_color", "white")),
+			figure_background_color=str(getattr(config, "figure_background_color", "white")),
 		)
 	return render_image_grid(
 		image_paths=image_paths,
@@ -1862,8 +1870,11 @@ def _draw_replotted_circles_panel(
 	locations_xy: np.ndarray,
 	config: TemplateCirclesPlotConfig,
 	probe_geometry: ProbeGeometryConfig | None,
+	color_limits: tuple[float, float] | None = None,
+	subplot_background_color: str = "white",
 ) -> None:
 	locs = np.asarray(locations_xy, dtype=float)
+	ax.set_facecolor(str(subplot_background_color or "white"))
 	t = _as_template_channels_by_time(np.asarray(template), int(locs.shape[0]))
 	amp = np.ptp(t, axis=1)
 	min_idx = np.argmin(t, axis=1).astype(float)
@@ -1878,8 +1889,11 @@ def _draw_replotted_circles_panel(
 	size_metric = amp if str(config.size_by) == "amplitude" else np.abs(lat)
 	color_metric = amp if str(config.color_by) == "amplitude" else lat
 	color_values = np.asarray(color_metric, dtype=float)
-	vmin = float(np.nanmin(color_values)) if color_values.size > 0 else 0.0
-	vmax = float(np.nanmax(color_values)) if color_values.size > 0 else 1.0
+	if color_limits is None:
+		vmin = float(np.nanmin(color_values)) if color_values.size > 0 else 0.0
+		vmax = float(np.nanmax(color_values)) if color_values.size > 0 else 1.0
+	else:
+		vmin, vmax = float(color_limits[0]), float(color_limits[1])
 	if not np.isfinite(vmin):
 		vmin = 0.0
 	if not np.isfinite(vmax) or vmax <= vmin:
@@ -1920,8 +1934,11 @@ def _draw_replotted_footprint_panel(
 	config: FootprintMapConfig,
 	probe_geometry: ProbeGeometryConfig | None,
 	kind: str,
+	value_limits: tuple[float, float] | None = None,
+	subplot_background_color: str = "white",
 ) -> None:
 	locs = np.asarray(locations_xy, dtype=float)
+	ax.set_facecolor(str(subplot_background_color or "white"))
 	t = _as_template_channels_by_time(np.asarray(template), int(locs.shape[0]))
 	if str(kind) == "latency":
 		min_idx = np.argmin(t, axis=1).astype(float)
@@ -1932,7 +1949,10 @@ def _draw_replotted_footprint_panel(
 		vals = np.ptp(t, axis=1)
 		reverse = False
 
-	vmin, vmax = _map_values_to_limits(np.asarray(vals, dtype=float), config)
+	if value_limits is None:
+		vmin, vmax = _map_values_to_limits(np.asarray(vals, dtype=float), config)
+	else:
+		vmin, vmax = float(value_limits[0]), float(value_limits[1])
 	vals_plot, norm, vmin_eff, vmax_eff = prepare_linear_or_log_mapping(
 		values=np.asarray(vals, dtype=float),
 		scale=str(config.scale),
@@ -1997,6 +2017,9 @@ def _render_replotted_unit_grid(
 	circles_config: TemplateCirclesPlotConfig | None,
 	probe_geometry: ProbeGeometryConfig | None,
 	dpi: float,
+	global_color_scale: bool,
+	subplot_background_color: str,
+	figure_background_color: str,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -2010,9 +2033,52 @@ def _render_replotted_unit_grid(
 	ncols = min(4, max(1, int(np.ceil(np.sqrt(n)))))
 	nrows = int(np.ceil(float(n) / float(ncols)))
 	fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4.0 * ncols, 3.0 * nrows))
+	fig.patch.set_facecolor(str(figure_background_color or "white"))
 	if not isinstance(axes, np.ndarray):
 		axes = np.asarray([axes])
 	ax_list = list(axes.ravel())
+
+	global_limits: tuple[float, float] | None = None
+	if bool(global_color_scale):
+		if panel_kind == "circles" and circles_config is not None:
+			vals_all: list[np.ndarray] = []
+			for payload in unit_payloads:
+				t = _as_template_channels_by_time(np.asarray(payload["template"]), int(np.asarray(payload["locations_xy"]).shape[0]))
+				amp = np.ptp(t, axis=1)
+				min_idx = np.argmin(t, axis=1).astype(float)
+				ref = float(min_idx[int(np.argmax(amp))]) if min_idx.size > 0 else 0.0
+				lat_samples = min_idx - ref
+				lat, _ = _convert_latency_samples_to_units(
+					lat_samples,
+					units=str(circles_config.color_bar_units or ""),
+					probe_geometry=probe_geometry,
+				)
+				vals_all.append(np.asarray(amp if str(circles_config.color_by) == "amplitude" else lat, dtype=float).reshape(-1))
+			if vals_all:
+				stacked = np.concatenate(vals_all)
+				stacked = stacked[np.isfinite(stacked)]
+				if stacked.size > 0:
+					vmin = float(np.min(stacked))
+					vmax = float(np.max(stacked))
+					if vmax <= vmin:
+						vmax = vmin + 1.0
+					global_limits = (vmin, vmax)
+		elif panel_kind in {"amplitude", "latency"} and footprint_config is not None:
+			vals_all = []
+			for payload in unit_payloads:
+				t = _as_template_channels_by_time(np.asarray(payload["template"]), int(np.asarray(payload["locations_xy"]).shape[0]))
+				if panel_kind == "latency":
+					min_idx = np.argmin(t, axis=1).astype(float)
+					ref = float(min_idx[int(np.argmax(np.ptp(t, axis=1)))]) if min_idx.size > 0 else 0.0
+					vals = min_idx - ref
+				else:
+					vals = np.ptp(t, axis=1)
+				vals_all.append(np.asarray(vals, dtype=float).reshape(-1))
+			if vals_all:
+				stacked = np.concatenate(vals_all)
+				stacked = stacked[np.isfinite(stacked)]
+				if stacked.size > 0:
+					global_limits = _map_values_to_limits(stacked, footprint_config)
 
 	for i, ax in enumerate(ax_list):
 		if i >= n:
@@ -2028,6 +2094,8 @@ def _render_replotted_unit_grid(
 				locations_xy=locs,
 				config=circles_config,
 				probe_geometry=probe_geometry,
+				color_limits=global_limits,
+				subplot_background_color=subplot_background_color,
 			)
 		elif panel_kind in {"amplitude", "latency"} and footprint_config is not None:
 			_draw_replotted_footprint_panel(
@@ -2037,14 +2105,18 @@ def _render_replotted_unit_grid(
 				config=footprint_config,
 				probe_geometry=probe_geometry,
 				kind=panel_kind,
+				value_limits=global_limits,
+				subplot_background_color=subplot_background_color,
 			)
 		else:
 			ax.axis("off")
 		uid = payload.get("unit_id", "?")
-		ax.set_title(f"unit {uid}", fontsize=7)
+		title_color = "white" if str(subplot_background_color or "").strip().lower() == "black" else "black"
+		ax.set_title(f"unit {uid}", fontsize=7, color=title_color)
 
 	if bool(show_title):
-		fig.suptitle(title, fontsize=10)
+		title_color = "white" if str(figure_background_color or "").strip().lower() == "black" else "black"
+		fig.suptitle(title, fontsize=10, color=title_color)
 
 	outputs: dict[str, str] = {}
 	if bool(write_png):

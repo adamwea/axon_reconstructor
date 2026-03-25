@@ -586,6 +586,163 @@ def test_render_wf_overlay_grid_direct_replot_avoids_imread(tmp_path: Path, monk
 	assert outputs.get("wf_overlay_grid_png") == str(png_path)
 
 
+def test_render_wf_overlay_grid_applies_background_colors(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes as mpl_axes
+	import matplotlib.figure as mpl_figure
+
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	waveforms = np.tile(np.sin(np.linspace(-1.0, 1.0, 40, dtype=float)), (16, 1))
+
+	seen_axis_facecolors: list[str] = []
+	seen_figure_facecolors: list[str] = []
+	orig_ax_facecolor = mpl_axes.Axes.set_facecolor
+	orig_fig_facecolor = mpl_figure.Figure.set_facecolor
+
+	def _spy_ax_facecolor(self, color):
+		seen_axis_facecolors.append(str(color))
+		return orig_ax_facecolor(self, color)
+
+	def _spy_fig_facecolor(self, color):
+		seen_figure_facecolors.append(str(color))
+		return orig_fig_facecolor(self, color)
+
+	monkeypatch.setattr(mpl_axes.Axes, "set_facecolor", _spy_ax_facecolor)
+	monkeypatch.setattr(mpl_figure.Figure, "set_facecolor", _spy_fig_facecolor)
+
+	render_wf_overlay_grid(
+		overlay_png_paths=[],
+		unit_payloads=[
+			{
+				"unit_id": 94,
+				"template": template,
+				"waveform_traces": waveforms,
+				"top_electrode_id": 0,
+				"total_waveforms_at_channel": int(waveforms.shape[0]),
+			}
+		],
+		config=WfOverlayGridReportConfig(
+			write_pdf=False,
+			write_png=True,
+			render_mode="direct_replot",
+			subplot_background_color="black",
+			figure_background_color="black",
+		),
+		pdf_path=tmp_path / "unused.pdf",
+		png_path=tmp_path / "wf_overlay_grid_bg.png",
+		overlay_config=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
+		report_time_upsample=TimeUpsampleConfig(enabled=False, factor=1, method="linear"),
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+
+	assert any(c.lower() == "black" for c in seen_axis_facecolors)
+	assert any(c.lower() == "black" for c in seen_figure_facecolors)
+
+
+def test_render_footprint_map_grid_global_color_scale_shares_limits(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.collections as mpl_collections
+
+	template_small = np.asarray(
+		[
+			[0.0, -1.0, 0.0],
+			[0.0, -2.0, 0.0],
+		],
+		dtype=float,
+	)
+	template_large = np.asarray(
+		[
+			[0.0, -10.0, 0.0],
+			[0.0, -20.0, 0.0],
+		],
+		dtype=float,
+	)
+	locations = np.asarray([[0.0, 0.0], [18.0, 0.0]], dtype=float)
+
+	seen_clims: list[tuple[float, float]] = []
+	orig_set_clim = mpl_collections.PatchCollection.set_clim
+
+	def _spy_set_clim(self, vmin=None, vmax=None):
+		if vmin is not None and vmax is not None:
+			seen_clims.append((float(vmin), float(vmax)))
+		return orig_set_clim(self, vmin=vmin, vmax=vmax)
+
+	monkeypatch.setattr(mpl_collections.PatchCollection, "set_clim", _spy_set_clim)
+
+	outputs = render_footprint_map_grid(
+		image_paths=[],
+		unit_payloads=[
+			{"unit_id": 1, "template": template_small, "locations_xy": locations},
+			{"unit_id": 2, "template": template_large, "locations_xy": locations},
+		],
+		config=FootprintMapGridReportConfig(
+			write_pdf=False,
+			write_png=True,
+			render_mode="direct_replot",
+			global_color_scale=True,
+			show_title=False,
+		),
+		pdf_path=tmp_path / "unused.pdf",
+		png_path=tmp_path / "grid_global_scale.png",
+		pdf_output_key="grid_pdf",
+		png_output_key="grid_png",
+		title="Amplitude grid",
+		panel_kind="amplitude",
+		footprint_config=FootprintMapConfig(write_png=False, write_svg=False),
+	)
+
+	assert outputs.get("grid_png") is not None
+	assert len(seen_clims) >= 2
+	assert len(set(seen_clims)) == 1
+
+
+def test_render_footprint_map_grid_applies_subplot_background_color(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes as mpl_axes
+
+	template = np.asarray(
+		[
+			[0.0, -2.0, 0.0],
+			[0.0, -1.0, 0.0],
+		],
+		dtype=float,
+	)
+	locations = np.asarray([[0.0, 0.0], [18.0, 0.0]], dtype=float)
+
+	seen_facecolors: list[str] = []
+	orig_set_facecolor = mpl_axes.Axes.set_facecolor
+
+	def _spy_set_facecolor(self, color):
+		seen_facecolors.append(str(color))
+		return orig_set_facecolor(self, color)
+
+	monkeypatch.setattr(mpl_axes.Axes, "set_facecolor", _spy_set_facecolor)
+
+	render_footprint_map_grid(
+		image_paths=[],
+		unit_payloads=[{"unit_id": 1, "template": template, "locations_xy": locations}],
+		config=FootprintMapGridReportConfig(
+			write_pdf=False,
+			write_png=True,
+			render_mode="direct_replot",
+			subplot_background_color="black",
+			show_title=False,
+		),
+		pdf_path=tmp_path / "unused.pdf",
+		png_path=tmp_path / "grid_bg.png",
+		pdf_output_key="grid_pdf",
+		png_output_key="grid_png",
+		title="Amplitude grid",
+		panel_kind="amplitude",
+		footprint_config=FootprintMapConfig(write_png=False, write_svg=False),
+	)
+
+	assert any(c.lower() == "black" for c in seen_facecolors)
+
+
 def test_render_propagation_plot_without_latency_map_uses_single_column_layout(tmp_path: Path, monkeypatch) -> None:
 	import matplotlib.figure as mpl_figure
 

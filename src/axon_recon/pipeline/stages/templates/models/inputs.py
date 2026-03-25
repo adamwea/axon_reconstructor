@@ -339,6 +339,8 @@ class WfOverlayGridReportConfig:
 	write_png: bool = True
 	png_relpath: str = "wf_overlay_grid.png"
 	top_channels_per_template: int = 10
+	subplot_background_color: str = "white"
+	figure_background_color: str = "white"
 	render_mode: str = "direct_replot"
 	dpi: float = 300.0
 
@@ -352,6 +354,8 @@ class FootprintMapGridReportConfig:
 	show_title: bool = True
 	template_shape: str = "square"
 	global_color_scale: bool = True
+	subplot_background_color: str = "white"
+	figure_background_color: str = "white"
 	render_mode: str = "direct_replot"
 	dpi: float = 300.0
 

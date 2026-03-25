@@ -487,6 +487,8 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			          write_png: false
 			          png_relpath: reports/grid.png
 			          top_channels_per_template: 15
+			          subplot_background_color: black
+			          figure_background_color: black
 			          render_mode: image_composite
 			          dpi: 360
 			          show_title: true
@@ -504,6 +506,8 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			            png_relpath: reports/circles_map_grid.png
 			            render_mode: direct_replot
 			            dpi: 420
+			            subplot_background_color: black
+			            figure_background_color: black
 			          amplitude_map_grid:
 			            show_title: false
 			            write_pdf: false
@@ -512,6 +516,8 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			            png_relpath: reports/amplitude_map_grid.png
 			            render_mode: image_composite
 			            dpi: 310
+			            subplot_background_color: black
+			            figure_background_color: white
 			          latency_map_grid:
 			            show_title: true
 			            write_pdf: true
@@ -520,6 +526,8 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			            png_relpath: reports/latency_map_grid.png
 			            render_mode: direct_replot
 			            dpi: 500
+			            subplot_background_color: white
+			            figure_background_color: black
 			      per_unit_outputs:
 			        template_wf_overlay:
 			          debug_mode: true
@@ -592,6 +600,8 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert grid.write_png is False
 	assert grid.png_relpath == "reports/grid.png"
 	assert grid.top_channels_per_template == 15
+	assert grid.subplot_background_color == "black"
+	assert grid.figure_background_color == "black"
 	assert grid.render_mode == "image_composite"
 	assert grid.dpi == 360
 
@@ -610,6 +620,8 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert circles_grid.png_relpath == "reports/circles_map_grid.png"
 	assert circles_grid.render_mode == "direct_replot"
 	assert circles_grid.dpi == 420
+	assert circles_grid.subplot_background_color == "black"
+	assert circles_grid.figure_background_color == "black"
 
 	amp_grid = inputs.reports.footprint_grids.amplitude_map_grid
 	assert amp_grid.show_title is False
@@ -619,6 +631,8 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert amp_grid.png_relpath == "reports/amplitude_map_grid.png"
 	assert amp_grid.render_mode == "image_composite"
 	assert amp_grid.dpi == 310
+	assert amp_grid.subplot_background_color == "black"
+	assert amp_grid.figure_background_color == "white"
 
 	lat_grid = inputs.reports.footprint_grids.latency_map_grid
 	assert lat_grid.show_title is True
@@ -628,6 +642,8 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert lat_grid.png_relpath == "reports/latency_map_grid.png"
 	assert lat_grid.render_mode == "direct_replot"
 	assert lat_grid.dpi == 500
+	assert lat_grid.subplot_background_color == "white"
+	assert lat_grid.figure_background_color == "black"
 
 
 def test_load_templates_config_accepts_foot_print_grids_alias(tmp_path: Path) -> None:
@@ -670,6 +686,350 @@ def test_load_templates_config_accepts_foot_print_grids_alias(tmp_path: Path) ->
 	assert inputs.reports.footprint_grids.amplitude_map_grid.write_pdf is True
 	assert inputs.reports.footprint_grids.amplitude_map_grid.pdf_relpath == "old_alias_amp.pdf"
 	assert inputs.reports.footprint_grids.amplitude_map_grid.write_png is False
+
+
+def test_load_templates_config_parses_nested_report_grid_blocks(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    outputs:
+			      reports:
+			        grids:
+			          wf_overlay_grid:
+			            write_png: false
+			            output:
+			              write_png: true
+			              png_relpath: nested/wf_overlay_grid.png
+			            render:
+			              mode: direct_replot
+			              dpi: 410
+			              subplot_background_color: black
+			              figure_background_color: black
+			            display:
+			              top_channels_per_template: 14
+			          footprint_grids:
+			            circles_map_grid:
+			              output:
+			                write_png: true
+			                png_relpath: nested/circles.png
+			              display:
+			                show_title: false
+			              render:
+			                mode: direct_replot
+			                dpi: 430
+			                template: square
+			                global_color_scale: true
+			                subplot_background_color: black
+			                figure_background_color: black
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+
+	wf_grid = inputs.reports.wf_overlay_grid
+	assert wf_grid.write_png is True
+	assert wf_grid.png_relpath == "nested/wf_overlay_grid.png"
+	assert wf_grid.render_mode == "direct_replot"
+	assert wf_grid.dpi == 410
+	assert wf_grid.subplot_background_color == "black"
+	assert wf_grid.figure_background_color == "black"
+	assert wf_grid.top_channels_per_template == 14
+
+	circles_grid = inputs.reports.footprint_grids.circles_map_grid
+	assert circles_grid.write_png is True
+	assert circles_grid.png_relpath == "nested/circles.png"
+	assert circles_grid.show_title is False
+	assert circles_grid.render_mode == "direct_replot"
+	assert circles_grid.dpi == 430
+	assert circles_grid.template_shape == "square"
+	assert circles_grid.global_color_scale is True
+	assert circles_grid.subplot_background_color == "black"
+	assert circles_grid.figure_background_color == "black"
+
+
+def test_load_templates_config_parses_nested_extremum_wf_overlay_blocks(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    outputs:
+			      per_unit_outputs:
+			        extremum_ch_wf_overlay:
+			          output:
+			            write_pdf: true
+			            pdf_relpath: nested/overlay.pdf
+			            write_png: true
+			            png_relpath: nested/overlay.png
+			          display:
+			            debug_mode: true
+			            top_channels_per_template: 11
+			            show_title: false
+			            show_axes: false
+			            show_channel_labels: false
+			            show_top_channel_info: false
+			            show_waveform_count_info: false
+			            include_mean: false
+			            max_waveforms_to_show: 55
+			            waveform_sampling_mode: random
+			            random_seed: 42
+			          scale_bar:
+			            include: true
+			            color: red
+			            fontsize: 9
+			            linewidth: 2.0
+			            time_fraction: 0.12
+			            amp_fraction: 0.15
+			            time_label_offset_frac: 0.04
+			            amp_label_offset_frac: 0.03
+			          render:
+			            background: black
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	overlay = inputs.per_unit_outputs.template_wf_overlay
+
+	assert overlay.write_pdf is True
+	assert overlay.pdf_relpath == "nested/overlay.pdf"
+	assert overlay.write_png is True
+	assert overlay.png_relpath == "nested/overlay.png"
+	assert overlay.debug_mode is True
+	assert overlay.top_channels_per_template == 11
+	assert overlay.show_title is False
+	assert overlay.show_axes is False
+	assert overlay.show_channel_labels is False
+	assert overlay.show_top_channel_info is False
+	assert overlay.show_waveform_count_info is False
+	assert overlay.include_mean is False
+	assert overlay.max_waveforms_to_show == 55
+	assert overlay.waveform_sampling_mode == "random"
+	assert overlay.random_seed == 42
+	assert overlay.include_scale_bar is True
+	assert overlay.scale_bar_color == "red"
+	assert overlay.scale_bar_fontsize == 9
+	assert overlay.scale_bar_linewidth == 2.0
+	assert overlay.scale_bar_time_fraction == 0.12
+	assert overlay.scale_bar_amp_fraction == 0.15
+	assert overlay.scale_bar_time_label_offset_frac == 0.04
+	assert overlay.scale_bar_amp_label_offset_frac == 0.03
+	assert overlay.background == "black"
+
+
+def test_load_templates_config_parses_nested_template_and_footprint_blocks(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    outputs:
+			      per_unit_outputs:
+			        template_plots:
+			          waveforms:
+			            output:
+			              write_png: true
+			              write_svg: false
+			              relpath: nested/template_waveforms
+			            display:
+			              channel_scope: all_channels
+			              show_axes: false
+			            render:
+			              background: black
+			              signal_color: white
+			          circles:
+			            output:
+			              write_png: true
+			              write_svg: true
+			              dpi: 440
+			              relpath: nested/template_circles
+			            display:
+			              channel_scope: recorded_channels
+			              show_axes: false
+			              size_by: latency
+			              color_by: amplitude
+			            render:
+			              background: black
+			              signal_color: white
+			        footprint_plots:
+			          amplitude_map:
+			            output:
+			              write_png: true
+			              write_svg: false
+			              relpath: nested/amp
+			            render:
+			              background: white
+			              color_map: plasma
+			          latency_map:
+			            output:
+			              write_png: true
+			              write_svg: false
+			              relpath: nested/lat
+			        topographical_footprints:
+			          amplitude:
+			            output:
+			              write_png: true
+			              write_svg: false
+			              relpath: nested/topo_amp
+			            display:
+			              elevation_deg: 22
+			              azimuth_deg: -40
+			              marker_size: 18
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+
+	wf = inputs.per_unit_outputs.template
+	assert wf.relpath == "nested/template_waveforms"
+	assert wf.channel_scope == "all_channels"
+	assert wf.show_axes is False
+	assert wf.background == "black"
+	assert wf.signal_color == "white"
+
+	circles = inputs.per_unit_outputs.template_circles
+	assert circles.relpath == "nested/template_circles"
+	assert circles.dpi == 440
+	assert circles.channel_scope == "recorded_channels"
+	assert circles.show_axes is False
+	assert circles.size_by == "latency"
+	assert circles.color_by == "amplitude"
+
+	amp = inputs.per_unit_outputs.footprint_plots.amplitude_map
+	assert amp.relpath == "nested/amp"
+	assert amp.background == "white"
+	assert amp.color_map == "plasma"
+
+	lat = inputs.per_unit_outputs.footprint_plots.latency_map
+	assert lat.relpath == "nested/lat"
+
+	topo = inputs.per_unit_outputs.topographical_footprints.amplitude
+	assert topo.relpath == "nested/topo_amp"
+	assert topo.elevation_deg == 22
+	assert topo.azimuth_deg == -40
+	assert topo.marker_size == 18
+
+
+def test_load_templates_config_parses_template_scale_bar_under_display(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    outputs:
+			      per_unit_outputs:
+			        template_plots:
+			          waveforms:
+			            display:
+			              scale_bar:
+			                text_offset_frac: 0.031
+			                y_offset_frac: 0.071
+			                fontsize: 11
+			                linewidth: 2.3
+			                length_um: 80
+			          circles:
+			            display:
+			              scale_bar:
+			                text_offset_frac: 0.017
+			                y_offset_frac: 0.022
+			                fontsize: 15
+			                linewidth: 4.1
+			                length_um: 55
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+
+	wf = inputs.per_unit_outputs.template
+	assert wf.scale_bar_text_offset_frac == 0.031
+	assert wf.scale_bar_y_offset_frac == 0.071
+	assert wf.scale_bar_fontsize == 11
+	assert wf.scale_bar_linewidth == 2.3
+	assert wf.scale_bar_length_um == 80
+
+	circles = inputs.per_unit_outputs.template_circles
+	assert circles.scale_bar_text_offset_frac == 0.017
+	assert circles.scale_bar_y_offset_frac == 0.022
+	assert circles.scale_bar_fontsize == 15
+	assert circles.scale_bar_linewidth == 4.1
+	assert circles.scale_bar_length_um == 55
 
 
 def test_load_templates_config_parses_footprint_map_knobs(tmp_path: Path) -> None:
@@ -1083,6 +1443,111 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 	assert prop.latency_map.force_low_value == 2
 	assert prop.latency_map.force_high_value == 30
 	assert prop.latency_map.scale == "linear"
+
+
+def test_load_templates_config_parses_nested_propagation_groups(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    outputs:
+			      per_unit_outputs:
+			        propagation_plots:
+			          output:
+			            write_pdf: true
+			            pdf_relpath: nested/propagation.pdf
+			            write_png: true
+			            png_relpath: nested/propagation.png
+			          display:
+			            show_title: false
+			            title_template: "Nested {{start}}-{{end}}"
+			            title_fontsize: 10
+			            top_channels: 28
+			            channels_per_panel: 10
+			            channel_overlap: 2
+			          render:
+			            background: black
+			            trace_gain: 1.7
+			            trace_spacing: 1.2
+			            peak_marker_height_frac: 0.40
+			            peak_marker_linewidth: 0.8
+			          labels:
+			            show_electrode_ids: true
+			            electrode_label_fontsize: 7
+			            electrode_label_x_offset_frac: -0.01
+			            electrode_label_y_offset_frac: 0.02
+			            electrode_label_alignment: right
+			            bold_max_amp_electrode_label: true
+			          scale_bar:
+			            show: true
+			            anchor_x_frac: -0.12
+			            anchor_y_frac: 0.11
+			            time_fraction: 0.08
+			            amp_fraction: 0.45
+			            force_amp_frac_to_max_amp: true
+			            debug_max_amps_at_each_channel: false
+			            linewidth: 2.0
+			            fontsize: 8
+			            time_label_offset_frac: 0.03
+			            amp_label_offset_frac: 0.02
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	prop = inputs.per_unit_outputs.propagation_plots
+
+	assert prop.write_pdf is True
+	assert prop.pdf_relpath == "nested/propagation.pdf"
+	assert prop.write_png is True
+	assert prop.png_relpath == "nested/propagation.png"
+	assert prop.show_title is False
+	assert prop.title_template == "Nested {start}-{end}"
+	assert prop.title_fontsize == 10
+	assert prop.top_channels == 28
+	assert prop.channels_per_panel == 10
+	assert prop.channel_overlap == 2
+	assert prop.background == "black"
+	assert prop.trace_gain == 1.7
+	assert prop.trace_spacing == 1.2
+	assert prop.peak_marker_height_frac == 0.40
+	assert prop.peak_marker_linewidth == 0.8
+	assert prop.show_electrode_ids is True
+	assert prop.electrode_label_fontsize == 7
+	assert prop.electrode_label_x_offset_frac == -0.01
+	assert prop.electrode_label_y_offset_frac == 0.02
+	assert prop.electrode_label_alignment == "right"
+	assert prop.bold_max_amp_electrode_label is True
+	assert prop.show_scale_bar is True
+	assert prop.scale_bar_anchor_x_frac == -0.12
+	assert prop.scale_bar_anchor_y_frac == 0.11
+	assert prop.scale_bar_time_fraction == 0.08
+	assert prop.scale_bar_amp_fraction == 0.45
+	assert prop.force_amp_frac_to_max_amp is True
+	assert prop.debug_max_amps_at_each_channel is False
+	assert prop.scale_bar_linewidth == 2.0
+	assert prop.scale_bar_fontsize == 8
+	assert prop.scale_bar_time_label_offset_frac == 0.03
+	assert prop.scale_bar_amp_label_offset_frac == 0.02
 
 
 def test_load_templates_config_parses_merge_and_template_artifact_knobs(tmp_path: Path) -> None:
