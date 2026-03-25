@@ -18,7 +18,6 @@ from .core.render import (
 	render_multi_source_pdf,
 	render_propagation_plot,
 	render_template_circles_plot,
-	render_template_circles_plot_v2,
 	render_template_plot,
 	render_template_wf_overlay,
 	render_topographical_amplitude_footprint,
@@ -344,6 +343,22 @@ def _infer_replot_upsampling_decision(*, inputs: TemplatesInputs) -> dict[str, A
 
 
 def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
+	LOGGER.info(
+		"Templates stage start: stream=%s force_restart=%s force_replot=%s force_replot_per_unit=%s reports_replot_from_disk=%s n_jobs=%d",
+		str(inputs.stream_id),
+		bool(inputs.force_restart),
+		bool(inputs.force_replot),
+		bool(inputs.force_replot_per_unit),
+		bool(inputs.reports.replot_from_disk),
+		int(max(1, int(inputs.n_jobs))),
+	)
+	LOGGER.info(
+		"Templates stage merge settings: enable=%s method=%s centering=%s max_waveforms_per_source_channel=%s",
+		bool(inputs.merge.enable),
+		str(inputs.merge.method),
+		str(inputs.merge.centering_method),
+		("unlimited" if inputs.merge.max_waveforms_per_source_channel is None else str(int(inputs.merge.max_waveforms_per_source_channel))),
+	)
 	well_out_dir = compute_mea_analysis_output_dir(
 		output_root=inputs.mea_output_root,
 		data_file=inputs.h5_path,
@@ -457,6 +472,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		and (not bool(inputs.force_replot))
 		and (not bool(inputs.force_replot_per_unit))
 	):
+		LOGGER.info("Templates stage selecting units from existing unit summaries (reports_replot_from_disk=true)")
 		if inputs.unit_ids is not None:
 			unit_ids = list(inputs.unit_ids)
 		else:
@@ -466,6 +482,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 	else:
 		merged_units_dir_resolved, _ = _ensure_templates_dirs()
 		unit_ids = _build_unit_ids(inputs, merged_units_dir_resolved)
+	LOGGER.info("Templates stage discovered %d unit(s) before curated filtering", len(unit_ids))
 	if bool(inputs.require_curated_units) and inputs.unit_ids is None:
 		curated = _load_curated_units_from_spikesorting(well_out_dir)
 		if curated is None:
@@ -474,8 +491,12 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				f"{well_out_dir / 'stg2_spikesorting_outputs' / 'qm_unfiltered.xlsx'}"
 			)
 		unit_ids = _apply_curated_filter(unit_ids, curated)
+		LOGGER.info("Templates stage curated filter retained %d unit(s)", len(unit_ids))
+
+	LOGGER.info("Templates stage will process %d unit(s)", len(unit_ids))
 
 	def _process_unit(unit_id: Any) -> UnitTemplatesResult:
+		LOGGER.info("Templates unit start: unit_id=%s", unit_id)
 		paths = resolve_unit_output_paths(
 			templates_out_dir=templates_out_dir,
 			unit_id=unit_id,
@@ -493,6 +514,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				unit_summary_json=paths["unit_summary_json"],
 			)
 			if existing_result is not None:
+				LOGGER.info("Templates unit skip: unit_id=%s (reusing existing summary)", unit_id)
 				return existing_result
 
 		unit_summary: dict[str, Any] = {
@@ -522,6 +544,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			merged_dir = merged_units_dir_resolved / f"unit_{unit_id}"
 			full_dir = full_channels_templates_dir_resolved / f"unit_{unit_id}"
 			overlay_debug_mode = bool(getattr(inputs.per_unit_outputs.template_wf_overlay, "debug_mode", False))
+			LOGGER.info("Templates unit load artifacts: unit_id=%s merged_dir=%s", unit_id, merged_dir)
 
 			merged_template, merged_locs = _load_merged_unit(merged_dir)
 			merged_electrode_ids = load_materialized_merged_electrode_ids(merged_unit_dir=merged_dir)
@@ -637,6 +660,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				"topographical_latency": topo_lat_source,
 				"propagation": prop_source,
 			}
+			LOGGER.info("Templates unit render plots: unit_id=%s", unit_id)
 
 			outputs = render_template_plot(
 				template=template_plot,
@@ -644,16 +668,18 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				config=inputs.per_unit_outputs.template,
 				png_path=paths["template_png"],
 				svg_path=paths["template_svg"],
+				unit_id=unit_id,
 			)
 			unit_summary["outputs"].update(outputs)
 
-			circles_outputs = render_template_circles_plot_v2(
+			circles_outputs = render_template_circles_plot(
 				template=template_circles,
 				locations_xy=locs_circles,
 				config=inputs.per_unit_outputs.template_circles,
 				png_path=paths["template_circles_png"],
 				svg_path=paths["template_circles_svg"],
 				probe_geometry=unit_probe_geometry,
+				unit_id=unit_id,
 			)
 			unit_summary["outputs"].update(circles_outputs)
 
@@ -770,12 +796,14 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				),
 			)
 			unit_summary["outputs"].update(prop_outputs)
+			LOGGER.info("Templates unit render complete: unit_id=%s outputs=%d", unit_id, len(unit_summary["outputs"]))
 		except Exception as exc:
 			unit_summary["status"] = "error"
 			unit_summary["error"] = str(exc)
 			LOGGER.exception("Failed templates for unit %s", unit_id)
 
 		write_json(paths["unit_summary_json"], unit_summary)
+		LOGGER.info("Templates unit done: unit_id=%s status=%s", unit_id, str(unit_summary.get("status", "ok")))
 		return UnitTemplatesResult(
 			unit_id=unit_id,
 			status=str(unit_summary.get("status", "ok")),
@@ -813,9 +841,17 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			)
 
 	worker_count = int(max(1, int(inputs.n_jobs)))
+	LOGGER.info(
+		"Templates unit execution start: units_to_process=%d reused_units=%d worker_count=%d",
+		len(units_to_process),
+		len(unit_results),
+		worker_count,
+	)
 	if worker_count <= 1 or len(units_to_process) <= 1:
-		for unit_id in units_to_process:
+		total_to_run = len(units_to_process)
+		for idx, unit_id in enumerate(units_to_process, start=1):
 			unit_results.append(_process_unit(unit_id))
+			LOGGER.info("Templates unit progress: %d/%d completed", idx, total_to_run)
 	else:
 		futures: dict[concurrent.futures.Future[UnitTemplatesResult], Any] = {}
 		with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as pool:
@@ -823,18 +859,25 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				fut = pool.submit(_process_unit, unit_id)
 				futures[fut] = unit_id
 
+			total_to_run = len(futures)
+			completed = 0
 			for fut in concurrent.futures.as_completed(futures):
 				unit_results.append(fut.result())
+				completed += 1
+				LOGGER.info("Templates unit progress: %d/%d completed", completed, total_to_run)
 
 	unit_results.sort(key=lambda r: str(r.unit_id))
+	LOGGER.info("Templates unit execution complete: total_results=%d", len(unit_results))
 	report_outputs: dict[str, str] = {}
 	try:
+		LOGGER.info("Templates reports start: stream=%s", inputs.stream_id)
 		report_paths = resolve_report_output_paths(templates_out_dir=templates_out_dir, reports=inputs.reports)
 		overlay_paths = [
 			Path(u.outputs["template_wf_overlay_png"])
 			for u in unit_results
 			if "template_wf_overlay_png" in u.outputs
 		]
+		LOGGER.info("Templates reports wf_overlay_grid inputs=%d", len(overlay_paths))
 		report_outputs.update(
 			render_wf_overlay_grid(
 				overlay_png_paths=overlay_paths,
@@ -843,11 +886,29 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				png_path=report_paths["wf_overlay_grid_png"],
 			)
 		)
+		circles_map_paths = [
+			Path(u.outputs["template_circles_png"])
+			for u in unit_results
+			if "template_circles_png" in u.outputs
+		]
+		LOGGER.info("Templates reports circles_map_grid inputs=%d", len(circles_map_paths))
+		report_outputs.update(
+			render_footprint_map_grid(
+				image_paths=circles_map_paths,
+				config=inputs.reports.footprint_grids.circles_map_grid,
+				pdf_path=report_paths["template_circles_map_grid_pdf"],
+				png_path=report_paths["template_circles_map_grid_png"],
+				pdf_output_key="template_circles_map_grid_pdf",
+				png_output_key="template_circles_map_grid_png",
+				title="Template circles map grid",
+			)
+		)
 		amp_map_paths = [
 			Path(u.outputs["footprint_amplitude_map_png"])
 			for u in unit_results
 			if "footprint_amplitude_map_png" in u.outputs
 		]
+		LOGGER.info("Templates reports amplitude_map_grid inputs=%d", len(amp_map_paths))
 		report_outputs.update(
 			render_footprint_map_grid(
 				image_paths=amp_map_paths,
@@ -864,6 +925,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			for u in unit_results
 			if "footprint_latency_map_png" in u.outputs
 		]
+		LOGGER.info("Templates reports latency_map_grid inputs=%d", len(lat_map_paths))
 		report_outputs.update(
 			render_footprint_map_grid(
 				image_paths=lat_map_paths,
@@ -876,6 +938,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			)
 		)
 		if bool(inputs.reports.plot_multi_source_pdf.enabled):
+			LOGGER.info("Templates reports multi_source_pdf enabled; rendering")
 			report_outputs.update(
 				render_multi_source_pdf(
 					units=[
@@ -888,6 +951,8 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			)
 	except Exception:
 		LOGGER.exception("Failed writing templates reports for stream %s", inputs.stream_id)
+	else:
+		LOGGER.info("Templates reports complete: generated=%d", len(report_outputs))
 
 	summary_json = templates_out_dir / "templates_summary.json"
 	summary_payload = {
@@ -939,6 +1004,15 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		],
 	}
 	write_json(summary_json, summary_payload)
+	ok_count = sum(1 for u in unit_results if str(u.status) == "ok")
+	err_count = sum(1 for u in unit_results if str(u.status) != "ok")
+	LOGGER.info(
+		"Templates stage done: stream=%s units_ok=%d units_error=%d summary=%s",
+		str(inputs.stream_id),
+		ok_count,
+		err_count,
+		summary_json,
+	)
 
 	return TemplatesResult(
 		well_out_dir=well_out_dir,

@@ -233,15 +233,31 @@ def test_load_templates_config_parses_template_plots_waveforms_and_circles(tmp_p
 			        template_plots:
 			          waveforms:
 			            write_png: true
+			            dpi: 360
 			            relpath: maps/template_waveforms
 			            channel_scope: all_channels
+			            show_axes: false
+			            unit_id_label:
+			              show: true
+			              fontsize: 14
+			            center_most_channel_coords:
+			              show: true
+			              fontsize: 9
 			          circles:
 			            write_png: true
 			            write_svg: true
+			            dpi: 420
 			            relpath: maps/template_circles
 			            channel_scope: recorded_channels
 			            size_by: latency
 			            color_by: amplitude
+			            show_axes: false
+			            unit_id_label:
+			              show: true
+			              fontsize: 13
+			            center_most_channel_coords:
+			              show: true
+			              fontsize: 8
 			"""
 		).strip()
 		+ "\n",
@@ -250,13 +266,25 @@ def test_load_templates_config_parses_template_plots_waveforms_and_circles(tmp_p
 
 	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.per_unit_outputs.template.relpath == "maps/template_waveforms"
+	assert inputs.per_unit_outputs.template.dpi == 360
 	assert inputs.per_unit_outputs.template.channel_scope == "all_channels"
+	assert inputs.per_unit_outputs.template.show_axes is False
+	assert inputs.per_unit_outputs.template.unit_id_label.show is True
+	assert inputs.per_unit_outputs.template.unit_id_label.fontsize == 14
+	assert inputs.per_unit_outputs.template.center_most_channel_coords.show is True
+	assert inputs.per_unit_outputs.template.center_most_channel_coords.fontsize == 9
 	assert inputs.per_unit_outputs.template_circles.write_png is True
 	assert inputs.per_unit_outputs.template_circles.write_svg is True
+	assert inputs.per_unit_outputs.template_circles.dpi == 420
 	assert inputs.per_unit_outputs.template_circles.relpath == "maps/template_circles"
 	assert inputs.per_unit_outputs.template_circles.channel_scope == "recorded_channels"
 	assert inputs.per_unit_outputs.template_circles.size_by == "latency"
 	assert inputs.per_unit_outputs.template_circles.color_by == "amplitude"
+	assert inputs.per_unit_outputs.template_circles.show_axes is False
+	assert inputs.per_unit_outputs.template_circles.unit_id_label.show is True
+	assert inputs.per_unit_outputs.template_circles.unit_id_label.fontsize == 13
+	assert inputs.per_unit_outputs.template_circles.center_most_channel_coords.show is True
+	assert inputs.per_unit_outputs.template_circles.center_most_channel_coords.fontsize == 8
 
 
 def test_load_templates_config_parses_template_plots_nested_under_full_template(tmp_path: Path) -> None:
@@ -391,7 +419,6 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 			        template_plots:
 			          circles:
 			            write_png: true
-			            circle_size_scale_factor: 0.5
 			            color_by: latency
 			            color_bar:
 			              units: ms
@@ -408,7 +435,6 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 
 	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.per_unit_outputs.template_circles.color_bar_units == "ms"
-	assert inputs.per_unit_outputs.template_circles.circle_size_scale_factor == 0.5
 	assert inputs.per_unit_outputs.template_circles.color_bar_title == "Latency (ms)"
 	assert inputs.per_unit_outputs.template_circles.color_bar_show_axes_title is False
 	assert inputs.per_unit_outputs.template_circles.color_bar_show_unit_labels is True
@@ -468,12 +494,20 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			            factor: 3
 			            method: linear
 			        footprint_grids:
+			          circles_map_grid:
+			            show_title: false
+			            write_pdf: true
+			            pdf_relpath: reports/circles_map_grid.pdf
+			            write_png: true
+			            png_relpath: reports/circles_map_grid.png
 			          amplitude_map_grid:
+			            show_title: false
 			            write_pdf: false
 			            pdf_relpath: reports/amplitude_map_grid.pdf
 			            write_png: true
 			            png_relpath: reports/amplitude_map_grid.png
 			          latency_map_grid:
+			            show_title: true
 			            write_pdf: true
 			            pdf_relpath: reports/latency_map_grid.pdf
 			            write_png: false
@@ -558,13 +592,22 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert inputs.reports.time_upsample.factor == 3
 	assert inputs.reports.time_upsample.method == "linear"
 
+	circles_grid = inputs.reports.footprint_grids.circles_map_grid
+	assert circles_grid.show_title is False
+	assert circles_grid.write_pdf is True
+	assert circles_grid.pdf_relpath == "reports/circles_map_grid.pdf"
+	assert circles_grid.write_png is True
+	assert circles_grid.png_relpath == "reports/circles_map_grid.png"
+
 	amp_grid = inputs.reports.footprint_grids.amplitude_map_grid
+	assert amp_grid.show_title is False
 	assert amp_grid.write_pdf is False
 	assert amp_grid.pdf_relpath == "reports/amplitude_map_grid.pdf"
 	assert amp_grid.write_png is True
 	assert amp_grid.png_relpath == "reports/amplitude_map_grid.png"
 
 	lat_grid = inputs.reports.footprint_grids.latency_map_grid
+	assert lat_grid.show_title is True
 	assert lat_grid.write_pdf is True
 	assert lat_grid.pdf_relpath == "reports/latency_map_grid.pdf"
 	assert lat_grid.write_png is False
@@ -895,6 +938,29 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 			          scale_bar_fontsize: 9
 			          scale_bar_time_label_offset_frac: 0.05
 			          scale_bar_amp_label_offset_frac: 0.04
+			          post_ap_abbrev:
+			            enabled: true
+			            start_ms: 1.25
+			            start_samples: 12
+			            cut_fraction: 0.6
+			            min_samples_to_cut: 8
+			            gap_samples: 6
+			            marker_text: /.../
+			            marker_fontsize: 11
+			            marker_y_offset_frac: 0.0
+			          duration_info:
+			            show: true
+			            x_frac: 0.62
+			            y_frac: 0.92
+			            fontsize: 8
+			            horizontal_alignment: right
+			            vertical_alignment: top
+			          plot_layout:
+			            width_in: 12.0
+			            panel_height_in: 2.2
+			            extra_height_in: 0.8
+			            hspace: 0.2
+			            area_aspect_ratio: 6.0
 			          latency_map:
 			            show: true
 			            color_map: cividis
@@ -968,6 +1034,26 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 	assert prop.scale_bar_fontsize == 9
 	assert prop.scale_bar_time_label_offset_frac == 0.05
 	assert prop.scale_bar_amp_label_offset_frac == 0.04
+	assert prop.abbreviate_post_ap_signal is True
+	assert prop.post_ap_abbrev_start_ms == 1.25
+	assert prop.post_ap_abbrev_start_samples == 12
+	assert prop.post_ap_abbrev_cut_fraction == 0.6
+	assert prop.post_ap_abbrev_min_samples_to_cut == 8
+	assert prop.post_ap_abbrev_gap_samples == 6
+	assert prop.post_ap_abbrev_marker_text == "/.../"
+	assert prop.post_ap_abbrev_marker_fontsize == 11
+	assert prop.post_ap_abbrev_marker_y_offset_frac == 0.0
+	assert prop.show_duration_info is True
+	assert prop.duration_info_x_frac == 0.62
+	assert prop.duration_info_y_frac == 0.92
+	assert prop.duration_info_fontsize == 8
+	assert prop.duration_info_horizontal_alignment == "right"
+	assert prop.duration_info_vertical_alignment == "top"
+	assert prop.plot_width_in == 12.0
+	assert prop.plot_panel_height_in == 2.2
+	assert prop.plot_extra_height_in == 0.8
+	assert prop.plot_hspace == 0.2
+	assert prop.plot_area_aspect_ratio == 6.0
 	assert prop.latency_map.show is True
 	assert prop.latency_map.color_map == "cividis"
 	assert prop.latency_map.force_square_aspect is False

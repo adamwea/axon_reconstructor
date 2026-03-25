@@ -6,9 +6,32 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class UnitIdLabelConfig:
+	show: bool = False
+	fontsize: float = 12.0
+	color: str = "white"
+	x_offset_frac: float = 0.02
+	y_offset_frac: float = 0.02
+	horizontal_alignment: str = "right"
+	vertical_alignment: str = "top"
+
+
+@dataclass(frozen=True)
+class CenterMostChannelCoordsConfig:
+	show: bool = False
+	fontsize: float = 10.0
+	color: str = "white"
+	x_offset_frac: float = 0.02
+	y_offset_frac: float = 0.01
+	horizontal_alignment: str = "left"
+	vertical_alignment: str = "top"
+
+
+@dataclass(frozen=True)
 class TemplatePlotConfig:
 	write_png: bool = True
 	write_svg: bool = False
+	dpi: float = 300.0
 	relpath: str = "template"
 	channel_scope: str = "contributing_channels"
 	background: str = "black"
@@ -22,6 +45,9 @@ class TemplatePlotConfig:
 	scale_bar_fontsize: float = 6.0
 	scale_bar_linewidth: float = 1.8
 	scale_bar_length_um: float | None = None
+	show_axes: bool = True
+	unit_id_label: UnitIdLabelConfig = field(default_factory=UnitIdLabelConfig)
+	center_most_channel_coords: CenterMostChannelCoordsConfig = field(default_factory=CenterMostChannelCoordsConfig)
 
 
 @dataclass(frozen=True)
@@ -29,7 +55,6 @@ class TemplateCirclesPlotConfig(TemplatePlotConfig):
 	write_png: bool = False
 	write_svg: bool = False
 	relpath: str = "template_circles"
-	circle_size_scale_factor: float = 1.0
 	size_by: str = "amplitude"
 	color_by: str = "latency"
 	color_bar_units: str = ""
@@ -246,6 +271,26 @@ class PropagationPlotConfig:
 	scale_bar_fontsize: float = 7.0
 	scale_bar_time_label_offset_frac: float = 0.04
 	scale_bar_amp_label_offset_frac: float = 0.02
+	abbreviate_post_ap_signal: bool = False
+	post_ap_abbrev_start_ms: float = 1.0
+	post_ap_abbrev_start_samples: int = 10
+	post_ap_abbrev_cut_fraction: float = 0.5
+	post_ap_abbrev_min_samples_to_cut: int = 5
+	post_ap_abbrev_gap_samples: int = 8
+	post_ap_abbrev_marker_text: str = "/.../"
+	post_ap_abbrev_marker_fontsize: float = 7.0
+	post_ap_abbrev_marker_y_offset_frac: float = 0.0
+	show_duration_info: bool = False
+	duration_info_x_frac: float = 0.01
+	duration_info_y_frac: float = 0.99
+	duration_info_fontsize: float = 6.0
+	duration_info_horizontal_alignment: str = "left"
+	duration_info_vertical_alignment: str = "top"
+	plot_width_in: float = 13.0
+	plot_panel_height_in: float = 2.8
+	plot_extra_height_in: float = 1.0
+	plot_hspace: float = 0.35
+	plot_area_aspect_ratio: float | None = None
 	latency_map: PropagationLatencyMapConfig = field(default_factory=PropagationLatencyMapConfig)
 
 	@property
@@ -302,12 +347,19 @@ class FootprintMapGridReportConfig:
 	pdf_relpath: str = "footprint_map_grid.pdf"
 	write_png: bool = True
 	png_relpath: str = "footprint_map_grid.png"
+	show_title: bool = True
 	template_shape: str = "square"
 	global_color_scale: bool = True
 
 
 @dataclass(frozen=True)
 class FootprintGridsReportConfig:
+	circles_map_grid: FootprintMapGridReportConfig = field(
+		default_factory=lambda: FootprintMapGridReportConfig(
+			pdf_relpath="circles_map_grid.pdf",
+			png_relpath="circles_map_grid.png",
+		)
+	)
 	amplitude_map_grid: FootprintMapGridReportConfig = field(
 		default_factory=lambda: FootprintMapGridReportConfig(
 			pdf_relpath="amplitude_map_grid.pdf",

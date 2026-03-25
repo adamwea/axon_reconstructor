@@ -3,8 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np  # type: ignore[import-not-found]
+import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+import matplotlib.collections  # type: ignore[import-not-found]
 
 from axon_recon.pipeline.stages.templates.core.render import render_propagation_plot
+from axon_recon.pipeline.stages.templates.core.render import render_footprint_map_grid
 from axon_recon.pipeline.stages.templates.core.render import render_template_wf_overlay
 from axon_recon.pipeline.stages.templates.core.render import render_topographical_amplitude_footprint
 from axon_recon.pipeline.stages.templates.core.render import _expand_limits_for_glyph_half_size
@@ -12,15 +15,23 @@ from axon_recon.pipeline.stages.templates.core.render import _probe_electrode_di
 from axon_recon.pipeline.stages.templates.core.render import _limits_for_template_shape
 from axon_recon.pipeline.stages.templates.core.render import _maybe_reversed_colormap
 from axon_recon.pipeline.stages.templates.core.render import _add_propagation_scale_bars
+from axon_recon.pipeline.stages.templates.core.render import _compute_max_non_overlapping_circle_areas
 from axon_recon.pipeline.stages.templates.core.render import _convert_latency_samples_to_units
 from axon_recon.pipeline.stages.templates.core.render import _ticks_ending_in_0_or_5_with_max
+from axon_recon.pipeline.stages.templates.core.render import render_template_circles_plot
+from axon_recon.pipeline.stages.templates.core.render import render_template_plot
 from axon_recon.pipeline.stages.templates.models.inputs import (
+	CenterMostChannelCoordsConfig,
 	ProbeGeometryConfig,
 	PropagationLatencyMapConfig,
 	PropagationPlotConfig,
+	TemplateCirclesPlotConfig,
+	TemplatePlotConfig,
 	TemplateWaveformOverlayConfig,
 	TimeUpsampleConfig,
 	TopographicalFootprintConfig,
+	UnitIdLabelConfig,
+	FootprintMapGridReportConfig,
 )
 
 
@@ -74,6 +85,407 @@ def test_render_propagation_plot_respects_panel_chunk_knobs(tmp_path: Path) -> N
 	assert pdf_path.exists()
 	assert outputs.get("propagation_plot_png") == str(png_path)
 	assert outputs.get("propagation_plot_pdf") == str(pdf_path)
+
+
+def test_dynamic_circle_sizing_respects_pairwise_non_overlap_constraint() -> None:
+	centers_pt = np.asarray(
+		[
+			[20.0, 20.0],
+			[40.0, 20.0],
+		],
+		dtype=float,
+	)
+	base_areas = np.asarray([50.0, 50.0], dtype=float)
+
+	sizes = _compute_max_non_overlapping_circle_areas(
+		centers_display_pt=centers_pt,
+		base_areas_pt2=base_areas,
+		axis_x_limits_pt=(0.0, 200.0),
+		axis_y_limits_pt=(0.0, 100.0),
+	)
+
+	radii = np.sqrt(np.asarray(sizes, dtype=float) / np.pi)
+	dist = float(np.hypot(*(centers_pt[1] - centers_pt[0])))
+	assert (radii[0] + radii[1]) <= (dist + 1e-6)
+
+
+def test_dynamic_circle_sizing_preserves_size_ordering() -> None:
+	centers_pt = np.asarray(
+		[
+			[20.0, 20.0],
+			[60.0, 20.0],
+		],
+		dtype=float,
+	)
+	base_areas = np.asarray([30.0, 60.0], dtype=float)
+
+	sizes = _compute_max_non_overlapping_circle_areas(
+		centers_display_pt=centers_pt,
+		base_areas_pt2=base_areas,
+		axis_x_limits_pt=(0.0, 200.0),
+		axis_y_limits_pt=(0.0, 100.0),
+	)
+
+	assert float(sizes[1]) > float(sizes[0])
+
+
+def test_dynamic_circle_sizing_shrinks_when_display_separation_reduces() -> None:
+	far_centers_pt = np.asarray(
+		[
+			[20.0, 20.0],
+			[60.0, 20.0],
+		],
+		dtype=float,
+	)
+	close_centers_pt = np.asarray(
+		[
+			[20.0, 20.0],
+			[40.0, 20.0],
+		],
+		dtype=float,
+	)
+	base_areas = np.asarray([50.0, 50.0], dtype=float)
+
+	far_sizes = _compute_max_non_overlapping_circle_areas(
+		centers_display_pt=far_centers_pt,
+		base_areas_pt2=base_areas,
+		axis_x_limits_pt=(0.0, 100.0),
+		axis_y_limits_pt=(0.0, 100.0),
+	)
+	close_sizes = _compute_max_non_overlapping_circle_areas(
+		centers_display_pt=close_centers_pt,
+		base_areas_pt2=base_areas,
+		axis_x_limits_pt=(0.0, 100.0),
+		axis_y_limits_pt=(0.0, 100.0),
+	)
+
+	assert np.all(np.asarray(close_sizes, dtype=float) < np.asarray(far_sizes, dtype=float))
+
+
+def test_dynamic_circle_sizing_handles_asymmetric_axis_scaling() -> None:
+	centers_pt = np.asarray(
+		[
+			[20.0, 50.0],
+			[50.0, 50.0],
+			[80.0, 50.0],
+		],
+		dtype=float,
+	)
+	base_areas = np.asarray([120.0, 120.0, 120.0], dtype=float)
+
+	sizes = _compute_max_non_overlapping_circle_areas(
+		centers_display_pt=centers_pt,
+		base_areas_pt2=base_areas,
+		axis_x_limits_pt=(0.0, 200.0),
+		axis_y_limits_pt=(0.0, 80.0),
+	)
+
+	radii = np.sqrt(np.asarray(sizes, dtype=float) / np.pi)
+	d01 = float(np.hypot(*(centers_pt[1] - centers_pt[0])))
+	d12 = float(np.hypot(*(centers_pt[2] - centers_pt[1])))
+	assert (radii[0] + radii[1]) <= (d01 + 1e-6)
+	assert (radii[1] + radii[2]) <= (d12 + 1e-6)
+
+
+def test_render_template_circles_plot_sets_non_overlapping_sizes_in_final_layout(tmp_path: Path, monkeypatch) -> None:
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+			[-0.6, -1.5, -0.3, 0.0, 0.1],
+			[-0.7, -1.6, -0.2, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+			[36.0, 0.0],
+			[54.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	observed = {"checked": False}
+	orig_set_sizes = matplotlib.collections.PathCollection.set_sizes
+
+	def _spy_set_sizes(self, sizes, *args, **kwargs):
+		result = orig_set_sizes(self, sizes, *args, **kwargs)
+		sz = np.asarray(sizes, dtype=float)
+		if sz.ndim != 1 or int(sz.size) != int(locations.shape[0]):
+			return result
+		ax = self.axes
+		if ax is None:
+			return result
+		fig = ax.figure
+		if fig is None:
+			return result
+		offsets = np.asarray(self.get_offsets(), dtype=float)
+		if offsets.ndim != 2 or int(offsets.shape[0]) != int(locations.shape[0]):
+			return result
+		scale = float(72.0 / float(fig.dpi))
+		centers_pt = np.asarray(ax.transData.transform(offsets), dtype=float) * scale
+		radii_pt = np.sqrt(np.clip(sz, 0.0, None) / np.pi)
+		bbox = ax.get_window_extent()
+		xmin_pt = float(bbox.x0) * scale
+		xmax_pt = float(bbox.x1) * scale
+		ymin_pt = float(bbox.y0) * scale
+		ymax_pt = float(bbox.y1) * scale
+		for i in range(int(centers_pt.shape[0])):
+			xi, yi = float(centers_pt[i, 0]), float(centers_pt[i, 1])
+			ri = float(radii_pt[i])
+			assert (xi - ri) >= (xmin_pt - 1e-6)
+			assert (xi + ri) <= (xmax_pt + 1e-6)
+			assert (yi - ri) >= (ymin_pt - 1e-6)
+			assert (yi + ri) <= (ymax_pt + 1e-6)
+		for i in range(int(centers_pt.shape[0])):
+			for j in range(i + 1, int(centers_pt.shape[0])):
+				d = float(np.hypot(*(centers_pt[j] - centers_pt[i])))
+				assert (radii_pt[i] + radii_pt[j]) <= (d + 1e-6)
+		observed["checked"] = True
+		return result
+
+	monkeypatch.setattr(matplotlib.collections.PathCollection, "set_sizes", _spy_set_sizes)
+
+	png_path = tmp_path / "circles.png"
+	svg_path = tmp_path / "circles.svg"
+	outputs = render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			dpi=300,
+			background="black",
+			size_by="amplitude",
+			color_by="latency",
+		),
+		png_path=png_path,
+		svg_path=svg_path,
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+
+	assert png_path.exists()
+	assert outputs.get("template_circles_png") == str(png_path)
+	assert observed["checked"] is True
+
+
+def test_render_template_plot_applies_unit_id_center_coords_and_hides_axes(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+			[-0.6, -1.5, -0.3, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+			[36.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	seen_texts: list[str] = []
+	seen_axis_off = {"count": 0}
+	orig_text = matplotlib.axes.Axes.text
+	orig_set_axis_off = matplotlib.axes.Axes.set_axis_off
+
+	def _spy_text(self, x, y, s, *args, **kwargs):
+		seen_texts.append(str(s))
+		return orig_text(self, x, y, s, *args, **kwargs)
+
+	def _spy_set_axis_off(self, *args, **kwargs):
+		seen_axis_off["count"] += 1
+		return orig_set_axis_off(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "text", _spy_text)
+	monkeypatch.setattr(matplotlib.axes.Axes, "set_axis_off", _spy_set_axis_off)
+
+	png_path = tmp_path / "template_waveforms.png"
+	outputs = render_template_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplatePlotConfig(
+			write_png=True,
+			write_svg=False,
+			show_axes=False,
+			unit_id_label=UnitIdLabelConfig(show=True),
+			center_most_channel_coords=CenterMostChannelCoordsConfig(show=True),
+		),
+		png_path=png_path,
+		svg_path=tmp_path / "unused.svg",
+		unit_id=42,
+	)
+
+	assert outputs.get("template_png") == str(png_path)
+	assert png_path.exists()
+	assert any(t == "unit 42" for t in seen_texts)
+	assert any(t.startswith("(") and t.endswith(")") and "," in t for t in seen_texts)
+	assert seen_axis_off["count"] >= 1
+
+
+def test_render_template_circles_plot_applies_unit_id_center_coords_and_hides_axes(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+			[-0.6, -1.5, -0.3, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+			[36.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	seen_texts: list[str] = []
+	seen_axis_off = {"count": 0}
+	orig_text = matplotlib.axes.Axes.text
+	orig_set_axis_off = matplotlib.axes.Axes.set_axis_off
+
+	def _spy_text(self, x, y, s, *args, **kwargs):
+		seen_texts.append(str(s))
+		return orig_text(self, x, y, s, *args, **kwargs)
+
+	def _spy_set_axis_off(self, *args, **kwargs):
+		seen_axis_off["count"] += 1
+		return orig_set_axis_off(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "text", _spy_text)
+	monkeypatch.setattr(matplotlib.axes.Axes, "set_axis_off", _spy_set_axis_off)
+
+	png_path = tmp_path / "template_circles.png"
+	outputs = render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			show_axes=False,
+			unit_id_label=UnitIdLabelConfig(show=True),
+			center_most_channel_coords=CenterMostChannelCoordsConfig(show=True),
+		),
+		png_path=png_path,
+		svg_path=tmp_path / "unused.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+		unit_id=99,
+	)
+
+	assert outputs.get("template_circles_png") == str(png_path)
+	assert png_path.exists()
+	assert any(t == "unit 99" for t in seen_texts)
+	assert any(t.startswith("(") and t.endswith(")") and "," in t for t in seen_texts)
+	assert seen_axis_off["count"] >= 1
+
+
+def test_render_template_plot_center_coords_placed_at_bottom_left_corner(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+			[-0.6, -1.5, -0.3, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+			[36.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	seen_coords_label: dict[str, float | str] = {}
+	orig_text = matplotlib.axes.Axes.text
+
+	def _spy_text(self, x, y, s, *args, **kwargs):
+		if isinstance(s, str) and s.startswith("(") and s.endswith(")") and "," in s:
+			seen_coords_label["x"] = float(x)
+			seen_coords_label["y"] = float(y)
+			seen_coords_label["ha"] = str(kwargs.get("ha", ""))
+			seen_coords_label["va"] = str(kwargs.get("va", ""))
+		return orig_text(self, x, y, s, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "text", _spy_text)
+
+	png_path = tmp_path / "template_waveforms_direction.png"
+	render_template_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplatePlotConfig(
+			write_png=True,
+			write_svg=False,
+			center_most_channel_coords=CenterMostChannelCoordsConfig(
+				show=True,
+				horizontal_alignment="left",
+				vertical_alignment="bottom",
+				x_offset_frac=0.05,
+				y_offset_frac=0.05,
+			),
+		),
+		png_path=png_path,
+		svg_path=tmp_path / "unused.svg",
+	)
+
+	assert png_path.exists()
+	assert float(seen_coords_label["x"]) < 5.0
+	assert float(seen_coords_label["y"]) < -0.1
+	assert seen_coords_label["ha"] == "left"
+	assert seen_coords_label["va"] == "bottom"
+
+
+def test_render_footprint_map_grid_hides_title_when_disabled(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.figure as mpl_figure
+
+	img_path = tmp_path / "unit_0094.png"
+	img = np.zeros((8, 8, 3), dtype=np.uint8)
+	img[:, :, 1] = 255
+	plt.imsave(img_path, img)
+
+	seen_suptitles: list[str] = []
+	orig_suptitle = mpl_figure.Figure.suptitle
+
+	def _spy_suptitle(self, t, *args, **kwargs):
+		seen_suptitles.append(str(t))
+		return orig_suptitle(self, t, *args, **kwargs)
+
+	monkeypatch.setattr(mpl_figure.Figure, "suptitle", _spy_suptitle)
+
+	png_path = tmp_path / "grid.png"
+	pdf_path = tmp_path / "grid.pdf"
+	outputs = render_footprint_map_grid(
+		image_paths=[img_path],
+		config=FootprintMapGridReportConfig(
+			write_pdf=False,
+			write_png=True,
+			png_relpath="grid.png",
+			show_title=False,
+		),
+		pdf_path=pdf_path,
+		png_path=png_path,
+		pdf_output_key="grid_pdf",
+		png_output_key="grid_png",
+		title="Amplitude map grid",
+	)
+
+	assert png_path.exists()
+	assert outputs.get("grid_png") == str(png_path)
+	assert seen_suptitles == []
 
 
 def test_render_propagation_plot_without_latency_map_uses_single_column_layout(tmp_path: Path, monkeypatch) -> None:
@@ -213,6 +625,231 @@ def test_render_propagation_plot_honors_electrode_label_alignment(tmp_path: Path
 	assert png_path.exists()
 	assert len(seen_alignments) > 0
 	assert all(a == "right" for a in seen_alignments)
+
+
+def test_render_propagation_plot_abbreviates_post_ap_signal_with_marker(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	n_channels = 3
+	n_samples = 120
+	t = np.zeros((n_channels, n_samples), dtype=float)
+	for i in range(n_channels):
+		t[i, :] = 0.15 * np.sin(np.linspace(0.0, 6.0, n_samples))
+		t[i, 10] = -3.0 - float(i)
+	locs = np.column_stack([
+		np.linspace(0.0, 20.0, n_channels),
+		np.linspace(0.0, 10.0, n_channels),
+	])
+
+	seen_trace_x: list[np.ndarray] = []
+	seen_texts: list[str] = []
+	orig_plot = matplotlib.axes.Axes.plot
+	orig_text = matplotlib.axes.Axes.text
+
+	def _spy_plot(self, xdata, ydata, *args, **kwargs):
+		x_arr = np.asarray(xdata, dtype=float)
+		y_arr = np.asarray(ydata, dtype=float)
+		if x_arr.ndim == 1 and y_arr.ndim == 1 and x_arr.size > 3:
+			seen_trace_x.append(x_arr)
+		return orig_plot(self, xdata, ydata, *args, **kwargs)
+
+	def _spy_text(self, x, y, s, *args, **kwargs):
+		if isinstance(s, str):
+			seen_texts.append(s)
+		return orig_text(self, x, y, s, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "plot", _spy_plot)
+	monkeypatch.setattr(matplotlib.axes.Axes, "text", _spy_text)
+
+	png_path = tmp_path / "propagation_abbrev.png"
+	render_propagation_plot(
+		template=t,
+		locations_xy=locs,
+		config=PropagationPlotConfig(
+			write_pdf=False,
+			write_png=True,
+			png_relpath="propagation_abbrev.png",
+			top_channels=3,
+			channels_per_panel=3,
+			channel_overlap=0,
+			show_scale_bar=False,
+			abbreviate_post_ap_signal=True,
+			post_ap_abbrev_start_ms=1.0,
+			post_ap_abbrev_cut_fraction=0.5,
+			post_ap_abbrev_gap_samples=8,
+			post_ap_abbrev_marker_text="/.../",
+		),
+		pdf_path=tmp_path / "unused.pdf",
+		png_path=png_path,
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10000.0, pitch_um=17.5),
+	)
+
+	assert png_path.exists()
+	assert len(seen_trace_x) > 0
+	# Original span would reach sample 119; with abbreviation this is compressed.
+	assert max(float(np.max(arr)) for arr in seen_trace_x) < 110.0
+	marker_count = sum(1 for s in seen_texts if str(s).strip() == "/.../")
+	assert marker_count >= 3
+
+
+def test_render_propagation_plot_abbrev_uses_sample_fallback_when_ms_start_out_of_range(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	n_channels = 3
+	n_samples = 95
+	t = np.zeros((n_channels, n_samples), dtype=float)
+	for i in range(n_channels):
+		t[i, :] = 0.1 * np.sin(np.linspace(0.0, 8.0, n_samples))
+		t[i, 15] = -2.0 - float(i)
+	locs = np.column_stack([
+		np.linspace(0.0, 20.0, n_channels),
+		np.linspace(0.0, 10.0, n_channels),
+	])
+
+	seen_trace_x: list[np.ndarray] = []
+	orig_plot = matplotlib.axes.Axes.plot
+
+	def _spy_plot(self, xdata, ydata, *args, **kwargs):
+		x_arr = np.asarray(xdata, dtype=float)
+		y_arr = np.asarray(ydata, dtype=float)
+		if x_arr.ndim == 1 and y_arr.ndim == 1 and x_arr.size > 3:
+			seen_trace_x.append(x_arr)
+		return orig_plot(self, xdata, ydata, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "plot", _spy_plot)
+
+	png_path = tmp_path / "propagation_abbrev_fallback.png"
+	render_propagation_plot(
+		template=t,
+		locations_xy=locs,
+		config=PropagationPlotConfig(
+			write_pdf=False,
+			write_png=True,
+			png_relpath="propagation_abbrev_fallback.png",
+			top_channels=3,
+			channels_per_panel=3,
+			channel_overlap=0,
+			show_scale_bar=False,
+			abbreviate_post_ap_signal=True,
+			post_ap_abbrev_start_ms=2.5,
+			post_ap_abbrev_start_samples=10,
+			post_ap_abbrev_cut_fraction=0.8,
+			post_ap_abbrev_gap_samples=8,
+		),
+		pdf_path=tmp_path / "unused.pdf",
+		png_path=png_path,
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=100000.0, pitch_um=17.5),
+	)
+
+	assert png_path.exists()
+	assert len(seen_trace_x) > 0
+	# Without fallback the trace would stay near full width; with fallback it compresses noticeably.
+	assert max(float(np.max(arr)) for arr in seen_trace_x) < 90.0
+
+
+def test_render_propagation_plot_shows_duration_info_text(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	n_channels = 3
+	n_samples = 100
+	t = np.zeros((n_channels, n_samples), dtype=float)
+	for i in range(n_channels):
+		t[i, :] = 0.05 * np.sin(np.linspace(0.0, 6.0, n_samples))
+		t[i, 20] = -2.0 - float(i)
+	locs = np.column_stack([
+		np.linspace(0.0, 20.0, n_channels),
+		np.linspace(0.0, 10.0, n_channels),
+	])
+
+	seen_texts: list[str] = []
+	orig_text = matplotlib.axes.Axes.text
+
+	def _spy_text(self, x, y, s, *args, **kwargs):
+		if isinstance(s, str):
+			seen_texts.append(s)
+		return orig_text(self, x, y, s, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "text", _spy_text)
+
+	png_path = tmp_path / "propagation_duration_info.png"
+	render_propagation_plot(
+		template=t,
+		locations_xy=locs,
+		config=PropagationPlotConfig(
+			write_pdf=False,
+			write_png=True,
+			png_relpath="propagation_duration_info.png",
+			top_channels=3,
+			channels_per_panel=3,
+			channel_overlap=0,
+			show_scale_bar=False,
+			show_duration_info=True,
+			duration_info_x_frac=0.7,
+			duration_info_y_frac=0.95,
+			duration_info_horizontal_alignment="right",
+		),
+		pdf_path=tmp_path / "unused.pdf",
+		png_path=png_path,
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10000.0, pitch_um=17.5),
+	)
+
+	assert png_path.exists()
+	joined = "\n".join(seen_texts).lower()
+	assert "before:" in joined
+	assert "after:" in joined
+	assert "total:" in joined
+	assert "ms" in joined
+
+
+def test_render_propagation_plot_layout_accepts_area_aspect_ratio_knob(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.pyplot as plt
+
+	n_channels = 6
+	n_samples = 60
+	t = np.vstack([np.sin((i + 1) * np.linspace(-1.0, 1.0, n_samples)) for i in range(n_channels)]).astype(float)
+	locs = np.column_stack([
+		np.linspace(0.0, 50.0, n_channels),
+		np.linspace(0.0, 10.0, n_channels),
+	])
+
+	seen_sizes: list[tuple[float, float]] = []
+	orig_figure = plt.figure
+
+	def _spy_figure(*args, **kwargs):
+		size = kwargs.get("figsize", None)
+		if isinstance(size, tuple) and len(size) == 2:
+			seen_sizes.append((float(size[0]), float(size[1])))
+		return orig_figure(*args, **kwargs)
+
+	monkeypatch.setattr(plt, "figure", _spy_figure)
+
+	png_path = tmp_path / "propagation_layout_ratio.png"
+	render_propagation_plot(
+		template=t,
+		locations_xy=locs,
+		config=PropagationPlotConfig(
+			write_pdf=False,
+			write_png=True,
+			png_relpath="propagation_layout_ratio.png",
+			top_channels=6,
+			channels_per_panel=3,
+			channel_overlap=0,
+			show_scale_bar=False,
+			plot_width_in=12.0,
+			plot_area_aspect_ratio=6.0,
+			plot_extra_height_in=0.8,
+		),
+		pdf_path=tmp_path / "unused.pdf",
+		png_path=png_path,
+		probe_geometry=ProbeGeometryConfig(pitch_um=17.5),
+	)
+
+	assert png_path.exists()
+	assert len(seen_sizes) >= 1
+	# n_panels=2, panel_height=12/6=2.0, total=2*2.0 + 0.8 = 4.8
+	w, h = seen_sizes[-1]
+	assert np.isclose(w, 12.0)
+	assert np.isclose(h, 4.8)
 
 
 def test_render_template_wf_overlay_defaults_hide_title_axes_and_channel_labels(tmp_path: Path, monkeypatch) -> None:

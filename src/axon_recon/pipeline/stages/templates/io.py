@@ -143,6 +143,11 @@ def resolve_report_output_paths(*, templates_out_dir: Path, reports: Any) -> dic
 		pdf_relpath=reports.footprint_grids.amplitude_map_grid.pdf_relpath,
 		png_relpath=reports.footprint_grids.amplitude_map_grid.png_relpath,
 	)
+	circles_grid_pdf, circles_grid_png = _render_pdf_png_paths(
+		templates_out_dir,
+		pdf_relpath=reports.footprint_grids.circles_map_grid.pdf_relpath,
+		png_relpath=reports.footprint_grids.circles_map_grid.png_relpath,
+	)
 	lat_grid_pdf, lat_grid_png = _render_pdf_png_paths(
 		templates_out_dir,
 		pdf_relpath=reports.footprint_grids.latency_map_grid.pdf_relpath,
@@ -152,6 +157,8 @@ def resolve_report_output_paths(*, templates_out_dir: Path, reports: Any) -> dic
 	return {
 		"wf_overlay_grid_pdf": wf_grid_pdf,
 		"wf_overlay_grid_png": wf_grid_png,
+		"template_circles_map_grid_pdf": circles_grid_pdf,
+		"template_circles_map_grid_png": circles_grid_png,
 		"footprint_amplitude_map_grid_pdf": amp_grid_pdf,
 		"footprint_amplitude_map_grid_png": amp_grid_png,
 		"footprint_latency_map_grid_pdf": lat_grid_pdf,

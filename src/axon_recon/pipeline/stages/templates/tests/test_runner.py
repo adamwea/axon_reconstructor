@@ -358,9 +358,12 @@ def test_run_templates_stage_writes_footprint_maps(tmp_path: Path) -> None:
 	assert str(prop_pdf) == result.units[0].outputs.get("propagation_plot_pdf")
 
 	amp_grid_png = well_out_dir / "templates_outputs" / "reports" / "amplitude_map_grid.png"
+	circles_grid_png = well_out_dir / "templates_outputs" / "reports" / "circles_map_grid.png"
 	lat_grid_png = well_out_dir / "templates_outputs" / "reports" / "latency_map_grid.png"
+	assert circles_grid_png.exists()
 	assert amp_grid_png.exists()
 	assert lat_grid_png.exists()
+	assert str(circles_grid_png) == result.report_outputs.get("template_circles_map_grid_png")
 	assert str(amp_grid_png) == result.report_outputs.get("footprint_amplitude_map_grid_png")
 	assert str(lat_grid_png) == result.report_outputs.get("footprint_latency_map_grid_png")
 
@@ -720,7 +723,7 @@ def test_run_templates_stage_passes_effective_sampling_rate_to_timing_renderers(
 		_ = kwargs
 		return {}
 
-	def _fake_template_circles_plot_v2(*, probe_geometry=None, **kwargs):
+	def _fake_template_circles_plot(*, probe_geometry=None, **kwargs):
 		_ = kwargs
 		received_hz["circles"] = None if probe_geometry is None else probe_geometry.sampling_rate_hz
 		return {}
@@ -757,7 +760,7 @@ def test_run_templates_stage_passes_effective_sampling_rate_to_timing_renderers(
 		_fake_materialize,
 	)
 	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", _fake_template_plot)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot_v2", _fake_template_circles_plot_v2)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", _fake_template_circles_plot)
 	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", _fake_overlay)
 	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", _fake_amp_map)
 	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", _fake_latency_map)
@@ -831,7 +834,7 @@ def test_force_replot_reuses_persisted_sampling_metadata_for_timing_renderers(tm
 		_ = kwargs
 		return {}
 
-	def _fake_template_circles_plot_v2(**kwargs):
+	def _fake_template_circles_plot(**kwargs):
 		_ = kwargs
 		return {}
 
@@ -861,7 +864,7 @@ def test_force_replot_reuses_persisted_sampling_metadata_for_timing_renderers(tm
 		return {}
 
 	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", _fake_template_plot)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot_v2", _fake_template_circles_plot_v2)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", _fake_template_circles_plot)
 	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", _fake_overlay)
 	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", _fake_amp_map)
 	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", _fake_latency_map)
@@ -911,7 +914,7 @@ def test_force_replot_infers_sampling_rate_from_execution_when_metadata_missing(
 		_ = kwargs
 		return {}
 
-	def _fake_template_circles_plot_v2(**kwargs):
+	def _fake_template_circles_plot(**kwargs):
 		_ = kwargs
 		return {}
 
@@ -941,7 +944,7 @@ def test_force_replot_infers_sampling_rate_from_execution_when_metadata_missing(
 		return {}
 
 	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", _fake_template_plot)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot_v2", _fake_template_circles_plot_v2)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", _fake_template_circles_plot)
 	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", _fake_overlay)
 	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", _fake_amp_map)
 	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", _fake_latency_map)

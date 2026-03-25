@@ -1,4 +1,5 @@
 from .inputs import (
+	CenterMostChannelCoordsConfig,
 	FootprintGridsReportConfig,
 	PerUnitTemplatesOutputsConfig,
 	FootprintMapGridReportConfig,
@@ -20,12 +21,14 @@ from .inputs import (
 	TopographicalFootprintsConfig,
 	TimeUpsampleConfig,
 	TemplatesInputs,
+	UnitIdLabelConfig,
 	WfOverlayGridReportConfig,
 )
 from .results import TemplatesResult, UnitTemplatesResult
 
 __all__ = [
 	"PerUnitTemplatesOutputsConfig",
+	"CenterMostChannelCoordsConfig",
 	"FootprintGridsReportConfig",
 	"FootprintMapGridReportConfig",
 	"FootprintMapConfig",
@@ -46,6 +49,7 @@ __all__ = [
 	"TopographicalFootprintsConfig",
 	"TimeUpsampleConfig",
 	"TemplatesInputs",
+	"UnitIdLabelConfig",
 	"TemplatesResult",
 	"UnitTemplatesResult",
 	"WfOverlayGridReportConfig",

@@ -9,6 +9,7 @@ from axon_recon.pipeline.shared.plotting import build_stage_plot_block
 
 from ...execution.context import ExecutionTarget
 from .models.inputs import (
+	CenterMostChannelCoordsConfig,
 	FootprintGridsReportConfig,
 	FootprintMapGridReportConfig,
 	FootprintMapConfig,
@@ -25,6 +26,7 @@ from .models.inputs import (
 	TemplateCirclesPlotConfig,
 	TemplatePlotConfig,
 	TemplateWaveformOverlayConfig,
+	UnitIdLabelConfig,
 	TopographicalFootprintConfig,
 	TopographicalFootprintsConfig,
 	TimeUpsampleConfig,
@@ -90,6 +92,20 @@ def _normalize_template_metric(raw: Any, default: str) -> str:
 		return "amplitude"
 	if v in {"latency", "lat"}:
 		return "latency"
+	return str(default)
+
+
+def _normalize_horizontal_alignment(raw: Any, default: str = "left") -> str:
+	v = str(raw or default).strip().lower()
+	if v in {"left", "center", "right"}:
+		return v
+	return str(default)
+
+
+def _normalize_vertical_alignment(raw: Any, default: str = "top") -> str:
+	v = str(raw or default).strip().lower()
+	if v in {"top", "center", "bottom"}:
+		return v
 	return str(default)
 
 
@@ -644,6 +660,7 @@ def parse_templates_stage_config(
 	tpl = TemplatePlotConfig(
 		write_png=_as_bool(tpl_cfg.get("write_png", True), True),
 		write_svg=_as_bool(tpl_cfg.get("write_svg", False), False),
+		dpi=max(72.0, _as_float(tpl_cfg.get("dpi", 300.0), 300.0)),
 		relpath=str(tpl_cfg.get("relpath", "template")),
 		channel_scope=_normalize_channel_scope(tpl_cfg.get("channel_scope", "contributing_channels")),
 		background=str(tpl_cfg.get("background", "black")),
@@ -661,6 +678,37 @@ def parse_templates_stage_config(
 			if tpl_cfg.get("scale_bar_length_um", None) is None
 			else _as_float(tpl_cfg.get("scale_bar_length_um", None), 0.0)
 		),
+		show_axes=_as_bool(tpl_cfg.get("show_axes", True), True),
+		unit_id_label=UnitIdLabelConfig(
+			show=_as_bool(_get_nested_block(tpl_cfg, "unit_id_label").get("show", False), False),
+			fontsize=_as_float(_get_nested_block(tpl_cfg, "unit_id_label").get("fontsize", 12.0), 12.0),
+			color=str(_get_nested_block(tpl_cfg, "unit_id_label").get("color", "white")),
+			x_offset_frac=_as_float(_get_nested_block(tpl_cfg, "unit_id_label").get("x_offset_frac", 0.02), 0.02),
+			y_offset_frac=_as_float(_get_nested_block(tpl_cfg, "unit_id_label").get("y_offset_frac", 0.02), 0.02),
+			horizontal_alignment=_normalize_horizontal_alignment(
+				_get_nested_block(tpl_cfg, "unit_id_label").get("horizontal_alignment", "right"),
+				default="right",
+			),
+			vertical_alignment=_normalize_vertical_alignment(
+				_get_nested_block(tpl_cfg, "unit_id_label").get("vertical_alignment", "top"),
+				default="top",
+			),
+		),
+		center_most_channel_coords=CenterMostChannelCoordsConfig(
+			show=_as_bool(_get_nested_block(tpl_cfg, "center_most_channel_coords").get("show", False), False),
+			fontsize=_as_float(_get_nested_block(tpl_cfg, "center_most_channel_coords").get("fontsize", 10.0), 10.0),
+			color=str(_get_nested_block(tpl_cfg, "center_most_channel_coords").get("color", "white")),
+			x_offset_frac=_as_float(_get_nested_block(tpl_cfg, "center_most_channel_coords").get("x_offset_frac", 0.02), 0.02),
+			y_offset_frac=_as_float(_get_nested_block(tpl_cfg, "center_most_channel_coords").get("y_offset_frac", 0.01), 0.01),
+			horizontal_alignment=_normalize_horizontal_alignment(
+				_get_nested_block(tpl_cfg, "center_most_channel_coords").get("horizontal_alignment", "left"),
+				default="left",
+			),
+			vertical_alignment=_normalize_vertical_alignment(
+				_get_nested_block(tpl_cfg, "center_most_channel_coords").get("vertical_alignment", "top"),
+				default="top",
+			),
+		),
 	)
 	tpl_circles = TemplateCirclesPlotConfig(
 		# Keep circles-specific nested config under color_bar for runtime ergonomics.
@@ -670,6 +718,7 @@ def parse_templates_stage_config(
 		#     units: ms
 		write_png=_as_bool(tpl_circles_cfg.get("write_png", False), False),
 		write_svg=_as_bool(tpl_circles_cfg.get("write_svg", False), False),
+		dpi=max(72.0, _as_float(tpl_circles_cfg.get("dpi", tpl_cfg.get("dpi", 300.0)), 300.0)),
 		relpath=str(tpl_circles_cfg.get("relpath", "template_circles")),
 		channel_scope=_normalize_channel_scope(tpl_circles_cfg.get("channel_scope", "contributing_channels")),
 		background=str(tpl_circles_cfg.get("background", "black")),
@@ -687,7 +736,37 @@ def parse_templates_stage_config(
 			if tpl_circles_cfg.get("scale_bar_length_um", None) is None
 			else _as_float(tpl_circles_cfg.get("scale_bar_length_um", None), 0.0)
 		),
-		circle_size_scale_factor=max(0.0, _as_float(tpl_circles_cfg.get("circle_size_scale_factor", 1.0), 1.0)),
+		show_axes=_as_bool(tpl_circles_cfg.get("show_axes", True), True),
+		unit_id_label=UnitIdLabelConfig(
+			show=_as_bool(_get_nested_block(tpl_circles_cfg, "unit_id_label").get("show", False), False),
+			fontsize=_as_float(_get_nested_block(tpl_circles_cfg, "unit_id_label").get("fontsize", 12.0), 12.0),
+			color=str(_get_nested_block(tpl_circles_cfg, "unit_id_label").get("color", "white")),
+			x_offset_frac=_as_float(_get_nested_block(tpl_circles_cfg, "unit_id_label").get("x_offset_frac", 0.02), 0.02),
+			y_offset_frac=_as_float(_get_nested_block(tpl_circles_cfg, "unit_id_label").get("y_offset_frac", 0.02), 0.02),
+			horizontal_alignment=_normalize_horizontal_alignment(
+				_get_nested_block(tpl_circles_cfg, "unit_id_label").get("horizontal_alignment", "right"),
+				default="right",
+			),
+			vertical_alignment=_normalize_vertical_alignment(
+				_get_nested_block(tpl_circles_cfg, "unit_id_label").get("vertical_alignment", "top"),
+				default="top",
+			),
+		),
+		center_most_channel_coords=CenterMostChannelCoordsConfig(
+			show=_as_bool(_get_nested_block(tpl_circles_cfg, "center_most_channel_coords").get("show", False), False),
+			fontsize=_as_float(_get_nested_block(tpl_circles_cfg, "center_most_channel_coords").get("fontsize", 10.0), 10.0),
+			color=str(_get_nested_block(tpl_circles_cfg, "center_most_channel_coords").get("color", "white")),
+			x_offset_frac=_as_float(_get_nested_block(tpl_circles_cfg, "center_most_channel_coords").get("x_offset_frac", 0.02), 0.02),
+			y_offset_frac=_as_float(_get_nested_block(tpl_circles_cfg, "center_most_channel_coords").get("y_offset_frac", 0.01), 0.01),
+			horizontal_alignment=_normalize_horizontal_alignment(
+				_get_nested_block(tpl_circles_cfg, "center_most_channel_coords").get("horizontal_alignment", "left"),
+				default="left",
+			),
+			vertical_alignment=_normalize_vertical_alignment(
+				_get_nested_block(tpl_circles_cfg, "center_most_channel_coords").get("vertical_alignment", "top"),
+				default="top",
+			),
+		),
 		size_by=_normalize_template_metric(tpl_circles_cfg.get("size_by", "amplitude"), "amplitude"),
 		color_by=_normalize_template_metric(tpl_circles_cfg.get("color_by", "latency"), "latency"),
 		color_bar_units=str(
@@ -797,11 +876,21 @@ def parse_templates_stage_config(
 			top_channels_per_template=max(1, _as_int(report_overlay_grid_cfg.get("top_channels_per_template", 10), 10)),
 		),
 		footprint_grids=FootprintGridsReportConfig(
+			circles_map_grid=FootprintMapGridReportConfig(
+				write_pdf=_as_bool((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("write_pdf", False), False),
+				pdf_relpath=str((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("pdf_relpath", "circles_map_grid.pdf")),
+				write_png=_as_bool((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("write_png", True), True),
+				png_relpath=str((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("png_relpath", "circles_map_grid.png")),
+				show_title=_as_bool((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("show_title", True), True),
+				template_shape=_normalize_template_shape((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("template_shape", (footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("template", "square")), "square"),
+				global_color_scale=_as_bool((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("global_color_scale", True), True),
+			),
 			amplitude_map_grid=FootprintMapGridReportConfig(
 				write_pdf=_as_bool((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("write_pdf", False), False),
 				pdf_relpath=str((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("pdf_relpath", "amplitude_map_grid.pdf")),
 				write_png=_as_bool((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("write_png", True), True),
 				png_relpath=str((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("png_relpath", "amplitude_map_grid.png")),
+				show_title=_as_bool((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("show_title", True), True),
 				template_shape=_normalize_template_shape((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("template_shape", (footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("template", "square")), "square"),
 				global_color_scale=_as_bool((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("global_color_scale", True), True),
 			),
@@ -810,6 +899,7 @@ def parse_templates_stage_config(
 				pdf_relpath=str((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("pdf_relpath", "latency_map_grid.pdf")),
 				write_png=_as_bool((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("write_png", True), True),
 				png_relpath=str((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("png_relpath", "latency_map_grid.png")),
+				show_title=_as_bool((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("show_title", True), True),
 				template_shape=_normalize_template_shape((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("template_shape", (footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("template", "square")), "square"),
 				global_color_scale=_as_bool((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("global_color_scale", True), True),
 			),
@@ -859,6 +949,92 @@ def parse_templates_stage_config(
 		scale_bar_fontsize=_as_float(propagation_cfg.get("scale_bar_fontsize", 7.0), 7.0),
 		scale_bar_time_label_offset_frac=_as_float(propagation_cfg.get("scale_bar_time_label_offset_frac", 0.04), 0.04),
 		scale_bar_amp_label_offset_frac=_as_float(propagation_cfg.get("scale_bar_amp_label_offset_frac", 0.02), 0.02),
+		abbreviate_post_ap_signal=_as_bool(
+			_get_nested_block(propagation_cfg, "post_ap_abbrev").get("enabled", propagation_cfg.get("abbreviate_post_ap_signal", False)),
+			False,
+		),
+		post_ap_abbrev_start_ms=_as_float(
+			_get_nested_block(propagation_cfg, "post_ap_abbrev").get("start_ms", propagation_cfg.get("post_ap_abbrev_start_ms", 1.0)),
+			1.0,
+		),
+		post_ap_abbrev_start_samples=max(
+			0,
+			_as_int(
+				_get_nested_block(propagation_cfg, "post_ap_abbrev").get("start_samples", propagation_cfg.get("post_ap_abbrev_start_samples", 10)),
+				10,
+			),
+		),
+		post_ap_abbrev_cut_fraction=_as_float(
+			_get_nested_block(propagation_cfg, "post_ap_abbrev").get("cut_fraction", propagation_cfg.get("post_ap_abbrev_cut_fraction", 0.5)),
+			0.5,
+		),
+		post_ap_abbrev_min_samples_to_cut=max(
+			1,
+			_as_int(
+				_get_nested_block(propagation_cfg, "post_ap_abbrev").get("min_samples_to_cut", propagation_cfg.get("post_ap_abbrev_min_samples_to_cut", 5)),
+				5,
+			),
+		),
+		post_ap_abbrev_gap_samples=max(
+			0,
+			_as_int(
+				_get_nested_block(propagation_cfg, "post_ap_abbrev").get("gap_samples", propagation_cfg.get("post_ap_abbrev_gap_samples", 8)),
+				8,
+			),
+		),
+		post_ap_abbrev_marker_text=str(
+			_get_nested_block(propagation_cfg, "post_ap_abbrev").get("marker_text", propagation_cfg.get("post_ap_abbrev_marker_text", "/.../"))
+		),
+		post_ap_abbrev_marker_fontsize=_as_float(
+			_get_nested_block(propagation_cfg, "post_ap_abbrev").get("marker_fontsize", propagation_cfg.get("post_ap_abbrev_marker_fontsize", 7.0)),
+			7.0,
+		),
+		post_ap_abbrev_marker_y_offset_frac=_as_float(
+			_get_nested_block(propagation_cfg, "post_ap_abbrev").get("marker_y_offset_frac", propagation_cfg.get("post_ap_abbrev_marker_y_offset_frac", 0.0)),
+			0.0,
+		),
+		show_duration_info=_as_bool(
+			_get_nested_block(propagation_cfg, "duration_info").get("show", propagation_cfg.get("show_duration_info", False)),
+			False,
+		),
+		duration_info_x_frac=_as_float(
+			_get_nested_block(propagation_cfg, "duration_info").get("x_frac", propagation_cfg.get("duration_info_x_frac", 0.01)),
+			0.01,
+		),
+		duration_info_y_frac=_as_float(
+			_get_nested_block(propagation_cfg, "duration_info").get("y_frac", propagation_cfg.get("duration_info_y_frac", 0.99)),
+			0.99,
+		),
+		duration_info_fontsize=_as_float(
+			_get_nested_block(propagation_cfg, "duration_info").get("fontsize", propagation_cfg.get("duration_info_fontsize", 6.0)),
+			6.0,
+		),
+		duration_info_horizontal_alignment=str(
+			_get_nested_block(propagation_cfg, "duration_info").get("horizontal_alignment", propagation_cfg.get("duration_info_horizontal_alignment", "left"))
+		),
+		duration_info_vertical_alignment=str(
+			_get_nested_block(propagation_cfg, "duration_info").get("vertical_alignment", propagation_cfg.get("duration_info_vertical_alignment", "top"))
+		),
+		plot_width_in=_as_float(
+			_get_nested_block(propagation_cfg, "plot_layout").get("width_in", propagation_cfg.get("plot_width_in", 13.0)),
+			13.0,
+		),
+		plot_panel_height_in=_as_float(
+			_get_nested_block(propagation_cfg, "plot_layout").get("panel_height_in", propagation_cfg.get("plot_panel_height_in", 2.8)),
+			2.8,
+		),
+		plot_extra_height_in=_as_float(
+			_get_nested_block(propagation_cfg, "plot_layout").get("extra_height_in", propagation_cfg.get("plot_extra_height_in", 1.0)),
+			1.0,
+		),
+		plot_hspace=_as_float(
+			_get_nested_block(propagation_cfg, "plot_layout").get("hspace", propagation_cfg.get("plot_hspace", 0.35)),
+			0.35,
+		),
+		plot_area_aspect_ratio=_as_float_or_none(
+			_get_nested_block(propagation_cfg, "plot_layout").get("area_aspect_ratio", propagation_cfg.get("plot_area_aspect_ratio", None)),
+			None,
+		),
 		latency_map=_build_propagation_latency_map_config(
 			_get_nested_block(propagation_cfg, "latency_map")
 		),

@@ -60,6 +60,68 @@ def _compute_plot_limits(points_xy: np.ndarray, *, pad_frac: float = 0.05, pad_a
 	return xmin - px, xmax + px, ymin - py, ymax + py
 
 
+def _compute_max_non_overlapping_circle_areas(
+	*,
+	centers_display_pt: np.ndarray,
+	base_areas_pt2: np.ndarray,
+	axis_x_limits_pt: tuple[float, float],
+	axis_y_limits_pt: tuple[float, float],
+	overlap_tolerance_pt: float = 0.0,
+) -> np.ndarray:
+	"""Scale circle areas to maximize size while preventing overlaps."""
+	centers = np.asarray(centers_display_pt, dtype=float)
+	areas = np.asarray(base_areas_pt2, dtype=float)
+	if int(centers.shape[0]) == 0 or int(areas.size) == 0:
+		return np.asarray(areas, dtype=float)
+
+	areas = np.nan_to_num(areas, nan=0.0, posinf=0.0, neginf=0.0)
+	areas = np.clip(areas, 0.0, None)
+	if centers.ndim != 2 or int(centers.shape[1]) < 2:
+		raise ValueError(f"Expected centers_display_pt shape (n,2+), got {getattr(centers, 'shape', None)}")
+	centers = centers[:, :2]
+
+	xmin_pt, xmax_pt = float(min(axis_x_limits_pt)), float(max(axis_x_limits_pt))
+	ymin_pt, ymax_pt = float(min(axis_y_limits_pt)), float(max(axis_y_limits_pt))
+
+	r_base_pt = np.sqrt(np.clip(areas, 0.0, None) / np.pi)
+
+	constraints: list[float] = []
+	tol = float(max(0.0, overlap_tolerance_pt))
+
+	for i in range(int(centers.shape[0])):
+		r0 = float(r_base_pt[i])
+		if r0 <= 0.0:
+			continue
+		x_pt = float(centers[i, 0])
+		y_pt = float(centers[i, 1])
+		edge_clearance = float(min(x_pt - xmin_pt, xmax_pt - x_pt, y_pt - ymin_pt, ymax_pt - y_pt))
+		if np.isfinite(edge_clearance):
+			constraints.append(edge_clearance / r0)
+
+	n = int(centers.shape[0])
+	for i in range(n):
+		ri = float(r_base_pt[i])
+		if ri <= 0.0:
+			continue
+		xi = float(centers[i, 0])
+		yi = float(centers[i, 1])
+		for j in range(i + 1, n):
+			rj = float(r_base_pt[j])
+			if rj <= 0.0:
+				continue
+			dx = float(centers[j, 0]) - xi
+			dy = float(centers[j, 1]) - yi
+			d = float(np.hypot(dx, dy)) - tol
+			r_sum = ri + rj
+			if r_sum > 0.0:
+				constraints.append(d / r_sum)
+
+	s_radius = float(min(constraints)) if constraints else 1.0
+	s_radius = float(max(0.0, s_radius))
+
+	return np.asarray(areas * (s_radius ** 2), dtype=float)
+
+
 def _make_square_limits(
 	xmin: float,
 	xmax: float,
@@ -129,6 +191,105 @@ def _add_scale_bar(ax: Any, *, config: TemplatePlotConfig) -> None:
 		verticalalignment="bottom",
 		fontsize=float(config.scale_bar_fontsize),
 	)
+
+
+def _axes_anchor_pos(
+	*,
+	x_offset_frac: float,
+	y_offset_frac: float,
+	horizontal_alignment: str,
+	vertical_alignment: str,
+) -> tuple[float, float]:
+	ha = str(horizontal_alignment or "right").strip().lower()
+	va = str(vertical_alignment or "top").strip().lower()
+	x = 1.0 - float(x_offset_frac) if ha == "right" else (0.5 if ha == "center" else float(x_offset_frac))
+	y = 1.0 - float(y_offset_frac) if va == "top" else (0.5 if va == "center" else float(y_offset_frac))
+	return float(x), float(y)
+
+
+def _add_unit_id_label(ax: Any, *, config: TemplatePlotConfig, unit_id: Any | None) -> None:
+	label_cfg = getattr(config, "unit_id_label", None)
+	if not bool(getattr(label_cfg, "show", False)):
+		return
+	if unit_id is None:
+		return
+	ha = str(getattr(label_cfg, "horizontal_alignment", "right") or "right").strip().lower()
+	va = str(getattr(label_cfg, "vertical_alignment", "top") or "top").strip().lower()
+	x, y = _axes_anchor_pos(
+		x_offset_frac=float(getattr(label_cfg, "x_offset_frac", 0.02)),
+		y_offset_frac=float(getattr(label_cfg, "y_offset_frac", 0.02)),
+		horizontal_alignment=ha,
+		vertical_alignment=va,
+	)
+	ax.text(
+		x,
+		y,
+		f"unit {unit_id}",
+		transform=ax.transAxes,
+		ha=ha,
+		va=va,
+		fontsize=float(getattr(label_cfg, "fontsize", 12.0)),
+		color=str(getattr(label_cfg, "color", "white")),
+	)
+
+
+def _add_center_most_channel_coords(ax: Any, *, config: TemplatePlotConfig, locations_xy: np.ndarray) -> None:
+	coords_cfg = getattr(config, "center_most_channel_coords", None)
+	if not bool(getattr(coords_cfg, "show", False)):
+		return
+	locs = np.asarray(locations_xy, dtype=float)
+	if locs.ndim != 2 or int(locs.shape[0]) <= 0 or int(locs.shape[1]) < 2:
+		return
+	xy = locs[:, :2]
+	cx = float(np.nanmean(xy[:, 0]))
+	cy = float(np.nanmean(xy[:, 1]))
+	d2 = (xy[:, 0] - cx) ** 2 + (xy[:, 1] - cy) ** 2
+	idx = int(np.nanargmin(d2)) if np.isfinite(d2).any() else 0
+	x0 = float(xy[idx, 0])
+	y0 = float(xy[idx, 1])
+
+	xmin, xmax = ax.get_xlim()
+	ymin, ymax = ax.get_ylim()
+	span_x = float(max(1e-9, abs(xmax - xmin)))
+	span_y = float(max(1e-9, abs(ymax - ymin)))
+	ha = str(getattr(coords_cfg, "horizontal_alignment", "left") or "left").strip().lower()
+	va = str(getattr(coords_cfg, "vertical_alignment", "top") or "top").strip().lower()
+	off_x = float(getattr(coords_cfg, "x_offset_frac", 0.02)) * span_x
+	off_y = float(getattr(coords_cfg, "y_offset_frac", 0.01)) * span_y
+	if ha == "right":
+		x = xmax - off_x
+	elif ha == "center":
+		x = 0.5 * (xmin + xmax)
+	else:
+		x = xmin + off_x
+	if va == "top":
+		y = ymax - off_y
+	elif va == "center":
+		y = 0.5 * (ymin + ymax)
+	else:
+		y = ymin + off_y
+	ax.text(
+		x,
+		y,
+		f"({x0:.1f}, {y0:.1f})",
+		ha=ha,
+		va=va,
+		fontsize=float(getattr(coords_cfg, "fontsize", 10.0)),
+		color=str(getattr(coords_cfg, "color", "white")),
+	)
+
+
+def _apply_template_plot_overlays(
+	ax: Any,
+	*,
+	config: TemplatePlotConfig,
+	unit_id: Any | None,
+	locations_xy: np.ndarray,
+) -> None:
+	_add_unit_id_label(ax, config=config, unit_id=unit_id)
+	_add_center_most_channel_coords(ax, config=config, locations_xy=locations_xy)
+	if not bool(getattr(config, "show_axes", True)):
+		ax.set_axis_off()
 
 
 def _time_upsample_template(template: np.ndarray, upsample: TimeUpsampleConfig) -> np.ndarray:
@@ -260,10 +421,12 @@ def _add_propagation_scale_bars(
 	if x_right > (x_max - 1.0):
 		x_left -= float(x_right - (x_max - 1.0))
 		x_right = x_left + time_bar_samples
-	min_left = float(x_min - (0.15 * span_x))
-	if x_left < min_left:
-		x_left = min_left
-		x_right = x_left + time_bar_samples
+	if x_left < x_min:
+		pad = float(max(1.0, 0.02 * span_x))
+		ax.set_xlim(float(x_left - pad), float(x_max))
+		x0, x1 = ax.get_xlim()
+		x_min = float(min(x0, x1))
+		x_max = float(max(x0, x1))
 
 	anchor_y = float(min(y0, y1)) + (anchor_y_frac * span_y)
 	anchor_y = float(min(max(anchor_y, min(y0, y1) + 1.0), max(y0, y1) - 1.0))
@@ -335,6 +498,7 @@ def render_template_plot(
 	config: TemplatePlotConfig,
 	png_path: Path,
 	svg_path: Path,
+	unit_id: Any | None = None,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -407,11 +571,17 @@ def render_template_plot(
 	ax.set_aspect("equal", adjustable="box")
 	_apply_style(fig, ax, config=config)
 	_add_scale_bar(ax, config=config)
+	_apply_template_plot_overlays(ax, config=config, unit_id=unit_id, locations_xy=locs)
 
 	outputs: dict[str, str] = {}
 	if bool(config.write_png):
 		png_path.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(png_path, dpi=220, bbox_inches="tight", facecolor=fig.get_facecolor())
+		fig.savefig(
+			png_path,
+			dpi=max(72.0, float(getattr(config, "dpi", 300.0))),
+			bbox_inches="tight",
+			facecolor=fig.get_facecolor(),
+		)
 		outputs["template_png"] = str(png_path)
 	if bool(config.write_svg):
 		svg_path.parent.mkdir(parents=True, exist_ok=True)
@@ -430,6 +600,7 @@ def render_template_circles_plot(
 	png_path: Path,
 	svg_path: Path,
 	probe_geometry: ProbeGeometryConfig | None = None,
+	unit_id: Any | None = None,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -474,205 +645,42 @@ def render_template_circles_plot(
 	size_norm = np.nan_to_num(size_norm, nan=0.0, posinf=0.0, neginf=0.0)
 	if float(np.max(size_norm)) > 0.0:
 		size_norm = size_norm / float(np.max(size_norm))
-	size_scale = max(0.0, float(getattr(config, "circle_size_scale_factor", 1.0)))
-	sizes = (8.0 + 42.0 * size_norm) * size_scale
+	sizes_base = 8.0 + 42.0 * size_norm
 
 	peak_idx = int(np.argmax(amp)) if amp.size > 0 else 0
 
 	fig = plt.figure(figsize=(10, 8))
 	ax = fig.add_subplot(111)
 	circles_cmap = _maybe_reversed_colormap("viridis", reverse=(str(config.color_by) == "latency"))
+	ax.set_xlabel("x (um)")
+	ax.set_ylabel("y (um)")
+
+	xmin, xmax, ymin, ymax = _compute_plot_limits(locs)
+	if bool(config.force_square_aspect):
+		center = None
+		if bool(config.force_center_soma) and 0 <= peak_idx < int(locs.shape[0]):
+			center = (float(locs[peak_idx, 0]), float(locs[peak_idx, 1]))
+		xmin, xmax, ymin, ymax = _make_square_limits(xmin, xmax, ymin, ymax, center_xy=center)
+	elif bool(config.force_center_soma) and 0 <= peak_idx < int(locs.shape[0]):
+		cx, cy = float(locs[peak_idx, 0]), float(locs[peak_idx, 1])
+		w = float(xmax - xmin)
+		h = float(ymax - ymin)
+		xmin, xmax = cx - (w / 2.0), cx + (w / 2.0)
+		ymin, ymax = cy - (h / 2.0), cy + (h / 2.0)
+
+	ax.set_xlim(xmin, xmax)
+	ax.set_ylim(ymin, ymax)
+	ax.set_aspect("equal", adjustable="box")
 	sc = ax.scatter(
 		locs[:, 0],
 		locs[:, 1],
-		s=sizes,
+		s=sizes_base,
 		c=color_values,
 		cmap=circles_cmap,
 		norm=color_norm,
 		alpha=0.92,
 		linewidths=0.0,
 	)
-	ax.set_xlabel("x (um)")
-	ax.set_ylabel("y (um)")
-
-	xmin, xmax, ymin, ymax = _compute_plot_limits(locs)
-	if bool(config.force_square_aspect):
-		center = None
-		if bool(config.force_center_soma) and 0 <= peak_idx < int(locs.shape[0]):
-			center = (float(locs[peak_idx, 0]), float(locs[peak_idx, 1]))
-		xmin, xmax, ymin, ymax = _make_square_limits(xmin, xmax, ymin, ymax, center_xy=center)
-	elif bool(config.force_center_soma) and 0 <= peak_idx < int(locs.shape[0]):
-		cx, cy = float(locs[peak_idx, 0]), float(locs[peak_idx, 1])
-		w = float(xmax - xmin)
-		h = float(ymax - ymin)
-		xmin, xmax = cx - (w / 2.0), cx + (w / 2.0)
-		ymin, ymax = cy - (h / 2.0), cy + (h / 2.0)
-
-	ax.set_xlim(xmin, xmax)
-	ax.set_ylim(ymin, ymax)
-	ax.set_aspect("equal", adjustable="box")
-	_apply_style(fig, ax, config=config)
-	_add_scale_bar(ax, config=config)
-
-	# Use Matplotlib-managed colorbar geometry so savefig tight-bbox and DPI scaling stay consistent.
-	cbar_mappable = plt.cm.ScalarMappable(norm=color_norm, cmap=plt.get_cmap(circles_cmap))
-	cbar_mappable.set_array(color_values)
-	cbar = fig.colorbar(cbar_mappable, ax=ax, fraction=0.04, pad=0.03, extend="neither")
-	label_color = "white" if str(config.background or "").strip().lower() == "black" else "black"
-	show_axes_title = bool(config.color_bar_show_axes_title)
-	show_unit_labels = bool(config.color_bar_show_unit_labels)
-	color_bar_title = str(config.color_bar_title or "").strip()
-	unit_token = str(latency_units_label or "").strip()
-	# Keep colorbar fully opaque and avoid edge seams at bin boundaries.
-	try:
-		if getattr(cbar, "solids", None) is not None:
-			cbar.solids.set_alpha(1.0)
-			cbar.solids.set_edgecolor("face")
-	except Exception:
-		pass
-	if str(config.color_by) == "latency" and unit_token and unit_token != "samples":
-		decimals = int(max(0, min(6, int(getattr(config, "color_bar_tick_decimal_places", 3)))))
-		target_count_raw = getattr(config, "color_bar_tick_target_count", None)
-		target_count = None if target_count_raw is None else int(target_count_raw)
-		ticks = _ticks_ending_in_0_or_5_with_max(
-			vmin=vmin,
-			vmax=vmax,
-			decimal_places=decimals,
-			target_count=target_count,
-		)
-		if ticks is not None and len(ticks) > 0:
-			labels = [f"{float(t):.{decimals}f} {unit_token}" for t in ticks] if show_unit_labels else [f"{float(t):.{decimals}f}" for t in ticks]
-			cbar.set_ticks(ticks, labels=labels)
-	if show_axes_title:
-		if str(config.color_by) == "amplitude":
-			cbar.set_label("", fontsize=7, color=label_color)
-			units_token = str(config.color_bar_units or "").strip()
-			if color_bar_title:
-				cbar.ax.set_title(color_bar_title, fontsize=7, color=label_color, pad=4)
-			elif units_token:
-				cbar.ax.set_title(units_token, fontsize=7, color=label_color, pad=4)
-			elif not units_token:
-				cbar.ax.set_title("")
-		else:
-			cbar.set_label("", fontsize=7, color=label_color)
-			if color_bar_title:
-				cbar.ax.set_title(color_bar_title, fontsize=7, color=label_color, pad=4)
-			else:
-				fallback_title = f"Latency ({unit_token})" if (unit_token and unit_token != "samples") else "Latency"
-				cbar.ax.set_title(fallback_title, fontsize=7, color=label_color, pad=4)
-	else:
-		# Hide axis-level colorbar title/label and keep only tick values.
-		cbar.set_label("")
-		cbar.ax.set_title("")
-	if str(config.background or "").strip().lower() == "black":
-		cbar.ax.tick_params(colors="white")
-		cbar.outline.set_edgecolor("white")
-		if show_axes_title:
-			cbar.set_label(cbar.ax.get_ylabel(), color="white", fontsize=7)
-
-	outputs: dict[str, str] = {}
-	if bool(config.write_png):
-		png_path.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(png_path, dpi=220, bbox_inches="tight", facecolor=fig.get_facecolor())
-		outputs["template_circles_png"] = str(png_path)
-	if bool(config.write_svg):
-		svg_path.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(svg_path, format="svg", bbox_inches="tight", facecolor=fig.get_facecolor())
-		outputs["template_circles_svg"] = str(svg_path)
-
-	plt.close(fig)
-	return outputs
-
-
-def render_template_circles_plot_v2(
-	*,
-	template: Any,
-	locations_xy: Any,
-	config: TemplateCirclesPlotConfig,
-	png_path: Path,
-	svg_path: Path,
-	probe_geometry: ProbeGeometryConfig | None = None,
-) -> dict[str, str]:
-	import matplotlib
-
-	matplotlib.use("Agg")
-	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
-
-	locs = np.asarray(locations_xy, dtype=float)
-	if locs.ndim != 2 or int(locs.shape[1]) < 2:
-		raise ValueError(f"Expected locations shape (n,2+), got {getattr(locs, 'shape', None)}")
-	locs = locs[:, :2]
-
-	template_c_by_t = _as_template_channels_by_time(template, int(locs.shape[0]))
-	if int(template_c_by_t.shape[0]) != int(locs.shape[0]):
-		raise ValueError(
-			f"Template/locations size mismatch: template_channels={template_c_by_t.shape[0]} locations={locs.shape[0]}"
-		)
-
-	amp = np.ptp(template_c_by_t, axis=1)
-	min_idx = np.argmin(template_c_by_t, axis=1).astype(float)
-	ref = float(min_idx[int(np.argmax(amp))]) if min_idx.size > 0 else 0.0
-	lat_samples = min_idx - ref
-	lat, latency_units_label = _convert_latency_samples_to_units(
-		lat_samples,
-		units=str(config.color_bar_units or ""),
-		probe_geometry=probe_geometry,
-	)
-
-	size_metric = amp if str(config.size_by) == "amplitude" else np.abs(lat)
-	color_metric = amp if str(config.color_by) == "amplitude" else lat
-	color_values = np.asarray(color_metric, dtype=float)
-	vmin = float(np.nanmin(color_values)) if color_values.size > 0 else 0.0
-	vmax = float(np.nanmax(color_values)) if color_values.size > 0 else 1.0
-	if not np.isfinite(vmin):
-		vmin = 0.0
-	if not np.isfinite(vmax):
-		vmax = 1.0
-	if vmax <= vmin:
-		vmax = vmin + 1.0
-	color_norm = plt.Normalize(vmin=vmin, vmax=vmax)
-
-	size_norm = np.asarray(size_metric, dtype=float)
-	size_norm = np.nan_to_num(size_norm, nan=0.0, posinf=0.0, neginf=0.0)
-	if float(np.max(size_norm)) > 0.0:
-		size_norm = size_norm / float(np.max(size_norm))
-	size_scale = max(0.0, float(getattr(config, "circle_size_scale_factor", 1.0)))
-	sizes = (8.0 + 42.0 * size_norm) * size_scale
-
-	peak_idx = int(np.argmax(amp)) if amp.size > 0 else 0
-
-	fig = plt.figure(figsize=(10, 8))
-	ax = fig.add_subplot(111)
-	circles_cmap = _maybe_reversed_colormap("viridis", reverse=(str(config.color_by) == "latency"))
-	ax.scatter(
-		locs[:, 0],
-		locs[:, 1],
-		s=sizes,
-		c=color_values,
-		cmap=circles_cmap,
-		norm=color_norm,
-		alpha=0.92,
-		linewidths=0.0,
-	)
-	ax.set_xlabel("x (um)")
-	ax.set_ylabel("y (um)")
-
-	xmin, xmax, ymin, ymax = _compute_plot_limits(locs)
-	if bool(config.force_square_aspect):
-		center = None
-		if bool(config.force_center_soma) and 0 <= peak_idx < int(locs.shape[0]):
-			center = (float(locs[peak_idx, 0]), float(locs[peak_idx, 1]))
-		xmin, xmax, ymin, ymax = _make_square_limits(xmin, xmax, ymin, ymax, center_xy=center)
-	elif bool(config.force_center_soma) and 0 <= peak_idx < int(locs.shape[0]):
-		cx, cy = float(locs[peak_idx, 0]), float(locs[peak_idx, 1])
-		w = float(xmax - xmin)
-		h = float(ymax - ymin)
-		xmin, xmax = cx - (w / 2.0), cx + (w / 2.0)
-		ymin, ymax = cy - (h / 2.0), cy + (h / 2.0)
-
-	ax.set_xlim(xmin, xmax)
-	ax.set_ylim(ymin, ymax)
-	ax.set_aspect("equal", adjustable="box")
 	_apply_style(fig, ax, config=config)
 	_add_scale_bar(ax, config=config)
 
@@ -746,10 +754,33 @@ def render_template_circles_plot_v2(
 		if show_axes_title:
 			cbar.set_label(cbar.ax.get_ylabel(), color="white", fontsize=7)
 
+	_apply_template_plot_overlays(ax, config=config, unit_id=unit_id, locations_xy=locs)
+
+	# Compute final non-overlapping sizes after colorbar/layout has finalized axis dimensions.
+	fig.canvas.draw()
+	bbox = ax.get_window_extent()
+	axis_scale = float(72.0 / float(fig.dpi))
+	centers_display_pt = np.asarray(ax.transData.transform(locs), dtype=float) * axis_scale
+	bbox_x_limits_pt = (float(bbox.x0) * axis_scale, float(bbox.x1) * axis_scale)
+	bbox_y_limits_pt = (float(bbox.y0) * axis_scale, float(bbox.y1) * axis_scale)
+	sizes = _compute_max_non_overlapping_circle_areas(
+		centers_display_pt=centers_display_pt,
+		base_areas_pt2=sizes_base,
+		axis_x_limits_pt=bbox_x_limits_pt,
+		axis_y_limits_pt=bbox_y_limits_pt,
+		overlap_tolerance_pt=0.0,
+	)
+	sc.set_sizes(sizes)
+
 	outputs: dict[str, str] = {}
 	if bool(config.write_png):
 		png_path.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(png_path, dpi=220, bbox_inches="tight", facecolor=fig.get_facecolor())
+		fig.savefig(
+			png_path,
+			dpi=max(72.0, float(getattr(config, "dpi", 300.0))),
+			bbox_inches="tight",
+			facecolor=fig.get_facecolor(),
+		)
 		outputs["template_circles_png"] = str(png_path)
 	if bool(config.write_svg):
 		svg_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1062,6 +1093,8 @@ def render_propagation_plot(
 	order = np.argsort(lat_idx)
 	selected = selected[order]
 	lat_idx = lat_idx[order]
+	ref_ch = int(max_amp_electrode) if max_amp_electrode is not None else int(selected[0])
+	ref_neg_peak_idx = int(np.argmin(t[ref_ch, :]))
 
 	channels_per_panel = max(1, int(config.channels_per_panel))
 	overlap = max(0, int(config.channel_overlap))
@@ -1080,8 +1113,20 @@ def render_propagation_plot(
 		start += stride
 
 	n_panels = max(1, len(panels))
-	fig = plt.figure(figsize=(13, 2.8 * n_panels + 1.0))
-	gs = fig.add_gridspec(nrows=n_panels, ncols=1, hspace=0.35)
+	plot_width_in = float(max(4.0, float(getattr(config, "plot_width_in", 13.0))))
+	plot_panel_height_in = float(max(0.8, float(getattr(config, "plot_panel_height_in", 2.8))))
+	plot_extra_height_in = float(max(0.0, float(getattr(config, "plot_extra_height_in", 1.0))))
+	plot_hspace = float(max(0.0, float(getattr(config, "plot_hspace", 0.35))))
+	plot_area_aspect_ratio = getattr(config, "plot_area_aspect_ratio", None)
+	if plot_area_aspect_ratio is not None:
+		try:
+			ratio_val = float(plot_area_aspect_ratio)
+			if ratio_val > 0.0:
+				plot_panel_height_in = float(max(0.8, plot_width_in / ratio_val))
+		except Exception:
+			pass
+	fig = plt.figure(figsize=(plot_width_in, (plot_panel_height_in * n_panels) + plot_extra_height_in))
+	gs = fig.add_gridspec(nrows=n_panels, ncols=1, hspace=plot_hspace)
 	trace_axes = [fig.add_subplot(gs[i, 0]) for i in range(n_panels)]
 
 	bg = str(config.background or "").strip().lower()
@@ -1101,7 +1146,86 @@ def render_propagation_plot(
 		trace_color = "black"
 		text_color = "black"
 
+	if bool(getattr(config, "show_duration_info", False)):
+		sr_hz_for_duration = None if probe_geometry is None else probe_geometry.sampling_rate_hz
+		before_samples = int(max(0, ref_neg_peak_idx))
+		after_samples = int(max(0, int(t.shape[1]) - ref_neg_peak_idx - 1))
+		total_samples = int(max(0, int(t.shape[1])))
+		if sr_hz_for_duration is not None and float(sr_hz_for_duration) > 0.0:
+			before_ms = float(before_samples / float(sr_hz_for_duration) * 1000.0)
+			after_ms = float(after_samples / float(sr_hz_for_duration) * 1000.0)
+			total_ms = float(total_samples / float(sr_hz_for_duration) * 1000.0)
+			duration_label = (
+				f"before: {_format_no_sci(before_ms, max_decimals=3)} ms | "
+				f"after: {_format_no_sci(after_ms, max_decimals=3)} ms | "
+				f"total: {_format_no_sci(total_ms, max_decimals=3)} ms"
+			)
+		else:
+			duration_label = f"before: {before_samples} samples | after: {after_samples} samples | total: {total_samples} samples"
+		duration_ha = str(getattr(config, "duration_info_horizontal_alignment", "left") or "left").strip().lower()
+		if duration_ha not in {"left", "center", "right"}:
+			duration_ha = "left"
+		duration_va = str(getattr(config, "duration_info_vertical_alignment", "top") or "top").strip().lower()
+		if duration_va not in {"top", "center", "bottom"}:
+			duration_va = "top"
+		trace_axes[0].text(
+			float(getattr(config, "duration_info_x_frac", 0.01)),
+			float(getattr(config, "duration_info_y_frac", 0.99)),
+			duration_label,
+			transform=trace_axes[0].transAxes,
+			fontsize=float(max(1.0, float(getattr(config, "duration_info_fontsize", 6.0)))),
+			color=text_color,
+			horizontalalignment=duration_ha,
+			verticalalignment=duration_va,
+		)
+
 	x = np.arange(int(t.shape[1]), dtype=float)
+	n_samples = int(t.shape[1])
+	cut_start_idx: int | None = None
+	cut_end_idx: int | None = None
+	cut_len_samples = 0
+	gap_samples = int(max(0, int(getattr(config, "post_ap_abbrev_gap_samples", 8))))
+	shift_samples = 0
+	marker_center_x: float | None = None
+	if bool(getattr(config, "abbreviate_post_ap_signal", False)) and n_samples > 6:
+		post_peak_remaining = int(max(0, n_samples - (ref_neg_peak_idx + 1)))
+		sr_hz = None if probe_geometry is None else probe_geometry.sampling_rate_hz
+		if sr_hz is not None and float(sr_hz) > 0.0:
+			start_ms = float(max(0.0, float(getattr(config, "post_ap_abbrev_start_ms", 1.0))))
+			start_after_peak_ms_samples = int(max(0, int(round((start_ms / 1000.0) * float(sr_hz)))))
+			start_after_peak_samples = int(start_after_peak_ms_samples)
+		else:
+			start_after_peak_samples = int(max(0, int(getattr(config, "post_ap_abbrev_start_samples", 10))))
+		# If ms-based start would land beyond the available post-peak tail,
+		# fall back to sample-based knob to avoid a near no-op cut.
+		fallback_start_samples = int(max(0, int(getattr(config, "post_ap_abbrev_start_samples", 10))))
+		max_start_offset = int(max(0, post_peak_remaining - 3))
+		if max_start_offset > 0 and start_after_peak_samples > max_start_offset and fallback_start_samples > 0:
+			start_after_peak_samples = int(min(fallback_start_samples, max_start_offset))
+		cut_start_candidate = int(ref_neg_peak_idx + start_after_peak_samples)
+		cut_start_candidate = int(min(max(1, cut_start_candidate), n_samples - 3))
+		cut_fraction = float(min(0.95, max(0.0, float(getattr(config, "post_ap_abbrev_cut_fraction", 0.5)))))
+		desired_cut_len = int(np.floor(float(post_peak_remaining) * cut_fraction))
+		available_after_start = int(max(0, (n_samples - 2) - cut_start_candidate))
+		cut_len_candidate = int(min(desired_cut_len, available_after_start))
+		min_cut = int(max(1, int(getattr(config, "post_ap_abbrev_min_samples_to_cut", 5))))
+		if cut_len_candidate >= min_cut and (available_after_start - cut_len_candidate) >= 0:
+			cut_start_idx = cut_start_candidate
+			cut_end_idx = int(cut_start_candidate + cut_len_candidate)
+			cut_len_samples = int(cut_len_candidate)
+			gap_samples = int(min(max(0, gap_samples), max(0, cut_len_samples - 1)))
+			shift_samples = int(max(0, cut_len_samples - gap_samples))
+			marker_center_x = float(cut_start_idx) + (0.5 * float(gap_samples))
+
+	def _map_sample_to_plot_x(sample_idx: float) -> float:
+		if cut_start_idx is None or cut_end_idx is None or cut_len_samples <= 0:
+			return float(sample_idx)
+		if float(sample_idx) <= float(cut_start_idx):
+			return float(sample_idx)
+		if float(sample_idx) >= float(cut_end_idx):
+			return float(sample_idx) - float(shift_samples)
+		return float(sample_idx)
+
 	base_step = float(max(1e-6, np.max(np.ptp(t[selected, :], axis=1))))
 	offset_step = base_step * max(0.2, float(config.trace_spacing))
 	trace_gain = float(max(1e-9, float(config.trace_gain)))
@@ -1112,7 +1236,7 @@ def render_propagation_plot(
 		label_alignment = "left"
 	for panel_i, panel_inds in enumerate(panels):
 		ax = trace_axes[panel_i]
-		label_x_offset = float(getattr(config, "electrode_label_x_offset_frac", getattr(config, "channel_label_x_offset_frac", 0.01))) * float(max(1, x.shape[0]))
+		label_x_offset = float(getattr(config, "electrode_label_x_offset_frac", getattr(config, "channel_label_x_offset_frac", 0.01))) * float(max(1, x.shape[0] - shift_samples))
 		label_y_offset = float(getattr(config, "electrode_label_y_offset_frac", getattr(config, "channel_label_y_offset_frac", 0.0))) * float(offset_step)
 		min_label_x: float | None = None
 		for i_local, idx in enumerate(panel_inds):
@@ -1124,13 +1248,42 @@ def render_propagation_plot(
 					label_id = candidate
 			off = float(i_local) * offset_step
 			y = (t[ch, :] * trace_gain) + off
-			ax.plot(x, y, color=trace_color, linewidth=0.9, alpha=0.95)
+			if cut_start_idx is not None and cut_end_idx is not None and shift_samples > 0:
+				left_slice = slice(0, cut_start_idx + 1)
+				right_slice = slice(cut_end_idx, n_samples)
+				x_left = x[left_slice]
+				y_left = y[left_slice]
+				if x_left.size > 1:
+					ax.plot(x_left, y_left, color=trace_color, linewidth=0.9, alpha=0.95)
+				x_right_raw = x[right_slice]
+				y_right = y[right_slice]
+				if x_right_raw.size > 1:
+					x_right = x_right_raw - float(shift_samples)
+					ax.plot(x_right, y_right, color=trace_color, linewidth=0.9, alpha=0.95)
+				marker_text = str(getattr(config, "post_ap_abbrev_marker_text", "/.../") or "").strip()
+				if marker_text and marker_center_x is not None:
+					y_l = float(y[int(cut_start_idx)])
+					y_r = float(y[int(cut_end_idx)])
+					marker_y = 0.5 * (y_l + y_r)
+					marker_y += float(getattr(config, "post_ap_abbrev_marker_y_offset_frac", 0.0)) * float(offset_step)
+					ax.text(
+						float(marker_center_x),
+						marker_y,
+						marker_text,
+						color=text_color,
+						fontsize=float(max(1.0, float(getattr(config, "post_ap_abbrev_marker_fontsize", 7.0)))),
+						horizontalalignment="center",
+						verticalalignment="center",
+					)
+			else:
+				ax.plot(x, y, color=trace_color, linewidth=0.9, alpha=0.95)
 			pk = float(np.argmax(np.abs(t[ch, :])))
+			pk_plot = _map_sample_to_plot_x(pk)
 			peak_y = float(y[int(pk)])
 			marker_height = float(max(1.2, peak_marker_height_frac * offset_step))
 			marker_half = float(0.5 * marker_height)
 			ax.plot(
-				[pk, pk],
+				[pk_plot, pk_plot],
 				[peak_y - marker_half, peak_y + marker_half],
 				color="black",
 				linewidth=peak_marker_linewidth,
@@ -1138,7 +1291,7 @@ def render_propagation_plot(
 			)
 			if bool(getattr(config, "show_electrode_ids", False)):
 				ax.text(
-					x[0] + label_x_offset,
+					_map_sample_to_plot_x(x[0]) + label_x_offset,
 					off + label_y_offset,
 					f"eid {label_id}",
 					color=text_color,
@@ -1151,10 +1304,11 @@ def render_propagation_plot(
 					horizontalalignment=label_alignment,
 					verticalalignment="center",
 				)
+				label_anchor_x = float(_map_sample_to_plot_x(x[0]) + label_x_offset)
 				if min_label_x is None:
-					min_label_x = float(x[0] + label_x_offset)
+					min_label_x = label_anchor_x
 				else:
-					min_label_x = min(min_label_x, float(x[0] + label_x_offset))
+					min_label_x = min(min_label_x, label_anchor_x)
 
 		if min_label_x is not None:
 			x_left, x_right = ax.get_xlim()
@@ -1179,12 +1333,14 @@ def render_propagation_plot(
 		ax.set_yticks([])
 		for spine in ax.spines.values():
 			spine.set_visible(False)
+		# Marker is drawn per-trace above to align with each abbreviated waveform.
 
 	if bool(config.show_scale_bar):
 		max_trace_amp_units = float(np.max(np.abs(t[selected, :])))
+		n_display_samples = int(max(2, int(t.shape[1]) - int(shift_samples)))
 		_add_propagation_scale_bars(
 			ax=trace_axes[-1],
-			n_samples=int(t.shape[1]),
+			n_samples=n_display_samples,
 			trace_offset_step=offset_step,
 			trace_gain=trace_gain,
 			max_trace_amplitude_units=max_trace_amp_units,
@@ -1545,6 +1701,7 @@ def render_footprint_map_grid(
 		png_path=png_path,
 		png_output_key=png_output_key,
 		title=title,
+		show_title=bool(getattr(config, "show_title", True)),
 	)
 
 
@@ -1558,6 +1715,7 @@ def render_image_grid(
 	png_path: Path,
 	png_output_key: str,
 	title: str,
+	show_title: bool = True,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -1586,7 +1744,8 @@ def render_image_grid(
 		ax.set_title(paths[i].parent.name, fontsize=7)
 		ax.axis("off")
 
-	fig.suptitle(title, fontsize=10)
+	if bool(show_title):
+		fig.suptitle(title, fontsize=10)
 
 	outputs: dict[str, str] = {}
 	if bool(write_png):

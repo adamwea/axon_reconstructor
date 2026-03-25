@@ -126,14 +126,115 @@ def _extract_electrode_ids(recording: Any) -> list[Any] | None:
 	return None
 
 
+def _extract_total_waveform_count(analyzer: Any, unit_id: Any) -> int:
+	count = 1
+	try:
+		sorting = analyzer.sorting
+		if hasattr(sorting, "get_num_segments") and hasattr(sorting, "get_unit_spike_train"):
+			n_segments = int(sorting.get_num_segments())
+			count = 0
+			for seg_idx in range(max(1, n_segments)):
+				st = sorting.get_unit_spike_train(unit_id=unit_id, segment_index=seg_idx)
+				count += int(len(st))
+			count = max(1, int(count))
+	except Exception:
+		count = 1
+	return int(count)
+
+
+def _parse_waveforms_window_from_extension(wf_ext: Any) -> tuple[float | None, float | None]:
+	params_candidates: list[Any] = []
+	for attr in ("params", "_params"):
+		if hasattr(wf_ext, attr):
+			try:
+				params_candidates.append(getattr(wf_ext, attr))
+			except Exception:
+				pass
+
+	for params in params_candidates:
+		if not isinstance(params, dict):
+			continue
+		block = params.get("waveforms", params)
+		if not isinstance(block, dict):
+			continue
+		ms_before = block.get("ms_before", None)
+		ms_after = block.get("ms_after", None)
+		try:
+			ms_before_f = None if ms_before is None else float(ms_before)
+		except Exception:
+			ms_before_f = None
+		try:
+			ms_after_f = None if ms_after is None else float(ms_after)
+		except Exception:
+			ms_after_f = None
+		if ms_before_f is not None or ms_after_f is not None:
+			return ms_before_f, ms_after_f
+
+	return None, None
+
+
+def _try_recompute_waveforms_extension(
+	*,
+	analyzer: Any,
+	requested_max_waveforms: int | None,
+) -> bool:
+	"""Best-effort recompute of random_spikes+waveforms with requested cap semantics.
+
+	Returns True when recompute appears to run successfully.
+	"""
+	attempted_attr = "_axon_recon_waveforms_recompute_attempted"
+	if bool(getattr(analyzer, attempted_attr, False)):
+		return False
+	setattr(analyzer, attempted_attr, True)
+
+	try:
+		wf_ext = analyzer.get_extension("waveforms")
+	except Exception:
+		wf_ext = None
+
+	ms_before, ms_after = _parse_waveforms_window_from_extension(wf_ext)
+	random_spikes_params: dict[str, Any] = {
+		"method": "uniform",
+		"seed": 0,
+	}
+	if requested_max_waveforms is not None and int(requested_max_waveforms) > 0:
+		random_spikes_params["max_spikes_per_unit"] = int(requested_max_waveforms)
+
+	extension_params: dict[str, Any] = {
+		"random_spikes": random_spikes_params,
+	}
+	if ms_before is not None or ms_after is not None:
+		wf_params: dict[str, Any] = {}
+		if ms_before is not None:
+			wf_params["ms_before"] = float(ms_before)
+		if ms_after is not None:
+			wf_params["ms_after"] = float(ms_after)
+		extension_params["waveforms"] = wf_params
+
+	try:
+		analyzer.compute(
+			["random_spikes", "waveforms"],
+			extension_params=extension_params,
+			verbose=False,
+			n_jobs=1,
+		)
+		return True
+	except Exception:
+		LOGGER.debug("Failed to recompute waveforms extension with requested cap", exc_info=True)
+		return False
+
+
 def build_unit_source_payload(
 	*,
 	analyzer: Any,
 	unit_id: Any,
+	max_waveforms_per_source_channel: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, list[Any] | None, list[Any] | None, int, float | None, np.ndarray | None, Any, int | None] | None:
 	t = _extract_unit_template(analyzer, unit_id)
 	if t is None:
 		return None
+
+	waveform_count = _extract_total_waveform_count(analyzer=analyzer, unit_id=unit_id)
 
 	locs = np.asarray(analyzer.recording.get_channel_locations(), dtype=float)
 	electrode_ids = _extract_electrode_ids(analyzer.recording)
@@ -156,6 +257,13 @@ def build_unit_source_payload(
 	top_electrode_waveforms: np.ndarray | None = None
 	top_electrode_id: Any = None
 	top_electrode_waveform_count: int | None = None
+	requested_waveforms: int | None
+	if max_waveforms_per_source_channel is None:
+		requested_waveforms = None
+	else:
+		requested_waveforms = int(max_waveforms_per_source_channel)
+		if requested_waveforms <= 0:
+			requested_waveforms = None
 	try:
 		ptp = np.ptp(t_ch_by_t, axis=1)
 		top_local_idx = int(np.argmax(ptp)) if int(ptp.size) > 0 else 0
@@ -169,6 +277,15 @@ def build_unit_source_payload(
 		if analyzer.has_extension("waveforms"):
 			wf_ext = analyzer.get_extension("waveforms")
 			wf_all = np.asarray(wf_ext.get_waveforms_one_unit(unit_id=unit_id, force_dense=False), dtype=float)
+			need_waveforms = int(waveform_count) if requested_waveforms is None else int(min(max(1, requested_waveforms), int(waveform_count)))
+			if int(wf_all.shape[0]) < int(need_waveforms):
+				if _try_recompute_waveforms_extension(analyzer=analyzer, requested_max_waveforms=requested_waveforms):
+					wf_ext = analyzer.get_extension("waveforms")
+					wf_all = np.asarray(wf_ext.get_waveforms_one_unit(unit_id=unit_id, force_dense=False), dtype=float)
+
+			if requested_waveforms is not None and int(wf_all.shape[0]) > int(requested_waveforms):
+				wf_all = np.asarray(wf_all[: int(requested_waveforms), :, :], dtype=float)
+
 			if wf_all.ndim == 3 and int(wf_all.shape[0]) > 0 and int(wf_all.shape[1]) > 0 and int(wf_all.shape[2]) > 0:
 				# Expected sparse-path case: channels match normalized template channels.
 				if int(wf_all.shape[2]) == int(t_ch_by_t.shape[0]):
@@ -181,19 +298,6 @@ def build_unit_source_payload(
 	except Exception:
 		top_electrode_waveforms = None
 		top_electrode_waveform_count = None
-
-	waveform_count = 1
-	try:
-		sorting = analyzer.sorting
-		if hasattr(sorting, "get_num_segments") and hasattr(sorting, "get_unit_spike_train"):
-			n_segments = int(sorting.get_num_segments())
-			count = 0
-			for seg_idx in range(max(1, n_segments)):
-				st = sorting.get_unit_spike_train(unit_id=unit_id, segment_index=seg_idx)
-				count += int(len(st))
-			waveform_count = max(1, int(count))
-	except Exception:
-		waveform_count = 1
 
 	sampling_rate_hz: float | None
 	try:

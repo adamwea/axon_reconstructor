@@ -16,6 +16,14 @@ resources:
   max_workers: 24
   chunk_duration: 1s
 
+global_logger:
+  level: INFO
+  format: "[%(asctime)s] %(levelname)s - %(message)s"
+  debug_mode:
+    enable: false
+    level: DEBUG
+    format: "[%(asctime)s] %(levelname)s - %(message)s (%(pathname)s:%(funcName)s:%(lineno)d)"
+
 global_heatmap_defaults:
   # Shared defaults for heatmap-like plots across templates and reconstruct/recon.
   # Stage/output blocks can override any of these values and add plot-specific keys as needed.
@@ -130,7 +138,12 @@ stages:
       max_units: null
       max_segments: null
 
-  templates:
+  templates:    
+    
+    resources:
+      max_stage_workers: 24
+      well_workers: 2
+
     execution:
       debug: false 
       force_restart: false
@@ -169,10 +182,6 @@ stages:
         max_waveforms_per_source_channel: -1
         overlap_match_priority: [electrode_id, location]
         location_tolerance_um: 1.0
-
-    resources:
-      max_stage_workers: 24
-      well_workers: 2
 
     # All outputs from templates stage
     outputs:
@@ -261,9 +270,28 @@ stages:
             scale_bar_fontsize: 18
             scale_bar_linewidth: 1.8
             #scale_bar_length_um: null # optional fixed bar length; when null uses auto 50/100 um
+            unit_id_label:
+              show: true
+              fontsize: 14
+              color: white
+              x_offset_frac: 0.02
+              y_offset_frac: 0.02
+              horizontal_alignment: right
+              vertical_alignment: top
+            show_axes: false
+            center_most_channel_coords: 
+              show: true # whether to show coordinate labels centered on the most central channel in the template, which can help with orienting the template relative to the MEA layout.
+              fontsize: 10
+              color: white
+              x_offset_frac: 0.02
+              y_offset_frac: 0.02
+              horizontal_alignment: right
+              vertical_alignment: top
+
           circles:
             write_png: true
             write_svg: false
+            dpi: 420
             relpath: template_circles
             channel_scope: contributing_channels
             background: black
@@ -273,10 +301,9 @@ stages:
             show_scale_bar: true
             scale_bar_color: white
             scale_bar_text_offset_frac: 0.02 # move label closer/farther from bar in axis-height fractions
-            scale_bar_y_offset_frac: 0.06 # vertical offset of bar from lower edge in axis-height fractions
-            scale_bar_fontsize: 18
+            scale_bar_y_offset_frac: 0.015 # vertical offset of bar from lower edge in axis-height fractions
+            scale_bar_fontsize: 20
             scale_bar_linewidth: 6
-            circle_size_scale_factor: 5.5 # scaling factor for circle sizes; larger values make circles bigger overall
             #scale_bar_length_um: null # optional fixed bar length; when null uses auto 50/100 um
             size_by: amplitude # amplitude or latency; if amplitude, channel circle sizes are scaled by the relative amplitude of the template on each channel. If latency, channel circle sizes are scaled by the relative latency of the template on each channel.
             color_by: latency # amplitude or latency; if amplitude, channel colors are determined by the relative amplitude of the template on each channel. If latency, channel colors are determined by the relative latency of the template on each channel.
@@ -287,8 +314,26 @@ stages:
               show_unit_label: true # whether to show tick labels on the color bar, which include the units (e.g. "10 ms") or just the numeric value (e.g. "10")
               tick_decimal_places: 3 # controls tick label precision and dynamic 0/5-style tick density (more precision -> more candidate ticks)
               tick_target_count: 10 # optional desired number of ticks; <=0 or omitted lets renderer pick automatically
+            unit_id_label:
+              show: true
+              fontsize: 15
+              color: white
+              x_offset_frac: 0.02
+              y_offset_frac: 0.00
+              horizontal_alignment: right
+              vertical_alignment: top
+            show_axes: false
+            center_most_channel_coords: 
+              show: true # whether to show coordinate labels centered on the most central channel in the template, which can help with orienting the template relative to the MEA layout.
+              fontsize: 15
+              color: white
+              x_offset_frac: 0.02
+              y_offset_frac: 0.00
+              horizontal_alignment: left
+              vertical_alignment: bottom
+                                                                                                                                      
         extremum_ch_wf_overlay:
-          debug_mode: true # if true, will include additional debug info in the plot such as unit_id, template source, and applied upsampling factor and method, which can be useful for verifying that the correct templates are being plotted and that upsampling is being applied as expected.
+          debug_mode: false # if true, will include additional debug info in the plot such as unit_id, template source, and applied upsampling factor and method, which can be useful for verifying that the correct templates are being plotted and that upsampling is being applied as expected.
           write_pdf: false
           pdf_relpath: extremum_ch_wf_overlay.pdf
           write_png: true
@@ -387,7 +432,7 @@ stages:
           peak_marker_height_frac: 0.50 # relative marker height vs per-channel vertical spacing; increase for taller peak ticks
           peak_marker_linewidth: 0.5 # linewidth (pt) for peak tick marks
           show_scale_bar: true
-          scale_bar_anchor_x_frac: -0.12
+          scale_bar_anchor_x_frac: -0.20
           scale_bar_anchor_y_frac: 0.09
           scale_bar_time_fraction: 0.075
           scale_bar_amp_fraction: 0.5
@@ -398,7 +443,31 @@ stages:
           scale_bar_fontsize: 7
           scale_bar_time_label_offset_frac: 0.02
           scale_bar_amp_label_offset_frac: 0.01
-          abbreviate_post_ap_signal: true # whether to abbreviate the post-peak portion of the traces in the plot.
+          post_ap_abbrev:
+            enabled: true # whether to abbreviate the post-peak portion of traces in the propagation plot.
+            start_ms: 1.5 # start abbreviation this many ms after the negative peak on the reference electrode.
+            start_samples: 10 # fallback when sampling rate is unavailable, or when ms-based start is out-of-range.
+            cut_fraction: 0.80 # fraction of the post-peak tail to remove.
+            min_samples_to_cut: 5 # skip abbreviation if computed cut is smaller than this.
+            gap_samples: 8 # horizontal gap preserved for marker text after compression.
+            marker_text: /.../ # marker drawn at the collapsed section on each trace.
+            marker_fontsize: 7
+            marker_y_offset_frac: 0.0 # extra vertical offset in trace-spacing fraction.
+
+          duration_info:
+            show: true # show before/after/total duration annotation.
+            x_frac: 0.01 # annotation x position in axis fraction.
+            y_frac: 0.01 # annotation y position in axis fraction.
+            fontsize: 6
+            horizontal_alignment: left
+            vertical_alignment: top
+
+          plot_layout:
+            width_in: 8.0
+            panel_height_in: 2.8
+            extra_height_in: 1.0
+            hspace: 0.35
+            area_aspect_ratio: null # width/height per panel; when set, overrides panel_height_in.
       
       ## Reports
       reports:
@@ -418,7 +487,17 @@ stages:
             method: sinc
 
         footprint_grids:
+          circles_map_grid:
+            show_title: false
+            write_pdf: false
+            pdf_relpath: circles_map_grid.pdf
+            write_png: true
+            png_relpath: circles_map_grid.png
+            template: square
+            global_color_scale: true # whether to use a global color scale across all units in the grid, or individual color scales per unit. Global color scale allows for better comparison of amplitude values across units, while individual color scales can enhance visibility of spatial patterns within each unit.
+          
           amplitude_map_grid:
+            show_title: false
             write_pdf: false
             pdf_relpath: amplitude_map_grid.pdf
             write_png: true
@@ -427,6 +506,7 @@ stages:
             global_color_scale: true # whether to use a global color scale across all units in the grid, or individual color scales per unit. Global color scale allows for better comparison of amplitude values across units, while individual color scales can enhance visibility of spatial patterns within each unit.
 
           latency_map_grid:
+            show_title: false
             write_pdf: false
             pdf_relpath: latency_map_grid.pdf
             write_png: true

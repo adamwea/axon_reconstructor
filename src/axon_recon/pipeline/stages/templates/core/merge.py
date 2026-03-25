@@ -415,7 +415,9 @@ def materialize_unit_templates_by_unit_with_meta(
 ) -> tuple[dict[Any, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[Any] | None]], dict[Any, dict[str, Any]]]:
 	results: dict[Any, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[Any] | None]] = {}
 	decisions: dict[Any, dict[str, Any]] = {}
-	for uid in unit_ids:
+	total_units = int(len(unit_ids))
+	for idx, uid in enumerate(unit_ids, start=1):
+		LOGGER.info("Templates materialization unit start: %d/%d unit_id=%s", idx, total_units, uid)
 		source_payloads: list[tuple[str, tuple[Any, ...]]] = []
 		for src_name, analyzer in analyzers:
 			payload = payload_builder(analyzer=analyzer, unit_id=uid)
@@ -437,6 +439,22 @@ def materialize_unit_templates_by_unit_with_meta(
 		decisions[uid] = decision
 		if materialized is not None:
 			results[uid] = materialized
+			LOGGER.info(
+				"Templates materialization unit done: %d/%d unit_id=%s sources=%d applied_upsampling=%s",
+				idx,
+				total_units,
+				uid,
+				len(source_payloads),
+				bool(decision.get("applied", False)),
+			)
+		else:
+			LOGGER.info(
+				"Templates materialization unit skipped: %d/%d unit_id=%s sources=%d",
+				idx,
+				total_units,
+				uid,
+				len(source_payloads),
+			)
 	return results, decisions
 
 
@@ -471,11 +489,17 @@ def materialize_templates_from_spikeinterface(
 		include_concat=bool(include_concat),
 		include_segments=bool(include_segments),
 	)
+	LOGGER.info(
+		"Templates materialization loaded analyzers: count=%d names=%s",
+		len(analyzers),
+		[str(name) for name, _ in analyzers],
+	)
 
 	if unit_ids is None:
 		base_unit_ids = list(getattr(analyzers[0][1].sorting, "unit_ids", []))
 	else:
 		base_unit_ids = list(unit_ids)
+	LOGGER.info("Templates materialization target units: count=%d", len(base_unit_ids))
 
 	raw_sampling_rate_hz: float | None = None
 	if raw_data_h5_path is not None and stream_id is not None:
@@ -491,7 +515,11 @@ def materialize_templates_from_spikeinterface(
 	materialized_by_unit, upsampling_decisions_by_unit = materialize_unit_templates_by_unit_with_meta(
 		analyzers=analyzers,
 		unit_ids=base_unit_ids,
-		payload_builder=build_unit_source_payload,
+		payload_builder=lambda analyzer, unit_id: build_unit_source_payload(
+			analyzer=analyzer,
+			unit_id=unit_id,
+			max_waveforms_per_source_channel=max_waveforms_per_source_channel,
+		),
 		enable_merge=bool(enable_merge),
 		merge_method=merge_method,
 		centering_method=centering_method,
@@ -500,6 +528,11 @@ def materialize_templates_from_spikeinterface(
 		location_tolerance_um=location_tolerance_um,
 		execution_upsampling=execution_upsampling,
 		raw_sampling_rate_hz=raw_sampling_rate_hz,
+	)
+	LOGGER.info(
+		"Templates materialization merge complete: materialized_units=%d decisions=%d",
+		len(materialized_by_unit),
+		len(upsampling_decisions_by_unit),
 	)
 
 	for uid, materialized in materialized_by_unit.items():
@@ -523,7 +556,11 @@ def materialize_templates_from_spikeinterface(
 		# Persist top-electrode waveform snippets for waveform-level overlay rendering.
 		selected_payload: tuple[Any, ...] | None = None
 		for src_name, analyzer in analyzers:
-			payload = build_unit_source_payload(analyzer=analyzer, unit_id=uid)
+			payload = build_unit_source_payload(
+				analyzer=analyzer,
+				unit_id=uid,
+				max_waveforms_per_source_channel=max_waveforms_per_source_channel,
+			)
 			if payload is None or len(payload) < 9:
 				if bool(debug_overlay):
 					print(

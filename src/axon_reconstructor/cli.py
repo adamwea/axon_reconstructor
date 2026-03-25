@@ -72,6 +72,21 @@ def _resolve_bool(*, cli_value: bool | None, env_key: str, default: bool) -> boo
     return bool(env_utils.env_bool(env_key, default=default))
 
 
+def _configure_cli_logging(*, debug_enabled: bool) -> None:
+    level = logging.DEBUG if bool(debug_enabled) else logging.INFO
+    root = logging.getLogger()
+    if not root.handlers:
+        logging.basicConfig(level=level, format="[%(levelname)s] %(message)s", force=True)
+        return
+
+    root.setLevel(level)
+    for handler in root.handlers:
+        try:
+            handler.setLevel(level)
+        except Exception:
+            continue
+
+
 def _resolve_int(*, cli_value: int | None, env_key: str, default: int) -> int:
     if cli_value is not None:
         return int(cli_value)
@@ -999,8 +1014,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         , cfg=runtime_config, cfg_path="stages.waveforms.debug.max_segments"
     )
 
-    if bool(debug_enabled):
-        logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s", force=True)
+    _configure_cli_logging(debug_enabled=bool(debug_enabled))
 
     h5_path_optional = _resolve_optional_path_cfg(
         cli_value=args.h5_path,
@@ -2591,8 +2605,7 @@ def _cmd_scope_run(args: argparse.Namespace) -> int:
         raise SystemExit(f"Invalid scope config:\n{msg}")
 
     debug_enabled = _resolve_bool(cli_value=getattr(args, "debug", None), env_key="AXON_RECON_DEBUG", default=False)
-    if bool(debug_enabled):
-        logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s", force=True)
+    _configure_cli_logging(debug_enabled=bool(debug_enabled))
 
     logger = logging.getLogger("axon_reconstructor.scope")
     logger.info("Scope summary: %s", summarize_scope_config(scope_config))

@@ -29,6 +29,19 @@ class _MockSparsity:
 		self.unit_id_to_channel_indices = mapping
 
 
+class _MockWaveformsExtension:
+	def __init__(self, waveforms: np.ndarray, *, ms_before: float = 1.0, ms_after: float = 2.0) -> None:
+		self._waveforms = np.asarray(waveforms, dtype=float)
+		self.params = {"waveforms": {"ms_before": float(ms_before), "ms_after": float(ms_after)}}
+
+	def get_waveforms_one_unit(self, *, unit_id: int, force_dense: bool = False) -> np.ndarray:
+		_ = unit_id, force_dense
+		return np.asarray(self._waveforms, dtype=float)
+
+	def set_waveforms(self, waveforms: np.ndarray) -> None:
+		self._waveforms = np.asarray(waveforms, dtype=float)
+
+
 class _MockRecording:
 	def __init__(self) -> None:
 		self._locations = np.asarray([[0.0, 0.0], [10.0, 0.0], [20.0, 0.0]], dtype=float)
@@ -68,27 +81,61 @@ class _MockSorting:
 
 
 class _MockAnalyzer:
-	def __init__(self, *, templates_ext, has_templates: bool = True) -> None:
+	def __init__(
+		self,
+		*,
+		templates_ext,
+		has_templates: bool = True,
+		waveforms: np.ndarray | None = None,
+		full_waveforms: np.ndarray | None = None,
+	) -> None:
 		self.recording = _MockRecording()
 		self.sorting = _MockSorting(unit_ids=[94])
 		self.sparsity = _MockSparsity(mapping={"94": [2, 0]})
 		self._templates_ext = templates_ext
 		self._has_templates = bool(has_templates)
+		self._full_waveforms = None if full_waveforms is None else np.asarray(full_waveforms, dtype=float)
+		if waveforms is None:
+			self._waveforms_ext = None
+		else:
+			self._waveforms_ext = _MockWaveformsExtension(np.asarray(waveforms, dtype=float))
 
 	def has_extension(self, name: str) -> bool:
 		if name == "templates":
 			return self._has_templates
+		if name == "waveforms":
+			return self._waveforms_ext is not None
 		return False
 
 	def get_extension(self, name: str):
 		if name == "templates":
 			return self._templates_ext
+		if name == "waveforms" and self._waveforms_ext is not None:
+			return self._waveforms_ext
 		raise KeyError(name)
 
-	def compute(self, names, verbose: bool = False, n_jobs: int = 1) -> None:
+	def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1) -> None:
 		_ = names, verbose, n_jobs
-		# Simulate unavailable template computation path.
-		self._has_templates = False
+		name_list = [str(n) for n in (names or [])]
+		if "random_spikes" in name_list and "waveforms" in name_list and self._full_waveforms is not None:
+			max_spikes = None
+			if isinstance(extension_params, dict):
+				rs = extension_params.get("random_spikes", {})
+				if isinstance(rs, dict):
+					max_spikes = rs.get("max_spikes_per_unit", None)
+			if max_spikes is None:
+				n = int(self._full_waveforms.shape[0])
+			else:
+				n = max(1, min(int(max_spikes), int(self._full_waveforms.shape[0])))
+			if self._waveforms_ext is None:
+				self._waveforms_ext = _MockWaveformsExtension(self._full_waveforms[:n, :, :])
+			else:
+				self._waveforms_ext.set_waveforms(self._full_waveforms[:n, :, :])
+			return
+
+		# Simulate unavailable template computation path for templates-only compute calls.
+		if "templates" in name_list:
+			self._has_templates = False
 
 
 def test_build_unit_source_payload_contract_with_get_unit_template() -> None:
@@ -143,3 +190,66 @@ def test_build_unit_source_payload_returns_none_when_templates_unavailable() -> 
 	analyzer = _MockAnalyzer(templates_ext=_MockTemplatesExtension(np.zeros((2, 2), dtype=float)), has_templates=False)
 	payload = build_unit_source_payload(analyzer=analyzer, unit_id=94)
 	assert payload is None
+
+
+def test_build_unit_source_payload_expands_to_all_waveforms_when_unlimited() -> None:
+	template_time_by_ch = np.asarray(
+		[
+			[1.0, 3.0],
+			[2.0, 4.0],
+			[0.0, 0.0],
+			[0.0, 0.0],
+		],
+		dtype=float,
+	)
+	full_waveforms = np.arange(5 * 4 * 2, dtype=float).reshape(5, 4, 2)
+	limited_waveforms = full_waveforms[:3, :, :]
+	analyzer = _MockAnalyzer(
+		templates_ext=_MockTemplatesExtension(template_time_by_ch),
+		has_templates=True,
+		waveforms=limited_waveforms,
+		full_waveforms=full_waveforms,
+	)
+
+	payload = build_unit_source_payload(
+		analyzer=analyzer,
+		unit_id=94,
+		max_waveforms_per_source_channel=None,
+	)
+	assert payload is not None
+	_, _, _, _, waveform_count, _, top_wf, _, top_count = payload
+	assert waveform_count == 5
+	assert top_wf is not None
+	assert int(top_wf.shape[0]) == 5
+	assert top_count == 5
+
+
+def test_build_unit_source_payload_honors_positive_waveform_cap() -> None:
+	template_time_by_ch = np.asarray(
+		[
+			[1.0, 3.0],
+			[2.0, 4.0],
+			[0.0, 0.0],
+			[0.0, 0.0],
+		],
+		dtype=float,
+	)
+	full_waveforms = np.arange(6 * 4 * 2, dtype=float).reshape(6, 4, 2)
+	limited_waveforms = full_waveforms[:3, :, :]
+	analyzer = _MockAnalyzer(
+		templates_ext=_MockTemplatesExtension(template_time_by_ch),
+		has_templates=True,
+		waveforms=limited_waveforms,
+		full_waveforms=full_waveforms,
+	)
+
+	payload = build_unit_source_payload(
+		analyzer=analyzer,
+		unit_id=94,
+		max_waveforms_per_source_channel=2,
+	)
+	assert payload is not None
+	_, _, _, _, _, _, top_wf, _, top_count = payload
+	assert top_wf is not None
+	assert int(top_wf.shape[0]) == 2
+	assert top_count == 2
