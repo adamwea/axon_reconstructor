@@ -316,6 +316,11 @@ def test_run_templates_stage_writes_footprint_maps(tmp_path: Path) -> None:
 		reports=ReportsConfig(
 			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
 			footprint_grids=FootprintGridsReportConfig(
+				circles_map_grid=FootprintMapGridReportConfig(
+					write_pdf=False,
+					write_png=True,
+					png_relpath="reports/circles_map_grid.png",
+				),
 				amplitude_map_grid=FootprintMapGridReportConfig(
 					write_pdf=False,
 					write_png=True,

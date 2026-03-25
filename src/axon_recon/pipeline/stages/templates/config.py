@@ -108,6 +108,12 @@ def _normalize_vertical_alignment(raw: Any, default: str = "top") -> str:
 		return v
 	return str(default)
 
+def _normalize_grid_render_mode(raw: Any, default: str = "image_composite") -> str:
+	v = str(raw or default).strip().lower().replace("-", "_").replace(" ", "_")
+	if v in {"direct_replot", "image_composite"}:
+		return v
+	return str(default)
+
 
 def _first_dict_block(runtime_config: RuntimeConfig, paths: tuple[str, ...]) -> dict[str, Any]:
 	for path in paths:
@@ -874,6 +880,8 @@ def parse_templates_stage_config(
 			write_png=_as_bool(report_overlay_grid_cfg.get("write_png", True), True),
 			png_relpath=str(report_overlay_grid_cfg.get("png_relpath", "wf_overlay_grid.png")),
 			top_channels_per_template=max(1, _as_int(report_overlay_grid_cfg.get("top_channels_per_template", 10), 10)),
+			render_mode=_normalize_grid_render_mode(report_overlay_grid_cfg.get("render_mode", "direct_replot"), "direct_replot"),
+			dpi=max(72.0, _as_float(report_overlay_grid_cfg.get("dpi", 300.0), 300.0)),
 		),
 		footprint_grids=FootprintGridsReportConfig(
 			circles_map_grid=FootprintMapGridReportConfig(
@@ -884,6 +892,8 @@ def parse_templates_stage_config(
 				show_title=_as_bool((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("show_title", True), True),
 				template_shape=_normalize_template_shape((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("template_shape", (footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("template", "square")), "square"),
 				global_color_scale=_as_bool((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("global_color_scale", True), True),
+				render_mode=_normalize_grid_render_mode((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("render_mode", "direct_replot"), "direct_replot"),
+				dpi=max(72.0, _as_float((footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}).get("dpi", 300.0), 300.0)),
 			),
 			amplitude_map_grid=FootprintMapGridReportConfig(
 				write_pdf=_as_bool((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("write_pdf", False), False),
@@ -893,6 +903,8 @@ def parse_templates_stage_config(
 				show_title=_as_bool((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("show_title", True), True),
 				template_shape=_normalize_template_shape((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("template_shape", (footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("template", "square")), "square"),
 				global_color_scale=_as_bool((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("global_color_scale", True), True),
+				render_mode=_normalize_grid_render_mode((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("render_mode", "direct_replot"), "direct_replot"),
+				dpi=max(72.0, _as_float((footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}).get("dpi", 300.0), 300.0)),
 			),
 			latency_map_grid=FootprintMapGridReportConfig(
 				write_pdf=_as_bool((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("write_pdf", False), False),
@@ -902,6 +914,8 @@ def parse_templates_stage_config(
 				show_title=_as_bool((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("show_title", True), True),
 				template_shape=_normalize_template_shape((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("template_shape", (footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("template", "square")), "square"),
 				global_color_scale=_as_bool((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("global_color_scale", True), True),
+				render_mode=_normalize_grid_render_mode((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("render_mode", "direct_replot"), "direct_replot"),
+				dpi=max(72.0, _as_float((footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}).get("dpi", 300.0), 300.0)),
 			),
 		),
 	)

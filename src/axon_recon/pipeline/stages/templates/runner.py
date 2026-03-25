@@ -872,6 +872,71 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 	try:
 		LOGGER.info("Templates reports start: stream=%s", inputs.stream_id)
 		report_paths = resolve_report_output_paths(templates_out_dir=templates_out_dir, reports=inputs.reports)
+
+		def _collect_grid_unit_payloads(*, kind: str, template_shape: str | None = None) -> list[dict[str, Any]]:
+			payloads: list[dict[str, Any]] = []
+			try:
+				merged_units_dir_resolved, full_channels_templates_dir_resolved = _ensure_templates_dirs()
+			except Exception:
+				return payloads
+			for u in unit_results:
+				if str(u.status) != "ok":
+					continue
+				uid = u.unit_id
+				try:
+					merged_dir = merged_units_dir_resolved / f"unit_{uid}"
+					full_dir = full_channels_templates_dir_resolved / f"unit_{uid}"
+					merged_template, merged_locs = _load_merged_unit(merged_dir)
+					full_payload = _load_full_unit(full_dir) if full_channels_templates_dir_resolved.exists() else None
+					if str(kind) == "circles":
+						t, locs, _ = _select_template_for_scope(
+							merged_template=merged_template,
+							merged_locs=merged_locs,
+							full_payload=full_payload,
+							channel_scope=inputs.per_unit_outputs.template_circles.channel_scope,
+						)
+					else:
+						t, locs, _ = _select_template_for_shape(
+							merged_template=merged_template,
+							merged_locs=merged_locs,
+							full_payload=full_payload,
+							template_shape=str(template_shape or "square"),
+						)
+					payloads.append({"unit_id": uid, "template": t, "locations_xy": locs})
+				except Exception:
+					continue
+			return payloads
+
+		def _collect_overlay_unit_payloads() -> list[dict[str, Any]]:
+			payloads: list[dict[str, Any]] = []
+			try:
+				merged_units_dir_resolved, _ = _ensure_templates_dirs()
+			except Exception:
+				return payloads
+			for u in unit_results:
+				if str(u.status) != "ok":
+					continue
+				uid = u.unit_id
+				try:
+					merged_dir = merged_units_dir_resolved / f"unit_{uid}"
+					merged_template, _ = _load_merged_unit(merged_dir)
+					overlay_payload = load_materialized_overlay_waveforms(merged_unit_dir=merged_dir)
+					if overlay_payload is None:
+						continue
+					waveforms, top_electrode_id, total_count = overlay_payload
+					payloads.append(
+						{
+							"unit_id": uid,
+							"template": merged_template,
+							"waveform_traces": waveforms,
+							"top_electrode_id": top_electrode_id,
+							"total_waveforms_at_channel": total_count,
+						}
+					)
+				except Exception:
+					continue
+			return payloads
+
 		overlay_paths = [
 			Path(u.outputs["template_wf_overlay_png"])
 			for u in unit_results
@@ -881,9 +946,13 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		report_outputs.update(
 			render_wf_overlay_grid(
 				overlay_png_paths=overlay_paths,
+				unit_payloads=_collect_overlay_unit_payloads(),
 				config=inputs.reports.wf_overlay_grid,
 				pdf_path=report_paths["wf_overlay_grid_pdf"],
 				png_path=report_paths["wf_overlay_grid_png"],
+				overlay_config=inputs.per_unit_outputs.template_wf_overlay,
+				report_time_upsample=inputs.reports.time_upsample,
+				probe_geometry=inputs.probe_geometry,
 			)
 		)
 		circles_map_paths = [
@@ -895,12 +964,16 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		report_outputs.update(
 			render_footprint_map_grid(
 				image_paths=circles_map_paths,
+				unit_payloads=_collect_grid_unit_payloads(kind="circles"),
 				config=inputs.reports.footprint_grids.circles_map_grid,
 				pdf_path=report_paths["template_circles_map_grid_pdf"],
 				png_path=report_paths["template_circles_map_grid_png"],
 				pdf_output_key="template_circles_map_grid_pdf",
 				png_output_key="template_circles_map_grid_png",
 				title="Template circles map grid",
+				panel_kind="circles",
+				circles_config=inputs.per_unit_outputs.template_circles,
+				probe_geometry=inputs.probe_geometry,
 			)
 		)
 		amp_map_paths = [
@@ -912,12 +985,19 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		report_outputs.update(
 			render_footprint_map_grid(
 				image_paths=amp_map_paths,
+				unit_payloads=_collect_grid_unit_payloads(
+					kind="amplitude",
+					template_shape=inputs.reports.footprint_grids.amplitude_map_grid.template_shape,
+				),
 				config=inputs.reports.footprint_grids.amplitude_map_grid,
 				pdf_path=report_paths["footprint_amplitude_map_grid_pdf"],
 				png_path=report_paths["footprint_amplitude_map_grid_png"],
 				pdf_output_key="footprint_amplitude_map_grid_pdf",
 				png_output_key="footprint_amplitude_map_grid_png",
 				title="Template footprint amplitude map grid",
+				panel_kind="amplitude",
+				footprint_config=inputs.per_unit_outputs.footprint_plots.amplitude_map,
+				probe_geometry=inputs.probe_geometry,
 			)
 		)
 		lat_map_paths = [
@@ -929,12 +1009,19 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		report_outputs.update(
 			render_footprint_map_grid(
 				image_paths=lat_map_paths,
+				unit_payloads=_collect_grid_unit_payloads(
+					kind="latency",
+					template_shape=inputs.reports.footprint_grids.latency_map_grid.template_shape,
+				),
 				config=inputs.reports.footprint_grids.latency_map_grid,
 				pdf_path=report_paths["footprint_latency_map_grid_pdf"],
 				png_path=report_paths["footprint_latency_map_grid_png"],
 				pdf_output_key="footprint_latency_map_grid_pdf",
 				png_output_key="footprint_latency_map_grid_png",
 				title="Template footprint latency map grid",
+				panel_kind="latency",
+				footprint_config=inputs.per_unit_outputs.footprint_plots.latency_map,
+				probe_geometry=inputs.probe_geometry,
 			)
 		)
 		if bool(inputs.reports.plot_multi_source_pdf.enabled):

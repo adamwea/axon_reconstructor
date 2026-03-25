@@ -9,6 +9,7 @@ import matplotlib.collections  # type: ignore[import-not-found]
 from axon_recon.pipeline.stages.templates.core.render import render_propagation_plot
 from axon_recon.pipeline.stages.templates.core.render import render_footprint_map_grid
 from axon_recon.pipeline.stages.templates.core.render import render_template_wf_overlay
+from axon_recon.pipeline.stages.templates.core.render import render_wf_overlay_grid
 from axon_recon.pipeline.stages.templates.core.render import render_topographical_amplitude_footprint
 from axon_recon.pipeline.stages.templates.core.render import _expand_limits_for_glyph_half_size
 from axon_recon.pipeline.stages.templates.core.render import _probe_electrode_dims_um
@@ -22,6 +23,7 @@ from axon_recon.pipeline.stages.templates.core.render import render_template_cir
 from axon_recon.pipeline.stages.templates.core.render import render_template_plot
 from axon_recon.pipeline.stages.templates.models.inputs import (
 	CenterMostChannelCoordsConfig,
+	FootprintMapConfig,
 	ProbeGeometryConfig,
 	PropagationLatencyMapConfig,
 	PropagationPlotConfig,
@@ -32,6 +34,7 @@ from axon_recon.pipeline.stages.templates.models.inputs import (
 	TopographicalFootprintConfig,
 	UnitIdLabelConfig,
 	FootprintMapGridReportConfig,
+	WfOverlayGridReportConfig,
 )
 
 
@@ -470,22 +473,117 @@ def test_render_footprint_map_grid_hides_title_when_disabled(tmp_path: Path, mon
 	pdf_path = tmp_path / "grid.pdf"
 	outputs = render_footprint_map_grid(
 		image_paths=[img_path],
+		unit_payloads=None,
 		config=FootprintMapGridReportConfig(
 			write_pdf=False,
 			write_png=True,
 			png_relpath="grid.png",
 			show_title=False,
+			render_mode="image_composite",
 		),
 		pdf_path=pdf_path,
 		png_path=png_path,
 		pdf_output_key="grid_pdf",
 		png_output_key="grid_png",
 		title="Amplitude map grid",
+		panel_kind="amplitude",
 	)
 
 	assert png_path.exists()
 	assert outputs.get("grid_png") == str(png_path)
 	assert seen_suptitles == []
+
+
+def test_render_footprint_map_grid_direct_replot_avoids_imread(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.pyplot as mpl_pyplot
+
+	def _boom(*args, **kwargs):
+		raise AssertionError("imread should not be called in direct_replot mode")
+
+	monkeypatch.setattr(mpl_pyplot, "imread", _boom)
+
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+			[-0.6, -1.5, -0.3, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+			[36.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	png_path = tmp_path / "grid_direct.png"
+	pdf_path = tmp_path / "grid_direct.pdf"
+	outputs = render_footprint_map_grid(
+		image_paths=[],
+		unit_payloads=[{"unit_id": 94, "template": template, "locations_xy": locations}],
+		config=FootprintMapGridReportConfig(
+			write_pdf=False,
+			write_png=True,
+			png_relpath="grid_direct.png",
+			show_title=False,
+			render_mode="direct_replot",
+		),
+		pdf_path=pdf_path,
+		png_path=png_path,
+		pdf_output_key="grid_pdf",
+		png_output_key="grid_png",
+		title="Amplitude map grid",
+		panel_kind="amplitude",
+		footprint_config=FootprintMapConfig(write_png=False, write_svg=False),
+	)
+
+	assert png_path.exists()
+	assert outputs.get("grid_png") == str(png_path)
+
+
+def test_render_wf_overlay_grid_direct_replot_avoids_imread(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.pyplot as mpl_pyplot
+
+	def _boom(*args, **kwargs):
+		raise AssertionError("imread should not be called in direct_replot mode")
+
+	monkeypatch.setattr(mpl_pyplot, "imread", _boom)
+
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+			[-0.6, -1.5, -0.3, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	waveforms = np.tile(np.sin(np.linspace(-1.0, 1.0, 40, dtype=float)), (25, 1))
+
+	png_path = tmp_path / "wf_overlay_grid_direct.png"
+	outputs = render_wf_overlay_grid(
+		overlay_png_paths=[],
+		unit_payloads=[
+			{
+				"unit_id": 94,
+				"template": template,
+				"waveform_traces": waveforms,
+				"top_electrode_id": 0,
+				"total_waveforms_at_channel": int(waveforms.shape[0]),
+			}
+		],
+		config=WfOverlayGridReportConfig(write_pdf=False, write_png=True, render_mode="direct_replot"),
+		pdf_path=tmp_path / "unused.pdf",
+		png_path=png_path,
+		overlay_config=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
+		report_time_upsample=TimeUpsampleConfig(enabled=False, factor=1, method="linear"),
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+
+	assert png_path.exists()
+	assert outputs.get("wf_overlay_grid_png") == str(png_path)
 
 
 def test_render_propagation_plot_without_latency_map_uses_single_column_layout(tmp_path: Path, monkeypatch) -> None:

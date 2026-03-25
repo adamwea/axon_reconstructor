@@ -476,6 +476,8 @@ stages:
           pdf_relpath: wf_overlay_grid.pdf
           write_png: true
           png_relpath: wf_overlay_grid.png
+          render_mode: direct_replot
+          dpi: 420
           top_channels_per_template: 10
           
           # I think this was just for the wf overlay grid report...
@@ -493,17 +495,23 @@ stages:
             pdf_relpath: circles_map_grid.pdf
             write_png: true
             png_relpath: circles_map_grid.png
+            render_mode: direct_replot
+            dpi: 420
             template: square
             global_color_scale: true # whether to use a global color scale across all units in the grid, or individual color scales per unit. Global color scale allows for better comparison of amplitude values across units, while individual color scales can enhance visibility of spatial patterns within each unit.
-          
+            subplot_background_color: black # background color for each subplot in the grid; separate from the color map background which is the default background color for the plot area behind the circles, which can be set in global_heatmap_defaults if desired.
+
           amplitude_map_grid:
             show_title: false
             write_pdf: false
             pdf_relpath: amplitude_map_grid.pdf
             write_png: true
             png_relpath: amplitude_map_grid.png
+            render_mode: direct_replot
+            dpi: 420
             template: square
             global_color_scale: true # whether to use a global color scale across all units in the grid, or individual color scales per unit. Global color scale allows for better comparison of amplitude values across units, while individual color scales can enhance visibility of spatial patterns within each unit.
+            subplot_background_color: black # background color for each subplot in the grid; separate from the color map background which is the default background color for the plot area behind the circles, which can be set in global_heatmap_defaults if desired.
 
           latency_map_grid:
             show_title: false
@@ -511,9 +519,12 @@ stages:
             pdf_relpath: latency_map_grid.pdf
             write_png: true
             png_relpath: latency_map_grid.png
+            render_mode: direct_replot
+            dpi: 420
             template: square
             global_color_scale: true # whether to use a global color scale across all units in the grid, or individual color scales per unit. Global color scale allows for better comparison of amplitude values across units, while individual color scales can enhance visibility of spatial patterns within each unit.
-
+            subplot_background_color: black # background color for each subplot in the grid; separate from the color map background which is the default background color for the plot area behind the circles, which can be set in global_heatmap_defaults if desired.
+            
   # Templates stage updated to Pipeline V2 above this line. -------------------------
 
   reconstruct:

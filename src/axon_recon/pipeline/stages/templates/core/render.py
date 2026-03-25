@@ -1388,12 +1388,66 @@ def render_template_wf_overlay(
 
 	matplotlib.use("Agg")
 	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+	debug_mode = bool(getattr(config, "debug_mode", False))
 
+	fig = plt.figure(figsize=(10, 6))
+	ax = fig.add_subplot(111)
+	if str(config.background or "").strip().lower() == "black":
+		fig.patch.set_facecolor("black")
+	else:
+		fig.patch.set_facecolor("white")
+	_draw_template_wf_overlay_panel(
+		ax=ax,
+		template=template,
+		config=config,
+		time_upsample=time_upsample,
+		probe_geometry=probe_geometry,
+		waveform_traces=waveform_traces,
+		top_electrode_id=top_electrode_id,
+		top_channel_id=top_channel_id,
+		total_waveforms_at_channel=total_waveforms_at_channel,
+	)
+
+	outputs: dict[str, str] = {}
+	if bool(config.write_png):
+		png_path.parent.mkdir(parents=True, exist_ok=True)
+		fig.savefig(png_path, dpi=220, bbox_inches="tight", facecolor=fig.get_facecolor())
+		outputs["template_wf_overlay_png"] = str(png_path)
+		outputs["extremum_ch_wf_overlay_png"] = str(png_path)
+	if bool(config.write_pdf):
+		pdf_path.parent.mkdir(parents=True, exist_ok=True)
+		fig.savefig(pdf_path, format="pdf", bbox_inches="tight", facecolor=fig.get_facecolor())
+		outputs["template_wf_overlay_pdf"] = str(pdf_path)
+		outputs["extremum_ch_wf_overlay_pdf"] = str(pdf_path)
+
+	if debug_mode:
+		print(
+			"[template_wf_overlay][debug] "
+			f"wrote_png={outputs.get('template_wf_overlay_png')} "
+			f"wrote_pdf={outputs.get('template_wf_overlay_pdf')}",
+			flush=True,
+		)
+
+	plt.close(fig)
+	return outputs
+
+
+def _draw_template_wf_overlay_panel(
+	*,
+	ax: Any,
+	template: Any,
+	config: TemplateWaveformOverlayConfig,
+	time_upsample: TimeUpsampleConfig,
+	probe_geometry: ProbeGeometryConfig | None = None,
+	waveform_traces: Any | None = None,
+	top_electrode_id: Any | None = None,
+	top_channel_id: Any | None = None,
+	total_waveforms_at_channel: int | None = None,
+) -> None:
 	t = np.asarray(template)
 	if t.ndim != 2:
 		raise ValueError(f"Expected 2D template array for overlay, got shape={getattr(t, 'shape', None)}")
 	t = _time_upsample_template(t, time_upsample)
-	debug_mode = bool(getattr(config, "debug_mode", False))
 
 	n_channels, n_samples = int(t.shape[0]), int(t.shape[1])
 	if n_channels <= 0 or n_samples <= 0:
@@ -1405,7 +1459,6 @@ def render_template_wf_overlay(
 	if top_electrode_id is None and top_channel_id is not None:
 		top_electrode_id = top_channel_id
 
-	# Waveform-level overlay path: show sampled waveforms from the unit's top channel.
 	wf_all = None
 	if waveform_traces is not None:
 		wf_arr = np.asarray(waveform_traces, dtype=float)
@@ -1426,23 +1479,11 @@ def render_template_wf_overlay(
 		elif mode in {"first", "head"}:
 			show_idx = np.arange(n_show, dtype=int)
 		else:
-			# Default deterministic uniform coverage across all sampled waveforms.
 			show_idx = np.linspace(0, n_total - 1, n_show, dtype=int)
 		wf_show = wf_all[show_idx, :]
 		mean_wave = np.mean(wf_all, axis=0) if bool(config.include_mean) else None
 		offset_step = float(max(1e-6, np.max(np.ptp(wf_show, axis=1)) * 1.2))
-		if debug_mode:
-			print(
-				"[template_wf_overlay][debug] mode=waveform "
-				f"top_electrode_id={top_electrode_id} "
-				f"total_waveforms_at_channel={total_waveforms_at_channel} "
-				f"wf_all_shape={tuple(wf_all.shape)} "
-				f"wf_show_shape={tuple(wf_show.shape)} "
-				f"sampling_mode={mode} seed={getattr(config, 'random_seed', None)}",
-				flush=True,
-			)
 	else:
-		# Fallback path for legacy call sites without waveform traces.
 		ptp = np.ptp(t, axis=1)
 		top_n = max(1, int(config.top_channels_per_template))
 		order = np.argsort(-ptp)
@@ -1451,28 +1492,17 @@ def render_template_wf_overlay(
 		n_total = int(wf_show.shape[0])
 		mean_wave = np.mean(wf_show, axis=0) if bool(config.include_mean) else None
 		offset_step = float(max(1e-6, np.max(np.ptp(wf_show, axis=1)) * 1.2))
-		if debug_mode:
-			print(
-				"[template_wf_overlay][debug] mode=legacy_template_fallback "
-				f"template_shape={tuple(t.shape)} wf_show_shape={tuple(wf_show.shape)}",
-				flush=True,
-			)
 
 	x = np.arange(int(wf_show.shape[1]), dtype=float)
 
-	fig = plt.figure(figsize=(10, 6))
-	ax = fig.add_subplot(111)
-
 	bg = str(config.background or "").strip().lower()
 	if bg == "black":
-		fig.patch.set_facecolor("black")
 		ax.set_facecolor("black")
 		for spine in ax.spines.values():
 			spine.set_color("white")
 		trace_color = "white"
 		mean_color = "cyan"
 	else:
-		fig.patch.set_facecolor("white")
 		ax.set_facecolor("white")
 		trace_color = "black"
 		mean_color = "red"
@@ -1532,18 +1562,6 @@ def render_template_wf_overlay(
 	if bool(getattr(config, "show_title", False)):
 		ax.set_title(f"Extremum-channel waveforms (style={style})")
 
-	if debug_mode:
-		print(
-			"[template_wf_overlay][debug] "
-			f"show_top_channel_info={bool(getattr(config, 'show_top_channel_info', True))} "
-			f"show_waveform_count_info={bool(getattr(config, 'show_waveform_count_info', True))} "
-			f"show_axes={bool(getattr(config, 'show_axes', False))} "
-			f"show_title={bool(getattr(config, 'show_title', False))} "
-			f"background={str(config.background)} "
-			f"effective_sr_hz={effective_sr_hz}",
-			flush=True,
-		)
-
 	if bool(config.include_scale_bar):
 		x0, x1 = ax.get_xlim()
 		y0, y1 = ax.get_ylim()
@@ -1586,29 +1604,6 @@ def render_template_wf_overlay(
 			verticalalignment="center",
 			rotation=90,
 		)
-
-	outputs: dict[str, str] = {}
-	if bool(config.write_png):
-		png_path.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(png_path, dpi=220, bbox_inches="tight", facecolor=fig.get_facecolor())
-		outputs["template_wf_overlay_png"] = str(png_path)
-		outputs["extremum_ch_wf_overlay_png"] = str(png_path)
-	if bool(config.write_pdf):
-		pdf_path.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(pdf_path, format="pdf", bbox_inches="tight", facecolor=fig.get_facecolor())
-		outputs["template_wf_overlay_pdf"] = str(pdf_path)
-		outputs["extremum_ch_wf_overlay_pdf"] = str(pdf_path)
-
-	if debug_mode:
-		print(
-			"[template_wf_overlay][debug] "
-			f"wrote_png={outputs.get('template_wf_overlay_png')} "
-			f"wrote_pdf={outputs.get('template_wf_overlay_pdf')}",
-			flush=True,
-		)
-
-	plt.close(fig)
-	return outputs
 
 
 def render_multi_source_pdf(
@@ -1666,10 +1661,25 @@ def render_multi_source_pdf(
 def render_wf_overlay_grid(
 	*,
 	overlay_png_paths: list[Path],
+	unit_payloads: list[dict[str, Any]] | None,
 	config: WfOverlayGridReportConfig,
 	pdf_path: Path,
 	png_path: Path,
+	overlay_config: TemplateWaveformOverlayConfig,
+	report_time_upsample: TimeUpsampleConfig,
+	probe_geometry: ProbeGeometryConfig | None = None,
 ) -> dict[str, str]:
+	mode = str(getattr(config, "render_mode", "direct_replot") or "direct_replot").strip().lower()
+	if mode == "direct_replot" and unit_payloads:
+		return _render_wf_overlay_grid_replot(
+			unit_payloads=unit_payloads,
+			config=config,
+			pdf_path=pdf_path,
+			png_path=png_path,
+			overlay_config=overlay_config,
+			report_time_upsample=report_time_upsample,
+			probe_geometry=probe_geometry,
+		)
 	return render_image_grid(
 		image_paths=overlay_png_paths,
 		write_pdf=bool(config.write_pdf),
@@ -1679,19 +1689,101 @@ def render_wf_overlay_grid(
 		png_path=png_path,
 		png_output_key="wf_overlay_grid_png",
 		title="Template waveform overlay grid",
+		dpi=max(72.0, float(getattr(config, "dpi", 300.0))),
 	)
+
+
+def _render_wf_overlay_grid_replot(
+	*,
+	unit_payloads: list[dict[str, Any]],
+	config: WfOverlayGridReportConfig,
+	pdf_path: Path,
+	png_path: Path,
+	overlay_config: TemplateWaveformOverlayConfig,
+	report_time_upsample: TimeUpsampleConfig,
+	probe_geometry: ProbeGeometryConfig | None,
+) -> dict[str, str]:
+	import matplotlib
+
+	matplotlib.use("Agg")
+	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+
+	if not unit_payloads:
+		return {}
+
+	n = len(unit_payloads)
+	ncols = min(4, max(1, int(np.ceil(np.sqrt(n)))))
+	nrows = int(np.ceil(float(n) / float(ncols)))
+	fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4.2 * ncols, 3.2 * nrows))
+	if not isinstance(axes, np.ndarray):
+		axes = np.asarray([axes])
+	ax_list = list(axes.ravel())
+
+	for idx, ax in enumerate(ax_list):
+		if idx >= n:
+			ax.axis("off")
+			continue
+		payload = unit_payloads[idx]
+		_draw_template_wf_overlay_panel(
+			ax=ax,
+			template=np.asarray(payload["template"]),
+			config=overlay_config,
+			time_upsample=report_time_upsample,
+			probe_geometry=probe_geometry,
+			waveform_traces=payload.get("waveform_traces", None),
+			top_electrode_id=payload.get("top_electrode_id", None),
+			total_waveforms_at_channel=payload.get("total_waveforms_at_channel", None),
+		)
+		uid = payload.get("unit_id", "?")
+		ax.set_title(f"unit {uid}", fontsize=7)
+
+	outputs: dict[str, str] = {}
+	if bool(config.write_png):
+		png_path.parent.mkdir(parents=True, exist_ok=True)
+		fig.savefig(png_path, dpi=max(72.0, float(getattr(config, "dpi", 300.0))), bbox_inches="tight")
+		outputs["wf_overlay_grid_png"] = str(png_path)
+	if bool(config.write_pdf):
+		pdf_path.parent.mkdir(parents=True, exist_ok=True)
+		fig.savefig(pdf_path, format="pdf", bbox_inches="tight")
+		outputs["wf_overlay_grid_pdf"] = str(pdf_path)
+
+	plt.close(fig)
+	return outputs
 
 
 def render_footprint_map_grid(
 	*,
 	image_paths: list[Path],
+	unit_payloads: list[dict[str, Any]] | None,
 	config: FootprintMapGridReportConfig,
 	pdf_path: Path,
 	png_path: Path,
 	pdf_output_key: str,
 	png_output_key: str,
 	title: str,
+	panel_kind: str,
+	footprint_config: FootprintMapConfig | None = None,
+	circles_config: TemplateCirclesPlotConfig | None = None,
+	probe_geometry: ProbeGeometryConfig | None = None,
 ) -> dict[str, str]:
+	mode = str(getattr(config, "render_mode", "direct_replot") or "direct_replot").strip().lower()
+	if mode == "direct_replot" and unit_payloads:
+		return _render_replotted_unit_grid(
+			unit_payloads=unit_payloads,
+			write_pdf=bool(config.write_pdf),
+			pdf_path=pdf_path,
+			pdf_output_key=pdf_output_key,
+			write_png=bool(config.write_png),
+			png_path=png_path,
+			png_output_key=png_output_key,
+			title=title,
+			show_title=bool(getattr(config, "show_title", True)),
+			panel_kind=str(panel_kind or "").strip().lower(),
+			footprint_config=footprint_config,
+			circles_config=circles_config,
+			probe_geometry=probe_geometry,
+			dpi=max(72.0, float(getattr(config, "dpi", 300.0))),
+		)
 	return render_image_grid(
 		image_paths=image_paths,
 		write_pdf=bool(config.write_pdf),
@@ -1702,6 +1794,7 @@ def render_footprint_map_grid(
 		png_output_key=png_output_key,
 		title=title,
 		show_title=bool(getattr(config, "show_title", True)),
+		dpi=max(72.0, float(getattr(config, "dpi", 300.0))),
 	)
 
 
@@ -1716,6 +1809,7 @@ def render_image_grid(
 	png_output_key: str,
 	title: str,
 	show_title: bool = True,
+	dpi: float = 200.0,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -1750,13 +1844,217 @@ def render_image_grid(
 	outputs: dict[str, str] = {}
 	if bool(write_png):
 		png_path.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(png_path, dpi=200, bbox_inches="tight")
+		fig.savefig(png_path, dpi=max(72.0, float(dpi)), bbox_inches="tight")
 		outputs[png_output_key] = str(png_path)
 	if bool(write_pdf):
 		pdf_path.parent.mkdir(parents=True, exist_ok=True)
 		fig.savefig(pdf_path, format="pdf", bbox_inches="tight")
 		outputs[pdf_output_key] = str(pdf_path)
 
+	plt.close(fig)
+	return outputs
+
+
+def _draw_replotted_circles_panel(
+	*,
+	ax: Any,
+	template: np.ndarray,
+	locations_xy: np.ndarray,
+	config: TemplateCirclesPlotConfig,
+	probe_geometry: ProbeGeometryConfig | None,
+) -> None:
+	locs = np.asarray(locations_xy, dtype=float)
+	t = _as_template_channels_by_time(np.asarray(template), int(locs.shape[0]))
+	amp = np.ptp(t, axis=1)
+	min_idx = np.argmin(t, axis=1).astype(float)
+	ref = float(min_idx[int(np.argmax(amp))]) if min_idx.size > 0 else 0.0
+	lat_samples = min_idx - ref
+	lat, _ = _convert_latency_samples_to_units(
+		lat_samples,
+		units=str(config.color_bar_units or ""),
+		probe_geometry=probe_geometry,
+	)
+
+	size_metric = amp if str(config.size_by) == "amplitude" else np.abs(lat)
+	color_metric = amp if str(config.color_by) == "amplitude" else lat
+	color_values = np.asarray(color_metric, dtype=float)
+	vmin = float(np.nanmin(color_values)) if color_values.size > 0 else 0.0
+	vmax = float(np.nanmax(color_values)) if color_values.size > 0 else 1.0
+	if not np.isfinite(vmin):
+		vmin = 0.0
+	if not np.isfinite(vmax) or vmax <= vmin:
+		vmax = vmin + 1.0
+
+	size_norm = np.asarray(size_metric, dtype=float)
+	size_norm = np.nan_to_num(size_norm, nan=0.0, posinf=0.0, neginf=0.0)
+	if float(np.max(size_norm)) > 0.0:
+		size_norm = size_norm / float(np.max(size_norm))
+	sizes = 8.0 + 42.0 * size_norm
+	from matplotlib.colors import Normalize  # type: ignore[import-not-found]
+
+	ax.scatter(
+		locs[:, 0],
+		locs[:, 1],
+		s=sizes,
+		c=color_values,
+		cmap=_maybe_reversed_colormap("viridis", reverse=(str(config.color_by) == "latency")),
+		norm=None if vmax <= vmin else Normalize(vmin=vmin, vmax=vmax),
+		alpha=0.92,
+		linewidths=0.0,
+	)
+
+	xmin, xmax, ymin, ymax = _compute_plot_limits(locs)
+	if bool(config.force_square_aspect):
+		xmin, xmax, ymin, ymax = _make_square_limits(xmin, xmax, ymin, ymax)
+	ax.set_xlim(xmin, xmax)
+	ax.set_ylim(ymin, ymax)
+	ax.set_aspect("equal", adjustable="box")
+	ax.set_axis_off()
+
+
+def _draw_replotted_footprint_panel(
+	*,
+	ax: Any,
+	template: np.ndarray,
+	locations_xy: np.ndarray,
+	config: FootprintMapConfig,
+	probe_geometry: ProbeGeometryConfig | None,
+	kind: str,
+) -> None:
+	locs = np.asarray(locations_xy, dtype=float)
+	t = _as_template_channels_by_time(np.asarray(template), int(locs.shape[0]))
+	if str(kind) == "latency":
+		min_idx = np.argmin(t, axis=1).astype(float)
+		ref = float(min_idx[int(np.argmax(np.ptp(t, axis=1)))]) if min_idx.size > 0 else 0.0
+		vals = min_idx - ref
+		reverse = True
+	else:
+		vals = np.ptp(t, axis=1)
+		reverse = False
+
+	vmin, vmax = _map_values_to_limits(np.asarray(vals, dtype=float), config)
+	vals_plot, norm, vmin_eff, vmax_eff = prepare_linear_or_log_mapping(
+		values=np.asarray(vals, dtype=float),
+		scale=str(config.scale),
+		vmin=float(vmin),
+		vmax=float(vmax),
+	)
+
+	from matplotlib.collections import PatchCollection  # type: ignore[import-not-found]
+	from matplotlib.patches import Rectangle  # type: ignore[import-not-found]
+
+	dims = _probe_electrode_dims_um(probe_geometry)
+	if dims is None:
+		side = _fallback_square_side_um(locs[:, :2])
+		dx = dy = float(side)
+	else:
+		dx, dy = dims
+	patches = [
+		Rectangle((float(x) - (dx / 2.0), float(y) - (dy / 2.0)), width=float(dx), height=float(dy))
+		for x, y in locs[:, :2]
+	]
+	sc = PatchCollection(
+		patches,
+		cmap=_maybe_reversed_colormap(str(config.color_map), reverse=bool(reverse)),
+		linewidths=0.25,
+		edgecolors="none",
+		antialiaseds=False,
+	)
+	sc.set_array(np.asarray(vals_plot, dtype=float))
+	if norm is not None:
+		sc.set_norm(norm)
+	else:
+		sc.set_clim(vmin_eff, vmax_eff)
+	ax.add_collection(sc)
+	xmin, xmax, ymin, ymax = _limits_for_template_shape(locs[:, :2], template_shape=str(config.template_shape))
+	xmin, xmax, ymin, ymax = _expand_limits_for_glyph_half_size(
+		xmin=xmin,
+		xmax=xmax,
+		ymin=ymin,
+		ymax=ymax,
+		half_dx=float(dx) / 2.0,
+		half_dy=float(dy) / 2.0,
+	)
+	ax.set_xlim(xmin, xmax)
+	ax.set_ylim(ymin, ymax)
+	ax.set_aspect("equal", adjustable="box")
+	ax.set_axis_off()
+
+
+def _render_replotted_unit_grid(
+	*,
+	unit_payloads: list[dict[str, Any]],
+	write_pdf: bool,
+	pdf_path: Path,
+	pdf_output_key: str,
+	write_png: bool,
+	png_path: Path,
+	png_output_key: str,
+	title: str,
+	show_title: bool,
+	panel_kind: str,
+	footprint_config: FootprintMapConfig | None,
+	circles_config: TemplateCirclesPlotConfig | None,
+	probe_geometry: ProbeGeometryConfig | None,
+	dpi: float,
+) -> dict[str, str]:
+	import matplotlib
+
+	matplotlib.use("Agg")
+	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+
+	if not unit_payloads:
+		return {}
+
+	n = len(unit_payloads)
+	ncols = min(4, max(1, int(np.ceil(np.sqrt(n)))))
+	nrows = int(np.ceil(float(n) / float(ncols)))
+	fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4.0 * ncols, 3.0 * nrows))
+	if not isinstance(axes, np.ndarray):
+		axes = np.asarray([axes])
+	ax_list = list(axes.ravel())
+
+	for i, ax in enumerate(ax_list):
+		if i >= n:
+			ax.axis("off")
+			continue
+		payload = unit_payloads[i]
+		template = np.asarray(payload["template"])
+		locs = np.asarray(payload["locations_xy"], dtype=float)
+		if panel_kind == "circles" and circles_config is not None:
+			_draw_replotted_circles_panel(
+				ax=ax,
+				template=template,
+				locations_xy=locs,
+				config=circles_config,
+				probe_geometry=probe_geometry,
+			)
+		elif panel_kind in {"amplitude", "latency"} and footprint_config is not None:
+			_draw_replotted_footprint_panel(
+				ax=ax,
+				template=template,
+				locations_xy=locs,
+				config=footprint_config,
+				probe_geometry=probe_geometry,
+				kind=panel_kind,
+			)
+		else:
+			ax.axis("off")
+		uid = payload.get("unit_id", "?")
+		ax.set_title(f"unit {uid}", fontsize=7)
+
+	if bool(show_title):
+		fig.suptitle(title, fontsize=10)
+
+	outputs: dict[str, str] = {}
+	if bool(write_png):
+		png_path.parent.mkdir(parents=True, exist_ok=True)
+		fig.savefig(png_path, dpi=max(72.0, float(dpi)), bbox_inches="tight")
+		outputs[png_output_key] = str(png_path)
+	if bool(write_pdf):
+		pdf_path.parent.mkdir(parents=True, exist_ok=True)
+		fig.savefig(pdf_path, format="pdf", bbox_inches="tight")
+		outputs[pdf_output_key] = str(pdf_path)
 	plt.close(fig)
 	return outputs
 

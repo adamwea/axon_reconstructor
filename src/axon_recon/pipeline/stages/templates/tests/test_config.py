@@ -487,6 +487,8 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			          write_png: false
 			          png_relpath: reports/grid.png
 			          top_channels_per_template: 15
+			          render_mode: image_composite
+			          dpi: 360
 			          show_title: true
 			          show_axes: true
 			          show_channel_labels: true
@@ -500,18 +502,24 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			            pdf_relpath: reports/circles_map_grid.pdf
 			            write_png: true
 			            png_relpath: reports/circles_map_grid.png
+			            render_mode: direct_replot
+			            dpi: 420
 			          amplitude_map_grid:
 			            show_title: false
 			            write_pdf: false
 			            pdf_relpath: reports/amplitude_map_grid.pdf
 			            write_png: true
 			            png_relpath: reports/amplitude_map_grid.png
+			            render_mode: image_composite
+			            dpi: 310
 			          latency_map_grid:
 			            show_title: true
 			            write_pdf: true
 			            pdf_relpath: reports/latency_map_grid.pdf
 			            write_png: false
 			            png_relpath: reports/latency_map_grid.png
+			            render_mode: direct_replot
+			            dpi: 500
 			      per_unit_outputs:
 			        template_wf_overlay:
 			          debug_mode: true
@@ -584,6 +592,8 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert grid.write_png is False
 	assert grid.png_relpath == "reports/grid.png"
 	assert grid.top_channels_per_template == 15
+	assert grid.render_mode == "image_composite"
+	assert grid.dpi == 360
 
 	assert inputs.reports.plot_multi_source_pdf.enabled is True
 	assert inputs.reports.plot_multi_source_pdf.pdf_relpath == "reports/template_multi_source.pdf"
@@ -598,6 +608,8 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert circles_grid.pdf_relpath == "reports/circles_map_grid.pdf"
 	assert circles_grid.write_png is True
 	assert circles_grid.png_relpath == "reports/circles_map_grid.png"
+	assert circles_grid.render_mode == "direct_replot"
+	assert circles_grid.dpi == 420
 
 	amp_grid = inputs.reports.footprint_grids.amplitude_map_grid
 	assert amp_grid.show_title is False
@@ -605,6 +617,8 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert amp_grid.pdf_relpath == "reports/amplitude_map_grid.pdf"
 	assert amp_grid.write_png is True
 	assert amp_grid.png_relpath == "reports/amplitude_map_grid.png"
+	assert amp_grid.render_mode == "image_composite"
+	assert amp_grid.dpi == 310
 
 	lat_grid = inputs.reports.footprint_grids.latency_map_grid
 	assert lat_grid.show_title is True
@@ -612,6 +626,8 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert lat_grid.pdf_relpath == "reports/latency_map_grid.pdf"
 	assert lat_grid.write_png is False
 	assert lat_grid.png_relpath == "reports/latency_map_grid.png"
+	assert lat_grid.render_mode == "direct_replot"
+	assert lat_grid.dpi == 500
 
 
 def test_load_templates_config_accepts_foot_print_grids_alias(tmp_path: Path) -> None:
