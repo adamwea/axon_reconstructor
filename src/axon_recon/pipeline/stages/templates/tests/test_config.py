@@ -486,6 +486,10 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			          pdf_relpath: reports/grid.pdf
 			          write_png: false
 			          png_relpath: reports/grid.png
+			          write_svg: true
+			          svg_relpath: reports/grid.svg
+			          keep_temp_svg: true
+			          temp_svg_relpath: reports/grid__temp.svg
 			          top_channels_per_template: 15
 			          subplot_background_color: black
 			          figure_background_color: black
@@ -504,6 +508,10 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			            pdf_relpath: reports/circles_map_grid.pdf
 			            write_png: true
 			            png_relpath: reports/circles_map_grid.png
+			            write_svg: true
+			            svg_relpath: reports/circles_map_grid.svg
+			            keep_temp_svg: true
+			            temp_svg_relpath: reports/circles_map_grid__temp.svg
 			            render_mode: direct_replot
 			            dpi: 420
 			            subplot_background_color: black
@@ -514,6 +522,10 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			            pdf_relpath: reports/amplitude_map_grid.pdf
 			            write_png: true
 			            png_relpath: reports/amplitude_map_grid.png
+			            write_svg: true
+			            svg_relpath: reports/amplitude_map_grid.svg
+			            keep_temp_svg: true
+			            temp_svg_relpath: reports/amplitude_map_grid__temp.svg
 			            render_mode: image_composite
 			            dpi: 310
 			            subplot_background_color: black
@@ -524,6 +536,10 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			            pdf_relpath: reports/latency_map_grid.pdf
 			            write_png: false
 			            png_relpath: reports/latency_map_grid.png
+			            write_svg: true
+			            svg_relpath: reports/latency_map_grid.svg
+			            keep_temp_svg: false
+			            temp_svg_relpath: reports/latency_map_grid__temp.svg
 			            render_mode: direct_replot
 			            dpi: 500
 			            subplot_background_color: white
@@ -599,6 +615,10 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert grid.pdf_relpath == "reports/grid.pdf"
 	assert grid.write_png is False
 	assert grid.png_relpath == "reports/grid.png"
+	assert grid.write_svg is True
+	assert grid.svg_relpath == "reports/grid.svg"
+	assert grid.keep_temp_svg is True
+	assert grid.temp_svg_relpath == "reports/grid__temp.svg"
 	assert grid.top_channels_per_template == 15
 	assert grid.subplot_background_color == "black"
 	assert grid.figure_background_color == "black"
@@ -618,6 +638,10 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert circles_grid.pdf_relpath == "reports/circles_map_grid.pdf"
 	assert circles_grid.write_png is True
 	assert circles_grid.png_relpath == "reports/circles_map_grid.png"
+	assert circles_grid.write_svg is True
+	assert circles_grid.svg_relpath == "reports/circles_map_grid.svg"
+	assert circles_grid.keep_temp_svg is True
+	assert circles_grid.temp_svg_relpath == "reports/circles_map_grid__temp.svg"
 	assert circles_grid.render_mode == "direct_replot"
 	assert circles_grid.dpi == 420
 	assert circles_grid.subplot_background_color == "black"
@@ -629,6 +653,10 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert amp_grid.pdf_relpath == "reports/amplitude_map_grid.pdf"
 	assert amp_grid.write_png is True
 	assert amp_grid.png_relpath == "reports/amplitude_map_grid.png"
+	assert amp_grid.write_svg is True
+	assert amp_grid.svg_relpath == "reports/amplitude_map_grid.svg"
+	assert amp_grid.keep_temp_svg is True
+	assert amp_grid.temp_svg_relpath == "reports/amplitude_map_grid__temp.svg"
 	assert amp_grid.render_mode == "image_composite"
 	assert amp_grid.dpi == 310
 	assert amp_grid.subplot_background_color == "black"
@@ -640,6 +668,10 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert lat_grid.pdf_relpath == "reports/latency_map_grid.pdf"
 	assert lat_grid.write_png is False
 	assert lat_grid.png_relpath == "reports/latency_map_grid.png"
+	assert lat_grid.write_svg is True
+	assert lat_grid.svg_relpath == "reports/latency_map_grid.svg"
+	assert lat_grid.keep_temp_svg is False
+	assert lat_grid.temp_svg_relpath == "reports/latency_map_grid__temp.svg"
 	assert lat_grid.render_mode == "direct_replot"
 	assert lat_grid.dpi == 500
 	assert lat_grid.subplot_background_color == "white"
@@ -718,6 +750,10 @@ def test_load_templates_config_parses_nested_report_grid_blocks(tmp_path: Path) 
 			            output:
 			              write_png: true
 			              png_relpath: nested/wf_overlay_grid.png
+			              write_svg: true
+			              svg_relpath: nested/wf_overlay_grid.svg
+			              keep_temp_svg: true
+			              temp_svg_relpath: nested/wf_overlay_grid__temp.svg
 			            render:
 			              mode: direct_replot
 			              dpi: 410
@@ -730,6 +766,10 @@ def test_load_templates_config_parses_nested_report_grid_blocks(tmp_path: Path) 
 			              output:
 			                write_png: true
 			                png_relpath: nested/circles.png
+			                write_svg: true
+			                svg_relpath: nested/circles.svg
+			                keep_temp_svg: true
+			                temp_svg_relpath: nested/circles__temp.svg
 			              display:
 			                show_title: false
 			              render:
@@ -750,6 +790,10 @@ def test_load_templates_config_parses_nested_report_grid_blocks(tmp_path: Path) 
 	wf_grid = inputs.reports.wf_overlay_grid
 	assert wf_grid.write_png is True
 	assert wf_grid.png_relpath == "nested/wf_overlay_grid.png"
+	assert wf_grid.write_svg is True
+	assert wf_grid.svg_relpath == "nested/wf_overlay_grid.svg"
+	assert wf_grid.keep_temp_svg is True
+	assert wf_grid.temp_svg_relpath == "nested/wf_overlay_grid__temp.svg"
 	assert wf_grid.render_mode == "direct_replot"
 	assert wf_grid.dpi == 410
 	assert wf_grid.subplot_background_color == "black"
@@ -759,6 +803,10 @@ def test_load_templates_config_parses_nested_report_grid_blocks(tmp_path: Path) 
 	circles_grid = inputs.reports.footprint_grids.circles_map_grid
 	assert circles_grid.write_png is True
 	assert circles_grid.png_relpath == "nested/circles.png"
+	assert circles_grid.write_svg is True
+	assert circles_grid.svg_relpath == "nested/circles.svg"
+	assert circles_grid.keep_temp_svg is True
+	assert circles_grid.temp_svg_relpath == "nested/circles__temp.svg"
 	assert circles_grid.show_title is False
 	assert circles_grid.render_mode == "direct_replot"
 	assert circles_grid.dpi == 430
@@ -1286,14 +1334,25 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 			          pdf_relpath: maps/propagation.pdf
 			          write_png: true
 			          png_relpath: maps/propagation.png
+			          write_svg: true
+			          write_circles_template_numbered_png: true
+			          write_circles_template_numbered_svg: false
+			          circles_template_numbered_relpath: maps/circles_numbered
+			          write_propagation_2panel_png: true
+			          write_propagation_2panel_svg: true
+			          propagation_2panel_relpath: maps/propagation_2panel
 			          show_title: false
 			          title_template: "Panel {{start}}-{{end}} of {{total}}"
 			          title_fontsize: 11
 			          top_channels: 30
+			          window_strategy: first_k
 			          channels_per_panel: 12
 			          channel_overlap: 3
 			          force_start_with_max_ptp: false
 			          force_start_with_max_negative_peak: true
+			          force_min_neg_peak_index_zero: true
+			          trace_label_mode: order_index
+			          relative_signed_order_numbers: true
 			          show_right_panel: true
 			          right_panel_gap_fraction: 0.08
 			          right_panel_width_scale: 0.85
@@ -1393,14 +1452,25 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 	assert prop.pdf_relpath == "maps/propagation.pdf"
 	assert prop.write_png is True
 	assert prop.png_relpath == "maps/propagation.png"
+	assert prop.write_svg is True
+	assert prop.write_circles_template_numbered_png is True
+	assert prop.write_circles_template_numbered_svg is False
+	assert prop.circles_template_numbered_relpath == "maps/circles_numbered"
+	assert prop.write_propagation_2panel_png is True
+	assert prop.write_propagation_2panel_svg is True
+	assert prop.propagation_2panel_relpath == "maps/propagation_2panel"
 	assert prop.show_title is False
 	assert prop.title_template == "Panel {start}-{end} of {total}"
 	assert prop.title_fontsize == 11
 	assert prop.top_channels == 30
+	assert prop.window_strategy == "first_k"
 	assert prop.channels_per_panel == 12
 	assert prop.channel_overlap == 3
 	assert prop.force_start_with_max_ptp is False
 	assert prop.force_start_with_max_negative_peak is True
+	assert prop.force_min_neg_peak_index_zero is True
+	assert prop.trace_label_mode == "order_index"
+	assert prop.relative_signed_order_numbers is True
 	assert prop.show_right_panel is True
 	assert prop.right_panel_gap_fraction == 0.08
 	assert prop.right_panel_width_scale == 0.85
@@ -1497,6 +1567,13 @@ def test_load_templates_config_parses_nested_propagation_groups(tmp_path: Path) 
 			            pdf_relpath: nested/propagation.pdf
 			            write_png: true
 			            png_relpath: nested/propagation.png
+			            write_svg: false
+			            write_circles_template_numbered_png: false
+			            write_circles_template_numbered_svg: true
+			            circles_template_numbered_relpath: nested/circles_numbered
+			            write_propagation_2panel_png: false
+			            write_propagation_2panel_svg: true
+			            propagation_2panel_relpath: nested/propagation_2panel
 			          display:
 			            show_title: false
 			            title_template: "Nested {{start}}-{{end}}"
@@ -1506,6 +1583,8 @@ def test_load_templates_config_parses_nested_propagation_groups(tmp_path: Path) 
 			            channel_overlap: 2
 			            force_start_with_max_ptp: true
 			            force_start_with_max_negative_peak: false
+			            trace_label_mode: electrode_id
+			            relative_signed_order_numbers: false
 			            show_right_panel: false
 			            right_panel_gap_fraction: 0.05
 			            right_panel_width_scale: 1.2
@@ -1553,6 +1632,13 @@ def test_load_templates_config_parses_nested_propagation_groups(tmp_path: Path) 
 	assert prop.pdf_relpath == "nested/propagation.pdf"
 	assert prop.write_png is True
 	assert prop.png_relpath == "nested/propagation.png"
+	assert prop.write_svg is False
+	assert prop.write_circles_template_numbered_png is False
+	assert prop.write_circles_template_numbered_svg is True
+	assert prop.circles_template_numbered_relpath == "nested/circles_numbered"
+	assert prop.write_propagation_2panel_png is False
+	assert prop.write_propagation_2panel_svg is True
+	assert prop.propagation_2panel_relpath == "nested/propagation_2panel"
 	assert prop.show_title is False
 	assert prop.title_template == "Nested {start}-{end}"
 	assert prop.title_fontsize == 10
@@ -1561,6 +1647,8 @@ def test_load_templates_config_parses_nested_propagation_groups(tmp_path: Path) 
 	assert prop.channel_overlap == 2
 	assert prop.force_start_with_max_ptp is True
 	assert prop.force_start_with_max_negative_peak is False
+	assert prop.trace_label_mode == "electrode_id"
+	assert prop.relative_signed_order_numbers is False
 	assert prop.show_right_panel is False
 	assert prop.right_panel_gap_fraction == 0.05
 	assert prop.right_panel_width_scale == 1.2
@@ -1592,6 +1680,85 @@ def test_load_templates_config_parses_nested_propagation_groups(tmp_path: Path) 
 	assert prop.scale_bar_fontsize == 8
 	assert prop.scale_bar_time_label_offset_frac == 0.03
 	assert prop.scale_bar_amp_label_offset_frac == 0.02
+
+
+def test_load_templates_config_parses_nested_split_propagation_output_blocks(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    outputs:
+			      per_unit_outputs:
+			        propagation_plots:
+			          output:
+			            propagation_plot:
+			              write_pdf: true
+			              pdf_relpath: clean/propagation.pdf
+			              write_png: true
+			              png_relpath: clean/propagation.png
+			              write_svg: false
+			              png_dpi: 510
+			            circles_template_numbered:
+			              write_png: false
+			              write_svg: true
+			              relpath: clean/circles_numbered
+			              png_dpi: 520
+			            propagation_2panel:
+			              write_png: false
+			              write_svg: true
+			              relpath: clean/propagation_2panel
+			              png_dpi: 530
+			              layout:
+			                gap_fraction: 0.01
+			                width_scale: 0.9
+			                keep_temp_svg: true
+			                right_panel_svg_relpath: clean/right_temp.svg
+			                right_panel_png_relpath: clean/right_temp.png
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	prop = inputs.per_unit_outputs.propagation_plots
+
+	assert prop.write_pdf is True
+	assert prop.pdf_relpath == "clean/propagation.pdf"
+	assert prop.write_png is True
+	assert prop.png_relpath == "clean/propagation.png"
+	assert prop.write_svg is False
+	assert prop.write_circles_template_numbered_png is False
+	assert prop.write_circles_template_numbered_svg is True
+	assert prop.circles_template_numbered_relpath == "clean/circles_numbered"
+	assert prop.write_propagation_2panel_png is False
+	assert prop.write_propagation_2panel_svg is True
+	assert prop.propagation_2panel_relpath == "clean/propagation_2panel"
+	assert prop.left_panel_png_dpi == 510
+	assert prop.right_panel_png_dpi == 520
+	assert prop.composed_png_dpi == 530
+	assert prop.right_panel_gap_fraction == 0.01
+	assert prop.right_panel_width_scale == 0.9
+	assert prop.right_panel_keep_temp_svg is True
+	assert prop.right_panel_svg_relpath == "clean/right_temp.svg"
+	assert prop.right_panel_png_relpath == "clean/right_temp.png"
 
 
 def test_load_templates_config_parses_template_circles_propagation_order_labels(tmp_path: Path) -> None:

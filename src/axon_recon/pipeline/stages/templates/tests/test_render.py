@@ -7,9 +7,9 @@ import matplotlib.pyplot as plt  # type: ignore[import-not-found]
 import matplotlib.collections  # type: ignore[import-not-found]
 
 from axon_recon.pipeline.stages.templates.core.render import render_propagation_plot
-from axon_recon.pipeline.stages.templates.core.render import render_footprint_map_grid
+from axon_recon.pipeline.stages.templates.core.render import render_footprint_map_grid_from_assets
 from axon_recon.pipeline.stages.templates.core.render import render_template_wf_overlay
-from axon_recon.pipeline.stages.templates.core.render import render_wf_overlay_grid
+from axon_recon.pipeline.stages.templates.core.render import render_wf_overlay_grid_from_assets
 from axon_recon.pipeline.stages.templates.core.render import render_topographical_amplitude_footprint
 from axon_recon.pipeline.stages.templates.core.render import _expand_limits_for_glyph_half_size
 from axon_recon.pipeline.stages.templates.core.render import _probe_electrode_dims_um
@@ -21,6 +21,8 @@ from axon_recon.pipeline.stages.templates.core.render import _convert_latency_sa
 from axon_recon.pipeline.stages.templates.core.render import _ticks_ending_in_0_or_5_with_max
 from axon_recon.pipeline.stages.templates.core.render import render_template_circles_plot
 from axon_recon.pipeline.stages.templates.core.render import render_template_plot
+from axon_recon.pipeline.stages.templates.core.render import compute_propagation_channel_order
+from axon_recon.pipeline.stages.templates.core.render import render_image_grid
 from axon_recon.pipeline.stages.templates.models.inputs import (
 	CenterMostChannelCoordsConfig,
 	FootprintMapConfig,
@@ -133,6 +135,148 @@ def test_render_propagation_plot_uses_left_panel_png_dpi_for_left_png(tmp_path: 
 	assert png_path.exists()
 	assert len(observed_dpi) >= 1
 	assert observed_dpi[0] == 550.0
+
+
+def test_compute_propagation_channel_order_emits_signed_relative_numbers() -> None:
+	template = np.asarray(
+		[
+			[0.0, -2.0, -0.2, 0.0],
+			[0.0, -0.2, -2.5, 0.0],
+			[0.0, -0.1, -0.3, -3.5],
+		],
+		dtype=float,
+	)
+	cfg = PropagationPlotConfig(
+		top_channels=3,
+		force_start_with_max_ptp=True,
+		force_start_with_max_negative_peak=False,
+	)
+	out = compute_propagation_channel_order(template_c_by_t=template, config=cfg)
+	rel = dict(out["relative_order_by_channel"])
+	assert 0 in set(rel.values())
+	assert any(v < 0 for v in rel.values())
+	assert len(rel) == 3
+
+
+def test_compute_propagation_channel_order_supports_negative_peak_latency_mode() -> None:
+	template = np.asarray(
+		[
+			[0.0, -5.0, 0.0, 4.0],
+			[0.0, -1.0, 0.0, 8.0],
+			[0.0, -2.0, -3.0, 0.0],
+		],
+		dtype=float,
+	)
+	base_cfg = dict(top_channels=3, force_start_with_max_ptp=False, force_start_with_max_negative_peak=False)
+	out_abs = compute_propagation_channel_order(
+		template_c_by_t=template,
+		config=PropagationPlotConfig(**base_cfg, ordering_latency_mode="abs_peak"),
+	)
+	out_neg = compute_propagation_channel_order(
+		template_c_by_t=template,
+		config=PropagationPlotConfig(**base_cfg, ordering_latency_mode="negative_peak"),
+	)
+	assert out_abs["ordered_channel_indices"].tolist() != out_neg["ordered_channel_indices"].tolist()
+
+
+def test_render_propagation_plot_order_index_label_mode_renders_order_numbers(tmp_path: Path, monkeypatch) -> None:
+	t = np.asarray(
+		[
+			[0.0, -2.0, -0.2, 0.0],
+			[0.0, -0.5, -3.0, 0.0],
+			[0.0, -0.1, -1.5, 0.0],
+		],
+		dtype=float,
+	)
+	locs = np.asarray([[0.0, 0.0], [17.5, 0.0], [35.0, 0.0]], dtype=float)
+	png_path = tmp_path / "propagation_order_labels.png"
+	pdf_path = tmp_path / "propagation_order_labels.pdf"
+
+	orig_text = plt.Axes.text
+	seen: list[str] = []
+	seen_zero_fontweights: list[str] = []
+
+	def _spy_text(self, x, y, s, *args, **kwargs):
+		seen.append(str(s))
+		if str(s) == "0":
+			seen_zero_fontweights.append(str(kwargs.get("fontweight", "normal")))
+		return orig_text(self, x, y, s, *args, **kwargs)
+
+	monkeypatch.setattr(plt.Axes, "text", _spy_text)
+
+	render_propagation_plot(
+		template=t,
+		locations_xy=locs,
+		config=PropagationPlotConfig(
+			write_pdf=False,
+			write_png=True,
+			show_title=False,
+			top_channels=3,
+			force_start_with_max_ptp=False,
+			force_start_with_max_negative_peak=False,
+			channels_per_panel=3,
+			channel_overlap=0,
+			trace_label_mode="order_index",
+			show_scale_bar=False,
+			bold_max_amp_electrode_label=True,
+		),
+		pdf_path=pdf_path,
+		png_path=png_path,
+		trace_order_label_by_channel={0: 0, 1: 20, 2: 30},
+	)
+
+	assert png_path.exists()
+	assert "0" in seen
+	assert "20" in seen
+	assert "30" in seen
+	assert "bold" in seen_zero_fontweights
+
+
+def test_render_propagation_plot_delay_marker_uses_negative_peak_index_in_negative_peak_mode(tmp_path: Path, monkeypatch) -> None:
+	t = np.asarray(
+		[
+			[0.0, -1.0, 7.0, -2.0, 0.0],
+		],
+		dtype=float,
+	)
+	locs = np.asarray([[0.0, 0.0]], dtype=float)
+	png_path = tmp_path / "propagation_marker_mode.png"
+	pdf_path = tmp_path / "propagation_marker_mode.pdf"
+
+	orig_plot = plt.Axes.plot
+	vertical_xs: list[float] = []
+
+	def _spy_plot(self, *args, **kwargs):
+		if len(args) >= 2:
+			x = np.asarray(args[0], dtype=float)
+			y = np.asarray(args[1], dtype=float)
+			if x.ndim == 1 and y.ndim == 1 and x.size == 2 and y.size == 2 and float(x[0]) == float(x[1]):
+				vertical_xs.append(float(x[0]))
+		return orig_plot(self, *args, **kwargs)
+
+	monkeypatch.setattr(plt.Axes, "plot", _spy_plot)
+
+	render_propagation_plot(
+		template=t,
+		locations_xy=locs,
+		config=PropagationPlotConfig(
+			write_pdf=False,
+			write_png=True,
+			show_title=False,
+			top_channels=1,
+			channels_per_panel=1,
+			channel_overlap=0,
+			show_scale_bar=False,
+			ordering_latency_mode="negative_peak",
+		),
+		pdf_path=pdf_path,
+		png_path=png_path,
+	)
+
+	assert png_path.exists()
+	assert len(vertical_xs) >= 1
+	# Most negative peak for this waveform is at index 3.
+	assert 3.0 in vertical_xs
 
 
 def test_dynamic_circle_sizing_respects_pairwise_non_overlap_constraint() -> None:
@@ -516,22 +660,19 @@ def test_render_footprint_map_grid_hides_title_when_disabled(tmp_path: Path, mon
 
 	png_path = tmp_path / "grid.png"
 	pdf_path = tmp_path / "grid.pdf"
-	outputs = render_footprint_map_grid(
+	outputs = render_footprint_map_grid_from_assets(
 		image_paths=[img_path],
-		unit_payloads=None,
 		config=FootprintMapGridReportConfig(
 			write_pdf=False,
 			write_png=True,
 			png_relpath="grid.png",
 			show_title=False,
-			render_mode="image_composite",
 		),
 		pdf_path=pdf_path,
 		png_path=png_path,
 		pdf_output_key="grid_pdf",
 		png_output_key="grid_png",
 		title="Amplitude map grid",
-		panel_kind="amplitude",
 	)
 
 	assert png_path.exists()
@@ -539,253 +680,137 @@ def test_render_footprint_map_grid_hides_title_when_disabled(tmp_path: Path, mon
 	assert seen_suptitles == []
 
 
-def test_render_footprint_map_grid_direct_replot_avoids_imread(tmp_path: Path, monkeypatch) -> None:
-	import matplotlib.pyplot as mpl_pyplot
-
-	def _boom(*args, **kwargs):
-		raise AssertionError("imread should not be called in direct_replot mode")
-
-	monkeypatch.setattr(mpl_pyplot, "imread", _boom)
-
-	template = np.asarray(
-		[
-			[-1.0, -2.0, -0.5, 0.0, 0.2],
-			[-0.8, -1.8, -0.4, 0.0, 0.1],
-			[-0.6, -1.5, -0.3, 0.0, 0.1],
-		],
-		dtype=float,
-	)
-	locations = np.asarray(
-		[
-			[0.0, 0.0],
-			[18.0, 0.0],
-			[36.0, 0.0],
-		],
-		dtype=float,
-	)
-
-	png_path = tmp_path / "grid_direct.png"
-	pdf_path = tmp_path / "grid_direct.pdf"
-	outputs = render_footprint_map_grid(
+def test_render_footprint_map_grid_from_assets_returns_empty_without_assets(tmp_path: Path) -> None:
+	outputs = render_footprint_map_grid_from_assets(
 		image_paths=[],
-		unit_payloads=[{"unit_id": 94, "template": template, "locations_xy": locations}],
-		config=FootprintMapGridReportConfig(
-			write_pdf=False,
-			write_png=True,
-			png_relpath="grid_direct.png",
-			show_title=False,
-			render_mode="direct_replot",
-		),
-		pdf_path=pdf_path,
-		png_path=png_path,
+		config=FootprintMapGridReportConfig(write_pdf=False, write_png=True, show_title=False),
+		pdf_path=tmp_path / "unused.pdf",
+		png_path=tmp_path / "grid.png",
 		pdf_output_key="grid_pdf",
 		png_output_key="grid_png",
 		title="Amplitude map grid",
-		panel_kind="amplitude",
-		footprint_config=FootprintMapConfig(write_png=False, write_svg=False),
 	)
 
-	assert png_path.exists()
-	assert outputs.get("grid_png") == str(png_path)
+	assert outputs == {}
 
 
-def test_render_wf_overlay_grid_direct_replot_avoids_imread(tmp_path: Path, monkeypatch) -> None:
-	import matplotlib.pyplot as mpl_pyplot
-
-	def _boom(*args, **kwargs):
-		raise AssertionError("imread should not be called in direct_replot mode")
-
-	monkeypatch.setattr(mpl_pyplot, "imread", _boom)
-
-	template = np.asarray(
-		[
-			[-1.0, -2.0, -0.5, 0.0, 0.2],
-			[-0.8, -1.8, -0.4, 0.0, 0.1],
-			[-0.6, -1.5, -0.3, 0.0, 0.1],
-		],
-		dtype=float,
-	)
-	waveforms = np.tile(np.sin(np.linspace(-1.0, 1.0, 40, dtype=float)), (25, 1))
-
-	png_path = tmp_path / "wf_overlay_grid_direct.png"
-	outputs = render_wf_overlay_grid(
+def test_render_wf_overlay_grid_from_assets_returns_empty_without_assets(tmp_path: Path) -> None:
+	outputs = render_wf_overlay_grid_from_assets(
 		overlay_png_paths=[],
-		unit_payloads=[
-			{
-				"unit_id": 94,
-				"template": template,
-				"waveform_traces": waveforms,
-				"top_electrode_id": 0,
-				"total_waveforms_at_channel": int(waveforms.shape[0]),
-			}
-		],
-		config=WfOverlayGridReportConfig(write_pdf=False, write_png=True, render_mode="direct_replot"),
+		config=WfOverlayGridReportConfig(write_pdf=False, write_png=True),
 		pdf_path=tmp_path / "unused.pdf",
-		png_path=png_path,
-		overlay_config=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
-		report_time_upsample=TimeUpsampleConfig(enabled=False, factor=1, method="linear"),
-		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+		png_path=tmp_path / "wf_overlay_grid.png",
 	)
 
-	assert png_path.exists()
-	assert outputs.get("wf_overlay_grid_png") == str(png_path)
+	assert outputs == {}
 
 
-def test_render_wf_overlay_grid_applies_background_colors(tmp_path: Path, monkeypatch) -> None:
-	import matplotlib.axes as mpl_axes
-	import matplotlib.figure as mpl_figure
+def test_render_wf_overlay_grid_from_assets_composes_svg_with_assets(tmp_path: Path) -> None:
+	png_path = tmp_path / "unit_94.png"
+	svg_panel_path = tmp_path / "unit_94.svg"
+	svg_grid_path = tmp_path / "wf_overlay_grid.svg"
 
-	template = np.asarray(
-		[
-			[-1.0, -2.0, -0.5, 0.0, 0.2],
-			[-0.8, -1.8, -0.4, 0.0, 0.1],
-		],
-		dtype=float,
+	img = np.zeros((10, 10, 3), dtype=np.float32)
+	img[:, :, 2] = 1.0
+	plt.imsave(png_path, img)
+	svg_panel_path.write_text(
+		'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10"><rect x="0" y="0" width="20" height="10" fill="blue"/></svg>',
+		encoding="utf-8",
 	)
-	waveforms = np.tile(np.sin(np.linspace(-1.0, 1.0, 40, dtype=float)), (16, 1))
 
-	seen_axis_facecolors: list[str] = []
-	seen_figure_facecolors: list[str] = []
-	orig_ax_facecolor = mpl_axes.Axes.set_facecolor
-	orig_fig_facecolor = mpl_figure.Figure.set_facecolor
-
-	def _spy_ax_facecolor(self, color):
-		seen_axis_facecolors.append(str(color))
-		return orig_ax_facecolor(self, color)
-
-	def _spy_fig_facecolor(self, color):
-		seen_figure_facecolors.append(str(color))
-		return orig_fig_facecolor(self, color)
-
-	monkeypatch.setattr(mpl_axes.Axes, "set_facecolor", _spy_ax_facecolor)
-	monkeypatch.setattr(mpl_figure.Figure, "set_facecolor", _spy_fig_facecolor)
-
-	render_wf_overlay_grid(
-		overlay_png_paths=[],
-		unit_payloads=[
-			{
-				"unit_id": 94,
-				"template": template,
-				"waveform_traces": waveforms,
-				"top_electrode_id": 0,
-				"total_waveforms_at_channel": int(waveforms.shape[0]),
-			}
-		],
-		config=WfOverlayGridReportConfig(
-			write_pdf=False,
-			write_png=True,
-			render_mode="direct_replot",
-			subplot_background_color="black",
-			figure_background_color="black",
-		),
+	outputs = render_wf_overlay_grid_from_assets(
+		overlay_png_paths=[png_path],
+		config=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
 		pdf_path=tmp_path / "unused.pdf",
-		png_path=tmp_path / "wf_overlay_grid_bg.png",
-		overlay_config=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
-		report_time_upsample=TimeUpsampleConfig(enabled=False, factor=1, method="linear"),
-		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+		png_path=tmp_path / "unused.png",
+		write_svg=True,
+		svg_path=svg_grid_path,
+		svg_output_key="wf_grid_svg",
 	)
 
-	assert any(c.lower() == "black" for c in seen_axis_facecolors)
-	assert any(c.lower() == "black" for c in seen_figure_facecolors)
+	assert svg_grid_path.exists()
+	assert outputs.get("wf_grid_svg") == str(svg_grid_path)
 
 
-def test_render_footprint_map_grid_global_color_scale_shares_limits(tmp_path: Path, monkeypatch) -> None:
-	import matplotlib.collections as mpl_collections
+def test_render_footprint_map_grid_from_assets_composes_from_assets(tmp_path: Path) -> None:
+	png_path = tmp_path / "unit_94.png"
+	svg_path = tmp_path / "unit_94.svg"
 
-	template_small = np.asarray(
-		[
-			[0.0, -1.0, 0.0],
-			[0.0, -2.0, 0.0],
-		],
-		dtype=float,
+	img = np.zeros((10, 10, 3), dtype=np.float32)
+	img[:, :, 1] = 1.0
+	plt.imsave(png_path, img)
+	svg_path.write_text(
+		'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10"><rect x="0" y="0" width="20" height="10" fill="green"/></svg>',
+		encoding="utf-8",
 	)
-	template_large = np.asarray(
-		[
-			[0.0, -10.0, 0.0],
-			[0.0, -20.0, 0.0],
-		],
-		dtype=float,
-	)
-	locations = np.asarray([[0.0, 0.0], [18.0, 0.0]], dtype=float)
 
-	seen_clims: list[tuple[float, float]] = []
-	orig_set_clim = mpl_collections.PatchCollection.set_clim
-
-	def _spy_set_clim(self, vmin=None, vmax=None):
-		if vmin is not None and vmax is not None:
-			seen_clims.append((float(vmin), float(vmax)))
-		return orig_set_clim(self, vmin=vmin, vmax=vmax)
-
-	monkeypatch.setattr(mpl_collections.PatchCollection, "set_clim", _spy_set_clim)
-
-	outputs = render_footprint_map_grid(
-		image_paths=[],
-		unit_payloads=[
-			{"unit_id": 1, "template": template_small, "locations_xy": locations},
-			{"unit_id": 2, "template": template_large, "locations_xy": locations},
-		],
+	outputs = render_footprint_map_grid_from_assets(
+		image_paths=[png_path],
 		config=FootprintMapGridReportConfig(
 			write_pdf=False,
 			write_png=True,
-			render_mode="direct_replot",
-			global_color_scale=True,
 			show_title=False,
 		),
 		pdf_path=tmp_path / "unused.pdf",
-		png_path=tmp_path / "grid_global_scale.png",
+		png_path=tmp_path / "circles_grid.png",
+		write_svg=True,
+		svg_path=tmp_path / "circles_grid.svg",
+		svg_output_key="grid_svg",
 		pdf_output_key="grid_pdf",
 		png_output_key="grid_png",
-		title="Amplitude grid",
-		panel_kind="amplitude",
-		footprint_config=FootprintMapConfig(write_png=False, write_svg=False),
+		title="Circles grid",
 	)
 
-	assert outputs.get("grid_png") is not None
-	assert len(seen_clims) >= 2
-	assert len(set(seen_clims)) == 1
+	assert outputs.get("grid_png") == str(tmp_path / "circles_grid.png")
+	assert outputs.get("grid_svg") == str(tmp_path / "circles_grid.svg")
 
 
-def test_render_footprint_map_grid_applies_subplot_background_color(tmp_path: Path, monkeypatch) -> None:
-	import matplotlib.axes as mpl_axes
+def test_render_image_grid_composes_svg_from_panel_svgs(tmp_path: Path, monkeypatch) -> None:
+	png_a = tmp_path / "unit_a.png"
+	png_b = tmp_path / "unit_b.png"
+	svg_a = tmp_path / "unit_a.svg"
+	svg_b = tmp_path / "unit_b.svg"
+	out_svg = tmp_path / "grid.svg"
 
-	template = np.asarray(
-		[
-			[0.0, -2.0, 0.0],
-			[0.0, -1.0, 0.0],
-		],
-		dtype=float,
-	)
-	locations = np.asarray([[0.0, 0.0], [18.0, 0.0]], dtype=float)
+	img = np.zeros((12, 12, 3), dtype=np.float32)
+	img[:, :, 0] = 1.0
+	plt.imsave(png_a, img)
+	plt.imsave(png_b, img)
+	svg_a.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10"><rect x="0" y="0" width="20" height="10" fill="red"/></svg>', encoding="utf-8")
+	svg_b.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="20" viewBox="0 0 10 20"><rect x="0" y="0" width="10" height="20" fill="blue"/></svg>', encoding="utf-8")
 
-	seen_facecolors: list[str] = []
-	orig_set_facecolor = mpl_axes.Axes.set_facecolor
+	orig_savefig = plt.Figure.savefig
 
-	def _spy_set_facecolor(self, color):
-		seen_facecolors.append(str(color))
-		return orig_set_facecolor(self, color)
+	def _spy_savefig(self, fname, *args, **kwargs):
+		fmt = str(kwargs.get("format", "")).lower()
+		if str(fname).endswith(".svg") or fmt == "svg":
+			raise AssertionError("SVG should be composed from panel SVGs, not saved from matplotlib figure")
+		return orig_savefig(self, fname, *args, **kwargs)
 
-	monkeypatch.setattr(mpl_axes.Axes, "set_facecolor", _spy_set_facecolor)
+	monkeypatch.setattr(plt.Figure, "savefig", _spy_savefig)
 
-	render_footprint_map_grid(
-		image_paths=[],
-		unit_payloads=[{"unit_id": 1, "template": template, "locations_xy": locations}],
-		config=FootprintMapGridReportConfig(
-			write_pdf=False,
-			write_png=True,
-			render_mode="direct_replot",
-			subplot_background_color="black",
-			show_title=False,
-		),
+	outputs = render_image_grid(
+		image_paths=[png_a, png_b],
+		write_pdf=False,
 		pdf_path=tmp_path / "unused.pdf",
-		png_path=tmp_path / "grid_bg.png",
 		pdf_output_key="grid_pdf",
+		write_png=False,
+		png_path=tmp_path / "unused.png",
 		png_output_key="grid_png",
-		title="Amplitude grid",
-		panel_kind="amplitude",
-		footprint_config=FootprintMapConfig(write_png=False, write_svg=False),
+		write_svg=True,
+		svg_path=out_svg,
+		svg_output_key="grid_svg",
+		title="Composed Grid",
+		show_title=True,
+		dpi=180,
 	)
 
-	assert any(c.lower() == "black" for c in seen_facecolors)
+	assert out_svg.exists()
+	assert outputs.get("grid_svg") == str(out_svg)
+	text = out_svg.read_text(encoding="utf-8")
+	assert "Composed Grid" in text
+
+
 
 
 def test_render_propagation_plot_without_latency_map_uses_single_column_layout(tmp_path: Path, monkeypatch) -> None:

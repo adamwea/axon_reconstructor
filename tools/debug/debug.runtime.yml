@@ -158,7 +158,7 @@ stages:
 
       # limit number of unit templates to build for debugging purposes. Set to -1 or null for no limit.
       #unit_limit: -1
-      unit_limit: 5
+      unit_limit: 10
 
       spikeinterface:
         waveform_extraction:
@@ -197,6 +197,7 @@ stages:
 
       quality_checks:
         enable: true
+        surpress_warnings: true #wire this up TODO
         multiple_peaks_at_channel_templates:
           enable: true
           prominence_fraction: 0.30
@@ -204,7 +205,6 @@ stages:
           # Recommended: 2 for strict AP-only detection, 3 if you want a more permissive screen.
           max_peaks_per_channel: 2
           plot_violations: true
-
 
     # All outputs from templates stage
     outputs:
@@ -343,7 +343,7 @@ stages:
           circles:
             output:
               write_png: true
-              write_svg: false
+              write_svg: true
               dpi: 420
               relpath: template_circles
             display:
@@ -368,8 +368,9 @@ stages:
               title: "Latency (ms)" # title to show above color bar; if empty string, no title is shown and only tick labels with units are shown.
               show_axes_title: false # whether to show the "Latency (ms)" title above the color bar, or just the tick labels with units.
               show_unit_label: true # whether to show tick labels on the color bar, which include the units (e.g. "10 ms") or just the numeric value (e.g. "10")
-              tick_decimal_places: 3 # controls tick label precision and dynamic 0/5-style tick density (more precision -> more candidate ticks)
+              tick_decimal_places: 2 # controls tick label precision and dynamic 0/5-style tick density (more precision -> more candidate ticks)
               tick_target_count: 10 # optional desired number of ticks; <=0 or omitted lets renderer pick automatically
+              tick_fontsize: 6 # color bar tick label font size
             propagation_order_labels:
               show: false # when true, draw numeric labels on circles in propagation ordering rank.
               fontsize: 7
@@ -377,7 +378,7 @@ stages:
               bbox_alpha: 0.30
             unit_id_label:
               show: true
-              fontsize: 15
+              fontsize: 30
               color: white
               x_offset_frac: 0.02
               y_offset_frac: 0.00
@@ -481,24 +482,47 @@ stages:
 
         propagation_plots:
           output:
-            write_pdf: false
-            pdf_relpath: propagation_plot.pdf
-            write_png: true
-            png_relpath: propagation_plot.png
+            propagation_plot:
+              write_pdf: false
+              pdf_relpath: propagation_plot.pdf
+              write_png: true
+              png_relpath: propagation_plot.png
+              write_svg: true
+              png_dpi: 600
+            circles_template_numbered:
+              write_png: true
+              write_svg: true
+              relpath: propagation_right_panel
+              png_dpi: 600
+            propagation_2panel:
+              write_png: true
+              write_svg: true
+              relpath: propagation_2panel
+              png_dpi: 600
+              layout:
+                gap_fraction: 0.00 # horizontal gap between propagation and right panel, as fraction of propagation width.
+                width_scale: 1.0 # scale factor applied to right panel width after height matching.
+                keep_temp_svg: false # keep temporary left/right SVG files used for composition.
           display:
             show_title: false
             title_template: "Propagation traces {start}-{end} / {total}"
             title_fontsize: 9
-            top_channels: 50
+            top_channels: 30 # num channels in window
+            window_strategy: max_ptp_sum # scan channels in order. calc sum at each step. pick window with max sum.
             force_start_with_max_ptp: false # if true, rotate delay-ordered channels so the max peak-to-peak channel appears first.
             force_start_with_max_negative_peak: false # if true, prefer starting from the channel with the most negative peak; overrides max_ptp start.
-            show_right_panel: true # when true, compose a right-side circles SVG panel with propagation-order labels.
-            right_panel_gap_fraction: 0.00 # horizontal gap between propagation and right panel, as fraction of propagation width.
-            right_panel_width_scale: 1.0 # scale factor applied to right panel width after height matching.
-            right_panel_keep_temp_svg: false # keep temporary left/right SVG files used for composition.
-            right_panel_svg_relpath: propagation_right_panel.svg
-            right_panel_png_relpath: propagation_right_panel.png
-            right_panel_png_dpi: 600
+
+            # if true, max ptp channel will be labeled zero when trace_label_mode
+            #is order_index, even if it's not the first channel in the delay ordering.
+            #Only applies when force_start_with_max_ptp is true.
+            # if window_strategy is max_ptp_sum, wfs will often plot below and above the max ptp channel,
+            # so this can be useful to keep the max ptp channel labeled as zero for reference even when it's not the first channel in the plot.
+            force_min_neg_peak_index_zero: true
+
+            ordering_latency_mode: negative_peak # abs_peak or negative_peak; controls canonical channel ordering metric.
+            debug_ordering: true # emit per-unit canonical/window/anchor/label-range diagnostics in logs.
+            trace_label_mode: order_index # electrode_id or order_index (order_index uses shared propagation ordering numbers).
+            relative_signed_order_numbers: true # if true, numbering is relative to anchor with earlier channels negative and anchor=0.
             channels_per_panel: 512 # debug override: keep propagation-style plots on one panel when possible.
             channel_overlap: 5
           render:
@@ -563,6 +587,10 @@ stages:
               pdf_relpath: wf_overlay_grid.pdf
               write_png: true
               png_relpath: wf_overlay_grid.png
+              write_svg: true
+              svg_relpath: wf_overlay_grid.svg
+              keep_temp_svg: false
+              temp_svg_relpath: wf_overlay_grid__temp.svg
             render:
               mode: direct_replot
               dpi: 420
@@ -586,6 +614,10 @@ stages:
                 pdf_relpath: circles_map_grid.pdf
                 write_png: true
                 png_relpath: circles_map_grid.png
+                write_svg: true
+                svg_relpath: circles_map_grid.svg
+                keep_temp_svg: false
+                temp_svg_relpath: circles_map_grid__temp.svg
               display:
                 show_title: false
               render:
@@ -601,6 +633,10 @@ stages:
                 pdf_relpath: amplitude_map_grid.pdf
                 write_png: true
                 png_relpath: amplitude_map_grid.png
+                write_svg: true
+                svg_relpath: amplitude_map_grid.svg
+                keep_temp_svg: false
+                temp_svg_relpath: amplitude_map_grid__temp.svg
               display:
                 show_title: false
               render:
@@ -616,6 +652,10 @@ stages:
                 pdf_relpath: latency_map_grid.pdf
                 write_png: true
                 png_relpath: latency_map_grid.png
+                write_svg: true
+                svg_relpath: latency_map_grid.svg
+                keep_temp_svg: false
+                temp_svg_relpath: latency_map_grid__temp.svg
               display:
                 show_title: false
               render:
@@ -898,7 +938,8 @@ stages:
       min_path_points: 4
       # default: 0.5
       # max_peak_latency_for_splitting: 2.0
-      max_peak_latency_for_splitting: 0.5
+      # max_peak_latency_for_splitting: 0.5 # lower -> more aggressive splitting, higher -> less splitting; controls the maximum allowed latency of the peak channel in a branch for it to be eligible for splitting, which can help prevent over-splitting of branches with long propagation delays and/or low SNR peaks.
+      max_peak_latency_for_splitting: .25 # lower -> more aggressive splitting, higher -> less splitting; controls the maximum allowed latency of the peak channel in a branch for it to be eligible for splitting, which can help prevent over-splitting of branches with long propagation delays and/or low SNR peaks.
       # default: 0.3
       kurt_threshold: -10.0
       peak_std_threshold: null

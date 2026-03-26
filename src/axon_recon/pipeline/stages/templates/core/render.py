@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import replace
 import logging
 from pathlib import Path
 import re
@@ -73,12 +72,17 @@ def compute_propagation_channel_order(
 	selected_abs_max = np.max(np.abs(t[selected, :]), axis=1)
 	max_abs_channel = int(selected[int(np.argmax(selected_abs_max))]) if selected.size > 0 else None
 
-	lat_idx = np.argmax(np.abs(t[selected, :]), axis=1).astype(float)
+	ordering_latency_mode = str(getattr(config, "ordering_latency_mode", "abs_peak") or "abs_peak").strip().lower()
+	if ordering_latency_mode == "negative_peak":
+		lat_idx = np.argmin(t[selected, :], axis=1).astype(float)
+	else:
+		lat_idx = np.argmax(np.abs(t[selected, :]), axis=1).astype(float)
 	order = np.argsort(lat_idx)
 	selected = selected[order]
 	lat_idx = lat_idx[order]
 
 	anchor_channel: int | None = None
+	anchor_shift = 0
 	if bool(getattr(config, "force_start_with_max_negative_peak", False)) and max_negative_peak_channel is not None:
 		anchor_channel = int(max_negative_peak_channel)
 	elif bool(getattr(config, "force_start_with_max_ptp", True)) and max_ptp_channel is not None:
@@ -87,14 +91,25 @@ def compute_propagation_channel_order(
 		anchor_pos = np.flatnonzero(selected == int(anchor_channel))
 		if anchor_pos.size > 0 and int(anchor_pos[0]) != 0:
 			shift = int(anchor_pos[0])
+			anchor_shift = int(shift)
 			selected = np.roll(selected, -shift)
 			lat_idx = np.roll(lat_idx, -shift)
 
 	rank_by_channel = {int(ch): int(i + 1) for i, ch in enumerate(selected.tolist())}
+	relative_order_by_channel: dict[int, int] = {}
+	if int(selected.shape[0]) > 0:
+		n_ch = int(selected.shape[0])
+		for i, ch in enumerate(selected.tolist()):
+			rel = int(i)
+			if anchor_shift > 0 and i >= (n_ch - anchor_shift):
+				rel = int(i - n_ch)
+			relative_order_by_channel[int(ch)] = rel
 	return {
 		"ordered_channel_indices": selected,
 		"latency_indices": lat_idx,
 		"rank_by_channel": rank_by_channel,
+		"relative_order_by_channel": relative_order_by_channel,
+		"anchor_shift": int(anchor_shift),
 		"max_abs_channel": max_abs_channel,
 		"max_ptp_channel": max_ptp_channel,
 		"max_negative_peak_channel": max_negative_peak_channel,
@@ -181,6 +196,91 @@ def compose_svg_side_by_side(
 		if str(child.tag).endswith("defs"):
 			continue
 		right_group.append(copy.deepcopy(child))
+
+	output_svg_path.parent.mkdir(parents=True, exist_ok=True)
+	ET.ElementTree(composed).write(output_svg_path, encoding="utf-8", xml_declaration=True)
+	return output_svg_path
+
+
+def compose_svg_grid(
+	*,
+	panel_svg_paths: list[Path],
+	output_svg_path: Path,
+	ncols: int,
+	show_title: bool = True,
+	title: str = "",
+) -> Path:
+	if not panel_svg_paths:
+		raise ValueError("compose_svg_grid requires at least one panel SVG")
+
+	paths = [Path(p) for p in panel_svg_paths]
+	n = len(paths)
+	ncols_eff = max(1, int(ncols))
+	nrows_eff = int(np.ceil(float(n) / float(ncols_eff)))
+
+	panels: list[tuple[ET.Element, float, float]] = []
+	for path in paths:
+		tree = ET.parse(path)
+		root = tree.getroot()
+		w, h = _svg_canvas_size(root)
+		if w <= 0 or h <= 0:
+			raise ValueError(f"SVG panel dimensions must be positive: {path}")
+		panels.append((root, float(w), float(h)))
+
+	cell_w = float(max(p[1] for p in panels))
+	cell_h = float(max(p[2] for p in panels))
+	title_h = 24.0 if bool(show_title) and bool(str(title).strip()) else 0.0
+	total_w = cell_w * float(ncols_eff)
+	total_h = title_h + (cell_h * float(nrows_eff))
+
+	svg_ns = "http://www.w3.org/2000/svg"
+	ET.register_namespace("", svg_ns)
+	composed = ET.Element(
+		f"{{{svg_ns}}}svg",
+		{
+			"version": "1.1",
+			"width": str(total_w),
+			"height": str(total_h),
+			"viewBox": f"0 0 {total_w} {total_h}",
+		},
+	)
+
+	ET.SubElement(
+		composed,
+		f"{{{svg_ns}}}rect",
+		{
+			"x": "0",
+			"y": "0",
+			"width": str(total_w),
+			"height": str(total_h),
+			"fill": "white",
+		},
+	)
+
+	if title_h > 0.0:
+		title_node = ET.SubElement(
+			composed,
+			f"{{{svg_ns}}}text",
+			{
+				"x": str(0.5 * total_w),
+				"y": "16",
+				"text-anchor": "middle",
+				"font-size": "12",
+				"fill": "black",
+			},
+		)
+		title_node.text = str(title)
+
+	for i, (panel_root, panel_w, panel_h) in enumerate(panels):
+		row = int(i // ncols_eff)
+		col = int(i % ncols_eff)
+		x = (float(col) * cell_w) + ((cell_w - panel_w) * 0.5)
+		y = title_h + (float(row) * cell_h) + ((cell_h - panel_h) * 0.5)
+		group = ET.SubElement(composed, f"{{{svg_ns}}}g", {"transform": f"translate({x},{y})"})
+		for child in list(panel_root):
+			if str(child.tag).endswith("defs"):
+				continue
+			group.append(copy.deepcopy(child))
 
 	output_svg_path.parent.mkdir(parents=True, exist_ok=True)
 	ET.ElementTree(composed).write(output_svg_path, encoding="utf-8", xml_declaration=True)
@@ -1298,6 +1398,7 @@ def render_propagation_plot(
 	write_svg: bool = False,
 	probe_geometry: ProbeGeometryConfig | None = None,
 	channel_labels_by_row: list[Any] | None = None,
+	trace_order_label_by_channel: dict[int, int] | None = None,
 	channel_indices: list[int] | np.ndarray | None = None,
 	peak_indices_by_channel: dict[int, list[int] | np.ndarray] | None = None,
 ) -> dict[str, str]:
@@ -1322,7 +1423,8 @@ def render_propagation_plot(
 	)
 	selected = np.asarray(order_payload["ordered_channel_indices"], dtype=int)
 	lat_idx = np.asarray(order_payload["latency_indices"], dtype=float)
-	max_amp_electrode = order_payload.get("max_abs_channel", None)
+	max_abs_electrode = order_payload.get("max_abs_channel", None)
+	max_ptp_electrode = order_payload.get("max_ptp_channel", None)
 	selected_abs_max = np.max(np.abs(t[selected, :]), axis=1)
 	if bool(getattr(config, "debug_max_amps_at_each_channel", False)):
 		amps_by_channel = {
@@ -1331,7 +1433,7 @@ def render_propagation_plot(
 		debug_msg = f"Propagation plot debug: max amplitude at each plotted electrode before gain (uV): {amps_by_channel}"
 		print(debug_msg)
 		LOGGER.info(debug_msg)
-	ref_ch = int(max_amp_electrode) if max_amp_electrode is not None else int(selected[0])
+	ref_ch = int(max_abs_electrode) if max_abs_electrode is not None else int(selected[0])
 	ref_neg_peak_idx = int(np.argmin(t[ref_ch, :]))
 
 	channels_per_panel = max(1, int(config.channels_per_panel))
@@ -1474,6 +1576,33 @@ def render_propagation_plot(
 	label_alignment = str(getattr(config, "electrode_label_alignment", getattr(config, "channel_label_alignment", "left")) or "left").strip().lower()
 	if label_alignment not in {"left", "center", "right"}:
 		label_alignment = "left"
+	label_mode = str(getattr(config, "trace_label_mode", "electrode_id") or "electrode_id").strip().lower()
+	order_index_label_by_channel: dict[int, int] | None = None
+	if label_mode == "order_index" and int(selected.shape[0]) > 0:
+		if trace_order_label_by_channel is not None:
+			order_index_label_by_channel = {
+				int(ch): int(val)
+				for ch, val in trace_order_label_by_channel.items()
+			}
+		elif max_ptp_electrode is not None:
+			anchor_hits = np.flatnonzero(selected == int(max_ptp_electrode))
+			if anchor_hits.size > 0:
+				anchor_pos = int(anchor_hits[0])
+				order_index_label_by_channel = {
+					int(ch): int(i - anchor_pos)
+					for i, ch in enumerate(selected.tolist())
+				}
+
+	highlight_label_channel = max_abs_electrode
+	if label_mode == "order_index":
+		if order_index_label_by_channel is not None:
+			zero_channels = [int(ch) for ch, v in order_index_label_by_channel.items() if int(v) == 0]
+			for ch in zero_channels:
+				if np.any(selected == int(ch)):
+					highlight_label_channel = int(ch)
+					break
+		elif max_ptp_electrode is not None:
+			highlight_label_channel = int(max_ptp_electrode)
 	for panel_i, panel_inds in enumerate(panels):
 		ax = trace_axes[panel_i]
 		label_x_offset = float(getattr(config, "electrode_label_x_offset_frac", getattr(config, "channel_label_x_offset_frac", 0.01))) * float(max(1, x.shape[0] - shift_samples))
@@ -1481,11 +1610,17 @@ def render_propagation_plot(
 		min_label_x: float | None = None
 		for i_local, idx in enumerate(panel_inds):
 			ch = int(selected[int(idx)])
-			label_id = ch
+			label_id: Any = ch
 			if channel_labels_by_row is not None and 0 <= int(ch) < int(len(channel_labels_by_row)):
 				candidate = channel_labels_by_row[int(ch)]
 				if candidate is not None:
 					label_id = candidate
+			label_text: str | None = None
+			if label_mode == "order_index":
+				if order_index_label_by_channel is not None and int(ch) in order_index_label_by_channel:
+					label_text = str(int(order_index_label_by_channel[int(ch)]))
+			elif bool(getattr(config, "show_electrode_ids", False)):
+				label_text = f"eid {label_id}"
 			off = float(i_local) * offset_step
 			y = (t[ch, :] * trace_gain) + off
 			if cut_start_idx is not None and cut_end_idx is not None and shift_samples > 0:
@@ -1518,6 +1653,13 @@ def render_propagation_plot(
 			else:
 				ax.plot(x, y, color=trace_color, linewidth=0.9, alpha=0.95)
 			delay_pk = int(np.argmax(np.abs(t[ch, :])))
+			if 0 <= int(idx) < int(lat_idx.shape[0]):
+				try:
+					latency_pk = int(round(float(lat_idx[int(idx)])))
+					if 0 <= latency_pk < int(t.shape[1]):
+						delay_pk = latency_pk
+				except Exception:
+					pass
 			marker_height = float(max(1.2, peak_marker_height_frac * offset_step))
 			marker_half = float(0.5 * marker_height)
 
@@ -1549,16 +1691,16 @@ def render_propagation_plot(
 				linewidth=peak_marker_linewidth,
 				solid_capstyle="butt",
 			)
-			if bool(getattr(config, "show_electrode_ids", False)):
+			if label_text is not None:
 				ax.text(
 					_map_sample_to_plot_x(x[0]) + label_x_offset,
 					off + label_y_offset,
-					f"eid {label_id}",
+					label_text,
 					color=text_color,
 					fontsize=float(getattr(config, "electrode_label_fontsize", getattr(config, "channel_label_fontsize", 6.0))),
 					fontweight=(
 						"bold"
-						if bool(getattr(config, "bold_max_amp_electrode_label", getattr(config, "bold_max_amp_channel_label", False))) and max_amp_electrode is not None and int(ch) == max_amp_electrode
+						if bool(getattr(config, "bold_max_amp_electrode_label", getattr(config, "bold_max_amp_channel_label", False))) and highlight_label_channel is not None and int(ch) == int(highlight_label_channel)
 						else "normal"
 					),
 					horizontalalignment=label_alignment,
@@ -1928,28 +2070,17 @@ def render_multi_source_pdf(
 	return {"multi_source_pdf": str(pdf_path)}
 
 
-def render_wf_overlay_grid(
+def render_wf_overlay_grid_from_assets(
 	*,
 	overlay_png_paths: list[Path],
-	unit_payloads: list[dict[str, Any]] | None,
 	config: WfOverlayGridReportConfig,
 	pdf_path: Path,
 	png_path: Path,
-	overlay_config: TemplateWaveformOverlayConfig,
-	report_time_upsample: TimeUpsampleConfig,
-	probe_geometry: ProbeGeometryConfig | None = None,
+	write_svg: bool = False,
+	svg_path: Path | None = None,
+	svg_output_key: str = "wf_overlay_grid_svg",
 ) -> dict[str, str]:
-	mode = str(getattr(config, "render_mode", "direct_replot") or "direct_replot").strip().lower()
-	if mode == "direct_replot" and unit_payloads:
-		return _render_wf_overlay_grid_replot(
-			unit_payloads=unit_payloads,
-			config=config,
-			pdf_path=pdf_path,
-			png_path=png_path,
-			overlay_config=overlay_config,
-			report_time_upsample=report_time_upsample,
-			probe_geometry=probe_geometry,
-		)
+	"""Compose waveform overlay grid outputs from pre-rendered per-unit assets."""
 	return render_image_grid(
 		image_paths=overlay_png_paths,
 		write_pdf=bool(config.write_pdf),
@@ -1958,109 +2089,28 @@ def render_wf_overlay_grid(
 		write_png=bool(config.write_png),
 		png_path=png_path,
 		png_output_key="wf_overlay_grid_png",
+		write_svg=bool(write_svg),
+		svg_path=svg_path,
+		svg_output_key=svg_output_key,
 		title="Template waveform overlay grid",
 		dpi=max(72.0, float(getattr(config, "dpi", 300.0))),
 	)
 
 
-def _render_wf_overlay_grid_replot(
-	*,
-	unit_payloads: list[dict[str, Any]],
-	config: WfOverlayGridReportConfig,
-	pdf_path: Path,
-	png_path: Path,
-	overlay_config: TemplateWaveformOverlayConfig,
-	report_time_upsample: TimeUpsampleConfig,
-	probe_geometry: ProbeGeometryConfig | None,
-) -> dict[str, str]:
-	import matplotlib
-
-	matplotlib.use("Agg")
-	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
-
-	if not unit_payloads:
-		return {}
-
-	n = len(unit_payloads)
-	ncols = min(4, max(1, int(np.ceil(np.sqrt(n)))))
-	nrows = int(np.ceil(float(n) / float(ncols)))
-	fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4.2 * ncols, 3.2 * nrows))
-	fig.set_facecolor(str(getattr(config, "figure_background_color", "white") or "white"))
-	if not isinstance(axes, np.ndarray):
-		axes = np.asarray([axes])
-	ax_list = list(axes.ravel())
-	subplot_bg = str(getattr(config, "subplot_background_color", "white") or "white")
-	panel_overlay_config = replace(overlay_config, background=subplot_bg)
-	title_color = "white" if subplot_bg.strip().lower() == "black" else "black"
-
-	for idx, ax in enumerate(ax_list):
-		if idx >= n:
-			ax.axis("off")
-			continue
-		payload = unit_payloads[idx]
-		_draw_template_wf_overlay_panel(
-			ax=ax,
-			template=np.asarray(payload["template"]),
-			config=panel_overlay_config,
-			time_upsample=report_time_upsample,
-			probe_geometry=probe_geometry,
-			waveform_traces=payload.get("waveform_traces", None),
-			top_electrode_id=payload.get("top_electrode_id", None),
-			total_waveforms_at_channel=payload.get("total_waveforms_at_channel", None),
-		)
-		uid = payload.get("unit_id", "?")
-		ax.set_title(f"unit {uid}", fontsize=7, color=title_color)
-
-	outputs: dict[str, str] = {}
-	if bool(config.write_png):
-		png_path.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(png_path, dpi=max(72.0, float(getattr(config, "dpi", 300.0))), bbox_inches="tight")
-		outputs["wf_overlay_grid_png"] = str(png_path)
-	if bool(config.write_pdf):
-		pdf_path.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(pdf_path, format="pdf", bbox_inches="tight")
-		outputs["wf_overlay_grid_pdf"] = str(pdf_path)
-
-	plt.close(fig)
-	return outputs
-
-
-def render_footprint_map_grid(
+def render_footprint_map_grid_from_assets(
 	*,
 	image_paths: list[Path],
-	unit_payloads: list[dict[str, Any]] | None,
 	config: FootprintMapGridReportConfig,
 	pdf_path: Path,
 	png_path: Path,
+	write_svg: bool = False,
+	svg_path: Path | None = None,
+	svg_output_key: str = "footprint_map_grid_svg",
 	pdf_output_key: str,
 	png_output_key: str,
 	title: str,
-	panel_kind: str,
-	footprint_config: FootprintMapConfig | None = None,
-	circles_config: TemplateCirclesPlotConfig | None = None,
-	probe_geometry: ProbeGeometryConfig | None = None,
 ) -> dict[str, str]:
-	mode = str(getattr(config, "render_mode", "direct_replot") or "direct_replot").strip().lower()
-	if mode == "direct_replot" and unit_payloads:
-		return _render_replotted_unit_grid(
-			unit_payloads=unit_payloads,
-			write_pdf=bool(config.write_pdf),
-			pdf_path=pdf_path,
-			pdf_output_key=pdf_output_key,
-			write_png=bool(config.write_png),
-			png_path=png_path,
-			png_output_key=png_output_key,
-			title=title,
-			show_title=bool(getattr(config, "show_title", True)),
-			panel_kind=str(panel_kind or "").strip().lower(),
-			footprint_config=footprint_config,
-			circles_config=circles_config,
-			probe_geometry=probe_geometry,
-			dpi=max(72.0, float(getattr(config, "dpi", 300.0))),
-			global_color_scale=bool(getattr(config, "global_color_scale", True)),
-			subplot_background_color=str(getattr(config, "subplot_background_color", "white")),
-			figure_background_color=str(getattr(config, "figure_background_color", "white")),
-		)
+	"""Compose footprint grid outputs from pre-rendered per-unit assets."""
 	return render_image_grid(
 		image_paths=image_paths,
 		write_pdf=bool(config.write_pdf),
@@ -2069,6 +2119,9 @@ def render_footprint_map_grid(
 		write_png=bool(config.write_png),
 		png_path=png_path,
 		png_output_key=png_output_key,
+		write_svg=bool(write_svg),
+		svg_path=svg_path,
+		svg_output_key=svg_output_key,
 		title=title,
 		show_title=bool(getattr(config, "show_title", True)),
 		dpi=max(72.0, float(getattr(config, "dpi", 300.0))),
@@ -2084,6 +2137,9 @@ def render_image_grid(
 	write_png: bool,
 	png_path: Path,
 	png_output_key: str,
+	write_svg: bool,
+	svg_path: Path | None,
+	svg_output_key: str,
 	title: str,
 	show_title: bool = True,
 	dpi: float = 200.0,
@@ -2127,275 +2183,27 @@ def render_image_grid(
 		pdf_path.parent.mkdir(parents=True, exist_ok=True)
 		fig.savefig(pdf_path, format="pdf", bbox_inches="tight")
 		outputs[pdf_output_key] = str(pdf_path)
-
-	plt.close(fig)
-	return outputs
-
-
-def _draw_replotted_circles_panel(
-	*,
-	ax: Any,
-	template: np.ndarray,
-	locations_xy: np.ndarray,
-	config: TemplateCirclesPlotConfig,
-	probe_geometry: ProbeGeometryConfig | None,
-	color_limits: tuple[float, float] | None = None,
-	subplot_background_color: str = "white",
-) -> None:
-	locs = np.asarray(locations_xy, dtype=float)
-	ax.set_facecolor(str(subplot_background_color or "white"))
-	t = _as_template_channels_by_time(np.asarray(template), int(locs.shape[0]))
-	amp = np.ptp(t, axis=1)
-	min_idx = np.argmin(t, axis=1).astype(float)
-	ref = float(min_idx[int(np.argmax(amp))]) if min_idx.size > 0 else 0.0
-	lat_samples = min_idx - ref
-	lat, _ = _convert_latency_samples_to_units(
-		lat_samples,
-		units=str(config.color_bar_units or ""),
-		probe_geometry=probe_geometry,
-	)
-
-	size_metric = amp if str(config.size_by) == "amplitude" else np.abs(lat)
-	color_metric = amp if str(config.color_by) == "amplitude" else lat
-	color_values = np.asarray(color_metric, dtype=float)
-	if color_limits is None:
-		vmin = float(np.nanmin(color_values)) if color_values.size > 0 else 0.0
-		vmax = float(np.nanmax(color_values)) if color_values.size > 0 else 1.0
-	else:
-		vmin, vmax = float(color_limits[0]), float(color_limits[1])
-	if not np.isfinite(vmin):
-		vmin = 0.0
-	if not np.isfinite(vmax) or vmax <= vmin:
-		vmax = vmin + 1.0
-
-	size_norm = np.asarray(size_metric, dtype=float)
-	size_norm = np.nan_to_num(size_norm, nan=0.0, posinf=0.0, neginf=0.0)
-	if float(np.max(size_norm)) > 0.0:
-		size_norm = size_norm / float(np.max(size_norm))
-	sizes = 8.0 + 42.0 * size_norm
-	from matplotlib.colors import Normalize  # type: ignore[import-not-found]
-
-	ax.scatter(
-		locs[:, 0],
-		locs[:, 1],
-		s=sizes,
-		c=color_values,
-		cmap=_maybe_reversed_colormap("viridis", reverse=(str(config.color_by) == "latency")),
-		norm=None if vmax <= vmin else Normalize(vmin=vmin, vmax=vmax),
-		alpha=0.92,
-		linewidths=0.0,
-	)
-
-	xmin, xmax, ymin, ymax = _compute_plot_limits(locs)
-	if bool(config.force_square_aspect):
-		xmin, xmax, ymin, ymax = _make_square_limits(xmin, xmax, ymin, ymax)
-	ax.set_xlim(xmin, xmax)
-	ax.set_ylim(ymin, ymax)
-	ax.set_aspect("equal", adjustable="box")
-	ax.set_axis_off()
-
-
-def _draw_replotted_footprint_panel(
-	*,
-	ax: Any,
-	template: np.ndarray,
-	locations_xy: np.ndarray,
-	config: FootprintMapConfig,
-	probe_geometry: ProbeGeometryConfig | None,
-	kind: str,
-	value_limits: tuple[float, float] | None = None,
-	subplot_background_color: str = "white",
-) -> None:
-	locs = np.asarray(locations_xy, dtype=float)
-	ax.set_facecolor(str(subplot_background_color or "white"))
-	t = _as_template_channels_by_time(np.asarray(template), int(locs.shape[0]))
-	if str(kind) == "latency":
-		min_idx = np.argmin(t, axis=1).astype(float)
-		ref = float(min_idx[int(np.argmax(np.ptp(t, axis=1)))]) if min_idx.size > 0 else 0.0
-		vals = min_idx - ref
-		reverse = True
-	else:
-		vals = np.ptp(t, axis=1)
-		reverse = False
-
-	if value_limits is None:
-		vmin, vmax = _map_values_to_limits(np.asarray(vals, dtype=float), config)
-	else:
-		vmin, vmax = float(value_limits[0]), float(value_limits[1])
-	vals_plot, norm, vmin_eff, vmax_eff = prepare_linear_or_log_mapping(
-		values=np.asarray(vals, dtype=float),
-		scale=str(config.scale),
-		vmin=float(vmin),
-		vmax=float(vmax),
-	)
-
-	from matplotlib.collections import PatchCollection  # type: ignore[import-not-found]
-	from matplotlib.patches import Rectangle  # type: ignore[import-not-found]
-
-	dims = _probe_electrode_dims_um(probe_geometry)
-	if dims is None:
-		side = _fallback_square_side_um(locs[:, :2])
-		dx = dy = float(side)
-	else:
-		dx, dy = dims
-	patches = [
-		Rectangle((float(x) - (dx / 2.0), float(y) - (dy / 2.0)), width=float(dx), height=float(dy))
-		for x, y in locs[:, :2]
-	]
-	sc = PatchCollection(
-		patches,
-		cmap=_maybe_reversed_colormap(str(config.color_map), reverse=bool(reverse)),
-		linewidths=0.25,
-		edgecolors="none",
-		antialiaseds=False,
-	)
-	sc.set_array(np.asarray(vals_plot, dtype=float))
-	if norm is not None:
-		sc.set_norm(norm)
-	else:
-		sc.set_clim(vmin_eff, vmax_eff)
-	ax.add_collection(sc)
-	xmin, xmax, ymin, ymax = _limits_for_template_shape(locs[:, :2], template_shape=str(config.template_shape))
-	xmin, xmax, ymin, ymax = _expand_limits_for_glyph_half_size(
-		xmin=xmin,
-		xmax=xmax,
-		ymin=ymin,
-		ymax=ymax,
-		half_dx=float(dx) / 2.0,
-		half_dy=float(dy) / 2.0,
-	)
-	ax.set_xlim(xmin, xmax)
-	ax.set_ylim(ymin, ymax)
-	ax.set_aspect("equal", adjustable="box")
-	ax.set_axis_off()
-
-
-def _render_replotted_unit_grid(
-	*,
-	unit_payloads: list[dict[str, Any]],
-	write_pdf: bool,
-	pdf_path: Path,
-	pdf_output_key: str,
-	write_png: bool,
-	png_path: Path,
-	png_output_key: str,
-	title: str,
-	show_title: bool,
-	panel_kind: str,
-	footprint_config: FootprintMapConfig | None,
-	circles_config: TemplateCirclesPlotConfig | None,
-	probe_geometry: ProbeGeometryConfig | None,
-	dpi: float,
-	global_color_scale: bool,
-	subplot_background_color: str,
-	figure_background_color: str,
-) -> dict[str, str]:
-	import matplotlib
-
-	matplotlib.use("Agg")
-	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
-
-	if not unit_payloads:
-		return {}
-
-	n = len(unit_payloads)
-	ncols = min(4, max(1, int(np.ceil(np.sqrt(n)))))
-	nrows = int(np.ceil(float(n) / float(ncols)))
-	fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4.0 * ncols, 3.0 * nrows))
-	fig.patch.set_facecolor(str(figure_background_color or "white"))
-	if not isinstance(axes, np.ndarray):
-		axes = np.asarray([axes])
-	ax_list = list(axes.ravel())
-
-	global_limits: tuple[float, float] | None = None
-	if bool(global_color_scale):
-		if panel_kind == "circles" and circles_config is not None:
-			vals_all: list[np.ndarray] = []
-			for payload in unit_payloads:
-				t = _as_template_channels_by_time(np.asarray(payload["template"]), int(np.asarray(payload["locations_xy"]).shape[0]))
-				amp = np.ptp(t, axis=1)
-				min_idx = np.argmin(t, axis=1).astype(float)
-				ref = float(min_idx[int(np.argmax(amp))]) if min_idx.size > 0 else 0.0
-				lat_samples = min_idx - ref
-				lat, _ = _convert_latency_samples_to_units(
-					lat_samples,
-					units=str(circles_config.color_bar_units or ""),
-					probe_geometry=probe_geometry,
+	if bool(write_svg) and svg_path is not None:
+		panel_svg_paths = [Path(str(p)).with_suffix(".svg") for p in paths]
+		if panel_svg_paths and all(p.exists() for p in panel_svg_paths):
+			try:
+				compose_svg_grid(
+					panel_svg_paths=panel_svg_paths,
+					output_svg_path=svg_path,
+					ncols=ncols,
+					show_title=bool(show_title),
+					title=str(title),
 				)
-				vals_all.append(np.asarray(amp if str(circles_config.color_by) == "amplitude" else lat, dtype=float).reshape(-1))
-			if vals_all:
-				stacked = np.concatenate(vals_all)
-				stacked = stacked[np.isfinite(stacked)]
-				if stacked.size > 0:
-					vmin = float(np.min(stacked))
-					vmax = float(np.max(stacked))
-					if vmax <= vmin:
-						vmax = vmin + 1.0
-					global_limits = (vmin, vmax)
-		elif panel_kind in {"amplitude", "latency"} and footprint_config is not None:
-			vals_all = []
-			for payload in unit_payloads:
-				t = _as_template_channels_by_time(np.asarray(payload["template"]), int(np.asarray(payload["locations_xy"]).shape[0]))
-				if panel_kind == "latency":
-					min_idx = np.argmin(t, axis=1).astype(float)
-					ref = float(min_idx[int(np.argmax(np.ptp(t, axis=1)))]) if min_idx.size > 0 else 0.0
-					vals = min_idx - ref
-				else:
-					vals = np.ptp(t, axis=1)
-				vals_all.append(np.asarray(vals, dtype=float).reshape(-1))
-			if vals_all:
-				stacked = np.concatenate(vals_all)
-				stacked = stacked[np.isfinite(stacked)]
-				if stacked.size > 0:
-					global_limits = _map_values_to_limits(stacked, footprint_config)
-
-	for i, ax in enumerate(ax_list):
-		if i >= n:
-			ax.axis("off")
-			continue
-		payload = unit_payloads[i]
-		template = np.asarray(payload["template"])
-		locs = np.asarray(payload["locations_xy"], dtype=float)
-		if panel_kind == "circles" and circles_config is not None:
-			_draw_replotted_circles_panel(
-				ax=ax,
-				template=template,
-				locations_xy=locs,
-				config=circles_config,
-				probe_geometry=probe_geometry,
-				color_limits=global_limits,
-				subplot_background_color=subplot_background_color,
-			)
-		elif panel_kind in {"amplitude", "latency"} and footprint_config is not None:
-			_draw_replotted_footprint_panel(
-				ax=ax,
-				template=template,
-				locations_xy=locs,
-				config=footprint_config,
-				probe_geometry=probe_geometry,
-				kind=panel_kind,
-				value_limits=global_limits,
-				subplot_background_color=subplot_background_color,
-			)
+				outputs[svg_output_key] = str(svg_path)
+			except Exception:
+				svg_path.parent.mkdir(parents=True, exist_ok=True)
+				fig.savefig(svg_path, format="svg", bbox_inches="tight")
+				outputs[svg_output_key] = str(svg_path)
 		else:
-			ax.axis("off")
-		uid = payload.get("unit_id", "?")
-		title_color = "white" if str(subplot_background_color or "").strip().lower() == "black" else "black"
-		ax.set_title(f"unit {uid}", fontsize=7, color=title_color)
+			svg_path.parent.mkdir(parents=True, exist_ok=True)
+			fig.savefig(svg_path, format="svg", bbox_inches="tight")
+			outputs[svg_output_key] = str(svg_path)
 
-	if bool(show_title):
-		title_color = "white" if str(figure_background_color or "").strip().lower() == "black" else "black"
-		fig.suptitle(title, fontsize=10, color=title_color)
-
-	outputs: dict[str, str] = {}
-	if bool(write_png):
-		png_path.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(png_path, dpi=max(72.0, float(dpi)), bbox_inches="tight")
-		outputs[png_output_key] = str(png_path)
-	if bool(write_pdf):
-		pdf_path.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(pdf_path, format="pdf", bbox_inches="tight")
-		outputs[pdf_output_key] = str(pdf_path)
 	plt.close(fig)
 	return outputs
 

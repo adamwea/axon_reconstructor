@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,9 @@ from .models.inputs import (
 	WaveformExtractionConfig,
 	WfOverlayGridReportConfig,
 )
+
+
+LOGGER = logging.getLogger("axon_recon.templates.config")
 
 
 def _as_bool(value: Any, default: bool) -> bool:
@@ -416,6 +420,8 @@ def _build_footprint_grid_report_config(
 	*,
 	pdf_relpath_default: str,
 	png_relpath_default: str,
+	svg_relpath_default: str,
+	temp_svg_relpath_default: str,
 ) -> FootprintMapGridReportConfig:
 	return FootprintMapGridReportConfig(
 		write_pdf=_as_bool(
@@ -431,6 +437,26 @@ def _build_footprint_grid_report_config(
 		),
 		png_relpath=str(
 			_nested_or_flat(raw_cfg, block="output", key="png_relpath", flat_keys=("png_relpath",), default=png_relpath_default)
+		),
+		write_svg=_as_bool(
+			_nested_or_flat(raw_cfg, block="output", key="write_svg", flat_keys=("write_svg",), default=False),
+			False,
+		),
+		svg_relpath=str(
+			_nested_or_flat(raw_cfg, block="output", key="svg_relpath", flat_keys=("svg_relpath",), default=svg_relpath_default)
+		),
+		keep_temp_svg=_as_bool(
+			_nested_or_flat(raw_cfg, block="output", key="keep_temp_svg", flat_keys=("keep_temp_svg",), default=False),
+			False,
+		),
+		temp_svg_relpath=str(
+			_nested_or_flat(
+				raw_cfg,
+				block="output",
+				key="temp_svg_relpath",
+				flat_keys=("temp_svg_relpath",),
+				default=temp_svg_relpath_default,
+			)
 		),
 		show_title=_as_bool(
 			_nested_or_flat(raw_cfg, block="display", key="show_title", flat_keys=("show_title",), default=True),
@@ -1371,6 +1397,26 @@ def parse_templates_stage_config(
 			png_relpath=str(
 				_nested_or_flat(report_overlay_grid_cfg, block="output", key="png_relpath", flat_keys=("png_relpath",), default="wf_overlay_grid.png")
 			),
+			write_svg=_as_bool(
+				_nested_or_flat(report_overlay_grid_cfg, block="output", key="write_svg", flat_keys=("write_svg",), default=False),
+				False,
+			),
+			svg_relpath=str(
+				_nested_or_flat(report_overlay_grid_cfg, block="output", key="svg_relpath", flat_keys=("svg_relpath",), default="wf_overlay_grid.svg")
+			),
+			keep_temp_svg=_as_bool(
+				_nested_or_flat(report_overlay_grid_cfg, block="output", key="keep_temp_svg", flat_keys=("keep_temp_svg",), default=False),
+				False,
+			),
+			temp_svg_relpath=str(
+				_nested_or_flat(
+					report_overlay_grid_cfg,
+					block="output",
+					key="temp_svg_relpath",
+					flat_keys=("temp_svg_relpath",),
+					default="wf_overlay_grid__temp.svg",
+				)
+			),
 			top_channels_per_template=max(
 				1,
 				_as_int(
@@ -1419,16 +1465,22 @@ def parse_templates_stage_config(
 				(footprint_grids_cfg.get("circles_map_grid", {}) if isinstance(footprint_grids_cfg.get("circles_map_grid", {}), dict) else {}),
 				pdf_relpath_default="circles_map_grid.pdf",
 				png_relpath_default="circles_map_grid.png",
+				svg_relpath_default="circles_map_grid.svg",
+				temp_svg_relpath_default="circles_map_grid__temp.svg",
 			),
 			amplitude_map_grid=_build_footprint_grid_report_config(
 				(footprint_grids_cfg.get("amplitude_map_grid", {}) if isinstance(footprint_grids_cfg.get("amplitude_map_grid", {}), dict) else {}),
 				pdf_relpath_default="amplitude_map_grid.pdf",
 				png_relpath_default="amplitude_map_grid.png",
+				svg_relpath_default="amplitude_map_grid.svg",
+				temp_svg_relpath_default="amplitude_map_grid__temp.svg",
 			),
 			latency_map_grid=_build_footprint_grid_report_config(
 				(footprint_grids_cfg.get("latency_map_grid", {}) if isinstance(footprint_grids_cfg.get("latency_map_grid", {}), dict) else {}),
 				pdf_relpath_default="latency_map_grid.pdf",
 				png_relpath_default="latency_map_grid.png",
+				svg_relpath_default="latency_map_grid.svg",
+				temp_svg_relpath_default="latency_map_grid__temp.svg",
 			),
 		),
 	)
@@ -1440,15 +1492,140 @@ def parse_templates_stage_config(
 		amplitude=_build_topographical_footprint_config(topo_amp_cfg, relpath_default="topographical_amplitude_footprint"),
 		latency=_build_topographical_footprint_config(topo_lat_cfg, relpath_default="topographical_latency_footprint"),
 	)
+	propagation_output_cfg = _get_nested_block(propagation_cfg, "output")
+	propagation_plot_output_cfg = _get_nested_block(propagation_output_cfg, "propagation_plot")
+	circles_numbered_output_cfg = _get_nested_block(propagation_output_cfg, "circles_template_numbered")
+	propagation_2panel_output_cfg = _get_nested_block(propagation_output_cfg, "propagation_2panel")
+	propagation_2panel_layout_cfg = _get_nested_block(propagation_2panel_output_cfg, "layout")
 	propagation_plots = PropagationPlotConfig(
-		write_pdf=_as_bool(_nested_or_flat(propagation_cfg, block="output", key="write_pdf", flat_keys=("write_pdf",), default=False), False),
-		pdf_relpath=str(_nested_or_flat(propagation_cfg, block="output", key="pdf_relpath", flat_keys=("pdf_relpath",), default="propagation_plot.pdf")),
-		write_png=_as_bool(_nested_or_flat(propagation_cfg, block="output", key="write_png", flat_keys=("write_png",), default=True), True),
-		png_relpath=str(_nested_or_flat(propagation_cfg, block="output", key="png_relpath", flat_keys=("png_relpath",), default="propagation_plot.png")),
+		write_pdf=_as_bool(
+			propagation_plot_output_cfg.get(
+				"write_pdf",
+				_nested_or_flat(propagation_cfg, block="output", key="write_pdf", flat_keys=("write_pdf",), default=False),
+			),
+			False,
+		),
+		pdf_relpath=str(
+			propagation_plot_output_cfg.get(
+				"pdf_relpath",
+				_nested_or_flat(propagation_cfg, block="output", key="pdf_relpath", flat_keys=("pdf_relpath",), default="propagation_plot.pdf"),
+			)
+		),
+		write_png=_as_bool(
+			propagation_plot_output_cfg.get(
+				"write_png",
+				_nested_or_flat(propagation_cfg, block="output", key="write_png", flat_keys=("write_png",), default=True),
+			),
+			True,
+		),
+		png_relpath=str(
+			propagation_plot_output_cfg.get(
+				"png_relpath",
+				_nested_or_flat(propagation_cfg, block="output", key="png_relpath", flat_keys=("png_relpath",), default="propagation_plot.png"),
+			)
+		),
+		write_svg=_as_bool(
+			propagation_plot_output_cfg.get(
+				"write_svg",
+				_nested_or_flat(propagation_cfg, block="output", key="write_svg", flat_keys=("write_svg",), default=True),
+			),
+			True,
+		),
+		write_circles_template_numbered_png=_as_bool(
+			circles_numbered_output_cfg.get(
+				"write_png",
+				_nested_or_flat(
+					propagation_cfg,
+					block="output",
+					key="write_circles_template_numbered_png",
+					flat_keys=("write_circles_template_numbered_png",),
+					default=True,
+				),
+			),
+			True,
+		),
+		write_circles_template_numbered_svg=_as_bool(
+			circles_numbered_output_cfg.get(
+				"write_svg",
+				_nested_or_flat(
+					propagation_cfg,
+					block="output",
+					key="write_circles_template_numbered_svg",
+					flat_keys=("write_circles_template_numbered_svg",),
+					default=True,
+				),
+			),
+			True,
+		),
+		circles_template_numbered_relpath=str(
+			circles_numbered_output_cfg.get(
+				"relpath",
+				_nested_or_flat(
+					propagation_cfg,
+					block="output",
+					key="circles_template_numbered_relpath",
+					flat_keys=("circles_template_numbered_relpath",),
+					default=_nested_or_flat(
+						propagation_cfg,
+						block="display",
+						key="right_panel_png_relpath",
+						flat_keys=("right_panel_png_relpath",),
+						default="circles_template_numbered",
+					),
+				),
+			)
+		),
+		write_propagation_2panel_png=_as_bool(
+			propagation_2panel_output_cfg.get(
+				"write_png",
+				_nested_or_flat(
+					propagation_cfg,
+					block="output",
+					key="write_propagation_2panel_png",
+					flat_keys=("write_propagation_2panel_png",),
+					default=True,
+				),
+			),
+			True,
+		),
+		write_propagation_2panel_svg=_as_bool(
+			propagation_2panel_output_cfg.get(
+				"write_svg",
+				_nested_or_flat(
+					propagation_cfg,
+					block="output",
+					key="write_propagation_2panel_svg",
+					flat_keys=("write_propagation_2panel_svg",),
+					default=True,
+				),
+			),
+			True,
+		),
+		propagation_2panel_relpath=str(
+			propagation_2panel_output_cfg.get(
+				"relpath",
+				_nested_or_flat(
+					propagation_cfg,
+					block="output",
+					key="propagation_2panel_relpath",
+					flat_keys=("propagation_2panel_relpath",),
+					default="propagation_2panel",
+				),
+			)
+		),
 		show_title=_as_bool(_nested_or_flat(propagation_cfg, block="display", key="show_title", flat_keys=("show_title",), default=True), True),
 		title_template=str(_nested_or_flat(propagation_cfg, block="display", key="title_template", flat_keys=("title_template",), default="Propagation traces {start}-{end} / {total}")),
 		title_fontsize=_as_float(_nested_or_flat(propagation_cfg, block="display", key="title_fontsize", flat_keys=("title_fontsize",), default=9.0), 9.0),
 		top_channels=max(1, _as_int(_nested_or_flat(propagation_cfg, block="display", key="top_channels", flat_keys=("top_channels",), default=25), 25)),
+		window_strategy=str(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="window_strategy",
+				flat_keys=("window_strategy",),
+				default="max_ptp_sum",
+			)
+		),
 		channels_per_panel=max(1, _as_int(_nested_or_flat(propagation_cfg, block="display", key="channels_per_panel", flat_keys=("channels_per_panel",), default=25), 25)),
 		channel_overlap=max(0, _as_int(_nested_or_flat(propagation_cfg, block="display", key="channel_overlap", flat_keys=("channel_overlap",), default=5), 5)),
 		force_start_with_max_ptp=_as_bool(
@@ -1471,7 +1648,57 @@ def parse_templates_stage_config(
 			),
 			False,
 		),
+		force_min_neg_peak_index_zero=_as_bool(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="force_min_neg_peak_index_zero",
+				flat_keys=("force_min_neg_peak_index_zero", "force_max_ptp_index_zero"),
+				default=False,
+			),
+			False,
+		),
+		ordering_latency_mode=str(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="ordering_latency_mode",
+				flat_keys=("ordering_latency_mode",),
+				default="abs_peak",
+			)
+		),
+		debug_ordering=_as_bool(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="debug_ordering",
+				flat_keys=("debug_ordering",),
+				default=False,
+			),
+			False,
+		),
+		trace_label_mode=str(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="trace_label_mode",
+				flat_keys=("trace_label_mode",),
+				default="electrode_id",
+			)
+		),
+		relative_signed_order_numbers=_as_bool(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="relative_signed_order_numbers",
+				flat_keys=("relative_signed_order_numbers",),
+				default=True,
+			),
+			True,
+		),
 		show_right_panel=_as_bool(
+			propagation_2panel_output_cfg.get(
+				"enabled",
 			_nested_or_flat(
 				propagation_cfg,
 				block="display",
@@ -1479,83 +1706,108 @@ def parse_templates_stage_config(
 				flat_keys=("show_right_panel",),
 				default=False,
 			),
+			),
 			False,
 		),
 		right_panel_gap_fraction=_as_float(
-			_nested_or_flat(
-				propagation_cfg,
-				block="display",
-				key="right_panel_gap_fraction",
-				flat_keys=("right_panel_gap_fraction",),
-				default=0.04,
+			propagation_2panel_layout_cfg.get(
+				"gap_fraction",
+				_nested_or_flat(
+					propagation_cfg,
+					block="display",
+					key="right_panel_gap_fraction",
+					flat_keys=("right_panel_gap_fraction",),
+					default=0.04,
+				),
 			),
 			0.04,
 		),
 		right_panel_width_scale=_as_float(
-			_nested_or_flat(
-				propagation_cfg,
-				block="display",
-				key="right_panel_width_scale",
-				flat_keys=("right_panel_width_scale",),
-				default=1.0,
+			propagation_2panel_layout_cfg.get(
+				"width_scale",
+				_nested_or_flat(
+					propagation_cfg,
+					block="display",
+					key="right_panel_width_scale",
+					flat_keys=("right_panel_width_scale",),
+					default=1.0,
+				),
 			),
 			1.0,
 		),
 		right_panel_keep_temp_svg=_as_bool(
-			_nested_or_flat(
-				propagation_cfg,
-				block="display",
-				key="right_panel_keep_temp_svg",
-				flat_keys=("right_panel_keep_temp_svg",),
-				default=False,
+			propagation_2panel_layout_cfg.get(
+				"keep_temp_svg",
+				_nested_or_flat(
+					propagation_cfg,
+					block="display",
+					key="right_panel_keep_temp_svg",
+					flat_keys=("right_panel_keep_temp_svg",),
+					default=False,
+				),
 			),
 			False,
 		),
 		right_panel_svg_relpath=str(
-			_nested_or_flat(
-				propagation_cfg,
-				block="display",
-				key="right_panel_svg_relpath",
-				flat_keys=("right_panel_svg_relpath",),
-				default="propagation_plot__right_temp.svg",
+			propagation_2panel_layout_cfg.get(
+				"right_panel_svg_relpath",
+				_nested_or_flat(
+					propagation_cfg,
+					block="display",
+					key="right_panel_svg_relpath",
+					flat_keys=("right_panel_svg_relpath",),
+					default="propagation_plot__right_temp.svg",
+				),
 			)
 		),
 		right_panel_png_relpath=str(
-			_nested_or_flat(
-				propagation_cfg,
-				block="display",
-				key="right_panel_png_relpath",
-				flat_keys=("right_panel_png_relpath",),
-				default="propagation_plot__right_temp.png",
+			propagation_2panel_layout_cfg.get(
+				"right_panel_png_relpath",
+				_nested_or_flat(
+					propagation_cfg,
+					block="display",
+					key="right_panel_png_relpath",
+					flat_keys=("right_panel_png_relpath",),
+					default="propagation_plot__right_temp.png",
+				),
 			)
 		),
 		left_panel_png_dpi=_as_float_or_none(
-			_nested_or_flat(
-				propagation_cfg,
-				block="display",
-				key="left_panel_png_dpi",
-				flat_keys=("left_panel_png_dpi",),
-				default=None,
+			propagation_plot_output_cfg.get(
+				"png_dpi",
+				_nested_or_flat(
+					propagation_cfg,
+					block="display",
+					key="left_panel_png_dpi",
+					flat_keys=("left_panel_png_dpi",),
+					default=None,
+				),
 			),
 			None,
 		),
 		right_panel_png_dpi=_as_float(
-			_nested_or_flat(
-				propagation_cfg,
-				block="display",
-				key="right_panel_png_dpi",
-				flat_keys=("right_panel_png_dpi",),
-				default=300.0,
+			circles_numbered_output_cfg.get(
+				"png_dpi",
+				_nested_or_flat(
+					propagation_cfg,
+					block="display",
+					key="right_panel_png_dpi",
+					flat_keys=("right_panel_png_dpi",),
+					default=300.0,
+				),
 			),
 			300.0,
 		),
 		composed_png_dpi=_as_float_or_none(
-			_nested_or_flat(
-				propagation_cfg,
-				block="display",
-				key="composed_png_dpi",
-				flat_keys=("composed_png_dpi",),
-				default=None,
+			propagation_2panel_output_cfg.get(
+				"png_dpi",
+				_nested_or_flat(
+					propagation_cfg,
+					block="display",
+					key="composed_png_dpi",
+					flat_keys=("composed_png_dpi",),
+					default=None,
+				),
 			),
 			None,
 		),
@@ -1717,6 +1969,20 @@ def parse_templates_stage_config(
 			_get_nested_block(propagation_cfg, "latency_map")
 		),
 	)
+
+	prop_display_cfg = _get_nested_block(propagation_cfg, "display")
+	legacy_prop_keys = (
+		"show_right_panel",
+		"right_panel_gap_fraction",
+		"right_panel_width_scale",
+		"right_panel_keep_temp_svg",
+		"right_panel_svg_relpath",
+		"right_panel_png_relpath",
+	)
+	if any(k in prop_display_cfg for k in legacy_prop_keys):
+		LOGGER.warning(
+			"templates.propagation_plots legacy right_panel keys are deprecated; prefer output.circles_template_numbered and output.propagation_2panel blocks"
+		)
 
 	per_unit = PerUnitTemplatesOutputsConfig(
 		unit_reldir=_get_unit_reldir(runtime_config),

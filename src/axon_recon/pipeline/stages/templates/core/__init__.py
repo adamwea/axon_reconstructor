@@ -1,13 +1,13 @@
 from .render import (
+	render_footprint_map_grid_from_assets,
 	render_footprint_amplitude_map,
-	render_footprint_map_grid,
 	render_footprint_latency_map,
 	render_multi_source_pdf,
 	render_propagation_plot,
 	render_template_circles_plot,
 	render_template_plot,
 	render_template_wf_overlay,
-	render_wf_overlay_grid,
+	render_wf_overlay_grid_from_assets,
 	render_topographical_amplitude_footprint,
 	render_topographical_latency_footprint,
 )
@@ -19,14 +19,14 @@ from .merge import materialize_templates_from_spikeinterface
 
 __all__ = [
 	"render_footprint_amplitude_map",
-	"render_footprint_map_grid",
+	"render_footprint_map_grid_from_assets",
 	"render_footprint_latency_map",
 	"render_multi_source_pdf",
 	"render_propagation_plot",
 	"render_template_circles_plot",
 	"render_template_plot",
 	"render_template_wf_overlay",
-	"render_wf_overlay_grid",
+	"render_wf_overlay_grid_from_assets",
 	"merge_sources_per_channel",
 	"materialize_unit_templates_from_sources",
 	"materialize_unit_templates_by_unit",

@@ -357,7 +357,11 @@ def test_run_templates_stage_quality_check_violation_plot_and_output_knobs(tmp_p
 	assert unit_outputs["quality_checks_multiple_negative_peaks_plot_png"].endswith("units/0094/qc/violating_channels.png")
 	assert unit_outputs["quality_checks_multiple_negative_peaks_plot_svg"].endswith("units/0094/qc/violating_channels.svg")
 
-	qc_calls = [c for c in prop_calls if c.get("channel_indices") is not None]
+	qc_calls = [
+		c
+		for c in prop_calls
+		if c.get("channel_indices") is not None and c.get("peak_indices_by_channel") is not None
+	]
 	assert len(qc_calls) == 1
 	assert sorted(list(qc_calls[0]["channel_indices"])) == [0, 1]
 	assert qc_calls[0]["config"].show_multiple_peak_markers is True
@@ -419,6 +423,34 @@ def test_run_templates_stage_propagation_right_panel_composes_svg(tmp_path: Path
 	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", _fake_prop)
 	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.compose_svg_side_by_side", _fake_compose)
 	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.compose_png_side_by_side", _fake_compose_png)
+	def _fake_compute_propagation_channel_order(**kwargs):
+		channel_indices = kwargs.get("channel_indices", None)
+		if channel_indices is not None:
+			return {
+				"ordered_channel_indices": np.asarray([0, 2, 1], dtype=int),
+				"latency_indices": np.asarray([1.0, 2.0, 3.0], dtype=float),
+				"rank_by_channel": {0: 1, 2: 2, 1: 3},
+				"relative_order_by_channel": {0: 0, 2: 1, 1: 2},
+				"anchor_shift": 0,
+				"max_abs_channel": 1,
+				"max_ptp_channel": 2,
+				"max_negative_peak_channel": 1,
+			}
+		return {
+			"ordered_channel_indices": np.asarray([2, 0, 1], dtype=int),
+			"latency_indices": np.asarray([1.0, 2.0, 3.0], dtype=float),
+			"rank_by_channel": {2: 1, 0: 2, 1: 3},
+			"relative_order_by_channel": {2: 0, 0: 1, 1: 2},
+			"anchor_shift": 0,
+			"max_abs_channel": 1,
+			"max_ptp_channel": 0,
+			"max_negative_peak_channel": 1,
+		}
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.compute_propagation_channel_order",
+		_fake_compute_propagation_channel_order,
+	)
 
 	inputs = TemplatesInputs(
 		h5_path=h5_path,
@@ -442,6 +474,10 @@ def test_run_templates_stage_propagation_right_panel_composes_svg(tmp_path: Path
 				write_pdf=False,
 				write_png=True,
 				show_right_panel=True,
+				trace_label_mode="order_index",
+				top_channels=2,
+				window_strategy="first_k",
+				force_min_neg_peak_index_zero=True,
 				right_panel_svg_relpath="custom/right_panel.svg",
 				right_panel_png_relpath="custom/right_panel.png",
 				left_panel_png_dpi=550.0,
@@ -467,6 +503,7 @@ def test_run_templates_stage_propagation_right_panel_composes_svg(tmp_path: Path
 	assert len(right_panel_calls) == 1
 	right_panel_cfg = right_panel_calls[0]["config"]
 	assert right_panel_cfg.dpi == 600.0
+	assert right_panel_calls[0]["propagation_order_rank_by_channel"] == {0: -1, 2: 0, 1: 1}
 	assert str(right_panel_calls[0]["png_path"]).endswith("units/0094/custom/right_panel.png")
 	assert str(right_panel_calls[0]["svg_path"]).endswith("units/0094/custom/right_panel.svg")
 	assert str(compose_png_calls[0]["right_png_path"]).endswith("units/0094/custom/right_panel.png")
@@ -474,9 +511,15 @@ def test_run_templates_stage_propagation_right_panel_composes_svg(tmp_path: Path
 	left_panel_calls = [c for c in prop_calls if bool(c.get("write_svg", False))]
 	assert len(left_panel_calls) == 1
 	assert left_panel_calls[0]["config"].left_panel_png_dpi == 550.0
+	assert left_panel_calls[0]["trace_order_label_by_channel"] == {0: -1, 2: 0, 1: 1}
+	assert left_panel_calls[0]["channel_indices"].tolist() == [0, 2]
 	assert str(compose_calls[0]["right_svg_path"]).endswith("units/0094/custom/right_panel.svg")
 	assert result.units[0].outputs["propagation_plot_svg"].endswith("units/0094/propagation_plot.svg")
 	assert result.units[0].outputs["propagation_plot_png"].endswith("units/0094/propagation_plot.png")
+	assert result.units[0].outputs["circles_template_numbered_svg"].endswith("units/0094/custom/right_panel.svg")
+	assert result.units[0].outputs["circles_template_numbered_png"].endswith("units/0094/custom/right_panel.png")
+	assert result.units[0].outputs["propagation_2panel_svg"].endswith("units/0094/propagation_2panel.svg")
+	assert result.units[0].outputs["propagation_2panel_png"].endswith("units/0094/propagation_2panel.png")
 
 
 def test_run_templates_stage_writes_channel_locations_for_all_template_artifacts(tmp_path: Path) -> None:
@@ -586,6 +629,10 @@ def test_run_templates_stage_writes_overlay_and_grid(tmp_path: Path) -> None:
 				write_pdf=False,
 				write_png=True,
 				png_relpath="reports/wf_overlay_grid.png",
+				write_svg=True,
+				svg_relpath="reports/wf_overlay_grid.svg",
+				keep_temp_svg=False,
+				temp_svg_relpath="reports/wf_overlay_grid__temp.svg",
 			)
 		),
 		unit_ids=[94],
@@ -603,15 +650,88 @@ def test_run_templates_stage_writes_overlay_and_grid(tmp_path: Path) -> None:
 	assert str(overlay_png) == result.units[0].outputs.get("template_wf_overlay_png")
 
 	grid_png = well_out_dir / "templates_outputs" / "reports" / "wf_overlay_grid.png"
+	grid_svg = well_out_dir / "templates_outputs" / "reports" / "wf_overlay_grid.svg"
+	grid_temp_svg = well_out_dir / "templates_outputs" / "reports" / "wf_overlay_grid__temp.svg"
 	multi_source_pdf = well_out_dir / "templates_outputs" / "reports" / "template_multi_source.pdf"
 	assert grid_png.exists()
+	assert grid_svg.exists()
+	assert not grid_temp_svg.exists()
 	assert multi_source_pdf.exists()
 	assert str(grid_png) == result.report_outputs.get("wf_overlay_grid_png")
+	assert str(grid_svg) == result.report_outputs.get("wf_overlay_grid_svg")
+	assert result.report_outputs.get("wf_overlay_grid_temp_svg") is None
 	assert str(multi_source_pdf) == result.report_outputs.get("multi_source_pdf")
 
 	summary_payload = (well_out_dir / "templates_outputs" / "templates_summary.json").read_text(encoding="utf-8")
 	assert '"reports_replot_from_disk": true' in summary_payload
 	assert '"factor": 2' in summary_payload
+
+
+def test_run_templates_stage_prefers_composition_asset_apis_when_assets_exist(tmp_path: Path, monkeypatch) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+
+	asset_calls: dict[str, int] = {"wf": 0, "foot": 0}
+
+	def _fake_wf_from_assets(**kwargs):
+		asset_calls["wf"] += 1
+		out: dict[str, str] = {}
+		if bool(kwargs["config"].write_png):
+			out["wf_overlay_grid_png"] = str(kwargs["png_path"])
+		if bool(kwargs.get("write_svg", False)) and kwargs.get("svg_path", None) is not None:
+			out[str(kwargs.get("svg_output_key", "wf_overlay_grid_svg"))] = str(kwargs["svg_path"])
+		return out
+
+	def _fake_foot_from_assets(**kwargs):
+		asset_calls["foot"] += 1
+		out: dict[str, str] = {}
+		if bool(kwargs["config"].write_png):
+			out[str(kwargs["png_output_key"])] = str(kwargs["png_path"])
+		if bool(kwargs.get("write_svg", False)) and kwargs.get("svg_path", None) is not None:
+			out[str(kwargs.get("svg_output_key", "footprint_map_grid_svg"))] = str(kwargs["svg_path"])
+		return out
+
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_wf_overlay_grid_from_assets", _fake_wf_from_assets)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_map_grid_from_assets", _fake_foot_from_assets)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			template=TemplatePlotConfig(write_png=False, write_svg=False),
+			template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=True),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=True, png_relpath="template_wf_overlay.png"),
+			footprint_plots=FootprintPlotsConfig(
+				amplitude_map=FootprintMapConfig(write_png=True, write_svg=False, relpath="maps/footprint_amp"),
+				latency_map=FootprintMapConfig(write_png=True, write_svg=False, relpath="maps/footprint_lat"),
+			),
+		),
+		reports=ReportsConfig(
+			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=True, write_svg=False),
+			footprint_grids=FootprintGridsReportConfig(
+				circles_map_grid=FootprintMapGridReportConfig(write_pdf=False, write_png=True, write_svg=False),
+				amplitude_map_grid=FootprintMapGridReportConfig(write_pdf=False, write_png=True, write_svg=False),
+				latency_map_grid=FootprintMapGridReportConfig(write_pdf=False, write_png=True, write_svg=False),
+			),
+		),
+		unit_ids=[94],
+		require_curated_units=False,
+		force_restart=True,
+		n_jobs=1,
+	)
+
+	result = run_templates_stage(inputs)
+	assert len(result.units) == 1
+	assert result.units[0].status == "ok"
+	assert asset_calls["wf"] == 1
+	assert asset_calls["foot"] == 3
 
 
 def test_run_templates_stage_writes_footprint_maps(tmp_path: Path) -> None:
@@ -631,6 +751,7 @@ def test_run_templates_stage_writes_footprint_maps(tmp_path: Path) -> None:
 			unit_reldir="units/{unit_id:04d}/",
 			template=TemplatePlotConfig(write_png=False, write_svg=False),
 			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
+				template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=True, relpath="template_circles"),
 			footprint_plots=FootprintPlotsConfig(
 				amplitude_map=FootprintMapConfig(write_png=True, write_svg=False, relpath="maps/footprint_amp"),
 				latency_map=FootprintMapConfig(write_png=True, write_svg=False, relpath="maps/footprint_lat"),
@@ -653,16 +774,28 @@ def test_run_templates_stage_writes_footprint_maps(tmp_path: Path) -> None:
 					write_pdf=False,
 					write_png=True,
 					png_relpath="reports/circles_map_grid.png",
+						write_svg=True,
+						svg_relpath="reports/circles_map_grid.svg",
+						keep_temp_svg=True,
+						temp_svg_relpath="reports/circles_map_grid__temp.svg",
 				),
 				amplitude_map_grid=FootprintMapGridReportConfig(
 					write_pdf=False,
 					write_png=True,
 					png_relpath="reports/amplitude_map_grid.png",
+						write_svg=True,
+						svg_relpath="reports/amplitude_map_grid.svg",
+						keep_temp_svg=False,
+						temp_svg_relpath="reports/amplitude_map_grid__temp.svg",
 				),
 				latency_map_grid=FootprintMapGridReportConfig(
 					write_pdf=False,
 					write_png=True,
 					png_relpath="reports/latency_map_grid.png",
+						write_svg=True,
+						svg_relpath="reports/latency_map_grid.svg",
+						keep_temp_svg=False,
+						temp_svg_relpath="reports/latency_map_grid__temp.svg",
 				),
 			),
 		),
@@ -698,12 +831,30 @@ def test_run_templates_stage_writes_footprint_maps(tmp_path: Path) -> None:
 	amp_grid_png = well_out_dir / "templates_outputs" / "reports" / "amplitude_map_grid.png"
 	circles_grid_png = well_out_dir / "templates_outputs" / "reports" / "circles_map_grid.png"
 	lat_grid_png = well_out_dir / "templates_outputs" / "reports" / "latency_map_grid.png"
+	amp_grid_svg = well_out_dir / "templates_outputs" / "reports" / "amplitude_map_grid.svg"
+	circles_grid_svg = well_out_dir / "templates_outputs" / "reports" / "circles_map_grid.svg"
+	lat_grid_svg = well_out_dir / "templates_outputs" / "reports" / "latency_map_grid.svg"
+	amp_grid_temp_svg = well_out_dir / "templates_outputs" / "reports" / "amplitude_map_grid__temp.svg"
+	circles_grid_temp_svg = well_out_dir / "templates_outputs" / "reports" / "circles_map_grid__temp.svg"
+	lat_grid_temp_svg = well_out_dir / "templates_outputs" / "reports" / "latency_map_grid__temp.svg"
 	assert circles_grid_png.exists()
 	assert amp_grid_png.exists()
 	assert lat_grid_png.exists()
+	assert circles_grid_svg.exists()
+	assert amp_grid_svg.exists()
+	assert lat_grid_svg.exists()
+	assert circles_grid_temp_svg.exists()
+	assert not amp_grid_temp_svg.exists()
+	assert not lat_grid_temp_svg.exists()
 	assert str(circles_grid_png) == result.report_outputs.get("template_circles_map_grid_png")
 	assert str(amp_grid_png) == result.report_outputs.get("footprint_amplitude_map_grid_png")
 	assert str(lat_grid_png) == result.report_outputs.get("footprint_latency_map_grid_png")
+	assert str(circles_grid_svg) == result.report_outputs.get("template_circles_map_grid_svg")
+	assert str(amp_grid_svg) == result.report_outputs.get("footprint_amplitude_map_grid_svg")
+	assert str(lat_grid_svg) == result.report_outputs.get("footprint_latency_map_grid_svg")
+	assert str(circles_grid_temp_svg) == result.report_outputs.get("template_circles_map_grid_temp_svg")
+	assert result.report_outputs.get("footprint_amplitude_map_grid_temp_svg") is None
+	assert result.report_outputs.get("footprint_latency_map_grid_temp_svg") is None
 
 
 def test_run_templates_stage_reports_replot_from_disk_uses_unit_summaries(tmp_path: Path) -> None:

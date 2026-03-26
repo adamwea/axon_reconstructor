@@ -44,6 +44,13 @@ def _render_pdf_png_paths(base_dir: Path, *, pdf_relpath: str, png_relpath: str)
 	return pdf, png
 
 
+def _render_pdf_png_svg_paths(base_dir: Path, *, pdf_relpath: str, png_relpath: str, svg_relpath: str) -> tuple[Path, Path, Path]:
+	pdf = base_dir / Path(str(pdf_relpath)).expanduser()
+	png = base_dir / Path(str(png_relpath)).expanduser()
+	svg = base_dir / Path(str(svg_relpath)).expanduser()
+	return pdf, png, svg
+
+
 def _render_npy_path(base_dir: Path, *, npy_relpath: str) -> Path:
 	raw = Path(str(npy_relpath)).expanduser()
 	if raw.suffix.lower() == ".npy":
@@ -100,6 +107,20 @@ def resolve_unit_output_paths(
 		png_relpath=per_unit_outputs.propagation_plots.png_relpath,
 	)
 	propagation_svg = propagation_png.with_suffix(".svg")
+	circles_numbered_relpath = per_unit_outputs.propagation_plots.circles_template_numbered_relpath
+	if (
+		str(circles_numbered_relpath) == "circles_template_numbered"
+		and str(per_unit_outputs.propagation_plots.right_panel_png_relpath) != "propagation_plot__right_temp.png"
+	):
+		circles_numbered_relpath = per_unit_outputs.propagation_plots.right_panel_png_relpath
+	circles_numbered_png, circles_numbered_svg = _render_template_paths(
+		unit_dir,
+		str(circles_numbered_relpath),
+	)
+	propagation_2panel_png, propagation_2panel_svg = _render_template_paths(
+		unit_dir,
+		per_unit_outputs.propagation_plots.propagation_2panel_relpath,
+	)
 	propagation_left_temp_svg = propagation_png.with_name(f"{propagation_png.stem}__left_temp.svg")
 	_, propagation_right_temp_svg = _render_template_paths(
 		unit_dir,
@@ -143,6 +164,10 @@ def resolve_unit_output_paths(
 		"propagation_plot_pdf": propagation_pdf,
 		"propagation_plot_png": propagation_png,
 		"propagation_plot_svg": propagation_svg,
+		"circles_template_numbered_png": circles_numbered_png,
+		"circles_template_numbered_svg": circles_numbered_svg,
+		"propagation_2panel_png": propagation_2panel_png,
+		"propagation_2panel_svg": propagation_2panel_svg,
 		"propagation_plot_left_temp_svg": propagation_left_temp_svg,
 		"propagation_plot_right_temp_svg": propagation_right_temp_svg,
 		"propagation_plot_right_temp_png": propagation_right_temp_png,
@@ -153,36 +178,52 @@ def resolve_unit_output_paths(
 
 
 def resolve_report_output_paths(*, templates_out_dir: Path, reports: Any) -> dict[str, Path]:
-	wf_grid_pdf, wf_grid_png = _render_pdf_png_paths(
+	wf_grid_pdf, wf_grid_png, wf_grid_svg = _render_pdf_png_svg_paths(
 		templates_out_dir,
 		pdf_relpath=reports.wf_overlay_grid.pdf_relpath,
 		png_relpath=reports.wf_overlay_grid.png_relpath,
+		svg_relpath=reports.wf_overlay_grid.svg_relpath,
 	)
-	amp_grid_pdf, amp_grid_png = _render_pdf_png_paths(
+	amp_grid_pdf, amp_grid_png, amp_grid_svg = _render_pdf_png_svg_paths(
 		templates_out_dir,
 		pdf_relpath=reports.footprint_grids.amplitude_map_grid.pdf_relpath,
 		png_relpath=reports.footprint_grids.amplitude_map_grid.png_relpath,
+		svg_relpath=reports.footprint_grids.amplitude_map_grid.svg_relpath,
 	)
-	circles_grid_pdf, circles_grid_png = _render_pdf_png_paths(
+	circles_grid_pdf, circles_grid_png, circles_grid_svg = _render_pdf_png_svg_paths(
 		templates_out_dir,
 		pdf_relpath=reports.footprint_grids.circles_map_grid.pdf_relpath,
 		png_relpath=reports.footprint_grids.circles_map_grid.png_relpath,
+		svg_relpath=reports.footprint_grids.circles_map_grid.svg_relpath,
 	)
-	lat_grid_pdf, lat_grid_png = _render_pdf_png_paths(
+	lat_grid_pdf, lat_grid_png, lat_grid_svg = _render_pdf_png_svg_paths(
 		templates_out_dir,
 		pdf_relpath=reports.footprint_grids.latency_map_grid.pdf_relpath,
 		png_relpath=reports.footprint_grids.latency_map_grid.png_relpath,
+		svg_relpath=reports.footprint_grids.latency_map_grid.svg_relpath,
 	)
+	wf_grid_temp_svg = templates_out_dir / Path(str(reports.wf_overlay_grid.temp_svg_relpath)).expanduser()
+	circles_grid_temp_svg = templates_out_dir / Path(str(reports.footprint_grids.circles_map_grid.temp_svg_relpath)).expanduser()
+	amp_grid_temp_svg = templates_out_dir / Path(str(reports.footprint_grids.amplitude_map_grid.temp_svg_relpath)).expanduser()
+	lat_grid_temp_svg = templates_out_dir / Path(str(reports.footprint_grids.latency_map_grid.temp_svg_relpath)).expanduser()
 	multi_source_pdf = templates_out_dir / Path(str(reports.plot_multi_source_pdf.pdf_relpath)).expanduser()
 	return {
 		"wf_overlay_grid_pdf": wf_grid_pdf,
 		"wf_overlay_grid_png": wf_grid_png,
+		"wf_overlay_grid_svg": wf_grid_svg,
+		"wf_overlay_grid_temp_svg": wf_grid_temp_svg,
 		"template_circles_map_grid_pdf": circles_grid_pdf,
 		"template_circles_map_grid_png": circles_grid_png,
+		"template_circles_map_grid_svg": circles_grid_svg,
+		"template_circles_map_grid_temp_svg": circles_grid_temp_svg,
 		"footprint_amplitude_map_grid_pdf": amp_grid_pdf,
 		"footprint_amplitude_map_grid_png": amp_grid_png,
+		"footprint_amplitude_map_grid_svg": amp_grid_svg,
+		"footprint_amplitude_map_grid_temp_svg": amp_grid_temp_svg,
 		"footprint_latency_map_grid_pdf": lat_grid_pdf,
 		"footprint_latency_map_grid_png": lat_grid_png,
+		"footprint_latency_map_grid_svg": lat_grid_svg,
+		"footprint_latency_map_grid_temp_svg": lat_grid_temp_svg,
 		"multi_source_pdf": multi_source_pdf,
 	}
 
