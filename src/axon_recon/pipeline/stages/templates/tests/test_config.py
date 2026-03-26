@@ -425,6 +425,7 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 			              title: Latency (ms)
 			              show_axes_title: false
 			              show_unit_label: true
+			              tick_fontsize: 18
 			              tick_decimal_places: 3
 			              tick_target_count: 10
 			"""
@@ -438,6 +439,7 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 	assert inputs.per_unit_outputs.template_circles.color_bar_title == "Latency (ms)"
 	assert inputs.per_unit_outputs.template_circles.color_bar_show_axes_title is False
 	assert inputs.per_unit_outputs.template_circles.color_bar_show_unit_labels is True
+	assert inputs.per_unit_outputs.template_circles.color_bar_tick_fontsize == 18
 	assert inputs.per_unit_outputs.template_circles.color_bar_tick_decimal_places == 3
 	assert inputs.per_unit_outputs.template_circles.color_bar_tick_target_count == 10
 

@@ -356,7 +356,7 @@ stages:
               scale_bar:
                 text_offset_frac: 0.02 # move label closer/farther from bar in axis-height fractions
                 y_offset_frac: 0.015 # vertical offset of bar from lower edge in axis-height fractions
-                fontsize: 20
+                fontsize: 25
                 linewidth: 6
                 #length_um: null # optional fixed bar length; when null uses auto 50/100 um
             render:
@@ -369,8 +369,8 @@ stages:
               show_axes_title: false # whether to show the "Latency (ms)" title above the color bar, or just the tick labels with units.
               show_unit_label: true # whether to show tick labels on the color bar, which include the units (e.g. "10 ms") or just the numeric value (e.g. "10")
               tick_decimal_places: 2 # controls tick label precision and dynamic 0/5-style tick density (more precision -> more candidate ticks)
-              tick_target_count: 10 # optional desired number of ticks; <=0 or omitted lets renderer pick automatically
-              tick_fontsize: 6 # color bar tick label font size
+              tick_target_count: 5 # optional desired number of ticks; <=0 or omitted lets renderer pick automatically
+              tick_fontsize: 18 # color bar tick label font size
             propagation_order_labels:
               show: false # when true, draw numeric labels on circles in propagation ordering rank.
               fontsize: 7
@@ -387,12 +387,27 @@ stages:
             show_axes: false
             center_most_channel_coords:
               show: true # whether to show coordinate labels centered on the most central channel in the template, which can help with orienting the template relative to the MEA layout.
-              fontsize: 15
+              fontsize: 25
               color: white
               x_offset_frac: 0.02
               y_offset_frac: 0.00
               horizontal_alignment: left
               vertical_alignment: bottom
+
+            # edge case overlapping in displayed elements in plot can happen.
+            # easy fix, detect overlaps, increase xy range (zoom out) and replot until overlap is resolved.
+            # measure xy space covered by fonts and shapes.
+            # determine if same space is occupied by elements in any case.
+            # if so, zoom out a bit and try again.
+            overlap_controls:
+              scalebar_coords_overlap_detect: true # whether to check for overlaps between scale bar and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
+              scalebar_colorbar_overlap_detect: true # whether to check for overlaps between scale bar and color bar; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
+              unitid_label_channel_overlap_detect: true # whether to check for overlaps between unit ID label and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
+              coords_channel_overlap_detect: true # whether to check for overlaps between coordinate labels and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
+              scalebar_channel_overlap_detect: true # whether to check for overlaps between scale bar and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
+              max_overlap_check_iterations: 5 # maximum number of iterations to attempt to resolve overlaps through zooming out; if exceeded, will give up and plot with overlaps.
+
+
 
         extremum_ch_wf_overlay:
           output:

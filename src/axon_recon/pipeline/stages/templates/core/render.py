@@ -1055,8 +1055,11 @@ def render_template_circles_plot(
 		cbar.set_label("")
 		cbar.ax.set_title("")
 
+	tick_fontsize = float(max(1.0, float(getattr(config, "color_bar_tick_fontsize", 6.0))))
+	tick_color = "white" if str(config.background or "").strip().lower() == "black" else "black"
+	cbar.ax.tick_params(labelsize=tick_fontsize, colors=tick_color)
+
 	if str(config.background or "").strip().lower() == "black":
-		cbar.ax.tick_params(colors="white")
 		cbar.outline.set_edgecolor("white")
 		if show_axes_title:
 			cbar.set_label(cbar.ax.get_ylabel(), color="white", fontsize=7)

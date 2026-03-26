@@ -463,6 +463,53 @@ def test_render_template_circles_plot_sets_non_overlapping_sizes_in_final_layout
 	assert observed["checked"] is True
 
 
+def test_render_template_circles_plot_applies_color_bar_tick_fontsize(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+			[-0.6, -1.5, -0.3, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+			[36.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	seen_labelsizes: list[float] = []
+	orig_tick_params = matplotlib.axes.Axes.tick_params
+
+	def _spy_tick_params(self, *args, **kwargs):
+		if "labelsize" in kwargs and kwargs["labelsize"] is not None:
+			seen_labelsizes.append(float(kwargs["labelsize"]))
+		return orig_tick_params(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "tick_params", _spy_tick_params)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			background="black",
+			color_bar_tick_fontsize=19,
+		),
+		png_path=tmp_path / "circles_ticksize.png",
+		svg_path=tmp_path / "unused.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+
+	assert any(np.isclose(v, 19.0) for v in seen_labelsizes)
+
+
 def test_render_template_plot_applies_unit_id_center_coords_and_hides_axes(tmp_path: Path, monkeypatch) -> None:
 	import matplotlib.axes
 

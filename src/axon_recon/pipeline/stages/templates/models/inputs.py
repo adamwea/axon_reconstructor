@@ -65,6 +65,7 @@ class TemplateCirclesPlotConfig(TemplatePlotConfig):
 	color_bar_title: str = ""
 	color_bar_show_axes_title: bool = True
 	color_bar_show_unit_labels: bool = True
+	color_bar_tick_fontsize: float = 6.0
 	color_bar_tick_decimal_places: int = 3
 	color_bar_tick_target_count: int | None = None
 

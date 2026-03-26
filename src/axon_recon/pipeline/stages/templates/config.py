@@ -1200,6 +1200,16 @@ def parse_templates_stage_config(
 			),
 			True,
 		),
+		color_bar_tick_fontsize=max(
+			1.0,
+			_as_float(
+				_get_nested_block(tpl_circles_cfg, "color_bar").get(
+					"tick_fontsize",
+					tpl_circles_cfg.get("color_bar_tick_fontsize", 6.0),
+				),
+				6.0,
+			),
+		),
 		color_bar_tick_decimal_places=max(
 			0,
 			_as_int(
