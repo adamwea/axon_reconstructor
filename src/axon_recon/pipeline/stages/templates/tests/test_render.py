@@ -1139,6 +1139,100 @@ def test_render_template_circles_plot_scale_circle_right_text_is_outside(tmp_pat
 	assert text_xs[-1] > patch_edges[-1]
 
 
+def test_render_template_circles_plot_amplitude_size_uses_abs_negative_peak(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	# Channel 0 has larger PTP but smaller abs-negative peak than channel 1.
+	template = np.asarray(
+		[
+			[-5.0, 5.0, 0.0],
+			[-6.0, 0.0, 0.0],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	seen_sizes: list[np.ndarray] = []
+	orig_scatter = matplotlib.axes.Axes.scatter
+
+	def _spy_scatter(self, *args, **kwargs):
+		if "s" in kwargs:
+			seen_sizes.append(np.asarray(kwargs["s"], dtype=float))
+		return orig_scatter(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "scatter", _spy_scatter)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			size_by="amplitude",
+		),
+		png_path=tmp_path / "circles_abs_neg_size_metric.png",
+		svg_path=tmp_path / "unused_abs_neg_size_metric.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+
+	assert len(seen_sizes) >= 1
+	# With abs-negative-peak sizing: channel 1 (abs(-6)=6) should be larger than channel 0 (abs(-5)=5).
+	assert float(seen_sizes[0][1]) > float(seen_sizes[0][0])
+
+
+def test_render_template_circles_plot_scale_circle_label_uses_abs_negative_peak(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[-5.0, 5.0, 0.0],
+			[-6.0, 0.0, 0.0],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	labels: list[str] = []
+	orig_text = matplotlib.axes.Axes.text
+
+	def _spy_text(self, x, y, s, *args, **kwargs):
+		text = str(s)
+		if text.endswith(" uV"):
+			labels.append(text)
+		return orig_text(self, x, y, s, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "text", _spy_text)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			show_scale_circle=True,
+			scale_circle=TemplateScaleCircleConfig(digits_after_decimal=0),
+		),
+		png_path=tmp_path / "circles_abs_neg_scale_circle_label.png",
+		svg_path=tmp_path / "unused_abs_neg_scale_circle_label.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+
+	# abs-negative-peak max is 6 uV (not 10 uV PTP).
+	assert any(label == "6 uV" for label in labels)
+
+
 def test_render_template_circles_plot_overlap_controls_can_trigger_zoom_out(tmp_path: Path, monkeypatch) -> None:
 	import matplotlib.axes
 

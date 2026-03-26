@@ -1124,6 +1124,7 @@ def render_template_circles_plot(
 		)
 
 	amp = np.ptp(template_c_by_t, axis=1)
+	abs_negative_peak = np.abs(np.min(template_c_by_t, axis=1))
 	min_idx = np.argmin(template_c_by_t, axis=1).astype(float)
 	ref = float(min_idx[int(np.argmax(amp))]) if min_idx.size > 0 else 0.0
 	lat_samples = min_idx - ref
@@ -1133,7 +1134,7 @@ def render_template_circles_plot(
 		probe_geometry=probe_geometry,
 	)
 
-	size_metric = amp if str(config.size_by) == "amplitude" else np.abs(lat)
+	size_metric = abs_negative_peak if str(config.size_by) == "amplitude" else np.abs(lat)
 	color_metric = amp if str(config.color_by) == "amplitude" else lat
 	color_values = np.asarray(color_metric, dtype=float)
 	force_first_range_for_nonpositive = bool(
@@ -1210,7 +1211,7 @@ def render_template_circles_plot(
 		size_norm = size_norm / float(np.max(size_norm))
 	sizes_base = 8.0 + 42.0 * size_norm
 
-	peak_idx = int(np.argmax(amp)) if amp.size > 0 else 0
+	peak_idx = int(np.argmax(abs_negative_peak)) if abs_negative_peak.size > 0 else 0
 
 	fig = plt.figure(figsize=(10, 8))
 	ax = fig.add_subplot(111)
@@ -1245,7 +1246,7 @@ def render_template_circles_plot(
 	)
 	_apply_style(fig, ax, config=config)
 	_add_scale_bar(ax, config=config)
-	scale_circle_ref_value = float(np.nanmax(amp)) if amp.size > 0 else 0.0
+	scale_circle_ref_value = float(np.nanmax(abs_negative_peak)) if abs_negative_peak.size > 0 else 0.0
 	_add_scale_circle(
 		ax,
 		config=config,
