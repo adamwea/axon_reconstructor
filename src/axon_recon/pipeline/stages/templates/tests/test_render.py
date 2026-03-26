@@ -511,6 +511,218 @@ def test_render_template_circles_plot_applies_color_bar_tick_fontsize(tmp_path: 
 	assert any(np.isclose(v, 19.0) for v in seen_labelsizes)
 
 
+def test_render_template_circles_plot_applies_scale_bar_x_offset_frac(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	positions: list[float] = []
+	orig_text = matplotlib.axes.Axes.text
+
+	def _spy_text(self, x, y, s, *args, **kwargs):
+		if str(s).endswith(" um"):
+			positions.append(float(x))
+		return orig_text(self, x, y, s, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "text", _spy_text)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			show_scale_bar=True,
+			scale_bar_length_um=5.0,
+			scale_bar_x_offset_frac=0.05,
+			scale_bar_horizontal_alignment="left",
+		),
+		png_path=tmp_path / "circles_bar_left.png",
+		svg_path=tmp_path / "unused_left.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			show_scale_bar=True,
+			scale_bar_length_um=5.0,
+			scale_bar_x_offset_frac=0.35,
+			scale_bar_horizontal_alignment="left",
+		),
+		png_path=tmp_path / "circles_bar_right.png",
+		svg_path=tmp_path / "unused_right.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+
+	assert len(positions) >= 2
+	assert positions[1] > positions[0]
+
+
+def test_render_template_circles_plot_applies_scale_bar_alignment(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	x_midpoints: list[float] = []
+	y_positions: list[float] = []
+	orig_plot = matplotlib.axes.Axes.plot
+
+	def _spy_plot(self, *args, **kwargs):
+		if len(args) >= 2:
+			x = np.asarray(args[0], dtype=float)
+			y = np.asarray(args[1], dtype=float)
+			if x.ndim == 1 and y.ndim == 1 and x.size == 2 and y.size == 2 and np.isclose(y[0], y[1]):
+				x_midpoints.append(float((x[0] + x[1]) / 2.0))
+				y_positions.append(float(y[0]))
+		return orig_plot(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "plot", _spy_plot)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			show_scale_bar=True,
+			scale_bar_length_um=5.0,
+			scale_bar_x_offset_frac=0.05,
+			scale_bar_horizontal_alignment="left",
+			scale_bar_vertical_alignment="bottom",
+		),
+		png_path=tmp_path / "circles_bar_align_left_bottom.png",
+		svg_path=tmp_path / "unused_align_lb.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+	x_left_bottom = x_midpoints[-1]
+	y_left_bottom = y_positions[-1]
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			show_scale_bar=True,
+			scale_bar_length_um=5.0,
+			scale_bar_x_offset_frac=0.05,
+			scale_bar_horizontal_alignment="right",
+			scale_bar_vertical_alignment="top",
+		),
+		png_path=tmp_path / "circles_bar_align_right_top.png",
+		svg_path=tmp_path / "unused_align_rt.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+	x_right_top = x_midpoints[-1]
+	y_right_top = y_positions[-1]
+
+	assert x_right_top > x_left_bottom
+	assert y_right_top > y_left_bottom
+
+
+def test_render_template_circles_plot_scale_bar_x_offset_can_consider_fontsize(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	x_midpoints: list[float] = []
+	orig_plot = matplotlib.axes.Axes.plot
+
+	def _spy_plot(self, *args, **kwargs):
+		if len(args) >= 2:
+			x = np.asarray(args[0], dtype=float)
+			y = np.asarray(args[1], dtype=float)
+			if x.ndim == 1 and y.ndim == 1 and x.size == 2 and y.size == 2 and np.isclose(y[0], y[1]):
+				x_midpoints.append(float((x[0] + x[1]) / 2.0))
+		return orig_plot(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "plot", _spy_plot)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			show_scale_bar=True,
+			scale_bar_length_um=1.0,
+			scale_bar_x_offset_frac=0.02,
+			scale_bar_horizontal_alignment="right",
+			scale_bar_fontsize=40.0,
+			scale_bar_x_offset_considers_fontsize=False,
+		),
+		png_path=tmp_path / "circles_bar_fontsize_off.png",
+		svg_path=tmp_path / "unused_fontsize_off.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+	x_without_font_pad = x_midpoints[-1]
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			show_scale_bar=True,
+			scale_bar_length_um=1.0,
+			scale_bar_x_offset_frac=0.02,
+			scale_bar_horizontal_alignment="right",
+			scale_bar_fontsize=40.0,
+			scale_bar_x_offset_considers_fontsize=True,
+		),
+		png_path=tmp_path / "circles_bar_fontsize_on.png",
+		svg_path=tmp_path / "unused_fontsize_on.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+	x_with_font_pad = x_midpoints[-1]
+
+	# Font-aware mode should push a right-anchored bar inward (toward smaller x) to reserve label width.
+	assert x_with_font_pad < x_without_font_pad
+
+
 def test_render_template_circles_plot_overlap_controls_can_trigger_zoom_out(tmp_path: Path, monkeypatch) -> None:
 	import matplotlib.axes
 

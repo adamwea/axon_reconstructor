@@ -969,6 +969,57 @@ def parse_templates_stage_config(
 			),
 			0.02,
 		),
+		scale_bar_x_offset_frac=(
+			None
+			if _nested_path_or_flat(
+				tpl_cfg,
+				path=("display", "scale_bar"),
+				key="x_offset_frac",
+				flat_keys=("scale_bar_x_offset_frac",),
+				default=None,
+			)
+			is None
+			else _as_float(
+				_nested_path_or_flat(
+					tpl_cfg,
+					path=("display", "scale_bar"),
+					key="x_offset_frac",
+					flat_keys=("scale_bar_x_offset_frac",),
+					default=None,
+				),
+				0.02,
+			)
+		),
+		scale_bar_x_offset_considers_fontsize=_as_bool(
+			_nested_path_or_flat(
+				tpl_cfg,
+				path=("display", "scale_bar"),
+				key="x_offset_considers_fontsize",
+				flat_keys=("scale_bar_x_offset_considers_fontsize",),
+				default=False,
+			),
+			False,
+		),
+		scale_bar_horizontal_alignment=_normalize_horizontal_alignment(
+			_nested_path_or_flat(
+				tpl_cfg,
+				path=("display", "scale_bar"),
+				key="horizontal_alignment",
+				flat_keys=("scale_bar_horizontal_alignment",),
+				default="right",
+			),
+			default="right",
+		),
+		scale_bar_vertical_alignment=_normalize_vertical_alignment(
+			_nested_path_or_flat(
+				tpl_cfg,
+				path=("display", "scale_bar"),
+				key="vertical_alignment",
+				flat_keys=("scale_bar_vertical_alignment",),
+				default="bottom",
+			),
+			default="bottom",
+		),
 		scale_bar_y_offset_frac=_as_float(
 			_nested_path_or_flat(
 				tpl_cfg,
@@ -1078,6 +1129,57 @@ def parse_templates_stage_config(
 				default=0.02,
 			),
 			0.02,
+		),
+		scale_bar_x_offset_frac=(
+			None
+			if _nested_path_or_flat(
+				tpl_circles_cfg,
+				path=("display", "scale_bar"),
+				key="x_offset_frac",
+				flat_keys=("scale_bar_x_offset_frac",),
+				default=None,
+			)
+			is None
+			else _as_float(
+				_nested_path_or_flat(
+					tpl_circles_cfg,
+					path=("display", "scale_bar"),
+					key="x_offset_frac",
+					flat_keys=("scale_bar_x_offset_frac",),
+					default=None,
+				),
+				0.02,
+			)
+		),
+		scale_bar_x_offset_considers_fontsize=_as_bool(
+			_nested_path_or_flat(
+				tpl_circles_cfg,
+				path=("display", "scale_bar"),
+				key="x_offset_considers_fontsize",
+				flat_keys=("scale_bar_x_offset_considers_fontsize",),
+				default=False,
+			),
+			False,
+		),
+		scale_bar_horizontal_alignment=_normalize_horizontal_alignment(
+			_nested_path_or_flat(
+				tpl_circles_cfg,
+				path=("display", "scale_bar"),
+				key="horizontal_alignment",
+				flat_keys=("scale_bar_horizontal_alignment",),
+				default="right",
+			),
+			default="right",
+		),
+		scale_bar_vertical_alignment=_normalize_vertical_alignment(
+			_nested_path_or_flat(
+				tpl_circles_cfg,
+				path=("display", "scale_bar"),
+				key="vertical_alignment",
+				flat_keys=("scale_bar_vertical_alignment",),
+				default="bottom",
+			),
+			default="bottom",
 		),
 		scale_bar_y_offset_frac=_as_float(
 			_nested_path_or_flat(

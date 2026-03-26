@@ -420,6 +420,12 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 			          circles:
 			            write_png: true
 			            color_by: latency
+			            display:
+			              scale_bar:
+			                x_offset_frac: 0.25
+			                x_offset_considers_fontsize: true
+			                horizontal_alignment: left
+			                vertical_alignment: top
 			            color_bar:
 			              units: ms
 			              title: Latency (ms)
@@ -446,6 +452,10 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 	assert inputs.per_unit_outputs.template_circles.color_bar_title == "Latency (ms)"
 	assert inputs.per_unit_outputs.template_circles.color_bar_show_axes_title is False
 	assert inputs.per_unit_outputs.template_circles.color_bar_show_unit_labels is True
+	assert inputs.per_unit_outputs.template_circles.scale_bar_x_offset_frac == 0.25
+	assert inputs.per_unit_outputs.template_circles.scale_bar_x_offset_considers_fontsize is True
+	assert inputs.per_unit_outputs.template_circles.scale_bar_horizontal_alignment == "left"
+	assert inputs.per_unit_outputs.template_circles.scale_bar_vertical_alignment == "top"
 	assert inputs.per_unit_outputs.template_circles.color_bar_tick_fontsize == 18
 	assert inputs.per_unit_outputs.template_circles.color_bar_tick_decimal_places == 3
 	assert inputs.per_unit_outputs.template_circles.color_bar_tick_target_count == 10

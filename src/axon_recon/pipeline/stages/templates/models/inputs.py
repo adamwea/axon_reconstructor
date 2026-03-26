@@ -41,6 +41,10 @@ class TemplatePlotConfig:
 	show_scale_bar: bool = True
 	scale_bar_color: str = "white"
 	scale_bar_text_offset_frac: float = 0.02
+	scale_bar_x_offset_frac: float | None = None
+	scale_bar_x_offset_considers_fontsize: bool = False
+	scale_bar_horizontal_alignment: str = "right"
+	scale_bar_vertical_alignment: str = "bottom"
 	scale_bar_y_offset_frac: float = 0.06
 	scale_bar_fontsize: float = 6.0
 	scale_bar_linewidth: float = 1.8

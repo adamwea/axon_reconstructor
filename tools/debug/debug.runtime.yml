@@ -355,8 +355,11 @@ stages:
               color_by: latency # amplitude or latency; if amplitude, channel colors are determined by the relative amplitude of the template on each channel. If latency, channel colors are determined by the relative latency of the template on each channel.
               scale_bar:
                 text_offset_frac: 0.02 # move label closer/farther from bar in axis-height fractions
+                horizontal_alignment: right
+                vertical_alignment: bottom
                 y_offset_frac: 0.015 # vertical offset of bar from lower edge in axis-height fractions
                 x_offset_frac: 0.02 # horizontal offset of bar from left edge in axis-width fractions
+                x_offset_considers_fontsize: true # when true, x_offset also reserves horizontal room for the scale-bar label text width at current font size.
                 fontsize: 25
                 linewidth: 6
                 #length_um: null # optional fixed bar length; when null uses auto 50/100 um
@@ -383,6 +386,7 @@ stages:
               color: white
               x_offset_frac: 0.02
               y_offset_frac: 0.00
+              x_offset_considers_fontsize: true
               horizontal_alignment: right
               vertical_alignment: top
             show_axes: false

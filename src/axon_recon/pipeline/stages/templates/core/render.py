@@ -477,25 +477,99 @@ def _add_scale_bar(ax: Any, *, config: TemplatePlotConfig) -> None:
 		bar = 100.0 if span_x >= 180.0 else 50.0
 	else:
 		bar = max(1.0, float(config.scale_bar_length_um))
+	label = f"{int(round(bar))} um"
 
-	margin = float(config.scale_bar_y_offset_frac) * span_x
-	x_right = float(max(x0, x1)) - margin
-	x_left = x_right - bar
-	y_bar = float(min(y0, y1)) + float(config.scale_bar_y_offset_frac) * span_y
+	x_offset_frac = getattr(config, "scale_bar_x_offset_frac", None)
+	h_align = str(getattr(config, "scale_bar_horizontal_alignment", "right") or "right").strip().lower()
+	v_align = str(getattr(config, "scale_bar_vertical_alignment", "bottom") or "bottom").strip().lower()
+	if h_align not in {"left", "center", "right"}:
+		h_align = "right"
+	if v_align not in {"bottom", "center", "top"}:
+		v_align = "bottom"
+
+	extra_pad_x = 0.0
+	if bool(getattr(config, "scale_bar_x_offset_considers_fontsize", False)):
+		try:
+			fig = ax.figure
+			if fig is not None and fig.canvas is not None:
+				fig.canvas.draw()
+				renderer = fig.canvas.get_renderer()
+				tmp_text = ax.text(
+					0.0,
+					0.0,
+					label,
+					fontsize=float(config.scale_bar_fontsize),
+					alpha=0.0,
+				)
+				bbox = tmp_text.get_window_extent(renderer=renderer)
+				tmp_text.remove()
+				x_min = float(min(x0, x1))
+				x_max = float(max(x0, x1))
+				dx = float(max(1e-9, x_max - x_min))
+				px0 = float(ax.transData.transform((x_min, 0.0))[0])
+				px1 = float(ax.transData.transform((x_max, 0.0))[0])
+				px_per_um = float(max(1e-9, abs(px1 - px0) / dx))
+				half_label_w_um = 0.5 * float(max(0.0, bbox.width)) / px_per_um
+				extra_pad_x = float(max(0.0, half_label_w_um - (0.5 * bar)))
+		except Exception:
+			extra_pad_x = 0.0
+
+	if x_offset_frac is None:
+		margin = float(config.scale_bar_y_offset_frac) * span_x
+		if h_align == "left":
+			x_left = float(min(x0, x1)) + margin
+		elif h_align == "center":
+			x_left = (float(min(x0, x1)) + float(max(x0, x1)) - bar) / 2.0
+		else:
+			x_right = float(max(x0, x1)) - margin
+			x_left = x_right - bar
+	else:
+		x_margin = float(max(0.0, float(x_offset_frac))) * span_x
+		if h_align == "right":
+			x_right = float(max(x0, x1)) - x_margin
+			x_left = x_right - bar
+		elif h_align == "center":
+			x_left = (float(min(x0, x1)) + float(max(x0, x1)) - bar) / 2.0
+		else:
+			x_left = float(min(x0, x1)) + x_margin
+	if extra_pad_x > 0.0:
+		if h_align == "right":
+			x_left -= extra_pad_x
+		elif h_align == "left":
+			x_left += extra_pad_x
+	x_right = x_left + bar
+
+	y_margin = float(max(0.0, float(config.scale_bar_y_offset_frac))) * span_y
+	if v_align == "top":
+		y_bar = float(max(y0, y1)) - y_margin
+		label_y = y_bar - float(config.scale_bar_text_offset_frac) * span_y
+		label_va = "top"
+	elif v_align == "center":
+		y_bar = (float(min(y0, y1)) + float(max(y0, y1))) / 2.0
+		label_y = y_bar + float(config.scale_bar_text_offset_frac) * span_y
+		label_va = "bottom"
+	else:
+		y_bar = float(min(y0, y1)) + y_margin
+		label_y = y_bar + float(config.scale_bar_text_offset_frac) * span_y
+		label_va = "bottom"
 
 	if x_left <= float(min(x0, x1)):
-		x_left = float(min(x0, x1)) + margin
+		fallback_margin = float(config.scale_bar_y_offset_frac) * span_x
+		x_left = float(min(x0, x1)) + fallback_margin
 		x_right = x_left + bar
+	if x_right >= float(max(x0, x1)):
+		x_right = float(max(x0, x1)) - 1.0
+		x_left = x_right - bar
 
 	(line,) = ax.plot([x_left, x_right], [y_bar, y_bar], color=str(config.scale_bar_color), lw=float(config.scale_bar_linewidth), solid_capstyle="butt")
 	line.set_gid("template_scale_bar_line")
 	text = ax.text(
 		(x_left + x_right) / 2.0,
-		y_bar + float(config.scale_bar_text_offset_frac) * span_y,
-		f"{int(round(bar))} um",
+		label_y,
+		label,
 		color=str(config.scale_bar_color),
 		horizontalalignment="center",
-		verticalalignment="bottom",
+		verticalalignment=label_va,
 		fontsize=float(config.scale_bar_fontsize),
 	)
 	text.set_gid("template_scale_bar_text")
