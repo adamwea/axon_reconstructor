@@ -99,6 +99,19 @@ def resolve_unit_output_paths(
 		pdf_relpath=per_unit_outputs.propagation_plots.pdf_relpath,
 		png_relpath=per_unit_outputs.propagation_plots.png_relpath,
 	)
+	propagation_svg = propagation_png.with_suffix(".svg")
+	propagation_left_temp_svg = propagation_png.with_name(f"{propagation_png.stem}__left_temp.svg")
+	_, propagation_right_temp_svg = _render_template_paths(
+		unit_dir,
+		per_unit_outputs.propagation_plots.right_panel_svg_relpath,
+	)
+	propagation_right_temp_png, _ = _render_template_paths(
+		unit_dir,
+		per_unit_outputs.propagation_plots.right_panel_png_relpath,
+	)
+	qc_cfg = per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates
+	qc_plot_png, qc_plot_svg = _render_template_paths(unit_dir, qc_cfg.plot.relpath)
+	qc_json = unit_dir / Path(str(qc_cfg.json_relpath)).expanduser()
 
 	return {
 		"unit_dir": unit_dir,
@@ -129,6 +142,13 @@ def resolve_unit_output_paths(
 		"topographical_latency_footprint_svg": topo_lat_svg,
 		"propagation_plot_pdf": propagation_pdf,
 		"propagation_plot_png": propagation_png,
+		"propagation_plot_svg": propagation_svg,
+		"propagation_plot_left_temp_svg": propagation_left_temp_svg,
+		"propagation_plot_right_temp_svg": propagation_right_temp_svg,
+		"propagation_plot_right_temp_png": propagation_right_temp_png,
+		"quality_checks_multiple_negative_peaks_json": qc_json,
+		"quality_checks_multiple_negative_peaks_plot_png": qc_plot_png,
+		"quality_checks_multiple_negative_peaks_plot_svg": qc_plot_svg,
 	}
 
 

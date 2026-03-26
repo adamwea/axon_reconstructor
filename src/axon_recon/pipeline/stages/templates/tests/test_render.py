@@ -90,6 +90,51 @@ def test_render_propagation_plot_respects_panel_chunk_knobs(tmp_path: Path) -> N
 	assert outputs.get("propagation_plot_pdf") == str(pdf_path)
 
 
+def test_render_propagation_plot_uses_left_panel_png_dpi_for_left_png(tmp_path: Path, monkeypatch) -> None:
+	t = np.asarray(
+		[
+			[0.0, -1.0, -2.0, -0.5, 0.0],
+			[0.0, -0.8, -1.6, -0.3, 0.0],
+		],
+		dtype=float,
+	)
+	locs = np.asarray([[0.0, 0.0], [17.5, 0.0]], dtype=float)
+	png_path = tmp_path / "propagation_dpi.png"
+	pdf_path = tmp_path / "propagation_dpi.pdf"
+
+	observed_dpi: list[float] = []
+	orig_savefig = plt.Figure.savefig
+
+	def _spy_savefig(self, fname, *args, **kwargs):
+		if str(fname).endswith(".png"):
+			observed_dpi.append(float(kwargs.get("dpi", 0.0)))
+		return orig_savefig(self, fname, *args, **kwargs)
+
+	monkeypatch.setattr(plt.Figure, "savefig", _spy_savefig)
+
+	render_propagation_plot(
+		template=t,
+		locations_xy=locs,
+		config=PropagationPlotConfig(
+			write_pdf=False,
+			write_png=True,
+			show_right_panel=True,
+			left_panel_png_dpi=550.0,
+			right_panel_png_dpi=600.0,
+			show_title=False,
+			top_channels=2,
+			channels_per_panel=2,
+			channel_overlap=0,
+		),
+		pdf_path=pdf_path,
+		png_path=png_path,
+	)
+
+	assert png_path.exists()
+	assert len(observed_dpi) >= 1
+	assert observed_dpi[0] == 550.0
+
+
 def test_dynamic_circle_sizing_respects_pairwise_non_overlap_constraint() -> None:
 	centers_pt = np.asarray(
 		[

@@ -57,6 +57,10 @@ class TemplateCirclesPlotConfig(TemplatePlotConfig):
 	relpath: str = "template_circles"
 	size_by: str = "amplitude"
 	color_by: str = "latency"
+	show_propagation_order_labels: bool = False
+	propagation_order_label_fontsize: float = 6.0
+	propagation_order_label_color: str = "white"
+	propagation_order_label_bbox_alpha: float = 0.35
 	color_bar_units: str = ""
 	color_bar_title: str = ""
 	color_bar_show_axes_title: bool = True
@@ -107,6 +111,13 @@ class TimeUpsampleConfig:
 	method: str = "sinc"
 	mismatch_tolerance_hz: float = 0.5
 	raw_rate_fallback_hz: float | None = None
+
+
+@dataclass(frozen=True)
+class WaveformExtractionConfig:
+	ms_before: float | None = None
+	ms_after: float | None = None
+	max_spikes_per_unit: int | None = None
 
 
 @dataclass(frozen=True)
@@ -249,6 +260,17 @@ class PropagationPlotConfig:
 	top_channels: int = 25
 	channels_per_panel: int = 25
 	channel_overlap: int = 5
+	force_start_with_max_ptp: bool = True
+	force_start_with_max_negative_peak: bool = False
+	show_right_panel: bool = False
+	right_panel_gap_fraction: float = 0.04
+	right_panel_width_scale: float = 1.0
+	right_panel_keep_temp_svg: bool = False
+	right_panel_svg_relpath: str = "propagation_plot__right_temp.svg"
+	right_panel_png_relpath: str = "propagation_plot__right_temp.png"
+	left_panel_png_dpi: float | None = None
+	right_panel_png_dpi: float = 300.0
+	composed_png_dpi: float | None = None
 	background: str = "white"
 	show_electrode_ids: bool = False
 	electrode_label_fontsize: float = 6.0
@@ -259,6 +281,8 @@ class PropagationPlotConfig:
 	trace_spacing: float = 1.0
 	peak_marker_height_frac: float = 0.24
 	peak_marker_linewidth: float = 1.4
+	show_multiple_peak_markers: bool = False
+	delay_peak_marker_color: str = "black"
 	show_scale_bar: bool = True
 	scale_bar_anchor_x_frac: float = 0.92
 	scale_bar_anchor_y_frac: float = 0.12
@@ -330,6 +354,58 @@ class MergeConfig:
 	max_waveforms_per_source_channel: int | None = 500
 	overlap_match_priority: tuple[str, ...] = ("electrode_id", "channel_id", "location")
 	location_tolerance_um: float = 1.0
+
+
+@dataclass(frozen=True)
+class MultipleNegativePeaksCheckConfig:
+	enable: bool = False
+	prominence_fraction: float = 0.30
+	min_separation_samples: int = 8
+	max_peaks_per_channel: int = 2
+
+
+@dataclass(frozen=True)
+class QualityCheckJsonOutputConfig:
+	write_json: bool = True
+	json_relpath: str = "quality_checks_multiple_negative_peaks.json"
+
+
+@dataclass(frozen=True)
+class QualityCheckPlotOutputConfig:
+	write_png: bool = True
+	write_svg: bool = False
+	relpath: str = "multiple_peaks_at_channel_templates"
+	show_multiple_peak_markers: bool = False
+	delay_peak_marker_color: str = "black"
+
+
+@dataclass(frozen=True)
+class MultipleNegativePeaksOutputsConfig:
+	write_json: bool = True
+	json_relpath: str = "quality_checks_multiple_negative_peaks.json"
+	plot: QualityCheckPlotOutputConfig = field(default_factory=QualityCheckPlotOutputConfig)
+
+
+@dataclass(frozen=True)
+class PerUnitQualityChecksOutputsConfig:
+	check_for_multiple_peaks_at_channel_templates: MultipleNegativePeaksOutputsConfig = field(
+		default_factory=MultipleNegativePeaksOutputsConfig
+	)
+
+
+@dataclass(frozen=True)
+class DataQualityChecksOutputsConfig:
+	check_for_multiple_peaks_at_channel_templates: QualityCheckJsonOutputConfig = field(
+		default_factory=QualityCheckJsonOutputConfig
+	)
+
+
+@dataclass(frozen=True)
+class QualityChecksConfig:
+	enable: bool = False
+	check_for_multiple_peaks_at_channel_templates: MultipleNegativePeaksCheckConfig = field(
+		default_factory=MultipleNegativePeaksCheckConfig
+	)
 
 
 @dataclass(frozen=True)
@@ -405,6 +481,7 @@ class ReportsConfig:
 @dataclass(frozen=True)
 class PerUnitTemplatesOutputsConfig:
 	unit_reldir: str = "units/{unit_id:04d}/"
+	quality_checks: PerUnitQualityChecksOutputsConfig = field(default_factory=PerUnitQualityChecksOutputsConfig)
 	merged_template: TemplateArtifactConfig = field(
 		default_factory=lambda: TemplateArtifactConfig(
 			write_npy=True,
@@ -483,7 +560,10 @@ class TemplatesInputs:
 	require_curated_units: bool = True
 	include_concat: bool = True
 	include_segments: bool = True
+	waveform_extraction: WaveformExtractionConfig = field(default_factory=WaveformExtractionConfig)
 	execution_upsampling: TimeUpsampleConfig = field(default_factory=TimeUpsampleConfig)
 	merge: MergeConfig = field(default_factory=MergeConfig)
+	quality_checks: QualityChecksConfig = field(default_factory=QualityChecksConfig)
+	quality_checks_outputs: DataQualityChecksOutputsConfig = field(default_factory=DataQualityChecksOutputsConfig)
 	probe_geometry: ProbeGeometryConfig | None = None
 	n_jobs: int = 1

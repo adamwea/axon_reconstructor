@@ -95,6 +95,7 @@ class _MockAnalyzer:
 		self._templates_ext = templates_ext
 		self._has_templates = bool(has_templates)
 		self._full_waveforms = None if full_waveforms is None else np.asarray(full_waveforms, dtype=float)
+		self.last_compute_extension_params = None
 		if waveforms is None:
 			self._waveforms_ext = None
 		else:
@@ -116,6 +117,7 @@ class _MockAnalyzer:
 
 	def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1) -> None:
 		_ = names, verbose, n_jobs
+		self.last_compute_extension_params = extension_params
 		name_list = [str(n) for n in (names or [])]
 		if "random_spikes" in name_list and "waveforms" in name_list and self._full_waveforms is not None:
 			max_spikes = None
@@ -214,7 +216,7 @@ def test_build_unit_source_payload_expands_to_all_waveforms_when_unlimited() -> 
 	payload = build_unit_source_payload(
 		analyzer=analyzer,
 		unit_id=94,
-		max_waveforms_per_source_channel=None,
+		max_spikes_per_unit=None,
 	)
 	assert payload is not None
 	_, _, _, _, waveform_count, _, top_wf, _, top_count = payload
@@ -246,10 +248,50 @@ def test_build_unit_source_payload_honors_positive_waveform_cap() -> None:
 	payload = build_unit_source_payload(
 		analyzer=analyzer,
 		unit_id=94,
-		max_waveforms_per_source_channel=2,
+		max_spikes_per_unit=2,
 	)
 	assert payload is not None
 	_, _, _, _, _, _, top_wf, _, top_count = payload
 	assert top_wf is not None
 	assert int(top_wf.shape[0]) == 2
 	assert top_count == 2
+
+
+def test_build_unit_source_payload_forwards_waveform_window_on_recompute() -> None:
+	template_time_by_ch = np.asarray(
+		[
+			[1.0, 3.0],
+			[2.0, 4.0],
+			[0.0, 0.0],
+			[0.0, 0.0],
+		],
+		dtype=float,
+	)
+	full_waveforms = np.arange(6 * 4 * 2, dtype=float).reshape(6, 4, 2)
+	limited_waveforms = full_waveforms[:2, :, :]
+	analyzer = _MockAnalyzer(
+		templates_ext=_MockTemplatesExtension(template_time_by_ch),
+		has_templates=True,
+		waveforms=limited_waveforms,
+		full_waveforms=full_waveforms,
+	)
+
+	payload = build_unit_source_payload(
+		analyzer=analyzer,
+		unit_id=94,
+		max_spikes_per_unit=None,
+		waveform_ms_before=1.5,
+		waveform_ms_after=2.5,
+	)
+	assert payload is not None
+	_, _, _, _, _, _, top_wf, _, top_count = payload
+	assert top_wf is not None
+	assert int(top_wf.shape[0]) == 6
+	assert top_count == 6
+
+	params = analyzer.last_compute_extension_params
+	assert isinstance(params, dict)
+	assert "random_spikes" in params
+	assert "max_spikes_per_unit" not in params["random_spikes"]
+	assert params.get("waveforms", {}).get("ms_before") == 1.5
+	assert params.get("waveforms", {}).get("ms_after") == 2.5

@@ -467,6 +467,9 @@ def materialize_templates_from_spikeinterface(
 	unit_ids: list[Any] | None,
 	include_concat: bool,
 	include_segments: bool,
+	waveform_ms_before: float | None = None,
+	waveform_ms_after: float | None = None,
+	waveform_max_spikes_per_unit: int | None = None,
 	execution_upsampling: TimeUpsampleConfig | None = None,
 	enable_merge: bool = True,
 	merge_method: str = "mean_all_waveforms",
@@ -518,7 +521,9 @@ def materialize_templates_from_spikeinterface(
 		payload_builder=lambda analyzer, unit_id: build_unit_source_payload(
 			analyzer=analyzer,
 			unit_id=unit_id,
-			max_waveforms_per_source_channel=max_waveforms_per_source_channel,
+			max_spikes_per_unit=waveform_max_spikes_per_unit,
+			waveform_ms_before=waveform_ms_before,
+			waveform_ms_after=waveform_ms_after,
 		),
 		enable_merge=bool(enable_merge),
 		merge_method=merge_method,
@@ -559,7 +564,9 @@ def materialize_templates_from_spikeinterface(
 			payload = build_unit_source_payload(
 				analyzer=analyzer,
 				unit_id=uid,
-				max_waveforms_per_source_channel=max_waveforms_per_source_channel,
+				max_spikes_per_unit=waveform_max_spikes_per_unit,
+				waveform_ms_before=waveform_ms_before,
+				waveform_ms_after=waveform_ms_after,
 			)
 			if payload is None or len(payload) < 9:
 				if bool(debug_overlay):

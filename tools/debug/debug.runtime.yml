@@ -138,34 +138,45 @@ stages:
       max_units: null
       max_segments: null
 
-  templates:    
-    
+  templates:
+
     resources:
       max_stage_workers: 24
       well_workers: 2
 
     execution:
-      debug: false 
+      debug: false
       force_restart: false
       force_replot: false
 
       # Do not load segments or rebuild templates.
       # Just force replotting of existing templates from disk. Useful for iterating on plot formatting without having to rebuild templates.
       force_replot_per_unit: false #TODO: Make sure this is wired up
-      
+
       # If true, will only build templates for units that have been manually curated by MEA_Analysis during waveforms stage.
       require_curated_units: true
-      
+
       # limit number of unit templates to build for debugging purposes. Set to -1 or null for no limit.
       #unit_limit: -1
       unit_limit: 5
 
       spikeinterface:
+        waveform_extraction:
+          window:
+            ms_before: 1
+            ms_after: 2
+          # null or -1 means uncapped (use all available spikes per unit per source)
+          max_spikes_per_unit: -1
+          sources:
+            include_concat: true
+            include_segments: true
+
+
         template_extraction:
           sources:
             include_concat: true
             include_segments: true
-      
+
       upsampling:
         enable: true
         method: sinc
@@ -183,15 +194,27 @@ stages:
         max_waveforms_per_source_channel: -1
         overlap_match_priority: [electrode_id, location]
         location_tolerance_um: 1.0
-      
+
       quality_checks:
         enable: true
-        check_for_multiple_peaks_at_channel_templates:
+        multiple_peaks_at_channel_templates:
+          enable: true
+          prominence_fraction: 0.30
+          min_separation_samples: 8
+          # Recommended: 2 for strict AP-only detection, 3 if you want a more permissive screen.
+          max_peaks_per_channel: 2
+          plot_violations: true
 
 
     # All outputs from templates stage
     outputs:
       output_rel_root: template_outputs
+      data_outputs:
+        quality_checks:
+          multiple_peaks_at_channel_templates:
+            write_json: true
+            json_relpath: multiple_peaks_at_channel_templates.json
+
       per_unit_outputs:
 
         # Base rel dir for all outputs for a given unit. Can be formatted with {unit_id} if desired,
@@ -199,7 +222,26 @@ stages:
         unit_reldir: units/{unit_id:04d}/
 
         ## Per-Unit Data Artifacts
-        # merged_template: the final merged template waveform for the unit, typically averaged across all segments and/or concatenated segments. 
+
+        # quality_checks: structured data outputs related to quality checks performed on the templates,
+        # which can include information about any detected issues or violations of quality criteria, such as multiple peaks at channel templates,
+        # signal-to-noise ratio assessments, or other relevant metrics.
+        # These outputs can be used for filtering units based on quality criteria or for further analysis of template quality across the dataset.
+        # The specific structure and content of these quality check outputs can be defined based on the needs of the analysis and the types of quality assessments being performed.
+        quality_checks:
+          # multiple_peaks_at_channel_templates: information about any channels in the template that have multiple peaks in their waveforms,
+          # which can be an indicator of potential issues with the template such as overlapping units or noise contamination.
+          multiple_peaks_at_channel_templates:
+            write_json: true
+            json_relpath: multiple_peaks_at_channel_templates.json
+            plot:
+              write_png: true
+              write_svg: false
+              relpath: multiple_peaks_at_channel_templates
+              show_multiple_peak_markers: true # when true, draw all detected negative peaks for each violating channel.
+              delay_peak_marker_color: red # color used for the peak selected for delay ordering/latency calculations.
+
+        # merged_template: the final merged template waveform for the unit, typically averaged across all segments and/or concatenated segments.
         # This is the main data artifact representing the spatial footprint and waveform shape of the neuron across the MEA channels, and is used for downstream analyses and plotting.
         # Will usually be sparse. Should only contain channel / electrodes non-zero signal in the template in at least one template source (segments and / or concat)
         merged_template:
@@ -207,9 +249,9 @@ stages:
           npy_relpath: merged_template.npy
           channel_locations_npy_relpath: merged_channel_locations.npy
 
-        # square_template: a version of the merged template that has been padded to have a square channel layout, with dimensions equal to the max spatial extent of the template 
+        # square_template: a version of the merged template that has been padded to have a square channel layout, with dimensions equal to the max spatial extent of the template
         # across x and y.
-        # padding can be zeros, ones, or nans as specified in square_template_padding_value. 
+        # padding can be zeros, ones, or nans as specified in square_template_padding_value.
         # This can be useful for certain types of analyses or plotting that require a rectangular input format, while still preserving the spatial relationships between channels.
         square_template:
           write_npy: false
@@ -218,7 +260,7 @@ stages:
           padding_value: zero # zero, one, or nan
 
         # scan_template: a version of the merged template that includes all electrodes present in the source recording data across all segments.
-        # Dimensions are determined by the full spatial extent of the MEA channels present in the recording, which may be larger than the spatial extent of the template signal itself. 
+        # Dimensions are determined by the full spatial extent of the MEA channels present in the recording, which may be larger than the spatial extent of the template signal itself.
         # Padded with zeros, ones, or nans as specified in scan_template_padding_value for channels that are not part of the template.
         scan_template:
           write_npy: false
@@ -226,8 +268,8 @@ stages:
           channel_locations_npy_relpath: scan_channel_locations.npy
           padding_value: zero # zero, one, or nan
 
-        # full_template: a version of the merged template that includes all electrodes present in the full probe, including channels that were not explicitly recorded in the source data 
-        # but are present in the MEA layout. By default, we assume the full probe layout corresponds to the maxone and maxtwo channel coordinates in the template locations, 
+        # full_template: a version of the merged template that includes all electrodes present in the full probe, including channels that were not explicitly recorded in the source data
+        # but are present in the MEA layout. By default, we assume the full probe layout corresponds to the maxone and maxtwo channel coordinates in the template locations,
         # but this can be overridden by specifying a custom full probe layout in the data config.
         # Copied from debug.data.yml for reference.
         # Probe: # https://www.mxwbio.com/products/maxtwo
@@ -289,7 +331,7 @@ stages:
               horizontal_alignment: right
               vertical_alignment: top
             show_axes: false
-            center_most_channel_coords: 
+            center_most_channel_coords:
               show: true # whether to show coordinate labels centered on the most central channel in the template, which can help with orienting the template relative to the MEA layout.
               fontsize: 10
               color: white
@@ -328,6 +370,11 @@ stages:
               show_unit_label: true # whether to show tick labels on the color bar, which include the units (e.g. "10 ms") or just the numeric value (e.g. "10")
               tick_decimal_places: 3 # controls tick label precision and dynamic 0/5-style tick density (more precision -> more candidate ticks)
               tick_target_count: 10 # optional desired number of ticks; <=0 or omitted lets renderer pick automatically
+            propagation_order_labels:
+              show: false # when true, draw numeric labels on circles in propagation ordering rank.
+              fontsize: 7
+              color: white
+              bbox_alpha: 0.30
             unit_id_label:
               show: true
               fontsize: 15
@@ -337,7 +384,7 @@ stages:
               horizontal_alignment: right
               vertical_alignment: top
             show_axes: false
-            center_most_channel_coords: 
+            center_most_channel_coords:
               show: true # whether to show coordinate labels centered on the most central channel in the template, which can help with orienting the template relative to the MEA layout.
               fontsize: 15
               color: white
@@ -345,7 +392,7 @@ stages:
               y_offset_frac: 0.00
               horizontal_alignment: left
               vertical_alignment: bottom
-                                                                                                                                      
+
         extremum_ch_wf_overlay:
           output:
             write_pdf: false
@@ -355,7 +402,7 @@ stages:
           display:
             debug_mode: false # if true, will include additional debug info in the plot such as unit_id, template source, and applied upsampling factor and method, which can be useful for verifying that the correct templates are being plotted and that upsampling is being applied as expected.
             top_channels_per_template: 10
-            #style: propagation # propogation or overlay. 
+            #style: propagation # propogation or overlay.
             style: overlay # currently we have overlay implemented as the default, I want the wfs overlayed on eachother with the same x and y axis.
             show_title: false
             show_axes: false
@@ -364,7 +411,7 @@ stages:
             show_waveform_count_info: true
 
             # whether to include an additional plot of the mean waveform across the *all* channels for each template, averaged across those channels.
-            include_mean: true 
+            include_mean: true
             max_waveforms_to_show: 100 # number of top-channel waveforms drawn for this unit overlay; mean still uses all sampled waveforms
             waveform_sampling_mode: uniform # uniform, first, or random
             random_seed: 0 # used when waveform_sampling_mode=random; set null for non-deterministic sampling
@@ -381,27 +428,27 @@ stages:
             background: white
 
         footprint_plots:
-          
-          # The footprint amplitude map shows the relative amplitude of the template waveform on each channel, typically normalized to the amplitude on the main channel. 
+
+          # The footprint amplitude map shows the relative amplitude of the template waveform on each channel, typically normalized to the amplitude on the main channel.
           # This can be useful for visualizing the spatial extent of the neuron's electrical footprint across the MEA and identifying potential axonal branches.
           amplitude_map:
             output:
               write_png: true
               write_svg: false
               relpath: footprint_amplitude_map
-            template: 
+            template:
               shape: square # square, scan, or full
               padding_value: zero # zero, one, or nan; only applies if template shape is square or scan
-          
+
           # The footprint latency map shows the latency of the template waveform on each channel, relative to the latency of the peak on the main channel.
-          # This can be useful for assessing the spatial distribution of latencies across the MEA and identifying potential axonal propagation patterns, 
+          # This can be useful for assessing the spatial distribution of latencies across the MEA and identifying potential axonal propagation patterns,
           # especially when considered alongside the amplitude map.
           latency_map:
             output:
               write_png: true
               write_svg: false
               relpath: footprint_latency_map
-            template: 
+            template:
               shape: square
               padding_value: zero
 
@@ -411,7 +458,7 @@ stages:
               write_png: true
               write_svg: false
               relpath: topographical_amplitude_footprint
-            template: 
+            template:
               shape: square
               padding_value: zero
             display:
@@ -424,7 +471,7 @@ stages:
               write_png: true
               write_svg: false
               relpath: topographical_latency_footprint
-            template: 
+            template:
               shape: square
               padding_value: zero
             display:
@@ -442,8 +489,17 @@ stages:
             show_title: false
             title_template: "Propagation traces {start}-{end} / {total}"
             title_fontsize: 9
-            top_channels: 25
-            channels_per_panel: 25
+            top_channels: 50
+            force_start_with_max_ptp: false # if true, rotate delay-ordered channels so the max peak-to-peak channel appears first.
+            force_start_with_max_negative_peak: false # if true, prefer starting from the channel with the most negative peak; overrides max_ptp start.
+            show_right_panel: true # when true, compose a right-side circles SVG panel with propagation-order labels.
+            right_panel_gap_fraction: 0.00 # horizontal gap between propagation and right panel, as fraction of propagation width.
+            right_panel_width_scale: 1.0 # scale factor applied to right panel width after height matching.
+            right_panel_keep_temp_svg: false # keep temporary left/right SVG files used for composition.
+            right_panel_svg_relpath: propagation_right_panel.svg
+            right_panel_png_relpath: propagation_right_panel.png
+            right_panel_png_dpi: 600
+            channels_per_panel: 512 # debug override: keep propagation-style plots on one panel when possible.
             channel_overlap: 5
           render:
             background: white
@@ -451,6 +507,8 @@ stages:
             trace_spacing: 1.0
             peak_marker_height_frac: 0.50 # relative marker height vs per-channel vertical spacing; increase for taller peak ticks
             peak_marker_linewidth: 0.5 # linewidth (pt) for peak tick marks
+            show_multiple_peak_markers: false # when true, draw additional peak markers if peak_indices are provided.
+            delay_peak_marker_color: black # color for the peak used in delay/latency ordering.
           labels:
             show_electrode_ids: true
             electrode_label_fontsize: 6
@@ -495,7 +553,7 @@ stages:
             extra_height_in: 1.0
             hspace: 0.35
             area_aspect_ratio: null # width/height per panel; when set, overrides panel_height_in.
-      
+
       ## Reports
       reports:
         grids:
@@ -512,10 +570,10 @@ stages:
               figure_background_color: white
             display:
               top_channels_per_template: 10
-            
+
             # I think this was just for the wf overlay grid report...
-            # but it may go in other place. 
-            # TODO: assess where else this type of upsampling might go. 
+            # but it may go in other place.
+            # TODO: assess where else this type of upsampling might go.
             # Maybe just need to upsample after spikesorting.
             time_upsample:
               factor: 10
@@ -583,11 +641,11 @@ stages:
     outputs:
       output_rel_root: recon_outputs
       per_unit_outputs:
-        
-        # Base rel dir for all outputs for a given unit. Can be formatted with {unit_id} if desired, 
+
+        # Base rel dir for all outputs for a given unit. Can be formatted with {unit_id} if desired,
         # but should not include file name or extension components since those are specified separately for each output type below.
         unit_reldir: units/{unit_id:04d}/
-        
+
         # JSON artifacts
         write_branches_raw_json: false
         branches_raw_relpath: branches_raw.json
@@ -661,7 +719,7 @@ stages:
           color: white
           fontsize: 6
           location: bottom left
-      
+
       write_template_movie: false
       template_movie_relpath: template_movie.gif
       write_summary: false
@@ -825,7 +883,7 @@ stages:
         fontcolor: black
         marker_size: 9
         show_nodes_in_legend: true
-        show_footprint_in_legend: false # not even sure what this would look like. 
+        show_footprint_in_legend: false # not even sure what this would look like.
 
       # Extra logger output for candidate counts/selected units/path resolution.
       emit_debug_logs: false

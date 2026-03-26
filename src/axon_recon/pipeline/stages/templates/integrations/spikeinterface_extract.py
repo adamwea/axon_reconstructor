@@ -176,7 +176,9 @@ def _parse_waveforms_window_from_extension(wf_ext: Any) -> tuple[float | None, f
 def _try_recompute_waveforms_extension(
 	*,
 	analyzer: Any,
-	requested_max_waveforms: int | None,
+	requested_max_spikes_per_unit: int | None,
+	requested_ms_before: float | None,
+	requested_ms_after: float | None,
 ) -> bool:
 	"""Best-effort recompute of random_spikes+waveforms with requested cap semantics.
 
@@ -193,12 +195,16 @@ def _try_recompute_waveforms_extension(
 		wf_ext = None
 
 	ms_before, ms_after = _parse_waveforms_window_from_extension(wf_ext)
+	if requested_ms_before is not None:
+		ms_before = float(requested_ms_before)
+	if requested_ms_after is not None:
+		ms_after = float(requested_ms_after)
 	random_spikes_params: dict[str, Any] = {
 		"method": "uniform",
 		"seed": 0,
 	}
-	if requested_max_waveforms is not None and int(requested_max_waveforms) > 0:
-		random_spikes_params["max_spikes_per_unit"] = int(requested_max_waveforms)
+	if requested_max_spikes_per_unit is not None and int(requested_max_spikes_per_unit) > 0:
+		random_spikes_params["max_spikes_per_unit"] = int(requested_max_spikes_per_unit)
 
 	extension_params: dict[str, Any] = {
 		"random_spikes": random_spikes_params,
@@ -228,7 +234,9 @@ def build_unit_source_payload(
 	*,
 	analyzer: Any,
 	unit_id: Any,
-	max_waveforms_per_source_channel: int | None = None,
+	max_spikes_per_unit: int | None = None,
+	waveform_ms_before: float | None = None,
+	waveform_ms_after: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray, list[Any] | None, list[Any] | None, int, float | None, np.ndarray | None, Any, int | None] | None:
 	t = _extract_unit_template(analyzer, unit_id)
 	if t is None:
@@ -258,10 +266,10 @@ def build_unit_source_payload(
 	top_electrode_id: Any = None
 	top_electrode_waveform_count: int | None = None
 	requested_waveforms: int | None
-	if max_waveforms_per_source_channel is None:
+	if max_spikes_per_unit is None:
 		requested_waveforms = None
 	else:
-		requested_waveforms = int(max_waveforms_per_source_channel)
+		requested_waveforms = int(max_spikes_per_unit)
 		if requested_waveforms <= 0:
 			requested_waveforms = None
 	try:
@@ -279,7 +287,12 @@ def build_unit_source_payload(
 			wf_all = np.asarray(wf_ext.get_waveforms_one_unit(unit_id=unit_id, force_dense=False), dtype=float)
 			need_waveforms = int(waveform_count) if requested_waveforms is None else int(min(max(1, requested_waveforms), int(waveform_count)))
 			if int(wf_all.shape[0]) < int(need_waveforms):
-				if _try_recompute_waveforms_extension(analyzer=analyzer, requested_max_waveforms=requested_waveforms):
+				if _try_recompute_waveforms_extension(
+					analyzer=analyzer,
+					requested_max_spikes_per_unit=requested_waveforms,
+					requested_ms_before=waveform_ms_before,
+					requested_ms_after=waveform_ms_after,
+				):
 					wf_ext = analyzer.get_extension("waveforms")
 					wf_all = np.asarray(wf_ext.get_waveforms_one_unit(unit_id=unit_id, force_dense=False), dtype=float)
 

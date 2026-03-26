@@ -11,7 +11,11 @@ import numpy as np  # type: ignore[import-not-found]
 from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir #TODO: dont import this from v1
 
 from .core.merge import materialize_templates_from_spikeinterface
+from .core.quality_checks import detect_multiple_negative_peaks
 from .core.render import (
+	compose_png_side_by_side,
+	compose_svg_side_by_side,
+	compute_propagation_channel_order,
 	render_footprint_amplitude_map,
 	render_footprint_map_grid,
 	render_footprint_latency_map,
@@ -81,6 +85,117 @@ def _effective_probe_geometry_for_unit(
 		return base_probe_geometry
 
 	return replace(base_probe_geometry, sampling_rate_hz=float(effective_hz))
+
+
+def _run_template_quality_checks(
+	*,
+	unit_id: Any,
+	merged_template: np.ndarray,
+	merged_electrode_ids: list[Any] | None,
+	inputs: TemplatesInputs,
+) -> dict[str, Any]:
+	qc_cfg = inputs.quality_checks
+	multi_cfg = qc_cfg.check_for_multiple_peaks_at_channel_templates
+	if (not bool(qc_cfg.enable)) or (not bool(multi_cfg.enable)):
+		return {
+			"enabled": False,
+			"check_for_multiple_peaks_at_channel_templates": {
+				"enabled": False,
+				"detected": False,
+				"violation_count": 0,
+				"violations": [],
+			},
+		}
+
+	result = detect_multiple_negative_peaks(
+		template_c_by_t=merged_template,
+		channel_labels=merged_electrode_ids,
+		prominence_fraction=float(multi_cfg.prominence_fraction),
+		min_separation_samples=int(multi_cfg.min_separation_samples),
+		max_peaks_per_channel=int(multi_cfg.max_peaks_per_channel),
+	)
+
+	for violation in result.get("violations", []):
+		ch_index = int(violation.get("channel_index", -1))
+		ch_label = violation.get("channel_label", None)
+		peak_count = int(violation.get("peak_count", 0))
+		peak_indices = violation.get("peak_indices", [])
+		if ch_label is None or str(ch_label).strip() == "":
+			channel_repr = f"idx={ch_index}"
+		else:
+			channel_repr = f"eid={ch_label} idx={ch_index}"
+		LOGGER.warning(
+			"quality_check multiple_negative_peaks: unit_id=%s channel=%s peaks=%d peak_indices=%s",
+			unit_id,
+			channel_repr,
+			peak_count,
+			peak_indices,
+		)
+
+	if bool(result.get("detected", False)):
+		LOGGER.warning(
+			"quality_check multiple_negative_peaks summary: unit_id=%s violating_channels=%d/%d",
+			unit_id,
+			int(result.get("violation_count", 0)),
+			int(result.get("channel_count", 0)),
+		)
+
+	return {
+		"enabled": True,
+		"check_for_multiple_peaks_at_channel_templates": {
+			"enabled": True,
+			**result,
+		},
+	}
+
+
+def _build_quality_check_aggregate(*, templates_out_dir: Path, inputs: TemplatesInputs) -> tuple[dict[str, Any], Path | None]:
+	agg_cfg = inputs.quality_checks_outputs.check_for_multiple_peaks_at_channel_templates
+	aggregate_json = templates_out_dir / str(agg_cfg.json_relpath)
+	units_payload: list[dict[str, Any]] = []
+	all_violations: list[dict[str, Any]] = []
+	for p in sorted(templates_out_dir.glob("units/**/unit_templates_summary.json")):
+		if not p.is_file():
+			continue
+		try:
+			payload = read_json(p)
+		except Exception:
+			continue
+		if not isinstance(payload, dict):
+			continue
+		unit_id = payload.get("unit_id", None)
+		qc_payload = payload.get("quality_checks", {})
+		if not isinstance(qc_payload, dict):
+			continue
+		multiple_payload = qc_payload.get("check_for_multiple_peaks_at_channel_templates", {})
+		if not isinstance(multiple_payload, dict):
+			continue
+		unit_record = {
+			"unit_id": unit_id,
+			"status": payload.get("status", "ok"),
+			"detected": bool(multiple_payload.get("detected", False)),
+			"violation_count": int(multiple_payload.get("violation_count", 0)),
+			"channel_count": int(multiple_payload.get("channel_count", 0)),
+			"violations": list(multiple_payload.get("violations", [])),
+		}
+		units_payload.append(unit_record)
+		for violation in unit_record["violations"]:
+			if not isinstance(violation, dict):
+				continue
+			all_violations.append({"unit_id": unit_id, **violation})
+
+	payload = {
+		"check": "check_for_multiple_peaks_at_channel_templates",
+		"units_scanned": int(len(units_payload)),
+		"units_with_violations": int(sum(1 for u in units_payload if bool(u.get("detected", False)))),
+		"total_violations": int(len(all_violations)),
+		"violations": all_violations,
+		"units": units_payload,
+	}
+	if bool(agg_cfg.write_json):
+		write_json(aggregate_json, payload)
+		return payload, aggregate_json
+	return payload, None
 
 
 def _pad_value_from_mode(mode: str) -> float:
@@ -397,6 +512,9 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 						unit_ids=(list(inputs.unit_ids) if inputs.unit_ids is not None else None),
 						include_concat=bool(inputs.include_concat),
 						include_segments=bool(inputs.include_segments),
+						waveform_ms_before=inputs.waveform_extraction.ms_before,
+						waveform_ms_after=inputs.waveform_extraction.ms_after,
+						waveform_max_spikes_per_unit=inputs.waveform_extraction.max_spikes_per_unit,
 						execution_upsampling=inputs.execution_upsampling,
 						enable_merge=bool(inputs.merge.enable),
 						merge_method=str(inputs.merge.method),
@@ -444,6 +562,9 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 					unit_ids=(list(inputs.unit_ids) if inputs.unit_ids is not None else None),
 					include_concat=bool(inputs.include_concat),
 					include_segments=bool(inputs.include_segments),
+					waveform_ms_before=inputs.waveform_extraction.ms_before,
+					waveform_ms_after=inputs.waveform_extraction.ms_after,
+					waveform_max_spikes_per_unit=inputs.waveform_extraction.max_spikes_per_unit,
 					execution_upsampling=inputs.execution_upsampling,
 					enable_merge=bool(inputs.merge.enable),
 					merge_method=str(inputs.merge.method),
@@ -548,6 +669,85 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 
 			merged_template, merged_locs = _load_merged_unit(merged_dir)
 			merged_electrode_ids = load_materialized_merged_electrode_ids(merged_unit_dir=merged_dir)
+			unit_quality_checks = _run_template_quality_checks(
+				unit_id=unit_id,
+				merged_template=merged_template,
+				merged_electrode_ids=merged_electrode_ids,
+				inputs=inputs,
+			)
+			unit_summary["quality_checks"] = unit_quality_checks
+			unit_qc_cfg = inputs.per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates
+			if bool(unit_qc_cfg.write_json):
+				quality_checks_json = paths["quality_checks_multiple_negative_peaks_json"]
+				write_json(quality_checks_json, {
+					"unit_id": unit_id,
+					**unit_quality_checks,
+				})
+				unit_summary["outputs"]["quality_checks_multiple_negative_peaks_json"] = str(quality_checks_json)
+
+			qc_violations = unit_quality_checks.get("check_for_multiple_peaks_at_channel_templates", {}).get("violations", [])
+			plot_cfg = unit_qc_cfg.plot
+			if (
+				(bool(plot_cfg.write_png) or bool(plot_cfg.write_svg))
+				and isinstance(qc_violations, list)
+				and len(qc_violations) > 0
+			):
+				peak_indices_by_channel: dict[int, list[int]] = {}
+				for violation in qc_violations:
+					if not isinstance(violation, dict):
+						continue
+					ch_idx = int(violation.get("channel_index", -1))
+					if ch_idx < 0 or ch_idx >= int(merged_template.shape[0]):
+						continue
+					raw_peaks = violation.get("peak_indices", [])
+					peaks = [
+						int(pk)
+						for pk in list(raw_peaks)
+						if isinstance(pk, (int, float, np.integer, np.floating))
+						and int(pk) >= 0
+						and int(pk) < int(merged_template.shape[1])
+					]
+					if peaks:
+						peak_indices_by_channel[ch_idx] = sorted(set(peaks))
+
+				violation_channel_indices = sorted(
+					{
+						int(v.get("channel_index", -1))
+						for v in qc_violations
+						if isinstance(v, dict)
+						and int(v.get("channel_index", -1)) >= 0
+						and int(v.get("channel_index", -1)) < int(merged_template.shape[0])
+					}
+				)
+				if len(violation_channel_indices) > 0:
+					qc_prop_config = replace(
+						inputs.per_unit_outputs.propagation_plots,
+						write_pdf=False,
+						write_png=bool(plot_cfg.write_png),
+						show_multiple_peak_markers=bool(plot_cfg.show_multiple_peak_markers),
+						delay_peak_marker_color=str(plot_cfg.delay_peak_marker_color),
+					)
+					qc_plot_outputs = render_propagation_plot(
+						template=merged_template,
+						locations_xy=merged_locs,
+						config=qc_prop_config,
+						pdf_path=paths["quality_checks_multiple_negative_peaks_plot_png"].with_suffix(".pdf"),
+						png_path=paths["quality_checks_multiple_negative_peaks_plot_png"],
+						svg_path=paths["quality_checks_multiple_negative_peaks_plot_svg"],
+						write_svg=bool(plot_cfg.write_svg),
+						probe_geometry=unit_probe_geometry,
+						channel_labels_by_row=(
+							merged_electrode_ids
+							if (merged_electrode_ids is not None and int(len(merged_electrode_ids)) == int(merged_template.shape[0]))
+							else None
+						),
+						channel_indices=violation_channel_indices,
+						peak_indices_by_channel=peak_indices_by_channel,
+					)
+					if "propagation_plot_png" in qc_plot_outputs:
+						unit_summary["outputs"]["quality_checks_multiple_negative_peaks_plot_png"] = str(qc_plot_outputs["propagation_plot_png"])
+					if "propagation_plot_svg" in qc_plot_outputs:
+						unit_summary["outputs"]["quality_checks_multiple_negative_peaks_plot_svg"] = str(qc_plot_outputs["propagation_plot_svg"])
 			full_payload = _load_full_unit(full_dir) if full_channels_templates_dir_resolved.exists() else None
 
 			if bool(inputs.per_unit_outputs.merged_template.write_npy):
@@ -672,6 +872,14 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			)
 			unit_summary["outputs"].update(outputs)
 
+			circles_rank_map: dict[int, int] | None = None
+			if bool(inputs.per_unit_outputs.template_circles.show_propagation_order_labels):
+				circles_order_payload = compute_propagation_channel_order(
+					template_c_by_t=np.asarray(template_circles),
+					config=inputs.per_unit_outputs.propagation_plots,
+				)
+				circles_rank_map = dict(circles_order_payload.get("rank_by_channel", {}))
+
 			circles_outputs = render_template_circles_plot(
 				template=template_circles,
 				locations_xy=locs_circles,
@@ -680,6 +888,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				svg_path=paths["template_circles_svg"],
 				probe_geometry=unit_probe_geometry,
 				unit_id=unit_id,
+				propagation_order_rank_by_channel=circles_rank_map,
 			)
 			unit_summary["outputs"].update(circles_outputs)
 
@@ -782,12 +991,17 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			)
 			unit_summary["outputs"].update(topo_lat_outputs)
 
+			prop_cfg = inputs.per_unit_outputs.propagation_plots
+			prop_left_png_path = paths["propagation_plot_png"].with_name(f"{paths['propagation_plot_png'].stem}__left_temp.png") if bool(prop_cfg.show_right_panel) else paths["propagation_plot_png"]
+			prop_left_svg_path = paths["propagation_plot_left_temp_svg"] if bool(prop_cfg.show_right_panel) else paths["propagation_plot_svg"]
 			prop_outputs = render_propagation_plot(
 				template=prop_template,
 				locations_xy=prop_locs,
-				config=inputs.per_unit_outputs.propagation_plots,
+				config=prop_cfg,
 				pdf_path=paths["propagation_plot_pdf"],
-				png_path=paths["propagation_plot_png"],
+				png_path=prop_left_png_path,
+				svg_path=prop_left_svg_path,
+				write_svg=bool(prop_cfg.show_right_panel),
 				probe_geometry=unit_probe_geometry,
 				channel_labels_by_row=(
 					merged_electrode_ids
@@ -795,6 +1009,94 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 					else None
 				),
 			)
+			if bool(prop_cfg.show_right_panel):
+				prop_order_payload = compute_propagation_channel_order(
+					template_c_by_t=np.asarray(prop_template),
+					config=prop_cfg,
+				)
+				rank_by_channel = dict(prop_order_payload.get("rank_by_channel", {}))
+
+				circles_right_cfg = replace(
+					inputs.per_unit_outputs.template_circles,
+					write_png=True,
+					write_svg=True,
+					show_propagation_order_labels=True,
+					dpi=float(prop_cfg.right_panel_png_dpi),
+				)
+				right_temp_png = paths["propagation_plot_right_temp_png"]
+				right_svg_outputs = render_template_circles_plot(
+					template=template_circles,
+					locations_xy=locs_circles,
+					config=circles_right_cfg,
+					png_path=right_temp_png,
+					svg_path=paths["propagation_plot_right_temp_svg"],
+					probe_geometry=unit_probe_geometry,
+					unit_id=unit_id,
+					propagation_order_rank_by_channel=(rank_by_channel if int(template_circles.shape[0]) == int(prop_template.shape[0]) else None),
+				)
+				right_png_raw = right_svg_outputs.get("template_circles_png", None)
+				if right_png_raw is not None:
+					right_png_path = Path(str(right_png_raw))
+					try:
+						compose_dpi = prop_cfg.composed_png_dpi
+						if compose_dpi is None:
+							compose_dpi = prop_cfg.right_panel_png_dpi
+						compose_png_side_by_side(
+							left_png_path=prop_left_png_path,
+							right_png_path=right_png_path,
+							output_png_path=paths["propagation_plot_png"],
+							gap_fraction=float(prop_cfg.right_panel_gap_fraction),
+							right_width_scale=float(prop_cfg.right_panel_width_scale),
+							output_dpi=float(compose_dpi),
+						)
+						prop_outputs["propagation_plot_png"] = str(paths["propagation_plot_png"])
+					except Exception as compose_png_exc:
+						LOGGER.warning(
+							"Failed to compose propagation right panel PNG for unit %s; leaving left PNG only: %s",
+							unit_id,
+							compose_png_exc,
+						)
+						prop_outputs["propagation_plot_png"] = str(prop_left_png_path)
+				right_svg_path_raw = right_svg_outputs.get("template_circles_svg", None)
+				if right_svg_path_raw is not None:
+					right_svg_path = Path(str(right_svg_path_raw))
+					try:
+						compose_svg_side_by_side(
+							left_svg_path=prop_left_svg_path,
+							right_svg_path=right_svg_path,
+							output_svg_path=paths["propagation_plot_svg"],
+							gap_fraction=float(prop_cfg.right_panel_gap_fraction),
+							right_width_scale=float(prop_cfg.right_panel_width_scale),
+						)
+						prop_outputs["propagation_plot_svg"] = str(paths["propagation_plot_svg"])
+					except Exception as compose_exc:
+						LOGGER.warning(
+							"Failed to compose propagation right panel for unit %s; leaving left SVG only: %s",
+							unit_id,
+							compose_exc,
+						)
+						prop_outputs["propagation_plot_svg"] = str(prop_left_svg_path)
+					if not bool(prop_cfg.right_panel_keep_temp_svg):
+						try:
+							if prop_left_png_path.exists() and prop_left_png_path != paths["propagation_plot_png"]:
+								prop_left_png_path.unlink()
+						except Exception:
+							pass
+						try:
+							if right_temp_png.exists():
+								right_temp_png.unlink()
+						except Exception:
+							pass
+						try:
+							if prop_left_svg_path.exists() and prop_left_svg_path != paths["propagation_plot_svg"]:
+								prop_left_svg_path.unlink()
+						except Exception:
+							pass
+						try:
+							if right_svg_path.exists():
+								right_svg_path.unlink()
+						except Exception:
+							pass
 			unit_summary["outputs"].update(prop_outputs)
 			LOGGER.info("Templates unit render complete: unit_id=%s outputs=%d", unit_id, len(unit_summary["outputs"]))
 		except Exception as exc:
@@ -1042,6 +1344,10 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		LOGGER.info("Templates reports complete: generated=%d", len(report_outputs))
 
 	summary_json = templates_out_dir / "templates_summary.json"
+	quality_check_aggregate, quality_check_aggregate_json = _build_quality_check_aggregate(
+		templates_out_dir=templates_out_dir,
+		inputs=inputs,
+	)
 	summary_payload = {
 		"h5_path": str(inputs.h5_path),
 		"stream_id": str(inputs.stream_id),
@@ -1078,6 +1384,36 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				if inputs.execution_upsampling.raw_rate_fallback_hz is None
 				else float(inputs.execution_upsampling.raw_rate_fallback_hz)
 			),
+		},
+		"quality_checks": {
+			"enabled": bool(inputs.quality_checks.enable),
+			"outputs": {
+				"run_level": {
+					"check_for_multiple_peaks_at_channel_templates": {
+						"write_json": bool(inputs.quality_checks_outputs.check_for_multiple_peaks_at_channel_templates.write_json),
+						"json_relpath": str(inputs.quality_checks_outputs.check_for_multiple_peaks_at_channel_templates.json_relpath),
+					},
+				},
+				"per_unit": {
+					"check_for_multiple_peaks_at_channel_templates": {
+						"write_json": bool(inputs.per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates.write_json),
+						"json_relpath": str(inputs.per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates.json_relpath),
+						"plot": {
+							"write_png": bool(inputs.per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates.plot.write_png),
+							"write_svg": bool(inputs.per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates.plot.write_svg),
+							"relpath": str(inputs.per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates.plot.relpath),
+						},
+					},
+				},
+			},
+			"check_for_multiple_peaks_at_channel_templates": {
+				"enabled": bool(inputs.quality_checks.check_for_multiple_peaks_at_channel_templates.enable),
+				"prominence_fraction": float(inputs.quality_checks.check_for_multiple_peaks_at_channel_templates.prominence_fraction),
+				"min_separation_samples": int(inputs.quality_checks.check_for_multiple_peaks_at_channel_templates.min_separation_samples),
+				"max_peaks_per_channel": int(inputs.quality_checks.check_for_multiple_peaks_at_channel_templates.max_peaks_per_channel),
+			},
+			"aggregate_json": (None if quality_check_aggregate_json is None else str(quality_check_aggregate_json)),
+			"aggregate": quality_check_aggregate,
 		},
 		"upsampling_decisions_by_unit": {str(k): v for k, v in upsampling_decisions_by_unit.items()},
 		"units": [

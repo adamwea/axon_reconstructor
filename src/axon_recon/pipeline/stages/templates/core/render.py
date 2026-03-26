@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import replace
 import logging
 from pathlib import Path
+import re
 from typing import Any
+import xml.etree.ElementTree as ET
 
 import numpy as np  # type: ignore[import-not-found]
 from axon_recon.pipeline.shared.plotting import colorbar_axes_bounds
@@ -38,6 +41,208 @@ def _as_template_channels_by_time(template: Any, n_channels: int) -> np.ndarray:
 	if int(t.shape[1]) == int(n_channels):
 		return t.T
 	return t
+
+
+def compute_propagation_channel_order(
+	*,
+	template_c_by_t: np.ndarray,
+	config: PropagationPlotConfig,
+	channel_indices: list[int] | np.ndarray | None = None,
+) -> dict[str, Any]:
+	t = np.asarray(template_c_by_t)
+	if t.ndim != 2:
+		raise ValueError(f"Propagation ordering requires 2D template array, got shape={getattr(t, 'shape', None)}")
+
+	if channel_indices is not None:
+		requested = np.asarray(channel_indices, dtype=int).reshape(-1)
+		selected = np.asarray(
+			sorted({int(ch) for ch in requested.tolist() if 0 <= int(ch) < int(t.shape[0])}),
+			dtype=int,
+		)
+		if int(selected.shape[0]) == 0:
+			raise ValueError("Propagation ordering channel_indices produced an empty selection")
+	else:
+		ptp_all = np.ptp(t, axis=1)
+		top_n = max(1, min(int(config.top_channels), int(t.shape[0])))
+		selected = np.argsort(-ptp_all)[:top_n]
+
+	selected_ptp = np.ptp(t[selected, :], axis=1)
+	max_ptp_channel = int(selected[int(np.argmax(selected_ptp))]) if selected.size > 0 else None
+	selected_negative_peak = np.min(t[selected, :], axis=1)
+	max_negative_peak_channel = int(selected[int(np.argmin(selected_negative_peak))]) if selected.size > 0 else None
+	selected_abs_max = np.max(np.abs(t[selected, :]), axis=1)
+	max_abs_channel = int(selected[int(np.argmax(selected_abs_max))]) if selected.size > 0 else None
+
+	lat_idx = np.argmax(np.abs(t[selected, :]), axis=1).astype(float)
+	order = np.argsort(lat_idx)
+	selected = selected[order]
+	lat_idx = lat_idx[order]
+
+	anchor_channel: int | None = None
+	if bool(getattr(config, "force_start_with_max_negative_peak", False)) and max_negative_peak_channel is not None:
+		anchor_channel = int(max_negative_peak_channel)
+	elif bool(getattr(config, "force_start_with_max_ptp", True)) and max_ptp_channel is not None:
+		anchor_channel = int(max_ptp_channel)
+	if selected.size > 0 and anchor_channel is not None:
+		anchor_pos = np.flatnonzero(selected == int(anchor_channel))
+		if anchor_pos.size > 0 and int(anchor_pos[0]) != 0:
+			shift = int(anchor_pos[0])
+			selected = np.roll(selected, -shift)
+			lat_idx = np.roll(lat_idx, -shift)
+
+	rank_by_channel = {int(ch): int(i + 1) for i, ch in enumerate(selected.tolist())}
+	return {
+		"ordered_channel_indices": selected,
+		"latency_indices": lat_idx,
+		"rank_by_channel": rank_by_channel,
+		"max_abs_channel": max_abs_channel,
+		"max_ptp_channel": max_ptp_channel,
+		"max_negative_peak_channel": max_negative_peak_channel,
+	}
+
+
+def _parse_svg_number(raw: str | None) -> float | None:
+	if raw is None:
+		return None
+	m = re.match(r"^\s*([+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?)", str(raw))
+	if m is None:
+		return None
+	try:
+		return float(m.group(1))
+	except Exception:
+		return None
+
+
+def _svg_canvas_size(root: ET.Element) -> tuple[float, float]:
+	vb = root.attrib.get("viewBox", "")
+	parts = [p for p in str(vb).replace(",", " ").split() if p]
+	if len(parts) == 4:
+		try:
+			return float(parts[2]), float(parts[3])
+		except Exception:
+			pass
+	width = _parse_svg_number(root.attrib.get("width", None))
+	height = _parse_svg_number(root.attrib.get("height", None))
+	if width is None or height is None:
+		raise ValueError("Could not infer SVG canvas size from viewBox/width/height")
+	return float(width), float(height)
+
+
+def compose_svg_side_by_side(
+	*,
+	left_svg_path: Path,
+	right_svg_path: Path,
+	output_svg_path: Path,
+	gap_fraction: float = 0.04,
+	right_width_scale: float = 1.0,
+) -> Path:
+	left_tree = ET.parse(left_svg_path)
+	right_tree = ET.parse(right_svg_path)
+	left_root = left_tree.getroot()
+	right_root = right_tree.getroot()
+
+	left_w, left_h = _svg_canvas_size(left_root)
+	right_w, right_h = _svg_canvas_size(right_root)
+	if left_w <= 0 or left_h <= 0 or right_w <= 0 or right_h <= 0:
+		raise ValueError("SVG canvas dimensions must be positive")
+
+	gap = float(max(0.0, float(gap_fraction)) * left_w)
+	scale = (left_h / right_h) * float(max(0.01, float(right_width_scale)))
+	right_w_scaled = right_w * scale
+	right_h_scaled = right_h * scale
+
+	total_w = left_w + gap + right_w_scaled
+	total_h = max(left_h, right_h_scaled)
+	left_y = 0.5 * (total_h - left_h)
+	right_y = 0.5 * (total_h - right_h_scaled)
+	right_x = left_w + gap
+
+	svg_ns = "http://www.w3.org/2000/svg"
+	ET.register_namespace("", svg_ns)
+	composed = ET.Element(f"{{{svg_ns}}}svg", {
+		"version": "1.1",
+		"width": str(total_w),
+		"height": str(total_h),
+		"viewBox": f"0 0 {total_w} {total_h}",
+	})
+
+	left_group = ET.SubElement(composed, f"{{{svg_ns}}}g", {"transform": f"translate(0,{left_y})"})
+	for child in list(left_root):
+		if str(child.tag).endswith("defs"):
+			continue
+		left_group.append(copy.deepcopy(child))
+
+	right_group = ET.SubElement(
+		composed,
+		f"{{{svg_ns}}}g",
+		{"transform": f"translate({right_x},{right_y}) scale({scale})"},
+	)
+	for child in list(right_root):
+		if str(child.tag).endswith("defs"):
+			continue
+		right_group.append(copy.deepcopy(child))
+
+	output_svg_path.parent.mkdir(parents=True, exist_ok=True)
+	ET.ElementTree(composed).write(output_svg_path, encoding="utf-8", xml_declaration=True)
+	return output_svg_path
+
+
+def compose_png_side_by_side(
+	*,
+	left_png_path: Path,
+	right_png_path: Path,
+	output_png_path: Path,
+	gap_fraction: float = 0.04,
+	right_width_scale: float = 1.0,
+	output_dpi: float | None = None,
+) -> Path:
+	import matplotlib
+
+	matplotlib.use("Agg")
+	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+
+	left_img = np.asarray(plt.imread(left_png_path))
+	right_img = np.asarray(plt.imread(right_png_path))
+	if left_img.ndim != 3 or right_img.ndim != 3:
+		raise ValueError("Expected RGB/RGBA PNG images for side-by-side composition")
+
+	left_h, left_w = int(left_img.shape[0]), int(left_img.shape[1])
+	right_h, right_w = int(right_img.shape[0]), int(right_img.shape[1])
+	if left_h <= 0 or left_w <= 0 or right_h <= 0 or right_w <= 0:
+		raise ValueError("Invalid PNG dimensions for side-by-side composition")
+
+	right_display_w = (float(right_w) * (float(left_h) / float(right_h))) * float(max(0.01, float(right_width_scale)))
+	gap_px = float(max(0.0, float(gap_fraction)) * float(left_w))
+
+	total_w = float(left_w) + gap_px + right_display_w
+	total_h = float(left_h)
+	fig_h_in = 3.0
+	fig_w_in = max(1.0, fig_h_in * (total_w / max(1.0, total_h)))
+
+	left_frac = float(left_w) / total_w
+	gap_frac = gap_px / total_w
+	right_frac = max(1e-6, 1.0 - left_frac - gap_frac)
+
+	render_dpi = max(72.0, float(left_h) / float(fig_h_in))
+	if output_dpi is not None:
+		render_dpi = max(72.0, float(output_dpi))
+	fig = plt.figure(figsize=(fig_w_in, fig_h_in), dpi=render_dpi)
+	gs = fig.add_gridspec(1, 3, width_ratios=[left_frac, gap_frac, right_frac], wspace=0.0)
+	ax_left = fig.add_subplot(gs[0, 0])
+	ax_gap = fig.add_subplot(gs[0, 1])
+	ax_right = fig.add_subplot(gs[0, 2])
+
+	fig.patch.set_facecolor("white")
+	ax_left.imshow(left_img, interpolation="none")
+	ax_right.imshow(right_img, interpolation="none", aspect="auto")
+	ax_gap.set_facecolor("white")
+	for ax in (ax_left, ax_gap, ax_right):
+		ax.set_axis_off()
+
+	output_png_path.parent.mkdir(parents=True, exist_ok=True)
+	fig.savefig(output_png_path, dpi=render_dpi, bbox_inches="tight", pad_inches=0.0, facecolor=fig.get_facecolor())
+	plt.close(fig)
+	return output_png_path
 
 
 def _compute_plot_limits(points_xy: np.ndarray, *, pad_frac: float = 0.05, pad_abs: float = 10.0) -> tuple[float, float, float, float]:
@@ -602,6 +807,7 @@ def render_template_circles_plot(
 	svg_path: Path,
 	probe_geometry: ProbeGeometryConfig | None = None,
 	unit_id: Any | None = None,
+	propagation_order_rank_by_channel: dict[int, int] | None = None,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -773,6 +979,27 @@ def render_template_circles_plot(
 	)
 	sc.set_sizes(sizes)
 
+	if bool(getattr(config, "show_propagation_order_labels", False)):
+		rank_map = dict(propagation_order_rank_by_channel or {})
+		label_color = str(getattr(config, "propagation_order_label_color", "white") or "white")
+		label_fontsize = float(max(1.0, float(getattr(config, "propagation_order_label_fontsize", 6.0))))
+		bbox_alpha = float(min(1.0, max(0.0, float(getattr(config, "propagation_order_label_bbox_alpha", 0.35)))))
+		for ch_idx in range(int(locs.shape[0])):
+			rank = rank_map.get(int(ch_idx), None)
+			if rank is None:
+				continue
+			ax.text(
+				float(locs[ch_idx, 0]),
+				float(locs[ch_idx, 1]),
+				str(int(rank)),
+				color=label_color,
+				fontsize=label_fontsize,
+				horizontalalignment="center",
+				verticalalignment="center",
+				fontweight="bold",
+				bbox={"boxstyle": "round,pad=0.12", "facecolor": "black", "alpha": bbox_alpha, "linewidth": 0.0},
+			)
+
 	outputs: dict[str, str] = {}
 	if bool(config.write_png):
 		png_path.parent.mkdir(parents=True, exist_ok=True)
@@ -785,7 +1012,13 @@ def render_template_circles_plot(
 		outputs["template_circles_png"] = str(png_path)
 	if bool(config.write_svg):
 		svg_path.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(svg_path, format="svg", bbox_inches="tight", facecolor=fig.get_facecolor())
+		fig.savefig(
+			svg_path,
+			format="svg",
+			dpi=max(72.0, float(getattr(config, "dpi", 300.0))),
+			bbox_inches="tight",
+			facecolor=fig.get_facecolor(),
+		)
 		outputs["template_circles_svg"] = str(svg_path)
 
 	plt.close(fig)
@@ -1061,8 +1294,12 @@ def render_propagation_plot(
 	config: PropagationPlotConfig,
 	pdf_path: Path,
 	png_path: Path,
+	svg_path: Path | None = None,
+	write_svg: bool = False,
 	probe_geometry: ProbeGeometryConfig | None = None,
 	channel_labels_by_row: list[Any] | None = None,
+	channel_indices: list[int] | np.ndarray | None = None,
+	peak_indices_by_channel: dict[int, list[int] | np.ndarray] | None = None,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -1078,11 +1315,15 @@ def render_propagation_plot(
 	if int(t.shape[0]) != int(locs.shape[0]):
 		raise ValueError("Propagation plot template/locations mismatch")
 
-	ptp = np.ptp(t, axis=1)
-	top_n = max(1, min(int(config.top_channels), int(t.shape[0])))
-	selected = np.argsort(-ptp)[:top_n]
+	order_payload = compute_propagation_channel_order(
+		template_c_by_t=t,
+		config=config,
+		channel_indices=channel_indices,
+	)
+	selected = np.asarray(order_payload["ordered_channel_indices"], dtype=int)
+	lat_idx = np.asarray(order_payload["latency_indices"], dtype=float)
+	max_amp_electrode = order_payload.get("max_abs_channel", None)
 	selected_abs_max = np.max(np.abs(t[selected, :]), axis=1)
-	max_amp_electrode = int(selected[int(np.argmax(selected_abs_max))]) if selected.size > 0 else None
 	if bool(getattr(config, "debug_max_amps_at_each_channel", False)):
 		amps_by_channel = {
 			int(ch): float(amp) for ch, amp in zip(selected.tolist(), selected_abs_max.tolist(), strict=False)
@@ -1090,10 +1331,6 @@ def render_propagation_plot(
 		debug_msg = f"Propagation plot debug: max amplitude at each plotted electrode before gain (uV): {amps_by_channel}"
 		print(debug_msg)
 		LOGGER.info(debug_msg)
-	lat_idx = np.argmax(np.abs(t[selected, :]), axis=1).astype(float)
-	order = np.argsort(lat_idx)
-	selected = selected[order]
-	lat_idx = lat_idx[order]
 	ref_ch = int(max_amp_electrode) if max_amp_electrode is not None else int(selected[0])
 	ref_neg_peak_idx = int(np.argmin(t[ref_ch, :]))
 
@@ -1232,6 +1469,8 @@ def render_propagation_plot(
 	trace_gain = float(max(1e-9, float(config.trace_gain)))
 	peak_marker_height_frac = float(max(1e-6, float(getattr(config, "peak_marker_height_frac", 0.24))))
 	peak_marker_linewidth = float(max(0.2, float(getattr(config, "peak_marker_linewidth", 1.4))))
+	delay_peak_marker_color = str(getattr(config, "delay_peak_marker_color", "black") or "black")
+	show_multiple_peak_markers = bool(getattr(config, "show_multiple_peak_markers", False))
 	label_alignment = str(getattr(config, "electrode_label_alignment", getattr(config, "channel_label_alignment", "left")) or "left").strip().lower()
 	if label_alignment not in {"left", "center", "right"}:
 		label_alignment = "left"
@@ -1278,15 +1517,35 @@ def render_propagation_plot(
 					)
 			else:
 				ax.plot(x, y, color=trace_color, linewidth=0.9, alpha=0.95)
-			pk = float(np.argmax(np.abs(t[ch, :])))
-			pk_plot = _map_sample_to_plot_x(pk)
-			peak_y = float(y[int(pk)])
+			delay_pk = int(np.argmax(np.abs(t[ch, :])))
 			marker_height = float(max(1.2, peak_marker_height_frac * offset_step))
 			marker_half = float(0.5 * marker_height)
+
+			if show_multiple_peak_markers and peak_indices_by_channel is not None:
+				raw_indices = peak_indices_by_channel.get(int(ch), None)
+				if raw_indices is not None:
+					for extra_pk in np.asarray(raw_indices, dtype=int).reshape(-1):
+						extra_pk_i = int(extra_pk)
+						if extra_pk_i < 0 or extra_pk_i >= int(t.shape[1]):
+							continue
+						if extra_pk_i == int(delay_pk):
+							continue
+						extra_pk_plot = _map_sample_to_plot_x(float(extra_pk_i))
+						extra_peak_y = float(y[extra_pk_i])
+						ax.plot(
+							[extra_pk_plot, extra_pk_plot],
+							[extra_peak_y - marker_half, extra_peak_y + marker_half],
+							color="black",
+							linewidth=peak_marker_linewidth,
+							solid_capstyle="butt",
+						)
+
+			delay_pk_plot = _map_sample_to_plot_x(float(delay_pk))
+			delay_peak_y = float(y[delay_pk])
 			ax.plot(
-				[pk_plot, pk_plot],
-				[peak_y - marker_half, peak_y + marker_half],
-				color="black",
+				[delay_pk_plot, delay_pk_plot],
+				[delay_peak_y - marker_half, delay_peak_y + marker_half],
+				color=delay_peak_marker_color,
 				linewidth=peak_marker_linewidth,
 				solid_capstyle="butt",
 			)
@@ -1361,12 +1620,22 @@ def render_propagation_plot(
 	outputs: dict[str, str] = {}
 	if bool(config.write_png):
 		png_path.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(png_path, dpi=220, bbox_inches="tight", facecolor=fig.get_facecolor())
+		png_dpi = 220.0
+		if bool(getattr(config, "show_right_panel", False)):
+			left_cfg = getattr(config, "left_panel_png_dpi", None)
+			if left_cfg is None:
+				left_cfg = getattr(config, "right_panel_png_dpi", 300.0)
+			png_dpi = float(max(72.0, float(left_cfg)))
+		fig.savefig(png_path, dpi=png_dpi, bbox_inches="tight", facecolor=fig.get_facecolor())
 		outputs["propagation_plot_png"] = str(png_path)
 	if bool(config.write_pdf):
 		pdf_path.parent.mkdir(parents=True, exist_ok=True)
 		fig.savefig(pdf_path, format="pdf", bbox_inches="tight", facecolor=fig.get_facecolor())
 		outputs["propagation_plot_pdf"] = str(pdf_path)
+	if bool(write_svg) and svg_path is not None:
+		svg_path.parent.mkdir(parents=True, exist_ok=True)
+		fig.savefig(svg_path, format="svg", bbox_inches="tight", facecolor=fig.get_facecolor())
+		outputs["propagation_plot_svg"] = str(svg_path)
 
 	plt.close(fig)
 	return outputs

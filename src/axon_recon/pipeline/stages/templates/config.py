@@ -10,17 +10,24 @@ from axon_recon.pipeline.shared.plotting import build_stage_plot_block
 from ...execution.context import ExecutionTarget
 from .models.inputs import (
 	CenterMostChannelCoordsConfig,
+	DataQualityChecksOutputsConfig,
 	FootprintGridsReportConfig,
 	FootprintMapGridReportConfig,
 	FootprintMapConfig,
 	FootprintPlotsConfig,
 	MergeConfig,
+	MultipleNegativePeaksOutputsConfig,
+	MultipleNegativePeaksCheckConfig,
 	MultiSourcePdfReportConfig,
+	PerUnitQualityChecksOutputsConfig,
 	PerUnitTemplatesOutputsConfig,
 	ProbeGeometryConfig,
 	PropagationAxesConfig,
 	PropagationLatencyMapConfig,
 	PropagationPlotConfig,
+	QualityCheckJsonOutputConfig,
+	QualityCheckPlotOutputConfig,
+	QualityChecksConfig,
 	ReportsConfig,
 	TemplateArtifactConfig,
 	TemplateCirclesPlotConfig,
@@ -31,6 +38,7 @@ from .models.inputs import (
 	TopographicalFootprintsConfig,
 	TimeUpsampleConfig,
 	TemplatesInputs,
+	WaveformExtractionConfig,
 	WfOverlayGridReportConfig,
 )
 
@@ -178,6 +186,24 @@ def _get_template_wf_overlay_block(runtime_config: RuntimeConfig) -> dict[str, A
 			*_output_paths("per_unit_outputs.full_template.extremum_ch_wf_overlay"),
 			*_output_paths("per_unit_outputs.template_wf_overlay"),
 			*_output_paths("per_unit_outputs.full_template.template_wf_overlay"),
+		),
+	)
+
+
+def _get_per_unit_quality_checks_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
+	return _first_dict_block(
+		runtime_config,
+		(
+			*_output_paths("per_unit_outputs.quality_checks"),
+		),
+	)
+
+
+def _get_data_quality_checks_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
+	return _first_dict_block(
+		runtime_config,
+		(
+			*_output_paths("data_outputs.quality_checks"),
 		),
 	)
 
@@ -528,6 +554,110 @@ def _build_time_upsample_config(raw_cfg: dict[str, Any]) -> TimeUpsampleConfig:
 	)
 
 
+def _parse_max_spikes_per_unit(raw: Any) -> int | None:
+	if raw in {None, ""}:
+		return None
+	parsed = _as_int(raw, -1)
+	if parsed <= 0:
+		return None
+	return int(parsed)
+
+
+def _build_waveform_extraction_config(
+	*,
+	execution_cfg: dict[str, Any],
+	runtime_config: RuntimeConfig,
+) -> WaveformExtractionConfig:
+	spikeinterface_cfg = execution_cfg.get("spikeinterface", {}) if isinstance(execution_cfg.get("spikeinterface", {}), dict) else {}
+	wf_extract_cfg = spikeinterface_cfg.get("waveform_extraction", {}) if isinstance(spikeinterface_cfg.get("waveform_extraction", {}), dict) else {}
+	wf_extract_window_cfg = _get_nested_block(wf_extract_cfg, "window")
+	legacy_waveforms_cfg = runtime_config.get("stages.waveforms", {}) if isinstance(runtime_config.get("stages.waveforms", {}), dict) else {}
+
+	ms_before = _as_float_or_none(
+		wf_extract_window_cfg.get(
+			"ms_before",
+			wf_extract_cfg.get("ms_before", legacy_waveforms_cfg.get("ms_before", None)),
+		),
+		None,
+	)
+	ms_after = _as_float_or_none(
+		wf_extract_window_cfg.get(
+			"ms_after",
+			wf_extract_cfg.get("ms_after", legacy_waveforms_cfg.get("ms_after", None)),
+		),
+		None,
+	)
+	max_spikes_per_unit = _parse_max_spikes_per_unit(
+		wf_extract_cfg.get("max_spikes_per_unit", legacy_waveforms_cfg.get("max_spikes_per_unit", None))
+	)
+
+	return WaveformExtractionConfig(
+		ms_before=ms_before,
+		ms_after=ms_after,
+		max_spikes_per_unit=max_spikes_per_unit,
+	)
+
+
+def _build_quality_checks_config(raw_cfg: dict[str, Any]) -> QualityChecksConfig:
+	multiple_peaks_cfg = _get_multiple_peaks_block(raw_cfg)
+	enabled_raw = raw_cfg.get("enable", raw_cfg.get("enabled", False))
+	multiple_enabled_raw = multiple_peaks_cfg.get("enable", multiple_peaks_cfg.get("enabled", None))
+	if multiple_enabled_raw is None:
+		multiple_enabled = bool(_as_bool(enabled_raw, False))
+	else:
+		multiple_enabled = bool(_as_bool(multiple_enabled_raw, False))
+	return QualityChecksConfig(
+		enable=_as_bool(enabled_raw, False),
+		check_for_multiple_peaks_at_channel_templates=MultipleNegativePeaksCheckConfig(
+			enable=multiple_enabled,
+			prominence_fraction=max(0.0, _as_float(multiple_peaks_cfg.get("prominence_fraction", 0.30), 0.30)),
+			min_separation_samples=max(1, _as_int(multiple_peaks_cfg.get("min_separation_samples", 8), 8)),
+			max_peaks_per_channel=max(2, _as_int(multiple_peaks_cfg.get("max_peaks_per_channel", 2), 2)),
+		),
+	)
+
+
+def _get_multiple_peaks_block(raw_cfg: dict[str, Any]) -> dict[str, Any]:
+	check_keys = (
+		"check_for_multiple_peaks_at_channel_templates",
+		"multiple_peaks_at_channel_templates",
+		"multiple_negative_peaks",
+	)
+	for key in check_keys:
+		block = _get_nested_block(raw_cfg, key)
+		if block:
+			return block
+	return {}
+
+
+def _build_per_unit_quality_checks_outputs_config(raw_cfg: dict[str, Any]) -> PerUnitQualityChecksOutputsConfig:
+	multiple_cfg = _get_multiple_peaks_block(raw_cfg)
+	plot_cfg = _get_nested_block(multiple_cfg, "plot")
+	return PerUnitQualityChecksOutputsConfig(
+		check_for_multiple_peaks_at_channel_templates=MultipleNegativePeaksOutputsConfig(
+			write_json=_as_bool(multiple_cfg.get("write_json", True), True),
+			json_relpath=str(multiple_cfg.get("json_relpath", "quality_checks_multiple_negative_peaks.json")),
+			plot=QualityCheckPlotOutputConfig(
+				write_png=_as_bool(plot_cfg.get("write_png", True), True),
+				write_svg=_as_bool(plot_cfg.get("write_svg", False), False),
+				relpath=str(plot_cfg.get("relpath", "multiple_peaks_at_channel_templates")),
+				show_multiple_peak_markers=_as_bool(plot_cfg.get("show_multiple_peak_markers", False), False),
+				delay_peak_marker_color=str(plot_cfg.get("delay_peak_marker_color", "black")),
+			),
+		),
+	)
+
+
+def _build_data_quality_checks_outputs_config(raw_cfg: dict[str, Any]) -> DataQualityChecksOutputsConfig:
+	multiple_cfg = _get_multiple_peaks_block(raw_cfg)
+	return DataQualityChecksOutputsConfig(
+		check_for_multiple_peaks_at_channel_templates=QualityCheckJsonOutputConfig(
+			write_json=_as_bool(multiple_cfg.get("write_json", True), True),
+			json_relpath=str(multiple_cfg.get("json_relpath", "quality_checks_multiple_negative_peaks.json")),
+		),
+	)
+
+
 def _build_topographical_footprint_config(raw_cfg: dict[str, Any], *, relpath_default: str) -> TopographicalFootprintConfig:
 	template_cfg = _get_nested_block(raw_cfg, "template")
 	color_bar_cfg = _get_nested_block(raw_cfg, "color_bar")
@@ -651,6 +781,7 @@ class TemplatesStageConfig:
 	output_rel_root: str
 	per_unit_outputs: PerUnitTemplatesOutputsConfig
 	reports: ReportsConfig
+	quality_checks_outputs: DataQualityChecksOutputsConfig
 	unit_ids: list[int] | None
 	unit_limit: int | None
 	force_restart: bool
@@ -659,8 +790,10 @@ class TemplatesStageConfig:
 	require_curated_units: bool
 	include_concat: bool
 	include_segments: bool
+	waveform_extraction: WaveformExtractionConfig
 	execution_upsampling: TimeUpsampleConfig
 	merge: MergeConfig
+	quality_checks: QualityChecksConfig
 	probe_geometry: ProbeGeometryConfig | None = None
 
 
@@ -727,8 +860,14 @@ def parse_templates_stage_config(
 	spk_tpl_extract_sources = spk_tpl_extract.get("sources", {}) if isinstance(spk_tpl_extract.get("sources", {}), dict) else {}
 	include_concat = _as_bool(spk_tpl_extract_sources.get("include_concat", True), True)
 	include_segments = _as_bool(spk_tpl_extract_sources.get("include_segments", True), True)
+	waveform_extraction = _build_waveform_extraction_config(
+		execution_cfg=execution_cfg,
+		runtime_config=runtime_config,
+	)
 	execution_upsampling_cfg = execution_cfg.get("upsampling", {}) if isinstance(execution_cfg.get("upsampling", {}), dict) else {}
 	execution_upsampling = _build_time_upsample_config(execution_upsampling_cfg)
+	quality_checks_cfg_raw = execution_cfg.get("quality_checks", {}) if isinstance(execution_cfg.get("quality_checks", {}), dict) else {}
+	quality_checks = _build_quality_checks_config(quality_checks_cfg_raw)
 	merge_cfg = _get_merge_block(runtime_config)
 	merge = MergeConfig(
 		enable=_as_bool(merge_cfg.get("enable", True), True),
@@ -766,6 +905,8 @@ def parse_templates_stage_config(
 	tpl_wf_overlay_cfg = _get_template_wf_overlay_block(runtime_config)
 	report_overlay_grid_cfg = _get_reports_wf_overlay_grid_block(runtime_config)
 	reports_cfg = _get_reports_block(runtime_config)
+	per_unit_quality_checks_cfg = _get_per_unit_quality_checks_block(runtime_config)
+	data_quality_checks_cfg = _get_data_quality_checks_block(runtime_config)
 	footprint_grids_cfg = _get_reports_footprint_grids_block(runtime_config)
 	amp_map_cfg = _get_footprint_map_block(runtime_config, "amplitude_map")
 	lat_map_cfg = _get_footprint_map_block(runtime_config, "latency_map")
@@ -995,6 +1136,21 @@ def parse_templates_stage_config(
 		),
 		size_by=_normalize_template_metric(_nested_or_flat(tpl_circles_cfg, block="display", key="size_by", flat_keys=("size_by",), default="amplitude"), "amplitude"),
 		color_by=_normalize_template_metric(_nested_or_flat(tpl_circles_cfg, block="display", key="color_by", flat_keys=("color_by",), default="latency"), "latency"),
+		show_propagation_order_labels=_as_bool(
+			_get_nested_block(tpl_circles_cfg, "propagation_order_labels").get("show", tpl_circles_cfg.get("show_propagation_order_labels", False)),
+			False,
+		),
+		propagation_order_label_fontsize=_as_float(
+			_get_nested_block(tpl_circles_cfg, "propagation_order_labels").get("fontsize", tpl_circles_cfg.get("propagation_order_label_fontsize", 6.0)),
+			6.0,
+		),
+		propagation_order_label_color=str(
+			_get_nested_block(tpl_circles_cfg, "propagation_order_labels").get("color", tpl_circles_cfg.get("propagation_order_label_color", "white"))
+		),
+		propagation_order_label_bbox_alpha=_as_float(
+			_get_nested_block(tpl_circles_cfg, "propagation_order_labels").get("bbox_alpha", tpl_circles_cfg.get("propagation_order_label_bbox_alpha", 0.35)),
+			0.35,
+		),
 		color_bar_units=str(
 			(_get_nested_block(tpl_circles_cfg, "color_bar").get("units", tpl_circles_cfg.get("color_bar_units", "")) or "")
 		).strip(),
@@ -1295,6 +1451,114 @@ def parse_templates_stage_config(
 		top_channels=max(1, _as_int(_nested_or_flat(propagation_cfg, block="display", key="top_channels", flat_keys=("top_channels",), default=25), 25)),
 		channels_per_panel=max(1, _as_int(_nested_or_flat(propagation_cfg, block="display", key="channels_per_panel", flat_keys=("channels_per_panel",), default=25), 25)),
 		channel_overlap=max(0, _as_int(_nested_or_flat(propagation_cfg, block="display", key="channel_overlap", flat_keys=("channel_overlap",), default=5), 5)),
+		force_start_with_max_ptp=_as_bool(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="force_start_with_max_ptp",
+				flat_keys=("force_start_with_max_ptp", "force_start_with_largest_peak_to_peak"),
+				default=True,
+			),
+			True,
+		),
+		force_start_with_max_negative_peak=_as_bool(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="force_start_with_max_negative_peak",
+				flat_keys=("force_start_with_max_negative_peak", "force_start_with_most_negative_peak"),
+				default=False,
+			),
+			False,
+		),
+		show_right_panel=_as_bool(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="show_right_panel",
+				flat_keys=("show_right_panel",),
+				default=False,
+			),
+			False,
+		),
+		right_panel_gap_fraction=_as_float(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="right_panel_gap_fraction",
+				flat_keys=("right_panel_gap_fraction",),
+				default=0.04,
+			),
+			0.04,
+		),
+		right_panel_width_scale=_as_float(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="right_panel_width_scale",
+				flat_keys=("right_panel_width_scale",),
+				default=1.0,
+			),
+			1.0,
+		),
+		right_panel_keep_temp_svg=_as_bool(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="right_panel_keep_temp_svg",
+				flat_keys=("right_panel_keep_temp_svg",),
+				default=False,
+			),
+			False,
+		),
+		right_panel_svg_relpath=str(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="right_panel_svg_relpath",
+				flat_keys=("right_panel_svg_relpath",),
+				default="propagation_plot__right_temp.svg",
+			)
+		),
+		right_panel_png_relpath=str(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="right_panel_png_relpath",
+				flat_keys=("right_panel_png_relpath",),
+				default="propagation_plot__right_temp.png",
+			)
+		),
+		left_panel_png_dpi=_as_float_or_none(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="left_panel_png_dpi",
+				flat_keys=("left_panel_png_dpi",),
+				default=None,
+			),
+			None,
+		),
+		right_panel_png_dpi=_as_float(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="right_panel_png_dpi",
+				flat_keys=("right_panel_png_dpi",),
+				default=300.0,
+			),
+			300.0,
+		),
+		composed_png_dpi=_as_float_or_none(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="composed_png_dpi",
+				flat_keys=("composed_png_dpi",),
+				default=None,
+			),
+			None,
+		),
 		background=str(_nested_or_flat(propagation_cfg, block="render", key="background", flat_keys=("background",), default="white")),
 		show_electrode_ids=_as_bool(_nested_or_flat(propagation_cfg, block="labels", key="show_electrode_ids", flat_keys=("show_electrode_ids",), default=False), False),
 		electrode_label_fontsize=_as_float(
@@ -1340,6 +1604,8 @@ def parse_templates_stage_config(
 		trace_spacing=_as_float(_nested_or_flat(propagation_cfg, block="render", key="trace_spacing", flat_keys=("trace_spacing",), default=1.0), 1.0),
 		peak_marker_height_frac=_as_float(_nested_or_flat(propagation_cfg, block="render", key="peak_marker_height_frac", flat_keys=("peak_marker_height_frac",), default=0.24), 0.24),
 		peak_marker_linewidth=_as_float(_nested_or_flat(propagation_cfg, block="render", key="peak_marker_linewidth", flat_keys=("peak_marker_linewidth",), default=1.4), 1.4),
+		show_multiple_peak_markers=_as_bool(_nested_or_flat(propagation_cfg, block="render", key="show_multiple_peak_markers", flat_keys=("show_multiple_peak_markers",), default=False), False),
+		delay_peak_marker_color=str(_nested_or_flat(propagation_cfg, block="render", key="delay_peak_marker_color", flat_keys=("delay_peak_marker_color",), default="black")),
 		show_scale_bar=_as_bool(_nested_or_flat(propagation_cfg, block="scale_bar", key="show", flat_keys=("show_scale_bar",), default=True), True),
 		scale_bar_anchor_x_frac=_as_float(_nested_or_flat(propagation_cfg, block="scale_bar", key="anchor_x_frac", flat_keys=("scale_bar_anchor_x_frac",), default=0.92), 0.92),
 		scale_bar_anchor_y_frac=_as_float(_nested_or_flat(propagation_cfg, block="scale_bar", key="anchor_y_frac", flat_keys=("scale_bar_anchor_y_frac",), default=0.12), 0.12),
@@ -1454,6 +1720,7 @@ def parse_templates_stage_config(
 
 	per_unit = PerUnitTemplatesOutputsConfig(
 		unit_reldir=_get_unit_reldir(runtime_config),
+		quality_checks=_build_per_unit_quality_checks_outputs_config(per_unit_quality_checks_cfg),
 		merged_template=_build_template_artifact_config(
 			merged_template_cfg,
 			relpath_default="merged_template.npy",
@@ -1486,6 +1753,7 @@ def parse_templates_stage_config(
 		output_rel_root=str(outputs_cfg.get("output_rel_root", "templates_outputs")),
 		per_unit_outputs=per_unit,
 		reports=reports,
+		quality_checks_outputs=_build_data_quality_checks_outputs_config(data_quality_checks_cfg),
 		unit_ids=unit_ids,
 		unit_limit=unit_limit,
 		force_restart=force_restart,
@@ -1494,8 +1762,10 @@ def parse_templates_stage_config(
 		require_curated_units=require_curated_units,
 		include_concat=include_concat,
 		include_segments=include_segments,
+		waveform_extraction=waveform_extraction,
 		execution_upsampling=execution_upsampling,
 		merge=merge,
+		quality_checks=quality_checks,
 		probe_geometry=probe_geometry,
 	)
 
@@ -1515,6 +1785,7 @@ def build_templates_inputs_for_target(
 		output_rel_root=stage_config.output_rel_root,
 		per_unit_outputs=stage_config.per_unit_outputs,
 		reports=stage_config.reports,
+		quality_checks_outputs=stage_config.quality_checks_outputs,
 		unit_ids=stage_config.unit_ids,
 		unit_limit=stage_config.unit_limit,
 		force_restart=stage_config.force_restart,
@@ -1523,8 +1794,10 @@ def build_templates_inputs_for_target(
 		require_curated_units=stage_config.require_curated_units,
 		include_concat=stage_config.include_concat,
 		include_segments=stage_config.include_segments,
+		waveform_extraction=stage_config.waveform_extraction,
 		execution_upsampling=stage_config.execution_upsampling,
 		merge=stage_config.merge,
+		quality_checks=stage_config.quality_checks,
 		probe_geometry=resolved_probe_geometry,
 		n_jobs=max(1, int(unit_workers)),
 	)
@@ -1579,6 +1852,7 @@ def load_templates_inputs_from_runtime(
 		output_rel_root=stage_cfg.output_rel_root,
 		per_unit_outputs=stage_cfg.per_unit_outputs,
 		reports=stage_cfg.reports,
+		quality_checks_outputs=stage_cfg.quality_checks_outputs,
 		unit_ids=stage_cfg.unit_ids,
 		unit_limit=stage_cfg.unit_limit,
 		force_restart=stage_cfg.force_restart,
@@ -1587,8 +1861,10 @@ def load_templates_inputs_from_runtime(
 		require_curated_units=stage_cfg.require_curated_units,
 		include_concat=stage_cfg.include_concat,
 		include_segments=stage_cfg.include_segments,
+		waveform_extraction=stage_cfg.waveform_extraction,
 		execution_upsampling=stage_cfg.execution_upsampling,
 		merge=stage_cfg.merge,
+		quality_checks=stage_cfg.quality_checks,
 		probe_geometry=stage_cfg.probe_geometry,
 		n_jobs=1,
 	)

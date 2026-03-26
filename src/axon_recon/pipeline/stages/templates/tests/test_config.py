@@ -1292,6 +1292,17 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 			          top_channels: 30
 			          channels_per_panel: 12
 			          channel_overlap: 3
+			          force_start_with_max_ptp: false
+			          force_start_with_max_negative_peak: true
+			          show_right_panel: true
+			          right_panel_gap_fraction: 0.08
+			          right_panel_width_scale: 0.85
+			          right_panel_keep_temp_svg: true
+			          right_panel_svg_relpath: maps/propagation_right.svg
+			          right_panel_png_relpath: maps/propagation_right.png
+			          left_panel_png_dpi: 550
+			          right_panel_png_dpi: 450
+			          composed_png_dpi: 700
 			          background: black
 			          show_electrode_ids: true
 			          electrode_label_fontsize: 8
@@ -1388,6 +1399,17 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 	assert prop.top_channels == 30
 	assert prop.channels_per_panel == 12
 	assert prop.channel_overlap == 3
+	assert prop.force_start_with_max_ptp is False
+	assert prop.force_start_with_max_negative_peak is True
+	assert prop.show_right_panel is True
+	assert prop.right_panel_gap_fraction == 0.08
+	assert prop.right_panel_width_scale == 0.85
+	assert prop.right_panel_keep_temp_svg is True
+	assert prop.right_panel_svg_relpath == "maps/propagation_right.svg"
+	assert prop.right_panel_png_relpath == "maps/propagation_right.png"
+	assert prop.left_panel_png_dpi == 550
+	assert prop.right_panel_png_dpi == 450
+	assert prop.composed_png_dpi == 700
 	assert prop.background == "black"
 	assert prop.show_electrode_ids is True
 	assert prop.electrode_label_fontsize == 8
@@ -1482,6 +1504,17 @@ def test_load_templates_config_parses_nested_propagation_groups(tmp_path: Path) 
 			            top_channels: 28
 			            channels_per_panel: 10
 			            channel_overlap: 2
+			            force_start_with_max_ptp: true
+			            force_start_with_max_negative_peak: false
+			            show_right_panel: false
+			            right_panel_gap_fraction: 0.05
+			            right_panel_width_scale: 1.2
+			            right_panel_keep_temp_svg: false
+			            right_panel_svg_relpath: nested/right_panel.svg
+			            right_panel_png_relpath: nested/right_panel.png
+			            left_panel_png_dpi: 500
+			            right_panel_png_dpi: 500
+			            composed_png_dpi: 800
 			          render:
 			            background: black
 			            trace_gain: 1.7
@@ -1526,6 +1559,17 @@ def test_load_templates_config_parses_nested_propagation_groups(tmp_path: Path) 
 	assert prop.top_channels == 28
 	assert prop.channels_per_panel == 10
 	assert prop.channel_overlap == 2
+	assert prop.force_start_with_max_ptp is True
+	assert prop.force_start_with_max_negative_peak is False
+	assert prop.show_right_panel is False
+	assert prop.right_panel_gap_fraction == 0.05
+	assert prop.right_panel_width_scale == 1.2
+	assert prop.right_panel_keep_temp_svg is False
+	assert prop.right_panel_svg_relpath == "nested/right_panel.svg"
+	assert prop.right_panel_png_relpath == "nested/right_panel.png"
+	assert prop.left_panel_png_dpi == 500
+	assert prop.right_panel_png_dpi == 500
+	assert prop.composed_png_dpi == 800
 	assert prop.background == "black"
 	assert prop.trace_gain == 1.7
 	assert prop.trace_spacing == 1.2
@@ -1548,6 +1592,53 @@ def test_load_templates_config_parses_nested_propagation_groups(tmp_path: Path) 
 	assert prop.scale_bar_fontsize == 8
 	assert prop.scale_bar_time_label_offset_frac == 0.03
 	assert prop.scale_bar_amp_label_offset_frac == 0.02
+
+
+def test_load_templates_config_parses_template_circles_propagation_order_labels(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    outputs:
+			      per_unit_outputs:
+			        template_plots:
+			          circles:
+			            output:
+			              write_png: true
+			            propagation_order_labels:
+			              show: true
+			              fontsize: 7
+			              color: yellow
+			              bbox_alpha: 0.2
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	circles = inputs.per_unit_outputs.template_circles
+	assert circles.show_propagation_order_labels is True
+	assert circles.propagation_order_label_fontsize == 7
+	assert circles.propagation_order_label_color == "yellow"
+	assert circles.propagation_order_label_bbox_alpha == 0.2
 
 
 def test_load_templates_config_parses_merge_and_template_artifact_knobs(tmp_path: Path) -> None:
@@ -1670,6 +1761,147 @@ def test_load_templates_config_parses_execution_upsampling_block(tmp_path: Path)
 	assert inputs.execution_upsampling.method == "sinc"
 	assert inputs.execution_upsampling.mismatch_tolerance_hz == 0.25
 	assert inputs.execution_upsampling.raw_rate_fallback_hz == 10000
+
+
+def test_load_templates_config_parses_waveform_extraction_controls_with_fallback(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  waveforms:
+			    ms_before: 1.1
+			    ms_after: 2.2
+			    max_spikes_per_unit: 999
+			  templates:
+			    execution:
+			      spikeinterface:
+			        waveform_extraction:
+			          window:
+			            ms_before: 1.5
+			            ms_after: 2.5
+			          max_spikes_per_unit: -1
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.waveform_extraction.ms_before == 1.5
+	assert inputs.waveform_extraction.ms_after == 2.5
+	assert inputs.waveform_extraction.max_spikes_per_unit is None
+
+	runtime_path_fallback = tmp_path / "runtime_fallback.yml"
+	runtime_path_fallback.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  waveforms:
+			    ms_before: 1.1
+			    ms_after: 2.2
+			    max_spikes_per_unit: 777
+			  templates:
+			    execution:
+			      force_restart: false
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs_fallback = load_templates_inputs_from_runtime(config_path=str(runtime_path_fallback))
+	assert inputs_fallback.waveform_extraction.ms_before == 1.1
+	assert inputs_fallback.waveform_extraction.ms_after == 2.2
+	assert inputs_fallback.waveform_extraction.max_spikes_per_unit == 777
+
+
+def test_load_templates_config_parses_execution_quality_checks_block(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    execution:
+			      quality_checks:
+			        enable: true
+			        check_for_multiple_peaks_at_channel_templates:
+			          prominence_fraction: 0.42
+			          min_separation_samples: 11
+			          max_peaks_per_channel: 2
+			    outputs:
+			      data_outputs:
+			        quality_checks:
+			          multiple_peaks_at_channel_templates:
+			            write_json: false
+			            json_relpath: qc/run_level_multiple_peaks.json
+			      per_unit_outputs:
+			        quality_checks:
+			          multiple_peaks_at_channel_templates:
+			            write_json: false
+			            json_relpath: qc/unit_multiple_peaks.json
+			            plot:
+			              write_png: false
+			              write_svg: true
+			              relpath: qc/violating_channels
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	qc = inputs.quality_checks
+	assert qc.enable is True
+	assert qc.check_for_multiple_peaks_at_channel_templates.enable is True
+	assert qc.check_for_multiple_peaks_at_channel_templates.prominence_fraction == 0.42
+	assert qc.check_for_multiple_peaks_at_channel_templates.min_separation_samples == 11
+	assert qc.check_for_multiple_peaks_at_channel_templates.max_peaks_per_channel == 2
+
+	run_out = inputs.quality_checks_outputs.check_for_multiple_peaks_at_channel_templates
+	assert run_out.write_json is False
+	assert run_out.json_relpath == "qc/run_level_multiple_peaks.json"
+
+	unit_out = inputs.per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates
+	assert unit_out.write_json is False
+	assert unit_out.json_relpath == "qc/unit_multiple_peaks.json"
+	assert unit_out.plot.write_png is False
+	assert unit_out.plot.write_svg is True
+	assert unit_out.plot.relpath == "qc/violating_channels"
+	assert unit_out.plot.show_multiple_peak_markers is False
+	assert unit_out.plot.delay_peak_marker_color == "black"
 
 
 def test_load_templates_config_parses_nested_alias_keys_from_debug_runtime(tmp_path: Path) -> None:
