@@ -180,6 +180,53 @@ def test_compute_propagation_channel_order_supports_negative_peak_latency_mode()
 	assert out_abs["ordered_channel_indices"].tolist() != out_neg["ordered_channel_indices"].tolist()
 
 
+def test_compute_propagation_channel_order_tie_breaker_channel_index_is_deterministic() -> None:
+	template = np.asarray(
+		[
+			[0.0, -1.0, 0.0, 0.0],
+			[0.0, -1.0, 0.0, 0.0],
+			[0.0, 0.0, -2.0, 0.0],
+		],
+		dtype=float,
+	)
+	# Channels 0 and 1 share identical latency and amplitude; tie-breaker should keep lower index first.
+	out = compute_propagation_channel_order(
+		template_c_by_t=template,
+		config=PropagationPlotConfig(
+			top_channels=3,
+			force_start_with_max_ptp=False,
+			force_start_with_max_negative_peak=False,
+			ordering_latency_mode="negative_peak",
+			latency_tie_breaker="channel_index",
+		),
+	)
+	ordered = out["ordered_channel_indices"].tolist()
+	assert ordered.index(0) < ordered.index(1)
+
+
+def test_compute_propagation_channel_order_tie_breaker_input_order_respects_channel_indices() -> None:
+	template = np.asarray(
+		[
+			[0.0, -1.0, 0.0, 0.0],
+			[0.0, -1.0, 0.0, 0.0],
+			[0.0, 0.0, -2.0, 0.0],
+		],
+		dtype=float,
+	)
+	out = compute_propagation_channel_order(
+		template_c_by_t=template,
+		config=PropagationPlotConfig(
+			top_channels=3,
+			force_start_with_max_ptp=False,
+			force_start_with_max_negative_peak=False,
+			ordering_latency_mode="negative_peak",
+			latency_tie_breaker="selected_order",
+		),
+	)
+	ordered = out["ordered_channel_indices"].tolist()
+	assert ordered.index(0) < ordered.index(1)
+
+
 def test_render_propagation_plot_order_index_label_mode_renders_order_numbers(tmp_path: Path, monkeypatch) -> None:
 	t = np.asarray(
 		[

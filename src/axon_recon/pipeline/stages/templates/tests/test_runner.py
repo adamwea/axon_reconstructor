@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 import shutil
 import time
@@ -369,6 +370,150 @@ def test_run_templates_stage_quality_check_violation_plot_and_output_knobs(tmp_p
 	assert qc_calls[0]["peak_indices_by_channel"] == {0: [2, 4], 1: [2, 4]}
 
 	assert not (well_out_dir / "templates_outputs" / "qc" / "run_level_quality.json").exists()
+
+
+def test_run_templates_stage_quality_check_warnings_can_be_suppressed(tmp_path: Path, monkeypatch, caplog) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	merged_unit_dir = well_out_dir / "templates_outputs" / "templates" / "merged" / "unit_94"
+	full_unit_dir = well_out_dir / "templates_outputs" / "templates" / "full" / "unit_94"
+	merged_unit_dir.mkdir(parents=True, exist_ok=True)
+	full_unit_dir.mkdir(parents=True, exist_ok=True)
+
+	merged_template = np.asarray(
+		[
+			[0.0, -0.8, -5.0, -1.2, -4.2, -0.7, 0.0],
+			[0.0, -0.3, -1.1, -0.2, -0.2, -0.1, 0.0],
+		],
+		dtype=float,
+	)
+	merged_locs = np.asarray([[0.0, 0.0], [20.0, 0.0]], dtype=float)
+	full_template = merged_template.copy()
+	full_locs = merged_locs.copy()
+
+	np.save(merged_unit_dir / "merged_contributing_template.npy", merged_template)
+	np.save(merged_unit_dir / "merged_contributing_channel_locations.npy", merged_locs)
+	np.save(full_unit_dir / "full_template.npy", full_template)
+	np.save(full_unit_dir / "full_channel_locations_xy.npy", full_locs)
+
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", lambda **kwargs: {})
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			template=TemplatePlotConfig(write_png=False, write_svg=False),
+			template_circles=TemplateCirclesPlotConfig(write_png=False, write_svg=False),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
+			footprint_plots=FootprintPlotsConfig(
+				amplitude_map=FootprintMapConfig(write_png=False, write_svg=False),
+				latency_map=FootprintMapConfig(write_png=False, write_svg=False),
+			),
+			topographical_footprints=TopographicalFootprintsConfig(
+				amplitude=TopographicalFootprintConfig(write_png=False, write_svg=False),
+				latency=TopographicalFootprintConfig(write_png=False, write_svg=False),
+			),
+			propagation_plots=PropagationPlotConfig(write_pdf=False, write_png=False),
+		),
+		reports=ReportsConfig(wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False)),
+		quality_checks=QualityChecksConfig(
+			enable=True,
+			suppress_warnings=True,
+			check_for_multiple_peaks_at_channel_templates=MultipleNegativePeaksCheckConfig(
+				enable=True,
+				prominence_fraction=0.30,
+				min_separation_samples=2,
+			),
+		),
+		unit_ids=[94],
+		require_curated_units=False,
+		force_restart=False,
+		n_jobs=1,
+	)
+
+	with caplog.at_level(logging.WARNING, logger="axon_recon.templates"):
+		result = run_templates_stage(inputs)
+	assert len(result.units) == 1
+	assert result.units[0].status == "ok"
+	assert not any("quality_check multiple_negative_peaks" in rec.getMessage() for rec in caplog.records)
+
+
+def test_run_templates_stage_propagation_ordering_debug_logs_are_debug_level(tmp_path: Path, monkeypatch, caplog) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", lambda **kwargs: {})
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			template=TemplatePlotConfig(write_png=False, write_svg=False),
+			template_circles=TemplateCirclesPlotConfig(write_png=False, write_svg=False),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
+			footprint_plots=FootprintPlotsConfig(
+				amplitude_map=FootprintMapConfig(write_png=False, write_svg=False),
+				latency_map=FootprintMapConfig(write_png=False, write_svg=False),
+			),
+			topographical_footprints=TopographicalFootprintsConfig(
+				amplitude=TopographicalFootprintConfig(write_png=False, write_svg=False),
+				latency=TopographicalFootprintConfig(write_png=False, write_svg=False),
+			),
+			propagation_plots=PropagationPlotConfig(
+				write_pdf=False,
+				write_png=False,
+				debug_ordering=True,
+				trace_label_mode="order_index",
+			),
+		),
+		reports=ReportsConfig(wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False)),
+		unit_ids=[94],
+		require_curated_units=False,
+		force_restart=True,
+		n_jobs=1,
+	)
+
+	with caplog.at_level(logging.INFO, logger="axon_recon.templates"):
+		result_info = run_templates_stage(inputs)
+	assert len(result_info.units) == 1
+	assert result_info.units[0].status == "ok"
+	assert not any("Propagation ordering debug:" in rec.getMessage() for rec in caplog.records)
+
+	caplog.clear()
+	with caplog.at_level(logging.DEBUG, logger="axon_recon.templates"):
+		result_debug = run_templates_stage(inputs)
+	assert len(result_debug.units) == 1
+	assert result_debug.units[0].status == "ok"
+	debug_records = [rec for rec in caplog.records if "Propagation ordering debug:" in rec.getMessage()]
+	assert len(debug_records) >= 1
+	assert all(rec.levelno == logging.DEBUG for rec in debug_records)
 
 
 def test_run_templates_stage_propagation_right_panel_composes_svg(tmp_path: Path, monkeypatch) -> None:

@@ -204,25 +204,27 @@ def _run_template_quality_checks(
 		min_separation_samples=int(multi_cfg.min_separation_samples),
 		max_peaks_per_channel=int(multi_cfg.max_peaks_per_channel),
 	)
+	emit_quality_check_warnings = not bool(getattr(qc_cfg, "suppress_warnings", False))
 
-	for violation in result.get("violations", []):
-		ch_index = int(violation.get("channel_index", -1))
-		ch_label = violation.get("channel_label", None)
-		peak_count = int(violation.get("peak_count", 0))
-		peak_indices = violation.get("peak_indices", [])
-		if ch_label is None or str(ch_label).strip() == "":
-			channel_repr = f"idx={ch_index}"
-		else:
-			channel_repr = f"eid={ch_label} idx={ch_index}"
-		LOGGER.warning(
-			"quality_check multiple_negative_peaks: unit_id=%s channel=%s peaks=%d peak_indices=%s",
-			unit_id,
-			channel_repr,
-			peak_count,
-			peak_indices,
-		)
+	if emit_quality_check_warnings:
+		for violation in result.get("violations", []):
+			ch_index = int(violation.get("channel_index", -1))
+			ch_label = violation.get("channel_label", None)
+			peak_count = int(violation.get("peak_count", 0))
+			peak_indices = violation.get("peak_indices", [])
+			if ch_label is None or str(ch_label).strip() == "":
+				channel_repr = f"idx={ch_index}"
+			else:
+				channel_repr = f"eid={ch_label} idx={ch_index}"
+			LOGGER.warning(
+				"quality_check multiple_negative_peaks: unit_id=%s channel=%s peaks=%d peak_indices=%s",
+				unit_id,
+				channel_repr,
+				peak_count,
+				peak_indices,
+			)
 
-	if bool(result.get("detected", False)):
+	if emit_quality_check_warnings and bool(result.get("detected", False)):
 		LOGGER.warning(
 			"quality_check multiple_negative_peaks summary: unit_id=%s violating_channels=%d/%d",
 			unit_id,
@@ -1145,7 +1147,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 						window_end = int(window_start + int(prop_window_channel_indices.shape[0]))
 				prop_vals = list(order_number_by_channel.values())
 				circles_vals = list(circles_order_number_by_channel.values())
-				LOGGER.info(
+				LOGGER.debug(
 					"Propagation ordering debug: unit_id=%s canonical_n=%d selected_n=%d window_strategy=%s window=[%s,%s) "
 					"trace_mode=%s ordering_latency_mode=%s anchor_channel=%s prop_label_minmax=(%s,%s) circles_label_minmax=(%s,%s)",
 					unit_id,

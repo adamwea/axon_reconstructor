@@ -77,7 +77,13 @@ def compute_propagation_channel_order(
 		lat_idx = np.argmin(t[selected, :], axis=1).astype(float)
 	else:
 		lat_idx = np.argmax(np.abs(t[selected, :]), axis=1).astype(float)
-	order = np.argsort(lat_idx)
+	tie_breaker = str(getattr(config, "latency_tie_breaker", "channel_index") or "channel_index").strip().lower()
+	if tie_breaker in {"selected_order", "input_order", "stable"}:
+		# Stable sort keeps existing selected order for equal-latency ties.
+		order = np.argsort(lat_idx, kind="stable")
+	else:
+		# Default deterministic rule: sort by latency then by channel index.
+		order = np.lexsort((selected.astype(float), lat_idx))
 	selected = selected[order]
 	lat_idx = lat_idx[order]
 

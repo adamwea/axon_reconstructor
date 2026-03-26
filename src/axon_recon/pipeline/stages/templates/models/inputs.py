@@ -291,6 +291,7 @@ class PropagationPlotConfig:
 	force_start_with_max_negative_peak: bool = False
 	force_min_neg_peak_index_zero: bool = False
 	ordering_latency_mode: str = "abs_peak"
+	latency_tie_breaker: str = "channel_index"
 	debug_ordering: bool = False
 	trace_label_mode: str = "electrode_id"
 	relative_signed_order_numbers: bool = True
@@ -434,6 +435,7 @@ class DataQualityChecksOutputsConfig:
 @dataclass(frozen=True)
 class QualityChecksConfig:
 	enable: bool = False
+	suppress_warnings: bool = False
 	check_for_multiple_peaks_at_channel_templates: MultipleNegativePeaksCheckConfig = field(
 		default_factory=MultipleNegativePeaksCheckConfig
 	)

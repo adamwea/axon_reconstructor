@@ -1381,6 +1381,8 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 			          force_start_with_max_ptp: false
 			          force_start_with_max_negative_peak: true
 			          force_min_neg_peak_index_zero: true
+			          ordering_latency_mode: negative_peak
+			          latency_tie_breaker: channel_index
 			          trace_label_mode: order_index
 			          relative_signed_order_numbers: true
 			          show_right_panel: true
@@ -1499,6 +1501,8 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 	assert prop.force_start_with_max_ptp is False
 	assert prop.force_start_with_max_negative_peak is True
 	assert prop.force_min_neg_peak_index_zero is True
+	assert prop.ordering_latency_mode == "negative_peak"
+	assert prop.latency_tie_breaker == "channel_index"
 	assert prop.trace_label_mode == "order_index"
 	assert prop.relative_signed_order_numbers is True
 	assert prop.show_right_panel is True
@@ -2082,6 +2086,7 @@ def test_load_templates_config_parses_execution_quality_checks_block(tmp_path: P
 	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
 	qc = inputs.quality_checks
 	assert qc.enable is True
+	assert qc.suppress_warnings is False
 	assert qc.check_for_multiple_peaks_at_channel_templates.enable is True
 	assert qc.check_for_multiple_peaks_at_channel_templates.prominence_fraction == 0.42
 	assert qc.check_for_multiple_peaks_at_channel_templates.min_separation_samples == 11
@@ -2099,6 +2104,49 @@ def test_load_templates_config_parses_execution_quality_checks_block(tmp_path: P
 	assert unit_out.plot.relpath == "qc/violating_channels"
 	assert unit_out.plot.show_multiple_peak_markers is False
 	assert unit_out.plot.delay_peak_marker_color == "black"
+
+
+def test_load_templates_config_parses_quality_check_warning_suppression_and_analysis_propagation_ordering(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    execution:
+			      quality_checks:
+			        enable: true
+			        surpress_warnings: true
+			      analysis:
+			        propagation_ordering:
+			          enable: true
+			          latency_mode: negative_peak
+			          debug: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.quality_checks.suppress_warnings is True
+	assert inputs.per_unit_outputs.propagation_plots.ordering_latency_mode == "negative_peak"
+	assert inputs.per_unit_outputs.propagation_plots.debug_ordering is True
 
 
 def test_load_templates_config_parses_nested_alias_keys_from_debug_runtime(tmp_path: Path) -> None:

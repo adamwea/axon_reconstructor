@@ -628,6 +628,7 @@ def _build_waveform_extraction_config(
 def _build_quality_checks_config(raw_cfg: dict[str, Any]) -> QualityChecksConfig:
 	multiple_peaks_cfg = _get_multiple_peaks_block(raw_cfg)
 	enabled_raw = raw_cfg.get("enable", raw_cfg.get("enabled", False))
+	suppress_warnings_raw = raw_cfg.get("suppress_warnings", raw_cfg.get("surpress_warnings", False))
 	multiple_enabled_raw = multiple_peaks_cfg.get("enable", multiple_peaks_cfg.get("enabled", None))
 	if multiple_enabled_raw is None:
 		multiple_enabled = bool(_as_bool(enabled_raw, False))
@@ -635,6 +636,7 @@ def _build_quality_checks_config(raw_cfg: dict[str, Any]) -> QualityChecksConfig
 		multiple_enabled = bool(_as_bool(multiple_enabled_raw, False))
 	return QualityChecksConfig(
 		enable=_as_bool(enabled_raw, False),
+		suppress_warnings=_as_bool(suppress_warnings_raw, False),
 		check_for_multiple_peaks_at_channel_templates=MultipleNegativePeaksCheckConfig(
 			enable=multiple_enabled,
 			prominence_fraction=max(0.0, _as_float(multiple_peaks_cfg.get("prominence_fraction", 0.30), 0.30)),
@@ -895,6 +897,19 @@ def parse_templates_stage_config(
 	execution_upsampling = _build_time_upsample_config(execution_upsampling_cfg)
 	quality_checks_cfg_raw = execution_cfg.get("quality_checks", {}) if isinstance(execution_cfg.get("quality_checks", {}), dict) else {}
 	quality_checks = _build_quality_checks_config(quality_checks_cfg_raw)
+	analysis_cfg = execution_cfg.get("analysis", {}) if isinstance(execution_cfg.get("analysis", {}), dict) else {}
+	prop_order_analysis_cfg = analysis_cfg.get("propagation_ordering", {}) if isinstance(analysis_cfg.get("propagation_ordering", {}), dict) else {}
+	prop_order_analysis_enabled = _as_bool(prop_order_analysis_cfg.get("enable", False), False)
+	analysis_ordering_latency_mode = (
+		str(prop_order_analysis_cfg.get("latency_mode", "abs_peak"))
+		if prop_order_analysis_enabled
+		else "abs_peak"
+	)
+	analysis_debug_ordering = (
+		_as_bool(prop_order_analysis_cfg.get("debug", False), False)
+		if prop_order_analysis_enabled
+		else False
+	)
 	merge_cfg = _get_merge_block(runtime_config)
 	merge = MergeConfig(
 		enable=_as_bool(merge_cfg.get("enable", True), True),
@@ -1825,8 +1840,17 @@ def parse_templates_stage_config(
 				propagation_cfg,
 				block="display",
 				key="ordering_latency_mode",
-				flat_keys=("ordering_latency_mode",),
-				default="abs_peak",
+				flat_keys=("ordering_latency_mode", "latency_mode"),
+				default=analysis_ordering_latency_mode,
+			)
+		),
+		latency_tie_breaker=str(
+			_nested_or_flat(
+				propagation_cfg,
+				block="display",
+				key="latency_tie_breaker",
+				flat_keys=("latency_tie_breaker",),
+				default="channel_index",
 			)
 		),
 		debug_ordering=_as_bool(
@@ -1834,8 +1858,8 @@ def parse_templates_stage_config(
 				propagation_cfg,
 				block="display",
 				key="debug_ordering",
-				flat_keys=("debug_ordering",),
-				default=False,
+				flat_keys=("debug_ordering", "debug"),
+				default=analysis_debug_ordering,
 			),
 			False,
 		),

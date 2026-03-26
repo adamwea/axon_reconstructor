@@ -171,7 +171,6 @@ stages:
             include_concat: true
             include_segments: true
 
-
         template_extraction:
           sources:
             include_concat: true
@@ -197,7 +196,7 @@ stages:
 
       quality_checks:
         enable: true
-        surpress_warnings: true #wire this up TODO
+        suppress_warnings: true
         multiple_peaks_at_channel_templates:
           enable: true
           prominence_fraction: 0.30
@@ -205,6 +204,13 @@ stages:
           # Recommended: 2 for strict AP-only detection, 3 if you want a more permissive screen.
           max_peaks_per_channel: 2
           plot_violations: true
+
+      analysis:
+        propagation_ordering:
+          enable: true
+          latency_mode: negative_peak # abs_peak or negative_peak; controls canonical channel ordering metric.
+          latency_tie_breaker: channel_index # channel_index (default) sorts equal-latency ties by channel number; stable keeps selected/input order.
+          debug: true # emit per-unit canonical/window/anchor/label-range diagnostics in logs.
 
     # All outputs from templates stage
     outputs:
@@ -385,7 +391,7 @@ stages:
               force_zero_and_neg_values_first_color_range: true
               # >=1.0; higher values sharpen separation around zero while
               # keeping zero fixed at the first/second color boundary.
-              zero_transition_contrast: 2.0
+              zero_transition_contrast: 1.5
             propagation_order_labels:
               show: false # when true, draw numeric labels on circles in propagation ordering rank.
               fontsize: 7
