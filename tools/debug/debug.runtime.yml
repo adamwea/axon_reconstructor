@@ -157,8 +157,8 @@ stages:
       require_curated_units: true
 
       # limit number of unit templates to build for debugging purposes. Set to -1 or null for no limit.
-      #unit_limit: -1
-      unit_limit: 10
+      unit_limit: -1
+      #unit_limit: 10
 
       spikeinterface:
         waveform_extraction:
@@ -357,6 +357,7 @@ stages:
               force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
               force_square_aspect: true # increase template plot size to make it square (with padding) regardless of the spatial distribution of the channels.
               show_scale_bar: true
+              show_scale_circle: true
               size_by: amplitude # amplitude or latency; if amplitude, channel circle sizes are scaled by the relative amplitude of the template on each channel. If latency, channel circle sizes are scaled by the relative latency of the template on each channel.
               color_by: latency # amplitude or latency; if amplitude, channel colors are determined by the relative amplitude of the template on each channel. If latency, channel colors are determined by the relative latency of the template on each channel.
               scale_bar:
@@ -369,10 +370,32 @@ stages:
                 fontsize: 25
                 linewidth: 6
                 #length_um: null # optional fixed bar length; when null uses auto 50/100 um
+
+              #circle in top right corner showing the scale to amplitude values (
+              # e.g. how big a circle with amplitude equal to the max template amplitude would be);
+              # can help visually interpret circle sizes in the plot.
+              scale_circle:
+                diameter: equal_to_max_amplitude # can be equal_to_max_amplitude or fixed_value
+                linewidth: 3
+                linestyle: dotted
+                fontsize: 15
+                horizontal_alignment: left
+                vertical_alignment: top
+                x_offset_frac: 0.02
+                y_offset_frac: 0.005
+                font_location: right # inside or outside the circle
+                digits_after_decimal: 1 # number of digits after decimal point in scale circle label; set to 0 for integer formatting.
+
+                # only applies if font_location is inside; if the scale circle diameter is smaller than this fraction of the axis width, will move the label outside the circle for better readability.
+                font_location_circle_too_small: below # when font_location is inside, if the scale circle diameter is smaller than this fraction of the axis width, will move the label outside the circle for better readability.
+
+                units: "µV" # label for scale circle units; can be empty string if no units desired.
+
             render:
               background: black
               signal_color: white
               scale_bar_color: white
+              scale_circle_color: white
             color_bar:
               units: "ms" # label for color bar units
               title: "Latency (ms)" # title to show above color bar; if empty string, no title is shown and only tick labels with units are shown.
@@ -428,7 +451,7 @@ stages:
               coords_channel_overlap_detect: true # whether to check for overlaps between coordinate labels and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
               scalebar_channel_overlap_detect: true # whether to check for overlaps between scale bar and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
               max_overlap_check_iterations: 10 # maximum number of iterations to attempt to resolve overlaps through zooming out; if exceeded, will give up and plot with overlaps.
-
+              scalecircle_channel_overlap_detect: true # whether to check for overlaps between scale circle and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
 
 
         extremum_ch_wf_overlay:

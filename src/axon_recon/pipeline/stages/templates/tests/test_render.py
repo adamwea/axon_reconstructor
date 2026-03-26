@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 import numpy as np  # type: ignore[import-not-found]
 import matplotlib.pyplot as plt  # type: ignore[import-not-found]
@@ -31,6 +32,7 @@ from axon_recon.pipeline.stages.templates.models.inputs import (
 	PropagationPlotConfig,
 	TemplateCirclesOverlapControlsConfig,
 	TemplateCirclesPlotConfig,
+	TemplateScaleCircleConfig,
 	TemplatePlotConfig,
 	TemplateWaveformOverlayConfig,
 	TimeUpsampleConfig,
@@ -914,6 +916,229 @@ def test_render_template_circles_plot_scale_bar_x_offset_can_consider_fontsize(t
 	assert x_with_font_pad < x_without_font_pad
 
 
+def test_render_template_circles_plot_draws_scale_circle(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	seen_scale_circle_patch = {"count": 0}
+	seen_scale_circle_labels: list[str] = []
+	orig_add_patch = matplotlib.axes.Axes.add_patch
+	orig_text = matplotlib.axes.Axes.text
+
+	def _spy_add_patch(self, patch, *args, **kwargs):
+		if str(getattr(patch, "get_gid", lambda: "")() or "") == "template_scale_circle_patch":
+			seen_scale_circle_patch["count"] += 1
+		return orig_add_patch(self, patch, *args, **kwargs)
+
+	def _spy_text(self, x, y, s, *args, **kwargs):
+		text_artist = orig_text(self, x, y, s, *args, **kwargs)
+		if "uV" in str(s):
+			seen_scale_circle_labels.append(str(s))
+		return text_artist
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "add_patch", _spy_add_patch)
+	monkeypatch.setattr(matplotlib.axes.Axes, "text", _spy_text)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			show_scale_circle=True,
+			scale_circle_color="white",
+		),
+		png_path=tmp_path / "circles_scale_circle.png",
+		svg_path=tmp_path / "unused_scale_circle.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+
+	assert seen_scale_circle_patch["count"] >= 1
+	assert any("uV" in label for label in seen_scale_circle_labels)
+
+
+def test_render_template_circles_plot_scale_circle_label_precision_knob(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.25],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	labels: list[str] = []
+	orig_text = matplotlib.axes.Axes.text
+
+	def _spy_text(self, x, y, s, *args, **kwargs):
+		text = str(s)
+		if "uV" in text:
+			labels.append(text)
+		return orig_text(self, x, y, s, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "text", _spy_text)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			show_scale_circle=True,
+			scale_circle_color="white",
+			scale_circle=TemplateScaleCircleConfig(digits_after_decimal=1),
+		),
+		png_path=tmp_path / "circles_scale_circle_precision.png",
+		svg_path=tmp_path / "unused_scale_circle_precision.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+
+	assert any(re.match(r"^-?\d+\.\d uV$", label) for label in labels)
+
+
+def test_render_template_circles_plot_scale_circle_left_top_corner_alignment(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+	import matplotlib.patches
+
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	patches_seen: list[tuple[float, float, float, float]] = []
+	orig_add_patch = matplotlib.axes.Axes.add_patch
+
+	def _spy_add_patch(self, patch, *args, **kwargs):
+		if isinstance(patch, matplotlib.patches.Ellipse) and str(getattr(patch, "get_gid", lambda: "")() or "") == "template_scale_circle_patch":
+			center = patch.get_center()
+			patches_seen.append((float(center[0]), float(center[1]), float(patch.width), float(patch.height)))
+		return orig_add_patch(self, patch, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "add_patch", _spy_add_patch)
+
+	x_off = 0.02
+	y_off = 0.00
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			show_scale_circle=True,
+			scale_circle_color="white",
+			scale_circle=TemplateScaleCircleConfig(
+				x_offset_frac=x_off,
+				y_offset_frac=y_off,
+				horizontal_alignment="left",
+				vertical_alignment="top",
+			),
+		),
+		png_path=tmp_path / "circles_scale_circle_corner_align.png",
+		svg_path=tmp_path / "unused_scale_circle_corner_align.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+
+	assert len(patches_seen) >= 1
+	cx, cy, w, h = patches_seen[-1]
+	left_edge = float(cx - (w / 2.0))
+	top_edge = float(cy + (h / 2.0))
+	assert np.isclose(left_edge, x_off, atol=1e-6)
+	assert np.isclose(top_edge, 1.0 - y_off, atol=1e-6)
+
+
+def test_render_template_circles_plot_scale_circle_right_text_is_outside(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+	import matplotlib.patches
+
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	patch_edges: list[float] = []
+	text_xs: list[float] = []
+	text_has: list[str] = []
+	orig_add_patch = matplotlib.axes.Axes.add_patch
+	orig_text = matplotlib.axes.Axes.text
+
+	def _spy_add_patch(self, patch, *args, **kwargs):
+		if isinstance(patch, matplotlib.patches.Ellipse) and str(getattr(patch, "get_gid", lambda: "")() or "") == "template_scale_circle_patch":
+			cx, cy = patch.get_center()
+			patch_edges.append(float(cx + (patch.width / 2.0)))
+		return orig_add_patch(self, patch, *args, **kwargs)
+
+	def _spy_text(self, x, y, s, *args, **kwargs):
+		if "uV" in str(s):
+			text_xs.append(float(x))
+			text_has.append(str(kwargs.get("horizontalalignment", "")))
+		return orig_text(self, x, y, s, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "add_patch", _spy_add_patch)
+	monkeypatch.setattr(matplotlib.axes.Axes, "text", _spy_text)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			show_scale_circle=True,
+			scale_circle_color="white",
+			scale_circle=TemplateScaleCircleConfig(font_location="right"),
+		),
+		png_path=tmp_path / "circles_scale_circle_text_right_outside.png",
+		svg_path=tmp_path / "unused_scale_circle_text_right_outside.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+
+	assert len(patch_edges) >= 1
+	assert len(text_xs) >= 1
+	assert text_has[-1] == "left"
+	assert text_xs[-1] > patch_edges[-1]
+
+
 def test_render_template_circles_plot_overlap_controls_can_trigger_zoom_out(tmp_path: Path, monkeypatch) -> None:
 	import matplotlib.axes
 
@@ -981,6 +1206,43 @@ def test_render_template_circles_plot_overlap_controls_can_trigger_zoom_out(tmp_
 	assert not np.isclose(scalebar_text_xs[0], scalebar_text_xs[-1])
 	assert len(coords_text_xs) >= 2
 	assert not np.isclose(coords_text_xs[0], coords_text_xs[-1])
+
+
+def test_render_template_circles_plot_scale_circle_overlap_controls_can_trigger_zoom_out(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray([[0.0, -1.0, 0.0]], dtype=float)
+	locations = np.asarray([[0.0, 0.0]], dtype=float)
+
+	xlim_call_count = {"count": 0}
+	orig_set_xlim = matplotlib.axes.Axes.set_xlim
+
+	def _spy_set_xlim(self, *args, **kwargs):
+		xlim_call_count["count"] += 1
+		return orig_set_xlim(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "set_xlim", _spy_set_xlim)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			background="black",
+			show_scale_circle=True,
+			scale_circle_color="white",
+			overlap_controls=TemplateCirclesOverlapControlsConfig(
+				scalecircle_channel_overlap_detect=True,
+				max_overlap_check_iterations=2,
+			),
+		),
+		png_path=tmp_path / "circles_scale_circle_overlap_controls.png",
+		svg_path=tmp_path / "unused_scale_circle_overlap.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+
+	assert xlim_call_count["count"] >= 2
 
 
 def test_render_template_plot_applies_unit_id_center_coords_and_hides_axes(tmp_path: Path, monkeypatch) -> None:

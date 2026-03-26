@@ -61,7 +61,24 @@ class TemplateCirclesOverlapControlsConfig:
 	unitid_label_channel_overlap_detect: bool = False
 	coords_channel_overlap_detect: bool = False
 	scalebar_channel_overlap_detect: bool = False
+	scalecircle_channel_overlap_detect: bool = False
 	max_overlap_check_iterations: int = 0
+
+
+@dataclass(frozen=True)
+class TemplateScaleCircleConfig:
+	diameter: str | float = "equal_to_max_amplitude"
+	linewidth: float = 1.8
+	linestyle: str = "solid"
+	fontsize: float = 6.0
+	digits_after_decimal: int = 0
+	horizontal_alignment: str = "left"
+	vertical_alignment: str = "top"
+	x_offset_frac: float = 0.02
+	y_offset_frac: float = 0.02
+	font_location: str = "inside"
+	font_location_circle_too_small: str = "below"
+	units: str = "uV"
 
 
 @dataclass(frozen=True)
@@ -84,6 +101,9 @@ class TemplateCirclesPlotConfig(TemplatePlotConfig):
 	color_bar_tick_target_count: int | None = None
 	color_bar_force_zero_and_neg_values_first_color_range: bool = False
 	color_bar_zero_transition_contrast: float = 1.0
+	show_scale_circle: bool = False
+	scale_circle_color: str = "white"
+	scale_circle: TemplateScaleCircleConfig = field(default_factory=TemplateScaleCircleConfig)
 	overlap_controls: TemplateCirclesOverlapControlsConfig = field(default_factory=TemplateCirclesOverlapControlsConfig)
 
 

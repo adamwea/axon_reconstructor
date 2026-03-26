@@ -33,6 +33,7 @@ from .models.inputs import (
 	TemplateArtifactConfig,
 	TemplateCirclesOverlapControlsConfig,
 	TemplateCirclesPlotConfig,
+	TemplateScaleCircleConfig,
 	TemplatePlotConfig,
 	TemplateWaveformOverlayConfig,
 	UnitIdLabelConfig,
@@ -1134,7 +1135,9 @@ def parse_templates_stage_config(
 		force_center_soma=_as_bool(_nested_or_flat(tpl_circles_cfg, block="display", key="force_center_soma", flat_keys=("force_center_soma",), default=False), False),
 		force_square_aspect=_as_bool(_nested_or_flat(tpl_circles_cfg, block="display", key="force_square_aspect", flat_keys=("force_square_aspect",), default=True), True),
 		show_scale_bar=_as_bool(_nested_or_flat(tpl_circles_cfg, block="display", key="show_scale_bar", flat_keys=("show_scale_bar",), default=True), True),
+		show_scale_circle=_as_bool(_nested_or_flat(tpl_circles_cfg, block="display", key="show_scale_circle", flat_keys=("show_scale_circle",), default=False), False),
 		scale_bar_color=str(_nested_or_flat(tpl_circles_cfg, block="render", key="scale_bar_color", flat_keys=("scale_bar_color",), default="white")),
+		scale_circle_color=str(_nested_or_flat(tpl_circles_cfg, block="render", key="scale_circle_color", flat_keys=("scale_circle_color",), default="white")),
 		scale_bar_text_offset_frac=_as_float(
 			_nested_path_or_flat(
 				tpl_circles_cfg,
@@ -1382,6 +1385,158 @@ def parse_templates_stage_config(
 				1.0,
 			),
 		),
+		scale_circle=TemplateScaleCircleConfig(
+			diameter=(
+				_nested_path_or_flat(
+					tpl_circles_cfg,
+					path=("display", "scale_circle"),
+					key="diameter",
+					flat_keys=("scale_circle_diameter",),
+					default="equal_to_max_amplitude",
+				)
+				if isinstance(
+					_nested_path_or_flat(
+						tpl_circles_cfg,
+						path=("display", "scale_circle"),
+						key="diameter",
+						flat_keys=("scale_circle_diameter",),
+						default="equal_to_max_amplitude",
+					),
+					str,
+				)
+				else _as_float(
+					_nested_path_or_flat(
+						tpl_circles_cfg,
+						path=("display", "scale_circle"),
+						key="diameter",
+						flat_keys=("scale_circle_diameter",),
+						default="equal_to_max_amplitude",
+					),
+					0.0,
+				)
+			),
+			linewidth=max(
+				0.1,
+				_as_float(
+					_nested_path_or_flat(
+						tpl_circles_cfg,
+						path=("display", "scale_circle"),
+						key="linewidth",
+						flat_keys=("scale_circle_linewidth",),
+						default=1.8,
+					),
+					1.8,
+				),
+			),
+			linestyle=str(
+				_nested_path_or_flat(
+					tpl_circles_cfg,
+					path=("display", "scale_circle"),
+					key="linestyle",
+					flat_keys=("scale_circle_linestyle",),
+					default="solid",
+				)
+			),
+			fontsize=max(
+				1.0,
+				_as_float(
+					_nested_path_or_flat(
+						tpl_circles_cfg,
+						path=("display", "scale_circle"),
+						key="fontsize",
+						flat_keys=("scale_circle_fontsize",),
+						default=6.0,
+					),
+					6.0,
+				),
+			),
+			digits_after_decimal=max(
+				0,
+				_as_int(
+					_nested_path_or_flat(
+						tpl_circles_cfg,
+						path=("display", "scale_circle"),
+						key="digits_after_decimal",
+						flat_keys=("scale_circle_digits_after_decimal",),
+						default=0,
+					),
+					0,
+				),
+			),
+			horizontal_alignment=_normalize_horizontal_alignment(
+				_nested_path_or_flat(
+					tpl_circles_cfg,
+					path=("display", "scale_circle"),
+					key="horizontal_alignment",
+					flat_keys=("scale_circle_horizontal_alignment",),
+					default="left",
+				),
+				default="left",
+			),
+			vertical_alignment=_normalize_vertical_alignment(
+				_nested_path_or_flat(
+					tpl_circles_cfg,
+					path=("display", "scale_circle"),
+					key="vertical_alignment",
+					flat_keys=("scale_circle_vertical_alignment",),
+					default="top",
+				),
+				default="top",
+			),
+			x_offset_frac=max(
+				0.0,
+				_as_float(
+					_nested_path_or_flat(
+						tpl_circles_cfg,
+						path=("display", "scale_circle"),
+						key="x_offset_frac",
+						flat_keys=("scale_circle_x_offset_frac",),
+						default=0.02,
+					),
+					0.02,
+				),
+			),
+			y_offset_frac=max(
+				0.0,
+				_as_float(
+					_nested_path_or_flat(
+						tpl_circles_cfg,
+						path=("display", "scale_circle"),
+						key="y_offset_frac",
+						flat_keys=("scale_circle_y_offset_frac",),
+						default=0.02,
+					),
+					0.02,
+				),
+			),
+			font_location=str(
+				_nested_path_or_flat(
+					tpl_circles_cfg,
+					path=("display", "scale_circle"),
+					key="font_location",
+					flat_keys=("scale_circle_font_location",),
+					default="inside",
+				)
+			),
+			font_location_circle_too_small=str(
+				_nested_path_or_flat(
+					tpl_circles_cfg,
+					path=("display", "scale_circle"),
+					key="font_location_circle_too_small",
+					flat_keys=("scale_circle_font_location_circle_too_small",),
+					default="below",
+				)
+			),
+			units=str(
+				_nested_path_or_flat(
+					tpl_circles_cfg,
+					path=("display", "scale_circle"),
+					key="units",
+					flat_keys=("scale_circle_units",),
+					default="uV",
+				)
+			),
+		),
 		overlap_controls=TemplateCirclesOverlapControlsConfig(
 			scalebar_coords_overlap_detect=_as_bool(
 				_get_nested_block(tpl_circles_cfg, "overlap_controls").get("scalebar_coords_overlap_detect", False),
@@ -1404,6 +1559,10 @@ def parse_templates_stage_config(
 			),
 			scalebar_channel_overlap_detect=_as_bool(
 				_get_nested_block(tpl_circles_cfg, "overlap_controls").get("scalebar_channel_overlap_detect", False),
+				False,
+			),
+			scalecircle_channel_overlap_detect=_as_bool(
+				_get_nested_block(tpl_circles_cfg, "overlap_controls").get("scalecircle_channel_overlap_detect", False),
 				False,
 			),
 			max_overlap_check_iterations=max(

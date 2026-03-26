@@ -581,6 +581,120 @@ def _add_scale_bar(ax: Any, *, config: TemplatePlotConfig) -> None:
 	text.set_gid("template_scale_bar_text")
 
 
+def _add_scale_circle(
+	ax: Any,
+	*,
+	config: TemplatePlotConfig,
+	reference_area_pt2: float,
+	reference_value: float,
+) -> None:
+	if not bool(getattr(config, "show_scale_circle", False)):
+		return
+	scale_cfg = getattr(config, "scale_circle", None)
+	if scale_cfg is None:
+		return
+
+	area_pt2 = float(max(0.0, reference_area_pt2))
+	if area_pt2 <= 0.0:
+		return
+
+	fig = ax.figure
+	if fig is None:
+		return
+	try:
+		fig.canvas.draw()
+	except Exception:
+		pass
+
+	bbox = ax.get_window_extent()
+	bbox_w = float(max(1.0, bbox.width))
+	bbox_h = float(max(1.0, bbox.height))
+	radius_pt = float(np.sqrt(area_pt2 / np.pi))
+	radius_px = radius_pt * float(fig.dpi / 72.0)
+	rx_axes = float(max(1e-6, radius_px / bbox_w))
+	ry_axes = float(max(1e-6, radius_px / bbox_h))
+
+	ha = str(getattr(scale_cfg, "horizontal_alignment", "left") or "left").strip().lower()
+	va = str(getattr(scale_cfg, "vertical_alignment", "top") or "top").strip().lower()
+	x_off = float(max(0.0, float(getattr(scale_cfg, "x_offset_frac", 0.02))))
+	y_off = float(max(0.0, float(getattr(scale_cfg, "y_offset_frac", 0.02))))
+
+	if ha == "right":
+		cx = 1.0 - x_off - rx_axes
+	elif ha == "center":
+		cx = 0.5
+	else:
+		cx = x_off + rx_axes
+
+	if va == "bottom":
+		cy = y_off + ry_axes
+	elif va == "center":
+		cy = 0.5
+	else:
+		cy = 1.0 - y_off - ry_axes
+
+	cx = float(min(1.0 - rx_axes, max(rx_axes, cx)))
+	cy = float(min(1.0 - ry_axes, max(ry_axes, cy)))
+
+	from matplotlib.patches import Ellipse  # type: ignore[import-not-found]
+
+	patch = Ellipse(
+		(cx, cy),
+		width=2.0 * rx_axes,
+		height=2.0 * ry_axes,
+		transform=ax.transAxes,
+		facecolor="none",
+		edgecolor=str(getattr(config, "scale_circle_color", "white") or "white"),
+		linewidth=float(max(0.1, float(getattr(scale_cfg, "linewidth", 1.8)))),
+		linestyle=str(getattr(scale_cfg, "linestyle", "solid") or "solid"),
+	)
+	patch.set_gid("template_scale_circle_patch")
+	ax.add_patch(patch)
+
+	units = str(getattr(scale_cfg, "units", "uV") or "").strip()
+	digits = int(max(0, int(getattr(scale_cfg, "digits_after_decimal", 0))))
+	if digits <= 0:
+		value_text = _format_no_sci(reference_value, max_decimals=0)
+	else:
+		value_text = f"{float(reference_value):.{digits}f}"
+	label = f"{value_text} {units}" if units else value_text
+
+	font_loc = str(getattr(scale_cfg, "font_location", "inside") or "inside").strip().lower()
+	fallback_loc = str(getattr(scale_cfg, "font_location_circle_too_small", "below") or "below").strip().lower()
+	if font_loc == "outside":
+		font_loc = "right" if ha in {"left", "center"} else "left"
+	circle_width_frac = float(2.0 * rx_axes)
+	if font_loc == "inside" and circle_width_frac < 0.08:
+		font_loc = fallback_loc
+
+	pad = 0.012
+	text_ha = "center"
+	if font_loc == "above":
+		tx, ty, text_va = cx, cy + ry_axes + pad, "bottom"
+	elif font_loc == "below":
+		tx, ty, text_va = cx, cy - ry_axes - pad, "top"
+	elif font_loc == "left":
+		tx, ty, text_va = cx - rx_axes - pad, cy, "center"
+		text_ha = "right"
+	elif font_loc == "right":
+		tx, ty, text_va = cx + rx_axes + pad, cy, "center"
+		text_ha = "left"
+	else:
+		tx, ty, text_va = cx, cy, "center"
+
+	text = ax.text(
+		tx,
+		ty,
+		label,
+		transform=ax.transAxes,
+		horizontalalignment=text_ha,
+		verticalalignment=text_va,
+		fontsize=float(max(1.0, float(getattr(scale_cfg, "fontsize", 6.0)))),
+		color=str(getattr(config, "scale_circle_color", "white") or "white"),
+	)
+	text.set_gid("template_scale_circle_text")
+
+
 def _axes_anchor_pos(
 	*,
 	x_offset_frac: float,
@@ -1131,6 +1245,13 @@ def render_template_circles_plot(
 	)
 	_apply_style(fig, ax, config=config)
 	_add_scale_bar(ax, config=config)
+	scale_circle_ref_value = float(np.nanmax(amp)) if amp.size > 0 else 0.0
+	_add_scale_circle(
+		ax,
+		config=config,
+		reference_area_pt2=float(np.nanmax(sizes_base)) if sizes_base.size > 0 else 0.0,
+		reference_value=scale_circle_ref_value,
+	)
 
 	# Build deterministic colorbar patch bounds in color-space. For piecewise zero-boundary
 	# mode this keeps zero exactly at the first/second color-range transition.
@@ -1234,14 +1355,28 @@ def render_template_circles_plot(
 		ax.set_ylim(cy - (hy * scale), cy + (hy * scale))
 
 	def _refresh_overlay_artists() -> None:
+		for patch in list(ax.patches):
+			if str(getattr(patch, "get_gid", lambda: "")() or "") == "template_scale_circle_patch":
+				patch.remove()
 		for line in list(ax.lines):
 			if str(getattr(line, "get_gid", lambda: "")() or "") == "template_scale_bar_line":
 				line.remove()
 		for text in list(ax.texts):
 			gid = str(getattr(text, "get_gid", lambda: "")() or "")
-			if gid in {"template_scale_bar_text", "template_unit_id_label", "template_center_coords_label"}:
+			if gid in {
+				"template_scale_bar_text",
+				"template_scale_circle_text",
+				"template_unit_id_label",
+				"template_center_coords_label",
+			}:
 				text.remove()
 		_add_scale_bar(ax, config=config)
+		_add_scale_circle(
+			ax,
+			config=config,
+			reference_area_pt2=float(np.nanmax(np.asarray(sc.get_sizes(), dtype=float))),
+			reference_value=scale_circle_ref_value,
+		)
 		_apply_template_plot_overlays(ax, config=config, unit_id=unit_id, locations_xy=locs)
 
 	def _bbox_overlap(a: Any, b: Any) -> bool:
@@ -1281,6 +1416,7 @@ def render_template_circles_plot(
 	check_unitid_channel = bool(getattr(overlap_cfg, "unitid_label_channel_overlap_detect", False)) if overlap_cfg is not None else False
 	check_coords_channel = bool(getattr(overlap_cfg, "coords_channel_overlap_detect", False)) if overlap_cfg is not None else False
 	check_scalebar_channel = bool(getattr(overlap_cfg, "scalebar_channel_overlap_detect", False)) if overlap_cfg is not None else False
+	check_scalecircle_channel = bool(getattr(overlap_cfg, "scalecircle_channel_overlap_detect", False)) if overlap_cfg is not None else False
 	enable_overlap_checks = any(
 		[
 			check_scalebar_coords,
@@ -1288,6 +1424,7 @@ def render_template_circles_plot(
 			check_unitid_channel,
 			check_coords_channel,
 			check_scalebar_channel,
+			check_scalecircle_channel,
 		]
 	)
 
@@ -1313,6 +1450,11 @@ def render_template_circles_plot(
 			]
 			circle_bboxes = _collect_circle_bboxes()
 			colorbar_bboxes = [cbar.ax.get_window_extent(renderer=renderer)]
+			scale_circle_bboxes = [
+				artist.get_window_extent(renderer=renderer)
+				for artist in list(ax.patches) + list(ax.texts)
+				if str(getattr(artist, "get_gid", lambda: "")() or "") in {"template_scale_circle_patch", "template_scale_circle_text"}
+			]
 
 			has_overlap = False
 			if check_scalebar_coords and _any_overlap(scale_bar_bboxes, coords_bboxes):
@@ -1325,6 +1467,8 @@ def render_template_circles_plot(
 				has_overlap = True
 			if check_scalebar_channel and _any_overlap(scale_bar_bboxes, circle_bboxes):
 				has_overlap = True
+			if check_scalecircle_channel and _any_overlap(scale_circle_bboxes, circle_bboxes):
+				has_overlap = True
 
 			if not has_overlap:
 				break
@@ -1334,6 +1478,8 @@ def render_template_circles_plot(
 	# Compute final non-overlapping sizes after colorbar/layout has finalized axis dimensions.
 	fig.canvas.draw()
 	_update_non_overlapping_sizes_for_current_axes()
+	if bool(getattr(config, "show_scale_circle", False)):
+		_refresh_overlay_artists()
 
 	if bool(getattr(config, "show_propagation_order_labels", False)):
 		rank_map = dict(propagation_order_rank_by_channel or {})

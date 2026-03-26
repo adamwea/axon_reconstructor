@@ -426,6 +426,20 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 			                x_offset_considers_fontsize: true
 			                horizontal_alignment: left
 			                vertical_alignment: top
+			              show_scale_circle: true
+			              scale_circle:
+			                diameter: equal_to_max_amplitude
+			                linewidth: 2.2
+			                linestyle: dotted
+			                fontsize: 9
+			                digits_after_decimal: 1
+			                horizontal_alignment: left
+			                vertical_alignment: top
+			                x_offset_frac: 0.05
+			                y_offset_frac: 0.07
+			                font_location: inside
+			                font_location_circle_too_small: below
+			                units: uV
 			            color_bar:
 			              units: ms
 			              title: Latency (ms)
@@ -442,6 +456,7 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 			              unitid_label_channel_overlap_detect: true
 			              coords_channel_overlap_detect: true
 			              scalebar_channel_overlap_detect: true
+			              scalecircle_channel_overlap_detect: true
 			              max_overlap_check_iterations: 5
 			"""
 		).strip()
@@ -460,6 +475,18 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 	assert inputs.per_unit_outputs.template_circles.scale_bar_x_offset_considers_fontsize is True
 	assert inputs.per_unit_outputs.template_circles.scale_bar_horizontal_alignment == "left"
 	assert inputs.per_unit_outputs.template_circles.scale_bar_vertical_alignment == "top"
+	assert inputs.per_unit_outputs.template_circles.show_scale_circle is True
+	assert inputs.per_unit_outputs.template_circles.scale_circle_color == "white"
+	assert inputs.per_unit_outputs.template_circles.scale_circle.diameter == "equal_to_max_amplitude"
+	assert inputs.per_unit_outputs.template_circles.scale_circle.linewidth == 2.2
+	assert inputs.per_unit_outputs.template_circles.scale_circle.linestyle == "dotted"
+	assert inputs.per_unit_outputs.template_circles.scale_circle.fontsize == 9
+	assert inputs.per_unit_outputs.template_circles.scale_circle.digits_after_decimal == 1
+	assert inputs.per_unit_outputs.template_circles.scale_circle.x_offset_frac == 0.05
+	assert inputs.per_unit_outputs.template_circles.scale_circle.y_offset_frac == 0.07
+	assert inputs.per_unit_outputs.template_circles.scale_circle.font_location == "inside"
+	assert inputs.per_unit_outputs.template_circles.scale_circle.font_location_circle_too_small == "below"
+	assert inputs.per_unit_outputs.template_circles.scale_circle.units == "uV"
 	assert inputs.per_unit_outputs.template_circles.color_bar_tick_fontsize == 18
 	assert inputs.per_unit_outputs.template_circles.color_bar_tick_decimal_places == 3
 	assert inputs.per_unit_outputs.template_circles.color_bar_tick_target_count == 10
@@ -469,6 +496,7 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 	assert overlap.unitid_label_channel_overlap_detect is True
 	assert overlap.coords_channel_overlap_detect is True
 	assert overlap.scalebar_channel_overlap_detect is True
+	assert overlap.scalecircle_channel_overlap_detect is True
 	assert overlap.max_overlap_check_iterations == 5
 
 
