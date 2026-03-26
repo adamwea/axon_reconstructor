@@ -356,6 +356,7 @@ stages:
               scale_bar:
                 text_offset_frac: 0.02 # move label closer/farther from bar in axis-height fractions
                 y_offset_frac: 0.015 # vertical offset of bar from lower edge in axis-height fractions
+                x_offset_frac: 0.02 # horizontal offset of bar from left edge in axis-width fractions
                 fontsize: 25
                 linewidth: 6
                 #length_um: null # optional fixed bar length; when null uses auto 50/100 um
@@ -405,7 +406,7 @@ stages:
               unitid_label_channel_overlap_detect: true # whether to check for overlaps between unit ID label and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
               coords_channel_overlap_detect: true # whether to check for overlaps between coordinate labels and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
               scalebar_channel_overlap_detect: true # whether to check for overlaps between scale bar and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
-              max_overlap_check_iterations: 5 # maximum number of iterations to attempt to resolve overlaps through zooming out; if exceeded, will give up and plot with overlaps.
+              max_overlap_check_iterations: 10 # maximum number of iterations to attempt to resolve overlaps through zooming out; if exceeded, will give up and plot with overlaps.
 
 
 

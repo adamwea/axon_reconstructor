@@ -487,8 +487,9 @@ def _add_scale_bar(ax: Any, *, config: TemplatePlotConfig) -> None:
 		x_left = float(min(x0, x1)) + margin
 		x_right = x_left + bar
 
-	ax.plot([x_left, x_right], [y_bar, y_bar], color=str(config.scale_bar_color), lw=float(config.scale_bar_linewidth), solid_capstyle="butt")
-	ax.text(
+	(line,) = ax.plot([x_left, x_right], [y_bar, y_bar], color=str(config.scale_bar_color), lw=float(config.scale_bar_linewidth), solid_capstyle="butt")
+	line.set_gid("template_scale_bar_line")
+	text = ax.text(
 		(x_left + x_right) / 2.0,
 		y_bar + float(config.scale_bar_text_offset_frac) * span_y,
 		f"{int(round(bar))} um",
@@ -497,6 +498,7 @@ def _add_scale_bar(ax: Any, *, config: TemplatePlotConfig) -> None:
 		verticalalignment="bottom",
 		fontsize=float(config.scale_bar_fontsize),
 	)
+	text.set_gid("template_scale_bar_text")
 
 
 def _axes_anchor_pos(
@@ -527,7 +529,7 @@ def _add_unit_id_label(ax: Any, *, config: TemplatePlotConfig, unit_id: Any | No
 		horizontal_alignment=ha,
 		vertical_alignment=va,
 	)
-	ax.text(
+	text = ax.text(
 		x,
 		y,
 		f"unit {unit_id}",
@@ -537,6 +539,7 @@ def _add_unit_id_label(ax: Any, *, config: TemplatePlotConfig, unit_id: Any | No
 		fontsize=float(getattr(label_cfg, "fontsize", 12.0)),
 		color=str(getattr(label_cfg, "color", "white")),
 	)
+	text.set_gid("template_unit_id_label")
 
 
 def _add_center_most_channel_coords(ax: Any, *, config: TemplatePlotConfig, locations_xy: np.ndarray) -> None:
@@ -574,7 +577,7 @@ def _add_center_most_channel_coords(ax: Any, *, config: TemplatePlotConfig, loca
 		y = 0.5 * (ymin + ymax)
 	else:
 		y = ymin + off_y
-	ax.text(
+	text = ax.text(
 		x,
 		y,
 		f"({x0:.1f}, {y0:.1f})",
@@ -583,6 +586,7 @@ def _add_center_most_channel_coords(ax: Any, *, config: TemplatePlotConfig, loca
 		fontsize=float(getattr(coords_cfg, "fontsize", 10.0)),
 		color=str(getattr(coords_cfg, "color", "white")),
 	)
+	text.set_gid("template_center_coords_label")
 
 
 def _apply_template_plot_overlays(
@@ -1066,21 +1070,133 @@ def render_template_circles_plot(
 
 	_apply_template_plot_overlays(ax, config=config, unit_id=unit_id, locations_xy=locs)
 
+	def _update_non_overlapping_sizes_for_current_axes() -> None:
+		bbox = ax.get_window_extent()
+		axis_scale = float(72.0 / float(fig.dpi))
+		centers_display_pt = np.asarray(ax.transData.transform(locs), dtype=float) * axis_scale
+		bbox_x_limits_pt = (float(bbox.x0) * axis_scale, float(bbox.x1) * axis_scale)
+		bbox_y_limits_pt = (float(bbox.y0) * axis_scale, float(bbox.y1) * axis_scale)
+		sizes = _compute_max_non_overlapping_circle_areas(
+			centers_display_pt=centers_display_pt,
+			base_areas_pt2=sizes_base,
+			axis_x_limits_pt=bbox_x_limits_pt,
+			axis_y_limits_pt=bbox_y_limits_pt,
+			overlap_tolerance_pt=0.0,
+		)
+		sc.set_sizes(sizes)
+
+	def _expand_axes_limits(frac: float = 0.10) -> None:
+		x0, x1 = ax.get_xlim()
+		y0, y1 = ax.get_ylim()
+		cx = 0.5 * (float(x0) + float(x1))
+		cy = 0.5 * (float(y0) + float(y1))
+		hx = 0.5 * abs(float(x1) - float(x0))
+		hy = 0.5 * abs(float(y1) - float(y0))
+		scale = 1.0 + float(max(0.01, frac))
+		ax.set_xlim(cx - (hx * scale), cx + (hx * scale))
+		ax.set_ylim(cy - (hy * scale), cy + (hy * scale))
+
+	def _refresh_overlay_artists() -> None:
+		for line in list(ax.lines):
+			if str(getattr(line, "get_gid", lambda: "")() or "") == "template_scale_bar_line":
+				line.remove()
+		for text in list(ax.texts):
+			gid = str(getattr(text, "get_gid", lambda: "")() or "")
+			if gid in {"template_scale_bar_text", "template_unit_id_label", "template_center_coords_label"}:
+				text.remove()
+		_add_scale_bar(ax, config=config)
+		_apply_template_plot_overlays(ax, config=config, unit_id=unit_id, locations_xy=locs)
+
+	def _bbox_overlap(a: Any, b: Any) -> bool:
+		try:
+			return bool(a.overlaps(b))
+		except Exception:
+			return False
+
+	def _any_overlap(group_a: list[Any], group_b: list[Any]) -> bool:
+		for a in group_a:
+			for b in group_b:
+				if _bbox_overlap(a, b):
+					return True
+		return False
+
+	def _collect_circle_bboxes() -> list[Any]:
+		from matplotlib.transforms import Bbox  # type: ignore[import-not-found]
+
+		offsets = np.asarray(sc.get_offsets(), dtype=float)
+		sizes = np.asarray(sc.get_sizes(), dtype=float)
+		if offsets.ndim != 2 or sizes.ndim != 1 or int(offsets.shape[0]) != int(sizes.shape[0]):
+			return []
+		centers_px = np.asarray(ax.transData.transform(offsets), dtype=float)
+		radii_pt = np.sqrt(np.clip(sizes, 0.0, None) / np.pi)
+		radii_px = radii_pt * float(fig.dpi / 72.0)
+		bboxes: list[Any] = []
+		for i in range(int(centers_px.shape[0])):
+			cx, cy = float(centers_px[i, 0]), float(centers_px[i, 1])
+			r = float(radii_px[i])
+			bboxes.append(Bbox.from_extents(cx - r, cy - r, cx + r, cy + r))
+		return bboxes
+
+	overlap_cfg = getattr(config, "overlap_controls", None)
+	max_overlap_iters = max(0, int(getattr(overlap_cfg, "max_overlap_check_iterations", 0) if overlap_cfg is not None else 0))
+	check_scalebar_coords = bool(getattr(overlap_cfg, "scalebar_coords_overlap_detect", False)) if overlap_cfg is not None else False
+	check_scalebar_colorbar = bool(getattr(overlap_cfg, "scalebar_colorbar_overlap_detect", False)) if overlap_cfg is not None else False
+	check_unitid_channel = bool(getattr(overlap_cfg, "unitid_label_channel_overlap_detect", False)) if overlap_cfg is not None else False
+	check_coords_channel = bool(getattr(overlap_cfg, "coords_channel_overlap_detect", False)) if overlap_cfg is not None else False
+	check_scalebar_channel = bool(getattr(overlap_cfg, "scalebar_channel_overlap_detect", False)) if overlap_cfg is not None else False
+	enable_overlap_checks = any(
+		[
+			check_scalebar_coords,
+			check_scalebar_colorbar,
+			check_unitid_channel,
+			check_coords_channel,
+			check_scalebar_channel,
+		]
+	)
+
+	if enable_overlap_checks and max_overlap_iters > 0:
+		for _ in range(max_overlap_iters):
+			fig.canvas.draw()
+			renderer = fig.canvas.get_renderer()
+
+			scale_bar_bboxes = [
+				artist.get_window_extent(renderer=renderer)
+				for artist in list(ax.lines) + list(ax.texts)
+				if str(getattr(artist, "get_gid", lambda: "")() or "") in {"template_scale_bar_line", "template_scale_bar_text"}
+			]
+			unit_id_bboxes = [
+				artist.get_window_extent(renderer=renderer)
+				for artist in list(ax.texts)
+				if str(getattr(artist, "get_gid", lambda: "")() or "") == "template_unit_id_label"
+			]
+			coords_bboxes = [
+				artist.get_window_extent(renderer=renderer)
+				for artist in list(ax.texts)
+				if str(getattr(artist, "get_gid", lambda: "")() or "") == "template_center_coords_label"
+			]
+			circle_bboxes = _collect_circle_bboxes()
+			colorbar_bboxes = [cbar.ax.get_window_extent(renderer=renderer)]
+
+			has_overlap = False
+			if check_scalebar_coords and _any_overlap(scale_bar_bboxes, coords_bboxes):
+				has_overlap = True
+			if check_scalebar_colorbar and _any_overlap(scale_bar_bboxes, colorbar_bboxes):
+				has_overlap = True
+			if check_unitid_channel and _any_overlap(unit_id_bboxes, circle_bboxes):
+				has_overlap = True
+			if check_coords_channel and _any_overlap(coords_bboxes, circle_bboxes):
+				has_overlap = True
+			if check_scalebar_channel and _any_overlap(scale_bar_bboxes, circle_bboxes):
+				has_overlap = True
+
+			if not has_overlap:
+				break
+			_expand_axes_limits(0.10)
+			_refresh_overlay_artists()
+
 	# Compute final non-overlapping sizes after colorbar/layout has finalized axis dimensions.
 	fig.canvas.draw()
-	bbox = ax.get_window_extent()
-	axis_scale = float(72.0 / float(fig.dpi))
-	centers_display_pt = np.asarray(ax.transData.transform(locs), dtype=float) * axis_scale
-	bbox_x_limits_pt = (float(bbox.x0) * axis_scale, float(bbox.x1) * axis_scale)
-	bbox_y_limits_pt = (float(bbox.y0) * axis_scale, float(bbox.y1) * axis_scale)
-	sizes = _compute_max_non_overlapping_circle_areas(
-		centers_display_pt=centers_display_pt,
-		base_areas_pt2=sizes_base,
-		axis_x_limits_pt=bbox_x_limits_pt,
-		axis_y_limits_pt=bbox_y_limits_pt,
-		overlap_tolerance_pt=0.0,
-	)
-	sc.set_sizes(sizes)
+	_update_non_overlapping_sizes_for_current_axes()
 
 	if bool(getattr(config, "show_propagation_order_labels", False)):
 		rank_map = dict(propagation_order_rank_by_channel or {})

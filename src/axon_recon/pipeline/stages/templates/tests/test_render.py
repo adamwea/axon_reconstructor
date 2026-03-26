@@ -29,6 +29,7 @@ from axon_recon.pipeline.stages.templates.models.inputs import (
 	ProbeGeometryConfig,
 	PropagationLatencyMapConfig,
 	PropagationPlotConfig,
+	TemplateCirclesOverlapControlsConfig,
 	TemplateCirclesPlotConfig,
 	TemplatePlotConfig,
 	TemplateWaveformOverlayConfig,
@@ -508,6 +509,75 @@ def test_render_template_circles_plot_applies_color_bar_tick_fontsize(tmp_path: 
 	)
 
 	assert any(np.isclose(v, 19.0) for v in seen_labelsizes)
+
+
+def test_render_template_circles_plot_overlap_controls_can_trigger_zoom_out(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray([[0.0, -1.0, 0.0]], dtype=float)
+	locations = np.asarray([[0.0, 0.0]], dtype=float)
+
+	xlim_call_count = {"count": 0}
+	scalebar_text_xs: list[float] = []
+	coords_text_xs: list[float] = []
+	orig_set_xlim = matplotlib.axes.Axes.set_xlim
+	orig_text = matplotlib.axes.Axes.text
+
+	def _spy_set_xlim(self, *args, **kwargs):
+		xlim_call_count["count"] += 1
+		return orig_set_xlim(self, *args, **kwargs)
+
+	def _spy_text(self, x, y, s, *args, **kwargs):
+		text = str(s)
+		if text.endswith(" um"):
+			scalebar_text_xs.append(float(x))
+		if text.startswith("(") and text.endswith(")") and "," in text:
+			coords_text_xs.append(float(x))
+		return orig_text(self, x, y, s, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "set_xlim", _spy_set_xlim)
+	monkeypatch.setattr(matplotlib.axes.Axes, "text", _spy_text)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			background="black",
+			center_most_channel_coords=CenterMostChannelCoordsConfig(
+				show=True,
+				horizontal_alignment="left",
+				vertical_alignment="bottom",
+				x_offset_frac=0.02,
+				y_offset_frac=0.02,
+			),
+			unit_id_label=UnitIdLabelConfig(
+				show=True,
+				fontsize=48,
+				horizontal_alignment="center",
+				vertical_alignment="center",
+				x_offset_frac=0.0,
+				y_offset_frac=0.0,
+			),
+			overlap_controls=TemplateCirclesOverlapControlsConfig(
+				unitid_label_channel_overlap_detect=True,
+				max_overlap_check_iterations=2,
+			),
+		),
+		png_path=tmp_path / "circles_overlap_controls.png",
+		svg_path=tmp_path / "unused.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+		unit_id=42,
+	)
+
+	# Initial limit set plus at least one overlap-driven expansion call.
+	assert xlim_call_count["count"] >= 2
+	# Overlays should be re-laid out after zoom-out so their data-space anchor positions update.
+	assert len(scalebar_text_xs) >= 2
+	assert not np.isclose(scalebar_text_xs[0], scalebar_text_xs[-1])
+	assert len(coords_text_xs) >= 2
+	assert not np.isclose(coords_text_xs[0], coords_text_xs[-1])
 
 
 def test_render_template_plot_applies_unit_id_center_coords_and_hides_axes(tmp_path: Path, monkeypatch) -> None:

@@ -428,6 +428,13 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 			              tick_fontsize: 18
 			              tick_decimal_places: 3
 			              tick_target_count: 10
+			            overlap_controls:
+			              scalebar_coords_overlap_detect: true
+			              scalebar_colorbar_overlap_detect: true
+			              unitid_label_channel_overlap_detect: true
+			              coords_channel_overlap_detect: true
+			              scalebar_channel_overlap_detect: true
+			              max_overlap_check_iterations: 5
 			"""
 		).strip()
 		+ "\n",
@@ -442,6 +449,13 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 	assert inputs.per_unit_outputs.template_circles.color_bar_tick_fontsize == 18
 	assert inputs.per_unit_outputs.template_circles.color_bar_tick_decimal_places == 3
 	assert inputs.per_unit_outputs.template_circles.color_bar_tick_target_count == 10
+	overlap = inputs.per_unit_outputs.template_circles.overlap_controls
+	assert overlap.scalebar_coords_overlap_detect is True
+	assert overlap.scalebar_colorbar_overlap_detect is True
+	assert overlap.unitid_label_channel_overlap_detect is True
+	assert overlap.coords_channel_overlap_detect is True
+	assert overlap.scalebar_channel_overlap_detect is True
+	assert overlap.max_overlap_check_iterations == 5
 
 
 def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: Path) -> None:

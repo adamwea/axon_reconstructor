@@ -51,6 +51,16 @@ class TemplatePlotConfig:
 
 
 @dataclass(frozen=True)
+class TemplateCirclesOverlapControlsConfig:
+	scalebar_coords_overlap_detect: bool = False
+	scalebar_colorbar_overlap_detect: bool = False
+	unitid_label_channel_overlap_detect: bool = False
+	coords_channel_overlap_detect: bool = False
+	scalebar_channel_overlap_detect: bool = False
+	max_overlap_check_iterations: int = 0
+
+
+@dataclass(frozen=True)
 class TemplateCirclesPlotConfig(TemplatePlotConfig):
 	write_png: bool = False
 	write_svg: bool = False
@@ -68,6 +78,7 @@ class TemplateCirclesPlotConfig(TemplatePlotConfig):
 	color_bar_tick_fontsize: float = 6.0
 	color_bar_tick_decimal_places: int = 3
 	color_bar_tick_target_count: int | None = None
+	overlap_controls: TemplateCirclesOverlapControlsConfig = field(default_factory=TemplateCirclesOverlapControlsConfig)
 
 
 @dataclass(frozen=True)

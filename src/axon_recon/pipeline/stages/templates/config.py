@@ -31,6 +31,7 @@ from .models.inputs import (
 	QualityChecksConfig,
 	ReportsConfig,
 	TemplateArtifactConfig,
+	TemplateCirclesOverlapControlsConfig,
 	TemplateCirclesPlotConfig,
 	TemplatePlotConfig,
 	TemplateWaveformOverlayConfig,
@@ -1246,6 +1247,38 @@ def parse_templates_stage_config(
 				),
 				0,
 			)
+		),
+		overlap_controls=TemplateCirclesOverlapControlsConfig(
+			scalebar_coords_overlap_detect=_as_bool(
+				_get_nested_block(tpl_circles_cfg, "overlap_controls").get("scalebar_coords_overlap_detect", False),
+				False,
+			),
+			scalebar_colorbar_overlap_detect=_as_bool(
+				_get_nested_block(tpl_circles_cfg, "overlap_controls").get("scalebar_colorbar_overlap_detect", False),
+				False,
+			),
+			unitid_label_channel_overlap_detect=_as_bool(
+				_get_nested_block(tpl_circles_cfg, "overlap_controls").get(
+					"unitid_label_channel_overlap_detect",
+					_get_nested_block(tpl_circles_cfg, "overlap_controls").get("unit_id_label_channel_overlap_detect", False),
+				),
+				False,
+			),
+			coords_channel_overlap_detect=_as_bool(
+				_get_nested_block(tpl_circles_cfg, "overlap_controls").get("coords_channel_overlap_detect", False),
+				False,
+			),
+			scalebar_channel_overlap_detect=_as_bool(
+				_get_nested_block(tpl_circles_cfg, "overlap_controls").get("scalebar_channel_overlap_detect", False),
+				False,
+			),
+			max_overlap_check_iterations=max(
+				0,
+				_as_int(
+					_get_nested_block(tpl_circles_cfg, "overlap_controls").get("max_overlap_check_iterations", 0),
+					0,
+				),
+			),
 		),
 	)
 	tpl_wf_overlay = TemplateWaveformOverlayConfig(
