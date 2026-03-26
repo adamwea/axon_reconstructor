@@ -511,6 +511,150 @@ def test_render_template_circles_plot_applies_color_bar_tick_fontsize(tmp_path: 
 	assert any(np.isclose(v, 19.0) for v in seen_labelsizes)
 
 
+def test_render_template_circles_plot_force_zero_and_neg_latency_to_first_color_range(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+	import matplotlib.pyplot as plt
+
+	template = np.asarray(
+		[
+			[0.0, 0.0, -2.0, 0.0],
+			[0.0, -1.0, 0.0, 0.0],
+			[0.0, 0.0, 0.0, -1.0],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+			[36.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	seen_norms: list[object] = []
+	orig_scatter = matplotlib.axes.Axes.scatter
+
+	def _spy_scatter(self, *args, **kwargs):
+		norm = kwargs.get("norm", None)
+		if norm is not None and hasattr(norm, "vmin") and hasattr(norm, "vmax"):
+			seen_norms.append(norm)
+		return orig_scatter(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "scatter", _spy_scatter)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			background="black",
+			color_by="latency",
+			color_bar_force_zero_and_neg_values_first_color_range=True,
+		),
+		png_path=tmp_path / "circles_force_zero_first_range.png",
+		svg_path=tmp_path / "unused_force_zero_first_range.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+
+	assert len(seen_norms) >= 1
+	norm = seen_norms[0]
+	vmin = float(norm.vmin)
+	vmax = float(norm.vmax)
+	clip = bool(getattr(norm, "clip", False))
+	assert vmin < 0.0
+	assert vmax > vmin
+	assert clip is True
+
+	# Zero should sit exactly at the first/second color-range boundary.
+	n_colors = int(max(2, int(getattr(plt.get_cmap("viridis_r"), "N", 256))))
+	expected_zero_frac = 1.0 / float(n_colors)
+	assert np.isclose(float(norm(0.0)), expected_zero_frac, atol=1e-6)
+	assert np.isclose(float(norm(vmin)), 0.0, atol=1e-9)
+
+
+def test_render_template_circles_plot_zero_transition_contrast_sharpens_boundary(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+	import matplotlib.pyplot as plt
+
+	template = np.asarray(
+		[
+			[0.0, 0.0, -2.0, 0.0],
+			[0.0, -1.0, 0.0, 0.0],
+			[0.0, 0.0, 0.0, -1.0],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+			[36.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	seen_norms: list[object] = []
+	orig_scatter = matplotlib.axes.Axes.scatter
+
+	def _spy_scatter(self, *args, **kwargs):
+		norm = kwargs.get("norm", None)
+		if norm is not None and hasattr(norm, "vmin") and hasattr(norm, "vmax"):
+			seen_norms.append(norm)
+		return orig_scatter(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "scatter", _spy_scatter)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			background="black",
+			color_by="latency",
+			color_bar_force_zero_and_neg_values_first_color_range=True,
+			color_bar_zero_transition_contrast=1.0,
+		),
+		png_path=tmp_path / "circles_zero_contrast_linear.png",
+		svg_path=tmp_path / "unused_zero_contrast_linear.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+	linear_norm = seen_norms[-1]
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			background="black",
+			color_by="latency",
+			color_bar_force_zero_and_neg_values_first_color_range=True,
+			color_bar_zero_transition_contrast=2.0,
+		),
+		png_path=tmp_path / "circles_zero_contrast_sharp.png",
+		svg_path=tmp_path / "unused_zero_contrast_sharp.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+	sharp_norm = seen_norms[-1]
+
+	n_colors = int(max(2, int(getattr(plt.get_cmap("viridis_r"), "N", 256))))
+	first_range_frac = 1.0 / float(n_colors)
+	vmin = float(sharp_norm.vmin)
+	vmax = float(sharp_norm.vmax)
+
+	# Zero boundary remains fixed at first/second color transition.
+	assert np.isclose(float(sharp_norm(0.0)), first_range_frac, atol=1e-6)
+
+	neg_probe = 0.25 * vmin  # negative value closer to zero than vmin
+	pos_probe = 0.25 * vmax
+	# Sharper contrast should push both sides away from the zero boundary.
+	assert float(sharp_norm(neg_probe)) < float(linear_norm(neg_probe))
+	assert float(sharp_norm(pos_probe)) > float(linear_norm(pos_probe))
+
+
 def test_render_template_circles_plot_applies_scale_bar_x_offset_frac(tmp_path: Path, monkeypatch) -> None:
 	import matplotlib.axes
 

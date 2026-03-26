@@ -1016,6 +1016,9 @@ def render_template_circles_plot(
 	size_metric = amp if str(config.size_by) == "amplitude" else np.abs(lat)
 	color_metric = amp if str(config.color_by) == "amplitude" else lat
 	color_values = np.asarray(color_metric, dtype=float)
+	force_first_range_for_nonpositive = bool(
+		getattr(config, "color_bar_force_zero_and_neg_values_first_color_range", False)
+	)
 	vmin = float(np.nanmin(color_values)) if color_values.size > 0 else 0.0
 	vmax = float(np.nanmax(color_values)) if color_values.size > 0 else 1.0
 	if not np.isfinite(vmin):
@@ -1024,7 +1027,62 @@ def render_template_circles_plot(
 		vmax = 1.0
 	if vmax <= vmin:
 		vmax = vmin + 1.0
-	color_norm = plt.Normalize(vmin=vmin, vmax=vmax)
+	circles_cmap = _maybe_reversed_colormap("viridis", reverse=(str(config.color_by) == "latency"))
+	cmap_obj = plt.get_cmap(circles_cmap)
+	use_piecewise_zero_boundary = bool(
+		str(config.color_by) == "latency"
+		and force_first_range_for_nonpositive
+		and float(vmin) < 0.0
+		and float(vmax) > 0.0
+	)
+	if use_piecewise_zero_boundary:
+		# Reserve exactly one colormap range for non-positive latency values, regardless of colormap choice.
+		# This keeps negatives visible while placing zero at the boundary between first and second ranges.
+		n_colors = int(max(2, int(getattr(cmap_obj, "N", 256))))
+		first_range_frac = float(1.0 / float(n_colors))
+		zero_contrast = float(max(1.0, float(getattr(config, "color_bar_zero_transition_contrast", 1.0))))
+		inv_gamma = float(1.0 / zero_contrast)
+
+		def _forward(vals: Any) -> np.ndarray:
+			a = np.asarray(vals, dtype=float)
+			out = np.empty_like(a, dtype=float)
+			neg = a <= 0.0
+			neg_t = (a[neg] - float(vmin)) / float(0.0 - float(vmin))
+			neg_t = np.clip(neg_t, 0.0, 1.0)
+			if zero_contrast > 1.0:
+				# Move values away from the zero boundary on both sides to sharpen local contrast.
+				dist_from_zero_neg = np.clip(1.0 - neg_t, 0.0, 1.0)
+				dist_from_zero_neg = np.power(dist_from_zero_neg, inv_gamma)
+				neg_t = 1.0 - dist_from_zero_neg
+			out[neg] = neg_t * first_range_frac
+
+			pos_t = (a[~neg] - 0.0) / float(float(vmax) - 0.0)
+			pos_t = np.clip(pos_t, 0.0, 1.0)
+			if zero_contrast > 1.0:
+				pos_t = np.power(pos_t, inv_gamma)
+			out[~neg] = first_range_frac + (pos_t * (1.0 - first_range_frac))
+			return np.clip(out, 0.0, 1.0)
+
+		def _inverse(fracs: Any) -> np.ndarray:
+			u = np.asarray(fracs, dtype=float)
+			out = np.empty_like(u, dtype=float)
+			neg = u <= first_range_frac
+			neg_t = np.clip(u[neg] / first_range_frac, 0.0, 1.0)
+			if zero_contrast > 1.0:
+				dist_from_zero_neg = np.clip(1.0 - neg_t, 0.0, 1.0)
+				dist_from_zero_neg = np.power(dist_from_zero_neg, zero_contrast)
+				neg_t = 1.0 - dist_from_zero_neg
+			out[neg] = float(vmin) + (neg_t * float(0.0 - float(vmin)))
+
+			pos_t = np.clip((u[~neg] - first_range_frac) / float(1.0 - first_range_frac), 0.0, 1.0)
+			if zero_contrast > 1.0:
+				pos_t = np.power(pos_t, zero_contrast)
+			out[~neg] = pos_t * float(float(vmax) - 0.0)
+			return np.clip(out, float(vmin), float(vmax))
+
+		color_norm = plt.matplotlib.colors.FuncNorm((lambda v: _forward(v), lambda u: _inverse(u)), vmin=vmin, vmax=vmax, clip=True)
+	else:
+		color_norm = plt.Normalize(vmin=vmin, vmax=vmax)
 
 	size_norm = np.asarray(size_metric, dtype=float)
 	size_norm = np.nan_to_num(size_norm, nan=0.0, posinf=0.0, neginf=0.0)
@@ -1036,7 +1094,6 @@ def render_template_circles_plot(
 
 	fig = plt.figure(figsize=(10, 8))
 	ax = fig.add_subplot(111)
-	circles_cmap = _maybe_reversed_colormap("viridis", reverse=(str(config.color_by) == "latency"))
 	ax.set_xlabel("x (um)")
 	ax.set_ylabel("y (um)")
 
@@ -1069,9 +1126,9 @@ def render_template_circles_plot(
 	_apply_style(fig, ax, config=config)
 	_add_scale_bar(ax, config=config)
 
-	# v2: build a boundary-based colorbar to avoid renderer interpolation seams/caps.
-	# Keep the marker colormap continuous while forcing deterministic colorbar patch bounds.
-	bounds = np.linspace(vmin, vmax, 257, dtype=float)
+	# Build deterministic colorbar patch bounds in color-space. For piecewise zero-boundary
+	# mode this keeps zero exactly at the first/second color-range transition.
+	bounds = np.asarray(color_norm.inverse(np.linspace(0.0, 1.0, 257, dtype=float)), dtype=float)
 	boundary_norm = plt.matplotlib.colors.BoundaryNorm(boundaries=bounds, ncolors=plt.get_cmap(circles_cmap).N, clip=True)
 	cbar_mappable = plt.cm.ScalarMappable(norm=boundary_norm, cmap=plt.get_cmap(circles_cmap))
 	cbar_mappable.set_array(color_values)

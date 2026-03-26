@@ -82,6 +82,8 @@ class TemplateCirclesPlotConfig(TemplatePlotConfig):
 	color_bar_tick_fontsize: float = 6.0
 	color_bar_tick_decimal_places: int = 3
 	color_bar_tick_target_count: int | None = None
+	color_bar_force_zero_and_neg_values_first_color_range: bool = False
+	color_bar_zero_transition_contrast: float = 1.0
 	overlap_controls: TemplateCirclesOverlapControlsConfig = field(default_factory=TemplateCirclesOverlapControlsConfig)
 
 

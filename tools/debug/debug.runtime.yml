@@ -375,6 +375,17 @@ stages:
               tick_decimal_places: 2 # controls tick label precision and dynamic 0/5-style tick density (more precision -> more candidate ticks)
               tick_target_count: 5 # optional desired number of ticks; <=0 or omitted lets renderer pick automatically
               tick_fontsize: 18 # color bar tick label font size
+
+              # when true, forces color bar range to shift.
+              # values at 0 delay and below will be in the first color range.
+              # the exact color depends on the selected colormap.
+              # so values 0 and below will be in that colormap's first range.
+              # if there are negative values, zero will be the least
+              # intense value at the transition point to higher colors.
+              force_zero_and_neg_values_first_color_range: true
+              # >=1.0; higher values sharpen separation around zero while
+              # keeping zero fixed at the first/second color boundary.
+              zero_transition_contrast: 2.0
             propagation_order_labels:
               show: false # when true, draw numeric labels on circles in propagation ordering rank.
               fontsize: 7

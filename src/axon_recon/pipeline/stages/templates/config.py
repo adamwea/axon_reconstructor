@@ -1350,6 +1350,23 @@ def parse_templates_stage_config(
 				0,
 			)
 		),
+		color_bar_force_zero_and_neg_values_first_color_range=_as_bool(
+			_get_nested_block(tpl_circles_cfg, "color_bar").get(
+				"force_zero_and_neg_values_first_color_range",
+				tpl_circles_cfg.get("color_bar_force_zero_and_neg_values_first_color_range", False),
+			),
+			False,
+		),
+		color_bar_zero_transition_contrast=max(
+			1.0,
+			_as_float(
+				_get_nested_block(tpl_circles_cfg, "color_bar").get(
+					"zero_transition_contrast",
+					tpl_circles_cfg.get("color_bar_zero_transition_contrast", 1.0),
+				),
+				1.0,
+			),
+		),
 		overlap_controls=TemplateCirclesOverlapControlsConfig(
 			scalebar_coords_overlap_detect=_as_bool(
 				_get_nested_block(tpl_circles_cfg, "overlap_controls").get("scalebar_coords_overlap_detect", False),
