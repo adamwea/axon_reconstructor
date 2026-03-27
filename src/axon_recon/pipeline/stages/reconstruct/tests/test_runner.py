@@ -22,4 +22,5 @@ def test_resolve_unit_output_paths_includes_amplitude_map() -> None:
 		),
 	)
 	assert paths["amplitude_map_png"] == Path("/tmp/recon") / "units/0001" / "maps/amplitude_map.png"
-
+	assert paths["circle_recon_png"] == Path("/tmp/recon") / "units/0001" / "circle_recon.png"
+	assert paths["circle_recon_svg"] == Path("/tmp/recon") / "units/0001" / "circle_recon.svg"

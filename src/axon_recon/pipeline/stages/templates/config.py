@@ -31,6 +31,7 @@ from .models.inputs import (
 	QualityChecksConfig,
 	ReportsConfig,
 	TemplateArtifactConfig,
+	TemplateCirclesBranchMorphologyConfig,
 	TemplateCirclesOverlapControlsConfig,
 	TemplateCirclesPlotConfig,
 	TemplateScaleCircleConfig,
@@ -1534,6 +1535,73 @@ def parse_templates_stage_config(
 					key="units",
 					flat_keys=("scale_circle_units",),
 					default="uV",
+				)
+			),
+		),
+		branch_morphology=TemplateCirclesBranchMorphologyConfig(
+			enabled=_as_bool(
+				_nested_path_or_flat(
+					tpl_circles_cfg,
+					path=("display", "branch_morphology"),
+					key="enabled",
+					flat_keys=("branch_morphology_enabled",),
+					default=False,
+				),
+				False,
+			),
+			node_border_linewidth=max(
+				0.0,
+				_as_float(
+					_nested_path_or_flat(
+						tpl_circles_cfg,
+						path=("display", "branch_morphology"),
+						key="node_border_linewidth",
+						flat_keys=("branch_morphology_node_border_linewidth",),
+						default=0.35,
+					),
+					0.35,
+				),
+			),
+			edge_linewidth=max(
+				0.0,
+				_as_float(
+					_nested_path_or_flat(
+						tpl_circles_cfg,
+						path=("display", "branch_morphology"),
+						key="edge_linewidth",
+						flat_keys=("branch_morphology_edge_linewidth",),
+						default=0.8,
+					),
+					0.8,
+				),
+			),
+			show_branch_labels=_as_bool(
+				_nested_path_or_flat(
+					tpl_circles_cfg,
+					path=("display", "branch_morphology"),
+					key="show_branch_labels",
+					flat_keys=("branch_morphology_show_branch_labels",),
+					default=False,
+				),
+				False,
+			),
+			unique_color_per_branch=_as_bool(
+				_nested_path_or_flat(
+					tpl_circles_cfg,
+					path=("display", "branch_morphology"),
+					key="unique_color_per_branch",
+					flat_keys=("branch_morphology_unique_color_per_branch",),
+					default=True,
+				),
+				True,
+			),
+			color_scheme=str(
+				_nested_path_or_flat(
+					tpl_circles_cfg,
+					path=("display", "branch_morphology"),
+					key="color_scheme",
+					flat_keys=("branch_morphology_color_scheme",),
+					default="tab20",
 				)
 			),
 		),

@@ -32,6 +32,7 @@ from axon_recon.pipeline.stages.templates.models.inputs import (
 	PropagationPlotConfig,
 	TemplateCirclesOverlapControlsConfig,
 	TemplateCirclesPlotConfig,
+	TemplateCirclesBranchMorphologyConfig,
 	TemplateScaleCircleConfig,
 	TemplatePlotConfig,
 	TemplateWaveformOverlayConfig,
@@ -1231,6 +1232,75 @@ def test_render_template_circles_plot_scale_circle_label_uses_abs_negative_peak(
 
 	# abs-negative-peak max is 6 uV (not 10 uV PTP).
 	assert any(label == "6 uV" for label in labels)
+
+
+def test_render_template_circles_plot_branch_morphology_draws_node_borders_and_clipped_edges(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[-2.0, 0.0, 0.0],
+			[-1.5, 0.0, 0.0],
+			[-1.0, 0.0, 0.0],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[20.0, 0.0],
+			[40.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	border_scatter_calls = {"count": 0}
+	edge_plot_calls = {"count": 0}
+	orig_scatter = matplotlib.axes.Axes.scatter
+	orig_plot = matplotlib.axes.Axes.plot
+
+	def _spy_scatter(self, *args, **kwargs):
+		if kwargs.get("facecolors", None) == "none" and "edgecolors" in kwargs:
+			border_scatter_calls["count"] += 1
+		return orig_scatter(self, *args, **kwargs)
+
+	def _spy_plot(self, *args, **kwargs):
+		if np.isclose(float(kwargs.get("zorder", 0.0)), 7.1):
+			edge_plot_calls["count"] += 1
+		return orig_plot(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "scatter", _spy_scatter)
+	monkeypatch.setattr(matplotlib.axes.Axes, "plot", _spy_plot)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			show_scale_bar=False,
+			show_scale_circle=False,
+			branch_morphology=TemplateCirclesBranchMorphologyConfig(
+				enabled=True,
+				node_border_linewidth=0.3,
+				edge_linewidth=0.9,
+			),
+		),
+		png_path=tmp_path / "circles_branch_overlay.png",
+		svg_path=tmp_path / "unused_branch_overlay.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+		branch_morphology={
+			"branches": [
+				{
+					"branch_index": 0,
+					"channels": [0, 1, 2],
+				}
+			]
+		},
+	)
+
+	assert border_scatter_calls["count"] >= 1
+	assert edge_plot_calls["count"] >= 1
 
 
 def test_render_template_circles_plot_overlap_controls_can_trigger_zoom_out(tmp_path: Path, monkeypatch) -> None:

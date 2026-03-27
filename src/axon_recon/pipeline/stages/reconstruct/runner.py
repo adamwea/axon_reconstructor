@@ -17,6 +17,7 @@ from .core.reconstruct import (
 )
 from .core.summary_plots import write_amplitude_map_summary_png
 from .core.unit_plots import write_unit_amplitude_map_png
+from .core.unit_plots import write_unit_circle_recon_plot
 from .integrations.axon_velocity import compute_graph_tracking, import_axon_velocity
 from .io import read_json, resolve_unit_output_paths, write_json
 from .models.inputs import ReconstructionInputs
@@ -93,7 +94,7 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 		)
 		paths["unit_dir"].mkdir(parents=True, exist_ok=True)
 
-		if (not bool(inputs.force_restart)) and paths["unit_summary_json"].exists():
+		if (not bool(inputs.force_restart)) and (not bool(inputs.force_replot)) and paths["unit_summary_json"].exists():
 			try:
 				existing = read_json(paths["unit_summary_json"])
 				outputs = dict((existing or {}).get("outputs", {})) if isinstance(existing, dict) else {}
@@ -113,10 +114,11 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 			"outputs": {},
 		}
 		try:
-			template_ch_by_t, locs_xy, fs_hz, selected_template_source = load_templates_for_unit(
+			plot_template_ch_by_t, plot_locs_xy, gtr_template_ch_by_t, gtr_locs_xy, fs_hz, selected_template_source = load_templates_for_unit(
 				unit_id=unit_id,
 				merged_units_dir=merged_units_dir,
 				full_channels_templates_dir=full_channels_templates_dir,
+				template_source=str(inputs.per_unit_outputs.template_source),
 				use_full_channels_templates=inputs.use_full_channels_templates,
 				require_full_channels_templates=inputs.require_full_channels_templates,
 			)
@@ -124,8 +126,8 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 
 			gtr = compute_graph_tracking(
 				av=av,
-				template_ch_by_t=template_ch_by_t,
-				locs_xy=locs_xy,
+				template_ch_by_t=gtr_template_ch_by_t,
+				locs_xy=gtr_locs_xy,
 				sampling_frequency_hz=float(fs_hz),
 				params=dict(inputs.axon_velocity_params),
 			)
@@ -136,12 +138,12 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 				unit_summary["outputs"]["branches_raw_json"] = str(paths["branches_raw_json"])
 
 			if bool(inputs.per_unit_outputs.write_branches_json):
-				payload = compute_branches_with_polyline(unit_id=unit_id, gtr=gtr, locs_xy=locs_xy)
+				payload = compute_branches_with_polyline(unit_id=unit_id, gtr=gtr, locs_xy=plot_locs_xy)
 				write_json(paths["branches_json"], payload)
 				unit_summary["outputs"]["branches_json"] = str(paths["branches_json"])
 
 			if bool(inputs.per_unit_outputs.write_heuristics_json):
-				payload = compute_heuristics_payload(unit_id=unit_id, gtr=gtr, locs_xy=locs_xy)
+				payload = compute_heuristics_payload(unit_id=unit_id, gtr=gtr, locs_xy=plot_locs_xy)
 				write_json(paths["heuristics_json"], payload)
 				unit_summary["outputs"]["heuristics_json"] = str(paths["heuristics_json"])
 
@@ -152,7 +154,7 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 				unit_summary["outputs"]["gtr_pkl"] = str(paths["gtr_pkl"])
 
 			if bool(inputs.per_unit_outputs.write_gtr_json):
-				payload = compute_gtr_json_payload(unit_id=unit_id, gtr=gtr, locs_xy=locs_xy)
+				payload = compute_gtr_json_payload(unit_id=unit_id, gtr=gtr, locs_xy=plot_locs_xy)
 				write_json(paths["gtr_json"], payload)
 				unit_summary["outputs"]["gtr_json"] = str(paths["gtr_json"])
 
@@ -161,12 +163,38 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 				if bool(inputs.force_replot) or (not amplitude_map_path.exists()):
 					write_unit_amplitude_map_png(
 						output_png=amplitude_map_path,
-						template_ch_by_t=template_ch_by_t,
-						locs_xy=locs_xy,
+						template_ch_by_t=plot_template_ch_by_t,
+						locs_xy=plot_locs_xy,
 						heatmap_config=inputs.per_unit_outputs.amplitude_map_heatmap,
 					)
 				if amplitude_map_path.exists():
 					unit_summary["outputs"]["amplitude_map_png"] = str(amplitude_map_path)
+
+			circle_output_cfg = inputs.per_unit_outputs.circle_recon.output
+			write_circle_recon = bool(circle_output_cfg.write_png) or bool(circle_output_cfg.write_svg)
+			if write_circle_recon:
+				circle_png_path = paths["circle_recon_png"]
+				circle_svg_path = paths["circle_recon_svg"]
+				needs_plot = bool(inputs.force_replot)
+				if not needs_plot:
+					if bool(circle_output_cfg.write_png) and (not circle_png_path.exists()):
+						needs_plot = True
+					if bool(circle_output_cfg.write_svg) and (not circle_svg_path.exists()):
+						needs_plot = True
+				if needs_plot:
+					write_unit_circle_recon_plot(
+						output_png=circle_png_path,
+						output_svg=circle_svg_path,
+						template_ch_by_t=plot_template_ch_by_t,
+						locs_xy=plot_locs_xy,
+						gtr=gtr,
+						circle_config=inputs.per_unit_outputs.circle_recon,
+						unit_id=unit_id,
+					)
+				if bool(circle_output_cfg.write_png) and circle_png_path.exists():
+					unit_summary["outputs"]["circle_recon_png"] = str(circle_png_path)
+				if bool(circle_output_cfg.write_svg) and circle_svg_path.exists():
+					unit_summary["outputs"]["circle_recon_svg"] = str(circle_svg_path)
 
 		except Exception as exc:
 			unit_summary["status"] = "error"
@@ -257,4 +285,3 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 		summary_json=summary_json,
 		units=unit_results,
 	)
-

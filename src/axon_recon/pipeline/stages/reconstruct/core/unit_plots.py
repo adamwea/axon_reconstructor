@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from dataclasses import replace
 
 from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
+from axon_recon.pipeline.stages.reconstruct.models.inputs import CircleReconConfig
 
 
 def write_unit_amplitude_map_png(
@@ -111,4 +113,113 @@ def write_unit_amplitude_map_png(
 	plt.close(fig)
 
 
-__all__ = ["write_unit_amplitude_map_png"]
+def _normalize_template_channels_by_time(template_ch_by_t: Any, n_channels: int) -> Any:
+	import numpy as np  # type: ignore[import-not-found]
+
+	tpl = np.asarray(template_ch_by_t, dtype=float)
+	if tpl.ndim != 2:
+		raise ValueError(f"Expected template_ch_by_t to be 2D, got shape={tpl.shape}")
+	if int(tpl.shape[0]) == int(n_channels):
+		return tpl
+	if int(tpl.shape[1]) == int(n_channels):
+		return tpl.T
+	raise ValueError(f"Template channels do not match locations rows: {tpl.shape} vs n_channels={n_channels}")
+
+
+def _raw_branch_payload_from_gtr(gtr: Any) -> list[dict[str, Any]]:
+	from axon_recon.pipeline.stages.reconstruct.io import as_list
+
+	raw_paths = as_list(getattr(gtr, "_paths_raw", None))
+	out: list[dict[str, Any]] = []
+	for raw_idx, raw_path in enumerate(raw_paths):
+		try:
+			channels = [int(x) for x in list(raw_path)[::-1]]
+		except Exception:
+			continue
+		if len(channels) < 2:
+			continue
+		out.append({"branch_index": int(raw_idx), "channels": channels, "label": int(raw_idx)})
+	return out
+
+
+def _preferred_branch_ids(branch_like: Any) -> list[int]:
+	from axon_recon.pipeline.stages.reconstruct.io import as_int_list
+
+	if not isinstance(branch_like, dict):
+		return []
+	for key in ("electrode_ids", "channels", "node_indices", "nodes"):
+		vals = as_int_list(branch_like.get(key, []))
+		if vals:
+			return vals
+	return []
+
+
+def _clean_branch_payload_from_gtr(gtr: Any) -> list[dict[str, Any]]:
+	from axon_recon.pipeline.stages.reconstruct.io import as_list
+
+	out: list[dict[str, Any]] = []
+	for bi, branch in enumerate(as_list(getattr(gtr, "branches", None))):
+		if not isinstance(branch, dict):
+			continue
+		channels = _preferred_branch_ids(branch)
+		if len(channels) < 2:
+			continue
+		out.append(
+			{
+				"branch_index": int(branch.get("branch_index", bi)),
+				"channels": channels,
+				"label": branch.get("branch_index", bi),
+			}
+		)
+	return out
+
+
+def write_unit_circle_recon_plot(
+	*,
+	output_png: Path,
+	output_svg: Path,
+	template_ch_by_t: Any,
+	locs_xy: Any,
+	gtr: Any,
+	circle_config: CircleReconConfig,
+	unit_id: Any,
+) -> dict[str, str]:
+	import numpy as np  # type: ignore[import-not-found]
+
+	from axon_recon.pipeline.stages.templates.core.render import render_template_circles_plot
+	from axon_recon.pipeline.stages.templates.models.inputs import TemplateCirclesPlotConfig
+
+	# Step 1: keep reconstruct circle_recon as a thin wrapper around templates-stage circles rendering.
+	_ = gtr
+
+	locs = np.asarray(locs_xy, dtype=float)
+	if locs.ndim != 2 or int(locs.shape[1]) < 2:
+		raise ValueError(f"Expected locs_xy to be [N,2+], got shape={locs.shape}")
+	locs = locs[:, :2]
+	tpl = template_ch_by_t
+
+	output_cfg = circle_config.output
+
+	base_cfg = getattr(circle_config, "base_template_circles", None)
+	if not isinstance(base_cfg, TemplateCirclesPlotConfig):
+		base_cfg = TemplateCirclesPlotConfig()
+
+	cfg = replace(
+		base_cfg,
+		write_png=bool(output_cfg.write_png),
+		write_svg=bool(output_cfg.write_svg),
+		dpi=float(max(72.0, float(output_cfg.dpi))),
+		relpath=str(output_cfg.relpath),
+	)
+
+	return render_template_circles_plot(
+		template=tpl,
+		locations_xy=locs,
+		config=cfg,
+		png_path=Path(output_png),
+		svg_path=Path(output_svg),
+		unit_id=unit_id,
+	)
+
+
+__all__ = ["write_unit_amplitude_map_png", "write_unit_circle_recon_plot"]

@@ -88,6 +88,12 @@ def resolve_unit_output_paths(
 ) -> dict[str, Path]:
 	unit_rel = format_unit_reldir(per_unit_outputs.unit_reldir, unit_id)
 	unit_dir = reconstruction_out_dir / unit_rel
+	circle_rel = Path(str(per_unit_outputs.circle_recon.output.relpath)).expanduser()
+	if circle_rel.suffix:
+		circle_png_rel = circle_rel.with_suffix(".png")
+	else:
+		circle_png_rel = circle_rel.with_suffix(".png")
+	circle_svg_rel = circle_png_rel.with_suffix(".svg")
 
 	return {
 		"unit_dir": unit_dir,
@@ -98,5 +104,6 @@ def resolve_unit_output_paths(
 		"gtr_pkl": unit_dir / Path(str(per_unit_outputs.gtr_pkl_relpath)).expanduser(),
 		"gtr_json": unit_dir / Path(str(per_unit_outputs.gtr_json_relpath)).expanduser(),
 		"amplitude_map_png": unit_dir / Path(str(per_unit_outputs.amplitude_map_png_relpath)).expanduser(),
+		"circle_recon_png": unit_dir / circle_png_rel,
+		"circle_recon_svg": unit_dir / circle_svg_rel,
 	}
-

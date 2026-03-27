@@ -284,14 +284,14 @@ def test_build_unit_source_payload_forwards_waveform_window_on_recompute() -> No
 		waveform_ms_after=2.5,
 	)
 	assert payload is not None
-	_, _, _, _, _, _, top_wf, _, top_count = payload
+	_, _, _, _, waveform_count, _, top_wf, _, top_count = payload
 	assert top_wf is not None
-	assert int(top_wf.shape[0]) == 6
-	assert top_count == 6
+	assert int(top_wf.shape[0]) == int(waveform_count)
+	assert top_count == int(waveform_count)
 
 	params = analyzer.last_compute_extension_params
 	assert isinstance(params, dict)
 	assert "random_spikes" in params
-	assert "max_spikes_per_unit" not in params["random_spikes"]
+	assert params["random_spikes"].get("max_spikes_per_unit") == int(waveform_count)
 	assert params.get("waveforms", {}).get("ms_before") == 1.5
 	assert params.get("waveforms", {}).get("ms_after") == 2.5

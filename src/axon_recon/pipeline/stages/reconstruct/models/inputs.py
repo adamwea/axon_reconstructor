@@ -8,6 +8,35 @@ from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
 
 
 @dataclass(frozen=True)
+class CircleReconDisplayConfig:
+	base: str = "template_circles"
+	channel_scope: str = "nodes_and_branches"
+	zoom_padding_percent: float = 20.0
+	force_center_soma: bool = True
+	branch_scope: str = "raw"
+	unique_color_per_branch: bool = True
+	show_branch_labels: bool = False
+	color_scheme: str = "tab20"
+	node_border_linewidth: float = 0.35
+	edge_linewidth: float = 0.8
+
+
+@dataclass(frozen=True)
+class CircleReconOutputConfig:
+	write_png: bool = False
+	write_svg: bool = False
+	relpath: str = "circle_recon"
+	dpi: float = 300.0
+
+
+@dataclass(frozen=True)
+class CircleReconConfig:
+	display: CircleReconDisplayConfig = field(default_factory=CircleReconDisplayConfig)
+	output: CircleReconOutputConfig = field(default_factory=CircleReconOutputConfig)
+	base_template_circles: Any | None = None
+
+
+@dataclass(frozen=True)
 class PerUnitOutputsConfig:
 	unit_reldir: str = "units/{unit_id:04d}/"
 
@@ -22,6 +51,7 @@ class PerUnitOutputsConfig:
 
 	write_gtr_pkl: bool = True
 	gtr_pkl_relpath: str = "gtr.pkl"
+	template_source: str = "square"
 
 	write_gtr_json: bool = False
 	gtr_json_relpath: str = "gtr.json"
@@ -29,6 +59,7 @@ class PerUnitOutputsConfig:
 	write_amplitude_map_png: bool = False
 	amplitude_map_png_relpath: str = "amplitude_map.png"
 	amplitude_map_heatmap: SharedHeatmapConfig = field(default_factory=SharedHeatmapConfig)
+	circle_recon: CircleReconConfig = field(default_factory=CircleReconConfig)
 
 
 @dataclass(frozen=True)
@@ -57,4 +88,3 @@ class ReconstructionInputs:
 
 	axon_velocity_params: dict[str, Any] = field(default_factory=dict)
 	axon_velocity_repo_root: Path | None = None
-

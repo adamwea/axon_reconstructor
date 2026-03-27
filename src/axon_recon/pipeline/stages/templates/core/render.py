@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import logging
 from pathlib import Path
 import re
@@ -695,6 +696,177 @@ def _add_scale_circle(
 	text.set_gid("template_scale_circle_text")
 
 
+def _normalize_branch_morphology_payload(branch_morphology: Any) -> list[dict[str, Any]]:
+	if branch_morphology is None:
+		return []
+	payload = branch_morphology
+	if isinstance(payload, dict):
+		payload = payload.get("branches", [])
+	if not isinstance(payload, (list, tuple)):
+		return []
+	normalized: list[dict[str, Any]] = []
+	for idx, item in enumerate(payload):
+		if not isinstance(item, dict):
+			continue
+		raw_nodes = item.get("node_indices", item.get("channels", item.get("nodes", [])))
+		if not isinstance(raw_nodes, (list, tuple, np.ndarray)):
+			continue
+		nodes: list[int] = []
+		for v in raw_nodes:
+			try:
+				nodes.append(int(v))
+			except Exception:
+				continue
+		if len(nodes) == 0:
+			continue
+		raw_edges = item.get("edges", None)
+		edges: list[tuple[int, int]] = []
+		if isinstance(raw_edges, (list, tuple)):
+			for e in raw_edges:
+				if not isinstance(e, (list, tuple)) or len(e) < 2:
+					continue
+				try:
+					edges.append((int(e[0]), int(e[1])))
+				except Exception:
+					continue
+		if len(edges) == 0:
+			edges = [(int(nodes[i]), int(nodes[i + 1])) for i in range(max(0, len(nodes) - 1))]
+		normalized.append(
+			{
+				"branch_index": int(item.get("branch_index", item.get("id", idx))),
+				"node_indices": nodes,
+				"edges": edges,
+				"label": item.get("label", item.get("branch_index", item.get("id", idx))),
+				"color": item.get("color", None),
+			}
+		)
+	return normalized
+
+
+def _draw_branch_morphology_overlay(
+	*,
+	ax: Any,
+	fig: Any,
+	sc: Any,
+	locations_xy: np.ndarray,
+	branch_morphology: Any,
+	branch_cfg: Any,
+) -> None:
+	branches = _normalize_branch_morphology_payload(branch_morphology)
+	if len(branches) == 0:
+		return
+
+	offsets = np.asarray(sc.get_offsets(), dtype=float)
+	sizes_pt2 = np.asarray(sc.get_sizes(), dtype=float)
+	if offsets.ndim != 2 or sizes_pt2.ndim != 1 or int(offsets.shape[0]) != int(sizes_pt2.shape[0]):
+		return
+
+	centers_px = np.asarray(ax.transData.transform(offsets), dtype=float)
+	radii_pt = np.sqrt(np.clip(sizes_pt2, 0.0, None) / np.pi)
+	radii_px = radii_pt * float(fig.dpi / 72.0)
+	n_channels = int(offsets.shape[0])
+
+	unique_color_per_branch = bool(getattr(branch_cfg, "unique_color_per_branch", True))
+	show_branch_labels = bool(getattr(branch_cfg, "show_branch_labels", False))
+	edge_lw = float(max(0.0, float(getattr(branch_cfg, "edge_linewidth", 0.8))))
+	node_lw = float(max(0.0, float(getattr(branch_cfg, "node_border_linewidth", 0.35))))
+	color_scheme = str(getattr(branch_cfg, "color_scheme", "tab20") or "tab20")
+	from matplotlib import colormaps  # type: ignore[import-not-found]
+
+	cmap = colormaps.get_cmap(color_scheme)
+
+	branch_colors: list[Any] = []
+	for i, branch in enumerate(branches):
+		override = branch.get("color", None)
+		if override is not None:
+			branch_colors.append(override)
+			continue
+		if unique_color_per_branch:
+			den = max(1, len(branches) - 1)
+			branch_colors.append(cmap(float(i) / float(den)))
+		else:
+			branch_colors.append(cmap(0.0))
+
+	node_color_by_index: dict[int, Any] = {}
+	for i, branch in enumerate(branches):
+		color = branch_colors[i]
+		for ch in branch["node_indices"]:
+			if 0 <= int(ch) < n_channels and int(ch) not in node_color_by_index:
+				node_color_by_index[int(ch)] = color
+
+	if node_lw > 0.0 and len(node_color_by_index) > 0:
+		node_inds = np.asarray(sorted(node_color_by_index.keys()), dtype=int)
+		inner_r_pt = np.maximum(np.sqrt(np.clip(sizes_pt2[node_inds], 0.0, None) / np.pi) - node_lw, 0.0)
+		inner_sizes = np.pi * np.square(inner_r_pt)
+		node_colors = [node_color_by_index[int(ch)] for ch in node_inds.tolist()]
+		node_coll = ax.scatter(
+			offsets[node_inds, 0],
+			offsets[node_inds, 1],
+			s=inner_sizes,
+			facecolors="none",
+			edgecolors=node_colors,
+			linewidths=node_lw,
+			zorder=7.2,
+		)
+		node_coll.set_gid("template_branch_node_borders")
+
+	if edge_lw > 0.0:
+		inv = ax.transData.inverted()
+		for i, branch in enumerate(branches):
+			color = branch_colors[i]
+			for a, b in branch["edges"]:
+				a_idx = int(a)
+				b_idx = int(b)
+				if not (0 <= a_idx < n_channels and 0 <= b_idx < n_channels):
+					continue
+				if a_idx == b_idx:
+					continue
+				ca = centers_px[a_idx, :2].astype(float)
+				cb = centers_px[b_idx, :2].astype(float)
+				vec = cb - ca
+				d = float(np.hypot(float(vec[0]), float(vec[1])))
+				if d <= 1e-6:
+					continue
+				ra = float(max(0.0, radii_px[a_idx]))
+				rb = float(max(0.0, radii_px[b_idx]))
+				if d <= float(ra + rb):
+					continue
+				u = vec / d
+				start_px = ca + (u * ra)
+				end_px = cb - (u * rb)
+				start_xy = inv.transform(start_px)
+				end_xy = inv.transform(end_px)
+				(line,) = ax.plot(
+					[float(start_xy[0]), float(end_xy[0])],
+					[float(start_xy[1]), float(end_xy[1])],
+					color=color,
+					linewidth=edge_lw,
+					solid_capstyle="round",
+					zorder=7.1,
+				)
+				line.set_gid("template_branch_edge")
+
+	if show_branch_labels:
+		for i, branch in enumerate(branches):
+			pts = [int(ch) for ch in branch["node_indices"] if 0 <= int(ch) < n_channels]
+			if len(pts) == 0:
+				continue
+			xy = np.asarray(locations_xy[pts, :2], dtype=float)
+			x = float(np.nanmean(xy[:, 0]))
+			y = float(np.nanmean(xy[:, 1]))
+			text = ax.text(
+				x,
+				y,
+				str(branch.get("label", branch.get("branch_index", i))),
+				color=branch_colors[i],
+				fontsize=7.0,
+				horizontalalignment="center",
+				verticalalignment="center",
+				zorder=7.3,
+			)
+			text.set_gid("template_branch_label")
+
+
 def _axes_anchor_pos(
 	*,
 	x_offset_frac: float,
@@ -1123,6 +1295,13 @@ def render_template_circles_plot(
 			f"Template/locations size mismatch: template_channels={template_c_by_t.shape[0]} locations={locs.shape[0]}"
 		)
 
+	resolved_probe_geometry = _resolve_probe_geometry_sampling_rate(
+		probe_geometry=probe_geometry,
+		png_path=png_path,
+		svg_path=svg_path,
+		unit_id=unit_id,
+	)
+
 	amp = np.ptp(template_c_by_t, axis=1)
 	abs_negative_peak = np.abs(np.min(template_c_by_t, axis=1))
 	min_idx = np.argmin(template_c_by_t, axis=1).astype(float)
@@ -1131,7 +1310,7 @@ def render_template_circles_plot(
 	lat, latency_units_label = _convert_latency_samples_to_units(
 		lat_samples,
 		units=str(config.color_bar_units or ""),
-		probe_geometry=probe_geometry,
+		probe_geometry=resolved_probe_geometry,
 	)
 
 	size_metric = abs_negative_peak if str(config.size_by) == "amplitude" else np.abs(lat)
@@ -1553,6 +1732,116 @@ def _convert_latency_samples_to_units(
 
 	# Unknown token: keep values in samples and reflect fallback in label.
 	return arr, "samples"
+
+
+def _resolve_probe_geometry_sampling_rate(
+	*,
+	probe_geometry: ProbeGeometryConfig | None,
+	png_path: Path,
+	svg_path: Path,
+	unit_id: Any | None,
+) -> ProbeGeometryConfig | None:
+	if probe_geometry is not None and probe_geometry.sampling_rate_hz is not None and float(probe_geometry.sampling_rate_hz) > 0:
+		return probe_geometry
+
+	sampling_rate_hz = _read_sampling_rate_hz_from_templates_metadata(
+		png_path=png_path,
+		svg_path=svg_path,
+		unit_id=unit_id,
+	)
+	if sampling_rate_hz is None:
+		return probe_geometry
+
+	if probe_geometry is None:
+		return ProbeGeometryConfig(sampling_rate_hz=float(sampling_rate_hz))
+
+	return ProbeGeometryConfig(
+		pitch_um=probe_geometry.pitch_um,
+		electrode_size_um_x=probe_geometry.electrode_size_um_x,
+		electrode_size_um_y=probe_geometry.electrode_size_um_y,
+		sampling_rate_hz=float(sampling_rate_hz),
+	)
+
+
+def _read_sampling_rate_hz_from_templates_metadata(*, png_path: Path, svg_path: Path, unit_id: Any | None) -> float | None:
+	for candidate in _candidate_templates_summary_paths(png_path=png_path, svg_path=svg_path, unit_id=unit_id):
+		if not candidate.exists() or not candidate.is_file():
+			continue
+		try:
+			with candidate.open("r", encoding="utf-8") as f:
+				payload = json.load(f)
+		except Exception:
+			continue
+
+		rate = _extract_sampling_rate_hz_from_summary_payload(payload)
+		if rate is not None and float(rate) > 0:
+			return float(rate)
+	return None
+
+
+def _candidate_templates_summary_paths(*, png_path: Path, svg_path: Path, unit_id: Any | None) -> list[Path]:
+	candidates: list[Path] = []
+	seen: set[str] = set()
+
+	def _push(path: Path) -> None:
+		key = str(path)
+		if key not in seen:
+			seen.add(key)
+			candidates.append(path)
+
+	for base in (Path(png_path).parent, Path(svg_path).parent):
+		_push(base / "unit_templates_summary.json")
+
+	unit_tokens: list[str] = []
+	if unit_id is not None:
+		try:
+			ui = int(unit_id)
+			unit_tokens.extend([f"{ui:04d}", str(ui)])
+		except Exception:
+			unit_tokens.append(str(unit_id))
+
+	search_roots: list[Path] = []
+	for p in (Path(png_path), Path(svg_path)):
+		search_roots.extend([p.parent, *p.parents])
+
+	for root in search_roots:
+		templates_units_dir = root / "template_outputs" / "units"
+		if templates_units_dir.exists() and templates_units_dir.is_dir():
+			for token in unit_tokens:
+				_push(templates_units_dir / token / "unit_templates_summary.json")
+			_push(templates_units_dir / "unit_templates_summary.json")
+
+	return candidates
+
+
+def _extract_sampling_rate_hz_from_summary_payload(payload: Any) -> float | None:
+	if not isinstance(payload, dict):
+		return None
+
+	for key in ("effective_sampling_rate_hz", "sampling_rate_hz", "sample_rate_hz"):
+		val = payload.get(key)
+		if val is not None:
+			try:
+				rate = float(val)
+				if rate > 0:
+					return rate
+			except Exception:
+				pass
+
+	upsampling = payload.get("upsampling")
+	if isinstance(upsampling, dict):
+		for key in ("effective_sampling_rate_hz", "target_hz", "analyzer_hz", "raw_hz"):
+			val = upsampling.get(key)
+			if val is None:
+				continue
+			try:
+				rate = float(val)
+				if rate > 0:
+					return rate
+			except Exception:
+				pass
+
+	return None
 
 
 def _ticks_ending_in_0_or_5_with_max(

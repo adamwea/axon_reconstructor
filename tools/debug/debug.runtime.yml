@@ -157,8 +157,8 @@ stages:
       require_curated_units: true
 
       # limit number of unit templates to build for debugging purposes. Set to -1 or null for no limit.
-      unit_limit: -1
-      #unit_limit: 10
+      #unit_limit: -1
+      unit_limit: 10
 
       spikeinterface:
         waveform_extraction:
@@ -738,6 +738,8 @@ stages:
       well_workers: 2
     unit_limit: 1000
 
+    inputs:
+      load_assets_from_v2pipeline_tempaltes_stage: true # whether to load templates stage outputs from the v2 pipeline output directory structure; if false, will attempt to load from the same directory structure as in the previous pipeline version, which may be useful for testing and comparison purposes.
     outputs:
       output_rel_root: recon_outputs
       per_unit_outputs:
@@ -755,6 +757,7 @@ stages:
         heuristics_relpath: heuristics.json
 
         # GTR artifacts
+        template_source: square # which template to use for GTR-based analyses and outputs; square, scan, or full.
         write_gtr_pkl: true
         gtr_pkl_relpath: gtr.pkl
         write_gtr_json: false
@@ -767,6 +770,25 @@ stages:
           relpath: maps/amplitude_map
           color_bar:
             {}
+
+        # Reconstruction Plots
+        recon_plots:
+          circle_recon:
+            display:
+              base: template_circles # which template plot to put branch morphology on top of; circles, amplitude_map, or latency_map.
+              channel_scope: nodes_and_branches # nodes_and_branches, branches_only, or nodes_only; whether to plot channels at branch locations only, at all node locations, or both.
+              zoom_padding_percent: 12 # extra padding around selected node/branch channels used to set circle_recon viewport.
+              force_center_soma: true # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
+              branch_scope: raw # raw or clean; whether to plot all branches in branches_raw or only the cleaned branches in branches.
+              unique_color_per_branch: true # whether to use a unique color for each branch, which can help visually distinguish branches in complex reconstructions; if false, all branches will be the same color.
+              show_branch_labels: false # whether to draw branch ID labels on the plot, which can be useful for visually verifying branch correspondences between the plot and the branch data in the JSON outputs.
+              color_scheme: tab20 # color scheme to use when unique_color_per_branch is true; should be a valid matplotlib categorical colormap name.
+
+            output:
+              write_png: true
+              write_svg: true
+              relpath: circle_recon
+              dpi: 420
 
   ## Reconstruct Stage Updated to Pipeline V2 above this line. -------------------------
 

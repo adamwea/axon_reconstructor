@@ -11,10 +11,13 @@ def load_templates_for_unit(
 	unit_id: Any,
 	merged_units_dir: Path,
 	full_channels_templates_dir: Path,
+	template_source: str,
 	use_full_channels_templates: bool,
 	require_full_channels_templates: bool,
-) -> tuple[Any, Any, float, str]:
+) -> tuple[Any, Any, Any, Any, float, str]:
 	import numpy as np  # type: ignore[import-not-found]
+	from axon_recon.pipeline.stages.templates.runner import _build_square_locations
+	from axon_recon.pipeline.stages.templates.runner import _build_square_template
 
 	merged_unit_dir = merged_units_dir / f"unit_{unit_id}"
 	full_unit_dir = full_channels_templates_dir / f"unit_{unit_id}"
@@ -27,6 +30,16 @@ def load_templates_for_unit(
 	full_locs_npy = full_unit_dir / "full_channel_locations_xy.npy"
 	full_meta_json = full_unit_dir / "full_template_meta.json"
 
+	if not merged_tmpl_npy.exists() or not merged_locs_npy.exists():
+		raise FileNotFoundError(f"Missing merged templates for unit {unit_id}")
+
+	merged_tmpl = np.load(merged_tmpl_npy)
+	merged_locs = np.load(merged_locs_npy)
+	if merged_tmpl.ndim != 2:
+		raise ValueError(f"Unexpected merged template shape for unit {unit_id}: {merged_tmpl.shape}")
+	if merged_locs.ndim != 2 or merged_locs.shape[1] < 2:
+		raise ValueError(f"Unexpected merged locations shape for unit {unit_id}: {merged_locs.shape}")
+
 	use_full = bool(use_full_channels_templates)
 	if use_full and (not full_tmpl_npy.exists() or not full_locs_npy.exists()):
 		if bool(require_full_channels_templates):
@@ -35,36 +48,58 @@ def load_templates_for_unit(
 			)
 		use_full = False
 
-	if use_full:
-		tmpl = np.load(full_tmpl_npy)
-		locs = np.load(full_locs_npy)
-		selected_source = "full_channels_templates"
-		meta_path = full_meta_json
-	else:
-		if not merged_tmpl_npy.exists() or not merged_locs_npy.exists():
-			raise FileNotFoundError(f"Missing merged templates for unit {unit_id}")
-		tmpl = np.load(merged_tmpl_npy)
-		locs = np.load(merged_locs_npy)
-		selected_source = "merged_contributing"
-		meta_path = merged_meta_json
+	source = str(template_source or "square").strip().lower()
+	if source not in {"square", "merged", "full"}:
+		source = "square"
 
-	if tmpl.ndim != 2:
-		raise ValueError(f"Unexpected template shape for unit {unit_id}: {tmpl.shape}")
-	if locs.ndim != 2 or locs.shape[1] < 2:
-		raise ValueError(f"Unexpected locations shape for unit {unit_id}: {locs.shape}")
+	gtr_tmpl: np.ndarray
+	gtr_locs: np.ndarray
+	selected_source: str
+	if source == "full":
+		if not use_full:
+			raise FileNotFoundError(f"template_source=full requested but full templates unavailable for unit {unit_id}")
+		full_tmpl = np.load(full_tmpl_npy)
+		full_locs = np.load(full_locs_npy)
+		if full_tmpl.ndim != 2:
+			raise ValueError(f"Unexpected full template shape for unit {unit_id}: {full_tmpl.shape}")
+		if full_locs.ndim != 2 or full_locs.shape[1] < 2:
+			raise ValueError(f"Unexpected full locations shape for unit {unit_id}: {full_locs.shape}")
+		gtr_tmpl = np.asarray(full_tmpl, dtype=float)
+		gtr_locs = np.asarray(full_locs[:, :2], dtype=float)
+		selected_source = "full_channels_templates"
+	elif source == "merged":
+		gtr_tmpl = np.asarray(merged_tmpl, dtype=float)
+		gtr_locs = np.asarray(merged_locs[:, :2], dtype=float)
+		selected_source = "merged_contributing"
+	else:
+		merged_c_by_t = np.asarray(merged_tmpl, dtype=float).T
+		square_c_by_t = _build_square_template(merged_c_by_t, padding_mode="zero")
+		square_locs = _build_square_locations(np.asarray(merged_locs)[:, :2], target_channels=int(square_c_by_t.shape[0]))
+		gtr_tmpl = np.asarray(square_c_by_t.T, dtype=float)
+		gtr_locs = np.asarray(square_locs[:, :2], dtype=float)
+		selected_source = "square_from_merged"
 
 	fs_hz = 10_000.0
-	if meta_path.exists():
+	if merged_meta_json.exists():
 		try:
-			meta = read_json(meta_path)
+			meta = read_json(merged_meta_json)
 			if isinstance(meta, dict) and meta.get("sampling_frequency_hz") is not None:
 				fs_hz = float(meta.get("sampling_frequency_hz"))
 		except Exception:
 			fs_hz = 10_000.0
 
-	template_ch_by_t = np.asarray(tmpl).T
-	locs_xy = np.asarray(locs)[:, :2]
-	return template_ch_by_t, locs_xy, float(fs_hz), selected_source
+	plot_template_ch_by_t = np.asarray(merged_tmpl, dtype=float).T
+	plot_locs_xy = np.asarray(merged_locs, dtype=float)[:, :2]
+	gtr_template_ch_by_t = np.asarray(gtr_tmpl, dtype=float).T
+	gtr_locs_xy = np.asarray(gtr_locs, dtype=float)[:, :2]
+	return (
+		plot_template_ch_by_t,
+		plot_locs_xy,
+		gtr_template_ch_by_t,
+		gtr_locs_xy,
+		float(fs_hz),
+		selected_source,
+	)
 
 
 def compute_raw_branches_payload(*, unit_id: Any, gtr: Any) -> dict[str, Any]:
@@ -144,4 +179,3 @@ def compute_gtr_json_payload(*, unit_id: Any, gtr: Any, locs_xy: Any) -> dict[st
 		"branches": compute_branches_with_polyline(unit_id=unit_id, gtr=gtr, locs_xy=locs_xy).get("branches", []),
 	}
 	return payload
-

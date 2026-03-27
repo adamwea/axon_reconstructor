@@ -5,6 +5,9 @@ from pathlib import Path
 
 import numpy as np
 
+from axon_recon.pipeline.stages.reconstruct.models.inputs import CircleReconConfig
+from axon_recon.pipeline.stages.reconstruct.models.inputs import CircleReconDisplayConfig
+from axon_recon.pipeline.stages.reconstruct.models.inputs import CircleReconOutputConfig
 from axon_recon.pipeline.stages.reconstruct.models.inputs import PerUnitOutputsConfig
 from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionInputs
 from axon_recon.pipeline.stages.reconstruct.runner import run_reconstruct_stage
@@ -34,7 +37,7 @@ def test_run_reconstruct_stage_emits_summary_and_report_outputs(tmp_path: Path, 
 	def _fake_load_templates_for_unit(**kwargs):
 		template = np.array([[-5.0, -10.0, -3.0], [-2.0, -4.0, -1.0], [-1.0, -6.0, -2.0]], dtype=float)
 		locs = np.array([[0.0, 0.0], [17.5, 0.0], [0.0, 17.5]], dtype=float)
-		return template, locs, 10_000.0, "merged_contributing"
+		return template, locs, template, locs, 10_000.0, "square_from_merged"
 
 	def _fake_compute_graph_tracking(**kwargs):
 		return object()
@@ -43,6 +46,17 @@ def test_run_reconstruct_stage_emits_summary_and_report_outputs(tmp_path: Path, 
 		out = Path(kwargs["output_png"])
 		out.parent.mkdir(parents=True, exist_ok=True)
 		out.write_bytes(b"png")
+
+	def _fake_write_unit_circle_recon_plot(**kwargs):
+		if kwargs["circle_config"].output.write_png:
+			out_png = Path(kwargs["output_png"])
+			out_png.parent.mkdir(parents=True, exist_ok=True)
+			out_png.write_bytes(b"circle_png")
+		if kwargs["circle_config"].output.write_svg:
+			out_svg = Path(kwargs["output_svg"])
+			out_svg.parent.mkdir(parents=True, exist_ok=True)
+			out_svg.write_text("<svg></svg>", encoding="utf-8")
+		return {}
 
 	def _fake_write_amplitude_map_summary_png(*, entries, output_png: Path, ncols: int, title: str = "") -> bool:
 		output_png.parent.mkdir(parents=True, exist_ok=True)
@@ -55,6 +69,7 @@ def test_run_reconstruct_stage_emits_summary_and_report_outputs(tmp_path: Path, 
 	monkeypatch.setattr(reconstruct_runner, "load_templates_for_unit", _fake_load_templates_for_unit)
 	monkeypatch.setattr(reconstruct_runner, "compute_graph_tracking", _fake_compute_graph_tracking)
 	monkeypatch.setattr(reconstruct_runner, "write_unit_amplitude_map_png", _fake_write_unit_amplitude_map_png)
+	monkeypatch.setattr(reconstruct_runner, "write_unit_circle_recon_plot", _fake_write_unit_circle_recon_plot)
 	monkeypatch.setattr(reconstruct_runner, "write_amplitude_map_summary_png", _fake_write_amplitude_map_summary_png)
 
 	inputs = ReconstructionInputs(
@@ -77,6 +92,15 @@ def test_run_reconstruct_stage_emits_summary_and_report_outputs(tmp_path: Path, 
 			write_gtr_json=False,
 			write_amplitude_map_png=True,
 			amplitude_map_png_relpath="maps/amplitude_map.png",
+			circle_recon=CircleReconConfig(
+				display=CircleReconDisplayConfig(),
+				output=CircleReconOutputConfig(
+					write_png=True,
+					write_svg=True,
+					relpath="maps/circle_recon",
+					dpi=300.0,
+				),
+			),
 		),
 	)
 
@@ -95,3 +119,5 @@ def test_run_reconstruct_stage_emits_summary_and_report_outputs(tmp_path: Path, 
 	for unit in units:
 		assert unit.get("status") == "ok"
 		assert "amplitude_map_png" in dict(unit.get("outputs", {}))
+		assert "circle_recon_png" in dict(unit.get("outputs", {}))
+		assert "circle_recon_svg" in dict(unit.get("outputs", {}))

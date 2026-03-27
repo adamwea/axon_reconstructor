@@ -9,7 +9,13 @@ from axon_recon.pipeline.shared.plotting import build_stage_plot_block
 from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
 
 from ...execution.context import ExecutionTarget
-from .models.inputs import PerUnitOutputsConfig, ReconstructionInputs
+from .models.inputs import (
+	CircleReconConfig,
+	CircleReconDisplayConfig,
+	CircleReconOutputConfig,
+	PerUnitOutputsConfig,
+	ReconstructionInputs,
+)
 
 
 def _as_bool(value: Any, default: bool) -> bool:
@@ -102,6 +108,13 @@ def parse_reconstruction_stage_config(
 ) -> ReconstructionStageConfig:
 	stage_cfg = runtime_config.get("stages.reconstruct", {})
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
+	try:
+		from axon_recon.pipeline.stages.templates.config import parse_templates_stage_config
+
+		tpl_stage_cfg = parse_templates_stage_config(runtime_config=runtime_config)
+		tpl_circles_defaults = tpl_stage_cfg.per_unit_outputs.template_circles
+	except Exception:
+		tpl_circles_defaults = None
 	execution_cfg = stage_cfg.get("execution", {}) if isinstance(stage_cfg.get("execution", {}), dict) else {}
 	outputs_cfg = stage_cfg.get("outputs", {}) if isinstance(stage_cfg.get("outputs", {}), dict) else {}
 	per_unit_cfg = outputs_cfg.get("per_unit_outputs", {}) if isinstance(outputs_cfg.get("per_unit_outputs", {}), dict) else {}
@@ -150,6 +163,87 @@ def parse_reconstruction_stage_config(
 			"amplitude_map.png",
 		)
 
+	recon_plots_cfg = per_unit_cfg.get("recon_plots", {}) if isinstance(per_unit_cfg.get("recon_plots", {}), dict) else {}
+	circle_recon_cfg = recon_plots_cfg.get("circle_recon", {}) if isinstance(recon_plots_cfg.get("circle_recon", {}), dict) else {}
+	circle_display_cfg = (
+		circle_recon_cfg.get("display", {}) if isinstance(circle_recon_cfg.get("display", {}), dict) else {}
+	)
+	circle_output_cfg = (
+		circle_recon_cfg.get("output", {}) if isinstance(circle_recon_cfg.get("output", {}), dict) else {}
+	)
+
+	default_circle_base = "template_circles"
+	default_circle_force_center = bool(getattr(tpl_circles_defaults, "force_center_soma", True))
+	default_circle_unique_color = bool(
+		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "unique_color_per_branch", True)
+	)
+	default_circle_show_labels = bool(
+		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "show_branch_labels", False)
+	)
+	default_circle_color_scheme = str(
+		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "color_scheme", "tab20") or "tab20"
+	)
+	default_circle_node_lw = float(
+		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "node_border_linewidth", 0.35)
+	)
+	default_circle_edge_lw = float(
+		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "edge_linewidth", 0.8)
+	)
+	default_circle_dpi = float(getattr(tpl_circles_defaults, "dpi", 300.0))
+
+	circle_base = str(circle_display_cfg.get("base", default_circle_base) or default_circle_base).strip().lower()
+	if circle_base not in {"template_circles", "amplitude_map", "latency_map"}:
+		circle_base = default_circle_base
+	circle_channel_scope = str(circle_display_cfg.get("channel_scope", "nodes_and_branches") or "nodes_and_branches").strip().lower()
+	if circle_channel_scope not in {"nodes_and_branches", "branches_only", "nodes_only"}:
+		circle_channel_scope = "nodes_and_branches"
+	try:
+		circle_zoom_padding_percent = float(circle_display_cfg.get("zoom_padding_percent", 20.0))
+	except Exception:
+		circle_zoom_padding_percent = 20.0
+	circle_zoom_padding_percent = float(max(0.0, circle_zoom_padding_percent))
+	circle_branch_scope = str(circle_display_cfg.get("branch_scope", "raw") or "raw").strip().lower()
+	if circle_branch_scope not in {"raw", "clean"}:
+		circle_branch_scope = "raw"
+	try:
+		circle_node_border_lw = float(circle_display_cfg.get("node_border_linewidth", default_circle_node_lw))
+	except Exception:
+		circle_node_border_lw = default_circle_node_lw
+	try:
+		circle_edge_lw = float(circle_display_cfg.get("edge_linewidth", default_circle_edge_lw))
+	except Exception:
+		circle_edge_lw = default_circle_edge_lw
+
+	circle_relpath = str(circle_output_cfg.get("relpath", "circle_recon") or "circle_recon").strip()
+	if not circle_relpath:
+		circle_relpath = "circle_recon"
+	try:
+		circle_dpi = float(circle_output_cfg.get("dpi", default_circle_dpi))
+	except Exception:
+		circle_dpi = default_circle_dpi
+
+	circle_recon = CircleReconConfig(
+		display=CircleReconDisplayConfig(
+			base=circle_base,
+			channel_scope=circle_channel_scope,
+			zoom_padding_percent=circle_zoom_padding_percent,
+			force_center_soma=_as_bool(circle_display_cfg.get("force_center_soma", default_circle_force_center), default_circle_force_center),
+			branch_scope=circle_branch_scope,
+			unique_color_per_branch=_as_bool(circle_display_cfg.get("unique_color_per_branch", default_circle_unique_color), default_circle_unique_color),
+			show_branch_labels=_as_bool(circle_display_cfg.get("show_branch_labels", default_circle_show_labels), default_circle_show_labels),
+			color_scheme=str(circle_display_cfg.get("color_scheme", default_circle_color_scheme) or default_circle_color_scheme),
+			node_border_linewidth=float(max(0.0, circle_node_border_lw)),
+			edge_linewidth=float(max(0.0, circle_edge_lw)),
+		),
+		output=CircleReconOutputConfig(
+			write_png=_as_bool(circle_output_cfg.get("write_png", False), False),
+			write_svg=_as_bool(circle_output_cfg.get("write_svg", False), False),
+			relpath=circle_relpath,
+			dpi=float(max(72.0, circle_dpi)),
+		),
+		base_template_circles=tpl_circles_defaults,
+	)
+
 	per_unit = PerUnitOutputsConfig(
 		unit_reldir=str(per_unit_cfg.get("unit_reldir", "units/{unit_id:04d}/")),
 		write_branches_raw_json=_as_bool(per_unit_cfg.get("write_branches_raw_json", True), True),
@@ -160,11 +254,17 @@ def parse_reconstruction_stage_config(
 		heuristics_relpath=str(per_unit_cfg.get("heuristics_relpath", "heuristics.json")),
 		write_gtr_pkl=_as_bool(per_unit_cfg.get("write_gtr_pkl", True), True),
 		gtr_pkl_relpath=str(per_unit_cfg.get("gtr_pkl_relpath", "gtr.pkl")),
+		template_source=(
+			str(per_unit_cfg.get("template_source", "square") or "square").strip().lower()
+			if str(per_unit_cfg.get("template_source", "square") or "square").strip().lower() in {"square", "merged", "full"}
+			else "square"
+		),
 		write_gtr_json=_as_bool(per_unit_cfg.get("write_gtr_json", False), False),
 		gtr_json_relpath=str(per_unit_cfg.get("gtr_json_relpath", "gtr.json")),
 		write_amplitude_map_png=write_amplitude_map_png,
 		amplitude_map_png_relpath=amplitude_map_png_relpath,
 		amplitude_map_heatmap=SharedHeatmapConfig.from_block(amplitude_map_cfg),
+		circle_recon=circle_recon,
 	)
 
 	return ReconstructionStageConfig(
@@ -274,4 +374,3 @@ def load_reconstruction_inputs_from_runtime(
 		n_jobs=1,
 		axon_velocity_params=stage_cfg.axon_velocity_params,
 	)
-

@@ -59,6 +59,24 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			        write_gtr_pkl: true
 			        write_gtr_json: true
 			        amplitude_map_png_relpath: maps/amplitude_map.png
+			        recon_plots:
+			          circle_recon:
+			            display:
+			              base: template_circles
+			              channel_scope: nodes_and_branches
+			              zoom_padding_percent: 12
+			              force_center_soma: true
+			              branch_scope: raw
+			              unique_color_per_branch: true
+			              show_branch_labels: true
+			              color_scheme: tab20
+			              node_border_linewidth: 0.42
+			              edge_linewidth: 1.1
+			            output:
+			              write_png: true
+			              write_svg: true
+			              relpath: maps/circle_recon
+			              dpi: 420
 			"""
 		).strip()
 		+ "\n",
@@ -75,6 +93,7 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert inputs.report_md_relpath == "reports/reconstruction_report.md"
 	assert inputs.per_unit_outputs.write_gtr_pkl is True
 	assert inputs.per_unit_outputs.write_gtr_json is True
+	assert inputs.per_unit_outputs.template_source == "square"
 	assert inputs.per_unit_outputs.write_amplitude_map_png is True
 	assert inputs.per_unit_outputs.amplitude_map_png_relpath == "maps/amplitude_map.png"
 	assert inputs.per_unit_outputs.amplitude_map_heatmap.colorbar_location == "bottomleft"
@@ -82,6 +101,21 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert inputs.per_unit_outputs.amplitude_map_heatmap.low_color == "navy"
 	assert inputs.per_unit_outputs.amplitude_map_heatmap.scale == "log"
 	assert inputs.per_unit_outputs.amplitude_map_heatmap.linear_cap_rounding_step == 5.0
+	circle = inputs.per_unit_outputs.circle_recon
+	assert circle.display.base == "template_circles"
+	assert circle.display.channel_scope == "nodes_and_branches"
+	assert circle.display.zoom_padding_percent == 12.0
+	assert circle.display.force_center_soma is True
+	assert circle.display.branch_scope == "raw"
+	assert circle.display.unique_color_per_branch is True
+	assert circle.display.show_branch_labels is True
+	assert circle.display.color_scheme == "tab20"
+	assert circle.display.node_border_linewidth == 0.42
+	assert circle.display.edge_linewidth == 1.1
+	assert circle.output.write_png is True
+	assert circle.output.write_svg is True
+	assert circle.output.relpath == "maps/circle_recon"
+	assert circle.output.dpi == 420.0
 	assert inputs.unit_ids == [94]
 
 
@@ -128,4 +162,3 @@ def test_load_config_reconstruct_legacy_stage_block_without_global_defaults(tmp_
 	assert heat.background == "white"
 	assert heat.low_color == "teal"
 	assert heat.show_ticks == (1, 3, "dynamic_high")
-

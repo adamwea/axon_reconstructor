@@ -440,6 +440,13 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 			                font_location: inside
 			                font_location_circle_too_small: below
 			                units: uV
+			              branch_morphology:
+			                enabled: true
+			                node_border_linewidth: 0.22
+			                edge_linewidth: 1.1
+			                show_branch_labels: true
+			                unique_color_per_branch: true
+			                color_scheme: tab10
 			            color_bar:
 			              units: ms
 			              title: Latency (ms)
@@ -487,6 +494,13 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 	assert inputs.per_unit_outputs.template_circles.scale_circle.font_location == "inside"
 	assert inputs.per_unit_outputs.template_circles.scale_circle.font_location_circle_too_small == "below"
 	assert inputs.per_unit_outputs.template_circles.scale_circle.units == "uV"
+	bm = inputs.per_unit_outputs.template_circles.branch_morphology
+	assert bm.enabled is True
+	assert bm.node_border_linewidth == 0.22
+	assert bm.edge_linewidth == 1.1
+	assert bm.show_branch_labels is True
+	assert bm.unique_color_per_branch is True
+	assert bm.color_scheme == "tab10"
 	assert inputs.per_unit_outputs.template_circles.color_bar_tick_fontsize == 18
 	assert inputs.per_unit_outputs.template_circles.color_bar_tick_decimal_places == 3
 	assert inputs.per_unit_outputs.template_circles.color_bar_tick_target_count == 10

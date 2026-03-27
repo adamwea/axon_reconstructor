@@ -82,6 +82,16 @@ class TemplateScaleCircleConfig:
 
 
 @dataclass(frozen=True)
+class TemplateCirclesBranchMorphologyConfig:
+	enabled: bool = False
+	node_border_linewidth: float = 0.35
+	edge_linewidth: float = 0.8
+	show_branch_labels: bool = False
+	unique_color_per_branch: bool = True
+	color_scheme: str = "tab20"
+
+
+@dataclass(frozen=True)
 class TemplateCirclesPlotConfig(TemplatePlotConfig):
 	write_png: bool = False
 	write_svg: bool = False
@@ -104,6 +114,7 @@ class TemplateCirclesPlotConfig(TemplatePlotConfig):
 	show_scale_circle: bool = False
 	scale_circle_color: str = "white"
 	scale_circle: TemplateScaleCircleConfig = field(default_factory=TemplateScaleCircleConfig)
+	branch_morphology: TemplateCirclesBranchMorphologyConfig = field(default_factory=TemplateCirclesBranchMorphologyConfig)
 	overlap_controls: TemplateCirclesOverlapControlsConfig = field(default_factory=TemplateCirclesOverlapControlsConfig)
 
 

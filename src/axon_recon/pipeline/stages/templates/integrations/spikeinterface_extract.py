@@ -289,7 +289,7 @@ def build_unit_source_payload(
 			if int(wf_all.shape[0]) < int(need_waveforms):
 				if _try_recompute_waveforms_extension(
 					analyzer=analyzer,
-					requested_max_spikes_per_unit=requested_waveforms,
+					requested_max_spikes_per_unit=int(need_waveforms),
 					requested_ms_before=waveform_ms_before,
 					requested_ms_after=waveform_ms_after,
 				):

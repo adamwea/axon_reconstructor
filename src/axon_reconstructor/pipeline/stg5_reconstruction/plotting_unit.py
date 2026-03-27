@@ -3175,5 +3175,3 @@ def write_unit_reconstruction_pdfs(
             outputs[k] = str(p)
 
     return outputs
-
-
