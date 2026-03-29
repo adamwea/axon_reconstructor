@@ -618,6 +618,8 @@ class TemplatesInputs:
 	h5_path: Path
 	stream_id: str
 	mea_output_root: Path
+	concat_analyzer_relpath: str | None = None
+	preproc_seg_sources_reldir: str | None = None
 
 	output_rel_root: str = "templates_outputs"
 	per_unit_outputs: PerUnitTemplatesOutputsConfig = field(default_factory=PerUnitTemplatesOutputsConfig)

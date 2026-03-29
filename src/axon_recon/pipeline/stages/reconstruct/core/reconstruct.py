@@ -19,12 +19,34 @@ def load_templates_for_unit(
 	from axon_recon.pipeline.stages.templates.runner import _build_square_locations
 	from axon_recon.pipeline.stages.templates.runner import _build_square_template
 
-	merged_unit_dir = merged_units_dir / f"unit_{unit_id}"
-	full_unit_dir = full_channels_templates_dir / f"unit_{unit_id}"
+	unit_tokens: list[str] = []
+	try:
+		uid = int(unit_id)
+		unit_tokens = [f"unit_{uid}", f"{uid:04d}", str(uid)]
+	except Exception:
+		unit_tokens = [f"unit_{unit_id}", str(unit_id)]
 
-	merged_tmpl_npy = merged_unit_dir / "merged_contributing_template.npy"
-	merged_locs_npy = merged_unit_dir / "merged_contributing_channel_locations.npy"
-	merged_meta_json = merged_unit_dir / "merged_contributing_template_meta.json"
+	merged_unit_dir = next((merged_units_dir / tok for tok in unit_tokens if (merged_units_dir / tok).exists()), merged_units_dir / unit_tokens[0])
+	full_unit_dir = next((full_channels_templates_dir / tok for tok in unit_tokens if (full_channels_templates_dir / tok).exists()), full_channels_templates_dir / unit_tokens[0])
+
+	legacy_merged_tmpl_npy = merged_unit_dir / "merged_contributing_template.npy"
+	legacy_merged_locs_npy = merged_unit_dir / "merged_contributing_channel_locations.npy"
+	legacy_merged_meta_json = merged_unit_dir / "merged_contributing_template_meta.json"
+
+	v2_merged_tmpl_npy = merged_unit_dir / "merged_template.npy"
+	v2_merged_locs_npy = merged_unit_dir / "merged_channel_locations.npy"
+	v2_unit_summary_json = merged_unit_dir / "unit_templates_summary.json"
+
+	if v2_merged_tmpl_npy.exists() and v2_merged_locs_npy.exists():
+		merged_tmpl_npy = v2_merged_tmpl_npy
+		merged_locs_npy = v2_merged_locs_npy
+		merged_meta_json = v2_unit_summary_json
+		selected_merged_source = "merged_per_unit_output"
+	else:
+		merged_tmpl_npy = legacy_merged_tmpl_npy
+		merged_locs_npy = legacy_merged_locs_npy
+		merged_meta_json = legacy_merged_meta_json
+		selected_merged_source = "merged_contributing"
 
 	full_tmpl_npy = full_unit_dir / "full_template.npy"
 	full_locs_npy = full_unit_dir / "full_channel_locations_xy.npy"
@@ -40,17 +62,17 @@ def load_templates_for_unit(
 	if merged_locs.ndim != 2 or merged_locs.shape[1] < 2:
 		raise ValueError(f"Unexpected merged locations shape for unit {unit_id}: {merged_locs.shape}")
 
+	source = str(template_source or "square").strip().lower()
+	if source not in {"square", "merged", "full"}:
+		source = "square"
+
 	use_full = bool(use_full_channels_templates)
-	if use_full and (not full_tmpl_npy.exists() or not full_locs_npy.exists()):
+	if source == "full" and use_full and (not full_tmpl_npy.exists() or not full_locs_npy.exists()):
 		if bool(require_full_channels_templates):
 			raise FileNotFoundError(
 				f"Missing full-channel templates for unit {unit_id}: {full_tmpl_npy} and {full_locs_npy}"
 			)
 		use_full = False
-
-	source = str(template_source or "square").strip().lower()
-	if source not in {"square", "merged", "full"}:
-		source = "square"
 
 	gtr_tmpl: np.ndarray
 	gtr_locs: np.ndarray
@@ -70,21 +92,32 @@ def load_templates_for_unit(
 	elif source == "merged":
 		gtr_tmpl = np.asarray(merged_tmpl, dtype=float)
 		gtr_locs = np.asarray(merged_locs[:, :2], dtype=float)
-		selected_source = "merged_contributing"
+		selected_source = selected_merged_source
 	else:
 		merged_c_by_t = np.asarray(merged_tmpl, dtype=float).T
 		square_c_by_t = _build_square_template(merged_c_by_t, padding_mode="zero")
 		square_locs = _build_square_locations(np.asarray(merged_locs)[:, :2], target_channels=int(square_c_by_t.shape[0]))
 		gtr_tmpl = np.asarray(square_c_by_t.T, dtype=float)
 		gtr_locs = np.asarray(square_locs[:, :2], dtype=float)
-		selected_source = "square_from_merged"
+		selected_source = "square_from_merged_per_unit" if selected_merged_source == "merged_per_unit_output" else "square_from_merged"
 
 	fs_hz = 10_000.0
 	if merged_meta_json.exists():
 		try:
 			meta = read_json(merged_meta_json)
-			if isinstance(meta, dict) and meta.get("sampling_frequency_hz") is not None:
-				fs_hz = float(meta.get("sampling_frequency_hz"))
+			if isinstance(meta, dict):
+				if meta.get("sampling_frequency_hz") is not None:
+					fs_hz = float(meta.get("sampling_frequency_hz"))
+				elif meta.get("effective_sampling_rate_hz") is not None:
+					fs_hz = float(meta.get("effective_sampling_rate_hz"))
+				elif isinstance(meta.get("upsampling"), dict):
+					ups = meta.get("upsampling")
+					if ups.get("target_hz") is not None:
+						fs_hz = float(ups.get("target_hz"))
+					elif ups.get("analyzer_hz") is not None:
+						fs_hz = float(ups.get("analyzer_hz"))
+					elif ups.get("raw_hz") is not None:
+						fs_hz = float(ups.get("raw_hz"))
 		except Exception:
 			fs_hz = 10_000.0
 

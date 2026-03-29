@@ -30,18 +30,32 @@ LOGGER = logging.getLogger("axon_recon.reconstruct")
 
 def _discover_unit_ids(merged_units_dir: Path) -> list[Any]:
 	unit_ids: list[Any] = []
-	for p in sorted(merged_units_dir.glob("unit_*")):
+	for p in sorted(merged_units_dir.iterdir() if merged_units_dir.exists() else []):
 		if not p.is_dir():
 			continue
-		token = p.name.split("unit_", 1)[1]
+		token = p.name
+		if token.startswith("unit_"):
+			token = token.split("unit_", 1)[1]
 		try:
 			unit_ids.append(int(token))
 		except Exception:
-			unit_ids.append(token)
+			# Ignore non-unit directories (for example reports/ or cache subfolders).
+			continue
 	return unit_ids
 
 
-def _resolve_templates_dirs(well_out_dir: Path) -> tuple[Path, Path, Path]:
+def _resolve_templates_dirs(
+	well_out_dir: Path,
+	*,
+	load_assets_from_v2pipeline_templates_stage: bool = False,
+) -> tuple[Path, Path, Path]:
+	if bool(load_assets_from_v2pipeline_templates_stage):
+		templates_out_dir = well_out_dir / "template_outputs"
+		merged_units_dir = templates_out_dir / "units"
+		full_channels_templates_dir = merged_units_dir
+		if merged_units_dir.exists():
+			return templates_out_dir, merged_units_dir, full_channels_templates_dir
+
 	templates_out_dir = well_out_dir / "stg4_templates_outputs"
 	templates_dir = templates_out_dir / "templates"
 
@@ -81,7 +95,10 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 	reconstruction_out_dir = well_out_dir / str(inputs.output_rel_root)
 	reconstruction_out_dir.mkdir(parents=True, exist_ok=True)
 
-	_, merged_units_dir, full_channels_templates_dir = _resolve_templates_dirs(well_out_dir)
+	_, merged_units_dir, full_channels_templates_dir = _resolve_templates_dirs(
+		well_out_dir,
+		load_assets_from_v2pipeline_templates_stage=inputs.load_assets_from_v2pipeline_templates_stage,
+	)
 	unit_ids = _build_unit_ids(inputs, merged_units_dir)
 
 	av = import_axon_velocity(repo_root=inputs.axon_velocity_repo_root)

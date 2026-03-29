@@ -38,6 +38,8 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			      scale: log
 			stages:
 			  reconstruct:
+			    inputs:
+			      load_assets_from_v2pipeline_tempaltes_stage: true
 			    execution:
 			      force_restart: false
 			    outputs:
@@ -116,6 +118,7 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert circle.output.write_svg is True
 	assert circle.output.relpath == "maps/circle_recon"
 	assert circle.output.dpi == 420.0
+	assert inputs.load_assets_from_v2pipeline_templates_stage is True
 	assert inputs.unit_ids == [94]
 
 

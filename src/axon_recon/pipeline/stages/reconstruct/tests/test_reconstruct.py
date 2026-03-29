@@ -22,7 +22,7 @@ def test_run_reconstruct_stage_emits_summary_and_report_outputs(tmp_path: Path, 
 	def _fake_compute_mea_analysis_output_dir(*, output_root: Path, data_file: Path, well: str) -> Path:
 		return well_out_dir
 
-	def _fake_resolve_templates_dirs(_well_out_dir: Path) -> tuple[Path, Path, Path]:
+	def _fake_resolve_templates_dirs(_well_out_dir: Path, **kwargs) -> tuple[Path, Path, Path]:
 		templates_out = tmp_path / "templates_out"
 		merged = tmp_path / "templates_merged"
 		full = tmp_path / "templates_full"

@@ -41,7 +41,17 @@ def run_reconstruct_from_runtime(
 			stage_config=stage_config,
 			unit_workers=int(parallelism.unit_workers),
 		)
-		return run_reconstruct(inputs)
+		result = run_reconstruct(inputs)
+		failed_units = [u for u in result.units if str(getattr(u, "status", "ok")).strip().lower() != "ok"]
+		if failed_units:
+			first = failed_units[0]
+			raise RuntimeError(
+				"reconstruct unit failures: "
+				f"failed={len(failed_units)}/{len(result.units)} "
+				f"first_unit={getattr(first, 'unit_id', 'unknown')} "
+				f"first_error={getattr(first, 'error', None) or getattr(first, 'status', 'error')}"
+			)
+		return result
 
 	target_results = distribute_targets(
 		targets=targets,
@@ -103,4 +113,3 @@ def run_templates_from_runtime(
 		failed_targets=failed,
 		target_results=target_results,
 	)
-

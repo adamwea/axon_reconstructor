@@ -124,8 +124,10 @@ stages:
     resources:
       max_stage_workers: 24
       well_workers: 2
-    ms_before: 1
-    ms_after: 2
+    # ms_before: 1
+    # ms_after: 2
+    ms_before: 1.5
+    ms_after: 3.5
     #max_spikes_per_unit: 1000000
     max_spikes_per_unit: -1
     per_segment: true
@@ -160,11 +162,26 @@ stages:
       #unit_limit: -1
       unit_limit: 10
 
+      inputs:
+
+        # waveform extraction:
+          # register recover spikes in preprocessed segments using concat analyzer
+          # using v1 ouputs as inputs for now.
+          # extract waveforms for each unit at each segment for downstream template merge
+
+        # template extraction:
+          # create an analyzer for each segment
+          # extract partial templates for each unit.
+          # merge them downstream.
+
+        concat_analyzer_relpath: /stg2_spikesorting_outputs/analyzer_output
+        preproc_seg_sources_reldir: /stg1_preprocess_outputs/per_segment_preprocessed
+
       spikeinterface:
         waveform_extraction:
           window:
-            ms_before: 1
-            ms_after: 2
+            ms_before: 2
+            ms_after: 5
           # null or -1 means uncapped (use all available spikes per unit per source)
           max_spikes_per_unit: -1
           sources:

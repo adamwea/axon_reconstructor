@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,241 @@ import numpy as np  # type: ignore[import-not-found]
 from ..core.source_payloads import normalize_source_payload
 
 LOGGER = logging.getLogger("axon_recon.templates.spikeinterface")
+
+
+def _read_json(path: Path) -> Any:
+	with open(path, "r", encoding="utf-8") as f:
+		return json.load(f)
+
+
+def _parse_segment_index_from_name(name: str) -> int | None:
+	token = str(name or "")
+	for prefix in ("seg", "segment"):
+		if token.lower().startswith(prefix):
+			tail = token[len(prefix) :]
+			digits = ""
+			for ch in tail:
+				if ch.isdigit():
+					digits += ch
+				else:
+					break
+			if digits:
+				try:
+					return int(digits)
+				except Exception:
+					return None
+	if "_" in token:
+		left = token.split("_", 1)[0]
+		if left.isdigit():
+			try:
+				return int(left)
+			except Exception:
+				return None
+	return None
+
+
+def _load_concat_epoch_windows(*, preproc_segments_dir: Path, stream_id: str | None) -> list[dict[str, Any]]:
+	parent = Path(preproc_segments_dir).parent
+	candidates: list[Path] = []
+	if stream_id:
+		candidates.append(parent / f"concatenation_stitch_epochs_{stream_id}.json")
+	candidates.extend(
+		[
+			parent / "concatenation_stitch_epochs.json",
+			parent / "concat_epochs.json",
+		]
+	)
+
+	for path in candidates:
+		if not path.exists():
+			continue
+		try:
+			payload = _read_json(path)
+			if isinstance(payload, list):
+				return [item for item in payload if isinstance(item, dict)]
+		except Exception:
+			continue
+	return []
+
+
+def _load_segment_manifest(*, preproc_segments_dir: Path) -> dict[tuple[int, str], Path]:
+	manifest_path = Path(preproc_segments_dir) / "manifest.json"
+	if not manifest_path.exists():
+		return {}
+
+	try:
+		payload = _read_json(manifest_path)
+	except Exception:
+		return {}
+
+	if not isinstance(payload, dict):
+		return {}
+
+	segments = payload.get("segments")
+	if not isinstance(segments, list):
+		return {}
+
+	mapping: dict[tuple[int, str], Path] = {}
+	for item in segments:
+		if not isinstance(item, dict):
+			continue
+		try:
+			seg_index = int(item.get("segment_index"))
+		except Exception:
+			continue
+		rec_name = str(item.get("rec_name", ""))
+		folder = item.get("folder")
+		if not rec_name or folder is None:
+			continue
+		mapping[(int(seg_index), rec_name)] = Path(str(folder))
+	return mapping
+
+
+def _to_numpy_sorting(*, si_core: Any, unit_trains: dict[Any, list[int]], fs_hz: float) -> Any:
+	import numpy as _np  # type: ignore[import-not-found]
+
+	NumpySorting = getattr(si_core, "NumpySorting")
+	unit_trains_np: dict[int, "_np.ndarray"] = {
+		int(u): _np.asarray(times, dtype=_np.int64) for u, times in unit_trains.items()
+	}
+
+	unit_ids = sorted(unit_trains_np.keys())
+	all_times: list[int] = []
+	all_labels: list[int] = []
+	for u in unit_ids:
+		times_arr = unit_trains_np[u]
+		if times_arr.size:
+			all_times.extend(times_arr.tolist())
+			all_labels.extend([u] * int(times_arr.size))
+
+	if not all_times:
+		return NumpySorting.from_unit_dict(unit_trains_np, sampling_frequency=float(fs_hz))
+
+	times_arr = _np.asarray(all_times, dtype=_np.int64)
+	labels_arr = _np.asarray(all_labels, dtype=_np.int64)
+	order = _np.argsort(times_arr, kind="mergesort")
+	times_arr = times_arr[order]
+	labels_arr = labels_arr[order]
+
+	return NumpySorting.from_times_labels(
+		times_list=[times_arr],
+		labels_list=[labels_arr],
+		sampling_frequency=float(fs_hz),
+	)
+
+
+def _build_segment_analyzer_from_preprocessed_recording(
+	*,
+	si: Any,
+	si_core: Any,
+	concat_analyzer: Any,
+	seg_dir: Path,
+	seg_name: str,
+	seg_index: int,
+	start_sample: int | None,
+	end_sample: int | None,
+) -> Any | None:
+	try:
+		seg_rec = si.load_extractor(seg_dir)
+	except Exception:
+		try:
+			seg_rec = si.load(seg_dir)
+		except Exception:
+			LOGGER.warning("Skipping segment source (unloadable preprocessed recording): %s", seg_dir)
+			return None
+
+	sorting = getattr(concat_analyzer, "sorting", None)
+	if sorting is None:
+		return None
+
+	try:
+		unit_ids = list(sorting.get_unit_ids())
+	except Exception:
+		unit_ids = list(getattr(sorting, "unit_ids", []))
+	if not unit_ids:
+		return None
+
+	fs_hz: float | None = None
+	for getter in (
+		lambda: sorting.get_sampling_frequency(),
+		lambda: concat_analyzer.recording.get_sampling_frequency(),
+		lambda: seg_rec.get_sampling_frequency(),
+	):
+		try:
+			cand = float(getter())
+			if cand > 0.0 and np.isfinite(cand):
+				fs_hz = cand
+				break
+		except Exception:
+			continue
+	if fs_hz is None:
+		fs_hz = 10_000.0
+
+	unit_trains_seg: dict[Any, list[int]] = {}
+
+	try:
+		n_segments = int(sorting.get_num_segments()) if hasattr(sorting, "get_num_segments") else 1
+	except Exception:
+		n_segments = 1
+
+	if n_segments > 1 and 0 <= int(seg_index) < int(n_segments):
+		for uid in unit_ids:
+			try:
+				st = sorting.get_unit_spike_train(unit_id=uid, segment_index=int(seg_index))
+			except Exception:
+				st = []
+			unit_trains_seg[uid] = [int(t) for t in st]
+	elif start_sample is not None and end_sample is not None:
+		start = int(start_sample)
+		end = int(end_sample)
+		for uid in unit_ids:
+			try:
+				st = sorting.get_unit_spike_train(unit_id=uid, segment_index=0)
+			except TypeError:
+				st = sorting.get_unit_spike_train(uid)
+			except Exception:
+				st = []
+			local = [int(t) - int(start) for t in st if int(start) <= int(t) < int(end)]
+			unit_trains_seg[uid] = local
+	else:
+		LOGGER.info(
+			"Skipping build for segment %s: missing concat window metadata and concat sorting is single-segment",
+			str(seg_name),
+		)
+		return None
+
+	try:
+		seg_sort = _to_numpy_sorting(si_core=si_core, unit_trains=unit_trains_seg, fs_hz=float(fs_hz))
+	except Exception:
+		LOGGER.warning("Failed creating segment sorting for %s", str(seg_name), exc_info=True)
+		return None
+
+	try:
+		seg_sort = si.remove_excess_spikes(seg_sort, seg_rec)
+		seg_sort = seg_sort.remove_empty_units()
+	except Exception:
+		pass
+
+	try:
+		seg_units = list(getattr(seg_sort, "unit_ids", []))
+	except Exception:
+		seg_units = []
+	if not seg_units:
+		LOGGER.info("Skipping segment %s build: no units after cleanup", str(seg_name))
+		return None
+
+	try:
+		seg_analyzer = si.create_sorting_analyzer(
+			seg_sort,
+			seg_rec,
+			format="memory",
+			return_in_uV=True,
+		)
+		seg_analyzer.compute(["random_spikes", "waveforms", "templates"], verbose=False, n_jobs=1)
+		return seg_analyzer
+	except Exception:
+		LOGGER.warning("Failed building in-memory segment analyzer for %s", str(seg_name), exc_info=True)
+		return None
 
 
 def _unit_key(value: Any) -> str:
@@ -180,14 +416,23 @@ def _try_recompute_waveforms_extension(
 	requested_ms_before: float | None,
 	requested_ms_after: float | None,
 ) -> bool:
-	"""Best-effort recompute of random_spikes+waveforms with requested cap semantics.
+	"""Best-effort recompute of random_spikes+waveforms+templates with requested semantics.
 
 	Returns True when recompute appears to run successfully.
 	"""
-	attempted_attr = "_axon_recon_waveforms_recompute_attempted"
-	if bool(getattr(analyzer, attempted_attr, False)):
+	attempted_attr = "_axon_recon_waveforms_recompute_attempted_params"
+	attempt_key = (
+		None if requested_max_spikes_per_unit is None else int(requested_max_spikes_per_unit),
+		None if requested_ms_before is None else float(requested_ms_before),
+		None if requested_ms_after is None else float(requested_ms_after),
+	)
+	seen = getattr(analyzer, attempted_attr, None)
+	if isinstance(seen, set) and attempt_key in seen:
 		return False
-	setattr(analyzer, attempted_attr, True)
+	if not isinstance(seen, set):
+		seen = set()
+	seen.add(attempt_key)
+	setattr(analyzer, attempted_attr, seen)
 
 	try:
 		wf_ext = analyzer.get_extension("waveforms")
@@ -219,7 +464,7 @@ def _try_recompute_waveforms_extension(
 
 	try:
 		analyzer.compute(
-			["random_spikes", "waveforms"],
+			["random_spikes", "waveforms", "templates"],
 			extension_params=extension_params,
 			verbose=False,
 			n_jobs=1,
@@ -238,11 +483,27 @@ def build_unit_source_payload(
 	waveform_ms_before: float | None = None,
 	waveform_ms_after: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray, list[Any] | None, list[Any] | None, int, float | None, np.ndarray | None, Any, int | None] | None:
+	waveform_count = _extract_total_waveform_count(analyzer=analyzer, unit_id=unit_id)
+	requested_waveforms: int | None
+	if max_spikes_per_unit is None:
+		requested_waveforms = None
+	else:
+		requested_waveforms = int(max_spikes_per_unit)
+		if requested_waveforms <= 0:
+			requested_waveforms = None
+
+	requested_for_extension_refresh = int(waveform_count) if requested_waveforms is None else int(min(max(1, requested_waveforms), int(waveform_count)))
+	if waveform_ms_before is not None or waveform_ms_after is not None or requested_waveforms is not None:
+		_try_recompute_waveforms_extension(
+			analyzer=analyzer,
+			requested_max_spikes_per_unit=requested_for_extension_refresh,
+			requested_ms_before=waveform_ms_before,
+			requested_ms_after=waveform_ms_after,
+		)
+
 	t = _extract_unit_template(analyzer, unit_id)
 	if t is None:
 		return None
-
-	waveform_count = _extract_total_waveform_count(analyzer=analyzer, unit_id=unit_id)
 
 	locs = np.asarray(analyzer.recording.get_channel_locations(), dtype=float)
 	electrode_ids = _extract_electrode_ids(analyzer.recording)
@@ -265,13 +526,6 @@ def build_unit_source_payload(
 	top_electrode_waveforms: np.ndarray | None = None
 	top_electrode_id: Any = None
 	top_electrode_waveform_count: int | None = None
-	requested_waveforms: int | None
-	if max_spikes_per_unit is None:
-		requested_waveforms = None
-	else:
-		requested_waveforms = int(max_spikes_per_unit)
-		if requested_waveforms <= 0:
-			requested_waveforms = None
 	try:
 		ptp = np.ptp(t_ch_by_t, axis=1)
 		top_local_idx = int(np.argmax(ptp)) if int(ptp.size) > 0 else 0
@@ -336,28 +590,155 @@ def build_unit_source_payload(
 def load_spikeinterface_analyzers(
 	*,
 	well_out_dir: Path,
+	concat_analyzer_relpath: str | None = None,
+	preproc_seg_sources_reldir: str | None = None,
+	stream_id: str | None = None,
 	include_concat: bool,
 	include_segments: bool,
 ) -> list[tuple[str, Any]]:
 	import spikeinterface.full as si  # type: ignore[import-not-found]
 
+	def _resolve_from_well(raw_path: str | None) -> Path | None:
+		if raw_path is None:
+			return None
+		token = str(raw_path).strip()
+		if not token:
+			return None
+		p = Path(token).expanduser()
+		if p.is_absolute() and p.exists():
+			return p
+		# Treat leading-slash tokens as well-root-relative knobs (config style convention).
+		if p.is_absolute():
+			token = token.lstrip("/")
+			p = Path(token)
+		return (well_out_dir / p).resolve()
+
 	wf_out = well_out_dir / "stg3_waveforms_outputs"
-	concat_dir = wf_out / "concat_waveforms"
-	segments_dir = wf_out / "segment_waveforms"
+	concat_dir = _resolve_from_well(concat_analyzer_relpath) or (wf_out / "concat_waveforms")
+	segments_dir = _resolve_from_well(preproc_seg_sources_reldir) or (wf_out / "segment_waveforms")
 
 	analyzers: list[tuple[str, Any]] = []
+	concat_analyzer_obj: Any | None = None
 	if include_concat and concat_dir.exists():
-		analyzers.append(("concat", si.load_sorting_analyzer(concat_dir)))
+		try:
+			concat_analyzer_obj = si.load_sorting_analyzer(concat_dir)
+			analyzers.append(("concat", concat_analyzer_obj))
+		except Exception:
+			LOGGER.warning("Failed to load concat analyzer: %s", concat_dir)
+	if include_concat and (not concat_dir.exists()):
+		LOGGER.info("Concat analyzer directory not found: %s", concat_dir)
+
+	if concat_analyzer_obj is None and concat_dir.exists():
+		try:
+			concat_analyzer_obj = si.load_sorting_analyzer(concat_dir)
+		except Exception:
+			concat_analyzer_obj = None
+
 	if include_segments and segments_dir.exists():
-		for seg_dir in sorted([p for p in segments_dir.iterdir() if p.is_dir()]):
+		seg_dirs = sorted([p for p in segments_dir.iterdir() if p.is_dir()])
+		unloadable_seg_dirs: list[Path] = []
+		for seg_dir in seg_dirs:
 			try:
 				analyzers.append((seg_dir.name, si.load_sorting_analyzer(seg_dir)))
 			except Exception:
-				LOGGER.warning("Skipping unreadable segment analyzer: %s", seg_dir)
+				unloadable_seg_dirs.append(seg_dir)
+				LOGGER.info("Segment directory is not a loadable analyzer (will try build fallback): %s", seg_dir)
+
+		if unloadable_seg_dirs and concat_analyzer_obj is not None:
+			try:
+				import spikeinterface.core as si_core  # type: ignore[import-not-found]
+			except Exception:
+				si_core = None
+			if si_core is None:
+				LOGGER.info(
+					"Segment fallback build skipped: spikeinterface.core unavailable for source_dir=%s",
+					str(segments_dir),
+				)
+				unloadable_seg_dirs = []
+
+		if unloadable_seg_dirs and concat_analyzer_obj is not None:
+			epochs = _load_concat_epoch_windows(preproc_segments_dir=segments_dir, stream_id=stream_id)
+			epoch_by_key: dict[tuple[int, str], tuple[int, int]] = {}
+			for ep in epochs:
+				try:
+					seg_index = int(ep.get("segment_index"))
+					rec_name = str(ep.get("rec_name", ""))
+					start = int(ep.get("start_sample"))
+					end = int(ep.get("end_sample"))
+				except Exception:
+					continue
+				if rec_name and end > start:
+					epoch_by_key[(int(seg_index), rec_name)] = (int(start), int(end))
+
+			manifest_by_key = _load_segment_manifest(preproc_segments_dir=segments_dir)
+			manifest_inverse = {v.resolve(): k for k, v in manifest_by_key.items()}
+
+			built_count = 0
+			for seg_dir in unloadable_seg_dirs:
+				seg_name = str(seg_dir.name)
+				seg_index = _parse_segment_index_from_name(seg_name)
+				rec_name: str | None = None
+
+				resolved_seg = seg_dir.resolve()
+				manifest_key = manifest_inverse.get(resolved_seg)
+				if manifest_key is not None:
+					seg_index = int(manifest_key[0])
+					rec_name = str(manifest_key[1])
+
+				start_sample: int | None = None
+				end_sample: int | None = None
+				if seg_index is not None and rec_name is not None:
+					window = epoch_by_key.get((int(seg_index), str(rec_name)))
+					if window is not None:
+						start_sample, end_sample = int(window[0]), int(window[1])
+				elif seg_index is not None:
+					for (idx, rn), window in epoch_by_key.items():
+						if int(idx) == int(seg_index):
+							rec_name = str(rn)
+							start_sample, end_sample = int(window[0]), int(window[1])
+							break
+
+				if seg_index is None:
+					LOGGER.info("Skipping segment fallback build; could not infer segment index: %s", seg_dir)
+					continue
+
+				built = _build_segment_analyzer_from_preprocessed_recording(
+					si=si,
+					si_core=si_core,
+					concat_analyzer=concat_analyzer_obj,
+					seg_dir=seg_dir,
+					seg_name=seg_name,
+					seg_index=int(seg_index),
+					start_sample=start_sample,
+					end_sample=end_sample,
+				)
+				if built is not None:
+					analyzers.append((seg_name, built))
+					built_count += 1
+
+			if built_count > 0:
+				LOGGER.info(
+					"Built segment analyzers from preprocessed recordings: count=%d source_dir=%s",
+					int(built_count),
+					str(segments_dir),
+				)
+		elif unloadable_seg_dirs and concat_analyzer_obj is None:
+			LOGGER.info(
+				"Segment fallback build skipped: concat analyzer unavailable for source_dir=%s",
+				str(segments_dir),
+			)
+	if include_segments and (not segments_dir.exists()):
+		LOGGER.info("Segment analyzers directory not found: %s", segments_dir)
 
 	if not analyzers:
 		raise FileNotFoundError(
-			"No SpikeInterface analyzers found under stg3_waveforms_outputs. "
-			"Expected concat_waveforms and/or segment_waveforms."
+			"No SpikeInterface analyzers found for templates materialization. "
+			f"checked concat={concat_dir} segments={segments_dir}."
 		)
+	LOGGER.info(
+		"Loaded SpikeInterface analyzers from concat=%s segments=%s count=%d",
+		str(concat_dir),
+		str(segments_dir),
+		len(analyzers),
+	)
 	return analyzers

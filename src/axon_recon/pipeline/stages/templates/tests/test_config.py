@@ -2033,6 +2033,9 @@ def test_load_templates_config_parses_waveform_extraction_controls_with_fallback
 			    max_spikes_per_unit: 999
 			  templates:
 			    execution:
+			      inputs:
+			        concat_analyzer_relpath: /stg2_spikesorting_outputs/analyzer_output
+			        preproc_seg_sources_reldir: /stg1_preprocess_outputs/per_segment_preprocessed
 			      spikeinterface:
 			        waveform_extraction:
 			          window:
@@ -2049,6 +2052,8 @@ def test_load_templates_config_parses_waveform_extraction_controls_with_fallback
 	assert inputs.waveform_extraction.ms_before == 1.5
 	assert inputs.waveform_extraction.ms_after == 2.5
 	assert inputs.waveform_extraction.max_spikes_per_unit is None
+	assert inputs.concat_analyzer_relpath == "/stg2_spikesorting_outputs/analyzer_output"
+	assert inputs.preproc_seg_sources_reldir == "/stg1_preprocess_outputs/per_segment_preprocessed"
 
 	runtime_path_fallback = tmp_path / "runtime_fallback.yml"
 	runtime_path_fallback.write_text(

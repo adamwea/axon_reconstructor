@@ -813,6 +813,8 @@ class TemplatesStageConfig:
 	per_unit_outputs: PerUnitTemplatesOutputsConfig
 	reports: ReportsConfig
 	quality_checks_outputs: DataQualityChecksOutputsConfig
+	concat_analyzer_relpath: str | None
+	preproc_seg_sources_reldir: str | None
 	unit_ids: list[int] | None
 	unit_limit: int | None
 	force_restart: bool
@@ -826,6 +828,15 @@ class TemplatesStageConfig:
 	merge: MergeConfig
 	quality_checks: QualityChecksConfig
 	probe_geometry: ProbeGeometryConfig | None = None
+
+
+def _normalize_optional_path_token(raw: Any) -> str | None:
+	if raw is None:
+		return None
+	token = str(raw).strip()
+	if not token:
+		return None
+	return token
 
 
 def parse_probe_geometry_from_data_config(*, data_config: RuntimeConfig) -> ProbeGeometryConfig | None:
@@ -886,6 +897,9 @@ def parse_templates_stage_config(
 	force_replot = _as_bool(execution_cfg.get("force_replot", False), False)
 	force_replot_per_unit = _as_bool(execution_cfg.get("force_replot_per_unit", False), False)
 	require_curated_units = _as_bool(execution_cfg.get("require_curated_units", True), True)
+	inputs_cfg = execution_cfg.get("inputs", {}) if isinstance(execution_cfg.get("inputs", {}), dict) else {}
+	concat_analyzer_relpath = _normalize_optional_path_token(inputs_cfg.get("concat_analyzer_relpath", None))
+	preproc_seg_sources_reldir = _normalize_optional_path_token(inputs_cfg.get("preproc_seg_sources_reldir", None))
 	spk_tpl_sources = execution_cfg.get("spikeinterface", {}) if isinstance(execution_cfg.get("spikeinterface", {}), dict) else {}
 	spk_tpl_extract = spk_tpl_sources.get("template_extraction", {}) if isinstance(spk_tpl_sources.get("template_extraction", {}), dict) else {}
 	spk_tpl_extract_sources = spk_tpl_extract.get("sources", {}) if isinstance(spk_tpl_extract.get("sources", {}), dict) else {}
@@ -2433,6 +2447,8 @@ def parse_templates_stage_config(
 		per_unit_outputs=per_unit,
 		reports=reports,
 		quality_checks_outputs=_build_data_quality_checks_outputs_config(data_quality_checks_cfg),
+		concat_analyzer_relpath=concat_analyzer_relpath,
+		preproc_seg_sources_reldir=preproc_seg_sources_reldir,
 		unit_ids=unit_ids,
 		unit_limit=unit_limit,
 		force_restart=force_restart,
@@ -2461,6 +2477,8 @@ def build_templates_inputs_for_target(
 		h5_path=target.h5_path,
 		stream_id=target.stream_id,
 		mea_output_root=target.mea_output_root,
+		concat_analyzer_relpath=stage_config.concat_analyzer_relpath,
+		preproc_seg_sources_reldir=stage_config.preproc_seg_sources_reldir,
 		output_rel_root=stage_config.output_rel_root,
 		per_unit_outputs=stage_config.per_unit_outputs,
 		reports=stage_config.reports,
@@ -2528,6 +2546,8 @@ def load_templates_inputs_from_runtime(
 		h5_path=h5_path,
 		stream_id=stream_id,
 		mea_output_root=output_root,
+		concat_analyzer_relpath=stage_cfg.concat_analyzer_relpath,
+		preproc_seg_sources_reldir=stage_cfg.preproc_seg_sources_reldir,
 		output_rel_root=stage_cfg.output_rel_root,
 		per_unit_outputs=stage_cfg.per_unit_outputs,
 		reports=stage_cfg.reports,

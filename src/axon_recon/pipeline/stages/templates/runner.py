@@ -599,6 +599,8 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 					materialize_out = materialize_templates_from_spikeinterface(
 						well_out_dir=well_out_dir,
 						templates_out_dir=templates_out_dir,
+						concat_analyzer_relpath=inputs.concat_analyzer_relpath,
+						preproc_seg_sources_reldir=inputs.preproc_seg_sources_reldir,
 						raw_data_h5_path=inputs.h5_path,
 						stream_id=str(inputs.stream_id),
 						unit_ids=(list(inputs.unit_ids) if inputs.unit_ids is not None else None),
@@ -649,6 +651,8 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				materialize_out = materialize_templates_from_spikeinterface(
 					well_out_dir=well_out_dir,
 					templates_out_dir=templates_out_dir,
+					concat_analyzer_relpath=inputs.concat_analyzer_relpath,
+					preproc_seg_sources_reldir=inputs.preproc_seg_sources_reldir,
 					raw_data_h5_path=inputs.h5_path,
 					stream_id=str(inputs.stream_id),
 					unit_ids=(list(inputs.unit_ids) if inputs.unit_ids is not None else None),
@@ -1518,6 +1522,10 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			"method": str(inputs.reports.time_upsample.method),
 		},
 		"require_curated_units": bool(inputs.require_curated_units),
+		"execution_inputs": {
+			"concat_analyzer_relpath": inputs.concat_analyzer_relpath,
+			"preproc_seg_sources_reldir": inputs.preproc_seg_sources_reldir,
+		},
 		"include_concat": bool(inputs.include_concat),
 		"include_segments": bool(inputs.include_segments),
 		"merge": {

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
+import sys
+import types
 import numpy as np
 
 from axon_recon.pipeline.stages.templates.integrations.spikeinterface_extract import (
 	build_unit_source_payload,
+	load_spikeinterface_analyzers,
 )
 
 
@@ -295,3 +299,177 @@ def test_build_unit_source_payload_forwards_waveform_window_on_recompute() -> No
 	assert params["random_spikes"].get("max_spikes_per_unit") == int(waveform_count)
 	assert params.get("waveforms", {}).get("ms_before") == 1.5
 	assert params.get("waveforms", {}).get("ms_after") == 2.5
+
+
+def test_load_spikeinterface_analyzers_honors_explicit_source_paths(tmp_path, monkeypatch) -> None:
+	well_out_dir = tmp_path / "well001"
+	concat_dir = well_out_dir / "custom_concat"
+	segments_dir = well_out_dir / "custom_segments"
+	seg_a = segments_dir / "segA"
+	seg_b = segments_dir / "segB"
+	concat_dir.mkdir(parents=True, exist_ok=True)
+	seg_a.mkdir(parents=True, exist_ok=True)
+	seg_b.mkdir(parents=True, exist_ok=True)
+
+	loaded_paths: list[str] = []
+
+	def _fake_load_sorting_analyzer(path):
+		loaded_paths.append(str(path))
+		return {"path": str(path)}
+
+	fake_full = types.ModuleType("spikeinterface.full")
+	fake_full.load_sorting_analyzer = _fake_load_sorting_analyzer  # type: ignore[attr-defined]
+	fake_root = types.ModuleType("spikeinterface")
+	fake_root.full = fake_full  # type: ignore[attr-defined]
+
+	monkeypatch.setitem(sys.modules, "spikeinterface", fake_root)
+	monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_full)
+
+	analyzers = load_spikeinterface_analyzers(
+		well_out_dir=well_out_dir,
+		concat_analyzer_relpath="/custom_concat",
+		preproc_seg_sources_reldir="/custom_segments",
+		include_concat=True,
+		include_segments=True,
+	)
+
+	assert len(analyzers) == 3
+	assert str(concat_dir) in loaded_paths
+	assert str(seg_a) in loaded_paths
+	assert str(seg_b) in loaded_paths
+
+
+def test_load_spikeinterface_analyzers_builds_segment_analyzers_from_preprocessed_sources(tmp_path, monkeypatch) -> None:
+	well_out_dir = tmp_path / "well000"
+	concat_dir = well_out_dir / "custom_concat"
+	segments_dir = well_out_dir / "custom_segments"
+	seg_a = segments_dir / "000_recA"
+	seg_b = segments_dir / "001_recB"
+	concat_dir.mkdir(parents=True, exist_ok=True)
+	seg_a.mkdir(parents=True, exist_ok=True)
+	seg_b.mkdir(parents=True, exist_ok=True)
+
+	epochs = [
+		{"segment_index": 0, "rec_name": "recA", "start_sample": 0, "end_sample": 100},
+		{"segment_index": 1, "rec_name": "recB", "start_sample": 100, "end_sample": 200},
+	]
+	(well_out_dir / "concatenation_stitch_epochs_well000.json").write_text(json.dumps(epochs), encoding="utf-8")
+
+	class _FakeConcatSorting:
+		def get_unit_ids(self):
+			return [94]
+
+		def get_num_segments(self):
+			return 1
+
+		def get_sampling_frequency(self):
+			return 10_000.0
+
+		def get_unit_spike_train(self, unit_id: int, segment_index: int = 0):
+			_ = unit_id, segment_index
+			return np.asarray([10, 20, 110, 120], dtype=int)
+
+	class _FakeRecording:
+		def get_sampling_frequency(self):
+			return 10_000.0
+
+	class _FakeConcatAnalyzer:
+		def __init__(self) -> None:
+			self.sorting = _FakeConcatSorting()
+			self.recording = _FakeRecording()
+
+	class _FakeNumpySorting:
+		def __init__(self, mapping: dict[int, np.ndarray], fs: float) -> None:
+			self._mapping = {int(k): np.asarray(v, dtype=int) for k, v in mapping.items()}
+			self._fs = float(fs)
+
+		@property
+		def unit_ids(self):
+			return [u for u, spikes in sorted(self._mapping.items()) if int(spikes.size) > 0]
+
+		def remove_empty_units(self):
+			self._mapping = {u: spikes for u, spikes in self._mapping.items() if int(spikes.size) > 0}
+			return self
+
+		def get_unit_spike_train(self, unit_id: int, segment_index: int = 0):
+			_ = segment_index
+			return np.asarray(self._mapping.get(int(unit_id), np.asarray([], dtype=int)), dtype=int)
+
+		@staticmethod
+		def from_unit_dict(unit_trains: dict[int, np.ndarray], sampling_frequency: float):
+			return _FakeNumpySorting(mapping=unit_trains, fs=sampling_frequency)
+
+		@staticmethod
+		def from_times_labels(times_list, labels_list, sampling_frequency: float):
+			times = np.asarray(times_list[0], dtype=int)
+			labels = np.asarray(labels_list[0], dtype=int)
+			mapping: dict[int, list[int]] = {}
+			for t, lab in zip(times.tolist(), labels.tolist(), strict=False):
+				mapping.setdefault(int(lab), []).append(int(t))
+			return _FakeNumpySorting(
+				mapping={int(k): np.asarray(v, dtype=int) for k, v in mapping.items()},
+				fs=sampling_frequency,
+			)
+
+	create_calls: list[dict[str, object]] = []
+
+	class _FakeBuiltAnalyzer:
+		def __init__(self, sorting, recording):
+			self.sorting = sorting
+			self.recording = recording
+
+		def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1):
+			_ = names, extension_params, verbose, n_jobs
+
+	concat_analyzer = _FakeConcatAnalyzer()
+
+	def _fake_load_sorting_analyzer(path):
+		if str(path) == str(concat_dir):
+			return concat_analyzer
+		raise RuntimeError("not an analyzer")
+
+	def _fake_create_sorting_analyzer(sorting, recording, format="memory", return_in_uV=True):
+		create_calls.append({"format": format, "return_in_uV": return_in_uV, "units": list(getattr(sorting, "unit_ids", []))})
+		return _FakeBuiltAnalyzer(sorting=sorting, recording=recording)
+
+	def _fake_remove_excess_spikes(sorting, recording):
+		_ = recording
+		return sorting
+
+	def _fake_load_extractor(path):
+		_ = path
+		return _FakeRecording()
+
+	fake_full = types.ModuleType("spikeinterface.full")
+	fake_full.load_sorting_analyzer = _fake_load_sorting_analyzer  # type: ignore[attr-defined]
+	fake_full.create_sorting_analyzer = _fake_create_sorting_analyzer  # type: ignore[attr-defined]
+	fake_full.remove_excess_spikes = _fake_remove_excess_spikes  # type: ignore[attr-defined]
+	fake_full.load_extractor = _fake_load_extractor  # type: ignore[attr-defined]
+	fake_full.load = _fake_load_extractor  # type: ignore[attr-defined]
+
+	fake_core = types.ModuleType("spikeinterface.core")
+	fake_core.NumpySorting = _FakeNumpySorting  # type: ignore[attr-defined]
+
+	fake_root = types.ModuleType("spikeinterface")
+	fake_root.full = fake_full  # type: ignore[attr-defined]
+	fake_root.core = fake_core  # type: ignore[attr-defined]
+
+	monkeypatch.setitem(sys.modules, "spikeinterface", fake_root)
+	monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_full)
+	monkeypatch.setitem(sys.modules, "spikeinterface.core", fake_core)
+
+	analyzers = load_spikeinterface_analyzers(
+		well_out_dir=well_out_dir,
+		concat_analyzer_relpath="/custom_concat",
+		preproc_seg_sources_reldir="/custom_segments",
+		stream_id="well000",
+		include_concat=True,
+		include_segments=True,
+	)
+
+	names = [name for name, _ in analyzers]
+	assert "concat" in names
+	assert "000_recA" in names
+	assert "001_recB" in names
+	assert len(create_calls) == 2
+	assert all(call["format"] == "memory" for call in create_calls)

@@ -462,6 +462,8 @@ def materialize_templates_from_spikeinterface(
 	*,
 	well_out_dir: Path,
 	templates_out_dir: Path,
+	concat_analyzer_relpath: str | None = None,
+	preproc_seg_sources_reldir: str | None = None,
 	raw_data_h5_path: Path | None = None,
 	stream_id: str | None = None,
 	unit_ids: list[Any] | None,
@@ -489,6 +491,9 @@ def materialize_templates_from_spikeinterface(
 
 	analyzers = load_spikeinterface_analyzers(
 		well_out_dir=well_out_dir,
+		concat_analyzer_relpath=concat_analyzer_relpath,
+		preproc_seg_sources_reldir=preproc_seg_sources_reldir,
+		stream_id=stream_id,
 		include_concat=bool(include_concat),
 		include_segments=bool(include_segments),
 	)

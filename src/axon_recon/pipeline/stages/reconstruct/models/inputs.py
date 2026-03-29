@@ -78,6 +78,7 @@ class ReconstructionInputs:
 
 	unit_ids: list[Any] | None = None
 	unit_limit: int | None = None
+	load_assets_from_v2pipeline_templates_stage: bool = False
 
 	use_full_channels_templates: bool = True
 	require_full_channels_templates: bool = True

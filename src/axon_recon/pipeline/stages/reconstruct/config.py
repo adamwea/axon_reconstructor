@@ -92,6 +92,7 @@ class ReconstructionStageConfig:
 	per_unit_outputs: PerUnitOutputsConfig
 	unit_ids: list[int] | None
 	unit_limit: int | None
+	load_assets_from_v2pipeline_templates_stage: bool
 	use_full_channels_templates: bool
 	require_full_channels_templates: bool
 	force_restart: bool
@@ -116,6 +117,7 @@ def parse_reconstruction_stage_config(
 	except Exception:
 		tpl_circles_defaults = None
 	execution_cfg = stage_cfg.get("execution", {}) if isinstance(stage_cfg.get("execution", {}), dict) else {}
+	inputs_cfg = stage_cfg.get("inputs", {}) if isinstance(stage_cfg.get("inputs", {}), dict) else {}
 	outputs_cfg = stage_cfg.get("outputs", {}) if isinstance(stage_cfg.get("outputs", {}), dict) else {}
 	per_unit_cfg = outputs_cfg.get("per_unit_outputs", {}) if isinstance(outputs_cfg.get("per_unit_outputs", {}), dict) else {}
 	av_cfg = stage_cfg.get("av", {}) if isinstance(stage_cfg.get("av", {}), dict) else {}
@@ -140,6 +142,13 @@ def parse_reconstruction_stage_config(
 			unit_limit = None
 
 	unit_ids = [int(unit_id_override)] if unit_id_override is not None else None
+	load_assets_from_v2pipeline_templates_stage = _as_bool(
+		inputs_cfg.get(
+			"load_assets_from_v2pipeline_templates_stage",
+			inputs_cfg.get("load_assets_from_v2pipeline_tempaltes_stage", False),
+		),
+		False,
+	)
 
 	write_summary_png = _as_bool(outputs_cfg.get("write_summary", False), False)
 	summary_png_relpath = _normalize_png_relpath(outputs_cfg.get("summary_relpath", "summary.png"), "summary.png")
@@ -277,6 +286,7 @@ def parse_reconstruction_stage_config(
 		per_unit_outputs=per_unit,
 		unit_ids=unit_ids,
 		unit_limit=unit_limit,
+		load_assets_from_v2pipeline_templates_stage=load_assets_from_v2pipeline_templates_stage,
 		use_full_channels_templates=True,
 		require_full_channels_templates=True,
 		force_restart=force_restart,
@@ -304,6 +314,7 @@ def build_reconstruction_inputs_for_target(
 		per_unit_outputs=stage_config.per_unit_outputs,
 		unit_ids=stage_config.unit_ids,
 		unit_limit=stage_config.unit_limit,
+		load_assets_from_v2pipeline_templates_stage=stage_config.load_assets_from_v2pipeline_templates_stage,
 		use_full_channels_templates=stage_config.use_full_channels_templates,
 		require_full_channels_templates=stage_config.require_full_channels_templates,
 		force_restart=stage_config.force_restart,
@@ -367,6 +378,7 @@ def load_reconstruction_inputs_from_runtime(
 		per_unit_outputs=stage_cfg.per_unit_outputs,
 		unit_ids=stage_cfg.unit_ids,
 		unit_limit=stage_cfg.unit_limit,
+		load_assets_from_v2pipeline_templates_stage=stage_cfg.load_assets_from_v2pipeline_templates_stage,
 		use_full_channels_templates=stage_cfg.use_full_channels_templates,
 		require_full_channels_templates=stage_cfg.require_full_channels_templates,
 		force_restart=stage_cfg.force_restart,
