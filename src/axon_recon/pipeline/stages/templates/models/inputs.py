@@ -89,6 +89,10 @@ class TemplateCirclesBranchMorphologyConfig:
 	show_branch_labels: bool = False
 	unique_color_per_branch: bool = True
 	color_scheme: str = "tab20"
+	node_outline_color: str | None = None
+	node_outline_linewidth: float = 0.0
+	branch_outline_color: str | None = None
+	branch_outline_linewidth: float = 0.0
 
 
 @dataclass(frozen=True)

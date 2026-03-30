@@ -176,6 +176,62 @@ def _clean_branch_payload_from_gtr(gtr: Any) -> list[dict[str, Any]]:
 	return out
 
 
+def _gtr_node_indices(gtr: Any) -> set[int]:
+	graph = getattr(gtr, "graph", None)
+	if graph is None:
+		return set()
+	nodes_fn = getattr(graph, "nodes", None)
+	if not callable(nodes_fn):
+		return set()
+	try:
+		return {int(node) for node in list(nodes_fn())}
+	except Exception:
+		return set()
+
+
+def _branch_channel_set(branch_payload: list[dict[str, Any]]) -> set[int]:
+	out: set[int] = set()
+	for branch in branch_payload:
+		if not isinstance(branch, dict):
+			continue
+		for ch in list(branch.get("channels", [])):
+			try:
+				out.add(int(ch))
+			except Exception:
+				continue
+	return out
+
+
+def _remap_branch_payload(
+	branch_payload: list[dict[str, Any]],
+	old_to_new: dict[int, int],
+) -> list[dict[str, Any]]:
+	out: list[dict[str, Any]] = []
+	for i, branch in enumerate(branch_payload):
+		if not isinstance(branch, dict):
+			continue
+		mapped_channels: list[int] = []
+		for ch in list(branch.get("channels", [])):
+			try:
+				mapped = old_to_new.get(int(ch), None)
+			except Exception:
+				mapped = None
+			if mapped is not None:
+				mapped_channels.append(int(mapped))
+		if len(mapped_channels) < 2:
+			continue
+		branch_index = branch.get("branch_index", i)
+		out.append(
+			{
+				"branch_index": int(branch_index),
+				"channels": mapped_channels,
+				"label": branch.get("label", branch_index),
+				"color": branch.get("color", None),
+			}
+		)
+	return out
+
+
 def write_unit_circle_recon_plot(
 	*,
 	output_png: Path,
@@ -188,7 +244,11 @@ def write_unit_circle_recon_plot(
 ) -> dict[str, str]:
 	import numpy as np  # type: ignore[import-not-found]
 
+	from axon_recon.pipeline.stages.templates.core.render import render_footprint_amplitude_map
+	from axon_recon.pipeline.stages.templates.core.render import render_footprint_latency_map
 	from axon_recon.pipeline.stages.templates.core.render import render_template_circles_plot
+	from axon_recon.pipeline.stages.templates.models.inputs import FootprintMapConfig
+	from axon_recon.pipeline.stages.templates.models.inputs import TemplateCirclesBranchMorphologyConfig
 	from axon_recon.pipeline.stages.templates.models.inputs import TemplateCirclesPlotConfig
 
 	# Step 1: keep reconstruct circle_recon as a thin wrapper around templates-stage circles rendering.
@@ -197,13 +257,95 @@ def write_unit_circle_recon_plot(
 	if locs.ndim != 2 or int(locs.shape[1]) < 2:
 		raise ValueError(f"Expected locs_xy to be [N,2+], got shape={locs.shape}")
 	locs = locs[:, :2]
-	tpl = template_ch_by_t
+	tpl = _normalize_template_channels_by_time(template_ch_by_t, n_channels=int(locs.shape[0]))
 
 	output_cfg = circle_config.output
+	display_cfg = getattr(circle_config, "display", None)
+	base_mode = str(getattr(display_cfg, "base", "template_circles") or "template_circles").strip().lower()
+	if base_mode not in {"template_circles", "amplitude_map", "latency_map"}:
+		base_mode = "template_circles"
 
 	base_cfg = getattr(circle_config, "base_template_circles", None)
 	if not isinstance(base_cfg, TemplateCirclesPlotConfig):
 		base_cfg = TemplateCirclesPlotConfig()
+
+	branch_scope = str(getattr(display_cfg, "branch_scope", "raw") or "raw").strip().lower()
+	if branch_scope not in {"raw", "clean"}:
+		branch_scope = "raw"
+	if branch_scope == "clean":
+		branch_payload = _clean_branch_payload_from_gtr(gtr)
+	else:
+		branch_payload = _raw_branch_payload_from_gtr(gtr)
+
+	n_channels = int(locs.shape[0])
+	node_channels = {int(ch) for ch in _gtr_node_indices(gtr) if 0 <= int(ch) < n_channels}
+	branch_channels = {int(ch) for ch in _branch_channel_set(branch_payload) if 0 <= int(ch) < n_channels}
+
+	channel_scope = str(getattr(display_cfg, "channel_scope", "nodes_and_branches") or "nodes_and_branches").strip().lower()
+	if channel_scope not in {"nodes_and_branches", "branches_only", "nodes_only"}:
+		channel_scope = "nodes_and_branches"
+
+	if channel_scope == "branches_only":
+		selected_channels = sorted(branch_channels)
+	elif channel_scope == "nodes_only":
+		selected_channels = sorted(node_channels if len(node_channels) > 0 else branch_channels)
+	else:
+		selected_union = node_channels | branch_channels
+		selected_channels = sorted(selected_union if len(selected_union) > 0 else set(range(n_channels)))
+
+	if len(selected_channels) == 0:
+		selected_channels = list(range(n_channels))
+
+	if len(selected_channels) < n_channels:
+		selected_idx = np.asarray(selected_channels, dtype=int)
+		tpl = np.asarray(tpl, dtype=float)[selected_idx, :]
+		locs = np.asarray(locs, dtype=float)[selected_idx, :]
+		old_to_new = {int(old): int(new) for new, old in enumerate(selected_channels)}
+		branch_payload = _remap_branch_payload(branch_payload, old_to_new)
+
+	base_branch_cfg = getattr(base_cfg, "branch_morphology", None)
+	if not isinstance(base_branch_cfg, TemplateCirclesBranchMorphologyConfig):
+		base_branch_cfg = TemplateCirclesBranchMorphologyConfig()
+
+	branch_cfg = replace(
+		base_branch_cfg,
+		enabled=True,
+		node_outline_color=(
+			str(getattr(display_cfg, "node_outline_color", getattr(base_branch_cfg, "node_outline_color", None)) or "").strip()
+			or None
+		),
+		node_outline_linewidth=float(
+			max(
+				0.0,
+				float(getattr(display_cfg, "node_outline_linewidth", getattr(base_branch_cfg, "node_outline_linewidth", 0.0))),
+			)
+		),
+		branch_outline_color=(
+			str(getattr(display_cfg, "branch_outline_color", getattr(base_branch_cfg, "branch_outline_color", None)) or "").strip()
+			or None
+		),
+		branch_outline_linewidth=float(
+			max(
+				0.0,
+				float(getattr(display_cfg, "branch_outline_linewidth", getattr(base_branch_cfg, "branch_outline_linewidth", 0.0))),
+			)
+		),
+		node_border_linewidth=float(
+			max(
+				0.0,
+				float(getattr(display_cfg, "node_border_linewidth", base_branch_cfg.node_border_linewidth)),
+			)
+		),
+		edge_linewidth=float(
+			max(
+				0.0,
+				float(getattr(display_cfg, "edge_linewidth", base_branch_cfg.edge_linewidth)),
+			)
+		),
+		show_branch_labels=bool(getattr(display_cfg, "show_branch_labels", base_branch_cfg.show_branch_labels)),
+		unique_color_per_branch=bool(getattr(display_cfg, "unique_color_per_branch", base_branch_cfg.unique_color_per_branch)),
+		color_scheme=str(getattr(display_cfg, "color_scheme", base_branch_cfg.color_scheme) or base_branch_cfg.color_scheme),
+	)
 
 	cfg = replace(
 		base_cfg,
@@ -211,7 +353,54 @@ def write_unit_circle_recon_plot(
 		write_svg=bool(output_cfg.write_svg),
 		dpi=float(max(72.0, float(output_cfg.dpi))),
 		relpath=str(output_cfg.relpath),
+		force_center_soma=bool(getattr(display_cfg, "force_center_soma", base_cfg.force_center_soma)),
+		branch_morphology=branch_cfg,
 	)
+
+	if base_mode in {"amplitude_map", "latency_map"}:
+		footprint_base_cfg = (
+			getattr(circle_config, "base_footprint_amplitude", None)
+			if base_mode == "amplitude_map"
+			else getattr(circle_config, "base_footprint_latency", None)
+		)
+		if not isinstance(footprint_base_cfg, FootprintMapConfig):
+			footprint_base_cfg = FootprintMapConfig()
+
+		foot_cfg = replace(
+			footprint_base_cfg,
+			write_png=bool(output_cfg.write_png),
+			write_svg=bool(output_cfg.write_svg),
+			relpath=str(output_cfg.relpath),
+			background=str(getattr(base_cfg, "background", footprint_base_cfg.background) or footprint_base_cfg.background),
+			template_shape=str(
+				getattr(base_cfg, "template_shape", footprint_base_cfg.template_shape) or footprint_base_cfg.template_shape
+			),
+			template_padding_value=str(
+				getattr(base_cfg, "template_padding_value", footprint_base_cfg.template_padding_value)
+				or footprint_base_cfg.template_padding_value
+			),
+		)
+
+		if base_mode == "amplitude_map":
+			return render_footprint_amplitude_map(
+				template=tpl,
+				locations_xy=locs,
+				config=foot_cfg,
+				png_path=Path(output_png),
+				svg_path=Path(output_svg),
+				branch_morphology={"branches": branch_payload},
+				branch_cfg=branch_cfg,
+			)
+
+		return render_footprint_latency_map(
+			template=tpl,
+			locations_xy=locs,
+			config=foot_cfg,
+			png_path=Path(output_png),
+			svg_path=Path(output_svg),
+			branch_morphology={"branches": branch_payload},
+			branch_cfg=branch_cfg,
+		)
 
 	return render_template_circles_plot(
 		template=tpl,
@@ -220,6 +409,7 @@ def write_unit_circle_recon_plot(
 		png_path=Path(output_png),
 		svg_path=Path(output_svg),
 		unit_id=unit_id,
+		branch_morphology={"branches": branch_payload},
 		gtr=gtr,
 	)
 

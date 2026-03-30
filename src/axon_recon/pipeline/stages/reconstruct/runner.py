@@ -205,12 +205,12 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 				unit_summary["outputs"]["branches_raw_json"] = str(paths["branches_raw_json"])
 
 			if bool(inputs.per_unit_outputs.write_branches_json):
-				payload = compute_branches_with_polyline(unit_id=unit_id, gtr=gtr, locs_xy=plot_locs_xy)
+				payload = compute_branches_with_polyline(unit_id=unit_id, gtr=gtr, locs_xy=gtr_locs_xy)
 				write_json(paths["branches_json"], payload)
 				unit_summary["outputs"]["branches_json"] = str(paths["branches_json"])
 
 			if bool(inputs.per_unit_outputs.write_heuristics_json):
-				payload = compute_heuristics_payload(unit_id=unit_id, gtr=gtr, locs_xy=plot_locs_xy)
+				payload = compute_heuristics_payload(unit_id=unit_id, gtr=gtr, locs_xy=gtr_locs_xy)
 				write_json(paths["heuristics_json"], payload)
 				unit_summary["outputs"]["heuristics_json"] = str(paths["heuristics_json"])
 
@@ -221,7 +221,7 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 				unit_summary["outputs"]["gtr_pkl"] = str(paths["gtr_pkl"])
 
 			if bool(inputs.per_unit_outputs.write_gtr_json):
-				payload = compute_gtr_json_payload(unit_id=unit_id, gtr=gtr, locs_xy=plot_locs_xy)
+				payload = compute_gtr_json_payload(unit_id=unit_id, gtr=gtr, locs_xy=gtr_locs_xy)
 				write_json(paths["gtr_json"], payload)
 				unit_summary["outputs"]["gtr_json"] = str(paths["gtr_json"])
 
@@ -252,8 +252,8 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 					write_unit_circle_recon_plot(
 						output_png=circle_png_path,
 						output_svg=circle_svg_path,
-						template_ch_by_t=plot_template_ch_by_t,
-						locs_xy=plot_locs_xy,
+						template_ch_by_t=gtr_template_ch_by_t,
+						locs_xy=gtr_locs_xy,
 						gtr=gtr,
 						circle_config=inputs.per_unit_outputs.circle_recon,
 						unit_id=unit_id,

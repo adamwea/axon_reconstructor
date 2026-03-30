@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -141,3 +142,366 @@ def test_write_unit_amplitude_map_png_uses_shared_heatmap_config(tmp_path: Path)
 
 	assert out.exists()
 	assert out.stat().st_size > 0
+
+
+def test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps(monkeypatch) -> None:
+	template_ch_by_t = np.array(
+		[
+			[-5.0, -10.0, -3.0, -1.0],
+			[-2.0, -4.0, -1.0, -0.5],
+			[-1.0, -6.0, -2.0, -0.5],
+			[-1.0, -2.0, -1.0, -0.2],
+		],
+		dtype=float,
+	)
+	locs_xy = np.array(
+		[
+			[0.0, 0.0],
+			[17.5, 0.0],
+			[35.0, 0.0],
+			[52.5, 0.0],
+		],
+		dtype=float,
+	)
+
+	class _GraphMock:
+		def nodes(self):
+			return [0, 2]
+
+	class _GtrMock:
+		def __init__(self):
+			self._paths_raw = [[3, 1, 0]]
+			self.branches = [{"branch_index": 7, "channels": [0, 2]}]
+			self.graph = _GraphMock()
+
+	gtr = _GtrMock()
+	captured: dict[str, Any] = {}
+
+	def _fake_render_template_circles_plot(**kwargs):
+		captured["template"] = np.asarray(kwargs["template"], dtype=float)
+		captured["locations_xy"] = np.asarray(kwargs["locations_xy"], dtype=float)
+		captured["config"] = kwargs["config"]
+		captured["branch_morphology"] = kwargs.get("branch_morphology")
+		return {"template_circles_png": "noop.png"}
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.core.render.render_template_circles_plot",
+		_fake_render_template_circles_plot,
+	)
+
+	cfg = CircleReconConfig(
+		display=CircleReconDisplayConfig(
+			base="template_circles",
+			channel_scope="branches_only",
+			force_center_soma=False,
+			branch_scope="raw",
+			unique_color_per_branch=False,
+			show_branch_labels=True,
+			color_scheme="tab10",
+			node_border_linewidth=0.5,
+			edge_linewidth=1.25,
+		),
+		output=CircleReconOutputConfig(write_png=False, write_svg=False, relpath="circle_recon", dpi=200.0),
+	)
+
+	write_unit_circle_recon_plot(
+		output_png=Path("/tmp/noop.png"),
+		output_svg=Path("/tmp/noop.svg"),
+		template_ch_by_t=template_ch_by_t,
+		locs_xy=locs_xy,
+		gtr=gtr,
+		circle_config=cfg,
+		unit_id=1,
+	)
+
+	assert captured["template"].shape == (3, 4)
+	assert captured["locations_xy"].shape == (3, 2)
+	np.testing.assert_allclose(captured["template"][0, :], template_ch_by_t[0, :])
+	np.testing.assert_allclose(captured["template"][1, :], template_ch_by_t[1, :])
+	np.testing.assert_allclose(captured["template"][2, :], template_ch_by_t[3, :])
+
+	branch_payload = captured["branch_morphology"]
+	assert isinstance(branch_payload, dict)
+	assert branch_payload.get("branches") == [{"branch_index": 0, "channels": [0, 1, 2], "label": 0, "color": None}]
+
+	render_cfg = captured["config"]
+	assert bool(render_cfg.branch_morphology.enabled) is True
+	assert bool(render_cfg.branch_morphology.unique_color_per_branch) is False
+	assert bool(render_cfg.branch_morphology.show_branch_labels) is True
+	assert str(render_cfg.branch_morphology.color_scheme) == "tab10"
+	assert float(render_cfg.branch_morphology.node_border_linewidth) == 0.5
+	assert float(render_cfg.branch_morphology.edge_linewidth) == 1.25
+	assert bool(render_cfg.force_center_soma) is False
+
+
+def test_write_unit_circle_recon_plot_nodes_only_scope_uses_clean_payload(monkeypatch) -> None:
+	template_ch_by_t = np.array(
+		[
+			[-5.0, -10.0, -3.0, -1.0],
+			[-2.0, -4.0, -1.0, -0.5],
+			[-1.0, -6.0, -2.0, -0.5],
+			[-1.0, -2.0, -1.0, -0.2],
+		],
+		dtype=float,
+	)
+	locs_xy = np.array(
+		[
+			[0.0, 0.0],
+			[17.5, 0.0],
+			[35.0, 0.0],
+			[52.5, 0.0],
+		],
+		dtype=float,
+	)
+
+	class _GraphMock:
+		def nodes(self):
+			return [0, 2]
+
+	class _GtrMock:
+		def __init__(self):
+			self._paths_raw = [[3, 1, 0]]
+			self.branches = [{"branch_index": 7, "channels": [0, 2]}]
+			self.graph = _GraphMock()
+
+	gtr = _GtrMock()
+	captured: dict[str, Any] = {}
+
+	def _fake_render_template_circles_plot(**kwargs):
+		captured["template"] = np.asarray(kwargs["template"], dtype=float)
+		captured["locations_xy"] = np.asarray(kwargs["locations_xy"], dtype=float)
+		captured["branch_morphology"] = kwargs.get("branch_morphology")
+		return {"template_circles_png": "noop.png"}
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.core.render.render_template_circles_plot",
+		_fake_render_template_circles_plot,
+	)
+
+	cfg = CircleReconConfig(
+		display=CircleReconDisplayConfig(
+			base="template_circles",
+			channel_scope="nodes_only",
+			force_center_soma=True,
+			branch_scope="clean",
+		),
+		output=CircleReconOutputConfig(write_png=False, write_svg=False, relpath="circle_recon", dpi=200.0),
+	)
+
+	write_unit_circle_recon_plot(
+		output_png=Path("/tmp/noop.png"),
+		output_svg=Path("/tmp/noop.svg"),
+		template_ch_by_t=template_ch_by_t,
+		locs_xy=locs_xy,
+		gtr=gtr,
+		circle_config=cfg,
+		unit_id=1,
+	)
+
+	assert captured["template"].shape == (2, 4)
+	assert captured["locations_xy"].shape == (2, 2)
+	np.testing.assert_allclose(captured["template"][0, :], template_ch_by_t[0, :])
+	np.testing.assert_allclose(captured["template"][1, :], template_ch_by_t[2, :])
+
+	branch_payload = captured["branch_morphology"]
+	assert isinstance(branch_payload, dict)
+	assert branch_payload.get("branches") == [{"branch_index": 7, "channels": [0, 1], "label": 7, "color": None}]
+
+
+def test_write_unit_circle_recon_plot_base_amplitude_map_dispatches(monkeypatch) -> None:
+	template_ch_by_t = np.array(
+		[
+			[-5.0, -10.0, -3.0, -1.0],
+			[-2.0, -4.0, -1.0, -0.5],
+			[-1.0, -6.0, -2.0, -0.5],
+			[-1.0, -2.0, -1.0, -0.2],
+		],
+		dtype=float,
+	)
+	locs_xy = np.array(
+		[
+			[0.0, 0.0],
+			[17.5, 0.0],
+			[35.0, 0.0],
+			[52.5, 0.0],
+		],
+		dtype=float,
+	)
+
+	class _GraphMock:
+		def nodes(self):
+			return [0, 2]
+
+	class _GtrMock:
+		def __init__(self):
+			self._paths_raw = [[3, 1, 0]]
+			self.branches = [{"branch_index": 7, "channels": [0, 2]}]
+			self.graph = _GraphMock()
+
+	gtr = _GtrMock()
+	captured: dict[str, Any] = {}
+
+	def _fake_render_footprint_amplitude_map(**kwargs):
+		captured["kwargs"] = kwargs
+		return {"footprint_amplitude_map_png": "noop.png"}
+
+	def _should_not_call(**kwargs):
+		raise AssertionError("unexpected renderer called")
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.core.render.render_footprint_amplitude_map",
+		_fake_render_footprint_amplitude_map,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.core.render.render_footprint_latency_map",
+		_should_not_call,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.core.render.render_template_circles_plot",
+		_should_not_call,
+	)
+
+	cfg = CircleReconConfig(
+		display=CircleReconDisplayConfig(
+			base="amplitude_map",
+			channel_scope="branches_only",
+			force_center_soma=True,
+			branch_scope="raw",
+			unique_color_per_branch=True,
+			show_branch_labels=True,
+			color_scheme="Set1",
+			node_outline_color="white",
+				node_outline_linewidth=2.5,
+			branch_outline_color="white",
+				branch_outline_linewidth=1.5,
+			node_border_linewidth=0.55,
+			edge_linewidth=1.5,
+		),
+		output=CircleReconOutputConfig(write_png=True, write_svg=False, relpath="maps/circle_recon_amp", dpi=250.0),
+	)
+
+	out = write_unit_circle_recon_plot(
+		output_png=Path("/tmp/noop.png"),
+		output_svg=Path("/tmp/noop.svg"),
+		template_ch_by_t=template_ch_by_t,
+		locs_xy=locs_xy,
+		gtr=gtr,
+		circle_config=cfg,
+		unit_id=1,
+	)
+
+	assert out == {"footprint_amplitude_map_png": "noop.png"}
+	kwargs = captured["kwargs"]
+	np.testing.assert_allclose(np.asarray(kwargs["template"], dtype=float), template_ch_by_t[[0, 1, 3], :])
+	np.testing.assert_allclose(np.asarray(kwargs["locations_xy"], dtype=float), locs_xy[[0, 1, 3], :])
+	assert kwargs["branch_morphology"] == {
+		"branches": [{"branch_index": 0, "channels": [0, 1, 2], "label": 0, "color": None}]
+	}
+	branch_cfg = kwargs["branch_cfg"]
+	assert bool(branch_cfg.enabled) is True
+	assert str(branch_cfg.node_outline_color) == "white"
+	assert float(branch_cfg.node_outline_linewidth) == 2.5
+	assert str(branch_cfg.branch_outline_color) == "white"
+	assert float(branch_cfg.branch_outline_linewidth) == 1.5
+	assert float(branch_cfg.node_border_linewidth) == 0.55
+	assert float(branch_cfg.edge_linewidth) == 1.5
+	assert bool(kwargs["config"].write_png) is True
+	assert bool(kwargs["config"].write_svg) is False
+	assert str(kwargs["config"].relpath) == "maps/circle_recon_amp"
+
+
+def test_write_unit_circle_recon_plot_base_latency_map_dispatches(monkeypatch) -> None:
+	template_ch_by_t = np.array(
+		[
+			[-5.0, -10.0, -3.0, -1.0],
+			[-2.0, -4.0, -1.0, -0.5],
+			[-1.0, -6.0, -2.0, -0.5],
+			[-1.0, -2.0, -1.0, -0.2],
+		],
+		dtype=float,
+	)
+	locs_xy = np.array(
+		[
+			[0.0, 0.0],
+			[17.5, 0.0],
+			[35.0, 0.0],
+			[52.5, 0.0],
+		],
+		dtype=float,
+	)
+
+	class _GraphMock:
+		def nodes(self):
+			return [0, 2]
+
+	class _GtrMock:
+		def __init__(self):
+			self._paths_raw = [[3, 1, 0]]
+			self.branches = [{"branch_index": 7, "channels": [0, 2]}]
+			self.graph = _GraphMock()
+
+	gtr = _GtrMock()
+	captured: dict[str, Any] = {}
+
+	def _fake_render_footprint_latency_map(**kwargs):
+		captured["kwargs"] = kwargs
+		return {"footprint_latency_map_png": "noop.png"}
+
+	def _should_not_call(**kwargs):
+		raise AssertionError("unexpected renderer called")
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.core.render.render_footprint_latency_map",
+		_fake_render_footprint_latency_map,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.core.render.render_footprint_amplitude_map",
+		_should_not_call,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.core.render.render_template_circles_plot",
+		_should_not_call,
+	)
+
+	cfg = CircleReconConfig(
+		display=CircleReconDisplayConfig(
+			base="latency_map",
+			channel_scope="nodes_only",
+			force_center_soma=True,
+			branch_scope="clean",
+			unique_color_per_branch=False,
+			show_branch_labels=False,
+			color_scheme="tab10",
+			node_border_linewidth=0.5,
+			edge_linewidth=1.25,
+		),
+		output=CircleReconOutputConfig(write_png=True, write_svg=True, relpath="maps/circle_recon_lat", dpi=250.0),
+	)
+
+	out = write_unit_circle_recon_plot(
+		output_png=Path("/tmp/noop.png"),
+		output_svg=Path("/tmp/noop.svg"),
+		template_ch_by_t=template_ch_by_t,
+		locs_xy=locs_xy,
+		gtr=gtr,
+		circle_config=cfg,
+		unit_id=1,
+	)
+
+	assert out == {"footprint_latency_map_png": "noop.png"}
+	kwargs = captured["kwargs"]
+	np.testing.assert_allclose(np.asarray(kwargs["template"], dtype=float), template_ch_by_t[[0, 2], :])
+	np.testing.assert_allclose(np.asarray(kwargs["locations_xy"], dtype=float), locs_xy[[0, 2], :])
+	assert kwargs["branch_morphology"] == {
+		"branches": [{"branch_index": 7, "channels": [0, 1], "label": 7, "color": None}]
+	}
+	branch_cfg = kwargs["branch_cfg"]
+	assert bool(branch_cfg.enabled) is True
+	assert bool(branch_cfg.unique_color_per_branch) is False
+	assert bool(branch_cfg.show_branch_labels) is False
+	assert str(branch_cfg.color_scheme) == "tab10"
+	assert float(branch_cfg.node_border_linewidth) == 0.5
+	assert float(branch_cfg.edge_linewidth) == 1.25
+	assert bool(kwargs["config"].write_png) is True
+	assert bool(kwargs["config"].write_svg) is True
+	assert str(kwargs["config"].relpath) == "maps/circle_recon_lat"

@@ -72,8 +72,12 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			              unique_color_per_branch: true
 			              show_branch_labels: true
 			              color_scheme: tab20
-			              node_border_linewidth: 0.42
-			              edge_linewidth: 1.1
+			              node_outline_color: white
+			              node_outline_linewidth: 2.5
+			              branch_outline_color: white
+			              branch_outline_linewidth: 1.5
+			              node_inline_linewidth_pt: 0.42
+			              branch_linewidth_pt: 1.1
 			            output:
 			              write_png: true
 			              write_svg: true
@@ -112,6 +116,10 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert circle.display.unique_color_per_branch is True
 	assert circle.display.show_branch_labels is True
 	assert circle.display.color_scheme == "tab20"
+	assert circle.display.node_outline_color == "white"
+	assert circle.display.node_outline_linewidth == 2.5
+	assert circle.display.branch_outline_color == "white"
+	assert circle.display.branch_outline_linewidth == 1.5
 	assert circle.display.node_border_linewidth == 0.42
 	assert circle.display.edge_linewidth == 1.1
 	assert circle.output.write_png is True

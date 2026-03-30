@@ -115,8 +115,13 @@ def parse_reconstruction_stage_config(
 
 		tpl_stage_cfg = parse_templates_stage_config(runtime_config=runtime_config)
 		tpl_circles_defaults = tpl_stage_cfg.per_unit_outputs.template_circles
+		tpl_footprint_plots_defaults = getattr(tpl_stage_cfg.per_unit_outputs, "footprint_plots", None)
+		tpl_footprint_amplitude_defaults = getattr(tpl_footprint_plots_defaults, "amplitude_map", None)
+		tpl_footprint_latency_defaults = getattr(tpl_footprint_plots_defaults, "latency_map", None)
 	except Exception:
 		tpl_circles_defaults = None
+		tpl_footprint_amplitude_defaults = None
+		tpl_footprint_latency_defaults = None
 	execution_cfg = stage_cfg.get("execution", {}) if isinstance(stage_cfg.get("execution", {}), dict) else {}
 	inputs_cfg = stage_cfg.get("inputs", {}) if isinstance(stage_cfg.get("inputs", {}), dict) else {}
 	outputs_cfg = stage_cfg.get("outputs", {}) if isinstance(stage_cfg.get("outputs", {}), dict) else {}
@@ -196,8 +201,14 @@ def parse_reconstruction_stage_config(
 	default_circle_node_lw = float(
 		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "node_border_linewidth", 0.35)
 	)
+	default_circle_node_outline_lw = float(
+		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "node_outline_linewidth", 0.0)
+	)
 	default_circle_edge_lw = float(
 		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "edge_linewidth", 0.8)
+	)
+	default_circle_branch_outline_lw = float(
+		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "branch_outline_linewidth", 0.0)
 	)
 	default_circle_dpi = float(getattr(tpl_circles_defaults, "dpi", 300.0))
 
@@ -216,13 +227,37 @@ def parse_reconstruction_stage_config(
 	if circle_branch_scope not in {"raw", "clean"}:
 		circle_branch_scope = "raw"
 	try:
-		circle_node_border_lw = float(circle_display_cfg.get("node_border_linewidth", default_circle_node_lw))
+		circle_node_border_lw = float(
+			circle_display_cfg.get("node_border_linewidth", circle_display_cfg.get("node_inline_linewidth_pt", default_circle_node_lw))
+		)
 	except Exception:
 		circle_node_border_lw = default_circle_node_lw
 	try:
-		circle_edge_lw = float(circle_display_cfg.get("edge_linewidth", default_circle_edge_lw))
+		circle_node_outline_lw = float(circle_display_cfg.get("node_outline_linewidth", default_circle_node_outline_lw))
+	except Exception:
+		circle_node_outline_lw = default_circle_node_outline_lw
+	try:
+		circle_edge_lw = float(circle_display_cfg.get("edge_linewidth", circle_display_cfg.get("branch_linewidth_pt", default_circle_edge_lw)))
 	except Exception:
 		circle_edge_lw = default_circle_edge_lw
+	try:
+		circle_branch_outline_lw = float(circle_display_cfg.get("branch_outline_linewidth", default_circle_branch_outline_lw))
+	except Exception:
+		circle_branch_outline_lw = default_circle_branch_outline_lw
+
+	raw_node_outline_color = circle_display_cfg.get("node_outline_color", None)
+	if raw_node_outline_color is None:
+		circle_node_outline_color = None
+	else:
+		node_outline_text = str(raw_node_outline_color).strip()
+		circle_node_outline_color = (node_outline_text if node_outline_text else None)
+
+	raw_branch_outline_color = circle_display_cfg.get("branch_outline_color", None)
+	if raw_branch_outline_color is None:
+		circle_branch_outline_color = None
+	else:
+		branch_outline_text = str(raw_branch_outline_color).strip()
+		circle_branch_outline_color = (branch_outline_text if branch_outline_text else None)
 
 	circle_relpath = str(circle_output_cfg.get("relpath", "circle_recon") or "circle_recon").strip()
 	if not circle_relpath:
@@ -242,6 +277,10 @@ def parse_reconstruction_stage_config(
 			unique_color_per_branch=_as_bool(circle_display_cfg.get("unique_color_per_branch", default_circle_unique_color), default_circle_unique_color),
 			show_branch_labels=_as_bool(circle_display_cfg.get("show_branch_labels", default_circle_show_labels), default_circle_show_labels),
 			color_scheme=str(circle_display_cfg.get("color_scheme", default_circle_color_scheme) or default_circle_color_scheme),
+			node_outline_color=circle_node_outline_color,
+				node_outline_linewidth=float(max(0.0, circle_node_outline_lw)),
+			branch_outline_color=circle_branch_outline_color,
+				branch_outline_linewidth=float(max(0.0, circle_branch_outline_lw)),
 			node_border_linewidth=float(max(0.0, circle_node_border_lw)),
 			edge_linewidth=float(max(0.0, circle_edge_lw)),
 		),
@@ -252,6 +291,8 @@ def parse_reconstruction_stage_config(
 			dpi=float(max(72.0, circle_dpi)),
 		),
 		base_template_circles=tpl_circles_defaults,
+		base_footprint_amplitude=tpl_footprint_amplitude_defaults,
+		base_footprint_latency=tpl_footprint_latency_defaults,
 	)
 
 	per_unit = PerUnitOutputsConfig(

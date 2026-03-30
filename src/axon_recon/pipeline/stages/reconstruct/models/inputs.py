@@ -17,6 +17,10 @@ class CircleReconDisplayConfig:
 	unique_color_per_branch: bool = True
 	show_branch_labels: bool = False
 	color_scheme: str = "tab20"
+	node_outline_color: str | None = None
+	node_outline_linewidth: float = 0.0
+	branch_outline_color: str | None = None
+	branch_outline_linewidth: float = 0.0
 	node_border_linewidth: float = 0.35
 	edge_linewidth: float = 0.8
 
@@ -34,6 +38,8 @@ class CircleReconConfig:
 	display: CircleReconDisplayConfig = field(default_factory=CircleReconDisplayConfig)
 	output: CircleReconOutputConfig = field(default_factory=CircleReconOutputConfig)
 	base_template_circles: Any | None = None
+	base_footprint_amplitude: Any | None = None
+	base_footprint_latency: Any | None = None
 
 
 @dataclass(frozen=True)

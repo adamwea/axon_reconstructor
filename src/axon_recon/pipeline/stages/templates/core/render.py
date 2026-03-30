@@ -826,6 +826,12 @@ def _draw_branch_morphology_overlay(
 	show_branch_labels = bool(getattr(branch_cfg, "show_branch_labels", False))
 	edge_lw = float(max(0.0, float(getattr(branch_cfg, "edge_linewidth", 0.8))))
 	node_lw = float(max(0.0, float(getattr(branch_cfg, "node_border_linewidth", 0.35))))
+	node_outline_color_raw = str(getattr(branch_cfg, "node_outline_color", "") or "").strip()
+	node_outline_color = node_outline_color_raw if node_outline_color_raw else None
+	node_outline_lw = float(max(0.0, float(getattr(branch_cfg, "node_outline_linewidth", 0.0))))
+	branch_outline_color_raw = str(getattr(branch_cfg, "branch_outline_color", "") or "").strip()
+	branch_outline_color = branch_outline_color_raw if branch_outline_color_raw else None
+	branch_outline_lw = float(max(0.0, float(getattr(branch_cfg, "branch_outline_linewidth", 0.0))))
 	color_scheme = str(getattr(branch_cfg, "color_scheme", "tab20") or "tab20")
 	from matplotlib import colormaps  # type: ignore[import-not-found]
 
@@ -855,6 +861,17 @@ def _draw_branch_morphology_overlay(
 		inner_r_pt = np.maximum(np.sqrt(np.clip(sizes_pt2[node_inds], 0.0, None) / np.pi) - node_lw, 0.0)
 		inner_sizes = np.pi * np.square(inner_r_pt)
 		node_colors = [node_color_by_index[int(ch)] for ch in node_inds.tolist()]
+		if node_outline_color is not None and node_outline_lw > 0.0:
+			outline_coll = ax.scatter(
+				offsets[node_inds, 0],
+				offsets[node_inds, 1],
+				s=inner_sizes,
+				facecolors="none",
+				edgecolors=[node_outline_color for _ in node_inds.tolist()],
+				linewidths=(float(node_lw) + (2.0 * float(node_outline_lw))),
+				zorder=7.15,
+			)
+			outline_coll.set_gid("template_branch_node_outline")
 		node_coll = ax.scatter(
 			offsets[node_inds, 0],
 			offsets[node_inds, 1],
@@ -892,6 +909,16 @@ def _draw_branch_morphology_overlay(
 				end_px = cb - (u * rb)
 				start_xy = inv.transform(start_px)
 				end_xy = inv.transform(end_px)
+				if branch_outline_color is not None and branch_outline_lw > 0.0:
+					(outline_line,) = ax.plot(
+						[float(start_xy[0]), float(end_xy[0])],
+						[float(start_xy[1]), float(end_xy[1])],
+						color=branch_outline_color,
+						linewidth=(float(edge_lw) + (2.0 * float(branch_outline_lw))),
+						solid_capstyle="round",
+						zorder=7.05,
+					)
+					outline_line.set_gid("template_branch_edge_outline")
 				(line,) = ax.plot(
 					[float(start_xy[0]), float(end_xy[0])],
 					[float(start_xy[1]), float(end_xy[1])],
@@ -3030,6 +3057,8 @@ def _render_footprint_map(
 	output_key_png: str,
 	output_key_svg: str,
 	reverse_color_map: bool = False,
+	branch_morphology: Any | None = None,
+	branch_cfg: Any | None = None,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -3114,6 +3143,36 @@ def _render_footprint_map(
 	ax.set_ylabel("y (um)", color=text_color)
 	ax.set_title(title, color=text_color)
 
+	if branch_cfg is not None and bool(getattr(branch_cfg, "enabled", False)):
+		try:
+			fig.canvas.draw()
+			origin_px = np.asarray(ax.transData.transform((0.0, 0.0)), dtype=float)
+			x_px = np.asarray(ax.transData.transform((float(dx), 0.0)), dtype=float)
+			y_px = np.asarray(ax.transData.transform((0.0, float(dy))), dtype=float)
+			radius_px = float(max(0.0, min(abs(float(x_px[0] - origin_px[0])), abs(float(y_px[1] - origin_px[1]))) / 2.0))
+			radius_pt = float(radius_px * (72.0 / float(fig.dpi)))
+			size_pt2 = float(np.pi * (radius_pt**2))
+			overlay_sc = ax.scatter(
+				locs[:, 0],
+				locs[:, 1],
+				s=np.full((int(locs.shape[0]),), max(1e-6, size_pt2), dtype=float),
+				facecolors="none",
+				edgecolors="none",
+				linewidths=0.0,
+				alpha=0.0,
+				zorder=0.0,
+			)
+			_draw_branch_morphology_overlay(
+				ax=ax,
+				fig=fig,
+				sc=overlay_sc,
+				locations_xy=locs,
+				branch_morphology=branch_morphology,
+				branch_cfg=branch_cfg,
+			)
+		except Exception:
+			pass
+
 	if bool(config.show_color_bar):
 		cbar = _add_location_aware_colorbar(
 			fig=fig,
@@ -3153,6 +3212,8 @@ def render_footprint_amplitude_map(
 	png_path: Path,
 	svg_path: Path,
 	probe_geometry: ProbeGeometryConfig | None = None,
+	branch_morphology: Any | None = None,
+	branch_cfg: Any | None = None,
 ) -> dict[str, str]:
 	t = np.asarray(template)
 	if t.ndim != 2:
@@ -3169,6 +3230,8 @@ def render_footprint_amplitude_map(
 		output_key_png="footprint_amplitude_map_png",
 		output_key_svg="footprint_amplitude_map_svg",
 		reverse_color_map=False,
+		branch_morphology=branch_morphology,
+		branch_cfg=branch_cfg,
 	)
 
 
@@ -3180,6 +3243,8 @@ def render_footprint_latency_map(
 	png_path: Path,
 	svg_path: Path,
 	probe_geometry: ProbeGeometryConfig | None = None,
+	branch_morphology: Any | None = None,
+	branch_cfg: Any | None = None,
 ) -> dict[str, str]:
 	t = np.asarray(template)
 	if t.ndim != 2:
@@ -3198,6 +3263,8 @@ def render_footprint_latency_map(
 		output_key_png="footprint_latency_map_png",
 		output_key_svg="footprint_latency_map_svg",
 		reverse_color_map=True,
+		branch_morphology=branch_morphology,
+		branch_cfg=branch_cfg,
 	)
 
 

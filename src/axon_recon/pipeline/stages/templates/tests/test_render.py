@@ -1360,6 +1360,77 @@ def test_render_template_circles_plot_branch_morphology_uses_gtr_payload_when_en
 	assert edge_plot_calls["count"] >= 1
 
 
+def test_render_template_circles_plot_branch_outline_preserves_color_scheme_stroke(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[-2.0, 0.0, 0.0],
+			[-1.5, 0.0, 0.0],
+			[-1.0, 0.0, 0.0],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[20.0, 0.0],
+			[40.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	outline_plot_calls: list[dict[str, object]] = []
+	main_plot_calls: list[dict[str, object]] = []
+	orig_plot = matplotlib.axes.Axes.plot
+
+	def _spy_plot(self, *args, **kwargs):
+		zorder = float(kwargs.get("zorder", 0.0))
+		if np.isclose(zorder, 7.05):
+			outline_plot_calls.append({"color": kwargs.get("color"), "linewidth": kwargs.get("linewidth")})
+		elif np.isclose(zorder, 7.1):
+			main_plot_calls.append({"color": kwargs.get("color"), "linewidth": kwargs.get("linewidth")})
+		return orig_plot(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "plot", _spy_plot)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			show_scale_bar=False,
+			show_scale_circle=False,
+			branch_morphology=TemplateCirclesBranchMorphologyConfig(
+				enabled=True,
+				edge_linewidth=0.9,
+				color_scheme="Set1",
+				branch_outline_color="white",
+				branch_outline_linewidth=1.5,
+			),
+		),
+		png_path=tmp_path / "circles_branch_outline_overlay.png",
+		svg_path=tmp_path / "unused_branch_outline_overlay.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+		branch_morphology={
+			"branches": [
+				{
+					"branch_index": 0,
+					"channels": [0, 1, 2],
+				}
+			]
+		},
+	)
+
+	assert len(outline_plot_calls) >= 1
+	assert len(main_plot_calls) >= 1
+	assert all(call["color"] == "white" for call in outline_plot_calls)
+	assert all(np.isclose(float(call["linewidth"]), 3.9) for call in outline_plot_calls)
+	assert all(call["color"] != "white" for call in main_plot_calls)
+	assert all(np.isclose(float(call["linewidth"]), 0.9) for call in main_plot_calls)
+
+
 def test_render_template_circles_plot_overlap_controls_can_trigger_zoom_out(tmp_path: Path, monkeypatch) -> None:
 	import matplotlib.axes
 

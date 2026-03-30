@@ -799,7 +799,16 @@ stages:
               branch_scope: raw # raw or clean; whether to plot all branches in branches_raw or only the cleaned branches in branches.
               unique_color_per_branch: true # whether to use a unique color for each branch, which can help visually distinguish branches in complex reconstructions; if false, all branches will be the same color.
               show_branch_labels: false # whether to draw branch ID labels on the plot, which can be useful for visually verifying branch correspondences between the plot and the branch data in the JSON outputs.
-              color_scheme: tab20 # color scheme to use when unique_color_per_branch is true; should be a valid matplotlib categorical colormap name.
+              #color_scheme: tab20 # color scheme to use when unique_color_per_branch is true; should be a valid matplotlib categorical colormap name.
+              color_scheme: Set1
+              branch_linewidth_pt: 1
+              node_inline_linewidth_pt: 1.0
+              node_outline_color: white
+              node_outline_linewidth: 0.5
+              branch_outline_color: white
+              branch_outline_linewidth: 0.5
+
+
 
             output:
               write_png: true

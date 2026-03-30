@@ -225,3 +225,185 @@ def test_run_reconstruct_stage_errors_when_requested_source_fails_and_fallback_i
 	assert len(units) == 1
 	assert units[0].get("status") == "error"
 	assert "Fallback to merged template source is disabled" in str(units[0].get("error"))
+
+
+def test_run_reconstruct_stage_circle_recon_uses_gtr_template_space(tmp_path: Path, monkeypatch) -> None:
+	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
+
+	well_out_dir = tmp_path / "well001"
+	well_out_dir.mkdir(parents=True, exist_ok=True)
+
+	plot_template = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=float)
+	plot_locs = np.array([[0.0, 0.0], [17.5, 0.0]], dtype=float)
+	gtr_template = np.array([[10.0, 11.0], [20.0, 21.0], [30.0, 31.0]], dtype=float)
+	gtr_locs = np.array([[0.0, 0.0], [17.5, 0.0], [35.0, 0.0]], dtype=float)
+
+	def _fake_compute_mea_analysis_output_dir(*, output_root: Path, data_file: Path, well: str) -> Path:
+		return well_out_dir
+
+	def _fake_resolve_templates_dirs(_well_out_dir: Path, **kwargs) -> tuple[Path, Path, Path]:
+		templates_out = tmp_path / "templates_out"
+		merged = tmp_path / "templates_merged"
+		full = tmp_path / "templates_full"
+		templates_out.mkdir(parents=True, exist_ok=True)
+		merged.mkdir(parents=True, exist_ok=True)
+		full.mkdir(parents=True, exist_ok=True)
+		return templates_out, merged, full
+
+	def _fake_import_axon_velocity(*, repo_root):
+		return object()
+
+	def _fake_load_templates_for_unit(**kwargs):
+		return plot_template, plot_locs, gtr_template, gtr_locs, 10_000.0, "square_from_merged"
+
+	def _fake_compute_graph_tracking(**kwargs):
+		return object()
+
+	captured: dict[str, np.ndarray] = {}
+
+	def _fake_write_unit_circle_recon_plot(**kwargs):
+		captured["template"] = np.asarray(kwargs["template_ch_by_t"], dtype=float)
+		captured["locs"] = np.asarray(kwargs["locs_xy"], dtype=float)
+		if kwargs["circle_config"].output.write_png:
+			out_png = Path(kwargs["output_png"])
+			out_png.parent.mkdir(parents=True, exist_ok=True)
+			out_png.write_bytes(b"circle_png")
+		if kwargs["circle_config"].output.write_svg:
+			out_svg = Path(kwargs["output_svg"])
+			out_svg.parent.mkdir(parents=True, exist_ok=True)
+			out_svg.write_text("<svg></svg>", encoding="utf-8")
+		return {}
+
+	monkeypatch.setattr(reconstruct_runner, "compute_mea_analysis_output_dir", _fake_compute_mea_analysis_output_dir)
+	monkeypatch.setattr(reconstruct_runner, "_resolve_templates_dirs", _fake_resolve_templates_dirs)
+	monkeypatch.setattr(reconstruct_runner, "import_axon_velocity", _fake_import_axon_velocity)
+	monkeypatch.setattr(reconstruct_runner, "load_templates_for_unit", _fake_load_templates_for_unit)
+	monkeypatch.setattr(reconstruct_runner, "compute_graph_tracking", _fake_compute_graph_tracking)
+	monkeypatch.setattr(reconstruct_runner, "write_unit_circle_recon_plot", _fake_write_unit_circle_recon_plot)
+
+	inputs = ReconstructionInputs(
+		h5_path=tmp_path / "input.raw.h5",
+		stream_id="well001",
+		mea_output_root=tmp_path,
+		output_rel_root="recon_outputs",
+		write_summary_png=False,
+		write_report_md=False,
+		unit_ids=[7],
+		n_jobs=1,
+		per_unit_outputs=PerUnitOutputsConfig(
+			write_branches_raw_json=False,
+			write_branches_json=False,
+			write_heuristics_json=False,
+			write_gtr_pkl=False,
+			write_gtr_json=False,
+			write_amplitude_map_png=False,
+			circle_recon=CircleReconConfig(
+				display=CircleReconDisplayConfig(),
+				output=CircleReconOutputConfig(
+					write_png=True,
+					write_svg=False,
+					relpath="maps/circle_recon",
+					dpi=300.0,
+				),
+			),
+		),
+	)
+
+	result = run_reconstruct_stage(inputs)
+	assert len(result.units) == 1
+	assert result.units[0].status == "ok"
+
+	np.testing.assert_allclose(captured["template"], gtr_template)
+	np.testing.assert_allclose(captured["locs"], gtr_locs)
+
+
+def test_run_reconstruct_stage_json_payloads_use_gtr_location_space(tmp_path: Path, monkeypatch) -> None:
+	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
+
+	well_out_dir = tmp_path / "well001"
+	well_out_dir.mkdir(parents=True, exist_ok=True)
+
+	plot_template = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=float)
+	plot_locs = np.array([[0.0, 0.0], [17.5, 0.0]], dtype=float)
+	gtr_template = np.array([[10.0, 11.0], [20.0, 21.0], [30.0, 31.0]], dtype=float)
+	gtr_locs = np.array([[0.0, 0.0], [17.5, 0.0], [35.0, 0.0]], dtype=float)
+
+	def _fake_compute_mea_analysis_output_dir(*, output_root: Path, data_file: Path, well: str) -> Path:
+		return well_out_dir
+
+	def _fake_resolve_templates_dirs(_well_out_dir: Path, **kwargs) -> tuple[Path, Path, Path]:
+		templates_out = tmp_path / "templates_out"
+		merged = tmp_path / "templates_merged"
+		full = tmp_path / "templates_full"
+		templates_out.mkdir(parents=True, exist_ok=True)
+		merged.mkdir(parents=True, exist_ok=True)
+		full.mkdir(parents=True, exist_ok=True)
+		return templates_out, merged, full
+
+	def _fake_import_axon_velocity(*, repo_root):
+		return object()
+
+	def _fake_load_templates_for_unit(**kwargs):
+		return plot_template, plot_locs, gtr_template, gtr_locs, 10_000.0, "square_from_merged"
+
+	def _fake_compute_graph_tracking(**kwargs):
+		return object()
+
+	captured: dict[str, np.ndarray] = {}
+
+	def _fake_compute_branches_with_polyline(**kwargs):
+		captured["branches_locs"] = np.asarray(kwargs["locs_xy"], dtype=float)
+		return {"unit_id": kwargs["unit_id"], "branches": []}
+
+	def _fake_compute_heuristics_payload(**kwargs):
+		captured["heuristics_locs"] = np.asarray(kwargs["locs_xy"], dtype=float)
+		return {"unit_id": kwargs["unit_id"], "heuristics": {}}
+
+	def _fake_compute_gtr_json_payload(**kwargs):
+		captured["gtr_json_locs"] = np.asarray(kwargs["locs_xy"], dtype=float)
+		return {"schema_version": 1, "unit_id": kwargs["unit_id"], "branches": []}
+
+	monkeypatch.setattr(reconstruct_runner, "compute_mea_analysis_output_dir", _fake_compute_mea_analysis_output_dir)
+	monkeypatch.setattr(reconstruct_runner, "_resolve_templates_dirs", _fake_resolve_templates_dirs)
+	monkeypatch.setattr(reconstruct_runner, "import_axon_velocity", _fake_import_axon_velocity)
+	monkeypatch.setattr(reconstruct_runner, "load_templates_for_unit", _fake_load_templates_for_unit)
+	monkeypatch.setattr(reconstruct_runner, "compute_graph_tracking", _fake_compute_graph_tracking)
+	monkeypatch.setattr(reconstruct_runner, "compute_branches_with_polyline", _fake_compute_branches_with_polyline)
+	monkeypatch.setattr(reconstruct_runner, "compute_heuristics_payload", _fake_compute_heuristics_payload)
+	monkeypatch.setattr(reconstruct_runner, "compute_gtr_json_payload", _fake_compute_gtr_json_payload)
+
+	inputs = ReconstructionInputs(
+		h5_path=tmp_path / "input.raw.h5",
+		stream_id="well001",
+		mea_output_root=tmp_path,
+		output_rel_root="recon_outputs",
+		write_summary_png=False,
+		write_report_md=False,
+		unit_ids=[7],
+		n_jobs=1,
+		per_unit_outputs=PerUnitOutputsConfig(
+			write_branches_raw_json=False,
+			write_branches_json=True,
+			write_heuristics_json=True,
+			write_gtr_pkl=False,
+			write_gtr_json=True,
+			write_amplitude_map_png=False,
+			circle_recon=CircleReconConfig(
+				display=CircleReconDisplayConfig(),
+				output=CircleReconOutputConfig(
+					write_png=False,
+					write_svg=False,
+					relpath="maps/circle_recon",
+					dpi=300.0,
+				),
+			),
+		),
+	)
+
+	result = run_reconstruct_stage(inputs)
+	assert len(result.units) == 1
+	assert result.units[0].status == "ok"
+
+	np.testing.assert_allclose(captured["branches_locs"], gtr_locs)
+	np.testing.assert_allclose(captured["heuristics_locs"], gtr_locs)
+	np.testing.assert_allclose(captured["gtr_json_locs"], gtr_locs)
