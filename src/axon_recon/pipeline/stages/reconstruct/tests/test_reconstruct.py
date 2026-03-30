@@ -150,6 +150,8 @@ def test_run_reconstruct_stage_emits_summary_and_report_outputs(tmp_path: Path, 
 
 	payload = json.loads(result.summary_json.read_text(encoding="utf-8"))
 	outputs = payload.get("outputs", {})
+	assert payload.get("units_ok") == 2
+	assert payload.get("units_error") == 0
 	assert "circle_recon_grid_png" in outputs
 	assert "circle_recon_grid_svg" in outputs
 	assert "summary_png" in outputs
@@ -217,7 +219,7 @@ def test_run_reconstruct_stage_force_restart_clears_output_root(tmp_path: Path, 
 		stream_id="well001",
 		mea_output_root=tmp_path,
 		output_rel_root="recon_outputs",
-		unit_ids=[1],
+		unit_ids=[1, 2],
 		force_restart=True,
 		n_jobs=1,
 		per_unit_outputs=PerUnitOutputsConfig(
@@ -239,7 +241,206 @@ def test_run_reconstruct_stage_force_restart_clears_output_root(tmp_path: Path, 
 	assert not stale_file.exists()
 
 
-def test_run_reconstruct_stage_errors_when_requested_source_fails_and_fallback_is_disabled(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_stage_unit_force_restart_preserves_stage_reports_when_not_overwriting(tmp_path: Path, monkeypatch) -> None:
+	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
+
+	well_out_dir = tmp_path / "well001"
+	reconstruction_out_dir = well_out_dir / "recon_outputs"
+	report_dir = reconstruction_out_dir / "reports"
+	report_dir.mkdir(parents=True, exist_ok=True)
+	circle_grid_png = report_dir / "circle_recon_grid.png"
+	summary_png = report_dir / "summary.png"
+	report_md = report_dir / "report.md"
+	circle_grid_png.write_bytes(b"existing-grid")
+	summary_png.write_bytes(b"existing-summary")
+	report_md.write_text("existing report", encoding="utf-8")
+	stale_target_file = reconstruction_out_dir / "units" / "0001" / "stale.txt"
+	stale_target_file.parent.mkdir(parents=True, exist_ok=True)
+	stale_target_file.write_text("stale", encoding="utf-8")
+	other_unit_file = reconstruction_out_dir / "units" / "0002" / "keep.txt"
+	other_unit_file.parent.mkdir(parents=True, exist_ok=True)
+	other_unit_file.write_text("keep", encoding="utf-8")
+
+	def _fake_compute_mea_analysis_output_dir(*, output_root: Path, data_file: Path, well: str) -> Path:
+		return well_out_dir
+
+	def _fake_resolve_templates_dirs(_well_out_dir: Path, **kwargs) -> tuple[Path, Path, Path]:
+		templates_out = tmp_path / "templates_out"
+		merged = tmp_path / "templates_merged"
+		full = tmp_path / "templates_full"
+		templates_out.mkdir(parents=True, exist_ok=True)
+		merged.mkdir(parents=True, exist_ok=True)
+		full.mkdir(parents=True, exist_ok=True)
+		return templates_out, merged, full
+
+	def _fake_import_axon_velocity(*, repo_root):
+		return object()
+
+	def _fake_load_templates_for_unit(**kwargs):
+		template = np.array([[-5.0, -10.0, -3.0], [-2.0, -4.0, -1.0]], dtype=float)
+		locs = np.array([[0.0, 0.0], [17.5, 0.0]], dtype=float)
+		return template, locs, template, locs, 10_000.0, "square_from_merged"
+
+	def _fake_compute_graph_tracking(**kwargs):
+		return object()
+
+	def _fake_write_unit_circle_recon_plot(**kwargs):
+		out_png = Path(kwargs["output_png"])
+		out_png.parent.mkdir(parents=True, exist_ok=True)
+		out_png.write_bytes(b"circle_png")
+		return {}
+
+	def _raise_unexpected(*args, **kwargs):
+		raise AssertionError("stage report generation should have been skipped")
+
+	monkeypatch.setattr(reconstruct_runner, "compute_mea_analysis_output_dir", _fake_compute_mea_analysis_output_dir)
+	monkeypatch.setattr(reconstruct_runner, "_resolve_templates_dirs", _fake_resolve_templates_dirs)
+	monkeypatch.setattr(reconstruct_runner, "import_axon_velocity", _fake_import_axon_velocity)
+	monkeypatch.setattr(reconstruct_runner, "load_templates_for_unit", _fake_load_templates_for_unit)
+	monkeypatch.setattr(reconstruct_runner, "compute_graph_tracking", _fake_compute_graph_tracking)
+	monkeypatch.setattr(reconstruct_runner, "write_unit_circle_recon_plot", _fake_write_unit_circle_recon_plot)
+	monkeypatch.setattr(reconstruct_runner, "render_footprint_map_grid_from_assets", _raise_unexpected)
+	monkeypatch.setattr(reconstruct_runner, "write_amplitude_map_summary_png", _raise_unexpected)
+	monkeypatch.setattr(reconstruct_runner, "write_reconstruct_report_markdown", _raise_unexpected)
+
+	inputs = ReconstructionInputs(
+		h5_path=tmp_path / "input.raw.h5",
+		stream_id="well001",
+		mea_output_root=tmp_path,
+		output_rel_root="recon_outputs",
+		reports=ReconstructionReportsConfig(
+			overwrite_on_unit_rerun=False,
+			grids=ReconstructionGridReportsConfig(
+				circle_recon_grid=FootprintMapGridReportConfig(write_png=True, write_svg=False, png_relpath="reports/circle_recon_grid.png")
+			),
+		),
+		write_summary_png=True,
+		summary_png_relpath="reports/summary.png",
+		write_report_md=True,
+		report_md_relpath="reports/report.md",
+		unit_ids=[1],
+		force_restart=True,
+		n_jobs=1,
+		per_unit_outputs=PerUnitOutputsConfig(
+			write_branches_raw_json=False,
+			write_branches_json=False,
+			write_heuristics_json=False,
+			write_gtr_pkl=False,
+			write_gtr_json=False,
+			write_amplitude_map_png=False,
+			circle_recon=CircleReconConfig(
+				display=CircleReconDisplayConfig(),
+				output=CircleReconOutputConfig(write_png=True, write_svg=False, relpath="maps/circle_recon", dpi=300.0),
+			),
+		),
+	)
+
+	result = run_reconstruct_stage(inputs)
+	payload = json.loads(result.summary_json.read_text(encoding="utf-8"))
+	assert payload["reports_overwrite_skipped"] is True
+	assert payload["outputs"]["circle_recon_grid_png"] == str(circle_grid_png)
+	assert payload["outputs"]["summary_png"] == str(summary_png)
+	assert payload["outputs"]["report_md"] == str(report_md)
+	assert circle_grid_png.read_bytes() == b"existing-grid"
+	assert summary_png.read_bytes() == b"existing-summary"
+	assert report_md.read_text(encoding="utf-8") == "existing report"
+	assert not stale_target_file.exists()
+	assert other_unit_file.exists()
+
+
+def test_run_reconstruct_stage_cleans_failed_unit_outputs_and_writes_failed_units_summary(tmp_path: Path, monkeypatch) -> None:
+	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
+
+	well_out_dir = tmp_path / "well001"
+	well_out_dir.mkdir(parents=True, exist_ok=True)
+
+	def _fake_compute_mea_analysis_output_dir(*, output_root: Path, data_file: Path, well: str) -> Path:
+		return well_out_dir
+
+	def _fake_resolve_templates_dirs(_well_out_dir: Path, **kwargs) -> tuple[Path, Path, Path]:
+		templates_out = tmp_path / "templates_out"
+		merged = tmp_path / "templates_merged"
+		full = tmp_path / "templates_full"
+		templates_out.mkdir(parents=True, exist_ok=True)
+		merged.mkdir(parents=True, exist_ok=True)
+		full.mkdir(parents=True, exist_ok=True)
+		return templates_out, merged, full
+
+	def _fake_import_axon_velocity(*, repo_root):
+		return object()
+
+	def _fake_load_templates_for_unit(**kwargs):
+		template = np.array([[-5.0, -10.0, -3.0], [-2.0, -4.0, -1.0]], dtype=float)
+		locs = np.array([[0.0, 0.0], [17.5, 0.0]], dtype=float)
+		return template, locs, template, locs, 10_000.0, "square_from_merged"
+
+	def _fake_compute_graph_tracking(**kwargs):
+		return object()
+
+	def _fake_write_unit_circle_recon_plot(**kwargs):
+		out_png = Path(kwargs["output_png"])
+		out_png.parent.mkdir(parents=True, exist_ok=True)
+		out_png.write_bytes(b"circle_png")
+		if int(kwargs["unit_id"]) == 2:
+			raise RuntimeError("No branches found")
+		return {}
+
+	monkeypatch.setattr(reconstruct_runner, "compute_mea_analysis_output_dir", _fake_compute_mea_analysis_output_dir)
+	monkeypatch.setattr(reconstruct_runner, "_resolve_templates_dirs", _fake_resolve_templates_dirs)
+	monkeypatch.setattr(reconstruct_runner, "import_axon_velocity", _fake_import_axon_velocity)
+	monkeypatch.setattr(reconstruct_runner, "load_templates_for_unit", _fake_load_templates_for_unit)
+	monkeypatch.setattr(reconstruct_runner, "compute_graph_tracking", _fake_compute_graph_tracking)
+	monkeypatch.setattr(reconstruct_runner, "write_unit_circle_recon_plot", _fake_write_unit_circle_recon_plot)
+
+	inputs = ReconstructionInputs(
+		h5_path=tmp_path / "input.raw.h5",
+		stream_id="well001",
+		mea_output_root=tmp_path,
+		output_rel_root="recon_outputs",
+		cleanup_failed_unit_outputs=True,
+		failed_units_summary_relpath="reports/failed_units.json",
+		write_summary_png=False,
+		write_report_md=False,
+		unit_ids=[1, 2],
+		n_jobs=1,
+		per_unit_outputs=PerUnitOutputsConfig(
+			write_branches_raw_json=False,
+			write_branches_json=False,
+			write_heuristics_json=False,
+			write_gtr_pkl=False,
+			write_gtr_json=False,
+			write_amplitude_map_png=False,
+			circle_recon=CircleReconConfig(
+				display=CircleReconDisplayConfig(),
+				output=CircleReconOutputConfig(write_png=True, write_svg=False, relpath="maps/circle_recon", dpi=300.0),
+			),
+		),
+	)
+
+	result = run_reconstruct_stage(inputs)
+	payload = json.loads(result.summary_json.read_text(encoding="utf-8"))
+	failed_summary_path = Path(payload["failed_units_summary_json"])
+	assert payload["cleanup_failed_unit_outputs"] is True
+	assert failed_summary_path.exists()
+	failed_payload = json.loads(failed_summary_path.read_text(encoding="utf-8"))
+	assert failed_payload["failed_unit_count"] == 1
+	assert failed_payload["units"][0]["unit_id"] == 2
+	assert failed_payload["units"][0]["cleanup_failed_outputs_applied"] is True
+	removed_paths = failed_payload["units"][0]["removed_output_paths"]
+	assert any(path.endswith("maps/circle_recon.png") for path in removed_paths)
+	failing_unit_png = well_out_dir / "recon_outputs" / "units" / "0002" / "maps" / "circle_recon.png"
+	failing_unit_summary = well_out_dir / "recon_outputs" / "units" / "0002" / "unit_reconstruction_summary.json"
+	assert not failing_unit_png.exists()
+	assert failing_unit_summary.exists()
+	unit_rows = {int(unit["unit_id"]): unit for unit in payload["units"]}
+	assert unit_rows[1]["status"] == "ok"
+	assert unit_rows[2]["status"] == "error"
+	assert unit_rows[2]["outputs"] == {}
+	assert result.units[1].unit_id == 2
+	assert result.units[1].outputs == {}
+
+
+def test_run_reconstruct_stage_errors_when_requested_source_fails_and_fallback_is_disabled(tmp_path: Path, monkeypatch, caplog) -> None:
 	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
 
 	well_out_dir = tmp_path / "well001"
@@ -300,6 +501,7 @@ def test_run_reconstruct_stage_errors_when_requested_source_fails_and_fallback_i
 	monkeypatch.setattr(reconstruct_runner, "compute_graph_tracking", _fake_compute_graph_tracking)
 	monkeypatch.setattr(reconstruct_runner, "write_unit_amplitude_map_png", _fake_write_unit_amplitude_map_png)
 	monkeypatch.setattr(reconstruct_runner, "write_unit_circle_recon_plot", _fake_write_unit_circle_recon_plot)
+	caplog.set_level("WARNING", logger="axon_recon.reconstruct")
 
 	inputs = ReconstructionInputs(
 		h5_path=tmp_path / "input.raw.h5",
@@ -337,10 +539,14 @@ def test_run_reconstruct_stage_errors_when_requested_source_fails_and_fallback_i
 	assert "Fallback to merged template source is disabled" in str(result.units[0].error)
 
 	payload = json.loads(result.summary_json.read_text(encoding="utf-8"))
+	assert payload.get("units_ok") == 0
+	assert payload.get("units_error") == 1
 	units = payload.get("units", [])
 	assert len(units) == 1
 	assert units[0].get("status") == "error"
 	assert "Fallback to merged template source is disabled" in str(units[0].get("error"))
+	assert "Reconstruct unit 94 failed:" in caplog.text
+	assert "Traceback" not in caplog.text
 
 
 def test_run_reconstruct_stage_circle_recon_uses_gtr_template_space(tmp_path: Path, monkeypatch) -> None:

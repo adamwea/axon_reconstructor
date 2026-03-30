@@ -11,6 +11,7 @@ import numpy as np  # type: ignore[import-not-found]
 
 from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_recon.pipeline.stages.templates.models.inputs import (
+	AnalyzerCacheConfig,
 	DataQualityChecksOutputsConfig,
 	FootprintGridsReportConfig,
 	FootprintMapGridReportConfig,
@@ -881,6 +882,7 @@ def test_run_templates_stage_prefers_composition_asset_apis_when_assets_exist(tm
 			),
 		),
 		reports=ReportsConfig(
+			overwrite_on_unit_rerun=True,
 			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=True, write_svg=False),
 			footprint_grids=FootprintGridsReportConfig(
 				circles_map_grid=FootprintMapGridReportConfig(write_pdf=False, write_png=True, write_svg=False),
@@ -935,6 +937,7 @@ def test_run_templates_stage_writes_footprint_maps(tmp_path: Path) -> None:
 			),
 		),
 		reports=ReportsConfig(
+			overwrite_on_unit_rerun=True,
 			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
 			footprint_grids=FootprintGridsReportConfig(
 				circles_map_grid=FootprintMapGridReportConfig(
@@ -1252,6 +1255,149 @@ def test_run_templates_stage_force_restart_prefers_spikeinterface_materializatio
 	assert called["value"] is True
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
+
+
+def test_run_templates_stage_unit_force_restart_preserves_reports_when_not_overwriting(tmp_path: Path, monkeypatch) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+	templates_out_dir = well_out_dir / "templates_outputs"
+	report_png = templates_out_dir / "reports" / "wf_overlay_grid.png"
+	report_png.parent.mkdir(parents=True, exist_ok=True)
+	report_png.write_bytes(b"existing-grid")
+	stale_target_file = templates_out_dir / "units" / "0094" / "stale.txt"
+	stale_target_file.parent.mkdir(parents=True, exist_ok=True)
+	stale_target_file.write_text("stale", encoding="utf-8")
+	other_unit_file = templates_out_dir / "units" / "0095" / "keep.txt"
+	other_unit_file.parent.mkdir(parents=True, exist_ok=True)
+	other_unit_file.write_text("keep", encoding="utf-8")
+
+	def _fake_materialize(*, well_out_dir: Path, templates_out_dir: Path, unit_ids, **kwargs):
+		assert unit_ids == [94]
+		return templates_out_dir / "templates" / "merged", templates_out_dir / "templates" / "full"
+
+	def _raise_unexpected(*args, **kwargs):
+		raise AssertionError("stage report generation should have been skipped")
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.materialize_templates_from_spikeinterface",
+		_fake_materialize,
+	)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_wf_overlay_grid_from_assets", _raise_unexpected)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_map_grid_from_assets", _raise_unexpected)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_multi_source_pdf", _raise_unexpected)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			template=TemplatePlotConfig(write_png=True, write_svg=False),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=True),
+		),
+		reports=ReportsConfig(
+			overwrite_on_unit_rerun=False,
+			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=True, png_relpath="reports/wf_overlay_grid.png"),
+		),
+		unit_ids=[94],
+		require_curated_units=False,
+		force_restart=True,
+		n_jobs=1,
+	)
+
+	result = run_templates_stage(inputs)
+	assert len(result.units) == 1
+	assert result.units[0].status == "ok"
+	assert report_png.read_bytes() == b"existing-grid"
+	assert result.report_outputs.get("wf_overlay_grid_png") == str(report_png)
+	assert not stale_target_file.exists()
+	assert other_unit_file.exists()
+	summary_payload = json.loads(result.summary_json.read_text(encoding="utf-8"))
+	assert summary_payload["reports_overwrite_skipped"] is True
+	assert summary_payload["reports"]["wf_overlay_grid_png"] == str(report_png)
+
+
+def test_run_templates_stage_force_restart_reuses_analyzer_cache_when_enabled(tmp_path: Path, monkeypatch) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	templates_out_dir = well_out_dir / "templates_outputs"
+	cache_dir = templates_out_dir / "cache" / "analyzers"
+	cache_dir.mkdir(parents=True, exist_ok=True)
+	cache_file = cache_dir / "cached.bin"
+	cache_file.write_bytes(b"cache")
+	stale_file = templates_out_dir / "stale.txt"
+	stale_file.parent.mkdir(parents=True, exist_ok=True)
+	stale_file.write_text("stale", encoding="utf-8")
+	materialize_calls: list[dict[str, Any]] = []
+
+	def _fake_materialize(*, well_out_dir: Path, templates_out_dir: Path, analyzer_cache_dir: Path | None, unit_ids, **kwargs):
+		materialize_calls.append(
+			{
+				"analyzer_cache_dir": None if analyzer_cache_dir is None else str(analyzer_cache_dir),
+				"cache_exists": False if analyzer_cache_dir is None else analyzer_cache_dir.exists(),
+			}
+		)
+		assert unit_ids == [94, 95]
+		for unit_id in unit_ids:
+			merged_dir = templates_out_dir / "templates" / "merged" / f"unit_{unit_id}"
+			full_dir = templates_out_dir / "templates" / "full" / f"unit_{unit_id}"
+			merged_dir.mkdir(parents=True, exist_ok=True)
+			full_dir.mkdir(parents=True, exist_ok=True)
+			t = np.vstack([np.sin(np.linspace(-1.0, 1.0, 40)), np.cos(np.linspace(-1.0, 1.0, 40))])
+			locs = np.asarray([[0.0, 0.0], [20.0, 0.0]], dtype=float)
+			np.save(merged_dir / "merged_contributing_template.npy", t)
+			np.save(merged_dir / "merged_contributing_channel_locations.npy", locs)
+			np.save(full_dir / "full_template.npy", t)
+			np.save(full_dir / "full_channel_locations_xy.npy", locs)
+		return templates_out_dir / "templates" / "merged", templates_out_dir / "templates" / "full"
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.materialize_templates_from_spikeinterface",
+		_fake_materialize,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		analyzer_cache=AnalyzerCacheConfig(
+			enabled=True,
+			relpath="cache/analyzers",
+			cleanup_on_success=False,
+			reuse_on_force_restart=True,
+		),
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			template=TemplatePlotConfig(write_png=True, write_svg=False),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
+		),
+		reports=ReportsConfig(
+			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
+		),
+		unit_ids=[94, 95],
+		require_curated_units=False,
+		force_restart=True,
+		n_jobs=1,
+	)
+
+	result = run_templates_stage(inputs)
+	assert len(result.units) == 2
+	assert all(unit.status == "ok" for unit in result.units)
+	assert materialize_calls == [{"analyzer_cache_dir": str(cache_dir), "cache_exists": True}]
+	assert cache_file.exists()
+	assert not stale_file.exists()
+	summary_payload = json.loads(result.summary_json.read_text(encoding="utf-8"))
+	assert summary_payload["analyzer_cache"]["reuse_on_force_restart"] is True
+	assert summary_payload["analyzer_cache"]["resolved_dir"] == str(cache_dir)
 
 
 def test_run_templates_stage_writes_upsampling_decisions_to_summaries(tmp_path: Path, monkeypatch) -> None:

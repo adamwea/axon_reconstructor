@@ -41,6 +41,15 @@ def _is_empty_signal_selection_error(exc: Exception) -> bool:
 	return False
 
 
+def _is_expected_reconstruct_unit_failure(exc: Exception) -> bool:
+	msg = str(exc).strip().lower()
+	if _is_empty_signal_selection_error(exc):
+		return True
+	if "graph tracking failed for requested template source" in msg:
+		return True
+	return False
+
+
 def _normalize_template_for_tracking(template: Any, locs_xy: Any) -> Any:
 	import numpy as np  # type: ignore[import-not-found]
 
@@ -114,6 +123,125 @@ def _build_unit_ids(inputs: ReconstructionInputs, merged_units_dir: Path) -> lis
 	return unit_ids
 
 
+def _is_unit_scoped_reconstruct_run(inputs: ReconstructionInputs) -> bool:
+	return bool(inputs.unit_ids) and len(inputs.unit_ids) == 1
+
+
+def _should_preserve_reconstruct_reports(inputs: ReconstructionInputs) -> bool:
+	if not _is_unit_scoped_reconstruct_run(inputs):
+		return False
+	if not (bool(inputs.force_restart) or bool(inputs.force_replot)):
+		return False
+	return not bool(inputs.reports.overwrite_on_unit_rerun)
+
+
+def _collect_existing_reconstruct_stage_outputs(
+	*,
+	reconstruction_out_dir: Path,
+	inputs: ReconstructionInputs,
+) -> dict[str, str]:
+	stage_outputs: dict[str, str] = {}
+	for key, path in resolve_report_output_paths(reconstruction_out_dir=reconstruction_out_dir, reports=inputs.reports).items():
+		if path.exists():
+			stage_outputs[key] = str(path)
+	if bool(inputs.write_summary_png):
+		summary_png = reconstruction_out_dir / Path(str(inputs.summary_png_relpath)).expanduser()
+		if summary_png.exists():
+			stage_outputs["summary_png"] = str(summary_png)
+	if bool(inputs.write_report_md):
+		report_md = reconstruction_out_dir / Path(str(inputs.report_md_relpath)).expanduser()
+		if report_md.exists():
+			stage_outputs["report_md"] = str(report_md)
+	return stage_outputs
+
+
+def _remove_unit_outputs_preserving(*, unit_dir: Path, preserve_paths: list[Path]) -> list[str]:
+	if not unit_dir.exists():
+		return []
+	preserve = {path.resolve() for path in preserve_paths if path.exists()}
+	removed_paths: list[str] = []
+	for path in sorted((candidate for candidate in unit_dir.rglob("*") if candidate.is_file()), key=lambda candidate: (-len(candidate.parts), str(candidate))):
+		if path.resolve() in preserve:
+			continue
+		path.unlink(missing_ok=True)
+		removed_paths.append(str(path))
+	for directory in sorted((candidate for candidate in unit_dir.rglob("*") if candidate.is_dir()), key=lambda candidate: -len(candidate.parts)):
+		try:
+			directory.rmdir()
+		except OSError:
+			pass
+	return removed_paths
+
+
+def _cleanup_failed_reconstruct_unit_outputs(
+	*,
+	reconstruction_out_dir: Path,
+	inputs: ReconstructionInputs,
+	unit_results: list[UnitReconstructionResult],
+) -> tuple[list[UnitReconstructionResult], Path | None]:
+	cleanup_enabled = bool(inputs.cleanup_failed_unit_outputs)
+	failed_rows: list[dict[str, Any]] = []
+	updated_results: list[UnitReconstructionResult] = []
+	for unit_result in unit_results:
+		status = str(unit_result.status or "").strip().lower()
+		if status == "ok":
+			updated_results.append(unit_result)
+			continue
+		paths = resolve_unit_output_paths(
+			reconstruction_out_dir=reconstruction_out_dir,
+			unit_id=unit_result.unit_id,
+			per_unit_outputs=inputs.per_unit_outputs,
+		)
+		unit_summary_json = paths["unit_summary_json"]
+		removed_output_paths: list[str] = []
+		if cleanup_enabled:
+			removed_output_paths = _remove_unit_outputs_preserving(
+				unit_dir=paths["unit_dir"],
+				preserve_paths=[unit_summary_json],
+			)
+			if unit_summary_json.exists():
+				unit_summary_payload = read_json(unit_summary_json)
+				if isinstance(unit_summary_payload, dict):
+					unit_summary_payload["outputs"] = {}
+					unit_summary_payload["cleanup_failed_outputs_applied"] = True
+					unit_summary_payload["removed_output_paths"] = removed_output_paths
+					write_json(unit_summary_json, unit_summary_payload)
+		updated_results.append(
+			UnitReconstructionResult(
+				unit_id=unit_result.unit_id,
+				status=unit_result.status,
+				outputs={} if cleanup_enabled else dict(unit_result.outputs),
+				error=unit_result.error,
+			)
+		)
+		failed_rows.append(
+			{
+				"unit_id": unit_result.unit_id,
+				"status": unit_result.status,
+				"error": unit_result.error,
+				"unit_dir": str(paths["unit_dir"]),
+				"unit_summary_json": str(unit_summary_json),
+				"cleanup_failed_outputs_applied": cleanup_enabled,
+				"removed_output_paths": removed_output_paths,
+			}
+		)
+	failed_summary_json: Path | None = None
+	if failed_rows:
+		failed_summary_json = reconstruction_out_dir / Path(str(inputs.failed_units_summary_relpath)).expanduser()
+		write_json(
+			failed_summary_json,
+			{
+				"stage": "reconstruct",
+				"h5_path": str(inputs.h5_path),
+				"stream_id": str(inputs.stream_id),
+				"cleanup_failed_unit_outputs": cleanup_enabled,
+				"failed_unit_count": len(failed_rows),
+				"units": failed_rows,
+			},
+		)
+	return updated_results, failed_summary_json
+
+
 def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 	well_out_dir = compute_mea_analysis_output_dir(
 		output_root=inputs.mea_output_root,
@@ -122,10 +250,34 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 	)
 	full_restart = bool(inputs.force_restart) and (not bool(inputs.force_replot))
 	reconstruction_out_dir = well_out_dir / str(inputs.output_rel_root)
+	preserve_stage_reports = _should_preserve_reconstruct_reports(inputs)
+	existing_stage_outputs = (
+		_collect_existing_reconstruct_stage_outputs(
+			reconstruction_out_dir=reconstruction_out_dir,
+			inputs=inputs,
+		)
+		if preserve_stage_reports
+		else {}
+	)
 	if full_restart and reconstruction_out_dir.exists():
-		LOGGER.info("Reconstruct full restart: clearing output root %s", reconstruction_out_dir)
-		shutil.rmtree(reconstruction_out_dir)
+		if preserve_stage_reports:
+			LOGGER.info(
+				"Reconstruct unit-scoped restart preserving stage reports for unit_ids=%s",
+				list(inputs.unit_ids or []),
+			)
+		else:
+			LOGGER.info("Reconstruct full restart: clearing output root %s", reconstruction_out_dir)
+			shutil.rmtree(reconstruction_out_dir)
 	reconstruction_out_dir.mkdir(parents=True, exist_ok=True)
+	if preserve_stage_reports and full_restart:
+		for unit_id in inputs.unit_ids or []:
+			unit_dir = resolve_unit_output_paths(
+				reconstruction_out_dir=reconstruction_out_dir,
+				unit_id=unit_id,
+				per_unit_outputs=inputs.per_unit_outputs,
+			)["unit_dir"]
+			if unit_dir.exists():
+				shutil.rmtree(unit_dir)
 
 	_, merged_units_dir, full_channels_templates_dir = _resolve_templates_dirs(
 		well_out_dir,
@@ -272,7 +424,10 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 		except Exception as exc:
 			unit_summary["status"] = "error"
 			unit_summary["error"] = str(exc)
-			LOGGER.exception("Failed reconstruct for unit %s", unit_id)
+			if _is_expected_reconstruct_unit_failure(exc):
+				LOGGER.warning("Reconstruct unit %s failed: %s", unit_id, exc)
+			else:
+				LOGGER.exception("Failed reconstruct for unit %s", unit_id)
 
 		write_json(paths["unit_summary_json"], unit_summary)
 		return UnitReconstructionResult(
@@ -299,11 +454,16 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 
 	# Keep summary output deterministic across serial/threaded modes.
 	unit_results.sort(key=lambda r: str(r.unit_id))
+	unit_results, failed_units_summary_json = _cleanup_failed_reconstruct_unit_outputs(
+		reconstruction_out_dir=reconstruction_out_dir,
+		inputs=inputs,
+		unit_results=unit_results,
+	)
 
-	stage_outputs: dict[str, str] = {}
+	stage_outputs: dict[str, str] = dict(existing_stage_outputs)
 	circle_grid_cfg = inputs.reports.grids.circle_recon_grid
 	write_circle_grid = bool(circle_grid_cfg.write_png) or bool(circle_grid_cfg.write_pdf) or bool(circle_grid_cfg.write_svg)
-	if write_circle_grid:
+	if write_circle_grid and not preserve_stage_reports:
 		report_paths = resolve_report_output_paths(reconstruction_out_dir=reconstruction_out_dir, reports=inputs.reports)
 		circle_entries = [
 			Path(item.outputs["circle_recon_png"])
@@ -335,7 +495,7 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 			logger=LOGGER,
 		)
 		stage_outputs.update(circle_grid_outputs)
-	if bool(inputs.write_summary_png):
+	if bool(inputs.write_summary_png) and not preserve_stage_reports:
 		summary_png = reconstruction_out_dir / Path(str(inputs.summary_png_relpath)).expanduser()
 		entries: list[tuple[Any, Path]] = []
 		for item in unit_results:
@@ -360,8 +520,10 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 		}
 		for u in unit_results
 	]
+	units_ok = sum(1 for u in unit_results if str(u.status).strip().lower() == "ok")
+	units_error = sum(1 for u in unit_results if str(u.status).strip().lower() != "ok")
 
-	if bool(inputs.write_report_md):
+	if bool(inputs.write_report_md) and not preserve_stage_reports:
 		report_md = reconstruction_out_dir / Path(str(inputs.report_md_relpath)).expanduser()
 		write_reconstruct_report_markdown(
 			output_md=report_md,
@@ -381,7 +543,12 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 		"n_jobs": int(max(1, int(inputs.n_jobs))),
 		"well_out_dir": str(well_out_dir),
 		"reconstruction_out_dir": str(reconstruction_out_dir),
+		"units_ok": units_ok,
+		"units_error": units_error,
 		"outputs": stage_outputs,
+		"cleanup_failed_unit_outputs": bool(inputs.cleanup_failed_unit_outputs),
+		"failed_units_summary_json": str(failed_units_summary_json) if failed_units_summary_json else None,
+		"reports_overwrite_skipped": preserve_stage_reports,
 		"units": unit_rows,
 	}
 	write_json(summary_json, summary_payload)

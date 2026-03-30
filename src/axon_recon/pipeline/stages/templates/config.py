@@ -1802,6 +1802,7 @@ def parse_templates_stage_config(
 			pdf_relpath=str(reports_cfg.get("multi_source_pdf_relpath", "reports/template_multi_source.pdf")),
 		),
 		replot_from_disk=_as_bool(reports_cfg.get("replot_from_disk", False), False),
+		overwrite_on_unit_rerun=_as_bool(reports_cfg.get("overwrite_on_unit_rerun", False), False),
 		time_upsample=_build_time_upsample_config(time_upsample_cfg_raw),
 		wf_overlay_grid=WfOverlayGridReportConfig(
 			write_pdf=_as_bool(
@@ -1909,6 +1910,7 @@ def parse_templates_stage_config(
 		enabled=_as_bool(analyzer_cache_cfg.get("enabled", True), True),
 		relpath=str(analyzer_cache_cfg.get("relpath", "analyzers") or "analyzers"),
 		cleanup_on_success=_as_bool(analyzer_cache_cfg.get("cleanup_on_success", False), False),
+		reuse_on_force_restart=_as_bool(analyzer_cache_cfg.get("reuse_on_force_restart", False), False),
 	)
 	footprint_plots = FootprintPlotsConfig(
 		amplitude_map=_build_footprint_map_config(amp_map_cfg, relpath_default="footprint_amplitude_map"),

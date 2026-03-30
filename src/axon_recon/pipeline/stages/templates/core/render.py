@@ -374,6 +374,48 @@ def _compute_plot_limits(points_xy: np.ndarray, *, pad_frac: float = 0.05, pad_a
 	return xmin - px, xmax + px, ymin - py, ymax + py
 
 
+def _compute_plot_limits_with_padding_percent(
+	points_xy: np.ndarray,
+	*,
+	padding_percent: float,
+	flat_pad_abs: float = 10.0,
+) -> tuple[float, float, float, float]:
+	xs = points_xy[:, 0]
+	ys = points_xy[:, 1]
+	xmin = float(np.min(xs))
+	xmax = float(np.max(xs))
+	ymin = float(np.min(ys))
+	ymax = float(np.max(ys))
+
+	dx = max(float(xmax - xmin), 0.0)
+	dy = max(float(ymax - ymin), 0.0)
+	pad_frac = float(max(0.0, padding_percent) / 100.0)
+	px = float(pad_frac * dx)
+	py = float(pad_frac * dy)
+
+	if dx == 0.0:
+		px = max(px, float(flat_pad_abs))
+	if dy == 0.0:
+		py = max(py, float(flat_pad_abs))
+
+	return xmin - px, xmax + px, ymin - py, ymax + py
+
+
+def _recenter_limits_around_point(
+	xmin: float,
+	xmax: float,
+	ymin: float,
+	ymax: float,
+	*,
+	center_xy: tuple[float, float],
+) -> tuple[float, float, float, float]:
+	cx = float(center_xy[0])
+	cy = float(center_xy[1])
+	half_x = max(abs(cx - float(xmin)), abs(float(xmax) - cx))
+	half_y = max(abs(cy - float(ymin)), abs(float(ymax) - cy))
+	return cx - half_x, cx + half_x, cy - half_y, cy + half_y
+
+
 def _compute_max_non_overlapping_circle_areas(
 	*,
 	centers_display_pt: np.ndarray,
@@ -452,10 +494,18 @@ def _make_square_limits(
 	if center_xy is None:
 		cx = float((xmin + xmax) / 2.0)
 		cy = float((ymin + ymax) / 2.0)
+		half = float(side / 2.0)
 	else:
-		cx = float(center_xy[0])
-		cy = float(center_xy[1])
-	half = float(side / 2.0)
+		xmin, xmax, ymin, ymax = _recenter_limits_around_point(
+			xmin,
+			xmax,
+			ymin,
+			ymax,
+			center_xy=center_xy,
+		)
+		cx = float((xmin + xmax) / 2.0)
+		cy = float((ymin + ymax) / 2.0)
+		half = float(max(float(xmax - xmin), float(ymax - ymin)) / 2.0)
 	return cx - half, cx + half, cy - half, cy + half
 
 
@@ -1313,11 +1363,13 @@ def render_template_plot(
 			center = (float(locs[peak_idx, 0]), float(locs[peak_idx, 1]))
 		xmin, xmax, ymin, ymax = _make_square_limits(xmin, xmax, ymin, ymax, center_xy=center)
 	elif bool(config.force_center_soma) and 0 <= peak_idx < int(locs.shape[0]):
-		cx, cy = float(locs[peak_idx, 0]), float(locs[peak_idx, 1])
-		w = float(xmax - xmin)
-		h = float(ymax - ymin)
-		xmin, xmax = cx - (w / 2.0), cx + (w / 2.0)
-		ymin, ymax = cy - (h / 2.0), cy + (h / 2.0)
+		xmin, xmax, ymin, ymax = _recenter_limits_around_point(
+			xmin,
+			xmax,
+			ymin,
+			ymax,
+			center_xy=(float(locs[peak_idx, 0]), float(locs[peak_idx, 1])),
+		)
 
 	xmin, xmax, ymin, ymax = _expand_limits_for_glyph_half_size(
 		xmin=xmin,
@@ -1366,6 +1418,9 @@ def render_template_circles_plot(
 	propagation_order_rank_by_channel: dict[int, int] | None = None,
 	branch_morphology: Any | None = None,
 	gtr: Any | None = None,
+	plot_scope_points_xy: Any | None = None,
+	zoom_padding_percent: float | None = None,
+	allow_scope_expansion: bool = True,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -1485,18 +1540,35 @@ def render_template_circles_plot(
 	ax.set_xlabel("x (um)")
 	ax.set_ylabel("y (um)")
 
-	xmin, xmax, ymin, ymax = _compute_plot_limits(locs)
+	plot_scope_points = np.asarray(locs, dtype=float)
+	if plot_scope_points_xy is not None:
+		plot_scope_points = np.asarray(plot_scope_points_xy, dtype=float)
+		if plot_scope_points.ndim != 2 or int(plot_scope_points.shape[0]) == 0 or int(plot_scope_points.shape[1]) < 2:
+			raise ValueError(
+				f"Expected plot_scope_points_xy shape (n,2+), got {getattr(plot_scope_points, 'shape', None)}"
+			)
+		plot_scope_points = plot_scope_points[:, :2]
+
+	if zoom_padding_percent is None:
+		xmin, xmax, ymin, ymax = _compute_plot_limits(plot_scope_points)
+	else:
+		xmin, xmax, ymin, ymax = _compute_plot_limits_with_padding_percent(
+			plot_scope_points,
+			padding_percent=float(zoom_padding_percent),
+		)
 	if bool(config.force_square_aspect):
 		center = None
 		if bool(config.force_center_soma) and 0 <= peak_idx < int(locs.shape[0]):
 			center = (float(locs[peak_idx, 0]), float(locs[peak_idx, 1]))
 		xmin, xmax, ymin, ymax = _make_square_limits(xmin, xmax, ymin, ymax, center_xy=center)
 	elif bool(config.force_center_soma) and 0 <= peak_idx < int(locs.shape[0]):
-		cx, cy = float(locs[peak_idx, 0]), float(locs[peak_idx, 1])
-		w = float(xmax - xmin)
-		h = float(ymax - ymin)
-		xmin, xmax = cx - (w / 2.0), cx + (w / 2.0)
-		ymin, ymax = cy - (h / 2.0), cy + (h / 2.0)
+		xmin, xmax, ymin, ymax = _recenter_limits_around_point(
+			xmin,
+			xmax,
+			ymin,
+			ymax,
+			center_xy=(float(locs[peak_idx, 0]), float(locs[peak_idx, 1])),
+		)
 
 	ax.set_xlim(xmin, xmax)
 	ax.set_ylim(ymin, ymax)
@@ -1696,7 +1768,7 @@ def render_template_circles_plot(
 		]
 	)
 
-	if enable_overlap_checks and max_overlap_iters > 0:
+	if enable_overlap_checks and max_overlap_iters > 0 and bool(allow_scope_expansion):
 		for _ in range(max_overlap_iters):
 			fig.canvas.draw()
 			renderer = fig.canvas.get_renderer()

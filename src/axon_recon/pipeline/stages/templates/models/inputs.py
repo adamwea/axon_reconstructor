@@ -545,12 +545,14 @@ class AnalyzerCacheConfig:
 	enabled: bool = True
 	relpath: str = "analyzers"
 	cleanup_on_success: bool = False
+	reuse_on_force_restart: bool = False
 
 
 @dataclass(frozen=True)
 class ReportsConfig:
 	plot_multi_source_pdf: MultiSourcePdfReportConfig = field(default_factory=MultiSourcePdfReportConfig)
 	replot_from_disk: bool = False
+	overwrite_on_unit_rerun: bool = False
 	time_upsample: TimeUpsampleConfig = field(default_factory=TimeUpsampleConfig)
 	wf_overlay_grid: WfOverlayGridReportConfig = field(default_factory=WfOverlayGridReportConfig)
 	footprint_grids: FootprintGridsReportConfig = field(default_factory=FootprintGridsReportConfig)

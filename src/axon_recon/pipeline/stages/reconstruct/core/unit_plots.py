@@ -500,6 +500,9 @@ def write_unit_circle_recon_plot(
 		unit_id=unit_id,
 		branch_morphology={"branches": branch_payload},
 		gtr=gtr,
+		plot_scope_points_xy=locs,
+		zoom_padding_percent=float(max(0.0, float(getattr(display_cfg, "zoom_padding_percent", 20.0)))),
+		allow_scope_expansion=False,
 	)
 
 

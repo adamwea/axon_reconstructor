@@ -183,6 +183,9 @@ def test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps(mo
 		captured["locations_xy"] = np.asarray(kwargs["locations_xy"], dtype=float)
 		captured["config"] = kwargs["config"]
 		captured["branch_morphology"] = kwargs.get("branch_morphology")
+		captured["plot_scope_points_xy"] = kwargs.get("plot_scope_points_xy")
+		captured["zoom_padding_percent"] = kwargs.get("zoom_padding_percent")
+		captured["allow_scope_expansion"] = kwargs.get("allow_scope_expansion")
 		return {"template_circles_png": "noop.png"}
 
 	monkeypatch.setattr(
@@ -194,6 +197,7 @@ def test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps(mo
 		display=CircleReconDisplayConfig(
 			base="template_circles",
 			channel_scope="branches_only",
+			zoom_padding_percent=12.0,
 			force_center_soma=False,
 			branch_scope="raw",
 			unique_color_per_branch=False,
@@ -221,12 +225,15 @@ def test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps(mo
 	np.testing.assert_allclose(captured["template"][0, :], template_ch_by_t[0, :])
 	np.testing.assert_allclose(captured["template"][1, :], template_ch_by_t[1, :])
 	np.testing.assert_allclose(captured["template"][2, :], template_ch_by_t[3, :])
+	np.testing.assert_allclose(captured["locations_xy"], np.asarray(captured["plot_scope_points_xy"], dtype=float))
 
 	branch_payload = captured["branch_morphology"]
 	assert isinstance(branch_payload, dict)
 	assert branch_payload.get("branches") == [{"branch_index": 0, "channels": [0, 1, 2], "label": 0, "color": None}]
 
 	render_cfg = captured["config"]
+	assert float(captured["zoom_padding_percent"]) == 12.0
+	assert bool(captured["allow_scope_expansion"]) is False
 	assert bool(render_cfg.branch_morphology.enabled) is True
 	assert bool(render_cfg.branch_morphology.unique_color_per_branch) is False
 	assert bool(render_cfg.branch_morphology.show_branch_labels) is True

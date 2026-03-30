@@ -44,7 +44,10 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			      force_restart: false
 			    outputs:
 			      output_rel_root: recon_outputs
+			      cleanup_failed_unit_outputs: true
+			      failed_units_summary_relpath: reports/failed_units.json
 			      reports:
+			        overwrite_on_unit_rerun: true
 			        grids:
 			          circle_recon_grid:
 			            output:
@@ -116,6 +119,8 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert inputs.summary_grid_ncols == 3
 	assert inputs.write_report_md is True
 	assert inputs.report_md_relpath == "reports/reconstruction_report.md"
+	assert inputs.cleanup_failed_unit_outputs is True
+	assert inputs.failed_units_summary_relpath == "reports/failed_units.json"
 	assert inputs.per_unit_outputs.write_gtr_pkl is True
 	assert inputs.per_unit_outputs.write_gtr_json is True
 	assert inputs.per_unit_outputs.template_source == "square"
@@ -147,6 +152,7 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert circle.output.dpi == 420.0
 	assert inputs.reports.grids.circle_recon_grid.write_png is True
 	assert inputs.reports.grids.circle_recon_grid.write_svg is True
+	assert inputs.reports.overwrite_on_unit_rerun is True
 	assert inputs.reports.grids.circle_recon_grid.png_relpath == "reports/circle_recon_grid.png"
 	assert inputs.reports.grids.circle_recon_grid.svg_relpath == "reports/circle_recon_grid.svg"
 	assert inputs.reports.grids.circle_recon_grid.keep_temp_svg is True

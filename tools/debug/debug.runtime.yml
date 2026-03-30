@@ -398,7 +398,7 @@ stages:
               scale_circle:
                 diameter: equal_to_max_amplitude # can be equal_to_max_amplitude or fixed_value
                 linewidth: 3
-                linestyle: dotted
+                linestyle: solid
                 fontsize: 15
                 horizontal_alignment: left
                 vertical_alignment: top
@@ -816,7 +816,7 @@ stages:
           circle_recon:
             display:
               base: template_circles # which template plot to put branch morphology on top of; circles, amplitude_map, or latency_map.
-              channel_scope: nodes_and_branches # nodes_and_branches, branches_only, or nodes_only; whether to plot channels at branch locations only, at all node locations, or both.
+              channel_scope: nodes_and_branches # zoom scope in on channels contributing to nodes and branches, which can help focus the plot on the relevant channels for the reconstruction; other options are contributing_channels, recorded_channels, or all_channels.
               zoom_padding_percent: 12 # extra padding around selected node/branch channels used to set circle_recon viewport.
               force_center_soma: true # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
               branch_scope: raw # raw or clean; whether to plot all branches in branches_raw or only the cleaned branches in branches.
@@ -837,7 +837,8 @@ stages:
               write_png: true
               write_svg: true
               relpath: circle_recon
-              dpi: 420
+              #dpi: 420
+              dpi: 600
 
   ## Reconstruct Stage Updated to Pipeline V2 above this line. -------------------------
 
@@ -1066,7 +1067,7 @@ stages:
       # default: 100
       min_path_length: 17.5
       # default: 5
-      min_path_points: 4
+      min_path_points: 3
       # default: 0.5
       # max_peak_latency_for_splitting: 2.0
       # max_peak_latency_for_splitting: 0.5 # lower -> more aggressive splitting, higher -> less splitting; controls the maximum allowed latency of the peak channel in a branch for it to be eligible for splitting, which can help prevent over-splitting of branches with long propagation delays and/or low SNR peaks.

@@ -85,6 +85,7 @@ class ReconstructionGridReportsConfig:
 @dataclass(frozen=True)
 class ReconstructionReportsConfig:
 	grids: ReconstructionGridReportsConfig = field(default_factory=ReconstructionGridReportsConfig)
+	overwrite_on_unit_rerun: bool = False
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,8 @@ class ReconstructionInputs:
 	summary_grid_ncols: int = 5
 	write_report_md: bool = False
 	report_md_relpath: str = "report.md"
+	cleanup_failed_unit_outputs: bool = False
+	failed_units_summary_relpath: str = "failed_units_summary.json"
 	per_unit_outputs: PerUnitOutputsConfig = field(default_factory=PerUnitOutputsConfig)
 
 	unit_ids: list[Any] | None = None

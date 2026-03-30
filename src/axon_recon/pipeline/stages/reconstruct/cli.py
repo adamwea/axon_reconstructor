@@ -28,9 +28,12 @@ def _run_from_args(args: argparse.Namespace) -> int:
 	for item in agg.target_results:
 		t = item.target
 		if item.status == "ok" and item.result is not None:
+			units_ok = sum(1 for unit in item.result.units if str(getattr(unit, "status", "ok")).strip().lower() == "ok")
+			units_error = sum(1 for unit in item.result.units if str(getattr(unit, "status", "ok")).strip().lower() != "ok")
 			print(
 				f"target[{t.dataset_index}:{t.stream_id}] status=ok "
-				f"reconstruct_out_dir={item.result.reconstruction_out_dir} units_processed={len(item.result.units)}"
+				f"reconstruct_out_dir={item.result.reconstruction_out_dir} "
+				f"units_processed={len(item.result.units)} units_ok={units_ok} units_error={units_error}"
 			)
 		else:
 			print(
@@ -38,4 +41,3 @@ def _run_from_args(args: argparse.Namespace) -> int:
 				f"error={item.error or 'unknown'}"
 			)
 	return 0
-

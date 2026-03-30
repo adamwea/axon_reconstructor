@@ -430,7 +430,7 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 			              scale_circle:
 			                diameter: equal_to_max_amplitude
 			                linewidth: 2.2
-			                linestyle: dotted
+			                linestyle: solid
 			                fontsize: 9
 			                digits_after_decimal: 1
 			                horizontal_alignment: left
@@ -486,7 +486,7 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 	assert inputs.per_unit_outputs.template_circles.scale_circle_color == "white"
 	assert inputs.per_unit_outputs.template_circles.scale_circle.diameter == "equal_to_max_amplitude"
 	assert inputs.per_unit_outputs.template_circles.scale_circle.linewidth == 2.2
-	assert inputs.per_unit_outputs.template_circles.scale_circle.linestyle == "dotted"
+	assert inputs.per_unit_outputs.template_circles.scale_circle.linestyle == "solid"
 	assert inputs.per_unit_outputs.template_circles.scale_circle.fontsize == 9
 	assert inputs.per_unit_outputs.template_circles.scale_circle.digits_after_decimal == 1
 	assert inputs.per_unit_outputs.template_circles.scale_circle.x_offset_frac == 0.05
@@ -553,10 +553,12 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			        enabled: true
 			        relpath: cache/analyzers
 			        cleanup_on_success: true
+			        reuse_on_force_restart: true
 			      reports:
 			        plot_multi_source_pdf: true
 			        multi_source_pdf_relpath: reports/template_multi_source.pdf
 			        replot_from_disk: true
+			        overwrite_on_unit_rerun: true
 			        wf_overlay_grid:
 			          write_pdf: true
 			          pdf_relpath: reports/grid.pdf
@@ -662,6 +664,7 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert inputs.analyzer_cache.enabled is True
 	assert inputs.analyzer_cache.relpath == "cache/analyzers"
 	assert inputs.analyzer_cache.cleanup_on_success is True
+	assert inputs.analyzer_cache.reuse_on_force_restart is True
 
 	overlay = inputs.per_unit_outputs.template_wf_overlay
 	assert overlay.debug_mode is True
@@ -707,6 +710,7 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert inputs.reports.plot_multi_source_pdf.enabled is True
 	assert inputs.reports.plot_multi_source_pdf.pdf_relpath == "reports/template_multi_source.pdf"
 	assert inputs.reports.replot_from_disk is True
+	assert inputs.reports.overwrite_on_unit_rerun is True
 	assert inputs.reports.time_upsample.enabled is True
 	assert inputs.reports.time_upsample.factor == 3
 	assert inputs.reports.time_upsample.method == "linear"

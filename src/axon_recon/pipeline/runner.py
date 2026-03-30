@@ -44,16 +44,20 @@ def run_reconstruct_from_runtime(
 			probe_geometry=probe_geometry,
 		)
 		result = run_reconstruct(inputs)
+		ok_units = [u for u in result.units if str(getattr(u, "status", "ok")).strip().lower() == "ok"]
 		failed_units = [u for u in result.units if str(getattr(u, "status", "ok")).strip().lower() != "ok"]
+		if ok_units:
+			return result
 		if failed_units:
 			first = failed_units[0]
 			raise RuntimeError(
 				"reconstruct unit failures: "
+				f"succeeded={len(ok_units)}/{len(result.units)} "
 				f"failed={len(failed_units)}/{len(result.units)} "
 				f"first_unit={getattr(first, 'unit_id', 'unknown')} "
 				f"first_error={getattr(first, 'error', None) or getattr(first, 'status', 'error')}"
 			)
-		return result
+		raise RuntimeError("reconstruct produced no successful units")
 
 	target_results = distribute_targets(
 		targets=targets,

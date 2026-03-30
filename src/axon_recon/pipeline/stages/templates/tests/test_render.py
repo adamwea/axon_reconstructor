@@ -13,6 +13,7 @@ from axon_recon.pipeline.stages.templates.core.render import render_template_wf_
 from axon_recon.pipeline.stages.templates.core.render import render_wf_overlay_grid_from_assets
 from axon_recon.pipeline.stages.templates.core.render import render_topographical_amplitude_footprint
 from axon_recon.pipeline.stages.templates.core.render import _expand_limits_for_glyph_half_size
+from axon_recon.pipeline.stages.templates.core.render import _make_square_limits
 from axon_recon.pipeline.stages.templates.core.render import _probe_electrode_dims_um
 from axon_recon.pipeline.stages.templates.core.render import _limits_for_template_shape
 from axon_recon.pipeline.stages.templates.core.render import _maybe_reversed_colormap
@@ -2812,6 +2813,92 @@ def test_expand_limits_for_glyph_half_size() -> None:
 	assert np.isclose(xmax, 12.0)
 	assert np.isclose(ymin, 17.0)
 	assert np.isclose(ymax, 43.0)
+
+
+def test_make_square_limits_with_center_keeps_original_bounds_visible() -> None:
+	xmin, xmax, ymin, ymax = _make_square_limits(
+		xmin=0.0,
+		xmax=100.0,
+		ymin=0.0,
+		ymax=10.0,
+		center_xy=(0.0, 0.0),
+	)
+	assert xmin <= 0.0
+	assert xmax >= 100.0
+	assert ymin <= 0.0
+	assert ymax >= 10.0
+	assert np.isclose(float(xmax - xmin), float(ymax - ymin))
+
+
+def test_render_template_circles_plot_respects_explicit_scope_points_for_zoom(monkeypatch, tmp_path: Path) -> None:
+	import matplotlib.axes  # type: ignore[import-not-found]
+
+	template = np.asarray(
+		[
+			[-5.0, -10.0, -3.0, -1.0],
+			[-2.0, -4.0, -1.0, -0.5],
+			[-1.0, -6.0, -2.0, -0.5],
+		],
+		dtype=float,
+	)
+	locs = np.asarray(
+		[
+			[0.0, 0.0],
+			[10.0, 10.0],
+			[100.0, 100.0],
+		],
+		dtype=float,
+	)
+	scope_locs = np.asarray(
+		[
+			[0.0, 0.0],
+			[10.0, 10.0],
+		],
+		dtype=float,
+	)
+
+	seen_xlims: list[tuple[float, float]] = []
+	seen_ylims: list[tuple[float, float]] = []
+	orig_set_xlim = matplotlib.axes.Axes.set_xlim
+	orig_set_ylim = matplotlib.axes.Axes.set_ylim
+
+	def _spy_set_xlim(self, *args, **kwargs):
+		if len(args) >= 2 and str(self.get_xlabel()) == "x (um)" and str(self.get_ylabel()) == "y (um)":
+			seen_xlims.append((float(args[0]), float(args[1])))
+		return orig_set_xlim(self, *args, **kwargs)
+
+	def _spy_set_ylim(self, *args, **kwargs):
+		if len(args) >= 2 and str(self.get_xlabel()) == "x (um)" and str(self.get_ylabel()) == "y (um)":
+			seen_ylims.append((float(args[0]), float(args[1])))
+		return orig_set_ylim(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "set_xlim", _spy_set_xlim)
+	monkeypatch.setattr(matplotlib.axes.Axes, "set_ylim", _spy_set_ylim)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locs,
+		config=TemplateCirclesPlotConfig(
+			write_png=False,
+			write_svg=False,
+			force_square_aspect=False,
+			force_center_soma=False,
+			show_scale_bar=False,
+			show_scale_circle=False,
+		),
+		png_path=tmp_path / "unused.png",
+		svg_path=tmp_path / "unused.svg",
+		plot_scope_points_xy=scope_locs,
+		zoom_padding_percent=20.0,
+		allow_scope_expansion=False,
+	)
+
+	assert seen_xlims
+	assert seen_ylims
+	assert np.isclose(float(seen_xlims[-1][0]), -2.0)
+	assert np.isclose(float(seen_xlims[-1][1]), 12.0)
+	assert np.isclose(float(seen_ylims[-1][0]), -2.0)
+	assert np.isclose(float(seen_ylims[-1][1]), 12.0)
 
 
 def test_convert_latency_samples_to_units_ms() -> None:

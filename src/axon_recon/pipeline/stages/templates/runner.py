@@ -291,6 +291,63 @@ def _build_quality_check_aggregate(*, templates_out_dir: Path, inputs: Templates
 	return payload, None
 
 
+def _is_unit_scoped_templates_run(inputs: TemplatesInputs) -> bool:
+	return bool(inputs.unit_ids) and len(inputs.unit_ids) == 1
+
+
+def _should_preserve_templates_reports(inputs: TemplatesInputs) -> bool:
+	if not _is_unit_scoped_templates_run(inputs):
+		return False
+	if not (bool(inputs.force_restart) or bool(inputs.force_replot) or bool(inputs.force_replot_per_unit)):
+		return False
+	if bool(inputs.reports.replot_from_disk):
+		return False
+	return not bool(inputs.reports.overwrite_on_unit_rerun)
+
+
+def _collect_existing_templates_report_outputs(
+	*,
+	templates_out_dir: Path,
+	inputs: TemplatesInputs,
+) -> dict[str, str]:
+	report_outputs: dict[str, str] = {}
+	for key, path in resolve_report_output_paths(templates_out_dir=templates_out_dir, reports=inputs.reports).items():
+		if path.exists():
+			report_outputs[key] = str(path)
+	return report_outputs
+
+
+def _path_is_within_preserved_set(path: Path, preserve_paths: list[Path]) -> bool:
+	resolved = path.resolve()
+	for preserve_path in preserve_paths:
+		preserve_resolved = preserve_path.resolve()
+		if resolved == preserve_resolved:
+			return True
+		if preserve_resolved in resolved.parents:
+			return True
+		if resolved in preserve_resolved.parents:
+			return True
+	return False
+
+
+def _clear_directory_contents_preserving(*, root_dir: Path, preserve_paths: list[Path]) -> None:
+	if not root_dir.exists():
+		return
+	preserved_existing = [path for path in preserve_paths if path.exists()]
+	if not preserved_existing:
+		shutil.rmtree(root_dir)
+		return
+	for child in list(root_dir.iterdir()):
+		if _path_is_within_preserved_set(child, preserved_existing):
+			if child.is_dir():
+				_clear_directory_contents_preserving(root_dir=child, preserve_paths=preserved_existing)
+			continue
+		if child.is_dir():
+			shutil.rmtree(child)
+		else:
+			child.unlink(missing_ok=True)
+
+
 def _pad_value_from_mode(mode: str) -> float:
 	m = str(mode or "zero").strip().lower()
 	if m == "one":
@@ -669,10 +726,15 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		and (not bool(inputs.reports.replot_from_disk))
 	)
 	templates_out_dir = well_out_dir / str(inputs.output_rel_root)
-	if full_restart and templates_out_dir.exists():
-		LOGGER.info("Templates full restart: clearing output root %s", templates_out_dir)
-		shutil.rmtree(templates_out_dir)
-	templates_out_dir.mkdir(parents=True, exist_ok=True)
+	preserve_stage_reports = _should_preserve_templates_reports(inputs)
+	existing_report_outputs = (
+		_collect_existing_templates_report_outputs(
+			templates_out_dir=templates_out_dir,
+			inputs=inputs,
+		)
+		if preserve_stage_reports
+		else {}
+	)
 	cache_rel = Path(str(inputs.analyzer_cache.relpath or "analyzers")).expanduser()
 	if cache_rel.is_absolute():
 		cache_rel = Path(str(cache_rel).lstrip("/"))
@@ -681,6 +743,32 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		if bool(inputs.analyzer_cache.enabled)
 		else None
 	)
+	unit_scoped_force_restart = full_restart and _is_unit_scoped_templates_run(inputs)
+	preserve_analyzer_cache = (
+		full_restart
+		and (not unit_scoped_force_restart)
+		and bool(inputs.analyzer_cache.enabled)
+		and bool(inputs.analyzer_cache.reuse_on_force_restart)
+		and analyzer_cache_dir is not None
+		and analyzer_cache_dir.exists()
+	)
+	if full_restart and templates_out_dir.exists():
+		if unit_scoped_force_restart:
+			LOGGER.info(
+				"Templates unit-scoped restart: preserving stage root for unit_ids=%s",
+				list(inputs.unit_ids or []),
+			)
+		elif preserve_analyzer_cache:
+			LOGGER.info(
+				"Templates full restart: clearing output root %s while preserving analyzer cache %s",
+				templates_out_dir,
+				analyzer_cache_dir,
+			)
+			_clear_directory_contents_preserving(root_dir=templates_out_dir, preserve_paths=[analyzer_cache_dir])
+		else:
+			LOGGER.info("Templates full restart: clearing output root %s", templates_out_dir)
+			shutil.rmtree(templates_out_dir)
+	templates_out_dir.mkdir(parents=True, exist_ok=True)
 
 	merged_units_dir: Path | None = None
 	full_channels_templates_dir: Path | None = None
@@ -824,6 +912,8 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			unit_id=unit_id,
 			per_unit_outputs=inputs.per_unit_outputs,
 		)
+		if unit_scoped_force_restart and any(str(unit_id) == str(target_id) for target_id in (inputs.unit_ids or [])) and paths["unit_dir"].exists():
+			shutil.rmtree(paths["unit_dir"])
 		paths["unit_dir"].mkdir(parents=True, exist_ok=True)
 
 		if (
@@ -1443,140 +1533,146 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 
 	unit_results.sort(key=lambda r: str(r.unit_id))
 	LOGGER.info("Templates unit execution complete: total_results=%d", len(unit_results))
-	report_outputs: dict[str, str] = {}
-	try:
-		LOGGER.info("Templates reports start: stream=%s", inputs.stream_id)
-		report_paths = resolve_report_output_paths(templates_out_dir=templates_out_dir, reports=inputs.reports)
-
-		overlay_paths = [
-			Path(u.outputs["template_wf_overlay_png"])
-			for u in unit_results
-			if "template_wf_overlay_png" in u.outputs
-		]
-		LOGGER.info("Templates reports wf_overlay_grid inputs=%d", len(overlay_paths))
-		wf_grid_outputs = render_wf_overlay_grid_from_assets(
-			overlay_png_paths=overlay_paths,
-			config=inputs.reports.wf_overlay_grid,
-			pdf_path=report_paths["wf_overlay_grid_pdf"],
-			png_path=report_paths["wf_overlay_grid_png"],
-			write_svg=bool(inputs.reports.wf_overlay_grid.write_svg),
-			svg_path=report_paths["wf_overlay_grid_temp_svg"],
-			svg_output_key="wf_overlay_grid_temp_svg",
+	report_outputs: dict[str, str] = dict(existing_report_outputs)
+	if preserve_stage_reports:
+		LOGGER.info(
+			"Templates reports skip: preserving existing stage reports during unit-scoped rerun for unit_ids=%s",
+			list(inputs.unit_ids or []),
 		)
-		wf_grid_outputs = finalize_grid_svg_output(
-			raw_outputs=wf_grid_outputs,
-			write_svg=bool(inputs.reports.wf_overlay_grid.write_svg),
-			keep_temp_svg=bool(inputs.reports.wf_overlay_grid.keep_temp_svg),
-			temp_svg_output_key="wf_overlay_grid_temp_svg",
-			final_svg_output_key="wf_overlay_grid_svg",
-			temp_svg_path=report_paths["wf_overlay_grid_temp_svg"],
-			final_svg_path=report_paths["wf_overlay_grid_svg"],
-			report_name="wf_overlay_grid",
-		)
-		report_outputs.update(wf_grid_outputs)
-		circles_map_paths = [
-			Path(u.outputs["template_circles_png"])
-			for u in unit_results
-			if "template_circles_png" in u.outputs
-		]
-		LOGGER.info("Templates reports circles_map_grid inputs=%d", len(circles_map_paths))
-		circles_grid_outputs = render_footprint_map_grid_from_assets(
-			image_paths=circles_map_paths,
-			config=inputs.reports.footprint_grids.circles_map_grid,
-			pdf_path=report_paths["template_circles_map_grid_pdf"],
-			png_path=report_paths["template_circles_map_grid_png"],
-			write_svg=bool(inputs.reports.footprint_grids.circles_map_grid.write_svg),
-			svg_path=report_paths["template_circles_map_grid_temp_svg"],
-			svg_output_key="template_circles_map_grid_temp_svg",
-			pdf_output_key="template_circles_map_grid_pdf",
-			png_output_key="template_circles_map_grid_png",
-			title="Template circles map grid",
-		)
-		circles_grid_outputs = finalize_grid_svg_output(
-			raw_outputs=circles_grid_outputs,
-			write_svg=bool(inputs.reports.footprint_grids.circles_map_grid.write_svg),
-			keep_temp_svg=bool(inputs.reports.footprint_grids.circles_map_grid.keep_temp_svg),
-			temp_svg_output_key="template_circles_map_grid_temp_svg",
-			final_svg_output_key="template_circles_map_grid_svg",
-			temp_svg_path=report_paths["template_circles_map_grid_temp_svg"],
-			final_svg_path=report_paths["template_circles_map_grid_svg"],
-			report_name="circles_map_grid",
-		)
-		report_outputs.update(circles_grid_outputs)
-		amp_map_paths = [
-			Path(u.outputs["footprint_amplitude_map_png"])
-			for u in unit_results
-			if "footprint_amplitude_map_png" in u.outputs
-		]
-		LOGGER.info("Templates reports amplitude_map_grid inputs=%d", len(amp_map_paths))
-		amp_grid_outputs = render_footprint_map_grid_from_assets(
-			image_paths=amp_map_paths,
-			config=inputs.reports.footprint_grids.amplitude_map_grid,
-			pdf_path=report_paths["footprint_amplitude_map_grid_pdf"],
-			png_path=report_paths["footprint_amplitude_map_grid_png"],
-			write_svg=bool(inputs.reports.footprint_grids.amplitude_map_grid.write_svg),
-			svg_path=report_paths["footprint_amplitude_map_grid_temp_svg"],
-			svg_output_key="footprint_amplitude_map_grid_temp_svg",
-			pdf_output_key="footprint_amplitude_map_grid_pdf",
-			png_output_key="footprint_amplitude_map_grid_png",
-			title="Template footprint amplitude map grid",
-		)
-		amp_grid_outputs = finalize_grid_svg_output(
-			raw_outputs=amp_grid_outputs,
-			write_svg=bool(inputs.reports.footprint_grids.amplitude_map_grid.write_svg),
-			keep_temp_svg=bool(inputs.reports.footprint_grids.amplitude_map_grid.keep_temp_svg),
-			temp_svg_output_key="footprint_amplitude_map_grid_temp_svg",
-			final_svg_output_key="footprint_amplitude_map_grid_svg",
-			temp_svg_path=report_paths["footprint_amplitude_map_grid_temp_svg"],
-			final_svg_path=report_paths["footprint_amplitude_map_grid_svg"],
-			report_name="amplitude_map_grid",
-		)
-		report_outputs.update(amp_grid_outputs)
-		lat_map_paths = [
-			Path(u.outputs["footprint_latency_map_png"])
-			for u in unit_results
-			if "footprint_latency_map_png" in u.outputs
-		]
-		LOGGER.info("Templates reports latency_map_grid inputs=%d", len(lat_map_paths))
-		lat_grid_outputs = render_footprint_map_grid_from_assets(
-			image_paths=lat_map_paths,
-			config=inputs.reports.footprint_grids.latency_map_grid,
-			pdf_path=report_paths["footprint_latency_map_grid_pdf"],
-			png_path=report_paths["footprint_latency_map_grid_png"],
-			write_svg=bool(inputs.reports.footprint_grids.latency_map_grid.write_svg),
-			svg_path=report_paths["footprint_latency_map_grid_temp_svg"],
-			svg_output_key="footprint_latency_map_grid_temp_svg",
-			pdf_output_key="footprint_latency_map_grid_pdf",
-			png_output_key="footprint_latency_map_grid_png",
-			title="Template footprint latency map grid",
-		)
-		lat_grid_outputs = finalize_grid_svg_output(
-			raw_outputs=lat_grid_outputs,
-			write_svg=bool(inputs.reports.footprint_grids.latency_map_grid.write_svg),
-			keep_temp_svg=bool(inputs.reports.footprint_grids.latency_map_grid.keep_temp_svg),
-			temp_svg_output_key="footprint_latency_map_grid_temp_svg",
-			final_svg_output_key="footprint_latency_map_grid_svg",
-			temp_svg_path=report_paths["footprint_latency_map_grid_temp_svg"],
-			final_svg_path=report_paths["footprint_latency_map_grid_svg"],
-			report_name="latency_map_grid",
-		)
-		report_outputs.update(lat_grid_outputs)
-		if bool(inputs.reports.plot_multi_source_pdf.enabled):
-			LOGGER.info("Templates reports multi_source_pdf enabled; rendering")
-			report_outputs.update(
-				render_multi_source_pdf(
-					units=[
-						{"unit_id": u.unit_id, "outputs": u.outputs}
-						for u in unit_results
-						if str(u.status) == "ok"
-					],
-					pdf_path=report_paths["multi_source_pdf"],
-				)
-			)
-	except Exception:
-		LOGGER.exception("Failed writing templates reports for stream %s", inputs.stream_id)
 	else:
-		LOGGER.info("Templates reports complete: generated=%d", len(report_outputs))
+		try:
+			LOGGER.info("Templates reports start: stream=%s", inputs.stream_id)
+			report_paths = resolve_report_output_paths(templates_out_dir=templates_out_dir, reports=inputs.reports)
+
+			overlay_paths = [
+				Path(u.outputs["template_wf_overlay_png"])
+				for u in unit_results
+				if "template_wf_overlay_png" in u.outputs
+			]
+			LOGGER.info("Templates reports wf_overlay_grid inputs=%d", len(overlay_paths))
+			wf_grid_outputs = render_wf_overlay_grid_from_assets(
+				overlay_png_paths=overlay_paths,
+				config=inputs.reports.wf_overlay_grid,
+				pdf_path=report_paths["wf_overlay_grid_pdf"],
+				png_path=report_paths["wf_overlay_grid_png"],
+				write_svg=bool(inputs.reports.wf_overlay_grid.write_svg),
+				svg_path=report_paths["wf_overlay_grid_temp_svg"],
+				svg_output_key="wf_overlay_grid_temp_svg",
+			)
+			wf_grid_outputs = finalize_grid_svg_output(
+				raw_outputs=wf_grid_outputs,
+				write_svg=bool(inputs.reports.wf_overlay_grid.write_svg),
+				keep_temp_svg=bool(inputs.reports.wf_overlay_grid.keep_temp_svg),
+				temp_svg_output_key="wf_overlay_grid_temp_svg",
+				final_svg_output_key="wf_overlay_grid_svg",
+				temp_svg_path=report_paths["wf_overlay_grid_temp_svg"],
+				final_svg_path=report_paths["wf_overlay_grid_svg"],
+				report_name="wf_overlay_grid",
+			)
+			report_outputs.update(wf_grid_outputs)
+			circles_map_paths = [
+				Path(u.outputs["template_circles_png"])
+				for u in unit_results
+				if "template_circles_png" in u.outputs
+			]
+			LOGGER.info("Templates reports circles_map_grid inputs=%d", len(circles_map_paths))
+			circles_grid_outputs = render_footprint_map_grid_from_assets(
+				image_paths=circles_map_paths,
+				config=inputs.reports.footprint_grids.circles_map_grid,
+				pdf_path=report_paths["template_circles_map_grid_pdf"],
+				png_path=report_paths["template_circles_map_grid_png"],
+				write_svg=bool(inputs.reports.footprint_grids.circles_map_grid.write_svg),
+				svg_path=report_paths["template_circles_map_grid_temp_svg"],
+				svg_output_key="template_circles_map_grid_temp_svg",
+				pdf_output_key="template_circles_map_grid_pdf",
+				png_output_key="template_circles_map_grid_png",
+				title="Template circles map grid",
+			)
+			circles_grid_outputs = finalize_grid_svg_output(
+				raw_outputs=circles_grid_outputs,
+				write_svg=bool(inputs.reports.footprint_grids.circles_map_grid.write_svg),
+				keep_temp_svg=bool(inputs.reports.footprint_grids.circles_map_grid.keep_temp_svg),
+				temp_svg_output_key="template_circles_map_grid_temp_svg",
+				final_svg_output_key="template_circles_map_grid_svg",
+				temp_svg_path=report_paths["template_circles_map_grid_temp_svg"],
+				final_svg_path=report_paths["template_circles_map_grid_svg"],
+				report_name="circles_map_grid",
+			)
+			report_outputs.update(circles_grid_outputs)
+			amp_map_paths = [
+				Path(u.outputs["footprint_amplitude_map_png"])
+				for u in unit_results
+				if "footprint_amplitude_map_png" in u.outputs
+			]
+			LOGGER.info("Templates reports amplitude_map_grid inputs=%d", len(amp_map_paths))
+			amp_grid_outputs = render_footprint_map_grid_from_assets(
+				image_paths=amp_map_paths,
+				config=inputs.reports.footprint_grids.amplitude_map_grid,
+				pdf_path=report_paths["footprint_amplitude_map_grid_pdf"],
+				png_path=report_paths["footprint_amplitude_map_grid_png"],
+				write_svg=bool(inputs.reports.footprint_grids.amplitude_map_grid.write_svg),
+				svg_path=report_paths["footprint_amplitude_map_grid_temp_svg"],
+				svg_output_key="footprint_amplitude_map_grid_temp_svg",
+				pdf_output_key="footprint_amplitude_map_grid_pdf",
+				png_output_key="footprint_amplitude_map_grid_png",
+				title="Template footprint amplitude map grid",
+			)
+			amp_grid_outputs = finalize_grid_svg_output(
+				raw_outputs=amp_grid_outputs,
+				write_svg=bool(inputs.reports.footprint_grids.amplitude_map_grid.write_svg),
+				keep_temp_svg=bool(inputs.reports.footprint_grids.amplitude_map_grid.keep_temp_svg),
+				temp_svg_output_key="footprint_amplitude_map_grid_temp_svg",
+				final_svg_output_key="footprint_amplitude_map_grid_svg",
+				temp_svg_path=report_paths["footprint_amplitude_map_grid_temp_svg"],
+				final_svg_path=report_paths["footprint_amplitude_map_grid_svg"],
+				report_name="amplitude_map_grid",
+			)
+			report_outputs.update(amp_grid_outputs)
+			lat_map_paths = [
+				Path(u.outputs["footprint_latency_map_png"])
+				for u in unit_results
+				if "footprint_latency_map_png" in u.outputs
+			]
+			LOGGER.info("Templates reports latency_map_grid inputs=%d", len(lat_map_paths))
+			lat_grid_outputs = render_footprint_map_grid_from_assets(
+				image_paths=lat_map_paths,
+				config=inputs.reports.footprint_grids.latency_map_grid,
+				pdf_path=report_paths["footprint_latency_map_grid_pdf"],
+				png_path=report_paths["footprint_latency_map_grid_png"],
+				write_svg=bool(inputs.reports.footprint_grids.latency_map_grid.write_svg),
+				svg_path=report_paths["footprint_latency_map_grid_temp_svg"],
+				svg_output_key="footprint_latency_map_grid_temp_svg",
+				pdf_output_key="footprint_latency_map_grid_pdf",
+				png_output_key="footprint_latency_map_grid_png",
+				title="Template footprint latency map grid",
+			)
+			lat_grid_outputs = finalize_grid_svg_output(
+				raw_outputs=lat_grid_outputs,
+				write_svg=bool(inputs.reports.footprint_grids.latency_map_grid.write_svg),
+				keep_temp_svg=bool(inputs.reports.footprint_grids.latency_map_grid.keep_temp_svg),
+				temp_svg_output_key="footprint_latency_map_grid_temp_svg",
+				final_svg_output_key="footprint_latency_map_grid_svg",
+				temp_svg_path=report_paths["footprint_latency_map_grid_temp_svg"],
+				final_svg_path=report_paths["footprint_latency_map_grid_svg"],
+				report_name="latency_map_grid",
+			)
+			report_outputs.update(lat_grid_outputs)
+			if bool(inputs.reports.plot_multi_source_pdf.enabled):
+				LOGGER.info("Templates reports multi_source_pdf enabled; rendering")
+				report_outputs.update(
+					render_multi_source_pdf(
+						units=[
+							{"unit_id": u.unit_id, "outputs": u.outputs}
+							for u in unit_results
+							if str(u.status) == "ok"
+						],
+						pdf_path=report_paths["multi_source_pdf"],
+					)
+				)
+		except Exception:
+			LOGGER.exception("Failed writing templates reports for stream %s", inputs.stream_id)
+		else:
+			LOGGER.info("Templates reports complete: generated=%d", len(report_outputs))
 
 	summary_json = templates_out_dir / "templates_summary.json"
 	quality_check_aggregate, quality_check_aggregate_json = _build_quality_check_aggregate(
@@ -1593,10 +1689,12 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				"enabled": bool(inputs.analyzer_cache.enabled),
 				"relpath": str(inputs.analyzer_cache.relpath),
 				"cleanup_on_success": bool(inputs.analyzer_cache.cleanup_on_success),
+				"reuse_on_force_restart": bool(inputs.analyzer_cache.reuse_on_force_restart),
 				"resolved_dir": (None if analyzer_cache_dir is None else str(analyzer_cache_dir)),
 			},
 		"reports": report_outputs,
 		"reports_replot_from_disk": bool(inputs.reports.replot_from_disk),
+		"reports_overwrite_skipped": preserve_stage_reports,
 		"reports_time_upsample": {
 			"enabled": bool(inputs.reports.time_upsample.enabled),
 			"factor": int(max(1, int(inputs.reports.time_upsample.factor))),

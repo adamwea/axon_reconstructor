@@ -94,6 +94,8 @@ class ReconstructionStageConfig:
 	summary_grid_ncols: int
 	write_report_md: bool
 	report_md_relpath: str
+	cleanup_failed_unit_outputs: bool
+	failed_units_summary_relpath: str
 	per_unit_outputs: PerUnitOutputsConfig
 	unit_ids: list[int] | None
 	unit_limit: int | None
@@ -167,6 +169,8 @@ def parse_reconstruction_stage_config(
 	summary_png_relpath = _normalize_png_relpath(outputs_cfg.get("summary_relpath", "summary.png"), "summary.png")
 	write_report_md = _as_bool(outputs_cfg.get("write_report_md", False), False)
 	report_md_relpath = str(outputs_cfg.get("report_md_relpath", "report.md"))
+	cleanup_failed_unit_outputs = _as_bool(outputs_cfg.get("cleanup_failed_unit_outputs", False), False)
+	failed_units_summary_relpath = str(outputs_cfg.get("failed_units_summary_relpath", "failed_units_summary.json"))
 	try:
 		summary_grid_ncols = max(1, int(outputs_cfg.get("summary_grid_ncols", 5)))
 	except Exception:
@@ -333,7 +337,8 @@ def parse_reconstruction_stage_config(
 				svg_relpath_default="reports/circle_recon_grid.svg",
 				temp_svg_relpath_default="reports/circle_recon_grid__temp.svg",
 			),
-		)
+		),
+		overwrite_on_unit_rerun=_as_bool(reports_cfg.get("overwrite_on_unit_rerun", False), False),
 	)
 
 	return ReconstructionStageConfig(
@@ -344,6 +349,8 @@ def parse_reconstruction_stage_config(
 		summary_grid_ncols=summary_grid_ncols,
 		write_report_md=write_report_md,
 		report_md_relpath=report_md_relpath,
+		cleanup_failed_unit_outputs=cleanup_failed_unit_outputs,
+		failed_units_summary_relpath=failed_units_summary_relpath,
 		per_unit_outputs=per_unit,
 		unit_ids=unit_ids,
 		unit_limit=unit_limit,
@@ -374,6 +381,8 @@ def build_reconstruction_inputs_for_target(
 		summary_grid_ncols=stage_config.summary_grid_ncols,
 		write_report_md=stage_config.write_report_md,
 		report_md_relpath=stage_config.report_md_relpath,
+		cleanup_failed_unit_outputs=stage_config.cleanup_failed_unit_outputs,
+		failed_units_summary_relpath=stage_config.failed_units_summary_relpath,
 		per_unit_outputs=stage_config.per_unit_outputs,
 		unit_ids=stage_config.unit_ids,
 		unit_limit=stage_config.unit_limit,
@@ -441,6 +450,8 @@ def load_reconstruction_inputs_from_runtime(
 		summary_grid_ncols=stage_cfg.summary_grid_ncols,
 		write_report_md=stage_cfg.write_report_md,
 		report_md_relpath=stage_cfg.report_md_relpath,
+		cleanup_failed_unit_outputs=stage_cfg.cleanup_failed_unit_outputs,
+		failed_units_summary_relpath=stage_cfg.failed_units_summary_relpath,
 		per_unit_outputs=stage_cfg.per_unit_outputs,
 		unit_ids=stage_cfg.unit_ids,
 		unit_limit=stage_cfg.unit_limit,
