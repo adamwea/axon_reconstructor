@@ -430,6 +430,29 @@ def test_dynamic_circle_sizing_handles_asymmetric_axis_scaling() -> None:
 	assert (radii[1] + radii[2]) <= (d12 + 1e-6)
 
 
+def test_dynamic_circle_sizing_ignores_nonpositive_edge_clearance() -> None:
+	centers_pt = np.asarray(
+		[
+			[0.0, 0.0],
+			[20.0, 0.0],
+		],
+		dtype=float,
+	)
+	base_areas = np.asarray([50.0, 50.0], dtype=float)
+
+	sizes = _compute_max_non_overlapping_circle_areas(
+		centers_display_pt=centers_pt,
+		base_areas_pt2=base_areas,
+		axis_x_limits_pt=(1.0, 100.0),
+		axis_y_limits_pt=(-20.0, 20.0),
+	)
+
+	radii = np.sqrt(np.asarray(sizes, dtype=float) / np.pi)
+	dist = float(np.hypot(*(centers_pt[1] - centers_pt[0])))
+	assert np.all(np.asarray(sizes, dtype=float) > 0.0)
+	assert (radii[0] + radii[1]) <= (dist + 1e-6)
+
+
 def test_render_template_circles_plot_sets_non_overlapping_sizes_in_final_layout(tmp_path: Path, monkeypatch) -> None:
 	template = np.asarray(
 		[

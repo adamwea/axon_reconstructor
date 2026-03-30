@@ -7,6 +7,7 @@ from typing import Any
 from axon_reconstructor.runtime_config import RuntimeConfig
 from axon_recon.pipeline.shared.plotting import build_stage_plot_block
 from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
+from axon_recon.pipeline.stages.templates.config import _build_footprint_grid_report_config
 from axon_recon.pipeline.stages.templates.config import parse_probe_geometry_from_data_config
 
 from ...execution.context import ExecutionTarget
@@ -15,7 +16,9 @@ from .models.inputs import (
 	CircleReconDisplayConfig,
 	CircleReconOutputConfig,
 	PerUnitOutputsConfig,
+	ReconstructionGridReportsConfig,
 	ReconstructionInputs,
+	ReconstructionReportsConfig,
 )
 
 
@@ -85,6 +88,7 @@ def _get_reconstruct_amplitude_map_block(runtime_config: RuntimeConfig) -> dict[
 @dataclass(frozen=True)
 class ReconstructionStageConfig:
 	output_rel_root: str
+	reports: ReconstructionReportsConfig
 	write_summary_png: bool
 	summary_png_relpath: str
 	summary_grid_ncols: int
@@ -125,6 +129,9 @@ def parse_reconstruction_stage_config(
 	execution_cfg = stage_cfg.get("execution", {}) if isinstance(stage_cfg.get("execution", {}), dict) else {}
 	inputs_cfg = stage_cfg.get("inputs", {}) if isinstance(stage_cfg.get("inputs", {}), dict) else {}
 	outputs_cfg = stage_cfg.get("outputs", {}) if isinstance(stage_cfg.get("outputs", {}), dict) else {}
+	reports_cfg = outputs_cfg.get("reports", {}) if isinstance(outputs_cfg.get("reports", {}), dict) else {}
+	grids_cfg = reports_cfg.get("grids", {}) if isinstance(reports_cfg.get("grids", {}), dict) else {}
+	circle_recon_grid_cfg = grids_cfg.get("circle_recon_grid", {}) if isinstance(grids_cfg.get("circle_recon_grid", {}), dict) else {}
 	per_unit_cfg = outputs_cfg.get("per_unit_outputs", {}) if isinstance(outputs_cfg.get("per_unit_outputs", {}), dict) else {}
 	av_cfg = stage_cfg.get("av", {}) if isinstance(stage_cfg.get("av", {}), dict) else {}
 	amplitude_map_cfg = _get_reconstruct_amplitude_map_block(runtime_config)
@@ -317,9 +324,21 @@ def parse_reconstruction_stage_config(
 		amplitude_map_heatmap=SharedHeatmapConfig.from_block(amplitude_map_cfg),
 		circle_recon=circle_recon,
 	)
+	reports = ReconstructionReportsConfig(
+		grids=ReconstructionGridReportsConfig(
+			circle_recon_grid=_build_footprint_grid_report_config(
+				circle_recon_grid_cfg,
+				pdf_relpath_default="reports/circle_recon_grid.pdf",
+				png_relpath_default="reports/circle_recon_grid.png",
+				svg_relpath_default="reports/circle_recon_grid.svg",
+				temp_svg_relpath_default="reports/circle_recon_grid__temp.svg",
+			),
+		)
+	)
 
 	return ReconstructionStageConfig(
 		output_rel_root=str(outputs_cfg.get("output_rel_root", "recon_outputs")),
+		reports=reports,
 		write_summary_png=write_summary_png,
 		summary_png_relpath=summary_png_relpath,
 		summary_grid_ncols=summary_grid_ncols,
@@ -349,6 +368,7 @@ def build_reconstruction_inputs_for_target(
 		stream_id=target.stream_id,
 		mea_output_root=target.mea_output_root,
 		output_rel_root=stage_config.output_rel_root,
+		reports=stage_config.reports,
 		write_summary_png=stage_config.write_summary_png,
 		summary_png_relpath=stage_config.summary_png_relpath,
 		summary_grid_ncols=stage_config.summary_grid_ncols,
@@ -415,6 +435,7 @@ def load_reconstruction_inputs_from_runtime(
 		stream_id=stream_id,
 		mea_output_root=output_root,
 		output_rel_root=stage_cfg.output_rel_root,
+		reports=stage_cfg.reports,
 		write_summary_png=stage_cfg.write_summary_png,
 		summary_png_relpath=stage_cfg.summary_png_relpath,
 		summary_grid_ncols=stage_cfg.summary_grid_ncols,

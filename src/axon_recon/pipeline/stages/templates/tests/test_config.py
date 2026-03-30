@@ -549,6 +549,10 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			            include_segments: true
 			    outputs:
 			      output_rel_root: template_outputs
+			      analyzer_cache:
+			        enabled: true
+			        relpath: cache/analyzers
+			        cleanup_on_success: true
 			      reports:
 			        plot_multi_source_pdf: true
 			        multi_source_pdf_relpath: reports/template_multi_source.pdf
@@ -655,6 +659,9 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert inputs.unit_limit == 7
 	assert inputs.include_concat is False
 	assert inputs.include_segments is True
+	assert inputs.analyzer_cache.enabled is True
+	assert inputs.analyzer_cache.relpath == "cache/analyzers"
+	assert inputs.analyzer_cache.cleanup_on_success is True
 
 	overlay = inputs.per_unit_outputs.template_wf_overlay
 	assert overlay.debug_mode is True

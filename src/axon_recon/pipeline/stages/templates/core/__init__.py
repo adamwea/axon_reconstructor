@@ -1,4 +1,5 @@
 from .render import (
+	finalize_grid_svg_output,
 	render_footprint_map_grid_from_assets,
 	render_footprint_amplitude_map,
 	render_footprint_latency_map,
@@ -19,6 +20,7 @@ from .merge import materialize_templates_from_spikeinterface
 
 __all__ = [
 	"render_footprint_amplitude_map",
+	"finalize_grid_svg_output",
 	"render_footprint_map_grid_from_assets",
 	"render_footprint_latency_map",
 	"render_multi_source_pdf",

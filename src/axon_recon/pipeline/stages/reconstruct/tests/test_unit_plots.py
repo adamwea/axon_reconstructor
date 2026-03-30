@@ -144,7 +144,7 @@ def test_write_unit_amplitude_map_png_uses_shared_heatmap_config(tmp_path: Path)
 	assert out.stat().st_size > 0
 
 
-def test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps(monkeypatch) -> None:
+def test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps(monkeypatch, caplog) -> None:
 	template_ch_by_t = np.array(
 		[
 			[-5.0, -10.0, -3.0, -1.0],
@@ -171,6 +171,7 @@ def test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps(mo
 	class _GtrMock:
 		def __init__(self):
 			self._paths_raw = [[3, 1, 0]]
+			self._paths_clean = [[0, 2]]
 			self.branches = [{"branch_index": 7, "channels": [0, 2]}]
 			self.graph = _GraphMock()
 
@@ -203,6 +204,7 @@ def test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps(mo
 		),
 		output=CircleReconOutputConfig(write_png=False, write_svg=False, relpath="circle_recon", dpi=200.0),
 	)
+	caplog.set_level("INFO", logger="axon_recon.reconstruct")
 
 	write_unit_circle_recon_plot(
 		output_png=Path("/tmp/noop.png"),
@@ -232,9 +234,12 @@ def test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps(mo
 	assert float(render_cfg.branch_morphology.node_border_linewidth) == 0.5
 	assert float(render_cfg.branch_morphology.edge_linewidth) == 1.25
 	assert bool(render_cfg.force_center_soma) is False
+	assert "branch_scope=raw" in caplog.text
+	assert "source=gtr._paths_raw" in caplog.text
+	assert "selected_branch_class=list" in caplog.text
 
 
-def test_write_unit_circle_recon_plot_nodes_only_scope_uses_clean_payload(monkeypatch) -> None:
+def test_write_unit_circle_recon_plot_nodes_only_scope_uses_clean_payload(monkeypatch, caplog) -> None:
 	template_ch_by_t = np.array(
 		[
 			[-5.0, -10.0, -3.0, -1.0],
@@ -261,6 +266,7 @@ def test_write_unit_circle_recon_plot_nodes_only_scope_uses_clean_payload(monkey
 	class _GtrMock:
 		def __init__(self):
 			self._paths_raw = [[3, 1, 0]]
+			self._paths_clean = [[0, 2]]
 			self.branches = [{"branch_index": 7, "channels": [0, 2]}]
 			self.graph = _GraphMock()
 
@@ -287,6 +293,7 @@ def test_write_unit_circle_recon_plot_nodes_only_scope_uses_clean_payload(monkey
 		),
 		output=CircleReconOutputConfig(write_png=False, write_svg=False, relpath="circle_recon", dpi=200.0),
 	)
+	caplog.set_level("INFO", logger="axon_recon.reconstruct")
 
 	write_unit_circle_recon_plot(
 		output_png=Path("/tmp/noop.png"),
@@ -306,6 +313,81 @@ def test_write_unit_circle_recon_plot_nodes_only_scope_uses_clean_payload(monkey
 	branch_payload = captured["branch_morphology"]
 	assert isinstance(branch_payload, dict)
 	assert branch_payload.get("branches") == [{"branch_index": 7, "channels": [0, 1], "label": 7, "color": None}]
+	assert "branch_scope=clean" in caplog.text
+	assert "source=gtr.branches" in caplog.text
+	assert "selected_branch_class=dict" in caplog.text
+
+
+def test_write_unit_circle_recon_plot_clean_scope_falls_back_to_paths_clean(monkeypatch, caplog) -> None:
+	template_ch_by_t = np.array(
+		[
+			[-5.0, -10.0, -3.0, -1.0],
+			[-2.0, -4.0, -1.0, -0.5],
+			[-1.0, -6.0, -2.0, -0.5],
+			[-1.0, -2.0, -1.0, -0.2],
+		],
+		dtype=float,
+	)
+	locs_xy = np.array(
+		[
+			[0.0, 0.0],
+			[17.5, 0.0],
+			[35.0, 0.0],
+			[52.5, 0.0],
+		],
+		dtype=float,
+	)
+
+	class _GraphMock:
+		def nodes(self):
+			return [0, 1, 2, 3]
+
+	class _GtrMock:
+		def __init__(self):
+			self._paths_raw = [[3, 1, 0], [3, 2]]
+			self._paths_clean = [[0, 2]]
+			self.branches = None
+			self.graph = _GraphMock()
+
+	gtr = _GtrMock()
+	captured: dict[str, Any] = {}
+
+	def _fake_render_template_circles_plot(**kwargs):
+		captured["branch_morphology"] = kwargs.get("branch_morphology")
+		return {"template_circles_png": "noop.png"}
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.core.render.render_template_circles_plot",
+		_fake_render_template_circles_plot,
+	)
+
+	cfg = CircleReconConfig(
+		display=CircleReconDisplayConfig(
+			base="template_circles",
+			channel_scope="nodes_and_branches",
+			force_center_soma=True,
+			branch_scope="clean",
+		),
+		output=CircleReconOutputConfig(write_png=False, write_svg=False, relpath="circle_recon", dpi=200.0),
+	)
+	caplog.set_level("INFO", logger="axon_recon.reconstruct")
+
+	write_unit_circle_recon_plot(
+		output_png=Path("/tmp/noop.png"),
+		output_svg=Path("/tmp/noop.svg"),
+		template_ch_by_t=template_ch_by_t,
+		locs_xy=locs_xy,
+		gtr=gtr,
+		circle_config=cfg,
+		unit_id=1,
+	)
+
+	branch_payload = captured["branch_morphology"]
+	assert isinstance(branch_payload, dict)
+	assert branch_payload.get("branches") == [{"branch_index": 0, "channels": [0, 2], "label": 0, "color": None}]
+	assert "branch_scope=clean" in caplog.text
+	assert "source=gtr._paths_clean" in caplog.text
+	assert "selected_branch_class=list" in caplog.text
 
 
 def test_write_unit_circle_recon_plot_base_amplitude_map_dispatches(monkeypatch) -> None:

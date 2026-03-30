@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 from dataclasses import replace
 
 from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
 from axon_recon.pipeline.stages.reconstruct.models.inputs import CircleReconConfig
+
+
+LOGGER = logging.getLogger("axon_recon.reconstruct")
 
 
 def write_unit_amplitude_map_png(
@@ -171,9 +175,77 @@ def _clean_branch_payload_from_gtr(gtr: Any) -> list[dict[str, Any]]:
 				"branch_index": int(branch.get("branch_index", bi)),
 				"channels": channels,
 				"label": branch.get("branch_index", bi),
+				"color": branch.get("color", None),
 			}
 		)
 	return out
+
+
+def _clean_path_payload_from_gtr(gtr: Any) -> list[dict[str, Any]]:
+	from axon_recon.pipeline.stages.reconstruct.io import as_list
+
+	out: list[dict[str, Any]] = []
+	for bi, path in enumerate(as_list(getattr(gtr, "_paths_clean", None))):
+		try:
+			channels = [int(x) for x in list(path)]
+		except Exception:
+			continue
+		if len(channels) < 2:
+			continue
+		out.append(
+			{
+				"branch_index": int(bi),
+				"channels": channels,
+				"label": int(bi),
+				"color": None,
+			}
+		)
+	return out
+
+
+def _branch_item_class_name(branches: Any) -> str:
+	from axon_recon.pipeline.stages.reconstruct.io import as_list
+
+	items = as_list(branches)
+	if len(items) == 0:
+		return "None"
+	return str(type(items[0]).__name__)
+
+
+def _select_branch_payload_from_gtr(
+	*,
+	gtr: Any,
+	branch_scope: str,
+) -> tuple[list[dict[str, Any]], str, str, str, int, int, int]:
+	from axon_recon.pipeline.stages.reconstruct.io import as_list
+
+	raw_paths = as_list(getattr(gtr, "_paths_raw", None))
+	clean_branch_records = as_list(getattr(gtr, "branches", None))
+	clean_paths = as_list(getattr(gtr, "_paths_clean", None))
+
+	scope = str(branch_scope or "raw").strip().lower()
+	if scope == "clean":
+		payload = _clean_branch_payload_from_gtr(gtr)
+		source_name = "gtr.branches"
+		source_collection = getattr(gtr, "branches", None)
+		if len(payload) == 0 and len(clean_paths) > 0:
+			payload = _clean_path_payload_from_gtr(gtr)
+			source_name = "gtr._paths_clean"
+			source_collection = getattr(gtr, "_paths_clean", None)
+	else:
+		payload = _raw_branch_payload_from_gtr(gtr)
+		source_name = "gtr._paths_raw"
+		source_collection = getattr(gtr, "_paths_raw", None)
+
+	return (
+		payload,
+		source_name,
+		str(type(source_collection).__name__),
+		_branch_item_class_name(source_collection),
+		len(raw_paths),
+		len(clean_branch_records),
+		len(clean_paths),
+	)
 
 
 def _gtr_node_indices(gtr: Any) -> set[int]:
@@ -272,10 +344,27 @@ def write_unit_circle_recon_plot(
 	branch_scope = str(getattr(display_cfg, "branch_scope", "raw") or "raw").strip().lower()
 	if branch_scope not in {"raw", "clean"}:
 		branch_scope = "raw"
-	if branch_scope == "clean":
-		branch_payload = _clean_branch_payload_from_gtr(gtr)
-	else:
-		branch_payload = _raw_branch_payload_from_gtr(gtr)
+	(
+		branch_payload,
+		branch_source_name,
+		branch_collection_class,
+		selected_branch_class,
+		raw_branch_count,
+		clean_branch_count,
+		clean_path_count,
+	) = _select_branch_payload_from_gtr(gtr=gtr, branch_scope=branch_scope)
+	LOGGER.info(
+		"Unit %s circle_recon branch_scope=%s source=%s collection_class=%s selected_branch_class=%s selected_count=%d raw_count=%d clean_branch_count=%d clean_path_count=%d",
+		unit_id,
+		branch_scope,
+		branch_source_name,
+		branch_collection_class,
+		selected_branch_class,
+		len(branch_payload),
+		raw_branch_count,
+		clean_branch_count,
+		clean_path_count,
+	)
 
 	n_channels = int(locs.shape[0])
 	node_channels = {int(ch) for ch in _gtr_node_indices(gtr) if 0 <= int(ch) < n_channels}

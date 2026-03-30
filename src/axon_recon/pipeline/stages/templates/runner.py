@@ -17,6 +17,7 @@ from .core.render import (
 	compose_png_side_by_side,
 	compose_svg_side_by_side,
 	compute_propagation_channel_order,
+	finalize_grid_svg_output,
 	render_footprint_amplitude_map,
 	render_footprint_map_grid_from_assets,
 	render_footprint_latency_map,
@@ -661,8 +662,25 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		data_file=inputs.h5_path,
 		well=inputs.stream_id,
 	)
+	full_restart = (
+		bool(inputs.force_restart)
+		and (not bool(inputs.force_replot))
+		and (not bool(inputs.force_replot_per_unit))
+		and (not bool(inputs.reports.replot_from_disk))
+	)
 	templates_out_dir = well_out_dir / str(inputs.output_rel_root)
+	if full_restart and templates_out_dir.exists():
+		LOGGER.info("Templates full restart: clearing output root %s", templates_out_dir)
+		shutil.rmtree(templates_out_dir)
 	templates_out_dir.mkdir(parents=True, exist_ok=True)
+	cache_rel = Path(str(inputs.analyzer_cache.relpath or "analyzers")).expanduser()
+	if cache_rel.is_absolute():
+		cache_rel = Path(str(cache_rel).lstrip("/"))
+	analyzer_cache_dir = (
+		templates_out_dir / cache_rel
+		if bool(inputs.analyzer_cache.enabled)
+		else None
+	)
 
 	merged_units_dir: Path | None = None
 	full_channels_templates_dir: Path | None = None
@@ -672,12 +690,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		nonlocal merged_units_dir, full_channels_templates_dir, upsampling_decisions_by_unit
 		if merged_units_dir is None or full_channels_templates_dir is None:
 			overlay_debug_mode = bool(getattr(inputs.per_unit_outputs.template_wf_overlay, "debug_mode", False))
-			prefer_spikeinterface = (
-				bool(inputs.force_restart)
-				and (not bool(inputs.force_replot))
-				and (not bool(inputs.force_replot_per_unit))
-				and (not bool(inputs.reports.replot_from_disk))
-			)
+			prefer_spikeinterface = bool(full_restart)
 			if prefer_spikeinterface:
 				try:
 					LOGGER.info(
@@ -691,6 +704,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 						templates_out_dir=templates_out_dir,
 						concat_analyzer_relpath=inputs.concat_analyzer_relpath,
 						preproc_seg_sources_reldir=inputs.preproc_seg_sources_reldir,
+						analyzer_cache_dir=analyzer_cache_dir,
 						raw_data_h5_path=inputs.h5_path,
 						stream_id=str(inputs.stream_id),
 						unit_ids=(list(inputs.unit_ids) if inputs.unit_ids is not None else None),
@@ -743,6 +757,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 					templates_out_dir=templates_out_dir,
 					concat_analyzer_relpath=inputs.concat_analyzer_relpath,
 					preproc_seg_sources_reldir=inputs.preproc_seg_sources_reldir,
+					analyzer_cache_dir=analyzer_cache_dir,
 					raw_data_h5_path=inputs.h5_path,
 					stream_id=str(inputs.stream_id),
 					unit_ids=(list(inputs.unit_ids) if inputs.unit_ids is not None else None),
@@ -1433,37 +1448,6 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		LOGGER.info("Templates reports start: stream=%s", inputs.stream_id)
 		report_paths = resolve_report_output_paths(templates_out_dir=templates_out_dir, reports=inputs.reports)
 
-		def _finalize_grid_svg_output(
-			*,
-			raw_outputs: dict[str, str],
-			write_svg: bool,
-			keep_temp_svg: bool,
-			temp_svg_output_key: str,
-			final_svg_output_key: str,
-			temp_svg_path: Path,
-			final_svg_path: Path,
-			report_name: str,
-		) -> dict[str, str]:
-			if not bool(write_svg):
-				raw_outputs.pop(temp_svg_output_key, None)
-				return raw_outputs
-			if temp_svg_output_key not in raw_outputs:
-				return raw_outputs
-			try:
-				final_svg_path.parent.mkdir(parents=True, exist_ok=True)
-				shutil.copyfile(temp_svg_path, final_svg_path)
-				raw_outputs[final_svg_output_key] = str(final_svg_path)
-			except Exception as exc:
-				LOGGER.warning("Failed to finalize %s SVG output: %s", report_name, exc)
-			if not bool(keep_temp_svg):
-				raw_outputs.pop(temp_svg_output_key, None)
-				try:
-					if temp_svg_path.exists():
-						temp_svg_path.unlink()
-				except Exception:
-					pass
-			return raw_outputs
-
 		overlay_paths = [
 			Path(u.outputs["template_wf_overlay_png"])
 			for u in unit_results
@@ -1479,7 +1463,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			svg_path=report_paths["wf_overlay_grid_temp_svg"],
 			svg_output_key="wf_overlay_grid_temp_svg",
 		)
-		wf_grid_outputs = _finalize_grid_svg_output(
+		wf_grid_outputs = finalize_grid_svg_output(
 			raw_outputs=wf_grid_outputs,
 			write_svg=bool(inputs.reports.wf_overlay_grid.write_svg),
 			keep_temp_svg=bool(inputs.reports.wf_overlay_grid.keep_temp_svg),
@@ -1508,7 +1492,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			png_output_key="template_circles_map_grid_png",
 			title="Template circles map grid",
 		)
-		circles_grid_outputs = _finalize_grid_svg_output(
+		circles_grid_outputs = finalize_grid_svg_output(
 			raw_outputs=circles_grid_outputs,
 			write_svg=bool(inputs.reports.footprint_grids.circles_map_grid.write_svg),
 			keep_temp_svg=bool(inputs.reports.footprint_grids.circles_map_grid.keep_temp_svg),
@@ -1537,7 +1521,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			png_output_key="footprint_amplitude_map_grid_png",
 			title="Template footprint amplitude map grid",
 		)
-		amp_grid_outputs = _finalize_grid_svg_output(
+		amp_grid_outputs = finalize_grid_svg_output(
 			raw_outputs=amp_grid_outputs,
 			write_svg=bool(inputs.reports.footprint_grids.amplitude_map_grid.write_svg),
 			keep_temp_svg=bool(inputs.reports.footprint_grids.amplitude_map_grid.keep_temp_svg),
@@ -1566,7 +1550,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			png_output_key="footprint_latency_map_grid_png",
 			title="Template footprint latency map grid",
 		)
-		lat_grid_outputs = _finalize_grid_svg_output(
+		lat_grid_outputs = finalize_grid_svg_output(
 			raw_outputs=lat_grid_outputs,
 			write_svg=bool(inputs.reports.footprint_grids.latency_map_grid.write_svg),
 			keep_temp_svg=bool(inputs.reports.footprint_grids.latency_map_grid.keep_temp_svg),
@@ -1605,6 +1589,12 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		"n_jobs": int(max(1, int(inputs.n_jobs))),
 		"well_out_dir": str(well_out_dir),
 		"templates_out_dir": str(templates_out_dir),
+			"analyzer_cache": {
+				"enabled": bool(inputs.analyzer_cache.enabled),
+				"relpath": str(inputs.analyzer_cache.relpath),
+				"cleanup_on_success": bool(inputs.analyzer_cache.cleanup_on_success),
+				"resolved_dir": (None if analyzer_cache_dir is None else str(analyzer_cache_dir)),
+			},
 		"reports": report_outputs,
 		"reports_replot_from_disk": bool(inputs.reports.replot_from_disk),
 		"reports_time_upsample": {
@@ -1684,6 +1674,18 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 	write_json(summary_json, summary_payload)
 	ok_count = sum(1 for u in unit_results if str(u.status) == "ok")
 	err_count = sum(1 for u in unit_results if str(u.status) != "ok")
+	if (
+		bool(inputs.analyzer_cache.enabled)
+		and bool(inputs.analyzer_cache.cleanup_on_success)
+		and analyzer_cache_dir is not None
+		and analyzer_cache_dir.exists()
+		and err_count == 0
+	):
+		try:
+			LOGGER.info("Templates analyzer cache cleanup_on_success: removing %s", analyzer_cache_dir)
+			shutil.rmtree(analyzer_cache_dir)
+		except Exception:
+			LOGGER.warning("Failed to remove analyzer cache dir: %s", analyzer_cache_dir, exc_info=True)
 	LOGGER.info(
 		"Templates stage done: stream=%s units_ok=%d units_error=%d summary=%s",
 		str(inputs.stream_id),

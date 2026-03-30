@@ -9,8 +9,11 @@ from axon_recon.pipeline.stages.reconstruct.models.inputs import CircleReconConf
 from axon_recon.pipeline.stages.reconstruct.models.inputs import CircleReconDisplayConfig
 from axon_recon.pipeline.stages.reconstruct.models.inputs import CircleReconOutputConfig
 from axon_recon.pipeline.stages.reconstruct.models.inputs import PerUnitOutputsConfig
+from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionGridReportsConfig
 from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionInputs
+from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionReportsConfig
 from axon_recon.pipeline.stages.reconstruct.runner import run_reconstruct_stage
+from axon_recon.pipeline.stages.templates.models.inputs import FootprintMapGridReportConfig
 
 
 def test_run_reconstruct_stage_emits_summary_and_report_outputs(tmp_path: Path, monkeypatch) -> None:
@@ -63,6 +66,31 @@ def test_run_reconstruct_stage_emits_summary_and_report_outputs(tmp_path: Path, 
 		output_png.write_bytes(b"summary")
 		return True
 
+	def _fake_render_footprint_map_grid_from_assets(**kwargs):
+		out: dict[str, str] = {}
+		if bool(kwargs["config"].write_png):
+			png_path = Path(kwargs["png_path"])
+			png_path.parent.mkdir(parents=True, exist_ok=True)
+			png_path.write_bytes(b"grid_png")
+			out[str(kwargs["png_output_key"])] = str(png_path)
+		if bool(kwargs.get("write_svg", False)) and kwargs.get("svg_path", None) is not None:
+			svg_path = Path(kwargs["svg_path"])
+			svg_path.parent.mkdir(parents=True, exist_ok=True)
+			svg_path.write_text("<svg></svg>", encoding="utf-8")
+			out[str(kwargs.get("svg_output_key", "circle_recon_grid_temp_svg"))] = str(svg_path)
+		return out
+
+	def _fake_finalize_grid_svg_output(**kwargs):
+		raw_outputs = dict(kwargs["raw_outputs"])
+		if bool(kwargs["write_svg"]) and kwargs["temp_svg_output_key"] in raw_outputs:
+			final_svg_path = Path(kwargs["final_svg_path"])
+			final_svg_path.parent.mkdir(parents=True, exist_ok=True)
+			final_svg_path.write_text("<svg></svg>", encoding="utf-8")
+			raw_outputs[str(kwargs["final_svg_output_key"])] = str(final_svg_path)
+			if not bool(kwargs["keep_temp_svg"]):
+				raw_outputs.pop(str(kwargs["temp_svg_output_key"]), None)
+		return raw_outputs
+
 	monkeypatch.setattr(reconstruct_runner, "compute_mea_analysis_output_dir", _fake_compute_mea_analysis_output_dir)
 	monkeypatch.setattr(reconstruct_runner, "_resolve_templates_dirs", _fake_resolve_templates_dirs)
 	monkeypatch.setattr(reconstruct_runner, "import_axon_velocity", _fake_import_axon_velocity)
@@ -71,12 +99,25 @@ def test_run_reconstruct_stage_emits_summary_and_report_outputs(tmp_path: Path, 
 	monkeypatch.setattr(reconstruct_runner, "write_unit_amplitude_map_png", _fake_write_unit_amplitude_map_png)
 	monkeypatch.setattr(reconstruct_runner, "write_unit_circle_recon_plot", _fake_write_unit_circle_recon_plot)
 	monkeypatch.setattr(reconstruct_runner, "write_amplitude_map_summary_png", _fake_write_amplitude_map_summary_png)
+	monkeypatch.setattr(reconstruct_runner, "render_footprint_map_grid_from_assets", _fake_render_footprint_map_grid_from_assets)
+	monkeypatch.setattr(reconstruct_runner, "finalize_grid_svg_output", _fake_finalize_grid_svg_output)
 
 	inputs = ReconstructionInputs(
 		h5_path=tmp_path / "input.raw.h5",
 		stream_id="well001",
 		mea_output_root=tmp_path,
 		output_rel_root="recon_outputs",
+		reports=ReconstructionReportsConfig(
+			grids=ReconstructionGridReportsConfig(
+				circle_recon_grid=FootprintMapGridReportConfig(
+					write_png=True,
+					write_svg=True,
+					png_relpath="reports/circle_recon_grid.png",
+					svg_relpath="reports/circle_recon_grid.svg",
+					temp_svg_relpath="reports/circle_recon_grid__temp.svg",
+				)
+			)
+		),
 		write_summary_png=True,
 		summary_png_relpath="reports/summary.png",
 		summary_grid_ncols=2,
@@ -109,8 +150,12 @@ def test_run_reconstruct_stage_emits_summary_and_report_outputs(tmp_path: Path, 
 
 	payload = json.loads(result.summary_json.read_text(encoding="utf-8"))
 	outputs = payload.get("outputs", {})
+	assert "circle_recon_grid_png" in outputs
+	assert "circle_recon_grid_svg" in outputs
 	assert "summary_png" in outputs
 	assert "report_md" in outputs
+	assert Path(outputs["circle_recon_grid_png"]).exists()
+	assert Path(outputs["circle_recon_grid_svg"]).exists()
 	assert Path(outputs["summary_png"]).exists()
 	assert Path(outputs["report_md"]).exists()
 
@@ -121,6 +166,77 @@ def test_run_reconstruct_stage_emits_summary_and_report_outputs(tmp_path: Path, 
 		assert "amplitude_map_png" in dict(unit.get("outputs", {}))
 		assert "circle_recon_png" in dict(unit.get("outputs", {}))
 		assert "circle_recon_svg" in dict(unit.get("outputs", {}))
+
+
+def test_run_reconstruct_stage_force_restart_clears_output_root(tmp_path: Path, monkeypatch) -> None:
+	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
+
+	well_out_dir = tmp_path / "well001"
+	stale_file = well_out_dir / "recon_outputs" / "stale.txt"
+	stale_file.parent.mkdir(parents=True, exist_ok=True)
+	stale_file.write_text("stale", encoding="utf-8")
+
+	def _fake_compute_mea_analysis_output_dir(*, output_root: Path, data_file: Path, well: str) -> Path:
+		return well_out_dir
+
+	def _fake_resolve_templates_dirs(_well_out_dir: Path, **kwargs) -> tuple[Path, Path, Path]:
+		templates_out = tmp_path / "templates_out"
+		merged = tmp_path / "templates_merged"
+		full = tmp_path / "templates_full"
+		templates_out.mkdir(parents=True, exist_ok=True)
+		merged.mkdir(parents=True, exist_ok=True)
+		full.mkdir(parents=True, exist_ok=True)
+		return templates_out, merged, full
+
+	def _fake_import_axon_velocity(*, repo_root):
+		return object()
+
+	def _fake_load_templates_for_unit(**kwargs):
+		template = np.array([[-5.0, -10.0, -3.0], [-2.0, -4.0, -1.0], [-1.0, -6.0, -2.0]], dtype=float)
+		locs = np.array([[0.0, 0.0], [17.5, 0.0], [0.0, 17.5]], dtype=float)
+		return template, locs, template, locs, 10_000.0, "square_from_merged"
+
+	def _fake_compute_graph_tracking(**kwargs):
+		return object()
+
+	def _fake_write_unit_circle_recon_plot(**kwargs):
+		out_png = Path(kwargs["output_png"])
+		out_png.parent.mkdir(parents=True, exist_ok=True)
+		out_png.write_bytes(b"circle_png")
+		return {}
+
+	monkeypatch.setattr(reconstruct_runner, "compute_mea_analysis_output_dir", _fake_compute_mea_analysis_output_dir)
+	monkeypatch.setattr(reconstruct_runner, "_resolve_templates_dirs", _fake_resolve_templates_dirs)
+	monkeypatch.setattr(reconstruct_runner, "import_axon_velocity", _fake_import_axon_velocity)
+	monkeypatch.setattr(reconstruct_runner, "load_templates_for_unit", _fake_load_templates_for_unit)
+	monkeypatch.setattr(reconstruct_runner, "compute_graph_tracking", _fake_compute_graph_tracking)
+	monkeypatch.setattr(reconstruct_runner, "write_unit_circle_recon_plot", _fake_write_unit_circle_recon_plot)
+
+	inputs = ReconstructionInputs(
+		h5_path=tmp_path / "input.raw.h5",
+		stream_id="well001",
+		mea_output_root=tmp_path,
+		output_rel_root="recon_outputs",
+		unit_ids=[1],
+		force_restart=True,
+		n_jobs=1,
+		per_unit_outputs=PerUnitOutputsConfig(
+			write_branches_raw_json=False,
+			write_branches_json=False,
+			write_heuristics_json=False,
+			write_gtr_pkl=False,
+			write_gtr_json=False,
+			write_amplitude_map_png=False,
+			circle_recon=CircleReconConfig(
+				display=CircleReconDisplayConfig(),
+				output=CircleReconOutputConfig(write_png=True, write_svg=False, relpath="maps/circle_recon", dpi=300.0),
+			),
+		),
+	)
+
+	result = run_reconstruct_stage(inputs)
+	assert result.summary_json.exists()
+	assert not stale_file.exists()
 
 
 def test_run_reconstruct_stage_errors_when_requested_source_fails_and_fallback_is_disabled(tmp_path: Path, monkeypatch) -> None:

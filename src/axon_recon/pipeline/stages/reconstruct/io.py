@@ -107,3 +107,13 @@ def resolve_unit_output_paths(
 		"circle_recon_png": unit_dir / circle_png_rel,
 		"circle_recon_svg": unit_dir / circle_svg_rel,
 	}
+
+
+def resolve_report_output_paths(*, reconstruction_out_dir: Path, reports: Any) -> dict[str, Path]:
+	circle_grid = reports.grids.circle_recon_grid
+	return {
+		"circle_recon_grid_pdf": reconstruction_out_dir / Path(str(circle_grid.pdf_relpath)).expanduser(),
+		"circle_recon_grid_png": reconstruction_out_dir / Path(str(circle_grid.png_relpath)).expanduser(),
+		"circle_recon_grid_svg": reconstruction_out_dir / Path(str(circle_grid.svg_relpath)).expanduser(),
+		"circle_recon_grid_temp_svg": reconstruction_out_dir / Path(str(circle_grid.temp_svg_relpath)).expanduser(),
+	}

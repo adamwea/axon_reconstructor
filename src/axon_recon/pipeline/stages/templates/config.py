@@ -10,6 +10,7 @@ from axon_recon.pipeline.shared.plotting import build_stage_plot_block
 
 from ...execution.context import ExecutionTarget
 from .models.inputs import (
+	AnalyzerCacheConfig,
 	CenterMostChannelCoordsConfig,
 	DataQualityChecksOutputsConfig,
 	FootprintGridsReportConfig,
@@ -810,6 +811,7 @@ def _get_unit_reldir(runtime_config: RuntimeConfig) -> str:
 @dataclass(frozen=True)
 class TemplatesStageConfig:
 	output_rel_root: str
+	analyzer_cache: AnalyzerCacheConfig
 	per_unit_outputs: PerUnitTemplatesOutputsConfig
 	reports: ReportsConfig
 	quality_checks_outputs: DataQualityChecksOutputsConfig
@@ -892,6 +894,7 @@ def parse_templates_stage_config(
 	outputs_cfg = stage_cfg.get("outputs", {}) if isinstance(stage_cfg.get("outputs", {}), dict) else {}
 	if not outputs_cfg:
 		outputs_cfg = runtime_config.get("stages.outputs", {}) if isinstance(runtime_config.get("stages.outputs", {}), dict) else {}
+	analyzer_cache_cfg = outputs_cfg.get("analyzer_cache", {}) if isinstance(outputs_cfg.get("analyzer_cache", {}), dict) else {}
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
 	force_replot = _as_bool(execution_cfg.get("force_replot", False), False)
@@ -1902,6 +1905,11 @@ def parse_templates_stage_config(
 			),
 		),
 	)
+	analyzer_cache = AnalyzerCacheConfig(
+		enabled=_as_bool(analyzer_cache_cfg.get("enabled", True), True),
+		relpath=str(analyzer_cache_cfg.get("relpath", "analyzers") or "analyzers"),
+		cleanup_on_success=_as_bool(analyzer_cache_cfg.get("cleanup_on_success", False), False),
+	)
 	footprint_plots = FootprintPlotsConfig(
 		amplitude_map=_build_footprint_map_config(amp_map_cfg, relpath_default="footprint_amplitude_map"),
 		latency_map=_build_footprint_map_config(lat_map_cfg, relpath_default="footprint_latency_map"),
@@ -2444,6 +2452,7 @@ def parse_templates_stage_config(
 
 	return TemplatesStageConfig(
 		output_rel_root=str(outputs_cfg.get("output_rel_root", "templates_outputs")),
+		analyzer_cache=analyzer_cache,
 		per_unit_outputs=per_unit,
 		reports=reports,
 		quality_checks_outputs=_build_data_quality_checks_outputs_config(data_quality_checks_cfg),
@@ -2480,6 +2489,7 @@ def build_templates_inputs_for_target(
 		concat_analyzer_relpath=stage_config.concat_analyzer_relpath,
 		preproc_seg_sources_reldir=stage_config.preproc_seg_sources_reldir,
 		output_rel_root=stage_config.output_rel_root,
+		analyzer_cache=stage_config.analyzer_cache,
 		per_unit_outputs=stage_config.per_unit_outputs,
 		reports=stage_config.reports,
 		quality_checks_outputs=stage_config.quality_checks_outputs,
@@ -2549,6 +2559,7 @@ def load_templates_inputs_from_runtime(
 		concat_analyzer_relpath=stage_cfg.concat_analyzer_relpath,
 		preproc_seg_sources_reldir=stage_cfg.preproc_seg_sources_reldir,
 		output_rel_root=stage_cfg.output_rel_root,
+		analyzer_cache=stage_cfg.analyzer_cache,
 		per_unit_outputs=stage_cfg.per_unit_outputs,
 		reports=stage_cfg.reports,
 		quality_checks_outputs=stage_cfg.quality_checks_outputs,

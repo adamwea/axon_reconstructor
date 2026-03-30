@@ -541,6 +541,13 @@ class MultiSourcePdfReportConfig:
 
 
 @dataclass(frozen=True)
+class AnalyzerCacheConfig:
+	enabled: bool = True
+	relpath: str = "analyzers"
+	cleanup_on_success: bool = False
+
+
+@dataclass(frozen=True)
 class ReportsConfig:
 	plot_multi_source_pdf: MultiSourcePdfReportConfig = field(default_factory=MultiSourcePdfReportConfig)
 	replot_from_disk: bool = False
@@ -626,6 +633,7 @@ class TemplatesInputs:
 	preproc_seg_sources_reldir: str | None = None
 
 	output_rel_root: str = "templates_outputs"
+	analyzer_cache: AnalyzerCacheConfig = field(default_factory=AnalyzerCacheConfig)
 	per_unit_outputs: PerUnitTemplatesOutputsConfig = field(default_factory=PerUnitTemplatesOutputsConfig)
 	reports: ReportsConfig = field(default_factory=ReportsConfig)
 

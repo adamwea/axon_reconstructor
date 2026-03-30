@@ -44,6 +44,25 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			      force_restart: false
 			    outputs:
 			      output_rel_root: recon_outputs
+			      reports:
+			        grids:
+			          circle_recon_grid:
+			            output:
+			              write_pdf: false
+			              pdf_relpath: reports/circle_recon_grid.pdf
+			              write_png: true
+			              png_relpath: reports/circle_recon_grid.png
+			              write_svg: true
+			              svg_relpath: reports/circle_recon_grid.svg
+			              keep_temp_svg: true
+			              temp_svg_relpath: reports/circle_recon_grid__temp.svg
+			            display:
+			              show_title: false
+			            render:
+			              mode: direct_replot
+			              dpi: 420
+			              subplot_background_color: black
+			              figure_background_color: black
 			      write_summary: true
 			      summary_relpath: reports/reconstruction_summary
 			      summary_grid_ncols: 3
@@ -126,6 +145,14 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert circle.output.write_svg is True
 	assert circle.output.relpath == "maps/circle_recon"
 	assert circle.output.dpi == 420.0
+	assert inputs.reports.grids.circle_recon_grid.write_png is True
+	assert inputs.reports.grids.circle_recon_grid.write_svg is True
+	assert inputs.reports.grids.circle_recon_grid.png_relpath == "reports/circle_recon_grid.png"
+	assert inputs.reports.grids.circle_recon_grid.svg_relpath == "reports/circle_recon_grid.svg"
+	assert inputs.reports.grids.circle_recon_grid.keep_temp_svg is True
+	assert inputs.reports.grids.circle_recon_grid.show_title is False
+	assert inputs.reports.grids.circle_recon_grid.render_mode == "direct_replot"
+	assert inputs.reports.grids.circle_recon_grid.dpi == 420.0
 	assert inputs.load_assets_from_v2pipeline_templates_stage is True
 	assert inputs.unit_ids == [94]
 

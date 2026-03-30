@@ -4,6 +4,7 @@ import concurrent.futures
 import logging
 from pathlib import Path
 import pickle
+import shutil
 from typing import Any
 
 from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
@@ -19,10 +20,11 @@ from .core.summary_plots import write_amplitude_map_summary_png
 from .core.unit_plots import write_unit_amplitude_map_png
 from .core.unit_plots import write_unit_circle_recon_plot
 from .integrations.axon_velocity import compute_graph_tracking, import_axon_velocity
-from .io import read_json, resolve_unit_output_paths, write_json
+from .io import read_json, resolve_report_output_paths, resolve_unit_output_paths, write_json
 from .models.inputs import ReconstructionInputs
 from .models.results import ReconstructionResult, UnitReconstructionResult
 from .reporting.slides import write_reconstruct_report_markdown
+from ..templates.core.render import finalize_grid_svg_output, render_footprint_map_grid_from_assets
 
 
 LOGGER = logging.getLogger("axon_recon.reconstruct")
@@ -118,7 +120,11 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 		data_file=inputs.h5_path,
 		well=inputs.stream_id,
 	)
+	full_restart = bool(inputs.force_restart) and (not bool(inputs.force_replot))
 	reconstruction_out_dir = well_out_dir / str(inputs.output_rel_root)
+	if full_restart and reconstruction_out_dir.exists():
+		LOGGER.info("Reconstruct full restart: clearing output root %s", reconstruction_out_dir)
+		shutil.rmtree(reconstruction_out_dir)
 	reconstruction_out_dir.mkdir(parents=True, exist_ok=True)
 
 	_, merged_units_dir, full_channels_templates_dir = _resolve_templates_dirs(
@@ -295,6 +301,40 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 	unit_results.sort(key=lambda r: str(r.unit_id))
 
 	stage_outputs: dict[str, str] = {}
+	circle_grid_cfg = inputs.reports.grids.circle_recon_grid
+	write_circle_grid = bool(circle_grid_cfg.write_png) or bool(circle_grid_cfg.write_pdf) or bool(circle_grid_cfg.write_svg)
+	if write_circle_grid:
+		report_paths = resolve_report_output_paths(reconstruction_out_dir=reconstruction_out_dir, reports=inputs.reports)
+		circle_entries = [
+			Path(item.outputs["circle_recon_png"])
+			for item in unit_results
+			if isinstance(item.outputs, dict) and "circle_recon_png" in item.outputs
+		]
+		LOGGER.info("Reconstruct reports circle_recon_grid inputs=%d", len(circle_entries))
+		circle_grid_outputs = render_footprint_map_grid_from_assets(
+			image_paths=circle_entries,
+			config=circle_grid_cfg,
+			pdf_path=report_paths["circle_recon_grid_pdf"],
+			png_path=report_paths["circle_recon_grid_png"],
+			write_svg=bool(circle_grid_cfg.write_svg),
+			svg_path=report_paths["circle_recon_grid_temp_svg"],
+			svg_output_key="circle_recon_grid_temp_svg",
+			pdf_output_key="circle_recon_grid_pdf",
+			png_output_key="circle_recon_grid_png",
+			title="Reconstruct circle recon grid",
+		)
+		circle_grid_outputs = finalize_grid_svg_output(
+			raw_outputs=circle_grid_outputs,
+			write_svg=bool(circle_grid_cfg.write_svg),
+			keep_temp_svg=bool(circle_grid_cfg.keep_temp_svg),
+			temp_svg_output_key="circle_recon_grid_temp_svg",
+			final_svg_output_key="circle_recon_grid_svg",
+			temp_svg_path=report_paths["circle_recon_grid_temp_svg"],
+			final_svg_path=report_paths["circle_recon_grid_svg"],
+			report_name="circle_recon_grid",
+			logger=LOGGER,
+		)
+		stage_outputs.update(circle_grid_outputs)
 	if bool(inputs.write_summary_png):
 		summary_png = reconstruction_out_dir / Path(str(inputs.summary_png_relpath)).expanduser()
 		entries: list[tuple[Any, Path]] = []

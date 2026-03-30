@@ -100,6 +100,7 @@ class _MockAnalyzer:
 		self._has_templates = bool(has_templates)
 		self._full_waveforms = None if full_waveforms is None else np.asarray(full_waveforms, dtype=float)
 		self.last_compute_extension_params = None
+		self.compute_call_count = 0
 		if waveforms is None:
 			self._waveforms_ext = None
 		else:
@@ -121,6 +122,7 @@ class _MockAnalyzer:
 
 	def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1) -> None:
 		_ = names, verbose, n_jobs
+		self.compute_call_count += 1
 		self.last_compute_extension_params = extension_params
 		name_list = [str(n) for n in (names or [])]
 		if "random_spikes" in name_list and "waveforms" in name_list and self._full_waveforms is not None:
@@ -296,9 +298,45 @@ def test_build_unit_source_payload_forwards_waveform_window_on_recompute() -> No
 	params = analyzer.last_compute_extension_params
 	assert isinstance(params, dict)
 	assert "random_spikes" in params
-	assert params["random_spikes"].get("max_spikes_per_unit") == int(waveform_count)
+	assert params["random_spikes"].get("max_spikes_per_unit") is None
 	assert params.get("waveforms", {}).get("ms_before") == 1.5
 	assert params.get("waveforms", {}).get("ms_after") == 2.5
+
+
+def test_build_unit_source_payload_skips_recompute_when_waveforms_are_prepared() -> None:
+	template_time_by_ch = np.asarray(
+		[
+			[1.0, 3.0],
+			[2.0, 4.0],
+			[0.0, 0.0],
+			[0.0, 0.0],
+		],
+		dtype=float,
+	)
+	full_waveforms = np.arange(5 * 4 * 2, dtype=float).reshape(5, 4, 2)
+	analyzer = _MockAnalyzer(
+		templates_ext=_MockTemplatesExtension(template_time_by_ch),
+		has_templates=True,
+		waveforms=full_waveforms,
+		full_waveforms=full_waveforms,
+	)
+	analyzer._axon_recon_prepared_waveforms_signature = (None, 1.5, 2.5)
+
+	payload = build_unit_source_payload(
+		analyzer=analyzer,
+		unit_id=94,
+		max_spikes_per_unit=None,
+		waveform_ms_before=1.5,
+		waveform_ms_after=2.5,
+	)
+	assert payload is not None
+	_, _, _, _, waveform_count, _, top_wf, _, top_count = payload
+	assert int(waveform_count) == 5
+	assert top_wf is not None
+	assert int(top_wf.shape[0]) == 5
+	assert top_count == 5
+	assert analyzer.compute_call_count == 0
+	assert analyzer.last_compute_extension_params is None
 
 
 def test_load_spikeinterface_analyzers_honors_explicit_source_paths(tmp_path, monkeypatch) -> None:
@@ -337,6 +375,63 @@ def test_load_spikeinterface_analyzers_honors_explicit_source_paths(tmp_path, mo
 	assert str(concat_dir) in loaded_paths
 	assert str(seg_a) in loaded_paths
 	assert str(seg_b) in loaded_paths
+
+
+def test_load_spikeinterface_analyzers_persists_loaded_analyzers_to_cache(tmp_path, monkeypatch) -> None:
+	well_out_dir = tmp_path / "well001"
+	concat_dir = well_out_dir / "custom_concat"
+	segments_dir = well_out_dir / "custom_segments"
+	seg_a = segments_dir / "segA"
+	seg_b = segments_dir / "segB"
+	cache_dir = well_out_dir / "templates_outputs" / "cache" / "analyzers"
+	concat_dir.mkdir(parents=True, exist_ok=True)
+	seg_a.mkdir(parents=True, exist_ok=True)
+	seg_b.mkdir(parents=True, exist_ok=True)
+
+	save_calls: list[tuple[str, str, str]] = []
+
+	class _FakeAnalyzer:
+		def __init__(self, source_path: str) -> None:
+			self.source_path = str(source_path)
+
+		def has_extension(self, name: str) -> bool:
+			_ = name
+			return True
+
+		def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1) -> None:
+			_ = names, extension_params, verbose, n_jobs
+
+		def save_as(self, format="memory", folder=None, backend_options=None):
+			_ = backend_options
+			save_calls.append((self.source_path, str(folder), str(format)))
+			folder.mkdir(parents=True, exist_ok=True)
+			return self
+
+	def _fake_load_sorting_analyzer(path):
+		return _FakeAnalyzer(str(path))
+
+	fake_full = types.ModuleType("spikeinterface.full")
+	fake_full.load_sorting_analyzer = _fake_load_sorting_analyzer  # type: ignore[attr-defined]
+	fake_root = types.ModuleType("spikeinterface")
+	fake_root.full = fake_full  # type: ignore[attr-defined]
+
+	monkeypatch.setitem(sys.modules, "spikeinterface", fake_root)
+	monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_full)
+
+	analyzers = load_spikeinterface_analyzers(
+		well_out_dir=well_out_dir,
+		concat_analyzer_relpath="/custom_concat",
+		preproc_seg_sources_reldir="/custom_segments",
+		analyzer_cache_dir=cache_dir,
+		include_concat=True,
+		include_segments=True,
+	)
+
+	assert len(analyzers) == 3
+	assert len(save_calls) == 3
+	assert (str(concat_dir), str(cache_dir / "concat"), "binary_folder") in save_calls
+	assert (str(seg_a), str(cache_dir / "segA"), "binary_folder") in save_calls
+	assert (str(seg_b), str(cache_dir / "segB"), "binary_folder") in save_calls
 
 
 def test_load_spikeinterface_analyzers_builds_segment_analyzers_from_preprocessed_sources(tmp_path, monkeypatch) -> None:

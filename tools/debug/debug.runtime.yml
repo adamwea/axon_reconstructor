@@ -159,8 +159,8 @@ stages:
       require_curated_units: true
 
       # limit number of unit templates to build for debugging purposes. Set to -1 or null for no limit.
-      #unit_limit: -1
-      unit_limit: 10
+      unit_limit: -1
+      #unit_limit: 10
 
       inputs:
 
@@ -232,6 +232,10 @@ stages:
     # All outputs from templates stage
     outputs:
       output_rel_root: template_outputs
+      analyzer_cache:
+        enabled: true
+        relpath: cache/analyzers
+        cleanup_on_success: false
       data_outputs:
         quality_checks:
           multiple_peaks_at_channel_templates:
@@ -759,6 +763,25 @@ stages:
       load_assets_from_v2pipeline_tempaltes_stage: true # whether to load templates stage outputs from the v2 pipeline output directory structure; if false, will attempt to load from the same directory structure as in the previous pipeline version, which may be useful for testing and comparison purposes.
     outputs:
       output_rel_root: recon_outputs
+      reports:
+        grids:
+          circle_recon_grid:
+            output:
+              write_pdf: false
+              pdf_relpath: reports/circle_recon_grid.pdf
+              write_png: true
+              png_relpath: reports/circle_recon_grid.png
+              write_svg: true
+              svg_relpath: reports/circle_recon_grid.svg
+              keep_temp_svg: false
+              temp_svg_relpath: reports/circle_recon_grid__temp.svg
+            display:
+              show_title: false
+            render:
+              mode: direct_replot
+              dpi: 420
+              subplot_background_color: black
+              figure_background_color: black
       per_unit_outputs:
 
         # Base rel dir for all outputs for a given unit. Can be formatted with {unit_id} if desired,
@@ -801,7 +824,7 @@ stages:
               show_branch_labels: false # whether to draw branch ID labels on the plot, which can be useful for visually verifying branch correspondences between the plot and the branch data in the JSON outputs.
               #color_scheme: tab20 # color scheme to use when unique_color_per_branch is true; should be a valid matplotlib categorical colormap name.
               color_scheme: Set1
-              branch_linewidth_pt: 1
+              branch_linewidth_pt: 3.5
               node_inline_linewidth_pt: 1.0
               node_outline_color: white
               node_outline_linewidth: 0.5

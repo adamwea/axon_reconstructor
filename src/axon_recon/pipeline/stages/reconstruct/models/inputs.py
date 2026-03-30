@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
+from axon_recon.pipeline.stages.templates.models.inputs import FootprintMapGridReportConfig
 
 
 @dataclass(frozen=True)
@@ -69,12 +70,31 @@ class PerUnitOutputsConfig:
 
 
 @dataclass(frozen=True)
+class ReconstructionGridReportsConfig:
+	circle_recon_grid: FootprintMapGridReportConfig = field(
+		default_factory=lambda: FootprintMapGridReportConfig(
+			write_png=False,
+			pdf_relpath="reports/circle_recon_grid.pdf",
+			png_relpath="reports/circle_recon_grid.png",
+			svg_relpath="reports/circle_recon_grid.svg",
+			temp_svg_relpath="reports/circle_recon_grid__temp.svg",
+		)
+	)
+
+
+@dataclass(frozen=True)
+class ReconstructionReportsConfig:
+	grids: ReconstructionGridReportsConfig = field(default_factory=ReconstructionGridReportsConfig)
+
+
+@dataclass(frozen=True)
 class ReconstructionInputs:
 	h5_path: Path
 	stream_id: str
 	mea_output_root: Path
 
 	output_rel_root: str = "recon_outputs"
+	reports: ReconstructionReportsConfig = field(default_factory=ReconstructionReportsConfig)
 	write_summary_png: bool = False
 	summary_png_relpath: str = "summary.png"
 	summary_grid_ncols: int = 5

@@ -464,6 +464,7 @@ def materialize_templates_from_spikeinterface(
 	templates_out_dir: Path,
 	concat_analyzer_relpath: str | None = None,
 	preproc_seg_sources_reldir: str | None = None,
+	analyzer_cache_dir: Path | None = None,
 	raw_data_h5_path: Path | None = None,
 	stream_id: str | None = None,
 	unit_ids: list[Any] | None,
@@ -493,9 +494,13 @@ def materialize_templates_from_spikeinterface(
 		well_out_dir=well_out_dir,
 		concat_analyzer_relpath=concat_analyzer_relpath,
 		preproc_seg_sources_reldir=preproc_seg_sources_reldir,
+		analyzer_cache_dir=analyzer_cache_dir,
 		stream_id=stream_id,
 		include_concat=bool(include_concat),
 		include_segments=bool(include_segments),
+		waveform_ms_before=waveform_ms_before,
+		waveform_ms_after=waveform_ms_after,
+		waveform_max_spikes_per_unit=waveform_max_spikes_per_unit,
 	)
 	LOGGER.info(
 		"Templates materialization loaded analyzers: count=%d names=%s",

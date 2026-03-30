@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+import shutil
 from typing import Any
 
 import numpy as np  # type: ignore[import-not-found]
@@ -432,7 +433,10 @@ def _try_recompute_waveforms_extension(
 	if not isinstance(seen, set):
 		seen = set()
 	seen.add(attempt_key)
-	setattr(analyzer, attempted_attr, seen)
+	try:
+		setattr(analyzer, attempted_attr, seen)
+	except Exception:
+		pass
 
 	try:
 		wf_ext = analyzer.get_extension("waveforms")
@@ -475,6 +479,139 @@ def _try_recompute_waveforms_extension(
 		return False
 
 
+def _normalize_requested_max_spikes_per_unit(max_spikes_per_unit: int | None) -> int | None:
+	if max_spikes_per_unit is None:
+		return None
+	try:
+		parsed = int(max_spikes_per_unit)
+	except Exception:
+		return None
+	if parsed <= 0:
+		return None
+	return int(parsed)
+
+
+def _mark_analyzer_waveforms_prepared(
+	*,
+	analyzer: Any,
+	requested_max_spikes_per_unit: int | None,
+	requested_ms_before: float | None,
+	requested_ms_after: float | None,
+) -> None:
+	try:
+		setattr(
+			analyzer,
+			"_axon_recon_prepared_waveforms_signature",
+			(
+				_normalize_requested_max_spikes_per_unit(requested_max_spikes_per_unit),
+				(None if requested_ms_before is None else float(requested_ms_before)),
+				(None if requested_ms_after is None else float(requested_ms_after)),
+			),
+		)
+	except Exception:
+		pass
+
+
+def _waveforms_prepared_matches(
+	*,
+	analyzer: Any,
+	requested_max_spikes_per_unit: int | None,
+	requested_ms_before: float | None,
+	requested_ms_after: float | None,
+) -> bool:
+	signature = getattr(analyzer, "_axon_recon_prepared_waveforms_signature", None)
+	if not isinstance(signature, tuple) or len(signature) != 3:
+		return False
+	prepared_max, prepared_ms_before, prepared_ms_after = signature
+	required_max = _normalize_requested_max_spikes_per_unit(requested_max_spikes_per_unit)
+	if prepared_ms_before != (None if requested_ms_before is None else float(requested_ms_before)):
+		return False
+	if prepared_ms_after != (None if requested_ms_after is None else float(requested_ms_after)):
+		return False
+	if prepared_max is None:
+		return True
+	if required_max is None:
+		return False
+	return int(prepared_max) >= int(required_max)
+
+
+def _prepare_analyzer_for_payload_extraction(
+	*,
+	analyzer: Any,
+	requested_max_spikes_per_unit: int | None,
+	requested_ms_before: float | None,
+	requested_ms_after: float | None,
+) -> Any:
+	if not hasattr(analyzer, "has_extension") or not hasattr(analyzer, "compute"):
+		return analyzer
+	normalized_max = _normalize_requested_max_spikes_per_unit(requested_max_spikes_per_unit)
+	if _waveforms_prepared_matches(
+		analyzer=analyzer,
+		requested_max_spikes_per_unit=normalized_max,
+		requested_ms_before=requested_ms_before,
+		requested_ms_after=requested_ms_after,
+	):
+		return analyzer
+	needs_prepare = (
+		normalized_max is not None
+		or requested_ms_before is not None
+		or requested_ms_after is not None
+	)
+	has_templates = False
+	has_waveforms = False
+	try:
+		has_templates = bool(analyzer.has_extension("templates"))
+	except Exception:
+		has_templates = False
+	try:
+		has_waveforms = bool(analyzer.has_extension("waveforms"))
+	except Exception:
+		has_waveforms = False
+	if needs_prepare or (not has_templates):
+		_try_recompute_waveforms_extension(
+			analyzer=analyzer,
+			requested_max_spikes_per_unit=normalized_max,
+			requested_ms_before=requested_ms_before,
+			requested_ms_after=requested_ms_after,
+		)
+		_mark_analyzer_waveforms_prepared(
+			analyzer=analyzer,
+			requested_max_spikes_per_unit=normalized_max,
+			requested_ms_before=requested_ms_before,
+			requested_ms_after=requested_ms_after,
+		)
+	return analyzer
+
+
+def _load_cached_analyzers(*, si: Any, analyzer_cache_dir: Path | None) -> dict[str, Any]:
+	if analyzer_cache_dir is None or (not analyzer_cache_dir.exists()):
+		return {}
+	cached: dict[str, Any] = {}
+	for folder in sorted(p for p in analyzer_cache_dir.iterdir() if p.is_dir()):
+		try:
+			cached[str(folder.name)] = si.load_sorting_analyzer(folder)
+		except Exception:
+			LOGGER.warning("Failed to load cached analyzer: %s", folder, exc_info=True)
+	return cached
+
+
+def _persist_analyzer_to_cache(*, analyzer: Any, analyzer_cache_dir: Path | None, analyzer_name: str) -> Any:
+	if analyzer_cache_dir is None:
+		return analyzer
+	if not hasattr(analyzer, "save_as"):
+		return analyzer
+	folder = analyzer_cache_dir / str(analyzer_name)
+	folder.parent.mkdir(parents=True, exist_ok=True)
+	try:
+		if folder.exists():
+			shutil.rmtree(folder)
+		saved = analyzer.save_as(format="binary_folder", folder=folder)
+		return saved
+	except Exception:
+		LOGGER.warning("Failed to persist analyzer cache for %s at %s", analyzer_name, folder, exc_info=True)
+		return analyzer
+
+
 def build_unit_source_payload(
 	*,
 	analyzer: Any,
@@ -484,19 +621,16 @@ def build_unit_source_payload(
 	waveform_ms_after: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray, list[Any] | None, list[Any] | None, int, float | None, np.ndarray | None, Any, int | None] | None:
 	waveform_count = _extract_total_waveform_count(analyzer=analyzer, unit_id=unit_id)
-	requested_waveforms: int | None
-	if max_spikes_per_unit is None:
-		requested_waveforms = None
-	else:
-		requested_waveforms = int(max_spikes_per_unit)
-		if requested_waveforms <= 0:
-			requested_waveforms = None
-
-	requested_for_extension_refresh = int(waveform_count) if requested_waveforms is None else int(min(max(1, requested_waveforms), int(waveform_count)))
-	if waveform_ms_before is not None or waveform_ms_after is not None or requested_waveforms is not None:
-		_try_recompute_waveforms_extension(
+	requested_waveforms = _normalize_requested_max_spikes_per_unit(max_spikes_per_unit)
+	if not _waveforms_prepared_matches(
+		analyzer=analyzer,
+		requested_max_spikes_per_unit=requested_waveforms,
+		requested_ms_before=waveform_ms_before,
+		requested_ms_after=waveform_ms_after,
+	):
+		_prepare_analyzer_for_payload_extraction(
 			analyzer=analyzer,
-			requested_max_spikes_per_unit=requested_for_extension_refresh,
+			requested_max_spikes_per_unit=requested_waveforms,
 			requested_ms_before=waveform_ms_before,
 			requested_ms_after=waveform_ms_after,
 		)
@@ -540,16 +674,45 @@ def build_unit_source_payload(
 			wf_ext = analyzer.get_extension("waveforms")
 			wf_all = np.asarray(wf_ext.get_waveforms_one_unit(unit_id=unit_id, force_dense=False), dtype=float)
 			need_waveforms = int(waveform_count) if requested_waveforms is None else int(min(max(1, requested_waveforms), int(waveform_count)))
-			if int(wf_all.shape[0]) < int(need_waveforms):
+			if requested_waveforms is None and int(wf_all.shape[0]) < int(waveform_count):
+				if not _waveforms_prepared_matches(
+					analyzer=analyzer,
+					requested_max_spikes_per_unit=None,
+					requested_ms_before=waveform_ms_before,
+					requested_ms_after=waveform_ms_after,
+				):
+					if _try_recompute_waveforms_extension(
+						analyzer=analyzer,
+						requested_max_spikes_per_unit=None,
+						requested_ms_before=waveform_ms_before,
+						requested_ms_after=waveform_ms_after,
+					):
+						_mark_analyzer_waveforms_prepared(
+							analyzer=analyzer,
+							requested_max_spikes_per_unit=None,
+							requested_ms_before=waveform_ms_before,
+							requested_ms_after=waveform_ms_after,
+						)
+						wf_ext = analyzer.get_extension("waveforms")
+						wf_all = np.asarray(wf_ext.get_waveforms_one_unit(unit_id=unit_id, force_dense=False), dtype=float)
+			if requested_waveforms is not None and int(wf_all.shape[0]) < int(need_waveforms):
 				if _try_recompute_waveforms_extension(
 					analyzer=analyzer,
 					requested_max_spikes_per_unit=int(need_waveforms),
 					requested_ms_before=waveform_ms_before,
 					requested_ms_after=waveform_ms_after,
 				):
+					_mark_analyzer_waveforms_prepared(
+						analyzer=analyzer,
+						requested_max_spikes_per_unit=int(need_waveforms),
+						requested_ms_before=waveform_ms_before,
+						requested_ms_after=waveform_ms_after,
+					)
 					wf_ext = analyzer.get_extension("waveforms")
 					wf_all = np.asarray(wf_ext.get_waveforms_one_unit(unit_id=unit_id, force_dense=False), dtype=float)
 
+			if requested_waveforms is None and int(wf_all.shape[0]) > int(waveform_count):
+				wf_all = np.asarray(wf_all[: int(waveform_count), :, :], dtype=float)
 			if requested_waveforms is not None and int(wf_all.shape[0]) > int(requested_waveforms):
 				wf_all = np.asarray(wf_all[: int(requested_waveforms), :, :], dtype=float)
 
@@ -592,9 +755,13 @@ def load_spikeinterface_analyzers(
 	well_out_dir: Path,
 	concat_analyzer_relpath: str | None = None,
 	preproc_seg_sources_reldir: str | None = None,
+	analyzer_cache_dir: Path | None = None,
 	stream_id: str | None = None,
 	include_concat: bool,
 	include_segments: bool,
+	waveform_ms_before: float | None = None,
+	waveform_ms_after: float | None = None,
+	waveform_max_spikes_per_unit: int | None = None,
 ) -> list[tuple[str, Any]]:
 	import spikeinterface.full as si  # type: ignore[import-not-found]
 
@@ -616,30 +783,109 @@ def load_spikeinterface_analyzers(
 	wf_out = well_out_dir / "stg3_waveforms_outputs"
 	concat_dir = _resolve_from_well(concat_analyzer_relpath) or (wf_out / "concat_waveforms")
 	segments_dir = _resolve_from_well(preproc_seg_sources_reldir) or (wf_out / "segment_waveforms")
+	cache_root = None if analyzer_cache_dir is None else Path(analyzer_cache_dir).expanduser().resolve()
+	cached_analyzers = _load_cached_analyzers(si=si, analyzer_cache_dir=cache_root)
 
 	analyzers: list[tuple[str, Any]] = []
 	concat_analyzer_obj: Any | None = None
-	if include_concat and concat_dir.exists():
+	if "concat" in cached_analyzers:
+		try:
+			concat_analyzer_obj = _prepare_analyzer_for_payload_extraction(
+				analyzer=cached_analyzers["concat"],
+				requested_max_spikes_per_unit=waveform_max_spikes_per_unit,
+				requested_ms_before=waveform_ms_before,
+				requested_ms_after=waveform_ms_after,
+			)
+			if include_concat:
+				analyzers.append(("concat", concat_analyzer_obj))
+		except Exception:
+			LOGGER.warning("Failed to prepare cached concat analyzer: %s", cache_root / "concat", exc_info=True)
+	elif concat_dir.exists():
 		try:
 			concat_analyzer_obj = si.load_sorting_analyzer(concat_dir)
-			analyzers.append(("concat", concat_analyzer_obj))
+			concat_analyzer_obj = _persist_analyzer_to_cache(
+				analyzer=concat_analyzer_obj,
+				analyzer_cache_dir=cache_root,
+				analyzer_name="concat",
+			)
+			concat_analyzer_obj = _prepare_analyzer_for_payload_extraction(
+				analyzer=concat_analyzer_obj,
+				requested_max_spikes_per_unit=waveform_max_spikes_per_unit,
+				requested_ms_before=waveform_ms_before,
+				requested_ms_after=waveform_ms_after,
+			)
+			if include_concat:
+				analyzers.append(("concat", concat_analyzer_obj))
 		except Exception:
 			LOGGER.warning("Failed to load concat analyzer: %s", concat_dir)
-	if include_concat and (not concat_dir.exists()):
+	if include_concat and ("concat" not in cached_analyzers) and (not concat_dir.exists()):
 		LOGGER.info("Concat analyzer directory not found: %s", concat_dir)
 
+	if concat_analyzer_obj is None and "concat" in cached_analyzers:
+		try:
+			concat_analyzer_obj = _prepare_analyzer_for_payload_extraction(
+				analyzer=cached_analyzers["concat"],
+				requested_max_spikes_per_unit=waveform_max_spikes_per_unit,
+				requested_ms_before=waveform_ms_before,
+				requested_ms_after=waveform_ms_after,
+			)
+		except Exception:
+			concat_analyzer_obj = None
 	if concat_analyzer_obj is None and concat_dir.exists():
 		try:
 			concat_analyzer_obj = si.load_sorting_analyzer(concat_dir)
+			concat_analyzer_obj = _persist_analyzer_to_cache(
+				analyzer=concat_analyzer_obj,
+				analyzer_cache_dir=cache_root,
+				analyzer_name="concat",
+			)
+			concat_analyzer_obj = _prepare_analyzer_for_payload_extraction(
+				analyzer=concat_analyzer_obj,
+				requested_max_spikes_per_unit=waveform_max_spikes_per_unit,
+				requested_ms_before=waveform_ms_before,
+				requested_ms_after=waveform_ms_after,
+			)
 		except Exception:
 			concat_analyzer_obj = None
 
 	if include_segments and segments_dir.exists():
 		seg_dirs = sorted([p for p in segments_dir.iterdir() if p.is_dir()])
+		seg_dir_by_name = {str(p.name): p for p in seg_dirs}
+		segment_names: list[str] = []
+		for name in list(seg_dir_by_name.keys()) + sorted(k for k in cached_analyzers.keys() if k != "concat"):
+			if name not in segment_names:
+				segment_names.append(name)
 		unloadable_seg_dirs: list[Path] = []
-		for seg_dir in seg_dirs:
+		for seg_name in segment_names:
+			if seg_name in cached_analyzers:
+				try:
+					seg_analyzer = _prepare_analyzer_for_payload_extraction(
+						analyzer=cached_analyzers[seg_name],
+						requested_max_spikes_per_unit=waveform_max_spikes_per_unit,
+						requested_ms_before=waveform_ms_before,
+						requested_ms_after=waveform_ms_after,
+					)
+					analyzers.append((seg_name, seg_analyzer))
+					continue
+				except Exception:
+					LOGGER.warning("Failed to prepare cached segment analyzer: %s", cache_root / seg_name, exc_info=True)
+			seg_dir = seg_dir_by_name.get(seg_name, None)
+			if seg_dir is None:
+				continue
 			try:
-				analyzers.append((seg_dir.name, si.load_sorting_analyzer(seg_dir)))
+				seg_analyzer = si.load_sorting_analyzer(seg_dir)
+				seg_analyzer = _persist_analyzer_to_cache(
+					analyzer=seg_analyzer,
+					analyzer_cache_dir=cache_root,
+					analyzer_name=seg_name,
+				)
+				seg_analyzer = _prepare_analyzer_for_payload_extraction(
+					analyzer=seg_analyzer,
+					requested_max_spikes_per_unit=waveform_max_spikes_per_unit,
+					requested_ms_before=waveform_ms_before,
+					requested_ms_after=waveform_ms_after,
+				)
+				analyzers.append((seg_name, seg_analyzer))
 			except Exception:
 				unloadable_seg_dirs.append(seg_dir)
 				LOGGER.info("Segment directory is not a loadable analyzer (will try build fallback): %s", seg_dir)
@@ -713,6 +959,17 @@ def load_spikeinterface_analyzers(
 					end_sample=end_sample,
 				)
 				if built is not None:
+					built = _persist_analyzer_to_cache(
+						analyzer=built,
+						analyzer_cache_dir=cache_root,
+						analyzer_name=seg_name,
+					)
+					built = _prepare_analyzer_for_payload_extraction(
+						analyzer=built,
+						requested_max_spikes_per_unit=waveform_max_spikes_per_unit,
+						requested_ms_before=waveform_ms_before,
+						requested_ms_after=waveform_ms_after,
+					)
 					analyzers.append((seg_name, built))
 					built_count += 1
 
@@ -727,7 +984,7 @@ def load_spikeinterface_analyzers(
 				"Segment fallback build skipped: concat analyzer unavailable for source_dir=%s",
 				str(segments_dir),
 			)
-	if include_segments and (not segments_dir.exists()):
+	if include_segments and (not segments_dir.exists()) and (len([k for k in cached_analyzers.keys() if k != "concat"]) == 0):
 		LOGGER.info("Segment analyzers directory not found: %s", segments_dir)
 
 	if not analyzers:

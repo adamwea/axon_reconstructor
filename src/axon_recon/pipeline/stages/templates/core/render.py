@@ -5,6 +5,7 @@ import json
 import logging
 from pathlib import Path
 import re
+import shutil
 from typing import Any
 import xml.etree.ElementTree as ET
 
@@ -408,7 +409,9 @@ def _compute_max_non_overlapping_circle_areas(
 		x_pt = float(centers[i, 0])
 		y_pt = float(centers[i, 1])
 		edge_clearance = float(min(x_pt - xmin_pt, xmax_pt - x_pt, y_pt - ymin_pt, ymax_pt - y_pt))
-		if np.isfinite(edge_clearance):
+		# Let positive edge clearance constrain the global radius, but do not collapse
+		# every circle when a single point lands on or just beyond the current bounds.
+		if np.isfinite(edge_clearance) and edge_clearance > 0.0:
 			constraints.append(edge_clearance / r0)
 
 	n = int(centers.shape[0])
@@ -2917,6 +2920,40 @@ def render_footprint_map_grid_from_assets(
 		show_title=bool(getattr(config, "show_title", True)),
 		dpi=max(72.0, float(getattr(config, "dpi", 300.0))),
 	)
+
+
+def finalize_grid_svg_output(
+	*,
+	raw_outputs: dict[str, str],
+	write_svg: bool,
+	keep_temp_svg: bool,
+	temp_svg_output_key: str,
+	final_svg_output_key: str,
+	temp_svg_path: Path,
+	final_svg_path: Path,
+	report_name: str,
+	logger: logging.Logger | None = None,
+) -> dict[str, str]:
+	active_logger = LOGGER if logger is None else logger
+	if not bool(write_svg):
+		raw_outputs.pop(temp_svg_output_key, None)
+		return raw_outputs
+	if temp_svg_output_key not in raw_outputs:
+		return raw_outputs
+	try:
+		final_svg_path.parent.mkdir(parents=True, exist_ok=True)
+		shutil.copyfile(temp_svg_path, final_svg_path)
+		raw_outputs[final_svg_output_key] = str(final_svg_path)
+	except Exception as exc:
+		active_logger.warning("Failed to finalize %s SVG output: %s", report_name, exc)
+	if not bool(keep_temp_svg):
+		raw_outputs.pop(temp_svg_output_key, None)
+		try:
+			if temp_svg_path.exists():
+				temp_svg_path.unlink()
+		except Exception:
+			pass
+	return raw_outputs
 
 
 def render_image_grid(
