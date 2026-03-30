@@ -299,26 +299,116 @@ def _pad_value_from_mode(mode: str) -> float:
 	return 0.0
 
 
-def _build_square_template(template_c_by_t: np.ndarray, *, padding_mode: str) -> np.ndarray:
-	t = np.asarray(template_c_by_t, dtype=float)
-	n_channels = int(t.shape[0])
-	target = int(np.ceil(np.sqrt(max(1, n_channels))) ** 2)
-	if target <= n_channels:
-		return t
-	pad_val = _pad_value_from_mode(padding_mode)
-	out = np.full((target, int(t.shape[1])), pad_val, dtype=float)
-	out[:n_channels, :] = t
-	return out
+def _infer_axis_pitch(values: np.ndarray) -> float | None:
+	v = np.asarray(values, dtype=float).reshape(-1)
+	v = v[np.isfinite(v)]
+	if int(v.size) < 2:
+		return None
+	v_unique = np.unique(np.round(v, decimals=9))
+	diffs = np.diff(v_unique)
+	positive = diffs[diffs > 1e-9]
+	if int(positive.size) == 0:
+		return None
+	return float(np.min(positive))
 
 
-def _build_square_locations(locations_xy: np.ndarray, *, target_channels: int) -> np.ndarray:
+def _build_square_grid(locations_xy: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 	locs = np.asarray(locations_xy, dtype=float)
 	if locs.ndim != 2 or int(locs.shape[1]) < 2:
 		raise ValueError(f"Unexpected locations shape for square template: {locs.shape}")
-	if target_channels <= int(locs.shape[0]):
-		return np.asarray(locs[:target_channels, :2], dtype=float)
-	out = np.full((target_channels, 2), np.nan, dtype=float)
-	out[: int(locs.shape[0]), :] = locs[:, :2]
+
+	locs2 = np.asarray(locs[:, :2], dtype=float)
+	valid_mask = np.isfinite(locs2).all(axis=1)
+	valid_locs = locs2[valid_mask]
+	if int(valid_locs.shape[0]) == 0:
+		raise ValueError("No finite channel locations available for square template construction")
+
+	x0 = float(np.min(valid_locs[:, 0]))
+	y0 = float(np.min(valid_locs[:, 1]))
+	x_pitch = _infer_axis_pitch(valid_locs[:, 0])
+	y_pitch = _infer_axis_pitch(valid_locs[:, 1])
+	if x_pitch is None and y_pitch is None:
+		x_pitch = 1.0
+		y_pitch = 1.0
+	elif x_pitch is None:
+		x_pitch = float(y_pitch)
+	elif y_pitch is None:
+		y_pitch = float(x_pitch)
+
+	x_span = float(np.max(valid_locs[:, 0]) - x0)
+	y_span = float(np.max(valid_locs[:, 1]) - y0)
+	nx = int(np.round(x_span / float(x_pitch))) + 1
+	ny = int(np.round(y_span / float(y_pitch))) + 1
+	n_side = int(max(1, nx, ny, int(np.ceil(np.sqrt(max(1, locs2.shape[0]))))))
+
+	x_vals = x0 + np.arange(n_side, dtype=float) * float(x_pitch)
+	y_vals = y0 + np.arange(n_side, dtype=float) * float(y_pitch)
+	grid = np.asarray([[float(x), float(y)] for y in y_vals for x in x_vals], dtype=float)
+
+	mapping = np.full((int(locs2.shape[0]),), -1, dtype=int)
+	occupied = np.zeros((int(grid.shape[0]),), dtype=bool)
+	for idx, loc in enumerate(locs2):
+		if not bool(np.isfinite(loc).all()):
+			continue
+		x_idx = int(np.clip(np.round((float(loc[0]) - x0) / float(x_pitch)), 0, n_side - 1))
+		y_idx = int(np.clip(np.round((float(loc[1]) - y0) / float(y_pitch)), 0, n_side - 1))
+		candidate = int(y_idx * n_side + x_idx)
+		if not occupied[candidate]:
+			mapping[idx] = candidate
+			occupied[candidate] = True
+			continue
+		available = np.flatnonzero(~occupied)
+		if int(available.size) == 0:
+			continue
+		dists = np.sum((grid[available, :] - loc[None, :]) ** 2, axis=1)
+		best = int(available[int(np.argmin(dists))])
+		mapping[idx] = best
+		occupied[best] = True
+
+	return grid, mapping
+
+
+def _build_square_template(
+	template_c_by_t: np.ndarray,
+	*,
+	padding_mode: str,
+	locations_xy: np.ndarray | None = None,
+) -> np.ndarray:
+	t = np.asarray(template_c_by_t, dtype=float)
+	if t.ndim != 2:
+		raise ValueError(f"Unexpected template shape for square template: {t.shape}")
+
+	if locations_xy is None:
+		n_channels = int(t.shape[0])
+		target = int(np.ceil(np.sqrt(max(1, n_channels))) ** 2)
+		if target <= n_channels:
+			return t
+		pad_val = _pad_value_from_mode(padding_mode)
+		out = np.full((target, int(t.shape[1])), pad_val, dtype=float)
+		out[:n_channels, :] = t
+		return out
+
+	grid, mapping = _build_square_grid(locations_xy)
+	pad_val = _pad_value_from_mode(padding_mode)
+	out = np.full((int(grid.shape[0]), int(t.shape[1])), pad_val, dtype=float)
+	source_channels = min(int(t.shape[0]), int(mapping.shape[0]))
+	for src_idx in range(source_channels):
+		dst_idx = int(mapping[src_idx])
+		if dst_idx < 0 or dst_idx >= int(out.shape[0]):
+			continue
+		out[dst_idx, :] = t[src_idx, :]
+	return out
+
+
+def _build_square_locations(locations_xy: np.ndarray, *, target_channels: int | None = None) -> np.ndarray:
+	grid, _ = _build_square_grid(locations_xy)
+	if target_channels is None:
+		return np.asarray(grid, dtype=float)
+	target = int(target_channels)
+	if target <= int(grid.shape[0]):
+		return np.asarray(grid[:target, :2], dtype=float)
+	out = np.full((target, 2), np.nan, dtype=float)
+	out[: int(grid.shape[0]), :] = grid[:, :2]
 	return out
 
 
@@ -888,6 +978,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				sq = _build_square_template(
 					merged_template,
 					padding_mode=str(inputs.per_unit_outputs.square_template.padding_value),
+					locations_xy=merged_locs,
 				)
 				sq_locs = _build_square_locations(merged_locs, target_channels=int(sq.shape[0]))
 				paths["square_template_npy"].parent.mkdir(parents=True, exist_ok=True)

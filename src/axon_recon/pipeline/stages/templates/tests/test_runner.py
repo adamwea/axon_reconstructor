@@ -720,6 +720,8 @@ def test_run_templates_stage_writes_channel_locations_for_all_template_artifacts
 	assert result.units[0].status == "ok"
 
 	unit_dir = well_out_dir / "templates_outputs" / "units" / "0094" / "arrays"
+	merged_template = np.load(unit_dir / "merged.npy")
+	square_template = np.load(unit_dir / "square.npy")
 	merged_locs = np.load(unit_dir / "merged_locs.npy")
 	square_locs = np.load(unit_dir / "square_locs.npy")
 	scan_locs = np.load(unit_dir / "scan_locs.npy")
@@ -729,9 +731,29 @@ def test_run_templates_stage_writes_channel_locations_for_all_template_artifacts
 		merged_locs,
 		np.asarray([[0.0, 0.0], [20.0, 0.0], [10.0, 18.0]], dtype=float),
 	)
-	assert square_locs.shape == (4, 2)
-	np.testing.assert_allclose(square_locs[:3, :], merged_locs)
-	assert np.all(np.isnan(square_locs[3, :]))
+	assert square_locs.shape == (9, 2)
+	np.testing.assert_allclose(
+		square_locs,
+		np.asarray(
+			[
+				[0.0, 0.0],
+				[10.0, 0.0],
+				[20.0, 0.0],
+				[0.0, 18.0],
+				[10.0, 18.0],
+				[20.0, 18.0],
+				[0.0, 36.0],
+				[10.0, 36.0],
+				[20.0, 36.0],
+			],
+			dtype=float,
+		),
+	)
+	assert square_template.shape == (9, int(merged_template.shape[1]))
+	np.testing.assert_allclose(square_template[0, :], merged_template[0, :])
+	np.testing.assert_allclose(square_template[2, :], merged_template[1, :])
+	np.testing.assert_allclose(square_template[4, :], merged_template[2, :])
+	assert np.allclose(square_template[1, :], 0.0)
 	np.testing.assert_allclose(scan_locs, full_locs)
 
 	assert result.units[0].outputs.get("merged_template_channel_locations_npy", "").endswith("arrays/merged_locs.npy")

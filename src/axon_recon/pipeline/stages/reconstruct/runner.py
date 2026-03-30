@@ -28,6 +28,32 @@ from .reporting.slides import write_reconstruct_report_markdown
 LOGGER = logging.getLogger("axon_recon.reconstruct")
 
 
+def _is_empty_signal_selection_error(exc: Exception) -> bool:
+	msg = str(exc).strip().lower()
+	if "zero-size array to reduction operation maximum which has no identity" in msg:
+		return True
+	if "zero-size" in msg and "maximum" in msg:
+		return True
+	if "no branches found" in msg:
+		return True
+	return False
+
+
+def _normalize_template_for_tracking(template: Any, locs_xy: Any) -> Any:
+	import numpy as np  # type: ignore[import-not-found]
+
+	tpl = np.asarray(template, dtype=float)
+	locs = np.asarray(locs_xy, dtype=float)
+	if tpl.ndim != 2 or locs.ndim != 2:
+		return template
+	n_channels = int(locs.shape[0])
+	if int(tpl.shape[0]) == n_channels:
+		return tpl
+	if int(tpl.shape[1]) == n_channels:
+		return np.asarray(tpl.T, dtype=float)
+	return tpl
+
+
 def _discover_unit_ids(merged_units_dir: Path) -> list[Any]:
 	unit_ids: list[Any] = []
 	for p in sorted(merged_units_dir.iterdir() if merged_units_dir.exists() else []):
@@ -138,16 +164,40 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 				template_source=str(inputs.per_unit_outputs.template_source),
 				use_full_channels_templates=inputs.use_full_channels_templates,
 				require_full_channels_templates=inputs.require_full_channels_templates,
+				probe_geometry=inputs.probe_geometry,
 			)
 			unit_summary["selected_template_source"] = selected_template_source
+			unit_summary["graph_tracking_source"] = selected_template_source
 
-			gtr = compute_graph_tracking(
-				av=av,
-				template_ch_by_t=gtr_template_ch_by_t,
-				locs_xy=gtr_locs_xy,
-				sampling_frequency_hz=float(fs_hz),
-				params=dict(inputs.axon_velocity_params),
-			)
+			gtr = None
+			primary_exc: Exception | None = None
+			primary_template_for_tracking = _normalize_template_for_tracking(gtr_template_ch_by_t, gtr_locs_xy)
+			try:
+				gtr = compute_graph_tracking(
+					av=av,
+					template_ch_by_t=primary_template_for_tracking,
+					locs_xy=gtr_locs_xy,
+					sampling_frequency_hz=float(fs_hz),
+					params=dict(inputs.axon_velocity_params),
+				)
+			except Exception as exc:
+				primary_exc = exc
+				if (
+					_is_empty_signal_selection_error(exc)
+					and str(selected_template_source) not in {"merged_contributing", "merged_per_unit_output"}
+				):
+					raise RuntimeError(
+						"Graph tracking failed for requested template source "
+						f"{selected_template_source} (unit={unit_id}): {exc}. "
+						"Fallback to merged template source is disabled."
+					) from exc
+				else:
+					raise
+
+			if gtr is None:
+				if primary_exc is not None:
+					raise primary_exc
+				raise RuntimeError(f"Graph tracking did not return a result for unit {unit_id}")
 
 			if bool(inputs.per_unit_outputs.write_branches_raw_json):
 				payload = compute_raw_branches_payload(unit_id=unit_id, gtr=gtr)

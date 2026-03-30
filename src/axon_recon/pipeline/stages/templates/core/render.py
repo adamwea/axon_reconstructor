@@ -743,6 +743,62 @@ def _normalize_branch_morphology_payload(branch_morphology: Any) -> list[dict[st
 	return normalized
 
 
+def _as_int_list(values: Any) -> list[int]:
+	if not isinstance(values, (list, tuple, np.ndarray)):
+		return []
+	out: list[int] = []
+	for v in values:
+		try:
+			out.append(int(v))
+		except Exception:
+			continue
+	return out
+
+
+def _preferred_branch_ids(branch_like: Any) -> list[int]:
+	if not isinstance(branch_like, dict):
+		return []
+	for key in ("electrode_ids", "channels", "node_indices", "nodes"):
+		vals = _as_int_list(branch_like.get(key, []))
+		if vals:
+			return vals
+	return []
+
+
+def _branch_morphology_from_gtr(gtr: Any) -> list[dict[str, Any]]:
+	if gtr is None:
+		return []
+
+	out: list[dict[str, Any]] = []
+	branches = getattr(gtr, "branches", None)
+	if isinstance(branches, (list, tuple)):
+		for bi, branch in enumerate(branches):
+			if not isinstance(branch, dict):
+				continue
+			channels = _preferred_branch_ids(branch)
+			if len(channels) < 2:
+				continue
+			out.append(
+				{
+					"branch_index": int(branch.get("branch_index", bi)),
+					"channels": channels,
+					"label": branch.get("branch_index", bi),
+				}
+			)
+		if out:
+			return out
+
+	raw_paths = getattr(gtr, "_paths_raw", None)
+	if isinstance(raw_paths, (list, tuple)):
+		for raw_idx, raw_path in enumerate(raw_paths):
+			channels = _as_int_list(list(raw_path)[::-1])
+			if len(channels) < 2:
+				continue
+			out.append({"branch_index": int(raw_idx), "channels": channels, "label": int(raw_idx)})
+
+	return out
+
+
 def _draw_branch_morphology_overlay(
 	*,
 	ax: Any,
@@ -1278,6 +1334,8 @@ def render_template_circles_plot(
 	probe_geometry: ProbeGeometryConfig | None = None,
 	unit_id: Any | None = None,
 	propagation_order_rank_by_channel: dict[int, int] | None = None,
+	branch_morphology: Any | None = None,
+	gtr: Any | None = None,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -1681,6 +1739,20 @@ def render_template_circles_plot(
 				fontweight="bold",
 				bbox={"boxstyle": "round,pad=0.12", "facecolor": "black", "alpha": bbox_alpha, "linewidth": 0.0},
 			)
+
+	branch_cfg = getattr(config, "branch_morphology", None)
+	if bool(getattr(branch_cfg, "enabled", False)):
+		resolved_branch_payload = branch_morphology
+		if resolved_branch_payload is None:
+			resolved_branch_payload = _branch_morphology_from_gtr(gtr)
+		_draw_branch_morphology_overlay(
+			ax=ax,
+			fig=fig,
+			sc=sc,
+			locations_xy=locs,
+			branch_morphology=resolved_branch_payload,
+			branch_cfg=branch_cfg,
+		)
 
 	outputs: dict[str, str] = {}
 	if bool(config.write_png):

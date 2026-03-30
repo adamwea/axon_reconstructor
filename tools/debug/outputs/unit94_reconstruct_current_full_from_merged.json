@@ -1,0 +1,70 @@
+{
+  "unit_id": 94,
+  "merged_template": "/home/adamm/dev/symlinks/local_RBS_data/outputs/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/well001/template_outputs/units/0094/merged_template.npy",
+  "merged_locs": "/home/adamm/dev/symlinks/local_RBS_data/outputs/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/well001/template_outputs/templates/merged/unit_94/merged_contributing_channel_locations.npy",
+  "target_full_locs": "/home/adamm/dev/symlinks/local_RBS_data/outputs/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/well001/stg4_templates_outputs/templates/full/unit_94/full_channel_locations_xy.npy",
+  "target_meta": "/home/adamm/dev/symlinks/local_RBS_data/outputs/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/well001/stg4_templates_outputs/templates/full/unit_94/full_template_meta.json",
+  "runtime_config": "/home/adamm/dev/pkgs/axon_reconstructor/tools/debug/debug.runtime.yml",
+  "selected_source": "current_full_from_merged",
+  "merged_shape_ch_by_t": [
+    110,
+    700
+  ],
+  "merged_locs_shape": [
+    110,
+    2
+  ],
+  "template_shape_ch_by_t": [
+    26400,
+    700
+  ],
+  "locs_shape": [
+    26400,
+    2
+  ],
+  "sampling_frequency_hz": 10000.0,
+  "av_params": {
+    "upsample": 1,
+    "init_delay": 0,
+    "min_points_after_branching": 2,
+    "min_path_length": 17.5,
+    "min_path_points": 4,
+    "max_peak_latency_for_splitting": 0.25,
+    "kurt_threshold": -10.0,
+    "peak_std_threshold": null,
+    "peak_std_distance": 30,
+    "n_neighbors": 8,
+    "distance_exp": 2,
+    "remove_isolated": false,
+    "detection_type": "relative",
+    "detect_threshold": 0.0001,
+    "min_selected_points": 30,
+    "r2_threshold": 0.9,
+    "max_distance_for_edge": 100,
+    "max_distance_to_init": 200,
+    "mad_threshold": 10,
+    "init_amp_peak_ratio": 0.2,
+    "edge_dist_amp_ratio": 0.3,
+    "r2_threshold_for_outliers": 0.98,
+    "min_outlier_tracking_error": 50,
+    "neighbor_radius": 100,
+    "split_paths": true,
+    "theilsen_maxiter": 8000
+  },
+  "output_png": "/home/adamm/dev/pkgs/axon_reconstructor/tools/debug/outputs/unit94_reconstruct_current_full_from_merged_native.png",
+  "plot_mode": "clean",
+  "status": "ok",
+  "n_branches": 1,
+  "first_branch_keys": [
+    "channels",
+    "distances",
+    "offset",
+    "peak_times",
+    "pval",
+    "r2",
+    "raw_path_idx",
+    "velocity"
+  ],
+  "plot_status": "ok",
+  "plot_function": "plot_clean_branches"
+}

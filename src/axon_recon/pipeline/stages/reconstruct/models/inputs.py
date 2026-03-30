@@ -89,3 +89,4 @@ class ReconstructionInputs:
 
 	axon_velocity_params: dict[str, Any] = field(default_factory=dict)
 	axon_velocity_repo_root: Path | None = None
+	probe_geometry: Any | None = None

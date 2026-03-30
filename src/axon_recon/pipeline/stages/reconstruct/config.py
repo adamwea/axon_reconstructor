@@ -7,6 +7,7 @@ from typing import Any
 from axon_reconstructor.runtime_config import RuntimeConfig
 from axon_recon.pipeline.shared.plotting import build_stage_plot_block
 from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
+from axon_recon.pipeline.stages.templates.config import parse_probe_geometry_from_data_config
 
 from ...execution.context import ExecutionTarget
 from .models.inputs import (
@@ -265,7 +266,7 @@ def parse_reconstruction_stage_config(
 		gtr_pkl_relpath=str(per_unit_cfg.get("gtr_pkl_relpath", "gtr.pkl")),
 		template_source=(
 			str(per_unit_cfg.get("template_source", "square") or "square").strip().lower()
-			if str(per_unit_cfg.get("template_source", "square") or "square").strip().lower() in {"square", "merged", "full"}
+			if str(per_unit_cfg.get("template_source", "square") or "square").strip().lower() in {"square", "merged", "full", "full_from_merged"}
 			else "square"
 		),
 		write_gtr_json=_as_bool(per_unit_cfg.get("write_gtr_json", False), False),
@@ -300,6 +301,7 @@ def build_reconstruction_inputs_for_target(
 	target: ExecutionTarget,
 	stage_config: ReconstructionStageConfig,
 	unit_workers: int,
+	probe_geometry: Any | None = None,
 ) -> ReconstructionInputs:
 	return ReconstructionInputs(
 		h5_path=target.h5_path,
@@ -321,6 +323,7 @@ def build_reconstruction_inputs_for_target(
 		force_replot=stage_config.force_replot,
 		n_jobs=max(1, int(unit_workers)),
 		axon_velocity_params=dict(stage_config.axon_velocity_params),
+		probe_geometry=probe_geometry,
 	)
 
 
@@ -364,6 +367,7 @@ def load_reconstruction_inputs_from_runtime(
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
+	probe_geometry = parse_probe_geometry_from_data_config(data_config=data_cfg)
 
 	return ReconstructionInputs(
 		h5_path=h5_path,
@@ -385,4 +389,5 @@ def load_reconstruction_inputs_from_runtime(
 		force_replot=stage_cfg.force_replot,
 		n_jobs=1,
 		axon_velocity_params=stage_cfg.axon_velocity_params,
+		probe_geometry=probe_geometry,
 	)

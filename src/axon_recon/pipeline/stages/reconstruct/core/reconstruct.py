@@ -14,10 +14,70 @@ def load_templates_for_unit(
 	template_source: str,
 	use_full_channels_templates: bool,
 	require_full_channels_templates: bool,
+	probe_geometry: Any | None = None,
 ) -> tuple[Any, Any, Any, Any, float, str]:
 	import numpy as np  # type: ignore[import-not-found]
 	from axon_recon.pipeline.stages.templates.runner import _build_square_locations
 	from axon_recon.pipeline.stages.templates.runner import _build_square_template
+
+	def _project_template_to_target_locations(
+		template_c_by_t: np.ndarray,
+		source_locs_xy: np.ndarray,
+		target_locs_xy: np.ndarray,
+		*,
+		padding_mode: str = "zero",
+	) -> np.ndarray:
+		pad = 0.0 if str(padding_mode).strip().lower() != "nan" else float("nan")
+		out = np.full((int(target_locs_xy.shape[0]), int(template_c_by_t.shape[1])), pad, dtype=float)
+		key_to_target: dict[tuple[float, float], int] = {}
+		for ti in range(int(target_locs_xy.shape[0])):
+			k = (float(np.round(float(target_locs_xy[ti, 0]), 6)), float(np.round(float(target_locs_xy[ti, 1]), 6)))
+			if k not in key_to_target:
+				key_to_target[k] = int(ti)
+		for si in range(min(int(template_c_by_t.shape[0]), int(source_locs_xy.shape[0]))):
+			sloc = np.asarray(source_locs_xy[si, :2], dtype=float)
+			if not bool(np.isfinite(sloc).all()):
+				continue
+			k = (float(np.round(float(sloc[0]), 6)), float(np.round(float(sloc[1]), 6)))
+			ti = key_to_target.get(k, None)
+			if ti is None:
+				d = np.sum((np.asarray(target_locs_xy[:, :2], dtype=float) - sloc[None, :]) ** 2, axis=1)
+				ti = int(np.argmin(d))
+			out[int(ti), :] = np.asarray(template_c_by_t[si, :], dtype=float)
+		return out
+
+	def _infer_full_locations_from_probe(probe: Any | None) -> np.ndarray | None:
+		if probe is None:
+			return None
+		pitch = getattr(probe, "pitch_um", None)
+		ax = getattr(probe, "active_area_um_x", None)
+		ay = getattr(probe, "active_area_um_y", None)
+		try:
+			pitch_um = float(pitch) if pitch is not None else None
+			area_x = float(ax) if ax is not None else None
+			area_y = float(ay) if ay is not None else None
+		except Exception:
+			return None
+		if pitch_um is None or pitch_um <= 0.0 or area_x is None or area_y is None or area_x <= 0.0 or area_y <= 0.0:
+			return None
+		nx = int(max(1, np.round(area_x / pitch_um)))
+		ny = int(max(1, np.round(area_y / pitch_um)))
+		x_vals = np.arange(nx, dtype=float) * float(pitch_um)
+		y_vals = np.arange(ny, dtype=float) * float(pitch_um)
+		return np.asarray([[float(x), float(y)] for y in y_vals for x in x_vals], dtype=float)
+
+	def _coerce_template_to_ch_by_t(template_any: np.ndarray, *, n_channels: int, template_label: str) -> np.ndarray:
+		tpl = np.asarray(template_any, dtype=float)
+		if tpl.ndim != 2:
+			raise ValueError(f"{template_label} must be 2D, got shape={tpl.shape}")
+		if int(tpl.shape[0]) == int(n_channels):
+			return tpl
+		if int(tpl.shape[1]) == int(n_channels):
+			return np.asarray(tpl.T, dtype=float)
+		raise ValueError(
+			f"Cannot orient {template_label} to channel-by-time for unit {unit_id}: "
+			f"shape={tpl.shape}, n_channels={n_channels}"
+		)
 
 	unit_tokens: list[str] = []
 	try:
@@ -61,9 +121,15 @@ def load_templates_for_unit(
 		raise ValueError(f"Unexpected merged template shape for unit {unit_id}: {merged_tmpl.shape}")
 	if merged_locs.ndim != 2 or merged_locs.shape[1] < 2:
 		raise ValueError(f"Unexpected merged locations shape for unit {unit_id}: {merged_locs.shape}")
+	merged_locs_xy = np.asarray(merged_locs[:, :2], dtype=float)
+	merged_template_ch_by_t = _coerce_template_to_ch_by_t(
+		merged_tmpl,
+		n_channels=int(merged_locs_xy.shape[0]),
+		template_label="merged template",
+	)
 
 	source = str(template_source or "square").strip().lower()
-	if source not in {"square", "merged", "full"}:
+	if source not in {"square", "merged", "full", "full_from_merged"}:
 		source = "square"
 
 	use_full = bool(use_full_channels_templates)
@@ -93,13 +159,41 @@ def load_templates_for_unit(
 		gtr_tmpl = np.asarray(merged_tmpl, dtype=float)
 		gtr_locs = np.asarray(merged_locs[:, :2], dtype=float)
 		selected_source = selected_merged_source
-	else:
-		merged_c_by_t = np.asarray(merged_tmpl, dtype=float).T
-		square_c_by_t = _build_square_template(merged_c_by_t, padding_mode="zero")
-		square_locs = _build_square_locations(np.asarray(merged_locs)[:, :2], target_channels=int(square_c_by_t.shape[0]))
+	elif source == "square":
+		merged_c_by_t = np.asarray(merged_template_ch_by_t, dtype=float)
+		square_c_by_t = _build_square_template(
+			merged_c_by_t,
+			padding_mode="zero",
+			locations_xy=np.asarray(merged_locs_xy)[:, :2],
+		)
+		square_locs = _build_square_locations(np.asarray(merged_locs_xy)[:, :2], target_channels=int(square_c_by_t.shape[0]))
 		gtr_tmpl = np.asarray(square_c_by_t.T, dtype=float)
 		gtr_locs = np.asarray(square_locs[:, :2], dtype=float)
 		selected_source = "square_from_merged_per_unit" if selected_merged_source == "merged_per_unit_output" else "square_from_merged"
+	elif source == "full_from_merged":
+		merged_c_by_t = np.asarray(merged_template_ch_by_t, dtype=float)
+		target_full_locs: np.ndarray | None = None
+		if full_locs_npy.exists():
+			loaded_full_locs = np.load(full_locs_npy)
+			if loaded_full_locs.ndim == 2 and int(loaded_full_locs.shape[1]) >= 2:
+				target_full_locs = np.asarray(loaded_full_locs[:, :2], dtype=float)
+		if target_full_locs is None:
+			target_full_locs = _infer_full_locations_from_probe(probe_geometry)
+		if target_full_locs is None:
+			raise FileNotFoundError(
+				f"template_source=full_from_merged requested but no full-channel locations/probe geometry available for unit {unit_id}"
+			)
+		full_c_by_t = _project_template_to_target_locations(
+			template_c_by_t=merged_c_by_t,
+			source_locs_xy=np.asarray(merged_locs_xy)[:, :2],
+			target_locs_xy=np.asarray(target_full_locs)[:, :2],
+			padding_mode="zero",
+		)
+		gtr_tmpl = np.asarray(full_c_by_t.T, dtype=float)
+		gtr_locs = np.asarray(target_full_locs[:, :2], dtype=float)
+		selected_source = "full_from_merged_per_unit" if selected_merged_source == "merged_per_unit_output" else "full_from_merged"
+	else:
+		raise ValueError(f"Unsupported template_source for unit {unit_id}: {source}")
 
 	fs_hz = 10_000.0
 	if merged_meta_json.exists():

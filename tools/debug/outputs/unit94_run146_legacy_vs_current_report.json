@@ -1,0 +1,122 @@
+{
+  "paths": {
+    "legacy_full_template": "/home/adamm/dev/symlinks/local_RBS_data/outputs/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/well001/stg4_templates_outputs/templates/full/unit_94/full_template.npy",
+    "legacy_full_locs": "/home/adamm/dev/symlinks/local_RBS_data/outputs/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/well001/stg4_templates_outputs/templates/full/unit_94/full_channel_locations_xy.npy",
+    "legacy_full_meta": "/home/adamm/dev/symlinks/local_RBS_data/outputs/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/well001/stg4_templates_outputs/templates/full/unit_94/full_template_meta.json",
+    "v2_merged_template": "/home/adamm/dev/symlinks/local_RBS_data/outputs/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/well001/template_outputs/units/0094/merged_template.npy",
+    "v2_merged_locs": "/home/adamm/dev/symlinks/local_RBS_data/outputs/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/well001/template_outputs/templates/merged/unit_94/merged_contributing_channel_locations.npy",
+    "runtime_config": "/home/adamm/dev/pkgs/axon_reconstructor/tools/debug/debug.runtime.yml",
+    "generated_template": "/home/adamm/dev/pkgs/axon_reconstructor/tools/debug/outputs/unit94_run146_generated_full_from_current_merged.npy",
+    "generated_locs": "/home/adamm/dev/pkgs/axon_reconstructor/tools/debug/outputs/unit94_run146_generated_full_locations_xy.npy"
+  },
+  "shapes": {
+    "legacy_full_ch_by_t": [
+      26400,
+      95
+    ],
+    "legacy_full_locs": [
+      26400,
+      2
+    ],
+    "v2_merged_ch_by_t": [
+      110,
+      700
+    ],
+    "v2_merged_locs": [
+      110,
+      2
+    ],
+    "v2_generated_full_ch_by_t": [
+      26400,
+      700
+    ],
+    "v2_generated_full_locs": [
+      26400,
+      2
+    ]
+  },
+  "parity": {
+    "legacy_vs_generated_max_abs_diff": 486.2488775681084,
+    "legacy_vs_generated_mean_abs_diff": 0.01918355125097871,
+    "legacy_samples": 95,
+    "generated_samples": 700,
+    "common_samples_used_for_legacy_vs_generated": 95,
+    "merged_vs_generated_common_locations": 110,
+    "merged_vs_generated_max_abs_diff": 0.0,
+    "merged_vs_generated_mean_abs_diff": 0.0,
+    "generated_nonzero_channels": 110,
+    "legacy_nonzero_channels": 110,
+    "nonzero_overlap": 110,
+    "generated_channels": 26400,
+    "generated_is_full_grid_26400": true
+  },
+  "av": {
+    "sampling_frequency_hz": 10000.0,
+    "legacy_full": {
+      "status": "ok",
+      "n_branches": 1,
+      "error": null,
+      "params": {
+        "upsample": 1,
+        "init_delay": 0,
+        "min_points_after_branching": 2,
+        "min_path_length": 17.5,
+        "min_path_points": 4,
+        "max_peak_latency_for_splitting": 0.25,
+        "kurt_threshold": -10.0,
+        "peak_std_threshold": null,
+        "peak_std_distance": 30,
+        "n_neighbors": 8,
+        "distance_exp": 2,
+        "remove_isolated": false,
+        "detection_type": "relative",
+        "detect_threshold": 0.0001,
+        "min_selected_points": 30,
+        "r2_threshold": 0.9,
+        "max_distance_for_edge": 100,
+        "max_distance_to_init": 200,
+        "mad_threshold": 10,
+        "init_amp_peak_ratio": 0.2,
+        "edge_dist_amp_ratio": 0.3,
+        "r2_threshold_for_outliers": 0.98,
+        "min_outlier_tracking_error": 50,
+        "neighbor_radius": 100,
+        "split_paths": true,
+        "theilsen_maxiter": 8000
+      }
+    },
+    "v2_generated_full": {
+      "status": "ok",
+      "n_branches": 1,
+      "error": null,
+      "params": {
+        "upsample": 1,
+        "init_delay": 0,
+        "min_points_after_branching": 2,
+        "min_path_length": 17.5,
+        "min_path_points": 4,
+        "max_peak_latency_for_splitting": 0.25,
+        "kurt_threshold": -10.0,
+        "peak_std_threshold": null,
+        "peak_std_distance": 30,
+        "n_neighbors": 8,
+        "distance_exp": 2,
+        "remove_isolated": false,
+        "detection_type": "relative",
+        "detect_threshold": 0.0001,
+        "min_selected_points": 30,
+        "r2_threshold": 0.9,
+        "max_distance_for_edge": 100,
+        "max_distance_to_init": 200,
+        "mad_threshold": 10,
+        "init_amp_peak_ratio": 0.2,
+        "edge_dist_amp_ratio": 0.3,
+        "r2_threshold_for_outliers": 0.98,
+        "min_outlier_tracking_error": 50,
+        "neighbor_radius": 100,
+        "split_paths": true,
+        "theilsen_maxiter": 8000
+      }
+    }
+  }
+}

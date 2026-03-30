@@ -38,6 +38,8 @@ def write_unit_amplitude_map_png(
 		raise ValueError(f"Expected template_ch_by_t to be 2D, got shape={template.shape}")
 	if locs.ndim != 2 or locs.shape[1] < 2:
 		raise ValueError(f"Expected locs_xy to be [N,2+], got shape={locs.shape}")
+	if template.shape[0] != locs.shape[0] and template.shape[1] == locs.shape[0]:
+		template = template.T
 	if template.shape[0] != locs.shape[0]:
 		raise ValueError(
 			"template_ch_by_t channel count does not match locs_xy rows: "
@@ -190,7 +192,6 @@ def write_unit_circle_recon_plot(
 	from axon_recon.pipeline.stages.templates.models.inputs import TemplateCirclesPlotConfig
 
 	# Step 1: keep reconstruct circle_recon as a thin wrapper around templates-stage circles rendering.
-	_ = gtr
 
 	locs = np.asarray(locs_xy, dtype=float)
 	if locs.ndim != 2 or int(locs.shape[1]) < 2:
@@ -219,6 +220,7 @@ def write_unit_circle_recon_plot(
 		png_path=Path(output_png),
 		svg_path=Path(output_svg),
 		unit_id=unit_id,
+		gtr=gtr,
 	)
 
 

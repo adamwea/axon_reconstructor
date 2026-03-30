@@ -28,6 +28,7 @@ def run_reconstruct_from_runtime(
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
 	targets = select_execution_targets(bundle=bundle)
 	parallelism = resolve_stage_parallelism(bundle=bundle, stage_name="reconstruct")
+	probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
 	stage_config = parse_reconstruction_stage_config(
 		runtime_config=bundle.runtime_config,
 		unit_id_override=unit_id_override,
@@ -40,6 +41,7 @@ def run_reconstruct_from_runtime(
 			target=target,
 			stage_config=stage_config,
 			unit_workers=int(parallelism.unit_workers),
+			probe_geometry=probe_geometry,
 		)
 		result = run_reconstruct(inputs)
 		failed_units = [u for u in result.units if str(getattr(u, "status", "ok")).strip().lower() != "ok"]
