@@ -755,8 +755,8 @@ stages:
       force_replot: true
       force_replot_per_unit: false #TODO: Make sure this is wired up
     resources:
-      max_stage_workers: 8
-      well_workers: 2
+      max_stage_workers: 4
+      well_workers: 1
     unit_limit: 1000
 
     inputs:
@@ -815,6 +815,9 @@ stages:
         recon_plots:
           circle_recon:
             display:
+              # TODO: Since we typically focus in on branches here instead of the channels
+              # contributing to template, color bar needs to be adjusted so it dynamically
+              # adjusts based on values in the xy scope after zooming in on branches and nodes.
               base: template_circles # which template plot to put branch morphology on top of; circles, amplitude_map, or latency_map.
               channel_scope: nodes_and_branches # zoom scope in on channels contributing to nodes and branches, which can help focus the plot on the relevant channels for the reconstruction; other options are contributing_channels, recorded_channels, or all_channels.
               zoom_padding_percent: 12 # extra padding around selected node/branch channels used to set circle_recon viewport.
@@ -1067,7 +1070,7 @@ stages:
       # default: 100
       min_path_length: 17.5
       # default: 5
-      min_path_points: 3
+      min_path_points: 4
       # default: 0.5
       # max_peak_latency_for_splitting: 2.0
       # max_peak_latency_for_splitting: 0.5 # lower -> more aggressive splitting, higher -> less splitting; controls the maximum allowed latency of the peak channel in a branch for it to be eligible for splitting, which can help prevent over-splitting of branches with long propagation delays and/or low SNR peaks.
@@ -1088,7 +1091,9 @@ stages:
       detect_threshold: 0.0001
       # default: 30
       min_selected_points: 30
-      r2_threshold: 0.9
+      #r2_threshold: 0.9
+      r2_threshold: 0.85
+      #max_distance_for_edge: 75
       max_distance_for_edge: 100
       max_distance_to_init: 200
       # default: 8
@@ -1114,6 +1119,424 @@ stages:
     resources:
       max_stage_workers: 24
       well_workers: 1
+
+    outputs:
+      metrics:
+        per_branch:
+          reldir: branch_metrics/
+          velocity: #compute velocity at each branch of each unit. Track in csv file.
+            write_csv: true
+            csv_relpath: branch_velocities.csv
+          length:
+            write_csv: true
+            csv_relpath: branch_lengths.csv
+          nodes:
+            write_csv: true
+            csv_relpath: branch_nodes.csv
+          nodes_per_length:
+            write_csv: true
+            csv_relpath: branch_nodes_per_length.csv
+          tortuosity: # compute tortuosity at each branch of each unit, defined as the path length divided by the Euclidean distance between the start and end nodes of the branch. Track in csv file.
+            write_csv: true
+            csv_relpath: branch_tortuosity.csv
+        per_unit:
+          reldir: unit_metrics/
+          # Stats CSV convention for per-unit tables:
+          # - one row per unit
+          # - columns should include: n, total, mean, median, min, max, std, sem, iqr, p05, p25, p75, p95
+          # - n: number of source samples used for that unit
+          # - total: sum of source samples for that unit
+          #
+          # This collapses "mean/median/min/max/etc" style outputs into compact stats tables
+          # instead of separate CSV files for each scalar.
+          branch_length_stats:
+            write_csv: true
+            csv_relpath: branch_length_stats.csv
+            source_level: per_branch
+            source_metric: length
+            columns: [n, total, mean, median, min, max, std, sem, iqr, p05, p25, p75, p95]
+          branch_velocity_stats:
+            write_csv: true
+            csv_relpath: branch_velocity_stats.csv
+            source_level: per_branch
+            source_metric: velocity
+            columns: [n, total, mean, median, min, max, std, sem, iqr, p05, p25, p75, p95]
+          branch_tortuosity_stats:
+            write_csv: true
+            csv_relpath: branch_tortuosity_stats.csv
+            source_level: per_branch
+            source_metric: tortuosity
+            columns: [n, total, mean, median, min, max, std, sem, iqr, p05, p25, p75, p95]
+          branch_nodes_stats:
+            write_csv: true
+            csv_relpath: branch_nodes_stats.csv
+            source_level: per_branch
+            source_metric: nodes
+            columns: [n, total, mean, median, min, max, std, sem, iqr, p05, p25, p75, p95]
+          branch_nodes_per_length_stats:
+            write_csv: true
+            csv_relpath: branch_nodes_per_length_stats.csv
+            source_level: per_branch
+            source_metric: nodes_per_length
+            columns: [n, total, mean, median, min, max, std, sem, iqr, p05, p25, p75, p95]
+
+          # Keep explicit non-stat outputs separate for convenience and downstream joins.
+          n_branches:
+            write_csv: true
+            csv_relpath: n_branches.csv
+          sholl_analysis:
+            write_csv: true
+            csv_relpath: sholl_analysis.csv
+          sholl_peak_intersections:
+            write_csv: true
+            csv_relpath: sholl_peak_intersections.csv
+          sholl_critical_radius_um:
+            write_csv: true
+            csv_relpath: sholl_critical_radius_um.csv
+          template_area:
+            write_csv: true
+            csv_relpath: template_area.csv
+          template_channel_density:
+            write_csv: true
+            csv_relpath: template_channel_density.csv
+          template_extent_x_um:
+            write_csv: true
+            csv_relpath: template_extent_x_um.csv
+          template_extent_y_um:
+            write_csv: true
+            csv_relpath: template_extent_y_um.csv
+          branch_points_per_100um:
+            write_csv: true
+            csv_relpath: branch_points_per_100um.csv
+        per_well:
+          reldir: well_metrics/
+          # Per-well counters are kept as direct scalar CSV outputs.
+          n_units_total:
+            write_csv: true
+            csv_relpath: n_units_total.csv
+          n_units_reconstructed:
+            write_csv: true
+            csv_relpath: n_units_reconstructed.csv
+          n_units_with_branches:
+            write_csv: true
+            csv_relpath: n_units_with_branches.csv
+          frac_units_with_branches:
+            write_csv: true
+            csv_relpath: frac_units_with_branches.csv
+
+          # Collapsed per-well stats CSVs computed from per-unit metrics.
+          # Each row is a well, each table includes: n, total, mean, median, min, max, std, sem, iqr, p05, p25, p75, p95.
+          # source_metric can point to a direct per-unit metric or a column from a per-unit stats table.
+          branches_per_unit_stats:
+            write_csv: true
+            csv_relpath: branches_per_unit_stats.csv
+            source_level: per_unit
+            source_metric: n_branches
+            columns: [n, total, mean, median, min, max, std, sem, iqr, p05, p25, p75, p95]
+          branch_length_per_unit_stats:
+            write_csv: true
+            csv_relpath: branch_length_per_unit_stats.csv
+            source_level: per_unit
+            source_metric: branch_length_stats.total
+            columns: [n, total, mean, median, min, max, std, sem, iqr, p05, p25, p75, p95]
+          branch_velocity_per_unit_stats:
+            write_csv: true
+            csv_relpath: branch_velocity_per_unit_stats.csv
+            source_level: per_unit
+            source_metric: branch_velocity_stats.mean
+            columns: [n, total, mean, median, min, max, std, sem, iqr, p05, p25, p75, p95]
+          branch_tortuosity_per_unit_stats:
+            write_csv: true
+            csv_relpath: branch_tortuosity_per_unit_stats.csv
+            source_level: per_unit
+            source_metric: branch_tortuosity_stats.mean
+            columns: [n, total, mean, median, min, max, std, sem, iqr, p05, p25, p75, p95]
+          sholl_intersections_per_unit_stats:
+            write_csv: true
+            csv_relpath: sholl_intersections_per_unit_stats.csv
+            source_level: per_unit
+            source_metric: sholl_peak_intersections
+            columns: [n, total, mean, median, min, max, std, sem, iqr, p05, p25, p75, p95]
+          unit_locations:
+            write_csv: true
+            csv_relpath: unit_locations.csv
+          unit_loc_density:
+            write_csv: true
+            csv_relpath: unit_location_density.csv
+          template_area_per_unit_stats:
+            write_csv: true
+            csv_relpath: template_area_per_unit_stats.csv
+            source_level: per_unit
+            source_metric: template_area
+            columns: [n, total, mean, median, min, max, std, sem, iqr, p05, p25, p75, p95]
+          template_channel_density_per_unit_stats:
+            write_csv: true
+            csv_relpath: template_channel_density_per_unit_stats.csv
+            source_level: per_unit
+            source_metric: template_channel_density
+            columns: [n, total, mean, median, min, max, std, sem, iqr, p05, p25, p75, p95]
+        cross_well:
+          ordering: config # config | alphabetical
+          plot_defaults:
+            style: seaborn-v0_8-whitegrid
+            dpi: 300
+            fig_width_inches: 7.2
+            fig_height_inches: 4.8
+            title_fontsize: 11
+            axis_label_fontsize: 10
+            tick_label_fontsize: 9
+            legend_fontsize: 9
+            grid_alpha: 0.2
+            show_unit_counts_on_x: true
+            unit_count_label_format: "n={n}"
+            rotate_xtick_labels_deg: 0
+            tight_layout: true
+            well_colors:
+              well001: "tab:blue"
+              well002: "tab:orange"
+          statistical_testing:
+            enable: true
+            apply_to: both # box_and_whisker_plots | bar_plots | both
+            paired_wells: false
+            alpha: 0.05
+            min_samples_per_well: 3
+            nan_policy: omit # omit | propagate | raise
+            normality_check:
+              enable: true
+              method: shapiro
+              alpha: 0.05
+            equal_variance_check:
+              enable: true
+              method: levene
+              alpha: 0.05
+            two_group_test:
+              selection: auto # auto | welch_ttest | mannwhitneyu | permutation
+              parametric: welch_ttest
+              nonparametric: mannwhitneyu
+              permutation_fallback:
+                enable: true
+                n_resamples: 10000
+                random_seed: 1337
+            multiple_testing_correction:
+              enable: true
+              method: holm # none | bonferroni | holm | fdr_bh
+            effect_size:
+              compute: true
+              parametric_metric: cohens_d
+              nonparametric_metric: cliffs_delta
+            annotation:
+              mark_on_plot: true
+              mode: stars_and_pvalue # stars | pvalue | stars_and_pvalue
+              hide_ns: false
+              include_effect_size: true
+              text_fontsize: 9
+              bracket_linewidth: 1.0
+              y_offset_fraction: 0.04
+              star_thresholds:
+                one_star_max_p: 0.05
+                two_star_max_p: 0.01
+                three_star_max_p: 0.001
+                four_star_max_p: 0.0001
+          box_and_whisker_plots:
+            reldir: box_and_whisker_plots/
+            defaults:
+              write_png: true
+              write_pdf: false
+              show_points: true
+              point_alpha: 0.45
+              point_size: 18
+              jitter: 0.08
+              whisker_percentiles: [5, 95]
+              show_notch: false
+              use_log_y: false
+            n_branches:
+              source_level: per_unit
+              source_metric: n_branches
+              write_png: true
+              png_relpath: n_branches_per_unit.png
+              write_pdf: false
+              pdf_relpath: n_branches_per_unit.pdf
+              y_label: branches / unit
+              title: Branch Count per Unit (by Well)
+            total_branch_length:
+              source_level: per_unit
+              source_metric: branch_length_stats.total
+              write_png: true
+              png_relpath: total_branch_length_per_unit.png
+              write_pdf: false
+              pdf_relpath: total_branch_length_per_unit.pdf
+              y_label: total branch length (um) / unit
+              title: Total Branch Length per Unit (by Well)
+            mean_branch_velocity:
+              source_level: per_unit
+              source_metric: branch_velocity_stats.mean
+              write_png: true
+              png_relpath: mean_branch_velocity_per_unit.png
+              write_pdf: false
+              pdf_relpath: mean_branch_velocity_per_unit.pdf
+              y_label: mean branch velocity (um/ms) / unit
+              title: Mean Branch Velocity per Unit (by Well)
+            mean_branch_tortuosity:
+              source_level: per_unit
+              source_metric: branch_tortuosity_stats.mean
+              write_png: true
+              png_relpath: mean_branch_tortuosity_per_unit.png
+              write_pdf: false
+              pdf_relpath: mean_branch_tortuosity_per_unit.pdf
+              y_label: mean branch tortuosity / unit
+              title: Mean Branch Tortuosity per Unit (by Well)
+            sholl_peak_intersections:
+              source_level: per_unit
+              source_metric: sholl_peak_intersections
+              write_png: true
+              png_relpath: sholl_peak_intersections_per_unit.png
+              write_pdf: false
+              pdf_relpath: sholl_peak_intersections_per_unit.pdf
+              y_label: peak sholl intersections / unit
+              title: Peak Sholl Intersections per Unit (by Well)
+            template_area:
+              source_level: per_unit
+              source_metric: template_area
+              write_png: true
+              png_relpath: template_area_per_unit.png
+              write_pdf: false
+              pdf_relpath: template_area_per_unit.pdf
+              y_label: template area (um^2) / unit
+              title: Template Area per Unit (by Well)
+            template_channel_density:
+              source_level: per_unit
+              source_metric: template_channel_density
+              write_png: true
+              png_relpath: template_channel_density_per_unit.png
+              write_pdf: false
+              pdf_relpath: template_channel_density_per_unit.pdf
+              y_label: template channel density / unit
+              title: Template Channel Density per Unit (by Well)
+          bar_plots:
+            reldir: bar_plots/
+            defaults:
+              write_png: true
+              write_pdf: false
+              # Bar plots are intentionally mean-focused for now (no median bar plots).
+              aggregation: mean # mean | median
+              error_bar: sem # none | sem | sd | ci95
+              bar_width: 0.65
+              capsize: 4
+              annotate_values: true
+              value_decimals: 2
+              use_log_y: false
+            n_units_reconstructed:
+              source_level: per_well
+              source_metric: n_units_reconstructed
+              write_png: true
+              png_relpath: n_units_reconstructed.png
+              write_pdf: false
+              pdf_relpath: n_units_reconstructed.pdf
+              y_label: reconstructed units
+              title: Reconstructed Units by Well
+              stats:
+                enable: false
+            frac_units_with_branches:
+              source_level: per_well
+              source_metric: frac_units_with_branches
+              write_png: true
+              png_relpath: frac_units_with_branches.png
+              write_pdf: false
+              pdf_relpath: frac_units_with_branches.pdf
+              y_label: fraction of units with branches
+              title: Fraction of Units with Branches by Well
+              stats:
+                enable: false
+            mean_branches_per_unit:
+              source_level: per_well_stats
+              source_metric: branches_per_unit_stats
+              source_column: mean
+              stats_source_level: per_unit
+              stats_source_metric: n_branches
+              write_png: true
+              png_relpath: mean_branches_per_unit.png
+              write_pdf: false
+              pdf_relpath: mean_branches_per_unit.pdf
+              y_label: mean branches / unit
+              title: Mean Branches per Unit (by Well)
+            mean_branch_length_per_unit:
+              source_level: per_well_stats
+              source_metric: branch_length_per_unit_stats
+              source_column: mean
+              stats_source_level: per_unit
+              stats_source_metric: branch_length_stats.total
+              write_png: true
+              png_relpath: mean_branch_length_per_unit.png
+              write_pdf: false
+              pdf_relpath: mean_branch_length_per_unit.pdf
+              y_label: mean total branch length (um) / unit
+              title: Mean Branch Length per Unit (by Well)
+            mean_branch_velocity_per_unit:
+              source_level: per_well_stats
+              source_metric: branch_velocity_per_unit_stats
+              source_column: mean
+              stats_source_level: per_unit
+              stats_source_metric: branch_velocity_stats.mean
+              write_png: true
+              png_relpath: mean_branch_velocity_per_unit.png
+              write_pdf: false
+              pdf_relpath: mean_branch_velocity_per_unit.pdf
+              y_label: mean branch velocity (um/ms) / unit
+              title: Mean Branch Velocity per Unit (by Well)
+            mean_branch_tortuosity_per_unit:
+              source_level: per_well_stats
+              source_metric: branch_tortuosity_per_unit_stats
+              source_column: mean
+              stats_source_level: per_unit
+              stats_source_metric: branch_tortuosity_stats.mean
+              write_png: true
+              png_relpath: mean_branch_tortuosity_per_unit.png
+              write_pdf: false
+              pdf_relpath: mean_branch_tortuosity_per_unit.pdf
+              y_label: mean branch tortuosity / unit
+              title: Mean Branch Tortuosity per Unit (by Well)
+            mean_sholl_intersections_per_unit:
+              source_level: per_well_stats
+              source_metric: sholl_intersections_per_unit_stats
+              source_column: mean
+              stats_source_level: per_unit
+              stats_source_metric: sholl_peak_intersections
+              write_png: true
+              png_relpath: mean_sholl_intersections_per_unit.png
+              write_pdf: false
+              pdf_relpath: mean_sholl_intersections_per_unit.pdf
+              y_label: mean sholl intersections / unit
+              title: Mean Sholl Intersections per Unit (by Well)
+            mean_template_area_per_unit:
+              source_level: per_well_stats
+              source_metric: template_area_per_unit_stats
+              source_column: mean
+              stats_source_level: per_unit
+              stats_source_metric: template_area
+              write_png: true
+              png_relpath: mean_template_area_per_unit.png
+              write_pdf: false
+              pdf_relpath: mean_template_area_per_unit.pdf
+              y_label: mean template area (um^2) / unit
+              title: Mean Template Area per Unit (by Well)
+            mean_template_channel_density_per_unit:
+              source_level: per_well_stats
+              source_metric: template_channel_density_per_unit_stats
+              source_column: mean
+              stats_source_level: per_unit
+              stats_source_metric: template_channel_density
+              write_png: true
+              png_relpath: mean_template_channel_density_per_unit.png
+              write_pdf: false
+              pdf_relpath: mean_template_channel_density_per_unit.pdf
+              y_label: mean template channel density / unit
+              title: Mean Template Channel Density per Unit (by Well)
+
+
+
+
+  ## Analysis stage updated to Pipeline V2 above this line. -------------------------
+
     prefer_curated_waveforms_panels: true
     botm:
       enable: false

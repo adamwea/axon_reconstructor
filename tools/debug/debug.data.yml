@@ -39,7 +39,7 @@ datasets:
         genotype:
 
   - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260313/M07036/AxonTracking/000147/data.raw.h5
-    include_in_runtime: false
+    include_in_runtime: true
     DIV:
     wells:
       - well_id: well001
