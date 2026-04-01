@@ -19,6 +19,7 @@ def test_scope_orchestrator_dispatches_via_shared_stage_executor(monkeypatch, tm
     h5_path = _make_mea_like_path(tmp_path)
     cfg = ScopeConfig(
         mea_output_root=tmp_path / "outputs",
+        scratch_output_root=None,
         sorter="kilosort4",
         docker_image=None,
         n_jobs=2,

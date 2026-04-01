@@ -17,6 +17,7 @@ from .alias_modules.spikesorting import SpikeSortingInputs, run_spikesorting_sta
 from .alias_modules.templates import TemplateExtractInputs, extract_and_merge_templates
 from .alias_modules.waveforms import WaveformExtractInputs, extract_waveforms
 from .output_paths import compute_mea_analysis_output_dir
+from .publish import publish_path_to_final, remap_path_string_to_final
 from .scope_config import ScopeConfig
 
 
@@ -45,6 +46,15 @@ def add_stage_common_required_args(parser: argparse.ArgumentParser) -> None:
         required=False,
         default=None,
         help="MEA output root for per-well stage outputs (or set AXON_RECON_MEA_OUTPUT_ROOT via --env-file/env).",
+    )
+    parser.add_argument(
+        "--scratch-output-root",
+        required=False,
+        default=None,
+        help=(
+            "Optional scratch output root for high-throughput local writes; artifacts are published to --mea-output-root "
+            "(or AXON_RECON_SCRATCH_OUTPUT_ROOT)."
+        ),
     )
 
 
@@ -282,6 +292,8 @@ class StageExecutionContext:
     stream_id: str
     mea_output_root: Path
     force_restart: bool
+    final_output_root: Path | None = None
+    scratch_output_root: Path | None = None
     n_jobs: int = 8
     sorter: str = "kilosort4"
     docker_image: Optional[str] = None
@@ -293,6 +305,48 @@ class StageExecutionContext:
 class StageExecutionResult:
     stage: str
     artifacts: dict[str, Any]
+
+
+def _publish_roots_from_context(context: StageExecutionContext) -> tuple[Path, Path] | None:
+    active_root = Path(context.mea_output_root).expanduser().resolve()
+    final_root = Path(context.final_output_root or context.mea_output_root).expanduser().resolve()
+    if active_root == final_root:
+        return None
+    return active_root, final_root
+
+
+def _publish_artifacts_to_final(*, artifacts: dict[str, Any], context: StageExecutionContext) -> dict[str, Any]:
+    roots = _publish_roots_from_context(context)
+    if roots is None:
+        return dict(artifacts)
+
+    active_root, final_root = roots
+    out: dict[str, Any] = {}
+    for key, value in artifacts.items():
+        if value is None:
+            out[str(key)] = None
+            continue
+        if isinstance(value, (str, Path)):
+            raw_path = Path(value).expanduser().resolve()
+            mapped = publish_path_to_final(
+                path=raw_path,
+                active_root=active_root,
+                final_root=final_root,
+                mode="copy",
+            )
+            if mapped is not None:
+                out[str(key)] = remap_path_string_to_final(
+                    raw=value,
+                    active_root=active_root,
+                    final_root=final_root,
+                )
+                continue
+        out[str(key)] = value
+    return out
+
+
+def _stage_result(*, stage: str, artifacts: dict[str, Any], context: StageExecutionContext) -> StageExecutionResult:
+    return StageExecutionResult(stage=stage, artifacts=_publish_artifacts_to_final(artifacts=artifacts, context=context))
 
 
 def execute_stage(
@@ -316,7 +370,7 @@ def execute_stage(
         }
         preprocess_kwargs.update(kwargs)
         _, common_el = run_preprocess_stage(**preprocess_kwargs)
-        return StageExecutionResult(stage=stage, artifacts={"n_common_electrodes": int(len(common_el))})
+        return _stage_result(stage=stage, artifacts={"n_common_electrodes": int(len(common_el))}, context=context)
 
     if stage == "spikesort":
         spikesort_fields = {
@@ -336,8 +390,9 @@ def execute_stage(
             inputs=SpikeSortingInputs(**spikesort_fields),
             logger=logger or logging.getLogger(f"axon_reconstructor.stage.{context.stream_id}.spikesort"),
         )
-        return StageExecutionResult(
+        return _stage_result(
             stage=stage,
+            context=context,
             artifacts={
                 "sorter_output_dir": str(out.sorter_output_dir),
                 "output_dir": str(out.output_dir),
@@ -359,7 +414,7 @@ def execute_stage(
         if waveform_fields.get("merged_sorting_dir") is not None:
             waveform_fields["merged_sorting_dir"] = Path(waveform_fields["merged_sorting_dir"]).expanduser().resolve()
         out = extract_waveforms(inputs=WaveformExtractInputs(**waveform_fields))
-        return StageExecutionResult(stage=stage, artifacts={"waveforms_out_dir": str(out.waveforms_out_dir)})
+        return _stage_result(stage=stage, context=context, artifacts={"waveforms_out_dir": str(out.waveforms_out_dir)})
 
     if stage == "templates":
         template_fields = {
@@ -371,7 +426,7 @@ def execute_stage(
         }
         template_fields.update(kwargs)
         out = extract_and_merge_templates(inputs=TemplateExtractInputs(**template_fields))
-        return StageExecutionResult(stage=stage, artifacts={"templates_out_dir": str(out.templates_out_dir)})
+        return _stage_result(stage=stage, context=context, artifacts={"templates_out_dir": str(out.templates_out_dir)})
 
     if stage == "reconstruct":
         recon_fields = {
@@ -384,8 +439,9 @@ def execute_stage(
         recon_fields.update(kwargs)
 
         out = reconstruct_from_templates(inputs=ReconstructionInputs(**recon_fields))
-        return StageExecutionResult(
+        return _stage_result(
             stage=stage,
+            context=context,
             artifacts={"reconstruction_out_dir": str(out.reconstruction_out_dir)},
         )
 
@@ -398,7 +454,7 @@ def execute_stage(
         }
         analysis_fields.update(kwargs)
         out = analyze_units(inputs=AnalysisInputs(**analysis_fields))
-        return StageExecutionResult(stage=stage, artifacts={"analysis_out_dir": str(out.analysis_out_dir)})
+        return _stage_result(stage=stage, context=context, artifacts={"analysis_out_dir": str(out.analysis_out_dir)})
 
     raise ValueError(f"Unsupported stage: {stage}")
 
@@ -408,7 +464,13 @@ class ScopeTarget:
     dataset_id: str
     h5_path: Path
     stream_id: str
+    mea_output_root: Path
+    scratch_output_root: Path | None
     stage_kwargs: dict[str, dict[str, Any]]
+
+    @property
+    def active_output_root(self) -> Path:
+        return Path(self.scratch_output_root or self.mea_output_root).expanduser().resolve()
 
 
 def _now_utc() -> str:
@@ -416,7 +478,7 @@ def _now_utc() -> str:
 
 
 def _scope_barrier_checkpoint_file(*, config: ScopeConfig) -> Path:
-    return Path(config.mea_output_root) / "scope_run_barrier_checkpoint.json"
+    return Path(config.mea_output_root).expanduser().resolve() / "scope_run_barrier_checkpoint.json"
 
 
 def _load_scope_barrier_checkpoint(*, checkpoint_file: Path, force_restart: bool) -> dict[str, Any]:
@@ -457,6 +519,11 @@ def _build_targets(config: ScopeConfig) -> list[ScopeTarget]:
         if not dataset.enabled:
             continue
         dataset_id = dataset.dataset_id or f"dataset_{i:03d}"
+        dataset_output_root = Path(dataset.mea_output_root or config.mea_output_root).expanduser().resolve()
+        dataset_scratch_root = dataset.scratch_output_root if dataset.scratch_output_root is not None else config.scratch_output_root
+        dataset_scratch_root = (
+            Path(dataset_scratch_root).expanduser().resolve() if dataset_scratch_root is not None else None
+        )
         for well in dataset.wells:
             if not well.enabled:
                 continue
@@ -471,6 +538,8 @@ def _build_targets(config: ScopeConfig) -> list[ScopeTarget]:
                     dataset_id=dataset_id,
                     h5_path=dataset.h5_path,
                     stream_id=well.stream_id,
+                    mea_output_root=dataset_output_root,
+                    scratch_output_root=dataset_scratch_root,
                     stage_kwargs=stage_kwargs,
                 )
             )
@@ -484,8 +553,10 @@ def _run_single_stage_target(*, stage: str, config: ScopeConfig, target: ScopeTa
     context = StageExecutionContext(
         h5_path=target.h5_path,
         stream_id=target.stream_id,
-        mea_output_root=config.mea_output_root,
+        mea_output_root=target.active_output_root,
         force_restart=bool(config.force_restart),
+        final_output_root=target.mea_output_root,
+        scratch_output_root=target.scratch_output_root,
         n_jobs=int(config.n_jobs),
         sorter=config.sorter,
         docker_image=config.docker_image,
@@ -504,15 +575,18 @@ def _run_single_stage_target(*, stage: str, config: ScopeConfig, target: ScopeTa
         "dataset_id": target.dataset_id,
         "h5_path": str(target.h5_path),
         "stream_id": target.stream_id,
+        "mea_output_root": str(target.mea_output_root),
+        "active_output_root": str(target.active_output_root),
+        "scratch_output_root": (str(target.scratch_output_root) if target.scratch_output_root is not None else None),
         "started_at": started_at,
         "finished_at": _now_utc(),
         **dict(result.artifacts),
     }
 
 
-def _expected_sorter_output_dir(*, config: ScopeConfig, target: ScopeTarget) -> Path:
+def _expected_sorter_output_dir(*, target: ScopeTarget) -> Path:
     well_out_dir = compute_mea_analysis_output_dir(
-        output_root=config.mea_output_root,
+        output_root=target.mea_output_root,
         data_file=target.h5_path,
         well=target.stream_id,
     )
@@ -529,7 +603,7 @@ def _run_transition_stage(
     if stage == "unit_match":
         stage_entries: list[dict[str, Any]] = []
         for target in targets:
-            sorter_output_dir = _expected_sorter_output_dir(config=config, target=target)
+            sorter_output_dir = _expected_sorter_output_dir(target=target)
             if sorter_output_dir.exists():
                 stage_entries.append(
                     {
@@ -622,6 +696,9 @@ def run_scope_stage_barriers(
                 "dataset_id": t.dataset_id,
                 "h5_path": str(t.h5_path),
                 "stream_id": t.stream_id,
+                "mea_output_root": str(t.mea_output_root),
+                "active_output_root": str(t.active_output_root),
+                "scratch_output_root": (str(t.scratch_output_root) if t.scratch_output_root is not None else None),
             }
             for t in targets
         ],

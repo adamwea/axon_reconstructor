@@ -93,6 +93,7 @@ class ReconstructionInputs:
 	h5_path: Path
 	stream_id: str
 	mea_output_root: Path
+	final_output_root: Path | None = None
 
 	output_rel_root: str = "recon_outputs"
 	reports: ReconstructionReportsConfig = field(default_factory=ReconstructionReportsConfig)

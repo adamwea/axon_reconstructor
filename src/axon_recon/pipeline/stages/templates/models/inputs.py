@@ -631,6 +631,7 @@ class TemplatesInputs:
 	h5_path: Path
 	stream_id: str
 	mea_output_root: Path
+	final_output_root: Path | None = None
 	concat_analyzer_relpath: str | None = None
 	preproc_seg_sources_reldir: str | None = None
 

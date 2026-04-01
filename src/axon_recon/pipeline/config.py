@@ -95,6 +95,12 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 	if not output_root_raw:
 		raise ValueError("Data config missing output_root")
 	output_root = Path(str(output_root_raw)).expanduser().resolve()
+	scratch_root_raw = bundle.data_config.get("scratch_root", None)
+	default_scratch_root = (
+		Path(str(scratch_root_raw)).expanduser().resolve()
+		if scratch_root_raw is not None and str(scratch_root_raw).strip() != ""
+		else None
+	)
 
 	targets: list[ExecutionTarget] = []
 	for idx, item in enabled:
@@ -103,6 +109,14 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 			continue
 		h5_path = Path(str(h5_raw)).expanduser().resolve()
 		dataset_id = _dataset_id_for_item(item, index=idx)
+
+		dataset_scratch_root_raw = item.get("scratch_root", None)
+		dataset_scratch_root = (
+			Path(str(dataset_scratch_root_raw)).expanduser().resolve()
+			if dataset_scratch_root_raw is not None and str(dataset_scratch_root_raw).strip() != ""
+			else default_scratch_root
+		)
+		active_root = dataset_scratch_root if dataset_scratch_root is not None else output_root
 
 		wells = item.get("wells", [])
 		if not isinstance(wells, list) or not wells:
@@ -119,7 +133,9 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 					dataset_id=str(dataset_id),
 					h5_path=h5_path,
 					stream_id=str(stream_id),
-					mea_output_root=output_root,
+					mea_output_root=active_root,
+					final_output_root=output_root,
+					scratch_output_root=dataset_scratch_root,
 				)
 			)
 
@@ -150,4 +166,3 @@ def resolve_stage_parallelism(*, bundle: PipelineRuntimeBundle, stage_name: str)
 		well_workers=well_workers,
 		unit_workers=unit_workers,
 	)
-

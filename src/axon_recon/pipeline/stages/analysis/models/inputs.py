@@ -10,6 +10,7 @@ class AnalysisInputs:
 	h5_path: Path
 	stream_id: str
 	mea_output_root: Path
+	final_output_root: Path | None = None
 	probe_pitch_um: float | None = None
 
 	output_rel_root: str = "analysis_outputs"

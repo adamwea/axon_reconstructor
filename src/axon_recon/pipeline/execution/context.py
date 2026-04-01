@@ -11,6 +11,12 @@ class ExecutionTarget:
     h5_path: Path
     stream_id: str
     mea_output_root: Path
+    final_output_root: Path | None = None
+    scratch_output_root: Path | None = None
+
+    @property
+    def active_output_root(self) -> Path:
+        return self.scratch_output_root if self.scratch_output_root is not None else self.mea_output_root
 
 
 @dataclass(frozen=True)

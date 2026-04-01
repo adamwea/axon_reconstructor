@@ -83,6 +83,8 @@ class ScopeWellSpec:
 class ScopeDatasetSpec:
     h5_path: Path
     wells: list[ScopeWellSpec]
+    mea_output_root: Path | None = None
+    scratch_output_root: Path | None = None
     dataset_id: str | None = None
     enabled: bool = True
     stage_kwargs: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -91,6 +93,7 @@ class ScopeDatasetSpec:
 @dataclass(frozen=True)
 class ScopeConfig:
     mea_output_root: Path
+    scratch_output_root: Path | None
     sorter: str
     docker_image: str | None
     n_jobs: int
@@ -131,9 +134,16 @@ def _parse_dataset(raw: dict[str, Any], *, index: int) -> ScopeDatasetSpec:
     if len(wells) == 0:
         raise ValueError(f"datasets[{index}] has no valid well objects")
 
+    mea_output_root_raw = raw.get("mea_output_root", raw.get("output_root", None))
+    scratch_output_root_raw = raw.get("scratch_output_root", raw.get("scratch_root", None))
+
     return ScopeDatasetSpec(
         h5_path=Path(h5_path_raw).expanduser().resolve(),
         wells=wells,
+        mea_output_root=(Path(mea_output_root_raw).expanduser().resolve() if mea_output_root_raw is not None else None),
+        scratch_output_root=(
+            Path(scratch_output_root_raw).expanduser().resolve() if scratch_output_root_raw is not None else None
+        ),
         dataset_id=(str(raw.get("dataset_id")) if raw.get("dataset_id") is not None else None),
         enabled=bool(raw.get("enabled", True)),
         stage_kwargs=_as_stage_kwargs(raw.get("stage_kwargs"), field_name="datasets[].stage_kwargs"),
@@ -146,6 +156,7 @@ def load_scope_config(path: Path) -> ScopeConfig:
     mea_output_root_raw = payload.get("mea_output_root")
     if mea_output_root_raw is None:
         raise ValueError("Scope config missing required key: mea_output_root")
+    scratch_output_root_raw = payload.get("scratch_output_root", payload.get("scratch_root", None))
 
     stage_order_raw = payload.get("stage_order", list(STAGE_NAMES))
     if not isinstance(stage_order_raw, list) or len(stage_order_raw) == 0:
@@ -165,6 +176,9 @@ def load_scope_config(path: Path) -> ScopeConfig:
 
     cfg = ScopeConfig(
         mea_output_root=Path(mea_output_root_raw).expanduser(),
+        scratch_output_root=(
+            Path(scratch_output_root_raw).expanduser().resolve() if scratch_output_root_raw is not None else None
+        ),
         sorter=str(payload.get("sorter", "kilosort4")),
         docker_image=(str(payload["docker_image"]) if payload.get("docker_image") is not None else None),
         n_jobs=int(payload.get("n_jobs", 8)),
@@ -230,6 +244,7 @@ def summarize_scope_config(cfg: ScopeConfig) -> dict[str, Any]:
 
     return {
         "mea_output_root": str(cfg.mea_output_root),
+        "scratch_output_root": (str(cfg.scratch_output_root) if cfg.scratch_output_root is not None else None),
         "stage_order": list(cfg.stage_order),
         "datasets_enabled": int(datasets),
         "wells_enabled": int(wells),
@@ -292,6 +307,13 @@ def run_scope_config_build(args: argparse.Namespace) -> int:
     )
     if str(mea_output_root).strip() == "." or str(mea_output_root).strip() == "":
         raise ValueError("mea_output_root must be provided via --mea-output-root or AXON_RECON_MEA_OUTPUT_ROOT")
+
+    scratch_env = _env_str("AXON_RECON_SCRATCH_OUTPUT_ROOT", None)
+    scratch_output_root = (
+        Path(args.scratch_output_root).expanduser().resolve()
+        if args.scratch_output_root is not None
+        else (Path(scratch_env).expanduser().resolve() if scratch_env is not None else None)
+    )
 
     sorter = args.sorter or _env_str("AXON_RECON_SORTER", "kilosort4") or "kilosort4"
     docker_image = args.docker_image or _env_str("AXON_RECON_DOCKER_IMAGE", None)
@@ -360,6 +382,8 @@ def run_scope_config_build(args: argparse.Namespace) -> int:
         "stage_order": stage_order,
         "datasets": datasets,
     }
+    if scratch_output_root is not None:
+        scope_payload["scratch_output_root"] = str(scratch_output_root)
     if stage_kwargs:
         scope_payload["stage_kwargs"] = stage_kwargs
 

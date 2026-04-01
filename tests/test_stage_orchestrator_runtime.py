@@ -24,6 +24,7 @@ def _build_scope_config(*, tmp_path: Path, stage_order: list[str], fail_fast: bo
     )
     return ScopeConfig(
         mea_output_root=tmp_path / "outputs",
+        scratch_output_root=None,
         sorter="kilosort4",
         docker_image=None,
         n_jobs=1,
@@ -66,7 +67,7 @@ def test_transition_gates_pass_with_spikesort_artifacts(tmp_path: Path) -> None:
     )
 
     target = _build_targets(cfg)[0]
-    sorter_output_dir = _expected_sorter_output_dir(config=cfg, target=target)
+    sorter_output_dir = _expected_sorter_output_dir(target=target)
     sorter_output_dir.mkdir(parents=True, exist_ok=True)
 
     summary = run_scope_stage_barriers(config=cfg, dry_run=False)
@@ -136,3 +137,55 @@ def test_non_fail_fast_continues_to_later_stages(monkeypatch, tmp_path: Path) ->
     assert summary["stages"][0]["failed"] == 1
     assert summary["stages"][1]["stage"] == "analysis"
     assert summary["stages"][1]["failed"] == 0
+
+
+def test_build_targets_resolves_dataset_and_global_output_roots(tmp_path: Path) -> None:
+    h5_dataset = _make_mea_like_path(tmp_path)
+    h5_global = tmp_path / "ProjectY" / "2026-01-02" / "ChipDEF" / "456" / "data.raw.h5"
+    h5_global.parent.mkdir(parents=True, exist_ok=True)
+    h5_global.touch()
+
+    cfg = ScopeConfig(
+        mea_output_root=tmp_path / "final_global",
+        scratch_output_root=tmp_path / "scratch_global",
+        sorter="kilosort4",
+        docker_image=None,
+        n_jobs=1,
+        chunk_duration=None,
+        force_restart=False,
+        per_well_parallelism=1,
+        fail_fast=True,
+        stage_order=["preprocess"],
+        stage_kwargs={},
+        datasets=[
+            ScopeDatasetSpec(
+                h5_path=h5_dataset,
+                wells=[ScopeWellSpec(stream_id="well000")],
+                dataset_id="ds_override",
+                mea_output_root=tmp_path / "final_dataset",
+                scratch_output_root=tmp_path / "scratch_dataset",
+                enabled=True,
+                stage_kwargs={},
+            ),
+            ScopeDatasetSpec(
+                h5_path=h5_global,
+                wells=[ScopeWellSpec(stream_id="well001")],
+                dataset_id="ds_global",
+                enabled=True,
+                stage_kwargs={},
+            ),
+        ],
+    )
+
+    targets = _build_targets(cfg)
+    by_dataset = {t.dataset_id: t for t in targets}
+
+    t_override = by_dataset["ds_override"]
+    assert t_override.mea_output_root == (tmp_path / "final_dataset").resolve()
+    assert t_override.scratch_output_root == (tmp_path / "scratch_dataset").resolve()
+    assert t_override.active_output_root == (tmp_path / "scratch_dataset").resolve()
+
+    t_global = by_dataset["ds_global"]
+    assert t_global.mea_output_root == (tmp_path / "final_global").resolve()
+    assert t_global.scratch_output_root == (tmp_path / "scratch_global").resolve()
+    assert t_global.active_output_root == (tmp_path / "scratch_global").resolve()

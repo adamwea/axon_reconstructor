@@ -8,7 +8,7 @@ import os
 import shlex
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -331,6 +331,14 @@ def _first_cfg_str(cfg: RuntimeConfig, paths: list[str]) -> str | None:
         parsed = cfg.get_str(path, default=None)
         if parsed is not None and str(parsed).strip() != "":
             return str(parsed)
+    return None
+
+
+def _first_cfg_path(cfg: RuntimeConfig, paths: list[str]) -> Path | None:
+    for path in paths:
+        parsed = cfg.get_path(path, default=None)
+        if parsed is not None:
+            return Path(parsed).expanduser().resolve()
     return None
 
 
@@ -837,8 +845,13 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         if candidate is not None:
             ds0 = candidate
 
-    # Normalize useful compatibility paths from selected dataset + top-level output_root.
-    if ds0 is not None or runtime_config.get("output_root", None) is not None:
+    # Normalize useful compatibility paths from selected dataset + top-level output/scratch roots.
+    if (
+        ds0 is not None
+        or runtime_config.get("output_root", None) is not None
+        or runtime_config.get("scratch_root", None) is not None
+        or runtime_config.get("scratch_output_root", None) is not None
+    ):
         payload = dict(getattr(runtime_config, "_payload", {}) or {})
         paths_payload = payload.get("paths")
         if not isinstance(paths_payload, dict):
@@ -861,6 +874,13 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             output_root = runtime_config.get("output_root", None)
             if output_root is not None:
                 paths_payload["mea_output_root"] = output_root
+
+        if paths_payload.get("scratch_output_root") is None:
+            scratch_root = runtime_config.get("scratch_root", None)
+            if scratch_root is None:
+                scratch_root = runtime_config.get("scratch_output_root", None)
+            if scratch_root is not None:
+                paths_payload["scratch_output_root"] = scratch_root
 
         payload["paths"] = paths_payload
         runtime_config = RuntimeConfig(payload)
@@ -1035,6 +1055,20 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         cfg_path="paths.mea_output_root",
         env_key="AXON_RECON_MEA_OUTPUT_ROOT",
     )
+    scratch_output_root_optional = _resolve_optional_path_cfg(
+        cli_value=getattr(args, "scratch_output_root", None),
+        cfg=runtime_config,
+        cfg_path="paths.scratch_output_root",
+        env_key="AXON_RECON_SCRATCH_OUTPUT_ROOT",
+    )
+    if scratch_output_root_optional is None:
+        scratch_output_root_optional = _first_cfg_path(runtime_config, ["paths.scratch_root"])
+    if scratch_output_root_optional is None:
+        scratch_top = runtime_config.get("scratch_root", None)
+        if scratch_top is None:
+            scratch_top = runtime_config.get("scratch_output_root", None)
+        if scratch_top is not None and str(scratch_top).strip() != "":
+            scratch_output_root_optional = Path(str(scratch_top)).expanduser().resolve()
 
     run_multi_dataset = (
         len(selected_runtime_datasets) >= 1
@@ -1071,6 +1105,8 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         if mea_output_root_optional is None:
             raise SystemExit("--mea-output-root is required (CLI/YAML/env)")
         mea_output_root = Path(mea_output_root_optional)
+        scratch_output_root = Path(scratch_output_root_optional) if scratch_output_root_optional is not None else None
+        active_output_root = scratch_output_root or mea_output_root
 
     if bool(force_replot) and stage != "waveforms":
         stage_logger.info(
@@ -2352,6 +2388,9 @@ def _cmd_stage(args: argparse.Namespace) -> int:
 
         runs: list[tuple[str, str, StageExecutionContext]] = []
         data_output_root = runtime_config.get("output_root", None)
+        data_scratch_root = runtime_config.get("scratch_root", None)
+        if data_scratch_root is None:
+            data_scratch_root = runtime_config.get("scratch_output_root", None)
         for idx, ds in enumerate(selected_runtime_datasets, start=1):
             ds_h5_raw = ds.get("raw_data_h5_path")
             if ds_h5_raw is None:
@@ -2400,12 +2439,26 @@ def _cmd_stage(args: argparse.Namespace) -> int:
                 )
             ds_out_root = Path(str(ds_out_root_raw)).expanduser().resolve()
 
+            ds_scratch_root_raw = ds.get("scratch_output_root")
+            if ds_scratch_root_raw is None:
+                ds_scratch_root_raw = ds.get("scratch_root")
+            if ds_scratch_root_raw is None:
+                ds_scratch_root_raw = data_scratch_root
+            if ds_scratch_root_raw is None:
+                ds_scratch_root_raw = scratch_output_root_optional
+            ds_scratch_root = (
+                Path(str(ds_scratch_root_raw)).expanduser().resolve() if ds_scratch_root_raw is not None else None
+            )
+            ds_active_root = ds_scratch_root or ds_out_root
+
             for ds_stream in selected_well_ids:
                 ds_ctx = StageExecutionContext(
                     h5_path=ds_h5,
                     stream_id=str(ds_stream),
-                    mea_output_root=ds_out_root,
+                    mea_output_root=ds_active_root,
                     force_restart=bool(force_restart),
+                    final_output_root=ds_out_root,
+                    scratch_output_root=ds_scratch_root,
                     n_jobs=int(derived_stage_n_jobs),
                     sorter=str(sorter or "kilosort4"),
                     docker_image=docker_image,
@@ -2478,8 +2531,10 @@ def _cmd_stage(args: argparse.Namespace) -> int:
     context = StageExecutionContext(
         h5_path=h5_path,
         stream_id=stream_id,
-        mea_output_root=mea_output_root,
+        mea_output_root=active_output_root,
         force_restart=bool(force_restart),
+        final_output_root=mea_output_root,
+        scratch_output_root=scratch_output_root,
         n_jobs=int(derived_stage_n_jobs),
         sorter=str(sorter or "kilosort4"),
         docker_image=docker_image,
@@ -2599,6 +2654,12 @@ def _cmd_scope_run(args: argparse.Namespace) -> int:
     from axon_reconstructor.pipeline.pipeline_driver import run_scope_stage_barriers, write_scope_run_summary
 
     scope_config = load_scope_config(Path(args.config))
+    scratch_override = _resolve_optional_path(
+        cli_value=getattr(args, "scratch_output_root", None),
+        env_key="AXON_RECON_SCRATCH_OUTPUT_ROOT",
+    )
+    if scratch_override is not None:
+        scope_config = replace(scope_config, scratch_output_root=Path(scratch_override).expanduser().resolve())
     errors = validate_scope_config(scope_config)
     if errors:
         msg = "\n".join(f"- {e}" for e in errors)
@@ -2804,6 +2865,11 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Optional output path for scope run summary JSON (default: <mea_output_root>/scope_run_summary.json)",
     )
+    p_scope.add_argument(
+        "--scratch-output-root",
+        default=None,
+        help="Optional override for scope-level scratch output root (env: AXON_RECON_SCRATCH_OUTPUT_ROOT).",
+    )
     p_scope.add_argument("--debug", action=argparse.BooleanOptionalAction, default=None, help="Enable debug logging")
     p_scope.set_defaults(func=_cmd_scope_run)
 
@@ -2821,6 +2887,7 @@ def main(argv: list[str] | None = None) -> int:
     p_scope_build.add_argument("--n-jobs", type=int, default=None)
     p_scope_build.add_argument("--chunk-duration", default=None)
     p_scope_build.add_argument("--mea-output-root", type=Path, default=None)
+    p_scope_build.add_argument("--scratch-output-root", type=Path, default=None)
     p_scope_build.add_argument("--sorter", default=None)
     p_scope_build.add_argument("--docker-image", default=None)
     p_scope_build.add_argument("--recon-n-jobs", type=int, default=None)

@@ -1,4 +1,5 @@
-output_root: /home/adamm/dev/symlinks/local_RBS_data/outputs
+output_root: /mnt/h/adamm/local_RBS_data/outputs
+scratch_root: /mnt/c/Users/adamm/local_RBS_data/outputs
 analysis_name:
 
 Probe: # https://www.mxwbio.com/products/maxtwo
