@@ -157,6 +157,9 @@ def _extract_per_unit_values(
 
     values: list[float] = []
     for row in rows:
+        row_n = _as_float(row.get("n"))
+        if column != "n" and row_n is not None and int(row_n) <= 0:
+            continue
         parsed = _as_float(row.get(column))
         if parsed is not None:
             values.append(parsed)
@@ -193,6 +196,10 @@ def _extract_per_well_scalar(
     if not rows:
         return None
     row = rows[0]
+
+    row_n = _as_float(row.get("n"))
+    if source_column is not None and source_column != "n" and row_n is not None and int(row_n) <= 0:
+        return None
 
     if source_column:
         return _as_float(row.get(source_column))
@@ -673,7 +680,11 @@ def _plot_bar(
     heights = [float(values_by_well[well]) for well in use_wells]
     y_errors = [errors_by_well.get(well) for well in use_wells]
     use_yerr = any(_as_float(err) is not None for err in y_errors)
-    yerr_values = [float(_as_float(err) or 0.0) for err in y_errors] if use_yerr else None
+    yerr_values = (
+        [float(_as_float(err)) if _as_float(err) is not None else float("nan") for err in y_errors]
+        if use_yerr
+        else None
+    )
 
     x = np.arange(len(use_wells), dtype=float)
     well_colors = plot_defaults.get("well_colors", {}) if isinstance(plot_defaults.get("well_colors", {}), dict) else {}
@@ -844,6 +855,12 @@ def generate_cross_well_artifacts(
                 warnings=warnings,
             )
 
+        if not any(len(values) > 0 for values in values_by_well.values()):
+            warnings.append(
+                f"Cross-well box metric '{metric_name}' has no numeric values across selected wells; plot emission skipped."
+            )
+            continue
+
         metric_pairwise_rows: list[dict[str, Any]] = []
         if stats_enabled and apply_to in {"box_and_whisker_plots", "both"}:
             metric_pairwise_rows = _compute_pairwise_rows(
@@ -880,7 +897,12 @@ def generate_cross_well_artifacts(
                 stats_row_for_annotation=annotation_row,
                 stats_cfg=stats_cfg,
             )
-            outputs[f"cross_well.box_and_whisker_plots.{metric_name}.png"] = str(png_path)
+            if png_path.exists():
+                outputs[f"cross_well.box_and_whisker_plots.{metric_name}.png"] = str(png_path)
+            else:
+                warnings.append(
+                    f"Cross-well box metric '{metric_name}' PNG was requested but no file was produced."
+                )
 
         if write_pdf:
             pdf_relpath = str(metric_cfg.get("pdf_relpath", f"{metric_name}.pdf"))
@@ -897,7 +919,12 @@ def generate_cross_well_artifacts(
                 stats_row_for_annotation=annotation_row,
                 stats_cfg=stats_cfg,
             )
-            outputs[f"cross_well.box_and_whisker_plots.{metric_name}.pdf"] = str(pdf_path)
+            if pdf_path.exists():
+                outputs[f"cross_well.box_and_whisker_plots.{metric_name}.pdf"] = str(pdf_path)
+            else:
+                warnings.append(
+                    f"Cross-well box metric '{metric_name}' PDF was requested but no file was produced."
+                )
 
     bar_cfg = cross_cfg.get("bar_plots", {}) if isinstance(cross_cfg.get("bar_plots", {}), dict) else {}
     bar_defaults = bar_cfg.get("defaults", {}) if isinstance(bar_cfg.get("defaults", {}), dict) else {}
@@ -989,6 +1016,12 @@ def generate_cross_well_artifacts(
                 f"Cross-well bar metric '{metric_name}' uses unsupported source_level '{source_level}'; metric omitted."
             )
 
+        if not any(_as_float(value) is not None for value in values_by_well.values()):
+            warnings.append(
+                f"Cross-well bar metric '{metric_name}' has no numeric values across selected wells; plot emission skipped."
+            )
+            continue
+
         metric_pairwise_rows: list[dict[str, Any]] = []
         metric_stats_cfg = metric_cfg.get("stats", {}) if isinstance(metric_cfg.get("stats", {}), dict) else {}
         metric_stats_enabled = _as_bool(metric_stats_cfg.get("enable", True), True)
@@ -1048,7 +1081,12 @@ def generate_cross_well_artifacts(
                 stats_row_for_annotation=annotation_row,
                 stats_cfg=stats_cfg,
             )
-            outputs[f"cross_well.bar_plots.{metric_name}.png"] = str(png_path)
+            if png_path.exists():
+                outputs[f"cross_well.bar_plots.{metric_name}.png"] = str(png_path)
+            else:
+                warnings.append(
+                    f"Cross-well bar metric '{metric_name}' PNG was requested but no file was produced."
+                )
 
         if write_pdf:
             pdf_relpath = str(metric_cfg.get("pdf_relpath", f"{metric_name}.pdf"))
@@ -1067,7 +1105,12 @@ def generate_cross_well_artifacts(
                 stats_row_for_annotation=annotation_row,
                 stats_cfg=stats_cfg,
             )
-            outputs[f"cross_well.bar_plots.{metric_name}.pdf"] = str(pdf_path)
+            if pdf_path.exists():
+                outputs[f"cross_well.bar_plots.{metric_name}.pdf"] = str(pdf_path)
+            else:
+                warnings.append(
+                    f"Cross-well bar metric '{metric_name}' PDF was requested but no file was produced."
+                )
 
     pairwise_csv = cross_root / "pairwise_tests_mannwhitneyu.csv"
     _write_rows_csv(pairwise_csv, pairwise_rows)

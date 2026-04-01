@@ -5,10 +5,39 @@ import argparse
 from ...runner import run_reconstruct_from_runtime
 
 
+def _parse_unit_ids_csv(raw: str) -> list[int]:
+	tokens = [token.strip() for token in str(raw).split(",")]
+	parsed: list[int] = []
+	seen: set[int] = set()
+	for token in tokens:
+		if not token:
+			continue
+		try:
+			value = int(token)
+		except Exception as exc:
+			raise argparse.ArgumentTypeError(f"Invalid unit id '{token}'") from exc
+		if value < 0:
+			raise argparse.ArgumentTypeError(f"Unit id must be >= 0, got {value}")
+		if value in seen:
+			continue
+		seen.add(value)
+		parsed.append(value)
+	if not parsed:
+		raise argparse.ArgumentTypeError("Expected at least one unit id")
+	return parsed
+
+
 def register_reconstruct_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
 	parser = subparsers.add_parser("recon", aliases=["reconstruct"], help="Run reconstruct stage")
 	parser.add_argument("--config", type=str, required=True, help="Path to runtime YAML/JSON config")
-	parser.add_argument("--unit-id", type=int, default=None, help="Run reconstruct for a single unit id")
+	unit_group = parser.add_mutually_exclusive_group()
+	unit_group.add_argument("--unit-id", type=int, default=None, help="Run reconstruct for a single unit id")
+	unit_group.add_argument(
+		"--unit-ids",
+		type=_parse_unit_ids_csv,
+		default=None,
+		help="Run reconstruct for a comma-separated list of unit ids",
+	)
 	parser.add_argument("--force-restart", action="store_true", help="Recompute even if per-unit outputs exist")
 	parser.add_argument("--force-replot", action="store_true", help="Reserved for parity with legacy CLI")
 	parser.set_defaults(handler=_run_from_args)
@@ -18,6 +47,7 @@ def _run_from_args(args: argparse.Namespace) -> int:
 	agg = run_reconstruct_from_runtime(
 		config_path=str(args.config),
 		unit_id_override=getattr(args, "unit_id", None),
+		unit_ids_override=getattr(args, "unit_ids", None),
 		force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 		force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 	)

@@ -68,6 +68,7 @@ def run_reconstruct_from_runtime(
 	*,
 	config_path: str,
 	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -78,6 +79,7 @@ def run_reconstruct_from_runtime(
 	stage_config = parse_reconstruction_stage_config(
 		runtime_config=bundle.runtime_config,
 		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -191,6 +193,7 @@ def run_templates_from_runtime(
 	*,
 	config_path: str,
 	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -202,6 +205,7 @@ def run_templates_from_runtime(
 		runtime_config=bundle.runtime_config,
 		probe_geometry=probe_geometry,
 		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)

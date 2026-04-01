@@ -31,6 +31,13 @@ DEFAULT_STATS_COLUMNS = (
     "p95",
 )
 
+TEMPLATE_ARRAY_CANDIDATES = (
+    ("merged_template_npy", "merged_template_channel_locations_npy"),
+    ("full_template_npy", "full_template_channel_locations_npy"),
+    ("scan_template_npy", "scan_template_channel_locations_npy"),
+    ("square_template_npy", "square_template_channel_locations_npy"),
+)
+
 
 def _read_json(path: Path) -> Any:
     with open(path, "r", encoding="utf-8") as f:
@@ -80,6 +87,25 @@ def _resolve_output_path(*, base_dir: Path, relpath: str) -> Path:
     if raw.is_absolute():
         return raw
     return base_dir / raw
+
+
+def _resolve_summary_path(*, candidates: list[Path]) -> Path:
+    if not candidates:
+        raise ValueError("At least one summary path candidate is required")
+
+    existing: list[tuple[float, Path]] = []
+    for path in candidates:
+        try:
+            if path.exists():
+                existing.append((float(path.stat().st_mtime), path))
+        except Exception:
+            continue
+
+    if not existing:
+        return candidates[0]
+
+    existing.sort(key=lambda item: item[0], reverse=True)
+    return existing[0][1]
 
 
 def _as_unit_id_key(value: Any) -> str:
@@ -225,14 +251,7 @@ def _normalize_template_channels_first(template: np.ndarray, n_channels: int) ->
 
 
 def _load_template_arrays_from_outputs(outputs: dict[str, Any]) -> tuple[np.ndarray, np.ndarray] | None:
-    candidates = [
-        ("merged_template_npy", "merged_template_channel_locations_npy"),
-        ("full_template_npy", "full_template_channel_locations_npy"),
-        ("scan_template_npy", "scan_template_channel_locations_npy"),
-        ("square_template_npy", "square_template_channel_locations_npy"),
-    ]
-
-    for template_key, locs_key in candidates:
+    for template_key, locs_key in TEMPLATE_ARRAY_CANDIDATES:
         template_path_raw = outputs.get(template_key)
         locs_path_raw = outputs.get(locs_key)
         if not template_path_raw or not locs_path_raw:
@@ -259,6 +278,13 @@ def _load_template_arrays_from_outputs(outputs: dict[str, Any]) -> tuple[np.ndar
         return channels_first, locs
 
     return None
+
+
+def _has_template_array_key_pair(outputs: dict[str, Any]) -> bool:
+    for template_key, locs_key in TEMPLATE_ARRAY_CANDIDATES:
+        if outputs.get(template_key) and outputs.get(locs_key):
+            return True
+    return False
 
 
 def _compute_template_metrics(
@@ -368,7 +394,7 @@ def _compute_stats(values: list[float], columns: list[str] | tuple[str, ...]) ->
         if key == "n":
             out[key] = n
         elif key == "total":
-            out[key] = float(np.sum(arr)) if n > 0 else 0.0
+            out[key] = float(np.sum(arr)) if n > 0 else None
         elif n == 0:
             out[key] = None
         elif key == "mean":
@@ -418,6 +444,10 @@ def _resolve_per_unit_source_values(
             row = by_unit.get(unit_key)
             if not isinstance(row, dict):
                 continue
+            # If a stats row has n<=0, treat all non-n columns as missing data.
+            row_n = _as_float(row.get("n"))
+            if column != "n" and row_n is not None and int(row_n) <= 0:
+                continue
             parsed = _as_float(row.get(column))
             if parsed is not None:
                 values.append(parsed)
@@ -461,13 +491,29 @@ def run_analysis_stage_core(inputs: AnalysisInputs) -> AnalysisResult:
         shutil.rmtree(analysis_out_dir)
     analysis_out_dir.mkdir(parents=True, exist_ok=True)
 
-    templates_summary_json = well_out_dir / "templates_outputs" / "templates_summary.json"
-    reconstruction_summary_json = well_out_dir / "recon_outputs" / "reconstruction_summary.json"
+    templates_summary_json = _resolve_summary_path(
+        candidates=[
+            well_out_dir / "template_outputs" / "templates_summary.json",
+            well_out_dir / "templates_outputs" / "templates_summary.json",
+            well_out_dir / "stg4_templates_outputs" / "templates_summary.json",
+        ]
+    )
+    reconstruction_summary_json = _resolve_summary_path(
+        candidates=[
+            well_out_dir / "recon_outputs" / "reconstruction_summary.json",
+            well_out_dir / "reconstruction_outputs" / "reconstruction_summary.json",
+        ]
+    )
     templates_summary = _try_read_json(templates_summary_json)
     reconstruction_summary = _try_read_json(reconstruction_summary_json)
 
     templates_units_raw = templates_summary.get("units", []) if isinstance(templates_summary, dict) else []
     templates_units = templates_units_raw if isinstance(templates_units_raw, list) else []
+    runtime_warnings: list[str] = []
+    if templates_summary is None:
+        runtime_warnings.append("templates_summary.json is missing or unreadable; template-derived metrics may be empty.")
+    elif not templates_units:
+        runtime_warnings.append("templates_summary.json has no units entries; template-derived metrics may be empty.")
     templates_by_id = {
         _as_unit_id_key(row.get("unit_id")): row
         for row in templates_units
@@ -476,6 +522,10 @@ def run_analysis_stage_core(inputs: AnalysisInputs) -> AnalysisResult:
 
     recon_units_raw = reconstruction_summary.get("units", []) if isinstance(reconstruction_summary, dict) else []
     recon_units = recon_units_raw if isinstance(recon_units_raw, list) else []
+    if reconstruction_summary is None:
+        runtime_warnings.append("reconstruction_summary.json is missing or unreadable; branch-derived metrics may be empty.")
+    elif not recon_units:
+        runtime_warnings.append("reconstruction_summary.json has no units entries; branch-derived metrics may be empty.")
     recon_by_id = {
         _as_unit_id_key(row.get("unit_id")): row
         for row in recon_units
@@ -519,6 +569,9 @@ def run_analysis_stage_core(inputs: AnalysisInputs) -> AnalysisResult:
     }
     per_unit_status: dict[str, str] = {}
     unit_locations: list[dict[str, Any]] = []
+    units_missing_branch_sources = 0
+    units_missing_template_sources = 0
+    units_template_source_load_failures = 0
 
     branch_rows: list[dict[str, Any]] = []
     branch_values_by_metric: dict[str, dict[str, list[float]]] = {
@@ -536,7 +589,12 @@ def run_analysis_stage_core(inputs: AnalysisInputs) -> AnalysisResult:
         template_outputs = template_row.get("outputs", {}) if isinstance(template_row.get("outputs", {}), dict) else {}
 
         status = str(recon_row.get("status", "missing"))
+        status_norm = status.strip().lower()
         per_unit_status[unit_key] = status
+
+        has_branch_source_paths = bool(recon_outputs.get("branches_json")) or bool(recon_outputs.get("branches_raw_json"))
+        if status_norm == "ok" and not has_branch_source_paths:
+            units_missing_branch_sources += 1
 
         branches_clean = _try_read_json(
             Path(str(recon_outputs.get("branches_json", ""))).expanduser()
@@ -582,7 +640,13 @@ def run_analysis_stage_core(inputs: AnalysisInputs) -> AnalysisResult:
         )
 
         sholl = _compute_sholl_metrics(branch_lengths_um=branch_lengths, probe_pitch_um=inputs.probe_pitch_um)
+        template_has_source_keys = _has_template_array_key_pair(template_outputs)
         template_metrics = _compute_template_metrics(outputs=template_outputs, probe_pitch_um=inputs.probe_pitch_um)
+        if status_norm == "ok" and not template_metrics:
+            if template_has_source_keys:
+                units_template_source_load_failures += 1
+            else:
+                units_missing_template_sources += 1
 
         per_unit_scalars["n_branches"][unit_key] = n_branches
         per_unit_scalars["branch_points_per_100um"][unit_key] = branch_points_per_100um
@@ -604,7 +668,25 @@ def run_analysis_stage_core(inputs: AnalysisInputs) -> AnalysisResult:
 
     metrics_cfg = inputs.metrics if isinstance(inputs.metrics, dict) else {}
     outputs: dict[str, str] = {}
-    runtime_warnings: list[str] = []
+
+    if units_missing_branch_sources > 0:
+        runtime_warnings.append(
+            "Branch-source outputs are missing for "
+            f"{units_missing_branch_sources} reconstructed units "
+            "(expected outputs keys: branches_json and/or branches_raw_json)."
+        )
+    if units_missing_template_sources > 0:
+        runtime_warnings.append(
+            "Template-array outputs are missing for "
+            f"{units_missing_template_sources} reconstructed units "
+            "(expected templates outputs keys include merged_template_npy and merged_template_channel_locations_npy, "
+            "or full/scan/square equivalents)."
+        )
+    if units_template_source_load_failures > 0:
+        runtime_warnings.append(
+            "Template-array outputs were referenced but could not be loaded or validated for "
+            f"{units_template_source_load_failures} reconstructed units."
+        )
 
     per_branch_cfg = metrics_cfg.get("per_branch", {}) if isinstance(metrics_cfg.get("per_branch", {}), dict) else {}
     per_branch_dir = analysis_out_dir / str(per_branch_cfg.get("reldir", "branch_metrics/"))

@@ -163,6 +163,77 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert inputs.unit_ids == [94]
 
 
+def test_load_config_reconstruct_reads_runtime_unit_ids(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  reconstruct:
+			    execution:
+			      unit_ids: [3, 7, 9, 7]
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.unit_ids == [3, 7, 9]
+
+
+def test_load_config_reconstruct_prefers_unit_ids_override(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  reconstruct:
+			    execution:
+			      unit_ids: [3, 7, 9]
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_reconstruction_inputs_from_runtime(
+		config_path=str(runtime_path),
+		unit_ids_override=[44, 50, 44],
+	)
+	assert inputs.unit_ids == [44, 50]
+
+
 def test_load_config_reconstruct_legacy_stage_block_without_global_defaults(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(

@@ -35,6 +35,35 @@ def _as_bool(value: Any, default: bool) -> bool:
 	return bool(default)
 
 
+def _normalize_unit_ids(raw: Any) -> list[int] | None:
+	if raw is None:
+		return None
+	if isinstance(raw, str):
+		tokens = [token.strip() for token in raw.split(",")]
+	elif isinstance(raw, (list, tuple, set)):
+		tokens = list(raw)
+	else:
+		tokens = [raw]
+
+	normalized: list[int] = []
+	seen: set[int] = set()
+	for token in tokens:
+		if token is None:
+			continue
+		try:
+			value = int(token)
+		except Exception:
+			continue
+		if value < 0:
+			continue
+		if value in seen:
+			continue
+		seen.add(value)
+		normalized.append(value)
+
+	return normalized or None
+
+
 def _resolve_data_config_path(runtime_config_path: Path, data_ref: str | None) -> Path:
 	if not data_ref:
 		raise ValueError("Runtime config must define data: <path-to-data-config>")
@@ -111,6 +140,7 @@ def parse_reconstruction_stage_config(
 	*,
 	runtime_config: RuntimeConfig,
 	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> ReconstructionStageConfig:
@@ -145,7 +175,7 @@ def parse_reconstruction_stage_config(
 	if force_replot_override is not None:
 		force_replot = bool(force_replot_override)
 
-	unit_limit_raw = stage_cfg.get("unit_limit", None)
+	unit_limit_raw = execution_cfg.get("unit_limit", stage_cfg.get("unit_limit", None))
 	unit_limit: int | None
 	if unit_limit_raw is None:
 		unit_limit = None
@@ -156,7 +186,13 @@ def parse_reconstruction_stage_config(
 		except Exception:
 			unit_limit = None
 
-	unit_ids = [int(unit_id_override)] if unit_id_override is not None else None
+	runtime_unit_ids = _normalize_unit_ids(execution_cfg.get("unit_ids", stage_cfg.get("unit_ids", None)))
+	if unit_ids_override is not None:
+		unit_ids = _normalize_unit_ids(unit_ids_override)
+	elif unit_id_override is not None:
+		unit_ids = [int(unit_id_override)]
+	else:
+		unit_ids = runtime_unit_ids
 	load_assets_from_v2pipeline_templates_stage = _as_bool(
 		inputs_cfg.get(
 			"load_assets_from_v2pipeline_templates_stage",
@@ -401,6 +437,7 @@ def load_reconstruction_inputs_from_runtime(
 	*,
 	config_path: str,
 	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> ReconstructionInputs:
@@ -434,6 +471,7 @@ def load_reconstruction_inputs_from_runtime(
 	stage_cfg = parse_reconstruction_stage_config(
 		runtime_config=runtime_cfg,
 		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
