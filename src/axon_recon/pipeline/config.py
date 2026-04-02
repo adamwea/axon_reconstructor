@@ -39,6 +39,30 @@ def _as_int(value: Any, default: int) -> int:
 		return int(default)
 
 
+def _as_path_list(value: Any) -> list[Path]:
+	if value is None:
+		return []
+	if isinstance(value, (list, tuple, set)):
+		items = list(value)
+	else:
+		items = [value]
+
+	paths: list[Path] = []
+	seen: set[Path] = set()
+	for item in items:
+		if item is None:
+			continue
+		token = str(item).strip()
+		if token == "":
+			continue
+		path = Path(token).expanduser().resolve()
+		if path in seen:
+			continue
+		seen.add(path)
+		paths.append(path)
+	return paths
+
+
 def _resolve_data_config_path(runtime_config_path: Path, data_ref: str | None) -> Path:
 	if not data_ref:
 		raise ValueError("Runtime config must define data: <path-to-data-config>")
@@ -95,10 +119,12 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 	if not output_root_raw:
 		raise ValueError("Data config missing output_root")
 	output_root = Path(str(output_root_raw)).expanduser().resolve()
+	default_lookup_roots = _as_path_list(bundle.data_config.get("output_root_2", None))
 	scratch_root_raw = bundle.data_config.get("scratch_root", None)
+	use_scratch_root = _as_bool(bundle.data_config.get("use_scratch_root", True), True)
 	default_scratch_root = (
 		Path(str(scratch_root_raw)).expanduser().resolve()
-		if scratch_root_raw is not None and str(scratch_root_raw).strip() != ""
+		if use_scratch_root and scratch_root_raw is not None and str(scratch_root_raw).strip() != ""
 		else None
 	)
 
@@ -111,12 +137,20 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 		dataset_id = _dataset_id_for_item(item, index=idx)
 
 		dataset_scratch_root_raw = item.get("scratch_root", None)
+		dataset_use_scratch_root = _as_bool(item.get("use_scratch_root", use_scratch_root), use_scratch_root)
 		dataset_scratch_root = (
 			Path(str(dataset_scratch_root_raw)).expanduser().resolve()
-			if dataset_scratch_root_raw is not None and str(dataset_scratch_root_raw).strip() != ""
+			if dataset_use_scratch_root and dataset_scratch_root_raw is not None and str(dataset_scratch_root_raw).strip() != ""
 			else default_scratch_root
 		)
 		active_root = dataset_scratch_root if dataset_scratch_root is not None else output_root
+		artifact_lookup_roots: list[Path] = []
+		for candidate_root in _as_path_list(item.get("output_root_2", None)) + default_lookup_roots:
+			if candidate_root == active_root:
+				continue
+			if candidate_root in artifact_lookup_roots:
+				continue
+			artifact_lookup_roots.append(candidate_root)
 
 		wells = item.get("wells", [])
 		if not isinstance(wells, list) or not wells:
@@ -136,6 +170,7 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 					mea_output_root=active_root,
 					final_output_root=output_root,
 					scratch_output_root=dataset_scratch_root,
+					artifact_lookup_roots=tuple(artifact_lookup_roots),
 				)
 			)
 

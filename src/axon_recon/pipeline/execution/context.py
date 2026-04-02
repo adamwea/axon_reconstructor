@@ -13,6 +13,7 @@ class ExecutionTarget:
     mea_output_root: Path
     final_output_root: Path | None = None
     scratch_output_root: Path | None = None
+    artifact_lookup_roots: tuple[Path, ...] = ()
 
     @property
     def active_output_root(self) -> Path:

@@ -163,7 +163,7 @@ stages:
       #unit_limit: 10
 
       # Optional explicit unit subset for fast, deterministic reruns.
-      unit_ids: [1, 3, 7, 10, 17, 20, 22, 23, 24, 28]
+      #unit_ids: [1, 3, 7, 10, 17, 20, 22, 23, 24, 28]
 
       inputs:
 
@@ -757,7 +757,7 @@ stages:
       force_restart: false
       force_replot: true
       force_replot_per_unit: false #TODO: Make sure this is wired up
-      unit_ids: [1, 3, 7, 10, 17, 20, 22, 23, 24, 28]
+      #unit_ids: [1, 3, 7, 10, 17, 20, 22, 23, 24, 28]
     resources:
       max_stage_workers: 4
       well_workers: 1
@@ -1279,6 +1279,39 @@ stages:
             source_level: per_unit
             source_metric: template_channel_density
             columns: [n, total, mean, median, min, max, std, sem, iqr, p05, p25, p75, p95]
+
+          histograms:
+            branch_velocity:
+              write_png: true
+              png_relpath: branch_velocity_histogram.png
+              bin_size_ms: 0.05
+              y_axis: unit_count # branch_count | unit_count
+            total_branch_length:
+              write_png: true
+              png_relpath: total_branch_length_histogram.png
+              bin_size_um: 100
+              y_axis: unit_count # branch_count | unit_count
+            longest_branch_length:
+              write_png: true
+              png_relpath: longest_branch_length_histogram.png
+              bin_size_um: 50
+              y_axis: unit_count # branch_count | unit_count
+            longest_distance_from_soma:
+              write_png: true
+              png_relpath: longest_distance_from_soma_histogram.png
+              bin_size_um: 50
+              y_axis: unit_count # branch_count | unit_count
+            longest_latency:
+              write_png: true
+              png_relpath: longest_latency_histogram.png
+              bin_size_ms: 0.5
+              y_axis: unit_count # branch_count | unit_count
+            amplitude_at_soma:
+              write_png: true
+              png_relpath: amplitude_at_soma_histogram.png
+              bin_size_uv: 100
+              y_axis: unit_count # branch_count | unit_count
+
         cross_well:
           ordering: config # config | alphabetical
           plot_defaults:
@@ -1535,6 +1568,8 @@ stages:
               pdf_relpath: mean_template_channel_density_per_unit.pdf
               y_label: mean template channel density / unit
               title: Mean Template Channel Density per Unit (by Well)
+
+
 
 
 

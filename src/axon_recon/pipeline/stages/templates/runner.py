@@ -697,6 +697,36 @@ def _infer_replot_upsampling_decision(*, inputs: TemplatesInputs) -> dict[str, A
 	}
 
 
+def _resolve_alternate_well_out_dirs(*, inputs: TemplatesInputs, primary_well_out_dir: Path) -> list[Path]:
+	roots_to_probe: list[Path] = []
+	if inputs.final_output_root is not None:
+		roots_to_probe.append(Path(inputs.final_output_root).expanduser().resolve())
+	for root in list(inputs.artifact_lookup_roots or ()):  # model-level alternates from data config
+		try:
+			roots_to_probe.append(Path(root).expanduser().resolve())
+		except Exception:
+			continue
+
+	resolved_primary = primary_well_out_dir.resolve()
+	seen: set[Path] = {resolved_primary}
+	alternate_well_out_dirs: list[Path] = []
+	for candidate_root in roots_to_probe:
+		try:
+			candidate_well_out_dir = compute_mea_analysis_output_dir(
+				output_root=candidate_root,
+				data_file=inputs.h5_path,
+				well=inputs.stream_id,
+			)
+			resolved_candidate = candidate_well_out_dir.resolve()
+		except Exception:
+			continue
+		if resolved_candidate in seen:
+			continue
+		seen.add(resolved_candidate)
+		alternate_well_out_dirs.append(candidate_well_out_dir)
+	return alternate_well_out_dirs
+
+
 def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 	LOGGER.info(
 		"Templates stage start: stream=%s force_restart=%s force_replot=%s force_replot_per_unit=%s reports_replot_from_disk=%s n_jobs=%d",
@@ -719,6 +749,15 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		data_file=inputs.h5_path,
 		well=inputs.stream_id,
 	)
+	alternate_well_out_dirs = _resolve_alternate_well_out_dirs(
+		inputs=inputs,
+		primary_well_out_dir=well_out_dir,
+	)
+	if alternate_well_out_dirs:
+		LOGGER.info(
+			"Templates artifact lookup fallbacks enabled: %s",
+			[str(path) for path in alternate_well_out_dirs],
+		)
 	full_restart = (
 		bool(inputs.force_restart)
 		and (not bool(inputs.force_replot))
@@ -793,6 +832,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 						concat_analyzer_relpath=inputs.concat_analyzer_relpath,
 						preproc_seg_sources_reldir=inputs.preproc_seg_sources_reldir,
 						analyzer_cache_dir=analyzer_cache_dir,
+						alternate_well_out_dirs=alternate_well_out_dirs,
 						raw_data_h5_path=inputs.h5_path,
 						stream_id=str(inputs.stream_id),
 						unit_ids=(list(inputs.unit_ids) if inputs.unit_ids is not None else None),
@@ -846,6 +886,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 					concat_analyzer_relpath=inputs.concat_analyzer_relpath,
 					preproc_seg_sources_reldir=inputs.preproc_seg_sources_reldir,
 					analyzer_cache_dir=analyzer_cache_dir,
+					alternate_well_out_dirs=alternate_well_out_dirs,
 					raw_data_h5_path=inputs.h5_path,
 					stream_id=str(inputs.stream_id),
 					unit_ids=(list(inputs.unit_ids) if inputs.unit_ids is not None else None),

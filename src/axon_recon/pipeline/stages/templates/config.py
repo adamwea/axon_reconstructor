@@ -2525,6 +2525,7 @@ def build_templates_inputs_for_target(
 		stream_id=target.stream_id,
 		mea_output_root=target.mea_output_root,
 		final_output_root=(target.final_output_root or target.mea_output_root),
+		artifact_lookup_roots=tuple(target.artifact_lookup_roots or ()),
 		concat_analyzer_relpath=stage_config.concat_analyzer_relpath,
 		preproc_seg_sources_reldir=stage_config.preproc_seg_sources_reldir,
 		output_rel_root=stage_config.output_rel_root,
@@ -2578,6 +2579,23 @@ def load_templates_inputs_from_runtime(
 	output_root = Path(str(data_cfg.get("output_root", ""))).expanduser().resolve()
 	if str(output_root).strip() == "":
 		raise ValueError("Data config missing output_root")
+	artifact_lookup_roots: list[Path] = []
+	for lookup_roots_raw in (selected.get("output_root_2", None), data_cfg.get("output_root_2", None)):
+		if lookup_roots_raw is None:
+			continue
+		lookup_tokens = lookup_roots_raw if isinstance(lookup_roots_raw, (list, tuple, set)) else [lookup_roots_raw]
+		for token in lookup_tokens:
+			if token is None:
+				continue
+			text = str(token).strip()
+			if text == "":
+				continue
+			candidate = Path(text).expanduser().resolve()
+			if candidate == output_root:
+				continue
+			if candidate in artifact_lookup_roots:
+				continue
+			artifact_lookup_roots.append(candidate)
 
 	wells = selected.get("wells", [])
 	stream_id = "well000"
@@ -2598,6 +2616,7 @@ def load_templates_inputs_from_runtime(
 		stream_id=stream_id,
 		mea_output_root=output_root,
 		final_output_root=output_root,
+		artifact_lookup_roots=tuple(artifact_lookup_roots),
 		concat_analyzer_relpath=stage_cfg.concat_analyzer_relpath,
 		preproc_seg_sources_reldir=stage_cfg.preproc_seg_sources_reldir,
 		output_rel_root=stage_cfg.output_rel_root,

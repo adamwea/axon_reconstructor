@@ -756,6 +756,7 @@ def load_spikeinterface_analyzers(
 	concat_analyzer_relpath: str | None = None,
 	preproc_seg_sources_reldir: str | None = None,
 	analyzer_cache_dir: Path | None = None,
+	alternate_well_out_dirs: list[Path] | tuple[Path, ...] | None = None,
 	stream_id: str | None = None,
 	include_concat: bool,
 	include_segments: bool,
@@ -988,9 +989,49 @@ def load_spikeinterface_analyzers(
 		LOGGER.info("Segment analyzers directory not found: %s", segments_dir)
 
 	if not analyzers:
+		fallback_well_out_dirs: list[Path] = []
+		seen_fallbacks: set[Path] = set()
+		for candidate in list(alternate_well_out_dirs or []):
+			try:
+				candidate_path = Path(candidate).expanduser().resolve()
+			except Exception:
+				continue
+			if candidate_path == well_out_dir.resolve():
+				continue
+			if candidate_path in seen_fallbacks:
+				continue
+			seen_fallbacks.add(candidate_path)
+			fallback_well_out_dirs.append(candidate_path)
+
+		for fallback_well_out_dir in fallback_well_out_dirs:
+			LOGGER.info(
+				"No SpikeInterface analyzers found under %s; retrying with fallback well output root %s",
+				str(well_out_dir),
+				str(fallback_well_out_dir),
+			)
+			try:
+				return load_spikeinterface_analyzers(
+					well_out_dir=fallback_well_out_dir,
+					concat_analyzer_relpath=concat_analyzer_relpath,
+					preproc_seg_sources_reldir=preproc_seg_sources_reldir,
+					analyzer_cache_dir=analyzer_cache_dir,
+					alternate_well_out_dirs=None,
+					stream_id=stream_id,
+					include_concat=include_concat,
+					include_segments=include_segments,
+					waveform_ms_before=waveform_ms_before,
+					waveform_ms_after=waveform_ms_after,
+					waveform_max_spikes_per_unit=waveform_max_spikes_per_unit,
+				)
+			except FileNotFoundError:
+				LOGGER.info("Fallback well output root had no analyzers: %s", str(fallback_well_out_dir))
+				continue
+
+		fallback_text = ", ".join(str(path) for path in fallback_well_out_dirs)
 		raise FileNotFoundError(
 			"No SpikeInterface analyzers found for templates materialization. "
-			f"checked concat={concat_dir} segments={segments_dir}."
+			f"checked concat={concat_dir} segments={segments_dir}"
+			f"{'; fallback_well_out_dirs=[' + fallback_text + ']' if fallback_text else ''}."
 		)
 	LOGGER.info(
 		"Loaded SpikeInterface analyzers from concat=%s segments=%s count=%d",

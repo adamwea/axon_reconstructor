@@ -135,3 +135,84 @@ data: {data_path}
     assert second.final_output_root == Path("/tmp/final_out")
     assert second.scratch_output_root == Path("/tmp/dataset_scratch")
     assert second.mea_output_root == Path("/tmp/dataset_scratch")
+
+
+def test_select_execution_targets_disables_scratch_when_use_scratch_root_false(tmp_path: Path) -> None:
+    data_path = tmp_path / "debug.data.yml"
+    data_path.write_text(
+        """
+output_root: /tmp/final_out
+scratch_root: /tmp/global_scratch
+use_scratch_root: false
+datasets:
+  - raw_data_h5_path: /tmp/ds1.h5
+    include_in_runtime: true
+    wells:
+      - well_id: well001
+  - raw_data_h5_path: /tmp/ds2.h5
+    include_in_runtime: true
+    scratch_root: /tmp/dataset_scratch
+    wells:
+      - well_id: well001
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "debug.runtime.yml"
+    runtime_path.write_text(
+        f"""
+data: {data_path}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = load_pipeline_runtime_bundle(config_path=str(runtime_path))
+    targets = select_execution_targets(bundle=bundle)
+    assert len(targets) == 2
+
+    first = targets[0]
+    assert first.final_output_root == Path("/tmp/final_out")
+    assert first.scratch_output_root is None
+    assert first.mea_output_root == Path("/tmp/final_out")
+
+    second = targets[1]
+    assert second.final_output_root == Path("/tmp/final_out")
+    assert second.scratch_output_root is None
+    assert second.mea_output_root == Path("/tmp/final_out")
+
+
+def test_select_execution_targets_carries_output_root_2_lookup_fallback(tmp_path: Path) -> None:
+    data_path = tmp_path / "debug.data.yml"
+    data_path.write_text(
+        """
+output_root: /tmp/c_out
+output_root_2: /tmp/h_out
+use_scratch_root: false
+datasets:
+  - raw_data_h5_path: /tmp/ds1.h5
+    include_in_runtime: true
+    wells:
+      - well_id: well001
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "debug.runtime.yml"
+    runtime_path.write_text(
+        f"""
+data: {data_path}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = load_pipeline_runtime_bundle(config_path=str(runtime_path))
+    targets = select_execution_targets(bundle=bundle)
+    assert len(targets) == 1
+
+    target = targets[0]
+    assert target.mea_output_root == Path("/tmp/c_out")
+    assert target.artifact_lookup_roots == (Path("/tmp/h_out"),)

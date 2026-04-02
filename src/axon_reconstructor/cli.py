@@ -342,6 +342,19 @@ def _first_cfg_path(cfg: RuntimeConfig, paths: list[str]) -> Path | None:
     return None
 
 
+def _as_bool_token(value: Any, default: bool) -> bool:
+    if value is None:
+        return bool(default)
+    if isinstance(value, bool):
+        return bool(value)
+    token = str(value).strip().lower()
+    if token in {"1", "true", "yes", "on"}:
+        return True
+    if token in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
+
+
 def _logical_cores() -> int:
     return max(1, int(os.cpu_count() or 1))
 
@@ -875,12 +888,25 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             if output_root is not None:
                 paths_payload["mea_output_root"] = output_root
 
-        if paths_payload.get("scratch_output_root") is None:
+        if paths_payload.get("use_scratch_root") is None:
+            use_scratch_root_raw = runtime_config.get("use_scratch_root", None)
+            if use_scratch_root_raw is not None:
+                paths_payload["use_scratch_root"] = bool(_as_bool_token(use_scratch_root_raw, True))
+
+        use_scratch_root_effective = _as_bool_token(
+            paths_payload.get("use_scratch_root", runtime_config.get("use_scratch_root", True)),
+            True,
+        )
+
+        if paths_payload.get("scratch_output_root") is None and bool(use_scratch_root_effective):
             scratch_root = runtime_config.get("scratch_root", None)
             if scratch_root is None:
                 scratch_root = runtime_config.get("scratch_output_root", None)
             if scratch_root is not None:
                 paths_payload["scratch_output_root"] = scratch_root
+
+        if not bool(use_scratch_root_effective):
+            paths_payload["scratch_output_root"] = None
 
         payload["paths"] = paths_payload
         runtime_config = RuntimeConfig(payload)
@@ -1069,6 +1095,13 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             scratch_top = runtime_config.get("scratch_output_root", None)
         if scratch_top is not None and str(scratch_top).strip() != "":
             scratch_output_root_optional = Path(str(scratch_top)).expanduser().resolve()
+
+    use_scratch_root_cfg = runtime_config.get("paths.use_scratch_root", None)
+    if use_scratch_root_cfg is None:
+        use_scratch_root_cfg = runtime_config.get("use_scratch_root", None)
+    use_scratch_root_enabled = _as_bool_token(use_scratch_root_cfg, True)
+    if not bool(use_scratch_root_enabled):
+        scratch_output_root_optional = None
 
     run_multi_dataset = (
         len(selected_runtime_datasets) >= 1
@@ -2391,6 +2424,8 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         data_scratch_root = runtime_config.get("scratch_root", None)
         if data_scratch_root is None:
             data_scratch_root = runtime_config.get("scratch_output_root", None)
+        if not bool(use_scratch_root_enabled):
+            data_scratch_root = None
         for idx, ds in enumerate(selected_runtime_datasets, start=1):
             ds_h5_raw = ds.get("raw_data_h5_path")
             if ds_h5_raw is None:
@@ -2442,6 +2477,9 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             ds_scratch_root_raw = ds.get("scratch_output_root")
             if ds_scratch_root_raw is None:
                 ds_scratch_root_raw = ds.get("scratch_root")
+            ds_use_scratch_root = _as_bool_token(ds.get("use_scratch_root", use_scratch_root_enabled), use_scratch_root_enabled)
+            if not bool(ds_use_scratch_root):
+                ds_scratch_root_raw = None
             if ds_scratch_root_raw is None:
                 ds_scratch_root_raw = data_scratch_root
             if ds_scratch_root_raw is None:

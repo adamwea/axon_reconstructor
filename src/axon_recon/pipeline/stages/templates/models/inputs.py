@@ -632,6 +632,7 @@ class TemplatesInputs:
 	stream_id: str
 	mea_output_root: Path
 	final_output_root: Path | None = None
+	artifact_lookup_roots: tuple[Path, ...] = field(default_factory=tuple)
 	concat_analyzer_relpath: str | None = None
 	preproc_seg_sources_reldir: str | None = None
 

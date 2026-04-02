@@ -38,6 +38,65 @@ TEMPLATE_ARRAY_CANDIDATES = (
     ("square_template_npy", "square_template_channel_locations_npy"),
 )
 
+RAW_BRANCH_AMPLITUDE_KEYS = (
+    "amplitude_at_soma",
+    "soma_amplitude",
+    "soma_amplitude_uv",
+    "amplitude_uv",
+    "amplitude",
+)
+
+HISTOGRAM_METRIC_SPECS: dict[str, dict[str, Any]] = {
+    "branch_velocity": {
+        "branch_key": "branch_velocity",
+        "default_y_axis": "branch_count",
+        "default_unit_aggregation": "mean",
+        "default_title": "Branch Velocity Histogram (Raw Branches)",
+        "default_x_label": "branch velocity (um/ms)",
+        "default_bin_keys": ("bin_size", "bin_size_ms"),
+    },
+    "total_branch_length": {
+        "branch_key": "branch_length",
+        "default_y_axis": "unit_count",
+        "default_unit_aggregation": "sum",
+        "default_title": "Total Branch Length Histogram (Raw Branches)",
+        "default_x_label": "total branch length (um) / unit",
+        "default_bin_keys": ("bin_size", "bin_size_um"),
+    },
+    "longest_branch_length": {
+        "branch_key": "branch_length",
+        "default_y_axis": "unit_count",
+        "default_unit_aggregation": "max",
+        "default_title": "Longest Branch Length Histogram (Raw Branches)",
+        "default_x_label": "longest branch length (um) / unit",
+        "default_bin_keys": ("bin_size", "bin_size_um"),
+    },
+    "longest_distance_from_soma": {
+        "branch_key": "distance_from_soma",
+        "default_y_axis": "unit_count",
+        "default_unit_aggregation": "max",
+        "default_title": "Longest Distance from Soma Histogram (Raw Branches)",
+        "default_x_label": "longest distance from soma (um) / unit",
+        "default_bin_keys": ("bin_size", "bin_size_um"),
+    },
+    "longest_latency": {
+        "branch_key": "latency",
+        "default_y_axis": "unit_count",
+        "default_unit_aggregation": "max",
+        "default_title": "Longest Latency Histogram (Raw Branches)",
+        "default_x_label": "longest latency (ms) / unit",
+        "default_bin_keys": ("bin_size", "bin_size_ms"),
+    },
+    "amplitude_at_soma": {
+        "branch_key": "amplitude_at_soma",
+        "default_y_axis": "unit_count",
+        "default_unit_aggregation": "max",
+        "default_title": "Amplitude at Soma Histogram (Raw Branches)",
+        "default_x_label": "amplitude at soma (uV) / unit",
+        "default_bin_keys": ("bin_size", "bin_size_uv"),
+    },
+}
+
 
 def _read_json(path: Path) -> Any:
     with open(path, "r", encoding="utf-8") as f:
@@ -132,6 +191,19 @@ def _as_float(value: Any) -> float | None:
     if not math.isfinite(parsed):
         return None
     return parsed
+
+
+def _as_bool(value: Any, default: bool) -> bool:
+    if value is None:
+        return bool(default)
+    if isinstance(value, bool):
+        return bool(value)
+    token = str(value).strip().lower()
+    if token in {"1", "true", "yes", "on"}:
+        return True
+    if token in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
 
 
 def _branch_length_um(branch: dict[str, Any]) -> float | None:
@@ -425,6 +497,152 @@ def _compute_stats(values: list[float], columns: list[str] | tuple[str, ...]) ->
     return out
 
 
+def _try_import_matplotlib() -> Any | None:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg", force=True)
+        import matplotlib.pyplot as plt
+
+        return plt
+    except Exception:
+        return None
+
+
+def _normalize_histogram_y_axis(value: Any, *, default: str) -> str:
+    token = str(value if value is not None else default).strip().lower()
+    if token in {"branch_count", "branch", "branches"}:
+        return "branch_count"
+    if token in {"unit_count", "unit", "units"}:
+        return "unit_count"
+    return str(default)
+
+
+def _aggregate_hist_values(values: list[float], *, mode: str) -> float | None:
+    cleaned = [float(v) for v in values if _as_float(v) is not None]
+    if not cleaned:
+        return None
+
+    arr = np.asarray(cleaned, dtype=float)
+    mode_norm = str(mode or "mean").strip().lower()
+    if mode_norm == "sum":
+        return float(np.sum(arr))
+    if mode_norm == "median":
+        return float(np.median(arr))
+    if mode_norm == "max":
+        return float(np.max(arr))
+    if mode_norm == "min":
+        return float(np.min(arr))
+    if mode_norm == "first":
+        return float(arr[0])
+    return float(np.mean(arr))
+
+
+def _sanitize_histogram_values(*, values: list[float], metric_cfg: dict[str, Any]) -> np.ndarray:
+    arr = np.asarray([float(v) for v in values if _as_float(v) is not None], dtype=float)
+    if arr.size == 0:
+        return arr
+
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return arr
+
+    min_value = _as_float(metric_cfg.get("min_value", None))
+    max_value = _as_float(metric_cfg.get("max_value", None))
+    if min_value is not None:
+        arr = arr[arr >= float(min_value)]
+    if max_value is not None:
+        arr = arr[arr <= float(max_value)]
+    if bool(_as_bool(metric_cfg.get("positive_only", False), False)):
+        arr = arr[arr > 0.0]
+    if bool(_as_bool(metric_cfg.get("drop_zero", False), False)):
+        arr = arr[arr != 0.0]
+    return arr
+
+
+def _resolve_histogram_bins(
+    *,
+    values: np.ndarray,
+    metric_cfg: dict[str, Any],
+    default_bin_keys: tuple[str, ...],
+) -> tuple[Any, dict[str, Any]]:
+    if values.size <= 1:
+        return 1, {"mode": "single", "bins": 1}
+
+    bins_raw = metric_cfg.get("bins", metric_cfg.get("n_bins", None))
+    try:
+        bins_count = int(bins_raw) if bins_raw is not None else None
+    except Exception:
+        bins_count = None
+    if bins_count is not None and bins_count > 0:
+        return int(bins_count), {"mode": "count", "bins": int(bins_count)}
+
+    bin_size_value: float | None = None
+    for key in default_bin_keys:
+        parsed = _as_float(metric_cfg.get(key, None))
+        if parsed is not None and parsed > 0:
+            bin_size_value = float(parsed)
+            break
+
+    if bin_size_value is None:
+        return 20, {"mode": "count", "bins": 20}
+
+    lo_cfg = _as_float(metric_cfg.get("bin_min", metric_cfg.get("min_value", None)))
+    hi_cfg = _as_float(metric_cfg.get("bin_max", metric_cfg.get("max_value", None)))
+    lo = float(lo_cfg) if lo_cfg is not None else float(np.min(values))
+    hi = float(hi_cfg) if hi_cfg is not None else float(np.max(values))
+    if hi < lo:
+        lo, hi = hi, lo
+
+    if abs(hi - lo) <= 1e-12:
+        half = float(bin_size_value) * 0.5
+        edges = np.asarray([lo - half, hi + half], dtype=float)
+    else:
+        edges = np.arange(lo, hi + float(bin_size_value), float(bin_size_value), dtype=float)
+        if edges.size < 2:
+            edges = np.asarray([lo, hi + float(bin_size_value)], dtype=float)
+        elif float(edges[-1]) < hi:
+            edges = np.append(edges, hi)
+
+    return edges, {
+        "mode": "size",
+        "bin_size": float(bin_size_value),
+        "n_edges": int(edges.size),
+        "n_bins": int(max(0, edges.size - 1)),
+        "bin_min": float(edges[0]),
+        "bin_max": float(edges[-1]),
+    }
+
+
+def _resolve_raw_histogram_values(
+    *,
+    metric_name: str,
+    metric_cfg: dict[str, Any],
+    unit_keys: list[str],
+    raw_branch_values_flat: dict[str, list[float]],
+    raw_branch_values_by_unit: dict[str, dict[str, list[float]]],
+) -> tuple[list[float], str, str]:
+    spec = HISTOGRAM_METRIC_SPECS.get(metric_name, None)
+    if not isinstance(spec, dict):
+        return [], "branch_count", "none"
+
+    branch_key = str(spec.get("branch_key", ""))
+    default_axis = str(spec.get("default_y_axis", "unit_count"))
+    y_axis = _normalize_histogram_y_axis(metric_cfg.get("y_axis", default_axis), default=default_axis)
+    if y_axis == "branch_count":
+        return list(raw_branch_values_flat.get(branch_key, [])), y_axis, "none"
+
+    default_aggregation = str(spec.get("default_unit_aggregation", "mean"))
+    aggregation = str(metric_cfg.get("unit_aggregation", default_aggregation) or default_aggregation).strip().lower()
+    values: list[float] = []
+    by_unit = raw_branch_values_by_unit.get(branch_key, {})
+    for unit_key in unit_keys:
+        aggregated = _aggregate_hist_values(by_unit.get(unit_key, []), mode=aggregation)
+        if aggregated is not None:
+            values.append(float(aggregated))
+    return values, y_axis, aggregation
+
+
 def _resolve_per_unit_source_values(
     *,
     source_metric: str,
@@ -581,6 +799,20 @@ def run_analysis_stage_core(inputs: AnalysisInputs) -> AnalysisResult:
         "nodes_per_length": {},
         "tortuosity": {},
     }
+    raw_branch_values_by_unit: dict[str, dict[str, list[float]]] = {
+        "branch_velocity": {},
+        "branch_length": {},
+        "distance_from_soma": {},
+        "latency": {},
+        "amplitude_at_soma": {},
+    }
+    raw_branch_values_flat: dict[str, list[float]] = {
+        "branch_velocity": [],
+        "branch_length": [],
+        "distance_from_soma": [],
+        "latency": [],
+        "amplitude_at_soma": [],
+    }
 
     for unit_key in deduped_keys:
         recon_row = recon_by_id.get(unit_key, {}) if isinstance(recon_by_id.get(unit_key, {}), dict) else {}
@@ -610,6 +842,57 @@ def run_analysis_stage_core(inputs: AnalysisInputs) -> AnalysisResult:
         unit_id_value = _parse_unit_id_for_output(unit_key)
         branch_rows_clean = _extract_branch_rows(unit_id=unit_id_value, payload=branches_clean, branch_source="clean")
         branch_rows_raw = _extract_branch_rows(unit_id=unit_id_value, payload=branches_raw, branch_source="raw")
+
+        raw_branches_payload = branches_raw.get("branches") if isinstance(branches_raw, dict) else None
+        raw_branch_velocities_unit: list[float] = []
+        raw_branch_lengths_unit: list[float] = []
+        raw_branch_distances_unit: list[float] = []
+        raw_branch_latencies_unit: list[float] = []
+        raw_branch_amplitudes_unit: list[float] = []
+        if isinstance(raw_branches_payload, list):
+            for raw_branch in raw_branches_payload:
+                if not isinstance(raw_branch, dict):
+                    continue
+
+                branch_length_um = _branch_length_um(raw_branch)
+                if branch_length_um is not None:
+                    raw_branch_lengths_unit.append(float(branch_length_um))
+
+                branch_velocity = _as_float(raw_branch.get("velocity", None))
+                if branch_velocity is not None:
+                    raw_branch_velocities_unit.append(float(branch_velocity))
+
+                distances_raw = raw_branch.get("distances", [])
+                if isinstance(distances_raw, list):
+                    for distance_raw in distances_raw:
+                        parsed_distance = _as_float(distance_raw)
+                        if parsed_distance is not None:
+                            raw_branch_distances_unit.append(float(parsed_distance))
+
+                latencies_raw = raw_branch.get("peak_times", [])
+                if isinstance(latencies_raw, list):
+                    for latency_raw in latencies_raw:
+                        parsed_latency = _as_float(latency_raw)
+                        if parsed_latency is not None:
+                            raw_branch_latencies_unit.append(float(parsed_latency))
+
+                for amplitude_key in RAW_BRANCH_AMPLITUDE_KEYS:
+                    amplitude_value = _as_float(raw_branch.get(amplitude_key, None))
+                    if amplitude_value is not None:
+                        raw_branch_amplitudes_unit.append(float(amplitude_value))
+                        break
+
+        raw_branch_values_by_unit["branch_velocity"][unit_key] = list(raw_branch_velocities_unit)
+        raw_branch_values_by_unit["branch_length"][unit_key] = list(raw_branch_lengths_unit)
+        raw_branch_values_by_unit["distance_from_soma"][unit_key] = list(raw_branch_distances_unit)
+        raw_branch_values_by_unit["latency"][unit_key] = list(raw_branch_latencies_unit)
+        raw_branch_values_by_unit["amplitude_at_soma"][unit_key] = list(raw_branch_amplitudes_unit)
+        raw_branch_values_flat["branch_velocity"].extend(raw_branch_velocities_unit)
+        raw_branch_values_flat["branch_length"].extend(raw_branch_lengths_unit)
+        raw_branch_values_flat["distance_from_soma"].extend(raw_branch_distances_unit)
+        raw_branch_values_flat["latency"].extend(raw_branch_latencies_unit)
+        raw_branch_values_flat["amplitude_at_soma"].extend(raw_branch_amplitudes_unit)
+
         unit_branch_rows = branch_rows_clean if branch_rows_clean else branch_rows_raw
 
         for branch_row in unit_branch_rows:
@@ -890,6 +1173,147 @@ def run_analysis_stage_core(inputs: AnalysisInputs) -> AnalysisResult:
         runtime_warnings.append(f"Per-well metric '{metric_name}' is configured but not recognized by current runner.")
         _write_rows_csv(csv_path, [])
         outputs[f"per_well.{metric_name}"] = str(csv_path)
+
+    histograms_cfg = per_well_cfg.get("histograms", {}) if isinstance(per_well_cfg.get("histograms", {}), dict) else {}
+    plt = _try_import_matplotlib() if histograms_cfg else None
+    for histogram_name, histogram_cfg_raw in histograms_cfg.items():
+        metric_cfg = histogram_cfg_raw if isinstance(histogram_cfg_raw, dict) else {}
+        spec = HISTOGRAM_METRIC_SPECS.get(histogram_name, None)
+        if not isinstance(spec, dict):
+            runtime_warnings.append(
+                f"Per-well histogram '{histogram_name}' is configured but not recognized by current runner."
+            )
+            continue
+
+        write_png = bool(_as_bool(metric_cfg.get("write_png", True), True))
+        write_pdf = bool(_as_bool(metric_cfg.get("write_pdf", False), False))
+        write_summary_json = bool(_as_bool(metric_cfg.get("write_summary_json", True), True))
+        write_empty_plot = bool(_as_bool(metric_cfg.get("write_empty_plot", True), True))
+
+        source_values, y_axis_mode, unit_aggregation = _resolve_raw_histogram_values(
+            metric_name=histogram_name,
+            metric_cfg=metric_cfg,
+            unit_keys=deduped_keys,
+            raw_branch_values_flat=raw_branch_values_flat,
+            raw_branch_values_by_unit=raw_branch_values_by_unit,
+        )
+        values = _sanitize_histogram_values(values=source_values, metric_cfg=metric_cfg)
+        default_bin_keys = tuple(spec.get("default_bin_keys", ("bin_size",)))
+        bins, bin_meta = _resolve_histogram_bins(
+            values=values,
+            metric_cfg=metric_cfg,
+            default_bin_keys=default_bin_keys,
+        )
+
+        branch_key = str(spec.get("branch_key", ""))
+        summary_payload: dict[str, Any] = {
+            "metric": histogram_name,
+            "source_policy": "raw_branch_data_only",
+            "source_branch_key": branch_key,
+            "y_axis": y_axis_mode,
+            "unit_aggregation": unit_aggregation,
+            "n_values_input": int(len(source_values)),
+            "n_values_plotted": int(values.size),
+            "data_min": (None if values.size == 0 else float(np.min(values))),
+            "data_max": (None if values.size == 0 else float(np.max(values))),
+            "binning": dict(bin_meta),
+            "status": "pending",
+            "outputs": {},
+        }
+
+        if values.size == 0 and (not write_empty_plot):
+            runtime_warnings.append(
+                f"Per-well histogram '{histogram_name}' has no raw-branch values after filtering; rendering skipped."
+            )
+            summary_payload["status"] = "skipped_no_data"
+            if write_summary_json:
+                summary_relpath = str(metric_cfg.get("summary_json_relpath", f"{histogram_name}_histogram_summary.json"))
+                summary_path = _resolve_output_path(base_dir=per_well_dir, relpath=summary_relpath)
+                _write_json(summary_path, summary_payload)
+                outputs[f"per_well.histograms.{histogram_name}.summary_json"] = str(summary_path)
+            continue
+
+        if (write_png or write_pdf) and plt is None:
+            runtime_warnings.append(
+                f"Per-well histogram '{histogram_name}' could not be rendered because matplotlib is unavailable."
+            )
+            summary_payload["status"] = "skipped_matplotlib_unavailable"
+            if write_summary_json:
+                summary_relpath = str(metric_cfg.get("summary_json_relpath", f"{histogram_name}_histogram_summary.json"))
+                summary_path = _resolve_output_path(base_dir=per_well_dir, relpath=summary_relpath)
+                _write_json(summary_path, summary_payload)
+                outputs[f"per_well.histograms.{histogram_name}.summary_json"] = str(summary_path)
+            continue
+
+        if write_png or write_pdf:
+            fig_width = _as_float(metric_cfg.get("fig_width_inches", 7.2))
+            fig_height = _as_float(metric_cfg.get("fig_height_inches", 4.8))
+            dpi_value = _as_float(metric_cfg.get("dpi", 300))
+            fig, ax = plt.subplots(
+                figsize=(float(fig_width or 7.2), float(fig_height or 4.8)),
+                dpi=int(max(1, int(dpi_value or 300))),
+            )
+
+            if values.size > 0:
+                color = str(metric_cfg.get("color", "tab:blue") or "tab:blue")
+                edgecolor = str(metric_cfg.get("edgecolor", "#333333") or "#333333")
+                alpha = _as_float(metric_cfg.get("alpha", 0.75))
+                linewidth = _as_float(metric_cfg.get("linewidth", 0.8))
+                ax.hist(
+                    values,
+                    bins=bins,
+                    color=color,
+                    edgecolor=edgecolor,
+                    alpha=float(alpha if alpha is not None else 0.75),
+                    linewidth=float(linewidth if linewidth is not None else 0.8),
+                )
+            else:
+                ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
+
+            default_title = str(spec.get("default_title", histogram_name))
+            default_x_label = str(spec.get("default_x_label", histogram_name))
+            default_y_label = "unit count" if y_axis_mode == "unit_count" else "branch count"
+
+            ax.set_title(str(metric_cfg.get("title", default_title) or default_title))
+            ax.set_xlabel(str(metric_cfg.get("x_label", default_x_label) or default_x_label))
+            ax.set_ylabel(str(metric_cfg.get("y_label", default_y_label) or default_y_label))
+
+            if bool(_as_bool(metric_cfg.get("use_log_x", False), False)):
+                ax.set_xscale("log")
+            if bool(_as_bool(metric_cfg.get("use_log_y", False), False)):
+                ax.set_yscale("log")
+
+            if bool(_as_bool(metric_cfg.get("show_grid", True), True)):
+                grid_alpha = _as_float(metric_cfg.get("grid_alpha", 0.2))
+                ax.grid(axis="y", alpha=float(grid_alpha if grid_alpha is not None else 0.2))
+
+            if bool(_as_bool(metric_cfg.get("tight_layout", True), True)):
+                fig.tight_layout()
+
+            if write_png:
+                png_relpath = str(metric_cfg.get("png_relpath", f"{histogram_name}_histogram.png"))
+                png_path = _resolve_output_path(base_dir=per_well_dir, relpath=png_relpath)
+                png_path.parent.mkdir(parents=True, exist_ok=True)
+                fig.savefig(png_path)
+                outputs[f"per_well.histograms.{histogram_name}.png"] = str(png_path)
+                summary_payload["outputs"]["png"] = str(png_path)
+
+            if write_pdf:
+                pdf_relpath = str(metric_cfg.get("pdf_relpath", f"{histogram_name}_histogram.pdf"))
+                pdf_path = _resolve_output_path(base_dir=per_well_dir, relpath=pdf_relpath)
+                pdf_path.parent.mkdir(parents=True, exist_ok=True)
+                fig.savefig(pdf_path)
+                outputs[f"per_well.histograms.{histogram_name}.pdf"] = str(pdf_path)
+                summary_payload["outputs"]["pdf"] = str(pdf_path)
+
+            plt.close(fig)
+            summary_payload["status"] = "ok"
+
+        if write_summary_json:
+            summary_relpath = str(metric_cfg.get("summary_json_relpath", f"{histogram_name}_histogram_summary.json"))
+            summary_path = _resolve_output_path(base_dir=per_well_dir, relpath=summary_relpath)
+            _write_json(summary_path, summary_payload)
+            outputs[f"per_well.histograms.{histogram_name}.summary_json"] = str(summary_path)
 
     warnings = list(inputs.deferred_warnings) + runtime_warnings
 
