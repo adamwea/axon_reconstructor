@@ -45,6 +45,13 @@ def _as_optional_int(value: Any) -> int | None:
 		return None
 
 
+def _as_optional_positive_int(value: Any) -> int | None:
+	parsed = _as_optional_int(value)
+	if parsed is None:
+		return None
+	return (int(parsed) if int(parsed) > 0 else None)
+
+
 def _as_optional_float(value: Any) -> float | None:
 	if value is None:
 		return None
@@ -69,6 +76,14 @@ def _as_optional_dict(value: Any) -> dict[str, Any] | None:
 	return None
 
 
+def _get_with_fallback(primary: dict[str, Any], fallback: dict[str, Any], key: str, default: Any) -> Any:
+	if key in primary:
+		return primary.get(key)
+	if key in fallback:
+		return fallback.get(key)
+	return default
+
+
 def _normalize_output_rel_root(raw: Any) -> str:
 	text = str(raw or _DEFAULT_OUTPUT_REL_ROOT).strip()
 	if not text:
@@ -91,6 +106,11 @@ def _resolve_data_config_path(runtime_config_path: Path, data_ref: str | None) -
 @dataclass(frozen=True)
 class SpikesortStageConfig:
 	output_rel_root: str
+	logging_enabled: bool
+	logging_verbose: bool
+	logging_file_relpath: str | None
+	debug_limit_wells: int | None
+	debug_limit_segments_per_well: int | None
 	sorter: str
 	docker_image: str | None
 	recording_num: str
@@ -111,6 +131,11 @@ class SpikesortStageConfig:
 
 	run_analyzer: bool
 	run_reports: bool
+	plot_enabled: bool
+	plot_mode: str
+	plot_debug: bool
+	raster_sort: str | None
+	fixed_y: bool
 	no_curation: bool
 	export_to_phy: bool
 	force_rerun_analyzer: bool
@@ -132,6 +157,10 @@ def parse_spikesort_stage_config(
 	stage_cfg = runtime_config.get("stages.spikesort", {})
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
 	execution_cfg = stage_cfg.get("execution", {}) if isinstance(stage_cfg.get("execution", {}), dict) else {}
+	logging_cfg = stage_cfg.get("logging", {}) if isinstance(stage_cfg.get("logging", {}), dict) else {}
+	debug_cfg = stage_cfg.get("debug", {}) if isinstance(stage_cfg.get("debug", {}), dict) else {}
+	plot_cfg = stage_cfg.get("plot", {}) if isinstance(stage_cfg.get("plot", {}), dict) else {}
+	report_cfg = stage_cfg.get("report", {}) if isinstance(stage_cfg.get("report", {}), dict) else {}
 	outputs_cfg = stage_cfg.get("outputs", {}) if isinstance(stage_cfg.get("outputs", {}), dict) else {}
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
@@ -141,34 +170,73 @@ def parse_spikesort_stage_config(
 	if force_replot_override is not None:
 		force_replot = bool(force_replot_override)
 
+	legacy_debug_default = _as_bool(execution_cfg.get("debug", False), False)
+	logging_enabled = _as_bool(logging_cfg.get("enabled", True), True)
+	logging_verbose = _as_bool(logging_cfg.get("verbose", legacy_debug_default), legacy_debug_default)
+	logging_file_relpath = _as_optional_str(logging_cfg.get("file_relpath", None))
+
+	debug_limit_wells = _as_optional_positive_int(debug_cfg.get("limit_wells", None))
+	debug_limit_segments_per_well = _as_optional_positive_int(debug_cfg.get("limit_segments_per_well", None))
+
+	plot_enabled = _as_bool(plot_cfg.get("enabled", True), True)
+	plot_mode = _as_optional_str(plot_cfg.get("mode", plot_cfg.get("plot_mode", "separate"))) or "separate"
+	plot_debug = _as_bool(plot_cfg.get("debug", plot_cfg.get("plot_debug", False)), False)
+	raster_sort = _as_optional_str(plot_cfg.get("raster_sort", None))
+	fixed_y = _as_bool(plot_cfg.get("fixed_y", False), False)
+
+	run_reports = _as_bool(_get_with_fallback(execution_cfg, stage_cfg, "run_reports", True), True)
+	if "enabled" in report_cfg:
+		run_reports = _as_bool(report_cfg.get("enabled", run_reports), run_reports)
+	if not bool(plot_enabled):
+		run_reports = False
+
+	no_curation_default = _as_bool(_get_with_fallback(execution_cfg, stage_cfg, "no_curation", False), False)
+	no_curation = no_curation_default
+	if "no_curation" in report_cfg:
+		no_curation = _as_bool(report_cfg.get("no_curation", no_curation_default), no_curation_default)
+
+	export_to_phy = _as_bool(_get_with_fallback(execution_cfg, stage_cfg, "export_to_phy", False), False)
+	if "export_to_phy" in report_cfg:
+		export_to_phy = _as_bool(report_cfg.get("export_to_phy", export_to_phy), export_to_phy)
+
 	return SpikesortStageConfig(
 		output_rel_root=_normalize_output_rel_root(outputs_cfg.get("output_rel_root", _DEFAULT_OUTPUT_REL_ROOT)),
-		sorter=str(execution_cfg.get("sorter", "kilosort4") or "kilosort4"),
-		docker_image=_as_optional_str(execution_cfg.get("docker_image", None)),
-		recording_num=str(execution_cfg.get("recording_num", "rec0000") or "rec0000"),
-		verbose=_as_bool(execution_cfg.get("verbose", False), False),
-		ks_batch_duration_s=_as_optional_float(execution_cfg.get("ks_batch_duration_s", None)),
-		ks_batch_size=_as_optional_int(execution_cfg.get("ks_batch_size", None)),
-		ks_th_universal=_as_optional_float(execution_cfg.get("ks_th_universal", None)),
-		ks_th_learned=_as_optional_float(execution_cfg.get("ks_th_learned", None)),
-		ks_th_single_ch=_as_optional_float(execution_cfg.get("ks_th_single_ch", None)),
-		ks_cluster_downsampling=_as_optional_int(execution_cfg.get("ks_cluster_downsampling", None)),
-		ks_nearest_chans=_as_optional_int(execution_cfg.get("ks_nearest_chans", None)),
-		ks_max_channel_distance=_as_optional_float(execution_cfg.get("ks_max_channel_distance", None)),
-		n_jobs=_as_optional_int(execution_cfg.get("n_jobs", None)),
-		chunk_duration=_as_optional_str(execution_cfg.get("chunk_duration", None)),
-		cuda_visible_devices=_as_optional_str(execution_cfg.get("cuda_visible_devices", None)),
-		run_analyzer=_as_bool(execution_cfg.get("run_analyzer", True), True),
-		run_reports=_as_bool(execution_cfg.get("run_reports", True), True),
-		no_curation=_as_bool(execution_cfg.get("no_curation", False), False),
-		export_to_phy=_as_bool(execution_cfg.get("export_to_phy", False), False),
-		force_rerun_analyzer=_as_bool(execution_cfg.get("force_rerun_analyzer", False), False),
-		um_kwargs=_as_optional_dict(execution_cfg.get("um_kwargs", None)),
-		am_kwargs=_as_optional_dict(execution_cfg.get("am_kwargs", None)),
-		option_kwargs=_as_optional_dict(execution_cfg.get("option_kwargs", None)),
+		logging_enabled=logging_enabled,
+		logging_verbose=logging_verbose,
+		logging_file_relpath=logging_file_relpath,
+		debug_limit_wells=debug_limit_wells,
+		debug_limit_segments_per_well=debug_limit_segments_per_well,
+		sorter=str(_get_with_fallback(execution_cfg, stage_cfg, "sorter", "kilosort4") or "kilosort4"),
+		docker_image=_as_optional_str(_get_with_fallback(execution_cfg, stage_cfg, "docker_image", None)),
+		recording_num=str(_get_with_fallback(execution_cfg, stage_cfg, "recording_num", "rec0000") or "rec0000"),
+		verbose=_as_bool(_get_with_fallback(execution_cfg, stage_cfg, "verbose", False), False),
+		ks_batch_duration_s=_as_optional_float(_get_with_fallback(execution_cfg, stage_cfg, "ks_batch_duration_s", None)),
+		ks_batch_size=_as_optional_int(_get_with_fallback(execution_cfg, stage_cfg, "ks_batch_size", None)),
+		ks_th_universal=_as_optional_float(_get_with_fallback(execution_cfg, stage_cfg, "ks_th_universal", None)),
+		ks_th_learned=_as_optional_float(_get_with_fallback(execution_cfg, stage_cfg, "ks_th_learned", None)),
+		ks_th_single_ch=_as_optional_float(_get_with_fallback(execution_cfg, stage_cfg, "ks_th_single_ch", None)),
+		ks_cluster_downsampling=_as_optional_int(_get_with_fallback(execution_cfg, stage_cfg, "ks_cluster_downsampling", None)),
+		ks_nearest_chans=_as_optional_int(_get_with_fallback(execution_cfg, stage_cfg, "ks_nearest_chans", None)),
+		ks_max_channel_distance=_as_optional_float(_get_with_fallback(execution_cfg, stage_cfg, "ks_max_channel_distance", None)),
+		n_jobs=_as_optional_int(_get_with_fallback(execution_cfg, stage_cfg, "n_jobs", None)),
+		chunk_duration=_as_optional_str(_get_with_fallback(execution_cfg, stage_cfg, "chunk_duration", None)),
+		cuda_visible_devices=_as_optional_str(_get_with_fallback(execution_cfg, stage_cfg, "cuda_visible_devices", None)),
+		run_analyzer=_as_bool(_get_with_fallback(execution_cfg, stage_cfg, "run_analyzer", True), True),
+		run_reports=run_reports,
+		plot_enabled=plot_enabled,
+		plot_mode=plot_mode,
+		plot_debug=plot_debug,
+		raster_sort=raster_sort,
+		fixed_y=fixed_y,
+		no_curation=no_curation,
+		export_to_phy=export_to_phy,
+		force_rerun_analyzer=_as_bool(_get_with_fallback(execution_cfg, stage_cfg, "force_rerun_analyzer", _get_with_fallback(execution_cfg, stage_cfg, "rerun_analyzer", False)), False),
+		um_kwargs=_as_optional_dict(_get_with_fallback(execution_cfg, stage_cfg, "um_kwargs", None)),
+		am_kwargs=_as_optional_dict(_get_with_fallback(execution_cfg, stage_cfg, "am_kwargs", None)),
+		option_kwargs=_as_optional_dict(_get_with_fallback(execution_cfg, stage_cfg, "option_kwargs", None)),
 		force_restart=force_restart,
 		force_replot=force_replot,
-		resume_from=_as_optional_str(execution_cfg.get("resume_from", None)),
+		resume_from=_as_optional_str(_get_with_fallback(execution_cfg, stage_cfg, "resume_from", None)),
 	)
 
 
@@ -187,6 +255,10 @@ def build_spikesort_inputs_for_target(
 		mea_output_root=target.mea_output_root,
 		final_output_root=(target.final_output_root or target.mea_output_root),
 		output_rel_root=stage_config.output_rel_root,
+		logging_enabled=stage_config.logging_enabled,
+		logging_verbose=stage_config.logging_verbose,
+		logging_file_relpath=stage_config.logging_file_relpath,
+		debug_limit_segments_per_well=stage_config.debug_limit_segments_per_well,
 		sorter=stage_config.sorter,
 		docker_image=stage_config.docker_image,
 		recording_num=stage_config.recording_num,
@@ -204,6 +276,11 @@ def build_spikesort_inputs_for_target(
 		cuda_visible_devices=stage_config.cuda_visible_devices,
 		run_analyzer=stage_config.run_analyzer,
 		run_reports=stage_config.run_reports,
+		plot_enabled=stage_config.plot_enabled,
+		plot_mode=stage_config.plot_mode,
+		plot_debug=stage_config.plot_debug,
+		raster_sort=stage_config.raster_sort,
+		fixed_y=stage_config.fixed_y,
 		no_curation=stage_config.no_curation,
 		export_to_phy=stage_config.export_to_phy,
 		force_rerun_analyzer=stage_config.force_rerun_analyzer,
@@ -262,6 +339,10 @@ def load_spikesort_inputs_from_runtime(
 		mea_output_root=output_root,
 		final_output_root=output_root,
 		output_rel_root=stage_cfg.output_rel_root,
+		logging_enabled=stage_cfg.logging_enabled,
+		logging_verbose=stage_cfg.logging_verbose,
+		logging_file_relpath=stage_cfg.logging_file_relpath,
+		debug_limit_segments_per_well=stage_cfg.debug_limit_segments_per_well,
 		sorter=stage_cfg.sorter,
 		docker_image=stage_cfg.docker_image,
 		recording_num=stage_cfg.recording_num,
@@ -279,6 +360,11 @@ def load_spikesort_inputs_from_runtime(
 		cuda_visible_devices=stage_cfg.cuda_visible_devices,
 		run_analyzer=stage_cfg.run_analyzer,
 		run_reports=stage_cfg.run_reports,
+		plot_enabled=stage_cfg.plot_enabled,
+		plot_mode=stage_cfg.plot_mode,
+		plot_debug=stage_cfg.plot_debug,
+		raster_sort=stage_cfg.raster_sort,
+		fixed_y=stage_cfg.fixed_y,
 		no_curation=stage_cfg.no_curation,
 		export_to_phy=stage_cfg.export_to_phy,
 		force_rerun_analyzer=stage_cfg.force_rerun_analyzer,

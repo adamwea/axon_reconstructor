@@ -3,28 +3,175 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from axon_reconstructor.runtime_config import RuntimeConfig
 
-from .stages.analysis.cli import register_analysis_subparser
-from .stages.preprocess.cli import register_preprocess_subparser
-from .stages.reconstruct.cli import register_reconstruct_subparser
-from .stages.spikesort.cli import register_spikesort_subparser
-from .stages.templates.cli import register_templates_subparser
+from .stages.analysis.cli import _run_from_args as _run_analysis_from_args
+from .stages.preprocess.cli import _run_from_args as _run_preprocess_from_args
+from .stages.reconstruct.cli import _run_from_args as _run_reconstruct_from_args
+from .stages.spikesort.cli import _run_from_args as _run_spikesort_from_args
+from .stages.templates.cli import _run_from_args as _run_templates_from_args
+
+
+StageHandler = Callable[[argparse.Namespace], int]
+
+_CANONICAL_STAGE_ORDER: list[str] = [
+	"preprocess",
+	"spikesort",
+	"templates",
+	"reconstruct",
+	"analysis",
+]
+
+_STAGE_ALIASES: dict[str, str] = {
+	"pre": "preprocess",
+	"prep": "preprocess",
+	"preproc": "preprocess",
+	"sort": "spikesort",
+	"spike": "spikesort",
+	"spikesorting": "spikesort",
+	"template": "templates",
+	"recon": "reconstruct",
+	"reconstruction": "reconstruct",
+	"analyse": "analysis",
+	"analyze": "analysis",
+}
+
+_STAGE_HANDLERS: dict[str, StageHandler] = {
+	"preprocess": _run_preprocess_from_args,
+	"spikesort": _run_spikesort_from_args,
+	"templates": _run_templates_from_args,
+	"reconstruct": _run_reconstruct_from_args,
+	"analysis": _run_analysis_from_args,
+}
+
+
+def _parse_unit_ids_csv(raw: str) -> list[int]:
+	tokens = [token.strip() for token in str(raw).split(",")]
+	parsed: list[int] = []
+	seen: set[int] = set()
+	for token in tokens:
+		if not token:
+			continue
+		try:
+			value = int(token)
+		except Exception as exc:
+			raise argparse.ArgumentTypeError(f"Invalid unit id '{token}'") from exc
+		if value < 0:
+			raise argparse.ArgumentTypeError(f"Unit id must be >= 0, got {value}")
+		if value in seen:
+			continue
+		seen.add(value)
+		parsed.append(value)
+	if not parsed:
+		raise argparse.ArgumentTypeError("Expected at least one unit id")
+	return parsed
+
+
+def _register_stage_sequence_parser(
+	*,
+	subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+	name: str,
+	help_text: str,
+) -> None:
+	parser = subparsers.add_parser(name, help=help_text)
+	parser.add_argument(
+		"stages",
+		nargs="+",
+		help=(
+			"Stage tokens. Accepts forms like: preprocess spikesort | preproc,sort | "
+			"[preprocess, sort] | all"
+		),
+	)
+	parser.add_argument("--config", type=str, required=True, help="Path to runtime YAML/JSON config")
+	parser.add_argument("--force-restart", action="store_true", help="Force stage restart for selected stages")
+	parser.add_argument("--force-replot", action="store_true", help="Alias for force-restart compatibility")
+	unit_group = parser.add_mutually_exclusive_group()
+	unit_group.add_argument("--unit-id", type=int, default=None, help="Optional single unit override")
+	unit_group.add_argument(
+		"--unit-ids",
+		type=_parse_unit_ids_csv,
+		default=None,
+		help="Optional comma-separated list of unit ids",
+	)
+	parser.set_defaults(handler=_run_stage_sequence_from_args)
+
+
+def _parse_stage_list_tokens(raw_tokens: list[str]) -> list[str]:
+	text = " ".join(str(token) for token in list(raw_tokens or [])).strip()
+	if not text:
+		raise SystemExit("No stages provided. Example: stages preprocess spikesort")
+
+	text = text.strip().strip("[]")
+	if not text:
+		raise SystemExit("No stages provided. Example: stages [preprocess, spikesort]")
+
+	prelim: list[str] = []
+	for chunk in text.split(","):
+		for token in chunk.strip().split():
+			if token:
+				prelim.append(token)
+
+	valid = set(_STAGE_HANDLERS.keys())
+	out: list[str] = []
+	for raw in prelim:
+		token = str(raw).strip().lower()
+		token = _STAGE_ALIASES.get(token, token)
+		if token == "all":
+			out.extend(_CANONICAL_STAGE_ORDER)
+			continue
+		if token not in valid:
+			raise SystemExit(
+				f"Unsupported stage token: {raw}. Supported: {', '.join(_CANONICAL_STAGE_ORDER)} (plus aliases preproc, sort, recon)."
+			)
+		out.append(token)
+
+	dedup: list[str] = []
+	seen: set[str] = set()
+	for stage_name in out:
+		if stage_name in seen:
+			continue
+		dedup.append(stage_name)
+		seen.add(stage_name)
+	return dedup
+
+
+def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
+	stage_list = _parse_stage_list_tokens(list(getattr(args, "stages", []) or []))
+	logger = logging.getLogger("axon_recon.pipeline.stages")
+
+	for stage_name in stage_list:
+		handler = _STAGE_HANDLERS.get(stage_name)
+		if handler is None:
+			raise SystemExit(f"No handler registered for stage '{stage_name}'")
+
+		logger.info("stages: starting %s", stage_name)
+		nested_args = argparse.Namespace(**vars(args))
+		nested_args.stage = stage_name
+		rc = int(handler(nested_args))
+		if rc != 0:
+			logger.error("stages: stage %s failed with code %d", stage_name, rc)
+			return rc
+		logger.info("stages: completed %s", stage_name)
+
+	return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
 	parser = argparse.ArgumentParser(prog="axon_recon")
 	subparsers = parser.add_subparsers(dest="command", required=True)
 
-	stages_parser = subparsers.add_parser("stages", help="Run pipeline stages")
-	stages_subparsers = stages_parser.add_subparsers(dest="stage", required=True)
-	register_preprocess_subparser(stages_subparsers)
-	register_spikesort_subparser(stages_subparsers)
-	register_analysis_subparser(stages_subparsers)
-	register_reconstruct_subparser(stages_subparsers)
-	register_templates_subparser(stages_subparsers)
+	_register_stage_sequence_parser(
+		subparsers=subparsers,
+		name="stages",
+		help_text="Run one or more pipeline stages in sequence",
+	)
+	_register_stage_sequence_parser(
+		subparsers=subparsers,
+		name="stage",
+		help_text="Alias for stages",
+	)
 
 	return parser
 

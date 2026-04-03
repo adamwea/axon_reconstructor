@@ -564,13 +564,22 @@ def run_spikesort_from_runtime(
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
 	publish_policy = _resolve_publish_policy(runtime_config=bundle.runtime_config, data_config=bundle.data_config)
 	_log_publish_policy(stage_name="spikesort", policy=publish_policy)
-	targets = select_execution_targets(bundle=bundle)
-	parallelism = resolve_stage_parallelism(bundle=bundle, stage_name="spikesort")
 	stage_config = parse_spikesort_stage_config(
 		runtime_config=bundle.runtime_config,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
+	targets = select_execution_targets(bundle=bundle)
+	if stage_config.debug_limit_wells is not None:
+		limit_wells = max(1, int(stage_config.debug_limit_wells))
+		if len(targets) > limit_wells:
+			LOGGER.info(
+				"Applying spikesort debug well limit: %d -> %d target(s)",
+				len(targets),
+				limit_wells,
+			)
+			targets = list(targets[:limit_wells])
+	parallelism = resolve_stage_parallelism(bundle=bundle, stage_name="spikesort")
 
 	def _worker(target):
 		inputs = build_spikesort_inputs_for_target(

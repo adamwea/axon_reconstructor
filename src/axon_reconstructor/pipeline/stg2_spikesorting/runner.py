@@ -39,6 +39,14 @@ class SpikeSortingInputs:
 
     mea_output_root: Path
 
+    # Logging controls
+    log_enabled: bool = True
+    log_verbose: bool = False
+    log_file_override: Optional[Path | str] = None
+
+    # Debug throttles
+    limit_segments_per_well: Optional[int] = None
+
     # MEA_Analysis options
     sorter: str = "kilosort4"
     docker_image: Optional[str] = None
@@ -68,6 +76,12 @@ class SpikeSortingInputs:
     # Post-sorting steps (these are where most figures are generated)
     run_analyzer: bool = True
     run_reports: bool = True
+
+    # Plot options (used by MEA_Analysis report generation)
+    plot_mode: str = "separate"
+    plot_debug: bool = False
+    raster_sort: Optional[str] = None
+    fixed_y: bool = False
 
     # Report options
     no_curation: bool = False
@@ -132,6 +146,53 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         token = str(value).strip()
         return token if token else None
 
+    try:
+        parsed_limit_segments_per_well = (
+            int(inputs.limit_segments_per_well) if inputs.limit_segments_per_well is not None else None
+        )
+    except Exception:
+        parsed_limit_segments_per_well = None
+    effective_limit_segments_per_well = (
+        parsed_limit_segments_per_well
+        if parsed_limit_segments_per_well is not None and parsed_limit_segments_per_well > 0
+        else None
+    )
+
+    # Reuse axon_reconstructor's MEA_Analysis-style output path computation.
+    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+
+    well_out_dir = compute_mea_analysis_output_dir(
+        output_root=inputs.mea_output_root,
+        data_file=inputs.h5_path,
+        well=inputs.stream_id,
+    )
+
+    # Configure spikesort stage logging before emitting runtime snapshot lines.
+    if bool(inputs.log_enabled):
+        try:
+            from axon_reconstructor.pipeline.pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
+
+            if inputs.log_file_override is None:
+                log_file = compute_pipeline_log_file(
+                    well_out_dir=well_out_dir,
+                    data_file=inputs.h5_path,
+                    stream_id=inputs.stream_id,
+                )
+            else:
+                log_file = Path(str(inputs.log_file_override)).expanduser()
+                if not log_file.is_absolute():
+                    log_file = (well_out_dir / log_file).resolve()
+                else:
+                    log_file = log_file.resolve()
+
+            logger = setup_pipeline_logger(
+                log_file=log_file,
+                logger_name=f"axon_reconstructor.{log_file.stem}",
+                verbose=bool(inputs.log_verbose),
+            )
+        except Exception:
+            pass
+
     logger.info(
         "Spikesort runtime snapshot: pid=%s cpu_count=%s stream_id=%s sorter=%s docker_image=%s",
         os.getpid(),
@@ -142,15 +203,18 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
     )
 
     logger.info(
-        "Spikesort runtime config: verbose=%s n_jobs=%s chunk_duration=%s force_restart=%s",
+        "Spikesort runtime config: verbose=%s n_jobs=%s chunk_duration=%s force_restart=%s log_enabled=%s log_verbose=%s",
         bool(inputs.verbose),
         inputs.n_jobs,
         inputs.chunk_duration,
         bool(inputs.force_restart),
+        bool(inputs.log_enabled),
+        bool(inputs.log_verbose),
     )
     logger.info(
-        "Spikesort resources: cuda_visible_devices=%s",
+        "Spikesort resources: cuda_visible_devices=%s limit_segments_per_well=%s",
         inputs.cuda_visible_devices,
+        (int(effective_limit_segments_per_well) if effective_limit_segments_per_well is not None else None),
     )
     logger.info(
         "Spikesort effective env: CUDA_VISIBLE_DEVICES=%s",
@@ -173,30 +237,6 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
             logger.info("SpikeInterface global job kwargs: %s", job_kwargs)
     except Exception:
         logger.debug("Could not set SpikeInterface global job kwargs", exc_info=True)
-
-    # Reuse axon_reconstructor's MEA_Analysis-style output path computation.
-    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
-
-    well_out_dir = compute_mea_analysis_output_dir(
-        output_root=inputs.mea_output_root,
-        data_file=inputs.h5_path,
-        well=inputs.stream_id,
-    )
-
-    # Ensure spikesorting status is captured in the same per-well pipeline log as preprocessing.
-    try:
-        from axon_reconstructor.pipeline.pipeline_logging import build_stage_logger
-
-        logger = build_stage_logger(
-            well_out_dir=well_out_dir,
-            data_file=inputs.h5_path,
-            stream_id=inputs.stream_id,
-            stage_name="spikesort",
-            logger_name_prefix="axon_reconstructor",
-            verbose=inputs.verbose,
-        )
-    except Exception:
-        pass
 
     axon_ckpt_file = compute_stage_checkpoint_file(
         well_out_dir=well_out_dir,
@@ -268,6 +308,28 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         )
     except Exception:
         logger.debug("Could not summarize loaded recording", exc_info=True)
+
+    if effective_limit_segments_per_well is not None:
+        try:
+            current_segments = int(recording.get_num_segments())
+        except Exception:
+            current_segments = 1
+
+        if current_segments > int(effective_limit_segments_per_well):
+            if hasattr(si, "select_segment_recording"):
+                selected_segments = [int(i) for i in range(int(effective_limit_segments_per_well))]
+                recording = si.select_segment_recording(recording=recording, segment_indices=selected_segments)
+                logger.info(
+                    "Spikesort debug segment limit applied: %d -> %d segment(s)",
+                    current_segments,
+                    int(effective_limit_segments_per_well),
+                )
+            else:
+                logger.warning(
+                    "Spikesort debug segment limit requested (%d) but SpikeInterface has no select_segment_recording; continuing with %d segments",
+                    int(effective_limit_segments_per_well),
+                    current_segments,
+                )
 
     # Build optional sorter kwargs override (memory + sensitivity tuning).
     sorter_kwargs: dict = {}
@@ -349,10 +411,10 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         thresholds=None,
         no_curation=bool(inputs.no_curation),
         export_to_phy=bool(inputs.export_to_phy),
-        plot_mode="separate",
-        plot_debug=False,
-        raster_sort=None,
-        fixed_y=False,
+        plot_mode=str(inputs.plot_mode or "separate"),
+        plot_debug=bool(inputs.plot_debug),
+        raster_sort=inputs.raster_sort,
+        fixed_y=bool(inputs.fixed_y),
     )
 
     if sorter_kwargs:

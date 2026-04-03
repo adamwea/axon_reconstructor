@@ -15,6 +15,10 @@ class SpikesortInputs:
 	final_output_root: Path | None = None
 
 	output_rel_root: str = SPIKESORTING_OUTPUTS_DIRNAME
+	logging_enabled: bool = True
+	logging_verbose: bool = False
+	logging_file_relpath: str | None = None
+	debug_limit_segments_per_well: int | None = None
 	sorter: str = "kilosort4"
 	docker_image: str | None = None
 	recording_num: str = "rec0000"
@@ -35,6 +39,11 @@ class SpikesortInputs:
 
 	run_analyzer: bool = True
 	run_reports: bool = True
+	plot_enabled: bool = True
+	plot_mode: str = "separate"
+	plot_debug: bool = False
+	raster_sort: str | None = None
+	fixed_y: bool = False
 	no_curation: bool = False
 	export_to_phy: bool = False
 	force_rerun_analyzer: bool = False
