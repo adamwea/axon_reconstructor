@@ -216,3 +216,109 @@ data: {data_path}
     target = targets[0]
     assert target.mea_output_root == Path("/tmp/c_out")
     assert target.artifact_lookup_roots == (Path("/tmp/h_out"),)
+
+
+def test_select_execution_targets_materializes_scratch_input_and_cfgs(tmp_path: Path) -> None:
+    source_h5 = tmp_path / "raw_data" / "batch_a" / "recording_001" / "data.raw.h5"
+    source_h5.parent.mkdir(parents=True, exist_ok=True)
+    source_h5.write_bytes(b"source h5 bytes")
+    cfg_a = source_h5.parent / "well000.cfg"
+    cfg_b = source_h5.parent / "well001.cfg"
+    cfg_a.write_text("[well000]\n", encoding="utf-8")
+    cfg_b.write_text("[well001]\n", encoding="utf-8")
+
+    scratch_input_root = tmp_path / "scratch_inputs"
+
+    data_path = tmp_path / "debug.data.yml"
+    data_path.write_text(
+        f"""
+output_root: /tmp/out
+scratch_input_root: {scratch_input_root}
+use_scratch_input_root: true
+datasets:
+  - raw_data_h5_path: {source_h5}
+    include_in_runtime: true
+    wells:
+      - well_id: well000
+      - well_id: well001
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "debug.runtime.yml"
+    runtime_path.write_text(
+        f"""
+data: {data_path}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = load_pipeline_runtime_bundle(config_path=str(runtime_path))
+    targets = select_execution_targets(bundle=bundle)
+    assert len(targets) == 2
+
+    expected_h5 = scratch_input_root.resolve() / "batch_a" / "recording_001" / "data.raw.h5"
+    assert targets[0].h5_path == expected_h5
+    assert targets[1].h5_path == expected_h5
+    assert expected_h5.exists()
+    assert expected_h5.read_bytes() == b"source h5 bytes"
+    assert (expected_h5.parent / "well000.cfg").exists()
+    assert (expected_h5.parent / "well001.cfg").exists()
+
+
+def test_select_execution_targets_supports_dataset_input_scratch_overrides(tmp_path: Path) -> None:
+    ds1_h5 = tmp_path / "raw_data" / "set_1" / "data.raw.h5"
+    ds1_h5.parent.mkdir(parents=True, exist_ok=True)
+    ds1_h5.write_bytes(b"ds1")
+
+    ds2_h5 = tmp_path / "raw_data" / "set_2" / "data.raw.h5"
+    ds2_h5.parent.mkdir(parents=True, exist_ok=True)
+    ds2_h5.write_bytes(b"ds2")
+
+    global_scratch_input = tmp_path / "scratch_inputs_global"
+    dataset_scratch_input = tmp_path / "scratch_inputs_ds2"
+
+    data_path = tmp_path / "debug.data.yml"
+    data_path.write_text(
+        f"""
+output_root: /tmp/out
+scratch_input_root: {global_scratch_input}
+use_scratch_input_root: true
+datasets:
+  - raw_data_h5_path: {ds1_h5}
+    include_in_runtime: true
+    use_scratch_input_root: false
+    wells:
+      - well_id: well000
+  - raw_data_h5_path: {ds2_h5}
+    include_in_runtime: true
+    scratch_input_root: {dataset_scratch_input}
+    wells:
+      - well_id: well000
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "debug.runtime.yml"
+    runtime_path.write_text(
+        f"""
+data: {data_path}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = load_pipeline_runtime_bundle(config_path=str(runtime_path))
+    targets = select_execution_targets(bundle=bundle)
+    assert len(targets) == 2
+
+    first = targets[0]
+    assert first.h5_path == ds1_h5.resolve()
+
+    second = targets[1]
+    expected_ds2_h5 = dataset_scratch_input.resolve() / "set_2" / "data.raw.h5"
+    assert second.h5_path == expected_ds2_h5
+    assert expected_ds2_h5.exists()

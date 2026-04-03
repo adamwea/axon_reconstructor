@@ -8,7 +8,9 @@ from typing import Any
 from axon_reconstructor.runtime_config import RuntimeConfig
 
 from .stages.analysis.cli import register_analysis_subparser
+from .stages.preprocess.cli import register_preprocess_subparser
 from .stages.reconstruct.cli import register_reconstruct_subparser
+from .stages.spikesort.cli import register_spikesort_subparser
 from .stages.templates.cli import register_templates_subparser
 
 
@@ -18,6 +20,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 	stages_parser = subparsers.add_parser("stages", help="Run pipeline stages")
 	stages_subparsers = stages_parser.add_subparsers(dest="stage", required=True)
+	register_preprocess_subparser(stages_subparsers)
+	register_spikesort_subparser(stages_subparsers)
 	register_analysis_subparser(stages_subparsers)
 	register_reconstruct_subparser(stages_subparsers)
 	register_templates_subparser(stages_subparsers)

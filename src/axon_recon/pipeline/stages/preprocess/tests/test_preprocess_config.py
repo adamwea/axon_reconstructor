@@ -1,0 +1,559 @@
+from __future__ import annotations
+
+from pathlib import Path
+from textwrap import dedent
+
+from axon_reconstructor.runtime_config import RuntimeConfig
+from axon_recon.pipeline.execution.context import ExecutionTarget
+from axon_recon.pipeline.stages.preprocess.config import (
+    build_preprocess_inputs_for_target,
+    load_preprocess_inputs_from_runtime,
+    parse_preprocess_stage_config,
+)
+
+
+def test_parse_preprocess_stage_config_defaults() -> None:
+    cfg = RuntimeConfig({"stages": {"preprocess": {}}})
+
+    parsed = parse_preprocess_stage_config(runtime_config=cfg)
+
+    assert parsed.output_rel_root == "preprocess_outputs"
+    assert parsed.force_restart is False
+    assert parsed.force_replot is False
+    assert parsed.debug_limit_wells is None
+    assert parsed.debug_limit_segments_per_well is None
+    assert parsed.logging_enabled is True
+    assert parsed.logging_verbose is True
+    assert parsed.logging_file_relpath is None
+    assert parsed.logging_suppress_h5_plugin_messages is False
+    assert parsed.logging_phase_dividers is True
+    assert parsed.enable_checkpointing is True
+    assert parsed.n_jobs is None
+    assert parsed.plot_layouts is True
+    assert parsed.plot_concat_trace is True
+    assert parsed.plot_segment_traces is True
+    assert parsed.plot_output_dir is None
+    assert parsed.epoch_markers_output_dir is None
+    assert parsed.assay_stats_relpath == "assay_stats_{stream_id}.txt"
+    assert parsed.channel_layouts_subdir == "channel_layouts"
+    assert parsed.segment_traces_subdir == "segment_traces"
+    assert parsed.concat_trace_relpath == "concat_cluster_reps_{stream_id}.png"
+    assert parsed.n_representative_channels == 4
+    assert parsed.concat_trace_n_reps == 4
+    assert parsed.segment_trace_n_reps == 4
+    assert parsed.plot_n_jobs is None
+    assert parsed.trace_downsample_hz is None
+    assert parsed.trace_max_points == 150000
+    assert parsed.observability_mode == "off"
+    assert parsed.observability_output_subdir == "run_metadata"
+    assert parsed.observability_save_run_manifest is False
+    assert parsed.observability_save_event_timeline is False
+    assert parsed.observability_save_environment is False
+    assert parsed.observability_save_artifact_inventory is False
+    assert parsed.observability_save_stage_log is False
+    assert parsed.observability_stage_log_relpath == "logs/preprocess_pipeline.log"
+    assert parsed.temporal_resample_factor is None
+    assert parsed.temporal_resample_rate_hz is None
+    assert parsed.temporal_resample_margin_ms == 100.0
+    assert parsed.temporal_resample_dtype is None
+    assert parsed.save_recording is True
+    assert parsed.overwrite_saved_recording is True
+    assert parsed.save_concat_recording is True
+    assert parsed.save_segment_recordings is True
+    assert parsed.save_chunk_duration == "1s"
+    assert parsed.save_progress_bar is False
+    assert parsed.concat_save_n_jobs is None
+    assert parsed.segment_save_n_jobs is None
+    assert parsed.print_n_jobs_used is False
+
+
+def test_parse_preprocess_stage_config_force_overrides_take_precedence() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "preprocess": {
+                    "execution": {
+                        "force_restart": False,
+                        "force_replot": True,
+                    },
+                    "outputs": {
+                        "output_rel_root": "/preprocess_v2",
+                    },
+                }
+            }
+        }
+    )
+
+    parsed = parse_preprocess_stage_config(
+        runtime_config=cfg,
+        force_restart_override=True,
+        force_replot_override=False,
+    )
+
+    assert parsed.force_restart is True
+    assert parsed.force_replot is False
+    assert parsed.output_rel_root == "preprocess_v2"
+
+
+def test_parse_preprocess_stage_config_reads_debug_limits() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "preprocess": {
+                    "debug": {
+                        "limit_wells": 3,
+                        "limit_segments_per_well": 2,
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_preprocess_stage_config(runtime_config=cfg)
+
+    assert parsed.debug_limit_wells == 3
+    assert parsed.debug_limit_segments_per_well == 2
+
+
+def test_parse_preprocess_stage_config_reads_plot_block_knobs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "preprocess": {
+                    "plot": {
+                        "concat_trace": False,
+                        "segment_traces": False,
+                        "output_dir": "plots/{stream_id}",
+                        "epoch_markers_output_dir": "epochs/{stream_id}",
+                        "assay_stats_relpath": "logs/assay_stats_{stream_id}.txt",
+                        "channel_layouts_subdir": "layouts",
+                        "segment_traces_subdir": "trace_segments",
+                        "concat_trace_relpath": "trace_concat/concat_{stream_id}.png",
+                        "n_representative_channels": 6,
+                        "n_jobs": 3,
+                        "trace_downsample_hz": 250.0,
+                        "trace_max_points": 42000,
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_preprocess_stage_config(runtime_config=cfg)
+
+    assert parsed.plot_concat_trace is False
+    assert parsed.plot_segment_traces is False
+    assert parsed.plot_output_dir == "plots/{stream_id}"
+    assert parsed.epoch_markers_output_dir == "epochs/{stream_id}"
+    assert parsed.assay_stats_relpath == "logs/assay_stats_{stream_id}.txt"
+    assert parsed.channel_layouts_subdir == "layouts"
+    assert parsed.segment_traces_subdir == "trace_segments"
+    assert parsed.concat_trace_relpath == "trace_concat/concat_{stream_id}.png"
+    assert parsed.n_representative_channels == 6
+    assert parsed.concat_trace_n_reps == 6
+    assert parsed.segment_trace_n_reps == 6
+    assert parsed.plot_n_jobs == 3
+    assert parsed.trace_downsample_hz == 250.0
+    assert parsed.trace_max_points == 42000
+
+
+def test_parse_preprocess_stage_config_reads_nested_trace_rep_controls() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "preprocess": {
+                    "plot": {
+                        "concat_trace": {
+                            "enabled": True,
+                            "n_reps": 2,
+                        },
+                        "segment_traces": True,
+                        "per_segment_traces": {
+                            "n_reps": 5,
+                        },
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_preprocess_stage_config(runtime_config=cfg)
+
+    assert parsed.plot_concat_trace is True
+    assert parsed.plot_segment_traces is True
+    assert parsed.concat_trace_n_reps == 2
+    assert parsed.segment_trace_n_reps == 5
+
+
+def test_parse_preprocess_stage_config_master_plot_override_disables_all_pngs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "preprocess": {
+                    "execution": {
+                        "plot_layouts": True,
+                        "plot_concat_trace": True,
+                        "plot_segment_traces": True,
+                    },
+                    "plot": {
+                        "disable_all_png_diagnostics": True,
+                        "layouts": True,
+                        "concat_trace": {
+                            "enabled": True,
+                            "n_reps": 3,
+                        },
+                        "per_segment_traces": {
+                            "enabled": True,
+                            "n_reps": 2,
+                        },
+                    },
+                }
+            }
+        }
+    )
+
+    parsed = parse_preprocess_stage_config(runtime_config=cfg)
+
+    assert parsed.plot_layouts is False
+    assert parsed.plot_concat_trace is False
+    assert parsed.plot_segment_traces is False
+
+
+def test_parse_preprocess_stage_config_master_plot_override_enables_all_pngs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "preprocess": {
+                    "execution": {
+                        "plot_layouts": False,
+                        "plot_concat_trace": False,
+                        "plot_segment_traces": False,
+                    },
+                    "plot": {
+                        "disable_all_png_diagnostics": False,
+                        "layouts": False,
+                        "concat_trace": False,
+                        "segment_traces": False,
+                        "per_segment_traces": {
+                            "enabled": False,
+                            "n_reps": 1,
+                        },
+                    },
+                }
+            }
+        }
+    )
+
+    parsed = parse_preprocess_stage_config(runtime_config=cfg)
+
+    assert parsed.plot_layouts is True
+    assert parsed.plot_concat_trace is True
+    assert parsed.plot_segment_traces is True
+
+
+def test_parse_preprocess_stage_config_supports_n_reps_per_segment_alias() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "preprocess": {
+                    "plot": {
+                        "n_reps_per_segment": 5,
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_preprocess_stage_config(runtime_config=cfg)
+
+    assert parsed.n_representative_channels == 5
+    assert parsed.concat_trace_n_reps == 5
+    assert parsed.segment_trace_n_reps == 5
+
+
+def test_parse_preprocess_stage_config_normalizes_legacy_plot_output_paths() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "preprocess": {
+                    "plot": {
+                        "output_dir": "stg1_preprocess_outputs",
+                        "epoch_markers_output_dir": "stg1_preprocess_outputs/epochs",
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_preprocess_stage_config(runtime_config=cfg)
+
+    assert parsed.plot_output_dir == "preprocess_outputs"
+    assert parsed.epoch_markers_output_dir == "preprocess_outputs/epochs"
+
+
+def test_parse_preprocess_stage_config_reads_logging_block_knobs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "preprocess": {
+                    "logging": {
+                        "enabled": False,
+                        "verbose": False,
+                        "file_relpath": "logs/custom_preprocess.log",
+                        "suppress_h5_plugin_messages": True,
+                        "phase_dividers": False,
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_preprocess_stage_config(runtime_config=cfg)
+
+    assert parsed.logging_enabled is False
+    assert parsed.logging_verbose is False
+    assert parsed.logging_file_relpath == "logs/custom_preprocess.log"
+    assert parsed.logging_suppress_h5_plugin_messages is True
+    assert parsed.logging_phase_dividers is False
+
+
+def test_parse_preprocess_stage_config_reads_save_output_knobs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "preprocess": {
+                    "execution": {
+                        "save_recording": True,
+                    },
+                    "outputs": {
+                        "save_concat_recording": True,
+                        "save_segment_recordings": False,
+                        "save_chunk_duration": "2s",
+                        "save_progress_bar": True,
+                        "concat_save_n_jobs": 3,
+                        "segment_save_n_jobs": 1,
+                        "print_n_jobs_used": True,
+                    },
+                }
+            }
+        }
+    )
+
+    parsed = parse_preprocess_stage_config(runtime_config=cfg)
+
+    assert parsed.save_recording is True
+    assert parsed.save_concat_recording is True
+    assert parsed.save_segment_recordings is False
+    assert parsed.save_chunk_duration == "2s"
+    assert parsed.save_progress_bar is True
+    assert parsed.concat_save_n_jobs == 3
+    assert parsed.segment_save_n_jobs == 1
+    assert parsed.print_n_jobs_used is True
+
+
+def test_parse_preprocess_stage_config_treats_non_positive_trace_max_points_as_uncapped() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "preprocess": {
+                    "plot": {
+                        "trace_max_points": -1,
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_preprocess_stage_config(runtime_config=cfg)
+
+    assert parsed.trace_max_points == -1
+
+
+def test_parse_preprocess_stage_config_resolves_detailed_observability_mode() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "preprocess": {
+                    "observability": {
+                        "mode": "detailed",
+                        "output_subdir": "meta/run_artifacts",
+                        "stage_log_relpath": "logs/custom_preprocess_pipeline.log",
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_preprocess_stage_config(runtime_config=cfg)
+
+    assert parsed.observability_mode == "detailed"
+    assert parsed.observability_output_subdir == "meta/run_artifacts"
+    assert parsed.observability_save_run_manifest is True
+    assert parsed.observability_save_event_timeline is True
+    assert parsed.observability_save_environment is True
+    assert parsed.observability_save_artifact_inventory is True
+    assert parsed.observability_save_stage_log is True
+    assert parsed.observability_stage_log_relpath == "logs/custom_preprocess_pipeline.log"
+
+
+def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Path) -> None:
+    data_path = tmp_path / "data.yml"
+    data_path.write_text(
+        dedent(
+            """
+            output_root: /tmp/out
+            datasets:
+              - raw_data_h5_path: /tmp/input.raw.h5
+                include_in_runtime: true
+                wells:
+                  - well_id: well005
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "runtime.yml"
+    runtime_path.write_text(
+                (
+                        f"data: {data_path}\n"
+                        "stages:\n"
+                        "  preprocess:\n"
+                        "    execution:\n"
+                        "      force_restart: false\n"
+                        "      n_jobs: 6\n"
+                        "      temporal_resample_factor: 4\n"
+                        "      plot_layouts: false\n"
+                        "    debug:\n"
+                        "      limit_segments_per_well: 2\n"
+                        "    logging:\n"
+                        "      enabled: true\n"
+                        "      verbose: false\n"
+                        "      file_relpath: logs/preprocess_pipeline.log\n"
+                        "      suppress_h5_plugin_messages: true\n"
+                        "      phase_dividers: false\n"
+                        "    plot:\n"
+                        "      concat_trace: false\n"
+                        "      segment_traces: false\n"
+                        "      n_reps_per_segment: 7\n"
+                        "      n_jobs: 4\n"
+                        "      trace_downsample_hz: 200.0\n"
+                        "      trace_max_points: 32000\n"
+                        "      output_dir: preprocess_outputs/plots\n"
+                        "    observability:\n"
+                        "      mode: detailed\n"
+                        "      output_subdir: run_metadata\n"
+                        "      stage_log_relpath: logs/preprocess_pipeline.log\n"
+                        "    outputs:\n"
+                        "      output_rel_root: preprocess_stage_outputs\n"
+                        "      save_concat_recording: true\n"
+                        "      save_segment_recordings: false\n"
+                        "      save_chunk_duration: 2s\n"
+                        "      save_progress_bar: true\n"
+                        "      concat_save_n_jobs: 4\n"
+                        "      segment_save_n_jobs: 2\n"
+                        "      print_n_jobs_used: true\n"
+                ),
+        encoding="utf-8",
+    )
+
+    inputs = load_preprocess_inputs_from_runtime(
+        config_path=str(runtime_path),
+        force_restart_override=True,
+    )
+
+    assert inputs.stream_id == "well005"
+    assert inputs.output_rel_root == "preprocess_stage_outputs"
+    assert inputs.force_restart is True
+    assert inputs.force_replot is False
+    assert inputs.debug_limit_segments_per_well == 2
+    assert inputs.logging_enabled is True
+    assert inputs.logging_verbose is False
+    assert inputs.logging_file_relpath == "logs/preprocess_pipeline.log"
+    assert inputs.logging_suppress_h5_plugin_messages is True
+    assert inputs.logging_phase_dividers is False
+    assert inputs.n_jobs == 6
+    assert inputs.temporal_resample_factor == 4
+    assert inputs.plot_layouts is False
+    assert inputs.plot_concat_trace is False
+    assert inputs.plot_segment_traces is False
+    assert inputs.n_representative_channels == 7
+    assert inputs.concat_trace_n_reps == 7
+    assert inputs.segment_trace_n_reps == 7
+    assert inputs.plot_n_jobs == 4
+    assert inputs.trace_downsample_hz == 200.0
+    assert inputs.trace_max_points == 32000
+    assert inputs.plot_output_dir == "preprocess_outputs/plots"
+    assert inputs.observability_mode == "detailed"
+    assert inputs.observability_output_subdir == "run_metadata"
+    assert inputs.observability_save_run_manifest is True
+    assert inputs.observability_save_event_timeline is True
+    assert inputs.observability_save_environment is True
+    assert inputs.observability_save_artifact_inventory is True
+    assert inputs.observability_save_stage_log is True
+    assert inputs.observability_stage_log_relpath == "logs/preprocess_pipeline.log"
+    assert inputs.save_concat_recording is True
+    assert inputs.save_segment_recordings is False
+    assert inputs.save_chunk_duration == "2s"
+    assert inputs.save_progress_bar is True
+    assert inputs.concat_save_n_jobs == 4
+    assert inputs.segment_save_n_jobs == 2
+    assert inputs.print_n_jobs_used is True
+
+
+def test_load_preprocess_inputs_plot_n_jobs_null_inherits_preprocess_n_jobs(tmp_path: Path) -> None:
+    data_path = tmp_path / "data.yml"
+    data_path.write_text(
+        dedent(
+            """
+            output_root: /tmp/out
+            datasets:
+              - raw_data_h5_path: /tmp/input.raw.h5
+                include_in_runtime: true
+                wells:
+                  - well_id: well005
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "runtime.yml"
+    runtime_path.write_text(
+        (
+            f"data: {data_path}\n"
+            "stages:\n"
+            "  preprocess:\n"
+            "    execution:\n"
+            "      n_jobs: 6\n"
+            "    plot:\n"
+            "      n_jobs: null\n"
+        ),
+        encoding="utf-8",
+    )
+
+    inputs = load_preprocess_inputs_from_runtime(config_path=str(runtime_path))
+
+    assert inputs.n_jobs == 6
+    assert inputs.plot_n_jobs == 6
+    assert inputs.debug_limit_segments_per_well is None
+
+
+def test_build_preprocess_inputs_plot_n_jobs_inherits_unit_workers_when_unset() -> None:
+    stage_cfg = parse_preprocess_stage_config(runtime_config=RuntimeConfig({"stages": {"preprocess": {}}}))
+    target = ExecutionTarget(
+        dataset_index=0,
+        dataset_id="dataset_000:test.h5",
+        h5_path=Path("/tmp/test.h5"),
+        stream_id="well001",
+        mea_output_root=Path("/tmp/out"),
+    )
+
+    inputs = build_preprocess_inputs_for_target(
+        target=target,
+        stage_config=stage_cfg,
+        unit_workers=7,
+    )
+
+    assert inputs.n_jobs == 7
+    assert inputs.plot_n_jobs == 7

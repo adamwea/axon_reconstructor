@@ -3,6 +3,14 @@
 output_root: /mnt/h/adamm/local_RBS_data/outputs
 scratch_root: /home/adamm/dev/scratch_outputs
 use_scratch_root: true
+scratch_input_root: /home/adamm/dev/scratch_inputs
+use_scratch_input_root: true
+# When false, stage outputs stay on scratch and are not copied back to output_root.
+publish_outputs: false
+# When true and publish_outputs is true, publish uses move semantics and deletes scratch outputs after sync.
+wipe_scratch_roots: false
+
+#
 analysis_name:
 
 Probe: # https://www.mxwbio.com/products/maxtwo
@@ -24,32 +32,62 @@ Probe: # https://www.mxwbio.com/products/maxtwo
     z: null
 
 datasets:
-  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5
-  #- raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260311/M07137/AxonTracking/000145/data.raw.h5
+  #- raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5
+  - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5
+    include_in_runtime: true
+    DIV:
+    wells:
+      - well_id: well001
+        plating_density:
+        media:
+        genotype: WT
+
+  # /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260302/M08073/AxonTracking/000073
+  - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260302/M08073/AxonTracking/000073/data.raw.h5
     include_in_runtime: false
-    DIV:
+    DIV: 6
     wells:
+      - well_id: well000
+        plating_density: 80000
+        media: DMEM
+        genotype: WT
       - well_id: well001
-        condition:
-        plating_density_nbp:
-        genotype:
+        plating_density: 80000
+        media: DMEM
+        genotype: WT
+      - well_id: well002
+        plating_density: 80000
+        media: DMEM
+        genotype: WT
+      - well_id: well003
+        plating_density: 80000
+        media: NBP
+        genotype: WT
+      - well_id: well004
+        plating_density: 80000
+        media: NBP
+        genotype: WT
+      - well_id: well005
+        plating_density: 80000
+        media: NBP
+        genotype: WT
 
-  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/data.raw.h5
-  #- raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/data.raw.h5
-    include_in_runtime: true
-    DIV:
-    wells:
-      - well_id: well001
-        condition:
-        plating_density_nbp:
-        genotype:
+  # #- raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/data.raw.h5
+  # - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/data.raw.h5
+  #   include_in_runtime: false
+  #   DIV:
+  #   wells:
+  #     - well_id: well001
+  #       condition:
+  #       plating_density_nbp:
+  #       genotype:
 
-  - raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260313/M07036/AxonTracking/000147/data.raw.h5
-  #- raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260313/M07036/AxonTracking/000147/data.raw.h5
-    include_in_runtime: true
-    DIV:
-    wells:
-      - well_id: well001
-        condition:
-        plating_density_nbp:
-        genotype:
+  # #- raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260313/M07036/AxonTracking/000147/data.raw.h5
+  # - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260313/M07036/AxonTracking/000147/data.raw.h5
+  #   include_in_runtime: false
+  #   DIV:
+  #   wells:
+  #     - well_id: well001
+  #       condition:
+  #       plating_density_nbp:
+  #       genotype:

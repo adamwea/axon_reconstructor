@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -173,6 +174,9 @@ def _plot_concat_cluster_traces(
     stitch_frames: list[int],
     out_path: Path,
     title: Optional[str] = None,
+    target_hz: Optional[float] = None,
+    max_points: int = 150_000,
+    logger: Optional[logging.Logger] = None,
 ) -> None:
     """Plot selected channel traces over time with red stitch markers."""
 
@@ -193,10 +197,46 @@ def _plot_concat_cluster_traces(
     except Exception:
         has_tv = False
 
-    # Decimate to keep plotting lightweight.
-    max_points = 150_000
-    step = max(1, total // max_points)
+    # Decimate to keep plotting lightweight and allow explicit target plotting rate.
+    # max_points <= 0 means uncapped for point-based decimation.
+    try:
+        parsed_max_points = int(max_points)
+    except Exception:
+        parsed_max_points = 150_000
+    if parsed_max_points <= 0:
+        step_by_points = 1
+    else:
+        points_cap = max(1000, parsed_max_points)
+        step_by_points = max(1, total // points_cap)
+
+    step_by_rate = 1
+    try:
+        if target_hz is not None and float(target_hz) > 0.0 and fs > 0.0:
+            step_by_rate = max(1, int(round(fs / float(target_hz))))
+    except Exception:
+        step_by_rate = 1
+
+    step = max(step_by_points, step_by_rate)
     sel_frames = np.arange(0, total, step, dtype=np.int64)
+    expected_points = int(sel_frames.size)
+    effective_hz = (float(fs) / float(step)) if step > 0 else float(fs)
+    if logger is not None:
+        logger.info(
+            "plot traces: downsample fs=%.2fHz target_hz=%s step=%d effective_hz=%.2f expected_points_per_channel=%d channels=%d out=%s",
+            float(fs),
+            (f"{float(target_hz):.2f}" if target_hz is not None else "none"),
+            int(step),
+            float(effective_hz),
+            int(expected_points),
+            int(len(channel_ids)),
+            out_path,
+        )
+        if expected_points > 200_000:
+            logger.warning(
+                "plot traces: high point count after downsampling (%d points/channel); consider lowering trace_downsample_hz or setting trace_max_points",
+                int(expected_points),
+            )
+
     if has_tv:
         # Use the recording-provided time vector so gaps (e.g. triggered snippets)
         # appear correctly on the x-axis.
@@ -211,16 +251,34 @@ def _plot_concat_cluster_traces(
     if len(channel_ids) == 1:
         axes = [axes]
 
-    for ax, ch in zip(axes, channel_ids, strict=False):
-        y_parts: list[np.ndarray] = []
-        block = 200_000
-        for start in range(0, total, block):
-            end = min(total, start + block)
-            traces = recording.get_traces(start_frame=start, end_frame=end, channel_ids=[ch]).astype(float)
-            x = traces[:, 0]
-            offset = (-start) % step
-            y_parts.append(x[offset::step])
-        y = np.concatenate(y_parts) if y_parts else np.asarray([])
+    # Read all requested channels once per block (instead of one extractor call per
+    # channel per block) so downsampled plotting work scales better.
+    block = 200_000
+    total_blocks = max(1, int((total + block - 1) // block))
+    y_parts_per_channel: list[list[np.ndarray]] = [[] for _ in channel_ids]
+    for block_idx, start in enumerate(range(0, total, block), start=1):
+        end = min(total, start + block)
+        traces_block = recording.get_traces(start_frame=start, end_frame=end, channel_ids=channel_ids)
+        offset = (-start) % step
+        traces_ds = traces_block[offset::step, :]
+        for ch_idx in range(len(channel_ids)):
+            y_parts_per_channel[ch_idx].append(np.asarray(traces_ds[:, ch_idx]))
+
+        if logger is not None and (
+            block_idx == 1
+            or block_idx == total_blocks
+            or block_idx % max(1, total_blocks // 10) == 0
+        ):
+            logger.info(
+                "plot traces: load progress %d/%d blocks (%.1f%%) out=%s",
+                int(block_idx),
+                int(total_blocks),
+                float((100.0 * block_idx) / max(1, total_blocks)),
+                out_path,
+            )
+
+    for ax, ch, y_parts in zip(axes, channel_ids, y_parts_per_channel, strict=False):
+        y = np.concatenate(y_parts).astype(float, copy=False) if y_parts else np.asarray([], dtype=float)
 
         t_plot = t[: y.size]
         y_plot = y
@@ -256,6 +314,8 @@ def _plot_concat_cluster_traces(
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)
+    if logger is not None:
+        logger.info("plot traces: wrote %s", out_path)
 
 
 def _plot_stitch_zoom(

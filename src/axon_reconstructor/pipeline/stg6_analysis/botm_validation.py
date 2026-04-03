@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from ..stg1_preprocessing.constants import LEGACY_PREPROCESS_OUTPUTS_DIRNAME, PREPROCESS_OUTPUTS_DIRNAME
+
 
 @dataclass(frozen=True)
 class BotmValidationInputs:
@@ -196,7 +198,11 @@ def _resolve_sorter_output_dir(*, well_out_dir: Path) -> Path:
 def _load_preprocessed_concat_fs_hz(*, well_out_dir: Path) -> float:
     import spikeinterface.full as si  # type: ignore[import-not-found]
 
-    rec_dir = Path(well_out_dir) / "stg1_preprocess_outputs" / "preprocessed_recording"
+    rec_dir = Path(well_out_dir) / PREPROCESS_OUTPUTS_DIRNAME / "preprocessed_recording"
+    if not rec_dir.exists():
+        legacy_rec_dir = Path(well_out_dir) / LEGACY_PREPROCESS_OUTPUTS_DIRNAME / "preprocessed_recording"
+        if legacy_rec_dir.exists():
+            rec_dir = legacy_rec_dir
     if not rec_dir.exists():
         raise FileNotFoundError(f"Missing preprocessed recording dir: {rec_dir}")
 
@@ -333,7 +339,11 @@ def compute_botm_validation_for_unit(*, inputs: BotmValidationInputs, uid: Any, 
         raise ValueError(f"Invalid native window length: {win_native} samples")
 
     # Load concat epochs and sorting.
-    preprocess_out_dir = Path(inputs.well_out_dir) / "stg1_preprocess_outputs"
+    preprocess_out_dir = Path(inputs.well_out_dir) / PREPROCESS_OUTPUTS_DIRNAME
+    if not preprocess_out_dir.exists():
+        legacy_preprocess_out_dir = Path(inputs.well_out_dir) / LEGACY_PREPROCESS_OUTPUTS_DIRNAME
+        if legacy_preprocess_out_dir.exists():
+            preprocess_out_dir = legacy_preprocess_out_dir
     epochs = _load_concat_epochs(preprocess_out_dir=preprocess_out_dir, stream_id=str(inputs.stream_id))
 
     sorter_output_dir = _resolve_sorter_output_dir(well_out_dir=Path(inputs.well_out_dir))

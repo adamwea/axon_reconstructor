@@ -20,7 +20,7 @@ global_logger:
   level: INFO
   format: "[%(asctime)s] %(levelname)s - %(message)s"
   debug_mode:
-    enable: false
+    enable: True
     level: DEBUG
     format: "[%(asctime)s] %(levelname)s - %(message)s (%(pathname)s:%(funcName)s:%(lineno)d)"
 
@@ -60,11 +60,76 @@ global_heatmap_defaults:
 stages:
   preprocess:
     execution:
-      debug: false
       force_restart: false
       force_replot: false
+    logging:
+      enabled: true
+      verbose: true
+      # Optional custom preprocess log path. Relative paths resolve under per-well output dir.
+      file_relpath: logs/preprocess_pipeline.log
+      # Suppress repetitive Neo Maxwell plugin status print (opt-in).
+      suppress_h5_plugin_messages: true
+      # Emit high-visibility phase divider lines in terminal and preprocess log.
+      phase_dividers: true
+    debug:
+      # Optional debug overrides for preprocess execution and outputs.
+      limit_wells: null # int or null for no limit
+      limit_segments_per_well: 2 # int or null for no limit
     plot:
-      segment_traces: false
+      # Master preprocess PNG diagnostics override.
+      # true  -> force all preprocess PNG diagnostics OFF
+      # false -> force all preprocess PNG diagnostics ON
+      # null/omit -> respect individual toggles below
+      disable_all_png_diagnostics: true
+
+      # Individual diagnostic toggles for more granular control. These are all independent, so you can enable any combination of them.
+      layouts: true
+      segment_traces: true # legacy alias for per-segment enabled flag
+      # Optional explicit output roots for preprocess diagnostics.
+      # Relative paths resolve under the per-well output directory.
+      output_dir: preprocess_outputs
+      epoch_markers_output_dir: preprocess_outputs
+      assay_stats_relpath: assay_stats_{stream_id}.txt
+      channel_layouts_subdir: channel_layouts
+      segment_traces_subdir: segment_traces
+      concat_trace_relpath: concat_cluster_reps_{stream_id}.png
+      # Representative controls for concatenated trace diagnostics.
+      concat_trace:
+        enabled: true
+        # Alias-compatible with `n_representative_channels`; set to -1 to include all representatives.
+        n_reps: 3
+      # Representative controls for per-segment trace diagnostics.
+      per_segment_traces:
+        enabled: true
+        # Alias-compatible with `n_representative_channels`; set to -1 to include all representatives.
+        n_reps: 2
+      # Parallel workers for diagnostic plotting/scoring (segment trace rendering + representative scoring).
+      n_jobs: null # inherit preprocess n_jobs by default; can set an explicit number here for more control.
+      # Downsample plotting density for concat/segment trace figures.
+      # Effective plotting rate is capped further by trace_max_points.
+      trace_downsample_hz: 250.0
+      trace_max_points: -1 # int or -1 for no cap
+    observability:
+      # off|basic|detailed; detailed captures richer metadata artifacts for debugging.
+      mode: detailed
+      output_subdir: run_metadata
+      save_run_manifest: true
+      save_event_timeline: true
+      save_environment: true
+      save_artifact_inventory: true
+      save_stage_log: true
+      stage_log_relpath: logs/preprocess_pipeline.log
+    outputs:
+      # Save controls for preprocessed recording artifacts.
+      save_concat_recording: true
+      save_segment_recordings: true
+      # Shared write settings for concat and per-segment saves.
+      save_chunk_duration: 1s
+      save_progress_bar: false
+      # Optional worker overrides (null -> inherit preprocess n_jobs).
+      concat_save_n_jobs: null
+      segment_save_n_jobs: null
+      print_n_jobs_used: true
     resources:
       max_stage_workers: 24
       well_workers: 2

@@ -2,7 +2,7 @@
 
 Contract:
 - preprocessing has already saved a SpikeInterface recording at:
-    <MEA_OUTPUT_ROOT>/<relative_pattern>/<well>/stg1_preprocess_outputs/preprocessed_recording
+    <MEA_OUTPUT_ROOT>/<relative_pattern>/<well>/preprocess_outputs/preprocessed_recording
 - this stage loads that recording and runs MEA_Analysis sorting/analyzer/reports.
 """
 
@@ -17,7 +17,7 @@ from typing import Any, Optional
 from ..checkpointing import ProcessingStage as AxonProcessingStage, load_checkpoint
 from ..pipeline_logging import log_stage_complete, log_stage_failure, log_stage_start
 from ..checkpointing import compute_stage_checkpoint_file, save_stage_completed, save_stage_failed, save_stage_started
-from ..stg1_preprocessing.constants import PREPROCESS_OUTPUTS_DIRNAME
+from ..stg1_preprocessing.constants import LEGACY_PREPROCESS_OUTPUTS_DIRNAME, PREPROCESS_OUTPUTS_DIRNAME
 
 
 SPIKESORTING_OUTPUTS_DIRNAME = "stg2_spikesorting_outputs"
@@ -98,16 +98,20 @@ class SpikeSortingOutputs:
 def _resolve_preprocess_dir(*, well_out_dir: Path) -> Path:
     """Find preprocessing output folder, with backward-compatible fallback."""
 
-    new_dir = well_out_dir / PREPROCESS_OUTPUTS_DIRNAME
-    if new_dir.exists():
-        return new_dir
+    canonical_dir = well_out_dir / PREPROCESS_OUTPUTS_DIRNAME
+    if canonical_dir.exists():
+        return canonical_dir
+
+    legacy_stage_dir = well_out_dir / LEGACY_PREPROCESS_OUTPUTS_DIRNAME
+    if legacy_stage_dir.exists():
+        return legacy_stage_dir
 
     legacy_dir = well_out_dir / "axon_reconstructor" / "preprocess"
     if legacy_dir.exists():
         return legacy_dir
 
     # Default to new location for error messaging.
-    return new_dir
+    return canonical_dir
 
 
 def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger) -> SpikeSortingOutputs:

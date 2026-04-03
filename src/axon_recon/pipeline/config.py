@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from pathlib import Path
+import shutil
 from typing import Any
 
 from axon_reconstructor.runtime_config import RuntimeConfig
 
 from .execution.context import ExecutionTarget, StageParallelism
+
+
+LOGGER = logging.getLogger("axon_recon.pipeline.config")
 
 
 @dataclass(frozen=True)
@@ -72,6 +77,116 @@ def _resolve_data_config_path(runtime_config_path: Path, data_ref: str | None) -
 	return p
 
 
+def _relative_input_tree_path(source_path: Path) -> Path:
+	"""Return a stable relative path for scratch input materialization.
+
+	Prefer preserving tree under a `raw_data/` anchor when present.
+	"""
+
+	parts = list(source_path.parts)
+	lower_parts = [str(p).lower() for p in parts]
+	anchor_indexes = [idx for idx, token in enumerate(lower_parts) if token == "raw_data"]
+	if anchor_indexes:
+		anchor_idx = anchor_indexes[-1]
+		rel_parts = parts[anchor_idx + 1 :]
+		if rel_parts:
+			return Path(*rel_parts)
+
+	if source_path.is_absolute():
+		rel_parts = source_path.parts[1:]
+		if rel_parts:
+			return Path(*rel_parts)
+
+	return Path(source_path.name)
+
+
+def _copy_file_if_needed(*, src: Path, dst: Path) -> bool:
+	dst.parent.mkdir(parents=True, exist_ok=True)
+	if dst.exists():
+		try:
+			src_stat = src.stat()
+			dst_stat = dst.stat()
+			if int(src_stat.st_size) == int(dst_stat.st_size) and int(src_stat.st_mtime_ns) == int(dst_stat.st_mtime_ns):
+				LOGGER.info("Scratch input up-to-date; skipping copy src=%s dst=%s", src, dst)
+				return False
+		except Exception:
+			pass
+	shutil.copy2(src, dst)
+	LOGGER.info("Scratch input copied src=%s dst=%s", src, dst)
+	return True
+
+
+def _render_copy_progress_bar(*, completed: int, total: int, width: int = 24) -> str:
+	total_safe = max(1, int(total))
+	completed_safe = min(max(0, int(completed)), total_safe)
+	bar_width = max(8, int(width))
+	filled = int(round((float(completed_safe) / float(total_safe)) * float(bar_width)))
+	filled = min(max(0, int(filled)), bar_width)
+	return f"[{'#' * filled}{'-' * (bar_width - filled)}]"
+
+
+def _materialize_dataset_input_in_scratch(*, source_h5_path: Path, scratch_input_root: Path, dataset_id: str) -> Path:
+	source_h5_path = source_h5_path.expanduser().resolve()
+	scratch_input_root = scratch_input_root.expanduser().resolve()
+	if not source_h5_path.exists():
+		raise FileNotFoundError(f"Dataset input H5 not found: {source_h5_path}")
+
+	LOGGER.info(
+		"Scratch input materialization start dataset_id=%s source_h5=%s scratch_input_root=%s",
+		dataset_id,
+		source_h5_path,
+		scratch_input_root,
+	)
+
+	rel_h5 = _relative_input_tree_path(source_h5_path)
+	target_h5 = (scratch_input_root / rel_h5).resolve()
+	cfg_paths = sorted(source_h5_path.parent.glob("*.cfg"))
+	copy_plan: list[tuple[str, Path, Path]] = [("h5", source_h5_path, target_h5)]
+	copy_plan.extend(("cfg", cfg_path.resolve(), (target_h5.parent / cfg_path.name)) for cfg_path in cfg_paths)
+	total_files = int(len(copy_plan))
+
+	LOGGER.info(
+		"Scratch input copy plan dataset_id=%s total_files=%d",
+		dataset_id,
+		total_files,
+	)
+
+	copied_files = 0
+	skipped_files = 0
+	for file_idx, (file_kind, src_path, dst_path) in enumerate(copy_plan, start=1):
+		was_copied = _copy_file_if_needed(src=src_path, dst=dst_path)
+		if was_copied:
+			copied_files += 1
+		else:
+			skipped_files += 1
+
+		progress_pct = (100.0 * float(file_idx)) / float(max(1, total_files))
+		progress_bar = _render_copy_progress_bar(completed=int(file_idx), total=int(total_files))
+		LOGGER.info(
+			"Scratch input copy progress dataset_id=%s %s %d/%d (%.1f%%) action=%s kind=%s src=%s dst=%s",
+			dataset_id,
+			progress_bar,
+			int(file_idx),
+			int(total_files),
+			float(progress_pct),
+			("copied" if was_copied else "skipped"),
+			str(file_kind),
+			src_path,
+			dst_path,
+		)
+
+	LOGGER.info(
+		"Scratch input materialization complete dataset_id=%s target_h5=%s cfg_files=%d copied=%d skipped=%d",
+		dataset_id,
+		target_h5,
+		int(len(cfg_paths)),
+		int(copied_files),
+		int(skipped_files),
+	)
+
+	return target_h5
+
+
 def load_pipeline_runtime_bundle(*, config_path: str) -> PipelineRuntimeBundle:
 	runtime_config_path = Path(config_path).expanduser().resolve()
 	runtime_cfg = RuntimeConfig.load(runtime_config_path)
@@ -128,6 +243,14 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 		else None
 	)
 
+	scratch_input_root_raw = bundle.data_config.get("scratch_input_root", None)
+	use_scratch_input_root = _as_bool(bundle.data_config.get("use_scratch_input_root", False), False)
+	default_scratch_input_root = (
+		Path(str(scratch_input_root_raw)).expanduser().resolve()
+		if use_scratch_input_root and scratch_input_root_raw is not None and str(scratch_input_root_raw).strip() != ""
+		else None
+	)
+
 	targets: list[ExecutionTarget] = []
 	for idx, item in enabled:
 		h5_raw = item.get("raw_data_h5_path", None)
@@ -142,6 +265,27 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 			Path(str(dataset_scratch_root_raw)).expanduser().resolve()
 			if dataset_use_scratch_root and dataset_scratch_root_raw is not None and str(dataset_scratch_root_raw).strip() != ""
 			else default_scratch_root
+		)
+
+		dataset_scratch_input_root_raw = item.get("scratch_input_root", None)
+		dataset_use_scratch_input_root = _as_bool(item.get("use_scratch_input_root", use_scratch_input_root), use_scratch_input_root)
+		if dataset_use_scratch_input_root:
+			dataset_scratch_input_root = (
+				Path(str(dataset_scratch_input_root_raw)).expanduser().resolve()
+				if dataset_scratch_input_root_raw is not None and str(dataset_scratch_input_root_raw).strip() != ""
+				else default_scratch_input_root
+			)
+		else:
+			dataset_scratch_input_root = None
+
+		target_h5_path = (
+			_materialize_dataset_input_in_scratch(
+				source_h5_path=h5_path,
+				scratch_input_root=dataset_scratch_input_root,
+				dataset_id=str(dataset_id),
+			)
+			if dataset_scratch_input_root is not None
+			else h5_path
 		)
 		active_root = dataset_scratch_root if dataset_scratch_root is not None else output_root
 		artifact_lookup_roots: list[Path] = []
@@ -165,7 +309,7 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 				ExecutionTarget(
 					dataset_index=int(idx),
 					dataset_id=str(dataset_id),
-					h5_path=h5_path,
+					h5_path=target_h5_path,
 					stream_id=str(stream_id),
 					mea_output_root=active_root,
 					final_output_root=output_root,

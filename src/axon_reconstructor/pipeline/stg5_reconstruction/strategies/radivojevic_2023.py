@@ -30,6 +30,8 @@ from typing import Any
 
 import numpy as np
 
+from ...stg1_preprocessing.constants import LEGACY_PREPROCESS_OUTPUTS_DIRNAME, PREPROCESS_OUTPUTS_DIRNAME
+
 
 @dataclass(frozen=True)
 class Radivojevic2023Params:
@@ -188,7 +190,11 @@ def _load_sorting(*, sorter_output_dir: Path, sorter: str) -> Any:
 def _load_preprocessed_concat_recording(*, well_out_dir: Path) -> Any:
     import spikeinterface.full as si  # type: ignore[import-not-found]
 
-    rec_dir = Path(well_out_dir) / "stg1_preprocess_outputs" / "preprocessed_recording"
+    rec_dir = Path(well_out_dir) / PREPROCESS_OUTPUTS_DIRNAME / "preprocessed_recording"
+    if not rec_dir.exists():
+        legacy_rec_dir = Path(well_out_dir) / LEGACY_PREPROCESS_OUTPUTS_DIRNAME / "preprocessed_recording"
+        if legacy_rec_dir.exists():
+            rec_dir = legacy_rec_dir
     if not rec_dir.exists():
         raise FileNotFoundError(f"Missing preprocessed recording dir: {rec_dir}")
 

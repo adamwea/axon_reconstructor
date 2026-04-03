@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def _ensure_maxwell_hdf5_plugin_path(*, prefix: str = "[axon_reconstructor]") -> None:
+def _ensure_maxwell_hdf5_plugin_path(*, prefix: str = "[axon_reconstructor]", suppress_messages: bool = False) -> None:
     """Best-effort fix for Maxwell HDF5 decompression plugin discovery.
 
     Some environments end up with `HDF5_PLUGIN_PATH` pointing at a non-existent
@@ -19,7 +19,8 @@ def _ensure_maxwell_hdf5_plugin_path(*, prefix: str = "[axon_reconstructor]") ->
     if env:
         try:
             if not Path(env).expanduser().exists():
-                print(f"{prefix}[WARN] HDF5_PLUGIN_PATH points to missing dir: {env}; ignoring", flush=True)
+                if not bool(suppress_messages):
+                    print(f"{prefix}[WARN] HDF5_PLUGIN_PATH points to missing dir: {env}; ignoring", flush=True)
                 os.environ.pop("HDF5_PLUGIN_PATH", None)
         except Exception:
             pass
@@ -32,7 +33,8 @@ def _ensure_maxwell_hdf5_plugin_path(*, prefix: str = "[axon_reconstructor]") ->
         cand_dir = parent / "vendor" / "maxwell_hdf5_plugin" / "Linux"
         if (cand_dir / "libcompression.so").exists():
             os.environ["HDF5_PLUGIN_PATH"] = str(cand_dir)
-            print(f"{prefix}[DEBUG] set HDF5_PLUGIN_PATH={cand_dir}", flush=True)
+            if not bool(suppress_messages):
+                print(f"{prefix}[DEBUG] set HDF5_PLUGIN_PATH={cand_dir}", flush=True)
             return
 
 
