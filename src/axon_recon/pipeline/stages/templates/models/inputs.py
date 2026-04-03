@@ -544,8 +544,15 @@ class MultiSourcePdfReportConfig:
 class AnalyzerCacheConfig:
 	enabled: bool = True
 	relpath: str = "analyzers"
+	concat_analyzer_subdir: str = "concat"
+	segment_analyzers_subdir: str = ""
 	cleanup_on_success: bool = False
 	reuse_on_force_restart: bool = False
+
+	@property
+	def relpath_root(self) -> str:
+		# Compatibility alias for clearer schema naming.
+		return self.relpath
 
 
 @dataclass(frozen=True)
@@ -653,6 +660,8 @@ class TemplatesInputs:
 	require_curated_units: bool = True
 	include_concat: bool = True
 	include_segments: bool = True
+	require_concat_analyzer: bool = False
+	require_segment_analyzers: bool = False
 	waveform_extraction: WaveformExtractionConfig = field(default_factory=WaveformExtractionConfig)
 	execution_upsampling: TimeUpsampleConfig = field(default_factory=TimeUpsampleConfig)
 	merge: MergeConfig = field(default_factory=MergeConfig)

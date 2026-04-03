@@ -583,24 +583,74 @@ def _prepare_analyzer_for_payload_extraction(
 	return analyzer
 
 
-def _load_cached_analyzers(*, si: Any, analyzer_cache_dir: Path | None) -> dict[str, Any]:
+def _load_cached_analyzers(
+	*,
+	si: Any,
+	analyzer_cache_dir: Path | None,
+	concat_analyzer_subdir: str = "concat",
+	segment_analyzers_subdir: str = "",
+) -> dict[str, Any]:
 	if analyzer_cache_dir is None or (not analyzer_cache_dir.exists()):
 		return {}
 	cached: dict[str, Any] = {}
-	for folder in sorted(p for p in analyzer_cache_dir.iterdir() if p.is_dir()):
+	concat_subdir = str(concat_analyzer_subdir or "").strip().strip("/")
+	segments_subdir = str(segment_analyzers_subdir or "").strip().strip("/")
+	concat_folder = analyzer_cache_dir / (concat_subdir or "concat")
+	if concat_folder.exists() and concat_folder.is_dir():
 		try:
-			cached[str(folder.name)] = si.load_sorting_analyzer(folder)
+			cached["concat"] = si.load_sorting_analyzer(concat_folder)
 		except Exception:
-			LOGGER.warning("Failed to load cached analyzer: %s", folder, exc_info=True)
+			LOGGER.warning("Failed to load cached concat analyzer: %s", concat_folder, exc_info=True)
+
+	segment_roots: list[Path] = []
+	if segments_subdir:
+		segment_roots.append(analyzer_cache_dir / segments_subdir)
+		# Backward compatibility: fall back to the cache root when legacy segment analyzers
+		# were persisted directly under analyzer_cache_dir.
+		segment_roots.append(analyzer_cache_dir)
+	else:
+		segment_roots.append(analyzer_cache_dir)
+
+	seen_segment_roots: set[Path] = set()
+	for segments_root in segment_roots:
+		try:
+			segments_root_resolved = segments_root.resolve()
+		except Exception:
+			segments_root_resolved = segments_root
+		if segments_root_resolved in seen_segment_roots:
+			continue
+		seen_segment_roots.add(segments_root_resolved)
+		if not segments_root.exists() or (not segments_root.is_dir()):
+			continue
+		for folder in sorted(p for p in segments_root.iterdir() if p.is_dir()):
+			if folder.resolve() == concat_folder.resolve():
+				continue
+			try:
+				cached[str(folder.name)] = si.load_sorting_analyzer(folder)
+			except Exception:
+				LOGGER.warning("Failed to load cached segment analyzer: %s", folder, exc_info=True)
 	return cached
 
 
-def _persist_analyzer_to_cache(*, analyzer: Any, analyzer_cache_dir: Path | None, analyzer_name: str) -> Any:
+def _persist_analyzer_to_cache(
+	*,
+	analyzer: Any,
+	analyzer_cache_dir: Path | None,
+	analyzer_name: str,
+	concat_analyzer_subdir: str = "concat",
+	segment_analyzers_subdir: str = "",
+) -> Any:
 	if analyzer_cache_dir is None:
 		return analyzer
 	if not hasattr(analyzer, "save_as"):
 		return analyzer
-	folder = analyzer_cache_dir / str(analyzer_name)
+	concat_subdir = str(concat_analyzer_subdir or "").strip().strip("/")
+	segments_subdir = str(segment_analyzers_subdir or "").strip().strip("/")
+	if str(analyzer_name) == "concat":
+		folder = analyzer_cache_dir / (concat_subdir or "concat")
+	else:
+		segments_root = analyzer_cache_dir / segments_subdir if segments_subdir else analyzer_cache_dir
+		folder = segments_root / str(analyzer_name)
 	folder.parent.mkdir(parents=True, exist_ok=True)
 	try:
 		if folder.exists():
@@ -759,10 +809,14 @@ def load_spikeinterface_analyzers(
 	preprocessed_segments_reldir: str | None = None,
 	preproc_seg_sources_reldir: str | None = None,
 	analyzer_cache_dir: Path | None = None,
+	analyzer_cache_concat_subdir: str = "concat",
+	analyzer_cache_segments_subdir: str = "",
 	alternate_well_out_dirs: list[Path] | tuple[Path, ...] | None = None,
 	stream_id: str | None = None,
 	include_concat: bool,
 	include_segments: bool,
+	require_concat: bool = False,
+	require_segments: bool = False,
 	waveform_ms_before: float | None = None,
 	waveform_ms_after: float | None = None,
 	waveform_max_spikes_per_unit: int | None = None,
@@ -804,7 +858,12 @@ def load_spikeinterface_analyzers(
 		segments_sources_reldir = preproc_seg_sources_reldir
 	segments_dir = _resolve_from_well(segments_sources_reldir) or (wf_out / "segment_waveforms")
 	cache_root = None if analyzer_cache_dir is None else Path(analyzer_cache_dir).expanduser().resolve()
-	cached_analyzers = _load_cached_analyzers(si=si, analyzer_cache_dir=cache_root)
+	cached_analyzers = _load_cached_analyzers(
+		si=si,
+		analyzer_cache_dir=cache_root,
+		concat_analyzer_subdir=str(analyzer_cache_concat_subdir or "concat"),
+		segment_analyzers_subdir=str(analyzer_cache_segments_subdir or ""),
+	)
 
 	def _build_concat_analyzer_from_sorting_and_recording() -> Any | None:
 		if concat_sorting_dir is None or preprocessed_concat_dir is None:
@@ -843,6 +902,8 @@ def load_spikeinterface_analyzers(
 				analyzer=built,
 				analyzer_cache_dir=cache_root,
 				analyzer_name="concat",
+				concat_analyzer_subdir=str(analyzer_cache_concat_subdir or "concat"),
+				segment_analyzers_subdir=str(analyzer_cache_segments_subdir or ""),
 			)
 			built = _prepare_analyzer_for_payload_extraction(
 				analyzer=built,
@@ -878,7 +939,12 @@ def load_spikeinterface_analyzers(
 			if include_concat:
 				analyzers.append(("concat", concat_analyzer_obj))
 		except Exception:
-			LOGGER.warning("Failed to prepare cached concat analyzer: %s", cache_root / "concat", exc_info=True)
+			concat_cache_hint = (
+				str(cache_root / (str(analyzer_cache_concat_subdir or "concat").strip().strip("/") or "concat"))
+				if cache_root is not None
+				else "<cache_root:None>"
+			)
+			LOGGER.warning("Failed to prepare cached concat analyzer: %s", concat_cache_hint, exc_info=True)
 	elif concat_dir.exists():
 		try:
 			concat_analyzer_obj = si.load_sorting_analyzer(concat_dir)
@@ -886,6 +952,8 @@ def load_spikeinterface_analyzers(
 				analyzer=concat_analyzer_obj,
 				analyzer_cache_dir=cache_root,
 				analyzer_name="concat",
+				concat_analyzer_subdir=str(analyzer_cache_concat_subdir or "concat"),
+				segment_analyzers_subdir=str(analyzer_cache_segments_subdir or ""),
 			)
 			concat_analyzer_obj = _prepare_analyzer_for_payload_extraction(
 				analyzer=concat_analyzer_obj,
@@ -917,6 +985,8 @@ def load_spikeinterface_analyzers(
 				analyzer=concat_analyzer_obj,
 				analyzer_cache_dir=cache_root,
 				analyzer_name="concat",
+				concat_analyzer_subdir=str(analyzer_cache_concat_subdir or "concat"),
+				segment_analyzers_subdir=str(analyzer_cache_segments_subdir or ""),
 			)
 			concat_analyzer_obj = _prepare_analyzer_for_payload_extraction(
 				analyzer=concat_analyzer_obj,
@@ -951,7 +1021,19 @@ def load_spikeinterface_analyzers(
 					analyzers.append((seg_name, seg_analyzer))
 					continue
 				except Exception:
-					LOGGER.warning("Failed to prepare cached segment analyzer: %s", cache_root / seg_name, exc_info=True)
+					segment_cache_hint = (
+						str(
+							(
+								(cache_root / str(analyzer_cache_segments_subdir).strip().strip("/"))
+								if str(analyzer_cache_segments_subdir or "").strip().strip("/")
+								else cache_root
+							)
+							/ str(seg_name)
+						)
+						if cache_root is not None
+						else "<cache_root:None>"
+					)
+					LOGGER.warning("Failed to prepare cached segment analyzer: %s", segment_cache_hint, exc_info=True)
 			seg_dir = seg_dir_by_name.get(seg_name, None)
 			if seg_dir is None:
 				continue
@@ -961,6 +1043,8 @@ def load_spikeinterface_analyzers(
 					analyzer=seg_analyzer,
 					analyzer_cache_dir=cache_root,
 					analyzer_name=seg_name,
+					concat_analyzer_subdir=str(analyzer_cache_concat_subdir or "concat"),
+					segment_analyzers_subdir=str(analyzer_cache_segments_subdir or ""),
 				)
 				seg_analyzer = _prepare_analyzer_for_payload_extraction(
 					analyzer=seg_analyzer,
@@ -1046,6 +1130,8 @@ def load_spikeinterface_analyzers(
 						analyzer=built,
 						analyzer_cache_dir=cache_root,
 						analyzer_name=seg_name,
+						concat_analyzer_subdir=str(analyzer_cache_concat_subdir or "concat"),
+						segment_analyzers_subdir=str(analyzer_cache_segments_subdir or ""),
 					)
 					built = _prepare_analyzer_for_payload_extraction(
 						analyzer=built,
@@ -1070,7 +1156,22 @@ def load_spikeinterface_analyzers(
 	if include_segments and (not segments_dir.exists()) and (len([k for k in cached_analyzers.keys() if k != "concat"]) == 0):
 		LOGGER.info("Segment analyzers directory not found: %s", segments_dir)
 
-	if not analyzers:
+	has_concat = any(name == "concat" for name, _ in analyzers)
+	has_segments = any(name != "concat" for name, _ in analyzers)
+	requirements_unmet = (
+		(bool(require_concat) and bool(include_concat) and (not has_concat))
+		or (bool(require_segments) and bool(include_segments) and (not has_segments))
+	)
+	if requirements_unmet:
+		LOGGER.warning(
+			"Required analyzer sources missing after load/build: require_concat=%s require_segments=%s has_concat=%s has_segments=%s",
+			bool(require_concat),
+			bool(require_segments),
+			bool(has_concat),
+			bool(has_segments),
+		)
+
+	if (not analyzers) or requirements_unmet:
 		fallback_well_out_dirs: list[Path] = []
 		seen_fallbacks: set[Path] = set()
 		for candidate in list(alternate_well_out_dirs or []):
@@ -1100,10 +1201,14 @@ def load_spikeinterface_analyzers(
 					preprocessed_segments_reldir=preprocessed_segments_reldir,
 					preproc_seg_sources_reldir=preproc_seg_sources_reldir,
 					analyzer_cache_dir=analyzer_cache_dir,
+					analyzer_cache_concat_subdir=analyzer_cache_concat_subdir,
+					analyzer_cache_segments_subdir=analyzer_cache_segments_subdir,
 					alternate_well_out_dirs=None,
 					stream_id=stream_id,
 					include_concat=include_concat,
 					include_segments=include_segments,
+					require_concat=require_concat,
+					require_segments=require_segments,
 					waveform_ms_before=waveform_ms_before,
 					waveform_ms_after=waveform_ms_after,
 					waveform_max_spikes_per_unit=waveform_max_spikes_per_unit,
@@ -1117,12 +1222,15 @@ def load_spikeinterface_analyzers(
 			"No SpikeInterface analyzers found for templates materialization. "
 			f"checked concat={concat_dir} segments={segments_dir}"
 			f" sorting={concat_sorting_dir} preprocessed_concat={preprocessed_concat_dir}"
+			f" require_concat={bool(require_concat)} require_segments={bool(require_segments)}"
 			f"{'; fallback_well_out_dirs=[' + fallback_text + ']' if fallback_text else ''}."
 		)
 	LOGGER.info(
-		"Loaded SpikeInterface analyzers from concat=%s segments=%s count=%d",
+		"Loaded SpikeInterface analyzers from concat=%s segments=%s count=%d include_concat=%s include_segments=%s",
 		str(concat_dir),
 		str(segments_dir),
 		len(analyzers),
+		bool(include_concat),
+		bool(include_segments),
 	)
 	return analyzers

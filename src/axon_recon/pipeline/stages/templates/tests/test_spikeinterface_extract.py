@@ -4,6 +4,7 @@ import json
 import sys
 import types
 import numpy as np
+import pytest
 
 from axon_recon.pipeline.stages.templates.integrations.spikeinterface_extract import (
 	build_unit_source_payload,
@@ -639,3 +640,99 @@ def test_load_spikeinterface_analyzers_builds_concat_from_sorting_and_preprocess
 	assert create_calls[0][1] is fake_recording
 	assert create_calls[0][2] == "memory"
 	assert create_calls[0][3] is True
+
+
+def test_load_spikeinterface_analyzers_persists_cache_with_configured_subdirs(tmp_path, monkeypatch) -> None:
+	well_out_dir = tmp_path / "well001"
+	concat_dir = well_out_dir / "custom_concat"
+	segments_dir = well_out_dir / "custom_segments"
+	seg_a = segments_dir / "segA"
+	seg_b = segments_dir / "segB"
+	cache_dir = well_out_dir / "templates_outputs" / "cache" / "analyzers"
+	concat_dir.mkdir(parents=True, exist_ok=True)
+	seg_a.mkdir(parents=True, exist_ok=True)
+	seg_b.mkdir(parents=True, exist_ok=True)
+
+	save_calls: list[tuple[str, str, str]] = []
+
+	class _FakeAnalyzer:
+		def __init__(self, source_path: str) -> None:
+			self.source_path = str(source_path)
+
+		def has_extension(self, name: str) -> bool:
+			_ = name
+			return True
+
+		def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1) -> None:
+			_ = names, extension_params, verbose, n_jobs
+
+		def save_as(self, format="memory", folder=None, backend_options=None):
+			_ = backend_options
+			save_calls.append((self.source_path, str(folder), str(format)))
+			folder.mkdir(parents=True, exist_ok=True)
+			return self
+
+	def _fake_load_sorting_analyzer(path):
+		return _FakeAnalyzer(str(path))
+
+	fake_full = types.ModuleType("spikeinterface.full")
+	fake_full.load_sorting_analyzer = _fake_load_sorting_analyzer  # type: ignore[attr-defined]
+	fake_root = types.ModuleType("spikeinterface")
+	fake_root.full = fake_full  # type: ignore[attr-defined]
+
+	monkeypatch.setitem(sys.modules, "spikeinterface", fake_root)
+	monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_full)
+
+	analyzers = load_spikeinterface_analyzers(
+		well_out_dir=well_out_dir,
+		concat_analyzer_relpath="/custom_concat",
+		preproc_seg_sources_reldir="/custom_segments",
+		analyzer_cache_dir=cache_dir,
+		analyzer_cache_concat_subdir="concat_custom",
+		analyzer_cache_segments_subdir="segments_custom",
+		include_concat=True,
+		include_segments=True,
+	)
+
+	assert len(analyzers) == 3
+	assert len(save_calls) == 3
+	assert (str(concat_dir), str(cache_dir / "concat_custom"), "binary_folder") in save_calls
+	assert (str(seg_a), str(cache_dir / "segments_custom" / "segA"), "binary_folder") in save_calls
+	assert (str(seg_b), str(cache_dir / "segments_custom" / "segB"), "binary_folder") in save_calls
+
+
+def test_load_spikeinterface_analyzers_raises_when_segments_required_but_missing(tmp_path, monkeypatch) -> None:
+	well_out_dir = tmp_path / "well001"
+	concat_dir = well_out_dir / "custom_concat"
+	concat_dir.mkdir(parents=True, exist_ok=True)
+
+	class _FakeAnalyzer:
+		def has_extension(self, name: str) -> bool:
+			_ = name
+			return True
+
+		def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1) -> None:
+			_ = names, extension_params, verbose, n_jobs
+
+	def _fake_load_sorting_analyzer(path):
+		if str(path) == str(concat_dir):
+			return _FakeAnalyzer()
+		raise RuntimeError("unexpected analyzer path")
+
+	fake_full = types.ModuleType("spikeinterface.full")
+	fake_full.load_sorting_analyzer = _fake_load_sorting_analyzer  # type: ignore[attr-defined]
+	fake_root = types.ModuleType("spikeinterface")
+	fake_root.full = fake_full  # type: ignore[attr-defined]
+
+	monkeypatch.setitem(sys.modules, "spikeinterface", fake_root)
+	monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_full)
+
+	with pytest.raises(FileNotFoundError, match="require_segments=True"):
+		load_spikeinterface_analyzers(
+			well_out_dir=well_out_dir,
+			concat_analyzer_relpath="/custom_concat",
+			preproc_seg_sources_reldir="/missing_segments",
+			include_concat=True,
+			include_segments=True,
+			require_segments=True,
+		)

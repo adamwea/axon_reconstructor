@@ -244,7 +244,7 @@ stages:
       #unit_limit: 10
 
       # Optional explicit unit subset for fast, deterministic reruns.
-      #unit_ids: [1, 3, 7, 10, 17, 20, 22, 23, 24, 28]
+      unit_ids: [1, 3, 7, 10, 17, 20, 22, 23, 24, 28]
 
       inputs:
         # Input path handling (paths are resolved relative to the per-well output root when using leading '/').
@@ -253,11 +253,12 @@ stages:
         # 3) Segment sources are discovered under preprocessed_segments_reldir.
         #    - If child dirs are analyzers, they are loaded directly.
         #    - If child dirs are preprocessed recordings, segment analyzers are built from concat sorting windows.
-        preprocessed_segments_reldir: /preprocess_outputs/per_segment_recordings
+        preprocessed_segments_reldir: /preprocess_outputs/per_segment_preprocessed
         preprocessed_concat_reldir: /preprocess_outputs/preprocessed_recording
         concat_sorting_relpath: /spikesort_outputs/sorter_output
         concat_analyzer_relpath: /spikesort_outputs/analyzer_output
 
+      output_rel_root: templates_outputs
       spikeinterface:
         waveform_extraction:
           window:
@@ -273,6 +274,9 @@ stages:
           sources:
             include_concat: true
             include_segments: true
+            # Enforce both sources when include_* is true: fail instead of silently running concat-only.
+            require_concat: true
+            require_segments: true
 
       upsampling:
         enable: true
@@ -315,7 +319,10 @@ stages:
       output_rel_root: template_outputs
       analyzer_cache:
         enabled: true
-        relpath: cache/analyzers
+        #relpath: cache/analyzers
+        relpath_root: cache/analyzers
+        concat_analyzer_subdir: concat
+        segment_analyzers_subdir: segments
         cleanup_on_success: false
       data_outputs:
         quality_checks:
@@ -833,7 +840,7 @@ stages:
       force_restart: false
       force_replot: true
       force_replot_per_unit: false #TODO: Make sure this is wired up
-      #unit_ids: [1, 3, 7, 10, 17, 20, 22, 23, 24, 28]
+      unit_ids: [1, 3, 7, 10, 17, 20, 22, 23, 24, 28]
     resources:
       max_stage_workers: 4
       well_workers: 1

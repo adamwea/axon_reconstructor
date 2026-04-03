@@ -857,6 +857,8 @@ class TemplatesStageConfig:
 	require_curated_units: bool
 	include_concat: bool
 	include_segments: bool
+	require_concat_analyzer: bool
+	require_segment_analyzers: bool
 	waveform_extraction: WaveformExtractionConfig
 	execution_upsampling: TimeUpsampleConfig
 	merge: MergeConfig
@@ -946,6 +948,24 @@ def parse_templates_stage_config(
 	spk_tpl_extract_sources = spk_tpl_extract.get("sources", {}) if isinstance(spk_tpl_extract.get("sources", {}), dict) else {}
 	include_concat = _as_bool(spk_tpl_extract_sources.get("include_concat", True), True)
 	include_segments = _as_bool(spk_tpl_extract_sources.get("include_segments", True), True)
+	require_concat_analyzer = _as_bool(
+		spk_tpl_extract_sources.get(
+			"require_concat",
+			spk_tpl_extract_sources.get("require_concat_analyzer", False),
+		),
+		False,
+	)
+	require_segment_analyzers = _as_bool(
+		spk_tpl_extract_sources.get(
+			"require_segments",
+			spk_tpl_extract_sources.get("require_segment_analyzers", False),
+		),
+		False,
+	)
+	if not bool(include_concat):
+		require_concat_analyzer = False
+	if not bool(include_segments):
+		require_segment_analyzers = False
 	waveform_extraction = _build_waveform_extraction_config(
 		execution_cfg=execution_cfg,
 		runtime_config=runtime_config,
@@ -1952,7 +1972,9 @@ def parse_templates_stage_config(
 	)
 	analyzer_cache = AnalyzerCacheConfig(
 		enabled=_as_bool(analyzer_cache_cfg.get("enabled", True), True),
-		relpath=str(analyzer_cache_cfg.get("relpath", "analyzers") or "analyzers"),
+		relpath=str(analyzer_cache_cfg.get("relpath", analyzer_cache_cfg.get("relpath_root", "analyzers")) or "analyzers"),
+		concat_analyzer_subdir=str(analyzer_cache_cfg.get("concat_analyzer_subdir", "concat") or "concat").strip().strip("/"),
+		segment_analyzers_subdir=str(analyzer_cache_cfg.get("segment_analyzers_subdir", "") or "").strip().strip("/"),
 		cleanup_on_success=_as_bool(analyzer_cache_cfg.get("cleanup_on_success", False), False),
 		reuse_on_force_restart=_as_bool(analyzer_cache_cfg.get("reuse_on_force_restart", False), False),
 	)
@@ -2515,6 +2537,8 @@ def parse_templates_stage_config(
 		require_curated_units=require_curated_units,
 		include_concat=include_concat,
 		include_segments=include_segments,
+		require_concat_analyzer=require_concat_analyzer,
+		require_segment_analyzers=require_segment_analyzers,
 		waveform_extraction=waveform_extraction,
 		execution_upsampling=execution_upsampling,
 		merge=merge,
@@ -2555,6 +2579,8 @@ def build_templates_inputs_for_target(
 		require_curated_units=stage_config.require_curated_units,
 		include_concat=stage_config.include_concat,
 		include_segments=stage_config.include_segments,
+		require_concat_analyzer=stage_config.require_concat_analyzer,
+		require_segment_analyzers=stage_config.require_segment_analyzers,
 		waveform_extraction=stage_config.waveform_extraction,
 		execution_upsampling=stage_config.execution_upsampling,
 		merge=stage_config.merge,
@@ -2649,6 +2675,8 @@ def load_templates_inputs_from_runtime(
 		require_curated_units=stage_cfg.require_curated_units,
 		include_concat=stage_cfg.include_concat,
 		include_segments=stage_cfg.include_segments,
+		require_concat_analyzer=stage_cfg.require_concat_analyzer,
+		require_segment_analyzers=stage_cfg.require_segment_analyzers,
 		waveform_extraction=stage_cfg.waveform_extraction,
 		execution_upsampling=stage_cfg.execution_upsampling,
 		merge=stage_cfg.merge,

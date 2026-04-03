@@ -2459,3 +2459,55 @@ def test_load_templates_inputs_includes_probe_geometry_from_data_config(tmp_path
 	assert inputs.probe_geometry.electrode_size_um_y == 8.8
 	assert inputs.probe_geometry.active_area_um_x == 3850.0
 	assert inputs.probe_geometry.active_area_um_y == 2100.0
+
+
+def test_load_templates_config_parses_analyzer_cache_subdirs_and_require_flags(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    execution:
+			      spikeinterface:
+			        template_extraction:
+			          sources:
+			            include_concat: true
+			            include_segments: true
+			            require_concat: true
+			            require_segments: true
+			    outputs:
+			      analyzer_cache:
+			        enabled: true
+			        relpath_root: cache/analyzers
+			        concat_analyzer_subdir: concat_custom
+			        segment_analyzers_subdir: segments_custom
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.analyzer_cache.enabled is True
+	assert inputs.analyzer_cache.relpath == "cache/analyzers"
+	assert inputs.analyzer_cache.relpath_root == "cache/analyzers"
+	assert inputs.analyzer_cache.concat_analyzer_subdir == "concat_custom"
+	assert inputs.analyzer_cache.segment_analyzers_subdir == "segments_custom"
+	assert inputs.require_concat_analyzer is True
+	assert inputs.require_segment_analyzers is True
