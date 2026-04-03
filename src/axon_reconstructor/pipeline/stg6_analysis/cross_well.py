@@ -13,6 +13,7 @@ from typing import Any, Iterable
 import numpy as np
 
 from axon_reconstructor.env_utils import load_env_file_into_os
+from ..stg2_spikesorting.runner import LEGACY_SPIKESORTING_OUTPUTS_DIRNAME, SPIKESORTING_OUTPUTS_DIRNAME
 from . import cross_well_decks as cw_decks
 from . import cross_well_plotting as cw_plots
 from . import cross_well_stats as cw_stats
@@ -247,11 +248,21 @@ def branch_length_um(branch: dict[str, Any]) -> float | None:
 def load_detected_unit_ids(well_dir: Path) -> list[int] | None:
     info_path = (
         well_dir
-        / "stg2_spikesorting_outputs"
+        / SPIKESORTING_OUTPUTS_DIRNAME
         / "analyzer_output"
         / "sorting"
         / "numpysorting_info.json"
     )
+    if not info_path.exists():
+        legacy_info_path = (
+            well_dir
+            / LEGACY_SPIKESORTING_OUTPUTS_DIRNAME
+            / "analyzer_output"
+            / "sorting"
+            / "numpysorting_info.json"
+        )
+        if legacy_info_path.exists():
+            info_path = legacy_info_path
     if not info_path.exists():
         return None
     info = _read_json(info_path)

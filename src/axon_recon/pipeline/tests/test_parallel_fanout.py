@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from axon_recon.pipeline.config import (
     load_pipeline_runtime_bundle,
     resolve_stage_parallelism,
@@ -19,14 +21,17 @@ datasets:
     include_in_runtime: false
     wells:
       - well_id: well001
+        include_in_runtime: true
   - raw_data_h5_path: /tmp/ds1.h5
     include_in_runtime: true
     wells:
       - well_id: well001
+        include_in_runtime: true
   - raw_data_h5_path: /tmp/ds2.h5
     include_in_runtime: true
     wells:
       - well_id: well001
+        include_in_runtime: true
 """.strip()
         + "\n",
         encoding="utf-8",
@@ -53,6 +58,76 @@ stages:
     assert targets[1].h5_path.name == "ds2.h5"
 
 
+def test_select_execution_targets_requires_dataset_and_well_runtime_flags(tmp_path: Path) -> None:
+    data_path = tmp_path / "debug.data.yml"
+    data_path.write_text(
+        """
+output_root: /tmp/out
+datasets:
+  - raw_data_h5_path: /tmp/ds0.h5
+    include_in_runtime: false
+    wells:
+      - well_id: well000
+        include_in_runtime: true
+  - raw_data_h5_path: /tmp/ds1.h5
+    include_in_runtime: true
+    wells:
+      - well_id: well000
+        include_in_runtime: false
+      - well_id: well001
+        include_in_runtime: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "debug.runtime.yml"
+    runtime_path.write_text(
+        f"""
+data: {data_path}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = load_pipeline_runtime_bundle(config_path=str(runtime_path))
+    targets = select_execution_targets(bundle=bundle)
+
+    assert len(targets) == 1
+    assert targets[0].h5_path.name == "ds1.h5"
+    assert targets[0].stream_id == "well001"
+
+
+def test_select_execution_targets_errors_when_no_dataset_enabled(tmp_path: Path) -> None:
+    data_path = tmp_path / "debug.data.yml"
+    data_path.write_text(
+        """
+output_root: /tmp/out
+datasets:
+  - raw_data_h5_path: /tmp/ds0.h5
+    include_in_runtime: false
+    wells:
+      - well_id: well001
+        include_in_runtime: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "debug.runtime.yml"
+    runtime_path.write_text(
+        f"""
+data: {data_path}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = load_pipeline_runtime_bundle(config_path=str(runtime_path))
+    with pytest.raises(ValueError, match="No datasets enabled for runtime execution"):
+        select_execution_targets(bundle=bundle)
+
+
 def test_stage_parallelism_derives_unit_workers_like_legacy(tmp_path: Path) -> None:
     data_path = tmp_path / "debug.data.yml"
     data_path.write_text(
@@ -63,6 +138,7 @@ datasets:
     include_in_runtime: true
     wells:
       - well_id: well001
+        include_in_runtime: true
 """.strip()
         + "\n",
         encoding="utf-8",
@@ -103,11 +179,13 @@ datasets:
     include_in_runtime: true
     wells:
       - well_id: well001
+        include_in_runtime: true
   - raw_data_h5_path: /tmp/ds2.h5
     include_in_runtime: true
     scratch_root: /tmp/dataset_scratch
     wells:
       - well_id: well001
+        include_in_runtime: true
 """.strip()
         + "\n",
         encoding="utf-8",
@@ -149,11 +227,13 @@ datasets:
     include_in_runtime: true
     wells:
       - well_id: well001
+        include_in_runtime: true
   - raw_data_h5_path: /tmp/ds2.h5
     include_in_runtime: true
     scratch_root: /tmp/dataset_scratch
     wells:
       - well_id: well001
+        include_in_runtime: true
 """.strip()
         + "\n",
         encoding="utf-8",
@@ -195,6 +275,7 @@ datasets:
     include_in_runtime: true
     wells:
       - well_id: well001
+        include_in_runtime: true
 """.strip()
         + "\n",
         encoding="utf-8",
@@ -240,7 +321,9 @@ datasets:
     include_in_runtime: true
     wells:
       - well_id: well000
+        include_in_runtime: true
       - well_id: well001
+        include_in_runtime: true
 """.strip()
         + "\n",
         encoding="utf-8",
@@ -292,11 +375,13 @@ datasets:
     use_scratch_input_root: false
     wells:
       - well_id: well000
+        include_in_runtime: true
   - raw_data_h5_path: {ds2_h5}
     include_in_runtime: true
     scratch_input_root: {dataset_scratch_input}
     wells:
       - well_id: well000
+        include_in_runtime: true
 """.strip()
         + "\n",
         encoding="utf-8",

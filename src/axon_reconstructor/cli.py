@@ -1610,10 +1610,12 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         elif not isinstance(av_params, dict):
             raise ValueError("stage_kwargs.axon_velocity_params must be a mapping")
 
-        av_cfg = runtime_config.get("stages.reconstruct.av", default=None)
-        if av_cfg is not None:
+        for cfg_path in ("stages.reconstruct.av", "stages.reconstruct.axon_velocity"):
+            av_cfg = runtime_config.get(cfg_path, default=None)
+            if av_cfg is None:
+                continue
             if not isinstance(av_cfg, dict):
-                raise ValueError("stages.reconstruct.av must be a mapping/object")
+                raise ValueError(f"{cfg_path} must be a mapping/object")
             for key, value in av_cfg.items():
                 av_params[str(key)] = value
 

@@ -634,6 +634,9 @@ class TemplatesInputs:
 	final_output_root: Path | None = None
 	artifact_lookup_roots: tuple[Path, ...] = field(default_factory=tuple)
 	concat_analyzer_relpath: str | None = None
+	concat_sorting_relpath: str | None = None
+	preprocessed_concat_reldir: str | None = None
+	preprocessed_segments_reldir: str | None = None
 	preproc_seg_sources_reldir: str | None = None
 
 	output_rel_root: str = "templates_outputs"

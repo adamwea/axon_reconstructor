@@ -20,7 +20,8 @@ from ..checkpointing import compute_stage_checkpoint_file, save_stage_completed,
 from ..stg1_preprocessing.constants import LEGACY_PREPROCESS_OUTPUTS_DIRNAME, PREPROCESS_OUTPUTS_DIRNAME
 
 
-SPIKESORTING_OUTPUTS_DIRNAME = "stg2_spikesorting_outputs"
+SPIKESORTING_OUTPUTS_DIRNAME = "spikesort_outputs"
+LEGACY_SPIKESORTING_OUTPUTS_DIRNAME = "stg2_spikesorting_outputs"
 
 
 def _recording_profile_from_h5(h5_path: Path) -> str:
@@ -38,6 +39,9 @@ class SpikeSortingInputs:
     stream_id: str
 
     mea_output_root: Path
+
+    # Per-well spikesort output subdirectory (under MEA_Analysis well output root).
+    output_subdir_after_well: str = SPIKESORTING_OUTPUTS_DIRNAME
 
     # Logging controls
     log_enabled: bool = True
@@ -166,6 +170,9 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         data_file=inputs.h5_path,
         well=inputs.stream_id,
     )
+    output_subdir_after_well = str(getattr(inputs, "output_subdir_after_well", SPIKESORTING_OUTPUTS_DIRNAME) or "").strip()
+    if not output_subdir_after_well:
+        output_subdir_after_well = SPIKESORTING_OUTPUTS_DIRNAME
 
     # Configure spikesort stage logging before emitting runtime snapshot lines.
     if bool(inputs.log_enabled):
@@ -262,7 +269,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         state=axon_ckpt,
         stage=AxonProcessingStage.SORTING,
         extra_fields={
-            "spikesorting_out_dir": str(well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME),
+            "spikesorting_out_dir": str(well_out_dir / output_subdir_after_well),
             "recording_profile": str(_recording_profile_from_h5(inputs.h5_path)),
             "checkpoint_owner": "axon_reconstructor_wrapper",
             "delegate_checkpoint_owner": "MEA_Analysis",
@@ -391,7 +398,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         stream_id=inputs.stream_id,
         recording_num=inputs.recording_num,
         output_root=str(inputs.mea_output_root),
-        output_subdir_after_well=SPIKESORTING_OUTPUTS_DIRNAME,
+        output_subdir_after_well=output_subdir_after_well,
         checkpoint_root=None,
         sorter=inputs.sorter,
         docker_image=inputs.docker_image,
@@ -500,7 +507,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
             failed_stage="SPIKESORT",
             error=e,
             extra_fields={
-                "spikesorting_out_dir": str(well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME),
+                "spikesorting_out_dir": str(well_out_dir / output_subdir_after_well),
                 "recording_profile": str(_recording_profile_from_h5(inputs.h5_path)),
                 "checkpoint_owner": "axon_reconstructor_wrapper",
                 "delegate_checkpoint_owner": "MEA_Analysis",

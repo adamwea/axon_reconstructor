@@ -15,7 +15,7 @@ def test_parse_spikesort_stage_config_defaults() -> None:
 
     parsed = parse_spikesort_stage_config(runtime_config=cfg)
 
-    assert parsed.output_rel_root == "stg2_spikesorting_outputs"
+    assert parsed.output_rel_root == "spikesort_outputs"
     assert parsed.logging_enabled is True
     assert parsed.logging_verbose is False
     assert parsed.logging_file_relpath is None
@@ -54,7 +54,7 @@ def test_parse_spikesort_stage_config_force_overrides_take_precedence() -> None:
                         "n_jobs": 8,
                     },
                     "outputs": {
-                        "output_rel_root": "/spikesort_v2",
+                        "output_root": "/spikesort_v2",
                     },
                 }
             }
@@ -197,7 +197,7 @@ def test_parse_spikesort_stage_config_normalizes_legacy_output_rel_root() -> Non
             "stages": {
                 "spikesort": {
                     "outputs": {
-                        "output_rel_root": "spikesort_outputs",
+                        "output_rel_root": "stg2_spikesorting_outputs",
                     }
                 }
             }
@@ -206,7 +206,7 @@ def test_parse_spikesort_stage_config_normalizes_legacy_output_rel_root() -> Non
 
     parsed = parse_spikesort_stage_config(runtime_config=cfg)
 
-    assert parsed.output_rel_root == "stg2_spikesorting_outputs"
+    assert parsed.output_rel_root == "spikesort_outputs"
 
 
 def test_load_spikesort_inputs_from_runtime_defaults_and_overrides(tmp_path: Path) -> None:
@@ -242,7 +242,7 @@ def test_load_spikesort_inputs_from_runtime_defaults_and_overrides(tmp_path: Pat
                 "    debug: {limit_segments_per_well: 2}",
                 "    plot: {mode: merged, plot_debug: true, raster_sort: unit_id, fixed_y: true}",
                 "    outputs:",
-                "      output_rel_root: spikesort_stage_outputs",
+                "      output_root: spikesort_stage_outputs",
             ]
         )
         + "\n",

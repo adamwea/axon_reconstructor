@@ -8,6 +8,7 @@ from typing import Any
 from ..stg1_preprocessing.constants import PREPROCESS_OUTPUTS_DIRNAME
 from ..stg1_preprocessing.preprocessing import apply_standard_preprocessing
 from ..stg1_preprocessing.utils import _ensure_maxwell_hdf5_plugin_path
+from ..stg2_spikesorting.runner import LEGACY_SPIKESORTING_OUTPUTS_DIRNAME, SPIKESORTING_OUTPUTS_DIRNAME
 
 logger = logging.getLogger(__name__)
 
@@ -314,13 +315,20 @@ def _resolve_mea_sorter_output_dir(
         if explicit_merged.exists():
             return explicit_merged
 
-    canonical_merged = well_out_dir / "stg2_spikesorting_outputs" / "unitmatch_outputs" / "final_merged_sorting"
+    canonical_merged = well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / "unitmatch_outputs" / "final_merged_sorting"
+    legacy_merged = well_out_dir / LEGACY_SPIKESORTING_OUTPUTS_DIRNAME / "unitmatch_outputs" / "final_merged_sorting"
     if bool(prefer_merged_sorting) and canonical_merged.exists():
         return canonical_merged
+    if bool(prefer_merged_sorting) and legacy_merged.exists():
+        return legacy_merged
 
-    p = well_out_dir / "stg2_spikesorting_outputs" / "sorter_output"
+    p = well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / "sorter_output"
     if p.exists():
         return p
+
+    legacy_stage = well_out_dir / LEGACY_SPIKESORTING_OUTPUTS_DIRNAME / "sorter_output"
+    if legacy_stage.exists():
+        return legacy_stage
 
     legacy = well_out_dir / "sorter_output"
     if legacy.exists():

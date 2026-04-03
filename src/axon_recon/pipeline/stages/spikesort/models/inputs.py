@@ -4,8 +4,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from axon_reconstructor.pipeline.stg2_spikesorting.runner import SPIKESORTING_OUTPUTS_DIRNAME
-
 
 @dataclass(frozen=True)
 class SpikesortInputs:
@@ -14,7 +12,7 @@ class SpikesortInputs:
 	mea_output_root: Path
 	final_output_root: Path | None = None
 
-	output_rel_root: str = SPIKESORTING_OUTPUTS_DIRNAME
+	output_rel_root: str = "spikesort_outputs"
 	logging_enabled: bool = True
 	logging_verbose: bool = False
 	logging_file_relpath: str | None = None

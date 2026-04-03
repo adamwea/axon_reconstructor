@@ -165,7 +165,13 @@ def parse_reconstruction_stage_config(
 	grids_cfg = reports_cfg.get("grids", {}) if isinstance(reports_cfg.get("grids", {}), dict) else {}
 	circle_recon_grid_cfg = grids_cfg.get("circle_recon_grid", {}) if isinstance(grids_cfg.get("circle_recon_grid", {}), dict) else {}
 	per_unit_cfg = outputs_cfg.get("per_unit_outputs", {}) if isinstance(outputs_cfg.get("per_unit_outputs", {}), dict) else {}
-	av_cfg = stage_cfg.get("av", {}) if isinstance(stage_cfg.get("av", {}), dict) else {}
+	av_cfg: dict[str, Any] = {}
+	legacy_av_cfg = stage_cfg.get("av", {})
+	if isinstance(legacy_av_cfg, dict):
+		av_cfg.update(dict(legacy_av_cfg))
+	canonical_av_cfg = stage_cfg.get("axon_velocity", {})
+	if isinstance(canonical_av_cfg, dict):
+		av_cfg.update(dict(canonical_av_cfg))
 	amplitude_map_cfg = _get_reconstruct_amplitude_map_block(runtime_config)
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)

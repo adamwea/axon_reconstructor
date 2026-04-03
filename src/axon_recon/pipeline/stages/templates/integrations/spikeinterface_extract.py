@@ -754,6 +754,9 @@ def load_spikeinterface_analyzers(
 	*,
 	well_out_dir: Path,
 	concat_analyzer_relpath: str | None = None,
+	concat_sorting_relpath: str | None = None,
+	preprocessed_concat_reldir: str | None = None,
+	preprocessed_segments_reldir: str | None = None,
 	preproc_seg_sources_reldir: str | None = None,
 	analyzer_cache_dir: Path | None = None,
 	alternate_well_out_dirs: list[Path] | tuple[Path, ...] | None = None,
@@ -781,11 +784,86 @@ def load_spikeinterface_analyzers(
 			p = Path(token)
 		return (well_out_dir / p).resolve()
 
+	def _load_with_methods(path: Path, method_names: tuple[str, ...]) -> Any | None:
+		for name in method_names:
+			loader = getattr(si, name, None)
+			if not callable(loader):
+				continue
+			try:
+				return loader(path)
+			except Exception:
+				continue
+		return None
+
 	wf_out = well_out_dir / "stg3_waveforms_outputs"
 	concat_dir = _resolve_from_well(concat_analyzer_relpath) or (wf_out / "concat_waveforms")
-	segments_dir = _resolve_from_well(preproc_seg_sources_reldir) or (wf_out / "segment_waveforms")
+	concat_sorting_dir = _resolve_from_well(concat_sorting_relpath)
+	preprocessed_concat_dir = _resolve_from_well(preprocessed_concat_reldir)
+	segments_sources_reldir = preprocessed_segments_reldir
+	if segments_sources_reldir is None:
+		segments_sources_reldir = preproc_seg_sources_reldir
+	segments_dir = _resolve_from_well(segments_sources_reldir) or (wf_out / "segment_waveforms")
 	cache_root = None if analyzer_cache_dir is None else Path(analyzer_cache_dir).expanduser().resolve()
 	cached_analyzers = _load_cached_analyzers(si=si, analyzer_cache_dir=cache_root)
+
+	def _build_concat_analyzer_from_sorting_and_recording() -> Any | None:
+		if concat_sorting_dir is None or preprocessed_concat_dir is None:
+			return None
+		if not concat_sorting_dir.exists() or not preprocessed_concat_dir.exists():
+			LOGGER.info(
+				"Concat analyzer build fallback skipped: sorting or recording path missing (sorting=%s recording=%s)",
+				str(concat_sorting_dir),
+				str(preprocessed_concat_dir),
+			)
+			return None
+
+		concat_sorting = _load_with_methods(concat_sorting_dir, ("load_sorting", "load_extractor", "load"))
+		if concat_sorting is None:
+			LOGGER.warning("Failed to load concat sorting for fallback build: %s", str(concat_sorting_dir))
+			return None
+
+		concat_recording = _load_with_methods(preprocessed_concat_dir, ("load_extractor", "load_recording", "load"))
+		if concat_recording is None:
+			LOGGER.warning("Failed to load preprocessed concat recording for fallback build: %s", str(preprocessed_concat_dir))
+			return None
+
+		create_sorting_analyzer = getattr(si, "create_sorting_analyzer", None)
+		if not callable(create_sorting_analyzer):
+			LOGGER.warning("Concat analyzer build fallback unavailable: spikeinterface.create_sorting_analyzer missing")
+			return None
+
+		try:
+			built = create_sorting_analyzer(
+				concat_sorting,
+				concat_recording,
+				format="memory",
+				return_in_uV=True,
+			)
+			built = _persist_analyzer_to_cache(
+				analyzer=built,
+				analyzer_cache_dir=cache_root,
+				analyzer_name="concat",
+			)
+			built = _prepare_analyzer_for_payload_extraction(
+				analyzer=built,
+				requested_max_spikes_per_unit=waveform_max_spikes_per_unit,
+				requested_ms_before=waveform_ms_before,
+				requested_ms_after=waveform_ms_after,
+			)
+			LOGGER.info(
+				"Built concat analyzer from sorting+recording fallback: sorting=%s recording=%s",
+				str(concat_sorting_dir),
+				str(preprocessed_concat_dir),
+			)
+			return built
+		except Exception:
+			LOGGER.warning(
+				"Failed concat analyzer fallback build from sorting=%s recording=%s",
+				str(concat_sorting_dir),
+				str(preprocessed_concat_dir),
+				exc_info=True,
+			)
+			return None
 
 	analyzers: list[tuple[str, Any]] = []
 	concat_analyzer_obj: Any | None = None
@@ -848,6 +926,10 @@ def load_spikeinterface_analyzers(
 			)
 		except Exception:
 			concat_analyzer_obj = None
+	if concat_analyzer_obj is None:
+		concat_analyzer_obj = _build_concat_analyzer_from_sorting_and_recording()
+		if concat_analyzer_obj is not None and include_concat and not any(name == "concat" for name, _ in analyzers):
+			analyzers.append(("concat", concat_analyzer_obj))
 
 	if include_segments and segments_dir.exists():
 		seg_dirs = sorted([p for p in segments_dir.iterdir() if p.is_dir()])
@@ -1013,6 +1095,9 @@ def load_spikeinterface_analyzers(
 				return load_spikeinterface_analyzers(
 					well_out_dir=fallback_well_out_dir,
 					concat_analyzer_relpath=concat_analyzer_relpath,
+					concat_sorting_relpath=concat_sorting_relpath,
+					preprocessed_concat_reldir=preprocessed_concat_reldir,
+					preprocessed_segments_reldir=preprocessed_segments_reldir,
 					preproc_seg_sources_reldir=preproc_seg_sources_reldir,
 					analyzer_cache_dir=analyzer_cache_dir,
 					alternate_well_out_dirs=None,
@@ -1031,6 +1116,7 @@ def load_spikeinterface_analyzers(
 		raise FileNotFoundError(
 			"No SpikeInterface analyzers found for templates materialization. "
 			f"checked concat={concat_dir} segments={segments_dir}"
+			f" sorting={concat_sorting_dir} preprocessed_concat={preprocessed_concat_dir}"
 			f"{'; fallback_well_out_dirs=[' + fallback_text + ']' if fallback_text else ''}."
 		)
 	LOGGER.info(

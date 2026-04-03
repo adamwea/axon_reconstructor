@@ -2116,8 +2116,10 @@ def test_load_templates_config_parses_waveform_extraction_controls_with_fallback
 			  templates:
 			    execution:
 			      inputs:
+			        preprocessed_segments_reldir: /preprocess_outputs/per_segment_recordings
+			        preprocessed_concat_reldir: /preprocess_outputs/preprocessed_recording
+			        concat_sorting_relpath: /spikesort_outputs/sorter_output
 			        concat_analyzer_relpath: /stg2_spikesorting_outputs/analyzer_output
-			        preproc_seg_sources_reldir: /stg1_preprocess_outputs/per_segment_preprocessed
 			      spikeinterface:
 			        waveform_extraction:
 			          window:
@@ -2134,8 +2136,11 @@ def test_load_templates_config_parses_waveform_extraction_controls_with_fallback
 	assert inputs.waveform_extraction.ms_before == 1.5
 	assert inputs.waveform_extraction.ms_after == 2.5
 	assert inputs.waveform_extraction.max_spikes_per_unit is None
+	assert inputs.preprocessed_segments_reldir == "/preprocess_outputs/per_segment_recordings"
+	assert inputs.preprocessed_concat_reldir == "/preprocess_outputs/preprocessed_recording"
+	assert inputs.concat_sorting_relpath == "/spikesort_outputs/sorter_output"
 	assert inputs.concat_analyzer_relpath == "/stg2_spikesorting_outputs/analyzer_output"
-	assert inputs.preproc_seg_sources_reldir == "/stg1_preprocess_outputs/per_segment_preprocessed"
+	assert inputs.preproc_seg_sources_reldir == "/preprocess_outputs/per_segment_recordings"
 
 	runtime_path_fallback = tmp_path / "runtime_fallback.yml"
 	runtime_path_fallback.write_text(
@@ -2160,6 +2165,63 @@ def test_load_templates_config_parses_waveform_extraction_controls_with_fallback
 	assert inputs_fallback.waveform_extraction.ms_before == 1.1
 	assert inputs_fallback.waveform_extraction.ms_after == 2.2
 	assert inputs_fallback.waveform_extraction.max_spikes_per_unit == 777
+
+
+def test_load_templates_config_supports_legacy_segment_sources_alias(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    execution:
+			      inputs:
+			        preprocessed_segments_reldir: /canonical/segments
+			        preproc_seg_sources_reldir: /legacy/segments
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.preprocessed_segments_reldir == "/canonical/segments"
+	assert inputs.preproc_seg_sources_reldir == "/canonical/segments"
+
+	runtime_legacy_only_path = tmp_path / "runtime_legacy_only.yml"
+	runtime_legacy_only_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    execution:
+			      inputs:
+			        preproc_seg_sources_reldir: /legacy/segments
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs_legacy_only = load_templates_inputs_from_runtime(config_path=str(runtime_legacy_only_path))
+	assert inputs_legacy_only.preprocessed_segments_reldir == "/legacy/segments"
+	assert inputs_legacy_only.preproc_seg_sources_reldir == "/legacy/segments"
 
 
 def test_load_templates_config_parses_execution_quality_checks_block(tmp_path: Path) -> None:

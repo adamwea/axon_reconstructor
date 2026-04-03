@@ -5,13 +5,13 @@ from pathlib import Path
 from typing import Any
 
 from axon_reconstructor.runtime_config import RuntimeConfig
-from axon_reconstructor.pipeline.stg2_spikesorting.runner import SPIKESORTING_OUTPUTS_DIRNAME
 
 from ...execution.context import ExecutionTarget
 from .models.inputs import SpikesortInputs
 
 
-_DEFAULT_OUTPUT_REL_ROOT = SPIKESORTING_OUTPUTS_DIRNAME
+_DEFAULT_OUTPUT_REL_ROOT = "spikesort_outputs"
+_LEGACY_OUTPUT_REL_ROOT = "stg2_spikesorting_outputs"
 
 
 def _as_bool(value: Any, default: bool) -> bool:
@@ -89,8 +89,8 @@ def _normalize_output_rel_root(raw: Any) -> str:
 	if not text:
 		return _DEFAULT_OUTPUT_REL_ROOT
 	text = text.lstrip("/")
-	if text == "spikesort_outputs":
-		return SPIKESORTING_OUTPUTS_DIRNAME
+	if text == _LEGACY_OUTPUT_REL_ROOT:
+		return _DEFAULT_OUTPUT_REL_ROOT
 	return text or _DEFAULT_OUTPUT_REL_ROOT
 
 
@@ -200,7 +200,9 @@ def parse_spikesort_stage_config(
 		export_to_phy = _as_bool(report_cfg.get("export_to_phy", export_to_phy), export_to_phy)
 
 	return SpikesortStageConfig(
-		output_rel_root=_normalize_output_rel_root(outputs_cfg.get("output_rel_root", _DEFAULT_OUTPUT_REL_ROOT)),
+		output_rel_root=_normalize_output_rel_root(
+			outputs_cfg.get("output_rel_root", outputs_cfg.get("output_root", _DEFAULT_OUTPUT_REL_ROOT))
+		),
 		logging_enabled=logging_enabled,
 		logging_verbose=logging_verbose,
 		logging_file_relpath=logging_file_relpath,

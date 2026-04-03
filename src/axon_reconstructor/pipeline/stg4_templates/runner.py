@@ -669,7 +669,8 @@ def extract_and_merge_templates(*, inputs: TemplateExtractInputs, logger_name_pr
         if bool(require_curated_units_effective) and curated_units_norm is None:
             raise RuntimeError(
                 "Templates stage is configured to require curated units from spikesorting metrics, "
-                "but curated units could not be derived (expected <well>/stg2_spikesorting_outputs/qm_unfiltered.xlsx). "
+                "but curated units could not be derived (expected <well>/spikesort_outputs/qm_unfiltered.xlsx; "
+                "legacy fallback: <well>/stg2_spikesorting_outputs/qm_unfiltered.xlsx). "
                 "Run spikesorting first, or pass TemplateExtractInputs(unit_ids=[...]) explicitly, "
                 "or set require_curated_units=False."
             )

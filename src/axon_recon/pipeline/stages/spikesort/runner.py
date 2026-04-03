@@ -6,7 +6,6 @@ from pathlib import Path
 
 from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_reconstructor.pipeline.stg2_spikesorting.runner import (
-	SPIKESORTING_OUTPUTS_DIRNAME,
 	SpikeSortingInputs as LegacySpikeSortingInputs,
 	run_spikesorting_stage as run_legacy_spikesorting_stage,
 )
@@ -34,6 +33,7 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 		h5_path=inputs.h5_path,
 		stream_id=inputs.stream_id,
 		mea_output_root=inputs.mea_output_root,
+		output_subdir_after_well=(str(inputs.output_rel_root).strip() or "spikesort_outputs"),
 		log_enabled=bool(inputs.logging_enabled),
 		log_verbose=bool(inputs.logging_verbose),
 		log_file_override=inputs.logging_file_relpath,
@@ -71,12 +71,6 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 	legacy_outputs = run_legacy_spikesorting_stage(inputs=legacy_inputs, logger=LOGGER)
 
 	legacy_out_dir = Path(legacy_outputs.output_dir)
-	if str(inputs.output_rel_root).strip() != SPIKESORTING_OUTPUTS_DIRNAME:
-		LOGGER.info(
-			"Ignoring spikesort output_rel_root=%s; using canonical directory=%s",
-			inputs.output_rel_root,
-			SPIKESORTING_OUTPUTS_DIRNAME,
-		)
 	spikesort_out_dir = legacy_out_dir
 	summary_json = spikesort_out_dir / "spikesort_summary.json"
 

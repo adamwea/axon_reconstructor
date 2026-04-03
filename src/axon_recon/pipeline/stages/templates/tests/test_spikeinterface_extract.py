@@ -568,3 +568,74 @@ def test_load_spikeinterface_analyzers_builds_segment_analyzers_from_preprocesse
 	assert "001_recB" in names
 	assert len(create_calls) == 2
 	assert all(call["format"] == "memory" for call in create_calls)
+
+
+def test_load_spikeinterface_analyzers_builds_concat_from_sorting_and_preprocessed_concat(tmp_path, monkeypatch) -> None:
+	well_out_dir = tmp_path / "well001"
+	sorting_dir = well_out_dir / "custom_sorting"
+	preprocessed_concat_dir = well_out_dir / "custom_preprocessed_concat"
+	sorting_dir.mkdir(parents=True, exist_ok=True)
+	preprocessed_concat_dir.mkdir(parents=True, exist_ok=True)
+
+	create_calls: list[tuple[object, object, str, bool]] = []
+
+	class _FakeSorting:
+		pass
+
+	class _FakeRecording:
+		pass
+
+	class _FakeAnalyzer:
+		def __init__(self, sorting, recording) -> None:
+			self.sorting = sorting
+			self.recording = recording
+
+	fake_sorting = _FakeSorting()
+	fake_recording = _FakeRecording()
+
+	def _fake_load_sorting_analyzer(path):
+		_ = path
+		raise RuntimeError("no concat analyzer present")
+
+	def _fake_load_sorting(path):
+		if str(path) == str(sorting_dir):
+			return fake_sorting
+		raise RuntimeError("unexpected sorting path")
+
+	def _fake_load_extractor(path):
+		if str(path) == str(preprocessed_concat_dir):
+			return fake_recording
+		raise RuntimeError("unexpected extractor path")
+
+	def _fake_create_sorting_analyzer(sorting, recording, format="memory", return_in_uV=True):
+		create_calls.append((sorting, recording, str(format), bool(return_in_uV)))
+		return _FakeAnalyzer(sorting=sorting, recording=recording)
+
+	fake_full = types.ModuleType("spikeinterface.full")
+	fake_full.load_sorting_analyzer = _fake_load_sorting_analyzer  # type: ignore[attr-defined]
+	fake_full.load_sorting = _fake_load_sorting  # type: ignore[attr-defined]
+	fake_full.load_extractor = _fake_load_extractor  # type: ignore[attr-defined]
+	fake_full.load = _fake_load_extractor  # type: ignore[attr-defined]
+	fake_full.create_sorting_analyzer = _fake_create_sorting_analyzer  # type: ignore[attr-defined]
+
+	fake_root = types.ModuleType("spikeinterface")
+	fake_root.full = fake_full  # type: ignore[attr-defined]
+
+	monkeypatch.setitem(sys.modules, "spikeinterface", fake_root)
+	monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_full)
+
+	analyzers = load_spikeinterface_analyzers(
+		well_out_dir=well_out_dir,
+		concat_sorting_relpath="/custom_sorting",
+		preprocessed_concat_reldir="/custom_preprocessed_concat",
+		include_concat=True,
+		include_segments=False,
+	)
+
+	assert len(analyzers) == 1
+	assert analyzers[0][0] == "concat"
+	assert len(create_calls) == 1
+	assert create_calls[0][0] is fake_sorting
+	assert create_calls[0][1] is fake_recording
+	assert create_calls[0][2] == "memory"
+	assert create_calls[0][3] is True

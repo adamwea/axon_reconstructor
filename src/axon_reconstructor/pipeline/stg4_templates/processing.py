@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
+from ..stg2_spikesorting.runner import LEGACY_SPIKESORTING_OUTPUTS_DIRNAME, SPIKESORTING_OUTPUTS_DIRNAME
 from .extraction import _choose_grid_source_for_unit, _gather_template_sources_for_unit, _persist_unit_templates
 from .utils import _build_merged_contributing_template_for_unit
 
@@ -125,14 +126,18 @@ def _apply_spikesorting_stage_unit_curation(
     """Filter unit_ids using spikesorting-stage quality metrics (MEA_Analysis).
 
     Waveforms stage no longer computes/owns quality metrics; the authoritative metrics
-    live at `<well>/stg2_spikesorting_outputs/qm_unfiltered.xlsx`.
+    live at `<well>/spikesort_outputs/qm_unfiltered.xlsx`.
 
     This helper applies the same curation logic used elsewhere in this repo
     (`waveforms.curation.apply_mea_analysis_curation`) and then filters `unit_ids`
     to the curated set.
     """
 
-    qm_xlsx = well_out_dir / "stg2_spikesorting_outputs" / "qm_unfiltered.xlsx"
+    qm_xlsx = well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / "qm_unfiltered.xlsx"
+    if not qm_xlsx.exists():
+        legacy_qm_xlsx = well_out_dir / LEGACY_SPIKESORTING_OUTPUTS_DIRNAME / "qm_unfiltered.xlsx"
+        if legacy_qm_xlsx.exists():
+            qm_xlsx = legacy_qm_xlsx
     if not qm_xlsx.exists():
         return unit_ids, None, None
 

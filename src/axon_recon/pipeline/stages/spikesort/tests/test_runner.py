@@ -21,11 +21,11 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
         return well_out_dir
 
     class _LegacyOutputs:
-        def __init__(self) -> None:
+        def __init__(self, output_subdir_after_well: str) -> None:
             self.recording_dir = well_out_dir / "preprocess_outputs" / "preprocessed_recording"
-            self.sorter_output_dir = well_out_dir / "stg2_spikesorting_outputs" / "sorter_output"
-            self.output_dir = well_out_dir / "stg2_spikesorting_outputs"
-            self.analyzer_dir = well_out_dir / "stg2_spikesorting_outputs" / "analyzer_output"
+            self.sorter_output_dir = well_out_dir / output_subdir_after_well / "sorter_output"
+            self.output_dir = well_out_dir / output_subdir_after_well
+            self.analyzer_dir = well_out_dir / output_subdir_after_well / "analyzer_output"
             self.merged_sorting_dir = None
             self.merged_sorter_output_dir = None
 
@@ -35,6 +35,7 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
                 "log_enabled": bool(getattr(inputs, "log_enabled")),
                 "log_verbose": bool(getattr(inputs, "log_verbose")),
                 "log_file_override": getattr(inputs, "log_file_override"),
+                "output_subdir_after_well": getattr(inputs, "output_subdir_after_well"),
                 "limit_segments_per_well": getattr(inputs, "limit_segments_per_well"),
                 "plot_mode": getattr(inputs, "plot_mode"),
                 "plot_debug": bool(getattr(inputs, "plot_debug")),
@@ -45,7 +46,7 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
                 "export_to_phy": bool(getattr(inputs, "export_to_phy")),
             }
         )
-        return _LegacyOutputs()
+        return _LegacyOutputs(str(getattr(inputs, "output_subdir_after_well")))
 
     monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", _fake_compute_mea_analysis_output_dir)
     monkeypatch.setattr(spikesort_runner, "run_legacy_spikesorting_stage", _fake_run_legacy_spikesorting_stage)
@@ -74,6 +75,7 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
     assert captured_legacy_inputs.get("log_enabled") is False
     assert captured_legacy_inputs.get("log_verbose") is True
     assert captured_legacy_inputs.get("log_file_override") == "logs/custom_spikesort.log"
+    assert captured_legacy_inputs.get("output_subdir_after_well") == "spikesort_outputs_v2"
     assert captured_legacy_inputs.get("limit_segments_per_well") == 2
     assert captured_legacy_inputs.get("plot_mode") == "merged"
     assert captured_legacy_inputs.get("plot_debug") is True
@@ -94,3 +96,4 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
     assert summary.get("inputs", {}).get("run_reports") is False
     assert summary.get("inputs", {}).get("no_curation") is True
     assert summary.get("inputs", {}).get("export_to_phy") is True
+    assert result.spikesort_out_dir == well_out_dir / "spikesort_outputs_v2"

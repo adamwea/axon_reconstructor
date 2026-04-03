@@ -6,6 +6,7 @@ from typing import Any, Optional
 from .curation import apply_mea_analysis_curation
 from .plotting import _write_waveforms_grid_pdf
 from .segments import _parse_concat_epoch_segment
+from ..stg2_spikesorting.runner import LEGACY_SPIKESORTING_OUTPUTS_DIRNAME, SPIKESORTING_OUTPUTS_DIRNAME
 
 
 def _load_spikesorting_quality_metrics(*, well_out_dir: Path, logger: Any) -> Optional[Any]:
@@ -15,9 +16,16 @@ def _load_spikesorting_quality_metrics(*, well_out_dir: Path, logger: Any) -> Op
     several metrics (e.g. presence_ratio) are sensitive to parameterization.
     """
 
-    qm_xlsx = well_out_dir / "stg2_spikesorting_outputs" / "qm_unfiltered.xlsx"
+    qm_xlsx = well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / "qm_unfiltered.xlsx"
     if not qm_xlsx.exists():
-        logger.warning("Missing spikesorting qm_unfiltered.xlsx: %s", qm_xlsx)
+        legacy_qm_xlsx = well_out_dir / LEGACY_SPIKESORTING_OUTPUTS_DIRNAME / "qm_unfiltered.xlsx"
+        if legacy_qm_xlsx.exists():
+            qm_xlsx = legacy_qm_xlsx
+        else:
+            logger.warning("Missing spikesorting qm_unfiltered.xlsx: %s", qm_xlsx)
+            return None
+
+    if not qm_xlsx.exists():
         return None
 
     try:

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ..stg1_preprocessing.constants import LEGACY_PREPROCESS_OUTPUTS_DIRNAME, PREPROCESS_OUTPUTS_DIRNAME
+from ..stg2_spikesorting.runner import LEGACY_SPIKESORTING_OUTPUTS_DIRNAME, SPIKESORTING_OUTPUTS_DIRNAME
 
 
 @dataclass(frozen=True)
@@ -189,10 +190,13 @@ def _load_branch_channels(*, branches_json: Path) -> set[int]:
 
 
 def _resolve_sorter_output_dir(*, well_out_dir: Path) -> Path:
-    p = Path(well_out_dir) / "stg2_spikesorting_outputs" / "sorter_output"
+    p = Path(well_out_dir) / SPIKESORTING_OUTPUTS_DIRNAME / "sorter_output"
     if p.exists():
         return p
-    raise FileNotFoundError(f"Missing sorter output dir under well_out_dir: {p} (and no legacy)")
+    legacy = Path(well_out_dir) / LEGACY_SPIKESORTING_OUTPUTS_DIRNAME / "sorter_output"
+    if legacy.exists():
+        return legacy
+    raise FileNotFoundError(f"Missing sorter output dir under well_out_dir: {p} (legacy checked: {legacy})")
 
 
 def _load_preprocessed_concat_fs_hz(*, well_out_dir: Path) -> float:

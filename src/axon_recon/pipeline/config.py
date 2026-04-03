@@ -225,10 +225,10 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 			enabled.append((idx, item))
 
 	if not enabled:
-		first = next(((idx, item) for idx, item in enumerate(datasets) if isinstance(item, dict)), None)
-		if first is None:
-			raise ValueError("No valid dataset entries in data config")
-		enabled = [first]
+		raise ValueError(
+			"No datasets enabled for runtime execution. Set datasets[*].include_in_runtime=true "
+			"for each recording you want to include."
+		)
 
 	output_root_raw = bundle.data_config.get("output_root", None)
 	if not output_root_raw:
@@ -302,8 +302,13 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 
 		for well_item in wells:
 			stream_id = "well000"
-			if isinstance(well_item, dict) and well_item.get("well_id"):
-				stream_id = str(well_item.get("well_id"))
+			well_enabled = False
+			if isinstance(well_item, dict):
+				well_enabled = _as_bool(well_item.get("include_in_runtime", False), False)
+				if well_item.get("well_id"):
+					stream_id = str(well_item.get("well_id"))
+			if not well_enabled:
+				continue
 
 			targets.append(
 				ExecutionTarget(
@@ -319,7 +324,10 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 			)
 
 	if not targets:
-		raise ValueError("No execution targets were produced from selected datasets")
+		raise ValueError(
+			"No execution targets were produced. Ensure both datasets[*].include_in_runtime=true "
+			"and wells[*].include_in_runtime=true for each well to run."
+		)
 
 	targets.sort(key=lambda t: (t.dataset_index, t.stream_id))
 	return targets

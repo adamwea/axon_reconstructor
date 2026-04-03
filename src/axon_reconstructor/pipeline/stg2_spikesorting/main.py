@@ -26,6 +26,8 @@ def resolve_mea_sorter_output_dir(req: SpikeSortRequest) -> Path:
 
     try:
         from axon_reconstructor.integrations.mea_analysis import (
+            LEGACY_SPIKESORTING_OUTPUTS_DIRNAME,
+            compute_mea_output_dir,
             compute_legacy_sorter_output_dir,
             compute_sorter_output_dir,
         )
@@ -51,6 +53,18 @@ def resolve_mea_sorter_output_dir(req: SpikeSortRequest) -> Path:
 
     if preferred.exists():
         return preferred
+
+    legacy_stage = (
+        compute_mea_output_dir(
+            output_root=req.mea_output_root,
+            data_file=req.data_file,
+            well=req.well,
+        )
+        / LEGACY_SPIKESORTING_OUTPUTS_DIRNAME
+        / "sorter_output"
+    )
+    if legacy_stage.exists():
+        return legacy_stage
 
     legacy = compute_legacy_sorter_output_dir(
         output_root=req.mea_output_root,

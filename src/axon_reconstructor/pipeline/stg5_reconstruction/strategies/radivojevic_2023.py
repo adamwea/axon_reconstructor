@@ -31,6 +31,7 @@ from typing import Any
 import numpy as np
 
 from ...stg1_preprocessing.constants import LEGACY_PREPROCESS_OUTPUTS_DIRNAME, PREPROCESS_OUTPUTS_DIRNAME
+from ...stg2_spikesorting.runner import LEGACY_SPIKESORTING_OUTPUTS_DIRNAME, SPIKESORTING_OUTPUTS_DIRNAME
 
 
 @dataclass(frozen=True)
@@ -218,9 +219,13 @@ def _estimate_quiet_noise_std_uv_per_us(
     if int(n_noise_windows) <= 0:
         raise ValueError(f"quiet noise n_noise_windows must be > 0, got {n_noise_windows}")
 
-    sorter_output_dir = Path(well_out_dir) / "stg2_spikesorting_outputs" / "sorter_output"
+    sorter_output_dir = Path(well_out_dir) / SPIKESORTING_OUTPUTS_DIRNAME / "sorter_output"
     if not sorter_output_dir.exists():
-        raise FileNotFoundError(f"Missing sorter output dir: {sorter_output_dir}")
+        legacy_sorter_output_dir = Path(well_out_dir) / LEGACY_SPIKESORTING_OUTPUTS_DIRNAME / "sorter_output"
+        if legacy_sorter_output_dir.exists():
+            sorter_output_dir = legacy_sorter_output_dir
+        else:
+            raise FileNotFoundError(f"Missing sorter output dir: {sorter_output_dir}")
 
     sorting = _load_sorting(sorter_output_dir=sorter_output_dir, sorter=str(sorter))
     rec = _load_preprocessed_concat_recording(well_out_dir=Path(well_out_dir))

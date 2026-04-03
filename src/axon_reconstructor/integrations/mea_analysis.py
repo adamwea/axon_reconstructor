@@ -24,7 +24,8 @@ def _load_installed_path_contract():
     return importlib.import_module("IPNAnalysis.path_contract")
 
 
-SPIKESORTING_OUTPUTS_DIRNAME = "stg2_spikesorting_outputs"
+SPIKESORTING_OUTPUTS_DIRNAME = "spikesort_outputs"
+LEGACY_SPIKESORTING_OUTPUTS_DIRNAME = "stg2_spikesorting_outputs"
 
 
 def compute_mea_relative_pattern(
@@ -79,7 +80,7 @@ def compute_spikesorting_output_dir(
 
     In axon_reconstructor, MEA_Analysis is a *step* (spike sorting), so its
     outputs live under:
-      <output_root>/<relative_pattern>/<well>/stg2_spikesorting_outputs/
+            <output_root>/<relative_pattern>/<well>/spikesort_outputs/
     """
 
     return compute_mea_output_dir(

@@ -10,6 +10,10 @@ from typing import Any
 import numpy as np  # type: ignore[import-not-found]
 
 from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir #TODO: dont import this from v1
+from axon_reconstructor.pipeline.stg2_spikesorting.runner import (
+	LEGACY_SPIKESORTING_OUTPUTS_DIRNAME,
+	SPIKESORTING_OUTPUTS_DIRNAME,
+)
 
 from .core.merge import materialize_templates_from_spikeinterface
 from .core.quality_checks import detect_multiple_negative_peaks
@@ -625,7 +629,11 @@ def _normalize_compare_token(value: Any) -> str:
 
 
 def _load_curated_units_from_spikesorting(well_out_dir: Path) -> list[Any] | None:
-	qm_xlsx = well_out_dir / "stg2_spikesorting_outputs" / "qm_unfiltered.xlsx"
+	qm_xlsx = well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / "qm_unfiltered.xlsx"
+	if not qm_xlsx.exists():
+		legacy_qm_xlsx = well_out_dir / LEGACY_SPIKESORTING_OUTPUTS_DIRNAME / "qm_unfiltered.xlsx"
+		if legacy_qm_xlsx.exists():
+			qm_xlsx = legacy_qm_xlsx
 	if not qm_xlsx.exists():
 		return None
 	try:
@@ -830,6 +838,9 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 						well_out_dir=well_out_dir,
 						templates_out_dir=templates_out_dir,
 						concat_analyzer_relpath=inputs.concat_analyzer_relpath,
+						concat_sorting_relpath=inputs.concat_sorting_relpath,
+						preprocessed_concat_reldir=inputs.preprocessed_concat_reldir,
+						preprocessed_segments_reldir=inputs.preprocessed_segments_reldir,
 						preproc_seg_sources_reldir=inputs.preproc_seg_sources_reldir,
 						analyzer_cache_dir=analyzer_cache_dir,
 						alternate_well_out_dirs=alternate_well_out_dirs,
@@ -884,6 +895,9 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 					well_out_dir=well_out_dir,
 					templates_out_dir=templates_out_dir,
 					concat_analyzer_relpath=inputs.concat_analyzer_relpath,
+					concat_sorting_relpath=inputs.concat_sorting_relpath,
+					preprocessed_concat_reldir=inputs.preprocessed_concat_reldir,
+					preprocessed_segments_reldir=inputs.preprocessed_segments_reldir,
 					preproc_seg_sources_reldir=inputs.preproc_seg_sources_reldir,
 					analyzer_cache_dir=analyzer_cache_dir,
 					alternate_well_out_dirs=alternate_well_out_dirs,
@@ -939,7 +953,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		if curated is None:
 			raise RuntimeError(
 				"Templates stage requires curated units, but curated units file was not found/readable at "
-				f"{well_out_dir / 'stg2_spikesorting_outputs' / 'qm_unfiltered.xlsx'}"
+				f"{well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / 'qm_unfiltered.xlsx'}"
 			)
 		unit_ids = _apply_curated_filter(unit_ids, curated)
 		LOGGER.info("Templates stage curated filter retained %d unit(s)", len(unit_ids))
@@ -1744,6 +1758,9 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		"require_curated_units": bool(inputs.require_curated_units),
 		"execution_inputs": {
 			"concat_analyzer_relpath": inputs.concat_analyzer_relpath,
+			"concat_sorting_relpath": inputs.concat_sorting_relpath,
+			"preprocessed_concat_reldir": inputs.preprocessed_concat_reldir,
+			"preprocessed_segments_reldir": inputs.preprocessed_segments_reldir,
 			"preproc_seg_sources_reldir": inputs.preproc_seg_sources_reldir,
 		},
 		"include_concat": bool(inputs.include_concat),

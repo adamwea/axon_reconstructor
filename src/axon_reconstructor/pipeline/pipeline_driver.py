@@ -19,6 +19,7 @@ from .alias_modules.waveforms import WaveformExtractInputs, extract_waveforms
 from .output_paths import compute_mea_analysis_output_dir
 from .publish import publish_path_to_final, remap_path_string_to_final
 from .scope_config import ScopeConfig
+from .stg2_spikesorting.runner import LEGACY_SPIKESORTING_OUTPUTS_DIRNAME, SPIKESORTING_OUTPUTS_DIRNAME
 
 
 STAGE_CHOICES = ("preprocess", "spikesort", "waveforms", "templates", "reconstruct", "analysis")
@@ -590,7 +591,13 @@ def _expected_sorter_output_dir(*, target: ScopeTarget) -> Path:
         data_file=target.h5_path,
         well=target.stream_id,
     )
-    return well_out_dir / "stg2_spikesorting_outputs" / "sorter_output"
+    canonical = well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / "sorter_output"
+    if canonical.exists():
+        return canonical
+    legacy = well_out_dir / LEGACY_SPIKESORTING_OUTPUTS_DIRNAME / "sorter_output"
+    if legacy.exists():
+        return legacy
+    return canonical
 
 
 def _run_transition_stage(

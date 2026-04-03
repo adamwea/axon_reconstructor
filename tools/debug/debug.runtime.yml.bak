@@ -221,6 +221,30 @@ stages:
         max: -1
         keep_all: false
 
+  waveforms:
+    execution:
+      debug: false
+      force_restart: false
+      force_replot: false
+    resources:
+      max_stage_workers: 24
+      well_workers: 2
+    # ms_before: 1
+    # ms_after: 2
+    ms_before: 1.5
+    ms_after: 3.5
+    #max_spikes_per_unit: 1000000
+    max_spikes_per_unit: -1
+    per_segment: true
+    per_segment_only_additional_channels: false
+    filter_by_maxwell_epochs: false
+    filter_by_segment_bounds: false
+    prefer_merged_sorting: false
+    merged_sorting_dir: null
+    debug:
+      max_units: null
+      max_segments: null
+
   templates:
 
     resources:
@@ -827,6 +851,8 @@ stages:
                 global_color_scale: true # whether to use a global color scale across all units in the grid, or individual color scales per unit. Global color scale allows for better comparison of amplitude values across units, while individual color scales can enhance visibility of spatial patterns within each unit.
                 subplot_background_color: black # background color for each subplot in the grid; separate from the color map background which is the default background color for the plot area behind the circles, which can be set in global_heatmap_defaults if desired.
 
+  # Templates stage updated to Pipeline V2 above this line. -------------------------
+
   reconstruct:
     execution:
       debug: false
@@ -839,10 +865,310 @@ stages:
       well_workers: 1
     unit_limit: 1000
 
-    #av:
+    inputs:
+      load_assets_from_v2pipeline_tempaltes_stage: true # whether to load templates stage outputs from the v2 pipeline output directory structure; if false, will attempt to load from the same directory structure as in the previous pipeline version, which may be useful for testing and comparison purposes.
+    outputs:
+      output_rel_root: recon_outputs
+      reports:
+        grids:
+          circle_recon_grid:
+            output:
+              write_pdf: false
+              pdf_relpath: reports/circle_recon_grid.pdf
+              write_png: true
+              png_relpath: reports/circle_recon_grid.png
+              write_svg: true
+              svg_relpath: reports/circle_recon_grid.svg
+              keep_temp_svg: false
+              temp_svg_relpath: reports/circle_recon_grid__temp.svg
+            display:
+              show_title: false
+            render:
+              mode: direct_replot
+              dpi: 420
+              subplot_background_color: black
+              figure_background_color: black
+      per_unit_outputs:
 
-    reconstruct_with_axon_velocity: true
-    axon_velocity:
+        # Base rel dir for all outputs for a given unit. Can be formatted with {unit_id} if desired,
+        # but should not include file name or extension components since those are specified separately for each output type below.
+        unit_reldir: units/{unit_id:04d}/
+
+        # JSON artifacts
+        write_branches_raw_json: true
+        branches_raw_relpath: branches_raw.json
+        write_branches_json: true
+        branches_relpath: branches.json
+        write_heuristics_json: true
+        heuristics_relpath: heuristics.json
+
+        # GTR artifacts
+        template_source: square # which template to use for GTR-based analyses and outputs; square, scan, or full.
+        write_gtr_pkl: true
+        gtr_pkl_relpath: gtr.pkl
+        write_gtr_json: false
+        gtr_json_relpath: gtr.json
+
+        # Per-unit amplitude map (v2 shared heatmap path)
+        write_amplitude_map_png: true
+        amplitude_map_png_relpath: maps/amplitude_map.png
+        amplitude_map:
+          relpath: maps/amplitude_map
+          color_bar:
+            {}
+
+        # Reconstruction Plots
+        recon_plots:
+          circle_recon:
+            display:
+              # TODO: Since we typically focus in on branches here instead of the channels
+              # contributing to template, color bar needs to be adjusted so it dynamically
+              # adjusts based on values in the xy scope after zooming in on branches and nodes.
+              base: template_circles # which template plot to put branch morphology on top of; circles, amplitude_map, or latency_map.
+              channel_scope: nodes_and_branches # zoom scope in on channels contributing to nodes and branches, which can help focus the plot on the relevant channels for the reconstruction; other options are contributing_channels, recorded_channels, or all_channels.
+              zoom_padding_percent: 12 # extra padding around selected node/branch channels used to set circle_recon viewport.
+              force_center_soma: true # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
+              branch_scope: raw # raw or clean; whether to plot all branches in branches_raw or only the cleaned branches in branches.
+              unique_color_per_branch: true # whether to use a unique color for each branch, which can help visually distinguish branches in complex reconstructions; if false, all branches will be the same color.
+              show_branch_labels: false # whether to draw branch ID labels on the plot, which can be useful for visually verifying branch correspondences between the plot and the branch data in the JSON outputs.
+              #color_scheme: tab20 # color scheme to use when unique_color_per_branch is true; should be a valid matplotlib categorical colormap name.
+              color_scheme: Set1
+              branch_linewidth_pt: 3.5
+              node_inline_linewidth_pt: 1.0
+              node_outline_color: white
+              node_outline_linewidth: 0.5
+              branch_outline_color: white
+              branch_outline_linewidth: 0.5
+
+
+
+            output:
+              write_png: true
+              write_svg: true
+              relpath: circle_recon
+              #dpi: 420
+              dpi: 600
+
+  ## Reconstruct Stage Updated to Pipeline V2 above this line. -------------------------
+
+      # Amplitude Map
+      amplitude_map:
+        write_png: true
+        write_svg: false
+        relpath: amplitude_map
+        # Plot style/layout controls.
+        panel_background_color: black
+        branch_color: red
+        #branch_color: cyan
+        branch_outline_color: white
+        show_minimap: true # Basically just a square in a rectangle. small rectangle in the corner of each panel showing the full grid with the zoom range highlighted.
+        minimap_position: topleft # topleft, topright, bottomleft, bottomright
+        minimap_size: 0.4 # fraction of the panel size for the minimap
+        minimap_outline_color: white
+        minimap_chip_width_mm: 3.85
+        minimap_chip_height_mm: 2.10
+        minimap_inner_box_linestyle: solid # solid, dotted, dashed
+        minimap_inner_box_linewidth: 0.6
+        minimap_include_footprint: true # whether to show the footprint heatmap of the neuron in minimap
+        #if true, check if any nodes or branches are occluded by the minimap and if so,
+        # increase zoom span as needed to prevent occlusion. Only applies if show_minimap is true.
+        minimap_prevent_occlusions: true
+        # Extra data-space clearance around nodes/branches when testing minimap occlusion.
+        minimap_clearance_um: 2.0
+        # Additional display-space buffer added to branch stroke width during occlusion tests.
+        minimap_linewidth_buffer_pt: 0.5
+        # Iterative zoom expansion controls for minimap occlusion avoidance.
+        minimap_occlusion_max_iters: 10
+        minimap_occlusion_growth_factor: 1.15
+        node_radius_um: 5
+        soma_node_radius_um: 8
+        soma_node_color: orange # e.g. cyan, yellow, magenta
+        #zoom_priority: "branches" # channels or branches. If channels, zoom range is determined by the channels contributing to the branch. If branches, zoom range is determined by the spatial extent of the branch itself (with some padding).
+        zoom_priority: "channels" # channels or branches. If channels, zoom range is determined by the channels contributing to the branch. If branches, zoom range is determined by the spatial extent of the branch itself (with some padding).
+        zoom_padding_percent: 20 # percentage padding of selected zoom span (20 => 20%)
+        # whether to force the plot to be centered on the soma.
+        # e.g. if zoom_priority is "branches", while force_soma_centering is false, the grid will be zoomed to the branches.
+        # however if force_soma_centering is true AND zoom_priority is "branches", the grid will be centered on the soma
+        # and zoom span will increase as needed to include the branches (with zoom_padding_percent padding).
+        # similar adjustments are made when zoom_priority is "channels" as needed and so long centering is possible
+        # given the spatial distribution of the channels and branches.
+        force_soma_centering: false
+        color_bar:
+          {}
+        soma_xy_coords: # print soma xy coordinates on the panel.
+          show: true
+          color: white
+          fontsize: 6
+          location: bottom left
+
+      write_template_movie: false
+      template_movie_relpath: template_movie.gif
+      write_summary: false
+      summary_relpath: summary.png
+      write_report_md: false
+      report_md_relpath: report.md
+      write_summary_clean: false
+      summary_clean_relpath: summary_clean.png
+      write_summary_raw: false
+      summary_raw_relpath: summary_raw.png
+
+      # Maps
+      write_amplitude_map_zoom: false
+      amplitude_map_zoom_relpath: maps/amplitude_map_zoom.png
+      write_peak_latency_map: false
+      peak_latency_map_relpath: maps/peak_latency_map.png
+      write_peak_latency_map_zoom: false
+      peak_latency_map_zoom_relpath: maps/peak_latency_map_zoom.png
+      write_peak_std_map: false
+      peak_std_map_relpath: maps/peak_std_map.png
+      write_peak_std_map_zoom: false
+      peak_std_map_zoom_relpath: maps/peak_std_map_zoom.png
+      write_channel_selection_detect: false
+      channel_selection_detect_relpath: maps/channel_selection_detect.png
+      write_channel_selection_kurt: false
+      channel_selection_kurt_relpath: maps/channel_selection_kurt.png
+      write_channel_selection_delay: false
+      channel_selection_delay_relpath: maps/channel_selection_delay.png
+      write_channel_selection_all: false
+      channel_selection_all_relpath: maps/channel_selection_all.png
+
+      # Graph views
+      write_graph_nodes: false
+      graph_nodes_relpath: maps/graph_nodes.png
+      write_graph_edges: false
+      graph_edges_relpath: maps/graph_edges.png
+      write_graph_heuristics: false
+      graph_heuristics_relpath: heuristics/graph_heuristics.png
+
+      # Morphology
+      write_morphology_pdf: false
+      morphology_pdf_relpath: morphology/morphology.pdf
+      write_morphology_zoom_pdf: false
+      morphology_zoom_pdf_relpath: morphology/morphology_zoom.pdf
+
+      # Branch plots
+      write_branches_raw_clean_pdf: false
+      branches_raw_clean_pdf_relpath: branches/raw/branches_raw_clean.pdf
+      write_branches_raw_pdf: false
+      branches_raw_pdf_relpath: branches/raw/branches_raw.pdf
+      write_branches_raw_zoom_pdf: false
+      branches_raw_zoom_pdf_relpath: branches/raw/branches_raw_zoom.pdf
+      write_branches_clean_pdf: false
+      branches_clean_pdf_relpath: branches/clean/branches_clean.pdf
+      write_branches_clean_zoom_pdf: false
+      branches_clean_zoom_pdf_relpath: branches/clean/branches_clean_zoom.pdf
+      write_branch_velocities_pdf: false
+      branch_velocities_pdf_relpath: branches/clean/branch_velocities.pdf
+      write_branch_velocities_raw_overlay_pdf: false
+      branch_velocities_raw_overlay_pdf_relpath: branches/raw/branch_velocities_overlay.pdf
+      write_branch_velocities_overlay_pdf: false
+      branch_velocities_overlay_pdf_relpath: branches/clean/branch_velocities_overlay.pdf
+      write_branch_velocity_template: false
+      branch_velocity_template_relpath: branches/clean/branch_{index:02d}_velocity
+    grids:
+      # Output folder inside reconstruction output dir.
+      output_subdir: grids
+      # Toggle file outputs independently.
+      write_pdf: true
+      write_png: true
+      write_ranking_json: true
+      # Basenames (no extension) for the two grid variants.
+      log_basename: raw_branch_grid_log
+      linear_basename: raw_branch_grid_linear
+      ranking_filename: raw_branch_grid_ranking.json
+      # Plot style/layout controls.
+      ncols: 5
+      dpi: 220
+      draw_zoom_range_box: false
+      panel_background_color: black
+      branch_color: red
+      #branch_color: cyan
+      branch_outline_color: white
+      show_unit_id_in_plot: true # top right corner of each panel
+      unit_id_fontsize: 6
+      unit_id_color: white
+      show_minimap: true # Basically just a square in a rectangle. small rectangle in the corner of each panel showing the full grid with the zoom range highlighted.
+      minimap_position: topleft # topleft, topright, bottomleft, bottomright
+      minimap_size: 0.4 # fraction of the panel size for the minimap
+      minimap_outline_color: white
+      minimap_chip_width_mm: 3.85
+      minimap_chip_height_mm: 2.10
+      minimap_inner_box_linestyle: solid # solid, dotted, dashed
+      minimap_inner_box_linewidth: 0.6
+      minimap_include_footprint: true # whether to show the footprint heatmap of the neuron in minimap
+      #if true, check if any nodes or branches are occluded by the minimap and if so,
+      # increase zoom span as needed to prevent occlusion. Only applies if show_minimap is true.
+      minimap_prevent_occlusions: true
+      # Extra data-space clearance around nodes/branches when testing minimap occlusion.
+      minimap_clearance_um: 2.0
+      # Additional display-space buffer added to branch stroke width during occlusion tests.
+      minimap_linewidth_buffer_pt: 0.5
+      # Iterative zoom expansion controls for minimap occlusion avoidance.
+      minimap_occlusion_max_iters: 10
+      minimap_occlusion_growth_factor: 1.15
+      node_radius_um: 5
+      soma_node_radius_um: 8
+      soma_node_color: orange # e.g. cyan, yellow, magenta
+      zoom_priority: "branches" # channels or branches. If channels, zoom range is determined by the channels contributing to the branch. If branches, zoom range is determined by the spatial extent of the branch itself (with some padding).
+      zoom_padding_percent: 20 # percentage padding of selected zoom span (20 => 20%)
+      sort_by: "total_branch_length" # density
+      # whether to force the grid to be centered on the soma.
+      # e.g. if zoom_priority is "branches", while force_soma_centering is false, the grid will be zoomed to the branches.
+      # however if force_soma_centering is true AND zoom_priority is "branches", the grid will be centered on the soma
+      # and zoom span will increase as needed to include the branches (with zoom_padding_percent padding).
+      # similar adjustments are made when zoom_priority is "channels" as needed and so long centering is possible
+      # given the spatial distribution of the channels and branches.
+      force_soma_centering: true
+      local_color_bars:
+        show: false
+        location: topright
+        fontsize: 5
+        fontcolor: white
+        length_fraction: 0.26 # length of per-panel color bar as fraction of panel height
+        pad_fraction: 0.01 # inset padding from panel edge in panel-fraction units
+        show_ticks: [1, 10, dynamic_high]
+      global_color_bar:
+        show: true
+        location: topright
+        fontsize: 6
+        fontcolor: white
+        length_fraction: 0.3 # length of color bar as fraction of figure height
+        pad_fraction: 0.02 # padding between color bar and figure edge in figure height fractions
+        high_color: red
+        mid_color: white
+        low_color: blue
+        force_low_value: 0
+        force_high_value: null # if null, determined by data
+        percentile_low: 5.0 # lower percentile used for vmin reference
+        percentile_high_linear: 99.0 # cap percentile used for linear vmax before rounding
+        percentile_high_log: 99.5 # cap percentile used for log vmax
+        knot_anchor_values: [1.0, 10.0] # piecewise anchors for percentile-ranked transfer in linear mode
+        knot_y1_min: 0.02 # lower bound for first knot y position
+        knot_y1_max: 0.90 # upper bound for first knot y position
+        knot_y2_min: 0.07 # lower bound for second knot y position
+        knot_y2_max: 0.98 # upper bound for second knot y position
+        knot_min_gap: 0.05 # minimum y-gap enforced between first and second knot
+        linear_cap_rounding_mode: ceil_step # ceil_step | nice | none
+        linear_cap_rounding_step: 10.0 # step used by ceil_step mode
+        linear_cap_min_vmax: 11.0 # floor for final linear vmax after rounding
+        show_ticks: [1, 10, dynamic_high]
+      soma_xy_coords: # print soma xy coordinates on the panel.
+        show: true
+        color: white
+        fontsize: 6
+        location: bottom left
+      legend:
+        show: true
+        location: first_empty_panel # e.g. upper right, lower left, etc. or first_empty_panel to automatically place in the first empty panel starting from top left
+        fontsize: 10
+        fontcolor: black
+        marker_size: 9
+        show_nodes_in_legend: true
+        show_footprint_in_legend: false # not even sure what this would look like.
+
+      # Extra logger output for candidate counts/selected units/path resolution.
+      emit_debug_logs: false
+    av:
       upsample: 1
       init_delay: 0
       # default: 3
@@ -890,97 +1216,6 @@ stages:
       split_paths: true
       # default: 2000
       theilsen_maxiter: 8000
-
-    inputs:
-      load_assets_from_v2pipeline_templates_stage: true # whether to load templates stage outputs from the v2 pipeline output directory structure; if false, will attempt to load from the same directory structure as in the previous pipeline version, which may be useful for testing and comparison purposes.
-    outputs:
-      output_rel_root: recon_outputs
-      reports:
-        grids:
-          circle_recon_grid:
-            output:
-              write_pdf: false
-              pdf_relpath: reports/circle_recon_grid.pdf
-              write_png: true
-              png_relpath: reports/circle_recon_grid.png
-              write_svg: true
-              svg_relpath: reports/circle_recon_grid.svg
-              keep_temp_svg: false
-              temp_svg_relpath: reports/circle_recon_grid__temp.svg
-            display:
-              show_title: false
-            render:
-              mode: direct_replot
-              dpi: 420
-              subplot_background_color: black
-              figure_background_color: black
-
-      write_summary: false
-      summary_relpath: summary.png
-      write_report_md: false
-      report_md_relpath: report.md
-
-      per_unit_outputs:
-
-        # Base rel dir for all outputs for a given unit. Can be formatted with {unit_id} if desired,
-        # but should not include file name or extension components since those are specified separately for each output type below.
-        unit_reldir: units/{unit_id:04d}/
-
-        # JSON artifacts
-        write_branches_raw_json: true
-        branches_raw_relpath: branches_raw.json
-        write_branches_json: true
-        branches_relpath: branches.json
-        write_heuristics_json: true
-        heuristics_relpath: heuristics.json
-
-        # GTR artifacts
-        template_source: square # which template to use for GTR-based analyses and outputs; square, scan, or full.
-        write_gtr_pkl: true
-        gtr_pkl_relpath: gtr.pkl
-        write_gtr_json: false
-        gtr_json_relpath: gtr.json
-
-        # Per-unit amplitude map (v2 shared heatmap path)
-        write_amplitude_map_png: true
-        amplitude_map_png_relpath: maps/amplitude_map.png
-        amplitude_map:
-          relpath: maps/amplitude_map
-          panel_background_color: black
-          color_bar:
-            {}
-
-        # Reconstruction Plots
-        recon_plots:
-          circle_recon:
-            display:
-              # TODO: Since we typically focus in on branches here instead of the channels
-              # contributing to template, color bar needs to be adjusted so it dynamically
-              # adjusts based on values in the xy scope after zooming in on branches and nodes.
-              base: template_circles # which template plot to put branch morphology on top of; circles, amplitude_map, or latency_map.
-              channel_scope: nodes_and_branches # zoom scope in on channels contributing to nodes and branches, which can help focus the plot on the relevant channels for the reconstruction; other options are contributing_channels, recorded_channels, or all_channels.
-              zoom_padding_percent: 12 # extra padding around selected node/branch channels used to set circle_recon viewport.
-              force_center_soma: true # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
-              branch_scope: raw # raw or clean; whether to plot all branches in branches_raw or only the cleaned branches in branches.
-              unique_color_per_branch: true # whether to use a unique color for each branch, which can help visually distinguish branches in complex reconstructions; if false, all branches will be the same color.
-              show_branch_labels: false # whether to draw branch ID labels on the plot, which can be useful for visually verifying branch correspondences between the plot and the branch data in the JSON outputs.
-              #color_scheme: tab20 # color scheme to use when unique_color_per_branch is true; should be a valid matplotlib categorical colormap name.
-              color_scheme: Set1
-              branch_linewidth_pt: 3.5
-              node_inline_linewidth_pt: 1.0
-              node_outline_color: white
-              node_outline_linewidth: 0.5
-              branch_outline_color: white
-              branch_outline_linewidth: 0.5
-
-
-
-            output:
-              write_png: true
-              write_svg: true
-              relpath: circle_recon
-              #dpi: 420
-              dpi: 600
 
   analysis:
     execution:
@@ -1436,7 +1671,7 @@ stages:
               y_label: mean template channel density / unit
               title: Mean Template Channel Density per Unit (by Well)
 
-    ## Analysis stage updated to Pipeline V2 above this line. -------------------------
+  ## Analysis stage updated to Pipeline V2 above this line. -------------------------
 
     prefer_curated_waveforms_panels: true
     botm:

@@ -312,3 +312,43 @@ def test_load_config_accepts_full_from_merged_template_source(tmp_path: Path) ->
 
 	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.per_unit_outputs.template_source == "full_from_merged"
+
+
+def test_load_config_reads_canonical_axon_velocity_block_with_legacy_fallback(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  reconstruct:
+			    av:
+			      detect_threshold: 0.4
+			      min_path_points: 5
+			    axon_velocity:
+			      detect_threshold: 0.0001
+			      n_neighbors: 8
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
+	assert float(inputs.axon_velocity_params["detect_threshold"]) == 0.0001
+	assert int(inputs.axon_velocity_params["min_path_points"]) == 5
+	assert int(inputs.axon_velocity_params["n_neighbors"]) == 8

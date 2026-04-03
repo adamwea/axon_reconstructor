@@ -38,9 +38,16 @@ datasets:
     DIV:
     wells:
       - well_id: well001
-        plating_density:
-        media:
-        genotype: WT
+        include_in_runtime: true
+
+        # attributes can be any desired characteristincs or metadata about the well, such as experimental conditions,
+        # plating density, media type, genotype, etc.
+        # These can be used for filtering and grouping wells during analysis.
+        # TODO: Implement a dynamic logic to create comparison plots based on these attributes, allowing for flexible and customizable analyses.
+        attributes:
+          plating_density:
+          media:
+          genotype: WT
 
   # /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260302/M08073/AxonTracking/000073
   - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260302/M08073/AxonTracking/000073/data.raw.h5
@@ -48,29 +55,41 @@ datasets:
     DIV: 6
     wells:
       - well_id: well000
-        plating_density: 80000
-        media: DMEM
-        genotype: WT
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
       - well_id: well001
-        plating_density: 80000
-        media: DMEM
-        genotype: WT
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
       - well_id: well002
-        plating_density: 80000
-        media: DMEM
-        genotype: WT
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
       - well_id: well003
-        plating_density: 80000
-        media: NBP
-        genotype: WT
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
       - well_id: well004
-        plating_density: 80000
-        media: NBP
-        genotype: WT
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
       - well_id: well005
-        plating_density: 80000
-        media: NBP
-        genotype: WT
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
 
   # #- raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/data.raw.h5
   # - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/data.raw.h5
