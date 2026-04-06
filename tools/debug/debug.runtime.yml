@@ -145,81 +145,172 @@ stages:
       well_workers: 2
 
   spikesort:
-    execution:
-      debug: false
-      force_restart: false
-      force_replot: false
-    logging:
-      enabled: true
-      verbose: true
-      file_relpath: logs/spikesort_pipeline.log
-    debug:
-      # Optional debug overrides for spikesort execution and outputs.
-      limit_wells: null # int or null for no limit
-      limit_segments_per_well: 2 # int or null for no limit
-    plot:
-      # Controls MEA_Analysis plotting behavior.
-      enabled: true
-      mode: separate # separate|merged
-      plot_debug: false
-      raster_sort: null # e.g. unit_id|firing_rate or null
-      fixed_y: false
-    report:
-      # Controls report/curation export behavior.
-      enabled: true
-      no_curation: true
-      export_to_phy: false
     resources:
       max_stage_workers: 24
       well_workers: 2
       chunk_duration: 1s
-    outputs:
-      # Optional explicit output roots for spikesort outputs.
+    logging:
+      enabled: true
+      verbose: true
+      file_relpath: logs/spikesort_pipeline.log
+    execution:
+      force_restart: false
+      force_replot: false
+      # Optional debug overrides for spikesort execution and outputs.
+      limit_wells: null # int or null for no limit
       # Relative paths resolve under the per-well output directory.
       output_root: spikesort_outputs # put all outputs during spikesort stage under this subdir in each well's output directory
+      # Optional checkpoint rewind stage in MEA_Analysis (e.g. merge).
+      resume_from: null
+      #resume_from: merge
+    inputs:
+      # Relative paths resolve under the per-well output directory.
+      preprocess_concat_recording_relpath: preprocess_outputs/preprocessed_recording
+    phases:
+      resolve_sources:
+      sort:
+        enabled: true
+        delete_outputs_on_force_restart: true # whether to delete existing sorter outputs when force_restart is true for the sort stage, which can help ensure a clean slate for debugging but also means you will lose any existing sorter outputs when restarting this stage.
 
-    # Sorter Options
-    sorter: kilosort4
-    docker_image: adammwea/benshalomlab_spikesorter_pythonpatch:v3
-    kilosort:
-      batch_duration_s: 0.75
-      thresholds:
-        universal: 8
-        learned: 7
-        single_ch: 5
-      clustering:
-        downsampling: 15
-      channels:
-        nearest: 12
-        max_distance: 40
+        # Sorter Options
+        sorter: kilosort4
+        docker_image: adammwea/benshalomlab_spikesorter_pythonpatch:v3
+        kilosort:
+          batch_duration_s: 0.75
+          thresholds:
+            universal: 8
+            learned: 7
+            single_ch: 5
+          clustering:
+            downsampling: 15
+          channels:
+            nearest: 12
+            max_distance: 40
+        # Controls MEA_Analysis plotting behavior.
+        plot:
+          enabled: true
+          mode: separate # separate|merged
+          plot_debug: false
+          raster_sort: null # e.g. unit_id|firing_rate or null
+          fixed_y: false
+        # Controls report/curation export behavior.
+        report:
+          enabled: true
+          no_curation: true
+          export_to_phy: false
+      merge_units:
 
-    #
-    resume_from: null
-    #resume_from: merge
-    rerun_analyzer: false
+        # In the event that we desire to chain automerging methods, follow this priority order when multiple are enabled:
+        # 1) SLAy recommended merges (if enabled)
+        # 2) Spikeinterface automerge (if enabled)
+        # 3) Unitmatch (if enabled)
+        sequence: [SLAy, auto_merge, unitmatch]
 
-    #Automerge via Spikeinterface and/or UnitMatch options
-    auto_merge_units: false
-    auto_merge_template_diff_thresh: 0.05,0.15,0.25
+        # SLAy - https://github.com/saikoukunt/SLAy
+        # New option that is better suited to working with incomplete templates at least.
+        SLAy:
+          enabled: true
+          delete_outputs_on_force_restart: true # whether to delete existing SLAy outputs when force_restart is true for the merge_units stage, which can help ensure a clean slate for debugging but also means you will lose any existing SLAy outputs when restarting this stage.
+          # Relative to spikesort.execution.output_root.
+          relpath: SLAy_outputs
+          # Optional local source checkout for imports when SLAy is not pip-installed.
+          package_root: /home/adamm/dev/pkgs/SLAy
+          # Optional explicit KS folder (relative to spikesort.execution.output_root).
+          # If null, defaults to sorter_output and auto-probes nested sorter_output/.
+          sorter_output_relpath: sorter_output/sorter_output
+          # If true and cupy is unavailable, inject a numpy-based fallback shim.
+          allow_numpy_fallback: true
+          # Copy SLAy automerge artifacts from KS folder into this stage output dir.
+          copy_automerge_artifacts: true
+          # Keep false by default: we only want candidate outputs, not direct KS cluster rewrites.
+          auto_accept_merges: false
+          # Keep false by default to avoid plotting overhead for debug iterations.
+          plot_merges: true
+          # Stage-managed output artifact names.
+          output_json_relpath: run-output.json
+          candidate_pairs_relpath: recommended_merge_candidates.tsv
+          merge_groups_relpath: recommended_merge_groups.json
+          # Optional passthrough params for slay.run_slay.
+          # Values below mirror SLAy RunParams defaults so you can tweak them explicitly.
+          # Note: KS_folder and output_json are managed by this pipeline wrapper.
+          # Note: auto_accept_merges / plot_merges are controlled by top-level SLAy keys above.
+          params:
+            dtype: int16
+            pre_samples: 20
+            post_samples: 62
+            min_spikes: 100
+            #max_spikes: 500
+            max_spikes: -1
+            good_lbls: [good]
 
-    unitmatch:
-      merge_units: false
-      dry_run: false
-      output_subdir_name: unitmatch_outputs
-      throughput_subdir_name: unitmatch_throughput
-      max_spikes_per_unit: -1
-      oversplit_min_probability: 0.95
-      limits:
-        # max_candidate_pairs: 20000
-        # oversplit_max_suggestions: 2000
-          max_candidate_pairs: -1
-          oversplit_max_suggestions: -1
-      apply_merges: false
-      recursive: false
-      iterations:
-        #max: 5
-        max: -1
-        keep_all: false
+            window_size: 0.1
+            xcorr_bin_width: 0.0005
+            overlap_tol: 0.00016666666666666666 # 5 / 30000
+            min_xcorr_rate: 800
+            xcorr_coeff: 0.25
+
+            ref_pen_bin_width: 1
+            max_viol: 0.15
+            ref_pen_coeff: 1
+
+            spikes_path: null
+            model_path: null
+            sim_thresh: 0.4
+            ae_pre: 10
+            ae_post: 30
+            ae_chan: 8
+            ae_noise: false
+            ae_shft: false
+            ae_epochs: 25
+
+            final_thresh: 0.5
+            max_dist: 10
+            #auto_accept_merges: false
+            auto_accept_merges: true
+            plot_merges: true
+          recompute_analyzer: true # whether to trigger a rerun of the analyzer after applying merges recommended by SLAy; keep false by default to avoid the overhead of repeated analyzer runs during merge debugging iterations.
+
+        # Automerge via Spikeinterface built in automerge method.
+        # Pretty straight forward. This is the Spikeinterfaces recommended way of doing template matching
+        # I don't like this though because we're basically matching based on incomplete templates.
+        # I'd prefer to do something like this in the templates stage when we have the more fully formed templates to work with,
+        # but this is a start and we can iterate on it.
+        auto_merge:
+          enabled: true
+          template_diff_thresh: 0.05,0.15,0.25
+          relpath: automerge_outputs
+          delete_outputs_on_force_restart: true # whether to delete existing automerge outputs when force_restart is true for the merge_units stage, which can help ensure a clean slate for debugging but also means you will lose any existing automerge outputs when restarting this stage.
+          candidate_pairs_reldir: recommended_merge_candidates
+          merged_units_reldir: merged_units
+          auto_accept_merges: false # whether to automatically apply merges recommended by the spikeinterface automerge method, which can be a bit aggressive and lead to over-merging if left on without manual review, so keep false by default for debugging iterations.
+
+        # Experimenta, auto-merge using unitmatch in a way it isn't really designed for.
+        # moreover, the model behind it isnt trained on this kind of data, so results may be unreliable and should be taken with a grain of salt.
+        # TODO: refine this, and potentially train a custom model on simulated MEA data with known ground truth to improve performance and reliability for this use case.
+        unitmatch:
+          enabled: false
+          merge_units: false
+          dry_run: false
+          output_subdir_name: unitmatch_outputs
+          throughput_subdir_name: unitmatch_throughput
+          max_spikes_per_unit: -1
+          oversplit_min_probability: 0.95
+          limits:
+            # max_candidate_pairs: 20000
+            # oversplit_max_suggestions: 2000
+            max_candidate_pairs: -1
+            oversplit_max_suggestions: -1
+          apply_merges: false
+          recursive: false
+          iterations:
+            #max: 5
+            max: -1
+            keep_all: false
+
+        # If true, rerun analyzer artifacts after sort/merge decisions.
+        rerun_analyzer: false
+        # get_candidates:
+        # merge_candidates:
 
   templates:
     resources:

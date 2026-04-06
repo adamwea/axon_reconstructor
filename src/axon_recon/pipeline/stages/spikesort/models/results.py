@@ -10,3 +10,11 @@ class SpikesortResult:
 	spikesort_out_dir: Path
 	summary_json: Path
 	outputs: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class SpikesortMergeResult:
+	well_out_dir: Path
+	merge_out_dir: Path
+	summary_json: Path
+	outputs: dict[str, str] = field(default_factory=dict)

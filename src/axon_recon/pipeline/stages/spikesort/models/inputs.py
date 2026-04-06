@@ -13,10 +13,10 @@ class SpikesortInputs:
 	final_output_root: Path | None = None
 
 	output_rel_root: str = "spikesort_outputs"
+	preprocess_concat_recording_relpath: str | None = None
 	logging_enabled: bool = True
 	logging_verbose: bool = False
 	logging_file_relpath: str | None = None
-	debug_limit_segments_per_well: int | None = None
 	sorter: str = "kilosort4"
 	docker_image: str | None = None
 	recording_num: str = "rec0000"
@@ -48,6 +48,8 @@ class SpikesortInputs:
 	um_kwargs: dict[str, Any] | None = field(default=None)
 	am_kwargs: dict[str, Any] | None = field(default=None)
 	option_kwargs: dict[str, Any] | None = field(default=None)
+	sort_enabled: bool = True
+	sort_delete_outputs_on_force_restart: bool = False
 
 	force_restart: bool = False
 	force_replot: bool = False

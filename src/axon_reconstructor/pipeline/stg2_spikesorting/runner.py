@@ -43,6 +43,10 @@ class SpikeSortingInputs:
     # Per-well spikesort output subdirectory (under MEA_Analysis well output root).
     output_subdir_after_well: str = SPIKESORTING_OUTPUTS_DIRNAME
 
+    # Optional per-well preprocess recording override. Relative paths resolve
+    # under the computed well output directory.
+    preprocess_concat_recording_relpath: Optional[str] = None
+
     # Logging controls
     log_enabled: bool = True
     log_verbose: bool = False
@@ -289,8 +293,25 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
             "(single-segment handling is applied in preprocessing)."
         )
 
-    preprocess_dir = _resolve_preprocess_dir(well_out_dir=well_out_dir)
-    recording_dir = preprocess_dir / "preprocessed_recording"
+    preprocess_relpath = str(getattr(inputs, "preprocess_concat_recording_relpath", "") or "").strip()
+    if preprocess_relpath:
+        candidate = Path(preprocess_relpath).expanduser()
+        if not candidate.is_absolute():
+            candidate = (well_out_dir / preprocess_relpath.lstrip("/")).resolve()
+        if candidate.name == "preprocessed_recording":
+            recording_dir = candidate
+            preprocess_dir = candidate.parent
+        else:
+            nested_recording_dir = candidate / "preprocessed_recording"
+            if nested_recording_dir.exists():
+                recording_dir = nested_recording_dir
+                preprocess_dir = candidate
+            else:
+                recording_dir = candidate
+                preprocess_dir = candidate.parent
+    else:
+        preprocess_dir = _resolve_preprocess_dir(well_out_dir=well_out_dir)
+        recording_dir = preprocess_dir / "preprocessed_recording"
     logger.info("Resolved preprocessing outputs dir: %s", preprocess_dir)
     if not recording_dir.exists():
         raise FileNotFoundError(

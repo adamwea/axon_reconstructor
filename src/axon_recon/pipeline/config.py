@@ -107,12 +107,10 @@ def _copy_file_if_needed(*, src: Path, dst: Path) -> bool:
 			src_stat = src.stat()
 			dst_stat = dst.stat()
 			if int(src_stat.st_size) == int(dst_stat.st_size) and int(src_stat.st_mtime_ns) == int(dst_stat.st_mtime_ns):
-				LOGGER.info("Scratch input up-to-date; skipping copy src=%s dst=%s", src, dst)
 				return False
 		except Exception:
 			pass
 	shutil.copy2(src, dst)
-	LOGGER.info("Scratch input copied src=%s dst=%s", src, dst)
 	return True
 
 
@@ -153,6 +151,8 @@ def _materialize_dataset_input_in_scratch(*, source_h5_path: Path, scratch_input
 
 	copied_files = 0
 	skipped_files = 0
+	progress_log_step_pct = 10.0
+	next_progress_pct = progress_log_step_pct
 	for file_idx, (file_kind, src_path, dst_path) in enumerate(copy_plan, start=1):
 		was_copied = _copy_file_if_needed(src=src_path, dst=dst_path)
 		if was_copied:
@@ -160,19 +160,45 @@ def _materialize_dataset_input_in_scratch(*, source_h5_path: Path, scratch_input
 		else:
 			skipped_files += 1
 
+		if LOGGER.isEnabledFor(logging.DEBUG):
+			LOGGER.debug(
+				"Scratch input file action dataset_id=%s action=%s kind=%s src=%s dst=%s",
+				dataset_id,
+				("copied" if was_copied else "skipped"),
+				str(file_kind),
+				src_path,
+				dst_path,
+			)
+
 		progress_pct = (100.0 * float(file_idx)) / float(max(1, total_files))
-		progress_bar = _render_copy_progress_bar(completed=int(file_idx), total=int(total_files))
+		should_log_progress = (
+			int(copied_files) > 0
+			and (
+				(float(progress_pct) + 1e-9) >= float(next_progress_pct)
+				or int(file_idx) == int(total_files)
+			)
+		)
+		if should_log_progress:
+			progress_bar = _render_copy_progress_bar(completed=int(file_idx), total=int(total_files))
+			LOGGER.info(
+				"Scratch input copy progress dataset_id=%s %s %d/%d (%.1f%%) copied=%d skipped=%d",
+				dataset_id,
+				progress_bar,
+				int(file_idx),
+				int(total_files),
+				float(progress_pct),
+				int(copied_files),
+				int(skipped_files),
+			)
+			while float(next_progress_pct) <= (float(progress_pct) + 1e-9):
+				next_progress_pct += float(progress_log_step_pct)
+
+	if int(copied_files) == 0:
 		LOGGER.info(
-			"Scratch input copy progress dataset_id=%s %s %d/%d (%.1f%%) action=%s kind=%s src=%s dst=%s",
+			"Scratch input already materialized in scratch_inputs; skipping copy dataset_id=%s target_h5=%s total_files=%d",
 			dataset_id,
-			progress_bar,
-			int(file_idx),
+			target_h5,
 			int(total_files),
-			float(progress_pct),
-			("copied" if was_copied else "skipped"),
-			str(file_kind),
-			src_path,
-			dst_path,
 		)
 
 	LOGGER.info(
