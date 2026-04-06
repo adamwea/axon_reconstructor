@@ -8,6 +8,12 @@ import shutil
 from typing import Any
 
 from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+from axon_recon.pipeline.shared.grid_sorting import (
+	coerce_grid_sort_metrics,
+	compute_template_grid_sort_metrics,
+	grid_sort_key_for_unit,
+	normalize_grid_sort_by,
+)
 
 from .core.reconstruct import (
 	compute_branches_with_polyline,
@@ -153,6 +159,56 @@ def _collect_existing_reconstruct_stage_outputs(
 		if report_md.exists():
 			stage_outputs["report_md"] = str(report_md)
 	return stage_outputs
+
+
+def _load_reconstruct_unit_grid_sort_metrics(
+	*,
+	reconstruction_out_dir: Path,
+	unit_id: Any,
+	inputs: ReconstructionInputs,
+) -> dict[str, float]:
+	paths = resolve_unit_output_paths(
+		reconstruction_out_dir=reconstruction_out_dir,
+		unit_id=unit_id,
+		per_unit_outputs=inputs.per_unit_outputs,
+	)
+	unit_summary_json = paths["unit_summary_json"]
+	if not unit_summary_json.exists():
+		return {}
+	try:
+		payload = read_json(unit_summary_json)
+	except Exception:
+		return {}
+	if not isinstance(payload, dict):
+		return {}
+	return coerce_grid_sort_metrics(payload.get("grid_sort_metrics", {}))
+
+
+def _sort_reconstruct_units_for_reports(
+	*,
+	unit_results: list[UnitReconstructionResult],
+	reconstruction_out_dir: Path,
+	inputs: ReconstructionInputs,
+	sort_by: str,
+) -> list[UnitReconstructionResult]:
+	sort_mode = normalize_grid_sort_by(sort_by, default="unit_id")
+	metrics_by_unit: dict[str, dict[str, float]] | None = None
+	if sort_mode != "unit_id":
+		metrics_by_unit = {}
+		for unit_result in unit_results:
+			metrics_by_unit[str(unit_result.unit_id).strip()] = _load_reconstruct_unit_grid_sort_metrics(
+				reconstruction_out_dir=reconstruction_out_dir,
+				unit_id=unit_result.unit_id,
+				inputs=inputs,
+			)
+	return sorted(
+		list(unit_results),
+		key=lambda result: grid_sort_key_for_unit(
+			result.unit_id,
+			sort_by=sort_mode,
+			metrics_by_unit=metrics_by_unit,
+		),
+	)
 
 
 def _remove_unit_outputs_preserving(*, unit_dir: Path, preserve_paths: list[Path]) -> list[str]:
@@ -326,6 +382,12 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 			)
 			unit_summary["selected_template_source"] = selected_template_source
 			unit_summary["graph_tracking_source"] = selected_template_source
+			unit_summary["grid_sort_metrics"] = compute_template_grid_sort_metrics(
+				template_c_by_t=gtr_template_ch_by_t,
+				locations_xy=gtr_locs_xy,
+				sampling_rate_hz=fs_hz,
+				probe_pitch_um=(None if inputs.probe_geometry is None else getattr(inputs.probe_geometry, "pitch_um", None)),
+			)
 
 			gtr = None
 			primary_exc: Exception | None = None
@@ -459,6 +521,13 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 		inputs=inputs,
 		unit_results=unit_results,
 	)
+	report_grid_sort_by = normalize_grid_sort_by(inputs.reports.grids.sort_by, default="unit_id")
+	unit_results_for_reports = _sort_reconstruct_units_for_reports(
+		unit_results=unit_results,
+		reconstruction_out_dir=reconstruction_out_dir,
+		inputs=inputs,
+		sort_by=report_grid_sort_by,
+	)
 
 	stage_outputs: dict[str, str] = dict(existing_stage_outputs)
 	circle_grid_cfg = inputs.reports.grids.circle_recon_grid
@@ -467,7 +536,7 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 		report_paths = resolve_report_output_paths(reconstruction_out_dir=reconstruction_out_dir, reports=inputs.reports)
 		circle_entries = [
 			Path(item.outputs["circle_recon_png"])
-			for item in unit_results
+			for item in unit_results_for_reports
 			if isinstance(item.outputs, dict) and "circle_recon_png" in item.outputs
 		]
 		LOGGER.info("Reconstruct reports circle_recon_grid inputs=%d", len(circle_entries))
@@ -549,6 +618,7 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 		"cleanup_failed_unit_outputs": bool(inputs.cleanup_failed_unit_outputs),
 		"failed_units_summary_json": str(failed_units_summary_json) if failed_units_summary_json else None,
 		"reports_overwrite_skipped": preserve_stage_reports,
+		"reports_grid_sort_by": str(report_grid_sort_by),
 		"units": unit_rows,
 	}
 	write_json(summary_json, summary_payload)

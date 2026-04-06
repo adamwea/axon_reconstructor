@@ -492,6 +492,7 @@ def materialize_templates_from_spikeinterface(
 ) -> tuple[Path, Path, dict[Any, dict[str, Any]]]:
 	"""Build templates artifacts expected by templates v2 from SpikeInterface analyzers."""
 	from ..io import (
+		write_json,
 		resolve_materialized_templates_dirs,
 		write_materialized_overlay_waveforms,
 		write_materialized_unit_templates,
@@ -540,6 +541,49 @@ def materialize_templates_from_spikeinterface(
 	merged_units_dir, full_channels_templates_dir = resolve_materialized_templates_dirs(
 		templates_out_dir=templates_out_dir
 	)
+	concat_analyzer: Any | None = None
+	for src_name, analyzer in analyzers:
+		if str(src_name) == "concat":
+			concat_analyzer = analyzer
+			break
+	if concat_analyzer is None and analyzers:
+		concat_analyzer = analyzers[0][1]
+
+	if concat_analyzer is not None:
+		try:
+			concat_locs = np.asarray(concat_analyzer.recording.get_channel_locations(), dtype=float)
+			if concat_locs.ndim == 2 and int(concat_locs.shape[1]) >= 2 and int(concat_locs.shape[0]) > 0:
+				concat_locs = np.asarray(concat_locs[:, :2], dtype=float)
+				finite = np.isfinite(concat_locs).all(axis=1)
+				if bool(np.any(finite)):
+					concat_locs_path = templates_out_dir / "templates" / "concat_channel_locations_xy.npy"
+					concat_locs_path.parent.mkdir(parents=True, exist_ok=True)
+					np.save(concat_locs_path, np.asarray(concat_locs[finite, :], dtype=float))
+		except Exception:
+			LOGGER.debug("Failed writing concat channel locations metadata", exc_info=True)
+
+		try:
+			if concat_analyzer.has_extension("unit_locations"):
+				loc_data_raw = concat_analyzer.get_extension("unit_locations").get_data()
+				if hasattr(loc_data_raw, "to_numpy"):
+					loc_data_raw = loc_data_raw.to_numpy()
+				loc_data = np.asarray(loc_data_raw, dtype=float)
+				unit_ids_raw = getattr(getattr(concat_analyzer, "sorting", None), "unit_ids", None)
+				if unit_ids_raw is None:
+					unit_ids_raw = getattr(concat_analyzer, "unit_ids", [])
+				unit_ids_list = list(unit_ids_raw or [])
+				rows: list[dict[str, Any]] = []
+				if loc_data.ndim == 2 and int(loc_data.shape[1]) >= 2 and int(loc_data.shape[0]) == int(len(unit_ids_list)):
+					for uid, xy in zip(unit_ids_list, loc_data[:, :2], strict=False):
+						x = float(xy[0])
+						y = float(xy[1])
+						if (not np.isfinite(x)) or (not np.isfinite(y)):
+							continue
+						rows.append({"unit_id": uid, "x_um": x, "y_um": y})
+				if rows:
+					write_json(templates_out_dir / "templates" / "concat_unit_locations.json", rows)
+		except Exception:
+			LOGGER.debug("Failed writing concat unit locations metadata", exc_info=True)
 
 	materialized_by_unit, upsampling_decisions_by_unit = materialize_unit_templates_by_unit_with_meta(
 		analyzers=analyzers,

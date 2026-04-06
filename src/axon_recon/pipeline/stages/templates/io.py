@@ -178,6 +178,9 @@ def resolve_unit_output_paths(
 
 
 def resolve_report_output_paths(*, templates_out_dir: Path, reports: Any) -> dict[str, Path]:
+	unit_locations_json = templates_out_dir / Path(str(reports.locations.json_relpath)).expanduser()
+	unit_locations_png = templates_out_dir / Path(str(reports.locations.png_relpath)).expanduser()
+	unit_locations_svg = templates_out_dir / Path(str(reports.locations.svg_relpath)).expanduser()
 	wf_grid_pdf, wf_grid_png, wf_grid_svg = _render_pdf_png_svg_paths(
 		templates_out_dir,
 		pdf_relpath=reports.wf_overlay_grid.pdf_relpath,
@@ -208,6 +211,9 @@ def resolve_report_output_paths(*, templates_out_dir: Path, reports: Any) -> dic
 	lat_grid_temp_svg = templates_out_dir / Path(str(reports.footprint_grids.latency_map_grid.temp_svg_relpath)).expanduser()
 	multi_source_pdf = templates_out_dir / Path(str(reports.plot_multi_source_pdf.pdf_relpath)).expanduser()
 	return {
+		"unit_locations_json": unit_locations_json,
+		"unit_locations_png": unit_locations_png,
+		"unit_locations_svg": unit_locations_svg,
 		"wf_overlay_grid_pdf": wf_grid_pdf,
 		"wf_overlay_grid_png": wf_grid_png,
 		"wf_overlay_grid_svg": wf_grid_svg,

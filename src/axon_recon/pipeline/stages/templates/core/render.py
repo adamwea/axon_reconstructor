@@ -26,6 +26,7 @@ from ..models.inputs import (
 	TemplateWaveformOverlayConfig,
 	TopographicalFootprintConfig,
 	TimeUpsampleConfig,
+	UnitLocationsReportConfig,
 	WfOverlayGridReportConfig,
 )
 
@@ -2934,6 +2935,282 @@ def render_multi_source_pdf(
 			plt.close(fig)
 
 	return {"multi_source_pdf": str(pdf_path)}
+
+
+def render_unit_locations_report(
+	*,
+	unit_location_rows: list[dict[str, Any]],
+	config: UnitLocationsReportConfig,
+	json_path: Path,
+	png_path: Path,
+	svg_path: Path,
+	probe_geometry: ProbeGeometryConfig | None = None,
+	concat_channel_locations_xy: Any | None = None,
+	template_channel_locations_by_unit: dict[str, Any] | None = None,
+	original_unit_locations_by_unit: dict[str, Any] | None = None,
+) -> dict[str, str]:
+	def _coerce_xy_points(raw: Any) -> np.ndarray:
+		arr = np.asarray(raw, dtype=float)
+		if arr.ndim != 2 or int(arr.shape[1]) < 2:
+			return np.zeros((0, 2), dtype=float)
+		arr = np.asarray(arr[:, :2], dtype=float)
+		if int(arr.shape[0]) == 0:
+			return np.zeros((0, 2), dtype=float)
+		mask = np.isfinite(arr).all(axis=1)
+		if not bool(np.any(mask)):
+			return np.zeros((0, 2), dtype=float)
+		return np.asarray(arr[mask, :], dtype=float)
+
+	rows_clean: list[dict[str, Any]] = []
+	for row in list(unit_location_rows):
+		if not isinstance(row, dict):
+			continue
+		x = row.get("x_um", None)
+		y = row.get("y_um", None)
+		try:
+			x_f = float(x)
+			y_f = float(y)
+		except Exception:
+			continue
+		if (not np.isfinite(x_f)) or (not np.isfinite(y_f)):
+			continue
+		rows_clean.append(
+			{
+				"unit_id": row.get("unit_id", None),
+				"x_um": float(x_f),
+				"y_um": float(y_f),
+				"source": row.get("source", None),
+				"channel_index": row.get("channel_index", None),
+			}
+		)
+
+	concat_locs_clean = _coerce_xy_points(concat_channel_locations_xy)
+	template_locs_clean: dict[str, np.ndarray] = {}
+	if isinstance(template_channel_locations_by_unit, dict):
+		for unit_key, locs_raw in template_channel_locations_by_unit.items():
+			locs = _coerce_xy_points(locs_raw)
+			if int(locs.shape[0]) == 0:
+				continue
+			template_locs_clean[str(unit_key)] = locs
+	original_locations_clean: dict[str, tuple[float, float]] = {}
+	if isinstance(original_unit_locations_by_unit, dict):
+		for unit_key, loc_raw in original_unit_locations_by_unit.items():
+			if not isinstance(loc_raw, dict):
+				continue
+			try:
+				x = float(loc_raw.get("x_um", None))
+				y = float(loc_raw.get("y_um", None))
+			except Exception:
+				continue
+			if (not np.isfinite(x)) or (not np.isfinite(y)):
+				continue
+			key = str(unit_key).strip()
+			original_locations_clean[key] = (x, y)
+			try:
+				original_locations_clean[str(int(unit_key))] = (x, y)
+			except Exception:
+				pass
+
+	outputs: dict[str, str] = {}
+	if bool(config.write_json):
+		json_path.parent.mkdir(parents=True, exist_ok=True)
+		with open(json_path, "w", encoding="utf-8") as f:
+			json.dump(rows_clean, f, indent=2)
+		outputs["unit_locations_json"] = str(json_path)
+
+	if not (bool(config.write_png) or bool(config.write_svg)):
+		return outputs
+
+	import matplotlib
+
+	matplotlib.use("Agg")
+	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+	from matplotlib.patches import Rectangle  # type: ignore[import-not-found]
+
+	chip_width_um = 3850.0
+	chip_height_um = 2100.0
+	if bool(getattr(config, "use_probe_active_area", True)) and probe_geometry is not None:
+		try:
+			px = probe_geometry.active_area_um_x
+			py = probe_geometry.active_area_um_y
+			if px is not None and float(px) > 0.0 and np.isfinite(float(px)):
+				chip_width_um = float(px)
+			if py is not None and float(py) > 0.0 and np.isfinite(float(py)):
+				chip_height_um = float(py)
+		except Exception:
+			pass
+
+	chip_ratio = float(max(1e-9, chip_width_um) / max(1e-9, chip_height_um))
+	fig_height_in = 4.8
+	fig_width_in = float(np.clip(fig_height_in * chip_ratio, 6.0, 14.0))
+	fig, ax = plt.subplots(figsize=(fig_width_in, fig_height_in))
+	fig.patch.set_facecolor(str(config.background))
+	ax.set_facecolor(str(config.background))
+
+	chip_origin_x = 0.0
+	chip_origin_y = 0.0
+	if int(concat_locs_clean.shape[0]) > 0:
+		chip_origin_x = float(np.min(concat_locs_clean[:, 0]))
+		chip_origin_y = float(np.min(concat_locs_clean[:, 1]))
+	elif template_locs_clean:
+		all_template_locs = np.vstack(list(template_locs_clean.values()))
+		chip_origin_x = float(np.min(all_template_locs[:, 0]))
+		chip_origin_y = float(np.min(all_template_locs[:, 1]))
+	pitch = None if probe_geometry is None else getattr(probe_geometry, "pitch_um", None)
+	try:
+		pitch_f = float(pitch) if pitch is not None else None
+		if pitch_f is not None and np.isfinite(pitch_f) and pitch_f > 0.0:
+			chip_origin_x = float(np.floor(chip_origin_x / pitch_f) * pitch_f)
+			chip_origin_y = float(np.floor(chip_origin_y / pitch_f) * pitch_f)
+	except Exception:
+		pass
+
+	ax.add_patch(
+		Rectangle(
+			(float(chip_origin_x), float(chip_origin_y)),
+			float(chip_width_um),
+			float(chip_height_um),
+			fill=False,
+			edgecolor="#666666",
+			linewidth=0.8,
+			alpha=0.7,
+			zorder=0,
+		)
+	)
+
+	if bool(config.underlay_concat_channels) and int(concat_locs_clean.shape[0]) > 0:
+		ax.scatter(
+			concat_locs_clean[:, 0],
+			concat_locs_clean[:, 1],
+			s=float(max(0.0, float(config.concat_channel_scatter_size))),
+			c=str(config.concat_channel_scatter_color),
+			alpha=float(min(1.0, max(0.0, float(config.concat_channel_scatter_alpha)))),
+			linewidths=0.0,
+			zorder=1,
+		)
+
+	if bool(config.underlay_template_channels) and template_locs_clean:
+		unit_items = sorted(template_locs_clean.items(), key=lambda item: item[0])
+		cmap = plt.get_cmap(str(config.template_channel_colormap or "tab20"))
+		den = max(1, len(unit_items) - 1)
+		for idx, (_, locs) in enumerate(unit_items):
+			color = cmap(float(idx) / float(den))
+			ax.scatter(
+				locs[:, 0],
+				locs[:, 1],
+				s=float(max(0.0, float(config.template_channel_scatter_size))),
+				c=[color],
+				alpha=float(min(1.0, max(0.0, float(config.template_channel_scatter_alpha)))),
+				linewidths=0.0,
+				zorder=2,
+			)
+
+	if rows_clean:
+		xs = np.asarray([float(row["x_um"]) for row in rows_clean], dtype=float)
+		ys = np.asarray([float(row["y_um"]) for row in rows_clean], dtype=float)
+		if bool(config.show_original_to_current_redlines) and original_locations_clean:
+			for row in rows_clean:
+				uid_raw = row.get("unit_id", "")
+				uid_key = str(uid_raw).strip()
+				orig = original_locations_clean.get(uid_key, None)
+				if orig is None:
+					try:
+						orig = original_locations_clean.get(str(int(uid_raw)), None)
+					except Exception:
+						orig = None
+				if orig is None:
+					continue
+				ax.plot(
+					[float(orig[0]), float(row["x_um"])],
+					[float(orig[1]), float(row["y_um"])],
+					color=str(config.redline_color),
+					alpha=float(min(1.0, max(0.0, float(config.redline_alpha)))),
+					linewidth=float(max(0.1, float(config.redline_linewidth))),
+					zorder=2,
+				)
+
+		ax.scatter(
+			xs,
+			ys,
+			s=float(max(0.0, float(config.chip_scatter_size))),
+			c=str(config.chip_scatter_color),
+			alpha=float(min(1.0, max(0.0, float(config.chip_scatter_alpha)))),
+			linewidths=0.0,
+			zorder=3,
+		)
+
+		dx = float(max(chip_width_um, (np.max(xs) - np.min(xs)))) if int(xs.shape[0]) > 1 else float(chip_width_um)
+		dy = float(max(chip_height_um, (np.max(ys) - np.min(ys)))) if int(ys.shape[0]) > 1 else float(chip_height_um)
+		x_offset = float(config.unit_id_label_x_offset_frac) * float(max(1e-9, dx))
+		y_offset = float(config.unit_id_label_y_offset_frac) * float(max(1e-9, dy))
+		if bool(config.show_unit_id_labels):
+			for row in rows_clean:
+				ax.text(
+					float(row["x_um"]) + x_offset,
+					float(row["y_um"]) + y_offset,
+					str(row.get("unit_id", "")),
+					fontsize=float(max(1.0, float(config.unit_id_label_fontsize))),
+					color=str(config.unit_id_label_color),
+					ha=str(config.unit_id_label_horizontal_alignment),
+					va=str(config.unit_id_label_vertical_alignment),
+					zorder=4,
+				)
+
+	if (not rows_clean) and int(concat_locs_clean.shape[0]) == 0 and (not template_locs_clean):
+		ax.text(0.5, 0.5, "No unit locations", color="white", ha="center", va="center", transform=ax.transAxes)
+
+	reference_sets: list[np.ndarray] = []
+	reference_sets.append(
+		np.asarray(
+			[
+				[float(chip_origin_x), float(chip_origin_y)],
+				[float(chip_origin_x + chip_width_um), float(chip_origin_y + chip_height_um)],
+			],
+			dtype=float,
+		)
+	)
+	if int(concat_locs_clean.shape[0]) > 0:
+		reference_sets.append(concat_locs_clean)
+	for locs in template_locs_clean.values():
+		reference_sets.append(locs)
+	if original_locations_clean:
+		reference_sets.append(np.asarray(list(original_locations_clean.values()), dtype=float))
+	if rows_clean:
+		reference_sets.append(
+			np.asarray(
+				[[float(row["x_um"]), float(row["y_um"])] for row in rows_clean],
+				dtype=float,
+			)
+		)
+
+	reference_xy = np.vstack(reference_sets)
+	x_ref_min = float(np.min(reference_xy[:, 0]))
+	x_ref_max = float(np.max(reference_xy[:, 0]))
+	y_ref_min = float(np.min(reference_xy[:, 1]))
+	y_ref_max = float(np.max(reference_xy[:, 1]))
+
+	xpad = float(max(5.0, 0.02 * float(chip_width_um)))
+	ypad = float(max(5.0, 0.02 * float(chip_height_um)))
+	ax.set_xlim(float(x_ref_min - xpad), float(x_ref_max + xpad))
+	ax.set_ylim(float(y_ref_min - ypad), float(y_ref_max + ypad))
+
+	ax.set_xlabel("x (um)")
+	ax.set_ylabel("y (um)")
+	ax.set_title("Unit Locations")
+	ax.set_aspect("equal", adjustable="box")
+	if bool(config.invert_y_axis):
+		ax.invert_yaxis()
+
+	if bool(config.write_png):
+		png_path.parent.mkdir(parents=True, exist_ok=True)
+		fig.savefig(png_path, dpi=300, bbox_inches="tight")
+		outputs["unit_locations_png"] = str(png_path)
+	if bool(config.write_svg):
+		svg_path.parent.mkdir(parents=True, exist_ok=True)
+		fig.savefig(svg_path, format="svg", bbox_inches="tight")
+		outputs["unit_locations_svg"] = str(svg_path)
+	plt.close(fig)
+	return outputs
 
 
 def render_wf_overlay_grid_from_assets(

@@ -71,6 +71,7 @@ class PerUnitOutputsConfig:
 
 @dataclass(frozen=True)
 class ReconstructionGridReportsConfig:
+	sort_by: str = "unit_id"
 	circle_recon_grid: FootprintMapGridReportConfig = field(
 		default_factory=lambda: FootprintMapGridReportConfig(
 			write_png=False,

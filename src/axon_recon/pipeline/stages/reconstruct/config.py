@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from axon_reconstructor.runtime_config import RuntimeConfig
+from axon_recon.pipeline.shared.grid_sorting import normalize_grid_sort_by
 from axon_recon.pipeline.shared.plotting import build_stage_plot_block
 from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
 from axon_recon.pipeline.stages.templates.config import _build_footprint_grid_report_config
@@ -372,6 +373,10 @@ def parse_reconstruction_stage_config(
 	)
 	reports = ReconstructionReportsConfig(
 		grids=ReconstructionGridReportsConfig(
+			sort_by=normalize_grid_sort_by(
+				grids_cfg.get("sort_by", reports_cfg.get("sort_by", "unit_id")),
+				default="unit_id",
+			),
 			circle_recon_grid=_build_footprint_grid_report_config(
 				circle_recon_grid_cfg,
 				pdf_relpath_default="reports/circle_recon_grid.pdf",

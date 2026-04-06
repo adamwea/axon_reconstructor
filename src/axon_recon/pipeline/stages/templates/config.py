@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from axon_reconstructor.runtime_config import RuntimeConfig
+from axon_recon.pipeline.shared.grid_sorting import normalize_grid_sort_by
 from axon_recon.pipeline.shared.plotting import build_stage_plot_block
 
 from ...execution.context import ExecutionTarget
@@ -38,6 +39,7 @@ from .models.inputs import (
 	TemplateScaleCircleConfig,
 	TemplatePlotConfig,
 	TemplateWaveformOverlayConfig,
+	UnitLocationsReportConfig,
 	UnitIdLabelConfig,
 	TopographicalFootprintConfig,
 	TopographicalFootprintsConfig,
@@ -252,6 +254,18 @@ def _get_reports_wf_overlay_grid_block(runtime_config: RuntimeConfig) -> dict[st
 			*_output_paths("reports.grids.wf_overlay_grid"),
 			*_output_paths("reports.wf_overlay_grid"),
 			*_output_paths("per_unit_outputs.reports.wf_overlay_grid"),
+		),
+	)
+
+
+def _get_reports_locations_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
+	return _first_dict_block(
+		runtime_config,
+		(
+			*_output_paths("reports.locations"),
+			*_output_paths("reports.unit_locations"),
+			*_output_paths("per_unit_outputs.reports.locations"),
+			*_output_paths("per_unit_outputs.reports.unit_locations"),
 		),
 	)
 
@@ -854,6 +868,7 @@ class TemplatesStageConfig:
 	force_restart: bool
 	force_replot: bool
 	force_replot_per_unit: bool
+	force_rereport: bool
 	require_curated_units: bool
 	include_concat: bool
 	include_segments: bool
@@ -876,34 +891,57 @@ def _normalize_optional_path_token(raw: Any) -> str | None:
 
 
 def parse_probe_geometry_from_data_config(*, data_config: RuntimeConfig) -> ProbeGeometryConfig | None:
-	probe_cfg = data_config.get("Probe", {})
-	if not isinstance(probe_cfg, dict) or not probe_cfg:
-		return None
-	pitch_um = _as_float_or_none(probe_cfg.get("pitch_um", None), None)
+	default_pitch_um = 17.5
+	default_electrode_size_um_x = 12.0
+	default_electrode_size_um_y = 8.8
+	default_active_area_um_x = 3850.0
+	default_active_area_um_y = 2100.0
+
+	probe_raw = data_config.get("Probe", {})
+	probe_cfg = probe_raw if isinstance(probe_raw, dict) else {}
+
+	pitch_um = _as_float_or_none(probe_cfg.get("pitch_um", None), default_pitch_um)
+
 	elec_cfg = probe_cfg.get("electrode_size_um", {}) if isinstance(probe_cfg.get("electrode_size_um", {}), dict) else {}
 	electrode_size_um_x = _as_float_or_none(elec_cfg.get("x", None), None)
 	electrode_size_um_y = _as_float_or_none(elec_cfg.get("y", None), None)
-	if electrode_size_um_x is None and pitch_um is not None:
-		electrode_size_um_x = float(pitch_um * 0.7)
-	if electrode_size_um_y is None and pitch_um is not None:
-		electrode_size_um_y = float(pitch_um * 0.7)
+	if electrode_size_um_x is None:
+		electrode_size_um_x = default_electrode_size_um_x
+	if electrode_size_um_y is None:
+		electrode_size_um_y = default_electrode_size_um_y
+
+	chip_dims_um_cfg = probe_cfg.get("chip_dimensions_um", {}) if isinstance(probe_cfg.get("chip_dimensions_um", {}), dict) else {}
+	chip_dims_mm_cfg = probe_cfg.get("chip_dimensions_mm", {}) if isinstance(probe_cfg.get("chip_dimensions_mm", {}), dict) else {}
 	active_cfg = probe_cfg.get("active_sensing_area_mm", {}) if isinstance(probe_cfg.get("active_sensing_area_mm", {}), dict) else {}
-	active_area_um_x = _as_float_or_none(active_cfg.get("x", None), None)
-	active_area_um_y = _as_float_or_none(active_cfg.get("y", None), None)
+
+	active_area_um_x = _as_float_or_none(chip_dims_um_cfg.get("x", None), None)
+	active_area_um_y = _as_float_or_none(chip_dims_um_cfg.get("y", None), None)
+
+	if active_area_um_x is None:
+		active_area_um_x = _as_float_or_none(chip_dims_mm_cfg.get("x", None), None)
+		if active_area_um_x is not None:
+			active_area_um_x *= 1000.0
+	if active_area_um_y is None:
+		active_area_um_y = _as_float_or_none(chip_dims_mm_cfg.get("y", None), None)
+		if active_area_um_y is not None:
+			active_area_um_y *= 1000.0
+
+	if active_area_um_x is None:
+		active_area_um_x = _as_float_or_none(active_cfg.get("x", None), None)
+		if active_area_um_x is not None:
+			active_area_um_x *= 1000.0
+	if active_area_um_y is None:
+		active_area_um_y = _as_float_or_none(active_cfg.get("y", None), None)
+		if active_area_um_y is not None:
+			active_area_um_y *= 1000.0
+
+	if active_area_um_x is None:
+		active_area_um_x = default_active_area_um_x
+	if active_area_um_y is None:
+		active_area_um_y = default_active_area_um_y
+
 	sampling_rate_hz = _as_float_or_none(probe_cfg.get("sampling_rate_hz", None), None)
-	if active_area_um_x is not None:
-		active_area_um_x *= 1000.0
-	if active_area_um_y is not None:
-		active_area_um_y *= 1000.0
-	if (
-		electrode_size_um_x is None
-		and electrode_size_um_y is None
-		and pitch_um is None
-		and active_area_um_x is None
-		and active_area_um_y is None
-		and sampling_rate_hz is None
-	):
-		return None
+
 	return ProbeGeometryConfig(
 		pitch_um=pitch_um,
 		electrode_size_um_x=electrode_size_um_x,
@@ -934,6 +972,7 @@ def parse_templates_stage_config(
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
 	force_replot = _as_bool(execution_cfg.get("force_replot", False), False)
 	force_replot_per_unit = _as_bool(execution_cfg.get("force_replot_per_unit", False), False)
+	force_rereport = _as_bool(execution_cfg.get("force_rereport", False), False)
 	require_curated_units = _as_bool(execution_cfg.get("require_curated_units", True), True)
 	inputs_cfg = execution_cfg.get("inputs", {}) if isinstance(execution_cfg.get("inputs", {}), dict) else {}
 	concat_analyzer_relpath = _normalize_optional_path_token(inputs_cfg.get("concat_analyzer_relpath", None))
@@ -1005,6 +1044,11 @@ def parse_templates_stage_config(
 		force_restart = bool(force_restart_override)
 	if force_replot_override is not None:
 		force_replot = bool(force_replot_override)
+	if force_rereport:
+		# Report-only reruns should not trigger per-unit regeneration.
+		force_restart = False
+		force_replot = False
+		force_replot_per_unit = False
 
 	unit_limit_raw = execution_cfg.get("unit_limit", stage_cfg.get("unit_limit", None))
 	unit_limit: int | None
@@ -1029,7 +1073,9 @@ def parse_templates_stage_config(
 	tpl_circles_cfg = _get_template_circles_block(runtime_config)
 	tpl_wf_overlay_cfg = _get_template_wf_overlay_block(runtime_config)
 	report_overlay_grid_cfg = _get_reports_wf_overlay_grid_block(runtime_config)
+	report_locations_cfg = _get_reports_locations_block(runtime_config)
 	reports_cfg = _get_reports_block(runtime_config)
+	reports_grids_cfg = reports_cfg.get("grids", {}) if isinstance(reports_cfg.get("grids", {}), dict) else {}
 	per_unit_quality_checks_cfg = _get_per_unit_quality_checks_block(runtime_config)
 	data_quality_checks_cfg = _get_data_quality_checks_block(runtime_config)
 	footprint_grids_cfg = _get_reports_footprint_grids_block(runtime_config)
@@ -1860,13 +1906,363 @@ def parse_templates_stage_config(
 			_nested_or_flat(tpl_wf_overlay_cfg, block="render", key="background", flat_keys=("background",), default="white")
 		),
 	)
+	reports_replot_from_disk = _as_bool(reports_cfg.get("replot_from_disk", False), False)
+	if force_rereport:
+		reports_replot_from_disk = True
+
 	reports = ReportsConfig(
 		plot_multi_source_pdf=MultiSourcePdfReportConfig(
 			enabled=_as_bool(reports_cfg.get("plot_multi_source_pdf", False), False),
 			pdf_relpath=str(reports_cfg.get("multi_source_pdf_relpath", "reports/template_multi_source.pdf")),
 		),
-		replot_from_disk=_as_bool(reports_cfg.get("replot_from_disk", False), False),
+		replot_from_disk=reports_replot_from_disk,
 		overwrite_on_unit_rerun=_as_bool(reports_cfg.get("overwrite_on_unit_rerun", False), False),
+		grid_sort_by=normalize_grid_sort_by(
+			reports_grids_cfg.get("sort_by", reports_cfg.get("sort_by", "unit_id")),
+			default="unit_id",
+		),
+		locations=UnitLocationsReportConfig(
+			write_json=_as_bool(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="output",
+					key="write_json",
+					flat_keys=("write_json",),
+					default=True,
+				),
+				True,
+			),
+			json_relpath=str(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="output",
+					key="json_relpath",
+					flat_keys=("json_relpath",),
+					default="unit_locations.json",
+				)
+			),
+			write_png=_as_bool(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="output",
+					key="write_png",
+					flat_keys=("write_png",),
+					default=False,
+				),
+				False,
+			),
+			png_relpath=str(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="output",
+					key="png_relpath",
+					flat_keys=("png_relpath",),
+					default="unit_locations.png",
+				)
+			),
+			write_svg=_as_bool(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="output",
+					key="write_svg",
+					flat_keys=("write_svg",),
+					default=False,
+				),
+				False,
+			),
+			svg_relpath=str(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="output",
+					key="svg_relpath",
+					flat_keys=("svg_relpath",),
+					default="unit_locations.svg",
+				)
+			),
+			background=str(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="render",
+					key="background",
+					flat_keys=("background",),
+					default="black",
+				)
+			),
+			chip_scatter_color=str(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="render",
+					key="chip_scatter_color",
+					flat_keys=("chip_scatter_color",),
+					default="white",
+				)
+			),
+			chip_scatter_size=max(
+				0.0,
+				_as_float(
+					_nested_or_flat(
+						report_locations_cfg,
+						block="render",
+						key="chip_scatter_size",
+						flat_keys=("chip_scatter_size", "unit_scatter_size"),
+						default=14.0,
+					),
+					14.0,
+				),
+			),
+			chip_scatter_alpha=min(
+				1.0,
+				max(
+					0.0,
+					_as_float(
+						_nested_or_flat(
+							report_locations_cfg,
+							block="render",
+							key="chip_scatter_alpha",
+							flat_keys=("chip_scatter_alpha",),
+							default=0.8,
+						),
+						0.8,
+					),
+				),
+			),
+			invert_y_axis=_as_bool(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="render",
+					key="invert_y_axis",
+					flat_keys=("invert_y_axis",),
+					default=True,
+				),
+				True,
+			),
+			use_probe_active_area=_as_bool(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="render",
+					key="use_probe_active_area",
+					flat_keys=("use_probe_active_area",),
+					default=True,
+				),
+				True,
+			),
+			underlay_concat_channels=_as_bool(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="render",
+					key="underlay_concat_channels",
+					flat_keys=("underlay_concat_channels",),
+					default=True,
+				),
+				True,
+			),
+			concat_channel_scatter_color=str(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="render",
+					key="concat_channel_scatter_color",
+					flat_keys=("concat_channel_scatter_color",),
+					default="#808080",
+				)
+			),
+			concat_channel_scatter_size=max(
+				0.0,
+				_as_float(
+					_nested_or_flat(
+						report_locations_cfg,
+						block="render",
+						key="concat_channel_scatter_size",
+						flat_keys=("concat_channel_scatter_size",),
+						default=2.5,
+					),
+					2.5,
+				),
+			),
+			concat_channel_scatter_alpha=min(
+				1.0,
+				max(
+					0.0,
+					_as_float(
+						_nested_or_flat(
+							report_locations_cfg,
+							block="render",
+							key="concat_channel_scatter_alpha",
+							flat_keys=("concat_channel_scatter_alpha",),
+							default=0.35,
+						),
+						0.35,
+					),
+				),
+			),
+			underlay_template_channels=_as_bool(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="render",
+					key="underlay_template_channels",
+					flat_keys=("underlay_template_channels",),
+					default=False,
+				),
+				False,
+			),
+			template_channel_scatter_size=max(
+				0.0,
+				_as_float(
+					_nested_or_flat(
+						report_locations_cfg,
+						block="render",
+						key="template_channel_scatter_size",
+						flat_keys=("template_channel_scatter_size",),
+						default=2.0,
+					),
+					2.0,
+				),
+			),
+			template_channel_scatter_alpha=min(
+				1.0,
+				max(
+					0.0,
+					_as_float(
+						_nested_or_flat(
+							report_locations_cfg,
+							block="render",
+							key="template_channel_scatter_alpha",
+							flat_keys=("template_channel_scatter_alpha",),
+							default=0.30,
+						),
+						0.30,
+					),
+				),
+			),
+			template_channel_colormap=str(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="render",
+					key="template_channel_colormap",
+					flat_keys=("template_channel_colormap",),
+					default="tab20",
+				)
+			),
+			show_original_to_current_redlines=_as_bool(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="display",
+					key="show_original_to_current_redlines",
+					flat_keys=("show_original_to_current_redlines",),
+					default=False,
+				),
+				False,
+			),
+			redline_color=str(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="display",
+					key="redline_color",
+					flat_keys=("redline_color",),
+					default="red",
+				)
+			),
+			redline_alpha=min(
+				1.0,
+				max(
+					0.0,
+					_as_float(
+						_nested_or_flat(
+							report_locations_cfg,
+							block="display",
+							key="redline_alpha",
+							flat_keys=("redline_alpha",),
+							default=0.9,
+						),
+						0.9,
+					),
+				),
+			),
+			redline_linewidth=max(
+				0.1,
+				_as_float(
+					_nested_or_flat(
+						report_locations_cfg,
+						block="display",
+						key="redline_linewidth",
+						flat_keys=("redline_linewidth",),
+						default=0.7,
+					),
+					0.7,
+				),
+			),
+			show_unit_id_labels=_as_bool(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="display",
+					key="show_unit_id_labels",
+					flat_keys=("show_unit_id_labels",),
+					default=True,
+				),
+				True,
+			),
+			unit_id_label_fontsize=max(
+				1.0,
+				_as_float(
+					_nested_or_flat(
+						report_locations_cfg,
+						block="display",
+						key="unit_id_label_fontsize",
+						flat_keys=("unit_id_label_fontsize",),
+						default=6.0,
+					),
+					6.0,
+				),
+			),
+			unit_id_label_color=str(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="display",
+					key="unit_id_label_color",
+					flat_keys=("unit_id_label_color",),
+					default="white",
+				)
+			),
+			unit_id_label_x_offset_frac=_as_float(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="display",
+					key="unit_id_label_x_offset_frac",
+					flat_keys=("unit_id_label_x_offset_frac",),
+					default=0.02,
+				),
+				0.02,
+			),
+			unit_id_label_y_offset_frac=_as_float(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="display",
+					key="unit_id_label_y_offset_frac",
+					flat_keys=("unit_id_label_y_offset_frac",),
+					default=0.02,
+				),
+				0.02,
+			),
+			unit_id_label_horizontal_alignment=_normalize_horizontal_alignment(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="display",
+					key="unit_id_label_horizontal_alignment",
+					flat_keys=("unit_id_label_horizontal_alignment",),
+					default="right",
+				),
+				default="right",
+			),
+			unit_id_label_vertical_alignment=_normalize_vertical_alignment(
+				_nested_or_flat(
+					report_locations_cfg,
+					block="display",
+					key="unit_id_label_vertical_alignment",
+					flat_keys=("unit_id_label_vertical_alignment",),
+					default="top",
+				),
+				default="top",
+			),
+		),
 		time_upsample=_build_time_upsample_config(time_upsample_cfg_raw),
 		wf_overlay_grid=WfOverlayGridReportConfig(
 			write_pdf=_as_bool(
@@ -2534,6 +2930,7 @@ def parse_templates_stage_config(
 		force_restart=force_restart,
 		force_replot=force_replot,
 		force_replot_per_unit=force_replot_per_unit,
+		force_rereport=force_rereport,
 		require_curated_units=require_curated_units,
 		include_concat=include_concat,
 		include_segments=include_segments,
@@ -2576,6 +2973,7 @@ def build_templates_inputs_for_target(
 		force_restart=stage_config.force_restart,
 		force_replot=stage_config.force_replot,
 		force_replot_per_unit=stage_config.force_replot_per_unit,
+		force_rereport=stage_config.force_rereport,
 		require_curated_units=stage_config.require_curated_units,
 		include_concat=stage_config.include_concat,
 		include_segments=stage_config.include_segments,
@@ -2672,6 +3070,7 @@ def load_templates_inputs_from_runtime(
 		force_restart=stage_cfg.force_restart,
 		force_replot=stage_cfg.force_replot,
 		force_replot_per_unit=stage_cfg.force_replot_per_unit,
+		force_rereport=stage_cfg.force_rereport,
 		require_curated_units=stage_cfg.require_curated_units,
 		include_concat=stage_cfg.include_concat,
 		include_segments=stage_cfg.include_segments,

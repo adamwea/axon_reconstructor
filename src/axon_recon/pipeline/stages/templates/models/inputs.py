@@ -535,6 +535,41 @@ class FootprintGridsReportConfig:
 
 
 @dataclass(frozen=True)
+class UnitLocationsReportConfig:
+	write_json: bool = True
+	json_relpath: str = "unit_locations.json"
+	write_png: bool = False
+	png_relpath: str = "unit_locations.png"
+	write_svg: bool = False
+	svg_relpath: str = "unit_locations.svg"
+	background: str = "black"
+	chip_scatter_color: str = "white"
+	chip_scatter_size: float = 14.0
+	chip_scatter_alpha: float = 0.8
+	invert_y_axis: bool = True
+	use_probe_active_area: bool = True
+	underlay_concat_channels: bool = True
+	concat_channel_scatter_color: str = "#808080"
+	concat_channel_scatter_size: float = 2.5
+	concat_channel_scatter_alpha: float = 0.35
+	underlay_template_channels: bool = False
+	template_channel_scatter_size: float = 2.0
+	template_channel_scatter_alpha: float = 0.30
+	template_channel_colormap: str = "tab20"
+	show_original_to_current_redlines: bool = False
+	redline_color: str = "red"
+	redline_alpha: float = 0.9
+	redline_linewidth: float = 0.7
+	show_unit_id_labels: bool = True
+	unit_id_label_fontsize: float = 6.0
+	unit_id_label_color: str = "white"
+	unit_id_label_x_offset_frac: float = 0.02
+	unit_id_label_y_offset_frac: float = 0.02
+	unit_id_label_horizontal_alignment: str = "right"
+	unit_id_label_vertical_alignment: str = "top"
+
+
+@dataclass(frozen=True)
 class MultiSourcePdfReportConfig:
 	enabled: bool = False
 	pdf_relpath: str = "reports/template_multi_source.pdf"
@@ -560,6 +595,8 @@ class ReportsConfig:
 	plot_multi_source_pdf: MultiSourcePdfReportConfig = field(default_factory=MultiSourcePdfReportConfig)
 	replot_from_disk: bool = False
 	overwrite_on_unit_rerun: bool = False
+	grid_sort_by: str = "unit_id"
+	locations: UnitLocationsReportConfig = field(default_factory=UnitLocationsReportConfig)
 	time_upsample: TimeUpsampleConfig = field(default_factory=TimeUpsampleConfig)
 	wf_overlay_grid: WfOverlayGridReportConfig = field(default_factory=WfOverlayGridReportConfig)
 	footprint_grids: FootprintGridsReportConfig = field(default_factory=FootprintGridsReportConfig)
@@ -657,6 +694,7 @@ class TemplatesInputs:
 	force_restart: bool = False
 	force_replot: bool = False
 	force_replot_per_unit: bool = False
+	force_rereport: bool = False
 	require_curated_units: bool = True
 	include_concat: bool = True
 	include_segments: bool = True

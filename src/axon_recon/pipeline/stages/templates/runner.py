@@ -14,6 +14,12 @@ from axon_reconstructor.pipeline.stg2_spikesorting.runner import (
 	LEGACY_SPIKESORTING_OUTPUTS_DIRNAME,
 	SPIKESORTING_OUTPUTS_DIRNAME,
 )
+from axon_recon.pipeline.shared.grid_sorting import (
+	coerce_grid_sort_metrics,
+	compute_template_grid_sort_metrics,
+	grid_sort_key_for_unit,
+	normalize_grid_sort_by,
+)
 
 from .core.merge import materialize_templates_from_spikeinterface
 from .core.quality_checks import detect_multiple_negative_peaks
@@ -28,6 +34,7 @@ from .core.render import (
 	render_multi_source_pdf,
 	render_propagation_plot,
 	render_template_circles_plot,
+	render_unit_locations_report,
 	render_template_plot,
 	render_template_wf_overlay,
 	render_topographical_amplitude_footprint,
@@ -57,6 +64,420 @@ def _as_positive_float_or_none(value: Any) -> float | None:
 	if not np.isfinite(parsed) or parsed <= 0.0:
 		return None
 	return float(parsed)
+
+
+def _compute_unit_location_from_template(
+	*,
+	unit_id: Any,
+	template_c_by_t: np.ndarray,
+	locations_xy: np.ndarray,
+	source: str,
+) -> dict[str, Any] | None:
+	template = np.asarray(template_c_by_t, dtype=float)
+	locs = np.asarray(locations_xy, dtype=float)
+	if template.ndim != 2 or locs.ndim != 2:
+		return None
+	if int(locs.shape[1]) < 2:
+		return None
+	if int(template.shape[0]) != int(locs.shape[0]):
+		if int(template.shape[1]) == int(locs.shape[0]):
+			template = np.asarray(template.T, dtype=float)
+		else:
+			return None
+	if int(template.shape[0]) == 0:
+		return None
+	try:
+		neg_peaks = np.min(template, axis=1)
+		channel_index = int(np.argmin(neg_peaks))
+		x_um = float(locs[channel_index, 0])
+		y_um = float(locs[channel_index, 1])
+	except Exception:
+		return None
+	if (not np.isfinite(x_um)) or (not np.isfinite(y_um)):
+		return None
+	return {
+		"unit_id": unit_id,
+		"x_um": float(x_um),
+		"y_um": float(y_um),
+		"channel_index": int(channel_index),
+		"method": "max_negative_peak",
+		"source": str(source),
+	}
+
+
+def _load_templates_unit_grid_sort_metrics(
+	*,
+	templates_out_dir: Path,
+	unit_id: Any,
+	inputs: TemplatesInputs,
+) -> dict[str, float]:
+	paths = resolve_unit_output_paths(
+		templates_out_dir=templates_out_dir,
+		unit_id=unit_id,
+		per_unit_outputs=inputs.per_unit_outputs,
+	)
+	unit_summary_json = paths["unit_summary_json"]
+	if not unit_summary_json.exists():
+		return {}
+	try:
+		payload = read_json(unit_summary_json)
+	except Exception:
+		return {}
+	if not isinstance(payload, dict):
+		return {}
+	return coerce_grid_sort_metrics(payload.get("grid_sort_metrics", {}))
+
+
+def _load_templates_unit_location_row(
+	*,
+	templates_out_dir: Path,
+	unit_id: Any,
+	inputs: TemplatesInputs,
+) -> dict[str, Any] | None:
+	paths = resolve_unit_output_paths(
+		templates_out_dir=templates_out_dir,
+		unit_id=unit_id,
+		per_unit_outputs=inputs.per_unit_outputs,
+	)
+	unit_summary_json = paths["unit_summary_json"]
+	if unit_summary_json.exists():
+		try:
+			payload = read_json(unit_summary_json)
+		except Exception:
+			payload = None
+		if isinstance(payload, dict):
+			unit_location = payload.get("unit_location", None)
+			if isinstance(unit_location, dict):
+				try:
+					x = float(unit_location.get("x_um", None))
+					y = float(unit_location.get("y_um", None))
+				except Exception:
+					x, y = None, None
+				if x is not None and y is not None and np.isfinite(x) and np.isfinite(y):
+					return {
+						"unit_id": unit_id,
+						"x_um": float(x),
+						"y_um": float(y),
+						"channel_index": unit_location.get("channel_index", None),
+						"source": unit_location.get("source", "merged_contributing"),
+					}
+
+	merged_unit_dir = templates_out_dir / "templates" / "merged" / f"unit_{unit_id}"
+	if merged_unit_dir.exists():
+		try:
+			merged_template, merged_locs = _load_merged_unit(merged_unit_dir)
+		except Exception:
+			return None
+		return _compute_unit_location_from_template(
+			unit_id=unit_id,
+			template_c_by_t=merged_template,
+			locations_xy=merged_locs,
+			source="merged_contributing",
+		)
+	return None
+
+
+def _unit_dir_candidates_for_id(root_dir: Path, unit_id: Any) -> list[Path]:
+	candidates: list[Path] = []
+	try:
+		uid_int = int(unit_id)
+		candidates.extend([root_dir / f"unit_{uid_int}", root_dir / f"{uid_int:04d}", root_dir / str(uid_int)])
+	except Exception:
+		candidates.extend([root_dir / f"unit_{unit_id}", root_dir / str(unit_id)])
+	seen: set[Path] = set()
+	ordered: list[Path] = []
+	for path in candidates:
+		if path in seen:
+			continue
+		seen.add(path)
+		ordered.append(path)
+	return ordered
+
+
+def _load_templates_concat_channel_locations(
+	*,
+	templates_out_dir: Path,
+	unit_ids_for_priority: list[Any],
+) -> np.ndarray | None:
+	global_concat_locs = templates_out_dir / "templates" / "concat_channel_locations_xy.npy"
+	if global_concat_locs.exists():
+		try:
+			locs = np.asarray(np.load(global_concat_locs), dtype=float)
+		except Exception:
+			locs = np.zeros((0, 2), dtype=float)
+		if locs.ndim == 2 and int(locs.shape[1]) >= 2 and int(locs.shape[0]) > 0:
+			locs = np.asarray(locs[:, :2], dtype=float)
+			finite = np.isfinite(locs).all(axis=1)
+			if bool(np.any(finite)):
+				return np.asarray(locs[finite, :], dtype=float)
+
+	best_locs: np.ndarray | None = None
+	full_roots = [templates_out_dir / "templates" / "full", templates_out_dir / "full_channels_templates"]
+	for full_root in full_roots:
+		if not full_root.exists():
+			continue
+		candidate_dirs: list[Path] = []
+		for unit_id in list(unit_ids_for_priority):
+			candidate_dirs.extend(_unit_dir_candidates_for_id(full_root, unit_id))
+		candidate_dirs.extend(sorted(full_root.glob("unit_*")))
+		seen: set[Path] = set()
+		for unit_dir in candidate_dirs:
+			if unit_dir in seen:
+				continue
+			seen.add(unit_dir)
+			locs_path = unit_dir / "full_channel_locations_xy.npy"
+			if not locs_path.exists():
+				continue
+			try:
+				locs = np.asarray(np.load(locs_path), dtype=float)
+			except Exception:
+				continue
+			if locs.ndim != 2 or int(locs.shape[1]) < 2 or int(locs.shape[0]) == 0:
+				continue
+			locs = np.asarray(locs[:, :2], dtype=float)
+			finite = np.isfinite(locs).all(axis=1)
+			if not bool(np.any(finite)):
+				continue
+			clean = np.asarray(locs[finite, :], dtype=float)
+			if best_locs is None or int(clean.shape[0]) > int(best_locs.shape[0]):
+				best_locs = clean
+	return best_locs
+
+
+def _infer_chip_grid_from_probe_geometry(probe_geometry: ProbeGeometryConfig | None) -> np.ndarray | None:
+	if probe_geometry is None:
+		return None
+	pitch = _as_positive_float_or_none(getattr(probe_geometry, "pitch_um", None))
+	active_x = _as_positive_float_or_none(getattr(probe_geometry, "active_area_um_x", None))
+	active_y = _as_positive_float_or_none(getattr(probe_geometry, "active_area_um_y", None))
+	if pitch is None or active_x is None or active_y is None:
+		return None
+	nx = int(max(1, np.round(float(active_x) / float(pitch))))
+	ny = int(max(1, np.round(float(active_y) / float(pitch))))
+	x_vals = np.arange(nx, dtype=float) * float(pitch)
+	y_vals = np.arange(ny, dtype=float) * float(pitch)
+	return np.asarray([[float(x), float(y)] for y in y_vals for x in x_vals], dtype=float)
+
+
+def _expected_chip_channel_count(probe_geometry: ProbeGeometryConfig | None) -> int | None:
+	if probe_geometry is None:
+		return None
+	pitch = _as_positive_float_or_none(getattr(probe_geometry, "pitch_um", None))
+	active_x = _as_positive_float_or_none(getattr(probe_geometry, "active_area_um_x", None))
+	active_y = _as_positive_float_or_none(getattr(probe_geometry, "active_area_um_y", None))
+	if pitch is None or active_x is None or active_y is None:
+		return None
+	nx = int(max(1, np.round(float(active_x) / float(pitch))))
+	ny = int(max(1, np.round(float(active_y) / float(pitch))))
+	return int(max(1, nx * ny))
+
+
+def _resolve_well_relative_path_candidates(*, well_dirs: list[Path], relpath_tokens: list[str]) -> list[Path]:
+	seen: set[Path] = set()
+	resolved: list[Path] = []
+	for raw_token in relpath_tokens:
+		token = str(raw_token or "").strip()
+		if not token:
+			continue
+		abs_path = Path(token).expanduser()
+		if abs_path.is_absolute() and abs_path.exists():
+			candidate = abs_path.resolve()
+			if candidate not in seen:
+				seen.add(candidate)
+				resolved.append(candidate)
+	for well_dir in well_dirs:
+		for raw_token in relpath_tokens:
+			token = str(raw_token or "").strip()
+			if not token:
+				continue
+			path_token = Path(token).expanduser()
+			if path_token.is_absolute():
+				path_token = Path(str(path_token).lstrip("/"))
+			candidate = (well_dir / path_token).resolve()
+			if candidate in seen:
+				continue
+			seen.add(candidate)
+			resolved.append(candidate)
+	return resolved
+
+
+def _load_spikesort_locations_metadata(
+	*,
+	well_out_dir: Path,
+	alternate_well_out_dirs: list[Path],
+	inputs: TemplatesInputs,
+) -> tuple[np.ndarray | None, dict[str, dict[str, float]]]:
+	well_dirs = [well_out_dir, *list(alternate_well_out_dirs)]
+	relpath_candidates: list[str] = []
+	if inputs.concat_analyzer_relpath is not None:
+		relpath_candidates.append(str(inputs.concat_analyzer_relpath))
+	relpath_candidates.extend(
+		[
+			"/spikesort_outputs/analyzer_output",
+			"/stg2_spikesorting_outputs/analyzer_output",
+			"spikesort_outputs/analyzer_output",
+			"stg2_spikesorting_outputs/analyzer_output",
+		]
+	)
+	analyzer_dirs = _resolve_well_relative_path_candidates(
+		well_dirs=well_dirs,
+		relpath_tokens=relpath_candidates,
+	)
+
+	for analyzer_dir in analyzer_dirs:
+		if not analyzer_dir.exists():
+			continue
+		try:
+			import spikeinterface.full as si  # type: ignore[import-not-found]
+			analyzer = si.load_sorting_analyzer(analyzer_dir)
+		except Exception:
+			continue
+
+		concat_locs: np.ndarray | None = None
+		try:
+			locs = np.asarray(analyzer.recording.get_channel_locations(), dtype=float)
+			if locs.ndim == 2 and int(locs.shape[1]) >= 2 and int(locs.shape[0]) > 0:
+				locs = np.asarray(locs[:, :2], dtype=float)
+				finite = np.isfinite(locs).all(axis=1)
+				if bool(np.any(finite)):
+					concat_locs = np.asarray(locs[finite, :], dtype=float)
+		except Exception:
+			concat_locs = None
+
+		original_by_unit: dict[str, dict[str, float]] = {}
+		try:
+			if analyzer.has_extension("unit_locations"):
+				unit_locations = analyzer.get_extension("unit_locations").get_data()
+				if hasattr(unit_locations, "to_numpy"):
+					unit_locations = unit_locations.to_numpy()
+				loc_arr = np.asarray(unit_locations, dtype=float)
+				unit_ids_raw = getattr(getattr(analyzer, "sorting", None), "unit_ids", None)
+				if unit_ids_raw is None:
+					unit_ids_raw = getattr(analyzer, "unit_ids", [])
+				unit_ids = list(unit_ids_raw or [])
+				if loc_arr.ndim == 2 and int(loc_arr.shape[1]) >= 2 and int(loc_arr.shape[0]) == int(len(unit_ids)):
+					for uid, xy in zip(unit_ids, loc_arr[:, :2], strict=False):
+						x = float(xy[0])
+						y = float(xy[1])
+						if (not np.isfinite(x)) or (not np.isfinite(y)):
+							continue
+						uid_key = str(uid).strip()
+						original_by_unit[uid_key] = {"x_um": x, "y_um": y}
+						try:
+							original_by_unit[str(int(uid))] = {"x_um": x, "y_um": y}
+						except Exception:
+							pass
+		except Exception:
+			original_by_unit = {}
+
+		if concat_locs is not None or bool(original_by_unit):
+			return concat_locs, original_by_unit
+
+	return None, {}
+
+
+def _load_templates_original_unit_locations(
+	*,
+	templates_out_dir: Path,
+) -> dict[str, dict[str, float]]:
+	original_locations_path = templates_out_dir / "templates" / "concat_unit_locations.json"
+	if not original_locations_path.exists():
+		return {}
+	try:
+		payload = read_json(original_locations_path)
+	except Exception:
+		return {}
+	if not isinstance(payload, list):
+		return {}
+	rows: dict[str, dict[str, float]] = {}
+	for row in payload:
+		if not isinstance(row, dict):
+			continue
+		uid_raw = row.get("unit_id", None)
+		if uid_raw is None:
+			continue
+		try:
+			x = float(row.get("x_um", None))
+			y = float(row.get("y_um", None))
+		except Exception:
+			continue
+		if (not np.isfinite(x)) or (not np.isfinite(y)):
+			continue
+		uid_key = str(uid_raw).strip()
+		rows[uid_key] = {"x_um": x, "y_um": y}
+		try:
+			rows[str(int(uid_raw))] = {"x_um": x, "y_um": y}
+		except Exception:
+			pass
+	return rows
+
+
+def _load_templates_channel_locations_by_unit(
+	*,
+	templates_out_dir: Path,
+	unit_ids: list[Any],
+) -> dict[str, np.ndarray]:
+	merged_roots = [templates_out_dir / "templates" / "merged", templates_out_dir / "merged_units"]
+	loaded: dict[str, np.ndarray] = {}
+	for unit_id in list(unit_ids):
+		unit_key = str(unit_id)
+		for merged_root in merged_roots:
+			if not merged_root.exists():
+				continue
+			for unit_dir in _unit_dir_candidates_for_id(merged_root, unit_id):
+				if not unit_dir.exists():
+					continue
+				loc_candidates = [
+					unit_dir / "merged_contributing_channel_locations.npy",
+					unit_dir / "merged_channel_locations.npy",
+				]
+				for locs_path in loc_candidates:
+					if not locs_path.exists():
+						continue
+					try:
+						locs = np.asarray(np.load(locs_path), dtype=float)
+					except Exception:
+						continue
+					if locs.ndim != 2 or int(locs.shape[1]) < 2 or int(locs.shape[0]) == 0:
+						continue
+					locs = np.asarray(locs[:, :2], dtype=float)
+					finite = np.isfinite(locs).all(axis=1)
+					if not bool(np.any(finite)):
+						continue
+					loaded[unit_key] = np.asarray(locs[finite, :], dtype=float)
+					break
+				if unit_key in loaded:
+					break
+			if unit_key in loaded:
+				break
+	return loaded
+
+
+def _sort_template_units_for_reports(
+	*,
+	unit_results: list[UnitTemplatesResult],
+	templates_out_dir: Path,
+	inputs: TemplatesInputs,
+	sort_by: str,
+) -> list[UnitTemplatesResult]:
+	sort_mode = normalize_grid_sort_by(sort_by, default="unit_id")
+	metrics_by_unit: dict[str, dict[str, float]] | None = None
+	if sort_mode != "unit_id":
+		metrics_by_unit = {}
+		for unit_result in unit_results:
+			metrics_by_unit[str(unit_result.unit_id).strip()] = _load_templates_unit_grid_sort_metrics(
+				templates_out_dir=templates_out_dir,
+				unit_id=unit_result.unit_id,
+				inputs=inputs,
+			)
+	return sorted(
+		list(unit_results),
+		key=lambda result: grid_sort_key_for_unit(
+			result.unit_id,
+			sort_by=sort_mode,
+			metrics_by_unit=metrics_by_unit,
+		),
+	)
 
 
 def _order_index_labels_from_anchor(order_payload: dict[str, Any], *, anchor_channel: int | None) -> dict[int, int] | None:
@@ -299,12 +720,16 @@ def _is_unit_scoped_templates_run(inputs: TemplatesInputs) -> bool:
 	return bool(inputs.unit_ids) and len(inputs.unit_ids) == 1
 
 
+def _reports_replot_requested(inputs: TemplatesInputs) -> bool:
+	return bool(inputs.reports.replot_from_disk) or bool(inputs.force_rereport)
+
+
 def _should_preserve_templates_reports(inputs: TemplatesInputs) -> bool:
 	if not _is_unit_scoped_templates_run(inputs):
 		return False
 	if not (bool(inputs.force_restart) or bool(inputs.force_replot) or bool(inputs.force_replot_per_unit)):
 		return False
-	if bool(inputs.reports.replot_from_disk):
+	if _reports_replot_requested(inputs):
 		return False
 	return not bool(inputs.reports.overwrite_on_unit_rerun)
 
@@ -736,12 +1161,16 @@ def _resolve_alternate_well_out_dirs(*, inputs: TemplatesInputs, primary_well_ou
 
 
 def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
+	reports_replot_requested = _reports_replot_requested(inputs)
+	report_only_rerun = bool(inputs.force_rereport)
 	LOGGER.info(
-		"Templates stage start: stream=%s force_restart=%s force_replot=%s force_replot_per_unit=%s reports_replot_from_disk=%s n_jobs=%d",
+		"Templates stage start: stream=%s force_restart=%s force_replot=%s force_replot_per_unit=%s force_rereport=%s reports_replot_requested=%s reports_replot_from_disk=%s n_jobs=%d",
 		str(inputs.stream_id),
 		bool(inputs.force_restart),
 		bool(inputs.force_replot),
 		bool(inputs.force_replot_per_unit),
+		report_only_rerun,
+		reports_replot_requested,
 		bool(inputs.reports.replot_from_disk),
 		int(max(1, int(inputs.n_jobs))),
 	)
@@ -770,7 +1199,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		bool(inputs.force_restart)
 		and (not bool(inputs.force_replot))
 		and (not bool(inputs.force_replot_per_unit))
-		and (not bool(inputs.reports.replot_from_disk))
+		and (not reports_replot_requested)
 	)
 	templates_out_dir = well_out_dir / str(inputs.output_rel_root)
 	preserve_stage_reports = _should_preserve_templates_reports(inputs)
@@ -940,7 +1369,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		return merged_units_dir, full_channels_templates_dir
 
 	if (
-		bool(inputs.reports.replot_from_disk)
+		reports_replot_requested
 		and (not bool(inputs.force_restart))
 		and (not bool(inputs.force_replot))
 		and (not bool(inputs.force_replot_per_unit))
@@ -1023,6 +1452,18 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 
 			merged_template, merged_locs = _load_merged_unit(merged_dir)
 			merged_electrode_ids = load_materialized_merged_electrode_ids(merged_unit_dir=merged_dir)
+			unit_summary["grid_sort_metrics"] = compute_template_grid_sort_metrics(
+				template_c_by_t=merged_template,
+				locations_xy=merged_locs,
+				sampling_rate_hz=unit_summary.get("effective_sampling_rate_hz", None),
+				probe_pitch_um=(None if unit_probe_geometry is None else unit_probe_geometry.pitch_um),
+			)
+			unit_summary["unit_location"] = _compute_unit_location_from_template(
+				unit_id=unit_id,
+				template_c_by_t=merged_template,
+				locations_xy=merged_locs,
+				source="merged_contributing",
+			)
 			unit_quality_checks = _run_template_quality_checks(
 				unit_id=unit_id,
 				merged_template=merged_template,
@@ -1542,12 +1983,13 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 	unit_results: list[UnitTemplatesResult] = []
 	units_to_process = list(unit_ids)
 	if (
-		bool(inputs.reports.replot_from_disk)
+		reports_replot_requested
 		and (not bool(inputs.force_restart))
 		and (not bool(inputs.force_replot))
 		and (not bool(inputs.force_replot_per_unit))
 	):
 		units_to_process = []
+		missing_unit_summaries: list[Any] = []
 		for unit_id in unit_ids:
 			paths = resolve_unit_output_paths(
 				templates_out_dir=templates_out_dir,
@@ -1560,12 +2002,20 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			)
 			if existing_result is not None:
 				unit_results.append(existing_result)
+			elif report_only_rerun:
+				missing_unit_summaries.append(unit_id)
 			else:
 				units_to_process.append(unit_id)
 		if units_to_process:
 			LOGGER.info(
 				"Templates reports replot_from_disk: %d unit summaries missing; processing those units from templates artifacts",
 				len(units_to_process),
+			)
+		if missing_unit_summaries:
+			LOGGER.warning(
+				"Templates force_rereport: skipping %d unit(s) without existing unit summaries: %s",
+				len(missing_unit_summaries),
+				[unit for unit in missing_unit_summaries],
 			)
 
 	worker_count = int(max(1, int(inputs.n_jobs)))
@@ -1596,6 +2046,13 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 
 	unit_results.sort(key=lambda r: str(r.unit_id))
 	LOGGER.info("Templates unit execution complete: total_results=%d", len(unit_results))
+	report_grid_sort_by = normalize_grid_sort_by(inputs.reports.grid_sort_by, default="unit_id")
+	unit_results_for_reports = _sort_template_units_for_reports(
+		unit_results=unit_results,
+		templates_out_dir=templates_out_dir,
+		inputs=inputs,
+		sort_by=report_grid_sort_by,
+	)
 	report_outputs: dict[str, str] = dict(existing_report_outputs)
 	if preserve_stage_reports:
 		LOGGER.info(
@@ -1607,9 +2064,75 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			LOGGER.info("Templates reports start: stream=%s", inputs.stream_id)
 			report_paths = resolve_report_output_paths(templates_out_dir=templates_out_dir, reports=inputs.reports)
 
+			location_rows: list[dict[str, Any]] = []
+			for unit_result in unit_results_for_reports:
+				row = _load_templates_unit_location_row(
+					templates_out_dir=templates_out_dir,
+					unit_id=unit_result.unit_id,
+					inputs=inputs,
+				)
+				if row is not None:
+					location_rows.append(row)
+			need_concat_underlay = bool(inputs.reports.locations.underlay_concat_channels)
+			need_redlines = bool(inputs.reports.locations.show_original_to_current_redlines)
+			concat_channel_locs = (
+				_load_templates_concat_channel_locations(
+					templates_out_dir=templates_out_dir,
+					unit_ids_for_priority=[u.unit_id for u in unit_results_for_reports],
+				)
+				if need_concat_underlay
+				else None
+			)
+			expected_chip_channels = _expected_chip_channel_count(inputs.probe_geometry)
+			concat_underlay_is_sparse = (
+				concat_channel_locs is not None
+				and expected_chip_channels is not None
+				and int(concat_channel_locs.shape[0]) < int(max(64, int(0.25 * float(expected_chip_channels))))
+			)
+			original_unit_locations_by_unit = (
+				_load_templates_original_unit_locations(templates_out_dir=templates_out_dir)
+				if need_redlines
+				else {}
+			)
+			if (need_concat_underlay and (concat_channel_locs is None or concat_underlay_is_sparse)) or (need_redlines and (not original_unit_locations_by_unit)):
+				spikesort_concat_locs, spikesort_original_locations = _load_spikesort_locations_metadata(
+					well_out_dir=well_out_dir,
+					alternate_well_out_dirs=alternate_well_out_dirs,
+					inputs=inputs,
+				)
+				if need_concat_underlay and spikesort_concat_locs is not None:
+					if concat_channel_locs is None or int(spikesort_concat_locs.shape[0]) > int(concat_channel_locs.shape[0]):
+						concat_channel_locs = spikesort_concat_locs
+				if need_redlines and (not original_unit_locations_by_unit):
+					original_unit_locations_by_unit = spikesort_original_locations
+			if need_concat_underlay and concat_channel_locs is None:
+				concat_channel_locs = _infer_chip_grid_from_probe_geometry(inputs.probe_geometry)
+			template_channel_locs_by_unit = (
+				_load_templates_channel_locations_by_unit(
+					templates_out_dir=templates_out_dir,
+					unit_ids=[u.unit_id for u in unit_results_for_reports],
+				)
+				if bool(inputs.reports.locations.underlay_template_channels)
+				else None
+			)
+			LOGGER.info("Templates reports locations inputs=%d", len(location_rows))
+			report_outputs.update(
+				render_unit_locations_report(
+					unit_location_rows=location_rows,
+					config=inputs.reports.locations,
+					json_path=report_paths["unit_locations_json"],
+					png_path=report_paths["unit_locations_png"],
+					svg_path=report_paths["unit_locations_svg"],
+					probe_geometry=inputs.probe_geometry,
+					concat_channel_locations_xy=concat_channel_locs,
+					template_channel_locations_by_unit=template_channel_locs_by_unit,
+					original_unit_locations_by_unit=original_unit_locations_by_unit,
+				)
+			)
+
 			overlay_paths = [
 				Path(u.outputs["template_wf_overlay_png"])
-				for u in unit_results
+				for u in unit_results_for_reports
 				if "template_wf_overlay_png" in u.outputs
 			]
 			LOGGER.info("Templates reports wf_overlay_grid inputs=%d", len(overlay_paths))
@@ -1635,7 +2158,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			report_outputs.update(wf_grid_outputs)
 			circles_map_paths = [
 				Path(u.outputs["template_circles_png"])
-				for u in unit_results
+				for u in unit_results_for_reports
 				if "template_circles_png" in u.outputs
 			]
 			LOGGER.info("Templates reports circles_map_grid inputs=%d", len(circles_map_paths))
@@ -1664,7 +2187,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			report_outputs.update(circles_grid_outputs)
 			amp_map_paths = [
 				Path(u.outputs["footprint_amplitude_map_png"])
-				for u in unit_results
+				for u in unit_results_for_reports
 				if "footprint_amplitude_map_png" in u.outputs
 			]
 			LOGGER.info("Templates reports amplitude_map_grid inputs=%d", len(amp_map_paths))
@@ -1693,7 +2216,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			report_outputs.update(amp_grid_outputs)
 			lat_map_paths = [
 				Path(u.outputs["footprint_latency_map_png"])
-				for u in unit_results
+				for u in unit_results_for_reports
 				if "footprint_latency_map_png" in u.outputs
 			]
 			LOGGER.info("Templates reports latency_map_grid inputs=%d", len(lat_map_paths))
@@ -1758,8 +2281,10 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				"resolved_dir": (None if analyzer_cache_dir is None else str(analyzer_cache_dir)),
 			},
 		"reports": report_outputs,
-		"reports_replot_from_disk": bool(inputs.reports.replot_from_disk),
+		"reports_replot_from_disk": reports_replot_requested,
+		"force_rereport": report_only_rerun,
 		"reports_overwrite_skipped": preserve_stage_reports,
+		"reports_grid_sort_by": str(report_grid_sort_by),
 		"reports_time_upsample": {
 			"enabled": bool(inputs.reports.time_upsample.enabled),
 			"factor": int(max(1, int(inputs.reports.time_upsample.factor))),

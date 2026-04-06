@@ -626,6 +626,43 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			        cleanup_on_success: true
 			        reuse_on_force_restart: true
 			      reports:
+			        grids:
+			          sort_by: max_ptp
+			        locations:
+			          output:
+			            write_json: true
+			            json_relpath: reports/unit_locations.json
+			            write_png: true
+			            png_relpath: reports/unit_locations.png
+			            write_svg: true
+			            svg_relpath: reports/unit_locations.svg
+			          render:
+			            background: black
+			            chip_scatter_color: white
+			            chip_scatter_size: 8
+			            chip_scatter_alpha: 0.7
+			            invert_y_axis: true
+			            use_probe_active_area: true
+			            underlay_concat_channels: true
+			            concat_channel_scatter_color: gray
+			            concat_channel_scatter_size: 1.8
+			            concat_channel_scatter_alpha: 0.25
+			            underlay_template_channels: true
+			            template_channel_scatter_size: 1.3
+			            template_channel_scatter_alpha: 0.45
+			            template_channel_colormap: viridis
+			          display:
+			            show_unit_id_labels: false
+			            show_original_to_current_redlines: true
+			            redline_color: red
+			            redline_alpha: 0.65
+			            redline_linewidth: 1.2
+			            unit_id_label_fontsize: 7
+			            unit_id_label_color: white
+			            unit_id_label_x_offset_frac: 0.03
+			            unit_id_label_y_offset_frac: 0.04
+			            unit_id_label_horizontal_alignment: left
+			            unit_id_label_vertical_alignment: bottom
 			        plot_multi_source_pdf: true
 			        multi_source_pdf_relpath: reports/template_multi_source.pdf
 			        replot_from_disk: true
@@ -782,6 +819,38 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	assert inputs.reports.plot_multi_source_pdf.pdf_relpath == "reports/template_multi_source.pdf"
 	assert inputs.reports.replot_from_disk is True
 	assert inputs.reports.overwrite_on_unit_rerun is True
+	assert inputs.reports.grid_sort_by == "max_ptp"
+	assert inputs.reports.locations.write_json is True
+	assert inputs.reports.locations.json_relpath == "reports/unit_locations.json"
+	assert inputs.reports.locations.write_png is True
+	assert inputs.reports.locations.png_relpath == "reports/unit_locations.png"
+	assert inputs.reports.locations.write_svg is True
+	assert inputs.reports.locations.svg_relpath == "reports/unit_locations.svg"
+	assert inputs.reports.locations.background == "black"
+	assert inputs.reports.locations.chip_scatter_color == "white"
+	assert inputs.reports.locations.chip_scatter_size == 8.0
+	assert inputs.reports.locations.chip_scatter_alpha == 0.7
+	assert inputs.reports.locations.invert_y_axis is True
+	assert inputs.reports.locations.use_probe_active_area is True
+	assert inputs.reports.locations.underlay_concat_channels is True
+	assert inputs.reports.locations.concat_channel_scatter_color == "gray"
+	assert inputs.reports.locations.concat_channel_scatter_size == 1.8
+	assert inputs.reports.locations.concat_channel_scatter_alpha == 0.25
+	assert inputs.reports.locations.underlay_template_channels is True
+	assert inputs.reports.locations.template_channel_scatter_size == 1.3
+	assert inputs.reports.locations.template_channel_scatter_alpha == 0.45
+	assert inputs.reports.locations.template_channel_colormap == "viridis"
+	assert inputs.reports.locations.show_unit_id_labels is False
+	assert inputs.reports.locations.show_original_to_current_redlines is True
+	assert inputs.reports.locations.redline_color == "red"
+	assert inputs.reports.locations.redline_alpha == 0.65
+	assert inputs.reports.locations.redline_linewidth == 1.2
+	assert inputs.reports.locations.unit_id_label_fontsize == 7.0
+	assert inputs.reports.locations.unit_id_label_color == "white"
+	assert inputs.reports.locations.unit_id_label_x_offset_frac == 0.03
+	assert inputs.reports.locations.unit_id_label_y_offset_frac == 0.04
+	assert inputs.reports.locations.unit_id_label_horizontal_alignment == "left"
+	assert inputs.reports.locations.unit_id_label_vertical_alignment == "bottom"
 	assert inputs.reports.time_upsample.enabled is True
 	assert inputs.reports.time_upsample.factor == 3
 	assert inputs.reports.time_upsample.method == "linear"
@@ -2461,6 +2530,81 @@ def test_load_templates_inputs_includes_probe_geometry_from_data_config(tmp_path
 	assert inputs.probe_geometry.active_area_um_y == 2100.0
 
 
+def test_load_templates_inputs_probe_geometry_uses_chip_dimensions_um_alias(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			Probe:
+			  chip_dimensions_um:
+			    x: 4100
+			    y: 2300
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates: {{}}
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.probe_geometry is not None
+	assert inputs.probe_geometry.active_area_um_x == 4100.0
+	assert inputs.probe_geometry.active_area_um_y == 2300.0
+
+
+def test_load_templates_inputs_probe_geometry_defaults_when_probe_missing(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates: {{}}
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.probe_geometry is not None
+	assert inputs.probe_geometry.pitch_um == 17.5
+	assert inputs.probe_geometry.electrode_size_um_x == 12.0
+	assert inputs.probe_geometry.electrode_size_um_y == 8.8
+	assert inputs.probe_geometry.active_area_um_x == 3850.0
+	assert inputs.probe_geometry.active_area_um_y == 2100.0
+
+
 def test_load_templates_config_parses_analyzer_cache_subdirs_and_require_flags(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(
@@ -2511,3 +2655,47 @@ def test_load_templates_config_parses_analyzer_cache_subdirs_and_require_flags(t
 	assert inputs.analyzer_cache.segment_analyzers_subdir == "segments_custom"
 	assert inputs.require_concat_analyzer is True
 	assert inputs.require_segment_analyzers is True
+
+
+def test_load_templates_config_force_rereport_enforces_reports_only_mode(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    execution:
+			      force_restart: true
+			      force_replot: true
+			      force_replot_per_unit: true
+			      force_rereport: true
+			    outputs:
+			      reports:
+			        replot_from_disk: false
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.force_rereport is True
+	assert inputs.force_restart is False
+	assert inputs.force_replot is False
+	assert inputs.force_replot_per_unit is False
+	assert inputs.reports.replot_from_disk is True

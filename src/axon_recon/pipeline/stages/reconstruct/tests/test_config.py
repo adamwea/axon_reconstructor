@@ -49,6 +49,7 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			      reports:
 			        overwrite_on_unit_rerun: true
 			        grids:
+			          sort_by: template density
 			          circle_recon_grid:
 			            output:
 			              write_pdf: false
@@ -159,6 +160,7 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert inputs.reports.grids.circle_recon_grid.show_title is False
 	assert inputs.reports.grids.circle_recon_grid.render_mode == "direct_replot"
 	assert inputs.reports.grids.circle_recon_grid.dpi == 420.0
+	assert inputs.reports.grids.sort_by == "template_density"
 	assert inputs.load_assets_from_v2pipeline_templates_stage is True
 	assert inputs.unit_ids == [94]
 

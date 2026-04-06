@@ -36,6 +36,7 @@ from axon_recon.pipeline.stages.templates.models.inputs import (
 	TemplatesInputs,
 	TopographicalFootprintConfig,
 	TopographicalFootprintsConfig,
+	UnitLocationsReportConfig,
 	WfOverlayGridReportConfig,
 )
 from axon_recon.pipeline.stages.templates.runner import run_templates_stage
@@ -92,6 +93,14 @@ def test_run_templates_stage_writes_png(tmp_path: Path) -> None:
 
 	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
 	_make_templates_artifacts(well_out_dir)
+	(well_out_dir / "templates_outputs" / "templates" / "concat_unit_locations.json").write_text(
+		json.dumps([{"unit_id": 94, "x_um": 12.0, "y_um": 8.0}]),
+		encoding="utf-8",
+	)
+	(well_out_dir / "templates_outputs" / "templates" / "concat_unit_locations.json").write_text(
+		json.dumps([{"unit_id": 94, "x_um": 12.0, "y_um": 8.0}]),
+		encoding="utf-8",
+	)
 
 	inputs = TemplatesInputs(
 		h5_path=h5_path,
@@ -903,6 +912,379 @@ def test_run_templates_stage_prefers_composition_asset_apis_when_assets_exist(tm
 	assert asset_calls["foot"] == 3
 
 
+def test_run_templates_stage_sorts_grid_inputs_by_max_ptp(tmp_path: Path, monkeypatch) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+
+	def _write_unit_artifacts(unit_id: int, *, scale: float) -> None:
+		merged_unit_dir = well_out_dir / "templates_outputs" / "templates" / "merged" / f"unit_{unit_id}"
+		full_unit_dir = well_out_dir / "templates_outputs" / "templates" / "full" / f"unit_{unit_id}"
+		merged_unit_dir.mkdir(parents=True, exist_ok=True)
+		full_unit_dir.mkdir(parents=True, exist_ok=True)
+
+		t = np.linspace(-1.0, 1.0, 40)
+		merged_template = np.vstack(
+			[
+				np.sin(3.0 * t) * scale,
+				np.sin(5.0 * t) * scale * 0.5,
+				np.sin(7.0 * t) * scale * 0.3,
+			]
+		)
+		merged_locs = np.asarray([[0.0, 0.0], [17.5, 0.0], [35.0, 0.0]], dtype=float)
+		full_template = np.zeros((6, 40), dtype=float)
+		full_template[0:3, :] = merged_template
+		full_locs = np.asarray(
+			[
+				[0.0, 0.0],
+				[17.5, 0.0],
+				[35.0, 0.0],
+				[0.0, 17.5],
+				[17.5, 17.5],
+				[35.0, 17.5],
+			],
+			dtype=float,
+		)
+
+		np.save(merged_unit_dir / "merged_contributing_template.npy", merged_template)
+		np.save(merged_unit_dir / "merged_contributing_channel_locations.npy", merged_locs)
+		np.save(full_unit_dir / "full_template.npy", full_template)
+		np.save(full_unit_dir / "full_channel_locations_xy.npy", full_locs)
+
+	_write_unit_artifacts(1, scale=0.5)
+	_write_unit_artifacts(2, scale=2.0)
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.load_materialized_overlay_waveforms",
+		lambda **kwargs: (np.zeros((8, 40), dtype=float), 1, 8),
+	)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", lambda **kwargs: {})
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.render_template_circles_plot",
+		lambda **kwargs: {"template_circles_png": str(kwargs["png_path"])} if kwargs.get("png_path") is not None else {},
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay",
+		lambda **kwargs: {"template_wf_overlay_png": str(kwargs["png_path"])} if kwargs.get("png_path") is not None else {},
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map",
+		lambda **kwargs: {"footprint_amplitude_map_png": str(kwargs["png_path"])} if kwargs.get("png_path") is not None else {},
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map",
+		lambda **kwargs: {"footprint_latency_map_png": str(kwargs["png_path"])} if kwargs.get("png_path") is not None else {},
+	)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", lambda **kwargs: {})
+
+	captured_order: dict[str, list[str]] = {}
+
+	def _capture_wf_grid(**kwargs):
+		captured_order["wf_overlay"] = [Path(path).parent.name for path in kwargs.get("overlay_png_paths", [])]
+		return {}
+
+	def _capture_foot_grid(**kwargs):
+		key = str(kwargs.get("png_output_key", "footprint_grid"))
+		captured_order[key] = [Path(path).parent.name for path in kwargs.get("image_paths", [])]
+		return {}
+
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_wf_overlay_grid_from_assets", _capture_wf_grid)
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_map_grid_from_assets", _capture_foot_grid)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			template=TemplatePlotConfig(write_png=False, write_svg=False),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=True),
+			template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=False),
+			footprint_plots=FootprintPlotsConfig(
+				amplitude_map=FootprintMapConfig(write_png=True, write_svg=False),
+				latency_map=FootprintMapConfig(write_png=True, write_svg=False),
+			),
+			topographical_footprints=TopographicalFootprintsConfig(
+				amplitude=TopographicalFootprintConfig(write_png=False, write_svg=False),
+				latency=TopographicalFootprintConfig(write_png=False, write_svg=False),
+			),
+			propagation_plots=PropagationPlotConfig(write_pdf=False, write_png=False, write_svg=False),
+		),
+		reports=ReportsConfig(
+			grid_sort_by="max_ptp",
+			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=True, write_svg=False),
+			footprint_grids=FootprintGridsReportConfig(
+				circles_map_grid=FootprintMapGridReportConfig(write_pdf=False, write_png=True, write_svg=False),
+				amplitude_map_grid=FootprintMapGridReportConfig(write_pdf=False, write_png=True, write_svg=False),
+				latency_map_grid=FootprintMapGridReportConfig(write_pdf=False, write_png=True, write_svg=False),
+			),
+		),
+		unit_ids=[1, 2],
+		require_curated_units=False,
+		force_restart=False,
+		n_jobs=1,
+	)
+
+	result = run_templates_stage(inputs)
+	assert len(result.units) == 2
+	assert all(unit.status == "ok" for unit in result.units)
+	assert captured_order["wf_overlay"] == ["0002", "0001"]
+	assert captured_order["template_circles_map_grid_png"] == ["0002", "0001"]
+	assert captured_order["footprint_amplitude_map_grid_png"] == ["0002", "0001"]
+	assert captured_order["footprint_latency_map_grid_png"] == ["0002", "0001"]
+
+
+def test_run_templates_stage_writes_unit_locations_report_json(tmp_path: Path, monkeypatch) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", lambda **kwargs: {})
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			template=TemplatePlotConfig(write_png=False, write_svg=False),
+			template_circles=TemplateCirclesPlotConfig(write_png=False, write_svg=False),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
+			footprint_plots=FootprintPlotsConfig(
+				amplitude_map=FootprintMapConfig(write_png=False, write_svg=False),
+				latency_map=FootprintMapConfig(write_png=False, write_svg=False),
+			),
+			topographical_footprints=TopographicalFootprintsConfig(
+				amplitude=TopographicalFootprintConfig(write_png=False, write_svg=False),
+				latency=TopographicalFootprintConfig(write_png=False, write_svg=False),
+			),
+			propagation_plots=PropagationPlotConfig(write_pdf=False, write_png=False, write_svg=False),
+		),
+		reports=ReportsConfig(
+			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
+			footprint_grids=FootprintGridsReportConfig(
+				circles_map_grid=FootprintMapGridReportConfig(write_pdf=False, write_png=False, write_svg=False),
+				amplitude_map_grid=FootprintMapGridReportConfig(write_pdf=False, write_png=False, write_svg=False),
+				latency_map_grid=FootprintMapGridReportConfig(write_pdf=False, write_png=False, write_svg=False),
+			),
+		),
+		unit_ids=[94],
+		require_curated_units=False,
+		force_restart=False,
+		n_jobs=1,
+	)
+
+	result = run_templates_stage(inputs)
+	assert len(result.units) == 1
+	assert result.units[0].status == "ok"
+
+	locations_json = well_out_dir / "templates_outputs" / "unit_locations.json"
+	assert locations_json.exists()
+	payload = json.loads(locations_json.read_text(encoding="utf-8"))
+	assert isinstance(payload, list)
+	assert len(payload) == 1
+	assert int(payload[0]["unit_id"]) == 94
+	assert "unit_locations_json" in result.report_outputs
+	assert result.report_outputs["unit_locations_json"] == str(locations_json)
+
+
+def test_run_templates_stage_locations_report_passes_underlay_channel_payloads(tmp_path: Path, monkeypatch) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+	(well_out_dir / "templates_outputs" / "templates" / "concat_unit_locations.json").write_text(
+		json.dumps([{"unit_id": 94, "x_um": 12.0, "y_um": 8.0}]),
+		encoding="utf-8",
+	)
+
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", lambda **kwargs: {})
+
+	captured: dict[str, Any] = {}
+
+	def _capture_locations_report(**kwargs):
+		captured["concat"] = kwargs.get("concat_channel_locations_xy")
+		captured["template_by_unit"] = kwargs.get("template_channel_locations_by_unit")
+		captured["probe_geometry"] = kwargs.get("probe_geometry")
+		captured["original_by_unit"] = kwargs.get("original_unit_locations_by_unit")
+		return {"unit_locations_json": str(kwargs["json_path"])}
+
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_unit_locations_report", _capture_locations_report)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			template=TemplatePlotConfig(write_png=False, write_svg=False),
+			template_circles=TemplateCirclesPlotConfig(write_png=False, write_svg=False),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
+			footprint_plots=FootprintPlotsConfig(
+				amplitude_map=FootprintMapConfig(write_png=False, write_svg=False),
+				latency_map=FootprintMapConfig(write_png=False, write_svg=False),
+			),
+			topographical_footprints=TopographicalFootprintsConfig(
+				amplitude=TopographicalFootprintConfig(write_png=False, write_svg=False),
+				latency=TopographicalFootprintConfig(write_png=False, write_svg=False),
+			),
+			propagation_plots=PropagationPlotConfig(write_pdf=False, write_png=False, write_svg=False),
+		),
+		reports=ReportsConfig(
+			locations=UnitLocationsReportConfig(
+				write_json=True,
+				write_png=False,
+				write_svg=False,
+				underlay_concat_channels=True,
+				underlay_template_channels=True,
+				show_original_to_current_redlines=True,
+			),
+			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
+			footprint_grids=FootprintGridsReportConfig(
+				circles_map_grid=FootprintMapGridReportConfig(write_pdf=False, write_png=False, write_svg=False),
+				amplitude_map_grid=FootprintMapGridReportConfig(write_pdf=False, write_png=False, write_svg=False),
+				latency_map_grid=FootprintMapGridReportConfig(write_pdf=False, write_png=False, write_svg=False),
+			),
+		),
+		probe_geometry=ProbeGeometryConfig(active_area_um_x=3850.0, active_area_um_y=2100.0),
+		unit_ids=[94],
+		require_curated_units=False,
+		force_restart=False,
+		n_jobs=1,
+	)
+
+	result = run_templates_stage(inputs)
+	assert len(result.units) == 1
+	assert result.units[0].status == "ok"
+
+	assert isinstance(captured.get("concat"), np.ndarray)
+	assert tuple(np.asarray(captured["concat"]).shape) == (6, 2)
+	template_payload = captured.get("template_by_unit")
+	assert isinstance(template_payload, dict)
+	assert "94" in template_payload
+	assert tuple(np.asarray(template_payload["94"]).shape) == (3, 2)
+	original_payload = captured.get("original_by_unit")
+	assert isinstance(original_payload, dict)
+	assert "94" in original_payload
+	assert float(original_payload["94"]["x_um"]) == 12.0
+	assert float(original_payload["94"]["y_um"]) == 8.0
+	assert isinstance(captured.get("probe_geometry"), ProbeGeometryConfig)
+
+
+def test_run_templates_stage_locations_report_prefers_global_concat_locations(tmp_path: Path, monkeypatch) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+
+	global_concat_locs = np.asarray(
+		[
+			[1000.0, 500.0],
+			[1017.5, 500.0],
+			[1035.0, 500.0],
+			[1000.0, 517.5],
+		],
+		dtype=float,
+	)
+	templates_root = well_out_dir / "templates_outputs" / "templates"
+	templates_root.mkdir(parents=True, exist_ok=True)
+	np.save(templates_root / "concat_channel_locations_xy.npy", global_concat_locs)
+
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", lambda **kwargs: {})
+
+	captured: dict[str, Any] = {}
+
+	def _capture_locations_report(**kwargs):
+		captured["concat"] = kwargs.get("concat_channel_locations_xy")
+		return {"unit_locations_json": str(kwargs["json_path"])}
+
+	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_unit_locations_report", _capture_locations_report)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			template=TemplatePlotConfig(write_png=False, write_svg=False),
+			template_circles=TemplateCirclesPlotConfig(write_png=False, write_svg=False),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
+			footprint_plots=FootprintPlotsConfig(
+				amplitude_map=FootprintMapConfig(write_png=False, write_svg=False),
+				latency_map=FootprintMapConfig(write_png=False, write_svg=False),
+			),
+			topographical_footprints=TopographicalFootprintsConfig(
+				amplitude=TopographicalFootprintConfig(write_png=False, write_svg=False),
+				latency=TopographicalFootprintConfig(write_png=False, write_svg=False),
+			),
+			propagation_plots=PropagationPlotConfig(write_pdf=False, write_png=False, write_svg=False),
+		),
+		reports=ReportsConfig(
+			locations=UnitLocationsReportConfig(
+				write_json=True,
+				write_png=False,
+				write_svg=False,
+				underlay_concat_channels=True,
+				underlay_template_channels=False,
+			),
+			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
+			footprint_grids=FootprintGridsReportConfig(
+				circles_map_grid=FootprintMapGridReportConfig(write_pdf=False, write_png=False, write_svg=False),
+				amplitude_map_grid=FootprintMapGridReportConfig(write_pdf=False, write_png=False, write_svg=False),
+				latency_map_grid=FootprintMapGridReportConfig(write_pdf=False, write_png=False, write_svg=False),
+			),
+		),
+		unit_ids=[94],
+		require_curated_units=False,
+		force_restart=False,
+		n_jobs=1,
+	)
+
+	result = run_templates_stage(inputs)
+	assert len(result.units) == 1
+	assert result.units[0].status == "ok"
+
+	concat_payload = np.asarray(captured.get("concat"), dtype=float)
+	assert concat_payload.shape == global_concat_locs.shape
+	np.testing.assert_allclose(concat_payload, global_concat_locs)
+
+
 def test_run_templates_stage_writes_footprint_maps(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
@@ -1098,6 +1480,46 @@ def test_run_templates_stage_reports_replot_from_disk_uses_unit_summaries(tmp_pa
 	assert replot_multi_pdf.exists()
 	assert str(replot_grid_png) == second_result.report_outputs.get("wf_overlay_grid_png")
 	assert str(replot_multi_pdf) == second_result.report_outputs.get("multi_source_pdf")
+
+
+def test_run_templates_stage_force_rereport_skips_missing_unit_summaries(tmp_path: Path) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			template=TemplatePlotConfig(write_png=True, write_svg=False),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=True),
+		),
+		reports=ReportsConfig(
+			plot_multi_source_pdf=MultiSourcePdfReportConfig(enabled=False),
+			replot_from_disk=False,
+			time_upsample=TimeUpsampleConfig(enabled=False, factor=1, method="linear"),
+			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
+		),
+		unit_ids=[95],
+		require_curated_units=False,
+		force_restart=False,
+		force_rereport=True,
+		n_jobs=1,
+	)
+	result = run_templates_stage(inputs)
+
+	assert len(result.units) == 0
+	assert not (well_out_dir / "templates_outputs" / "units" / "0095" / "unit_templates_summary.json").exists()
+
+	summary_payload = json.loads((well_out_dir / "templates_outputs" / "templates_summary.json").read_text(encoding="utf-8"))
+	assert summary_payload["force_rereport"] is True
+	assert summary_payload["reports_replot_from_disk"] is True
 
 
 def test_run_templates_stage_time_upsample_nearest_method(tmp_path: Path) -> None:

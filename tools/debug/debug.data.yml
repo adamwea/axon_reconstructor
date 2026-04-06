@@ -17,6 +17,10 @@ Probe: # https://www.mxwbio.com/products/maxtwo
   brand: maxwell
   device: maxtwo_HDMEA
   plate_format: 6-well
+  # Explicit chip dimensions used by location-report framing.
+  chip_dimensions_um:
+    x: 3850.0
+    y: 2100.0
   # Per-well active sensing area (used for geometry-aware channel layout plotting).
   active_sensing_area_mm:
     x: 3.85
