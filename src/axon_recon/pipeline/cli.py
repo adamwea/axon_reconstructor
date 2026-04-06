@@ -12,6 +12,7 @@ from .stages.preprocess.cli import _run_from_args as _run_preprocess_from_args
 from .stages.reconstruct.cli import _run_from_args as _run_reconstruct_from_args
 from .stages.spikesort.cli import _run_from_args as _run_spikesort_from_args
 from .stages.templates.cli import _run_from_args as _run_templates_from_args
+from .stages.templates.cli import _run_resolve_sources_from_args as _run_templates_resolve_sources_from_args
 
 
 StageHandler = Callable[[argparse.Namespace], int]
@@ -32,6 +33,8 @@ _STAGE_ALIASES: dict[str, str] = {
 	"spike": "spikesort",
 	"spikesorting": "spikesort",
 	"template": "templates",
+	"templates.resolve": "templates.resolve_sources",
+	"template.resolve": "templates.resolve_sources",
 	"recon": "reconstruct",
 	"reconstruction": "reconstruct",
 	"analyse": "analysis",
@@ -42,6 +45,7 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"preprocess": _run_preprocess_from_args,
 	"spikesort": _run_spikesort_from_args,
 	"templates": _run_templates_from_args,
+	"templates.resolve_sources": _run_templates_resolve_sources_from_args,
 	"reconstruct": _run_reconstruct_from_args,
 	"analysis": _run_analysis_from_args,
 }
@@ -122,8 +126,12 @@ def _parse_stage_list_tokens(raw_tokens: list[str]) -> list[str]:
 			out.extend(_CANONICAL_STAGE_ORDER)
 			continue
 		if token not in valid:
+			extra_tokens = [name for name in sorted(valid) if name not in _CANONICAL_STAGE_ORDER]
+			supported_tokens = list(_CANONICAL_STAGE_ORDER)
+			if extra_tokens:
+				supported_tokens.extend(extra_tokens)
 			raise SystemExit(
-				f"Unsupported stage token: {raw}. Supported: {', '.join(_CANONICAL_STAGE_ORDER)} (plus aliases preproc, sort, recon)."
+				f"Unsupported stage token: {raw}. Supported: {', '.join(supported_tokens)} (plus aliases preproc, sort, recon)."
 			)
 		out.append(token)
 

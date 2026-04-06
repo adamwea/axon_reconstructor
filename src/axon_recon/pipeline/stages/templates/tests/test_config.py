@@ -2293,6 +2293,112 @@ def test_load_templates_config_supports_legacy_segment_sources_alias(tmp_path: P
 	assert inputs_legacy_only.preproc_seg_sources_reldir == "/legacy/segments"
 
 
+def test_load_templates_config_parses_stage_level_templates_blocks(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    output_rel_root: stage_level_outputs
+			    inputs:
+			      preprocessed_segments_reldir: /stage/segments
+			      preprocessed_concat_reldir: /stage/concat
+			      concat_sorting_relpath: /stage/sorting
+			      concat_analyzer_relpath: /stage/analyzer
+			    spikeinterface:
+			      waveform_extraction:
+			        window:
+			          ms_before: 1.2
+			          ms_after: 2.3
+			        max_spikes_per_unit: 111
+			      template_extraction:
+			        sources:
+			          include_concat: false
+			          include_segments: true
+			          require_concat: true
+			          require_segments: true
+			    upsampling:
+			      enable: true
+			      method: sinc
+			      factor: 8
+			      mismatch_tolerance_hz: 0.15
+			      raw_rate_fallback_hz: 20000
+			    merge:
+			      enable: true
+			      method: weighted_average
+			      centering_method: pre_peak_robust_baseline
+			      max_waveforms_per_source_channel: 42
+			      overlap_match_priority: [electrode_id, channel_id, location]
+			      location_tolerance_um: 3.0
+			    quality_checks:
+			      enable: true
+			      surpress_warnings: true
+			      multiple_peaks_at_channel_templates:
+			        enable: true
+			        prominence_fraction: 0.33
+			        min_separation_samples: 9
+			        max_peaks_per_channel: 2
+			    analysis:
+			      propagation_ordering:
+			        enable: true
+			        latency_mode: negative_peak
+			        debug: true
+			    outputs:
+			      output_rel_root: legacy_outputs
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+
+	assert inputs.output_rel_root == "stage_level_outputs"
+	assert inputs.preprocessed_segments_reldir == "/stage/segments"
+	assert inputs.preprocessed_concat_reldir == "/stage/concat"
+	assert inputs.concat_sorting_relpath == "/stage/sorting"
+	assert inputs.concat_analyzer_relpath == "/stage/analyzer"
+	assert inputs.waveform_extraction.ms_before == 1.2
+	assert inputs.waveform_extraction.ms_after == 2.3
+	assert inputs.waveform_extraction.max_spikes_per_unit == 111
+	assert inputs.include_concat is False
+	assert inputs.include_segments is True
+	assert inputs.require_concat_analyzer is False
+	assert inputs.require_segment_analyzers is True
+	assert inputs.execution_upsampling.enabled is True
+	assert inputs.execution_upsampling.factor == 8
+	assert inputs.execution_upsampling.method == "sinc"
+	assert inputs.execution_upsampling.mismatch_tolerance_hz == 0.15
+	assert inputs.execution_upsampling.raw_rate_fallback_hz == 20000
+	assert inputs.merge.enable is True
+	assert inputs.merge.method == "weighted_average"
+	assert inputs.merge.max_waveforms_per_source_channel == 42
+	assert inputs.merge.overlap_match_priority == ("electrode_id", "channel_id", "location")
+	assert inputs.merge.location_tolerance_um == 3.0
+	assert inputs.quality_checks.enable is True
+	assert inputs.quality_checks.suppress_warnings is True
+	assert inputs.quality_checks.check_for_multiple_peaks_at_channel_templates.enable is True
+	assert inputs.quality_checks.check_for_multiple_peaks_at_channel_templates.prominence_fraction == 0.33
+	assert inputs.per_unit_outputs.propagation_plots.ordering_latency_mode == "negative_peak"
+	assert inputs.per_unit_outputs.propagation_plots.debug_ordering is True
+
+
 def test_load_templates_config_parses_execution_quality_checks_block(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(
@@ -2699,3 +2805,57 @@ def test_load_templates_config_force_rereport_enforces_reports_only_mode(tmp_pat
 	assert inputs.force_replot is False
 	assert inputs.force_replot_per_unit is False
 	assert inputs.reports.replot_from_disk is True
+
+
+def test_load_templates_config_parses_resolve_sources_phase_knobs(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    phases:
+			      resolve_sources:
+			        enabled: true
+			        show_header: false
+			        log_candidates: false
+			        check_path_exists: true
+			        include_alternate_well_dirs: false
+			        probe_curated_units: false
+			        max_candidates_per_source: 7
+			        fail_if_required_sources_missing: true
+			        write_json: true
+			        json_relpath: context/my_resolve_sources.json
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	cfg = inputs.resolve_sources_phase
+	assert cfg.enabled is True
+	assert cfg.show_header is False
+	assert cfg.log_candidates is False
+	assert cfg.check_path_exists is True
+	assert cfg.include_alternate_well_dirs is False
+	assert cfg.probe_curated_units is False
+	assert cfg.max_candidates_per_source == 7
+	assert cfg.fail_if_required_sources_missing is True
+	assert cfg.write_json is True
+	assert cfg.json_relpath == "context/my_resolve_sources.json"

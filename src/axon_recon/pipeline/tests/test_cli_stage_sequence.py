@@ -21,6 +21,11 @@ def test_parse_stage_list_tokens_supports_all_keyword() -> None:
     assert parsed == list(pipeline_cli._CANONICAL_STAGE_ORDER)
 
 
+def test_parse_stage_list_tokens_supports_templates_resolve_sources_substage() -> None:
+    parsed = pipeline_cli._parse_stage_list_tokens(["templates.resolve_sources"])
+    assert parsed == ["templates.resolve_sources"]
+
+
 def test_build_parser_supports_stage_command_alias() -> None:
     parser = pipeline_cli.build_parser()
     args = parser.parse_args([
@@ -116,6 +121,24 @@ def test_main_stops_after_first_failure(monkeypatch, tmp_path: Path) -> None:
 
     assert rc == 3
     assert calls == ["preprocess", "spikesort"]
+
+
+def test_main_runs_templates_resolve_sources_substage(monkeypatch, tmp_path: Path) -> None:
+    runtime_cfg = tmp_path / "runtime.yml"
+    _write_runtime_cfg(runtime_cfg)
+
+    calls: list[str] = []
+
+    def _resolve_sources(args):
+        calls.append(str(getattr(args, "stage", "")))
+        return 0
+
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "templates.resolve_sources", _resolve_sources)
+
+    rc = pipeline_cli.main(["stages", "templates.resolve_sources", "--config", str(runtime_cfg)])
+
+    assert rc == 0
+    assert calls == ["templates.resolve_sources"]
 
 
 def test_parse_stage_list_tokens_rejects_unknown_stage() -> None:

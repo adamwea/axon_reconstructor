@@ -20,7 +20,7 @@ global_logger:
   level: INFO
   format: "[%(asctime)s] %(levelname)s - %(message)s"
   debug_mode:
-    enable: True
+    enable: false
     level: DEBUG
     format: "[%(asctime)s] %(levelname)s - %(message)s (%(pathname)s:%(funcName)s:%(lineno)d)"
 
@@ -222,7 +222,6 @@ stages:
         keep_all: false
 
   templates:
-
     resources:
       max_stage_workers: 24
       well_workers: 2
@@ -247,73 +246,95 @@ stages:
       # Optional explicit unit subset for fast, deterministic reruns.
       #unit_ids: [1, 3, 7, 10, 17, 20, 22, 23, 24, 28]
 
-      inputs:
-        # Input path handling (paths are resolved relative to the per-well output root when using leading '/').
-        # 1) If concat_analyzer_relpath is loadable, it is used directly for concat waveforms/templates.
-        # 2) Otherwise, concat analyzer is built from concat_sorting_relpath + preprocessed_concat_reldir.
-        # 3) Segment sources are discovered under preprocessed_segments_reldir.
-        #    - If child dirs are analyzers, they are loaded directly.
-        #    - If child dirs are preprocessed recordings, segment analyzers are built from concat sorting windows.
-        preprocessed_segments_reldir: /preprocess_outputs/per_segment_preprocessed
-        preprocessed_concat_reldir: /preprocess_outputs/preprocessed_recording
-        concat_sorting_relpath: /spikesort_outputs/sorter_output
-        concat_analyzer_relpath: /spikesort_outputs/analyzer_output
+    inputs:
+      # Input path handling (paths are resolved relative to the per-well output root when using leading '/').
+      # 1) If concat_analyzer_relpath is loadable, it is used directly for concat waveforms/templates.
+      # 2) Otherwise, concat analyzer is built from concat_sorting_relpath + preprocessed_concat_reldir.
+      # 3) Segment sources are discovered under preprocessed_segments_reldir.
+      #    - If child dirs are analyzers, they are loaded directly.
+      #    - If child dirs are preprocessed recordings, segment analyzers are built from concat sorting windows.
+      preprocessed_segments_reldir: /preprocess_outputs/per_segment_preprocessed
+      preprocessed_concat_reldir: /preprocess_outputs/preprocessed_recording
+      concat_sorting_relpath: /spikesort_outputs/sorter_output
+      concat_analyzer_relpath: /spikesort_outputs/analyzer_output
 
-      output_rel_root: templates_outputs
-      spikeinterface:
-        waveform_extraction:
-          window:
-            ms_before: 2
-            ms_after: 5
-          # null or -1 means uncapped (use all available spikes per unit per source)
-          max_spikes_per_unit: -1
-          sources:
-            include_concat: true
-            include_segments: true
+    phases:
+      # WIP Refactoring to stage phases.
+      resolve_sources:
+        enabled: true
+        show_header: true # whether to show a header for this phase in the logs, which can help visually separate it from other phases and identify it quickly when scanning logs.
+        log_candidates: false # Log each candidate path considered per source category.
+        check_path_exists: true # Include existence checks in logs and summaries for candidate paths.
+        include_alternate_well_dirs: false # Probe alternate output roots (for example output_root_2) in addition to the primary well output root.
+        probe_curated_units: false # If require_curated_units is true and unit_ids is unset, probe curated-unit availability during resolve.
+        max_candidates_per_source: 12 # Cap logged/serialized candidate paths per source category.
+        fail_if_required_sources_missing: false # Optional strict mode for debugging source requirements before running heavier phases.
+        write_json: true # Optional write of resolve summary JSON under templates output root.
+        json_relpath: context/resolve_sources_summary.json
+      # create_sorting_analyzers:
+      # per_unit_processing:
+      #   extract_template_segments:
+      #   build_templates:
+      #     handle_merge_overlaps:
+      # finalize:
 
-        template_extraction:
-          sources:
-            include_concat: true
-            include_segments: true
-            # Enforce both sources when include_* is true: fail instead of silently running concat-only.
-            require_concat: true
-            require_segments: true
 
-      upsampling:
+
+    output_rel_root: templates_outputs
+    spikeinterface:
+      waveform_extraction:
+        window:
+          ms_before: 2
+          ms_after: 5
+        # null or -1 means uncapped (use all available spikes per unit per source)
+        max_spikes_per_unit: -1
+        sources:
+          include_concat: true
+          include_segments: true
+
+      template_extraction:
+        sources:
+          include_concat: true
+          include_segments: true
+          # Enforce both sources when include_* is true: fail instead of silently running concat-only.
+          require_concat: true
+          require_segments: true
+
+    upsampling:
+      enable: true
+      method: sinc
+      factor: 10
+      mismatch_tolerance_hz: 0.5
+      raw_rate_fallback_hz: null # optional fallback when raw recording rate cannot be read
+
+    merge:
+      enable: true
+      # mean_all_waveforms: merge all overlapping source waveforms equally (v1 behavior)
+      # weighted_by_channel_waveform_count: weighted average by per-source waveform count at overlapping channels
+      method: mean_all_waveforms
+      centering_method: pre_peak_robust_baseline # TODO: validate methods here
+      #max_waveforms_per_source_channel: 500
+      max_waveforms_per_source_channel: -1
+      overlap_match_priority: [electrode_id, location]
+      location_tolerance_um: 1.0
+
+    quality_checks:
+      enable: true
+      suppress_warnings: true
+      multiple_peaks_at_channel_templates:
         enable: true
-        method: sinc
-        factor: 10
-        mismatch_tolerance_hz: 0.5
-        raw_rate_fallback_hz: null # optional fallback when raw recording rate cannot be read
+        prominence_fraction: 0.30
+        min_separation_samples: 8
+        # Recommended: 2 for strict AP-only detection, 3 if you want a more permissive screen.
+        max_peaks_per_channel: 2
+        plot_violations: true
 
-      merge:
+    analysis:
+      propagation_ordering:
         enable: true
-        # mean_all_waveforms: merge all overlapping source waveforms equally (v1 behavior)
-        # weighted_by_channel_waveform_count: weighted average by per-source waveform count at overlapping channels
-        method: mean_all_waveforms
-        centering_method: pre_peak_robust_baseline # TODO: validate methods here
-        #max_waveforms_per_source_channel: 500
-        max_waveforms_per_source_channel: -1
-        overlap_match_priority: [electrode_id, location]
-        location_tolerance_um: 1.0
-
-      quality_checks:
-        enable: true
-        suppress_warnings: true
-        multiple_peaks_at_channel_templates:
-          enable: true
-          prominence_fraction: 0.30
-          min_separation_samples: 8
-          # Recommended: 2 for strict AP-only detection, 3 if you want a more permissive screen.
-          max_peaks_per_channel: 2
-          plot_violations: true
-
-      analysis:
-        propagation_ordering:
-          enable: true
-          latency_mode: negative_peak # abs_peak or negative_peak; controls canonical channel ordering metric.
-          latency_tie_breaker: channel_index # channel_index (default) sorts equal-latency ties by channel number; stable keeps selected/input order.
-          debug: true # emit per-unit canonical/window/anchor/label-range diagnostics in logs.
+        latency_mode: negative_peak # abs_peak or negative_peak; controls canonical channel ordering metric.
+        latency_tie_breaker: channel_index # channel_index (default) sorts equal-latency ties by channel number; stable keeps selected/input order.
+        debug: true # emit per-unit canonical/window/anchor/label-range diagnostics in logs.
 
     # All outputs from templates stage
     outputs:

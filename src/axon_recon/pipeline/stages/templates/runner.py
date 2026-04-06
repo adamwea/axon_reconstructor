@@ -1160,6 +1160,249 @@ def _resolve_alternate_well_out_dirs(*, inputs: TemplatesInputs, primary_well_ou
 	return alternate_well_out_dirs
 
 
+def _dedupe_string_tokens(tokens: list[str]) -> list[str]:
+	seen: set[str] = set()
+	ordered: list[str] = []
+	for raw in list(tokens):
+		token = str(raw or "").strip()
+		if not token or token in seen:
+			continue
+		seen.add(token)
+		ordered.append(token)
+	return ordered
+
+
+def _summarize_source_candidates(
+	*,
+	name: str,
+	tokens: list[str],
+	candidate_paths: list[Path],
+	check_path_exists: bool,
+	max_candidates_per_source: int,
+) -> dict[str, Any]:
+	first_existing: str | None = None
+	for path in candidate_paths:
+		if path.exists():
+			first_existing = str(path)
+			break
+
+	limit = int(max(1, max_candidates_per_source))
+	entries: list[dict[str, Any]] = []
+	for candidate in list(candidate_paths)[:limit]:
+		row: dict[str, Any] = {"path": str(candidate)}
+		if check_path_exists:
+			row["exists"] = bool(candidate.exists())
+		entries.append(row)
+
+	truncated_count = int(max(0, len(candidate_paths) - len(entries)))
+	return {
+		"name": name,
+		"tokens": list(tokens),
+		"candidate_count": int(len(candidate_paths)),
+		"first_existing": first_existing,
+		"candidates": entries,
+		"candidates_truncated": truncated_count,
+	}
+
+
+def run_templates_resolve_sources_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+	phase_cfg = inputs.resolve_sources_phase
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=inputs.mea_output_root,
+		data_file=inputs.h5_path,
+		well=inputs.stream_id,
+	)
+	alternate_well_out_dirs = (
+		_resolve_alternate_well_out_dirs(inputs=inputs, primary_well_out_dir=well_out_dir)
+		if bool(phase_cfg.include_alternate_well_dirs)
+		else []
+	)
+	well_dirs = [well_out_dir, *list(alternate_well_out_dirs)]
+
+	concat_analyzer_tokens = _dedupe_string_tokens(
+		[
+			str(inputs.concat_analyzer_relpath or ""),
+			"/spikesort_outputs/analyzer_output",
+			"/stg2_spikesorting_outputs/analyzer_output",
+			"spikesort_outputs/analyzer_output",
+			"stg2_spikesorting_outputs/analyzer_output",
+		]
+	)
+	concat_sorting_tokens = _dedupe_string_tokens(
+		[
+			str(inputs.concat_sorting_relpath or ""),
+			"/spikesort_outputs/sorter_output",
+			"/stg2_spikesorting_outputs/sorter_output",
+			"spikesort_outputs/sorter_output",
+			"stg2_spikesorting_outputs/sorter_output",
+		]
+	)
+	preprocessed_concat_tokens = _dedupe_string_tokens(
+		[
+			str(inputs.preprocessed_concat_reldir or ""),
+			"/preprocess_outputs/preprocessed_recording",
+			"preprocess_outputs/preprocessed_recording",
+		]
+	)
+	preprocessed_segments_tokens = _dedupe_string_tokens(
+		[
+			str(inputs.preprocessed_segments_reldir or ""),
+			str(inputs.preproc_seg_sources_reldir or ""),
+			"/preprocess_outputs/per_segment_preprocessed",
+			"/preprocess_outputs/per_segment_recordings",
+			"preprocess_outputs/per_segment_preprocessed",
+			"preprocess_outputs/per_segment_recordings",
+		]
+	)
+
+	concat_analyzer_candidates = _resolve_well_relative_path_candidates(
+		well_dirs=well_dirs,
+		relpath_tokens=concat_analyzer_tokens,
+	)
+	concat_sorting_candidates = _resolve_well_relative_path_candidates(
+		well_dirs=well_dirs,
+		relpath_tokens=concat_sorting_tokens,
+	)
+	preprocessed_concat_candidates = _resolve_well_relative_path_candidates(
+		well_dirs=well_dirs,
+		relpath_tokens=preprocessed_concat_tokens,
+	)
+	preprocessed_segments_candidates = _resolve_well_relative_path_candidates(
+		well_dirs=well_dirs,
+		relpath_tokens=preprocessed_segments_tokens,
+	)
+
+	source_summaries = {
+		"concat_analyzer": _summarize_source_candidates(
+			name="concat_analyzer",
+			tokens=concat_analyzer_tokens,
+			candidate_paths=concat_analyzer_candidates,
+			check_path_exists=bool(phase_cfg.check_path_exists),
+			max_candidates_per_source=int(phase_cfg.max_candidates_per_source),
+		),
+		"concat_sorting": _summarize_source_candidates(
+			name="concat_sorting",
+			tokens=concat_sorting_tokens,
+			candidate_paths=concat_sorting_candidates,
+			check_path_exists=bool(phase_cfg.check_path_exists),
+			max_candidates_per_source=int(phase_cfg.max_candidates_per_source),
+		),
+		"preprocessed_concat": _summarize_source_candidates(
+			name="preprocessed_concat",
+			tokens=preprocessed_concat_tokens,
+			candidate_paths=preprocessed_concat_candidates,
+			check_path_exists=bool(phase_cfg.check_path_exists),
+			max_candidates_per_source=int(phase_cfg.max_candidates_per_source),
+		),
+		"preprocessed_segments": _summarize_source_candidates(
+			name="preprocessed_segments",
+			tokens=preprocessed_segments_tokens,
+			candidate_paths=preprocessed_segments_candidates,
+			check_path_exists=bool(phase_cfg.check_path_exists),
+			max_candidates_per_source=int(phase_cfg.max_candidates_per_source),
+		),
+	}
+
+	curated_probe: dict[str, Any] = {
+		"required": bool(inputs.require_curated_units),
+		"probe_attempted": False,
+		"available": None,
+		"count": 0,
+	}
+	if bool(phase_cfg.probe_curated_units) and bool(inputs.require_curated_units) and inputs.unit_ids is None:
+		curated_probe["probe_attempted"] = True
+		curated_units = _load_curated_units_from_spikesorting(well_out_dir)
+		if curated_units is not None:
+			curated_probe["available"] = True
+			curated_probe["count"] = int(len(curated_units))
+		else:
+			curated_probe["available"] = False
+
+	summary: dict[str, Any] = {
+		"phase": "resolve_sources",
+		"stream_id": str(inputs.stream_id),
+		"h5_path": str(inputs.h5_path),
+		"well_out_dir": str(well_out_dir),
+		"alternate_well_out_dirs": [str(path) for path in alternate_well_out_dirs],
+		"run_intent": {
+			"force_restart": bool(inputs.force_restart),
+			"force_replot": bool(inputs.force_replot),
+			"force_replot_per_unit": bool(inputs.force_replot_per_unit),
+			"force_rereport": bool(inputs.force_rereport),
+		},
+		"unit_scope": {
+			"unit_ids": (None if inputs.unit_ids is None else list(inputs.unit_ids)),
+			"unit_limit": inputs.unit_limit,
+			"require_curated_units": bool(inputs.require_curated_units),
+			"curated_probe": curated_probe,
+		},
+		"source_requirements": {
+			"include_concat": bool(inputs.include_concat),
+			"include_segments": bool(inputs.include_segments),
+			"require_concat_analyzer": bool(inputs.require_concat_analyzer),
+			"require_segment_analyzers": bool(inputs.require_segment_analyzers),
+		},
+		"sources": source_summaries,
+	}
+
+	if bool(phase_cfg.fail_if_required_sources_missing):
+		missing_required: list[str] = []
+		if bool(inputs.include_concat) and bool(inputs.require_concat_analyzer):
+			if source_summaries["concat_analyzer"].get("first_existing", None) is None:
+				missing_required.append("concat_analyzer")
+		if bool(inputs.include_segments) and bool(inputs.require_segment_analyzers):
+			if source_summaries["preprocessed_segments"].get("first_existing", None) is None:
+				missing_required.append("preprocessed_segments")
+		if missing_required:
+			raise RuntimeError(
+				"resolve_sources required inputs missing: "
+				+ ", ".join(missing_required)
+			)
+
+	if bool(phase_cfg.enabled):
+		if bool(phase_cfg.show_header):
+			header_title = f"templates.resolve_sources [{inputs.stream_id}]"
+			header_line = "=" * max(24, len(header_title))
+			LOGGER.info(header_line)
+			LOGGER.info(header_title)
+			LOGGER.info(header_line)
+		LOGGER.info(
+			"resolve_sources: stream=%s run_intent=%s",
+			str(inputs.stream_id),
+			summary["run_intent"],
+		)
+		LOGGER.info(
+			"resolve_sources: well_out_dir=%s alternate_well_out_dirs=%s",
+			str(well_out_dir),
+			["%s" % path for path in alternate_well_out_dirs],
+		)
+		for source_name, payload in source_summaries.items():
+			LOGGER.info(
+				"resolve_sources: %s first_existing=%s candidates=%d",
+				source_name,
+				payload.get("first_existing", None),
+				int(payload.get("candidate_count", 0)),
+			)
+			if bool(phase_cfg.log_candidates):
+				for row in list(payload.get("candidates", [])):
+					LOGGER.info(
+						"resolve_sources: %s candidate path=%s exists=%s",
+						source_name,
+						row.get("path", None),
+						row.get("exists", None),
+					)
+		LOGGER.info("resolve_sources: unit_scope=%s", summary["unit_scope"])
+
+	if bool(phase_cfg.write_json):
+		templates_out_dir = well_out_dir / str(inputs.output_rel_root)
+		json_path = templates_out_dir / str(phase_cfg.json_relpath)
+		json_path.parent.mkdir(parents=True, exist_ok=True)
+		write_json(json_path, summary)
+		summary["summary_json"] = str(json_path)
+
+	return summary
+
+
 def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 	reports_replot_requested = _reports_replot_requested(inputs)
 	report_only_rerun = bool(inputs.force_rereport)

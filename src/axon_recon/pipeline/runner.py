@@ -28,7 +28,7 @@ from .stages.reconstruct.models.results import ReconstructionResult, UnitReconst
 from .stages.spikesort.api import run_spikesort
 from .stages.spikesort.config import build_spikesort_inputs_for_target, parse_spikesort_stage_config
 from .stages.spikesort.models.results import SpikesortResult
-from .stages.templates.api import run_templates
+from .stages.templates.api import run_templates, run_templates_resolve_sources
 from .stages.templates.config import (
 	build_templates_inputs_for_target,
 	parse_probe_geometry_from_data_config,
@@ -786,6 +786,53 @@ def run_templates_from_runtime(
 	failed = sum(1 for item in target_results if item.status != "ok")
 	return MultiTargetStageResult(
 		stage="templates",
+		total_targets=len(target_results),
+		succeeded_targets=succeeded,
+		failed_targets=failed,
+		target_results=target_results,
+	)
+
+
+def run_templates_resolve_sources_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
+	targets = select_execution_targets(bundle=bundle)
+	parallelism = resolve_stage_parallelism(bundle=bundle, stage_name="templates")
+	probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
+	stage_config = parse_templates_stage_config(
+		runtime_config=bundle.runtime_config,
+		probe_geometry=probe_geometry,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+	def _worker(target):
+		inputs = build_templates_inputs_for_target(
+			target=target,
+			stage_config=stage_config,
+			unit_workers=int(parallelism.unit_workers),
+			probe_geometry=probe_geometry,
+		)
+		return run_templates_resolve_sources(inputs)
+
+	target_results = distribute_targets(
+		targets=targets,
+		well_workers=int(parallelism.well_workers),
+		worker_fn=_worker,
+	)
+
+	succeeded = sum(1 for item in target_results if item.status == "ok")
+	failed = sum(1 for item in target_results if item.status != "ok")
+	return MultiTargetStageResult(
+		stage="templates.resolve_sources",
 		total_targets=len(target_results),
 		succeeded_targets=succeeded,
 		failed_targets=failed,

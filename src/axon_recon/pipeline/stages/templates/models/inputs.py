@@ -671,6 +671,20 @@ class ProbeGeometryConfig:
 
 
 @dataclass(frozen=True)
+class ResolveSourcesPhaseConfig:
+	enabled: bool = True
+	show_header: bool = True
+	log_candidates: bool = True
+	check_path_exists: bool = True
+	include_alternate_well_dirs: bool = True
+	probe_curated_units: bool = True
+	max_candidates_per_source: int = 12
+	fail_if_required_sources_missing: bool = False
+	write_json: bool = False
+	json_relpath: str = "context/resolve_sources_summary.json"
+
+
+@dataclass(frozen=True)
 class TemplatesInputs:
 	h5_path: Path
 	stream_id: str
@@ -705,5 +719,6 @@ class TemplatesInputs:
 	merge: MergeConfig = field(default_factory=MergeConfig)
 	quality_checks: QualityChecksConfig = field(default_factory=QualityChecksConfig)
 	quality_checks_outputs: DataQualityChecksOutputsConfig = field(default_factory=DataQualityChecksOutputsConfig)
+	resolve_sources_phase: ResolveSourcesPhaseConfig = field(default_factory=ResolveSourcesPhaseConfig)
 	probe_geometry: ProbeGeometryConfig | None = None
 	n_jobs: int = 1

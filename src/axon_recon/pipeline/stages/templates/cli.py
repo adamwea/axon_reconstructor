@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from ...runner import run_templates_from_runtime
+from ...runner import run_templates_from_runtime, run_templates_resolve_sources_from_runtime
 
 
 def _parse_unit_ids_csv(raw: str) -> list[int]:
@@ -61,6 +61,38 @@ def _run_from_args(args: argparse.Namespace) -> int:
 			print(
 				f"target[{t.dataset_index}:{t.stream_id}] status=ok "
 				f"templates_out_dir={item.result.templates_out_dir} units_processed={len(item.result.units)}"
+			)
+		else:
+			print(
+				f"target[{t.dataset_index}:{t.stream_id}] status=error "
+				f"error={item.error or 'unknown'}"
+			)
+	return 0
+
+
+def _run_resolve_sources_from_args(args: argparse.Namespace) -> int:
+	agg = run_templates_resolve_sources_from_runtime(
+		config_path=str(args.config),
+		unit_id_override=getattr(args, "unit_id", None),
+		unit_ids_override=getattr(args, "unit_ids", None),
+		force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+		force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+	)
+	print(f"stage: {agg.stage}")
+	print(f"targets_total: {agg.total_targets}")
+	print(f"targets_succeeded: {agg.succeeded_targets}")
+	print(f"targets_failed: {agg.failed_targets}")
+	for item in agg.target_results:
+		t = item.target
+		if item.status == "ok" and isinstance(item.result, dict):
+			sources = item.result.get("sources", {})
+			concat = sources.get("concat_analyzer", {}) if isinstance(sources, dict) else {}
+			segments = sources.get("preprocessed_segments", {}) if isinstance(sources, dict) else {}
+			print(
+				f"target[{t.dataset_index}:{t.stream_id}] status=ok "
+				f"well_out_dir={item.result.get('well_out_dir', 'unknown')} "
+				f"concat_analyzer={concat.get('first_existing', None)} "
+				f"preprocessed_segments={segments.get('first_existing', None)}"
 			)
 		else:
 			print(
