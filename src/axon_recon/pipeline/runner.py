@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import logging
 from pathlib import Path
 from typing import Any
@@ -640,15 +640,38 @@ def run_spikesort_merge_from_runtime(
 	config_path: str,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	merge_sequence_override: tuple[str, ...] | list[str] | None = None,
+	stage_name: str = "spikesort.merge",
 ) -> MultiTargetStageResult:
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
 	publish_policy = _resolve_publish_policy(runtime_config=bundle.runtime_config, data_config=bundle.data_config)
-	_log_publish_policy(stage_name="spikesort.merge", policy=publish_policy)
+	_log_publish_policy(stage_name=stage_name, policy=publish_policy)
 	stage_config = parse_spikesort_stage_config(
 		runtime_config=bundle.runtime_config,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
+	if merge_sequence_override is not None:
+		normalized_override = tuple(str(token).strip() for token in tuple(merge_sequence_override) if str(token).strip())
+		if normalized_override:
+			stage_config = replace(stage_config, merge_sequence=normalized_override)
+
+	if bool(getattr(stage_config, "merge_reports_2panel_inherit_probe_dimensions", False)):
+		probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
+		if probe_geometry is not None:
+			existing_x = getattr(stage_config, "merge_reports_2panel_probe_dim_x_um", None)
+			existing_y = getattr(stage_config, "merge_reports_2panel_probe_dim_y_um", None)
+			resolved_x = existing_x
+			resolved_y = existing_y
+			if resolved_x is None:
+				resolved_x = getattr(probe_geometry, "active_area_um_x", None)
+			if resolved_y is None:
+				resolved_y = getattr(probe_geometry, "active_area_um_y", None)
+			stage_config = replace(
+				stage_config,
+				merge_reports_2panel_probe_dim_x_um=(float(resolved_x) if resolved_x is not None else None),
+				merge_reports_2panel_probe_dim_y_um=(float(resolved_y) if resolved_y is not None else None),
+			)
 	targets = select_execution_targets(bundle=bundle)
 	if stage_config.debug_limit_wells is not None:
 		limit_wells = max(1, int(stage_config.debug_limit_wells))
@@ -668,7 +691,20 @@ def run_spikesort_merge_from_runtime(
 			mea_output_root=target.mea_output_root,
 			output_rel_root=stage_config.output_rel_root,
 			stage_config=stage_config,
-			force_restart=bool(stage_config.force_restart or stage_config.force_replot),
+			force_restart=bool(
+				getattr(
+					stage_config,
+					"merge_force_restart",
+					bool(stage_config.force_restart),
+				)
+			),
+			force_replot=bool(
+				getattr(
+					stage_config,
+					"merge_force_replot",
+					bool(stage_config.force_replot),
+				)
+			),
 		)
 
 	target_results = distribute_targets(
@@ -681,7 +717,7 @@ def run_spikesort_merge_from_runtime(
 	succeeded = sum(1 for item in target_results if item.status == "ok")
 	failed = sum(1 for item in target_results if item.status != "ok")
 	return MultiTargetStageResult(
-		stage="spikesort.merge",
+		stage=stage_name,
 		total_targets=len(target_results),
 		succeeded_targets=succeeded,
 		failed_targets=failed,

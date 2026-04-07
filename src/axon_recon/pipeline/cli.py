@@ -11,7 +11,9 @@ from .stages.analysis.cli import _run_from_args as _run_analysis_from_args
 from .stages.preprocess.cli import _run_from_args as _run_preprocess_from_args
 from .stages.reconstruct.cli import _run_from_args as _run_reconstruct_from_args
 from .stages.spikesort.cli import _run_from_args as _run_spikesort_from_args
+from .stages.spikesort.cli import _run_merge_auto_merge_from_args as _run_spikesort_merge_auto_merge_from_args
 from .stages.spikesort.cli import _run_merge_from_args as _run_spikesort_merge_from_args
+from .stages.spikesort.cli import _run_merge_slay_from_args as _run_spikesort_merge_slay_from_args
 from .stages.templates.cli import _run_from_args as _run_templates_from_args
 from .stages.templates.cli import _run_resolve_sources_from_args as _run_templates_resolve_sources_from_args
 
@@ -34,6 +36,9 @@ _STAGE_ALIASES: dict[str, str] = {
 	"spikesort.sort": "spikesort",
 	"merge": "spikesort.merge",
 	"spikesort.merge_units": "spikesort.merge",
+	"spikesort.merge.automerge": "spikesort.merge.auto_merge",
+	"spikesort.merge_units.slay": "spikesort.merge.slay",
+	"spikesort.merge_units.auto_merge": "spikesort.merge.auto_merge",
 	"spike": "spikesort",
 	"spikesorting": "spikesort",
 	"template": "templates",
@@ -49,6 +54,8 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"preprocess": _run_preprocess_from_args,
 	"spikesort": _run_spikesort_from_args,
 	"spikesort.merge": _run_spikesort_merge_from_args,
+	"spikesort.merge.slay": _run_spikesort_merge_slay_from_args,
+	"spikesort.merge.auto_merge": _run_spikesort_merge_auto_merge_from_args,
 	"templates": _run_templates_from_args,
 	"templates.resolve_sources": _run_templates_resolve_sources_from_args,
 	"reconstruct": _run_reconstruct_from_args,

@@ -17,6 +17,7 @@ def test_parse_spikesort_stage_config_defaults() -> None:
 
     assert parsed.output_rel_root == "spikesort_outputs"
     assert parsed.preprocess_concat_recording_relpath is None
+    assert parsed.merge_sequence == ("SLAy", "auto_merge", "unitmatch")
     assert parsed.logging_enabled is True
     assert parsed.logging_verbose is False
     assert parsed.logging_file_relpath is None
@@ -51,7 +52,88 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.slay_auto_accept_merges is False
     assert parsed.slay_copy_automerge_artifacts is True
     assert parsed.slay_delete_outputs_on_force_restart is True
+    assert parsed.slay_recompute_analyzer is False
+    assert parsed.slay_model_cache_relpath == "cache/slay_model/ae.pt"
+    assert parsed.slay_model_cache_use_cached_model is True
+    assert parsed.slay_model_cache_write_model is True
+    assert parsed.slay_force_restart_retrain_model is False
     assert parsed.slay_params is None
+    assert parsed.auto_merge_enabled is False
+    assert parsed.auto_merge_relpath == "automerge_outputs"
+    assert parsed.auto_merge_delete_outputs_on_force_restart is True
+    assert parsed.auto_merge_candidate_pairs_reldir == "recommended_merge_candidates"
+    assert parsed.auto_merge_merged_units_reldir == "merged_units"
+    assert parsed.auto_merge_auto_accept_merges is False
+    assert parsed.auto_merge_template_diff_thresholds == (0.25,)
+    assert parsed.merge_units_enabled is True
+    assert parsed.merge_rel_output_root is None
+    assert parsed.merge_delete_outputs_on_force_restart is False
+    assert parsed.merge_force_restart is False
+    assert parsed.merge_force_replot is False
+    assert parsed.cache_sorting_outputs_before_merge is False
+    assert parsed.cache_sorting_outputs_before_merge_relpath == "pre_merge_cache"
+    assert parsed.cache_sorting_outputs_before_merge_cleanup_on_success is False
+    assert parsed.cache_sorting_outputs_before_merge_use_cache_on_force_restart is False
+    assert parsed.cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart is False
+    assert parsed.cache_sorting_outputs_before_merge_refresh_on_run is False
+    assert parsed.cache_sorting_outputs_before_merge_strict_restore_on_force_restart is True
+    assert parsed.cache_sorting_outputs_before_merge_use_canonical_workspace is False
+    assert parsed.cache_sorting_outputs_before_merge_canonical_workspace_relpath == "cache/merge_canonical_workspace"
+    assert parsed.cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run is True
+    assert parsed.cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer is True
+    assert parsed.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success is False
+    assert parsed.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure is False
+    assert parsed.cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace is True
+    assert parsed.cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace is True
+    assert parsed.merge_reports_enabled is False
+    assert parsed.merge_reports_unit_diff_json_enabled is False
+    assert parsed.merge_reports_unit_diff_json_relpath == "unit_diffs_after_merge.json"
+    assert parsed.merge_reports_unit_diff_map_enabled is False
+    assert parsed.merge_reports_unit_diff_map_relpath == "unit_diff_map.json"
+    assert parsed.merge_reports_unit_diff_map_flat_enabled is False
+    assert parsed.merge_reports_unit_diff_map_flat_relpath == "unit_diff_map_flat.json"
+    assert parsed.merge_reports_post_merge_unit_locations_enabled is False
+    assert parsed.merge_reports_post_merge_unit_locations_relpath == "post_merge_unit_locations.json"
+    assert parsed.merge_reports_2panel_enabled is False
+    assert parsed.merge_reports_2panel_point_size == 9.0
+    assert parsed.merge_reports_2panel_relpath == "unit_locations_before_after_merge.png"
+    assert parsed.merge_reports_2panel_label_pre_and_post_units is False
+    assert parsed.merge_reports_2panel_write_png is True
+    assert parsed.merge_reports_2panel_write_svg is False
+    assert parsed.merge_reports_2panel_before_relpath == "unit_locations_before_merge.png"
+    assert parsed.merge_reports_2panel_before_write_png is True
+    assert parsed.merge_reports_2panel_before_write_svg is False
+    assert parsed.merge_reports_2panel_before_point_color == "#7a7a7a"
+    assert parsed.merge_reports_2panel_after_relpath == "unit_locations_after_merge.png"
+    assert parsed.merge_reports_2panel_after_write_png is True
+    assert parsed.merge_reports_2panel_after_write_svg is False
+    assert parsed.merge_reports_2panel_after_point_color == "#7a7a7a"
+    assert parsed.merge_reports_2panel_highlight_merges_enabled is False
+    assert parsed.merge_reports_2panel_highlight_merges_linked is True
+    assert parsed.merge_reports_2panel_highlight_plot_after_other_units is False
+    assert parsed.merge_reports_2panel_highlight_label_affected_units is False
+    assert parsed.merge_reports_2panel_highlight_before_color == "#ff7f0e"
+    assert parsed.merge_reports_2panel_highlight_after_color == "#2ca02c"
+    assert parsed.merge_reports_2panel_highlight_palette == "tab20"
+    assert parsed.merge_reports_2panel_inherit_probe_dimensions is False
+    assert parsed.merge_reports_2panel_zoom_to_affected_units is False
+    assert parsed.merge_reports_2panel_probe_dim_x_um is None
+    assert parsed.merge_reports_2panel_probe_dim_y_um is None
+    assert parsed.merge_metadata_enabled is False
+    assert parsed.merge_metadata_write_json is True
+    assert parsed.merge_metadata_json_relpath == "merge_metadata_summary.json"
+    assert parsed.merge_metadata_include_unit_locations is True
+    assert parsed.merge_metadata_log_summary_details is False
+    assert parsed.pre_merge_metadata_enabled is False
+    assert parsed.pre_merge_metadata_write_json is True
+    assert parsed.pre_merge_metadata_json_relpath == "pre_merge_metadata_summary.json"
+    assert parsed.pre_merge_metadata_include_unit_locations is True
+    assert parsed.pre_merge_metadata_log_summary_details is False
+    assert parsed.post_merge_metadata_enabled is False
+    assert parsed.post_merge_metadata_write_json is True
+    assert parsed.post_merge_metadata_json_relpath == "post_merge_metadata_summary.json"
+    assert parsed.post_merge_metadata_include_unit_locations is True
+    assert parsed.post_merge_metadata_log_summary_details is False
     assert parsed.force_restart is False
     assert parsed.force_replot is False
 
@@ -113,6 +195,23 @@ def test_parse_spikesort_stage_config_parses_sectioned_stage_layout() -> None:
                             "keep_all": False,
                         },
                     },
+                    "phases": {
+                        "merge_units": {
+                            "sequence": ["SLAy", "auto_merge", "unitmatch"],
+                            "auto_merge": {
+                                "enabled": True,
+                                "template_diff_thresh": "0.05,0.15,0.25",
+                                "relpath": "automerge_outputs",
+                                "delete_outputs_on_force_restart": False,
+                                "candidate_pairs_reldir": "recommended_merge_candidates",
+                                "merged_units_reldir": "merged_units",
+                                "auto_accept_merges": True,
+                            },
+                            "SLAy": {
+                                "recompute_analyzer": True,
+                            },
+                        }
+                    },
                 }
             }
         }
@@ -153,6 +252,15 @@ def test_parse_spikesort_stage_config_parses_sectioned_stage_layout() -> None:
     assert parsed.force_rerun_analyzer is True
     assert isinstance(parsed.option_kwargs, dict)
     assert parsed.option_kwargs.get("force_rerun_analyzer") is True
+    assert parsed.merge_sequence == ("SLAy", "auto_merge", "unitmatch")
+    assert parsed.slay_recompute_analyzer is True
+    assert parsed.auto_merge_enabled is True
+    assert parsed.auto_merge_relpath == "automerge_outputs"
+    assert parsed.auto_merge_delete_outputs_on_force_restart is False
+    assert parsed.auto_merge_candidate_pairs_reldir == "recommended_merge_candidates"
+    assert parsed.auto_merge_merged_units_reldir == "merged_units"
+    assert parsed.auto_merge_auto_accept_merges is True
+    assert parsed.auto_merge_template_diff_thresholds == (0.05, 0.15, 0.25)
 
 
 def test_parse_spikesort_stage_config_phase_blocks_take_precedence() -> None:
@@ -338,6 +446,14 @@ def test_parse_spikesort_stage_config_reads_slay_merge_knobs() -> None:
                                 "auto_accept_merges": False,
                                 "copy_automerge_artifacts": False,
                                 "delete_outputs_on_force_restart": False,
+                                "recompute_analyzer": True,
+                                "model_cache": {
+                                    "enabled": True,
+                                    "relpath": "cache/slay_model/custom_ae.pt",
+                                    "use_cached_model": False,
+                                    "write_model_cache": True,
+                                },
+                                "force_restart_retrain_model": True,
                                 "params": {
                                     "max_spikes": 250,
                                     "final_thresh": 0.6,
@@ -366,9 +482,430 @@ def test_parse_spikesort_stage_config_reads_slay_merge_knobs() -> None:
     assert parsed.slay_auto_accept_merges is False
     assert parsed.slay_copy_automerge_artifacts is False
     assert parsed.slay_delete_outputs_on_force_restart is False
+    assert parsed.slay_recompute_analyzer is True
+    assert parsed.slay_model_cache_relpath == "cache/slay_model/custom_ae.pt"
+    assert parsed.slay_model_cache_use_cached_model is False
+    assert parsed.slay_model_cache_write_model is True
+    assert parsed.slay_force_restart_retrain_model is True
     assert isinstance(parsed.slay_params, dict)
     assert parsed.slay_params.get("max_spikes") == 250
     assert parsed.slay_params.get("final_thresh") == 0.6
+
+
+def test_parse_spikesort_stage_config_reads_auto_merge_knobs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "sequence": ["SLAy", "auto_merge"],
+                            "auto_merge": {
+                                "enabled": True,
+                                "template_diff_thresh": "0.07,0.11",
+                                "relpath": "merge_outputs/automerge",
+                                "delete_outputs_on_force_restart": False,
+                                "candidate_pairs_reldir": "pairs_by_iteration",
+                                "merged_units_reldir": "merged_units_by_iteration",
+                                "auto_accept_merges": True,
+                            },
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_sequence == ("SLAy", "auto_merge")
+    assert parsed.auto_merge_enabled is True
+    assert parsed.auto_merge_relpath == "merge_outputs/automerge"
+    assert parsed.auto_merge_delete_outputs_on_force_restart is False
+    assert parsed.auto_merge_candidate_pairs_reldir == "pairs_by_iteration"
+    assert parsed.auto_merge_merged_units_reldir == "merged_units_by_iteration"
+    assert parsed.auto_merge_auto_accept_merges is True
+    assert parsed.auto_merge_template_diff_thresholds == (0.07, 0.11)
+
+
+def test_parse_spikesort_stage_config_reads_merge_metadata_knobs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "merge_metadata": {
+                                "enabled": True,
+                                "write_json": True,
+                                "json_relpath": "metadata/merge_metadata_summary.json",
+                                "include_unit_locations": False,
+                                "log_summary_details": True,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_metadata_enabled is True
+    assert parsed.merge_metadata_write_json is True
+    assert parsed.merge_metadata_json_relpath == "metadata/merge_metadata_summary.json"
+    assert parsed.merge_metadata_include_unit_locations is False
+    assert parsed.merge_metadata_log_summary_details is True
+
+
+def test_parse_spikesort_stage_config_reads_merge_phase_master_enable_and_cache_knobs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "enabled": False,
+                            "rel_output_root": "merge_outputs",
+                            "delete_outputs_on_force_restart": True,
+                            "cache_sorting_outputs_before_merge": {
+                                "enabled": True,
+                                "relpath": "cache/pre_merge_cache",
+                                "cleanup_on_success": True,
+                                "use_cache_on_force_restart": True,
+                            },
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_units_enabled is False
+    assert parsed.merge_rel_output_root == "merge_outputs"
+    assert parsed.merge_delete_outputs_on_force_restart is True
+    assert parsed.merge_force_restart is False
+    assert parsed.merge_force_replot is False
+    assert parsed.cache_sorting_outputs_before_merge is True
+    assert parsed.cache_sorting_outputs_before_merge_relpath == "cache/pre_merge_cache"
+    assert parsed.cache_sorting_outputs_before_merge_cleanup_on_success is True
+    assert parsed.cache_sorting_outputs_before_merge_use_cache_on_force_restart is True
+    assert parsed.cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart is True
+    assert parsed.cache_sorting_outputs_before_merge_use_canonical_workspace is False
+    assert parsed.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success is False
+    assert parsed.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure is False
+
+
+def test_parse_spikesort_stage_config_reads_canonical_workspace_cache_knobs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "use_cache_as_canonical_workspace": {
+                                "enabled": True,
+                                "canonical_workspace_relpath": "cache/merge_workspace",
+                                "canonical_workspace_refresh_on_run": False,
+                                "canonical_workspace_rebuild_analyzer": False,
+                                "publish_to_stage_outputs_on_success": True,
+                                "publish_to_stage_outputs_on_failure": True,
+                                "assert_slay_uses_canonical_workspace": False,
+                                "assert_auto_merge_uses_canonical_workspace": False,
+                            },
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.cache_sorting_outputs_before_merge is False
+    assert parsed.cache_sorting_outputs_before_merge_use_canonical_workspace is True
+    assert parsed.cache_sorting_outputs_before_merge_canonical_workspace_relpath == "cache/merge_workspace"
+    assert parsed.cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run is False
+    assert parsed.cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer is False
+    assert parsed.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success is True
+    assert parsed.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure is True
+    assert parsed.cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace is False
+    assert parsed.cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace is False
+
+
+def test_parse_spikesort_stage_config_merge_force_knobs_inherit_global_toggles() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "execution": {
+                        "force_restart": True,
+                        "force_replot": True,
+                    },
+                    "phases": {
+                        "merge_units": {
+                            "force_restart": False,
+                            "force_replot": False,
+                        }
+                    },
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.force_restart is True
+    assert parsed.force_replot is True
+    assert parsed.merge_force_restart is True
+    assert parsed.merge_force_replot is True
+
+
+def test_parse_spikesort_stage_config_reads_merge_reports_2panel_knobs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "reports": {
+                                "enabled": True,
+                                "unit_diff_json": {
+                                    "enabled": True,
+                                    "relpath": "reports/unit_diffs_after_merge.json",
+                                },
+                                "2panels_unit_locations_before_after_merge": {
+                                    "enabled": True,
+                                    "point_size": 7.5,
+                                    "relpath": "reports/2panels_unit_locations_before_after_merge",
+                                    "label_pre_and_post_units": True,
+                                    "write_png": True,
+                                    "write_svg": True,
+                                    "inherit_probe_dimensions": True,
+                                    "zoom_to_affected_units": True,
+                                    "probe_dim_x_um": 3850,
+                                    "probe_dim_y_um": 2100,
+                                    "highlight_merges": {
+                                        "enabled": True,
+                                        "linked_highlight": True,
+                                        "plot_after_other_units": True,
+                                        "label_affected_units": True,
+                                        "before_color": "#ff0000",
+                                        "after_color": "#00ff00",
+                                        "palette": "Set1",
+                                    },
+                                    "assets": {
+                                        "before": {
+                                            "relpath": "reports/unit_locations_before_merge",
+                                            "write_png": False,
+                                            "write_svg": True,
+                                            "point_color": "#111111",
+                                        },
+                                        "after": {
+                                            "relpath": "reports/unit_locations_after_merge",
+                                            "write_png": True,
+                                            "write_svg": False,
+                                            "point_color": "#222222",
+                                        },
+                                    },
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_reports_enabled is True
+    assert parsed.merge_reports_unit_diff_json_enabled is True
+    assert parsed.merge_reports_unit_diff_json_relpath == "reports/unit_diffs_after_merge.json"
+    assert parsed.merge_reports_2panel_enabled is True
+    assert parsed.merge_reports_2panel_point_size == 7.5
+    assert parsed.merge_reports_2panel_relpath == "reports/2panels_unit_locations_before_after_merge"
+    assert parsed.merge_reports_2panel_label_pre_and_post_units is True
+    assert parsed.merge_reports_2panel_write_png is True
+    assert parsed.merge_reports_2panel_write_svg is True
+    assert parsed.merge_reports_2panel_before_relpath == "reports/unit_locations_before_merge"
+    assert parsed.merge_reports_2panel_before_write_png is False
+    assert parsed.merge_reports_2panel_before_write_svg is True
+    assert parsed.merge_reports_2panel_before_point_color == "#111111"
+    assert parsed.merge_reports_2panel_after_relpath == "reports/unit_locations_after_merge"
+    assert parsed.merge_reports_2panel_after_write_png is True
+    assert parsed.merge_reports_2panel_after_write_svg is False
+    assert parsed.merge_reports_2panel_after_point_color == "#222222"
+    assert parsed.merge_reports_2panel_highlight_merges_enabled is True
+    assert parsed.merge_reports_2panel_highlight_merges_linked is True
+    assert parsed.merge_reports_2panel_highlight_plot_after_other_units is True
+    assert parsed.merge_reports_2panel_highlight_label_affected_units is True
+    assert parsed.merge_reports_2panel_highlight_before_color == "#ff0000"
+    assert parsed.merge_reports_2panel_highlight_after_color == "#00ff00"
+    assert parsed.merge_reports_2panel_highlight_palette == "Set1"
+    assert parsed.merge_reports_2panel_inherit_probe_dimensions is True
+    assert parsed.merge_reports_2panel_zoom_to_affected_units is True
+    assert parsed.merge_reports_2panel_probe_dim_x_um == 3850.0
+    assert parsed.merge_reports_2panel_probe_dim_y_um == 2100.0
+
+
+def test_parse_spikesort_stage_config_reads_merge_reports_unit_diff_json_knobs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "reports": {
+                                "enabled": True,
+                                "unit_diff_json": {
+                                    "enabled": True,
+                                    "relpath": "merge_outputs/reports/unit_diffs_after_merge.json",
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_reports_enabled is True
+    assert parsed.merge_reports_unit_diff_json_enabled is True
+    assert parsed.merge_reports_unit_diff_json_relpath == "merge_outputs/reports/unit_diffs_after_merge.json"
+
+
+def test_parse_spikesort_stage_config_reads_merge_reports_unit_diff_map_knobs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "reports": {
+                                "enabled": True,
+                                "unit_diff_map": {
+                                    "enabled": True,
+                                    "relpath": "merge_outputs/reports/unit_diff_map.json",
+                                },
+                                "unit_diff_map_flat": {
+                                    "enabled": True,
+                                    "relpath": "merge_outputs/reports/unit_diff_map_flat.json",
+                                },
+                                "post_merge_unit_locations": {
+                                    "enabled": True,
+                                    "relpath": "merge_outputs/reports/post_merge_unit_locations.json",
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_reports_enabled is True
+    assert parsed.merge_reports_unit_diff_map_enabled is True
+    assert parsed.merge_reports_unit_diff_map_relpath == "merge_outputs/reports/unit_diff_map.json"
+    assert parsed.merge_reports_unit_diff_map_flat_enabled is True
+    assert parsed.merge_reports_unit_diff_map_flat_relpath == "merge_outputs/reports/unit_diff_map_flat.json"
+    assert parsed.merge_reports_post_merge_unit_locations_enabled is True
+    assert (
+        parsed.merge_reports_post_merge_unit_locations_relpath
+        == "merge_outputs/reports/post_merge_unit_locations.json"
+    )
+
+
+def test_parse_spikesort_stage_config_supports_legacy_boolean_cache_flag() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "cache_sorting_outputs_before_merge": True,
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.cache_sorting_outputs_before_merge is True
+    assert parsed.cache_sorting_outputs_before_merge_relpath == "pre_merge_cache"
+    assert parsed.cache_sorting_outputs_before_merge_cleanup_on_success is False
+    assert parsed.cache_sorting_outputs_before_merge_use_cache_on_force_restart is False
+    assert parsed.cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart is False
+
+
+def test_parse_spikesort_stage_config_reads_replace_sorting_cache_alias() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "cache_sorting_outputs_before_merge": {
+                                "enabled": True,
+                                "replace_sorting_with_cache_before_force_restart": True,
+                            },
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.cache_sorting_outputs_before_merge is True
+    assert parsed.cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart is True
+    assert parsed.cache_sorting_outputs_before_merge_use_cache_on_force_restart is True
+
+
+def test_parse_spikesort_stage_config_reads_legacy_pre_post_blocks_independently() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "pre_merge_metadata": {
+                                "enabled": True,
+                                "write_json": True,
+                                "json_relpath": "legacy/pre_merge_sorting_metadata.json",
+                            },
+                            "post_merge_metadata": {
+                                "enabled": True,
+                                "write_json": False,
+                                "json_relpath": "legacy/post_merge_sorting_metadata.json",
+                            },
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_metadata_enabled is False
+    assert parsed.merge_metadata_write_json is True
+    assert parsed.merge_metadata_json_relpath == "merge_metadata_summary.json"
+    assert parsed.pre_merge_metadata_enabled is True
+    assert parsed.pre_merge_metadata_write_json is True
+    assert parsed.pre_merge_metadata_json_relpath == "legacy/pre_merge_sorting_metadata.json"
+    assert parsed.post_merge_metadata_enabled is True
+    assert parsed.post_merge_metadata_write_json is False
+    assert parsed.post_merge_metadata_json_relpath == "legacy/post_merge_sorting_metadata.json"
 
 
 def test_parse_spikesort_stage_config_force_overrides_take_precedence() -> None:
@@ -477,6 +1014,47 @@ def test_parse_spikesort_stage_config_plot_disabled_forces_reports_off() -> None
 
     assert parsed.plot_enabled is False
     assert parsed.run_reports is False
+
+
+def test_parse_spikesort_stage_config_execution_delete_outputs_on_force_restart_alias_enabled() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "execution": {
+                        "delete_outputs_on_force_restart": True,
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.sort_delete_outputs_on_force_restart is True
+
+
+def test_parse_spikesort_stage_config_sort_phase_delete_flag_overrides_execution_alias() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "execution": {
+                        "delete_outputs_on_force_restart": True,
+                    },
+                    "phases": {
+                        "sort": {
+                            "delete_outputs_on_force_restart": False,
+                        }
+                    },
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.sort_delete_outputs_on_force_restart is False
 
 
 def test_parse_spikesort_stage_config_supports_top_level_legacy_keys() -> None:

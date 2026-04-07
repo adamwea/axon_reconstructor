@@ -108,6 +108,40 @@ def _normalize_optional_relpath(raw: Any) -> str | None:
 	return normalized or None
 
 
+def _as_list_of_strings(value: Any) -> list[str]:
+	if value is None:
+		return []
+	if isinstance(value, str):
+		return [token.strip() for token in value.split(",") if token.strip()]
+	if isinstance(value, (list, tuple, set)):
+		out: list[str] = []
+		for item in value:
+			text = _as_optional_str(item)
+			if text is not None:
+				out.append(text)
+		return out
+	text = _as_optional_str(value)
+	return ([text] if text is not None else [])
+
+
+def _as_optional_float_tuple(value: Any) -> tuple[float, ...] | None:
+	if value is None:
+		return None
+	items: list[Any]
+	if isinstance(value, str):
+		items = [token.strip() for token in value.split(",") if token.strip()]
+	elif isinstance(value, (list, tuple, set)):
+		items = list(value)
+	else:
+		items = [value]
+	parsed: list[float] = []
+	for item in items:
+		val = _as_optional_float(item)
+		if val is not None:
+			parsed.append(float(val))
+	return (tuple(parsed) if parsed else None)
+
+
 def _get_with_fallback(primary: dict[str, Any], fallback: dict[str, Any], key: str, default: Any) -> Any:
 	if key in primary:
 		return primary.get(key)
@@ -139,6 +173,7 @@ def _resolve_data_config_path(runtime_config_path: Path, data_ref: str | None) -
 class SpikesortStageConfig:
 	output_rel_root: str
 	preprocess_concat_recording_relpath: str | None
+	merge_sequence: tuple[str, ...]
 	logging_enabled: bool
 	logging_verbose: bool
 	logging_file_relpath: str | None
@@ -188,7 +223,88 @@ class SpikesortStageConfig:
 	slay_auto_accept_merges: bool
 	slay_copy_automerge_artifacts: bool
 	slay_delete_outputs_on_force_restart: bool
+	slay_recompute_analyzer: bool
+	slay_model_cache_relpath: str | None
+	slay_model_cache_use_cached_model: bool
+	slay_model_cache_write_model: bool
+	slay_force_restart_retrain_model: bool
 	slay_params: dict[str, Any] | None
+	auto_merge_enabled: bool
+	auto_merge_relpath: str
+	auto_merge_delete_outputs_on_force_restart: bool
+	auto_merge_candidate_pairs_reldir: str
+	auto_merge_merged_units_reldir: str
+	auto_merge_auto_accept_merges: bool
+	auto_merge_template_diff_thresholds: tuple[float, ...]
+	merge_units_enabled: bool
+	merge_rel_output_root: str | None
+	merge_delete_outputs_on_force_restart: bool
+	merge_force_restart: bool
+	merge_force_replot: bool
+	cache_sorting_outputs_before_merge: bool
+	cache_sorting_outputs_before_merge_relpath: str
+	cache_sorting_outputs_before_merge_cleanup_on_success: bool
+	cache_sorting_outputs_before_merge_use_cache_on_force_restart: bool
+	cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart: bool
+	cache_sorting_outputs_before_merge_refresh_on_run: bool
+	cache_sorting_outputs_before_merge_strict_restore_on_force_restart: bool
+	cache_sorting_outputs_before_merge_use_canonical_workspace: bool
+	cache_sorting_outputs_before_merge_canonical_workspace_relpath: str
+	cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run: bool
+	cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer: bool
+	cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success: bool
+	cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure: bool
+	cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace: bool
+	cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace: bool
+	merge_reports_enabled: bool
+	merge_reports_unit_diff_json_enabled: bool
+	merge_reports_unit_diff_json_relpath: str
+	merge_reports_unit_diff_map_enabled: bool
+	merge_reports_unit_diff_map_relpath: str
+	merge_reports_unit_diff_map_flat_enabled: bool
+	merge_reports_unit_diff_map_flat_relpath: str
+	merge_reports_post_merge_unit_locations_enabled: bool
+	merge_reports_post_merge_unit_locations_relpath: str
+	merge_reports_2panel_enabled: bool
+	merge_reports_2panel_point_size: float
+	merge_reports_2panel_relpath: str
+	merge_reports_2panel_label_pre_and_post_units: bool
+	merge_reports_2panel_write_png: bool
+	merge_reports_2panel_write_svg: bool
+	merge_reports_2panel_before_relpath: str
+	merge_reports_2panel_before_write_png: bool
+	merge_reports_2panel_before_write_svg: bool
+	merge_reports_2panel_before_point_color: str
+	merge_reports_2panel_after_relpath: str
+	merge_reports_2panel_after_write_png: bool
+	merge_reports_2panel_after_write_svg: bool
+	merge_reports_2panel_after_point_color: str
+	merge_reports_2panel_highlight_merges_enabled: bool
+	merge_reports_2panel_highlight_merges_linked: bool
+	merge_reports_2panel_highlight_plot_after_other_units: bool
+	merge_reports_2panel_highlight_label_affected_units: bool
+	merge_reports_2panel_highlight_before_color: str
+	merge_reports_2panel_highlight_after_color: str
+	merge_reports_2panel_highlight_palette: str
+	merge_reports_2panel_inherit_probe_dimensions: bool
+	merge_reports_2panel_zoom_to_affected_units: bool
+	merge_reports_2panel_probe_dim_x_um: float | None
+	merge_reports_2panel_probe_dim_y_um: float | None
+	merge_metadata_enabled: bool
+	merge_metadata_write_json: bool
+	merge_metadata_json_relpath: str
+	merge_metadata_include_unit_locations: bool
+	merge_metadata_log_summary_details: bool
+	pre_merge_metadata_enabled: bool
+	pre_merge_metadata_write_json: bool
+	pre_merge_metadata_json_relpath: str
+	pre_merge_metadata_include_unit_locations: bool
+	pre_merge_metadata_log_summary_details: bool
+	post_merge_metadata_enabled: bool
+	post_merge_metadata_write_json: bool
+	post_merge_metadata_json_relpath: str
+	post_merge_metadata_include_unit_locations: bool
+	post_merge_metadata_log_summary_details: bool
 
 	force_restart: bool
 	force_replot: bool
@@ -250,6 +366,23 @@ def parse_spikesort_stage_config(
 	stage_auto_merge_cfg = _as_section(stage_cfg.get("auto_merge", {}))
 	execution_auto_merge_cfg = _as_section(execution_cfg.get("auto_merge", {}))
 	merge_phase_auto_merge_cfg = _as_section(merge_units_phase_cfg.get("auto_merge", {}))
+	cache_sorting_outputs_cfg_raw = merge_units_phase_cfg.get("cache_sorting_outputs_before_merge", None)
+	cache_sorting_outputs_cfg = _as_section(cache_sorting_outputs_cfg_raw)
+	canonical_workspace_cfg_raw = merge_units_phase_cfg.get("use_cache_as_canonical_workspace", None)
+	canonical_workspace_cfg = _as_section(canonical_workspace_cfg_raw)
+	merge_reports_cfg = _as_section(merge_units_phase_cfg.get("reports", {}))
+	merge_reports_unit_diff_json_cfg = _as_section(merge_reports_cfg.get("unit_diff_json", {}))
+	merge_reports_unit_diff_map_cfg = _as_section(merge_reports_cfg.get("unit_diff_map", {}))
+	merge_reports_unit_diff_map_flat_cfg = _as_section(merge_reports_cfg.get("unit_diff_map_flat", {}))
+	merge_reports_post_merge_unit_locations_cfg = _as_section(merge_reports_cfg.get("post_merge_unit_locations", {}))
+	merge_reports_2panel_cfg = _as_section(merge_reports_cfg.get("2panels_unit_locations_before_after_merge", {}))
+	merge_reports_2panel_assets_cfg = _as_section(merge_reports_2panel_cfg.get("assets", {}))
+	merge_reports_2panel_before_cfg = _as_section(merge_reports_2panel_assets_cfg.get("before", {}))
+	merge_reports_2panel_after_cfg = _as_section(merge_reports_2panel_assets_cfg.get("after", {}))
+	merge_reports_2panel_highlight_cfg = _as_section(merge_reports_2panel_cfg.get("highlight_merges", {}))
+	merge_metadata_cfg = _as_section(merge_units_phase_cfg.get("merge_metadata", {}))
+	pre_merge_metadata_cfg = _as_section(merge_units_phase_cfg.get("pre_merge_metadata", {}))
+	post_merge_metadata_cfg = _as_section(merge_units_phase_cfg.get("post_merge_metadata", {}))
 	auto_merge_cfg = dict(stage_auto_merge_cfg)
 	auto_merge_cfg.update(execution_auto_merge_cfg)
 	auto_merge_cfg.update(merge_phase_auto_merge_cfg)
@@ -278,6 +411,7 @@ def parse_spikesort_stage_config(
 	slay_cfg = dict(stage_slay_cfg)
 	slay_cfg.update(execution_slay_cfg)
 	slay_cfg.update(merge_phase_slay_cfg)
+	slay_model_cache_cfg = _as_section(slay_cfg.get("model_cache", {}))
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
 	force_replot = _as_bool(execution_cfg.get("force_replot", False), False)
@@ -318,7 +452,9 @@ def parse_spikesort_stage_config(
 		_coalesce(
 			sort_phase_cfg.get("delete_outputs_on_force_restart", None),
 			sort_phase_cfg.get("delete_on_force_restart", None),
+			execution_cfg.get("delete_outputs_on_force_restart", None),
 			execution_cfg.get("sort_delete_outputs_on_force_restart", None),
+			stage_cfg.get("delete_outputs_on_force_restart", None),
 			stage_cfg.get("sort_delete_outputs_on_force_restart", None),
 			False,
 		),
@@ -542,6 +678,633 @@ def parse_spikesort_stage_config(
 			stage_cfg.get("auto_merge_template_diff_thresh", None),
 		)
 	)
+	auto_merge_template_diff_thresholds = (
+		_as_optional_float_tuple(auto_merge_template_diff_thresh)
+		or _as_optional_float_tuple(auto_merge_cfg.get("template_diff_thresh", None))
+		or (0.25,)
+	)
+	auto_merge_relpath = _normalize_optional_relpath(
+		_coalesce(
+			auto_merge_cfg.get("relpath", None),
+			auto_merge_cfg.get("output_relpath", None),
+			"automerge_outputs",
+		)
+	) or "automerge_outputs"
+	auto_merge_delete_outputs_on_force_restart = _as_bool(
+		_coalesce(
+			auto_merge_cfg.get("delete_outputs_on_force_restart", None),
+			auto_merge_cfg.get("delete_on_force_restart", None),
+			True,
+		),
+		True,
+	)
+	auto_merge_candidate_pairs_reldir = _normalize_optional_relpath(
+		_coalesce(
+			auto_merge_cfg.get("candidate_pairs_reldir", None),
+			auto_merge_cfg.get("candidate_pairs_relpath", None),
+			"recommended_merge_candidates",
+		)
+	) or "recommended_merge_candidates"
+	auto_merge_merged_units_reldir = _normalize_optional_relpath(
+		_coalesce(
+			auto_merge_cfg.get("merged_units_reldir", None),
+			auto_merge_cfg.get("merged_units_relpath", None),
+			"merged_units",
+		)
+	) or "merged_units"
+	auto_merge_auto_accept_merges = _as_bool(
+		_coalesce(
+			auto_merge_cfg.get("auto_accept_merges", None),
+			auto_merge_cfg.get("apply_merges", None),
+			False,
+		),
+		False,
+	)
+	merge_units_enabled = _as_bool(
+		_coalesce(
+			merge_units_phase_cfg.get("enabled", None),
+			execution_cfg.get("merge_units_enabled", None),
+			stage_cfg.get("merge_units_enabled", None),
+			True,
+		),
+		True,
+	)
+	merge_rel_output_root = _normalize_optional_relpath(
+		_coalesce(
+			merge_units_phase_cfg.get("rel_output_root", None),
+			merge_units_phase_cfg.get("output_rel_root", None),
+			merge_units_phase_cfg.get("merge_rel_output_root", None),
+			merge_units_phase_cfg.get("merge_output_rel_root", None),
+			execution_cfg.get("merge_rel_output_root", None),
+			execution_cfg.get("merge_output_rel_root", None),
+			stage_cfg.get("merge_rel_output_root", None),
+			stage_cfg.get("merge_output_rel_root", None),
+			None,
+		)
+	)
+	merge_delete_outputs_on_force_restart = _as_bool(
+		_coalesce(
+			merge_units_phase_cfg.get("delete_outputs_on_force_restart", None),
+			merge_units_phase_cfg.get("delete_on_force_restart", None),
+			execution_cfg.get("merge_delete_outputs_on_force_restart", None),
+			stage_cfg.get("merge_delete_outputs_on_force_restart", None),
+			False,
+		),
+		False,
+	)
+	merge_force_restart = _as_bool(
+		_coalesce(
+			merge_units_phase_cfg.get("force_restart", None),
+			merge_units_phase_cfg.get("merge_force_restart", None),
+			execution_cfg.get("merge_force_restart", None),
+			stage_cfg.get("merge_force_restart", None),
+			False,
+		),
+		False,
+	)
+	merge_force_replot = _as_bool(
+		_coalesce(
+			merge_units_phase_cfg.get("force_replot", None),
+			merge_units_phase_cfg.get("merge_force_replot", None),
+			execution_cfg.get("merge_force_replot", None),
+			stage_cfg.get("merge_force_replot", None),
+			False,
+		),
+		False,
+	)
+	# Merge-phase force flags inherit global spikesort execution toggles.
+	merge_force_restart = bool(force_restart or merge_force_restart)
+	merge_force_replot = bool(force_replot or merge_force_replot)
+	cache_sorting_outputs_before_merge = _as_bool(
+		_coalesce(
+			cache_sorting_outputs_cfg.get("enabled", None),
+			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_enabled", None),
+			(
+				cache_sorting_outputs_cfg_raw
+				if not isinstance(cache_sorting_outputs_cfg_raw, dict)
+				else None
+			),
+			execution_cfg.get("cache_sorting_outputs_before_merge", None),
+			stage_cfg.get("cache_sorting_outputs_before_merge", None),
+			False,
+		),
+		False,
+	)
+	cache_sorting_outputs_before_merge_relpath = _normalize_optional_relpath(
+		_coalesce(
+			cache_sorting_outputs_cfg.get("relpath", None),
+			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_relpath", None),
+			execution_cfg.get("cache_sorting_outputs_before_merge_relpath", None),
+			stage_cfg.get("cache_sorting_outputs_before_merge_relpath", None),
+			"pre_merge_cache",
+		)
+	) or "pre_merge_cache"
+	cache_sorting_outputs_before_merge_cleanup_on_success = _as_bool(
+		_coalesce(
+			cache_sorting_outputs_cfg.get("cleanup_on_success", None),
+			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_cleanup_on_success", None),
+			execution_cfg.get("cache_sorting_outputs_before_merge_cleanup_on_success", None),
+			stage_cfg.get("cache_sorting_outputs_before_merge_cleanup_on_success", None),
+			False,
+		),
+		False,
+	)
+	cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart = _as_bool(
+		_coalesce(
+			cache_sorting_outputs_cfg.get("replace_sorting_with_cache_before_force_restart", None),
+			cache_sorting_outputs_cfg.get("use_cache_on_force_restart", None),
+			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart", None),
+			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_use_cache_on_force_restart", None),
+			execution_cfg.get("cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart", None),
+			execution_cfg.get("cache_sorting_outputs_before_merge_use_cache_on_force_restart", None),
+			stage_cfg.get("cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart", None),
+			stage_cfg.get("cache_sorting_outputs_before_merge_use_cache_on_force_restart", None),
+			False,
+		),
+		False,
+	)
+	cache_sorting_outputs_before_merge_use_cache_on_force_restart = bool(
+		cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart
+	)
+	cache_sorting_outputs_before_merge_refresh_on_run = _as_bool(
+		_coalesce(
+			cache_sorting_outputs_cfg.get("refresh_on_run", None),
+			cache_sorting_outputs_cfg.get("refresh_cache_on_run", None),
+			cache_sorting_outputs_cfg.get("overwrite_existing_cache", None),
+			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_refresh_on_run", None),
+			execution_cfg.get("cache_sorting_outputs_before_merge_refresh_on_run", None),
+			stage_cfg.get("cache_sorting_outputs_before_merge_refresh_on_run", None),
+			False,
+		),
+		False,
+	)
+	cache_sorting_outputs_before_merge_strict_restore_on_force_restart = _as_bool(
+		_coalesce(
+			cache_sorting_outputs_cfg.get("strict_restore_on_force_restart", None),
+			cache_sorting_outputs_cfg.get("require_cache_on_force_restart", None),
+			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_strict_restore_on_force_restart", None),
+			execution_cfg.get("cache_sorting_outputs_before_merge_strict_restore_on_force_restart", None),
+			stage_cfg.get("cache_sorting_outputs_before_merge_strict_restore_on_force_restart", None),
+			True,
+		),
+		True,
+	)
+	cache_sorting_outputs_before_merge_use_canonical_workspace = _as_bool(
+		_coalesce(
+			canonical_workspace_cfg.get("enabled", None),
+			(
+				canonical_workspace_cfg_raw
+				if not isinstance(canonical_workspace_cfg_raw, dict)
+				else None
+			),
+			cache_sorting_outputs_cfg.get("use_as_canonical_workspace", None),
+			cache_sorting_outputs_cfg.get("run_merge_in_cached_workspace", None),
+			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_use_canonical_workspace", None),
+			execution_cfg.get("cache_sorting_outputs_before_merge_use_canonical_workspace", None),
+			stage_cfg.get("cache_sorting_outputs_before_merge_use_canonical_workspace", None),
+			False,
+		),
+		False,
+	)
+	cache_sorting_outputs_before_merge_canonical_workspace_relpath = _normalize_optional_relpath(
+		_coalesce(
+			canonical_workspace_cfg.get("canonical_workspace_relpath", None),
+			canonical_workspace_cfg.get("workspace_relpath", None),
+			canonical_workspace_cfg.get("relpath", None),
+			cache_sorting_outputs_cfg.get("canonical_workspace_relpath", None),
+			cache_sorting_outputs_cfg.get("workspace_relpath", None),
+			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_relpath", None),
+			execution_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_relpath", None),
+			stage_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_relpath", None),
+			"cache/merge_canonical_workspace",
+		)
+	) or "cache/merge_canonical_workspace"
+	cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run = _as_bool(
+		_coalesce(
+			canonical_workspace_cfg.get("canonical_workspace_refresh_on_run", None),
+			canonical_workspace_cfg.get("refresh_on_run", None),
+			cache_sorting_outputs_cfg.get("canonical_workspace_refresh_on_run", None),
+			cache_sorting_outputs_cfg.get("canonical_workspace_always_refresh_on_run", None),
+			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run", None),
+			execution_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run", None),
+			stage_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run", None),
+			True,
+		),
+		True,
+	)
+	cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer = _as_bool(
+		_coalesce(
+			canonical_workspace_cfg.get("canonical_workspace_rebuild_analyzer", None),
+			canonical_workspace_cfg.get("rebuild_analyzer", None),
+			cache_sorting_outputs_cfg.get("canonical_workspace_rebuild_analyzer", None),
+			cache_sorting_outputs_cfg.get("canonical_workspace_recompute_analyzer", None),
+			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer", None),
+			execution_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer", None),
+			stage_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer", None),
+			True,
+		),
+		True,
+	)
+	cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success = _as_bool(
+		_coalesce(
+			canonical_workspace_cfg.get("publish_to_stage_outputs_on_success", None),
+			cache_sorting_outputs_cfg.get("publish_to_stage_outputs_on_success", None),
+			cache_sorting_outputs_cfg.get("publish_canonical_to_stage_outputs_on_success", None),
+			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success", None),
+			execution_cfg.get("cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success", None),
+			stage_cfg.get("cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success", None),
+			False,
+		),
+		False,
+	)
+	cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure = _as_bool(
+		_coalesce(
+			canonical_workspace_cfg.get("publish_to_stage_outputs_on_failure", None),
+			cache_sorting_outputs_cfg.get("publish_to_stage_outputs_on_failure", None),
+			cache_sorting_outputs_cfg.get("publish_canonical_to_stage_outputs_on_failure", None),
+			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure", None),
+			execution_cfg.get("cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure", None),
+			stage_cfg.get("cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure", None),
+			False,
+		),
+		False,
+	)
+	cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace = _as_bool(
+		_coalesce(
+			canonical_workspace_cfg.get("assert_slay_uses_canonical_workspace", None),
+			canonical_workspace_cfg.get("assert_slay_uses_workspace", None),
+			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace", None),
+			execution_cfg.get("cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace", None),
+			stage_cfg.get("cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace", None),
+			True,
+		),
+		True,
+	)
+	cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace = _as_bool(
+		_coalesce(
+			canonical_workspace_cfg.get("assert_auto_merge_uses_canonical_workspace", None),
+			canonical_workspace_cfg.get("assert_auto_merge_uses_workspace", None),
+			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace", None),
+			execution_cfg.get("cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace", None),
+			stage_cfg.get("cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace", None),
+			True,
+		),
+		True,
+	)
+	merge_reports_enabled = _as_bool(
+		_coalesce(
+			merge_reports_cfg.get("enabled", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_unit_diff_json_enabled = _as_bool(
+		_coalesce(
+			merge_reports_unit_diff_json_cfg.get("enabled", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_unit_diff_json_relpath = _normalize_optional_relpath(
+		_coalesce(
+			merge_reports_unit_diff_json_cfg.get("relpath", None),
+			"unit_diffs_after_merge.json",
+		)
+	) or "unit_diffs_after_merge.json"
+	merge_reports_unit_diff_map_enabled = _as_bool(
+		_coalesce(
+			merge_reports_unit_diff_map_cfg.get("enabled", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_unit_diff_map_relpath = _normalize_optional_relpath(
+		_coalesce(
+			merge_reports_unit_diff_map_cfg.get("relpath", None),
+			"unit_diff_map.json",
+		)
+	) or "unit_diff_map.json"
+	merge_reports_unit_diff_map_flat_enabled = _as_bool(
+		_coalesce(
+			merge_reports_unit_diff_map_flat_cfg.get("enabled", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_unit_diff_map_flat_relpath = _normalize_optional_relpath(
+		_coalesce(
+			merge_reports_unit_diff_map_flat_cfg.get("relpath", None),
+			"unit_diff_map_flat.json",
+		)
+	) or "unit_diff_map_flat.json"
+	merge_reports_post_merge_unit_locations_enabled = _as_bool(
+		_coalesce(
+			merge_reports_post_merge_unit_locations_cfg.get("enabled", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_post_merge_unit_locations_relpath = _normalize_optional_relpath(
+		_coalesce(
+			merge_reports_post_merge_unit_locations_cfg.get("relpath", None),
+			"post_merge_unit_locations.json",
+		)
+	) or "post_merge_unit_locations.json"
+	merge_reports_2panel_enabled = _as_bool(
+		_coalesce(
+			merge_reports_2panel_cfg.get("enabled", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_2panel_point_size = _as_optional_float(
+		_coalesce(
+			merge_reports_2panel_cfg.get("point_size", None),
+			9.0,
+		)
+	)
+	if merge_reports_2panel_point_size is None or float(merge_reports_2panel_point_size) <= 0.0:
+		merge_reports_2panel_point_size = 9.0
+	merge_reports_2panel_relpath = _normalize_optional_relpath(
+		_coalesce(
+			merge_reports_2panel_cfg.get("relpath", None),
+			"unit_locations_before_after_merge.png",
+		)
+	) or "unit_locations_before_after_merge.png"
+	merge_reports_2panel_label_pre_and_post_units = _as_bool(
+		_coalesce(
+			merge_reports_2panel_cfg.get("label_pre_and_post_units", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_2panel_write_png = _as_bool(
+		_coalesce(
+			merge_reports_2panel_cfg.get("write_png", None),
+			True,
+		),
+		True,
+	)
+	merge_reports_2panel_write_svg = _as_bool(
+		_coalesce(
+			merge_reports_2panel_cfg.get("write_svg", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_2panel_before_relpath = _normalize_optional_relpath(
+		_coalesce(
+			merge_reports_2panel_before_cfg.get("relpath", None),
+			"unit_locations_before_merge.png",
+		)
+	) or "unit_locations_before_merge.png"
+	merge_reports_2panel_before_write_png = _as_bool(
+		_coalesce(
+			merge_reports_2panel_before_cfg.get("write_png", None),
+			True,
+		),
+		True,
+	)
+	merge_reports_2panel_before_write_svg = _as_bool(
+		_coalesce(
+			merge_reports_2panel_before_cfg.get("write_svg", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_2panel_before_point_color = _as_optional_str(
+		_coalesce(
+			merge_reports_2panel_before_cfg.get("point_color", None),
+			merge_reports_2panel_cfg.get("before_point_color", None),
+			"#7a7a7a",
+		)
+	) or "#7a7a7a"
+	merge_reports_2panel_after_relpath = _normalize_optional_relpath(
+		_coalesce(
+			merge_reports_2panel_after_cfg.get("relpath", None),
+			"unit_locations_after_merge.png",
+		)
+	) or "unit_locations_after_merge.png"
+	merge_reports_2panel_after_write_png = _as_bool(
+		_coalesce(
+			merge_reports_2panel_after_cfg.get("write_png", None),
+			True,
+		),
+		True,
+	)
+	merge_reports_2panel_after_write_svg = _as_bool(
+		_coalesce(
+			merge_reports_2panel_after_cfg.get("write_svg", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_2panel_after_point_color = _as_optional_str(
+		_coalesce(
+			merge_reports_2panel_after_cfg.get("point_color", None),
+			merge_reports_2panel_cfg.get("after_point_color", None),
+			"#7a7a7a",
+		)
+	) or "#7a7a7a"
+	merge_reports_2panel_highlight_merges_enabled = _as_bool(
+		_coalesce(
+			merge_reports_2panel_highlight_cfg.get("enabled", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_2panel_highlight_merges_linked = _as_bool(
+		_coalesce(
+			merge_reports_2panel_highlight_cfg.get("linked_highlight", None),
+			True,
+		),
+		True,
+	)
+	merge_reports_2panel_highlight_plot_after_other_units = _as_bool(
+		_coalesce(
+			merge_reports_2panel_highlight_cfg.get("plot_after_other_units", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_2panel_highlight_label_affected_units = _as_bool(
+		_coalesce(
+			merge_reports_2panel_highlight_cfg.get("label_affected_units", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_2panel_highlight_before_color = _as_optional_str(
+		_coalesce(
+			merge_reports_2panel_highlight_cfg.get("before_color", None),
+			"#ff7f0e",
+		)
+	) or "#ff7f0e"
+	merge_reports_2panel_highlight_after_color = _as_optional_str(
+		_coalesce(
+			merge_reports_2panel_highlight_cfg.get("after_color", None),
+			"#2ca02c",
+		)
+	) or "#2ca02c"
+	merge_reports_2panel_highlight_palette = _as_optional_str(
+		_coalesce(
+			merge_reports_2panel_highlight_cfg.get("palette", None),
+			"tab20",
+		)
+	) or "tab20"
+	merge_reports_2panel_inherit_probe_dimensions = _as_bool(
+		_coalesce(
+			merge_reports_2panel_cfg.get("inherit_probe_dimensions", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_2panel_zoom_to_affected_units = _as_bool(
+		_coalesce(
+			merge_reports_2panel_cfg.get("zoom_to_affected_units", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_2panel_probe_dim_x_um = _as_optional_float(
+		_coalesce(
+			merge_reports_2panel_cfg.get("probe_dim_x_um", None),
+			merge_reports_2panel_cfg.get("active_area_um_x", None),
+		)
+	)
+	merge_reports_2panel_probe_dim_y_um = _as_optional_float(
+		_coalesce(
+			merge_reports_2panel_cfg.get("probe_dim_y_um", None),
+			merge_reports_2panel_cfg.get("active_area_um_y", None),
+		)
+	)
+
+	merge_metadata_enabled = _as_bool(
+		_coalesce(
+			merge_metadata_cfg.get("enabled", None),
+			merge_units_phase_cfg.get("merge_metadata_enabled", None),
+			False,
+		),
+		False,
+	)
+	merge_metadata_write_json = _as_bool(
+		_coalesce(
+			merge_metadata_cfg.get("write_json", None),
+			merge_units_phase_cfg.get("merge_metadata_write_json", None),
+			True,
+		),
+		True,
+	)
+	merge_metadata_json_relpath = _normalize_optional_relpath(
+		_coalesce(
+			merge_metadata_cfg.get("json_relpath", None),
+			merge_metadata_cfg.get("summary_json_relpath", None),
+			merge_units_phase_cfg.get("merge_metadata_json_relpath", None),
+			"merge_metadata_summary.json",
+		)
+	) or "merge_metadata_summary.json"
+	merge_metadata_include_unit_locations = _as_bool(
+		_coalesce(
+			merge_metadata_cfg.get("include_unit_locations", None),
+			merge_units_phase_cfg.get("merge_metadata_include_unit_locations", None),
+			True,
+		),
+		True,
+	)
+	merge_metadata_log_summary_details = _as_bool(
+		_coalesce(
+			merge_metadata_cfg.get("log_summary_details", None),
+			merge_units_phase_cfg.get("merge_metadata_log_summary_details", None),
+			False,
+		),
+		False,
+	)
+	pre_merge_metadata_enabled = _as_bool(
+		_coalesce(
+			pre_merge_metadata_cfg.get("enabled", None),
+			False,
+		),
+		False,
+	)
+	pre_merge_metadata_write_json = _as_bool(
+		_coalesce(
+			pre_merge_metadata_cfg.get("write_json", None),
+			merge_metadata_write_json,
+			True,
+		),
+		True,
+	)
+	pre_merge_metadata_json_relpath = _normalize_optional_relpath(
+		_coalesce(
+			pre_merge_metadata_cfg.get("json_relpath", None),
+			"pre_merge_metadata_summary.json",
+		)
+	) or "pre_merge_metadata_summary.json"
+	pre_merge_metadata_include_unit_locations = _as_bool(
+		_coalesce(
+			pre_merge_metadata_cfg.get("include_unit_locations", None),
+			merge_metadata_include_unit_locations,
+			True,
+		),
+		True,
+	)
+	pre_merge_metadata_log_summary_details = _as_bool(
+		_coalesce(
+			pre_merge_metadata_cfg.get("log_summary_details", None),
+			merge_metadata_log_summary_details,
+			False,
+		),
+		False,
+	)
+	post_merge_metadata_enabled = _as_bool(
+		_coalesce(
+			post_merge_metadata_cfg.get("enabled", None),
+			False,
+		),
+		False,
+	)
+	post_merge_metadata_write_json = _as_bool(
+		_coalesce(
+			post_merge_metadata_cfg.get("write_json", None),
+			merge_metadata_write_json,
+			True,
+		),
+		True,
+	)
+	post_merge_metadata_json_relpath = _normalize_optional_relpath(
+		_coalesce(
+			post_merge_metadata_cfg.get("json_relpath", None),
+			"post_merge_metadata_summary.json",
+		)
+	) or "post_merge_metadata_summary.json"
+	post_merge_metadata_include_unit_locations = _as_bool(
+		_coalesce(
+			post_merge_metadata_cfg.get("include_unit_locations", None),
+			merge_metadata_include_unit_locations,
+			True,
+		),
+		True,
+	)
+	post_merge_metadata_log_summary_details = _as_bool(
+		_coalesce(
+			post_merge_metadata_cfg.get("log_summary_details", None),
+			merge_metadata_log_summary_details,
+			False,
+		),
+		False,
+	)
+
+	merge_sequence = tuple(
+		_as_list_of_strings(
+			_coalesce(
+				merge_units_phase_cfg.get("sequence", None),
+				execution_cfg.get("merge_sequence", None),
+				stage_cfg.get("merge_sequence", None),
+			)
+		)
+	)
+	if not merge_sequence:
+		merge_sequence = ("SLAy", "auto_merge", "unitmatch")
 
 	am_kwargs = (
 		_as_optional_dict(
@@ -556,6 +1319,12 @@ def parse_spikesort_stage_config(
 	am_kwargs.setdefault("enabled", bool(auto_merge_enabled))
 	if auto_merge_template_diff_thresh is not None:
 		am_kwargs.setdefault("template_diff_thresh", str(auto_merge_template_diff_thresh))
+	am_kwargs.setdefault("relpath", str(auto_merge_relpath))
+	am_kwargs.setdefault("delete_outputs_on_force_restart", bool(auto_merge_delete_outputs_on_force_restart))
+	am_kwargs.setdefault("candidate_pairs_reldir", str(auto_merge_candidate_pairs_reldir))
+	am_kwargs.setdefault("merged_units_reldir", str(auto_merge_merged_units_reldir))
+	am_kwargs.setdefault("auto_accept_merges", bool(auto_merge_auto_accept_merges))
+	am_kwargs.setdefault("template_diff_thresh_values", list(auto_merge_template_diff_thresholds))
 
 	option_kwargs = (
 		_as_optional_dict(
@@ -630,6 +1399,65 @@ def parse_spikesort_stage_config(
 		),
 		True,
 	)
+	slay_recompute_analyzer = _as_bool(
+		_coalesce(
+			slay_cfg.get("recompute_analyzer", None),
+			slay_cfg.get("rerun_analyzer", None),
+			False,
+		),
+		False,
+	)
+	slay_model_cache_enabled_raw = _coalesce(
+		slay_model_cache_cfg.get("enabled", None),
+		slay_cfg.get("model_cache_enabled", None),
+	)
+	slay_model_cache_enabled_default = (
+		_as_bool(slay_model_cache_enabled_raw, True)
+		if slay_model_cache_enabled_raw is not None
+		else True
+	)
+	slay_model_cache_relpath = _normalize_optional_relpath(
+		_coalesce(
+			slay_model_cache_cfg.get("relpath", None),
+			slay_model_cache_cfg.get("model_path", None),
+			slay_model_cache_cfg.get("path", None),
+			slay_cfg.get("model_cache_relpath", None),
+			slay_cfg.get("model_relpath", None),
+			"cache/slay_model/ae.pt",
+		)
+	)
+	slay_model_cache_use_cached_model = _as_bool(
+		_coalesce(
+			slay_model_cache_cfg.get("use_cached_model", None),
+			slay_model_cache_cfg.get("use_cache", None),
+			slay_model_cache_cfg.get("read_from_cache", None),
+			slay_cfg.get("model_cache_use_cached_model", None),
+			slay_cfg.get("use_cached_model", None),
+			slay_model_cache_enabled_raw,
+			True,
+		),
+		slay_model_cache_enabled_default,
+	)
+	slay_model_cache_write_model = _as_bool(
+		_coalesce(
+			slay_model_cache_cfg.get("write_model_cache", None),
+			slay_model_cache_cfg.get("write_cache", None),
+			slay_model_cache_cfg.get("save_model", None),
+			slay_cfg.get("model_cache_write_model", None),
+			slay_cfg.get("write_model_cache", None),
+			slay_model_cache_enabled_raw,
+			True,
+		),
+		slay_model_cache_enabled_default,
+	)
+	slay_force_restart_retrain_model = _as_bool(
+		_coalesce(
+			slay_cfg.get("force_restart_retrain_model", None),
+			slay_cfg.get("retrain_model_on_force_restart", None),
+			False,
+		),
+		False,
+	)
 	slay_params = _as_optional_dict(slay_cfg.get("params", None))
 
 	resolved_um_kwargs = (um_kwargs if um_kwargs else None)
@@ -649,6 +1477,7 @@ def parse_spikesort_stage_config(
 			)
 		),
 		preprocess_concat_recording_relpath=preprocess_concat_recording_relpath,
+		merge_sequence=merge_sequence,
 		logging_enabled=logging_enabled,
 		logging_verbose=logging_verbose,
 		logging_file_relpath=logging_file_relpath,
@@ -775,7 +1604,124 @@ def parse_spikesort_stage_config(
 		slay_auto_accept_merges=bool(slay_auto_accept_merges),
 		slay_copy_automerge_artifacts=bool(slay_copy_automerge_artifacts),
 		slay_delete_outputs_on_force_restart=bool(slay_delete_outputs_on_force_restart),
+		slay_recompute_analyzer=bool(slay_recompute_analyzer),
+		slay_model_cache_relpath=(str(slay_model_cache_relpath) if slay_model_cache_relpath is not None else None),
+		slay_model_cache_use_cached_model=bool(slay_model_cache_use_cached_model),
+		slay_model_cache_write_model=bool(slay_model_cache_write_model),
+		slay_force_restart_retrain_model=bool(slay_force_restart_retrain_model),
 		slay_params=(dict(slay_params) if isinstance(slay_params, dict) else None),
+		auto_merge_enabled=bool(auto_merge_enabled),
+		auto_merge_relpath=str(auto_merge_relpath),
+		auto_merge_delete_outputs_on_force_restart=bool(auto_merge_delete_outputs_on_force_restart),
+		auto_merge_candidate_pairs_reldir=str(auto_merge_candidate_pairs_reldir),
+		auto_merge_merged_units_reldir=str(auto_merge_merged_units_reldir),
+		auto_merge_auto_accept_merges=bool(auto_merge_auto_accept_merges),
+		auto_merge_template_diff_thresholds=tuple(auto_merge_template_diff_thresholds),
+		merge_units_enabled=bool(merge_units_enabled),
+		merge_rel_output_root=(str(merge_rel_output_root) if merge_rel_output_root is not None else None),
+		merge_delete_outputs_on_force_restart=bool(merge_delete_outputs_on_force_restart),
+		merge_force_restart=bool(merge_force_restart),
+		merge_force_replot=bool(merge_force_replot),
+		cache_sorting_outputs_before_merge=bool(cache_sorting_outputs_before_merge),
+		cache_sorting_outputs_before_merge_relpath=str(cache_sorting_outputs_before_merge_relpath),
+		cache_sorting_outputs_before_merge_cleanup_on_success=bool(cache_sorting_outputs_before_merge_cleanup_on_success),
+		cache_sorting_outputs_before_merge_use_cache_on_force_restart=bool(
+			cache_sorting_outputs_before_merge_use_cache_on_force_restart
+		),
+		cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart=bool(
+			cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart
+		),
+		cache_sorting_outputs_before_merge_refresh_on_run=bool(
+			cache_sorting_outputs_before_merge_refresh_on_run
+		),
+		cache_sorting_outputs_before_merge_strict_restore_on_force_restart=bool(
+			cache_sorting_outputs_before_merge_strict_restore_on_force_restart
+		),
+		cache_sorting_outputs_before_merge_use_canonical_workspace=bool(
+			cache_sorting_outputs_before_merge_use_canonical_workspace
+		),
+		cache_sorting_outputs_before_merge_canonical_workspace_relpath=str(
+			cache_sorting_outputs_before_merge_canonical_workspace_relpath
+		),
+		cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run=bool(
+			cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run
+		),
+		cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer=bool(
+			cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer
+		),
+		cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success=bool(
+			cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success
+		),
+		cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure=bool(
+			cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure
+		),
+		cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace=bool(
+			cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace
+		),
+		cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace=bool(
+			cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace
+		),
+		merge_reports_enabled=bool(merge_reports_enabled),
+		merge_reports_unit_diff_json_enabled=bool(merge_reports_unit_diff_json_enabled),
+		merge_reports_unit_diff_json_relpath=str(merge_reports_unit_diff_json_relpath),
+		merge_reports_unit_diff_map_enabled=bool(merge_reports_unit_diff_map_enabled),
+		merge_reports_unit_diff_map_relpath=str(merge_reports_unit_diff_map_relpath),
+		merge_reports_unit_diff_map_flat_enabled=bool(merge_reports_unit_diff_map_flat_enabled),
+		merge_reports_unit_diff_map_flat_relpath=str(merge_reports_unit_diff_map_flat_relpath),
+		merge_reports_post_merge_unit_locations_enabled=bool(merge_reports_post_merge_unit_locations_enabled),
+		merge_reports_post_merge_unit_locations_relpath=str(merge_reports_post_merge_unit_locations_relpath),
+		merge_reports_2panel_enabled=bool(merge_reports_2panel_enabled),
+		merge_reports_2panel_point_size=float(merge_reports_2panel_point_size),
+		merge_reports_2panel_relpath=str(merge_reports_2panel_relpath),
+		merge_reports_2panel_label_pre_and_post_units=bool(merge_reports_2panel_label_pre_and_post_units),
+		merge_reports_2panel_write_png=bool(merge_reports_2panel_write_png),
+		merge_reports_2panel_write_svg=bool(merge_reports_2panel_write_svg),
+		merge_reports_2panel_before_relpath=str(merge_reports_2panel_before_relpath),
+		merge_reports_2panel_before_write_png=bool(merge_reports_2panel_before_write_png),
+		merge_reports_2panel_before_write_svg=bool(merge_reports_2panel_before_write_svg),
+		merge_reports_2panel_before_point_color=str(merge_reports_2panel_before_point_color),
+		merge_reports_2panel_after_relpath=str(merge_reports_2panel_after_relpath),
+		merge_reports_2panel_after_write_png=bool(merge_reports_2panel_after_write_png),
+		merge_reports_2panel_after_write_svg=bool(merge_reports_2panel_after_write_svg),
+		merge_reports_2panel_after_point_color=str(merge_reports_2panel_after_point_color),
+		merge_reports_2panel_highlight_merges_enabled=bool(merge_reports_2panel_highlight_merges_enabled),
+		merge_reports_2panel_highlight_merges_linked=bool(merge_reports_2panel_highlight_merges_linked),
+		merge_reports_2panel_highlight_plot_after_other_units=bool(
+			merge_reports_2panel_highlight_plot_after_other_units
+		),
+		merge_reports_2panel_highlight_label_affected_units=bool(
+			merge_reports_2panel_highlight_label_affected_units
+		),
+		merge_reports_2panel_highlight_before_color=str(merge_reports_2panel_highlight_before_color),
+		merge_reports_2panel_highlight_after_color=str(merge_reports_2panel_highlight_after_color),
+		merge_reports_2panel_highlight_palette=str(merge_reports_2panel_highlight_palette),
+		merge_reports_2panel_inherit_probe_dimensions=bool(merge_reports_2panel_inherit_probe_dimensions),
+		merge_reports_2panel_zoom_to_affected_units=bool(merge_reports_2panel_zoom_to_affected_units),
+		merge_reports_2panel_probe_dim_x_um=(
+			float(merge_reports_2panel_probe_dim_x_um)
+			if merge_reports_2panel_probe_dim_x_um is not None
+			else None
+		),
+		merge_reports_2panel_probe_dim_y_um=(
+			float(merge_reports_2panel_probe_dim_y_um)
+			if merge_reports_2panel_probe_dim_y_um is not None
+			else None
+		),
+		merge_metadata_enabled=bool(merge_metadata_enabled),
+		merge_metadata_write_json=bool(merge_metadata_write_json),
+		merge_metadata_json_relpath=str(merge_metadata_json_relpath),
+		merge_metadata_include_unit_locations=bool(merge_metadata_include_unit_locations),
+		merge_metadata_log_summary_details=bool(merge_metadata_log_summary_details),
+		pre_merge_metadata_enabled=bool(pre_merge_metadata_enabled),
+		pre_merge_metadata_write_json=bool(pre_merge_metadata_write_json),
+		pre_merge_metadata_json_relpath=str(pre_merge_metadata_json_relpath),
+		pre_merge_metadata_include_unit_locations=bool(pre_merge_metadata_include_unit_locations),
+		pre_merge_metadata_log_summary_details=bool(pre_merge_metadata_log_summary_details),
+		post_merge_metadata_enabled=bool(post_merge_metadata_enabled),
+		post_merge_metadata_write_json=bool(post_merge_metadata_write_json),
+		post_merge_metadata_json_relpath=str(post_merge_metadata_json_relpath),
+		post_merge_metadata_include_unit_locations=bool(post_merge_metadata_include_unit_locations),
+		post_merge_metadata_log_summary_details=bool(post_merge_metadata_log_summary_details),
 		force_restart=force_restart,
 		force_replot=force_replot,
 		resume_from=_as_optional_str(_get_with_fallback(execution_cfg, stage_cfg, "resume_from", None)),

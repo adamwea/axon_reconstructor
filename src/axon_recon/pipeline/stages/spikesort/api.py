@@ -20,6 +20,7 @@ def run_spikesort_merge(
 	output_rel_root: str,
 	stage_config: Any,
 	force_restart: bool,
+	force_replot: bool = False,
 ) -> SpikesortMergeResult:
 	return run_spikesort_merge_stage(
 		h5_path=h5_path,
@@ -28,4 +29,5 @@ def run_spikesort_merge(
 		output_rel_root=output_rel_root,
 		stage_config=stage_config,
 		force_restart=force_restart,
+		force_replot=force_replot,
 	)

@@ -45,6 +45,32 @@ def _run_merge_from_args(args: argparse.Namespace) -> int:
 		force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 		force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 	)
+	return _print_merge_aggregate(agg)
+
+
+def _run_merge_slay_from_args(args: argparse.Namespace) -> int:
+	agg = run_spikesort_merge_from_runtime(
+		config_path=str(args.config),
+		force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+		force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		merge_sequence_override=("SLAy",),
+		stage_name="spikesort.merge.slay",
+	)
+	return _print_merge_aggregate(agg)
+
+
+def _run_merge_auto_merge_from_args(args: argparse.Namespace) -> int:
+	agg = run_spikesort_merge_from_runtime(
+		config_path=str(args.config),
+		force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+		force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		merge_sequence_override=("auto_merge",),
+		stage_name="spikesort.merge.auto_merge",
+	)
+	return _print_merge_aggregate(agg)
+
+
+def _print_merge_aggregate(agg: object) -> int:
 	print(f"stage: {agg.stage}")
 	print(f"targets_total: {agg.total_targets}")
 	print(f"targets_succeeded: {agg.succeeded_targets}")
