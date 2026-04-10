@@ -83,6 +83,24 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.merge_delete_outputs_on_force_restart is False
     assert parsed.merge_force_restart is False
     assert parsed.merge_force_replot is False
+    assert parsed.merge_analyzer_regenerate_on_replot is True
+    assert parsed.merge_analyzer_density_mode == "auto"
+    assert parsed.merge_template_random_spikes_method == "default"
+    assert parsed.merge_template_random_spikes_max_spikes_per_unit == 500
+    assert parsed.merge_template_random_spikes_margin_size is None
+    assert parsed.merge_template_random_spikes_seed is None
+    assert parsed.merge_analyzer_n_jobs is None
+    assert parsed.merge_analyzer_chunk_duration is None
+    assert parsed.merge_analyzer_sparsity_method == "radius"
+    assert parsed.merge_analyzer_sparsity_radius_um == 100.0
+    assert parsed.merge_analyzer_sparsity_num_channels == 5
+    assert parsed.merge_analyzer_sparsity_threshold == 5.0
+    assert parsed.merge_analyzer_sparsity_peak_sign == "neg"
+    assert parsed.merge_analyzer_sparsity_num_spikes_for_sparsity == 100
+    assert parsed.merge_analyzer_sparsity_by_property is None
+    assert parsed.merge_analyzer_waveforms_ms_before == 1.0
+    assert parsed.merge_analyzer_waveforms_ms_after == 2.0
+    assert parsed.merge_analyzer_waveforms_dtype is None
     assert parsed.cache_sorting_outputs_before_merge is False
     assert parsed.cache_sorting_outputs_before_merge_relpath == "pre_merge_cache"
     assert parsed.cache_sorting_outputs_before_merge_cleanup_on_success is False
@@ -151,10 +169,18 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.merge_reports_template_heatmaps_marker_size == 10.0
     assert parsed.merge_reports_template_heatmaps_cmap == "viridis"
     assert parsed.merge_reports_template_heatmaps_show_colorbar is True
+    assert parsed.merge_reports_template_heatmaps_relative_color_bar_height == 1.0
     assert parsed.merge_reports_template_heatmaps_color_scale == "linear"
     assert parsed.merge_reports_template_heatmaps_log_epsilon == 1e-3
+    assert parsed.merge_reports_template_heatmaps_magnitude_mode == "ptp"
     assert parsed.merge_reports_template_heatmaps_max_merges is None
     assert parsed.merge_reports_template_heatmaps_debug_json_relpath == "template_heatmaps_per_merge_report.json"
+    assert parsed.merge_reports_template_heatmaps_inherit_probe_dimensions is False
+    assert parsed.merge_reports_template_heatmaps_probe_dim_x_um is None
+    assert parsed.merge_reports_template_heatmaps_probe_dim_y_um is None
+    assert parsed.merge_reports_template_heatmaps_probe_pitch_um is None
+    assert parsed.merge_reports_template_heatmaps_probe_electrode_size_um_x is None
+    assert parsed.merge_reports_template_heatmaps_probe_electrode_size_um_y is None
     assert parsed.merge_metadata_enabled is False
     assert parsed.merge_metadata_write_json is True
     assert parsed.merge_metadata_json_relpath == "merge_metadata_summary.json"
@@ -426,6 +452,78 @@ def test_parse_spikesort_stage_config_phase_blocks_take_precedence() -> None:
     assert parsed.um_kwargs.get("recursive") is True
     assert parsed.um_kwargs.get("max_iterations") == 7
     assert parsed.um_kwargs.get("keep_all_iterations") is False
+
+
+def test_parse_spikesort_stage_config_reads_merge_analyzer_policy_knobs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "analyzer": {
+                                "regenerate_on_replot": False,
+                                "density_mode": "dense",
+                                "template_random_spikes_method": "all",
+                                "max_spikes_per_unit": 321,
+                                "margin_size": 17,
+                                "seed": 42,
+                                "n_jobs": 3,
+                                "chunk_duration": "0.25s",
+                                "sparsity_method": "best_channels",
+                                "num_channels": 9,
+                                "peak_sign": "both",
+                                "num_spikes_for_sparsity": 222,
+                                "waveforms_ms_before": 0.75,
+                                "waveforms_ms_after": 1.75,
+                                "waveforms_dtype": "float32",
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_analyzer_regenerate_on_replot is False
+    assert parsed.merge_analyzer_density_mode == "dense"
+    assert parsed.merge_template_random_spikes_method == "all"
+    assert parsed.merge_template_random_spikes_max_spikes_per_unit == 321
+    assert parsed.merge_template_random_spikes_margin_size == 17
+    assert parsed.merge_template_random_spikes_seed == 42
+    assert parsed.merge_analyzer_n_jobs == 3
+    assert parsed.merge_analyzer_chunk_duration == "0.25s"
+    assert parsed.merge_analyzer_sparsity_method == "best_channels"
+    assert parsed.merge_analyzer_sparsity_num_channels == 9
+    assert parsed.merge_analyzer_sparsity_peak_sign == "both"
+    assert parsed.merge_analyzer_sparsity_num_spikes_for_sparsity == 222
+    assert parsed.merge_analyzer_waveforms_ms_before == 0.75
+    assert parsed.merge_analyzer_waveforms_ms_after == 1.75
+    assert parsed.merge_analyzer_waveforms_dtype == "float32"
+
+
+def test_parse_spikesort_stage_config_reads_legacy_merge_analyzer_regenereate_on_replot_key() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "analyzer": {
+                                "regenereate_on_replot": False,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_analyzer_regenerate_on_replot is False
 
 
 def test_parse_spikesort_stage_config_unitmatch_enabled_false_disables_merge_units() -> None:
@@ -916,11 +1014,20 @@ def test_parse_spikesort_stage_config_reads_merge_template_heatmap_report_knobs(
                                     "relpath": "reports/template_heatmaps",
                                     "write_png": True,
                                     "write_svg": True,
+                                    "inherit_probe_dimensions": True,
+                                    "probe_dim_x_um": 3850,
+                                    "probe_dim_y_um": 2100,
+                                    "pitch_um": 17.5,
+                                    "electrode_size_um": {
+                                        "x": 12.0,
+                                        "y": 8.8,
+                                    },
                                     "panel_width_in": 12.5,
                                     "panel_height_in": 7.25,
                                     "marker_size": 22.0,
                                     "cmap": "magma",
                                     "show_colorbar": False,
+                                    "relative_color_bar_height": 0.5,
                                     "color_scale": "log",
                                     "log_epsilon": 0.005,
                                     "max_merges": 14,
@@ -953,10 +1060,42 @@ def test_parse_spikesort_stage_config_reads_merge_template_heatmap_report_knobs(
     assert parsed.merge_reports_template_heatmaps_marker_size == 22.0
     assert parsed.merge_reports_template_heatmaps_cmap == "magma"
     assert parsed.merge_reports_template_heatmaps_show_colorbar is False
+    assert parsed.merge_reports_template_heatmaps_relative_color_bar_height == 0.5
     assert parsed.merge_reports_template_heatmaps_color_scale == "log"
     assert parsed.merge_reports_template_heatmaps_log_epsilon == 0.005
+    assert parsed.merge_reports_template_heatmaps_magnitude_mode == "ptp"
     assert parsed.merge_reports_template_heatmaps_max_merges == 14
     assert parsed.merge_reports_template_heatmaps_debug_json_relpath == "reports/template_heatmap_debug.json"
+    assert parsed.merge_reports_template_heatmaps_inherit_probe_dimensions is True
+    assert parsed.merge_reports_template_heatmaps_probe_dim_x_um == 3850.0
+    assert parsed.merge_reports_template_heatmaps_probe_dim_y_um == 2100.0
+    assert parsed.merge_reports_template_heatmaps_probe_pitch_um == 17.5
+    assert parsed.merge_reports_template_heatmaps_probe_electrode_size_um_x == 12.0
+    assert parsed.merge_reports_template_heatmaps_probe_electrode_size_um_y == 8.8
+
+
+def test_parse_spikesort_stage_config_reads_merge_template_heatmap_magnitude_mode() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "reports": {
+                                "template_heatmaps_per_merge": {
+                                    "magnitude_mode": "abs_peak",
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_reports_template_heatmaps_magnitude_mode == "abs_peak"
 
 
 def test_parse_spikesort_stage_config_reads_merge_reports_unit_diff_json_knobs() -> None:
@@ -1381,6 +1520,13 @@ def test_load_spikesort_inputs_from_runtime_defaults_and_overrides(tmp_path: Pat
     assert inputs.fixed_y is True
     assert inputs.force_restart is False
     assert inputs.force_replot is True
+    assert inputs.merge_analyzer_density_mode == "auto"
+    assert inputs.merge_template_random_spikes_method == "default"
+    assert inputs.merge_template_random_spikes_max_spikes_per_unit == 500
+    assert inputs.merge_analyzer_sparsity_peak_sign == "neg"
+    assert inputs.merge_analyzer_sparsity_num_spikes_for_sparsity == 100
+    assert inputs.merge_analyzer_waveforms_ms_before == 1.0
+    assert inputs.merge_analyzer_waveforms_ms_after == 2.0
 
 
 def test_load_spikesort_inputs_from_runtime_reads_stage_level_input_and_output_root(tmp_path: Path) -> None:
@@ -1426,3 +1572,68 @@ def test_load_spikesort_inputs_from_runtime_reads_stage_level_input_and_output_r
     assert inputs.output_rel_root == "spikesort_stage_outputs"
     assert inputs.preprocess_concat_recording_relpath == "preprocess_outputs/preprocessed_recording"
     assert inputs.chunk_duration == "1s"
+
+
+def test_load_spikesort_inputs_from_runtime_reads_merge_analyzer_policy_knobs(tmp_path: Path) -> None:
+    data_path = tmp_path / "data.yml"
+    data_path.write_text(
+        dedent(
+            """
+            output_root: /tmp/out
+            datasets:
+              - raw_data_h5_path: /tmp/input.raw.h5
+                include_in_runtime: true
+                wells:
+                  - well_id: well006
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "runtime.yml"
+    runtime_path.write_text(
+        "\n".join(
+            [
+                f"data: {data_path}",
+                "stages:",
+                "  spikesort:",
+                "    phases:",
+                "      merge_units:",
+                "        analyzer:",
+                "          density_mode: dense",
+                "          template_random_spikes_method: all",
+                "          max_spikes_per_unit: 321",
+                "          margin_size: 11",
+                "          seed: 7",
+                "          n_jobs: 2",
+                "          chunk_duration: 0.5s",
+                "          sparsity_method: threshold",
+                "          threshold: 4.5",
+                "          peak_sign: both",
+                "          num_spikes_for_sparsity: 222",
+                "          waveforms_ms_before: 0.8",
+                "          waveforms_ms_after: 1.6",
+                "          waveforms_dtype: float32",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    inputs = load_spikesort_inputs_from_runtime(config_path=str(runtime_path))
+
+    assert inputs.merge_analyzer_density_mode == "dense"
+    assert inputs.merge_template_random_spikes_method == "all"
+    assert inputs.merge_template_random_spikes_max_spikes_per_unit == 321
+    assert inputs.merge_template_random_spikes_margin_size == 11
+    assert inputs.merge_template_random_spikes_seed == 7
+    assert inputs.merge_analyzer_n_jobs == 2
+    assert inputs.merge_analyzer_chunk_duration == "0.5s"
+    assert inputs.merge_analyzer_sparsity_method == "threshold"
+    assert inputs.merge_analyzer_sparsity_threshold == 4.5
+    assert inputs.merge_analyzer_sparsity_peak_sign == "both"
+    assert inputs.merge_analyzer_sparsity_num_spikes_for_sparsity == 222
+    assert inputs.merge_analyzer_waveforms_ms_before == 0.8
+    assert inputs.merge_analyzer_waveforms_ms_after == 1.6
+    assert inputs.merge_analyzer_waveforms_dtype == "float32"

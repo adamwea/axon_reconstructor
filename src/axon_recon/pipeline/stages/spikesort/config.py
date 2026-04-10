@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +107,57 @@ def _normalize_optional_relpath(raw: Any) -> str | None:
 		return None
 	normalized = text.lstrip("/")
 	return normalized or None
+
+
+def _normalize_merge_analyzer_density_mode(raw: Any) -> str:
+	if isinstance(raw, bool):
+		return ("dense" if raw else "auto")
+	token = str(raw or "auto").strip().lower()
+	if token in {"dense", "full"}:
+		return "dense"
+	return "auto"
+
+
+def _normalize_merge_template_random_spikes_method(raw: Any) -> str:
+	if isinstance(raw, bool):
+		return ("all" if raw else "default")
+	token = str(raw or "default").strip().lower()
+	if token in {"all", "full", "every"}:
+		return "all"
+	return "default"
+
+
+def _normalize_merge_analyzer_sparsity_method(raw: Any) -> str:
+	token = str(raw or "radius").strip().lower()
+	if token in {"best", "best_channel", "best_channels", "num_channels"}:
+		return "best_channels"
+	if token in {"threshold", "snr"}:
+		return "threshold"
+	if token in {"by_property", "property", "group"}:
+		return "by_property"
+	return "radius"
+
+
+def _normalize_merge_analyzer_peak_sign(raw: Any) -> str:
+	token = str(raw or "neg").strip().lower()
+	if token in {"pos", "positive"}:
+		return "pos"
+	if token in {"both", "all"}:
+		return "both"
+	return "neg"
+
+
+def _normalize_merge_template_heatmap_magnitude_mode(raw: Any) -> str:
+	token = str(raw or "ptp").strip().lower()
+	if token in {"peak_to_peak", "ptp"}:
+		return "ptp"
+	if token in {"abs_peak", "absolute_peak", "extremum"}:
+		return "abs_peak"
+	if token in {"peak", "positive_peak", "max"}:
+		return "peak"
+	if token in {"trough", "negative_peak", "neg_peak", "min"}:
+		return "trough"
+	return "ptp"
 
 
 def _as_list_of_strings(value: Any) -> list[str]:
@@ -254,6 +306,24 @@ class SpikesortStageConfig:
 	merge_delete_outputs_on_force_restart: bool
 	merge_force_restart: bool
 	merge_force_replot: bool
+	merge_analyzer_regenerate_on_replot: bool
+	merge_analyzer_density_mode: str
+	merge_template_random_spikes_method: str
+	merge_template_random_spikes_max_spikes_per_unit: int | None
+	merge_template_random_spikes_margin_size: int | None
+	merge_template_random_spikes_seed: int | None
+	merge_analyzer_n_jobs: int | None
+	merge_analyzer_chunk_duration: str | None
+	merge_analyzer_sparsity_method: str
+	merge_analyzer_sparsity_radius_um: float | None
+	merge_analyzer_sparsity_num_channels: int | None
+	merge_analyzer_sparsity_threshold: float | None
+	merge_analyzer_sparsity_peak_sign: str
+	merge_analyzer_sparsity_num_spikes_for_sparsity: int | None
+	merge_analyzer_sparsity_by_property: str | None
+	merge_analyzer_waveforms_ms_before: float | None
+	merge_analyzer_waveforms_ms_after: float | None
+	merge_analyzer_waveforms_dtype: str | None
 	cache_sorting_outputs_before_merge: bool
 	cache_sorting_outputs_before_merge_relpath: str
 	cache_sorting_outputs_before_merge_cleanup_on_success: bool
@@ -322,10 +392,18 @@ class SpikesortStageConfig:
 	merge_reports_template_heatmaps_marker_size: float
 	merge_reports_template_heatmaps_cmap: str
 	merge_reports_template_heatmaps_show_colorbar: bool
+	merge_reports_template_heatmaps_relative_color_bar_height: float
 	merge_reports_template_heatmaps_color_scale: str
 	merge_reports_template_heatmaps_log_epsilon: float
+	merge_reports_template_heatmaps_magnitude_mode: str
 	merge_reports_template_heatmaps_max_merges: int | None
 	merge_reports_template_heatmaps_debug_json_relpath: str
+	merge_reports_template_heatmaps_inherit_probe_dimensions: bool
+	merge_reports_template_heatmaps_probe_dim_x_um: float | None
+	merge_reports_template_heatmaps_probe_dim_y_um: float | None
+	merge_reports_template_heatmaps_probe_pitch_um: float | None
+	merge_reports_template_heatmaps_probe_electrode_size_um_x: float | None
+	merge_reports_template_heatmaps_probe_electrode_size_um_y: float | None
 	merge_metadata_enabled: bool
 	merge_metadata_write_json: bool
 	merge_metadata_json_relpath: str
@@ -359,6 +437,7 @@ def parse_spikesort_stage_config(
 	phases_cfg = _as_section(stage_cfg.get("phases", {}))
 	sort_phase_cfg = _as_section(phases_cfg.get("sort", {}))
 	merge_units_phase_cfg = _as_section(phases_cfg.get("merge_units", {}))
+	merge_analyzer_cfg = _as_section(merge_units_phase_cfg.get("analyzer", {}))
 	bombcell_phase_cfg_raw = phases_cfg.get("bombcell_label", None)
 	bombcell_phase_cfg = _as_section(bombcell_phase_cfg_raw)
 	bombcell_params_cfg = _as_section(bombcell_phase_cfg.get("params", {}))
@@ -424,6 +503,9 @@ def parse_spikesort_stage_config(
 	merge_reports_template_heatmaps_cfg = _as_section(merge_reports_cfg.get("template_heatmaps_per_merge", {}))
 	merge_reports_template_heatmaps_assets_cfg = _as_section(
 		merge_reports_template_heatmaps_cfg.get("assets", {})
+	)
+	merge_reports_template_heatmaps_electrode_size_cfg = _as_section(
+		merge_reports_template_heatmaps_cfg.get("electrode_size_um", {})
 	)
 	merge_metadata_cfg = _as_section(merge_units_phase_cfg.get("merge_metadata", {}))
 	pre_merge_metadata_cfg = _as_section(merge_units_phase_cfg.get("pre_merge_metadata", {}))
@@ -1358,6 +1440,22 @@ def parse_spikesort_stage_config(
 		),
 		True,
 	)
+	merge_reports_template_heatmaps_relative_color_bar_height = _as_optional_float(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("relative_color_bar_height", None),
+			1.0,
+		)
+	)
+	if (
+		merge_reports_template_heatmaps_relative_color_bar_height is None
+		or (not math.isfinite(float(merge_reports_template_heatmaps_relative_color_bar_height)))
+		or float(merge_reports_template_heatmaps_relative_color_bar_height) <= 0.0
+	):
+		merge_reports_template_heatmaps_relative_color_bar_height = 1.0
+	merge_reports_template_heatmaps_relative_color_bar_height = max(
+		0.05,
+		min(1.0, float(merge_reports_template_heatmaps_relative_color_bar_height)),
+	)
 	merge_reports_template_heatmaps_color_scale_raw = _as_optional_str(
 		_coalesce(
 			merge_reports_template_heatmaps_cfg.get("color_scale", None),
@@ -1382,6 +1480,12 @@ def parse_spikesort_stage_config(
 		or float(merge_reports_template_heatmaps_log_epsilon) <= 0.0
 	):
 		merge_reports_template_heatmaps_log_epsilon = 1e-3
+	merge_reports_template_heatmaps_magnitude_mode = _normalize_merge_template_heatmap_magnitude_mode(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("magnitude_mode", None),
+			"ptp",
+		)
+	)
 	merge_reports_template_heatmaps_max_merges = _as_optional_int(
 		_coalesce(
 			merge_reports_template_heatmaps_cfg.get("max_merges", None),
@@ -1394,6 +1498,46 @@ def parse_spikesort_stage_config(
 			"template_heatmaps_per_merge_report.json",
 		)
 	) or "template_heatmaps_per_merge_report.json"
+	merge_reports_template_heatmaps_inherit_probe_dimensions = _as_bool(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("inherit_probe_dimensions", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_template_heatmaps_probe_dim_x_um = _as_optional_float(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("probe_dim_x_um", None),
+			merge_reports_template_heatmaps_cfg.get("active_area_um_x", None),
+		)
+	)
+	merge_reports_template_heatmaps_probe_dim_y_um = _as_optional_float(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("probe_dim_y_um", None),
+			merge_reports_template_heatmaps_cfg.get("active_area_um_y", None),
+		)
+	)
+	merge_reports_template_heatmaps_probe_pitch_um = _as_optional_float(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("probe_pitch_um", None),
+			merge_reports_template_heatmaps_cfg.get("pitch_um", None),
+			None,
+		)
+	)
+	merge_reports_template_heatmaps_probe_electrode_size_um_x = _as_optional_float(
+		_coalesce(
+			merge_reports_template_heatmaps_electrode_size_cfg.get("x", None),
+			merge_reports_template_heatmaps_cfg.get("electrode_size_um_x", None),
+			None,
+		)
+	)
+	merge_reports_template_heatmaps_probe_electrode_size_um_y = _as_optional_float(
+		_coalesce(
+			merge_reports_template_heatmaps_electrode_size_cfg.get("y", None),
+			merge_reports_template_heatmaps_cfg.get("electrode_size_um_y", None),
+			None,
+		)
+	)
 
 	merge_metadata_enabled = _as_bool(
 		_coalesce(
@@ -1775,6 +1919,215 @@ def parse_spikesort_stage_config(
 		False,
 	)
 	slay_params = _as_optional_dict(slay_cfg.get("params", None))
+	merge_analyzer_density_mode = _normalize_merge_analyzer_density_mode(
+		_coalesce(
+			merge_analyzer_cfg.get("density_mode", None),
+			merge_units_phase_cfg.get("analyzer_density_mode", None),
+			merge_units_phase_cfg.get("density_mode", None),
+			"auto",
+		)
+	)
+	merge_template_random_spikes_method = _normalize_merge_template_random_spikes_method(
+		_coalesce(
+			merge_analyzer_cfg.get("template_random_spikes_method", None),
+			merge_analyzer_cfg.get("random_spikes_method", None),
+			merge_units_phase_cfg.get("template_random_spikes_method", None),
+			merge_units_phase_cfg.get("random_spikes_method", None),
+			"default",
+		)
+	)
+	merge_template_random_spikes_max_spikes_per_unit = _as_optional_int(
+		_coalesce(
+			merge_analyzer_cfg.get("template_random_spikes_max_spikes_per_unit", None),
+			merge_analyzer_cfg.get("random_spikes_max_spikes_per_unit", None),
+			merge_analyzer_cfg.get("max_spikes_per_unit", None),
+			merge_units_phase_cfg.get("template_random_spikes_max_spikes_per_unit", None),
+			merge_units_phase_cfg.get("random_spikes_max_spikes_per_unit", None),
+			merge_units_phase_cfg.get("max_spikes_per_unit", None),
+			500,
+		)
+	)
+	if (
+		merge_template_random_spikes_max_spikes_per_unit is None
+		or int(merge_template_random_spikes_max_spikes_per_unit) <= 0
+	):
+		merge_template_random_spikes_max_spikes_per_unit = 500
+	merge_template_random_spikes_margin_size = _as_optional_int(
+		_coalesce(
+			merge_analyzer_cfg.get("template_random_spikes_margin_size", None),
+			merge_analyzer_cfg.get("random_spikes_margin_size", None),
+			merge_analyzer_cfg.get("margin_size", None),
+			merge_units_phase_cfg.get("template_random_spikes_margin_size", None),
+			merge_units_phase_cfg.get("random_spikes_margin_size", None),
+			merge_units_phase_cfg.get("margin_size", None),
+			None,
+		)
+	)
+	if (
+		merge_template_random_spikes_margin_size is not None
+		and int(merge_template_random_spikes_margin_size) < 0
+	):
+		merge_template_random_spikes_margin_size = None
+	merge_template_random_spikes_seed = _as_optional_int(
+		_coalesce(
+			merge_analyzer_cfg.get("template_random_spikes_seed", None),
+			merge_analyzer_cfg.get("random_spikes_seed", None),
+			merge_analyzer_cfg.get("seed", None),
+			merge_units_phase_cfg.get("template_random_spikes_seed", None),
+			merge_units_phase_cfg.get("random_spikes_seed", None),
+			merge_units_phase_cfg.get("seed", None),
+			None,
+		)
+	)
+	merge_analyzer_regenerate_on_replot = _as_bool(
+		_coalesce(
+			merge_analyzer_cfg.get("regenerate_on_replot", None),
+			merge_analyzer_cfg.get("regenereate_on_replot", None),
+			merge_units_phase_cfg.get("analyzer_regenerate_on_replot", None),
+			merge_units_phase_cfg.get("regenerate_on_replot", None),
+			True,
+		),
+		True,
+	)
+	merge_analyzer_n_jobs = _as_optional_int(
+		_coalesce(
+			merge_analyzer_cfg.get("n_jobs", None),
+			merge_units_phase_cfg.get("analyzer_n_jobs", None),
+			None,
+		)
+	)
+	merge_analyzer_chunk_duration = _as_optional_str(
+		_coalesce(
+			merge_analyzer_cfg.get("chunk_duration", None),
+			merge_units_phase_cfg.get("analyzer_chunk_duration", None),
+			None,
+		)
+	)
+	merge_analyzer_sparsity_method = _normalize_merge_analyzer_sparsity_method(
+		_coalesce(
+			merge_analyzer_cfg.get("sparsity_method", None),
+			merge_analyzer_cfg.get("method", None),
+			merge_units_phase_cfg.get("analyzer_sparsity_method", None),
+			merge_units_phase_cfg.get("sparsity_method", None),
+			"radius",
+		)
+	)
+	merge_analyzer_sparsity_radius_um = _as_optional_float(
+		_coalesce(
+			merge_analyzer_cfg.get("sparsity_radius_um", None),
+			merge_analyzer_cfg.get("radius_um", None),
+			merge_units_phase_cfg.get("analyzer_sparsity_radius_um", None),
+			merge_units_phase_cfg.get("sparsity_radius_um", None),
+			100.0,
+		)
+	)
+	if (
+		merge_analyzer_sparsity_radius_um is None
+		or float(merge_analyzer_sparsity_radius_um) <= 0.0
+	):
+		merge_analyzer_sparsity_radius_um = 100.0
+	merge_analyzer_sparsity_num_channels = _as_optional_int(
+		_coalesce(
+			merge_analyzer_cfg.get("sparsity_num_channels", None),
+			merge_analyzer_cfg.get("num_channels", None),
+			merge_units_phase_cfg.get("analyzer_sparsity_num_channels", None),
+			merge_units_phase_cfg.get("sparsity_num_channels", None),
+			5,
+		)
+	)
+	if (
+		merge_analyzer_sparsity_num_channels is None
+		or int(merge_analyzer_sparsity_num_channels) <= 0
+	):
+		merge_analyzer_sparsity_num_channels = 5
+	merge_analyzer_sparsity_threshold = _as_optional_float(
+		_coalesce(
+			merge_analyzer_cfg.get("sparsity_threshold", None),
+			merge_analyzer_cfg.get("threshold", None),
+			merge_units_phase_cfg.get("analyzer_sparsity_threshold", None),
+			merge_units_phase_cfg.get("sparsity_threshold", None),
+			5.0,
+		)
+	)
+	if (
+		merge_analyzer_sparsity_threshold is None
+		or float(merge_analyzer_sparsity_threshold) <= 0.0
+	):
+		merge_analyzer_sparsity_threshold = 5.0
+	merge_analyzer_sparsity_peak_sign = _normalize_merge_analyzer_peak_sign(
+		_coalesce(
+			merge_analyzer_cfg.get("sparsity_peak_sign", None),
+			merge_analyzer_cfg.get("peak_sign", None),
+			merge_units_phase_cfg.get("analyzer_sparsity_peak_sign", None),
+			merge_units_phase_cfg.get("sparsity_peak_sign", None),
+			merge_units_phase_cfg.get("peak_sign", None),
+			"neg",
+		)
+	)
+	merge_analyzer_sparsity_num_spikes_for_sparsity = _as_optional_int(
+		_coalesce(
+			merge_analyzer_cfg.get("sparsity_num_spikes_for_sparsity", None),
+			merge_analyzer_cfg.get("num_spikes_for_sparsity", None),
+			merge_units_phase_cfg.get("analyzer_sparsity_num_spikes_for_sparsity", None),
+			merge_units_phase_cfg.get("sparsity_num_spikes_for_sparsity", None),
+			merge_units_phase_cfg.get("num_spikes_for_sparsity", None),
+			100,
+		)
+	)
+	if (
+		merge_analyzer_sparsity_num_spikes_for_sparsity is None
+		or int(merge_analyzer_sparsity_num_spikes_for_sparsity) <= 0
+	):
+		merge_analyzer_sparsity_num_spikes_for_sparsity = 100
+	merge_analyzer_sparsity_by_property = _as_optional_str(
+		_coalesce(
+			merge_analyzer_cfg.get("sparsity_by_property", None),
+			merge_analyzer_cfg.get("by_property", None),
+			merge_units_phase_cfg.get("analyzer_sparsity_by_property", None),
+			merge_units_phase_cfg.get("sparsity_by_property", None),
+			None,
+		)
+	)
+	merge_analyzer_waveforms_ms_before = _as_optional_float(
+		_coalesce(
+			merge_analyzer_cfg.get("waveforms_ms_before", None),
+			merge_analyzer_cfg.get("template_ms_before", None),
+			merge_units_phase_cfg.get("analyzer_waveforms_ms_before", None),
+			merge_units_phase_cfg.get("waveforms_ms_before", None),
+			merge_units_phase_cfg.get("template_ms_before", None),
+			1.0,
+		)
+	)
+	if (
+		merge_analyzer_waveforms_ms_before is None
+		or float(merge_analyzer_waveforms_ms_before) < 0.0
+	):
+		merge_analyzer_waveforms_ms_before = 1.0
+	merge_analyzer_waveforms_ms_after = _as_optional_float(
+		_coalesce(
+			merge_analyzer_cfg.get("waveforms_ms_after", None),
+			merge_analyzer_cfg.get("template_ms_after", None),
+			merge_units_phase_cfg.get("analyzer_waveforms_ms_after", None),
+			merge_units_phase_cfg.get("waveforms_ms_after", None),
+			merge_units_phase_cfg.get("template_ms_after", None),
+			2.0,
+		)
+	)
+	if (
+		merge_analyzer_waveforms_ms_after is None
+		or float(merge_analyzer_waveforms_ms_after) < 0.0
+	):
+		merge_analyzer_waveforms_ms_after = 2.0
+	merge_analyzer_waveforms_dtype = _as_optional_str(
+		_coalesce(
+			merge_analyzer_cfg.get("waveforms_dtype", None),
+			merge_analyzer_cfg.get("template_waveforms_dtype", None),
+			merge_units_phase_cfg.get("analyzer_waveforms_dtype", None),
+			merge_units_phase_cfg.get("waveforms_dtype", None),
+			merge_units_phase_cfg.get("template_waveforms_dtype", None),
+			None,
+		)
+	)
 
 	resolved_um_kwargs = (um_kwargs if um_kwargs else None)
 	resolved_am_kwargs = (am_kwargs if am_kwargs else None)
@@ -1951,6 +2304,70 @@ def parse_spikesort_stage_config(
 		merge_delete_outputs_on_force_restart=bool(merge_delete_outputs_on_force_restart),
 		merge_force_restart=bool(merge_force_restart),
 		merge_force_replot=bool(merge_force_replot),
+		merge_analyzer_regenerate_on_replot=bool(merge_analyzer_regenerate_on_replot),
+		merge_analyzer_density_mode=str(merge_analyzer_density_mode),
+		merge_template_random_spikes_method=str(merge_template_random_spikes_method),
+		merge_template_random_spikes_max_spikes_per_unit=(
+			int(merge_template_random_spikes_max_spikes_per_unit)
+			if merge_template_random_spikes_max_spikes_per_unit is not None
+			else None
+		),
+		merge_template_random_spikes_margin_size=(
+			int(merge_template_random_spikes_margin_size)
+			if merge_template_random_spikes_margin_size is not None
+			else None
+		),
+		merge_template_random_spikes_seed=(
+			int(merge_template_random_spikes_seed)
+			if merge_template_random_spikes_seed is not None
+			else None
+		),
+		merge_analyzer_n_jobs=(int(merge_analyzer_n_jobs) if merge_analyzer_n_jobs is not None else None),
+		merge_analyzer_chunk_duration=(
+			str(merge_analyzer_chunk_duration) if merge_analyzer_chunk_duration is not None else None
+		),
+		merge_analyzer_sparsity_method=str(merge_analyzer_sparsity_method),
+		merge_analyzer_sparsity_radius_um=(
+			float(merge_analyzer_sparsity_radius_um)
+			if merge_analyzer_sparsity_radius_um is not None
+			else None
+		),
+		merge_analyzer_sparsity_num_channels=(
+			int(merge_analyzer_sparsity_num_channels)
+			if merge_analyzer_sparsity_num_channels is not None
+			else None
+		),
+		merge_analyzer_sparsity_threshold=(
+			float(merge_analyzer_sparsity_threshold)
+			if merge_analyzer_sparsity_threshold is not None
+			else None
+		),
+		merge_analyzer_sparsity_peak_sign=str(merge_analyzer_sparsity_peak_sign),
+		merge_analyzer_sparsity_num_spikes_for_sparsity=(
+			int(merge_analyzer_sparsity_num_spikes_for_sparsity)
+			if merge_analyzer_sparsity_num_spikes_for_sparsity is not None
+			else None
+		),
+		merge_analyzer_sparsity_by_property=(
+			str(merge_analyzer_sparsity_by_property)
+			if merge_analyzer_sparsity_by_property is not None
+			else None
+		),
+		merge_analyzer_waveforms_ms_before=(
+			float(merge_analyzer_waveforms_ms_before)
+			if merge_analyzer_waveforms_ms_before is not None
+			else None
+		),
+		merge_analyzer_waveforms_ms_after=(
+			float(merge_analyzer_waveforms_ms_after)
+			if merge_analyzer_waveforms_ms_after is not None
+			else None
+		),
+		merge_analyzer_waveforms_dtype=(
+			str(merge_analyzer_waveforms_dtype)
+			if merge_analyzer_waveforms_dtype is not None
+			else None
+		),
 		cache_sorting_outputs_before_merge=bool(cache_sorting_outputs_before_merge),
 		cache_sorting_outputs_before_merge_relpath=str(cache_sorting_outputs_before_merge_relpath),
 		cache_sorting_outputs_before_merge_cleanup_on_success=bool(cache_sorting_outputs_before_merge_cleanup_on_success),
@@ -2061,8 +2478,12 @@ def parse_spikesort_stage_config(
 		merge_reports_template_heatmaps_marker_size=float(merge_reports_template_heatmaps_marker_size),
 		merge_reports_template_heatmaps_cmap=str(merge_reports_template_heatmaps_cmap),
 		merge_reports_template_heatmaps_show_colorbar=bool(merge_reports_template_heatmaps_show_colorbar),
+		merge_reports_template_heatmaps_relative_color_bar_height=float(
+			merge_reports_template_heatmaps_relative_color_bar_height
+		),
 		merge_reports_template_heatmaps_color_scale=str(merge_reports_template_heatmaps_color_scale),
 		merge_reports_template_heatmaps_log_epsilon=float(merge_reports_template_heatmaps_log_epsilon),
+		merge_reports_template_heatmaps_magnitude_mode=str(merge_reports_template_heatmaps_magnitude_mode),
 		merge_reports_template_heatmaps_max_merges=(
 			int(merge_reports_template_heatmaps_max_merges)
 			if merge_reports_template_heatmaps_max_merges is not None
@@ -2070,6 +2491,34 @@ def parse_spikesort_stage_config(
 		),
 		merge_reports_template_heatmaps_debug_json_relpath=str(
 			merge_reports_template_heatmaps_debug_json_relpath
+		),
+		merge_reports_template_heatmaps_inherit_probe_dimensions=bool(
+			merge_reports_template_heatmaps_inherit_probe_dimensions
+		),
+		merge_reports_template_heatmaps_probe_dim_x_um=(
+			float(merge_reports_template_heatmaps_probe_dim_x_um)
+			if merge_reports_template_heatmaps_probe_dim_x_um is not None
+			else None
+		),
+		merge_reports_template_heatmaps_probe_dim_y_um=(
+			float(merge_reports_template_heatmaps_probe_dim_y_um)
+			if merge_reports_template_heatmaps_probe_dim_y_um is not None
+			else None
+		),
+		merge_reports_template_heatmaps_probe_pitch_um=(
+			float(merge_reports_template_heatmaps_probe_pitch_um)
+			if merge_reports_template_heatmaps_probe_pitch_um is not None
+			else None
+		),
+		merge_reports_template_heatmaps_probe_electrode_size_um_x=(
+			float(merge_reports_template_heatmaps_probe_electrode_size_um_x)
+			if merge_reports_template_heatmaps_probe_electrode_size_um_x is not None
+			else None
+		),
+		merge_reports_template_heatmaps_probe_electrode_size_um_y=(
+			float(merge_reports_template_heatmaps_probe_electrode_size_um_y)
+			if merge_reports_template_heatmaps_probe_electrode_size_um_y is not None
+			else None
 		),
 		merge_metadata_enabled=bool(merge_metadata_enabled),
 		merge_metadata_write_json=bool(merge_metadata_write_json),
@@ -2144,6 +2593,23 @@ def build_spikesort_inputs_for_target(
 		force_restart=stage_config.force_restart,
 		force_replot=stage_config.force_replot,
 		resume_from=stage_config.resume_from,
+		merge_analyzer_density_mode=stage_config.merge_analyzer_density_mode,
+		merge_template_random_spikes_method=stage_config.merge_template_random_spikes_method,
+		merge_template_random_spikes_max_spikes_per_unit=stage_config.merge_template_random_spikes_max_spikes_per_unit,
+		merge_template_random_spikes_margin_size=stage_config.merge_template_random_spikes_margin_size,
+		merge_template_random_spikes_seed=stage_config.merge_template_random_spikes_seed,
+		merge_analyzer_n_jobs=stage_config.merge_analyzer_n_jobs,
+		merge_analyzer_chunk_duration=stage_config.merge_analyzer_chunk_duration,
+		merge_analyzer_sparsity_method=stage_config.merge_analyzer_sparsity_method,
+		merge_analyzer_sparsity_radius_um=stage_config.merge_analyzer_sparsity_radius_um,
+		merge_analyzer_sparsity_num_channels=stage_config.merge_analyzer_sparsity_num_channels,
+		merge_analyzer_sparsity_threshold=stage_config.merge_analyzer_sparsity_threshold,
+		merge_analyzer_sparsity_peak_sign=stage_config.merge_analyzer_sparsity_peak_sign,
+		merge_analyzer_sparsity_num_spikes_for_sparsity=stage_config.merge_analyzer_sparsity_num_spikes_for_sparsity,
+		merge_analyzer_sparsity_by_property=stage_config.merge_analyzer_sparsity_by_property,
+		merge_analyzer_waveforms_ms_before=stage_config.merge_analyzer_waveforms_ms_before,
+		merge_analyzer_waveforms_ms_after=stage_config.merge_analyzer_waveforms_ms_after,
+		merge_analyzer_waveforms_dtype=stage_config.merge_analyzer_waveforms_dtype,
 	)
 
 
@@ -2230,4 +2696,21 @@ def load_spikesort_inputs_from_runtime(
 		force_restart=stage_cfg.force_restart,
 		force_replot=stage_cfg.force_replot,
 		resume_from=stage_cfg.resume_from,
+		merge_analyzer_density_mode=stage_cfg.merge_analyzer_density_mode,
+		merge_template_random_spikes_method=stage_cfg.merge_template_random_spikes_method,
+		merge_template_random_spikes_max_spikes_per_unit=stage_cfg.merge_template_random_spikes_max_spikes_per_unit,
+		merge_template_random_spikes_margin_size=stage_cfg.merge_template_random_spikes_margin_size,
+		merge_template_random_spikes_seed=stage_cfg.merge_template_random_spikes_seed,
+		merge_analyzer_n_jobs=stage_cfg.merge_analyzer_n_jobs,
+		merge_analyzer_chunk_duration=stage_cfg.merge_analyzer_chunk_duration,
+		merge_analyzer_sparsity_method=stage_cfg.merge_analyzer_sparsity_method,
+		merge_analyzer_sparsity_radius_um=stage_cfg.merge_analyzer_sparsity_radius_um,
+		merge_analyzer_sparsity_num_channels=stage_cfg.merge_analyzer_sparsity_num_channels,
+		merge_analyzer_sparsity_threshold=stage_cfg.merge_analyzer_sparsity_threshold,
+		merge_analyzer_sparsity_peak_sign=stage_cfg.merge_analyzer_sparsity_peak_sign,
+		merge_analyzer_sparsity_num_spikes_for_sparsity=stage_cfg.merge_analyzer_sparsity_num_spikes_for_sparsity,
+		merge_analyzer_sparsity_by_property=stage_cfg.merge_analyzer_sparsity_by_property,
+		merge_analyzer_waveforms_ms_before=stage_cfg.merge_analyzer_waveforms_ms_before,
+		merge_analyzer_waveforms_ms_after=stage_cfg.merge_analyzer_waveforms_ms_after,
+		merge_analyzer_waveforms_dtype=stage_cfg.merge_analyzer_waveforms_dtype,
 	)

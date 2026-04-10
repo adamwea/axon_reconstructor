@@ -656,22 +656,81 @@ def run_spikesort_merge_from_runtime(
 		if normalized_override:
 			stage_config = replace(stage_config, merge_sequence=normalized_override)
 
-	if bool(getattr(stage_config, "merge_reports_2panel_inherit_probe_dimensions", False)):
+	inherit_2panel_probe_dimensions = bool(
+		getattr(stage_config, "merge_reports_2panel_inherit_probe_dimensions", False)
+	)
+	inherit_template_heatmap_probe_dimensions = bool(
+		getattr(stage_config, "merge_reports_template_heatmaps_inherit_probe_dimensions", False)
+	)
+	if inherit_2panel_probe_dimensions or inherit_template_heatmap_probe_dimensions:
 		probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
 		if probe_geometry is not None:
-			existing_x = getattr(stage_config, "merge_reports_2panel_probe_dim_x_um", None)
-			existing_y = getattr(stage_config, "merge_reports_2panel_probe_dim_y_um", None)
-			resolved_x = existing_x
-			resolved_y = existing_y
-			if resolved_x is None:
-				resolved_x = getattr(probe_geometry, "active_area_um_x", None)
-			if resolved_y is None:
-				resolved_y = getattr(probe_geometry, "active_area_um_y", None)
-			stage_config = replace(
-				stage_config,
-				merge_reports_2panel_probe_dim_x_um=(float(resolved_x) if resolved_x is not None else None),
-				merge_reports_2panel_probe_dim_y_um=(float(resolved_y) if resolved_y is not None else None),
-			)
+			replace_kwargs: dict[str, float | None] = {}
+			if inherit_2panel_probe_dimensions:
+				existing_x = getattr(stage_config, "merge_reports_2panel_probe_dim_x_um", None)
+				existing_y = getattr(stage_config, "merge_reports_2panel_probe_dim_y_um", None)
+				resolved_x = existing_x
+				resolved_y = existing_y
+				if resolved_x is None:
+					resolved_x = getattr(probe_geometry, "active_area_um_x", None)
+				if resolved_y is None:
+					resolved_y = getattr(probe_geometry, "active_area_um_y", None)
+				replace_kwargs["merge_reports_2panel_probe_dim_x_um"] = (
+					float(resolved_x) if resolved_x is not None else None
+				)
+				replace_kwargs["merge_reports_2panel_probe_dim_y_um"] = (
+					float(resolved_y) if resolved_y is not None else None
+				)
+			if inherit_template_heatmap_probe_dimensions:
+				existing_x = getattr(stage_config, "merge_reports_template_heatmaps_probe_dim_x_um", None)
+				existing_y = getattr(stage_config, "merge_reports_template_heatmaps_probe_dim_y_um", None)
+				resolved_x = existing_x
+				resolved_y = existing_y
+				if resolved_x is None:
+					resolved_x = getattr(probe_geometry, "active_area_um_x", None)
+				if resolved_y is None:
+					resolved_y = getattr(probe_geometry, "active_area_um_y", None)
+				replace_kwargs["merge_reports_template_heatmaps_probe_dim_x_um"] = (
+					float(resolved_x) if resolved_x is not None else None
+				)
+				replace_kwargs["merge_reports_template_heatmaps_probe_dim_y_um"] = (
+					float(resolved_y) if resolved_y is not None else None
+				)
+				existing_pitch = getattr(stage_config, "merge_reports_template_heatmaps_probe_pitch_um", None)
+				existing_electrode_x = getattr(
+					stage_config,
+					"merge_reports_template_heatmaps_probe_electrode_size_um_x",
+					None,
+				)
+				existing_electrode_y = getattr(
+					stage_config,
+					"merge_reports_template_heatmaps_probe_electrode_size_um_y",
+					None,
+				)
+				resolved_pitch = existing_pitch
+				resolved_electrode_x = existing_electrode_x
+				resolved_electrode_y = existing_electrode_y
+				if resolved_pitch is None:
+					resolved_pitch = getattr(probe_geometry, "pitch_um", None)
+				if resolved_electrode_x is None:
+					resolved_electrode_x = getattr(probe_geometry, "electrode_size_um_x", None)
+				if resolved_electrode_y is None:
+					resolved_electrode_y = getattr(probe_geometry, "electrode_size_um_y", None)
+				replace_kwargs["merge_reports_template_heatmaps_probe_pitch_um"] = (
+					float(resolved_pitch) if resolved_pitch is not None else None
+				)
+				replace_kwargs["merge_reports_template_heatmaps_probe_electrode_size_um_x"] = (
+					float(resolved_electrode_x) if resolved_electrode_x is not None else None
+				)
+				replace_kwargs["merge_reports_template_heatmaps_probe_electrode_size_um_y"] = (
+					float(resolved_electrode_y) if resolved_electrode_y is not None else None
+				)
+			if replace_kwargs:
+				if getattr(stage_config, "__dataclass_fields__", None) is not None:
+					stage_config = replace(stage_config, **replace_kwargs)
+				else:
+					for field_name, field_value in replace_kwargs.items():
+						setattr(stage_config, field_name, field_value)
 	targets = select_execution_targets(bundle=bundle)
 	if stage_config.debug_limit_wells is not None:
 		limit_wells = max(1, int(stage_config.debug_limit_wells))

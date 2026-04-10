@@ -25,6 +25,39 @@ from .models.results import SpikesortMergeResult, SpikesortResult
 LOGGER = logging.getLogger("axon_recon.spikesort")
 
 
+def _log_phase_step_start(
+	message: str,
+	*,
+	stream_id: Any | None = None,
+	well_out_dir: Path | None = None,
+	**context: Any,
+) -> None:
+	context_parts: list[str] = []
+	if stream_id is not None:
+		context_parts.append(f"stream={stream_id}")
+	elif well_out_dir is not None:
+		try:
+			well_label = Path(well_out_dir).name
+		except Exception:
+			well_label = str(well_out_dir)
+		context_parts.append(f"well={well_label or well_out_dir}")
+	for key, value in context.items():
+		if value is None:
+			continue
+		if isinstance(value, Path):
+			rendered = str(value)
+		else:
+			rendered = str(value)
+		rendered = rendered.strip()
+		if not rendered:
+			continue
+		context_parts.append(f"{key}={rendered}")
+	if context_parts:
+		LOGGER.info("%s [%s]", str(message), ", ".join(context_parts))
+	else:
+		LOGGER.info("%s", str(message))
+
+
 def _prepare_matplotlib_for_headless_rendering() -> None:
 	# Merge reports can run from worker threads; forcing a non-GUI backend avoids
 	# GUI backend initialization warnings and occasional shutdown crashes.
@@ -185,6 +218,410 @@ def _compose_output_rel_root(*, stage_output_rel_root: str, child_rel_root: str 
 	if child_rel == stage_rel or child_rel.startswith(f"{stage_rel}/"):
 		return child_rel
 	return f"{stage_rel}/{child_rel}"
+
+
+def _normalize_merge_analyzer_density_mode(raw: Any) -> str:
+	if isinstance(raw, bool):
+		return ("dense" if raw else "auto")
+	token = str(raw or "auto").strip().lower()
+	if token in {"dense", "full"}:
+		return "dense"
+	return "auto"
+
+
+def _normalize_merge_template_random_spikes_method(raw: Any) -> str:
+	if isinstance(raw, bool):
+		return ("all" if raw else "default")
+	token = str(raw or "default").strip().lower()
+	if token in {"all", "full", "every"}:
+		return "all"
+	return "default"
+
+
+def _normalize_merge_analyzer_sparsity_method(raw: Any) -> str:
+	token = str(raw or "radius").strip().lower()
+	if token in {"best", "best_channel", "best_channels", "num_channels"}:
+		return "best_channels"
+	if token in {"threshold", "snr"}:
+		return "threshold"
+	if token in {"by_property", "property", "group"}:
+		return "by_property"
+	return "radius"
+
+
+def _normalize_merge_analyzer_peak_sign(raw: Any) -> str:
+	token = str(raw or "neg").strip().lower()
+	if token in {"pos", "positive"}:
+		return "pos"
+	if token in {"both", "all"}:
+		return "both"
+	return "neg"
+
+
+def _normalize_merge_template_heatmap_magnitude_mode(raw: Any) -> str:
+	token = str(raw or "ptp").strip().lower()
+	if token in {"peak_to_peak", "ptp"}:
+		return "ptp"
+	if token in {"abs_peak", "absolute_peak", "extremum"}:
+		return "abs_peak"
+	if token in {"peak", "positive_peak", "max"}:
+		return "peak"
+	if token in {"trough", "negative_peak", "neg_peak", "min"}:
+		return "trough"
+	return "ptp"
+
+
+def _merge_analyzer_compute_job_kwargs(stage_config: Any) -> dict[str, Any]:
+	n_jobs_raw = getattr(stage_config, "merge_analyzer_n_jobs", None)
+	if n_jobs_raw is None:
+		n_jobs_raw = getattr(stage_config, "n_jobs", None)
+	chunk_duration_raw = getattr(stage_config, "merge_analyzer_chunk_duration", None)
+	if chunk_duration_raw is None:
+		chunk_duration_raw = getattr(stage_config, "chunk_duration", None)
+
+	job_kwargs: dict[str, Any] = {}
+	try:
+		if n_jobs_raw is not None and int(n_jobs_raw) > 0:
+			job_kwargs["n_jobs"] = int(n_jobs_raw)
+	except Exception:
+		pass
+	if chunk_duration_raw is not None:
+		chunk_duration = str(chunk_duration_raw).strip()
+		if chunk_duration:
+			job_kwargs["chunk_duration"] = chunk_duration
+	return job_kwargs
+
+
+def _merge_analyzer_sparsity_settings(stage_config: Any) -> dict[str, Any]:
+	method = _normalize_merge_analyzer_sparsity_method(
+		getattr(stage_config, "merge_analyzer_sparsity_method", "radius")
+	)
+	peak_sign = _normalize_merge_analyzer_peak_sign(
+		getattr(stage_config, "merge_analyzer_sparsity_peak_sign", "neg")
+	)
+	try:
+		radius_um = float(getattr(stage_config, "merge_analyzer_sparsity_radius_um", 100.0) or 100.0)
+	except Exception:
+		radius_um = 100.0
+	if (not math.isfinite(radius_um)) or radius_um <= 0.0:
+		radius_um = 100.0
+
+	try:
+		num_channels = int(getattr(stage_config, "merge_analyzer_sparsity_num_channels", 5) or 5)
+	except Exception:
+		num_channels = 5
+	if num_channels <= 0:
+		num_channels = 5
+
+	try:
+		threshold = float(getattr(stage_config, "merge_analyzer_sparsity_threshold", 5.0) or 5.0)
+	except Exception:
+		threshold = 5.0
+	if (not math.isfinite(threshold)) or threshold <= 0.0:
+		threshold = 5.0
+
+	try:
+		num_spikes_for_sparsity = int(
+			getattr(stage_config, "merge_analyzer_sparsity_num_spikes_for_sparsity", 100) or 100
+		)
+	except Exception:
+		num_spikes_for_sparsity = 100
+	if num_spikes_for_sparsity <= 0:
+		num_spikes_for_sparsity = 100
+
+	by_property_raw = getattr(stage_config, "merge_analyzer_sparsity_by_property", None)
+	by_property = None
+	if by_property_raw is not None:
+		candidate = str(by_property_raw).strip()
+		if candidate:
+			by_property = candidate
+
+	return {
+		"sparsity_method": str(method),
+		"sparsity_radius_um": float(radius_um),
+		"sparsity_num_channels": int(num_channels),
+		"sparsity_threshold": float(threshold),
+		"sparsity_peak_sign": str(peak_sign),
+		"sparsity_num_spikes_for_sparsity": int(num_spikes_for_sparsity),
+		"sparsity_by_property": by_property,
+	}
+
+
+def _merge_analyzer_random_spikes_settings(stage_config: Any) -> dict[str, Any]:
+	try:
+		max_spikes_per_unit = int(
+			getattr(stage_config, "merge_template_random_spikes_max_spikes_per_unit", 500) or 500
+		)
+	except Exception:
+		max_spikes_per_unit = 500
+	if max_spikes_per_unit <= 0:
+		max_spikes_per_unit = 500
+
+	margin_size_raw = getattr(stage_config, "merge_template_random_spikes_margin_size", None)
+	margin_size = None
+	try:
+		if margin_size_raw is not None:
+			margin_size = int(margin_size_raw)
+			if margin_size < 0:
+				margin_size = None
+	except Exception:
+		margin_size = None
+
+	seed_raw = getattr(stage_config, "merge_template_random_spikes_seed", None)
+	seed = None
+	try:
+		if seed_raw is not None:
+			seed = int(seed_raw)
+	except Exception:
+		seed = None
+
+	return {
+		"template_random_spikes_max_spikes_per_unit": int(max_spikes_per_unit),
+		"template_random_spikes_margin_size": margin_size,
+		"template_random_spikes_seed": seed,
+	}
+
+
+def _merge_analyzer_waveform_settings(stage_config: Any) -> dict[str, Any]:
+	try:
+		ms_before = float(getattr(stage_config, "merge_analyzer_waveforms_ms_before", 1.0) or 1.0)
+	except Exception:
+		ms_before = 1.0
+	if (not math.isfinite(ms_before)) or ms_before < 0.0:
+		ms_before = 1.0
+
+	try:
+		ms_after = float(getattr(stage_config, "merge_analyzer_waveforms_ms_after", 2.0) or 2.0)
+	except Exception:
+		ms_after = 2.0
+	if (not math.isfinite(ms_after)) or ms_after < 0.0:
+		ms_after = 2.0
+
+	dtype_raw = getattr(stage_config, "merge_analyzer_waveforms_dtype", None)
+	dtype = None
+	if dtype_raw is not None:
+		candidate = str(dtype_raw).strip()
+		if candidate:
+			dtype = candidate
+
+	return {
+		"waveforms_ms_before": float(ms_before),
+		"waveforms_ms_after": float(ms_after),
+		"waveforms_dtype": dtype,
+	}
+
+
+def _merge_analyzer_sparsity_create_kwargs(stage_config: Any) -> dict[str, Any]:
+	create_kwargs = _merge_analyzer_compute_job_kwargs(stage_config)
+	if _merge_dense_analyzer_requested(stage_config):
+		return create_kwargs
+
+	settings = _merge_analyzer_sparsity_settings(stage_config)
+	method = str(settings.get("sparsity_method", "radius"))
+	create_kwargs["method"] = ("snr" if method == "threshold" else method)
+	create_kwargs["peak_sign"] = str(settings.get("sparsity_peak_sign", "neg"))
+	create_kwargs["num_spikes_for_sparsity"] = int(
+		settings.get("sparsity_num_spikes_for_sparsity", 100)
+	)
+	if method == "radius":
+		create_kwargs["radius_um"] = float(settings.get("sparsity_radius_um", 100.0))
+	elif method == "best_channels":
+		create_kwargs["num_channels"] = int(settings.get("sparsity_num_channels", 5))
+	elif method == "threshold":
+		create_kwargs["threshold"] = float(settings.get("sparsity_threshold", 5.0))
+	elif method == "by_property":
+		by_property = settings.get("sparsity_by_property", None)
+		if by_property is not None:
+			create_kwargs["by_property"] = str(by_property)
+	return create_kwargs
+
+
+def _merge_analyzer_extension_kwargs(stage_config: Any, extension_name: str) -> dict[str, Any]:
+	extension_kwargs = dict(_merge_analyzer_compute_job_kwargs(stage_config))
+	random_spikes_settings = _merge_analyzer_random_spikes_settings(stage_config)
+	waveform_settings = _merge_analyzer_waveform_settings(stage_config)
+
+	if extension_name == "random_spikes":
+		if _merge_template_random_spikes_method(stage_config) == "all":
+			extension_kwargs["method"] = "all"
+		extension_kwargs["max_spikes_per_unit"] = int(
+			random_spikes_settings.get("template_random_spikes_max_spikes_per_unit", 500)
+		)
+		margin_size = random_spikes_settings.get("template_random_spikes_margin_size", None)
+		if margin_size is not None:
+			extension_kwargs["margin_size"] = int(margin_size)
+		seed = random_spikes_settings.get("template_random_spikes_seed", None)
+		if seed is not None:
+			extension_kwargs["seed"] = int(seed)
+	elif extension_name == "waveforms":
+		extension_kwargs["ms_before"] = float(waveform_settings.get("waveforms_ms_before", 1.0))
+		extension_kwargs["ms_after"] = float(waveform_settings.get("waveforms_ms_after", 2.0))
+		dtype = waveform_settings.get("waveforms_dtype", None)
+		if dtype is not None:
+			extension_kwargs["dtype"] = str(dtype)
+	elif extension_name == "templates":
+		extension_kwargs["ms_before"] = float(waveform_settings.get("waveforms_ms_before", 1.0))
+		extension_kwargs["ms_after"] = float(waveform_settings.get("waveforms_ms_after", 2.0))
+
+	return extension_kwargs
+
+
+def _merge_template_heatmap_magnitude_mode(stage_config: Any) -> str:
+	return _normalize_merge_template_heatmap_magnitude_mode(
+		getattr(stage_config, "merge_reports_template_heatmaps_magnitude_mode", "ptp")
+	)
+
+
+def _requested_merge_analyzer_policy(stage_config: Any) -> dict[str, Any]:
+	density_mode = _normalize_merge_analyzer_density_mode(
+		getattr(stage_config, "merge_analyzer_density_mode", "auto")
+	)
+	regenerate_on_replot = bool(
+		getattr(stage_config, "merge_analyzer_regenerate_on_replot", True)
+	)
+	random_spikes_method = _normalize_merge_template_random_spikes_method(
+		getattr(stage_config, "merge_template_random_spikes_method", "default")
+	)
+	sparsity_settings = _merge_analyzer_sparsity_settings(stage_config)
+	random_spikes_settings = _merge_analyzer_random_spikes_settings(stage_config)
+	waveform_settings = _merge_analyzer_waveform_settings(stage_config)
+	job_kwargs = _merge_analyzer_compute_job_kwargs(stage_config)
+	policy = {
+		"density_mode": str(density_mode),
+		"requested_dense_analyzer": bool(density_mode == "dense"),
+		"regenerate_on_replot": bool(regenerate_on_replot),
+		"template_random_spikes_method": str(random_spikes_method),
+	}
+	policy.update(sparsity_settings)
+	policy.update(random_spikes_settings)
+	policy.update(waveform_settings)
+	policy["compute_n_jobs"] = job_kwargs.get("n_jobs", None)
+	policy["compute_chunk_duration"] = job_kwargs.get("chunk_duration", None)
+	return policy
+
+
+def _merge_dense_analyzer_requested(stage_config: Any) -> bool:
+	return bool(_requested_merge_analyzer_policy(stage_config).get("requested_dense_analyzer", False))
+
+
+def _merge_template_random_spikes_method(stage_config: Any) -> str:
+	return str(_requested_merge_analyzer_policy(stage_config).get("template_random_spikes_method", "default"))
+
+
+def _analyzer_has_sparsity(analyzer: Any) -> bool:
+	try:
+		return bool(getattr(analyzer, "sparsity", None) is not None)
+	except Exception:
+		return False
+
+
+def _attach_merge_analyzer_policy_info(analyzer: Any, info: dict[str, Any]) -> None:
+	if analyzer is None:
+		return
+	try:
+		setattr(analyzer, "_axon_recon_merge_analyzer_policy_info", dict(info))
+	except Exception:
+		return
+
+
+def _get_merge_analyzer_policy_info(analyzer: Any) -> dict[str, Any]:
+	try:
+		info = getattr(analyzer, "_axon_recon_merge_analyzer_policy_info", None)
+	except Exception:
+		info = None
+	return (dict(info) if isinstance(info, dict) else {})
+
+
+def _describe_merge_analyzer_policy_info(
+	*,
+	analyzer: Any | None,
+	stage_config: Any,
+	loaded_analyzer_had_sparsity: bool | None = None,
+	rebuild_reason: str | None = None,
+	reused_cached_analyzer: bool | None = None,
+) -> dict[str, Any]:
+	info = _requested_merge_analyzer_policy(stage_config)
+	final_has_sparsity = (_analyzer_has_sparsity(analyzer) if analyzer is not None else None)
+	info.update(
+		{
+			"loaded_analyzer_had_sparsity": loaded_analyzer_had_sparsity,
+			"rebuild_reason": rebuild_reason,
+			"reused_cached_analyzer": reused_cached_analyzer,
+			"final_analyzer_has_sparsity": final_has_sparsity,
+			"dense_validation_error": (
+				"dense_requested_but_analyzer_has_sparsity"
+				if bool(info.get("requested_dense_analyzer", False)) and bool(final_has_sparsity)
+				else None
+			),
+		}
+	)
+	return info
+
+
+def _analyzer_has_extension(analyzer: Any, extension_name: str) -> bool:
+	has_extension = getattr(analyzer, "has_extension", None)
+	if not callable(has_extension):
+		return False
+	try:
+		return bool(has_extension(extension_name))
+	except Exception:
+		return False
+
+
+def _compute_analyzer_extension(*, analyzer: Any, extension_name: str, kwargs: dict[str, Any] | None = None) -> bool:
+	compute_extension = getattr(analyzer, "compute", None)
+	if not callable(compute_extension):
+		return False
+
+	extension_kwargs = dict(kwargs or {})
+	attempts: list[tuple[Any, dict[str, Any]]] = []
+	if extension_name == "random_spikes" and extension_kwargs.get("method") == "all":
+		random_spikes_payload = {"method": "all"}
+		for key in ("max_spikes_per_unit", "margin_size", "seed"):
+			if key in extension_kwargs:
+				random_spikes_payload[key] = extension_kwargs[key]
+		random_spikes_job_kwargs = {
+			key: value for key, value in extension_kwargs.items() if key not in random_spikes_payload
+		}
+		attempts.append(({"random_spikes": random_spikes_payload}, random_spikes_job_kwargs))
+	attempts.extend(
+		[
+			(extension_name, extension_kwargs),
+			([extension_name], extension_kwargs),
+		]
+	)
+
+	for candidate, candidate_kwargs in attempts:
+		try:
+			compute_extension(candidate, **candidate_kwargs)
+			return True
+		except Exception:
+			continue
+	return False
+
+
+def _ensure_merge_analyzer_extensions(
+	*,
+	analyzer: Any,
+	stage_config: Any,
+	include_unit_locations: bool,
+) -> list[str]:
+	required_extensions = ["random_spikes", "waveforms", "templates"]
+	if include_unit_locations:
+		required_extensions.append("unit_locations")
+
+	computed_extensions: list[str] = []
+	for extension_name in required_extensions:
+		if _analyzer_has_extension(analyzer, extension_name):
+			continue
+		extension_kwargs = _merge_analyzer_extension_kwargs(stage_config, extension_name)
+		if _compute_analyzer_extension(
+			analyzer=analyzer,
+			extension_name=extension_name,
+			kwargs=extension_kwargs,
+		):
+			computed_extensions.append(str(extension_name))
+	return computed_extensions
 
 
 def _resolve_slay_model_cache_path(*, well_out_dir: Path, output_rel_root: str, stage_config: Any) -> Path | None:
@@ -641,33 +1078,24 @@ def _apply_bombcell_labels_to_kilosort_outputs(
 	}
 
 
-def _ensure_bombcell_metric_extensions(analyzer: Any) -> list[str]:
+def _ensure_bombcell_metric_extensions(*, analyzer: Any, stage_config: Any) -> list[str]:
 	computed_extensions: list[str] = []
-	has_extension = getattr(analyzer, "has_extension", None)
-	compute_extension = getattr(analyzer, "compute", None)
-	if not callable(compute_extension):
-		return computed_extensions
-
-	def _has(name: str) -> bool:
-		if not callable(has_extension):
-			return False
-		try:
-			return bool(has_extension(name))
-		except Exception:
-			return False
-
-	for extension_name in ("random_spikes", "waveforms", "templates", "template_metrics", "quality_metrics"):
-		if _has(extension_name):
+	computed_extensions.extend(
+		_ensure_merge_analyzer_extensions(
+			analyzer=analyzer,
+			stage_config=stage_config,
+			include_unit_locations=False,
+		)
+	)
+	job_kwargs = _merge_analyzer_compute_job_kwargs(stage_config)
+	for extension_name in ("template_metrics", "quality_metrics"):
+		if _analyzer_has_extension(analyzer, extension_name):
 			continue
-		computed = False
-		for candidate in (extension_name, [extension_name]):
-			try:
-				compute_extension(candidate)
-			except Exception:
-				continue
-			computed = True
-			break
-		if computed:
+		if _compute_analyzer_extension(
+			analyzer=analyzer,
+			extension_name=extension_name,
+			kwargs=job_kwargs,
+		):
 			computed_extensions.append(str(extension_name))
 
 	return computed_extensions
@@ -740,6 +1168,13 @@ def _run_bombcell_label_phase(
 			"removed_on_force_restart": list(removed_on_force_restart),
 		}
 
+	_log_phase_step_start(
+		"Bombcell label phase start",
+		well_out_dir=well_out_dir,
+		force_restart=bool(force_restart),
+		out_dir=bombcell_out_dir,
+	)
+
 	resolved_sorter_output_dir = (
 		Path(sorter_output_dir).resolve()
 		if sorter_output_dir is not None
@@ -774,6 +1209,11 @@ def _run_bombcell_label_phase(
 	}
 
 	try:
+		_log_phase_step_start(
+			"Bombcell label analyzer metrics step start",
+			well_out_dir=well_out_dir,
+			ks_dir=ks_dir,
+		)
 		si_module = _import_spikeinterface_full_module()
 		analyzer, loaded_analyzer_dir, analyzer_rebuilt = _load_or_recompute_spikesort_analyzer(
 			si_module=si_module,
@@ -785,7 +1225,10 @@ def _run_bombcell_label_phase(
 		payload["analyzer_dir"] = str(loaded_analyzer_dir)
 		payload["analyzer_rebuilt"] = bool(analyzer_rebuilt)
 
-		computed_extensions = _ensure_bombcell_metric_extensions(analyzer=analyzer)
+		computed_extensions = _ensure_bombcell_metric_extensions(
+			analyzer=analyzer,
+			stage_config=stage_config,
+		)
 		if computed_extensions:
 			payload["computed_extensions"] = list(computed_extensions)
 
@@ -844,6 +1287,11 @@ def _run_bombcell_label_phase(
 
 		sorter_label_update: dict[str, Any] | None = None
 		if bool(getattr(stage_config, "bombcell_label_apply_to_sorter_output", True)):
+			_log_phase_step_start(
+				"Bombcell label sorter writeback step start",
+				well_out_dir=well_out_dir,
+				ks_dir=ks_dir,
+			)
 			sorter_label_update = _apply_bombcell_labels_to_kilosort_outputs(
 				ks_dir=ks_dir,
 				bombcell_labels_by_unit=labels_by_unit,
@@ -1187,12 +1635,30 @@ def _recompute_sorting_analyzer_to_dir(
 	if not callable(create_sorting_analyzer):
 		raise RuntimeError("spikeinterface.create_sorting_analyzer is required for analyzer recomputation")
 
-	analyzer = create_sorting_analyzer(
-		sorting=sorting,
-		recording=recording,
-		format="binary_folder",
-		folder=analyzer_dir,
+	create_kwargs = {
+		"sorting": sorting,
+		"recording": recording,
+		"format": "binary_folder",
+		"folder": analyzer_dir,
+	}
+	create_kwargs.update(_merge_analyzer_sparsity_create_kwargs(stage_config))
+	if _merge_dense_analyzer_requested(stage_config):
+		create_kwargs["sparse"] = False
+
+	try:
+		analyzer = create_sorting_analyzer(**create_kwargs)
+	except TypeError:
+		if "sparse" not in create_kwargs:
+			raise
+		create_kwargs.pop("sparse", None)
+		analyzer = create_sorting_analyzer(**create_kwargs)
+
+	policy_info = _describe_merge_analyzer_policy_info(
+		analyzer=analyzer,
+		stage_config=stage_config,
+		reused_cached_analyzer=False,
 	)
+	_attach_merge_analyzer_policy_info(analyzer, policy_info)
 	return analyzer, analyzer_dir
 
 
@@ -1206,9 +1672,23 @@ def _load_or_recompute_spikesort_analyzer(
 ) -> tuple[Any, Path, bool]:
 	analyzer_dir = (stage_output_root_dir / "analyzer_output").resolve()
 	load_sorting_analyzer = getattr(si_module, "load_sorting_analyzer", None)
+	loaded_analyzer_had_sparsity: bool | None = None
+	rebuild_reason: str | None = None
 	if analyzer_dir.exists() and callable(load_sorting_analyzer):
 		try:
-			return load_sorting_analyzer(analyzer_dir), analyzer_dir, False
+			analyzer = load_sorting_analyzer(analyzer_dir)
+			loaded_analyzer_had_sparsity = _analyzer_has_sparsity(analyzer)
+			if _merge_dense_analyzer_requested(stage_config) and loaded_analyzer_had_sparsity:
+				rebuild_reason = "loaded_sparse_analyzer"
+			else:
+				policy_info = _describe_merge_analyzer_policy_info(
+					analyzer=analyzer,
+					stage_config=stage_config,
+					loaded_analyzer_had_sparsity=loaded_analyzer_had_sparsity,
+					reused_cached_analyzer=True,
+				)
+				_attach_merge_analyzer_policy_info(analyzer, policy_info)
+				return analyzer, analyzer_dir, False
 		except Exception:
 			pass
 
@@ -1219,6 +1699,14 @@ def _load_or_recompute_spikesort_analyzer(
 		sorter_output_dir=sorter_output_dir,
 		stage_config=stage_config,
 	)
+	policy_info = _describe_merge_analyzer_policy_info(
+		analyzer=analyzer,
+		stage_config=stage_config,
+		loaded_analyzer_had_sparsity=loaded_analyzer_had_sparsity,
+		rebuild_reason=rebuild_reason,
+		reused_cached_analyzer=False,
+	)
+	_attach_merge_analyzer_policy_info(analyzer, policy_info)
 	return analyzer, rebuilt_dir, True
 
 
@@ -1423,7 +1911,11 @@ def _snapshot_unit_count(payload: dict[str, Any], fallback_ids: list[str]) -> in
 	return int(len(fallback_ids))
 
 
-def _extract_unit_locations_from_analyzer(*, analyzer: Any) -> tuple[dict[str, dict[str, float]], str | None]:
+def _extract_unit_locations_from_analyzer(
+	*,
+	analyzer: Any,
+	stage_config: Any | None = None,
+) -> tuple[dict[str, dict[str, float]], str | None]:
 	has_extension = getattr(analyzer, "has_extension", None)
 	get_extension = getattr(analyzer, "get_extension", None)
 	compute_extension = getattr(analyzer, "compute", None)
@@ -1433,9 +1925,30 @@ def _extract_unit_locations_from_analyzer(*, analyzer: Any) -> tuple[dict[str, d
 	def _try_compute(extension_input: Any) -> tuple[bool, str | None]:
 		if not callable(compute_extension):
 			return False, "compute_api_unavailable"
+
+		extension_name: str | None = None
+		if isinstance(extension_input, str):
+			extension_name = str(extension_input)
+		elif isinstance(extension_input, (list, tuple)) and len(extension_input) == 1:
+			extension_name = str(extension_input[0])
+
+		extension_kwargs = (
+			_merge_analyzer_extension_kwargs(stage_config, extension_name)
+			if (stage_config is not None and extension_name is not None)
+			else (_merge_analyzer_compute_job_kwargs(stage_config) if stage_config is not None else {})
+		)
+
 		try:
-			compute_extension(extension_input)
-			return True, None
+			if extension_name is None:
+				compute_extension(extension_input)
+				return True, None
+			if _compute_analyzer_extension(
+				analyzer=analyzer,
+				extension_name=extension_name,
+				kwargs=extension_kwargs,
+			):
+				return True, None
+			return False, "compute_attempt_failed"
 		except Exception as exc:
 			return False, f"{type(exc).__name__}:{exc}"
 
@@ -1561,6 +2074,16 @@ def _capture_merge_state_snapshot(
 		if analyzer_source_dir is not None
 		else (stage_output_root_dir / "analyzer_output").resolve()
 	)
+	_log_phase_step_start(
+		"Merge snapshot capture start",
+		well_out_dir=well_out_dir,
+		capture=capture_label,
+		include_unit_locations=bool(include_unit_locations),
+		allow_analyzer_recompute=bool(allow_analyzer_recompute),
+		sorter_output_dir=sorter_output_dir,
+		analyzer_dir=analyzer_dir,
+	)
+	requested_policy = _requested_merge_analyzer_policy(stage_config)
 
 	snapshot: dict[str, Any] = {
 		"label": str(capture_label),
@@ -1582,6 +2105,44 @@ def _capture_merge_state_snapshot(
 			"unit_locations_by_unit": {},
 			"unit_locations_error": None,
 			"rebuilt": False,
+			"requested_density_mode": str(requested_policy.get("density_mode", "auto")),
+			"requested_dense_analyzer": bool(requested_policy.get("requested_dense_analyzer", False)),
+			"requested_template_random_spikes_method": str(
+				requested_policy.get("template_random_spikes_method", "default")
+			),
+			"requested_template_random_spikes_max_spikes_per_unit": requested_policy.get(
+				"template_random_spikes_max_spikes_per_unit",
+				None,
+			),
+			"requested_template_random_spikes_margin_size": requested_policy.get(
+				"template_random_spikes_margin_size",
+				None,
+			),
+			"requested_template_random_spikes_seed": requested_policy.get(
+				"template_random_spikes_seed",
+				None,
+			),
+			"requested_sparsity_method": str(requested_policy.get("sparsity_method", "radius")),
+			"requested_sparsity_radius_um": requested_policy.get("sparsity_radius_um", None),
+			"requested_sparsity_num_channels": requested_policy.get("sparsity_num_channels", None),
+			"requested_sparsity_threshold": requested_policy.get("sparsity_threshold", None),
+			"requested_sparsity_peak_sign": requested_policy.get("sparsity_peak_sign", None),
+			"requested_sparsity_num_spikes_for_sparsity": requested_policy.get(
+				"sparsity_num_spikes_for_sparsity",
+				None,
+			),
+			"requested_sparsity_by_property": requested_policy.get("sparsity_by_property", None),
+			"requested_waveforms_ms_before": requested_policy.get("waveforms_ms_before", None),
+			"requested_waveforms_ms_after": requested_policy.get("waveforms_ms_after", None),
+			"requested_waveforms_dtype": requested_policy.get("waveforms_dtype", None),
+			"requested_compute_n_jobs": requested_policy.get("compute_n_jobs", None),
+			"requested_compute_chunk_duration": requested_policy.get("compute_chunk_duration", None),
+			"loaded_analyzer_had_sparsity": None,
+			"has_sparsity": None,
+			"dense_validation_error": None,
+			"rebuild_reason": None,
+			"reused_cached_analyzer": None,
+			"extensions_computed": [],
 		},
 	}
 
@@ -1627,9 +2188,24 @@ def _capture_merge_state_snapshot(
 			snapshot["analyzer"]["load_error"] = f"analyzer_snapshot_failed:{type(exc).__name__}:{exc}"
 	else:
 		load_sorting_analyzer = getattr(si_module, "load_sorting_analyzer", None)
+		loaded_analyzer_had_sparsity: bool | None = None
+		rebuild_reason: str | None = None
 		if analyzer_dir.exists() and callable(load_sorting_analyzer):
 			try:
 				analyzer_obj = load_sorting_analyzer(analyzer_dir)
+				loaded_analyzer_had_sparsity = _analyzer_has_sparsity(analyzer_obj)
+				if bool(requested_policy.get("requested_dense_analyzer", False)) and loaded_analyzer_had_sparsity:
+					rebuild_reason = "loaded_sparse_analyzer"
+					if allow_analyzer_recompute:
+						analyzer_obj = None
+				else:
+					policy_info = _describe_merge_analyzer_policy_info(
+						analyzer=analyzer_obj,
+						stage_config=stage_config,
+						loaded_analyzer_had_sparsity=loaded_analyzer_had_sparsity,
+						reused_cached_analyzer=True,
+					)
+					_attach_merge_analyzer_policy_info(analyzer_obj, policy_info)
 			except Exception as exc:
 				snapshot["analyzer"]["load_error"] = f"analyzer_snapshot_failed:{type(exc).__name__}:{exc}"
 		elif allow_analyzer_recompute and (analyzer_source_dir is not None):
@@ -1643,22 +2219,48 @@ def _capture_merge_state_snapshot(
 				)
 				snapshot["analyzer"]["source_dir"] = str(rebuilt_dir)
 				snapshot["analyzer"]["rebuilt"] = True
+				policy_info = _describe_merge_analyzer_policy_info(
+					analyzer=analyzer_obj,
+					stage_config=stage_config,
+					loaded_analyzer_had_sparsity=loaded_analyzer_had_sparsity,
+					rebuild_reason=rebuild_reason,
+					reused_cached_analyzer=False,
+				)
+				_attach_merge_analyzer_policy_info(analyzer_obj, policy_info)
 			except Exception as exc:
 				snapshot["analyzer"]["load_error"] = f"analyzer_snapshot_failed:{type(exc).__name__}:{exc}"
 		else:
 			snapshot["analyzer"]["load_error"] = "analyzer_output_missing"
 
 	if analyzer_obj is not None:
+		policy_info = _get_merge_analyzer_policy_info(analyzer_obj)
 		analyzer_unit_ids = _unit_ids_from_obj(analyzer_obj)
 		snapshot["analyzer"].update(
 			{
 				"available": True,
 				"unit_count": int(_unit_count(analyzer_obj)),
 				"unit_ids": analyzer_unit_ids,
+				"loaded_analyzer_had_sparsity": policy_info.get("loaded_analyzer_had_sparsity", None),
+				"has_sparsity": policy_info.get(
+					"final_analyzer_has_sparsity",
+					_analyzer_has_sparsity(analyzer_obj),
+				),
+				"dense_validation_error": policy_info.get("dense_validation_error", None),
+				"rebuild_reason": policy_info.get("rebuild_reason", None),
+				"reused_cached_analyzer": policy_info.get("reused_cached_analyzer", None),
 			}
 		)
 		if include_unit_locations:
-			locations_by_unit, locations_error = _extract_unit_locations_from_analyzer(analyzer=analyzer_obj)
+			computed_extensions = _ensure_merge_analyzer_extensions(
+				analyzer=analyzer_obj,
+				stage_config=stage_config,
+				include_unit_locations=True,
+			)
+			snapshot["analyzer"]["extensions_computed"] = list(computed_extensions)
+			locations_by_unit, locations_error = _extract_unit_locations_from_analyzer(
+				analyzer=analyzer_obj,
+				stage_config=stage_config,
+			)
 			snapshot["analyzer"]["unit_locations_by_unit"] = locations_by_unit
 			snapshot["analyzer"]["unit_locations_error"] = locations_error
 
@@ -2538,6 +3140,19 @@ def _build_snapshot_metadata_summary(*, snapshot_label: str, snapshot: dict[str,
 				"available": bool(analyzer_payload.get("available", False)),
 				"unit_count": int(_snapshot_unit_count(analyzer_payload, analyzer_ids)),
 				"unit_ids": analyzer_ids,
+				"has_sparsity": analyzer_payload.get("has_sparsity", None),
+				"requested_dense_analyzer": bool(
+					analyzer_payload.get("requested_dense_analyzer", False)
+				),
+				"requested_sparsity_method": analyzer_payload.get(
+					"requested_sparsity_method",
+					"radius",
+				),
+				"requested_template_random_spikes_method": analyzer_payload.get(
+					"requested_template_random_spikes_method",
+					"default",
+				),
+				"dense_validation_error": analyzer_payload.get("dense_validation_error", None),
 			},
 		},
 	}
@@ -2612,7 +3227,12 @@ def _load_sorting_analyzer_from_snapshot(*, si_module: Any, snapshot: dict[str, 
 		return None, f"load_sorting_analyzer_failed:{type(exc).__name__}:{exc}"
 
 
-def _extract_template_and_locations_for_unit(*, analyzer: Any, unit_id: str) -> tuple[Any | None, Any | None, str | None]:
+def _extract_template_and_locations_for_unit(
+	*,
+	analyzer: Any,
+	unit_id: str,
+	stage_config: Any | None = None,
+) -> tuple[Any | None, Any | None, str | None]:
 	import numpy as np  # type: ignore[import-not-found]
 
 	has_extension = getattr(analyzer, "has_extension", None)
@@ -2626,15 +3246,37 @@ def _extract_template_and_locations_for_unit(*, analyzer: Any, unit_id: str) -> 
 	except Exception:
 		has_templates = False
 
+	if (not has_templates) and stage_config is not None:
+		_ensure_merge_analyzer_extensions(
+			analyzer=analyzer,
+			stage_config=stage_config,
+			include_unit_locations=False,
+		)
+		try:
+			has_templates = bool(has_extension("templates"))
+		except Exception:
+			has_templates = False
+
 	if (not has_templates) and callable(compute_extension):
-		for candidate in ("templates", ["templates"]):
-			try:
-				compute_extension(candidate)
-				if bool(has_extension("templates")):
-					has_templates = True
-					break
-			except Exception:
-				continue
+		if stage_config is not None:
+			if _compute_analyzer_extension(
+				analyzer=analyzer,
+				extension_name="templates",
+				kwargs=_merge_analyzer_extension_kwargs(stage_config, "templates"),
+			):
+				try:
+					has_templates = bool(has_extension("templates"))
+				except Exception:
+					has_templates = False
+		else:
+			for candidate in ("templates", ["templates"]):
+				try:
+					compute_extension(candidate)
+					if bool(has_extension("templates")):
+						has_templates = True
+						break
+				except Exception:
+					continue
 
 	if not has_templates:
 		return None, None, "templates_extension_missing"
@@ -2775,6 +3417,23 @@ def _extract_template_and_locations_for_unit(*, analyzer: Any, unit_id: str) -> 
 	return np.asarray(template_arr, dtype=float), np.asarray(locations[:, :2], dtype=float), None
 
 
+def _compute_template_channel_magnitude(*, template_ch_by_t: Any, magnitude_mode: str) -> Any:
+	import numpy as np  # type: ignore[import-not-found]
+
+	tmpl = np.asarray(template_ch_by_t, dtype=float)
+	if tmpl.ndim != 2:
+		return np.asarray([], dtype=float)
+
+	mode = _normalize_merge_template_heatmap_magnitude_mode(magnitude_mode)
+	if mode == "abs_peak":
+		return np.nanmax(np.abs(tmpl), axis=1)
+	if mode == "peak":
+		return np.nanmax(tmpl, axis=1)
+	if mode == "trough":
+		return np.abs(np.nanmin(tmpl, axis=1))
+	return np.ptp(tmpl, axis=1)
+
+
 def _write_template_amplitude_heatmap_asset(
 	*,
 	template_ch_by_t: Any,
@@ -2784,10 +3443,14 @@ def _write_template_amplitude_heatmap_asset(
 	cmap: str,
 	marker_size: float,
 	show_colorbar: bool,
+	relative_color_bar_height: float = 1.0,
 	color_vmin: float | None = None,
 	color_vmax: float | None = None,
 	color_scale_mode: str = "linear",
 	log_epsilon: float = 1e-3,
+	magnitude_mode: str = "ptp",
+	x_limits: tuple[float, float] | None = None,
+	y_limits: tuple[float, float] | None = None,
 ) -> tuple[bool, str | None]:
 	_prepare_matplotlib_for_headless_rendering()
 	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
@@ -2803,7 +3466,13 @@ def _write_template_amplitude_heatmap_asset(
 	if tmpl.shape[0] != locs.shape[0]:
 		return False, "template_location_shape_mismatch"
 
-	amp = np.ptp(tmpl, axis=1)
+	amp = np.asarray(
+		_compute_template_channel_magnitude(
+			template_ch_by_t=tmpl,
+			magnitude_mode=magnitude_mode,
+		),
+		dtype=float,
+	)
 	if amp.size == 0:
 		return False, "template_empty"
 
@@ -2875,11 +3544,22 @@ def _write_template_amplitude_heatmap_asset(
 		ax.set_title(str(title))
 		ax.set_xlabel("x_um")
 		ax.set_ylabel("y_um")
+		if x_limits is not None:
+			ax.set_xlim(x_limits)
+		if y_limits is not None:
+			ax.set_ylim(y_limits)
 		ax.invert_yaxis()
 		ax.set_aspect("equal", adjustable="box")
 		ax.grid(True, alpha=0.2)
 		if bool(show_colorbar):
-			fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04)
+			fig.colorbar(
+				sc,
+				ax=ax,
+				shrink=_normalize_template_heatmap_relative_color_bar_height(
+					relative_color_bar_height
+				),
+				pad=0.02,
+			)
 
 		out_path.parent.mkdir(parents=True, exist_ok=True)
 		fig.savefig(out_path, dpi=220)
@@ -2888,6 +3568,120 @@ def _write_template_amplitude_heatmap_asset(
 		return False, f"template_amp_render_failed:{type(exc).__name__}:{exc}"
 	finally:
 		plt.close(fig)
+
+
+def _probe_plot_limits_from_dimensions(
+	*,
+	probe_dim_x_um: Any = None,
+	probe_dim_y_um: Any = None,
+) -> tuple[tuple[float, float] | None, tuple[float, float] | None]:
+	try:
+		probe_dim_x = (float(probe_dim_x_um) if probe_dim_x_um is not None else None)
+	except Exception:
+		probe_dim_x = None
+	try:
+		probe_dim_y = (float(probe_dim_y_um) if probe_dim_y_um is not None else None)
+	except Exception:
+		probe_dim_y = None
+	if probe_dim_x is not None and (not math.isfinite(probe_dim_x) or probe_dim_x <= 0.0):
+		probe_dim_x = None
+	if probe_dim_y is not None and (not math.isfinite(probe_dim_y) or probe_dim_y <= 0.0):
+		probe_dim_y = None
+	if probe_dim_x is None or probe_dim_y is None:
+		return None, None
+	return (0.0, float(probe_dim_x)), (0.0, float(probe_dim_y))
+
+
+def _probe_relative_marker_size_points2(
+	*,
+	probe_dim_x_um: Any = None,
+	probe_dim_y_um: Any = None,
+	probe_pitch_um: Any = None,
+	electrode_size_um_x: Any = None,
+	electrode_size_um_y: Any = None,
+	figure_width_in: float = 4.2,
+	figure_height_in: float = 4.0,
+) -> tuple[float | None, str | None]:
+	try:
+		x_range_um = float(probe_dim_x_um) if probe_dim_x_um is not None else None
+	except Exception:
+		x_range_um = None
+	try:
+		y_range_um = float(probe_dim_y_um) if probe_dim_y_um is not None else None
+	except Exception:
+		y_range_um = None
+	if x_range_um is None or y_range_um is None:
+		return None, None
+	if (not math.isfinite(x_range_um)) or x_range_um <= 0.0:
+		return None, None
+	if (not math.isfinite(y_range_um)) or y_range_um <= 0.0:
+		return None, None
+
+	try:
+		pitch_um = float(probe_pitch_um) if probe_pitch_um is not None else None
+	except Exception:
+		pitch_um = None
+	if pitch_um is not None and ((not math.isfinite(pitch_um)) or pitch_um <= 0.0):
+		pitch_um = None
+
+	try:
+		electrode_x_um = float(electrode_size_um_x) if electrode_size_um_x is not None else None
+	except Exception:
+		electrode_x_um = None
+	if electrode_x_um is not None and ((not math.isfinite(electrode_x_um)) or electrode_x_um <= 0.0):
+		electrode_x_um = None
+
+	try:
+		electrode_y_um = float(electrode_size_um_y) if electrode_size_um_y is not None else None
+	except Exception:
+		electrode_y_um = None
+	if electrode_y_um is not None and ((not math.isfinite(electrode_y_um)) or electrode_y_um <= 0.0):
+		electrode_y_um = None
+
+	span_x_um: float | None = None
+	span_y_um: float | None = None
+	source: str | None = None
+	if electrode_x_um is not None or electrode_y_um is not None:
+		span_x_um = electrode_x_um if electrode_x_um is not None else (pitch_um if pitch_um is not None else electrode_y_um)
+		span_y_um = electrode_y_um if electrode_y_um is not None else (pitch_um if pitch_um is not None else electrode_x_um)
+		source = "probe_geometry_electrode_size"
+	elif pitch_um is not None:
+		span_x_um = pitch_um
+		span_y_um = pitch_um
+		source = "probe_geometry_pitch"
+	if span_x_um is None or span_y_um is None or source is None:
+		return None, None
+
+	try:
+		width_in = float(figure_width_in)
+		height_in = float(figure_height_in)
+	except Exception:
+		return None, None
+	if (not math.isfinite(width_in)) or width_in <= 0.0:
+		return None, None
+	if (not math.isfinite(height_in)) or height_in <= 0.0:
+		return None, None
+
+	points_per_um = 72.0 * min(width_in / x_range_um, height_in / y_range_um)
+	if (not math.isfinite(points_per_um)) or points_per_um <= 0.0:
+		return None, None
+
+	width_points = points_per_um * float(span_x_um)
+	height_points = points_per_um * float(span_y_um)
+	area_points2 = (math.pi * 0.25) * width_points * height_points
+	if (not math.isfinite(area_points2)) or area_points2 <= 0.0:
+		return None, None
+	return max(0.1, float(area_points2)), source
+
+
+def _normalize_template_heatmap_relative_color_bar_height(raw: Any, *, default: float = 1.0) -> float:
+	try:
+		value = float(raw if raw is not None else default)
+	except Exception:
+		value = float(default)
+	if (not math.isfinite(value)) or value <= 0.0:
+		value = float(default)
+	return max(0.05, min(1.0, float(value)))
 
 
 def _stack_rendered_images_vertically(*, image_paths: list[Path]) -> tuple[Any | None, str | None]:
@@ -2961,6 +3755,12 @@ def _write_merge_template_heatmap_reports(
 			"outputs": {},
 		}
 
+	_log_phase_step_start(
+		"Merge template heatmap report step start",
+		merge_out_dir=merge_out_dir,
+		applied_mappings=int(len(applied_unit_mappings)),
+	)
+
 	report_relpath = str(
 		getattr(stage_config, "merge_reports_template_heatmaps_relpath", "template_heatmaps_per_merge")
 		or "template_heatmaps_per_merge"
@@ -2981,9 +3781,19 @@ def _write_merge_template_heatmap_reports(
 
 	panel_width_in = float(getattr(stage_config, "merge_reports_template_heatmaps_panel_width_in", 11.0) or 11.0)
 	panel_height_in = float(getattr(stage_config, "merge_reports_template_heatmaps_panel_height_in", 6.0) or 6.0)
-	marker_size = float(getattr(stage_config, "merge_reports_template_heatmaps_marker_size", 10.0) or 10.0)
+	try:
+		requested_marker_size = float(
+			getattr(stage_config, "merge_reports_template_heatmaps_marker_size", 10.0) or 10.0
+		)
+	except Exception:
+		requested_marker_size = 10.0
+	if (not math.isfinite(requested_marker_size)) or requested_marker_size <= 0.0:
+		requested_marker_size = 10.0
 	cmap = str(getattr(stage_config, "merge_reports_template_heatmaps_cmap", "viridis") or "viridis")
 	show_colorbar = bool(getattr(stage_config, "merge_reports_template_heatmaps_show_colorbar", True))
+	relative_color_bar_height = _normalize_template_heatmap_relative_color_bar_height(
+		getattr(stage_config, "merge_reports_template_heatmaps_relative_color_bar_height", 1.0)
+	)
 	color_scale_mode_raw = str(
 		getattr(stage_config, "merge_reports_template_heatmaps_color_scale", "linear") or "linear"
 	)
@@ -2998,6 +3808,7 @@ def _write_merge_template_heatmap_reports(
 		log_epsilon = 1e-3
 	if (not math.isfinite(log_epsilon)) or log_epsilon <= 0.0:
 		log_epsilon = 1e-3
+	magnitude_mode = _merge_template_heatmap_magnitude_mode(stage_config)
 	max_merges_raw = getattr(stage_config, "merge_reports_template_heatmaps_max_merges", None)
 	debug_json_relpath = str(
 		getattr(
@@ -3007,6 +3818,34 @@ def _write_merge_template_heatmap_reports(
 		)
 		or "template_heatmaps_per_merge_report.json"
 	).strip().lstrip("/") or "template_heatmaps_per_merge_report.json"
+	inherit_probe_dimensions = bool(
+		getattr(stage_config, "merge_reports_template_heatmaps_inherit_probe_dimensions", False)
+	)
+	probe_x_limits, probe_y_limits = _probe_plot_limits_from_dimensions(
+		probe_dim_x_um=getattr(stage_config, "merge_reports_template_heatmaps_probe_dim_x_um", None),
+		probe_dim_y_um=getattr(stage_config, "merge_reports_template_heatmaps_probe_dim_y_um", None),
+	)
+	marker_size = float(requested_marker_size)
+	marker_size_source = "configured"
+	if inherit_probe_dimensions:
+		probe_marker_size, probe_marker_size_source = _probe_relative_marker_size_points2(
+			probe_dim_x_um=getattr(stage_config, "merge_reports_template_heatmaps_probe_dim_x_um", None),
+			probe_dim_y_um=getattr(stage_config, "merge_reports_template_heatmaps_probe_dim_y_um", None),
+			probe_pitch_um=getattr(stage_config, "merge_reports_template_heatmaps_probe_pitch_um", None),
+			electrode_size_um_x=getattr(
+				stage_config,
+				"merge_reports_template_heatmaps_probe_electrode_size_um_x",
+				None,
+			),
+			electrode_size_um_y=getattr(
+				stage_config,
+				"merge_reports_template_heatmaps_probe_electrode_size_um_y",
+				None,
+			),
+		)
+		if probe_marker_size is not None:
+			marker_size = float(probe_marker_size)
+			marker_size_source = str(probe_marker_size_source or "probe_geometry")
 
 	max_merges: int | None
 	try:
@@ -3041,6 +3880,17 @@ def _write_merge_template_heatmap_reports(
 			"after_analyzer_error": after_error,
 			"outputs": {},
 		}
+
+	_ensure_merge_analyzer_extensions(
+		analyzer=before_analyzer,
+		stage_config=stage_config,
+		include_unit_locations=False,
+	)
+	_ensure_merge_analyzer_extensions(
+		analyzer=after_analyzer,
+		stage_config=stage_config,
+		include_unit_locations=False,
+	)
 
 	# Strict mode by design: use only snapshot_before as pre-merge template source.
 	before_candidates: list[tuple[str, Any]] = [("snapshot_before", before_analyzer)]
@@ -3100,6 +3950,7 @@ def _write_merge_template_heatmap_reports(
 				template, locations_xy, template_error = _extract_template_and_locations_for_unit(
 					analyzer=candidate_analyzer,
 					unit_id=str(pre_uid),
+					stage_config=stage_config,
 				)
 				if template is not None and locations_xy is not None:
 					template_source = str(candidate_label)
@@ -3127,7 +3978,13 @@ def _write_merge_template_heatmap_reports(
 			pre_max_candidates: list[float] = []
 			for _asset_entry, template_arr, _locs, _uid in pre_render_items:
 				try:
-					amp = np.ptp(np.asarray(template_arr, dtype=float), axis=1)
+					amp = np.asarray(
+						_compute_template_channel_magnitude(
+							template_ch_by_t=np.asarray(template_arr, dtype=float),
+							magnitude_mode=magnitude_mode,
+						),
+						dtype=float,
+					)
 					if amp.size <= 0:
 						continue
 					if color_scale_mode == "log":
@@ -3151,6 +4008,7 @@ def _write_merge_template_heatmap_reports(
 		row["pre_color_scale"] = {
 			"mode": "dynamic_per_merge_group",
 			"scale": str(color_scale_mode),
+			"magnitude_mode": str(magnitude_mode),
 			"log_epsilon": float(log_epsilon),
 			"vmin": pre_color_vmin,
 			"vmax": pre_color_vmax,
@@ -3170,10 +4028,14 @@ def _write_merge_template_heatmap_reports(
 					cmap=cmap,
 					marker_size=marker_size,
 					show_colorbar=show_colorbar,
+					relative_color_bar_height=relative_color_bar_height,
 					color_vmin=pre_color_vmin,
 					color_vmax=pre_color_vmax,
 					color_scale_mode=color_scale_mode,
 					log_epsilon=log_epsilon,
+					magnitude_mode=magnitude_mode,
+					x_limits=probe_x_limits,
+					y_limits=probe_y_limits,
 				)
 				if ok:
 					asset_entry["png"] = str(asset_png_path)
@@ -3190,10 +4052,14 @@ def _write_merge_template_heatmap_reports(
 					cmap=cmap,
 					marker_size=marker_size,
 					show_colorbar=show_colorbar,
+					relative_color_bar_height=relative_color_bar_height,
 					color_vmin=pre_color_vmin,
 					color_vmax=pre_color_vmax,
 					color_scale_mode=color_scale_mode,
 					log_epsilon=log_epsilon,
+					magnitude_mode=magnitude_mode,
+					x_limits=probe_x_limits,
+					y_limits=probe_y_limits,
 				)
 				if ok:
 					asset_entry["svg"] = str(asset_svg_path)
@@ -3208,6 +4074,7 @@ def _write_merge_template_heatmap_reports(
 			template, locations_xy, template_error = _extract_template_and_locations_for_unit(
 				analyzer=after_analyzer,
 				unit_id=str(post_unit_id),
+				stage_config=stage_config,
 			)
 			post_asset: dict[str, Any] = {
 				"unit_id": str(post_unit_id),
@@ -3228,10 +4095,14 @@ def _write_merge_template_heatmap_reports(
 						cmap=cmap,
 						marker_size=marker_size,
 						show_colorbar=show_colorbar,
+						relative_color_bar_height=relative_color_bar_height,
 						color_vmin=None,
 						color_vmax=None,
 						color_scale_mode=color_scale_mode,
 						log_epsilon=log_epsilon,
+						magnitude_mode=magnitude_mode,
+						x_limits=probe_x_limits,
+						y_limits=probe_y_limits,
 					)
 					if ok:
 						post_asset["png"] = str(asset_png_path)
@@ -3248,10 +4119,14 @@ def _write_merge_template_heatmap_reports(
 						cmap=cmap,
 						marker_size=marker_size,
 						show_colorbar=show_colorbar,
+						relative_color_bar_height=relative_color_bar_height,
 						color_vmin=None,
 						color_vmax=None,
 						color_scale_mode=color_scale_mode,
 						log_epsilon=log_epsilon,
+						magnitude_mode=magnitude_mode,
+						x_limits=probe_x_limits,
+						y_limits=probe_y_limits,
 					)
 					if ok:
 						post_asset["svg"] = str(asset_svg_path)
@@ -3317,7 +4192,26 @@ def _write_merge_template_heatmap_reports(
 		"report_relpath": str(report_relpath),
 		"assets_reldir": str(assets_reldir),
 		"color_scale": str(color_scale_mode),
+		"magnitude_mode": str(magnitude_mode),
 		"log_epsilon": float(log_epsilon),
+		"marker_size_requested": float(requested_marker_size),
+		"marker_size_effective": float(marker_size),
+		"marker_size_source": str(marker_size_source),
+		"relative_color_bar_height": float(relative_color_bar_height),
+		"inherit_probe_dimensions": bool(inherit_probe_dimensions),
+		"probe_dim_x_um": (probe_x_limits[1] if probe_x_limits is not None else None),
+		"probe_dim_y_um": (probe_y_limits[1] if probe_y_limits is not None else None),
+		"probe_pitch_um": getattr(stage_config, "merge_reports_template_heatmaps_probe_pitch_um", None),
+		"probe_electrode_size_um_x": getattr(
+			stage_config,
+			"merge_reports_template_heatmaps_probe_electrode_size_um_x",
+			None,
+		),
+		"probe_electrode_size_um_y": getattr(
+			stage_config,
+			"merge_reports_template_heatmaps_probe_electrode_size_um_y",
+			None,
+		),
 		"missing_pre_unit_ids": list(missing_pre_unit_ids),
 		"rows": merge_rows,
 	}
@@ -3358,6 +4252,16 @@ def _write_merge_unit_location_reports(
 			"error": f"matplotlib_import_failed:{type(exc).__name__}:{exc}",
 			"outputs": {},
 		}
+
+	_log_phase_step_start(
+		"Merge unit location report step start",
+		merge_out_dir=merge_out_dir,
+		applied_mappings=(
+			int(len(applied_unit_mappings))
+			if isinstance(applied_unit_mappings, list)
+			else 0
+		),
+	)
 
 	before_points = _extract_unit_locations_for_plot(before_snapshot)
 	after_points = _extract_unit_locations_for_plot(after_snapshot)
@@ -4180,6 +5084,14 @@ def _run_slay_merge_method(
 	run_args["plot_merges"] = bool(getattr(stage_config, "slay_plot_merges", False))
 	run_args["output_json"] = str(run_output_json)
 
+	_log_phase_step_start(
+		"SLAy execution step start",
+		well_out_dir=well_out_dir,
+		ks_dir=ks_dir,
+		auto_accept_merges=bool(run_args.get("auto_accept_merges", False)),
+		plot_merges=bool(run_args.get("plot_merges", False)),
+	)
+
 	run_slay(run_args)
 
 	automerge_dir = (ks_dir / "automerge").resolve()
@@ -4306,6 +5218,11 @@ def _run_slay_analyzer_recompute(
 	stage_config: Any,
 	sorter_output_dir: Path,
 ) -> dict[str, Any]:
+	_log_phase_step_start(
+		"SLAy analyzer recompute step start",
+		well_out_dir=well_out_dir,
+		sorter_output_dir=sorter_output_dir,
+	)
 	merge_rel_output_root = _as_optional_relpath(getattr(stage_config, "merge_rel_output_root", None))
 	summary_dir = (
 		(stage_output_root_dir / str(merge_rel_output_root)).resolve()
@@ -4425,6 +5342,14 @@ def _run_auto_merge_method(
 	candidate_pairs_root.mkdir(parents=True, exist_ok=True)
 	merged_units_root.mkdir(parents=True, exist_ok=True)
 
+	_log_phase_step_start(
+		"Auto-merge analyzer step start",
+		well_out_dir=well_out_dir,
+		analyzer_dir=analyzer_dir,
+		thresholds=template_diff_thresholds,
+		auto_accept_merges=bool(auto_accept_merges),
+	)
+
 	iteration_payloads: list[dict[str, Any]] = []
 	iteration_index = 0
 	total_merge_groups = 0
@@ -4436,6 +5361,12 @@ def _run_auto_merge_method(
 		continue_iterations = True
 		while continue_iterations:
 			iteration_index += 1
+			_log_phase_step_start(
+				"Auto-merge iteration start",
+				well_out_dir=well_out_dir,
+				iteration=int(iteration_index),
+				template_diff_thresh=float(threshold),
+			)
 			merge_groups = _compute_auto_merge_groups(
 				sorting_analyzer=current_analyzer,
 				template_diff_thresh=float(threshold),
@@ -4622,6 +5553,13 @@ def run_spikesort_merge_stage(
 	requested_sequence_raw = list(getattr(stage_config, "merge_sequence", ()) or [])
 	if not requested_sequence_raw:
 		requested_sequence_raw = ["SLAy", "auto_merge", "unitmatch"]
+	_log_phase_step_start(
+		"Spikesort merge stage start",
+		stream_id=str(stream_id),
+		force_restart=bool(force_restart),
+		force_replot=bool(force_replot),
+		sequence=requested_sequence_raw,
+	)
 	merge_units_enabled = bool(getattr(stage_config, "merge_units_enabled", True))
 	merge_delete_outputs_on_force_restart = bool(
 		getattr(stage_config, "merge_delete_outputs_on_force_restart", False)
@@ -4714,6 +5652,13 @@ def run_spikesort_merge_stage(
 			or merge_reports_unit_diff_json_enabled
 			or merge_reports_unit_diff_map_enabled
 			or merge_reports_unit_diff_map_flat_enabled
+			or merge_reports_post_merge_unit_locations_enabled
+		)
+	)
+	merge_reports_require_unit_locations = bool(
+		merge_reports_enabled
+		and (
+			merge_reports_2panel_enabled
 			or merge_reports_post_merge_unit_locations_enabled
 		)
 	)
@@ -4872,6 +5817,12 @@ def run_spikesort_merge_stage(
 		.lstrip("/")
 		or "post_merge_metadata_summary.json"
 	)
+	pre_merge_workspace_requires_unit_locations = bool(
+		((merge_metadata_enabled and merge_metadata_write_json) and merge_metadata_include_unit_locations)
+		or ((pre_merge_metadata_enabled and pre_merge_metadata_write_json) and pre_merge_metadata_include_unit_locations)
+		or bool(merge_reports_require_unit_locations)
+	)
+	pre_merge_workspace_requires_templates = bool(merge_reports_template_heatmaps_enabled)
 	if not merge_units_enabled:
 		primary_out_dir = merge_phase_out_dir
 		primary_out_dir.mkdir(parents=True, exist_ok=True)
@@ -4969,6 +5920,14 @@ def run_spikesort_merge_stage(
 
 	replot_only_mode = bool(force_replot) and (not bool(force_restart))
 	if replot_only_mode:
+		_log_phase_step_start(
+			"Merge replot-only step start",
+			stream_id=str(stream_id),
+			merge_out_dir=merge_phase_out_dir,
+		)
+		merge_analyzer_regenerate_on_replot = bool(
+			getattr(stage_config, "merge_analyzer_regenerate_on_replot", True)
+		)
 		primary_out_dir = merge_phase_out_dir
 		primary_out_dir.mkdir(parents=True, exist_ok=True)
 		summary_json = primary_out_dir / "merge_stage_summary.json"
@@ -5008,32 +5967,49 @@ def run_spikesort_merge_stage(
 
 		pre_merge_workspace_analyzer_built = False
 		pre_merge_workspace_analyzer_error: str | None = None
+		pre_merge_workspace_analyzer_policy: dict[str, Any] | None = None
+		pre_merge_workspace_analyzer_regenerated = False
 		if pre_merge_workspace_sorter_output_dir.exists():
 			try:
-				si_module = _import_spikeinterface_full_module()
-				pre_merge_workspace_analyzer, pre_merge_workspace_analyzer_output_dir = _recompute_sorting_analyzer_to_dir(
-					si_module=si_module,
-					well_out_dir=well_out_dir,
+				_log_phase_step_start(
+					"Merge replot analyzer prepare step start",
+					stream_id=str(stream_id),
 					sorter_output_dir=pre_merge_workspace_sorter_output_dir,
-					stage_config=stage_config,
-					analyzer_dir=pre_merge_workspace_analyzer_output_dir,
+					analyzer_output_dir=pre_merge_workspace_analyzer_output_dir,
+					regenerate_on_replot=bool(merge_analyzer_regenerate_on_replot),
 				)
-				has_extension = getattr(pre_merge_workspace_analyzer, "has_extension", None)
-				compute_extension = getattr(pre_merge_workspace_analyzer, "compute", None)
-				if callable(compute_extension):
-					for extension_name in ("random_spikes", "waveforms", "templates", "unit_locations"):
-						if callable(has_extension):
-							try:
-								if bool(has_extension(extension_name)):
-									continue
-							except Exception:
-								pass
-						for candidate in (extension_name, [extension_name]):
-							try:
-								compute_extension(candidate)
-								break
-							except Exception:
-								continue
+				si_module = _import_spikeinterface_full_module()
+				if merge_analyzer_regenerate_on_replot or (not pre_merge_workspace_analyzer_output_dir.exists()):
+					pre_merge_workspace_analyzer, pre_merge_workspace_analyzer_output_dir = _recompute_sorting_analyzer_to_dir(
+						si_module=si_module,
+						well_out_dir=well_out_dir,
+						sorter_output_dir=pre_merge_workspace_sorter_output_dir,
+						stage_config=stage_config,
+						analyzer_dir=pre_merge_workspace_analyzer_output_dir,
+					)
+					pre_merge_workspace_analyzer_regenerated = True
+				else:
+					load_sorting_analyzer = getattr(si_module, "load_sorting_analyzer", None)
+					if not callable(load_sorting_analyzer):
+						raise RuntimeError("load_sorting_analyzer unavailable for replot analyzer reuse")
+					pre_merge_workspace_analyzer = load_sorting_analyzer(pre_merge_workspace_analyzer_output_dir)
+					_attach_merge_analyzer_policy_info(
+						pre_merge_workspace_analyzer,
+						_describe_merge_analyzer_policy_info(
+							analyzer=pre_merge_workspace_analyzer,
+							stage_config=stage_config,
+							reused_cached_analyzer=True,
+						),
+					)
+				if pre_merge_workspace_requires_templates or pre_merge_workspace_requires_unit_locations:
+					_ensure_merge_analyzer_extensions(
+						analyzer=pre_merge_workspace_analyzer,
+						stage_config=stage_config,
+						include_unit_locations=pre_merge_workspace_requires_unit_locations,
+					)
+				pre_merge_workspace_analyzer_policy = _get_merge_analyzer_policy_info(
+					pre_merge_workspace_analyzer
+				)
 				pre_merge_workspace_analyzer_built = True
 			except Exception as exc:
 				pre_merge_workspace_analyzer_error = (
@@ -5099,6 +6075,12 @@ def run_spikesort_merge_stage(
 		merge_template_heatmaps_payload: dict[str, Any] | None = None
 		merge_template_heatmaps_error: str | None = None
 		if merge_reports_enabled and (merge_reports_2panel_enabled or merge_reports_template_heatmaps_enabled):
+			_log_phase_step_start(
+				"Merge replot reports step start",
+				stream_id=str(stream_id),
+				unit_location_reports=bool(merge_reports_2panel_enabled),
+				template_heatmaps=bool(merge_reports_template_heatmaps_enabled),
+			)
 			before_snapshot_for_report: dict[str, Any] = {}
 			after_snapshot_for_report: dict[str, Any] = {}
 			applied_unit_mappings_for_report: list[dict[str, Any]] = []
@@ -5258,7 +6240,14 @@ def run_spikesort_merge_stage(
 			"sorter_output_dir": str(pre_merge_workspace_sorter_output_dir.resolve()),
 			"analyzer_output_dir": str(pre_merge_workspace_analyzer_output_dir.resolve()),
 			"analyzer_built": bool(pre_merge_workspace_analyzer_built),
+			"analyzer_regenerated": bool(pre_merge_workspace_analyzer_regenerated),
+			"analyzer_policy": (
+				dict(pre_merge_workspace_analyzer_policy)
+				if isinstance(pre_merge_workspace_analyzer_policy, dict)
+				else _requested_merge_analyzer_policy(stage_config)
+			),
 		}
+		payload["merge_analyzer_policy"] = _requested_merge_analyzer_policy(stage_config)
 		if pre_merge_workspace_analyzer_error is not None:
 			payload["pre_merge_workspace_analyzer_error"] = str(pre_merge_workspace_analyzer_error)
 		if merge_metadata_json is not None:
@@ -5350,6 +6339,15 @@ def run_spikesort_merge_stage(
 	cache_restore_precheck_missing_sources: list[str] = []
 	cache_outputs: dict[str, str] = {}
 	if cache_sorting_outputs_before_merge:
+		_log_phase_step_start(
+			"Merge pre-cache step start",
+			stream_id=str(stream_id),
+			cache_root_dir=cache_root_dir,
+			force_restart=bool(force_restart),
+			use_cache_on_force_restart=bool(
+				cache_sorting_outputs_before_merge_use_cache_on_force_restart
+			),
+		)
 		try:
 			if bool(force_restart) and bool(cache_sorting_outputs_before_merge_use_cache_on_force_restart):
 				expected_cache_sources = [
@@ -5435,6 +6433,17 @@ def run_spikesort_merge_stage(
 	bombcell_report_error: str | None = None
 
 	if cache_sorting_outputs_before_merge_use_canonical_workspace:
+		_log_phase_step_start(
+			"Merge canonical workspace prepare step start",
+			stream_id=str(stream_id),
+			workspace_root_dir=canonical_workspace_root_dir,
+			refresh_on_run=bool(
+				cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run
+			),
+			rebuild_analyzer=bool(
+				cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer
+			),
+		)
 		try:
 			should_refresh_canonical_workspace = bool(
 				(not canonical_workspace_root_dir.exists())
@@ -5545,7 +6554,14 @@ def run_spikesort_merge_stage(
 	).resolve()
 	pre_merge_workspace_analyzer_error: str | None = None
 	pre_merge_workspace_analyzer_built = False
+	pre_merge_workspace_analyzer_policy: dict[str, Any] | None = None
 
+	_log_phase_step_start(
+		"Merge pre-merge analyzer prepare step start",
+		stream_id=str(stream_id),
+		sorter_output_dir=workspace_sorter_output_dir,
+		analyzer_output_dir=pre_merge_workspace_analyzer_output_dir,
+	)
 	try:
 		si_module = _import_spikeinterface_full_module()
 		pre_merge_workspace_analyzer, pre_merge_workspace_analyzer_output_dir = _recompute_sorting_analyzer_to_dir(
@@ -5556,22 +6572,15 @@ def run_spikesort_merge_stage(
 			analyzer_dir=pre_merge_workspace_analyzer_output_dir,
 		)
 
-		has_extension = getattr(pre_merge_workspace_analyzer, "has_extension", None)
-		compute_extension = getattr(pre_merge_workspace_analyzer, "compute", None)
-		if callable(compute_extension):
-			for extension_name in ("random_spikes", "waveforms", "templates", "unit_locations"):
-				if callable(has_extension):
-					try:
-						if bool(has_extension(extension_name)):
-							continue
-					except Exception:
-						pass
-				for candidate in (extension_name, [extension_name]):
-					try:
-						compute_extension(candidate)
-						break
-					except Exception:
-						continue
+		if pre_merge_workspace_requires_templates or pre_merge_workspace_requires_unit_locations:
+			_ensure_merge_analyzer_extensions(
+				analyzer=pre_merge_workspace_analyzer,
+				stage_config=stage_config,
+				include_unit_locations=pre_merge_workspace_requires_unit_locations,
+			)
+		pre_merge_workspace_analyzer_policy = _get_merge_analyzer_policy_info(
+			pre_merge_workspace_analyzer
+		)
 
 		pre_merge_workspace_analyzer_built = True
 	except Exception as exc:
@@ -5598,9 +6607,15 @@ def run_spikesort_merge_stage(
 	pre_snapshot_include_unit_locations = bool(
 		((merge_metadata_enabled and merge_metadata_write_json) and merge_metadata_include_unit_locations)
 		or ((pre_merge_metadata_enabled and pre_merge_metadata_write_json) and pre_merge_metadata_include_unit_locations)
-		or bool(merge_reports_require_snapshots)
+		or bool(merge_reports_require_unit_locations)
 	)
 	if pre_snapshot_capture_needed:
+		_log_phase_step_start(
+			"Merge pre-merge snapshot step start",
+			stream_id=str(stream_id),
+			include_unit_locations=bool(pre_snapshot_include_unit_locations),
+			analyzer_output_dir=pre_merge_workspace_analyzer_output_dir,
+		)
 		try:
 			if not bool(
 				pre_merge_workspace_analyzer_built
@@ -5674,6 +6689,13 @@ def run_spikesort_merge_stage(
 
 	for idx, raw_method in enumerate(requested_sequence_raw):
 		method = _normalize_merge_method_token(raw_method)
+		_log_phase_step_start(
+			"Merge method step start",
+			stream_id=str(stream_id),
+			method=method,
+			sequence_index=int(idx + 1),
+			sequence_length=int(len(requested_sequence_raw)),
+		)
 		if method == "slay":
 			if (
 				cache_sorting_outputs_before_merge_use_canonical_workspace
@@ -5816,6 +6838,12 @@ def run_spikesort_merge_stage(
 			)
 
 	if canonical_workspace_publish_requested:
+		_log_phase_step_start(
+			"Merge canonical workspace publish step start",
+			stream_id=str(stream_id),
+			workspace_root_dir=active_stage_output_root_dir,
+			stage_output_root_dir=stage_output_root_dir,
+		)
 		try:
 			canonical_workspace_publish_summary = _restore_sorting_outputs_from_pre_merge_cache(
 				stage_output_root_dir=stage_output_root_dir,
@@ -5862,9 +6890,15 @@ def run_spikesort_merge_stage(
 	post_snapshot_include_unit_locations = bool(
 		((merge_metadata_enabled and merge_metadata_write_json) and merge_metadata_include_unit_locations)
 		or ((post_merge_metadata_enabled and post_merge_metadata_write_json) and post_merge_metadata_include_unit_locations)
-		or bool(merge_reports_require_snapshots)
+		or bool(merge_reports_require_unit_locations)
 	)
 	if post_snapshot_capture_needed:
+		_log_phase_step_start(
+			"Merge post-merge snapshot step start",
+			stream_id=str(stream_id),
+			include_unit_locations=bool(post_snapshot_include_unit_locations),
+			sorter_output_dir=resolved_sorter_output_dir,
+		)
 		try:
 			post_snapshot_kwargs: dict[str, Any] = {
 				"well_out_dir": well_out_dir,
@@ -5957,6 +6991,13 @@ def run_spikesort_merge_stage(
 	post_merge_unit_locations_json: Path | None = None
 	post_merge_unit_locations_error: str | None = None
 	if merge_reports_mappings_enabled:
+		_log_phase_step_start(
+			"Merge mapping report build step start",
+			stream_id=str(stream_id),
+			unit_diff_json=bool(merge_reports_unit_diff_json_enabled),
+			unit_diff_map=bool(merge_reports_unit_diff_map_enabled),
+			unit_diff_map_flat=bool(merge_reports_unit_diff_map_flat_enabled),
+		)
 		try:
 			applied_operations_for_unit_diff: list[dict[str, Any]] = []
 			if isinstance(merge_metadata_payload, dict):
@@ -6033,6 +7074,12 @@ def run_spikesort_merge_stage(
 	merge_template_heatmaps_payload: dict[str, Any] | None = None
 	merge_template_heatmaps_error: str | None = None
 	if merge_reports_enabled and (merge_reports_2panel_enabled or merge_reports_template_heatmaps_enabled):
+		_log_phase_step_start(
+			"Merge report rendering step start",
+			stream_id=str(stream_id),
+			unit_location_reports=bool(merge_reports_2panel_enabled),
+			template_heatmaps=bool(merge_reports_template_heatmaps_enabled),
+		)
 		try:
 			before_snapshot_for_report: dict[str, Any] = {}
 			after_snapshot_for_report: dict[str, Any] = {}
@@ -6232,7 +7279,13 @@ def run_spikesort_merge_stage(
 			"sorter_output_dir": str(workspace_sorter_output_dir.resolve()),
 			"analyzer_output_dir": str(pre_merge_workspace_analyzer_output_dir.resolve()),
 			"analyzer_built": bool(pre_merge_workspace_analyzer_built),
+			"analyzer_policy": (
+				dict(pre_merge_workspace_analyzer_policy)
+				if isinstance(pre_merge_workspace_analyzer_policy, dict)
+				else _requested_merge_analyzer_policy(stage_config)
+			),
 		},
+		"merge_analyzer_policy": _requested_merge_analyzer_policy(stage_config),
 		"requested_sequence": [str(token) for token in requested_sequence_raw],
 		"bombcell_label_config": {
 			"enabled": bool(getattr(stage_config, "bombcell_label_enabled", False)),
@@ -6486,6 +7539,14 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 	stage_output_root_dir.mkdir(parents=True, exist_ok=True)
 	summary_json = stage_output_root_dir / "spikesort_summary.json"
 	effective_force_restart = bool(inputs.force_restart or inputs.force_replot)
+	_log_phase_step_start(
+		"Spikesort stage start",
+		stream_id=str(inputs.stream_id),
+		sorter=str(inputs.sorter),
+		force_restart=bool(inputs.force_restart),
+		force_replot=bool(inputs.force_replot),
+		output_root=str(inputs.output_rel_root),
+	)
 
 	if not bool(inputs.sort_enabled):
 		_write_json(
@@ -6520,6 +7581,11 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 
 	removed_on_force_restart: list[str] = []
 	if bool(effective_force_restart) and bool(inputs.sort_delete_outputs_on_force_restart):
+		_log_phase_step_start(
+			"Spikesort cleanup step start",
+			stream_id=str(inputs.stream_id),
+			stage_output_root=stage_output_root_dir,
+		)
 		removed_on_force_restart = _cleanup_spikesort_outputs_for_force_restart(
 			stage_output_root_dir=stage_output_root_dir,
 			um_kwargs=inputs.um_kwargs,
@@ -6562,6 +7628,14 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 		am_kwargs=(dict(inputs.am_kwargs) if isinstance(inputs.am_kwargs, dict) else None),
 		option_kwargs=(dict(inputs.option_kwargs) if isinstance(inputs.option_kwargs, dict) else None),
 		force_restart=bool(effective_force_restart),
+		resume_from=inputs.resume_from,
+	)
+	_log_phase_step_start(
+		"Spikesort sort phase start",
+		stream_id=str(inputs.stream_id),
+		run_analyzer=bool(inputs.run_analyzer),
+		run_reports=bool(inputs.run_reports),
+		plot_mode=str(inputs.plot_mode),
 		resume_from=inputs.resume_from,
 	)
 	legacy_outputs = run_legacy_spikesorting_stage(inputs=legacy_inputs, logger=LOGGER)
@@ -6617,6 +7691,25 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 				"force_replot": bool(inputs.force_replot),
 				"effective_force_restart": bool(effective_force_restart),
 				"resume_from": inputs.resume_from,
+				"merge_analyzer_density_mode": str(inputs.merge_analyzer_density_mode),
+				"merge_template_random_spikes_method": str(
+					inputs.merge_template_random_spikes_method
+				),
+				"merge_template_random_spikes_max_spikes_per_unit": inputs.merge_template_random_spikes_max_spikes_per_unit,
+				"merge_template_random_spikes_margin_size": inputs.merge_template_random_spikes_margin_size,
+				"merge_template_random_spikes_seed": inputs.merge_template_random_spikes_seed,
+				"merge_analyzer_n_jobs": inputs.merge_analyzer_n_jobs,
+				"merge_analyzer_chunk_duration": inputs.merge_analyzer_chunk_duration,
+				"merge_analyzer_sparsity_method": str(inputs.merge_analyzer_sparsity_method),
+				"merge_analyzer_sparsity_radius_um": inputs.merge_analyzer_sparsity_radius_um,
+				"merge_analyzer_sparsity_num_channels": inputs.merge_analyzer_sparsity_num_channels,
+				"merge_analyzer_sparsity_threshold": inputs.merge_analyzer_sparsity_threshold,
+				"merge_analyzer_sparsity_peak_sign": str(inputs.merge_analyzer_sparsity_peak_sign),
+				"merge_analyzer_sparsity_num_spikes_for_sparsity": inputs.merge_analyzer_sparsity_num_spikes_for_sparsity,
+				"merge_analyzer_sparsity_by_property": inputs.merge_analyzer_sparsity_by_property,
+				"merge_analyzer_waveforms_ms_before": inputs.merge_analyzer_waveforms_ms_before,
+				"merge_analyzer_waveforms_ms_after": inputs.merge_analyzer_waveforms_ms_after,
+				"merge_analyzer_waveforms_dtype": inputs.merge_analyzer_waveforms_dtype,
 			},
 			"cleanup": {
 				"removed_on_force_restart": list(removed_on_force_restart),

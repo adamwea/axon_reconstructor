@@ -201,10 +201,14 @@ stages:
           export_to_phy: false
 
       bombcell_label:
-        enabled: true
+        enabled: false # TODO: untested
         # outputs live under <well>/<spikesort_output_root>/<merge_units.rel_output_root>/<relpath>
         relpath: bombcell_label_outputs
         delete_outputs_on_force_restart: true
+
+        # analyzer
+        analyzer:
+          compute_sparsity: false # recompute / compute analyzer as needed if it currently does or does not include sparsity mask.
 
         # Canonical Bombcell labeling function arguments.
         # Mirrors spikeinterface.curation.bombcell_label_units(...)
@@ -255,6 +259,34 @@ stages:
           assert_auto_merge_uses_canonical_workspace: true
           publish_to_stage_outputs_on_success: false
           publish_to_stage_outputs_on_failure: false
+
+        analyzer:
+          #regenerate_on_replot: false # when false, force_replot reuses an existing pre-merge workspace analyzer if present and only regenerates it when missing.
+          regenerate_on_replot: true # when true, force_replot always regenerates the pre-merge workspace analyzer from the pre-merge workspace sorter output to ensure that merge reports reflect the current state of the pre-merge workspace, even if merge outputs are not being regenerated; keep false by default for faster iterations when merge debugging is not the focus, but can be set to true to ensure consistency between the pre-merge workspace and merge reports during debugging iterations that involve changes to the pre-merge workspace or its sorter output.
+          #density_mode: auto # auto|dense. Dense rebuilds merge-side analyzers with sparse=False when axon_reconstructor owns the analyzer lifecycle.
+          #template_random_spikes_method: default # default|all. "all" removes random spike subsampling for merge/report template-critical analyzer extensions.
+          #template_random_spikes_max_spikes_per_unit: 500 # used when template_random_spikes_method stays sampled instead of "all".
+          #template_random_spikes_margin_size: 60 # optional border margin in samples for merge-side random spike selection.
+          #template_random_spikes_seed: 0 # optional seed for reproducible merge-side random spike selection.
+          #n_jobs: 1 # optional merge-only analyzer compute parallelism override for waveform/template/unit-location extensions and sparsity estimation. Omit to inherit stage-level n_jobs.
+          n_jobs: 24 # increase merge-side analyzer compute parallelism to speed up waveform/template/unit-location extensions and sparsity estimation during merge iterations, which can be computationally intensive; keep 1 by default for debugging iterations to simplify resource usage and make logs easier to follow, but can be set to a higher number for faster iterations when merge debugging is not the focus.
+          #chunk_duration: 0.5s # optional merge-only analyzer compute chunking override. Omit to inherit stage-level chunk_duration.
+          #sparsity_method: radius # radius|best_channels|threshold|by_property. Ignored when density_mode is dense.
+          sparsity_method: best_channels # use best_channels method for sparsity estimation to identify the most relevant channels for each unit based on their activity, which can improve the quality of merge recommendations by focusing on the channels that contribute most to each unit's signal; keep radius by default for debugging iterations to maintain a more inclusive channel selection that can provide additional context during early development stages.
+          #sparsity_radius_um: 100.0 # used by sparsity_method=radius. Default matches SpikeInterface.
+          #sparsity_num_channels: 5 # used by sparsity_method=best_channels. Default matches SpikeInterface.
+          #sparsity_num_channels: 300 # hacky way to just tell sorting analyzer that I want all channels.
+          sparsity_num_channels: 125
+          #sparsity_threshold: 5.0 # used by sparsity_method=threshold (SNR threshold). Default matches SpikeInterface.
+          #sparsity_peak_sign: neg # neg|pos|both. Default matches SpikeInterface.
+          sparsity_peak_sign: both # include both negative and positive peaks when estimating sparsity for merge-side analyzers, which can provide a more comprehensive view of unit spatial footprints and improve merge recommendation quality; keep neg by default for debugging iterations to focus on negative peaks, which are more traditional for spike sorting and can simplify analysis during early debugging stages.
+          #num_spikes_for_sparsity: 100 # optional spike cap used only while estimating merge-side sparsity. Default matches SpikeInterface.
+          #sparsity_by_property: group # used by sparsity_method=by_property, for example on tetrodes.
+          #waveforms_ms_before: 1.0 # optional merge-side waveform/template extraction window before each spike in ms.
+          #waveforms_ms_after: 2.0 # optional merge-side waveform/template extraction window after each spike in ms.
+          #waveforms_dtype: float32 # optional merge-side waveform dtype override for waveforms/templates/unit_locations dependencies.
+          density_mode: dense # use dense analyzers for merge and merge reports to ensure all units are included and templates are built from all available spikes, which can improve merge recommendation quality and report accuracy; keep auto for faster iterations when merge debugging is not focused.
+          template_random_spikes_method: all # use all spikes for template-critical analyzer extensions during merge and in merge reports to ensure the most accurate templates for merge recommendations and reporting; keep default for faster iterations when merge debugging is not the focus.
 
         pre_merge_metadata:
           # Write one consolidated merge metadata summary for quick before/after comparisons.
@@ -478,7 +510,7 @@ stages:
               debug_json: true
               debug_json_relpath: unit_locations_highlight_linkage.json
 
-                        # inherit probe dimensions specified in data.yml if available.
+            # inherit probe dimensions specified in data.yml if available.
             # this can control relative size of electrodes if plotted, xy extent of the plots, and the scaling of location markers if point_size is not explicitly set here.
             inherit_probe_dimensions: true
 
@@ -514,10 +546,13 @@ stages:
             marker_size: 10.0
             cmap: viridis
             show_colorbar: true
+            relative_color_bar_height: 0.5 # shorten the vertical colorbar to half the plot height and keep it centered on the heatmap plotting area.
             # linear|log
             color_scale: log
             # used only when color_scale is log
             log_epsilon: 0.001
+            # ptp|abs_peak|peak|trough
+            magnitude_mode: ptp
             # null/omitted = no cap.
             # max_merges: 25
             debug_json_relpath: template_heatmaps_per_merge_report.json
@@ -526,13 +561,16 @@ stages:
               write_png: true
               write_svg: false
 
+            # inherit probe dimensions specified in data.yml if available.
+            # this can control relative size of electrodes if plotted, xy extent of the plots, and the scaling of location markers if point_size is not explicitly set here.
+            inherit_probe_dimensions: true
+
 
 
             # Presence ratio
             # rp_contamination
             # firing_rate
             # amplitude median
-
 
   templates:
     resources:
