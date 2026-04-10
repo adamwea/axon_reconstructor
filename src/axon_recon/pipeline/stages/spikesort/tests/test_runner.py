@@ -231,6 +231,31 @@ def test_ensure_merge_analyzer_extensions_uses_all_random_spikes_method() -> Non
     )
 
 
+def test_release_loaded_analyzer_extensions_clears_loaded_extensions_without_touching_disk() -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    class _FakeExtension:
+        def __init__(self) -> None:
+            self.data = {"value": [1, 2, 3]}
+            self._some_spikes = [4, 5, 6]
+
+    class _FakeAnalyzer:
+        def __init__(self) -> None:
+            self.extensions = {
+                "random_spikes": _FakeExtension(),
+                "templates": _FakeExtension(),
+            }
+
+        def get_loaded_extension_names(self):
+            return list(self.extensions.keys())
+
+    analyzer = _FakeAnalyzer()
+    released = spikesort_runner._release_loaded_analyzer_extensions(analyzer=analyzer)
+
+    assert set(released) == {"random_spikes", "templates"}
+    assert analyzer.extensions == {}
+
+
 def test_ensure_bombcell_metric_extensions_uses_merge_job_kwargs() -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
@@ -1431,6 +1456,113 @@ def test_write_merge_template_heatmap_reports_outputs_panel_and_debug_json(tmp_p
     assert post_calls[0].get("vmax") is None
 
 
+def test_write_merge_template_heatmap_reports_uses_provided_analyzers_without_snapshot_reload(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import numpy as np
+
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_load_sorting_analyzer_from_snapshot",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("snapshot analyzer load should not be used")),
+    )
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_extract_template_and_locations_for_unit",
+        lambda analyzer, unit_id, stage_config=None: (
+            np.asarray([[-1.0, 2.0, 0.5], [-0.2, 0.8, -0.4]], dtype=float),
+            np.asarray([[10.0, 20.0], [30.0, 40.0]], dtype=float),
+            None,
+        ),
+    )
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_stack_rendered_images_vertically",
+        lambda image_paths: (np.ones((16, 16, 3), dtype=float), None),
+    )
+
+    class _FakeAnalyzer:
+        def __init__(self) -> None:
+            self.extensions = {}
+
+        def get_loaded_extension_names(self):
+            return []
+
+        def has_extension(self, name):
+            return True
+
+        def get_extension(self, name):
+            return object()
+
+        @property
+        def recording(self):
+            return SimpleNamespace(get_channel_locations=lambda: np.asarray([[10.0, 20.0], [30.0, 40.0]]))
+
+        def get_unit_ids(self):
+            return [10, 20]
+
+    asset_calls: list[dict[str, object]] = []
+
+    def _fake_write_asset(
+        template_ch_by_t,
+        locations_xy,
+        out_path,
+        title,
+        cmap,
+        marker_size,
+        show_colorbar,
+        relative_color_bar_height=1.0,
+        color_vmin=None,
+        color_vmax=None,
+        color_scale_mode="linear",
+        log_epsilon=1e-3,
+        magnitude_mode="ptp",
+        x_limits=None,
+        y_limits=None,
+    ):
+        asset_calls.append({"title": str(title)})
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(b"fake")
+        return True, None
+
+    monkeypatch.setattr(spikesort_runner, "_write_template_amplitude_heatmap_asset", _fake_write_asset)
+
+    payload = spikesort_runner._write_merge_template_heatmap_reports(
+        merge_out_dir=tmp_path,
+        before_snapshot={"analyzer": {"source_dir": str(tmp_path / "before")}},
+        after_snapshot={"analyzer": {"source_dir": str(tmp_path / "after")}},
+        applied_unit_mappings=[{"group_id": "g1", "pre_unit_ids": ["10"], "post_unit_id": "20"}],
+        stage_config=SimpleNamespace(
+            merge_reports_template_heatmaps_relpath="reports/template_heatmaps",
+            merge_reports_template_heatmaps_assets_reldir="assets",
+            merge_reports_template_heatmaps_write_png=True,
+            merge_reports_template_heatmaps_write_svg=False,
+            merge_reports_template_heatmaps_write_assets_png=True,
+            merge_reports_template_heatmaps_write_assets_svg=False,
+            merge_reports_template_heatmaps_panel_width_in=8.0,
+            merge_reports_template_heatmaps_panel_height_in=4.0,
+            merge_reports_template_heatmaps_marker_size=12.0,
+            merge_reports_template_heatmaps_cmap="viridis",
+            merge_reports_template_heatmaps_show_colorbar=False,
+            merge_reports_template_heatmaps_relative_color_bar_height=0.5,
+            merge_reports_template_heatmaps_color_scale="linear",
+            merge_reports_template_heatmaps_log_epsilon=0.01,
+            merge_reports_template_heatmaps_magnitude_mode="abs_peak",
+            merge_reports_template_heatmaps_max_merges=None,
+            merge_reports_template_heatmaps_debug_json_relpath="reports/template_heatmap_debug.json",
+            merge_reports_template_heatmaps_inherit_probe_dimensions=False,
+        ),
+        before_analyzer=_FakeAnalyzer(),
+        after_analyzer=_FakeAnalyzer(),
+    )
+
+    assert payload.get("status") == "ok"
+    assert len(asset_calls) == 2
+
+
 def test_write_merge_unit_location_reports_does_not_highlight_premerge_ids_on_after_panel(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -2253,6 +2385,73 @@ def test_capture_merge_state_snapshot_records_analyzer_policy_fields(tmp_path: P
     assert snapshot.get("analyzer", {}).get("dense_validation_error") == "dense_requested_but_analyzer_has_sparsity"
 
 
+def test_capture_merge_state_snapshot_uses_provided_analyzer_object(tmp_path: Path, monkeypatch) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    class _FakeSorting:
+        def get_unit_ids(self):
+            return [31, 32]
+
+        def get_num_units(self):
+            return 2
+
+    class _FakeAnalyzer:
+        def __init__(self) -> None:
+            self.sorting = _FakeSorting()
+            self.sparsity = None
+
+    well_out_dir = tmp_path / "well001"
+    stage_output_root_dir = well_out_dir / "spikesort_outputs"
+    analyzer_output_dir = stage_output_root_dir / "pre_merge_analyzer_output"
+    analyzer_output_dir.mkdir(parents=True, exist_ok=True)
+
+    analyzer = _FakeAnalyzer()
+    spikesort_runner._attach_merge_analyzer_policy_info(
+        analyzer,
+        spikesort_runner._describe_merge_analyzer_policy_info(
+            analyzer=analyzer,
+            stage_config=SimpleNamespace(
+                merge_analyzer_density_mode="dense",
+                merge_template_random_spikes_method="all",
+            ),
+            reused_cached_analyzer=True,
+        ),
+    )
+
+    monkeypatch.setattr(spikesort_runner, "_import_spikeinterface_full_module", lambda: object())
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_load_sorting_from_sorter_output_dir",
+        lambda **kwargs: _FakeSorting(),
+    )
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_load_or_recompute_spikesort_analyzer",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("should not reload analyzer")),
+    )
+
+    snapshot = spikesort_runner._capture_merge_state_snapshot(
+        well_out_dir=well_out_dir,
+        stage_output_root_dir=stage_output_root_dir,
+        output_rel_root="spikesort_outputs",
+        stage_config=SimpleNamespace(
+            sorter="kilosort4",
+            merge_analyzer_density_mode="dense",
+            merge_template_random_spikes_method="all",
+        ),
+        sorter_output_dir=stage_output_root_dir / "sorter_output",
+        analyzer_source_dir=analyzer_output_dir,
+        analyzer_obj=analyzer,
+        capture_label="before_merge",
+        include_unit_locations=False,
+        allow_analyzer_recompute=False,
+    )
+
+    assert snapshot.get("analyzer", {}).get("available") is True
+    assert snapshot.get("analyzer", {}).get("source_dir") == str(analyzer_output_dir.resolve())
+    assert snapshot.get("analyzer", {}).get("unit_ids") == ["31", "32"]
+
+
 def test_resolve_sorter_output_dir_prefers_wrapper_with_spikeinterface_markers(tmp_path: Path) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
@@ -2727,6 +2926,125 @@ def test_run_spikesort_merge_stage_reports_plot_generation_note_when_auto_accept
     assert slay_summary.get("plot_files_generated_in_snapshot") == 0
     assert "plot_generation_note" in slay_summary
     assert "auto_accept_merges=true" in str(slay_summary.get("plot_generation_note", ""))
+
+
+def test_run_spikesort_merge_stage_releases_pre_merge_analyzer_before_slay(tmp_path: Path, monkeypatch) -> None:
+    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    h5_path = tmp_path / "raw_data" / "input.raw.h5"
+    h5_path.parent.mkdir(parents=True, exist_ok=True)
+    h5_path.write_bytes(b"")
+
+    output_rel_root = "spikesort_outputs"
+    stream_id = "well001"
+    well_out_dir = compute_mea_analysis_output_dir(
+        output_root=tmp_path,
+        data_file=h5_path,
+        well=stream_id,
+    )
+    sorter_output_dir = well_out_dir / output_rel_root / "sorter_output" / "sorter_output"
+    sorter_output_dir.mkdir(parents=True, exist_ok=True)
+
+    class _FakeAnalyzer:
+        pass
+
+    pre_analyzer = _FakeAnalyzer()
+    release_called = False
+
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_resolve_sorter_output_dir",
+        lambda **kwargs: sorter_output_dir,
+    )
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_run_bombcell_label_phase",
+        lambda **kwargs: {
+            "status": "skipped",
+            "reason": "bombcell_label_disabled",
+            "outputs": {},
+            "sorter_output_dir": str(sorter_output_dir),
+        },
+    )
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_import_spikeinterface_full_module",
+        lambda: object(),
+    )
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_recompute_sorting_analyzer_to_dir",
+        lambda **kwargs: (pre_analyzer, Path(kwargs["analyzer_dir"]).resolve()),
+    )
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_ensure_merge_analyzer_extensions",
+        lambda **kwargs: [],
+    )
+
+    def _fake_capture(**kwargs):
+        if kwargs.get("capture_label") == "before_merge":
+            assert kwargs.get("analyzer_obj") is pre_analyzer
+        return {
+            "sorter": {"available": True, "unit_ids": ["1"], "unit_count": 1},
+            "analyzer": {
+                "available": True,
+                "unit_ids": ["1"],
+                "unit_count": 1,
+                "source_dir": str(kwargs.get("analyzer_source_dir", sorter_output_dir.parent / "analyzer_output")),
+                "unit_locations_by_unit": {},
+            },
+        }
+
+    monkeypatch.setattr(spikesort_runner, "_capture_merge_state_snapshot", _fake_capture)
+
+    def _fake_release(*, analyzer, extension_names=None):
+        nonlocal release_called
+        assert analyzer is pre_analyzer
+        release_called = True
+        return ["waveforms", "templates"]
+
+    monkeypatch.setattr(spikesort_runner, "_release_loaded_analyzer_extensions", _fake_release)
+
+    def _fake_slay(**kwargs):
+        assert release_called is True
+        return {
+            "name": "slay",
+            "status": "ok",
+            "reason": None,
+            "out_dir": str((well_out_dir / output_rel_root / "SLAy_outputs").resolve()),
+            "summary_json": None,
+            "outputs": {},
+            "ks_dir": str(sorter_output_dir),
+            "applied_merges": False,
+        }
+
+    monkeypatch.setattr(spikesort_runner, "_run_slay_merge_method", _fake_slay)
+
+    result = run_spikesort_merge_stage(
+        h5_path=h5_path,
+        stream_id=stream_id,
+        mea_output_root=tmp_path,
+        output_rel_root=output_rel_root,
+        stage_config=SimpleNamespace(
+            merge_units_enabled=True,
+            merge_sequence=["slay"],
+            slay_enabled=True,
+            slay_relpath="SLAy_outputs",
+            slay_auto_accept_merges=False,
+            slay_recompute_analyzer=False,
+            pre_merge_metadata_enabled=True,
+            pre_merge_metadata_write_json=True,
+            pre_merge_metadata_include_unit_locations=True,
+            merge_reports_enabled=False,
+            bombcell_label_enabled=False,
+        ),
+        force_restart=False,
+    )
+
+    assert result.summary_json.exists()
+    assert release_called is True
 
 
 
@@ -5159,7 +5477,7 @@ def test_run_spikesort_merge_stage_force_replot_only_reuses_existing_analyzer_wh
     sorter_output_dir = stage_output_root_dir / "sorter_output"
     sorter_output_dir.mkdir(parents=True, exist_ok=True)
 
-    merge_out_dir = stage_output_root_dir / "SLAy_outputs"
+    merge_out_dir = stage_output_root_dir / "merge_output" / "SLAy_outputs"
     merge_out_dir.mkdir(parents=True, exist_ok=True)
     pre_merge_workspace_analyzer_dir = (
         stage_output_root_dir
@@ -5231,6 +5549,219 @@ def test_run_spikesort_merge_stage_force_replot_only_reuses_existing_analyzer_wh
     assert summary.get("replot_only") is True
     assert load_calls == [str(pre_merge_workspace_analyzer_dir.resolve())]
     assert summary.get("pre_merge_workspace", {}).get("analyzer_regenerated") is False
+
+
+def test_run_spikesort_merge_stage_force_replot_only_reuses_existing_analyzer_when_regeneration_unchanged(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    h5_path = tmp_path / "raw_data" / "input.raw.h5"
+    h5_path.parent.mkdir(parents=True, exist_ok=True)
+    h5_path.write_bytes(b"")
+
+    well_out_dir = tmp_path / "well001"
+    stage_output_root_dir = well_out_dir / "spikesort_outputs"
+    sorter_output_dir = stage_output_root_dir / "sorter_output"
+    sorter_output_dir.mkdir(parents=True, exist_ok=True)
+    (sorter_output_dir / "sorter_marker.txt").write_text("sorter", encoding="utf-8")
+
+    merge_out_dir = stage_output_root_dir / "merge_output" / "SLAy_outputs"
+    merge_out_dir.mkdir(parents=True, exist_ok=True)
+    pre_merge_workspace_analyzer_dir = (
+        stage_output_root_dir
+        / "merge_output"
+        / "cache"
+        / "merge_workspace"
+        / "pre_merge_analyzer_output"
+    )
+    pre_merge_workspace_analyzer_dir.mkdir(parents=True, exist_ok=True)
+    (pre_merge_workspace_analyzer_dir / "axon_recon_merge_analyzer_policy.json").write_text(
+        json.dumps(
+            {
+                "density_mode": "dense",
+                "requested_dense_analyzer": True,
+                "regenerate_on_replot": True,
+                "template_random_spikes_method": "all",
+                "sparsity_method": "radius",
+                "sparsity_radius_um": 100.0,
+                "sparsity_num_channels": 5,
+                "sparsity_threshold": 5.0,
+                "sparsity_peak_sign": "neg",
+                "sparsity_num_spikes_for_sparsity": 100,
+                "sparsity_by_property": None,
+                "template_random_spikes_max_spikes_per_unit": 500,
+                "template_random_spikes_margin_size": None,
+                "template_random_spikes_seed": None,
+                "waveforms_ms_before": 1.0,
+                "waveforms_ms_after": 2.0,
+                "waveforms_dtype": None,
+                "compute_n_jobs": None,
+                "compute_chunk_duration": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary_json = merge_out_dir / "merge_stage_summary.json"
+    summary_json.write_text(
+        json.dumps(
+            {
+                "status": "ok",
+                "methods": [
+                    {"name": "slay", "status": "ok"},
+                ],
+                "outputs": {
+                    "merge.pre_merge_workspace_analyzer_output_dir": str(pre_merge_workspace_analyzer_dir),
+                },
+                "pre_merge_workspace": {
+                    "analyzer_policy": {
+                        "density_mode": "dense",
+                        "requested_dense_analyzer": True,
+                        "regenerate_on_replot": True,
+                        "template_random_spikes_method": "all",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class _FakeAnalyzer:
+        sparsity = None
+
+    load_calls: list[str] = []
+
+    class _FakeSI:
+        def load_sorting_analyzer(self, folder):
+            load_calls.append(str(Path(folder).resolve()))
+            assert Path(folder).resolve() == pre_merge_workspace_analyzer_dir.resolve()
+            return _FakeAnalyzer()
+
+    monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
+    monkeypatch.setattr(spikesort_runner, "_import_spikeinterface_full_module", lambda: _FakeSI())
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_recompute_sorting_analyzer_to_dir",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("analyzer should be reused when policy and sorter are unchanged")),
+    )
+
+    stage_cfg = SimpleNamespace(
+        merge_sequence=("SLAy",),
+        merge_units_enabled=True,
+        merge_rel_output_root="merge_output",
+        slay_relpath="SLAy_outputs",
+        merge_metadata_enabled=False,
+        merge_reports_enabled=False,
+        merge_analyzer_regenerate_on_replot=True,
+        merge_analyzer_check_if_regen_is_needed=True,
+        merge_analyzer_density_mode="dense",
+        merge_template_random_spikes_method="all",
+    )
+
+    result = run_spikesort_merge_stage(
+        h5_path=h5_path,
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        output_rel_root="spikesort_outputs",
+        stage_config=stage_cfg,
+        force_restart=False,
+        force_replot=True,
+    )
+
+    summary = _read_json(result.summary_json)
+
+    assert summary.get("status") == "ok"
+    assert summary.get("replot_only") is True
+    assert load_calls == [str(pre_merge_workspace_analyzer_dir.resolve())]
+    assert summary.get("pre_merge_workspace", {}).get("analyzer_regenerated") is False
+    assert summary.get("pre_merge_workspace", {}).get("analyzer_regen_reason") is None
+
+
+def test_prepare_replot_workspace_analyzer_recomputes_when_policy_changes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    well_out_dir = tmp_path / "well001"
+    sorter_output_dir = well_out_dir / "spikesort_outputs" / "merge_output" / "cache" / "merge_workspace" / "sorter_output"
+    sorter_output_dir.mkdir(parents=True, exist_ok=True)
+    (sorter_output_dir / "sorter_marker.txt").write_text("merged", encoding="utf-8")
+    analyzer_output_dir = well_out_dir / "spikesort_outputs" / "merge_output" / "cache" / "merge_workspace" / "analyzer_output"
+    analyzer_output_dir.mkdir(parents=True, exist_ok=True)
+
+    current_policy = {
+        "density_mode": "dense",
+        "requested_dense_analyzer": True,
+        "regenerate_on_replot": True,
+        "template_random_spikes_method": "all",
+        "sparsity_method": "radius",
+        "sparsity_radius_um": 100.0,
+        "sparsity_num_channels": 5,
+        "sparsity_threshold": 5.0,
+        "sparsity_peak_sign": "neg",
+        "sparsity_num_spikes_for_sparsity": 100,
+        "sparsity_by_property": None,
+        "template_random_spikes_max_spikes_per_unit": 500,
+        "template_random_spikes_margin_size": None,
+        "template_random_spikes_seed": None,
+        "waveforms_ms_before": 1.0,
+        "waveforms_ms_after": 2.0,
+        "waveforms_dtype": None,
+        "compute_n_jobs": None,
+        "compute_chunk_duration": None,
+    }
+    (analyzer_output_dir / "axon_recon_merge_analyzer_policy.json").write_text(
+        json.dumps({**current_policy, "density_mode": "auto", "requested_dense_analyzer": False}),
+        encoding="utf-8",
+    )
+
+    class _FakeAnalyzer:
+        def __init__(self, label: str) -> None:
+            self.label = label
+            self.sparsity = None
+
+    load_calls: list[str] = []
+    recompute_calls: list[str] = []
+    rebuilt_analyzer = _FakeAnalyzer("post_rebuilt")
+
+    class _FakeSI:
+        def load_sorting_analyzer(self, folder):
+            resolved = str(Path(folder).resolve())
+            load_calls.append(resolved)
+            raise AssertionError("policy-mismatched analyzer should be regenerated before reuse")
+
+    def _fake_recompute(**kwargs):
+        analyzer_dir = Path(kwargs["analyzer_dir"]).resolve()
+        recompute_calls.append(str(analyzer_dir))
+        assert analyzer_dir == analyzer_output_dir.resolve()
+        return rebuilt_analyzer, analyzer_dir
+
+    monkeypatch.setattr(spikesort_runner, "_recompute_sorting_analyzer_to_dir", _fake_recompute)
+
+    analyzer, resolved_dir, policy_info, regenerated, regen_reason = spikesort_runner._prepare_replot_workspace_analyzer(
+        si_module=_FakeSI(),
+        well_out_dir=well_out_dir,
+        sorter_output_dir=sorter_output_dir,
+        stage_config=SimpleNamespace(
+            merge_analyzer_density_mode="dense",
+            merge_template_random_spikes_method="all",
+            merge_analyzer_regenerate_on_replot=True,
+            merge_analyzer_check_if_regen_is_needed=True,
+        ),
+        analyzer_dir=analyzer_output_dir,
+        regenerate_on_replot=True,
+        check_if_regen_is_needed=True,
+        fallback_policy={**current_policy, "density_mode": "auto", "requested_dense_analyzer": False},
+    )
+
+    assert analyzer is rebuilt_analyzer
+    assert resolved_dir == analyzer_output_dir.resolve()
+    assert load_calls == []
+    assert recompute_calls == [str(analyzer_output_dir.resolve())]
+    assert regenerated is True
+    assert regen_reason == "policy_changed"
+    assert policy_info.get("requested_dense_analyzer") is True
 
 
 def test_run_spikesort_merge_stage_force_replot_only_does_not_fallback_to_applied_operations(tmp_path: Path, monkeypatch) -> None:

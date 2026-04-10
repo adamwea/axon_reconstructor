@@ -307,6 +307,7 @@ class SpikesortStageConfig:
 	merge_force_restart: bool
 	merge_force_replot: bool
 	merge_analyzer_regenerate_on_replot: bool
+	merge_analyzer_check_if_regen_is_needed: bool
 	merge_analyzer_density_mode: str
 	merge_template_random_spikes_method: str
 	merge_template_random_spikes_max_spikes_per_unit: int | None
@@ -1989,6 +1990,15 @@ def parse_spikesort_stage_config(
 		),
 		True,
 	)
+	merge_analyzer_check_if_regen_is_needed = _as_bool(
+		_coalesce(
+			merge_analyzer_cfg.get("check_if_regen_is_needed", None),
+			merge_units_phase_cfg.get("analyzer_check_if_regen_is_needed", None),
+			merge_units_phase_cfg.get("check_if_regen_is_needed", None),
+			True,
+		),
+		True,
+	)
 	merge_analyzer_n_jobs = _as_optional_int(
 		_coalesce(
 			merge_analyzer_cfg.get("n_jobs", None),
@@ -2305,6 +2315,7 @@ def parse_spikesort_stage_config(
 		merge_force_restart=bool(merge_force_restart),
 		merge_force_replot=bool(merge_force_replot),
 		merge_analyzer_regenerate_on_replot=bool(merge_analyzer_regenerate_on_replot),
+		merge_analyzer_check_if_regen_is_needed=bool(merge_analyzer_check_if_regen_is_needed),
 		merge_analyzer_density_mode=str(merge_analyzer_density_mode),
 		merge_template_random_spikes_method=str(merge_template_random_spikes_method),
 		merge_template_random_spikes_max_spikes_per_unit=(

@@ -84,6 +84,7 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.merge_force_restart is False
     assert parsed.merge_force_replot is False
     assert parsed.merge_analyzer_regenerate_on_replot is True
+    assert parsed.merge_analyzer_check_if_regen_is_needed is True
     assert parsed.merge_analyzer_density_mode == "auto"
     assert parsed.merge_template_random_spikes_method == "default"
     assert parsed.merge_template_random_spikes_max_spikes_per_unit == 500
@@ -463,6 +464,7 @@ def test_parse_spikesort_stage_config_reads_merge_analyzer_policy_knobs() -> Non
                         "merge_units": {
                             "analyzer": {
                                 "regenerate_on_replot": False,
+                                "check_if_regen_is_needed": False,
                                 "density_mode": "dense",
                                 "template_random_spikes_method": "all",
                                 "max_spikes_per_unit": 321,
@@ -488,6 +490,7 @@ def test_parse_spikesort_stage_config_reads_merge_analyzer_policy_knobs() -> Non
     parsed = parse_spikesort_stage_config(runtime_config=cfg)
 
     assert parsed.merge_analyzer_regenerate_on_replot is False
+    assert parsed.merge_analyzer_check_if_regen_is_needed is False
     assert parsed.merge_analyzer_density_mode == "dense"
     assert parsed.merge_template_random_spikes_method == "all"
     assert parsed.merge_template_random_spikes_max_spikes_per_unit == 321

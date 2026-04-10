@@ -242,6 +242,11 @@ stages:
         force_restart: false
         force_replot: false
 
+        # logging:
+        #   enabled: true
+        #   file_relpath: logs/merge_units_pipeline.log
+        #   level: DEBUG # ERROR | WARNING | INFO | DEBUG
+
         rel_output_root: merge_output # subdir under spikesort_outputs for all merge-related outputs; relative paths for merge outputs resolve under this directory in each well's output directory
         delete_outputs_on_force_restart: true # merge-phase cleanup toggle. When force_restart is true, removes stale merge outputs under <well>/<spikesort_output_root>/<merge_units.rel_output_root> before rerunning merge phase logic.
         # Canonical merge workspace mode:
@@ -263,6 +268,7 @@ stages:
         analyzer:
           #regenerate_on_replot: false # when false, force_replot reuses an existing pre-merge workspace analyzer if present and only regenerates it when missing.
           regenerate_on_replot: true # when true, force_replot always regenerates the pre-merge workspace analyzer from the pre-merge workspace sorter output to ensure that merge reports reflect the current state of the pre-merge workspace, even if merge outputs are not being regenerated; keep false by default for faster iterations when merge debugging is not the focus, but can be set to true to ensure consistency between the pre-merge workspace and merge reports during debugging iterations that involve changes to the pre-merge workspace or its sorter output.
+          check_if_regen_is_needed: true # when true, merge phase logic checks whether the pre-merge workspace analyzer needs to be regenerated based on the presence and freshness of an existing analyzer relative to the pre-merge workspace sorter output, and only regenerates the analyzer if needed; keep true by default to avoid unnecessary regenerations and speed up iterations when merge debugging is not the focus, but can be set to false to always regenerate the analyzer for consistency during debugging iterations that involve changes to the pre-merge workspace or its sorter output.
           #density_mode: auto # auto|dense. Dense rebuilds merge-side analyzers with sparse=False when axon_reconstructor owns the analyzer lifecycle.
           #template_random_spikes_method: default # default|all. "all" removes random spike subsampling for merge/report template-critical analyzer extensions.
           #template_random_spikes_max_spikes_per_unit: 500 # used when template_random_spikes_method stays sampled instead of "all".
@@ -283,7 +289,9 @@ stages:
           #num_spikes_for_sparsity: 100 # optional spike cap used only while estimating merge-side sparsity. Default matches SpikeInterface.
           #sparsity_by_property: group # used by sparsity_method=by_property, for example on tetrodes.
           #waveforms_ms_before: 1.0 # optional merge-side waveform/template extraction window before each spike in ms.
+          waveforms_ms_before: 2.0 # increase pre-spike waveform extraction window to capture more of the spike waveform leading edge, which can be important for accurately characterizing units and improving merge recommendation quality; keep 1.0 ms by default for debugging iterations to reduce computational load and speed up iterations when merge debugging is not the focus, but can be set to a higher value for more thorough template extraction in non-debug runs.
           #waveforms_ms_after: 2.0 # optional merge-side waveform/template extraction window after each spike in ms.
+          waveforms_ms_after: 5.0 # increase post-spike waveform extraction window to capture more of the spike waveform trailing edge, which can be important for accurately characterizing units and improving merge recommendation quality; keep 2.0 ms by default for debugging iterations to reduce computational load and speed up iterations when merge debugging is not the focus, but can be set to a higher value for more thorough template extraction in non-debug runs.
           #waveforms_dtype: float32 # optional merge-side waveform dtype override for waveforms/templates/unit_locations dependencies.
           density_mode: dense # use dense analyzers for merge and merge reports to ensure all units are included and templates are built from all available spikes, which can improve merge recommendation quality and report accuracy; keep auto for faster iterations when merge debugging is not focused.
           template_random_spikes_method: all # use all spikes for template-critical analyzer extensions during merge and in merge reports to ensure the most accurate templates for merge recommendations and reporting; keep default for faster iterations when merge debugging is not the focus.
@@ -607,7 +615,7 @@ stages:
       preprocessed_segments_reldir: /preprocess_outputs/per_segment_preprocessed
       preprocessed_concat_reldir: /preprocess_outputs/preprocessed_recording
       concat_sorting_relpath: /spikesort_outputs/sorter_output
-      concat_analyzer_relpath: /spikesort_outputs/analyzer_output
+      #concat_analyzer_relpath: /spikesort_outputs/analyzer_output
 
     phases:
       # WIP Refactoring to stage phases.
@@ -622,12 +630,19 @@ stages:
         fail_if_required_sources_missing: false # Optional strict mode for debugging source requirements before running heavier phases.
         write_json: true # Optional write of resolve summary JSON under templates output root.
         json_relpath: context/resolve_sources_summary.json
-      # create_sorting_analyzers:
+      # analyzers
+      #   concat:
+      #     use_sort_stage_analyzer: true # if true, use the analyzer from the sort stage for the concat source; if false, build a new analyzer from the concat sorting output and preprocessed concat recording. Keep true by default to speed up iterations when merge debugging is not the focus, but can be set to false to ensure a fresh analyzer build for consistency during debugging iterations that involve changes to the pre-merge workspace or its sorter output.
+      #     build_from_sorting_if_missing: true # if true and use_sort_stage_analyzer is true, build the concat analyzer from the concat sorting output and preprocessed concat recording if the analyzer path is missing during resolve; keep true by default to ensure that a missing analyzer doesn't block progress
+      #   segments:
       # per_unit_processing:
       #   extract_template_segments:
       #   build_templates:
       #     handle_merge_overlaps:
-      # finalize:
+      #   propogation_analysis:
+      #     ordering:
+      #     plots:
+      # reports:
 
 
 
