@@ -208,6 +208,19 @@ class SpikesortStageConfig:
 	no_curation: bool
 	export_to_phy: bool
 	force_rerun_analyzer: bool
+	bombcell_label_enabled: bool
+	bombcell_label_relpath: str
+	bombcell_label_delete_outputs_on_force_restart: bool
+	bombcell_label_thresholds: dict[str, Any] | None
+	bombcell_label_thresholds_path: str | None
+	bombcell_label_label_non_somatic: bool
+	bombcell_label_split_non_somatic_good_mua: bool
+	bombcell_label_apply_to_sorter_output: bool
+	bombcell_label_write_cluster_group: bool
+	bombcell_label_fail_on_error: bool
+	bombcell_label_reports_enabled: bool
+	bombcell_label_reports_summary_json_enabled: bool
+	bombcell_label_reports_summary_json_relpath: str
 	um_kwargs: dict[str, Any] | None
 	am_kwargs: dict[str, Any] | None
 	option_kwargs: dict[str, Any] | None
@@ -283,6 +296,13 @@ class SpikesortStageConfig:
 	merge_reports_2panel_highlight_merges_linked: bool
 	merge_reports_2panel_highlight_plot_after_other_units: bool
 	merge_reports_2panel_highlight_label_affected_units: bool
+	merge_reports_2panel_highlight_show_legend: bool
+	merge_reports_2panel_highlight_legend_position: str
+	merge_reports_2panel_highlight_legend_x: float
+	merge_reports_2panel_highlight_legend_y: float
+	merge_reports_2panel_highlight_sort_pre_legend_by_groups: bool
+	merge_reports_2panel_highlight_debug_json_enabled: bool
+	merge_reports_2panel_highlight_debug_json_relpath: str
 	merge_reports_2panel_highlight_before_color: str
 	merge_reports_2panel_highlight_after_color: str
 	merge_reports_2panel_highlight_palette: str
@@ -290,6 +310,22 @@ class SpikesortStageConfig:
 	merge_reports_2panel_zoom_to_affected_units: bool
 	merge_reports_2panel_probe_dim_x_um: float | None
 	merge_reports_2panel_probe_dim_y_um: float | None
+	merge_reports_template_heatmaps_enabled: bool
+	merge_reports_template_heatmaps_relpath: str
+	merge_reports_template_heatmaps_assets_reldir: str
+	merge_reports_template_heatmaps_write_png: bool
+	merge_reports_template_heatmaps_write_svg: bool
+	merge_reports_template_heatmaps_write_assets_png: bool
+	merge_reports_template_heatmaps_write_assets_svg: bool
+	merge_reports_template_heatmaps_panel_width_in: float
+	merge_reports_template_heatmaps_panel_height_in: float
+	merge_reports_template_heatmaps_marker_size: float
+	merge_reports_template_heatmaps_cmap: str
+	merge_reports_template_heatmaps_show_colorbar: bool
+	merge_reports_template_heatmaps_color_scale: str
+	merge_reports_template_heatmaps_log_epsilon: float
+	merge_reports_template_heatmaps_max_merges: int | None
+	merge_reports_template_heatmaps_debug_json_relpath: str
 	merge_metadata_enabled: bool
 	merge_metadata_write_json: bool
 	merge_metadata_json_relpath: str
@@ -323,6 +359,11 @@ def parse_spikesort_stage_config(
 	phases_cfg = _as_section(stage_cfg.get("phases", {}))
 	sort_phase_cfg = _as_section(phases_cfg.get("sort", {}))
 	merge_units_phase_cfg = _as_section(phases_cfg.get("merge_units", {}))
+	bombcell_phase_cfg_raw = phases_cfg.get("bombcell_label", None)
+	bombcell_phase_cfg = _as_section(bombcell_phase_cfg_raw)
+	bombcell_params_cfg = _as_section(bombcell_phase_cfg.get("params", {}))
+	bombcell_reports_cfg = _as_section(bombcell_phase_cfg.get("reports", {}))
+	bombcell_reports_summary_json_cfg = _as_section(bombcell_reports_cfg.get("summary_json", {}))
 	resources_cfg = _as_section(stage_cfg.get("resources", {}))
 	logging_cfg = _as_section(stage_cfg.get("logging", {}))
 	debug_cfg = _as_section(stage_cfg.get("debug", {}))
@@ -380,6 +421,10 @@ def parse_spikesort_stage_config(
 	merge_reports_2panel_before_cfg = _as_section(merge_reports_2panel_assets_cfg.get("before", {}))
 	merge_reports_2panel_after_cfg = _as_section(merge_reports_2panel_assets_cfg.get("after", {}))
 	merge_reports_2panel_highlight_cfg = _as_section(merge_reports_2panel_cfg.get("highlight_merges", {}))
+	merge_reports_template_heatmaps_cfg = _as_section(merge_reports_cfg.get("template_heatmaps_per_merge", {}))
+	merge_reports_template_heatmaps_assets_cfg = _as_section(
+		merge_reports_template_heatmaps_cfg.get("assets", {})
+	)
 	merge_metadata_cfg = _as_section(merge_units_phase_cfg.get("merge_metadata", {}))
 	pre_merge_metadata_cfg = _as_section(merge_units_phase_cfg.get("pre_merge_metadata", {}))
 	post_merge_metadata_cfg = _as_section(merge_units_phase_cfg.get("post_merge_metadata", {}))
@@ -1134,6 +1179,56 @@ def parse_spikesort_stage_config(
 		),
 		False,
 	)
+	merge_reports_2panel_highlight_show_legend = _as_bool(
+		_coalesce(
+			merge_reports_2panel_highlight_cfg.get("show_legend", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_2panel_highlight_legend_position = _as_optional_str(
+		_coalesce(
+			merge_reports_2panel_highlight_cfg.get("legend_position", None),
+			"center left",
+		)
+	) or "center left"
+	merge_reports_2panel_highlight_legend_x = _as_optional_float(
+		_coalesce(
+			merge_reports_2panel_highlight_cfg.get("legend_x", None),
+			-0.2,
+		)
+	)
+	if merge_reports_2panel_highlight_legend_x is None:
+		merge_reports_2panel_highlight_legend_x = -0.2
+	merge_reports_2panel_highlight_legend_y = _as_optional_float(
+		_coalesce(
+			merge_reports_2panel_highlight_cfg.get("legend_y", None),
+			0.5,
+		)
+	)
+	if merge_reports_2panel_highlight_legend_y is None:
+		merge_reports_2panel_highlight_legend_y = 0.5
+	merge_reports_2panel_highlight_sort_pre_legend_by_groups = _as_bool(
+		_coalesce(
+			merge_reports_2panel_highlight_cfg.get("sort_pre_legend_by_groups", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_2panel_highlight_debug_json_enabled = _as_bool(
+		_coalesce(
+			merge_reports_2panel_highlight_cfg.get("debug_json", None),
+			merge_reports_2panel_highlight_cfg.get("debug_json_enabled", None),
+			True,
+		),
+		True,
+	)
+	merge_reports_2panel_highlight_debug_json_relpath = _normalize_optional_relpath(
+		_coalesce(
+			merge_reports_2panel_highlight_cfg.get("debug_json_relpath", None),
+			"unit_locations_highlight_linkage.json",
+		)
+	) or "unit_locations_highlight_linkage.json"
 	merge_reports_2panel_highlight_before_color = _as_optional_str(
 		_coalesce(
 			merge_reports_2panel_highlight_cfg.get("before_color", None),
@@ -1178,6 +1273,127 @@ def parse_spikesort_stage_config(
 			merge_reports_2panel_cfg.get("active_area_um_y", None),
 		)
 	)
+	merge_reports_template_heatmaps_enabled = _as_bool(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("enabled", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_template_heatmaps_relpath = _normalize_optional_relpath(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("relpath", None),
+			"template_heatmaps_per_merge",
+		)
+	) or "template_heatmaps_per_merge"
+	merge_reports_template_heatmaps_assets_reldir = _normalize_optional_relpath(
+		_coalesce(
+			merge_reports_template_heatmaps_assets_cfg.get("relpath", None),
+			merge_reports_template_heatmaps_cfg.get("assets_reldir", None),
+			"assets",
+		)
+	) or "assets"
+	merge_reports_template_heatmaps_write_png = _as_bool(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("write_png", None),
+			True,
+		),
+		True,
+	)
+	merge_reports_template_heatmaps_write_svg = _as_bool(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("write_svg", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_template_heatmaps_write_assets_png = _as_bool(
+		_coalesce(
+			merge_reports_template_heatmaps_assets_cfg.get("write_png", None),
+			True,
+		),
+		True,
+	)
+	merge_reports_template_heatmaps_write_assets_svg = _as_bool(
+		_coalesce(
+			merge_reports_template_heatmaps_assets_cfg.get("write_svg", None),
+			False,
+		),
+		False,
+	)
+	merge_reports_template_heatmaps_panel_width_in = _as_optional_float(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("panel_width_in", None),
+			11.0,
+		)
+	)
+	if merge_reports_template_heatmaps_panel_width_in is None or float(merge_reports_template_heatmaps_panel_width_in) <= 0.0:
+		merge_reports_template_heatmaps_panel_width_in = 11.0
+	merge_reports_template_heatmaps_panel_height_in = _as_optional_float(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("panel_height_in", None),
+			6.0,
+		)
+	)
+	if merge_reports_template_heatmaps_panel_height_in is None or float(merge_reports_template_heatmaps_panel_height_in) <= 0.0:
+		merge_reports_template_heatmaps_panel_height_in = 6.0
+	merge_reports_template_heatmaps_marker_size = _as_optional_float(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("marker_size", None),
+			10.0,
+		)
+	)
+	if merge_reports_template_heatmaps_marker_size is None or float(merge_reports_template_heatmaps_marker_size) <= 0.0:
+		merge_reports_template_heatmaps_marker_size = 10.0
+	merge_reports_template_heatmaps_cmap = _as_optional_str(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("cmap", None),
+			"viridis",
+		)
+	) or "viridis"
+	merge_reports_template_heatmaps_show_colorbar = _as_bool(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("show_colorbar", None),
+			True,
+		),
+		True,
+	)
+	merge_reports_template_heatmaps_color_scale_raw = _as_optional_str(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("color_scale", None),
+			"linear",
+		)
+	)
+	merge_reports_template_heatmaps_color_scale = str(
+		merge_reports_template_heatmaps_color_scale_raw or "linear"
+	).strip().lower()
+	if merge_reports_template_heatmaps_color_scale in {"log10", "logarithmic"}:
+		merge_reports_template_heatmaps_color_scale = "log"
+	if merge_reports_template_heatmaps_color_scale not in {"linear", "log"}:
+		merge_reports_template_heatmaps_color_scale = "linear"
+	merge_reports_template_heatmaps_log_epsilon = _as_optional_float(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("log_epsilon", None),
+			1e-3,
+		)
+	)
+	if (
+		merge_reports_template_heatmaps_log_epsilon is None
+		or float(merge_reports_template_heatmaps_log_epsilon) <= 0.0
+	):
+		merge_reports_template_heatmaps_log_epsilon = 1e-3
+	merge_reports_template_heatmaps_max_merges = _as_optional_int(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("max_merges", None),
+			None,
+		)
+	)
+	merge_reports_template_heatmaps_debug_json_relpath = _normalize_optional_relpath(
+		_coalesce(
+			merge_reports_template_heatmaps_cfg.get("debug_json_relpath", None),
+			"template_heatmaps_per_merge_report.json",
+		)
+	) or "template_heatmaps_per_merge_report.json"
 
 	merge_metadata_enabled = _as_bool(
 		_coalesce(
@@ -1337,6 +1553,106 @@ def parse_spikesort_stage_config(
 		or {}
 	)
 	option_kwargs.setdefault("force_rerun_analyzer", bool(force_rerun_analyzer))
+
+	bombcell_label_enabled = _as_bool(
+		_coalesce(
+			bombcell_phase_cfg.get("enabled", None),
+			bool(bombcell_phase_cfg_raw is not None),
+		),
+		False,
+	)
+	bombcell_label_relpath = _normalize_optional_relpath(
+		_coalesce(
+			bombcell_phase_cfg.get("relpath", None),
+			bombcell_phase_cfg.get("output_relpath", None),
+			"bombcell_label_outputs",
+		)
+	) or "bombcell_label_outputs"
+	bombcell_label_delete_outputs_on_force_restart = _as_bool(
+		_coalesce(
+			bombcell_phase_cfg.get("delete_outputs_on_force_restart", None),
+			bombcell_phase_cfg.get("delete_on_force_restart", None),
+			True,
+		),
+		True,
+	)
+	bombcell_label_thresholds = _as_optional_dict(
+		_coalesce(
+			bombcell_params_cfg.get("thresholds", None),
+			bombcell_params_cfg.get("threshold_dict", None),
+			bombcell_phase_cfg.get("thresholds", None),
+			bombcell_phase_cfg.get("threshold_dict", None),
+		)
+	)
+	bombcell_label_thresholds_path = _as_optional_str(
+		_coalesce(
+			bombcell_params_cfg.get("thresholds_path", None),
+			bombcell_params_cfg.get("thresholds_json", None),
+			bombcell_params_cfg.get("thresholds_json_path", None),
+			bombcell_phase_cfg.get("thresholds_path", None),
+			bombcell_phase_cfg.get("thresholds_json", None),
+			bombcell_phase_cfg.get("thresholds_json_path", None),
+		)
+	)
+	bombcell_label_label_non_somatic = _as_bool(
+		_coalesce(
+			bombcell_params_cfg.get("label_non_somatic", None),
+			bombcell_phase_cfg.get("label_non_somatic", None),
+			True,
+		),
+		True,
+	)
+	bombcell_label_split_non_somatic_good_mua = _as_bool(
+		_coalesce(
+			bombcell_params_cfg.get("split_non_somatic_good_mua", None),
+			bombcell_phase_cfg.get("split_non_somatic_good_mua", None),
+			True,
+		),
+		True,
+	)
+	bombcell_label_apply_to_sorter_output = _as_bool(
+		_coalesce(
+			bombcell_phase_cfg.get("apply_to_sorter_output", None),
+			bombcell_phase_cfg.get("apply_labels_to_sorter_output", None),
+			True,
+		),
+		True,
+	)
+	bombcell_label_write_cluster_group = _as_bool(
+		_coalesce(
+			bombcell_phase_cfg.get("write_cluster_group", None),
+			True,
+		),
+		True,
+	)
+	bombcell_label_fail_on_error = _as_bool(
+		_coalesce(
+			bombcell_phase_cfg.get("fail_on_error", None),
+			False,
+		),
+		False,
+	)
+	bombcell_label_reports_enabled = _as_bool(
+		_coalesce(
+			bombcell_reports_cfg.get("enabled", None),
+			True,
+		),
+		True,
+	)
+	bombcell_label_reports_summary_json_enabled = _as_bool(
+		_coalesce(
+			bombcell_reports_summary_json_cfg.get("enabled", None),
+			bombcell_label_reports_enabled,
+			True,
+		),
+		True,
+	)
+	bombcell_label_reports_summary_json_relpath = _normalize_optional_relpath(
+		_coalesce(
+			bombcell_reports_summary_json_cfg.get("relpath", None),
+			"bombcell_label_summary.json",
+		)
+	) or "bombcell_label_summary.json"
 
 	slay_enabled = _as_bool(_coalesce(slay_cfg.get("enabled", None), False), False)
 	slay_relpath = _normalize_optional_relpath(
@@ -1589,6 +1905,19 @@ def parse_spikesort_stage_config(
 		no_curation=no_curation,
 		export_to_phy=export_to_phy,
 		force_rerun_analyzer=force_rerun_analyzer,
+		bombcell_label_enabled=bool(bombcell_label_enabled),
+		bombcell_label_relpath=str(bombcell_label_relpath),
+		bombcell_label_delete_outputs_on_force_restart=bool(bombcell_label_delete_outputs_on_force_restart),
+		bombcell_label_thresholds=(dict(bombcell_label_thresholds) if isinstance(bombcell_label_thresholds, dict) else None),
+		bombcell_label_thresholds_path=(str(bombcell_label_thresholds_path) if bombcell_label_thresholds_path is not None else None),
+		bombcell_label_label_non_somatic=bool(bombcell_label_label_non_somatic),
+		bombcell_label_split_non_somatic_good_mua=bool(bombcell_label_split_non_somatic_good_mua),
+		bombcell_label_apply_to_sorter_output=bool(bombcell_label_apply_to_sorter_output),
+		bombcell_label_write_cluster_group=bool(bombcell_label_write_cluster_group),
+		bombcell_label_fail_on_error=bool(bombcell_label_fail_on_error),
+		bombcell_label_reports_enabled=bool(bombcell_label_reports_enabled),
+		bombcell_label_reports_summary_json_enabled=bool(bombcell_label_reports_summary_json_enabled),
+		bombcell_label_reports_summary_json_relpath=str(bombcell_label_reports_summary_json_relpath),
 		um_kwargs=resolved_um_kwargs,
 		am_kwargs=resolved_am_kwargs,
 		option_kwargs=resolved_option_kwargs,
@@ -1692,6 +2021,19 @@ def parse_spikesort_stage_config(
 		merge_reports_2panel_highlight_label_affected_units=bool(
 			merge_reports_2panel_highlight_label_affected_units
 		),
+		merge_reports_2panel_highlight_show_legend=bool(merge_reports_2panel_highlight_show_legend),
+		merge_reports_2panel_highlight_legend_position=str(merge_reports_2panel_highlight_legend_position),
+		merge_reports_2panel_highlight_legend_x=float(merge_reports_2panel_highlight_legend_x),
+		merge_reports_2panel_highlight_legend_y=float(merge_reports_2panel_highlight_legend_y),
+		merge_reports_2panel_highlight_sort_pre_legend_by_groups=bool(
+			merge_reports_2panel_highlight_sort_pre_legend_by_groups
+		),
+		merge_reports_2panel_highlight_debug_json_enabled=bool(
+			merge_reports_2panel_highlight_debug_json_enabled
+		),
+		merge_reports_2panel_highlight_debug_json_relpath=str(
+			merge_reports_2panel_highlight_debug_json_relpath
+		),
 		merge_reports_2panel_highlight_before_color=str(merge_reports_2panel_highlight_before_color),
 		merge_reports_2panel_highlight_after_color=str(merge_reports_2panel_highlight_after_color),
 		merge_reports_2panel_highlight_palette=str(merge_reports_2panel_highlight_palette),
@@ -1706,6 +2048,28 @@ def parse_spikesort_stage_config(
 			float(merge_reports_2panel_probe_dim_y_um)
 			if merge_reports_2panel_probe_dim_y_um is not None
 			else None
+		),
+		merge_reports_template_heatmaps_enabled=bool(merge_reports_template_heatmaps_enabled),
+		merge_reports_template_heatmaps_relpath=str(merge_reports_template_heatmaps_relpath),
+		merge_reports_template_heatmaps_assets_reldir=str(merge_reports_template_heatmaps_assets_reldir),
+		merge_reports_template_heatmaps_write_png=bool(merge_reports_template_heatmaps_write_png),
+		merge_reports_template_heatmaps_write_svg=bool(merge_reports_template_heatmaps_write_svg),
+		merge_reports_template_heatmaps_write_assets_png=bool(merge_reports_template_heatmaps_write_assets_png),
+		merge_reports_template_heatmaps_write_assets_svg=bool(merge_reports_template_heatmaps_write_assets_svg),
+		merge_reports_template_heatmaps_panel_width_in=float(merge_reports_template_heatmaps_panel_width_in),
+		merge_reports_template_heatmaps_panel_height_in=float(merge_reports_template_heatmaps_panel_height_in),
+		merge_reports_template_heatmaps_marker_size=float(merge_reports_template_heatmaps_marker_size),
+		merge_reports_template_heatmaps_cmap=str(merge_reports_template_heatmaps_cmap),
+		merge_reports_template_heatmaps_show_colorbar=bool(merge_reports_template_heatmaps_show_colorbar),
+		merge_reports_template_heatmaps_color_scale=str(merge_reports_template_heatmaps_color_scale),
+		merge_reports_template_heatmaps_log_epsilon=float(merge_reports_template_heatmaps_log_epsilon),
+		merge_reports_template_heatmaps_max_merges=(
+			int(merge_reports_template_heatmaps_max_merges)
+			if merge_reports_template_heatmaps_max_merges is not None
+			else None
+		),
+		merge_reports_template_heatmaps_debug_json_relpath=str(
+			merge_reports_template_heatmaps_debug_json_relpath
 		),
 		merge_metadata_enabled=bool(merge_metadata_enabled),
 		merge_metadata_write_json=bool(merge_metadata_write_json),

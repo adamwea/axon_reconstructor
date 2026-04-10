@@ -25,6 +25,23 @@ from .models.results import SpikesortMergeResult, SpikesortResult
 LOGGER = logging.getLogger("axon_recon.spikesort")
 
 
+def _prepare_matplotlib_for_headless_rendering() -> None:
+	# Merge reports can run from worker threads; forcing a non-GUI backend avoids
+	# GUI backend initialization warnings and occasional shutdown crashes.
+	if "matplotlib.pyplot" in sys.modules:
+		return
+	try:
+		import matplotlib  # type: ignore[import-not-found]
+		use_backend = getattr(matplotlib, "use", None)
+		if callable(use_backend):
+			try:
+				use_backend("Agg", force=True)
+			except TypeError:
+				use_backend("Agg")
+	except Exception:
+		return
+
+
 def _write_json(path: Path, payload: dict) -> None:
 	path.parent.mkdir(parents=True, exist_ok=True)
 	path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -460,6 +477,433 @@ def _normalize_slay_kilosort_dir(*, sorter_output_dir: Path) -> Path:
 	return resolved
 
 
+def _extract_bombcell_label_mapping(labels_obj: Any) -> dict[str, str]:
+	out: dict[str, str] = {}
+	if labels_obj is None:
+		return out
+
+	iterrows = getattr(labels_obj, "iterrows", None)
+	if callable(iterrows):
+		for raw_idx, raw_row in iterrows():
+			unit_id = _normalize_cluster_id(raw_idx)
+			if not unit_id:
+				continue
+			label: str | None = None
+			if isinstance(raw_row, dict):
+				label_raw = raw_row.get("label", None)
+				if label_raw is None and len(raw_row) == 1:
+					label_raw = next(iter(raw_row.values()))
+				label = str(label_raw).strip() if label_raw is not None else None
+			else:
+				try:
+					label_raw = raw_row["label"]
+				except Exception:
+					label_raw = None
+				if label_raw is None:
+					to_dict = getattr(raw_row, "to_dict", None)
+					if callable(to_dict):
+						try:
+							row_dict = to_dict()
+						except Exception:
+							row_dict = {}
+						if isinstance(row_dict, dict):
+							label_raw = row_dict.get("label", None)
+				label = str(label_raw).strip() if label_raw is not None else None
+			if label:
+				out[unit_id] = label
+		return out
+
+	if isinstance(labels_obj, dict):
+		for raw_unit_id, raw_label in labels_obj.items():
+			unit_id = _normalize_cluster_id(raw_unit_id)
+			if not unit_id:
+				continue
+			label = str(raw_label).strip() if raw_label is not None else ""
+			if label:
+				out[unit_id] = label
+		return out
+
+	return out
+
+
+def _read_kilosort_cluster_labels_tsv(*, path: Path, default_label_column: str) -> tuple[dict[str, str], str]:
+	if not path.exists():
+		return {}, str(default_label_column)
+
+	try:
+		lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+	except Exception:
+		return {}, str(default_label_column)
+
+	if not lines:
+		return {}, str(default_label_column)
+
+	header_tokens = lines[0].split()
+	if len(header_tokens) < 2:
+		return {}, str(default_label_column)
+
+	cluster_col_idx = 0
+	label_col_idx = 1
+	for idx, token in enumerate(header_tokens):
+		normalized = str(token).strip().lower()
+		if normalized in {"cluster_id", "clusterid", "id"}:
+			cluster_col_idx = idx
+			break
+
+	for idx, token in enumerate(header_tokens):
+		if idx == cluster_col_idx:
+			continue
+		label_col_idx = idx
+		break
+
+	label_column = str(header_tokens[label_col_idx]).strip() or str(default_label_column)
+	out: dict[str, str] = {}
+	for raw_line in lines[1:]:
+		parts = raw_line.split()
+		if len(parts) <= max(cluster_col_idx, label_col_idx):
+			continue
+		unit_id = _normalize_cluster_id(parts[cluster_col_idx])
+		if not unit_id:
+			continue
+		label = str(parts[label_col_idx]).strip()
+		if not label:
+			continue
+		out[unit_id] = label
+
+	return out, label_column
+
+
+def _write_kilosort_cluster_labels_tsv(*, path: Path, label_column: str, labels_by_unit: dict[str, str]) -> None:
+	path.parent.mkdir(parents=True, exist_ok=True)
+	with path.open("w", encoding="utf-8", newline="") as f:
+		f.write(f"cluster_id\t{str(label_column).strip() or 'label'}\n")
+		for unit_id in sorted(labels_by_unit.keys(), key=_unit_sort_key):
+			label = str(labels_by_unit.get(unit_id, "")).strip()
+			if not label:
+				continue
+			f.write(f"{unit_id}\t{label}\n")
+
+
+def _apply_bombcell_labels_to_kilosort_outputs(
+	*,
+	ks_dir: Path,
+	bombcell_labels_by_unit: dict[str, str],
+	write_cluster_group: bool,
+) -> dict[str, Any]:
+	kslabel_path = (ks_dir / "cluster_KSLabel.tsv").resolve()
+	group_path = (ks_dir / "cluster_group.tsv").resolve()
+
+	existing_ks_labels, ks_label_col = _read_kilosort_cluster_labels_tsv(
+		path=kslabel_path,
+		default_label_column="KSLabel",
+	)
+	existing_group_labels, group_label_col = _read_kilosort_cluster_labels_tsv(
+		path=group_path,
+		default_label_column="group",
+	)
+
+	all_unit_ids: set[str] = set(_load_kilosort_unit_ids_from_spike_clusters(folder=ks_dir))
+	all_unit_ids.update(existing_ks_labels.keys())
+	all_unit_ids.update(existing_group_labels.keys())
+	all_unit_ids.update(bombcell_labels_by_unit.keys())
+
+	merged_labels_by_unit: dict[str, str] = {}
+	for unit_id in all_unit_ids:
+		label = bombcell_labels_by_unit.get(unit_id, None)
+		if label is None:
+			label = existing_ks_labels.get(unit_id, None)
+		if label is None:
+			label = existing_group_labels.get(unit_id, None)
+		if label is None:
+			label = "unsorted"
+		label_text = str(label).strip()
+		if label_text:
+			merged_labels_by_unit[unit_id] = label_text
+
+	_write_kilosort_cluster_labels_tsv(
+		path=kslabel_path,
+		label_column=ks_label_col,
+		labels_by_unit=merged_labels_by_unit,
+	)
+
+	if write_cluster_group:
+		_write_kilosort_cluster_labels_tsv(
+			path=group_path,
+			label_column=group_label_col,
+			labels_by_unit=merged_labels_by_unit,
+		)
+
+	return {
+		"ks_dir": str(ks_dir),
+		"cluster_kslabel_tsv": str(kslabel_path),
+		"cluster_group_tsv": (str(group_path) if write_cluster_group else None),
+		"n_units_written": int(len(merged_labels_by_unit)),
+	}
+
+
+def _ensure_bombcell_metric_extensions(analyzer: Any) -> list[str]:
+	computed_extensions: list[str] = []
+	has_extension = getattr(analyzer, "has_extension", None)
+	compute_extension = getattr(analyzer, "compute", None)
+	if not callable(compute_extension):
+		return computed_extensions
+
+	def _has(name: str) -> bool:
+		if not callable(has_extension):
+			return False
+		try:
+			return bool(has_extension(name))
+		except Exception:
+			return False
+
+	for extension_name in ("random_spikes", "waveforms", "templates", "template_metrics", "quality_metrics"):
+		if _has(extension_name):
+			continue
+		computed = False
+		for candidate in (extension_name, [extension_name]):
+			try:
+				compute_extension(candidate)
+			except Exception:
+				continue
+			computed = True
+			break
+		if computed:
+			computed_extensions.append(str(extension_name))
+
+	return computed_extensions
+
+
+def _run_bombcell_label_phase(
+	*,
+	well_out_dir: Path,
+	stage_output_root_dir: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	force_restart: bool,
+	sorter_output_dir: Path | None = None,
+) -> dict[str, Any]:
+	merge_output_rel_root = _compose_output_rel_root(
+		stage_output_rel_root=output_rel_root,
+		child_rel_root=getattr(stage_config, "merge_rel_output_root", None),
+	)
+	bombcell_out_dir = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=merge_output_rel_root,
+		relpath=str(getattr(stage_config, "bombcell_label_relpath", "bombcell_label_outputs")),
+	)
+	reports_enabled = bool(getattr(stage_config, "bombcell_label_reports_enabled", True))
+	reports_summary_json_enabled = bool(
+		getattr(stage_config, "bombcell_label_reports_summary_json_enabled", True)
+	)
+	reports_summary_json_relpath = str(
+		getattr(stage_config, "bombcell_label_reports_summary_json_relpath", "bombcell_label_summary.json")
+		or "bombcell_label_summary.json"
+	)
+	reports_summary_json_relpath = reports_summary_json_relpath.strip().lstrip("/") or "bombcell_label_summary.json"
+	summary_json: Path | None = None
+	if reports_enabled and reports_summary_json_enabled:
+		summary_json = (bombcell_out_dir / reports_summary_json_relpath).resolve()
+
+	delete_on_force_restart = bool(
+		getattr(stage_config, "bombcell_label_delete_outputs_on_force_restart", True)
+	)
+	removed_on_force_restart: list[str] = []
+	if bool(force_restart) and delete_on_force_restart and bombcell_out_dir.exists():
+		removed_on_force_restart.append(str(bombcell_out_dir))
+		shutil.rmtree(bombcell_out_dir, ignore_errors=True)
+	bombcell_out_dir.mkdir(parents=True, exist_ok=True)
+
+	enabled = bool(getattr(stage_config, "bombcell_label_enabled", False))
+	if not enabled:
+		payload = {
+			"status": "skipped",
+			"reason": "bombcell_label_disabled",
+			"well_out_dir": str(well_out_dir),
+			"stage_output_root_dir": str(stage_output_root_dir),
+			"bombcell_out_dir": str(bombcell_out_dir),
+			"force_restart": bool(force_restart),
+			"delete_outputs_on_force_restart": bool(delete_on_force_restart),
+			"removed_on_force_restart": list(removed_on_force_restart),
+		}
+		if summary_json is not None:
+			_write_json(summary_json, payload)
+		outputs: dict[str, str] = {}
+		if summary_json is not None:
+			outputs["bombcell_label.summary_json"] = str(summary_json)
+		return {
+			"name": "bombcell_label",
+			"status": "skipped",
+			"reason": "bombcell_label_disabled",
+			"out_dir": str(bombcell_out_dir),
+			"summary_json": (str(summary_json) if summary_json is not None else None),
+			"outputs": outputs,
+			"removed_on_force_restart": list(removed_on_force_restart),
+		}
+
+	resolved_sorter_output_dir = (
+		Path(sorter_output_dir).resolve()
+		if sorter_output_dir is not None
+		else _resolve_sorter_output_dir(
+			well_out_dir=well_out_dir,
+			output_rel_root=output_rel_root,
+			stage_config=stage_config,
+		)
+	)
+	ks_dir = _normalize_slay_kilosort_dir(sorter_output_dir=resolved_sorter_output_dir)
+
+	labels_payload_json = bombcell_out_dir / "bombcell_labels.json"
+	labels_payload_tsv = bombcell_out_dir / "bombcell_labels.tsv"
+
+	payload: dict[str, Any] = {
+		"status": "ok",
+		"reason": None,
+		"well_out_dir": str(well_out_dir),
+		"stage_output_root_dir": str(stage_output_root_dir),
+		"bombcell_out_dir": str(bombcell_out_dir),
+		"force_restart": bool(force_restart),
+		"delete_outputs_on_force_restart": bool(delete_on_force_restart),
+		"removed_on_force_restart": list(removed_on_force_restart),
+		"sorter_output_dir": str(resolved_sorter_output_dir),
+		"ks_dir": str(ks_dir),
+		"label_non_somatic": bool(getattr(stage_config, "bombcell_label_label_non_somatic", True)),
+		"split_non_somatic_good_mua": bool(
+			getattr(stage_config, "bombcell_label_split_non_somatic_good_mua", True)
+		),
+		"apply_to_sorter_output": bool(getattr(stage_config, "bombcell_label_apply_to_sorter_output", True)),
+		"write_cluster_group": bool(getattr(stage_config, "bombcell_label_write_cluster_group", True)),
+	}
+
+	try:
+		si_module = _import_spikeinterface_full_module()
+		analyzer, loaded_analyzer_dir, analyzer_rebuilt = _load_or_recompute_spikesort_analyzer(
+			si_module=si_module,
+			well_out_dir=well_out_dir,
+			stage_output_root_dir=stage_output_root_dir,
+			sorter_output_dir=resolved_sorter_output_dir,
+			stage_config=stage_config,
+		)
+		payload["analyzer_dir"] = str(loaded_analyzer_dir)
+		payload["analyzer_rebuilt"] = bool(analyzer_rebuilt)
+
+		computed_extensions = _ensure_bombcell_metric_extensions(analyzer=analyzer)
+		if computed_extensions:
+			payload["computed_extensions"] = list(computed_extensions)
+
+		curation_module = importlib.import_module("spikeinterface.curation")
+		bombcell_label_units = getattr(curation_module, "bombcell_label_units", None)
+		if not callable(bombcell_label_units):
+			raise RuntimeError("spikeinterface.curation.bombcell_label_units_unavailable")
+
+		thresholds_arg: Any = None
+		thresholds_dict = getattr(stage_config, "bombcell_label_thresholds", None)
+		thresholds_path_raw = getattr(stage_config, "bombcell_label_thresholds_path", None)
+		if isinstance(thresholds_dict, dict):
+			thresholds_arg = dict(thresholds_dict)
+		elif thresholds_path_raw is not None:
+			thresholds_path = Path(str(thresholds_path_raw)).expanduser()
+			if thresholds_path.is_absolute():
+				thresholds_arg = str(thresholds_path)
+			else:
+				candidate = (bombcell_out_dir / thresholds_path).resolve()
+				thresholds_arg = str(candidate if candidate.exists() else thresholds_path)
+
+		labels_obj = bombcell_label_units(
+			sorting_analyzer=analyzer,
+			thresholds=thresholds_arg,
+			label_non_somatic=bool(getattr(stage_config, "bombcell_label_label_non_somatic", True)),
+			split_non_somatic_good_mua=bool(
+				getattr(stage_config, "bombcell_label_split_non_somatic_good_mua", True)
+			),
+			external_metrics=None,
+		)
+		labels_by_unit = _extract_bombcell_label_mapping(labels_obj)
+		if not labels_by_unit:
+			raise RuntimeError("bombcell_labels_empty")
+
+		counts_by_label: dict[str, int] = {}
+		for label in labels_by_unit.values():
+			counts_by_label[label] = int(counts_by_label.get(label, 0)) + 1
+
+		labels_payload: dict[str, Any] = {
+			"n_units_labeled": int(len(labels_by_unit)),
+			"counts_by_label": dict(sorted(counts_by_label.items(), key=lambda kv: kv[0])),
+			"labels_by_unit": dict(sorted(labels_by_unit.items(), key=lambda kv: _unit_sort_key(kv[0]))),
+		}
+
+		_write_json(labels_payload_json, labels_payload)
+		_write_kilosort_cluster_labels_tsv(
+			path=labels_payload_tsv,
+			label_column="label",
+			labels_by_unit=labels_by_unit,
+		)
+
+		payload["n_units_labeled"] = int(len(labels_by_unit))
+		payload["counts_by_label"] = dict(labels_payload["counts_by_label"])
+		payload["labels_json"] = str(labels_payload_json)
+		payload["labels_tsv"] = str(labels_payload_tsv)
+
+		sorter_label_update: dict[str, Any] | None = None
+		if bool(getattr(stage_config, "bombcell_label_apply_to_sorter_output", True)):
+			sorter_label_update = _apply_bombcell_labels_to_kilosort_outputs(
+				ks_dir=ks_dir,
+				bombcell_labels_by_unit=labels_by_unit,
+				write_cluster_group=bool(getattr(stage_config, "bombcell_label_write_cluster_group", True)),
+			)
+			payload["sorter_label_update"] = dict(sorter_label_update)
+
+		if summary_json is not None:
+			_write_json(summary_json, payload)
+
+		outputs: dict[str, str] = {
+			"bombcell_label.labels_json": str(labels_payload_json),
+			"bombcell_label.labels_tsv": str(labels_payload_tsv),
+		}
+		if summary_json is not None:
+			outputs["bombcell_label.summary_json"] = str(summary_json)
+		if isinstance(sorter_label_update, dict):
+			cluster_kslabel_tsv = sorter_label_update.get("cluster_kslabel_tsv", None)
+			cluster_group_tsv = sorter_label_update.get("cluster_group_tsv", None)
+			if cluster_kslabel_tsv:
+				outputs["bombcell_label.cluster_kslabel_tsv"] = str(cluster_kslabel_tsv)
+			if cluster_group_tsv:
+				outputs["bombcell_label.cluster_group_tsv"] = str(cluster_group_tsv)
+
+		return {
+			"name": "bombcell_label",
+			"status": "ok",
+			"reason": None,
+			"out_dir": str(bombcell_out_dir),
+			"summary_json": (str(summary_json) if summary_json is not None else None),
+			"outputs": outputs,
+			"sorter_output_dir": str(resolved_sorter_output_dir),
+			"ks_dir": str(ks_dir),
+			"n_units_labeled": int(len(labels_by_unit)),
+			"counts_by_label": dict(payload.get("counts_by_label", {})),
+			"removed_on_force_restart": list(removed_on_force_restart),
+		}
+	except Exception as exc:
+		payload["status"] = "error"
+		payload["reason"] = "bombcell_label_failed"
+		payload["error"] = f"bombcell_label_failed:{type(exc).__name__}:{exc}"
+		if summary_json is not None:
+			_write_json(summary_json, payload)
+		outputs: dict[str, str] = {}
+		if summary_json is not None:
+			outputs["bombcell_label.summary_json"] = str(summary_json)
+		return {
+			"name": "bombcell_label",
+			"status": "error",
+			"reason": "bombcell_label_failed",
+			"error": str(payload["error"]),
+			"out_dir": str(bombcell_out_dir),
+			"summary_json": (str(summary_json) if summary_json is not None else None),
+			"outputs": outputs,
+			"sorter_output_dir": str(resolved_sorter_output_dir),
+			"ks_dir": str(ks_dir),
+			"removed_on_force_restart": list(removed_on_force_restart),
+		}
+
+
 def _assert_method_uses_canonical_sorter_output(
 	*,
 	method_name: str,
@@ -706,6 +1150,23 @@ def _recompute_spikesort_analyzer(
 	sorter_output_dir: Path,
 	stage_config: Any,
 ) -> tuple[Any, Path]:
+	return _recompute_sorting_analyzer_to_dir(
+		si_module=si_module,
+		well_out_dir=well_out_dir,
+		sorter_output_dir=sorter_output_dir,
+		stage_config=stage_config,
+		analyzer_dir=(stage_output_root_dir / "analyzer_output").resolve(),
+	)
+
+
+def _recompute_sorting_analyzer_to_dir(
+	*,
+	si_module: Any,
+	well_out_dir: Path,
+	sorter_output_dir: Path,
+	stage_config: Any,
+	analyzer_dir: Path,
+) -> tuple[Any, Path]:
 	recording_relpath = str(
 		getattr(stage_config, "preprocess_concat_recording_relpath", None)
 		or "preprocess_outputs/preprocessed_recording"
@@ -718,7 +1179,7 @@ def _recompute_spikesort_analyzer(
 		sorter_name=str(getattr(stage_config, "sorter", "kilosort4") or "kilosort4"),
 	)
 
-	analyzer_dir = (stage_output_root_dir / "analyzer_output").resolve()
+	analyzer_dir = Path(analyzer_dir).resolve()
 	if analyzer_dir.exists():
 		shutil.rmtree(analyzer_dir, ignore_errors=True)
 
@@ -1082,6 +1543,7 @@ def _capture_merge_state_snapshot(
 	output_rel_root: str,
 	stage_config: Any,
 	sorter_output_dir: Path | None = None,
+	analyzer_source_dir: Path | None = None,
 	capture_label: str,
 	include_unit_locations: bool,
 	allow_analyzer_recompute: bool,
@@ -1094,7 +1556,11 @@ def _capture_merge_state_snapshot(
 		)
 	else:
 		sorter_output_dir = Path(sorter_output_dir).resolve()
-	analyzer_dir = (stage_output_root_dir / "analyzer_output").resolve()
+	analyzer_dir = (
+		Path(analyzer_source_dir).resolve()
+		if analyzer_source_dir is not None
+		else (stage_output_root_dir / "analyzer_output").resolve()
+	)
 
 	snapshot: dict[str, Any] = {
 		"label": str(capture_label),
@@ -1146,7 +1612,7 @@ def _capture_merge_state_snapshot(
 		sorter_load_error = f"sorter_snapshot_failed:{type(exc).__name__}:{exc}"
 
 	analyzer_obj: Any | None = None
-	if allow_analyzer_recompute:
+	if allow_analyzer_recompute and (analyzer_source_dir is None):
 		try:
 			analyzer_obj, loaded_analyzer_dir, analyzer_rebuilt = _load_or_recompute_spikesort_analyzer(
 				si_module=si_module,
@@ -1164,6 +1630,19 @@ def _capture_merge_state_snapshot(
 		if analyzer_dir.exists() and callable(load_sorting_analyzer):
 			try:
 				analyzer_obj = load_sorting_analyzer(analyzer_dir)
+			except Exception as exc:
+				snapshot["analyzer"]["load_error"] = f"analyzer_snapshot_failed:{type(exc).__name__}:{exc}"
+		elif allow_analyzer_recompute and (analyzer_source_dir is not None):
+			try:
+				analyzer_obj, rebuilt_dir = _recompute_sorting_analyzer_to_dir(
+					si_module=si_module,
+					well_out_dir=well_out_dir,
+					sorter_output_dir=sorter_output_dir,
+					stage_config=stage_config,
+					analyzer_dir=analyzer_dir,
+				)
+				snapshot["analyzer"]["source_dir"] = str(rebuilt_dir)
+				snapshot["analyzer"]["rebuilt"] = True
 			except Exception as exc:
 				snapshot["analyzer"]["load_error"] = f"analyzer_snapshot_failed:{type(exc).__name__}:{exc}"
 		else:
@@ -1533,35 +2012,7 @@ def _extract_applied_unit_mappings_for_report(*, merge_metadata_payload: dict[st
 			else:
 				mapping["post_unit_id"] = None
 			mappings.append(mapping)
-	if mappings:
 		return mappings
-
-	operations_raw = merge_metadata_payload.get("applied_merge_operations", [])
-	if not isinstance(operations_raw, list):
-		return []
-
-	fallback_mappings: list[dict[str, Any]] = []
-	for idx, op in enumerate(operations_raw, start=1):
-		if not isinstance(op, dict):
-			continue
-		pre_unit_ids = _normalize_unit_id_list(op.get("pre_unit_ids", []))
-		if not pre_unit_ids:
-			continue
-		post_unit_id_raw = op.get("post_unit_id", op.get("post_unit_id_hint", None))
-		post_unit_id: str | None = None
-		if post_unit_id_raw is not None and str(post_unit_id_raw).strip():
-			post_unit_id = _normalize_cluster_id(post_unit_id_raw)
-		fallback_mappings.append(
-			{
-				"method": str(op.get("method", "unknown")),
-				"group_id": str(op.get("group_id", f"group_{int(idx):03d}")),
-				"iteration": op.get("iteration", None),
-				"template_diff_thresh": op.get("template_diff_thresh", None),
-				"pre_unit_ids": pre_unit_ids,
-				"post_unit_id": post_unit_id,
-			}
-		)
-	return fallback_mappings
 
 
 def _build_merge_unit_diff_report_payload(
@@ -1586,11 +2037,7 @@ def _build_merge_unit_diff_report_payload(
 		"after": after,
 		"applied_merge_operations": operations,
 		"applied_merge_group_count": int(len(operations)),
-		"applied_unit_mappings": _extract_applied_unit_mappings_for_report(
-			merge_metadata_payload={
-				"applied_merge_operations": operations,
-			}
-		),
+		"applied_unit_mappings": [],
 		"change_validation": {},
 		"delta": {},
 		"methods": [dict(report) for report in method_reports if isinstance(report, dict)],
@@ -1664,8 +2111,8 @@ def _build_unit_diff_map_payload(*, unit_diff_payload: dict[str, Any]) -> dict[s
 		op_iter = op.get("iteration", None)
 		if mapping_iter is not None and op_iter is not None and mapping_iter != op_iter:
 			return False
-		mapping_pre = _normalize_unit_id_list(mapping.get("pre_unit_ids", []))
-		op_pre = _normalize_unit_id_list(op.get("pre_unit_ids", []))
+		mapping_pre = set(_normalize_unit_id_list(mapping.get("pre_unit_ids", [])))
+		op_pre = set(_normalize_unit_id_list(op.get("pre_unit_ids", [])))
 		if mapping_pre and op_pre and mapping_pre != op_pre:
 			return False
 		return True
@@ -1681,13 +2128,43 @@ def _build_unit_diff_map_payload(*, unit_diff_payload: dict[str, Any]) -> dict[s
 		hint_post_uid = _normalize_cluster_id(op.get("post_unit_id", op.get("post_unit_id_hint", None)))
 
 		selected_mapping: dict[str, Any] | None = None
+		selected_mapping_idx: int | None = None
+		selected_score: int | None = None
+		op_pre_set = set(op_pre_ids)
+		op_group_raw = str(op.get("group_id", "")).strip()
+		op_iter_raw = op.get("iteration", None)
 		for map_idx, mapping in enumerate(mappings):
 			if map_idx in used_mapping_idx:
 				continue
 			if _op_match(mapping, op):
-				selected_mapping = mapping
-				used_mapping_idx.add(map_idx)
-				break
+				score = 0
+				mapping_pre_set = set(_normalize_unit_id_list(mapping.get("pre_unit_ids", [])))
+				if mapping_pre_set and op_pre_set and mapping_pre_set == op_pre_set:
+					score += 4
+				mapping_group_raw = str(mapping.get("group_id", "")).strip()
+				if mapping_group_raw and op_group_raw and mapping_group_raw == op_group_raw:
+					score += 2
+				mapping_iter_raw = mapping.get("iteration", None)
+				if (
+					mapping_iter_raw is not None
+					and op_iter_raw is not None
+					and mapping_iter_raw == op_iter_raw
+				):
+					score += 1
+				if _normalize_cluster_id(mapping.get("post_unit_id", None)) is not None:
+					score += 1
+
+				if (
+					selected_score is None
+					or score > selected_score
+					or (score == selected_score and (selected_mapping_idx is None or map_idx < selected_mapping_idx))
+				):
+					selected_mapping = mapping
+					selected_mapping_idx = int(map_idx)
+					selected_score = int(score)
+
+		if selected_mapping_idx is not None:
+			used_mapping_idx.add(int(selected_mapping_idx))
 
 		resolved_post_uid = _normalize_cluster_id(
 			(
@@ -2100,6 +2577,762 @@ def _resolve_report_image_path(*, out_dir: Path, relpath: str, format_name: str)
 	return path
 
 
+def _safe_file_token(raw: Any) -> str:
+	token = str(raw or "").strip()
+	if not token:
+		return "unknown"
+	out_chars: list[str] = []
+	for ch in token:
+		if ch.isalnum() or ch in ("-", "_"):
+			out_chars.append(ch)
+		else:
+			out_chars.append("_")
+	out = "".join(out_chars).strip("_")
+	return (out or "unknown")
+
+
+def _load_sorting_analyzer_from_snapshot(*, si_module: Any, snapshot: dict[str, Any]) -> tuple[Any | None, str | None]:
+	load_sorting_analyzer = getattr(si_module, "load_sorting_analyzer", None)
+	if not callable(load_sorting_analyzer):
+		return None, "load_sorting_analyzer_api_unavailable"
+
+	analyzer_raw = snapshot.get("analyzer", {})
+	analyzer_payload = (analyzer_raw if isinstance(analyzer_raw, dict) else {})
+	source_dir_raw = analyzer_payload.get("source_dir", None)
+	if source_dir_raw is None:
+		return None, "analyzer_source_dir_missing"
+
+	source_dir = Path(str(source_dir_raw)).resolve()
+	if not source_dir.exists():
+		return None, f"analyzer_source_dir_missing:{source_dir}"
+
+	try:
+		return load_sorting_analyzer(source_dir), None
+	except Exception as exc:
+		return None, f"load_sorting_analyzer_failed:{type(exc).__name__}:{exc}"
+
+
+def _extract_template_and_locations_for_unit(*, analyzer: Any, unit_id: str) -> tuple[Any | None, Any | None, str | None]:
+	import numpy as np  # type: ignore[import-not-found]
+
+	has_extension = getattr(analyzer, "has_extension", None)
+	compute_extension = getattr(analyzer, "compute", None)
+	get_extension = getattr(analyzer, "get_extension", None)
+	if not callable(has_extension) or not callable(get_extension):
+		return None, None, "analyzer_extension_api_unavailable"
+
+	try:
+		has_templates = bool(has_extension("templates"))
+	except Exception:
+		has_templates = False
+
+	if (not has_templates) and callable(compute_extension):
+		for candidate in ("templates", ["templates"]):
+			try:
+				compute_extension(candidate)
+				if bool(has_extension("templates")):
+					has_templates = True
+					break
+			except Exception:
+				continue
+
+	if not has_templates:
+		return None, None, "templates_extension_missing"
+
+	try:
+		templates_ext = get_extension("templates")
+	except Exception as exc:
+		return None, None, f"templates_extension_load_failed:{type(exc).__name__}:{exc}"
+
+	template_arr: Any | None = None
+	get_unit_template = getattr(templates_ext, "get_unit_template", None)
+	unit_ids = _unit_ids_from_obj(analyzer)
+	canonical_unit_id: Any | None = None
+	for uid in unit_ids:
+		if uid == unit_id or str(uid) == str(unit_id):
+			canonical_unit_id = uid
+			break
+	if canonical_unit_id is None:
+		return None, None, "unit_id_not_found_in_templates"
+
+	if not callable(get_unit_template):
+		return None, None, "templates_get_unit_template_api_unavailable"
+
+	def _unit_id_forms(raw_uid: Any) -> list[Any]:
+		forms: list[Any] = []
+
+		def _add(value: Any) -> None:
+			for existing in forms:
+				if existing == value and type(existing) is type(value):
+					return
+			forms.append(value)
+
+		_add(raw_uid)
+		uid_text = str(raw_uid)
+		try:
+			_add(int(uid_text))
+		except Exception:
+			pass
+		return forms
+
+	template_load_errors: list[str] = []
+	for candidate_unit_id in _unit_id_forms(canonical_unit_id):
+		try:
+			template_arr = np.asarray(get_unit_template(unit_id=candidate_unit_id), dtype=float)
+			if template_arr is not None:
+				break
+		except Exception as exc:
+			template_load_errors.append(
+				f"{repr(candidate_unit_id)}:{type(exc).__name__}:{exc}"
+			)
+
+	if template_arr is None:
+		if template_load_errors:
+			return None, None, "unit_template_load_failed:" + " | ".join(template_load_errors)
+		return None, None, "unit_template_load_failed:unknown_error"
+
+	if template_arr is None:
+		return None, None, "unit_template_unavailable"
+
+	if template_arr.ndim != 2:
+		return None, None, "unit_template_not_2d"
+
+	recording = getattr(analyzer, "recording", None)
+	if recording is None:
+		get_recording = getattr(analyzer, "get_recording", None)
+		if callable(get_recording):
+			try:
+				recording = get_recording()
+			except Exception:
+				recording = None
+	if recording is None:
+		return None, None, "analyzer_recording_unavailable"
+
+	get_channel_locations = getattr(recording, "get_channel_locations", None)
+	if not callable(get_channel_locations):
+		return None, None, "recording_channel_locations_api_unavailable"
+
+	try:
+		locations = np.asarray(get_channel_locations(), dtype=float)
+	except Exception as exc:
+		return None, None, f"channel_locations_load_failed:{type(exc).__name__}:{exc}"
+
+	if locations.ndim != 2 or locations.shape[1] < 2:
+		return None, None, "channel_locations_not_2d"
+
+	if template_arr.shape[0] != locations.shape[0]:
+		sparsity = getattr(analyzer, "sparsity", None)
+		indices: Any | None = None
+		lookup_unit_id = canonical_unit_id if canonical_unit_id is not None else unit_id
+		lookup_forms = _unit_id_forms(lookup_unit_id)
+		if sparsity is not None:
+			mapping = getattr(sparsity, "unit_id_to_channel_indices", None)
+			if callable(mapping):
+				for candidate_lookup in lookup_forms:
+					try:
+						indices = mapping(candidate_lookup)
+						if indices is not None:
+							break
+					except Exception:
+						continue
+			elif isinstance(mapping, dict):
+				for candidate_lookup in lookup_forms:
+					if candidate_lookup in mapping:
+						indices = mapping.get(candidate_lookup)
+						break
+					candidate_lookup_text = str(candidate_lookup)
+					if candidate_lookup_text in mapping:
+						indices = mapping.get(candidate_lookup_text)
+						break
+			if indices is None:
+				for name in ("get_channel_indices", "get_channel_indices_for_unit"):
+					fn = getattr(sparsity, name, None)
+					if callable(fn):
+						for candidate_lookup in lookup_forms:
+							try:
+								indices = fn(candidate_lookup)
+								if indices is not None:
+									break
+							except Exception:
+								continue
+						if indices is not None:
+							break
+
+		if indices is not None:
+			try:
+				idx = np.asarray(indices, dtype=int)
+				if idx.ndim == 1 and template_arr.shape[0] == idx.shape[0]:
+					locations = locations[idx, :]
+			except Exception:
+				pass
+
+	if template_arr.shape[0] != locations.shape[0] and template_arr.shape[1] == locations.shape[0]:
+		template_arr = np.asarray(template_arr.T, dtype=float)
+
+	if template_arr.shape[0] != locations.shape[0]:
+		return None, None, "template_channel_count_mismatch"
+
+	return np.asarray(template_arr, dtype=float), np.asarray(locations[:, :2], dtype=float), None
+
+
+def _write_template_amplitude_heatmap_asset(
+	*,
+	template_ch_by_t: Any,
+	locations_xy: Any,
+	out_path: Path,
+	title: str,
+	cmap: str,
+	marker_size: float,
+	show_colorbar: bool,
+	color_vmin: float | None = None,
+	color_vmax: float | None = None,
+	color_scale_mode: str = "linear",
+	log_epsilon: float = 1e-3,
+) -> tuple[bool, str | None]:
+	_prepare_matplotlib_for_headless_rendering()
+	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+	from matplotlib import colors as mcolors  # type: ignore[import-not-found]
+	import numpy as np  # type: ignore[import-not-found]
+
+	tmpl = np.asarray(template_ch_by_t, dtype=float)
+	locs = np.asarray(locations_xy, dtype=float)
+	if tmpl.ndim != 2:
+		return False, "template_not_2d"
+	if locs.ndim != 2 or locs.shape[1] < 2:
+		return False, "locations_not_2d"
+	if tmpl.shape[0] != locs.shape[0]:
+		return False, "template_location_shape_mismatch"
+
+	amp = np.ptp(tmpl, axis=1)
+	if amp.size == 0:
+		return False, "template_empty"
+
+	vmin: float | None = None
+	vmax: float | None = None
+	norm: Any | None = None
+	try:
+		if color_vmin is not None and color_vmax is not None:
+			vmin_candidate = float(color_vmin)
+			vmax_candidate = float(color_vmax)
+			if math.isfinite(vmin_candidate) and math.isfinite(vmax_candidate) and (vmax_candidate > vmin_candidate):
+				vmin = vmin_candidate
+				vmax = vmax_candidate
+	except Exception:
+		vmin = None
+		vmax = None
+
+	mode = str(color_scale_mode or "linear").strip().lower()
+	if mode in {"log10", "logarithmic"}:
+		mode = "log"
+	if mode not in {"linear", "log"}:
+		mode = "linear"
+
+	if mode == "log":
+		try:
+			eps = float(log_epsilon)
+		except Exception:
+			eps = 1e-3
+		if (not math.isfinite(eps)) or eps <= 0.0:
+			eps = 1e-3
+
+		positive_amp = amp[np.isfinite(amp) & (amp > 0.0)]
+		if positive_amp.size <= 0:
+			return False, "template_amp_nonpositive_for_log_scale"
+
+		positive_min = float(np.nanmin(positive_amp))
+		positive_max = float(np.nanmax(positive_amp))
+		if not (math.isfinite(positive_min) and math.isfinite(positive_max) and positive_max > 0.0):
+			return False, "template_amp_invalid_for_log_scale"
+
+		if vmin is None or vmax is None:
+			vmin = max(eps, positive_min)
+			vmax = max(vmin * (1.0 + 1e-6), positive_max)
+		else:
+			vmin = max(eps, vmin)
+			vmax = max(vmin * (1.0 + 1e-6), vmax)
+
+		norm = mcolors.LogNorm(vmin=vmin, vmax=vmax)
+
+	fig, ax = plt.subplots(1, 1, figsize=(4.2, 4.0), constrained_layout=True)
+	try:
+		scatter_kwargs = {
+			"c": amp,
+			"cmap": str(cmap),
+			"s": float(max(0.1, float(marker_size))),
+			"alpha": 0.95,
+		}
+		if norm is not None:
+			scatter_kwargs["norm"] = norm
+		else:
+			scatter_kwargs["vmin"] = vmin
+			scatter_kwargs["vmax"] = vmax
+
+		sc = ax.scatter(
+			locs[:, 0],
+			locs[:, 1],
+			**scatter_kwargs,
+		)
+		ax.set_title(str(title))
+		ax.set_xlabel("x_um")
+		ax.set_ylabel("y_um")
+		ax.invert_yaxis()
+		ax.set_aspect("equal", adjustable="box")
+		ax.grid(True, alpha=0.2)
+		if bool(show_colorbar):
+			fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04)
+
+		out_path.parent.mkdir(parents=True, exist_ok=True)
+		fig.savefig(out_path, dpi=220)
+		return True, None
+	except Exception as exc:
+		return False, f"template_amp_render_failed:{type(exc).__name__}:{exc}"
+	finally:
+		plt.close(fig)
+
+
+def _stack_rendered_images_vertically(*, image_paths: list[Path]) -> tuple[Any | None, str | None]:
+	_prepare_matplotlib_for_headless_rendering()
+	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+	import numpy as np  # type: ignore[import-not-found]
+
+	if not image_paths:
+		return None, "no_images"
+
+	images: list[Any] = []
+	for path in image_paths:
+		if not path.exists():
+			continue
+		try:
+			img = np.asarray(plt.imread(path))
+		except Exception:
+			continue
+		if img.ndim == 2:
+			img = np.repeat(img[:, :, None], 3, axis=2)
+		elif img.ndim == 3 and img.shape[2] == 1:
+			img = np.repeat(img, 3, axis=2)
+		elif img.ndim != 3:
+			continue
+		images.append(np.asarray(img, dtype=float))
+
+	if not images:
+		return None, "images_unreadable"
+
+	max_width = max(int(img.shape[1]) for img in images)
+	max_channels = max(int(img.shape[2]) for img in images)
+	if max_channels <= 0:
+		max_channels = 3
+
+	separator_h = 10
+	separator = np.ones((separator_h, max_width, max_channels), dtype=float)
+
+	padded: list[Any] = []
+	for img in images:
+		arr = np.asarray(img, dtype=float)
+		if arr.shape[2] < max_channels:
+			pad_c = np.ones((arr.shape[0], arr.shape[1], max_channels - arr.shape[2]), dtype=float)
+			arr = np.concatenate([arr, pad_c], axis=2)
+		if arr.shape[1] < max_width:
+			pad_w = np.ones((arr.shape[0], max_width - arr.shape[1], arr.shape[2]), dtype=float)
+			arr = np.concatenate([arr, pad_w], axis=1)
+		padded.append(arr)
+
+	stacked = padded[0]
+	for arr in padded[1:]:
+		stacked = np.concatenate([stacked, separator, arr], axis=0)
+	return stacked, None
+
+
+def _write_merge_template_heatmap_reports(
+	*,
+	merge_out_dir: Path,
+	before_snapshot: dict[str, Any],
+	after_snapshot: dict[str, Any],
+	applied_unit_mappings: list[dict[str, Any]] | None,
+	stage_config: Any,
+) -> dict[str, Any]:
+	_prepare_matplotlib_for_headless_rendering()
+	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+	import numpy as np  # type: ignore[import-not-found]
+
+	if not isinstance(applied_unit_mappings, list) or not applied_unit_mappings:
+		return {
+			"status": "skipped",
+			"reason": "template_heatmaps_no_applied_unit_mappings",
+			"outputs": {},
+		}
+
+	report_relpath = str(
+		getattr(stage_config, "merge_reports_template_heatmaps_relpath", "template_heatmaps_per_merge")
+		or "template_heatmaps_per_merge"
+	).strip().lstrip("/") or "template_heatmaps_per_merge"
+	assets_reldir = str(
+		getattr(stage_config, "merge_reports_template_heatmaps_assets_reldir", "assets") or "assets"
+	).strip().lstrip("/") or "assets"
+	report_root_dir = (merge_out_dir / report_relpath).resolve()
+	assets_root_dir = (report_root_dir / assets_reldir).resolve()
+
+	write_png = bool(getattr(stage_config, "merge_reports_template_heatmaps_write_png", True))
+	write_svg = bool(getattr(stage_config, "merge_reports_template_heatmaps_write_svg", False))
+	write_assets_png = bool(getattr(stage_config, "merge_reports_template_heatmaps_write_assets_png", True))
+	write_assets_svg = bool(getattr(stage_config, "merge_reports_template_heatmaps_write_assets_svg", False))
+
+	# Panel composition uses rendered raster assets, so keep PNG assets enabled whenever panel output is requested.
+	write_assets_png = bool(write_assets_png or write_png or write_svg)
+
+	panel_width_in = float(getattr(stage_config, "merge_reports_template_heatmaps_panel_width_in", 11.0) or 11.0)
+	panel_height_in = float(getattr(stage_config, "merge_reports_template_heatmaps_panel_height_in", 6.0) or 6.0)
+	marker_size = float(getattr(stage_config, "merge_reports_template_heatmaps_marker_size", 10.0) or 10.0)
+	cmap = str(getattr(stage_config, "merge_reports_template_heatmaps_cmap", "viridis") or "viridis")
+	show_colorbar = bool(getattr(stage_config, "merge_reports_template_heatmaps_show_colorbar", True))
+	color_scale_mode_raw = str(
+		getattr(stage_config, "merge_reports_template_heatmaps_color_scale", "linear") or "linear"
+	)
+	color_scale_mode = color_scale_mode_raw.strip().lower()
+	if color_scale_mode in {"log10", "logarithmic"}:
+		color_scale_mode = "log"
+	if color_scale_mode not in {"linear", "log"}:
+		color_scale_mode = "linear"
+	try:
+		log_epsilon = float(getattr(stage_config, "merge_reports_template_heatmaps_log_epsilon", 1e-3) or 1e-3)
+	except Exception:
+		log_epsilon = 1e-3
+	if (not math.isfinite(log_epsilon)) or log_epsilon <= 0.0:
+		log_epsilon = 1e-3
+	max_merges_raw = getattr(stage_config, "merge_reports_template_heatmaps_max_merges", None)
+	debug_json_relpath = str(
+		getattr(
+			stage_config,
+			"merge_reports_template_heatmaps_debug_json_relpath",
+			"template_heatmaps_per_merge_report.json",
+		)
+		or "template_heatmaps_per_merge_report.json"
+	).strip().lstrip("/") or "template_heatmaps_per_merge_report.json"
+
+	max_merges: int | None
+	try:
+		max_merges = int(max_merges_raw) if max_merges_raw is not None else None
+		if max_merges is not None and max_merges <= 0:
+			max_merges = None
+	except Exception:
+		max_merges = None
+
+	try:
+		si_module = _import_spikeinterface_full_module()
+	except Exception as exc:
+		return {
+			"status": "error",
+			"error": f"template_heatmaps_spikeinterface_import_failed:{type(exc).__name__}:{exc}",
+			"outputs": {},
+		}
+
+	before_analyzer, before_error = _load_sorting_analyzer_from_snapshot(
+		si_module=si_module,
+		snapshot=before_snapshot,
+	)
+	after_analyzer, after_error = _load_sorting_analyzer_from_snapshot(
+		si_module=si_module,
+		snapshot=after_snapshot,
+	)
+	if before_analyzer is None or after_analyzer is None:
+		return {
+			"status": "error",
+			"error": "template_heatmaps_analyzer_load_failed",
+			"before_analyzer_error": before_error,
+			"after_analyzer_error": after_error,
+			"outputs": {},
+		}
+
+	# Strict mode by design: use only snapshot_before as pre-merge template source.
+	before_candidates: list[tuple[str, Any]] = [("snapshot_before", before_analyzer)]
+
+	required_pre_unit_ids: set[str] = set()
+	for mapping_raw in list(applied_unit_mappings or []):
+		mapping = (mapping_raw if isinstance(mapping_raw, dict) else {})
+		required_pre_unit_ids.update(_normalize_unit_id_list(mapping.get("pre_unit_ids", [])))
+
+	covered_pre_unit_ids: set[str] = set()
+	for _label, candidate_analyzer in before_candidates:
+		covered_pre_unit_ids.update(_normalize_unit_id_list(_unit_ids_from_obj(candidate_analyzer)))
+
+	missing_pre_unit_ids = sorted(
+		[uid for uid in required_pre_unit_ids if uid not in covered_pre_unit_ids],
+		key=_unit_sort_key,
+	)
+	# No retries from alternate sources; missing pre unit ids remain missing and are reported.
+
+	merge_rows: list[dict[str, Any]] = []
+	outputs: dict[str, str] = {}
+	processed = 0
+	for mapping_idx, mapping_raw in enumerate(applied_unit_mappings, start=1):
+		if max_merges is not None and processed >= max_merges:
+			break
+		mapping = (mapping_raw if isinstance(mapping_raw, dict) else {})
+		pre_unit_ids = _normalize_unit_id_list(mapping.get("pre_unit_ids", []))
+		post_unit_id = _normalize_cluster_id(mapping.get("post_unit_id", None))
+		if not pre_unit_ids:
+			continue
+
+		processed += 1
+		group_id_raw = str(mapping.get("group_id", f"group_{int(mapping_idx):03d}"))
+		group_token = _safe_file_token(group_id_raw)
+		row: dict[str, Any] = {
+			"mapping_index": int(mapping_idx),
+			"group_id": group_id_raw,
+			"method": str(mapping.get("method", "unknown")),
+			"pre_unit_ids": list(pre_unit_ids),
+			"post_unit_id": post_unit_id,
+			"pre_assets": [],
+			"post_asset": None,
+			"panel_outputs": {},
+		}
+
+		panel_base = f"merge_{int(mapping_idx):03d}__{group_token}"
+		pre_png_assets: list[Path] = []
+		pre_render_items: list[tuple[dict[str, Any], Any, Any, str]] = []
+
+		for pre_uid in pre_unit_ids:
+			template: Any | None = None
+			locations_xy: Any | None = None
+			template_error: str | None = None
+			template_source: str | None = None
+			candidate_errors: list[str] = []
+			for candidate_label, candidate_analyzer in before_candidates:
+				template, locations_xy, template_error = _extract_template_and_locations_for_unit(
+					analyzer=candidate_analyzer,
+					unit_id=str(pre_uid),
+				)
+				if template is not None and locations_xy is not None:
+					template_source = str(candidate_label)
+					break
+				candidate_errors.append(f"{candidate_label}:{template_error}")
+			asset_entry: dict[str, Any] = {
+				"unit_id": str(pre_uid),
+				"status": "error",
+				"error": (
+					" | ".join(candidate_errors)
+					if candidate_errors
+					else template_error
+				),
+			}
+			if template is not None and locations_xy is not None:
+				asset_entry["template_source"] = str(template_source or "snapshot_before")
+				pre_render_items.append((asset_entry, template, locations_xy, str(pre_uid)))
+
+			row["pre_assets"].append(asset_entry)
+
+		pre_color_vmin: float | None = None
+		pre_color_vmax: float | None = None
+		if pre_render_items:
+			pre_min_candidates: list[float] = []
+			pre_max_candidates: list[float] = []
+			for _asset_entry, template_arr, _locs, _uid in pre_render_items:
+				try:
+					amp = np.ptp(np.asarray(template_arr, dtype=float), axis=1)
+					if amp.size <= 0:
+						continue
+					if color_scale_mode == "log":
+						amp = amp[np.isfinite(amp) & (amp > 0.0)]
+						if amp.size <= 0:
+							continue
+					amp_min = float(np.nanmin(amp))
+					amp_max = float(np.nanmax(amp))
+					if math.isfinite(amp_min) and math.isfinite(amp_max):
+						pre_min_candidates.append(amp_min)
+						pre_max_candidates.append(amp_max)
+				except Exception:
+					continue
+			if pre_min_candidates and pre_max_candidates:
+				vmin_candidate = float(min(pre_min_candidates))
+				vmax_candidate = float(max(pre_max_candidates))
+				if math.isfinite(vmin_candidate) and math.isfinite(vmax_candidate) and (vmax_candidate > vmin_candidate):
+					pre_color_vmin = vmin_candidate
+					pre_color_vmax = vmax_candidate
+
+		row["pre_color_scale"] = {
+			"mode": "dynamic_per_merge_group",
+			"scale": str(color_scale_mode),
+			"log_epsilon": float(log_epsilon),
+			"vmin": pre_color_vmin,
+			"vmax": pre_color_vmax,
+		}
+
+		for asset_entry, template_arr, locations_xy, pre_uid in pre_render_items:
+			asset_rel_base = f"{panel_base}__pre_{_safe_file_token(pre_uid)}"
+			asset_png_path = (assets_root_dir / f"{asset_rel_base}.png").resolve()
+			asset_svg_path = (assets_root_dir / f"{asset_rel_base}.svg").resolve()
+
+			if write_assets_png:
+				ok, err = _write_template_amplitude_heatmap_asset(
+					template_ch_by_t=template_arr,
+					locations_xy=locations_xy,
+					out_path=asset_png_path,
+					title=f"Pre unit {pre_uid}",
+					cmap=cmap,
+					marker_size=marker_size,
+					show_colorbar=show_colorbar,
+					color_vmin=pre_color_vmin,
+					color_vmax=pre_color_vmax,
+					color_scale_mode=color_scale_mode,
+					log_epsilon=log_epsilon,
+				)
+				if ok:
+					asset_entry["png"] = str(asset_png_path)
+					pre_png_assets.append(asset_png_path)
+				else:
+					asset_entry["error"] = err
+
+			if write_assets_svg:
+				ok, err = _write_template_amplitude_heatmap_asset(
+					template_ch_by_t=template_arr,
+					locations_xy=locations_xy,
+					out_path=asset_svg_path,
+					title=f"Pre unit {pre_uid}",
+					cmap=cmap,
+					marker_size=marker_size,
+					show_colorbar=show_colorbar,
+					color_vmin=pre_color_vmin,
+					color_vmax=pre_color_vmax,
+					color_scale_mode=color_scale_mode,
+					log_epsilon=log_epsilon,
+				)
+				if ok:
+					asset_entry["svg"] = str(asset_svg_path)
+				else:
+					asset_entry["error_svg"] = err
+
+			if "png" in asset_entry or "svg" in asset_entry:
+				asset_entry["status"] = "ok"
+
+		post_png_asset: Path | None = None
+		if post_unit_id is not None:
+			template, locations_xy, template_error = _extract_template_and_locations_for_unit(
+				analyzer=after_analyzer,
+				unit_id=str(post_unit_id),
+			)
+			post_asset: dict[str, Any] = {
+				"unit_id": str(post_unit_id),
+				"status": "error",
+				"error": template_error,
+			}
+			if template is not None and locations_xy is not None:
+				asset_rel_base = f"{panel_base}__post_{_safe_file_token(post_unit_id)}"
+				asset_png_path = (assets_root_dir / f"{asset_rel_base}.png").resolve()
+				asset_svg_path = (assets_root_dir / f"{asset_rel_base}.svg").resolve()
+
+				if write_assets_png:
+					ok, err = _write_template_amplitude_heatmap_asset(
+						template_ch_by_t=template,
+						locations_xy=locations_xy,
+						out_path=asset_png_path,
+						title=f"Post unit {post_unit_id}",
+						cmap=cmap,
+						marker_size=marker_size,
+						show_colorbar=show_colorbar,
+						color_vmin=None,
+						color_vmax=None,
+						color_scale_mode=color_scale_mode,
+						log_epsilon=log_epsilon,
+					)
+					if ok:
+						post_asset["png"] = str(asset_png_path)
+						post_png_asset = asset_png_path
+					else:
+						post_asset["error"] = err
+
+				if write_assets_svg:
+					ok, err = _write_template_amplitude_heatmap_asset(
+						template_ch_by_t=template,
+						locations_xy=locations_xy,
+						out_path=asset_svg_path,
+						title=f"Post unit {post_unit_id}",
+						cmap=cmap,
+						marker_size=marker_size,
+						show_colorbar=show_colorbar,
+						color_vmin=None,
+						color_vmax=None,
+						color_scale_mode=color_scale_mode,
+						log_epsilon=log_epsilon,
+					)
+					if ok:
+						post_asset["svg"] = str(asset_svg_path)
+					else:
+						post_asset["error_svg"] = err
+
+				if "png" in post_asset or "svg" in post_asset:
+					post_asset["status"] = "ok"
+			row["post_asset"] = post_asset
+
+		if write_png or write_svg:
+			left_img, left_err = _stack_rendered_images_vertically(image_paths=pre_png_assets)
+			right_img, right_err = _stack_rendered_images_vertically(
+				image_paths=([post_png_asset] if post_png_asset is not None else [])
+			)
+
+			fig, axes = plt.subplots(
+				1,
+				2,
+				figsize=(float(panel_width_in), float(panel_height_in)),
+				constrained_layout=True,
+			)
+			axes[0].set_title(f"Pre-merge templates ({len(pre_unit_ids)})")
+			axes[1].set_title(f"Post-merge template ({post_unit_id if post_unit_id is not None else 'n/a'})")
+
+			if left_img is not None:
+				axes[0].imshow(left_img)
+				axes[0].axis("off")
+			else:
+				axes[0].text(0.5, 0.5, f"No pre assets\n{left_err}", ha="center", va="center", transform=axes[0].transAxes)
+				axes[0].axis("off")
+
+			if right_img is not None:
+				axes[1].imshow(right_img)
+				axes[1].axis("off")
+			else:
+				axes[1].text(0.5, 0.5, f"No post asset\n{right_err}", ha="center", va="center", transform=axes[1].transAxes)
+				axes[1].axis("off")
+
+			panel_rel_base = str((Path(report_relpath) / panel_base).as_posix())
+			for fmt, enabled in (("png", write_png), ("svg", write_svg)):
+				if not enabled:
+					continue
+				panel_out = _resolve_report_image_path(
+					out_dir=merge_out_dir,
+					relpath=f"{panel_rel_base}.{fmt}",
+					format_name=fmt,
+				)
+				panel_out.parent.mkdir(parents=True, exist_ok=True)
+				fig.savefig(panel_out, dpi=240)
+				row["panel_outputs"][fmt] = str(panel_out)
+				outputs[f"merge.report.template_heatmap_per_merge_{panel_base}_{fmt}"] = str(panel_out)
+			plt.close(fig)
+
+		merge_rows.append(row)
+
+	debug_json_path = (merge_out_dir / debug_json_relpath).resolve()
+	debug_payload = {
+		"status": "ok",
+		"n_mappings_requested": int(len(applied_unit_mappings)),
+		"n_mappings_processed": int(len(merge_rows)),
+		"pre_template_source_mode": "snapshot_before_only",
+		"report_relpath": str(report_relpath),
+		"assets_reldir": str(assets_reldir),
+		"color_scale": str(color_scale_mode),
+		"log_epsilon": float(log_epsilon),
+		"missing_pre_unit_ids": list(missing_pre_unit_ids),
+		"rows": merge_rows,
+	}
+	_write_json(debug_json_path, debug_payload)
+	outputs["merge.report.template_heatmaps_per_merge_debug_json"] = str(debug_json_path)
+
+	return {
+		"status": "ok",
+		"n_mappings_requested": int(len(applied_unit_mappings)),
+		"n_mappings_processed": int(len(merge_rows)),
+		"debug_json": str(debug_json_path),
+		"outputs": outputs,
+	}
+
+
 def _write_merge_unit_location_reports(
 	*,
 	merge_out_dir: Path,
@@ -2109,7 +3342,16 @@ def _write_merge_unit_location_reports(
 	stage_config: Any,
 ) -> dict[str, Any]:
 	try:
+		_prepare_matplotlib_for_headless_rendering()
 		import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+		try:
+			from matplotlib.lines import Line2D  # type: ignore[import-not-found]
+		except Exception:
+			Line2D = None
+		try:
+			from matplotlib import colors as mcolors  # type: ignore[import-not-found]
+		except Exception:
+			mcolors = None
 	except Exception as exc:
 		return {
 			"status": "error",
@@ -2137,9 +3379,94 @@ def _write_merge_unit_location_reports(
 	label_affected_units = bool(
 		getattr(stage_config, "merge_reports_2panel_highlight_label_affected_units", False)
 	)
+	highlight_show_legend = bool(
+		getattr(stage_config, "merge_reports_2panel_highlight_show_legend", False)
+	)
+	highlight_legend_position = str(
+		getattr(stage_config, "merge_reports_2panel_highlight_legend_position", "center left")
+		or "center left"
+	).strip() or "center left"
+	try:
+		highlight_legend_x = float(
+			getattr(stage_config, "merge_reports_2panel_highlight_legend_x", -0.2)
+		)
+	except Exception:
+		highlight_legend_x = -0.2
+	if not math.isfinite(highlight_legend_x):
+		highlight_legend_x = -0.2
+	try:
+		highlight_legend_y = float(
+			getattr(stage_config, "merge_reports_2panel_highlight_legend_y", 0.5)
+		)
+	except Exception:
+		highlight_legend_y = 0.5
+	if not math.isfinite(highlight_legend_y):
+		highlight_legend_y = 0.5
+	highlight_sort_pre_legend_by_groups = bool(
+		getattr(stage_config, "merge_reports_2panel_highlight_sort_pre_legend_by_groups", False)
+	)
+	highlight_debug_json_enabled = bool(
+		getattr(stage_config, "merge_reports_2panel_highlight_debug_json_enabled", True)
+	)
+	highlight_debug_json_relpath = str(
+		getattr(
+			stage_config,
+			"merge_reports_2panel_highlight_debug_json_relpath",
+			"unit_locations_highlight_linkage.json",
+		)
+		or "unit_locations_highlight_linkage.json"
+	).strip().lstrip("/") or "unit_locations_highlight_linkage.json"
 	highlight_before_color = str(getattr(stage_config, "merge_reports_2panel_highlight_before_color", "#ff7f0e") or "#ff7f0e")
 	highlight_after_color = str(getattr(stage_config, "merge_reports_2panel_highlight_after_color", "#2ca02c") or "#2ca02c")
 	highlight_palette = str(getattr(stage_config, "merge_reports_2panel_highlight_palette", "tab20") or "tab20")
+
+	def _to_rgba_tuple(raw_color: Any) -> tuple[float, float, float, float] | None:
+		if raw_color is None:
+			return None
+		if callable(getattr(mcolors, "to_rgba", None)):
+			try:
+				rgba = mcolors.to_rgba(raw_color)
+				return (float(rgba[0]), float(rgba[1]), float(rgba[2]), float(rgba[3]))
+			except Exception:
+				return None
+		if isinstance(raw_color, (list, tuple)) and len(raw_color) >= 3:
+			try:
+				r = float(raw_color[0])
+				g = float(raw_color[1])
+				b = float(raw_color[2])
+				a = float(raw_color[3]) if len(raw_color) > 3 else 1.0
+			except Exception:
+				return None
+			if not (math.isfinite(r) and math.isfinite(g) and math.isfinite(b) and math.isfinite(a)):
+				return None
+			return (r, g, b, a)
+		return None
+
+	def _is_grayish(raw_color: Any) -> bool:
+		rgba = _to_rgba_tuple(raw_color)
+		if rgba is None:
+			return False
+		r, g, b, _ = rgba
+		return bool(max(abs(r - g), abs(g - b), abs(r - b)) < 0.06)
+
+	def _sanitize_highlight_color(raw_color: Any, fallback_color: Any) -> Any:
+		if _is_grayish(raw_color):
+			return fallback_color
+		return raw_color
+
+	def _color_for_debug(raw_color: Any) -> str:
+		if callable(getattr(mcolors, "to_hex", None)):
+			try:
+				return str(mcolors.to_hex(raw_color, keep_alpha=True))
+			except Exception:
+				pass
+		rgba = _to_rgba_tuple(raw_color)
+		if rgba is not None:
+			return f"rgba({rgba[0]:.6f},{rgba[1]:.6f},{rgba[2]:.6f},{rgba[3]:.6f})"
+		return str(raw_color)
+
+	highlight_before_color = _sanitize_highlight_color(highlight_before_color, "#ff7f0e")
+	highlight_after_color = _sanitize_highlight_color(highlight_after_color, "#2ca02c")
 
 	before_unit_ids = set(str(uid) for uid in before_points.keys())
 	after_added_points = {
@@ -2151,9 +3478,21 @@ def _write_merge_unit_location_reports(
 
 	before_highlight_map: dict[str, Any] = {}
 	after_highlight_map: dict[str, Any] = {}
+	highlight_linkage_rows: list[dict[str, Any]] = []
 	after_highlighted_inferred_units = 0
 	if highlight_enabled and isinstance(applied_unit_mappings, list) and applied_unit_mappings:
 		used_after_unit_ids: set[str] = set()
+		linked_fallback_palette = [
+			"#e41a1c",
+			"#377eb8",
+			"#4daf4a",
+			"#ff7f00",
+			"#984ea3",
+			"#a65628",
+			"#f781bf",
+			"#d95f02",
+			"#1b9e77",
+		]
 
 		def _mapping_pre_locations(mapping: dict[str, Any], pre_unit_ids: list[str]) -> dict[str, Any]:
 			locations: dict[str, Any] = {}
@@ -2177,28 +3516,49 @@ def _write_merge_unit_location_reports(
 				cmap = plt.get_cmap("tab20")
 
 			n_mappings = max(1, int(len(applied_unit_mappings)))
-			linked_rows: list[tuple[dict[str, Any], list[str], Any]] = []
+			linked_rows: list[tuple[dict[str, Any], list[str], Any, dict[str, Any]]] = []
 			for idx, mapping_raw in enumerate(applied_unit_mappings):
 				mapping = (mapping_raw if isinstance(mapping_raw, dict) else {})
 				pre_ids = _normalize_unit_id_list(mapping.get("pre_unit_ids", []))
 				if not pre_ids:
 					continue
-				color = (cmap((float(idx) / float(max(1, n_mappings - 1)))) if n_mappings > 1 else cmap(0.0))
-				for uid in pre_ids:
-					before_highlight_map[uid] = color
+				raw_color = (cmap((float(idx) / float(max(1, n_mappings - 1)))) if n_mappings > 1 else cmap(0.0))
+				color = _sanitize_highlight_color(
+					raw_color,
+					linked_fallback_palette[int(idx) % int(len(linked_fallback_palette))],
+				)
 
 				post_uid_raw = mapping.get("post_unit_id", None)
 				post_uid: str | None = None
 				if post_uid_raw is not None and str(post_uid_raw).strip():
 					post_uid = _normalize_cluster_id(post_uid_raw)
+				if post_uid is not None and post_uid in after_highlight_map:
+					color = after_highlight_map[post_uid]
+				for uid in pre_ids:
+					before_highlight_map[uid] = color
 
-				if post_uid is not None and post_uid in eligible_after_points:
+				linkage_row: dict[str, Any] = {
+					"mapping_index": int(idx),
+					"group_id": str(mapping.get("group_id", f"group_{int(idx + 1):03d}")),
+					"method": str(mapping.get("method", "unknown")),
+					"pre_unit_ids": list(pre_ids),
+					"requested_post_unit_id": post_uid,
+					"resolved_post_unit_id": None,
+					"resolution": "unresolved",
+					"linked_highlight": True,
+					"color": _color_for_debug(color),
+				}
+
+				if post_uid is not None and post_uid in after_points:
 					after_highlight_map[post_uid] = color
 					used_after_unit_ids.add(post_uid)
+					linkage_row["resolved_post_unit_id"] = str(post_uid)
+					linkage_row["resolution"] = "requested_post_unit_id"
+					highlight_linkage_rows.append(linkage_row)
 				else:
-					linked_rows.append((mapping, pre_ids, color))
+					linked_rows.append((mapping, pre_ids, color, linkage_row))
 
-			for mapping, pre_ids, color in linked_rows:
+			for mapping, pre_ids, color, linkage_row in linked_rows:
 				pre_locations = _mapping_pre_locations(mapping, pre_ids)
 				inferred_post_uid, _inferred_distance = _infer_post_unit_id_from_locations(
 					pre_unit_ids=pre_ids,
@@ -2211,8 +3571,13 @@ def _write_merge_unit_location_reports(
 					after_highlight_map[inferred_post_uid] = color
 					used_after_unit_ids.add(inferred_post_uid)
 					after_highlighted_inferred_units += 1
+					linkage_row["resolved_post_unit_id"] = str(inferred_post_uid)
+					linkage_row["resolution"] = "inferred_post_location"
+				else:
+					linkage_row["resolution"] = "no_post_unit_match"
+				highlight_linkage_rows.append(linkage_row)
 		else:
-			for mapping_raw in applied_unit_mappings:
+			for idx, mapping_raw in enumerate(applied_unit_mappings):
 				mapping = (mapping_raw if isinstance(mapping_raw, dict) else {})
 				pre_ids = _normalize_unit_id_list(mapping.get("pre_unit_ids", []))
 				if not pre_ids:
@@ -2225,9 +3590,24 @@ def _write_merge_unit_location_reports(
 				if post_uid_raw is not None and str(post_uid_raw).strip():
 					post_uid = _normalize_cluster_id(post_uid_raw)
 
-				if post_uid is not None and post_uid in eligible_after_points:
+				linkage_row = {
+					"mapping_index": int(idx),
+					"group_id": str(mapping.get("group_id", f"group_{int(idx + 1):03d}")),
+					"method": str(mapping.get("method", "unknown")),
+					"pre_unit_ids": list(pre_ids),
+					"requested_post_unit_id": post_uid,
+					"resolved_post_unit_id": None,
+					"resolution": "unresolved",
+					"linked_highlight": False,
+					"color": _color_for_debug(highlight_after_color),
+				}
+
+				if post_uid is not None and post_uid in after_points:
 					after_highlight_map[post_uid] = highlight_after_color
 					used_after_unit_ids.add(post_uid)
+					linkage_row["resolved_post_unit_id"] = str(post_uid)
+					linkage_row["resolution"] = "requested_post_unit_id"
+					highlight_linkage_rows.append(linkage_row)
 					continue
 
 				pre_locations = _mapping_pre_locations(mapping, pre_ids)
@@ -2242,6 +3622,33 @@ def _write_merge_unit_location_reports(
 					after_highlight_map[inferred_post_uid] = highlight_after_color
 					used_after_unit_ids.add(inferred_post_uid)
 					after_highlighted_inferred_units += 1
+					linkage_row["resolved_post_unit_id"] = str(inferred_post_uid)
+					linkage_row["resolution"] = "inferred_post_location"
+				else:
+					linkage_row["resolution"] = "no_post_unit_match"
+				highlight_linkage_rows.append(linkage_row)
+
+	pre_legend_ordered_highlight_uids: list[str] | None = None
+	if (
+		highlight_enabled
+		and bool(highlight_sort_pre_legend_by_groups)
+		and bool(before_highlight_map)
+		and isinstance(applied_unit_mappings, list)
+		and applied_unit_mappings
+	):
+		ordered_uids: list[str] = []
+		seen: set[str] = set()
+		for mapping_raw in applied_unit_mappings:
+			mapping = (mapping_raw if isinstance(mapping_raw, dict) else {})
+			for uid in _normalize_unit_id_list(mapping.get("pre_unit_ids", [])):
+				if uid in before_highlight_map and uid not in seen:
+					ordered_uids.append(uid)
+					seen.add(uid)
+		remainder = sorted(
+			[uid for uid in before_highlight_map.keys() if uid not in seen],
+			key=_unit_sort_key,
+		)
+		pre_legend_ordered_highlight_uids = ordered_uids + remainder
 
 	probe_dim_x_um = getattr(stage_config, "merge_reports_2panel_probe_dim_x_um", None)
 	probe_dim_y_um = getattr(stage_config, "merge_reports_2panel_probe_dim_y_um", None)
@@ -2313,6 +3720,10 @@ def _write_merge_unit_location_reports(
 		label_units: bool,
 		label_highlight_only: bool,
 		plot_highlight_after_other: bool,
+		show_highlight_legend: bool,
+		legend_loc: str,
+		legend_anchor: tuple[float, float] | None,
+		legend_ordered_highlight_uids: list[str] | None = None,
 	) -> None:
 		ax.set_title(str(title))
 		ax.set_xlabel("x_um")
@@ -2358,10 +3769,80 @@ def _write_merge_unit_location_reports(
 			for uid in labeled_uids:
 				x, y = points[uid]
 				ax.text(x, y, str(uid), ha="left", va="bottom")
+
+			if show_highlight_legend and highlight_map:
+				if isinstance(legend_ordered_highlight_uids, list) and legend_ordered_highlight_uids:
+					highlight_uids_for_legend = [
+						uid
+						for uid in legend_ordered_highlight_uids
+						if uid in highlight_map and uid in points
+					]
+				else:
+					highlight_uids_for_legend = sorted(
+						[uid for uid in ordered_uids if uid in highlight_map],
+						key=_unit_sort_key,
+					)
+				if highlight_uids_for_legend and callable(getattr(ax, "legend", None)):
+					if Line2D is not None:
+						handles: list[Any] = []
+						for uid in highlight_uids_for_legend:
+							color = highlight_map.get(uid, default_color)
+							handles.append(
+								Line2D(
+									[],
+									[],
+									marker="o",
+									linestyle="None",
+									markersize=5,
+									markerfacecolor=color,
+									markeredgecolor=color,
+									label=str(uid),
+								)
+							)
+						try:
+								legend_kwargs: dict[str, Any] = {
+									"handles": handles,
+									"title": "Highlighted units",
+									"loc": str(legend_loc),
+								}
+								if legend_anchor is not None:
+									legend_kwargs["bbox_to_anchor"] = legend_anchor
+								ax.legend(**legend_kwargs)
+						except Exception:
+							pass
+					else:
+						try:
+								legend_kwargs = {
+									"title": "Highlighted units",
+									"loc": str(legend_loc),
+								}
+								if legend_anchor is not None:
+									legend_kwargs["bbox_to_anchor"] = legend_anchor
+								ax.legend(highlight_uids_for_legend, **legend_kwargs)
+						except Exception:
+							pass
 		else:
 			ax.text(0.5, 0.5, "No unit locations", ha="center", va="center", transform=ax.transAxes)
 
+	highlight_legend_anchor: tuple[float, float] | None = (float(highlight_legend_x), float(highlight_legend_y))
+
 	outputs: dict[str, str] = {}
+	if highlight_enabled and highlight_debug_json_enabled:
+		highlight_debug_json_path = (merge_out_dir / str(highlight_debug_json_relpath)).resolve()
+		_write_json(
+			highlight_debug_json_path,
+			{
+				"status": "ok",
+				"highlight_enabled": bool(highlight_enabled),
+				"highlight_linked": bool(highlight_linked),
+				"n_mappings": int(len(applied_unit_mappings or [])),
+				"before_highlighted_unit_ids": sorted(list(before_highlight_map.keys()), key=_unit_sort_key),
+				"after_highlighted_unit_ids": sorted(list(after_highlight_map.keys()), key=_unit_sort_key),
+				"after_highlighted_inferred_units_count": int(after_highlighted_inferred_units),
+				"linkage_rows": list(highlight_linkage_rows),
+			},
+		)
+		outputs["merge.report.unit_locations_highlight_linkage_json"] = str(highlight_debug_json_path)
 
 	before_write_png = bool(getattr(stage_config, "merge_reports_2panel_before_write_png", True))
 	before_write_svg = bool(getattr(stage_config, "merge_reports_2panel_before_write_svg", False))
@@ -2377,6 +3858,10 @@ def _write_merge_unit_location_reports(
 			label_pre_and_post_units,
 			label_affected_units,
 			plot_highlight_after_other_units,
+			highlight_show_legend,
+			highlight_legend_position,
+			highlight_legend_anchor,
+			pre_legend_ordered_highlight_uids,
 		)
 		for fmt, enabled in (("png", before_write_png), ("svg", before_write_svg)):
 			if not enabled:
@@ -2401,6 +3886,10 @@ def _write_merge_unit_location_reports(
 			label_pre_and_post_units,
 			label_affected_units,
 			plot_highlight_after_other_units,
+			highlight_show_legend,
+			highlight_legend_position,
+			highlight_legend_anchor,
+			None,
 		)
 		for fmt, enabled in (("png", after_write_png), ("svg", after_write_svg)):
 			if not enabled:
@@ -2425,6 +3914,10 @@ def _write_merge_unit_location_reports(
 			label_pre_and_post_units,
 			label_affected_units,
 			plot_highlight_after_other_units,
+			highlight_show_legend,
+			highlight_legend_position,
+			highlight_legend_anchor,
+			pre_legend_ordered_highlight_uids,
 		)
 		_plot_points(
 			axes[1],
@@ -2435,6 +3928,10 @@ def _write_merge_unit_location_reports(
 			label_pre_and_post_units,
 			label_affected_units,
 			plot_highlight_after_other_units,
+			highlight_show_legend,
+			highlight_legend_position,
+			highlight_legend_anchor,
+			None,
 		)
 		for fmt, enabled in (("png", panel_write_png), ("svg", panel_write_svg)):
 			if not enabled:
@@ -2453,6 +3950,10 @@ def _write_merge_unit_location_reports(
 		"before_highlighted_units_count": int(len(before_highlight_map)),
 		"after_highlighted_units_count": int(len(after_highlight_map)),
 		"after_highlighted_inferred_units_count": int(after_highlighted_inferred_units),
+		"highlight_linkage_row_count": int(len(highlight_linkage_rows)),
+		"highlight_legend_position": str(highlight_legend_position),
+		"highlight_legend_anchor": [float(highlight_legend_x), float(highlight_legend_y)],
+		"highlight_pre_legend_sorted_by_groups": bool(highlight_sort_pre_legend_by_groups),
 		"zoom_to_affected_units": bool(zoom_to_affected_units),
 		"zoom_to_affected_units_applied": bool(zoom_to_affected_applied),
 		"outputs": outputs,
@@ -3192,6 +4693,9 @@ def run_spikesort_merge_stage(
 		or "post_merge_unit_locations.json"
 	)
 	merge_reports_2panel_enabled = bool(getattr(stage_config, "merge_reports_2panel_enabled", False))
+	merge_reports_template_heatmaps_enabled = bool(
+		getattr(stage_config, "merge_reports_template_heatmaps_enabled", False)
+	)
 	merge_reports_mappings_enabled = bool(
 		merge_reports_enabled
 		and (
@@ -3199,12 +4703,14 @@ def run_spikesort_merge_stage(
 			or merge_reports_unit_diff_map_enabled
 			or merge_reports_unit_diff_map_flat_enabled
 			or merge_reports_2panel_enabled
+			or merge_reports_template_heatmaps_enabled
 		)
 	)
 	merge_reports_require_snapshots = bool(
 		merge_reports_enabled
 		and (
 			merge_reports_2panel_enabled
+			or merge_reports_template_heatmaps_enabled
 			or merge_reports_unit_diff_json_enabled
 			or merge_reports_unit_diff_map_enabled
 			or merge_reports_unit_diff_map_flat_enabled
@@ -3215,6 +4721,7 @@ def run_spikesort_merge_stage(
 		merge_reports_enabled
 		and (
 			merge_reports_2panel_enabled
+			or merge_reports_template_heatmaps_enabled
 			or merge_reports_unit_diff_json_enabled
 			or merge_reports_unit_diff_map_enabled
 			or merge_reports_unit_diff_map_flat_enabled
@@ -3387,6 +4894,20 @@ def run_spikesort_merge_stage(
 			"requested_sequence": [str(token) for token in requested_sequence_raw],
 			"methods": [],
 			"merge_units_enabled": False,
+			"bombcell_label_config": {
+				"enabled": bool(getattr(stage_config, "bombcell_label_enabled", False)),
+				"relpath": str(getattr(stage_config, "bombcell_label_relpath", "bombcell_label_outputs")),
+				"delete_outputs_on_force_restart": bool(
+					getattr(stage_config, "bombcell_label_delete_outputs_on_force_restart", True)
+				),
+				"label_non_somatic": bool(getattr(stage_config, "bombcell_label_label_non_somatic", True)),
+				"split_non_somatic_good_mua": bool(
+					getattr(stage_config, "bombcell_label_split_non_somatic_good_mua", True)
+				),
+				"apply_to_sorter_output": bool(getattr(stage_config, "bombcell_label_apply_to_sorter_output", True)),
+				"write_cluster_group": bool(getattr(stage_config, "bombcell_label_write_cluster_group", True)),
+				"fail_on_error": bool(getattr(stage_config, "bombcell_label_fail_on_error", False)),
+			},
 			"cache_sorting_outputs_before_merge": bool(cache_sorting_outputs_before_merge),
 			"merge_reports_enabled": bool(merge_reports_any_enabled),
 			"slay_model_cache_path": (str(slay_model_cache_path) if slay_model_cache_path is not None else None),
@@ -3462,6 +4983,78 @@ def run_spikesort_merge_stage(
 				if key:
 					combined_outputs[key] = val
 
+		pre_merge_workspace_relpath = str(
+			getattr(stage_config, "pre_merge_workspace_relpath", "cache/merge_workspace")
+			or "cache/merge_workspace"
+		).strip().lstrip("/") or "cache/merge_workspace"
+		pre_merge_workspace_dir = _resolve_under_spikesort_output_root(
+			well_out_dir=well_out_dir,
+			output_rel_root=merge_output_rel_root,
+			relpath=pre_merge_workspace_relpath,
+		)
+		pre_merge_workspace_analyzer_output_dir = (
+			pre_merge_workspace_dir / "pre_merge_analyzer_output"
+		).resolve()
+		# Replot must rebuild the pre-merge analyzer from the live pre-merge sorter output,
+		# not from a previously-used workspace sorter path (which may already be post-merge).
+		try:
+			pre_merge_workspace_sorter_output_dir = _resolve_sorter_output_dir(
+				well_out_dir=well_out_dir,
+				output_rel_root=output_rel_root,
+				stage_config=stage_config,
+			)
+		except Exception:
+			pre_merge_workspace_sorter_output_dir = (stage_output_root_dir / "sorter_output").resolve()
+
+		pre_merge_workspace_analyzer_built = False
+		pre_merge_workspace_analyzer_error: str | None = None
+		if pre_merge_workspace_sorter_output_dir.exists():
+			try:
+				si_module = _import_spikeinterface_full_module()
+				pre_merge_workspace_analyzer, pre_merge_workspace_analyzer_output_dir = _recompute_sorting_analyzer_to_dir(
+					si_module=si_module,
+					well_out_dir=well_out_dir,
+					sorter_output_dir=pre_merge_workspace_sorter_output_dir,
+					stage_config=stage_config,
+					analyzer_dir=pre_merge_workspace_analyzer_output_dir,
+				)
+				has_extension = getattr(pre_merge_workspace_analyzer, "has_extension", None)
+				compute_extension = getattr(pre_merge_workspace_analyzer, "compute", None)
+				if callable(compute_extension):
+					for extension_name in ("random_spikes", "waveforms", "templates", "unit_locations"):
+						if callable(has_extension):
+							try:
+								if bool(has_extension(extension_name)):
+									continue
+							except Exception:
+								pass
+						for candidate in (extension_name, [extension_name]):
+							try:
+								compute_extension(candidate)
+								break
+							except Exception:
+								continue
+				pre_merge_workspace_analyzer_built = True
+			except Exception as exc:
+				pre_merge_workspace_analyzer_error = (
+					f"replot_pre_merge_workspace_analyzer_prepare_failed:{type(exc).__name__}:{exc}"
+				)
+
+		combined_outputs["merge.pre_merge_workspace_dir"] = str(pre_merge_workspace_dir.resolve())
+		combined_outputs["merge.pre_merge_workspace_sorter_output_dir"] = str(
+			pre_merge_workspace_sorter_output_dir.resolve()
+		)
+		if pre_merge_workspace_analyzer_output_dir.exists():
+			combined_outputs["merge.pre_merge_workspace_analyzer_output_dir"] = str(
+				pre_merge_workspace_analyzer_output_dir.resolve()
+			)
+
+		post_merge_workspace_analyzer_output_dir = (pre_merge_workspace_dir / "analyzer_output").resolve()
+		if post_merge_workspace_analyzer_output_dir.exists():
+			combined_outputs["merge.post_merge_analyzer_output_dir"] = str(
+				post_merge_workspace_analyzer_output_dir.resolve()
+			)
+
 		method_reports_raw = existing_summary.get("methods", [])
 		method_reports = (
 			list(method_reports_raw)
@@ -3503,7 +5096,9 @@ def run_spikesort_merge_stage(
 
 		merge_reports_payload: dict[str, Any] | None = None
 		merge_reports_error: str | None = None
-		if merge_reports_enabled and merge_reports_2panel_enabled:
+		merge_template_heatmaps_payload: dict[str, Any] | None = None
+		merge_template_heatmaps_error: str | None = None
+		if merge_reports_enabled and (merge_reports_2panel_enabled or merge_reports_template_heatmaps_enabled):
 			before_snapshot_for_report: dict[str, Any] = {}
 			after_snapshot_for_report: dict[str, Any] = {}
 			applied_unit_mappings_for_report: list[dict[str, Any]] = []
@@ -3529,9 +5124,70 @@ def run_spikesort_merge_stage(
 					merge_metadata_payload=merge_metadata_payload
 				)
 
+			preferred_pre_analyzer_raw: Any = combined_outputs.get(
+				"merge.pre_merge_workspace_analyzer_output_dir",
+				None,
+			)
+			if merge_reports_error is None:
+				if preferred_pre_analyzer_raw is None:
+					merge_reports_error = (
+						"merge_reports_missing_pre_merge_workspace_analyzer_output_dir_for_replot"
+					)
+				else:
+					preferred_pre_analyzer_dir = Path(str(preferred_pre_analyzer_raw)).expanduser().resolve()
+					if not preferred_pre_analyzer_dir.exists():
+						merge_reports_error = (
+							"merge_reports_missing_pre_merge_workspace_analyzer_for_replot"
+						)
+					else:
+						before_analyzer_raw = before_snapshot_for_report.get("analyzer", {})
+						before_analyzer = (
+							dict(before_analyzer_raw)
+							if isinstance(before_analyzer_raw, dict)
+							else {}
+						)
+						before_analyzer["source_dir"] = str(preferred_pre_analyzer_dir)
+						before_snapshot_for_report["analyzer"] = before_analyzer
+
+			preferred_post_analyzer_raw: Any = combined_outputs.get(
+				"merge.post_merge_analyzer_output_dir",
+				None,
+			)
+			if merge_reports_error is None and merge_reports_template_heatmaps_enabled:
+				if preferred_post_analyzer_raw is None:
+					merge_reports_error = (
+						"merge_reports_missing_post_merge_analyzer_output_dir_for_replot"
+					)
+				else:
+					preferred_post_analyzer_dir = Path(str(preferred_post_analyzer_raw)).expanduser().resolve()
+					if not preferred_post_analyzer_dir.exists():
+						merge_reports_error = (
+							"merge_reports_missing_post_merge_analyzer_for_replot"
+						)
+					else:
+						after_analyzer_raw = after_snapshot_for_report.get("analyzer", {})
+						after_analyzer = (
+							dict(after_analyzer_raw)
+							if isinstance(after_analyzer_raw, dict)
+							else {}
+						)
+						after_analyzer["source_dir"] = str(preferred_post_analyzer_dir)
+						after_snapshot_for_report["analyzer"] = after_analyzer
+			elif preferred_post_analyzer_raw is not None:
+				preferred_post_analyzer_dir = Path(str(preferred_post_analyzer_raw)).expanduser().resolve()
+				if preferred_post_analyzer_dir.exists():
+					after_analyzer_raw = after_snapshot_for_report.get("analyzer", {})
+					after_analyzer = (
+						dict(after_analyzer_raw)
+						if isinstance(after_analyzer_raw, dict)
+						else {}
+					)
+					after_analyzer["source_dir"] = str(preferred_post_analyzer_dir)
+					after_snapshot_for_report["analyzer"] = after_analyzer
+
 			if merge_reports_error is None and (not before_snapshot_for_report or not after_snapshot_for_report):
 				merge_reports_error = "merge_reports_missing_before_after_snapshots_for_replot"
-			if merge_reports_error is None:
+			if merge_reports_error is None and merge_reports_2panel_enabled:
 				try:
 					merge_reports_payload = _write_merge_unit_location_reports(
 						merge_out_dir=primary_out_dir,
@@ -3547,9 +5203,32 @@ def run_spikesort_merge_stage(
 				except Exception as exc:
 					merge_reports_error = f"merge_reports_failed:{type(exc).__name__}:{exc}"
 
+			if merge_reports_error is None and merge_reports_template_heatmaps_enabled:
+				try:
+					merge_template_heatmaps_payload = _write_merge_template_heatmap_reports(
+						merge_out_dir=primary_out_dir,
+						before_snapshot=before_snapshot_for_report,
+						after_snapshot=after_snapshot_for_report,
+						applied_unit_mappings=applied_unit_mappings_for_report,
+						stage_config=stage_config,
+					)
+					if str(merge_template_heatmaps_payload.get("status", "")) == "ok":
+						combined_outputs.update(dict(merge_template_heatmaps_payload.get("outputs", {})))
+					elif str(merge_template_heatmaps_payload.get("status", "")) not in {"", "skipped"}:
+						merge_template_heatmaps_error = str(
+							merge_template_heatmaps_payload.get(
+								"error",
+								"merge_template_heatmaps_failed",
+							)
+						)
+				except Exception as exc:
+					merge_template_heatmaps_error = (
+						f"merge_template_heatmaps_failed:{type(exc).__name__}:{exc}"
+					)
+
 		status = "ok"
 		reason: str | None = "force_replot_only"
-		if merge_reports_error is not None:
+		if merge_reports_error is not None or merge_template_heatmaps_error is not None:
 			status = "skipped"
 			reason = "force_replot_failed"
 
@@ -3573,6 +5252,15 @@ def run_spikesort_merge_stage(
 			"merge_metadata_enabled": bool(merge_metadata_enabled and merge_metadata_write_json),
 			"outputs": combined_outputs,
 		}
+		payload["pre_merge_workspace"] = {
+			"relpath": str(pre_merge_workspace_relpath),
+			"workspace_dir": str(pre_merge_workspace_dir.resolve()),
+			"sorter_output_dir": str(pre_merge_workspace_sorter_output_dir.resolve()),
+			"analyzer_output_dir": str(pre_merge_workspace_analyzer_output_dir.resolve()),
+			"analyzer_built": bool(pre_merge_workspace_analyzer_built),
+		}
+		if pre_merge_workspace_analyzer_error is not None:
+			payload["pre_merge_workspace_analyzer_error"] = str(pre_merge_workspace_analyzer_error)
 		if merge_metadata_json is not None:
 			payload["merge_metadata_summary_json"] = str(merge_metadata_json)
 		if isinstance(merge_metadata_payload, dict):
@@ -3604,6 +5292,19 @@ def run_spikesort_merge_stage(
 			}
 		if merge_reports_error is not None:
 			payload["merge_reports_error"] = str(merge_reports_error)
+		if isinstance(merge_template_heatmaps_payload, dict):
+			payload["merge_template_heatmaps"] = {
+				"status": str(merge_template_heatmaps_payload.get("status", "ok")),
+				"n_mappings_requested": int(
+					merge_template_heatmaps_payload.get("n_mappings_requested", 0) or 0
+				),
+				"n_mappings_processed": int(
+					merge_template_heatmaps_payload.get("n_mappings_processed", 0) or 0
+				),
+				"debug_json": merge_template_heatmaps_payload.get("debug_json", None),
+			}
+		if merge_template_heatmaps_error is not None:
+			payload["merge_template_heatmaps_error"] = str(merge_template_heatmaps_error)
 
 		combined_outputs["summary_json"] = str(summary_json)
 		_write_json(summary_json, payload)
@@ -3730,6 +5431,8 @@ def run_spikesort_merge_stage(
 	canonical_workspace_published = False
 	active_stage_output_root_dir: Path = stage_output_root_dir
 	active_sorter_output_dir: Path | None = None
+	bombcell_report: dict[str, Any] | None = None
+	bombcell_report_error: str | None = None
 
 	if cache_sorting_outputs_before_merge_use_canonical_workspace:
 		try:
@@ -3788,6 +5491,94 @@ def run_spikesort_merge_stage(
 			)
 			raise RuntimeError(canonical_workspace_error) from exc
 
+	try:
+		bombcell_call_kwargs: dict[str, Any] = {
+			"well_out_dir": well_out_dir,
+			"stage_output_root_dir": active_stage_output_root_dir,
+			"output_rel_root": output_rel_root,
+			"stage_config": stage_config,
+			"force_restart": bool(force_restart),
+		}
+		if active_sorter_output_dir is not None:
+			bombcell_call_kwargs["sorter_output_dir"] = active_sorter_output_dir
+		bombcell_report = _run_bombcell_label_phase(**bombcell_call_kwargs)
+
+		if isinstance(bombcell_report, dict):
+			resolved_sorter_output_dir_raw = bombcell_report.get("sorter_output_dir", None)
+			if resolved_sorter_output_dir_raw is not None:
+				active_sorter_output_dir = Path(str(resolved_sorter_output_dir_raw)).resolve()
+			if str(bombcell_report.get("status", "")).lower() == "error" and bool(
+				getattr(stage_config, "bombcell_label_fail_on_error", False)
+			):
+				raise RuntimeError(str(bombcell_report.get("error", "bombcell_label_failed")))
+	except Exception as exc:
+		bombcell_report_error = f"bombcell_label_phase_failed:{type(exc).__name__}:{exc}"
+		if bool(getattr(stage_config, "bombcell_label_fail_on_error", False)):
+			raise RuntimeError(bombcell_report_error) from exc
+
+	resolved_sorter_output_dir: Path | None = active_sorter_output_dir
+	pre_snapshot_sorter_output_dir: Path | None = active_sorter_output_dir
+	if isinstance(bombcell_report, dict):
+		bombcell_sorter_output_dir_raw = bombcell_report.get("sorter_output_dir", None)
+		if bombcell_sorter_output_dir_raw is not None:
+			resolved_sorter_output_dir = Path(str(bombcell_sorter_output_dir_raw)).resolve()
+
+	if resolved_sorter_output_dir is None:
+		resolved_sorter_output_dir = _resolve_sorter_output_dir(
+			well_out_dir=well_out_dir,
+			output_rel_root=output_rel_root,
+			stage_config=stage_config,
+		)
+	workspace_sorter_output_dir = resolved_sorter_output_dir
+
+	pre_merge_workspace_relpath = str(
+		getattr(stage_config, "pre_merge_workspace_relpath", "cache/merge_workspace")
+		or "cache/merge_workspace"
+	).strip().lstrip("/") or "cache/merge_workspace"
+	pre_merge_workspace_dir = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=merge_output_rel_root,
+		relpath=pre_merge_workspace_relpath,
+	)
+	pre_merge_workspace_analyzer_output_dir = (
+		pre_merge_workspace_dir / "pre_merge_analyzer_output"
+	).resolve()
+	pre_merge_workspace_analyzer_error: str | None = None
+	pre_merge_workspace_analyzer_built = False
+
+	try:
+		si_module = _import_spikeinterface_full_module()
+		pre_merge_workspace_analyzer, pre_merge_workspace_analyzer_output_dir = _recompute_sorting_analyzer_to_dir(
+			si_module=si_module,
+			well_out_dir=well_out_dir,
+			sorter_output_dir=workspace_sorter_output_dir,
+			stage_config=stage_config,
+			analyzer_dir=pre_merge_workspace_analyzer_output_dir,
+		)
+
+		has_extension = getattr(pre_merge_workspace_analyzer, "has_extension", None)
+		compute_extension = getattr(pre_merge_workspace_analyzer, "compute", None)
+		if callable(compute_extension):
+			for extension_name in ("random_spikes", "waveforms", "templates", "unit_locations"):
+				if callable(has_extension):
+					try:
+						if bool(has_extension(extension_name)):
+							continue
+					except Exception:
+						pass
+				for candidate in (extension_name, [extension_name]):
+					try:
+						compute_extension(candidate)
+						break
+					except Exception:
+						continue
+
+		pre_merge_workspace_analyzer_built = True
+	except Exception as exc:
+		pre_merge_workspace_analyzer_error = (
+			f"pre_merge_workspace_analyzer_prepare_failed:{type(exc).__name__}:{exc}"
+		)
+
 	pre_merge_snapshot: dict[str, Any] | None = None
 	post_merge_snapshot: dict[str, Any] | None = None
 	pre_merge_metadata_payload: dict[str, Any] | None = None
@@ -3811,6 +5602,11 @@ def run_spikesort_merge_stage(
 	)
 	if pre_snapshot_capture_needed:
 		try:
+			if not bool(
+				pre_merge_workspace_analyzer_built
+				and pre_merge_workspace_analyzer_output_dir.exists()
+			):
+				raise RuntimeError("pre_merge_workspace_analyzer_unavailable")
 			pre_snapshot_kwargs: dict[str, Any] = {
 				"well_out_dir": well_out_dir,
 				"stage_output_root_dir": active_stage_output_root_dir,
@@ -3818,11 +5614,44 @@ def run_spikesort_merge_stage(
 				"stage_config": stage_config,
 				"capture_label": "before_merge",
 				"include_unit_locations": bool(pre_snapshot_include_unit_locations),
-				"allow_analyzer_recompute": True,
+				"allow_analyzer_recompute": False,
+				"analyzer_source_dir": pre_merge_workspace_analyzer_output_dir,
 			}
-			if active_sorter_output_dir is not None:
-				pre_snapshot_kwargs["sorter_output_dir"] = active_sorter_output_dir
-			pre_merge_snapshot = _capture_merge_state_snapshot(**pre_snapshot_kwargs)
+			if pre_snapshot_sorter_output_dir is not None:
+				pre_snapshot_kwargs["sorter_output_dir"] = pre_snapshot_sorter_output_dir
+			try:
+				pre_merge_snapshot = _capture_merge_state_snapshot(**pre_snapshot_kwargs)
+			except TypeError as exc:
+				err_text = str(exc)
+				if (
+					("analyzer_source_dir" in pre_snapshot_kwargs)
+					and ("analyzer_source_dir" in err_text)
+					and ("unexpected keyword argument" in err_text)
+				):
+					pre_snapshot_kwargs.pop("analyzer_source_dir", None)
+					pre_snapshot_kwargs["allow_analyzer_recompute"] = True
+					try:
+						pre_merge_snapshot = _capture_merge_state_snapshot(**pre_snapshot_kwargs)
+					except TypeError as nested_exc:
+						nested_err_text = str(nested_exc)
+						if (
+							("sorter_output_dir" in pre_snapshot_kwargs)
+							and ("sorter_output_dir" in nested_err_text)
+							and ("unexpected keyword argument" in nested_err_text)
+						):
+							pre_snapshot_kwargs.pop("sorter_output_dir", None)
+							pre_merge_snapshot = _capture_merge_state_snapshot(**pre_snapshot_kwargs)
+						else:
+							raise
+				elif (
+					("sorter_output_dir" in pre_snapshot_kwargs)
+					and ("sorter_output_dir" in err_text)
+					and ("unexpected keyword argument" in err_text)
+				):
+					pre_snapshot_kwargs.pop("sorter_output_dir", None)
+					pre_merge_snapshot = _capture_merge_state_snapshot(**pre_snapshot_kwargs)
+				else:
+					raise
 		except Exception as exc:
 			err = f"before_merge_snapshot_failed:{type(exc).__name__}:{exc}"
 			if merge_metadata_enabled and merge_metadata_write_json:
@@ -3833,8 +5662,15 @@ def run_spikesort_merge_stage(
 	method_reports: list[dict[str, Any]] = []
 	combined_outputs: dict[str, str] = {}
 	combined_outputs.update(cache_outputs)
+	combined_outputs["merge.pre_merge_workspace_dir"] = str(pre_merge_workspace_dir.resolve())
+	combined_outputs["merge.pre_merge_workspace_sorter_output_dir"] = str(workspace_sorter_output_dir.resolve())
+	combined_outputs["merge.pre_merge_workspace_analyzer_output_dir"] = str(
+		pre_merge_workspace_analyzer_output_dir.resolve()
+	)
 	primary_out_dir: Path = merge_phase_out_dir
-	resolved_sorter_output_dir: Path | None = active_sorter_output_dir
+	resolved_sorter_output_dir: Path | None = pre_snapshot_sorter_output_dir
+	if isinstance(bombcell_report, dict):
+		combined_outputs.update(dict(bombcell_report.get("outputs", {})))
 
 	for idx, raw_method in enumerate(requested_sequence_raw):
 		method = _normalize_merge_method_token(raw_method)
@@ -4041,7 +5877,33 @@ def run_spikesort_merge_stage(
 			}
 			if resolved_sorter_output_dir is not None:
 				post_snapshot_kwargs["sorter_output_dir"] = resolved_sorter_output_dir
-			post_merge_snapshot = _capture_merge_state_snapshot(**post_snapshot_kwargs)
+			try:
+				post_merge_snapshot = _capture_merge_state_snapshot(**post_snapshot_kwargs)
+			except TypeError as exc:
+				err_text = str(exc)
+				if (
+					("sorter_output_dir" in post_snapshot_kwargs)
+					and ("sorter_output_dir" in err_text)
+					and ("unexpected keyword argument" in err_text)
+				):
+					post_snapshot_kwargs.pop("sorter_output_dir", None)
+					post_merge_snapshot = _capture_merge_state_snapshot(**post_snapshot_kwargs)
+				else:
+					raise
+
+			post_analyzer_raw = (
+				post_merge_snapshot.get("analyzer", {})
+				if isinstance(post_merge_snapshot, dict)
+				else {}
+			)
+			if isinstance(post_analyzer_raw, dict):
+				post_source_raw = post_analyzer_raw.get("source_dir", None)
+				if post_source_raw is not None:
+					post_source_dir = Path(str(post_source_raw)).expanduser().resolve()
+					if post_source_dir.exists():
+						combined_outputs["merge.post_merge_analyzer_output_dir"] = str(
+							post_source_dir
+						)
 		except Exception as exc:
 			err = f"after_merge_snapshot_failed:{type(exc).__name__}:{exc}"
 			if merge_metadata_enabled and merge_metadata_write_json:
@@ -4168,7 +6030,9 @@ def run_spikesort_merge_stage(
 
 	merge_reports_payload: dict[str, Any] | None = None
 	merge_reports_error: str | None = None
-	if merge_reports_enabled and merge_reports_2panel_enabled:
+	merge_template_heatmaps_payload: dict[str, Any] | None = None
+	merge_template_heatmaps_error: str | None = None
+	if merge_reports_enabled and (merge_reports_2panel_enabled or merge_reports_template_heatmaps_enabled):
 		try:
 			before_snapshot_for_report: dict[str, Any] = {}
 			after_snapshot_for_report: dict[str, Any] = {}
@@ -4208,9 +6072,61 @@ def run_spikesort_merge_stage(
 					else {}
 				)
 
+			preferred_pre_analyzer_raw = combined_outputs.get(
+				"merge.pre_merge_workspace_analyzer_output_dir",
+				None,
+			)
+			if preferred_pre_analyzer_raw is None:
+				merge_reports_error = "merge_reports_missing_pre_merge_workspace_analyzer_output_dir"
+			else:
+				preferred_pre_analyzer_dir = Path(str(preferred_pre_analyzer_raw)).expanduser().resolve()
+				if not preferred_pre_analyzer_dir.exists():
+					merge_reports_error = "merge_reports_missing_pre_merge_workspace_analyzer"
+				else:
+					before_analyzer_raw = before_snapshot_for_report.get("analyzer", {})
+					before_analyzer = (
+						dict(before_analyzer_raw)
+						if isinstance(before_analyzer_raw, dict)
+						else {}
+					)
+					before_analyzer["source_dir"] = str(preferred_pre_analyzer_dir)
+					before_snapshot_for_report["analyzer"] = before_analyzer
+
+			preferred_post_analyzer_raw = combined_outputs.get(
+				"merge.post_merge_analyzer_output_dir",
+				None,
+			)
+			if merge_reports_error is None and merge_reports_template_heatmaps_enabled:
+				if preferred_post_analyzer_raw is None:
+					merge_reports_error = "merge_reports_missing_post_merge_analyzer_output_dir"
+				else:
+					preferred_post_analyzer_dir = Path(str(preferred_post_analyzer_raw)).expanduser().resolve()
+					if not preferred_post_analyzer_dir.exists():
+						merge_reports_error = "merge_reports_missing_post_merge_analyzer"
+					else:
+						after_analyzer_raw = after_snapshot_for_report.get("analyzer", {})
+						after_analyzer = (
+							dict(after_analyzer_raw)
+							if isinstance(after_analyzer_raw, dict)
+							else {}
+						)
+						after_analyzer["source_dir"] = str(preferred_post_analyzer_dir)
+						after_snapshot_for_report["analyzer"] = after_analyzer
+			elif preferred_post_analyzer_raw is not None:
+				preferred_post_analyzer_dir = Path(str(preferred_post_analyzer_raw)).expanduser().resolve()
+				if preferred_post_analyzer_dir.exists():
+					after_analyzer_raw = after_snapshot_for_report.get("analyzer", {})
+					after_analyzer = (
+						dict(after_analyzer_raw)
+						if isinstance(after_analyzer_raw, dict)
+						else {}
+					)
+					after_analyzer["source_dir"] = str(preferred_post_analyzer_dir)
+					after_snapshot_for_report["analyzer"] = after_analyzer
+
 			if merge_reports_error is None and (not before_snapshot_for_report or not after_snapshot_for_report):
 				merge_reports_error = "merge_reports_missing_before_after_snapshots"
-			if merge_reports_error is None:
+			if merge_reports_error is None and merge_reports_2panel_enabled:
 				merge_reports_payload = _write_merge_unit_location_reports(
 					merge_out_dir=primary_out_dir,
 					before_snapshot=before_snapshot_for_report,
@@ -4222,6 +6138,24 @@ def run_spikesort_merge_stage(
 					combined_outputs.update(dict(merge_reports_payload.get("outputs", {})))
 				else:
 					merge_reports_error = str(merge_reports_payload.get("error", "merge_reports_failed"))
+
+			if merge_reports_error is None and merge_reports_template_heatmaps_enabled:
+				merge_template_heatmaps_payload = _write_merge_template_heatmap_reports(
+					merge_out_dir=primary_out_dir,
+					before_snapshot=before_snapshot_for_report,
+					after_snapshot=after_snapshot_for_report,
+					applied_unit_mappings=applied_unit_mappings_for_report,
+					stage_config=stage_config,
+				)
+				if str(merge_template_heatmaps_payload.get("status", "")) == "ok":
+					combined_outputs.update(dict(merge_template_heatmaps_payload.get("outputs", {})))
+				elif str(merge_template_heatmaps_payload.get("status", "")) not in {"", "skipped"}:
+					merge_template_heatmaps_error = str(
+						merge_template_heatmaps_payload.get(
+							"error",
+							"merge_template_heatmaps_failed",
+						)
+					)
 		except Exception as exc:
 			merge_reports_error = f"merge_reports_failed:{type(exc).__name__}:{exc}"
 
@@ -4292,7 +6226,43 @@ def run_spikesort_merge_stage(
 			"canonical_workspace_published": bool(canonical_workspace_published),
 			"canonical_workspace_publish_requested": bool(canonical_workspace_publish_requested),
 		},
+		"pre_merge_workspace": {
+			"relpath": str(pre_merge_workspace_relpath),
+			"workspace_dir": str(pre_merge_workspace_dir.resolve()),
+			"sorter_output_dir": str(workspace_sorter_output_dir.resolve()),
+			"analyzer_output_dir": str(pre_merge_workspace_analyzer_output_dir.resolve()),
+			"analyzer_built": bool(pre_merge_workspace_analyzer_built),
+		},
 		"requested_sequence": [str(token) for token in requested_sequence_raw],
+		"bombcell_label_config": {
+			"enabled": bool(getattr(stage_config, "bombcell_label_enabled", False)),
+			"relpath": str(getattr(stage_config, "bombcell_label_relpath", "bombcell_label_outputs")),
+			"delete_outputs_on_force_restart": bool(
+				getattr(stage_config, "bombcell_label_delete_outputs_on_force_restart", True)
+			),
+			"label_non_somatic": bool(getattr(stage_config, "bombcell_label_label_non_somatic", True)),
+			"split_non_somatic_good_mua": bool(
+				getattr(stage_config, "bombcell_label_split_non_somatic_good_mua", True)
+			),
+			"apply_to_sorter_output": bool(getattr(stage_config, "bombcell_label_apply_to_sorter_output", True)),
+			"write_cluster_group": bool(getattr(stage_config, "bombcell_label_write_cluster_group", True)),
+			"fail_on_error": bool(getattr(stage_config, "bombcell_label_fail_on_error", False)),
+		},
+		"bombcell_label": (
+			{
+				"status": str(bombcell_report.get("status", "skipped")),
+				"reason": bombcell_report.get("reason", None),
+				"out_dir": bombcell_report.get("out_dir", None),
+				"summary_json": bombcell_report.get("summary_json", None),
+				"n_units_labeled": int(bombcell_report.get("n_units_labeled", 0) or 0),
+				"counts_by_label": dict(bombcell_report.get("counts_by_label", {}) or {}),
+			}
+			if isinstance(bombcell_report, dict)
+			else {
+				"status": "skipped",
+				"reason": "bombcell_label_not_run",
+			}
+		),
 		"methods": method_reports,
 		"pre_merge_metadata_config": {
 			"enabled": bool(pre_merge_metadata_enabled),
@@ -4372,10 +6342,14 @@ def run_spikesort_merge_stage(
 		}
 	if cache_error is not None:
 		payload["pre_merge_cache_error"] = str(cache_error)
+	if pre_merge_workspace_analyzer_error is not None:
+		payload["pre_merge_workspace_analyzer_error"] = str(pre_merge_workspace_analyzer_error)
 	if canonical_workspace_error is not None:
 		payload["canonical_workspace_error"] = str(canonical_workspace_error)
 	if canonical_workspace_publish_error is not None:
 		payload["canonical_workspace_publish_error"] = str(canonical_workspace_publish_error)
+	if bombcell_report_error is not None:
+		payload["bombcell_label_error"] = str(bombcell_report_error)
 	if pre_merge_metadata_json is not None:
 		payload["pre_merge_metadata_summary_json"] = str(pre_merge_metadata_json)
 	if isinstance(pre_merge_metadata_payload, dict):
@@ -4449,6 +6423,19 @@ def run_spikesort_merge_stage(
 		}
 	if merge_reports_error is not None:
 		payload["merge_reports_error"] = str(merge_reports_error)
+	if isinstance(merge_template_heatmaps_payload, dict):
+		payload["merge_template_heatmaps"] = {
+			"status": str(merge_template_heatmaps_payload.get("status", "ok")),
+			"n_mappings_requested": int(
+				merge_template_heatmaps_payload.get("n_mappings_requested", 0) or 0
+			),
+			"n_mappings_processed": int(
+				merge_template_heatmaps_payload.get("n_mappings_processed", 0) or 0
+			),
+			"debug_json": merge_template_heatmaps_payload.get("debug_json", None),
+		}
+	if merge_template_heatmaps_error is not None:
+		payload["merge_template_heatmaps_error"] = str(merge_template_heatmaps_error)
 
 	slay_ok = next((report for report in method_reports if report.get("name") == "slay" and report.get("status") == "ok"), None)
 	if isinstance(slay_ok, dict):

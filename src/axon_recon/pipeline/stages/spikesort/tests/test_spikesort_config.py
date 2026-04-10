@@ -41,6 +41,19 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.no_curation is False
     assert parsed.export_to_phy is False
     assert parsed.force_rerun_analyzer is False
+    assert parsed.bombcell_label_enabled is False
+    assert parsed.bombcell_label_relpath == "bombcell_label_outputs"
+    assert parsed.bombcell_label_delete_outputs_on_force_restart is True
+    assert parsed.bombcell_label_thresholds is None
+    assert parsed.bombcell_label_thresholds_path is None
+    assert parsed.bombcell_label_label_non_somatic is True
+    assert parsed.bombcell_label_split_non_somatic_good_mua is True
+    assert parsed.bombcell_label_apply_to_sorter_output is True
+    assert parsed.bombcell_label_write_cluster_group is True
+    assert parsed.bombcell_label_fail_on_error is False
+    assert parsed.bombcell_label_reports_enabled is True
+    assert parsed.bombcell_label_reports_summary_json_enabled is True
+    assert parsed.bombcell_label_reports_summary_json_relpath == "bombcell_label_summary.json"
     assert parsed.slay_enabled is False
     assert parsed.slay_relpath == "SLAy_outputs"
     assert parsed.slay_sorter_output_relpath is None
@@ -112,6 +125,13 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.merge_reports_2panel_highlight_merges_linked is True
     assert parsed.merge_reports_2panel_highlight_plot_after_other_units is False
     assert parsed.merge_reports_2panel_highlight_label_affected_units is False
+    assert parsed.merge_reports_2panel_highlight_show_legend is False
+    assert parsed.merge_reports_2panel_highlight_legend_position == "center left"
+    assert parsed.merge_reports_2panel_highlight_legend_x == -0.2
+    assert parsed.merge_reports_2panel_highlight_legend_y == 0.5
+    assert parsed.merge_reports_2panel_highlight_sort_pre_legend_by_groups is False
+    assert parsed.merge_reports_2panel_highlight_debug_json_enabled is True
+    assert parsed.merge_reports_2panel_highlight_debug_json_relpath == "unit_locations_highlight_linkage.json"
     assert parsed.merge_reports_2panel_highlight_before_color == "#ff7f0e"
     assert parsed.merge_reports_2panel_highlight_after_color == "#2ca02c"
     assert parsed.merge_reports_2panel_highlight_palette == "tab20"
@@ -119,6 +139,22 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.merge_reports_2panel_zoom_to_affected_units is False
     assert parsed.merge_reports_2panel_probe_dim_x_um is None
     assert parsed.merge_reports_2panel_probe_dim_y_um is None
+    assert parsed.merge_reports_template_heatmaps_enabled is False
+    assert parsed.merge_reports_template_heatmaps_relpath == "template_heatmaps_per_merge"
+    assert parsed.merge_reports_template_heatmaps_assets_reldir == "assets"
+    assert parsed.merge_reports_template_heatmaps_write_png is True
+    assert parsed.merge_reports_template_heatmaps_write_svg is False
+    assert parsed.merge_reports_template_heatmaps_write_assets_png is True
+    assert parsed.merge_reports_template_heatmaps_write_assets_svg is False
+    assert parsed.merge_reports_template_heatmaps_panel_width_in == 11.0
+    assert parsed.merge_reports_template_heatmaps_panel_height_in == 6.0
+    assert parsed.merge_reports_template_heatmaps_marker_size == 10.0
+    assert parsed.merge_reports_template_heatmaps_cmap == "viridis"
+    assert parsed.merge_reports_template_heatmaps_show_colorbar is True
+    assert parsed.merge_reports_template_heatmaps_color_scale == "linear"
+    assert parsed.merge_reports_template_heatmaps_log_epsilon == 1e-3
+    assert parsed.merge_reports_template_heatmaps_max_merges is None
+    assert parsed.merge_reports_template_heatmaps_debug_json_relpath == "template_heatmaps_per_merge_report.json"
     assert parsed.merge_metadata_enabled is False
     assert parsed.merge_metadata_write_json is True
     assert parsed.merge_metadata_json_relpath == "merge_metadata_summary.json"
@@ -492,6 +528,107 @@ def test_parse_spikesort_stage_config_reads_slay_merge_knobs() -> None:
     assert parsed.slay_params.get("final_thresh") == 0.6
 
 
+def test_parse_spikesort_stage_config_reads_bombcell_phase_knobs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "bombcell_label": {
+                            "enabled": True,
+                            "relpath": "merge_output/bombcell_labels",
+                            "delete_outputs_on_force_restart": False,
+                            "params": {
+                                "thresholds": {
+                                    "noise": {
+                                        "snr": {
+                                            "greater": 4.0,
+                                        }
+                                    }
+                                },
+                                "thresholds_path": "/tmp/bombcell_thresholds.json",
+                                "label_non_somatic": False,
+                                "split_non_somatic_good_mua": True,
+                            },
+                            "apply_to_sorter_output": True,
+                            "write_cluster_group": False,
+                            "fail_on_error": True,
+                            "reports": {
+                                "enabled": True,
+                                "summary_json": {
+                                    "enabled": True,
+                                    "relpath": "reports/bombcell_label_summary.json",
+                                },
+                            },
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.bombcell_label_enabled is True
+    assert parsed.bombcell_label_relpath == "merge_output/bombcell_labels"
+    assert parsed.bombcell_label_delete_outputs_on_force_restart is False
+    assert isinstance(parsed.bombcell_label_thresholds, dict)
+    assert parsed.bombcell_label_thresholds.get("noise", {}).get("snr", {}).get("greater") == 4.0
+    assert parsed.bombcell_label_thresholds_path == "/tmp/bombcell_thresholds.json"
+    assert parsed.bombcell_label_label_non_somatic is False
+    assert parsed.bombcell_label_split_non_somatic_good_mua is True
+    assert parsed.bombcell_label_apply_to_sorter_output is True
+    assert parsed.bombcell_label_write_cluster_group is False
+    assert parsed.bombcell_label_fail_on_error is True
+    assert parsed.bombcell_label_reports_enabled is True
+    assert parsed.bombcell_label_reports_summary_json_enabled is True
+    assert parsed.bombcell_label_reports_summary_json_relpath == "reports/bombcell_label_summary.json"
+
+
+def test_parse_spikesort_stage_config_bombcell_params_take_precedence_over_top_level() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "bombcell_label": {
+                            "label_non_somatic": True,
+                            "split_non_somatic_good_mua": False,
+                            "params": {
+                                "label_non_somatic": False,
+                                "split_non_somatic_good_mua": True,
+                            },
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.bombcell_label_label_non_somatic is False
+    assert parsed.bombcell_label_split_non_somatic_good_mua is True
+
+
+def test_parse_spikesort_stage_config_enables_bombcell_when_phase_block_present() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "bombcell_label": {},
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.bombcell_label_enabled is True
+
+
 def test_parse_spikesort_stage_config_reads_auto_merge_knobs() -> None:
     cfg = RuntimeConfig(
         {
@@ -692,6 +829,13 @@ def test_parse_spikesort_stage_config_reads_merge_reports_2panel_knobs() -> None
                                         "linked_highlight": True,
                                         "plot_after_other_units": True,
                                         "label_affected_units": True,
+                                        "show_legend": True,
+                                        "legend_position": "upper left",
+                                        "legend_x": -0.35,
+                                        "legend_y": 0.85,
+                                        "sort_pre_legend_by_groups": True,
+                                        "debug_json": False,
+                                        "debug_json_relpath": "reports/highlight_linkage.json",
                                         "before_color": "#ff0000",
                                         "after_color": "#00ff00",
                                         "palette": "Set1",
@@ -742,6 +886,13 @@ def test_parse_spikesort_stage_config_reads_merge_reports_2panel_knobs() -> None
     assert parsed.merge_reports_2panel_highlight_merges_linked is True
     assert parsed.merge_reports_2panel_highlight_plot_after_other_units is True
     assert parsed.merge_reports_2panel_highlight_label_affected_units is True
+    assert parsed.merge_reports_2panel_highlight_show_legend is True
+    assert parsed.merge_reports_2panel_highlight_legend_position == "upper left"
+    assert parsed.merge_reports_2panel_highlight_legend_x == -0.35
+    assert parsed.merge_reports_2panel_highlight_legend_y == 0.85
+    assert parsed.merge_reports_2panel_highlight_sort_pre_legend_by_groups is True
+    assert parsed.merge_reports_2panel_highlight_debug_json_enabled is False
+    assert parsed.merge_reports_2panel_highlight_debug_json_relpath == "reports/highlight_linkage.json"
     assert parsed.merge_reports_2panel_highlight_before_color == "#ff0000"
     assert parsed.merge_reports_2panel_highlight_after_color == "#00ff00"
     assert parsed.merge_reports_2panel_highlight_palette == "Set1"
@@ -749,6 +900,63 @@ def test_parse_spikesort_stage_config_reads_merge_reports_2panel_knobs() -> None
     assert parsed.merge_reports_2panel_zoom_to_affected_units is True
     assert parsed.merge_reports_2panel_probe_dim_x_um == 3850.0
     assert parsed.merge_reports_2panel_probe_dim_y_um == 2100.0
+
+
+def test_parse_spikesort_stage_config_reads_merge_template_heatmap_report_knobs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "reports": {
+                                "enabled": True,
+                                "template_heatmaps_per_merge": {
+                                    "enabled": True,
+                                    "relpath": "reports/template_heatmaps",
+                                    "write_png": True,
+                                    "write_svg": True,
+                                    "panel_width_in": 12.5,
+                                    "panel_height_in": 7.25,
+                                    "marker_size": 22.0,
+                                    "cmap": "magma",
+                                    "show_colorbar": False,
+                                    "color_scale": "log",
+                                    "log_epsilon": 0.005,
+                                    "max_merges": 14,
+                                    "debug_json_relpath": "reports/template_heatmap_debug.json",
+                                    "assets": {
+                                        "relpath": "reports/template_heatmaps/assets",
+                                        "write_png": True,
+                                        "write_svg": True,
+                                    },
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_reports_template_heatmaps_enabled is True
+    assert parsed.merge_reports_template_heatmaps_relpath == "reports/template_heatmaps"
+    assert parsed.merge_reports_template_heatmaps_assets_reldir == "reports/template_heatmaps/assets"
+    assert parsed.merge_reports_template_heatmaps_write_png is True
+    assert parsed.merge_reports_template_heatmaps_write_svg is True
+    assert parsed.merge_reports_template_heatmaps_write_assets_png is True
+    assert parsed.merge_reports_template_heatmaps_write_assets_svg is True
+    assert parsed.merge_reports_template_heatmaps_panel_width_in == 12.5
+    assert parsed.merge_reports_template_heatmaps_panel_height_in == 7.25
+    assert parsed.merge_reports_template_heatmaps_marker_size == 22.0
+    assert parsed.merge_reports_template_heatmaps_cmap == "magma"
+    assert parsed.merge_reports_template_heatmaps_show_colorbar is False
+    assert parsed.merge_reports_template_heatmaps_color_scale == "log"
+    assert parsed.merge_reports_template_heatmaps_log_epsilon == 0.005
+    assert parsed.merge_reports_template_heatmaps_max_merges == 14
+    assert parsed.merge_reports_template_heatmaps_debug_json_relpath == "reports/template_heatmap_debug.json"
 
 
 def test_parse_spikesort_stage_config_reads_merge_reports_unit_diff_json_knobs() -> None:

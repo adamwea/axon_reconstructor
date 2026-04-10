@@ -770,6 +770,438 @@ def test_write_merge_unit_location_reports_infers_after_highlight_when_post_unit
     assert any(color != "#7a7a7a" for color in scatter_colors)
 
 
+def test_write_merge_unit_location_reports_links_reused_post_ids_blocks_gray_and_applies_legend_knobs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import sys
+    from types import SimpleNamespace as _SimpleNamespace
+
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    class _FakeLine2D:
+        def __init__(self, *args, **kwargs) -> None:
+            self.label = str(kwargs.get("label", ""))
+
+    class _FakeColors:
+        @staticmethod
+        def to_rgba(value):
+            if isinstance(value, tuple) and len(value) >= 3:
+                if len(value) >= 4:
+                    return value
+                return (value[0], value[1], value[2], 1.0)
+            raise ValueError("unsupported color")
+
+    class _FakeAxis:
+        def __init__(self) -> None:
+            self.scatter_calls: list[dict[str, object]] = []
+            self.legend_calls: list[dict[str, object]] = []
+
+        def set_title(self, title):
+            return None
+
+        def set_xlabel(self, label):
+            return None
+
+        def set_ylabel(self, label):
+            return None
+
+        def set_xlim(self, limits):
+            return None
+
+        def set_ylim(self, limits):
+            return None
+
+        def invert_yaxis(self):
+            return None
+
+        def set_aspect(self, aspect, adjustable=None):
+            return None
+
+        def grid(self, enabled, alpha=None):
+            return None
+
+        def scatter(self, xs, ys, s=None, alpha=None, c=None):
+            self.scatter_calls.append(
+                {
+                    "xs": list(xs),
+                    "ys": list(ys),
+                    "colors": list(c),
+                }
+            )
+            return None
+
+        def legend(self, *args, **kwargs):
+            labels: list[str] = []
+            handles = kwargs.get("handles", None)
+            if isinstance(handles, list):
+                labels = [str(getattr(handle, "label", "")) for handle in handles]
+            elif args:
+                try:
+                    labels = [str(label) for label in list(args[0])]
+                except Exception:
+                    labels = []
+            self.legend_calls.append({"labels": labels, "kwargs": dict(kwargs)})
+            return None
+
+        def text(self, x, y, text, ha=None, va=None, transform=None):
+            return None
+
+        @property
+        def transAxes(self):
+            return object()
+
+    class _FakeFigure:
+        def savefig(self, path, dpi=None):
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_text("fake", encoding="utf-8")
+
+    class _FakePyplot:
+        def __init__(self) -> None:
+            self.axes_created: list[_FakeAxis] = []
+
+        def get_cmap(self, name: str):
+            def _cmap(_value: float):
+                return (0.45, 0.45, 0.45, 1.0)
+
+            return _cmap
+
+        def subplots(self, nrows=1, ncols=1, figsize=None, constrained_layout=False):
+            fig = _FakeFigure()
+            if int(nrows) == 1 and int(ncols) == 1:
+                ax = _FakeAxis()
+                self.axes_created.append(ax)
+                return fig, ax
+            axes = [_FakeAxis() for _ in range(int(nrows) * int(ncols))]
+            self.axes_created.extend(axes)
+            return fig, axes
+
+        def close(self, fig):
+            return None
+
+    fake_plt = _FakePyplot()
+    fake_matplotlib = _SimpleNamespace(pyplot=fake_plt, colors=_FakeColors)
+
+    monkeypatch.setitem(sys.modules, "matplotlib", fake_matplotlib)
+    monkeypatch.setitem(sys.modules, "matplotlib.pyplot", fake_plt)
+    monkeypatch.setitem(sys.modules, "matplotlib.colors", _FakeColors)
+    monkeypatch.setitem(sys.modules, "matplotlib.lines", _SimpleNamespace(Line2D=_FakeLine2D))
+
+    before_snapshot = {
+        "analyzer": {
+            "unit_locations_by_unit": {
+                "2": {"x_um": 10.0, "y_um": 10.0},
+                "7": {"x_um": 20.0, "y_um": 20.0},
+                "10": {"x_um": 30.0, "y_um": 30.0},
+            }
+        }
+    }
+    after_snapshot = {
+        "analyzer": {
+            "unit_locations_by_unit": {
+                "2": {"x_um": 10.5, "y_um": 10.5},
+                "7": {"x_um": 20.5, "y_um": 20.5},
+                "99": {"x_um": 90.0, "y_um": 90.0},
+            }
+        }
+    }
+    stage_cfg = SimpleNamespace(
+        merge_reports_2panel_before_write_png=False,
+        merge_reports_2panel_before_write_svg=False,
+        merge_reports_2panel_after_write_png=False,
+        merge_reports_2panel_after_write_svg=False,
+        merge_reports_2panel_write_png=True,
+        merge_reports_2panel_write_svg=False,
+        merge_reports_2panel_relpath="unit_locations_before_after_merge.png",
+        merge_reports_2panel_before_point_color="#7a7a7a",
+        merge_reports_2panel_after_point_color="#7a7a7a",
+        merge_reports_2panel_highlight_merges_enabled=True,
+        merge_reports_2panel_highlight_merges_linked=True,
+        merge_reports_2panel_highlight_show_legend=True,
+        merge_reports_2panel_highlight_palette="tab20",
+        merge_reports_2panel_highlight_legend_position="center left",
+        merge_reports_2panel_highlight_legend_x=-0.25,
+        merge_reports_2panel_highlight_legend_y=0.4,
+        merge_reports_2panel_highlight_sort_pre_legend_by_groups=True,
+    )
+
+    payload = spikesort_runner._write_merge_unit_location_reports(
+        merge_out_dir=tmp_path,
+        before_snapshot=before_snapshot,
+        after_snapshot=after_snapshot,
+        applied_unit_mappings=[
+            {"pre_unit_ids": ["10", "2"], "post_unit_id": "2"},
+            {"pre_unit_ids": ["7"], "post_unit_id": "7"},
+        ],
+        stage_config=stage_cfg,
+    )
+
+    assert payload.get("status") == "ok"
+    assert len(fake_plt.axes_created) == 2
+
+    before_colors = list(fake_plt.axes_created[0].scatter_calls[0].get("colors", []))
+    after_colors = list(fake_plt.axes_created[1].scatter_calls[0].get("colors", []))
+
+    # before ordered_uids are [2, 7, 10]; after ordered_uids are [2, 7, 99]
+    assert before_colors[0] == after_colors[0]
+    assert before_colors[0] != "#7a7a7a"
+    assert before_colors[0] == "#e41a1c"
+
+    before_legend = fake_plt.axes_created[0].legend_calls[0]
+    assert before_legend.get("labels") == ["10", "2", "7"]
+    legend_kwargs = dict(before_legend.get("kwargs", {}))
+    assert legend_kwargs.get("loc") == "center left"
+    assert legend_kwargs.get("bbox_to_anchor") == (-0.25, 0.4)
+
+
+def test_write_merge_unit_location_reports_writes_highlight_linkage_debug_json(tmp_path: Path, monkeypatch) -> None:
+    import sys
+    from types import SimpleNamespace as _SimpleNamespace
+
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    class _FakeAxis:
+        def set_title(self, title):
+            return None
+
+        def set_xlabel(self, label):
+            return None
+
+        def set_ylabel(self, label):
+            return None
+
+        def set_xlim(self, limits):
+            return None
+
+        def set_ylim(self, limits):
+            return None
+
+        def invert_yaxis(self):
+            return None
+
+        def set_aspect(self, aspect, adjustable=None):
+            return None
+
+        def grid(self, enabled, alpha=None):
+            return None
+
+        def scatter(self, xs, ys, s=None, alpha=None, c=None):
+            return None
+
+        def text(self, x, y, text, ha=None, va=None, transform=None):
+            return None
+
+        @property
+        def transAxes(self):
+            return object()
+
+    class _FakeFigure:
+        def savefig(self, path, dpi=None):
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_text("fake", encoding="utf-8")
+
+    class _FakePyplot:
+        def subplots(self, nrows=1, ncols=1, figsize=None, constrained_layout=False):
+            fig = _FakeFigure()
+            if int(nrows) == 1 and int(ncols) == 1:
+                return fig, _FakeAxis()
+            return fig, [_FakeAxis() for _ in range(int(nrows) * int(ncols))]
+
+        def get_cmap(self, name: str):
+            def _cmap(_value: float):
+                return (0.2, 0.6, 0.2, 1.0)
+
+            return _cmap
+
+        def close(self, fig):
+            return None
+
+    class _FakeColors:
+        @staticmethod
+        def to_rgba(value):
+            if isinstance(value, tuple) and len(value) >= 4:
+                return value
+            if isinstance(value, tuple) and len(value) == 3:
+                return (value[0], value[1], value[2], 1.0)
+            if isinstance(value, str) and value.startswith("#") and len(value) in {7, 9}:
+                return (0.1, 0.2, 0.3, 1.0)
+            raise ValueError("unsupported")
+
+        @staticmethod
+        def to_hex(value, keep_alpha=False):
+            return "#123456ff" if keep_alpha else "#123456"
+
+    fake_plt = _FakePyplot()
+    fake_matplotlib = _SimpleNamespace(pyplot=fake_plt, colors=_FakeColors)
+
+    monkeypatch.setitem(sys.modules, "matplotlib", fake_matplotlib)
+    monkeypatch.setitem(sys.modules, "matplotlib.pyplot", fake_plt)
+    monkeypatch.setitem(sys.modules, "matplotlib.colors", _FakeColors)
+
+    before_snapshot = {
+        "analyzer": {
+            "unit_locations_by_unit": {
+                "10": {"x_um": 10.0, "y_um": 20.0},
+                "20": {"x_um": 20.0, "y_um": 30.0},
+            }
+        }
+    }
+    after_snapshot = {
+        "analyzer": {
+            "unit_locations_by_unit": {
+                "20": {"x_um": 20.0, "y_um": 30.0},
+            }
+        }
+    }
+    stage_cfg = SimpleNamespace(
+        merge_reports_2panel_before_write_png=False,
+        merge_reports_2panel_before_write_svg=False,
+        merge_reports_2panel_after_write_png=False,
+        merge_reports_2panel_after_write_svg=False,
+        merge_reports_2panel_write_png=False,
+        merge_reports_2panel_write_svg=False,
+        merge_reports_2panel_highlight_merges_enabled=True,
+        merge_reports_2panel_highlight_merges_linked=False,
+        merge_reports_2panel_highlight_before_color="#ff7f0e",
+        merge_reports_2panel_highlight_after_color="#2ca02c",
+        merge_reports_2panel_highlight_debug_json_enabled=True,
+        merge_reports_2panel_highlight_debug_json_relpath="reports/highlight_linkage_debug.json",
+    )
+
+    payload = spikesort_runner._write_merge_unit_location_reports(
+        merge_out_dir=tmp_path,
+        before_snapshot=before_snapshot,
+        after_snapshot=after_snapshot,
+        applied_unit_mappings=[{"pre_unit_ids": ["10", "20"], "post_unit_id": "20"}],
+        stage_config=stage_cfg,
+    )
+
+    assert payload.get("status") == "ok"
+    debug_json = Path(str(payload.get("outputs", {}).get("merge.report.unit_locations_highlight_linkage_json")))
+    assert debug_json.exists()
+    debug_payload = _read_json(debug_json)
+    assert debug_payload.get("n_mappings") == 1
+    rows = list(debug_payload.get("linkage_rows", []))
+    assert len(rows) == 1
+    assert rows[0].get("requested_post_unit_id") == "20"
+    assert rows[0].get("resolved_post_unit_id") == "20"
+
+
+def test_write_merge_template_heatmap_reports_outputs_panel_and_debug_json(tmp_path: Path, monkeypatch) -> None:
+    import numpy as np
+
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    monkeypatch.setattr(spikesort_runner, "_import_spikeinterface_full_module", lambda: object())
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_load_sorting_analyzer_from_snapshot",
+        lambda si_module, snapshot: (object(), None),
+    )
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_extract_template_and_locations_for_unit",
+        lambda analyzer, unit_id: (
+            np.asarray([[0.0, 1.0, 0.5], [0.2, 0.8, 0.4]], dtype=float),
+            np.asarray([[10.0, 20.0], [30.0, 40.0]], dtype=float),
+            None,
+        ),
+    )
+
+    asset_calls: list[dict[str, object]] = []
+
+    def _fake_write_asset(
+        template_ch_by_t,
+        locations_xy,
+        out_path,
+        title,
+        cmap,
+        marker_size,
+        show_colorbar,
+        color_vmin=None,
+        color_vmax=None,
+        color_scale_mode="linear",
+        log_epsilon=1e-3,
+    ):
+        asset_calls.append(
+            {
+                "title": str(title),
+                "vmin": color_vmin,
+                "vmax": color_vmax,
+                "color_scale_mode": str(color_scale_mode),
+                "log_epsilon": float(log_epsilon),
+            }
+        )
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(b"fake")
+        return True, None
+
+    monkeypatch.setattr(spikesort_runner, "_write_template_amplitude_heatmap_asset", _fake_write_asset)
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_stack_rendered_images_vertically",
+        lambda image_paths: (np.ones((16, 16, 3), dtype=float), None),
+    )
+
+    before_snapshot = {"analyzer": {"source_dir": str(tmp_path)}}
+    after_snapshot = {"analyzer": {"source_dir": str(tmp_path)}}
+    stage_cfg = SimpleNamespace(
+        merge_reports_template_heatmaps_relpath="reports/template_heatmaps",
+        merge_reports_template_heatmaps_assets_reldir="assets",
+        merge_reports_template_heatmaps_write_png=True,
+        merge_reports_template_heatmaps_write_svg=False,
+        merge_reports_template_heatmaps_write_assets_png=True,
+        merge_reports_template_heatmaps_write_assets_svg=False,
+        merge_reports_template_heatmaps_panel_width_in=8.0,
+        merge_reports_template_heatmaps_panel_height_in=4.0,
+        merge_reports_template_heatmaps_marker_size=12.0,
+        merge_reports_template_heatmaps_cmap="viridis",
+        merge_reports_template_heatmaps_show_colorbar=False,
+        merge_reports_template_heatmaps_color_scale="log",
+        merge_reports_template_heatmaps_log_epsilon=0.01,
+        merge_reports_template_heatmaps_max_merges=None,
+        merge_reports_template_heatmaps_debug_json_relpath="reports/template_heatmap_debug.json",
+    )
+
+    payload = spikesort_runner._write_merge_template_heatmap_reports(
+        merge_out_dir=tmp_path,
+        before_snapshot=before_snapshot,
+        after_snapshot=after_snapshot,
+        applied_unit_mappings=[{"group_id": "g1", "pre_unit_ids": ["10", "11"], "post_unit_id": "20"}],
+        stage_config=stage_cfg,
+    )
+
+    assert payload.get("status") == "ok"
+    assert payload.get("n_mappings_processed") == 1
+    debug_json = Path(str(payload.get("debug_json")))
+    assert debug_json.exists()
+    debug_payload = _read_json(debug_json)
+    assert debug_payload.get("n_mappings_processed") == 1
+    assert len(list(debug_payload.get("rows", []))) == 1
+    rows = list(debug_payload.get("rows", []))
+    assert rows[0].get("pre_color_scale", {}).get("mode") == "dynamic_per_merge_group"
+    assert rows[0].get("pre_color_scale", {}).get("scale") == "log"
+    output_values = list(payload.get("outputs", {}).values())
+    assert any(str(path).endswith(".png") for path in output_values)
+
+    pre_calls = [c for c in asset_calls if str(c.get("title", "")).startswith("Pre unit")]
+    post_calls = [c for c in asset_calls if str(c.get("title", "")).startswith("Post unit")]
+    assert len(pre_calls) == 2
+    assert len(post_calls) == 1
+
+    pre_vmins = {c.get("vmin") for c in pre_calls}
+    pre_vmaxs = {c.get("vmax") for c in pre_calls}
+    assert len(pre_vmins) == 1
+    assert len(pre_vmaxs) == 1
+    assert next(iter(pre_vmins)) is not None
+    assert next(iter(pre_vmaxs)) is not None
+    assert {c.get("color_scale_mode") for c in pre_calls} == {"log"}
+    assert {c.get("color_scale_mode") for c in post_calls} == {"log"}
+    assert {c.get("log_epsilon") for c in pre_calls} == {0.01}
+    assert {c.get("log_epsilon") for c in post_calls} == {0.01}
+    assert post_calls[0].get("vmin") is None
+    assert post_calls[0].get("vmax") is None
+
+
 def test_write_merge_unit_location_reports_does_not_highlight_premerge_ids_on_after_panel(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -893,7 +1325,8 @@ def test_write_merge_unit_location_reports_does_not_highlight_premerge_ids_on_af
     assert payload.get("after_highlighted_units_count") == 1
     assert len(fake_plt.axes_created) == 1
     scatter_colors = list(fake_plt.axes_created[0].scatter_calls[0].get("colors", []))
-    assert scatter_colors == ["#7a7a7a", "#2ca02c"]
+    # ordered_uids are [20, 31]; the resolved post unit 20 should be highlighted.
+    assert scatter_colors == ["#2ca02c", "#7a7a7a"]
 
 
 def test_write_merge_unit_location_reports_zoom_to_affected_units_uses_affected_extent(
@@ -1647,6 +2080,17 @@ def test_run_spikesort_merge_stage_writes_recommended_candidate_outputs(tmp_path
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
     h5_path.parent.mkdir(parents=True, exist_ok=True)
     h5_path.write_bytes(b"")
+    well_out_dir = tmp_path / "well001"
+    pre_merge_workspace_analyzer_dir = (
+        tmp_path
+        / "well001"
+        / "spikesort_outputs"
+        / "merge_output"
+        / "cache"
+        / "merge_workspace"
+        / "pre_merge_analyzer_output"
+    )
+    pre_merge_workspace_analyzer_dir.mkdir(parents=True, exist_ok=True)
 
     output_rel_root = "spikesort_outputs"
     stream_id = "well001"
@@ -3097,6 +3541,13 @@ def test_run_spikesort_merge_stage_writes_single_merge_metadata_summary_when_ena
             "n_iterations": 1,
         }
 
+    class _FakeWorkspaceAnalyzer:
+        def has_extension(self, _name: str) -> bool:
+            return True
+
+        def compute(self, _extension_name):
+            return None
+
     monkeypatch.setattr(spikesort_runner, "_capture_merge_state_snapshot", _fake_capture)
     monkeypatch.setattr(spikesort_runner, "_run_auto_merge_method", _fake_auto_merge)
     monkeypatch.setattr(
@@ -3530,6 +3981,13 @@ def test_run_spikesort_merge_stage_writes_merge_reports_when_enabled(tmp_path: P
 
     report_calls: list[dict[str, object]] = []
 
+    class _FakeWorkspaceAnalyzer:
+        def has_extension(self, _name: str) -> bool:
+            return True
+
+        def compute(self, _extension_name):
+            return None
+
     def _fake_write_reports(*, merge_out_dir, before_snapshot, after_snapshot, applied_unit_mappings, stage_config):
         report_calls.append(
             {
@@ -3551,6 +4009,12 @@ def test_run_spikesort_merge_stage_writes_merge_reports_when_enabled(tmp_path: P
     monkeypatch.setattr(spikesort_runner, "_capture_merge_state_snapshot", _fake_capture)
     monkeypatch.setattr(spikesort_runner, "_run_auto_merge_method", _fake_auto_merge)
     monkeypatch.setattr(spikesort_runner, "_write_merge_unit_location_reports", _fake_write_reports)
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_recompute_sorting_analyzer_to_dir",
+        lambda **kwargs: (_FakeWorkspaceAnalyzer(), pre_merge_workspace_analyzer_dir),
+    )
+    monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
 
     stage_cfg = SimpleNamespace(
         merge_sequence=("auto_merge",),
@@ -3592,6 +4056,15 @@ def test_run_spikesort_merge_stage_writes_unit_diff_json_and_uses_it_for_2panel(
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
     h5_path.parent.mkdir(parents=True, exist_ok=True)
     h5_path.write_bytes(b"")
+    well_out_dir = tmp_path / "well001"
+    pre_merge_workspace_analyzer_dir = (
+        well_out_dir
+        / "spikesort_outputs"
+        / "cache"
+        / "merge_workspace"
+        / "pre_merge_analyzer_output"
+    )
+    pre_merge_workspace_analyzer_dir.mkdir(parents=True, exist_ok=True)
 
     def _fake_capture(*, well_out_dir, stage_output_root_dir, output_rel_root, stage_config, capture_label, include_unit_locations, allow_analyzer_recompute):
         if capture_label == "before_merge":
@@ -3643,6 +4116,13 @@ def test_run_spikesort_merge_stage_writes_unit_diff_json_and_uses_it_for_2panel(
 
     report_calls: list[dict[str, object]] = []
 
+    class _FakeWorkspaceAnalyzerLocal:
+        def has_extension(self, _name: str) -> bool:
+            return True
+
+        def compute(self, _extension_name):
+            return None
+
     def _fake_write_reports(*, merge_out_dir, before_snapshot, after_snapshot, applied_unit_mappings, stage_config):
         report_calls.append(
             {
@@ -3663,6 +4143,12 @@ def test_run_spikesort_merge_stage_writes_unit_diff_json_and_uses_it_for_2panel(
     monkeypatch.setattr(spikesort_runner, "_capture_merge_state_snapshot", _fake_capture)
     monkeypatch.setattr(spikesort_runner, "_run_auto_merge_method", _fake_auto_merge)
     monkeypatch.setattr(spikesort_runner, "_write_merge_unit_location_reports", _fake_write_reports)
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_recompute_sorting_analyzer_to_dir",
+        lambda **kwargs: (_FakeWorkspaceAnalyzerLocal(), pre_merge_workspace_analyzer_dir),
+    )
+    monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
 
     stage_cfg = SimpleNamespace(
         merge_sequence=("auto_merge",),
@@ -3714,6 +4200,15 @@ def test_run_spikesort_merge_stage_force_replot_uses_unit_diff_json_as_2panel_so
     well_out_dir = tmp_path / "well001"
     merge_out_dir = well_out_dir / "spikesort_outputs" / "SLAy_outputs"
     merge_out_dir.mkdir(parents=True, exist_ok=True)
+    pre_merge_workspace_analyzer_dir = (
+        well_out_dir
+        / "spikesort_outputs"
+        / "merge_output"
+        / "cache"
+        / "merge_workspace"
+        / "pre_merge_analyzer_output"
+    )
+    pre_merge_workspace_analyzer_dir.mkdir(parents=True, exist_ok=True)
 
     metadata_json = merge_out_dir / "merge_metadata_summary.json"
     metadata_json.write_text(
@@ -3788,6 +4283,7 @@ def test_run_spikesort_merge_stage_force_replot_uses_unit_diff_json_as_2panel_so
                 "outputs": {
                     "merge.metadata_summary_json": str(metadata_json),
                     "merge.report.unit_diff_json": str(unit_diff_json),
+                    "merge.pre_merge_workspace_analyzer_output_dir": str(pre_merge_workspace_analyzer_dir),
                 },
             }
         ),
@@ -3865,6 +4361,15 @@ def test_run_spikesort_merge_stage_force_replot_only_uses_existing_metadata(tmp_
     well_out_dir = tmp_path / "well001"
     merge_out_dir = well_out_dir / "spikesort_outputs" / "SLAy_outputs"
     merge_out_dir.mkdir(parents=True, exist_ok=True)
+    pre_merge_workspace_analyzer_dir = (
+        well_out_dir
+        / "spikesort_outputs"
+        / "merge_output"
+        / "cache"
+        / "merge_workspace"
+        / "pre_merge_analyzer_output"
+    )
+    pre_merge_workspace_analyzer_dir.mkdir(parents=True, exist_ok=True)
 
     metadata_json = merge_out_dir / "merge_metadata_summary.json"
     metadata_json.write_text(
@@ -3908,6 +4413,7 @@ def test_run_spikesort_merge_stage_force_replot_only_uses_existing_metadata(tmp_
                 "merge_metadata_summary_json": str(metadata_json),
                 "outputs": {
                     "merge.metadata_summary_json": str(metadata_json),
+                    "merge.pre_merge_workspace_analyzer_output_dir": str(pre_merge_workspace_analyzer_dir),
                 },
             }
         ),
@@ -3974,7 +4480,7 @@ def test_run_spikesort_merge_stage_force_replot_only_uses_existing_metadata(tmp_
     assert "merge.report.unit_locations_before_after_png" in result.outputs
 
 
-def test_run_spikesort_merge_stage_force_replot_only_falls_back_to_applied_operations(tmp_path: Path, monkeypatch) -> None:
+def test_run_spikesort_merge_stage_force_replot_only_does_not_fallback_to_applied_operations(tmp_path: Path, monkeypatch) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
@@ -3984,6 +4490,15 @@ def test_run_spikesort_merge_stage_force_replot_only_falls_back_to_applied_opera
     well_out_dir = tmp_path / "well001"
     merge_out_dir = well_out_dir / "spikesort_outputs" / "SLAy_outputs"
     merge_out_dir.mkdir(parents=True, exist_ok=True)
+    pre_merge_workspace_analyzer_dir = (
+        well_out_dir
+        / "spikesort_outputs"
+        / "merge_output"
+        / "cache"
+        / "merge_workspace"
+        / "pre_merge_analyzer_output"
+    )
+    pre_merge_workspace_analyzer_dir.mkdir(parents=True, exist_ok=True)
 
     metadata_json = merge_out_dir / "merge_metadata_summary.json"
     metadata_json.write_text(
@@ -4029,6 +4544,7 @@ def test_run_spikesort_merge_stage_force_replot_only_falls_back_to_applied_opera
                 "merge_metadata_summary_json": str(metadata_json),
                 "outputs": {
                     "merge.metadata_summary_json": str(metadata_json),
+                    "merge.pre_merge_workspace_analyzer_output_dir": str(pre_merge_workspace_analyzer_dir),
                 },
             }
         ),
@@ -4090,7 +4606,7 @@ def test_run_spikesort_merge_stage_force_replot_only_falls_back_to_applied_opera
     assert len(report_calls) == 1
     assert report_calls[0].get("before_count") == 2
     assert report_calls[0].get("after_count") == 1
-    assert report_calls[0].get("applied_mappings_count") == 1
+    assert report_calls[0].get("applied_mappings_count") == 0
     assert "merge.report.unit_locations_before_after_png" in result.outputs
 
 
@@ -4296,3 +4812,157 @@ def test_run_auto_merge_method_deletes_only_auto_merge_output_dir_when_enabled(t
     assert str(auto_merge_out_dir) in list(report.get("removed_on_force_restart", []))
     assert not (auto_merge_out_dir / "stale.txt").exists()
     assert (unrelated_dir / "keep.txt").exists()
+
+
+def test_run_bombcell_label_phase_updates_kilosort_label_files(tmp_path: Path, monkeypatch) -> None:
+    import numpy as np
+
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    well_out_dir = tmp_path / "well001"
+    stage_output_root_dir = well_out_dir / "spikesort_outputs"
+    sorter_output_dir = stage_output_root_dir / "sorter_output"
+    ks_dir = sorter_output_dir / "sorter_output"
+    ks_dir.mkdir(parents=True, exist_ok=True)
+
+    (ks_dir / "params.py").write_text("sample_rate = 30000\n", encoding="utf-8")
+    np.save(ks_dir / "spike_times.npy", np.array([0, 1, 2, 3], dtype=np.int64))
+    np.save(ks_dir / "spike_clusters.npy", np.array([1, 1, 2, 3], dtype=np.int64))
+    (ks_dir / "cluster_KSLabel.tsv").write_text(
+        "cluster_id\tKSLabel\n"
+        "1\tgood\n"
+        "2\tmua\n"
+        "3\tgood\n",
+        encoding="utf-8",
+    )
+    (ks_dir / "cluster_group.tsv").write_text(
+        "cluster_id\tgroup\n"
+        "1\tgood\n"
+        "2\tmua\n"
+        "3\tgood\n",
+        encoding="utf-8",
+    )
+
+    class _FakeAnalyzer:
+        def has_extension(self, name: str) -> bool:
+            return name in {"quality_metrics", "template_metrics"}
+
+        def compute(self, extension_name):
+            return None
+
+    monkeypatch.setattr(spikesort_runner, "_import_spikeinterface_full_module", lambda: object())
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_load_or_recompute_spikesort_analyzer",
+        lambda **kwargs: (_FakeAnalyzer(), stage_output_root_dir / "analyzer_output", False),
+    )
+
+    bombcell_calls: dict[str, object] = {}
+
+    class _FakeLabels:
+        def iterrows(self):
+            yield 1, {"label": "non_soma_good"}
+            yield 2, {"label": "mua"}
+
+    class _FakeCurationModule:
+        @staticmethod
+        def bombcell_label_units(
+            sorting_analyzer=None,
+            thresholds=None,
+            label_non_somatic=True,
+            split_non_somatic_good_mua=False,
+            external_metrics=None,
+        ):
+            bombcell_calls["label_non_somatic"] = bool(label_non_somatic)
+            bombcell_calls["split_non_somatic_good_mua"] = bool(split_non_somatic_good_mua)
+            bombcell_calls["thresholds"] = thresholds
+            return _FakeLabels()
+
+    original_import_module = spikesort_runner.importlib.import_module
+
+    def _fake_import_module(name: str):
+        if name == "spikeinterface.curation":
+            return _FakeCurationModule()
+        return original_import_module(name)
+
+    monkeypatch.setattr(spikesort_runner.importlib, "import_module", _fake_import_module)
+
+    stage_cfg = SimpleNamespace(
+        sorter="kilosort4",
+        merge_rel_output_root=None,
+        bombcell_label_enabled=True,
+        bombcell_label_relpath="bombcell_label_outputs",
+        bombcell_label_delete_outputs_on_force_restart=True,
+        bombcell_label_thresholds=None,
+        bombcell_label_thresholds_path=None,
+        bombcell_label_label_non_somatic=True,
+        bombcell_label_split_non_somatic_good_mua=True,
+        bombcell_label_apply_to_sorter_output=True,
+        bombcell_label_write_cluster_group=True,
+        bombcell_label_reports_enabled=True,
+        bombcell_label_reports_summary_json_enabled=True,
+        bombcell_label_reports_summary_json_relpath="reports/custom_bombcell_summary.json",
+        preprocess_concat_recording_relpath="preprocess_outputs/preprocessed_recording",
+    )
+
+    report = spikesort_runner._run_bombcell_label_phase(
+        well_out_dir=well_out_dir,
+        stage_output_root_dir=stage_output_root_dir,
+        output_rel_root="spikesort_outputs",
+        stage_config=stage_cfg,
+        force_restart=False,
+        sorter_output_dir=sorter_output_dir,
+    )
+
+    assert report.get("status") == "ok"
+    assert report.get("n_units_labeled") == 2
+    assert bombcell_calls.get("label_non_somatic") is True
+    assert bombcell_calls.get("split_non_somatic_good_mua") is True
+    summary_json = Path(str(report.get("summary_json")))
+    assert summary_json.name == "custom_bombcell_summary.json"
+    assert summary_json.exists()
+    assert report.get("outputs", {}).get("bombcell_label.summary_json") == str(summary_json)
+
+    kslabel_text = (ks_dir / "cluster_KSLabel.tsv").read_text(encoding="utf-8")
+    group_text = (ks_dir / "cluster_group.tsv").read_text(encoding="utf-8")
+    assert "1\tnon_soma_good" in kslabel_text
+    assert "2\tmua" in kslabel_text
+    assert "3\tgood" in kslabel_text
+    assert "1\tnon_soma_good" in group_text
+
+
+def test_run_spikesort_merge_stage_raises_when_bombcell_fail_on_error_enabled(tmp_path: Path, monkeypatch) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_run_bombcell_label_phase",
+        lambda **kwargs: {
+            "name": "bombcell_label",
+            "status": "error",
+            "reason": "bombcell_label_failed",
+            "error": "bombcell exploded",
+            "outputs": {},
+        },
+    )
+
+    stage_cfg = SimpleNamespace(
+        merge_units_enabled=True,
+        merge_sequence=("SLAy",),
+        slay_enabled=False,
+        merge_reports_enabled=False,
+        cache_sorting_outputs_before_merge=False,
+        bombcell_label_enabled=True,
+        bombcell_label_fail_on_error=True,
+    )
+
+    with pytest.raises(RuntimeError, match="bombcell exploded"):
+        run_spikesort_merge_stage(
+            h5_path=tmp_path / "dummy.h5",
+            stream_id="well001",
+            mea_output_root=tmp_path,
+            output_rel_root="spikesort_outputs",
+            stage_config=stage_cfg,
+            force_restart=False,
+            force_replot=False,
+        )

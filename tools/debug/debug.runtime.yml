@@ -201,6 +201,32 @@ stages:
           export_to_phy: false
 
       bombcell_label:
+        enabled: true
+        # outputs live under <well>/<spikesort_output_root>/<merge_units.rel_output_root>/<relpath>
+        relpath: bombcell_label_outputs
+        delete_outputs_on_force_restart: true
+
+        # Canonical Bombcell labeling function arguments.
+        # Mirrors spikeinterface.curation.bombcell_label_units(...)
+        params:
+          label_non_somatic: true
+          split_non_somatic_good_mua: true
+          # optional: provide a custom thresholds dict or thresholds_path
+          # thresholds: null
+          # thresholds_path: null
+
+        # write labels back into sorter_output/sorter_output/cluster_KSLabel.tsv before merge methods
+        apply_to_sorter_output: true
+        write_cluster_group: true
+        # keep false for iterative debugging so merge can continue even if labeling fails
+        fail_on_error: false
+
+        reports:
+          enabled: true
+          # write a summary JSON with label counts and other relevant metadata.
+          summary_json:
+            enabled: true
+            relpath: bombcell_label_summary.json
 
       merge_units:
 
@@ -249,6 +275,9 @@ stages:
         # SLAy - https://github.com/saikoukunt/SLAy
         # New option that is better suited to working with incomplete templates at least.
         SLAy:
+          #TODO: can probably implement spikeinterface integration of this instead of manually
+          # integration as we have it currently.
+
           enabled: true
           delete_outputs_on_force_restart: true # merge-method cleanup toggle for SLAy. When force_restart is true, removes only <well>/<output_root>/<SLAy.relpath> before rerunning SLAy merge.
           # Relative to spikesort.execution.output_root.
@@ -438,8 +467,18 @@ stages:
 
               #jic affected units are hard to find. Optionally label only the units affected by the merge with their unit IDs in the before and after plots to make them easier to track visually;
               # keep false by default to reduce visual clutter, but can be set to true for debugging iterations to provide more information in the plots.
-              label_affected_units: true
-            # inherit probe dimensions specified in data.yml if available.
+              label_affected_units: false
+
+              # show legend for highlighted units
+              show_legend: true
+              legend_position: center left
+              legend_x: -0.75
+              legend_y: 0.5
+              sort_pre_legend_by_groups: true
+              debug_json: true
+              debug_json_relpath: unit_locations_highlight_linkage.json
+
+                        # inherit probe dimensions specified in data.yml if available.
             # this can control relative size of electrodes if plotted, xy extent of the plots, and the scaling of location markers if point_size is not explicitly set here.
             inherit_probe_dimensions: true
 
@@ -462,6 +501,32 @@ stages:
             write_png: true
             write_svg: false
             relpath: unit_locations_before_after_merge.png
+
+          # for each applied merge group, render pre templates (left panel) and post template (right panel)
+          # as amplitude heatmaps, plus per-template assets and a debug manifest json.
+          template_heatmaps_per_merge:
+            enabled: true
+            relpath: template_heatmaps_per_merge
+            write_png: true
+            write_svg: false
+            panel_width_in: 11.0
+            panel_height_in: 6.0
+            marker_size: 10.0
+            cmap: viridis
+            show_colorbar: true
+            # linear|log
+            color_scale: log
+            # used only when color_scale is log
+            log_epsilon: 0.001
+            # null/omitted = no cap.
+            # max_merges: 25
+            debug_json_relpath: template_heatmaps_per_merge_report.json
+            assets:
+              relpath: assets
+              write_png: true
+              write_svg: false
+
+
 
             # Presence ratio
             # rp_contamination
