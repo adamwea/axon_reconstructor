@@ -8383,15 +8383,34 @@ def run_spikesort_merge_stage(
 				break
 
 	canonical_workspace_publish_requested = False
+	canonical_workspace_publish_skip_reason: str | None = None
 	if cache_sorting_outputs_before_merge_use_canonical_workspace and canonical_workspace_prepared:
 		if str(status) == "ok":
 			canonical_workspace_publish_requested = bool(
 				cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success
 			)
+			if not canonical_workspace_publish_requested:
+				canonical_workspace_publish_skip_reason = "publish_to_stage_outputs_on_success_disabled"
 		else:
 			canonical_workspace_publish_requested = bool(
 				cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure
 			)
+			if not canonical_workspace_publish_requested:
+				canonical_workspace_publish_skip_reason = "publish_to_stage_outputs_on_failure_disabled"
+	elif not cache_sorting_outputs_before_merge_use_canonical_workspace:
+		canonical_workspace_publish_skip_reason = "canonical_workspace_disabled"
+	else:
+		canonical_workspace_publish_skip_reason = "canonical_workspace_not_prepared"
+
+	_log_phase_step_start(
+		"Merge canonical workspace publish decision",
+		stream_id=str(stream_id),
+		merge_status=str(status),
+		requested=bool(canonical_workspace_publish_requested),
+		workspace_root_dir=active_stage_output_root_dir,
+		stage_output_root_dir=stage_output_root_dir,
+		reason=(None if canonical_workspace_publish_requested else canonical_workspace_publish_skip_reason),
+	)
 
 	if canonical_workspace_publish_requested:
 		_log_phase_step_start(
@@ -8406,15 +8425,42 @@ def run_spikesort_merge_stage(
 				cache_root_dir=active_stage_output_root_dir,
 			)
 			canonical_workspace_published = True
+			restored_paths = list(canonical_workspace_publish_summary.get("restored_paths", []) or [])
+			missing_workspace_sources = list(
+				canonical_workspace_publish_summary.get("missing_cache_sources", []) or []
+			)
 			published_sorter_output_dir = (stage_output_root_dir / "sorter_output").resolve()
 			published_analyzer_output_dir = (stage_output_root_dir / "analyzer_output").resolve()
 			if published_sorter_output_dir.exists():
 				combined_outputs["merge.published_sorter_output_dir"] = str(published_sorter_output_dir)
 			if published_analyzer_output_dir.exists():
 				combined_outputs["merge.published_analyzer_output_dir"] = str(published_analyzer_output_dir)
+			_log_phase_step_start(
+				"Merge canonical workspace publish complete",
+				stream_id=str(stream_id),
+				workspace_root_dir=active_stage_output_root_dir,
+				stage_output_root_dir=stage_output_root_dir,
+				restored_paths=(";".join(restored_paths) if restored_paths else None),
+				missing_workspace_sources=(
+					";".join(missing_workspace_sources) if missing_workspace_sources else None
+				),
+				published_sorter_output_dir=(
+					published_sorter_output_dir if published_sorter_output_dir.exists() else None
+				),
+				published_analyzer_output_dir=(
+					published_analyzer_output_dir if published_analyzer_output_dir.exists() else None
+				),
+			)
 		except Exception as exc:
 			canonical_workspace_publish_error = (
 				f"canonical_workspace_publish_failed:{type(exc).__name__}:{exc}"
+			)
+			_log_phase_step_start(
+				"Merge canonical workspace publish failed",
+				stream_id=str(stream_id),
+				workspace_root_dir=active_stage_output_root_dir,
+				stage_output_root_dir=stage_output_root_dir,
+				error=canonical_workspace_publish_error,
 			)
 			status = "error"
 			reason = "canonical_workspace_publish_failed"

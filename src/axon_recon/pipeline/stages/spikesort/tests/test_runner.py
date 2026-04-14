@@ -4696,7 +4696,7 @@ def test_run_spikesort_merge_stage_asserts_auto_merge_uses_canonical_workspace_b
 
 
 def test_run_spikesort_merge_stage_publishes_canonical_workspace_when_enabled(
-    tmp_path: Path, monkeypatch
+     tmp_path: Path, monkeypatch, caplog
 ) -> None:
     from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
@@ -4742,6 +4742,7 @@ def test_run_spikesort_merge_stage_publishes_canonical_workspace_when_enabled(
         }
 
     monkeypatch.setattr(spikesort_runner, "_run_auto_merge_method", _fake_auto_merge)
+    caplog.set_level("INFO")
 
     stage_cfg = SimpleNamespace(
         merge_units_enabled=True,
@@ -4773,6 +4774,101 @@ def test_run_spikesort_merge_stage_publishes_canonical_workspace_when_enabled(
     assert summary.get("cache_sorting_outputs_before_merge_config", {}).get("canonical_workspace_prepared") is True
     assert summary.get("cache_sorting_outputs_before_merge_config", {}).get("canonical_workspace_published") is True
     assert result.outputs.get("merge.published_sorter_output_dir") == str(live_sorter_dir.resolve())
+    assert any(
+        "Merge canonical workspace publish decision [stream=well001, merge_status=ok, requested=True"
+        in record.getMessage()
+        for record in caplog.records
+    )
+    assert any(
+        "Merge canonical workspace publish complete [stream=well001" in record.getMessage()
+        and "published_sorter_output_dir=" in record.getMessage()
+        and "published_analyzer_output_dir=" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_run_spikesort_merge_stage_logs_canonical_workspace_publish_skip_when_disabled(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    h5_path = tmp_path / "raw_data" / "input.raw.h5"
+    h5_path.parent.mkdir(parents=True, exist_ok=True)
+    h5_path.write_bytes(b"")
+
+    output_rel_root = "spikesort_outputs"
+    stream_id = "well001"
+    well_out_dir = compute_mea_analysis_output_dir(
+        output_root=tmp_path,
+        data_file=h5_path,
+        well=stream_id,
+    )
+    stage_output_root_dir = well_out_dir / output_rel_root
+    live_sorter_dir = stage_output_root_dir / "sorter_output"
+    live_analyzer_dir = stage_output_root_dir / "analyzer_output"
+    live_sorter_dir.mkdir(parents=True, exist_ok=True)
+    live_analyzer_dir.mkdir(parents=True, exist_ok=True)
+    (live_sorter_dir / "sorter_marker.txt").write_text("live", encoding="utf-8")
+    (live_analyzer_dir / "analyzer_marker.txt").write_text("live", encoding="utf-8")
+
+    def _fake_auto_merge(*, well_out_dir, stage_output_root_dir, output_rel_root, stage_config, force_restart, sorter_output_dir):
+        marker = Path(stage_output_root_dir) / "sorter_output" / "sorter_marker.txt"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text("canonical-merged", encoding="utf-8")
+        out_dir = Path(stage_output_root_dir) / "automerge_outputs"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        summary_json = out_dir / "auto_merge_method_summary.json"
+        summary_json.write_text("{}", encoding="utf-8")
+        return {
+            "name": "auto_merge",
+            "status": "ok",
+            "reason": None,
+            "out_dir": str(out_dir),
+            "summary_json": str(summary_json),
+            "outputs": {"auto_merge.summary_json": str(summary_json)},
+            "n_candidate_groups_total": 1,
+            "n_candidate_pairs_total": 1,
+            "n_applied_groups_total": 1,
+            "n_iterations": 1,
+        }
+
+    monkeypatch.setattr(spikesort_runner, "_run_auto_merge_method", _fake_auto_merge)
+    caplog.set_level("INFO")
+
+    stage_cfg = SimpleNamespace(
+        merge_units_enabled=True,
+        merge_rel_output_root="merge_outputs",
+        merge_sequence=("auto_merge",),
+        cache_sorting_outputs_before_merge_use_canonical_workspace=True,
+        cache_sorting_outputs_before_merge_canonical_workspace_relpath="cache/merge_workspace",
+        cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run=True,
+        cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer=False,
+        cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success=False,
+        cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure=False,
+        auto_merge_enabled=True,
+        slay_enabled=False,
+        slay_relpath="SLAy_outputs",
+    )
+
+    result = run_spikesort_merge_stage(
+        h5_path=h5_path,
+        stream_id=stream_id,
+        mea_output_root=tmp_path,
+        output_rel_root=output_rel_root,
+        stage_config=stage_cfg,
+        force_restart=False,
+    )
+
+    summary = _read_json(result.summary_json)
+
+    assert summary.get("cache_sorting_outputs_before_merge_config", {}).get("canonical_workspace_published") is False
+    assert any(
+        "Merge canonical workspace publish decision [stream=well001, merge_status=ok, requested=False"
+        in record.getMessage()
+        and "reason=publish_to_stage_outputs_on_success_disabled" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_run_spikesort_merge_stage_preserves_existing_outputs_when_delete_disabled(tmp_path: Path, monkeypatch) -> None:
