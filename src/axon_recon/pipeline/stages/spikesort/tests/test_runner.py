@@ -2851,6 +2851,141 @@ def test_run_spikesort_merge_stage_writes_recommended_candidate_outputs(tmp_path
     assert "2\t3" in candidates_tsv
 
 
+def test_import_slay_run_function_repairs_stale_data_filepath_and_marshmallow_fail(
+    tmp_path: Path,
+) -> None:
+    import importlib
+    import sys
+
+    from marshmallow.fields import Field
+
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    package_root = tmp_path / "fake_slay"
+    slay_dir = package_root / "src" / "slay"
+    slay_dir.mkdir(parents=True, exist_ok=True)
+    (slay_dir / "__init__.py").write_text("", encoding="utf-8")
+    (slay_dir / "schemas.py").write_text(
+        "from marshmallow.fields import Field\n"
+        "\n"
+        "class InputFile(Field):\n"
+        "    default_error_messages = {'not_found': 'File not found'}\n"
+        "\n"
+        "    def __init__(self, *args, check_exists=False, **kwargs):\n"
+        "        self.check_exists = check_exists\n"
+        "        super().__init__(*args, **kwargs)\n"
+        "\n"
+        "    def _deserialize(self, value, attr, data, **kwargs):\n"
+        "        if self.check_exists and not __import__('os').path.exists(value):\n"
+        "            self.fail('not_found')\n"
+        "        return value\n",
+        encoding="utf-8",
+    )
+    (slay_dir / "run.py").write_text(
+        "import json\n"
+        "from pathlib import Path\n"
+        "\n"
+        "from marshmallow import ValidationError\n"
+        "\n"
+        "from .schemas import InputFile\n"
+        "\n"
+        "def parse_kilosort_params(args):\n"
+        "    return args\n"
+        "\n"
+        "def run_slay(args):\n"
+        "    params = parse_kilosort_params(dict(args))\n"
+        "    try:\n"
+        "        InputFile().fail('not_found')\n"
+        "    except ValidationError:\n"
+        "        pass\n"
+        "    InputFile(required=True, check_exists=True)._deserialize(params['data_filepath'], 'data_filepath', params)\n"
+        "    Path(params['output_json']).write_text(json.dumps({'data_filepath': params['data_filepath'], 'n_chan': params['n_chan']}), encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+
+    ks_dir = (
+        tmp_path
+        / "well001"
+        / "spikesort_outputs"
+        / "merge_output"
+        / "cache"
+        / "merge_workspace"
+        / "sorter_output"
+        / "sorter_output"
+    )
+    ks_dir.mkdir(parents=True, exist_ok=True)
+    (ks_dir / "params.py").write_text(
+        "dat_path = ['/home/adamm/dev/scratch_outputs/old/preprocess_outputs/preprocessed_recording/traces_cached_seg0.raw']\n"
+        "n_channels_dat = 4\n"
+        "dtype = 'float32'\n"
+        "sample_rate = 10000.0\n",
+        encoding="utf-8",
+    )
+
+    recording_dir = tmp_path / "well001" / "preprocess_outputs" / "preprocessed_recording"
+    recording_dir.mkdir(parents=True, exist_ok=True)
+    raw_path = recording_dir / "traces_cached_seg0.raw"
+    raw_path.write_bytes(b"raw-data")
+
+    metadata_path = ks_dir.parent / "spikeinterface_recording.json"
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "kwargs": {
+                    "folder_path": "/home/adamm/dev/scratch_outputs/old/preprocess_outputs/preprocessed_recording"
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    output_json = tmp_path / "slay-output.json"
+    old_sys_path = list(sys.path)
+    old_modules = {name: sys.modules.get(name) for name in ("slay", "slay.run", "slay.schemas")}
+    original_fail = getattr(Field, "fail", None)
+
+    try:
+        if original_fail is not None:
+            delattr(Field, "fail")
+        for name in ("slay", "slay.run", "slay.schemas"):
+            sys.modules.pop(name, None)
+        importlib.invalidate_caches()
+
+        run_slay = spikesort_runner._import_slay_run_function(
+            package_root=str(package_root),
+            allow_numpy_fallback=False,
+        )
+        run_slay(
+            {
+                "KS_folder": str(ks_dir),
+                "output_json": str(output_json),
+                "__axon_recon_preprocess_recording_dir": str(recording_dir),
+            }
+        )
+    finally:
+        sys.path[:] = old_sys_path
+        for name in ("slay", "slay.run", "slay.schemas"):
+            sys.modules.pop(name, None)
+        for name, module in old_modules.items():
+            if module is not None:
+                sys.modules[name] = module
+        if original_fail is not None:
+            setattr(Field, "fail", original_fail)
+        else:
+            try:
+                delattr(Field, "fail")
+            except AttributeError:
+                pass
+
+    payload = _read_json(output_json)
+    metadata = _read_json(metadata_path)
+
+    assert payload["data_filepath"] == str(raw_path.resolve())
+    assert payload["n_chan"] == 4
+    assert metadata.get("kwargs", {}).get("folder_path") == str(recording_dir.resolve())
+    assert f"dat_path = '{raw_path.resolve()}'" in (ks_dir / "params.py").read_text(encoding="utf-8")
+
+
 def test_run_spikesort_merge_stage_reports_plot_generation_note_when_auto_accept_enabled(tmp_path: Path, monkeypatch) -> None:
     from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner

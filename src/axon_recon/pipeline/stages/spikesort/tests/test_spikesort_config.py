@@ -507,6 +507,64 @@ def test_parse_spikesort_stage_config_reads_merge_analyzer_policy_knobs() -> Non
     assert parsed.merge_analyzer_waveforms_dtype == "float32"
 
 
+def test_parse_spikesort_stage_config_reads_grouped_merge_analyzer_policy_knobs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "analyzer": {
+                                "regenerate_on_replot": False,
+                                "check_if_regen_is_needed": False,
+                                "n_jobs": 3,
+                                "chunk_duration": "0.25s",
+                                "template_extraction": {
+                                    "density_mode": "dense",
+                                    "random_spikes_method": "all",
+                                    "max_spikes_per_unit": 321,
+                                    "margin_size": 17,
+                                    "seed": 42,
+                                },
+                                "sparsity": {
+                                    "method": "best_channels",
+                                    "num_channels": 9,
+                                    "peak_sign": "both",
+                                    "num_spikes_for_sparsity": 222,
+                                },
+                                "waveforms": {
+                                    "ms_before": 0.75,
+                                    "ms_after": 1.75,
+                                    "dtype": "float32",
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_analyzer_regenerate_on_replot is False
+    assert parsed.merge_analyzer_check_if_regen_is_needed is False
+    assert parsed.merge_analyzer_density_mode == "dense"
+    assert parsed.merge_template_random_spikes_method == "all"
+    assert parsed.merge_template_random_spikes_max_spikes_per_unit == 321
+    assert parsed.merge_template_random_spikes_margin_size == 17
+    assert parsed.merge_template_random_spikes_seed == 42
+    assert parsed.merge_analyzer_n_jobs == 3
+    assert parsed.merge_analyzer_chunk_duration == "0.25s"
+    assert parsed.merge_analyzer_sparsity_method == "best_channels"
+    assert parsed.merge_analyzer_sparsity_num_channels == 9
+    assert parsed.merge_analyzer_sparsity_peak_sign == "both"
+    assert parsed.merge_analyzer_sparsity_num_spikes_for_sparsity == 222
+    assert parsed.merge_analyzer_waveforms_ms_before == 0.75
+    assert parsed.merge_analyzer_waveforms_ms_after == 1.75
+    assert parsed.merge_analyzer_waveforms_dtype == "float32"
+
+
 def test_parse_spikesort_stage_config_reads_legacy_merge_analyzer_regenereate_on_replot_key() -> None:
     cfg = RuntimeConfig(
         {
@@ -1577,7 +1635,7 @@ def test_load_spikesort_inputs_from_runtime_reads_stage_level_input_and_output_r
     assert inputs.chunk_duration == "1s"
 
 
-def test_load_spikesort_inputs_from_runtime_reads_merge_analyzer_policy_knobs(tmp_path: Path) -> None:
+def test_load_spikesort_inputs_from_runtime_reads_grouped_merge_analyzer_policy_knobs(tmp_path: Path) -> None:
     data_path = tmp_path / "data.yml"
     data_path.write_text(
         dedent(
@@ -1604,20 +1662,23 @@ def test_load_spikesort_inputs_from_runtime_reads_merge_analyzer_policy_knobs(tm
                 "    phases:",
                 "      merge_units:",
                 "        analyzer:",
-                "          density_mode: dense",
-                "          template_random_spikes_method: all",
-                "          max_spikes_per_unit: 321",
-                "          margin_size: 11",
-                "          seed: 7",
                 "          n_jobs: 2",
                 "          chunk_duration: 0.5s",
-                "          sparsity_method: threshold",
-                "          threshold: 4.5",
-                "          peak_sign: both",
-                "          num_spikes_for_sparsity: 222",
-                "          waveforms_ms_before: 0.8",
-                "          waveforms_ms_after: 1.6",
-                "          waveforms_dtype: float32",
+                "          template_extraction:",
+                "            density_mode: dense",
+                "            random_spikes_method: all",
+                "            max_spikes_per_unit: 321",
+                "            margin_size: 11",
+                "            seed: 7",
+                "          sparsity:",
+                "            method: threshold",
+                "            threshold: 4.5",
+                "            peak_sign: both",
+                "            num_spikes_for_sparsity: 222",
+                "          waveforms:",
+                "            ms_before: 0.8",
+                "            ms_after: 1.6",
+                "            dtype: float32",
             ]
         )
         + "\n",

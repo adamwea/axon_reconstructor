@@ -11,7 +11,9 @@ from axon_recon.pipeline.shared.plotting import build_stage_plot_block
 
 from ...execution.context import ExecutionTarget
 from .models.inputs import (
+	AnalyzerPreparationPolicyConfig,
 	AnalyzerCacheConfig,
+	AnalyzerSourcePhaseConfig,
 	CenterMostChannelCoordsConfig,
 	DataQualityChecksOutputsConfig,
 	FootprintGridsReportConfig,
@@ -25,6 +27,15 @@ from .models.inputs import (
 	PerUnitQualityChecksOutputsConfig,
 	PerUnitTemplatesOutputsConfig,
 	ProbeGeometryConfig,
+	TemplateAnalysisPhaseConfig,
+	TemplateBuildTemplatesPhaseConfig,
+	TemplateExtractTemplateSegmentsPhaseConfig,
+	TemplateLeafPhaseConfig,
+	TemplatePerUnitProcessingPhaseConfig,
+	TemplatePlotsPhaseConfig,
+	TemplatePropagationOrderingPhaseConfig,
+	TemplateQualityChecksPhaseConfig,
+	TemplateReportsPhaseConfig,
 	PropagationAxesConfig,
 	PropagationLatencyMapConfig,
 	PropagationPlotConfig,
@@ -34,12 +45,14 @@ from .models.inputs import (
 	ResolveSourcesPhaseConfig,
 	ReportsConfig,
 	TemplateArtifactConfig,
+	TemplatesAnalyzersPhaseConfig,
 	TemplateCirclesBranchMorphologyConfig,
 	TemplateCirclesOverlapControlsConfig,
 	TemplateCirclesPlotConfig,
 	TemplateScaleCircleConfig,
 	TemplatePlotConfig,
 	TemplateWaveformOverlayConfig,
+	TemplatesPhasesConfig,
 	UnitLocationsReportConfig,
 	UnitIdLabelConfig,
 	TopographicalFootprintConfig,
@@ -180,10 +193,68 @@ def _output_paths(*suffixes: str) -> tuple[str, ...]:
 	return tuple(paths)
 
 
+def _phase_plot_output_paths(*suffixes: str) -> tuple[str, ...]:
+	paths: list[str] = []
+	for suffix in suffixes:
+		s = suffix.strip(".")
+		if s:
+			paths.append(f"stages.templates.phases.per_unit_processing.plots.outputs.{s}")
+			paths.append(f"stages.templates.phases.per_unit_processing.plots.{s}")
+		else:
+			paths.append("stages.templates.phases.per_unit_processing.plots.outputs")
+			paths.append("stages.templates.phases.per_unit_processing.plots")
+	return tuple(paths)
+
+
+def _phase_build_output_paths(*suffixes: str) -> tuple[str, ...]:
+	paths: list[str] = []
+	for suffix in suffixes:
+		s = suffix.strip(".")
+		if s:
+			paths.append(f"stages.templates.phases.per_unit_processing.build_templates.outputs.{s}")
+			paths.append(f"stages.templates.phases.per_unit_processing.build_templates.{s}")
+		else:
+			paths.append("stages.templates.phases.per_unit_processing.build_templates.outputs")
+			paths.append("stages.templates.phases.per_unit_processing.build_templates")
+	return tuple(paths)
+
+
+def _phase_reports_paths(*suffixes: str) -> tuple[str, ...]:
+	paths: list[str] = []
+	for suffix in suffixes:
+		s = suffix.strip(".")
+		if s:
+			paths.append(f"stages.templates.phases.reports.config.{s}")
+			paths.append(f"stages.templates.phases.reports.{s}")
+		else:
+			paths.append("stages.templates.phases.reports.config")
+			paths.append("stages.templates.phases.reports")
+	return tuple(paths)
+
+
+def _phase_quality_paths(*suffixes: str) -> tuple[str, ...]:
+	paths: list[str] = []
+	for suffix in suffixes:
+		s = suffix.strip(".")
+		if s:
+			paths.append(f"stages.templates.phases.per_unit_processing.quality_checks.outputs.{s}")
+			paths.append(f"stages.templates.phases.per_unit_processing.quality_checks.config.{s}")
+			paths.append(f"stages.templates.phases.per_unit_processing.quality_checks.{s}")
+		else:
+			paths.append("stages.templates.phases.per_unit_processing.quality_checks.outputs")
+			paths.append("stages.templates.phases.per_unit_processing.quality_checks.config")
+			paths.append("stages.templates.phases.per_unit_processing.quality_checks")
+	return tuple(paths)
+
+
 def _get_template_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
 	return build_stage_plot_block(
 		runtime_config=runtime_config,
 		stage_paths=(
+			*_phase_plot_output_paths("template_plots.waveforms"),
+			*_phase_plot_output_paths("full_template.template_plots.waveforms"),
+			*_phase_plot_output_paths("template"),
+			*_phase_plot_output_paths("template_plot"),
 			*_output_paths("per_unit_outputs.template_plots.waveforms"),
 			*_output_paths("per_unit_outputs.full_template.template_plots.waveforms"),
 			*_output_paths("per_unit_outputs.template"),
@@ -204,6 +275,9 @@ def _get_template_circles_block(runtime_config: RuntimeConfig) -> dict[str, Any]
 	return build_stage_plot_block(
 		runtime_config=runtime_config,
 		stage_paths=(
+			*_phase_plot_output_paths("template_plots.circles"),
+			*_phase_plot_output_paths("full_template.template_plots.circles"),
+			*_phase_plot_output_paths("template_circles"),
 			*_output_paths("per_unit_outputs.template_plots.circles"),
 			*_output_paths("per_unit_outputs.full_template.template_plots.circles"),
 			*_output_paths("per_unit_outputs.template_circles"),
@@ -222,6 +296,10 @@ def _get_template_wf_overlay_block(runtime_config: RuntimeConfig) -> dict[str, A
 	return _first_dict_block(
 		runtime_config,
 		(
+			*_phase_plot_output_paths("extremum_ch_wf_overlay"),
+			*_phase_plot_output_paths("full_template.extremum_ch_wf_overlay"),
+			*_phase_plot_output_paths("template_wf_overlay"),
+			*_phase_plot_output_paths("full_template.template_wf_overlay"),
 			*_output_paths("per_unit_outputs.extremum_ch_wf_overlay"),
 			*_output_paths("per_unit_outputs.full_template.extremum_ch_wf_overlay"),
 			*_output_paths("per_unit_outputs.template_wf_overlay"),
@@ -234,6 +312,7 @@ def _get_per_unit_quality_checks_block(runtime_config: RuntimeConfig) -> dict[st
 	return _first_dict_block(
 		runtime_config,
 		(
+			*_phase_quality_paths("quality_checks"),
 			*_output_paths("per_unit_outputs.quality_checks"),
 		),
 	)
@@ -243,6 +322,7 @@ def _get_data_quality_checks_block(runtime_config: RuntimeConfig) -> dict[str, A
 	return _first_dict_block(
 		runtime_config,
 		(
+			*_phase_quality_paths("data_outputs.quality_checks"),
 			*_output_paths("data_outputs.quality_checks"),
 		),
 	)
@@ -252,6 +332,8 @@ def _get_reports_wf_overlay_grid_block(runtime_config: RuntimeConfig) -> dict[st
 	return _first_dict_block(
 		runtime_config,
 		(
+			*_phase_reports_paths("grids.wf_overlay_grid"),
+			*_phase_reports_paths("wf_overlay_grid"),
 			*_output_paths("reports.grids.wf_overlay_grid"),
 			*_output_paths("reports.wf_overlay_grid"),
 			*_output_paths("per_unit_outputs.reports.wf_overlay_grid"),
@@ -263,6 +345,8 @@ def _get_reports_locations_block(runtime_config: RuntimeConfig) -> dict[str, Any
 	return _first_dict_block(
 		runtime_config,
 		(
+			*_phase_reports_paths("locations"),
+			*_phase_reports_paths("unit_locations"),
 			*_output_paths("reports.locations"),
 			*_output_paths("reports.unit_locations"),
 			*_output_paths("per_unit_outputs.reports.locations"),
@@ -275,6 +359,8 @@ def _get_reports_footprint_grids_block(runtime_config: RuntimeConfig) -> dict[st
 	stage_block = _first_dict_block(
 		runtime_config,
 		(
+			*_phase_reports_paths("grids.footprint_grids"),
+			*_phase_reports_paths("footprint_grids"),
 			*_output_paths("reports.grids.footprint_grids"),
 			*_output_paths("reports.footprint_grids"),
 			*_output_paths("per_unit_outputs.reports.footprint_grids"),
@@ -287,6 +373,8 @@ def _get_reports_footprint_grids_block(runtime_config: RuntimeConfig) -> dict[st
 	return _first_dict_block(
 		runtime_config,
 		(
+			*_phase_reports_paths("grids.foot_print_grids"),
+			*_phase_reports_paths("foot_print_grids"),
 			*_output_paths("reports.grids.foot_print_grids"),
 			*_output_paths("reports.foot_print_grids"),
 			*_output_paths("per_unit_outputs.reports.foot_print_grids"),
@@ -298,6 +386,8 @@ def _get_reports_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
 	return _first_dict_block(
 		runtime_config,
 		(
+			*_phase_reports_paths("config"),
+			*_phase_reports_paths(""),
 			*_output_paths("reports"),
 			*_output_paths("per_unit_outputs.reports"),
 		),
@@ -308,6 +398,8 @@ def _get_footprint_map_block(runtime_config: RuntimeConfig, map_name: str) -> di
 	return build_stage_plot_block(
 		runtime_config=runtime_config,
 		stage_paths=(
+			*_phase_plot_output_paths(f"footprint_plots.{map_name}"),
+			*_phase_plot_output_paths(f"full_template.footprint_plots.{map_name}"),
 			*_output_paths(f"per_unit_outputs.footprint_plots.{map_name}"),
 			*_output_paths(f"per_unit_outputs.full_template.footprint_plots.{map_name}"),
 		),
@@ -325,6 +417,8 @@ def _get_topographical_footprint_block(runtime_config: RuntimeConfig, map_name: 
 	return build_stage_plot_block(
 		runtime_config=runtime_config,
 		stage_paths=(
+			*_phase_plot_output_paths(f"topographical_footprints.{map_name}"),
+			*_phase_plot_output_paths(f"full_template.topographical_footprints.{map_name}"),
 			*_output_paths(f"per_unit_outputs.topographical_footprints.{map_name}"),
 			*_output_paths(f"per_unit_outputs.full_template.topographical_footprints.{map_name}"),
 		),
@@ -340,6 +434,8 @@ def _get_propagation_plots_block(runtime_config: RuntimeConfig) -> dict[str, Any
 	return build_stage_plot_block(
 		runtime_config=runtime_config,
 		stage_paths=(
+			*_phase_plot_output_paths("propagation_plots"),
+			*_phase_plot_output_paths("full_template.propagation_plots"),
 			*_output_paths("per_unit_outputs.propagation_plots"),
 			*_output_paths("per_unit_outputs.full_template.propagation_plots"),
 		),
@@ -354,7 +450,10 @@ def _get_propagation_plots_block(runtime_config: RuntimeConfig) -> dict[str, Any
 def _get_template_artifact_block(runtime_config: RuntimeConfig, block_name: str) -> dict[str, Any]:
 	return _first_dict_block(
 		runtime_config,
-		_output_paths(f"per_unit_outputs.{block_name}"),
+		(
+			*_phase_build_output_paths(block_name),
+			*_output_paths(f"per_unit_outputs.{block_name}"),
+		),
 	)
 
 
@@ -362,6 +461,7 @@ def _get_merge_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
 	return _first_dict_block(
 		runtime_config,
 		(
+			"stages.templates.phases.per_unit_processing.build_templates.merge",
 			"stages.templates.merge",
 			"stages.templates.execution.merge",
 		),
@@ -869,6 +969,7 @@ class TemplatesStageConfig:
 	reports: ReportsConfig
 	quality_checks_outputs: DataQualityChecksOutputsConfig
 	resolve_sources_phase: ResolveSourcesPhaseConfig
+	phases: TemplatesPhasesConfig
 	concat_analyzer_relpath: str | None
 	concat_sorting_relpath: str | None
 	preprocessed_concat_reldir: str | None
@@ -963,6 +1064,148 @@ def parse_probe_geometry_from_data_config(*, data_config: RuntimeConfig) -> Prob
 	)
 
 
+def _phase_block(raw_cfg: dict[str, Any], *path: str) -> dict[str, Any]:
+	block: Any = raw_cfg
+	for key in path:
+		if not isinstance(block, dict):
+			return {}
+		next_block = block.get(key, {})
+		if not isinstance(next_block, dict):
+			return {}
+		block = next_block
+	return (dict(block) if isinstance(block, dict) else {})
+
+
+def _normalize_sparsity_mode(raw: Any, default: str = "inherit") -> str:
+	value = str(raw or default).strip().lower().replace("-", "_").replace(" ", "_")
+	if value in {"dense", "dense_no_mask", "no_mask", "full"}:
+		return "dense"
+	if value in {"inherit", "default", "existing", "cached"}:
+		return "inherit"
+	return str(default)
+
+
+def _normalize_random_spikes_method(raw: Any, default: str = "uniform") -> str:
+	value = str(raw or default).strip().lower().replace("-", "_").replace(" ", "_")
+	if value in {"all", "full", "all_spikes"}:
+		return "all"
+	if value in {"uniform", "default", "sample"}:
+		return "uniform"
+	return str(default)
+
+
+def _build_analyzer_preparation_policy_config(
+	*,
+	raw_cfg: dict[str, Any],
+	default_waveform_extraction: WaveformExtractionConfig,
+	default_policy: AnalyzerPreparationPolicyConfig | None = None,
+) -> AnalyzerPreparationPolicyConfig:
+	policy_defaults = default_policy or AnalyzerPreparationPolicyConfig(
+		ms_before=default_waveform_extraction.ms_before,
+		ms_after=default_waveform_extraction.ms_after,
+		max_spikes_per_unit=default_waveform_extraction.max_spikes_per_unit,
+	)
+	policy_cfg = _get_nested_block(raw_cfg, "policy")
+	waveform_cfg = _get_nested_block(raw_cfg, "waveform_extraction")
+	waveform_window_cfg = _get_nested_block(waveform_cfg, "window")
+	ms_before = _as_float_or_none(
+		waveform_window_cfg.get(
+			"ms_before",
+			waveform_cfg.get("ms_before", policy_cfg.get("ms_before", policy_defaults.ms_before)),
+		),
+		policy_defaults.ms_before,
+	)
+	ms_after = _as_float_or_none(
+		waveform_window_cfg.get(
+			"ms_after",
+			waveform_cfg.get("ms_after", policy_cfg.get("ms_after", policy_defaults.ms_after)),
+		),
+		policy_defaults.ms_after,
+	)
+	max_spikes_per_unit = _parse_max_spikes_per_unit(
+		waveform_cfg.get(
+			"max_spikes_per_unit",
+			policy_cfg.get("max_spikes_per_unit", policy_defaults.max_spikes_per_unit),
+		)
+	)
+	random_seed_raw = policy_cfg.get("random_seed", raw_cfg.get("random_seed", policy_defaults.random_seed))
+	if random_seed_raw in {None, ""}:
+		random_seed = None
+	else:
+		random_seed = _as_int(random_seed_raw, 0)
+	return AnalyzerPreparationPolicyConfig(
+		ms_before=ms_before,
+		ms_after=ms_after,
+		max_spikes_per_unit=max_spikes_per_unit,
+		sparsity_mode=_normalize_sparsity_mode(
+			policy_cfg.get("sparsity_mode", raw_cfg.get("sparsity_mode", policy_defaults.sparsity_mode)),
+			default=policy_defaults.sparsity_mode,
+		),
+		random_spikes_method=_normalize_random_spikes_method(
+			policy_cfg.get(
+				"random_spikes_method",
+				raw_cfg.get("random_spikes_method", policy_defaults.random_spikes_method),
+			),
+			default=policy_defaults.random_spikes_method,
+		),
+		random_seed=random_seed,
+	)
+
+
+def _build_analyzer_source_phase_config(
+	*,
+	source_cfg: dict[str, Any],
+	defaults_cfg: dict[str, Any],
+	default_enabled: bool,
+	default_required: bool,
+	default_analyzer_relpath: str | None,
+	default_sorting_relpath: str | None,
+	default_preprocessed_recording_reldir: str | None,
+	default_preprocessed_sources_reldir: str | None,
+	default_waveform_extraction: WaveformExtractionConfig,
+) -> AnalyzerSourcePhaseConfig:
+	default_policy = _build_analyzer_preparation_policy_config(
+		raw_cfg=defaults_cfg,
+		default_waveform_extraction=default_waveform_extraction,
+	)
+	policy = _build_analyzer_preparation_policy_config(
+		raw_cfg=source_cfg,
+		default_waveform_extraction=default_waveform_extraction,
+		default_policy=default_policy,
+	)
+	return AnalyzerSourcePhaseConfig(
+		enabled=_as_bool(source_cfg.get("enabled", defaults_cfg.get("enabled", default_enabled)), default_enabled),
+		required=_as_bool(source_cfg.get("required", defaults_cfg.get("required", default_required)), default_required),
+		use_existing_analyzer=_as_bool(
+			source_cfg.get("use_existing_analyzer", defaults_cfg.get("use_existing_analyzer", True)),
+			True,
+		),
+		build_if_missing=_as_bool(
+			source_cfg.get("build_if_missing", defaults_cfg.get("build_if_missing", True)),
+			True,
+		),
+		analyzer_relpath=_normalize_optional_path_token(
+			source_cfg.get("analyzer_relpath", defaults_cfg.get("analyzer_relpath", default_analyzer_relpath))
+		),
+		sorting_relpath=_normalize_optional_path_token(
+			source_cfg.get("sorting_relpath", defaults_cfg.get("sorting_relpath", default_sorting_relpath))
+		),
+		preprocessed_recording_reldir=_normalize_optional_path_token(
+			source_cfg.get(
+				"preprocessed_recording_reldir",
+				defaults_cfg.get("preprocessed_recording_reldir", default_preprocessed_recording_reldir),
+			)
+		),
+		preprocessed_sources_reldir=_normalize_optional_path_token(
+			source_cfg.get(
+				"preprocessed_sources_reldir",
+				defaults_cfg.get("preprocessed_sources_reldir", default_preprocessed_sources_reldir),
+			)
+		),
+		policy=policy,
+	)
+
+
 def parse_templates_stage_config(
 	*,
 	runtime_config: RuntimeConfig,
@@ -974,6 +1217,7 @@ def parse_templates_stage_config(
 ) -> TemplatesStageConfig:
 	stage_cfg = runtime_config.get("stages.templates", {})
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
+	phases_cfg = stage_cfg.get("phases", {}) if isinstance(stage_cfg.get("phases", {}), dict) else {}
 	execution_cfg = stage_cfg.get("execution", {}) if isinstance(stage_cfg.get("execution", {}), dict) else {}
 	outputs_cfg = stage_cfg.get("outputs", {}) if isinstance(stage_cfg.get("outputs", {}), dict) else {}
 	if not outputs_cfg:
@@ -1002,44 +1246,86 @@ def parse_templates_stage_config(
 	spk_tpl_sources.update(stage_spikeinterface_cfg)
 	spk_tpl_extract = spk_tpl_sources.get("template_extraction", {}) if isinstance(spk_tpl_sources.get("template_extraction", {}), dict) else {}
 	spk_tpl_extract_sources = spk_tpl_extract.get("sources", {}) if isinstance(spk_tpl_extract.get("sources", {}), dict) else {}
-	include_concat = _as_bool(spk_tpl_extract_sources.get("include_concat", True), True)
-	include_segments = _as_bool(spk_tpl_extract_sources.get("include_segments", True), True)
-	require_concat_analyzer = _as_bool(
+	legacy_include_concat = _as_bool(spk_tpl_extract_sources.get("include_concat", True), True)
+	legacy_include_segments = _as_bool(spk_tpl_extract_sources.get("include_segments", True), True)
+	legacy_require_concat_analyzer = _as_bool(
 		spk_tpl_extract_sources.get(
 			"require_concat",
 			spk_tpl_extract_sources.get("require_concat_analyzer", False),
 		),
 		False,
 	)
-	require_segment_analyzers = _as_bool(
+	legacy_require_segment_analyzers = _as_bool(
 		spk_tpl_extract_sources.get(
 			"require_segments",
 			spk_tpl_extract_sources.get("require_segment_analyzers", False),
 		),
 		False,
 	)
-	if not bool(include_concat):
-		require_concat_analyzer = False
-	if not bool(include_segments):
-		require_segment_analyzers = False
 	waveform_extraction = _build_waveform_extraction_config(
 		spikeinterface_cfg=spk_tpl_sources,
 		runtime_config=runtime_config,
 	)
+	analyzers_phase_cfg_raw = _phase_block(phases_cfg, "analyzers")
+	analyzers_defaults_cfg = _phase_block(analyzers_phase_cfg_raw, "defaults")
+	concat_phase_cfg = _build_analyzer_source_phase_config(
+		source_cfg=_phase_block(analyzers_phase_cfg_raw, "concat"),
+		defaults_cfg=analyzers_defaults_cfg,
+		default_enabled=legacy_include_concat,
+		default_required=legacy_require_concat_analyzer,
+		default_analyzer_relpath=concat_analyzer_relpath,
+		default_sorting_relpath=concat_sorting_relpath,
+		default_preprocessed_recording_reldir=preprocessed_concat_reldir,
+		default_preprocessed_sources_reldir=None,
+		default_waveform_extraction=waveform_extraction,
+	)
+	segments_phase_cfg = _build_analyzer_source_phase_config(
+		source_cfg=_phase_block(analyzers_phase_cfg_raw, "segments"),
+		defaults_cfg=analyzers_defaults_cfg,
+		default_enabled=legacy_include_segments,
+		default_required=legacy_require_segment_analyzers,
+		default_analyzer_relpath=None,
+		default_sorting_relpath=concat_sorting_relpath,
+		default_preprocessed_recording_reldir=None,
+		default_preprocessed_sources_reldir=preprocessed_segments_reldir,
+		default_waveform_extraction=waveform_extraction,
+	)
+	include_concat = bool(concat_phase_cfg.enabled)
+	include_segments = bool(segments_phase_cfg.enabled)
+	require_concat_analyzer = bool(concat_phase_cfg.required) if include_concat else False
+	require_segment_analyzers = bool(segments_phase_cfg.required) if include_segments else False
+	concat_analyzer_relpath = concat_phase_cfg.analyzer_relpath
+	concat_sorting_relpath = concat_phase_cfg.sorting_relpath or concat_sorting_relpath
+	preprocessed_concat_reldir = concat_phase_cfg.preprocessed_recording_reldir or preprocessed_concat_reldir
+	preprocessed_segments_reldir = segments_phase_cfg.preprocessed_sources_reldir or preprocessed_segments_reldir
+	preproc_seg_sources_reldir = preprocessed_segments_reldir
 	stage_upsampling_cfg = stage_cfg.get("upsampling", {}) if isinstance(stage_cfg.get("upsampling", {}), dict) else {}
 	execution_upsampling_cfg = execution_cfg.get("upsampling", {}) if isinstance(execution_cfg.get("upsampling", {}), dict) else {}
+	phase_build_cfg = _phase_block(phases_cfg, "per_unit_processing", "build_templates")
+	phase_build_upsampling_cfg = _phase_block(phase_build_cfg, "execution_upsampling")
+	if not phase_build_upsampling_cfg:
+		phase_build_upsampling_cfg = _phase_block(phase_build_cfg, "upsampling")
 	upsampling_cfg = dict(execution_upsampling_cfg)
 	upsampling_cfg.update(stage_upsampling_cfg)
+	upsampling_cfg.update(phase_build_upsampling_cfg)
 	execution_upsampling = _build_time_upsample_config(upsampling_cfg)
 	quality_checks_cfg_raw = execution_cfg.get("quality_checks", {}) if isinstance(execution_cfg.get("quality_checks", {}), dict) else {}
 	stage_quality_checks_cfg = stage_cfg.get("quality_checks", {}) if isinstance(stage_cfg.get("quality_checks", {}), dict) else {}
 	quality_checks_cfg_raw = dict(quality_checks_cfg_raw)
 	quality_checks_cfg_raw.update(stage_quality_checks_cfg)
+	phase_quality_checks_cfg = _phase_block(phases_cfg, "per_unit_processing", "quality_checks", "config")
+	if not phase_quality_checks_cfg:
+		phase_quality_checks_cfg = _phase_block(phases_cfg, "per_unit_processing", "quality_checks")
+	quality_checks_cfg_raw.update(phase_quality_checks_cfg)
 	quality_checks = _build_quality_checks_config(quality_checks_cfg_raw)
 	analysis_cfg = execution_cfg.get("analysis", {}) if isinstance(execution_cfg.get("analysis", {}), dict) else {}
 	stage_analysis_cfg = stage_cfg.get("analysis", {}) if isinstance(stage_cfg.get("analysis", {}), dict) else {}
 	analysis_cfg = dict(analysis_cfg)
 	analysis_cfg.update(stage_analysis_cfg)
+	phase_analysis_cfg = _phase_block(phases_cfg, "per_unit_processing", "analysis")
+	phase_prop_order_cfg = _phase_block(phase_analysis_cfg, "propagation_ordering")
+	if phase_prop_order_cfg:
+		analysis_cfg["propagation_ordering"] = dict(phase_prop_order_cfg)
 	prop_order_analysis_cfg = analysis_cfg.get("propagation_ordering", {}) if isinstance(analysis_cfg.get("propagation_ordering", {}), dict) else {}
 	prop_order_analysis_enabled = _as_bool(prop_order_analysis_cfg.get("enable", False), False)
 	analysis_ordering_latency_mode = (
@@ -2960,6 +3246,90 @@ def parse_templates_stage_config(
 		json_relpath=str(resolve_sources_phase_cfg.get("json_relpath", "context/resolve_sources_summary.json")),
 	)
 
+	analyzers_phase = TemplatesAnalyzersPhaseConfig(
+		enabled=_as_bool(analyzers_phase_cfg_raw.get("enabled", True), True),
+		summary_json_relpath=str(analyzers_phase_cfg_raw.get("summary_json_relpath", "context/analyzers_summary.json")),
+		concat=concat_phase_cfg,
+		segments=segments_phase_cfg,
+	)
+	phase_extract_cfg = _phase_block(phases_cfg, "per_unit_processing", "extract_template_segments")
+	phase_quality_cfg_raw = _phase_block(phases_cfg, "per_unit_processing", "quality_checks")
+	phase_analysis_cfg = _phase_block(phases_cfg, "per_unit_processing", "analysis")
+	phase_plots_cfg = _phase_block(phases_cfg, "per_unit_processing", "plots")
+	phase_reports_cfg = _phase_block(phases_cfg, "reports")
+	per_unit_processing_phase = TemplatePerUnitProcessingPhaseConfig(
+		enabled=_as_bool(_phase_block(phases_cfg, "per_unit_processing").get("enabled", True), True),
+		extract_template_segments=TemplateExtractTemplateSegmentsPhaseConfig(
+			enabled=_as_bool(phase_extract_cfg.get("enabled", True), True),
+			output_rel_root=str(phase_extract_cfg.get("output_rel_root", phase_extract_cfg.get("relpath_root", "templates/source_payloads"))),
+			summary_json_relpath=str(phase_extract_cfg.get("summary_json_relpath", "context/extract_template_segments_summary.json")),
+		),
+		build_templates=TemplateBuildTemplatesPhaseConfig(
+			enabled=_as_bool(phase_build_cfg.get("enabled", True), True),
+			summary_json_relpath=str(phase_build_cfg.get("summary_json_relpath", "context/build_templates_summary.json")),
+			merge=merge,
+			execution_upsampling=execution_upsampling,
+		),
+		quality_checks=TemplateQualityChecksPhaseConfig(
+			enabled=_as_bool(phase_quality_cfg_raw.get("enabled", quality_checks.enable), quality_checks.enable),
+			config=quality_checks,
+		),
+		analysis=TemplateAnalysisPhaseConfig(
+			enabled=_as_bool(phase_analysis_cfg.get("enabled", prop_order_analysis_enabled), prop_order_analysis_enabled),
+			propagation_ordering=TemplatePropagationOrderingPhaseConfig(
+				enabled=_as_bool(phase_prop_order_cfg.get("enabled", prop_order_analysis_enabled), prop_order_analysis_enabled),
+				latency_mode=str(phase_prop_order_cfg.get("latency_mode", analysis_ordering_latency_mode)),
+				latency_tie_breaker=str(phase_prop_order_cfg.get("latency_tie_breaker", prop_order_analysis_cfg.get("latency_tie_breaker", "channel_index"))),
+				debug=_as_bool(phase_prop_order_cfg.get("debug", analysis_debug_ordering), analysis_debug_ordering),
+			),
+		),
+		plots=TemplatePlotsPhaseConfig(
+			enabled=_as_bool(phase_plots_cfg.get("enabled", True), True),
+			outputs=per_unit,
+		),
+	)
+	reports_phase = TemplateReportsPhaseConfig(
+		enabled=_as_bool(phase_reports_cfg.get("enabled", True), True),
+		summary_json_relpath=str(phase_reports_cfg.get("summary_json_relpath", "context/reports_summary.json")),
+		config=reports,
+		locations=TemplateLeafPhaseConfig(
+			enabled=_as_bool(
+				_phase_block(phase_reports_cfg, "locations").get(
+					"enabled",
+					bool(reports.locations.write_json or reports.locations.write_png or reports.locations.write_svg),
+				),
+				bool(reports.locations.write_json or reports.locations.write_png or reports.locations.write_svg),
+			),
+		),
+		wf_overlay_grid=TemplateLeafPhaseConfig(
+			enabled=_as_bool(
+				_phase_block(phase_reports_cfg, "wf_overlay_grid").get(
+					"enabled",
+					bool(reports.wf_overlay_grid.write_pdf or reports.wf_overlay_grid.write_png or reports.wf_overlay_grid.write_svg),
+				),
+				bool(reports.wf_overlay_grid.write_pdf or reports.wf_overlay_grid.write_png or reports.wf_overlay_grid.write_svg),
+			),
+		),
+		footprint_grids=TemplateLeafPhaseConfig(
+			enabled=_as_bool(
+				_phase_block(phase_reports_cfg, "footprint_grids").get("enabled", True),
+				True,
+			),
+		),
+		multi_source_pdf=TemplateLeafPhaseConfig(
+			enabled=_as_bool(
+				_phase_block(phase_reports_cfg, "multi_source_pdf").get("enabled", reports.plot_multi_source_pdf.enabled),
+				reports.plot_multi_source_pdf.enabled,
+			),
+		),
+	)
+	phases = TemplatesPhasesConfig(
+		resolve_sources=resolve_sources_phase,
+		analyzers=analyzers_phase,
+		per_unit_processing=per_unit_processing_phase,
+		reports=reports_phase,
+	)
+
 	return TemplatesStageConfig(
 		output_rel_root=str(stage_cfg.get("output_rel_root", outputs_cfg.get("output_rel_root", "templates_outputs"))),
 		analyzer_cache=analyzer_cache,
@@ -2967,6 +3337,7 @@ def parse_templates_stage_config(
 		reports=reports,
 		quality_checks_outputs=_build_data_quality_checks_outputs_config(data_quality_checks_cfg),
 		resolve_sources_phase=resolve_sources_phase,
+		phases=phases,
 		concat_analyzer_relpath=concat_analyzer_relpath,
 		concat_sorting_relpath=concat_sorting_relpath,
 		preprocessed_concat_reldir=preprocessed_concat_reldir,
@@ -3016,6 +3387,7 @@ def build_templates_inputs_for_target(
 		reports=stage_config.reports,
 		quality_checks_outputs=stage_config.quality_checks_outputs,
 		resolve_sources_phase=stage_config.resolve_sources_phase,
+		phases=stage_config.phases,
 		unit_ids=stage_config.unit_ids,
 		unit_limit=stage_config.unit_limit,
 		force_restart=stage_config.force_restart,
@@ -3114,6 +3486,7 @@ def load_templates_inputs_from_runtime(
 		reports=stage_cfg.reports,
 		quality_checks_outputs=stage_cfg.quality_checks_outputs,
 		resolve_sources_phase=stage_cfg.resolve_sources_phase,
+		phases=stage_cfg.phases,
 		unit_ids=stage_cfg.unit_ids,
 		unit_limit=stage_cfg.unit_limit,
 		force_restart=stage_cfg.force_restart,

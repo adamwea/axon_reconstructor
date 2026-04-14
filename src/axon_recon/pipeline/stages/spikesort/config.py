@@ -439,6 +439,11 @@ def parse_spikesort_stage_config(
 	sort_phase_cfg = _as_section(phases_cfg.get("sort", {}))
 	merge_units_phase_cfg = _as_section(phases_cfg.get("merge_units", {}))
 	merge_analyzer_cfg = _as_section(merge_units_phase_cfg.get("analyzer", {}))
+	merge_analyzer_waveforms_cfg = _as_section(merge_analyzer_cfg.get("waveforms", {}))
+	merge_analyzer_sparsity_cfg = _as_section(merge_analyzer_cfg.get("sparsity", {}))
+	merge_analyzer_template_extraction_cfg = _as_section(
+		merge_analyzer_cfg.get("template_extraction", {})
+	)
 	bombcell_phase_cfg_raw = phases_cfg.get("bombcell_label", None)
 	bombcell_phase_cfg = _as_section(bombcell_phase_cfg_raw)
 	bombcell_params_cfg = _as_section(bombcell_phase_cfg.get("params", {}))
@@ -1922,6 +1927,7 @@ def parse_spikesort_stage_config(
 	slay_params = _as_optional_dict(slay_cfg.get("params", None))
 	merge_analyzer_density_mode = _normalize_merge_analyzer_density_mode(
 		_coalesce(
+			merge_analyzer_template_extraction_cfg.get("density_mode", None),
 			merge_analyzer_cfg.get("density_mode", None),
 			merge_units_phase_cfg.get("analyzer_density_mode", None),
 			merge_units_phase_cfg.get("density_mode", None),
@@ -1930,6 +1936,9 @@ def parse_spikesort_stage_config(
 	)
 	merge_template_random_spikes_method = _normalize_merge_template_random_spikes_method(
 		_coalesce(
+			merge_analyzer_template_extraction_cfg.get("random_spikes_method", None),
+			merge_analyzer_template_extraction_cfg.get("template_random_spikes_method", None),
+			merge_analyzer_template_extraction_cfg.get("method", None),
 			merge_analyzer_cfg.get("template_random_spikes_method", None),
 			merge_analyzer_cfg.get("random_spikes_method", None),
 			merge_units_phase_cfg.get("template_random_spikes_method", None),
@@ -1939,6 +1948,9 @@ def parse_spikesort_stage_config(
 	)
 	merge_template_random_spikes_max_spikes_per_unit = _as_optional_int(
 		_coalesce(
+			merge_analyzer_template_extraction_cfg.get("random_spikes_max_spikes_per_unit", None),
+			merge_analyzer_template_extraction_cfg.get("template_random_spikes_max_spikes_per_unit", None),
+			merge_analyzer_template_extraction_cfg.get("max_spikes_per_unit", None),
 			merge_analyzer_cfg.get("template_random_spikes_max_spikes_per_unit", None),
 			merge_analyzer_cfg.get("random_spikes_max_spikes_per_unit", None),
 			merge_analyzer_cfg.get("max_spikes_per_unit", None),
@@ -1955,6 +1967,9 @@ def parse_spikesort_stage_config(
 		merge_template_random_spikes_max_spikes_per_unit = 500
 	merge_template_random_spikes_margin_size = _as_optional_int(
 		_coalesce(
+			merge_analyzer_template_extraction_cfg.get("random_spikes_margin_size", None),
+			merge_analyzer_template_extraction_cfg.get("template_random_spikes_margin_size", None),
+			merge_analyzer_template_extraction_cfg.get("margin_size", None),
 			merge_analyzer_cfg.get("template_random_spikes_margin_size", None),
 			merge_analyzer_cfg.get("random_spikes_margin_size", None),
 			merge_analyzer_cfg.get("margin_size", None),
@@ -1971,6 +1986,9 @@ def parse_spikesort_stage_config(
 		merge_template_random_spikes_margin_size = None
 	merge_template_random_spikes_seed = _as_optional_int(
 		_coalesce(
+			merge_analyzer_template_extraction_cfg.get("random_spikes_seed", None),
+			merge_analyzer_template_extraction_cfg.get("template_random_spikes_seed", None),
+			merge_analyzer_template_extraction_cfg.get("seed", None),
 			merge_analyzer_cfg.get("template_random_spikes_seed", None),
 			merge_analyzer_cfg.get("random_spikes_seed", None),
 			merge_analyzer_cfg.get("seed", None),
@@ -2015,6 +2033,8 @@ def parse_spikesort_stage_config(
 	)
 	merge_analyzer_sparsity_method = _normalize_merge_analyzer_sparsity_method(
 		_coalesce(
+			merge_analyzer_sparsity_cfg.get("sparsity_method", None),
+			merge_analyzer_sparsity_cfg.get("method", None),
 			merge_analyzer_cfg.get("sparsity_method", None),
 			merge_analyzer_cfg.get("method", None),
 			merge_units_phase_cfg.get("analyzer_sparsity_method", None),
@@ -2024,6 +2044,8 @@ def parse_spikesort_stage_config(
 	)
 	merge_analyzer_sparsity_radius_um = _as_optional_float(
 		_coalesce(
+			merge_analyzer_sparsity_cfg.get("radius_um", None),
+			merge_analyzer_sparsity_cfg.get("sparsity_radius_um", None),
 			merge_analyzer_cfg.get("sparsity_radius_um", None),
 			merge_analyzer_cfg.get("radius_um", None),
 			merge_units_phase_cfg.get("analyzer_sparsity_radius_um", None),
@@ -2038,6 +2060,8 @@ def parse_spikesort_stage_config(
 		merge_analyzer_sparsity_radius_um = 100.0
 	merge_analyzer_sparsity_num_channels = _as_optional_int(
 		_coalesce(
+			merge_analyzer_sparsity_cfg.get("num_channels", None),
+			merge_analyzer_sparsity_cfg.get("sparsity_num_channels", None),
 			merge_analyzer_cfg.get("sparsity_num_channels", None),
 			merge_analyzer_cfg.get("num_channels", None),
 			merge_units_phase_cfg.get("analyzer_sparsity_num_channels", None),
@@ -2052,6 +2076,8 @@ def parse_spikesort_stage_config(
 		merge_analyzer_sparsity_num_channels = 5
 	merge_analyzer_sparsity_threshold = _as_optional_float(
 		_coalesce(
+			merge_analyzer_sparsity_cfg.get("threshold", None),
+			merge_analyzer_sparsity_cfg.get("sparsity_threshold", None),
 			merge_analyzer_cfg.get("sparsity_threshold", None),
 			merge_analyzer_cfg.get("threshold", None),
 			merge_units_phase_cfg.get("analyzer_sparsity_threshold", None),
@@ -2066,6 +2092,8 @@ def parse_spikesort_stage_config(
 		merge_analyzer_sparsity_threshold = 5.0
 	merge_analyzer_sparsity_peak_sign = _normalize_merge_analyzer_peak_sign(
 		_coalesce(
+			merge_analyzer_sparsity_cfg.get("peak_sign", None),
+			merge_analyzer_sparsity_cfg.get("sparsity_peak_sign", None),
 			merge_analyzer_cfg.get("sparsity_peak_sign", None),
 			merge_analyzer_cfg.get("peak_sign", None),
 			merge_units_phase_cfg.get("analyzer_sparsity_peak_sign", None),
@@ -2076,6 +2104,8 @@ def parse_spikesort_stage_config(
 	)
 	merge_analyzer_sparsity_num_spikes_for_sparsity = _as_optional_int(
 		_coalesce(
+			merge_analyzer_sparsity_cfg.get("num_spikes_for_sparsity", None),
+			merge_analyzer_sparsity_cfg.get("sparsity_num_spikes_for_sparsity", None),
 			merge_analyzer_cfg.get("sparsity_num_spikes_for_sparsity", None),
 			merge_analyzer_cfg.get("num_spikes_for_sparsity", None),
 			merge_units_phase_cfg.get("analyzer_sparsity_num_spikes_for_sparsity", None),
@@ -2091,6 +2121,8 @@ def parse_spikesort_stage_config(
 		merge_analyzer_sparsity_num_spikes_for_sparsity = 100
 	merge_analyzer_sparsity_by_property = _as_optional_str(
 		_coalesce(
+			merge_analyzer_sparsity_cfg.get("by_property", None),
+			merge_analyzer_sparsity_cfg.get("sparsity_by_property", None),
 			merge_analyzer_cfg.get("sparsity_by_property", None),
 			merge_analyzer_cfg.get("by_property", None),
 			merge_units_phase_cfg.get("analyzer_sparsity_by_property", None),
@@ -2100,6 +2132,9 @@ def parse_spikesort_stage_config(
 	)
 	merge_analyzer_waveforms_ms_before = _as_optional_float(
 		_coalesce(
+			merge_analyzer_waveforms_cfg.get("ms_before", None),
+			merge_analyzer_waveforms_cfg.get("waveforms_ms_before", None),
+			merge_analyzer_waveforms_cfg.get("template_ms_before", None),
 			merge_analyzer_cfg.get("waveforms_ms_before", None),
 			merge_analyzer_cfg.get("template_ms_before", None),
 			merge_units_phase_cfg.get("analyzer_waveforms_ms_before", None),
@@ -2115,6 +2150,9 @@ def parse_spikesort_stage_config(
 		merge_analyzer_waveforms_ms_before = 1.0
 	merge_analyzer_waveforms_ms_after = _as_optional_float(
 		_coalesce(
+			merge_analyzer_waveforms_cfg.get("ms_after", None),
+			merge_analyzer_waveforms_cfg.get("waveforms_ms_after", None),
+			merge_analyzer_waveforms_cfg.get("template_ms_after", None),
 			merge_analyzer_cfg.get("waveforms_ms_after", None),
 			merge_analyzer_cfg.get("template_ms_after", None),
 			merge_units_phase_cfg.get("analyzer_waveforms_ms_after", None),
@@ -2130,6 +2168,9 @@ def parse_spikesort_stage_config(
 		merge_analyzer_waveforms_ms_after = 2.0
 	merge_analyzer_waveforms_dtype = _as_optional_str(
 		_coalesce(
+			merge_analyzer_waveforms_cfg.get("dtype", None),
+			merge_analyzer_waveforms_cfg.get("waveforms_dtype", None),
+			merge_analyzer_waveforms_cfg.get("template_waveforms_dtype", None),
 			merge_analyzer_cfg.get("waveforms_dtype", None),
 			merge_analyzer_cfg.get("template_waveforms_dtype", None),
 			merge_units_phase_cfg.get("analyzer_waveforms_dtype", None),

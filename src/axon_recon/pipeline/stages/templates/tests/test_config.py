@@ -2674,6 +2674,108 @@ def test_load_templates_inputs_probe_geometry_uses_chip_dimensions_um_alias(tmp_
 	assert inputs.probe_geometry.active_area_um_y == 2300.0
 
 
+def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    spikeinterface:
+			      waveform_extraction:
+			        window:
+			          ms_before: 1.1
+			          ms_after: 2.2
+			        max_spikes_per_unit: 50
+			    outputs:
+			      per_unit_outputs:
+			        template:
+			          relpath: legacy/template_should_lose
+			    phases:
+			      analyzers:
+			        summary_json_relpath: context/custom_analyzers_summary.json
+			        defaults:
+			          policy:
+			            sparsity_mode: dense
+			            random_spikes_method: all
+			            random_seed: 17
+			        concat:
+			          enabled: true
+			          required: true
+			          analyzer_relpath: /custom/concat_analyzer
+			        segments:
+			          enabled: false
+			          preprocessed_sources_reldir: /custom/segments
+			          waveform_extraction:
+			            max_spikes_per_unit: 11
+			      per_unit_processing:
+			        extract_template_segments:
+			          output_rel_root: templates/custom_source_payloads
+			          summary_json_relpath: context/custom_extract_summary.json
+			        build_templates:
+			          summary_json_relpath: context/custom_build_summary.json
+			          execution_upsampling:
+			            enabled: true
+			            factor: 3
+			            method: sinc
+			        plots:
+			          outputs:
+			            template:
+			              relpath: canonical/template_plot
+			      reports:
+			        summary_json_relpath: context/custom_reports_summary.json
+			        locations:
+			          enabled: false
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+
+	assert inputs.include_concat is True
+	assert inputs.include_segments is False
+	assert inputs.require_concat_analyzer is True
+	assert inputs.require_segment_analyzers is False
+
+	assert inputs.phases.analyzers.summary_json_relpath == "context/custom_analyzers_summary.json"
+	assert inputs.phases.analyzers.concat.analyzer_relpath == "/custom/concat_analyzer"
+	assert inputs.phases.analyzers.concat.policy.sparsity_mode == "dense"
+	assert inputs.phases.analyzers.concat.policy.random_spikes_method == "all"
+	assert inputs.phases.analyzers.concat.policy.random_seed == 17
+	assert inputs.phases.analyzers.concat.policy.max_spikes_per_unit == 50
+	assert inputs.phases.analyzers.segments.enabled is False
+	assert inputs.phases.analyzers.segments.preprocessed_sources_reldir == "/custom/segments"
+	assert inputs.phases.analyzers.segments.policy.max_spikes_per_unit == 11
+
+	assert inputs.phases.per_unit_processing.extract_template_segments.output_rel_root == "templates/custom_source_payloads"
+	assert inputs.phases.per_unit_processing.extract_template_segments.summary_json_relpath == "context/custom_extract_summary.json"
+	assert inputs.phases.per_unit_processing.build_templates.summary_json_relpath == "context/custom_build_summary.json"
+	assert inputs.phases.per_unit_processing.build_templates.execution_upsampling.enabled is True
+	assert inputs.phases.per_unit_processing.build_templates.execution_upsampling.factor == 3
+	assert inputs.execution_upsampling.factor == 3
+	assert inputs.per_unit_outputs.template.relpath == "canonical/template_plot"
+
+	assert inputs.phases.reports.summary_json_relpath == "context/custom_reports_summary.json"
+	assert inputs.phases.reports.locations.enabled is False
+
+
 def test_load_templates_inputs_probe_geometry_defaults_when_probe_missing(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(

@@ -15,20 +15,24 @@ import numpy as np
 import spikeinterface.full as si
 
 
+DEFAULT_WELL_OUTPUT_ROOT = Path(
+    "/home/adamm/scratch/axon_recon_scratch/outputs/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/well001"
+)
+
 DEFAULT_PRE_ANALYZER = Path(
-    "/home/adamm/dev/scratch_outputs/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/well001/spikesort_outputs/merge_output/cache/merge_workspace/pre_merge_analyzer_output"
+    DEFAULT_WELL_OUTPUT_ROOT / "spikesort_outputs/merge_output/cache/merge_workspace/pre_merge_analyzer_output"
 )
 DEFAULT_POST_ANALYZER = Path(
-    "/home/adamm/dev/scratch_outputs/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/well001/spikesort_outputs/merge_output/cache/merge_workspace/analyzer_output"
+    DEFAULT_WELL_OUTPUT_ROOT / "spikesort_outputs/merge_output/cache/merge_workspace/analyzer_output"
 )
 DEFAULT_PRE_SORTER = Path(
-    "/home/adamm/dev/scratch_outputs/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/well001/spikesort_outputs/sorter_output"
+    DEFAULT_WELL_OUTPUT_ROOT / "spikesort_outputs/sorter_output"
 )
 DEFAULT_POST_SORTER = Path(
-    "/home/adamm/dev/scratch_outputs/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/well001/spikesort_outputs/merge_output/cache/merge_workspace/sorter_output/sorter_output"
+    DEFAULT_WELL_OUTPUT_ROOT / "spikesort_outputs/merge_output/cache/merge_workspace/sorter_output/sorter_output"
 )
 DEFAULT_MAPPING_TSV = Path(
-    "/home/adamm/dev/scratch_outputs/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/well001/spikesort_outputs/merge_output/SLAy_outputs/recommended_merge_candidates.tsv"
+    DEFAULT_WELL_OUTPUT_ROOT / "spikesort_outputs/merge_output/SLAy_outputs/recommended_merge_candidates.tsv"
 )
 DEFAULT_OUT_DIR = Path("/home/adamm/dev/pkgs/axon_reconstructor/tools/debug/outputs/slay_template_maps")
 

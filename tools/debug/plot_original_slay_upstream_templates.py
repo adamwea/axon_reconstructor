@@ -25,11 +25,15 @@ import numpy as np
 import spikeinterface.full as si
 
 
+DEFAULT_WELL_OUTPUT_ROOT = Path(
+    "/home/adamm/scratch/axon_recon_scratch/outputs/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/well001"
+)
+
 DEFAULT_SORTER_SOURCE = Path(
-    "/home/adamm/dev/scratch_outputs/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/well001/spikesort_outputs/sorter_output"
+    DEFAULT_WELL_OUTPUT_ROOT / "spikesort_outputs/sorter_output"
 )
 DEFAULT_MODEL_PATH = Path(
-    "/home/adamm/dev/scratch_outputs/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/well001/spikesort_outputs/merge_output/cache/slay_model/ae.pt"
+    DEFAULT_WELL_OUTPUT_ROOT / "spikesort_outputs/merge_output/cache/slay_model/ae.pt"
 )
 DEFAULT_OUT_ROOT = Path(
     "/home/adamm/dev/pkgs/axon_reconstructor/tools/debug/outputs/original_slay_upstream"

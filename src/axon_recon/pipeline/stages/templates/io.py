@@ -17,7 +17,19 @@ def read_json(path: Path) -> Any:
 def write_json(path: Path, payload: Any) -> None:
 	path.parent.mkdir(parents=True, exist_ok=True)
 	with open(path, "w", encoding="utf-8") as f:
-		json.dump(payload, f, indent=2)
+		json.dump(_json_compatible_value(payload), f, indent=2)
+
+
+def _json_compatible_value(value: Any) -> Any:
+	if isinstance(value, np.generic):
+		return value.item()
+	if isinstance(value, list):
+		return [_json_compatible_value(item) for item in value]
+	if isinstance(value, tuple):
+		return [_json_compatible_value(item) for item in value]
+	if isinstance(value, dict):
+		return {key: _json_compatible_value(item) for key, item in value.items()}
+	return value
 
 
 def format_unit_reldir(unit_reldir: str, unit_id: Any) -> Path:
@@ -241,6 +253,85 @@ def resolve_materialized_templates_dirs(*, templates_out_dir: Path) -> tuple[Pat
 	merged_units_dir.mkdir(parents=True, exist_ok=True)
 	full_channels_templates_dir.mkdir(parents=True, exist_ok=True)
 	return merged_units_dir, full_channels_templates_dir
+
+
+def resolve_materialized_source_payload_unit_dir(
+	*,
+	templates_out_dir: Path,
+	output_rel_root: str,
+	source_name: str,
+	unit_id: Any,
+) -> Path:
+	root = templates_out_dir / Path(str(output_rel_root)).expanduser()
+	return root / str(source_name) / f"unit_{unit_id}"
+
+
+def write_materialized_source_payload(
+	*,
+	templates_out_dir: Path,
+	output_rel_root: str,
+	source_name: str,
+	unit_id: Any,
+	template_c_by_t: np.ndarray,
+	locations_xy: np.ndarray,
+	electrode_ids: list[Any] | None,
+	channel_ids: list[Any] | None,
+	waveform_count: int,
+	sampling_rate_hz: float | None,
+	overlay_waveforms: np.ndarray | None,
+	top_electrode_id: Any,
+	total_waveforms_at_channel: int | None,
+) -> Path:
+	unit_dir = resolve_materialized_source_payload_unit_dir(
+		templates_out_dir=templates_out_dir,
+		output_rel_root=output_rel_root,
+		source_name=source_name,
+		unit_id=unit_id,
+	)
+	unit_dir.mkdir(parents=True, exist_ok=True)
+	np.save(unit_dir / "template.npy", np.asarray(template_c_by_t, dtype=float))
+	np.save(unit_dir / "channel_locations_xy.npy", np.asarray(locations_xy, dtype=float))
+	meta = {
+		"unit_id": _json_compatible_value(unit_id),
+		"source_name": str(source_name),
+		"waveform_count": int(waveform_count),
+		"sampling_rate_hz": (None if sampling_rate_hz is None else float(sampling_rate_hz)),
+		"electrode_ids": (None if electrode_ids is None else _json_compatible_value(list(electrode_ids))),
+		"channel_ids": (None if channel_ids is None else _json_compatible_value(list(channel_ids))),
+		"top_electrode_id": _json_compatible_value(top_electrode_id),
+		"total_waveforms_at_channel": (None if total_waveforms_at_channel is None else int(total_waveforms_at_channel)),
+	}
+	write_json(unit_dir / "payload_meta.json", meta)
+	if overlay_waveforms is not None:
+		np.save(unit_dir / "overlay_top_channel_waveforms.npy", np.asarray(overlay_waveforms, dtype=float))
+	return unit_dir
+
+
+def load_materialized_source_payload(
+	*,
+	source_payload_unit_dir: Path,
+) -> tuple[np.ndarray, np.ndarray, list[Any] | None, list[Any] | None, int, float | None, np.ndarray | None, Any, int | None] | None:
+	template_path = source_payload_unit_dir / "template.npy"
+	locations_path = source_payload_unit_dir / "channel_locations_xy.npy"
+	meta_path = source_payload_unit_dir / "payload_meta.json"
+	if (not template_path.exists()) or (not locations_path.exists()) or (not meta_path.exists()):
+		return None
+	meta = read_json(meta_path)
+	if not isinstance(meta, dict):
+		return None
+	overlay_waveforms_path = source_payload_unit_dir / "overlay_top_channel_waveforms.npy"
+	overlay_waveforms = np.load(overlay_waveforms_path) if overlay_waveforms_path.exists() else None
+	return (
+		np.asarray(np.load(template_path), dtype=float),
+		np.asarray(np.load(locations_path), dtype=float),
+		(None if meta.get("electrode_ids", None) is None else list(meta.get("electrode_ids", []))),
+		(None if meta.get("channel_ids", None) is None else list(meta.get("channel_ids", []))),
+		int(meta.get("waveform_count", 0)),
+		(None if meta.get("sampling_rate_hz", None) is None else float(meta.get("sampling_rate_hz"))),
+		(None if overlay_waveforms is None else np.asarray(overlay_waveforms, dtype=float)),
+		meta.get("top_electrode_id", None),
+		(None if meta.get("total_waveforms_at_channel", None) is None else int(meta.get("total_waveforms_at_channel"))),
+	)
 
 
 def write_materialized_unit_templates(

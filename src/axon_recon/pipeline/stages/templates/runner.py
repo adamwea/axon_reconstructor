@@ -14,6 +14,7 @@ from axon_reconstructor.pipeline.stg2_spikesorting.runner import (
 	LEGACY_SPIKESORTING_OUTPUTS_DIRNAME,
 	SPIKESORTING_OUTPUTS_DIRNAME,
 )
+from axon_recon.pipeline.shared.sampling import read_maxwell_sampling_frequency_hz
 from axon_recon.pipeline.shared.grid_sorting import (
 	coerce_grid_sort_metrics,
 	compute_template_grid_sort_metrics,
@@ -21,7 +22,7 @@ from axon_recon.pipeline.shared.grid_sorting import (
 	normalize_grid_sort_by,
 )
 
-from .core.merge import materialize_templates_from_spikeinterface
+from .core.merge import materialize_templates_from_spikeinterface, materialize_unit_templates_from_sources_with_meta
 from .core.quality_checks import detect_multiple_negative_peaks
 from .core.render import (
 	compose_png_side_by_side,
@@ -42,13 +43,20 @@ from .core.render import (
 	render_wf_overlay_grid_from_assets,
 )
 from .io import (
+	load_materialized_source_payload,
 	load_materialized_overlay_waveforms,
 	load_materialized_merged_electrode_ids,
 	read_json,
+	resolve_materialized_source_payload_unit_dir,
+	resolve_materialized_templates_dirs,
 	resolve_report_output_paths,
 	resolve_unit_output_paths,
+	write_materialized_merged_electrode_ids,
+	write_materialized_source_payload,
+	write_materialized_unit_templates,
 	write_json,
 )
+from .integrations.spikeinterface_extract import build_unit_source_payload, load_spikeinterface_analyzers
 from .models.inputs import ProbeGeometryConfig, TemplatesInputs, TimeUpsampleConfig
 from .models.results import TemplatesResult, UnitTemplatesResult
 
@@ -1401,6 +1409,471 @@ def run_templates_resolve_sources_phase(inputs: TemplatesInputs) -> dict[str, An
 		summary["summary_json"] = str(json_path)
 
 	return summary
+
+
+def _resolve_templates_phase_environment(
+	inputs: TemplatesInputs,
+) -> tuple[Path, list[Path], Path, Path | None]:
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=inputs.mea_output_root,
+		data_file=inputs.h5_path,
+		well=inputs.stream_id,
+	)
+	alternate_well_out_dirs = _resolve_alternate_well_out_dirs(
+		inputs=inputs,
+		primary_well_out_dir=well_out_dir,
+	)
+	templates_out_dir = well_out_dir / str(inputs.output_rel_root)
+	templates_out_dir.mkdir(parents=True, exist_ok=True)
+	cache_rel = Path(str(inputs.analyzer_cache.relpath or "analyzers")).expanduser()
+	if cache_rel.is_absolute():
+		cache_rel = Path(str(cache_rel).lstrip("/"))
+	analyzer_cache_dir = (
+		templates_out_dir / cache_rel
+		if bool(inputs.analyzer_cache.enabled)
+		else None
+	)
+	return well_out_dir, alternate_well_out_dirs, templates_out_dir, analyzer_cache_dir
+
+
+def _templates_analyzer_policy_for_source(inputs: TemplatesInputs, source_name: str) -> Any:
+	if str(source_name) == "concat":
+		return inputs.phases.analyzers.concat.policy
+	return inputs.phases.analyzers.segments.policy
+
+
+def _load_templates_phase_analyzers(
+	*,
+	inputs: TemplatesInputs,
+	well_out_dir: Path,
+	alternate_well_out_dirs: list[Path],
+	analyzer_cache_dir: Path | None,
+	source_scope: str | None = None,
+) -> list[tuple[str, Any]]:
+	include_concat = bool(inputs.include_concat) and bool(inputs.phases.analyzers.concat.enabled)
+	include_segments = bool(inputs.include_segments) and bool(inputs.phases.analyzers.segments.enabled)
+	if source_scope == "concat":
+		include_segments = False
+	elif source_scope == "segments":
+		include_concat = False
+	return load_spikeinterface_analyzers(
+		well_out_dir=well_out_dir,
+		concat_analyzer_relpath=(inputs.phases.analyzers.concat.analyzer_relpath or inputs.concat_analyzer_relpath),
+		concat_sorting_relpath=(inputs.phases.analyzers.concat.sorting_relpath or inputs.concat_sorting_relpath),
+		preprocessed_concat_reldir=(
+			inputs.phases.analyzers.concat.preprocessed_recording_reldir or inputs.preprocessed_concat_reldir
+		),
+		preprocessed_segments_reldir=(
+			inputs.phases.analyzers.segments.preprocessed_sources_reldir or inputs.preprocessed_segments_reldir
+		),
+		preproc_seg_sources_reldir=(
+			inputs.phases.analyzers.segments.preprocessed_sources_reldir or inputs.preproc_seg_sources_reldir
+		),
+		analyzer_cache_dir=analyzer_cache_dir,
+		analyzer_cache_concat_subdir=str(inputs.analyzer_cache.concat_analyzer_subdir or "concat"),
+		analyzer_cache_segments_subdir=str(inputs.analyzer_cache.segment_analyzers_subdir or ""),
+		alternate_well_out_dirs=alternate_well_out_dirs,
+		stream_id=str(inputs.stream_id),
+		include_concat=include_concat,
+		include_segments=include_segments,
+		require_concat=(bool(inputs.require_concat_analyzer) and include_concat),
+		require_segments=(bool(inputs.require_segment_analyzers) and include_segments),
+		waveform_ms_before=inputs.waveform_extraction.ms_before,
+		waveform_ms_after=inputs.waveform_extraction.ms_after,
+		waveform_max_spikes_per_unit=inputs.waveform_extraction.max_spikes_per_unit,
+		concat_policy=inputs.phases.analyzers.concat.policy,
+		segments_policy=inputs.phases.analyzers.segments.policy,
+		concat_use_existing_analyzer=bool(inputs.phases.analyzers.concat.use_existing_analyzer),
+		concat_build_if_missing=bool(inputs.phases.analyzers.concat.build_if_missing),
+		segments_use_existing_analyzer=bool(inputs.phases.analyzers.segments.use_existing_analyzer),
+		segments_build_if_missing=bool(inputs.phases.analyzers.segments.build_if_missing),
+	)
+
+
+def _collect_templates_phase_unit_ids(
+	*,
+	inputs: TemplatesInputs,
+	analyzers: list[tuple[str, Any]],
+	well_out_dir: Path,
+) -> list[Any]:
+	if inputs.unit_ids is not None:
+		unit_ids = list(inputs.unit_ids)
+	elif analyzers:
+		unit_ids = list(getattr(analyzers[0][1].sorting, "unit_ids", []))
+	else:
+		unit_ids = []
+	if inputs.unit_limit is not None:
+		unit_ids = unit_ids[: int(inputs.unit_limit)]
+	if bool(inputs.require_curated_units) and inputs.unit_ids is None:
+		curated = _load_curated_units_from_spikesorting(well_out_dir)
+		if curated is None:
+			raise RuntimeError(
+				"Templates phase requires curated units, but curated units file was not found/readable at "
+				f"{well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / 'qm_unfiltered.xlsx'}"
+			)
+		unit_ids = _apply_curated_filter(unit_ids, curated)
+	return unit_ids
+
+
+def _report_scope_config(reports: Any, scope: str | None) -> Any:
+	if scope is None:
+		return reports
+	disabled_locations = replace(reports.locations, write_json=False, write_png=False, write_svg=False)
+	disabled_wf_grid = replace(reports.wf_overlay_grid, write_pdf=False, write_png=False, write_svg=False)
+	disabled_footprint_grids = replace(
+		reports.footprint_grids,
+		circles_map_grid=replace(reports.footprint_grids.circles_map_grid, write_pdf=False, write_png=False, write_svg=False),
+		amplitude_map_grid=replace(reports.footprint_grids.amplitude_map_grid, write_pdf=False, write_png=False, write_svg=False),
+		latency_map_grid=replace(reports.footprint_grids.latency_map_grid, write_pdf=False, write_png=False, write_svg=False),
+	)
+	disabled_multi_source = replace(reports.plot_multi_source_pdf, enabled=False)
+	if scope == "locations":
+		return replace(
+			reports,
+			locations=reports.locations,
+			wf_overlay_grid=disabled_wf_grid,
+			footprint_grids=disabled_footprint_grids,
+			plot_multi_source_pdf=disabled_multi_source,
+		)
+	if scope == "wf_overlay_grid":
+		return replace(
+			reports,
+			locations=disabled_locations,
+			wf_overlay_grid=reports.wf_overlay_grid,
+			footprint_grids=disabled_footprint_grids,
+			plot_multi_source_pdf=disabled_multi_source,
+		)
+	if scope == "footprint_grids":
+		return replace(
+			reports,
+			locations=disabled_locations,
+			wf_overlay_grid=disabled_wf_grid,
+			footprint_grids=reports.footprint_grids,
+			plot_multi_source_pdf=disabled_multi_source,
+		)
+	if scope == "multi_source_pdf":
+		return replace(
+			reports,
+			locations=disabled_locations,
+			wf_overlay_grid=disabled_wf_grid,
+			footprint_grids=disabled_footprint_grids,
+			plot_multi_source_pdf=reports.plot_multi_source_pdf,
+		)
+	if scope == "none":
+		return replace(
+			reports,
+			locations=disabled_locations,
+			wf_overlay_grid=disabled_wf_grid,
+			footprint_grids=disabled_footprint_grids,
+			plot_multi_source_pdf=disabled_multi_source,
+		)
+	return reports
+
+
+def _disable_reports_config(reports: Any) -> Any:
+	return _report_scope_config(reports, "none")
+
+
+def run_templates_analyzers_phase(inputs: TemplatesInputs, *, source_scope: str | None = None) -> dict[str, Any]:
+	well_out_dir, alternate_well_out_dirs, templates_out_dir, analyzer_cache_dir = _resolve_templates_phase_environment(inputs)
+	if bool(inputs.force_restart) and analyzer_cache_dir is not None and analyzer_cache_dir.exists():
+		shutil.rmtree(analyzer_cache_dir)
+	analyzers = _load_templates_phase_analyzers(
+		inputs=inputs,
+		well_out_dir=well_out_dir,
+		alternate_well_out_dirs=alternate_well_out_dirs,
+		analyzer_cache_dir=analyzer_cache_dir,
+		source_scope=source_scope,
+	)
+	sources_summary: dict[str, Any] = {}
+	for source_name, analyzer in analyzers:
+		policy = _templates_analyzer_policy_for_source(inputs, source_name)
+		sources_summary[str(source_name)] = {
+			"has_sparsity": bool(getattr(analyzer, "sparsity", None) is not None),
+			"num_channels": (
+				int(analyzer.recording.get_num_channels())
+				if hasattr(getattr(analyzer, "recording", None), "get_num_channels")
+				else None
+			),
+			"num_units": int(len(list(getattr(analyzer.sorting, "unit_ids", [])))) if hasattr(analyzer, "sorting") else None,
+			"policy": {
+				"sparsity_mode": str(policy.sparsity_mode),
+				"random_spikes_method": str(policy.random_spikes_method),
+				"random_seed": policy.random_seed,
+				"ms_before": policy.ms_before,
+				"ms_after": policy.ms_after,
+				"max_spikes_per_unit": policy.max_spikes_per_unit,
+			},
+		}
+	summary = {
+		"phase": ("analyzers" if source_scope is None else f"analyzers.{source_scope}"),
+		"stream_id": str(inputs.stream_id),
+		"well_out_dir": str(well_out_dir),
+		"templates_out_dir": str(templates_out_dir),
+		"analyzer_cache_dir": (None if analyzer_cache_dir is None else str(analyzer_cache_dir)),
+		"source_scope": source_scope,
+		"source_count": int(len(analyzers)),
+		"sources": sources_summary,
+	}
+	summary_path = templates_out_dir / str(inputs.phases.analyzers.summary_json_relpath)
+	write_json(summary_path, summary)
+	summary["summary_json"] = str(summary_path)
+	return summary
+
+
+def run_templates_extract_template_segments_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+	well_out_dir, alternate_well_out_dirs, templates_out_dir, analyzer_cache_dir = _resolve_templates_phase_environment(inputs)
+	payload_root = templates_out_dir / Path(str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root)).expanduser()
+	if bool(inputs.force_restart) and payload_root.exists():
+		shutil.rmtree(payload_root)
+	payload_root.mkdir(parents=True, exist_ok=True)
+	analyzers = _load_templates_phase_analyzers(
+		inputs=inputs,
+		well_out_dir=well_out_dir,
+		alternate_well_out_dirs=alternate_well_out_dirs,
+		analyzer_cache_dir=analyzer_cache_dir,
+	)
+	unit_ids = _collect_templates_phase_unit_ids(inputs=inputs, analyzers=analyzers, well_out_dir=well_out_dir)
+	sources_summary: dict[str, Any] = {}
+	for source_name, analyzer in analyzers:
+		policy = _templates_analyzer_policy_for_source(inputs, source_name)
+		written_units: list[Any] = []
+		for unit_id in unit_ids:
+			payload = build_unit_source_payload(
+				analyzer=analyzer,
+				unit_id=unit_id,
+				max_spikes_per_unit=policy.max_spikes_per_unit,
+				waveform_ms_before=policy.ms_before,
+				waveform_ms_after=policy.ms_after,
+				random_spikes_method=policy.random_spikes_method,
+				random_seed=policy.random_seed,
+			)
+			if payload is None:
+				continue
+			write_materialized_source_payload(
+				templates_out_dir=templates_out_dir,
+				output_rel_root=str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root),
+				source_name=str(source_name),
+				unit_id=unit_id,
+				template_c_by_t=payload[0],
+				locations_xy=payload[1],
+				electrode_ids=payload[2],
+				channel_ids=payload[3],
+				waveform_count=payload[4],
+				sampling_rate_hz=payload[5],
+				overlay_waveforms=payload[6],
+				top_electrode_id=payload[7],
+				total_waveforms_at_channel=payload[8],
+			)
+			written_units.append(unit_id)
+		sources_summary[str(source_name)] = {
+			"units_written": [unit for unit in written_units],
+			"unit_count": int(len(written_units)),
+		}
+	summary = {
+		"phase": "per_unit_processing.extract_template_segments",
+		"stream_id": str(inputs.stream_id),
+		"well_out_dir": str(well_out_dir),
+		"templates_out_dir": str(templates_out_dir),
+		"payload_root": str(payload_root),
+		"unit_ids": [unit for unit in unit_ids],
+		"sources": sources_summary,
+	}
+	summary_path = templates_out_dir / str(inputs.phases.per_unit_processing.extract_template_segments.summary_json_relpath)
+	write_json(summary_path, summary)
+	summary["summary_json"] = str(summary_path)
+	return summary
+
+
+def run_templates_build_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+	well_out_dir, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
+	payload_root = templates_out_dir / Path(str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root)).expanduser()
+	if not payload_root.exists():
+		raise FileNotFoundError(
+			f"Missing extracted source payloads at {payload_root}; run templates.per_unit_processing.extract_template_segments first"
+		)
+	merged_units_dir, full_channels_templates_dir = resolve_materialized_templates_dirs(templates_out_dir=templates_out_dir)
+	if bool(inputs.force_restart):
+		if merged_units_dir.exists():
+			shutil.rmtree(merged_units_dir)
+		if full_channels_templates_dir.exists():
+			shutil.rmtree(full_channels_templates_dir)
+		merged_units_dir, full_channels_templates_dir = resolve_materialized_templates_dirs(templates_out_dir=templates_out_dir)
+	source_dirs = sorted(
+		[p for p in payload_root.iterdir() if p.is_dir()],
+		key=lambda p: (0 if p.name == "concat" else 1, p.name),
+	)
+	if not source_dirs:
+		raise FileNotFoundError(
+			f"No source payload directories found under {payload_root}; run templates.per_unit_processing.extract_template_segments first"
+		)
+	if inputs.unit_ids is not None:
+		unit_ids = list(inputs.unit_ids)
+	else:
+		unit_tokens: list[Any] = []
+		for source_dir in source_dirs:
+			for unit_dir in sorted(source_dir.glob("unit_*")):
+				token = unit_dir.name.split("unit_", 1)[1]
+				try:
+					value: Any = int(token)
+				except Exception:
+					value = token
+				if value not in unit_tokens:
+					unit_tokens.append(value)
+		unit_ids = unit_tokens
+	if inputs.unit_limit is not None:
+		unit_ids = unit_ids[: int(inputs.unit_limit)]
+	if bool(inputs.require_curated_units) and inputs.unit_ids is None:
+		curated = _load_curated_units_from_spikesorting(well_out_dir)
+		if curated is None:
+			raise RuntimeError(
+				"Templates build phase requires curated units, but curated units file was not found/readable at "
+				f"{well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / 'qm_unfiltered.xlsx'}"
+			)
+		unit_ids = _apply_curated_filter(unit_ids, curated)
+	raw_sampling_rate_hz = read_maxwell_sampling_frequency_hz(
+		h5_path=Path(inputs.h5_path),
+		stream_id=str(inputs.stream_id),
+	)
+	merge_cfg = inputs.phases.per_unit_processing.build_templates.merge
+	upsampling_cfg = inputs.phases.per_unit_processing.build_templates.execution_upsampling
+	upsampling_decisions_by_unit: dict[Any, dict[str, Any]] = {}
+	built_units: list[Any] = []
+	for unit_id in unit_ids:
+		source_payloads: list[tuple[str, tuple[Any, ...]]] = []
+		for source_dir in source_dirs:
+			payload = load_materialized_source_payload(
+				source_payload_unit_dir=resolve_materialized_source_payload_unit_dir(
+					templates_out_dir=templates_out_dir,
+					output_rel_root=str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root),
+					source_name=source_dir.name,
+					unit_id=unit_id,
+				),
+			)
+			if payload is None:
+				continue
+			source_payloads.append((str(source_dir.name), payload))
+		if not source_payloads:
+			continue
+		materialized, decision = materialize_unit_templates_from_sources_with_meta(
+			source_payloads=source_payloads,
+			enable_merge=bool(merge_cfg.enable),
+			merge_method=str(merge_cfg.method),
+			centering_method=str(merge_cfg.centering_method),
+			max_waveforms_per_source_channel=merge_cfg.max_waveforms_per_source_channel,
+			overlap_match_priority=tuple(merge_cfg.overlap_match_priority),
+			location_tolerance_um=float(merge_cfg.location_tolerance_um),
+			execution_upsampling=upsampling_cfg,
+			raw_sampling_rate_hz=raw_sampling_rate_hz,
+		)
+		if materialized is None:
+			continue
+		merged_template, merged_locs, full_template, full_locs, merged_electrode_ids = materialized
+		write_materialized_unit_templates(
+			merged_units_dir=merged_units_dir,
+			full_channels_templates_dir=full_channels_templates_dir,
+			unit_id=unit_id,
+			merged_template=merged_template,
+			merged_locations_xy=merged_locs,
+			full_template=full_template,
+			full_locations_xy=full_locs,
+		)
+		write_materialized_merged_electrode_ids(
+			merged_units_dir=merged_units_dir,
+			unit_id=unit_id,
+			electrode_ids=merged_electrode_ids,
+		)
+		upsampling_decisions_by_unit[unit_id] = dict(decision)
+		built_units.append(unit_id)
+	summary = {
+		"phase": "per_unit_processing.build_templates",
+		"stream_id": str(inputs.stream_id),
+		"well_out_dir": str(well_out_dir),
+		"templates_out_dir": str(templates_out_dir),
+		"payload_root": str(payload_root),
+		"built_units": [unit for unit in built_units],
+		"unit_count": int(len(built_units)),
+		"upsampling_decisions_by_unit": {str(k): v for k, v in upsampling_decisions_by_unit.items()},
+	}
+	summary_path = templates_out_dir / str(inputs.phases.per_unit_processing.build_templates.summary_json_relpath)
+	write_json(summary_path, summary)
+	summary["summary_json"] = str(summary_path)
+	return summary
+
+
+def run_templates_per_unit_processing_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+	_, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
+	run_templates_extract_template_segments_phase(inputs)
+	run_templates_build_templates_phase(inputs)
+	try:
+		_resolve_templates_dirs(
+			well_out_dir=compute_mea_analysis_output_dir(
+				output_root=inputs.mea_output_root,
+				data_file=inputs.h5_path,
+				well=inputs.stream_id,
+			),
+			templates_out_dir=templates_out_dir,
+		)
+	except FileNotFoundError as exc:
+		raise FileNotFoundError("Missing built template artifacts for per-unit processing") from exc
+	unit_inputs = replace(
+		inputs,
+		force_restart=False,
+		force_replot=True,
+		force_replot_per_unit=False,
+		force_rereport=False,
+		reports=_disable_reports_config(inputs.reports),
+	)
+	run_templates_stage(unit_inputs)
+	summary_json = templates_out_dir / "templates_summary.json"
+	if summary_json.exists():
+		summary = read_json(summary_json)
+		if isinstance(summary, dict):
+			summary["phase"] = "per_unit_processing"
+			return summary
+	return {"phase": "per_unit_processing", "templates_out_dir": str(templates_out_dir)}
+
+
+def run_templates_reports_phase(inputs: TemplatesInputs, *, report_scope: str | None = None) -> dict[str, Any]:
+	_, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
+	unit_ids = list(inputs.unit_ids) if inputs.unit_ids is not None else _discover_unit_ids_from_unit_summaries(templates_out_dir)
+	if not unit_ids:
+		raise FileNotFoundError(
+			f"No unit summaries found under {templates_out_dir}; run templates.per_unit_processing first"
+		)
+	missing_unit_summaries: list[Any] = []
+	for unit_id in unit_ids:
+		paths = resolve_unit_output_paths(
+			templates_out_dir=templates_out_dir,
+			unit_id=unit_id,
+			per_unit_outputs=inputs.per_unit_outputs,
+		)
+		if not paths["unit_summary_json"].exists():
+			missing_unit_summaries.append(unit_id)
+	if missing_unit_summaries:
+		raise FileNotFoundError(
+			"Missing unit summaries required for reports phase; rerun per_unit_processing first for unit_ids="
+			+ str(missing_unit_summaries)
+		)
+	report_inputs = replace(
+		inputs,
+		force_restart=False,
+		force_replot=False,
+		force_replot_per_unit=False,
+		force_rereport=True,
+		reports=_report_scope_config(inputs.reports, report_scope),
+	)
+	run_templates_stage(report_inputs)
+	summary_json = templates_out_dir / "templates_summary.json"
+	if summary_json.exists():
+		summary = read_json(summary_json)
+		if isinstance(summary, dict):
+			summary["phase"] = ("reports" if report_scope is None else f"reports.{report_scope}")
+			return summary
+	return {
+		"phase": ("reports" if report_scope is None else f"reports.{report_scope}"),
+		"templates_out_dir": str(templates_out_dir),
+	}
 
 
 def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:

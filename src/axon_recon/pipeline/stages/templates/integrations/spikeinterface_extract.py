@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np  # type: ignore[import-not-found]
 
 from ..core.source_payloads import normalize_source_payload
+from ..models.inputs import AnalyzerPreparationPolicyConfig
 
 LOGGER = logging.getLogger("axon_recon.templates.spikeinterface")
 
@@ -410,12 +411,37 @@ def _parse_waveforms_window_from_extension(wf_ext: Any) -> tuple[float | None, f
 	return None, None
 
 
+def _analyzer_has_sparsity(analyzer: Any) -> bool:
+	try:
+		return bool(getattr(analyzer, "sparsity", None) is not None)
+	except Exception:
+		return False
+
+
+def _normalize_requested_random_spikes_method(method: str | None) -> str:
+	value = str(method or "uniform").strip().lower().replace("-", "_").replace(" ", "_")
+	if value in {"all", "all_spikes", "full"}:
+		return "all"
+	return "uniform"
+
+
+def _normalize_requested_random_seed(seed: int | None) -> int | None:
+	if seed is None:
+		return None
+	try:
+		return int(seed)
+	except Exception:
+		return 0
+
+
 def _try_recompute_waveforms_extension(
 	*,
 	analyzer: Any,
 	requested_max_spikes_per_unit: int | None,
 	requested_ms_before: float | None,
 	requested_ms_after: float | None,
+	requested_random_spikes_method: str = "uniform",
+	requested_random_seed: int | None = 0,
 ) -> bool:
 	"""Best-effort recompute of random_spikes+waveforms+templates with requested semantics.
 
@@ -426,6 +452,8 @@ def _try_recompute_waveforms_extension(
 		None if requested_max_spikes_per_unit is None else int(requested_max_spikes_per_unit),
 		None if requested_ms_before is None else float(requested_ms_before),
 		None if requested_ms_after is None else float(requested_ms_after),
+		_normalize_requested_random_spikes_method(requested_random_spikes_method),
+		_normalize_requested_random_seed(requested_random_seed),
 	)
 	seen = getattr(analyzer, attempted_attr, None)
 	if isinstance(seen, set) and attempt_key in seen:
@@ -448,11 +476,14 @@ def _try_recompute_waveforms_extension(
 		ms_before = float(requested_ms_before)
 	if requested_ms_after is not None:
 		ms_after = float(requested_ms_after)
+	method = _normalize_requested_random_spikes_method(requested_random_spikes_method)
 	random_spikes_params: dict[str, Any] = {
-		"method": "uniform",
-		"seed": 0,
+		"method": method,
 	}
-	if requested_max_spikes_per_unit is not None and int(requested_max_spikes_per_unit) > 0:
+	seed = _normalize_requested_random_seed(requested_random_seed)
+	if method != "all" and seed is not None:
+		random_spikes_params["seed"] = int(seed)
+	if method != "all" and requested_max_spikes_per_unit is not None and int(requested_max_spikes_per_unit) > 0:
 		random_spikes_params["max_spikes_per_unit"] = int(requested_max_spikes_per_unit)
 
 	extension_params: dict[str, Any] = {
@@ -497,6 +528,8 @@ def _mark_analyzer_waveforms_prepared(
 	requested_max_spikes_per_unit: int | None,
 	requested_ms_before: float | None,
 	requested_ms_after: float | None,
+	requested_random_spikes_method: str = "uniform",
+	requested_random_seed: int | None = 0,
 ) -> None:
 	try:
 		setattr(
@@ -506,6 +539,8 @@ def _mark_analyzer_waveforms_prepared(
 				_normalize_requested_max_spikes_per_unit(requested_max_spikes_per_unit),
 				(None if requested_ms_before is None else float(requested_ms_before)),
 				(None if requested_ms_after is None else float(requested_ms_after)),
+				_normalize_requested_random_spikes_method(requested_random_spikes_method),
+				_normalize_requested_random_seed(requested_random_seed),
 			),
 		)
 	except Exception:
@@ -518,18 +553,31 @@ def _waveforms_prepared_matches(
 	requested_max_spikes_per_unit: int | None,
 	requested_ms_before: float | None,
 	requested_ms_after: float | None,
+	requested_random_spikes_method: str = "uniform",
+	requested_random_seed: int | None = 0,
 ) -> bool:
 	signature = getattr(analyzer, "_axon_recon_prepared_waveforms_signature", None)
-	if not isinstance(signature, tuple) or len(signature) != 3:
+	if not isinstance(signature, tuple):
 		return False
-	prepared_max, prepared_ms_before, prepared_ms_after = signature
+	if len(signature) == 5:
+		prepared_max, prepared_ms_before, prepared_ms_after, prepared_method, prepared_seed = signature
+	elif len(signature) == 3:
+		prepared_max, prepared_ms_before, prepared_ms_after = signature
+		prepared_method = "uniform"
+		prepared_seed = 0
+	else:
+		return False
 	required_max = _normalize_requested_max_spikes_per_unit(requested_max_spikes_per_unit)
 	if prepared_ms_before != (None if requested_ms_before is None else float(requested_ms_before)):
 		return False
 	if prepared_ms_after != (None if requested_ms_after is None else float(requested_ms_after)):
 		return False
+	if prepared_method != _normalize_requested_random_spikes_method(requested_random_spikes_method):
+		return False
+	if prepared_seed != _normalize_requested_random_seed(requested_random_seed):
+		return False
 	if prepared_max is None:
-		return True
+		return required_max is None
 	if required_max is None:
 		return False
 	return int(prepared_max) >= int(required_max)
@@ -541,6 +589,8 @@ def _prepare_analyzer_for_payload_extraction(
 	requested_max_spikes_per_unit: int | None,
 	requested_ms_before: float | None,
 	requested_ms_after: float | None,
+	requested_random_spikes_method: str = "uniform",
+	requested_random_seed: int | None = 0,
 ) -> Any:
 	if not hasattr(analyzer, "has_extension") or not hasattr(analyzer, "compute"):
 		return analyzer
@@ -550,12 +600,15 @@ def _prepare_analyzer_for_payload_extraction(
 		requested_max_spikes_per_unit=normalized_max,
 		requested_ms_before=requested_ms_before,
 		requested_ms_after=requested_ms_after,
+		requested_random_spikes_method=requested_random_spikes_method,
+		requested_random_seed=requested_random_seed,
 	):
 		return analyzer
 	needs_prepare = (
 		normalized_max is not None
 		or requested_ms_before is not None
 		or requested_ms_after is not None
+		or _normalize_requested_random_spikes_method(requested_random_spikes_method) != "uniform"
 	)
 	has_templates = False
 	has_waveforms = False
@@ -573,12 +626,16 @@ def _prepare_analyzer_for_payload_extraction(
 			requested_max_spikes_per_unit=normalized_max,
 			requested_ms_before=requested_ms_before,
 			requested_ms_after=requested_ms_after,
+			requested_random_spikes_method=requested_random_spikes_method,
+			requested_random_seed=requested_random_seed,
 		)
 		_mark_analyzer_waveforms_prepared(
 			analyzer=analyzer,
 			requested_max_spikes_per_unit=normalized_max,
 			requested_ms_before=requested_ms_before,
 			requested_ms_after=requested_ms_after,
+			requested_random_spikes_method=requested_random_spikes_method,
+			requested_random_seed=requested_random_seed,
 		)
 	return analyzer
 
@@ -662,6 +719,48 @@ def _persist_analyzer_to_cache(
 		return analyzer
 
 
+def _resolve_preparation_policy(
+	*,
+	policy: AnalyzerPreparationPolicyConfig | None,
+	waveform_ms_before: float | None,
+	waveform_ms_after: float | None,
+	waveform_max_spikes_per_unit: int | None,
+) -> AnalyzerPreparationPolicyConfig:
+	if policy is not None:
+		return policy
+	return AnalyzerPreparationPolicyConfig(
+		ms_before=waveform_ms_before,
+		ms_after=waveform_ms_after,
+		max_spikes_per_unit=waveform_max_spikes_per_unit,
+		sparsity_mode="inherit",
+		random_spikes_method="uniform",
+		random_seed=0,
+	)
+
+
+def _prepare_loaded_analyzer_with_policy(
+	*,
+	analyzer: Any,
+	policy: AnalyzerPreparationPolicyConfig,
+	source_name: str,
+) -> Any | None:
+	prepared = _prepare_analyzer_for_payload_extraction(
+		analyzer=analyzer,
+		requested_max_spikes_per_unit=policy.max_spikes_per_unit,
+		requested_ms_before=policy.ms_before,
+		requested_ms_after=policy.ms_after,
+		requested_random_spikes_method=policy.random_spikes_method,
+		requested_random_seed=policy.random_seed,
+	)
+	if str(policy.sparsity_mode).strip().lower() == "dense" and _analyzer_has_sparsity(prepared):
+		LOGGER.info(
+			"Analyzer %s is sparse but dense mode was requested; treating it as a cache miss",
+			str(source_name),
+		)
+		return None
+	return prepared
+
+
 def build_unit_source_payload(
 	*,
 	analyzer: Any,
@@ -669,6 +768,8 @@ def build_unit_source_payload(
 	max_spikes_per_unit: int | None = None,
 	waveform_ms_before: float | None = None,
 	waveform_ms_after: float | None = None,
+	random_spikes_method: str = "uniform",
+	random_seed: int | None = 0,
 ) -> tuple[np.ndarray, np.ndarray, list[Any] | None, list[Any] | None, int, float | None, np.ndarray | None, Any, int | None] | None:
 	waveform_count = _extract_total_waveform_count(analyzer=analyzer, unit_id=unit_id)
 	requested_waveforms = _normalize_requested_max_spikes_per_unit(max_spikes_per_unit)
@@ -677,12 +778,16 @@ def build_unit_source_payload(
 		requested_max_spikes_per_unit=requested_waveforms,
 		requested_ms_before=waveform_ms_before,
 		requested_ms_after=waveform_ms_after,
+		requested_random_spikes_method=random_spikes_method,
+		requested_random_seed=random_seed,
 	):
 		_prepare_analyzer_for_payload_extraction(
 			analyzer=analyzer,
 			requested_max_spikes_per_unit=requested_waveforms,
 			requested_ms_before=waveform_ms_before,
 			requested_ms_after=waveform_ms_after,
+			requested_random_spikes_method=random_spikes_method,
+			requested_random_seed=random_seed,
 		)
 
 	t = _extract_unit_template(analyzer, unit_id)
@@ -730,18 +835,24 @@ def build_unit_source_payload(
 					requested_max_spikes_per_unit=None,
 					requested_ms_before=waveform_ms_before,
 					requested_ms_after=waveform_ms_after,
+					requested_random_spikes_method=random_spikes_method,
+					requested_random_seed=random_seed,
 				):
 					if _try_recompute_waveforms_extension(
 						analyzer=analyzer,
 						requested_max_spikes_per_unit=None,
 						requested_ms_before=waveform_ms_before,
 						requested_ms_after=waveform_ms_after,
+						requested_random_spikes_method=random_spikes_method,
+						requested_random_seed=random_seed,
 					):
 						_mark_analyzer_waveforms_prepared(
 							analyzer=analyzer,
 							requested_max_spikes_per_unit=None,
 							requested_ms_before=waveform_ms_before,
 							requested_ms_after=waveform_ms_after,
+							requested_random_spikes_method=random_spikes_method,
+							requested_random_seed=random_seed,
 						)
 						wf_ext = analyzer.get_extension("waveforms")
 						wf_all = np.asarray(wf_ext.get_waveforms_one_unit(unit_id=unit_id, force_dense=False), dtype=float)
@@ -751,12 +862,16 @@ def build_unit_source_payload(
 					requested_max_spikes_per_unit=int(need_waveforms),
 					requested_ms_before=waveform_ms_before,
 					requested_ms_after=waveform_ms_after,
+					requested_random_spikes_method=random_spikes_method,
+					requested_random_seed=random_seed,
 				):
 					_mark_analyzer_waveforms_prepared(
 						analyzer=analyzer,
 						requested_max_spikes_per_unit=int(need_waveforms),
 						requested_ms_before=waveform_ms_before,
 						requested_ms_after=waveform_ms_after,
+						requested_random_spikes_method=random_spikes_method,
+						requested_random_seed=random_seed,
 					)
 					wf_ext = analyzer.get_extension("waveforms")
 					wf_all = np.asarray(wf_ext.get_waveforms_one_unit(unit_id=unit_id, force_dense=False), dtype=float)
@@ -820,8 +935,26 @@ def load_spikeinterface_analyzers(
 	waveform_ms_before: float | None = None,
 	waveform_ms_after: float | None = None,
 	waveform_max_spikes_per_unit: int | None = None,
+	concat_policy: AnalyzerPreparationPolicyConfig | None = None,
+	segments_policy: AnalyzerPreparationPolicyConfig | None = None,
+	concat_use_existing_analyzer: bool = True,
+	concat_build_if_missing: bool = True,
+	segments_use_existing_analyzer: bool = True,
+	segments_build_if_missing: bool = True,
 ) -> list[tuple[str, Any]]:
 	import spikeinterface.full as si  # type: ignore[import-not-found]
+	concat_policy_resolved = _resolve_preparation_policy(
+		policy=concat_policy,
+		waveform_ms_before=waveform_ms_before,
+		waveform_ms_after=waveform_ms_after,
+		waveform_max_spikes_per_unit=waveform_max_spikes_per_unit,
+	)
+	segments_policy_resolved = _resolve_preparation_policy(
+		policy=segments_policy,
+		waveform_ms_before=waveform_ms_before,
+		waveform_ms_after=waveform_ms_after,
+		waveform_max_spikes_per_unit=waveform_max_spikes_per_unit,
+	)
 
 	def _resolve_from_well(raw_path: str | None) -> Path | None:
 		if raw_path is None:
@@ -905,12 +1038,13 @@ def load_spikeinterface_analyzers(
 				concat_analyzer_subdir=str(analyzer_cache_concat_subdir or "concat"),
 				segment_analyzers_subdir=str(analyzer_cache_segments_subdir or ""),
 			)
-			built = _prepare_analyzer_for_payload_extraction(
+			built = _prepare_loaded_analyzer_with_policy(
 				analyzer=built,
-				requested_max_spikes_per_unit=waveform_max_spikes_per_unit,
-				requested_ms_before=waveform_ms_before,
-				requested_ms_after=waveform_ms_after,
+				policy=concat_policy_resolved,
+				source_name="concat",
 			)
+			if built is None:
+				return None
 			LOGGER.info(
 				"Built concat analyzer from sorting+recording fallback: sorting=%s recording=%s",
 				str(concat_sorting_dir),
@@ -928,16 +1062,16 @@ def load_spikeinterface_analyzers(
 
 	analyzers: list[tuple[str, Any]] = []
 	concat_analyzer_obj: Any | None = None
-	if "concat" in cached_analyzers:
+	if concat_use_existing_analyzer and "concat" in cached_analyzers:
 		try:
-			concat_analyzer_obj = _prepare_analyzer_for_payload_extraction(
+			concat_analyzer_obj = _prepare_loaded_analyzer_with_policy(
 				analyzer=cached_analyzers["concat"],
-				requested_max_spikes_per_unit=waveform_max_spikes_per_unit,
-				requested_ms_before=waveform_ms_before,
-				requested_ms_after=waveform_ms_after,
+				policy=concat_policy_resolved,
+				source_name="concat",
 			)
 			if include_concat:
-				analyzers.append(("concat", concat_analyzer_obj))
+				if concat_analyzer_obj is not None:
+					analyzers.append(("concat", concat_analyzer_obj))
 		except Exception:
 			concat_cache_hint = (
 				str(cache_root / (str(analyzer_cache_concat_subdir or "concat").strip().strip("/") or "concat"))
@@ -945,7 +1079,7 @@ def load_spikeinterface_analyzers(
 				else "<cache_root:None>"
 			)
 			LOGGER.warning("Failed to prepare cached concat analyzer: %s", concat_cache_hint, exc_info=True)
-	elif concat_dir.exists():
+	elif concat_use_existing_analyzer and concat_dir.exists():
 		try:
 			concat_analyzer_obj = si.load_sorting_analyzer(concat_dir)
 			concat_analyzer_obj = _persist_analyzer_to_cache(
@@ -955,30 +1089,29 @@ def load_spikeinterface_analyzers(
 				concat_analyzer_subdir=str(analyzer_cache_concat_subdir or "concat"),
 				segment_analyzers_subdir=str(analyzer_cache_segments_subdir or ""),
 			)
-			concat_analyzer_obj = _prepare_analyzer_for_payload_extraction(
+			concat_analyzer_obj = _prepare_loaded_analyzer_with_policy(
 				analyzer=concat_analyzer_obj,
-				requested_max_spikes_per_unit=waveform_max_spikes_per_unit,
-				requested_ms_before=waveform_ms_before,
-				requested_ms_after=waveform_ms_after,
+				policy=concat_policy_resolved,
+				source_name="concat",
 			)
 			if include_concat:
-				analyzers.append(("concat", concat_analyzer_obj))
+				if concat_analyzer_obj is not None:
+					analyzers.append(("concat", concat_analyzer_obj))
 		except Exception:
 			LOGGER.warning("Failed to load concat analyzer: %s", concat_dir)
-	if include_concat and ("concat" not in cached_analyzers) and (not concat_dir.exists()):
+	if include_concat and concat_use_existing_analyzer and ("concat" not in cached_analyzers) and (not concat_dir.exists()):
 		LOGGER.info("Concat analyzer directory not found: %s", concat_dir)
 
-	if concat_analyzer_obj is None and "concat" in cached_analyzers:
+	if concat_use_existing_analyzer and concat_analyzer_obj is None and "concat" in cached_analyzers:
 		try:
-			concat_analyzer_obj = _prepare_analyzer_for_payload_extraction(
+			concat_analyzer_obj = _prepare_loaded_analyzer_with_policy(
 				analyzer=cached_analyzers["concat"],
-				requested_max_spikes_per_unit=waveform_max_spikes_per_unit,
-				requested_ms_before=waveform_ms_before,
-				requested_ms_after=waveform_ms_after,
+				policy=concat_policy_resolved,
+				source_name="concat",
 			)
 		except Exception:
 			concat_analyzer_obj = None
-	if concat_analyzer_obj is None and concat_dir.exists():
+	if concat_use_existing_analyzer and concat_analyzer_obj is None and concat_dir.exists():
 		try:
 			concat_analyzer_obj = si.load_sorting_analyzer(concat_dir)
 			concat_analyzer_obj = _persist_analyzer_to_cache(
@@ -988,15 +1121,14 @@ def load_spikeinterface_analyzers(
 				concat_analyzer_subdir=str(analyzer_cache_concat_subdir or "concat"),
 				segment_analyzers_subdir=str(analyzer_cache_segments_subdir or ""),
 			)
-			concat_analyzer_obj = _prepare_analyzer_for_payload_extraction(
+			concat_analyzer_obj = _prepare_loaded_analyzer_with_policy(
 				analyzer=concat_analyzer_obj,
-				requested_max_spikes_per_unit=waveform_max_spikes_per_unit,
-				requested_ms_before=waveform_ms_before,
-				requested_ms_after=waveform_ms_after,
+				policy=concat_policy_resolved,
+				source_name="concat",
 			)
 		except Exception:
 			concat_analyzer_obj = None
-	if concat_analyzer_obj is None:
+	if concat_analyzer_obj is None and concat_build_if_missing:
 		concat_analyzer_obj = _build_concat_analyzer_from_sorting_and_recording()
 		if concat_analyzer_obj is not None and include_concat and not any(name == "concat" for name, _ in analyzers):
 			analyzers.append(("concat", concat_analyzer_obj))
@@ -1010,16 +1142,21 @@ def load_spikeinterface_analyzers(
 				segment_names.append(name)
 		unloadable_seg_dirs: list[Path] = []
 		for seg_name in segment_names:
-			if seg_name in cached_analyzers:
+			if segments_use_existing_analyzer and seg_name in cached_analyzers:
 				try:
-					seg_analyzer = _prepare_analyzer_for_payload_extraction(
+					seg_analyzer = _prepare_loaded_analyzer_with_policy(
 						analyzer=cached_analyzers[seg_name],
-						requested_max_spikes_per_unit=waveform_max_spikes_per_unit,
-						requested_ms_before=waveform_ms_before,
-						requested_ms_after=waveform_ms_after,
+						policy=segments_policy_resolved,
+						source_name=seg_name,
 					)
-					analyzers.append((seg_name, seg_analyzer))
-					continue
+					if seg_analyzer is not None:
+						analyzers.append((seg_name, seg_analyzer))
+						continue
+					if segments_build_if_missing:
+						seg_dir = seg_dir_by_name.get(seg_name, None)
+						if seg_dir is not None:
+							unloadable_seg_dirs.append(seg_dir)
+						continue
 				except Exception:
 					segment_cache_hint = (
 						str(
@@ -1037,6 +1174,10 @@ def load_spikeinterface_analyzers(
 			seg_dir = seg_dir_by_name.get(seg_name, None)
 			if seg_dir is None:
 				continue
+			if not segments_use_existing_analyzer:
+				if segments_build_if_missing:
+					unloadable_seg_dirs.append(seg_dir)
+				continue
 			try:
 				seg_analyzer = si.load_sorting_analyzer(seg_dir)
 				seg_analyzer = _persist_analyzer_to_cache(
@@ -1046,18 +1187,20 @@ def load_spikeinterface_analyzers(
 					concat_analyzer_subdir=str(analyzer_cache_concat_subdir or "concat"),
 					segment_analyzers_subdir=str(analyzer_cache_segments_subdir or ""),
 				)
-				seg_analyzer = _prepare_analyzer_for_payload_extraction(
+				seg_analyzer = _prepare_loaded_analyzer_with_policy(
 					analyzer=seg_analyzer,
-					requested_max_spikes_per_unit=waveform_max_spikes_per_unit,
-					requested_ms_before=waveform_ms_before,
-					requested_ms_after=waveform_ms_after,
+					policy=segments_policy_resolved,
+					source_name=seg_name,
 				)
-				analyzers.append((seg_name, seg_analyzer))
+				if seg_analyzer is not None:
+					analyzers.append((seg_name, seg_analyzer))
+				elif segments_build_if_missing:
+					unloadable_seg_dirs.append(seg_dir)
 			except Exception:
 				unloadable_seg_dirs.append(seg_dir)
 				LOGGER.info("Segment directory is not a loadable analyzer (will try build fallback): %s", seg_dir)
 
-		if unloadable_seg_dirs and concat_analyzer_obj is not None:
+		if segments_build_if_missing and unloadable_seg_dirs and concat_analyzer_obj is not None:
 			try:
 				import spikeinterface.core as si_core  # type: ignore[import-not-found]
 			except Exception:
@@ -1069,7 +1212,7 @@ def load_spikeinterface_analyzers(
 				)
 				unloadable_seg_dirs = []
 
-		if unloadable_seg_dirs and concat_analyzer_obj is not None:
+		if segments_build_if_missing and unloadable_seg_dirs and concat_analyzer_obj is not None:
 			epochs = _load_concat_epoch_windows(preproc_segments_dir=segments_dir, stream_id=stream_id)
 			epoch_by_key: dict[tuple[int, str], tuple[int, int]] = {}
 			for ep in epochs:
@@ -1133,14 +1276,14 @@ def load_spikeinterface_analyzers(
 						concat_analyzer_subdir=str(analyzer_cache_concat_subdir or "concat"),
 						segment_analyzers_subdir=str(analyzer_cache_segments_subdir or ""),
 					)
-					built = _prepare_analyzer_for_payload_extraction(
+					built = _prepare_loaded_analyzer_with_policy(
 						analyzer=built,
-						requested_max_spikes_per_unit=waveform_max_spikes_per_unit,
-						requested_ms_before=waveform_ms_before,
-						requested_ms_after=waveform_ms_after,
+						policy=segments_policy_resolved,
+						source_name=seg_name,
 					)
-					analyzers.append((seg_name, built))
-					built_count += 1
+					if built is not None:
+						analyzers.append((seg_name, built))
+						built_count += 1
 
 			if built_count > 0:
 				LOGGER.info(
@@ -1212,6 +1355,12 @@ def load_spikeinterface_analyzers(
 					waveform_ms_before=waveform_ms_before,
 					waveform_ms_after=waveform_ms_after,
 					waveform_max_spikes_per_unit=waveform_max_spikes_per_unit,
+					concat_policy=concat_policy_resolved,
+					segments_policy=segments_policy_resolved,
+					concat_use_existing_analyzer=concat_use_existing_analyzer,
+					concat_build_if_missing=concat_build_if_missing,
+					segments_use_existing_analyzer=segments_use_existing_analyzer,
+					segments_build_if_missing=segments_build_if_missing,
 				)
 			except FileNotFoundError:
 				LOGGER.info("Fallback well output root had no analyzers: %s", str(fallback_well_out_dir))

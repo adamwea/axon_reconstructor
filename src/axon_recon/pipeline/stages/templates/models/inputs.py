@@ -174,6 +174,108 @@ class WaveformExtractionConfig:
 
 
 @dataclass(frozen=True)
+class AnalyzerPreparationPolicyConfig:
+	ms_before: float | None = None
+	ms_after: float | None = None
+	max_spikes_per_unit: int | None = None
+	sparsity_mode: str = "inherit"
+	random_spikes_method: str = "uniform"
+	random_seed: int | None = 0
+
+
+@dataclass(frozen=True)
+class AnalyzerSourcePhaseConfig:
+	enabled: bool = True
+	required: bool = False
+	use_existing_analyzer: bool = True
+	build_if_missing: bool = True
+	analyzer_relpath: str | None = None
+	sorting_relpath: str | None = None
+	preprocessed_recording_reldir: str | None = None
+	preprocessed_sources_reldir: str | None = None
+	policy: AnalyzerPreparationPolicyConfig = field(default_factory=AnalyzerPreparationPolicyConfig)
+
+
+@dataclass(frozen=True)
+class TemplatesAnalyzersPhaseConfig:
+	enabled: bool = True
+	summary_json_relpath: str = "context/analyzers_summary.json"
+	concat: AnalyzerSourcePhaseConfig = field(default_factory=AnalyzerSourcePhaseConfig)
+	segments: AnalyzerSourcePhaseConfig = field(default_factory=AnalyzerSourcePhaseConfig)
+
+
+@dataclass(frozen=True)
+class TemplateExtractTemplateSegmentsPhaseConfig:
+	enabled: bool = True
+	output_rel_root: str = "templates/source_payloads"
+	summary_json_relpath: str = "context/extract_template_segments_summary.json"
+
+
+@dataclass(frozen=True)
+class TemplateBuildTemplatesPhaseConfig:
+	enabled: bool = True
+	summary_json_relpath: str = "context/build_templates_summary.json"
+	merge: "MergeConfig" = field(default_factory=lambda: MergeConfig())
+	execution_upsampling: TimeUpsampleConfig = field(default_factory=TimeUpsampleConfig)
+
+
+@dataclass(frozen=True)
+class TemplateQualityChecksPhaseConfig:
+	enabled: bool = True
+	config: "QualityChecksConfig" = field(default_factory=lambda: QualityChecksConfig())
+
+
+@dataclass(frozen=True)
+class TemplatePropagationOrderingPhaseConfig:
+	enabled: bool = False
+	latency_mode: str = "abs_peak"
+	latency_tie_breaker: str = "channel_index"
+	debug: bool = False
+
+
+@dataclass(frozen=True)
+class TemplateAnalysisPhaseConfig:
+	enabled: bool = True
+	propagation_ordering: TemplatePropagationOrderingPhaseConfig = field(
+		default_factory=TemplatePropagationOrderingPhaseConfig
+	)
+
+
+@dataclass(frozen=True)
+class TemplatePlotsPhaseConfig:
+	enabled: bool = True
+	outputs: "PerUnitTemplatesOutputsConfig" = field(default_factory=lambda: PerUnitTemplatesOutputsConfig())
+
+
+@dataclass(frozen=True)
+class TemplatePerUnitProcessingPhaseConfig:
+	enabled: bool = True
+	extract_template_segments: TemplateExtractTemplateSegmentsPhaseConfig = field(
+		default_factory=TemplateExtractTemplateSegmentsPhaseConfig
+	)
+	build_templates: TemplateBuildTemplatesPhaseConfig = field(default_factory=TemplateBuildTemplatesPhaseConfig)
+	quality_checks: TemplateQualityChecksPhaseConfig = field(default_factory=TemplateQualityChecksPhaseConfig)
+	analysis: TemplateAnalysisPhaseConfig = field(default_factory=TemplateAnalysisPhaseConfig)
+	plots: TemplatePlotsPhaseConfig = field(default_factory=TemplatePlotsPhaseConfig)
+
+
+@dataclass(frozen=True)
+class TemplateLeafPhaseConfig:
+	enabled: bool = True
+
+
+@dataclass(frozen=True)
+class TemplateReportsPhaseConfig:
+	enabled: bool = True
+	summary_json_relpath: str = "context/reports_summary.json"
+	config: "ReportsConfig" = field(default_factory=lambda: ReportsConfig())
+	locations: TemplateLeafPhaseConfig = field(default_factory=TemplateLeafPhaseConfig)
+	wf_overlay_grid: TemplateLeafPhaseConfig = field(default_factory=TemplateLeafPhaseConfig)
+	footprint_grids: TemplateLeafPhaseConfig = field(default_factory=TemplateLeafPhaseConfig)
+	multi_source_pdf: TemplateLeafPhaseConfig = field(default_factory=TemplateLeafPhaseConfig)
+
+
+@dataclass(frozen=True)
 class FootprintMapConfig:
 	write_png: bool = True
 	write_svg: bool = False
@@ -685,6 +787,16 @@ class ResolveSourcesPhaseConfig:
 
 
 @dataclass(frozen=True)
+class TemplatesPhasesConfig:
+	resolve_sources: ResolveSourcesPhaseConfig = field(default_factory=ResolveSourcesPhaseConfig)
+	analyzers: TemplatesAnalyzersPhaseConfig = field(default_factory=TemplatesAnalyzersPhaseConfig)
+	per_unit_processing: TemplatePerUnitProcessingPhaseConfig = field(
+		default_factory=TemplatePerUnitProcessingPhaseConfig
+	)
+	reports: TemplateReportsPhaseConfig = field(default_factory=TemplateReportsPhaseConfig)
+
+
+@dataclass(frozen=True)
 class TemplatesInputs:
 	h5_path: Path
 	stream_id: str
@@ -720,5 +832,6 @@ class TemplatesInputs:
 	quality_checks: QualityChecksConfig = field(default_factory=QualityChecksConfig)
 	quality_checks_outputs: DataQualityChecksOutputsConfig = field(default_factory=DataQualityChecksOutputsConfig)
 	resolve_sources_phase: ResolveSourcesPhaseConfig = field(default_factory=ResolveSourcesPhaseConfig)
+	phases: TemplatesPhasesConfig = field(default_factory=TemplatesPhasesConfig)
 	probe_geometry: ProbeGeometryConfig | None = None
 	n_jobs: int = 1

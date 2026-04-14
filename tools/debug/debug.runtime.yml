@@ -269,32 +269,39 @@ stages:
           #regenerate_on_replot: false # when false, force_replot reuses an existing pre-merge workspace analyzer if present and only regenerates it when missing.
           regenerate_on_replot: true # when true, force_replot always regenerates the pre-merge workspace analyzer from the pre-merge workspace sorter output to ensure that merge reports reflect the current state of the pre-merge workspace, even if merge outputs are not being regenerated; keep false by default for faster iterations when merge debugging is not the focus, but can be set to true to ensure consistency between the pre-merge workspace and merge reports during debugging iterations that involve changes to the pre-merge workspace or its sorter output.
           check_if_regen_is_needed: true # when true, merge phase logic checks whether the pre-merge workspace analyzer needs to be regenerated based on the presence and freshness of an existing analyzer relative to the pre-merge workspace sorter output, and only regenerates the analyzer if needed; keep true by default to avoid unnecessary regenerations and speed up iterations when merge debugging is not the focus, but can be set to false to always regenerate the analyzer for consistency during debugging iterations that involve changes to the pre-merge workspace or its sorter output.
-          #density_mode: auto # auto|dense. Dense rebuilds merge-side analyzers with sparse=False when axon_reconstructor owns the analyzer lifecycle.
-          #template_random_spikes_method: default # default|all. "all" removes random spike subsampling for merge/report template-critical analyzer extensions.
-          #template_random_spikes_max_spikes_per_unit: 500 # used when template_random_spikes_method stays sampled instead of "all".
-          #template_random_spikes_margin_size: 60 # optional border margin in samples for merge-side random spike selection.
-          #template_random_spikes_seed: 0 # optional seed for reproducible merge-side random spike selection.
           #n_jobs: 1 # optional merge-only analyzer compute parallelism override for waveform/template/unit-location extensions and sparsity estimation. Omit to inherit stage-level n_jobs.
           n_jobs: 24 # increase merge-side analyzer compute parallelism to speed up waveform/template/unit-location extensions and sparsity estimation during merge iterations, which can be computationally intensive; keep 1 by default for debugging iterations to simplify resource usage and make logs easier to follow, but can be set to a higher number for faster iterations when merge debugging is not the focus.
           #chunk_duration: 0.5s # optional merge-only analyzer compute chunking override. Omit to inherit stage-level chunk_duration.
-          #sparsity_method: radius # radius|best_channels|threshold|by_property. Ignored when density_mode is dense.
-          sparsity_method: best_channels # use best_channels method for sparsity estimation to identify the most relevant channels for each unit based on their activity, which can improve the quality of merge recommendations by focusing on the channels that contribute most to each unit's signal; keep radius by default for debugging iterations to maintain a more inclusive channel selection that can provide additional context during early development stages.
-          #sparsity_radius_um: 100.0 # used by sparsity_method=radius. Default matches SpikeInterface.
-          #sparsity_num_channels: 5 # used by sparsity_method=best_channels. Default matches SpikeInterface.
-          #sparsity_num_channels: 300 # hacky way to just tell sorting analyzer that I want all channels.
-          sparsity_num_channels: 125
-          #sparsity_threshold: 5.0 # used by sparsity_method=threshold (SNR threshold). Default matches SpikeInterface.
-          #sparsity_peak_sign: neg # neg|pos|both. Default matches SpikeInterface.
-          sparsity_peak_sign: both # include both negative and positive peaks when estimating sparsity for merge-side analyzers, which can provide a more comprehensive view of unit spatial footprints and improve merge recommendation quality; keep neg by default for debugging iterations to focus on negative peaks, which are more traditional for spike sorting and can simplify analysis during early debugging stages.
-          #num_spikes_for_sparsity: 100 # optional spike cap used only while estimating merge-side sparsity. Default matches SpikeInterface.
-          #sparsity_by_property: group # used by sparsity_method=by_property, for example on tetrodes.
-          #waveforms_ms_before: 1.0 # optional merge-side waveform/template extraction window before each spike in ms.
-          waveforms_ms_before: 2.0 # increase pre-spike waveform extraction window to capture more of the spike waveform leading edge, which can be important for accurately characterizing units and improving merge recommendation quality; keep 1.0 ms by default for debugging iterations to reduce computational load and speed up iterations when merge debugging is not the focus, but can be set to a higher value for more thorough template extraction in non-debug runs.
-          #waveforms_ms_after: 2.0 # optional merge-side waveform/template extraction window after each spike in ms.
-          waveforms_ms_after: 5.0 # increase post-spike waveform extraction window to capture more of the spike waveform trailing edge, which can be important for accurately characterizing units and improving merge recommendation quality; keep 2.0 ms by default for debugging iterations to reduce computational load and speed up iterations when merge debugging is not the focus, but can be set to a higher value for more thorough template extraction in non-debug runs.
-          #waveforms_dtype: float32 # optional merge-side waveform dtype override for waveforms/templates/unit_locations dependencies.
-          density_mode: dense # use dense analyzers for merge and merge reports to ensure all units are included and templates are built from all available spikes, which can improve merge recommendation quality and report accuracy; keep auto for faster iterations when merge debugging is not focused.
-          template_random_spikes_method: all # use all spikes for template-critical analyzer extensions during merge and in merge reports to ensure the most accurate templates for merge recommendations and reporting; keep default for faster iterations when merge debugging is not the focus.
+          template_extraction:
+            density_mode: auto # auto|dense. Dense rebuilds merge-side analyzers with sparse=False when axon_reconstructor owns the analyzer lifecycle.
+            #density_mode: dense # use dense analyzers for merge and merge reports to ensure all units are included and templates are built from all available spikes, which can improve merge recommendation quality and report accuracy; keep auto for faster iterations when merge debugging is not focused.
+            #random_spikes_method: default # default|all. "all" removes random spike subsampling for merge/report template-critical analyzer extensions.
+            #random_spikes_method: all # use all spikes for template-critical analyzer extensions during merge and in merge reports to ensure the most accurate templates for merge recommendations and reporting; keep default for faster iterations when merge debugging is not the focus.
+            #max_spikes_per_unit: 500 # used when random_spikes_method stays sampled instead of "all".
+            max_spikes_per_unit: 5000 # increase max spikes per unit for template-critical analyzer extensions during merge and in merge reports to provide more comprehensive templates for merge recommendations and reporting; keep 500 by default for faster iterations when merge debugging is not the focus, but can be set to a higher number for more thorough template extraction in non-debug runs.
+            #margin_size: 60 # optional border margin in samples for merge-side random spike selection.
+            #seed: 0 # optional seed for reproducible merge-side random spike selection.
+            perc_spikes_per_unit: 75 # optional percentage of spikes per unit to use for template-critical analyzer extensions during merge and in merge reports; set to 100 to use all spikes, which can improve merge recommendation quality and report accuracy by providing more comprehensive templates, but can be set to a lower percentage for faster iterations when merge debugging is not the focus.
+
+          sparsity:
+            #method: radius # radius|best_channels|threshold|by_property. Ignored when density_mode is dense.
+            method: best_channels # use best_channels method for sparsity estimation to identify the most relevant channels for each unit based on their activity, which can improve the quality of merge recommendations by focusing on the channels that contribute most to each unit's signal; keep radius by default for debugging iterations to maintain a more inclusive channel selection that can provide additional context during early development stages.
+            #radius_um: 100.0 # used by method=radius. Default matches SpikeInterface.
+            #num_channels: 5 # used by method=best_channels. Default matches SpikeInterface.
+            #num_channels: 300 # hacky way to just tell sorting analyzer that I want all channels.
+            num_channels: 300
+            #threshold: 5.0 # used by method=threshold (SNR threshold). Default matches SpikeInterface.
+            #peak_sign: neg # neg|pos|both. Default matches SpikeInterface.
+            peak_sign: both # include both negative and positive peaks when estimating sparsity for merge-side analyzers, which can provide a more comprehensive view of unit spatial footprints and improve merge recommendation quality; keep neg by default for debugging iterations to focus on negative peaks, which are more traditional for spike sorting and can simplify analysis during early debugging stages.
+            num_spikes_for_sparsity: 100 # optional spike cap used only while estimating merge-side sparsity. Default matches SpikeInterface.
+            #by_property: group # used by method=by_property, for example on tetrodes.
+
+          waveforms:
+            #ms_before: 1.0 # optional merge-side waveform/template extraction window before each spike in ms.
+            ms_before: 2.0 # increase pre-spike waveform extraction window to capture more of the spike waveform leading edge, which can be important for accurately characterizing units and improving merge recommendation quality; keep 1.0 ms by default for debugging iterations to reduce computational load and speed up iterations when merge debugging is not the focus, but can be set to a higher value for more thorough template extraction in non-debug runs.
+            #ms_after: 2.0 # optional merge-side waveform/template extraction window after each spike in ms.
+            ms_after: 5.0 # increase post-spike waveform extraction window to capture more of the spike waveform trailing edge, which can be important for accurately characterizing units and improving merge recommendation quality; keep 2.0 ms by default for debugging iterations to reduce computational load and speed up iterations when merge debugging is not the focus, but can be set to a higher value for more thorough template extraction in non-debug runs.
+            #dtype: float32 # optional merge-side waveform dtype override for waveforms/templates/unit_locations dependencies.
 
         pre_merge_metadata:
           # Write one consolidated merge metadata summary for quick before/after comparisons.
@@ -600,25 +607,12 @@ stages:
 
       # limit number of unit templates to build for debugging purposes. Set to -1 or null for no limit.
       #unit_limit: -1
-      unit_limit: 10
+      unit_limit: 1
 
       # Optional explicit unit subset for fast, deterministic reruns.
       #unit_ids: [1, 3, 7, 10, 17, 20, 22, 23, 24, 28]
 
-    inputs:
-      # Input path handling (paths are resolved relative to the per-well output root when using leading '/').
-      # 1) If concat_analyzer_relpath is loadable, it is used directly for concat waveforms/templates.
-      # 2) Otherwise, concat analyzer is built from concat_sorting_relpath + preprocessed_concat_reldir.
-      # 3) Segment sources are discovered under preprocessed_segments_reldir.
-      #    - If child dirs are analyzers, they are loaded directly.
-      #    - If child dirs are preprocessed recordings, segment analyzers are built from concat sorting windows.
-      preprocessed_segments_reldir: /preprocess_outputs/per_segment_preprocessed
-      preprocessed_concat_reldir: /preprocess_outputs/preprocessed_recording
-      concat_sorting_relpath: /spikesort_outputs/sorter_output
-      #concat_analyzer_relpath: /spikesort_outputs/analyzer_output
-
     phases:
-      # WIP Refactoring to stage phases.
       resolve_sources:
         enabled: true
         show_header: true # whether to show a header for this phase in the logs, which can help visually separate it from other phases and identify it quickly when scanning logs.
@@ -630,77 +624,96 @@ stages:
         fail_if_required_sources_missing: false # Optional strict mode for debugging source requirements before running heavier phases.
         write_json: true # Optional write of resolve summary JSON under templates output root.
         json_relpath: context/resolve_sources_summary.json
-      # analyzers
-      #   concat:
-      #     use_sort_stage_analyzer: true # if true, use the analyzer from the sort stage for the concat source; if false, build a new analyzer from the concat sorting output and preprocessed concat recording. Keep true by default to speed up iterations when merge debugging is not the focus, but can be set to false to ensure a fresh analyzer build for consistency during debugging iterations that involve changes to the pre-merge workspace or its sorter output.
-      #     build_from_sorting_if_missing: true # if true and use_sort_stage_analyzer is true, build the concat analyzer from the concat sorting output and preprocessed concat recording if the analyzer path is missing during resolve; keep true by default to ensure that a missing analyzer doesn't block progress
-      #   segments:
-      # per_unit_processing:
-      #   extract_template_segments:
-      #   build_templates:
-      #     handle_merge_overlaps:
-      #   propogation_ordering:
-      #   plots:
-      # reports:
+      analyzers:
+        enabled: true
+        summary_json_relpath: context/analyzers_summary.json
+        defaults:
+          waveform_extraction:
+            window:
+              ms_before: 2
+              ms_after: 5
+            # null or -1 means uncapped (use all available spikes per unit per source)
+            max_spikes_per_unit: -1
+          policy:
+            # inherit keeps any existing analyzer sparsity; dense recomputes payloads from an unmasked analyzer when possible.
+            sparsity_mode: inherit
+            # uniform samples spikes randomly; all disables random subsampling for template extraction.
+            random_spikes_method: uniform
+            random_seed: 0
+        concat:
+          enabled: true
+          required: true
+          use_existing_analyzer: true
+          build_if_missing: true
+          analyzer_relpath: /spikesort_outputs/analyzer_output
+          sorting_relpath: /spikesort_outputs/sorter_output
+          preprocessed_recording_reldir: /preprocess_outputs/preprocessed_recording
+        segments:
+          enabled: true
+          required: true
+          use_existing_analyzer: true
+          build_if_missing: true
+          preprocessed_sources_reldir: /preprocess_outputs/per_segment_preprocessed
+      per_unit_processing:
+        enabled: true
+        extract_template_segments:
+          enabled: true
+          output_rel_root: templates/source_payloads
+          summary_json_relpath: context/extract_template_segments_summary.json
+        build_templates:
+          enabled: true
+          summary_json_relpath: context/build_templates_summary.json
+          execution_upsampling:
+            enabled: true
+            method: sinc
+            factor: 10
+            mismatch_tolerance_hz: 0.5
+            raw_rate_fallback_hz: null # optional fallback when raw recording rate cannot be read
+          merge:
+            enable: true
+            # mean_all_waveforms: merge all overlapping source waveforms equally (v1 behavior)
+            # weighted_by_channel_waveform_count: weighted average by per-source waveform count at overlapping channels
+            method: mean_all_waveforms
+            centering_method: pre_peak_robust_baseline # TODO: validate methods here
+            #max_waveforms_per_source_channel: 500
+            max_waveforms_per_source_channel: -1
+            overlap_match_priority: [electrode_id, location]
+            location_tolerance_um: 1.0
+        quality_checks:
+          enabled: true
+          config:
+            suppress_warnings: true
+            multiple_peaks_at_channel_templates:
+              enable: true
+              prominence_fraction: 0.30
+              min_separation_samples: 8
+              # Recommended: 2 for strict AP-only detection, 3 if you want a more permissive screen.
+              max_peaks_per_channel: 2
+              plot_violations: true
+        analysis:
+          enabled: true
+          propagation_ordering:
+            enable: true
+            latency_mode: negative_peak # abs_peak or negative_peak; controls canonical channel ordering metric.
+            latency_tie_breaker: channel_index # channel_index (default) sorts equal-latency ties by channel number; stable keeps selected/input order.
+            debug: true # emit per-unit canonical/window/anchor/label-range diagnostics in logs.
+        plots:
+          enabled: true
+      reports:
+        enabled: true
+        summary_json_relpath: context/reports_summary.json
+        locations:
+          enabled: true
+        wf_overlay_grid:
+          enabled: true
+        footprint_grids:
+          enabled: true
+        multi_source_pdf:
+          enabled: true
 
 
 
     output_rel_root: template_outputs
-    spikeinterface:
-      waveform_extraction:
-        window:
-          ms_before: 2
-          ms_after: 5
-        # null or -1 means uncapped (use all available spikes per unit per source)
-        max_spikes_per_unit: -1
-        sources:
-          include_concat: true
-          include_segments: true
-
-      template_extraction:
-        sources:
-          include_concat: true
-          include_segments: true
-          # Enforce both sources when include_* is true: fail instead of silently running concat-only.
-          require_concat: true
-          require_segments: true
-
-    upsampling:
-      enable: true
-      method: sinc
-      factor: 10
-      mismatch_tolerance_hz: 0.5
-      raw_rate_fallback_hz: null # optional fallback when raw recording rate cannot be read
-
-    merge:
-      enable: true
-      # mean_all_waveforms: merge all overlapping source waveforms equally (v1 behavior)
-      # weighted_by_channel_waveform_count: weighted average by per-source waveform count at overlapping channels
-      method: mean_all_waveforms
-      centering_method: pre_peak_robust_baseline # TODO: validate methods here
-      #max_waveforms_per_source_channel: 500
-      max_waveforms_per_source_channel: -1
-      overlap_match_priority: [electrode_id, location]
-      location_tolerance_um: 1.0
-
-    quality_checks:
-      enable: true
-      suppress_warnings: true
-      multiple_peaks_at_channel_templates:
-        enable: true
-        prominence_fraction: 0.30
-        min_separation_samples: 8
-        # Recommended: 2 for strict AP-only detection, 3 if you want a more permissive screen.
-        max_peaks_per_channel: 2
-        plot_violations: true
-
-    analysis:
-      propagation_ordering:
-        enable: true
-        latency_mode: negative_peak # abs_peak or negative_peak; controls canonical channel ordering metric.
-        latency_tie_breaker: channel_index # channel_index (default) sorts equal-latency ties by channel number; stable keeps selected/input order.
-        debug: true # emit per-unit canonical/window/anchor/label-range diagnostics in logs.
-
     # All outputs from templates stage
     outputs:
       output_rel_root: template_outputs

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from axon_reconstructor.pipeline.publish import publish_path_to_final, remap_path_string_to_final
 
@@ -28,7 +28,15 @@ from .stages.reconstruct.models.results import ReconstructionResult, UnitReconst
 from .stages.spikesort.api import run_spikesort, run_spikesort_merge
 from .stages.spikesort.config import build_spikesort_inputs_for_target, parse_spikesort_stage_config
 from .stages.spikesort.models.results import SpikesortMergeResult, SpikesortResult
-from .stages.templates.api import run_templates, run_templates_resolve_sources
+from .stages.templates.api import (
+	run_templates,
+	run_templates_analyzers,
+	run_templates_build_templates,
+	run_templates_extract_template_segments,
+	run_templates_per_unit_processing,
+	run_templates_reports,
+	run_templates_resolve_sources,
+)
 from .stages.templates.config import (
 	build_templates_inputs_for_target,
 	parse_probe_geometry_from_data_config,
@@ -970,15 +978,21 @@ def run_templates_from_runtime(
 	)
 
 
-def run_templates_resolve_sources_from_runtime(
+def _run_templates_substage_from_runtime(
 	*,
 	config_path: str,
+	stage_name: str,
+	runner_fn: Callable[[Any], Any],
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	publish_outputs: bool = True,
 ) -> MultiTargetStageResult:
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
+	publish_policy = _resolve_publish_policy(runtime_config=bundle.runtime_config, data_config=bundle.data_config)
+	if publish_outputs:
+		_log_publish_policy(stage_name=stage_name, policy=publish_policy)
 	targets = select_execution_targets(bundle=bundle)
 	parallelism = resolve_stage_parallelism(bundle=bundle, stage_name="templates")
 	probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
@@ -998,20 +1012,232 @@ def run_templates_resolve_sources_from_runtime(
 			unit_workers=int(parallelism.unit_workers),
 			probe_geometry=probe_geometry,
 		)
-		return run_templates_resolve_sources(inputs)
+		return runner_fn(inputs)
 
 	target_results = distribute_targets(
 		targets=targets,
 		well_workers=int(parallelism.well_workers),
 		worker_fn=_worker,
 	)
+	if publish_outputs:
+		target_results = [_publish_templates_target_result(item, policy=publish_policy) for item in target_results]
 
 	succeeded = sum(1 for item in target_results if item.status == "ok")
 	failed = sum(1 for item in target_results if item.status != "ok")
 	return MultiTargetStageResult(
-		stage="templates.resolve_sources",
+		stage=stage_name,
 		total_targets=len(target_results),
 		succeeded_targets=succeeded,
 		failed_targets=failed,
 		target_results=target_results,
+	)
+
+
+def run_templates_resolve_sources_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_templates_substage_from_runtime(
+		config_path=config_path,
+		stage_name="templates.resolve_sources",
+		runner_fn=run_templates_resolve_sources,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+		publish_outputs=False,
+	)
+
+
+def run_templates_analyzers_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_templates_substage_from_runtime(
+		config_path=config_path,
+		stage_name="templates.analyzers",
+		runner_fn=run_templates_analyzers,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_templates_analyzers_concat_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_templates_substage_from_runtime(
+		config_path=config_path,
+		stage_name="templates.analyzers.concat",
+		runner_fn=lambda inputs: run_templates_analyzers(inputs, source_scope="concat"),
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_templates_analyzers_segments_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_templates_substage_from_runtime(
+		config_path=config_path,
+		stage_name="templates.analyzers.segments",
+		runner_fn=lambda inputs: run_templates_analyzers(inputs, source_scope="segments"),
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_templates_extract_template_segments_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_templates_substage_from_runtime(
+		config_path=config_path,
+		stage_name="templates.per_unit_processing.extract_template_segments",
+		runner_fn=run_templates_extract_template_segments,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_templates_build_templates_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_templates_substage_from_runtime(
+		config_path=config_path,
+		stage_name="templates.per_unit_processing.build_templates",
+		runner_fn=run_templates_build_templates,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_templates_per_unit_processing_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_templates_substage_from_runtime(
+		config_path=config_path,
+		stage_name="templates.per_unit_processing",
+		runner_fn=run_templates_per_unit_processing,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_templates_reports_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_templates_substage_from_runtime(
+		config_path=config_path,
+		stage_name="templates.reports",
+		runner_fn=run_templates_reports,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_templates_reports_locations_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_templates_substage_from_runtime(
+		config_path=config_path,
+		stage_name="templates.reports.locations",
+		runner_fn=lambda inputs: run_templates_reports(inputs, report_scope="locations"),
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_templates_reports_footprints_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_templates_substage_from_runtime(
+		config_path=config_path,
+		stage_name="templates.reports.footprints",
+		runner_fn=lambda inputs: run_templates_reports(inputs, report_scope="footprints"),
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_templates_reports_overlays_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_templates_substage_from_runtime(
+		config_path=config_path,
+		stage_name="templates.reports.overlays",
+		runner_fn=lambda inputs: run_templates_reports(inputs, report_scope="overlays"),
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
 	)

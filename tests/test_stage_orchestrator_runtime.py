@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from axon_reconstructor.pipeline.scratch_layout import resolve_scratch_layout
 from axon_reconstructor.pipeline.scope_config import ScopeConfig, ScopeDatasetSpec, ScopeWellSpec
 from axon_reconstructor.pipeline.pipeline_driver import _build_targets, _expected_sorter_output_dir, run_scope_stage_barriers
 
@@ -180,12 +181,17 @@ def test_build_targets_resolves_dataset_and_global_output_roots(tmp_path: Path) 
     targets = _build_targets(cfg)
     by_dataset = {t.dataset_id: t for t in targets}
 
+    dataset_layout = resolve_scratch_layout(tmp_path / "scratch_dataset")
+    global_layout = resolve_scratch_layout(tmp_path / "scratch_global")
+    assert dataset_layout is not None
+    assert global_layout is not None
+
     t_override = by_dataset["ds_override"]
     assert t_override.mea_output_root == (tmp_path / "final_dataset").resolve()
-    assert t_override.scratch_output_root == (tmp_path / "scratch_dataset").resolve()
-    assert t_override.active_output_root == (tmp_path / "scratch_dataset").resolve()
+    assert t_override.scratch_output_root == dataset_layout.outputs_root
+    assert t_override.active_output_root == dataset_layout.outputs_root
 
     t_global = by_dataset["ds_global"]
     assert t_global.mea_output_root == (tmp_path / "final_global").resolve()
-    assert t_global.scratch_output_root == (tmp_path / "scratch_global").resolve()
-    assert t_global.active_output_root == (tmp_path / "scratch_global").resolve()
+    assert t_global.scratch_output_root == global_layout.outputs_root
+    assert t_global.active_output_root == global_layout.outputs_root

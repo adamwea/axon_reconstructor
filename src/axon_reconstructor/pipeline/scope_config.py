@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from axon_reconstructor import env_utils
+from axon_reconstructor.pipeline.scratch_layout import resolve_canonical_scratch_output_root, resolve_scratch_layout
 
 
 STAGE_NAMES: tuple[str, ...] = (
@@ -141,9 +142,7 @@ def _parse_dataset(raw: dict[str, Any], *, index: int) -> ScopeDatasetSpec:
         h5_path=Path(h5_path_raw).expanduser().resolve(),
         wells=wells,
         mea_output_root=(Path(mea_output_root_raw).expanduser().resolve() if mea_output_root_raw is not None else None),
-        scratch_output_root=(
-            Path(scratch_output_root_raw).expanduser().resolve() if scratch_output_root_raw is not None else None
-        ),
+	    scratch_output_root=resolve_canonical_scratch_output_root(scratch_output_root_raw),
         dataset_id=(str(raw.get("dataset_id")) if raw.get("dataset_id") is not None else None),
         enabled=bool(raw.get("enabled", True)),
         stage_kwargs=_as_stage_kwargs(raw.get("stage_kwargs"), field_name="datasets[].stage_kwargs"),
@@ -176,9 +175,7 @@ def load_scope_config(path: Path) -> ScopeConfig:
 
     cfg = ScopeConfig(
         mea_output_root=Path(mea_output_root_raw).expanduser(),
-        scratch_output_root=(
-            Path(scratch_output_root_raw).expanduser().resolve() if scratch_output_root_raw is not None else None
-        ),
+	    scratch_output_root=resolve_canonical_scratch_output_root(scratch_output_root_raw),
         sorter=str(payload.get("sorter", "kilosort4")),
         docker_image=(str(payload["docker_image"]) if payload.get("docker_image") is not None else None),
         n_jobs=int(payload.get("n_jobs", 8)),
@@ -242,9 +239,11 @@ def summarize_scope_config(cfg: ScopeConfig) -> dict[str, Any]:
         datasets += 1
         wells += sum(1 for w in d.wells if w.enabled)
 
+    scratch_layout = resolve_scratch_layout(cfg.scratch_output_root)
     return {
         "mea_output_root": str(cfg.mea_output_root),
-        "scratch_output_root": (str(cfg.scratch_output_root) if cfg.scratch_output_root is not None else None),
+	    "scratch_root": (str(scratch_layout.scratch_root) if scratch_layout is not None else None),
+	    "scratch_output_root": (str(cfg.scratch_output_root) if cfg.scratch_output_root is not None else None),
         "stage_order": list(cfg.stage_order),
         "datasets_enabled": int(datasets),
         "wells_enabled": int(wells),
@@ -308,8 +307,10 @@ def run_scope_config_build(args: argparse.Namespace) -> int:
     if str(mea_output_root).strip() == "." or str(mea_output_root).strip() == "":
         raise ValueError("mea_output_root must be provided via --mea-output-root or AXON_RECON_MEA_OUTPUT_ROOT")
 
-    scratch_env = _env_str("AXON_RECON_SCRATCH_OUTPUT_ROOT", None)
-    scratch_output_root = (
+    scratch_env = _env_str("AXON_RECON_SCRATCH_ROOT", None)
+    if scratch_env is None:
+        scratch_env = _env_str("AXON_RECON_SCRATCH_OUTPUT_ROOT", None)
+    scratch_root = (
         Path(args.scratch_output_root).expanduser().resolve()
         if args.scratch_output_root is not None
         else (Path(scratch_env).expanduser().resolve() if scratch_env is not None else None)
@@ -382,8 +383,8 @@ def run_scope_config_build(args: argparse.Namespace) -> int:
         "stage_order": stage_order,
         "datasets": datasets,
     }
-    if scratch_output_root is not None:
-        scope_payload["scratch_output_root"] = str(scratch_output_root)
+    if scratch_root is not None:
+	    scope_payload["scratch_root"] = str(scratch_root)
     if stage_kwargs:
         scope_payload["stage_kwargs"] = stage_kwargs
 

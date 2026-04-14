@@ -2,7 +2,20 @@ from __future__ import annotations
 
 import argparse
 
-from ...runner import run_templates_from_runtime, run_templates_resolve_sources_from_runtime
+from ...runner import (
+	run_templates_analyzers_concat_from_runtime,
+	run_templates_analyzers_from_runtime,
+	run_templates_analyzers_segments_from_runtime,
+	run_templates_build_templates_from_runtime,
+	run_templates_extract_template_segments_from_runtime,
+	run_templates_from_runtime,
+	run_templates_per_unit_processing_from_runtime,
+	run_templates_reports_footprints_from_runtime,
+	run_templates_reports_from_runtime,
+	run_templates_reports_locations_from_runtime,
+	run_templates_reports_overlays_from_runtime,
+	run_templates_resolve_sources_from_runtime,
+)
 
 
 def _parse_unit_ids_csv(raw: str) -> list[int]:
@@ -44,30 +57,15 @@ def register_templates_subparser(subparsers: argparse._SubParsersAction[argparse
 
 
 def _run_from_args(args: argparse.Namespace) -> int:
-	agg = run_templates_from_runtime(
-		config_path=str(args.config),
-		unit_id_override=getattr(args, "unit_id", None),
-		unit_ids_override=getattr(args, "unit_ids", None),
-		force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
-		force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+	return _print_templates_aggregate(
+		run_templates_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
 	)
-	print(f"stage: {agg.stage}")
-	print(f"targets_total: {agg.total_targets}")
-	print(f"targets_succeeded: {agg.succeeded_targets}")
-	print(f"targets_failed: {agg.failed_targets}")
-	for item in agg.target_results:
-		t = item.target
-		if item.status == "ok" and item.result is not None:
-			print(
-				f"target[{t.dataset_index}:{t.stream_id}] status=ok "
-				f"templates_out_dir={item.result.templates_out_dir} units_processed={len(item.result.units)}"
-			)
-		else:
-			print(
-				f"target[{t.dataset_index}:{t.stream_id}] status=error "
-				f"error={item.error or 'unknown'}"
-			)
-	return 0
 
 
 def _run_resolve_sources_from_args(args: argparse.Namespace) -> int:
@@ -100,3 +98,153 @@ def _run_resolve_sources_from_args(args: argparse.Namespace) -> int:
 				f"error={item.error or 'unknown'}"
 			)
 	return 0
+
+
+def _print_templates_aggregate(agg: object) -> int:
+	print(f"stage: {agg.stage}")
+	print(f"targets_total: {agg.total_targets}")
+	print(f"targets_succeeded: {agg.succeeded_targets}")
+	print(f"targets_failed: {agg.failed_targets}")
+	for item in agg.target_results:
+		t = item.target
+		if item.status != "ok" or item.result is None:
+			print(
+				f"target[{t.dataset_index}:{t.stream_id}] status=error "
+				f"error={item.error or 'unknown'}"
+			)
+			continue
+		result = item.result
+		if isinstance(result, dict):
+			summary_json = result.get("summary_json", None)
+			templates_out_dir = result.get("templates_out_dir", None)
+			phase = result.get("phase", agg.stage)
+			print(
+				f"target[{t.dataset_index}:{t.stream_id}] status=ok "
+				f"phase={phase} templates_out_dir={templates_out_dir} summary={summary_json}"
+			)
+			continue
+		print(
+			f"target[{t.dataset_index}:{t.stream_id}] status=ok "
+			f"templates_out_dir={result.templates_out_dir} units_processed={len(result.units)}"
+		)
+	return 0
+
+
+def _run_analyzers_from_args(args: argparse.Namespace) -> int:
+	return _print_templates_aggregate(
+		run_templates_analyzers_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_analyzers_concat_from_args(args: argparse.Namespace) -> int:
+	return _print_templates_aggregate(
+		run_templates_analyzers_concat_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_analyzers_segments_from_args(args: argparse.Namespace) -> int:
+	return _print_templates_aggregate(
+		run_templates_analyzers_segments_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_extract_template_segments_from_args(args: argparse.Namespace) -> int:
+	return _print_templates_aggregate(
+		run_templates_extract_template_segments_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_build_templates_from_args(args: argparse.Namespace) -> int:
+	return _print_templates_aggregate(
+		run_templates_build_templates_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_per_unit_processing_from_args(args: argparse.Namespace) -> int:
+	return _print_templates_aggregate(
+		run_templates_per_unit_processing_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_reports_from_args(args: argparse.Namespace) -> int:
+	return _print_templates_aggregate(
+		run_templates_reports_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_reports_locations_from_args(args: argparse.Namespace) -> int:
+	return _print_templates_aggregate(
+		run_templates_reports_locations_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_reports_footprints_from_args(args: argparse.Namespace) -> int:
+	return _print_templates_aggregate(
+		run_templates_reports_footprints_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_reports_overlays_from_args(args: argparse.Namespace) -> int:
+	return _print_templates_aggregate(
+		run_templates_reports_overlays_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)

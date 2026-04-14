@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from axon_reconstructor import env_utils
+from axon_reconstructor.pipeline.scratch_layout import resolve_canonical_scratch_output_root
 from axon_reconstructor.runtime_config import RuntimeConfig
 from axon_reconstructor.pipeline.pipeline_driver import (
     add_stage_analysis_args,
@@ -300,6 +301,45 @@ def _resolve_optional_path_cfg(
     if env_value is None:
         return None
     return Path(env_value).expanduser().resolve()
+
+
+def _resolve_env_scratch_root_path() -> Path | None:
+    env_value = env_utils.env_path("AXON_RECON_SCRATCH_ROOT", default=None)
+    if env_value is not None:
+        return Path(env_value).expanduser().resolve()
+    env_value = env_utils.env_path("AXON_RECON_SCRATCH_OUTPUT_ROOT", default=None)
+    if env_value is None:
+        return None
+    return Path(env_value).expanduser().resolve()
+
+
+def _resolve_optional_scratch_output_root_cfg(
+    *,
+    cli_value: str | Path | None,
+    cfg: RuntimeConfig,
+) -> Path | None:
+    raw_value: str | Path | None = None
+    if cli_value is not None and str(cli_value).strip() != "":
+        raw_value = cli_value
+    else:
+        cfg_value = _first_cfg_path(cfg, ["paths.scratch_root", "paths.scratch_output_root"])
+        if cfg_value is not None:
+            raw_value = cfg_value
+        else:
+            scratch_top = cfg.get("scratch_root", None)
+            if scratch_top is None:
+                scratch_top = cfg.get("scratch_output_root", None)
+            if scratch_top is not None and str(scratch_top).strip() != "":
+                raw_value = scratch_top
+            else:
+                raw_value = _resolve_env_scratch_root_path()
+    return resolve_canonical_scratch_output_root(raw_value)
+
+
+def _resolve_optional_scratch_override(*, cli_value: str | Path | None) -> Path | None:
+    if cli_value is not None and str(cli_value).strip() != "":
+        return resolve_canonical_scratch_output_root(cli_value)
+    return resolve_canonical_scratch_output_root(_resolve_env_scratch_root_path())
 
 
 def _resolve_optional_str_cfg(
@@ -1081,20 +1121,10 @@ def _cmd_stage(args: argparse.Namespace) -> int:
         cfg_path="paths.mea_output_root",
         env_key="AXON_RECON_MEA_OUTPUT_ROOT",
     )
-    scratch_output_root_optional = _resolve_optional_path_cfg(
+    scratch_output_root_optional = _resolve_optional_scratch_output_root_cfg(
         cli_value=getattr(args, "scratch_output_root", None),
         cfg=runtime_config,
-        cfg_path="paths.scratch_output_root",
-        env_key="AXON_RECON_SCRATCH_OUTPUT_ROOT",
     )
-    if scratch_output_root_optional is None:
-        scratch_output_root_optional = _first_cfg_path(runtime_config, ["paths.scratch_root"])
-    if scratch_output_root_optional is None:
-        scratch_top = runtime_config.get("scratch_root", None)
-        if scratch_top is None:
-            scratch_top = runtime_config.get("scratch_output_root", None)
-        if scratch_top is not None and str(scratch_top).strip() != "":
-            scratch_output_root_optional = Path(str(scratch_top)).expanduser().resolve()
 
     use_scratch_root_cfg = runtime_config.get("paths.use_scratch_root", None)
     if use_scratch_root_cfg is None:
@@ -2428,6 +2458,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
             data_scratch_root = runtime_config.get("scratch_output_root", None)
         if not bool(use_scratch_root_enabled):
             data_scratch_root = None
+        data_scratch_root = resolve_canonical_scratch_output_root(data_scratch_root)
         for idx, ds in enumerate(selected_runtime_datasets, start=1):
             ds_h5_raw = ds.get("raw_data_h5_path")
             if ds_h5_raw is None:
@@ -2486,9 +2517,7 @@ def _cmd_stage(args: argparse.Namespace) -> int:
                 ds_scratch_root_raw = data_scratch_root
             if ds_scratch_root_raw is None:
                 ds_scratch_root_raw = scratch_output_root_optional
-            ds_scratch_root = (
-                Path(str(ds_scratch_root_raw)).expanduser().resolve() if ds_scratch_root_raw is not None else None
-            )
+            ds_scratch_root = resolve_canonical_scratch_output_root(ds_scratch_root_raw)
             ds_active_root = ds_scratch_root or ds_out_root
 
             for ds_stream in selected_well_ids:
@@ -2694,12 +2723,11 @@ def _cmd_scope_run(args: argparse.Namespace) -> int:
     from axon_reconstructor.pipeline.pipeline_driver import run_scope_stage_barriers, write_scope_run_summary
 
     scope_config = load_scope_config(Path(args.config))
-    scratch_override = _resolve_optional_path(
-        cli_value=getattr(args, "scratch_output_root", None),
-        env_key="AXON_RECON_SCRATCH_OUTPUT_ROOT",
-    )
+    scratch_override = _resolve_optional_scratch_override(
+	    cli_value=getattr(args, "scratch_output_root", None),
+	)
     if scratch_override is not None:
-        scope_config = replace(scope_config, scratch_output_root=Path(scratch_override).expanduser().resolve())
+        scope_config = replace(scope_config, scratch_output_root=scratch_override)
     errors = validate_scope_config(scope_config)
     if errors:
         msg = "\n".join(f"- {e}" for e in errors)
@@ -2906,9 +2934,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional output path for scope run summary JSON (default: <mea_output_root>/scope_run_summary.json)",
     )
     p_scope.add_argument(
+        "--scratch-root",
         "--scratch-output-root",
+        dest="scratch_output_root",
         default=None,
-        help="Optional override for scope-level scratch output root (env: AXON_RECON_SCRATCH_OUTPUT_ROOT).",
+        help=(
+            "Optional override for scope-level scratch root; writes stage outputs under "
+            "<scratch_root>/axon_recon_scratch/outputs (env: AXON_RECON_SCRATCH_ROOT, legacy AXON_RECON_SCRATCH_OUTPUT_ROOT)."
+        ),
     )
     p_scope.add_argument("--debug", action=argparse.BooleanOptionalAction, default=None, help="Enable debug logging")
     p_scope.set_defaults(func=_cmd_scope_run)
@@ -2927,7 +2960,7 @@ def main(argv: list[str] | None = None) -> int:
     p_scope_build.add_argument("--n-jobs", type=int, default=None)
     p_scope_build.add_argument("--chunk-duration", default=None)
     p_scope_build.add_argument("--mea-output-root", type=Path, default=None)
-    p_scope_build.add_argument("--scratch-output-root", type=Path, default=None)
+    p_scope_build.add_argument("--scratch-root", "--scratch-output-root", dest="scratch_output_root", type=Path, default=None)
     p_scope_build.add_argument("--sorter", default=None)
     p_scope_build.add_argument("--docker-image", default=None)
     p_scope_build.add_argument("--recon-n-jobs", type=int, default=None)

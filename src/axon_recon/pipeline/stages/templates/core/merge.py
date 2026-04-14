@@ -203,7 +203,7 @@ def materialize_unit_templates_from_sources(
 	location_tolerance_um: float,
 	execution_upsampling: TimeUpsampleConfig | None = None,
 	raw_sampling_rate_hz: float | None = None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[Any] | None] | None:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None:
 	"""Build merged + full templates for one unit from named source payloads."""
 	materialized, _ = materialize_unit_templates_from_sources_with_meta(
 		source_payloads=source_payloads,
@@ -216,7 +216,10 @@ def materialize_unit_templates_from_sources(
 		execution_upsampling=execution_upsampling,
 		raw_sampling_rate_hz=raw_sampling_rate_hz,
 	)
-	return materialized
+	if materialized is None:
+		return None
+	merged_template, merged_locs, full_template, full_locs, _ = materialized
+	return merged_template, merged_locs, full_template, full_locs
 
 
 def materialize_unit_templates_from_sources_with_meta(
@@ -382,7 +385,7 @@ def materialize_unit_templates_by_unit(
 				continue
 			source_payloads.append((str(src_name), payload))
 
-		materialized = materialize_unit_templates_from_sources(
+		materialized, _ = materialize_unit_templates_from_sources_with_meta(
 			source_payloads=source_payloads,
 			enable_merge=bool(enable_merge),
 			merge_method=merge_method,

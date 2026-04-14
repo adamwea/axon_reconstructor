@@ -18,6 +18,7 @@ from .alias_modules.templates import TemplateExtractInputs, extract_and_merge_te
 from .alias_modules.waveforms import WaveformExtractInputs, extract_waveforms
 from .output_paths import compute_mea_analysis_output_dir
 from .publish import publish_path_to_final, remap_path_string_to_final
+from .scratch_layout import resolve_canonical_scratch_output_root
 from .scope_config import ScopeConfig
 from .stg2_spikesorting.runner import LEGACY_SPIKESORTING_OUTPUTS_DIRNAME, SPIKESORTING_OUTPUTS_DIRNAME
 
@@ -49,12 +50,15 @@ def add_stage_common_required_args(parser: argparse.ArgumentParser) -> None:
         help="MEA output root for per-well stage outputs (or set AXON_RECON_MEA_OUTPUT_ROOT via --env-file/env).",
     )
     parser.add_argument(
+        "--scratch-root",
         "--scratch-output-root",
+        dest="scratch_output_root",
         required=False,
         default=None,
         help=(
-            "Optional scratch output root for high-throughput local writes; artifacts are published to --mea-output-root "
-            "(or AXON_RECON_SCRATCH_OUTPUT_ROOT)."
+            "Optional scratch root for high-throughput local writes; stage outputs are written under "
+            "<scratch_root>/axon_recon_scratch/outputs before publish to --mea-output-root "
+            "(env: AXON_RECON_SCRATCH_ROOT, legacy AXON_RECON_SCRATCH_OUTPUT_ROOT)."
         ),
     )
 
@@ -521,9 +525,8 @@ def _build_targets(config: ScopeConfig) -> list[ScopeTarget]:
             continue
         dataset_id = dataset.dataset_id or f"dataset_{i:03d}"
         dataset_output_root = Path(dataset.mea_output_root or config.mea_output_root).expanduser().resolve()
-        dataset_scratch_root = dataset.scratch_output_root if dataset.scratch_output_root is not None else config.scratch_output_root
-        dataset_scratch_root = (
-            Path(dataset_scratch_root).expanduser().resolve() if dataset_scratch_root is not None else None
+        dataset_scratch_root = resolve_canonical_scratch_output_root(
+            dataset.scratch_output_root if dataset.scratch_output_root is not None else config.scratch_output_root
         )
         for well in dataset.wells:
             if not well.enabled:

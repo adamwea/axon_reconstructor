@@ -304,6 +304,41 @@ def test_build_unit_source_payload_forwards_waveform_window_on_recompute() -> No
 	assert params.get("waveforms", {}).get("ms_after") == 2.5
 
 
+def test_build_unit_source_payload_forwards_random_spikes_policy_on_recompute() -> None:
+	template_time_by_ch = np.asarray(
+		[
+			[1.0, 3.0],
+			[2.0, 4.0],
+			[0.0, 0.0],
+			[0.0, 0.0],
+		],
+		dtype=float,
+	)
+	full_waveforms = np.arange(6 * 4 * 2, dtype=float).reshape(6, 4, 2)
+	limited_waveforms = full_waveforms[:2, :, :]
+	analyzer = _MockAnalyzer(
+		templates_ext=_MockTemplatesExtension(template_time_by_ch),
+		has_templates=True,
+		waveforms=limited_waveforms,
+		full_waveforms=full_waveforms,
+	)
+
+	payload = build_unit_source_payload(
+		analyzer=analyzer,
+		unit_id=94,
+		max_spikes_per_unit=None,
+		random_spikes_method="all",
+		random_seed=123,
+	)
+	assert payload is not None
+
+	params = analyzer.last_compute_extension_params
+	assert isinstance(params, dict)
+	assert params["random_spikes"].get("method") == "all"
+	assert "seed" not in params["random_spikes"]
+	assert "max_spikes_per_unit" not in params["random_spikes"]
+
+
 def test_build_unit_source_payload_skips_recompute_when_waveforms_are_prepared() -> None:
 	template_time_by_ch = np.asarray(
 		[

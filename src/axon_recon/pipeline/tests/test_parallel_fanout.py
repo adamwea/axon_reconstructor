@@ -9,6 +9,7 @@ from axon_recon.pipeline.config import (
     resolve_stage_parallelism,
     select_execution_targets,
 )
+from axon_reconstructor.pipeline.scratch_layout import resolve_scratch_layout
 
 
 def test_select_execution_targets_uses_all_include_in_runtime(tmp_path: Path) -> None:
@@ -169,18 +170,26 @@ stages:
 
 
 def test_select_execution_targets_prefers_scratch_root_for_active_output(tmp_path: Path) -> None:
+    ds1_h5 = tmp_path / "raw_data" / "ds1" / "data.raw.h5"
+    ds1_h5.parent.mkdir(parents=True, exist_ok=True)
+    ds1_h5.write_bytes(b"ds1")
+
+    ds2_h5 = tmp_path / "raw_data" / "ds2" / "data.raw.h5"
+    ds2_h5.parent.mkdir(parents=True, exist_ok=True)
+    ds2_h5.write_bytes(b"ds2")
+
     data_path = tmp_path / "debug.data.yml"
     data_path.write_text(
-        """
+        f"""
 output_root: /tmp/final_out
 scratch_root: /tmp/global_scratch
 datasets:
-  - raw_data_h5_path: /tmp/ds1.h5
+  - raw_data_h5_path: {ds1_h5}
     include_in_runtime: true
     wells:
       - well_id: well001
         include_in_runtime: true
-  - raw_data_h5_path: /tmp/ds2.h5
+  - raw_data_h5_path: {ds2_h5}
     include_in_runtime: true
     scratch_root: /tmp/dataset_scratch
     wells:
@@ -204,15 +213,20 @@ data: {data_path}
     targets = select_execution_targets(bundle=bundle)
     assert len(targets) == 2
 
+    global_layout = resolve_scratch_layout("/tmp/global_scratch")
+    dataset_layout = resolve_scratch_layout("/tmp/dataset_scratch")
+    assert global_layout is not None
+    assert dataset_layout is not None
+
     first = targets[0]
     assert first.final_output_root == Path("/tmp/final_out")
-    assert first.scratch_output_root == Path("/tmp/global_scratch")
-    assert first.mea_output_root == Path("/tmp/global_scratch")
+    assert first.scratch_output_root == global_layout.outputs_root
+    assert first.mea_output_root == global_layout.outputs_root
 
     second = targets[1]
     assert second.final_output_root == Path("/tmp/final_out")
-    assert second.scratch_output_root == Path("/tmp/dataset_scratch")
-    assert second.mea_output_root == Path("/tmp/dataset_scratch")
+    assert second.scratch_output_root == dataset_layout.outputs_root
+    assert second.mea_output_root == dataset_layout.outputs_root
 
 
 def test_select_execution_targets_disables_scratch_when_use_scratch_root_false(tmp_path: Path) -> None:
@@ -299,7 +313,7 @@ data: {data_path}
     assert target.artifact_lookup_roots == (Path("/tmp/h_out"),)
 
 
-def test_select_execution_targets_materializes_scratch_input_and_cfgs(tmp_path: Path) -> None:
+def test_select_execution_targets_materializes_inputs_under_canonical_scratch_layout(tmp_path: Path) -> None:
     source_h5 = tmp_path / "raw_data" / "batch_a" / "recording_001" / "data.raw.h5"
     source_h5.parent.mkdir(parents=True, exist_ok=True)
     source_h5.write_bytes(b"source h5 bytes")
@@ -308,14 +322,15 @@ def test_select_execution_targets_materializes_scratch_input_and_cfgs(tmp_path: 
     cfg_a.write_text("[well000]\n", encoding="utf-8")
     cfg_b.write_text("[well001]\n", encoding="utf-8")
 
-    scratch_input_root = tmp_path / "scratch_inputs"
+    scratch_root = tmp_path / "scratch"
+    scratch_layout = resolve_scratch_layout(scratch_root)
+    assert scratch_layout is not None
 
     data_path = tmp_path / "debug.data.yml"
     data_path.write_text(
         f"""
 output_root: /tmp/out
-scratch_input_root: {scratch_input_root}
-use_scratch_input_root: true
+scratch_root: {scratch_root}
 datasets:
   - raw_data_h5_path: {source_h5}
     include_in_runtime: true
@@ -342,7 +357,7 @@ data: {data_path}
     targets = select_execution_targets(bundle=bundle)
     assert len(targets) == 2
 
-    expected_h5 = scratch_input_root.resolve() / "batch_a" / "recording_001" / "data.raw.h5"
+    expected_h5 = scratch_layout.inputs_root / "batch_a" / "recording_001" / "data.raw.h5"
     assert targets[0].h5_path == expected_h5
     assert targets[1].h5_path == expected_h5
     assert expected_h5.exists()
@@ -351,7 +366,7 @@ data: {data_path}
     assert (expected_h5.parent / "well001.cfg").exists()
 
 
-def test_select_execution_targets_supports_dataset_input_scratch_overrides(tmp_path: Path) -> None:
+def test_select_execution_targets_keeps_legacy_dataset_input_scratch_overrides(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     ds1_h5 = tmp_path / "raw_data" / "set_1" / "data.raw.h5"
     ds1_h5.parent.mkdir(parents=True, exist_ok=True)
     ds1_h5.write_bytes(b"ds1")
@@ -399,6 +414,7 @@ data: {data_path}
     bundle = load_pipeline_runtime_bundle(config_path=str(runtime_path))
     targets = select_execution_targets(bundle=bundle)
     assert len(targets) == 2
+    assert "scratch_input_root/use_scratch_input_root are deprecated" in caplog.text
 
     first = targets[0]
     assert first.h5_path == ds1_h5.resolve()

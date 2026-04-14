@@ -2,16 +2,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+import os
 from pathlib import Path
 import shutil
 from typing import Any
 
+from axon_reconstructor.pipeline.scratch_layout import resolve_optional_path, resolve_scratch_layout
 from axon_reconstructor.runtime_config import RuntimeConfig
 
 from .execution.context import ExecutionTarget, StageParallelism
 
 
 LOGGER = logging.getLogger("axon_recon.pipeline.config")
+
+
+def _warn_legacy_scratch_input_keys(*, scope: str) -> None:
+	LOGGER.warning(
+		"Legacy scratch input keys detected for %s; scratch_input_root/use_scratch_input_root are deprecated. "
+		"Prefer scratch_root and the canonical scratch_root/axon_recon_scratch/{inputs,outputs} layout.",
+		str(scope),
+	)
 
 
 @dataclass(frozen=True)
@@ -100,17 +110,34 @@ def _relative_input_tree_path(source_path: Path) -> Path:
 	return Path(source_path.name)
 
 
+def _copied_file_is_current(*, src_stat: os.stat_result, dst_stat: os.stat_result) -> bool:
+	if int(src_stat.st_size) != int(dst_stat.st_size):
+		return False
+	try:
+		if int(src_stat.st_mtime_ns) == int(dst_stat.st_mtime_ns):
+			return True
+	except Exception:
+		pass
+	return int(src_stat.st_mtime) == int(dst_stat.st_mtime)
+
+
 def _copy_file_if_needed(*, src: Path, dst: Path) -> bool:
 	dst.parent.mkdir(parents=True, exist_ok=True)
+	src_stat = src.stat()
 	if dst.exists():
 		try:
-			src_stat = src.stat()
 			dst_stat = dst.stat()
-			if int(src_stat.st_size) == int(dst_stat.st_size) and int(src_stat.st_mtime_ns) == int(dst_stat.st_mtime_ns):
+			if _copied_file_is_current(src_stat=src_stat, dst_stat=dst_stat):
 				return False
 		except Exception:
 			pass
-	shutil.copy2(src, dst)
+		try:
+			dst.chmod(dst.stat().st_mode | 0o200)
+		except Exception:
+			pass
+		dst.unlink()
+	shutil.copyfile(src, dst)
+	os.utime(dst, ns=(src_stat.st_atime_ns, src_stat.st_mtime_ns))
 	return True
 
 
@@ -149,16 +176,55 @@ def _materialize_dataset_input_in_scratch(*, source_h5_path: Path, scratch_input
 		total_files,
 	)
 
+	def _needs_copy(src_path: Path, dst_path: Path) -> bool:
+		if not dst_path.exists():
+			return True
+		try:
+			return not _copied_file_is_current(src_stat=src_path.stat(), dst_stat=dst_path.stat())
+		except Exception:
+			return True
+
+	pending_plan: list[tuple[str, Path, Path]] = []
+	for file_kind, src_path, dst_path in copy_plan:
+		if _needs_copy(src_path=src_path, dst_path=dst_path):
+			pending_plan.append((file_kind, src_path, dst_path))
+
 	copied_files = 0
-	skipped_files = 0
-	progress_log_step_pct = 10.0
-	next_progress_pct = progress_log_step_pct
-	for file_idx, (file_kind, src_path, dst_path) in enumerate(copy_plan, start=1):
+	skipped_files = int(total_files - len(pending_plan))
+	if pending_plan:
+		LOGGER.info(
+			"Scratch input copy required dataset_id=%s files_to_copy=%d skipped_existing=%d",
+			dataset_id,
+			int(len(pending_plan)),
+			int(skipped_files),
+		)
+
+	progress_log_step_count = max(1, (int(len(pending_plan)) + 9) // 10)
+	next_progress_count = progress_log_step_count
+	for file_idx, (file_kind, src_path, dst_path) in enumerate(pending_plan, start=1):
+		if str(file_kind) == "h5":
+			file_size_gib = float(src_path.stat().st_size) / float(1024 ** 3)
+			LOGGER.info(
+				"Scratch input H5 copy start dataset_id=%s src=%s dst=%s size_gib=%.2f",
+				dataset_id,
+				src_path,
+				dst_path,
+				file_size_gib,
+			)
 		was_copied = _copy_file_if_needed(src=src_path, dst=dst_path)
 		if was_copied:
 			copied_files += 1
 		else:
 			skipped_files += 1
+
+		if str(file_kind) == "h5":
+			file_size_gib = float(src_path.stat().st_size) / float(1024 ** 3)
+			LOGGER.info(
+				"Scratch input H5 copy complete dataset_id=%s dst=%s size_gib=%.2f",
+				dataset_id,
+				dst_path,
+				file_size_gib,
+			)
 
 		if LOGGER.isEnabledFor(logging.DEBUG):
 			LOGGER.debug(
@@ -170,28 +236,26 @@ def _materialize_dataset_input_in_scratch(*, source_h5_path: Path, scratch_input
 				dst_path,
 			)
 
-		progress_pct = (100.0 * float(file_idx)) / float(max(1, total_files))
-		should_log_progress = (
-			int(copied_files) > 0
+		progress_pct = (100.0 * float(file_idx)) / float(max(1, len(pending_plan)))
+		should_log_progress = bool(
+			len(pending_plan) > 10
 			and (
-				(float(progress_pct) + 1e-9) >= float(next_progress_pct)
-				or int(file_idx) == int(total_files)
+				int(file_idx) >= int(next_progress_count)
+				or int(file_idx) == int(len(pending_plan))
 			)
 		)
 		if should_log_progress:
-			progress_bar = _render_copy_progress_bar(completed=int(file_idx), total=int(total_files))
 			LOGGER.info(
-				"Scratch input copy progress dataset_id=%s %s %d/%d (%.1f%%) copied=%d skipped=%d",
+				"Scratch input copy progress dataset_id=%s completed=%d/%d (%.1f%%) copied=%d skipped_existing=%d",
 				dataset_id,
-				progress_bar,
 				int(file_idx),
-				int(total_files),
+				int(len(pending_plan)),
 				float(progress_pct),
 				int(copied_files),
 				int(skipped_files),
 			)
-			while float(next_progress_pct) <= (float(progress_pct) + 1e-9):
-				next_progress_pct += float(progress_log_step_pct)
+			while int(next_progress_count) <= int(file_idx):
+				next_progress_count += int(progress_log_step_count)
 
 	if int(copied_files) == 0:
 		LOGGER.info(
@@ -263,19 +327,19 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 	default_lookup_roots = _as_path_list(bundle.data_config.get("output_root_2", None))
 	scratch_root_raw = bundle.data_config.get("scratch_root", None)
 	use_scratch_root = _as_bool(bundle.data_config.get("use_scratch_root", True), True)
-	default_scratch_root = (
-		Path(str(scratch_root_raw)).expanduser().resolve()
-		if use_scratch_root and scratch_root_raw is not None and str(scratch_root_raw).strip() != ""
-		else None
-	)
+	default_scratch_layout = resolve_scratch_layout(scratch_root_raw) if bool(use_scratch_root) else None
+	default_scratch_output_root = None if default_scratch_layout is None else default_scratch_layout.outputs_root
+	default_scratch_input_root = None if default_scratch_layout is None else default_scratch_layout.inputs_root
 
 	scratch_input_root_raw = bundle.data_config.get("scratch_input_root", None)
-	use_scratch_input_root = _as_bool(bundle.data_config.get("use_scratch_input_root", False), False)
-	default_scratch_input_root = (
-		Path(str(scratch_input_root_raw)).expanduser().resolve()
-		if use_scratch_input_root and scratch_input_root_raw is not None and str(scratch_input_root_raw).strip() != ""
-		else None
-	)
+	use_scratch_input_root_raw = bundle.data_config.get("use_scratch_input_root", None)
+	use_scratch_input_root = _as_bool(use_scratch_input_root_raw, False)
+	if scratch_input_root_raw is not None or use_scratch_input_root_raw is not None:
+		_warn_legacy_scratch_input_keys(scope="data config")
+		if bool(use_scratch_input_root):
+			default_scratch_input_root = resolve_optional_path(scratch_input_root_raw) or default_scratch_input_root
+		else:
+			default_scratch_input_root = None
 
 	targets: list[ExecutionTarget] = []
 	for idx, item in enabled:
@@ -287,22 +351,28 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 
 		dataset_scratch_root_raw = item.get("scratch_root", None)
 		dataset_use_scratch_root = _as_bool(item.get("use_scratch_root", use_scratch_root), use_scratch_root)
-		dataset_scratch_root = (
-			Path(str(dataset_scratch_root_raw)).expanduser().resolve()
-			if dataset_use_scratch_root and dataset_scratch_root_raw is not None and str(dataset_scratch_root_raw).strip() != ""
-			else default_scratch_root
-		)
-
-		dataset_scratch_input_root_raw = item.get("scratch_input_root", None)
-		dataset_use_scratch_input_root = _as_bool(item.get("use_scratch_input_root", use_scratch_input_root), use_scratch_input_root)
-		if dataset_use_scratch_input_root:
-			dataset_scratch_input_root = (
-				Path(str(dataset_scratch_input_root_raw)).expanduser().resolve()
-				if dataset_scratch_input_root_raw is not None and str(dataset_scratch_input_root_raw).strip() != ""
-				else default_scratch_input_root
+		if bool(dataset_use_scratch_root):
+			dataset_scratch_layout = (
+				resolve_scratch_layout(dataset_scratch_root_raw)
+				if dataset_scratch_root_raw is not None and str(dataset_scratch_root_raw).strip() != ""
+				else default_scratch_layout
 			)
 		else:
-			dataset_scratch_input_root = None
+			dataset_scratch_layout = None
+		dataset_scratch_output_root = None if dataset_scratch_layout is None else dataset_scratch_layout.outputs_root
+		dataset_scratch_input_root = None if dataset_scratch_layout is None else dataset_scratch_layout.inputs_root
+
+		dataset_scratch_input_root_raw = item.get("scratch_input_root", None)
+		dataset_use_scratch_input_root_raw = item.get("use_scratch_input_root", None)
+		if dataset_scratch_input_root_raw is not None or dataset_use_scratch_input_root_raw is not None:
+			_warn_legacy_scratch_input_keys(scope=f"dataset {dataset_id}")
+			dataset_use_scratch_input_root = _as_bool(dataset_use_scratch_input_root_raw, use_scratch_input_root)
+			if bool(dataset_use_scratch_input_root):
+				dataset_scratch_input_root = (
+					resolve_optional_path(dataset_scratch_input_root_raw) or default_scratch_input_root
+				)
+			else:
+				dataset_scratch_input_root = None
 
 		target_h5_path = (
 			_materialize_dataset_input_in_scratch(
@@ -313,7 +383,7 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 			if dataset_scratch_input_root is not None
 			else h5_path
 		)
-		active_root = dataset_scratch_root if dataset_scratch_root is not None else output_root
+		active_root = dataset_scratch_output_root if dataset_scratch_output_root is not None else output_root
 		artifact_lookup_roots: list[Path] = []
 		for candidate_root in _as_path_list(item.get("output_root_2", None)) + default_lookup_roots:
 			if candidate_root == active_root:
@@ -344,7 +414,7 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 					stream_id=str(stream_id),
 					mea_output_root=active_root,
 					final_output_root=output_root,
-					scratch_output_root=dataset_scratch_root,
+					scratch_output_root=dataset_scratch_output_root,
 					artifact_lookup_roots=tuple(artifact_lookup_roots),
 				)
 			)

@@ -942,6 +942,220 @@ def _install_numpy_cupy_fallback_module() -> None:
 	sys.modules["cupy"] = shim
 
 
+def _install_marshmallow_field_fail_compatibility() -> None:
+	try:
+		from marshmallow import ValidationError
+		from marshmallow.fields import Field
+	except Exception:
+		return
+
+	if callable(getattr(Field, "fail", None)):
+		return
+
+	def _compat_fail(self: Any, key: str, **kwargs: Any) -> None:
+		make_error = getattr(self, "make_error", None)
+		if callable(make_error):
+			raise make_error(key, **kwargs)
+
+		message: str | None = None
+		try:
+			error_messages = getattr(self, "error_messages", None)
+			if isinstance(error_messages, dict):
+				message = error_messages.get(key)
+		except Exception:
+			message = None
+
+		raise ValidationError(message or str(key))
+
+	setattr(Field, "fail", _compat_fail)
+
+
+def _candidate_slay_recording_metadata_paths(*, ks_dir: Path) -> list[Path]:
+	paths: list[Path] = []
+	for candidate in (
+		(ks_dir / "spikeinterface_recording.json").resolve(),
+		(ks_dir.parent / "spikeinterface_recording.json").resolve(),
+	):
+		if candidate not in paths:
+			paths.append(candidate)
+	return paths
+
+
+def _load_spikeinterface_recording_dir_from_metadata(*, metadata_path: Path) -> Path | None:
+	if not metadata_path.exists():
+		return None
+
+	try:
+		payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+	except Exception:
+		return None
+
+	if not isinstance(payload, dict):
+		return None
+	kwargs = payload.get("kwargs", None)
+	if not isinstance(kwargs, dict):
+		return None
+
+	folder_path = str(kwargs.get("folder_path", "")).strip()
+	if not folder_path:
+		return None
+
+	recording_dir = Path(folder_path).expanduser().resolve()
+	if recording_dir.exists():
+		return recording_dir
+	return None
+
+
+def _rewrite_spikeinterface_recording_dir_metadata(*, metadata_path: Path, recording_dir: Path) -> None:
+	if not metadata_path.exists():
+		return
+
+	try:
+		payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+	except Exception:
+		return
+
+	if not isinstance(payload, dict):
+		return
+	kwargs = payload.get("kwargs", None)
+	if not isinstance(kwargs, dict):
+		return
+
+	desired_folder_path = str(recording_dir.resolve())
+	current_folder_path = str(kwargs.get("folder_path", "")).strip()
+	if current_folder_path == desired_folder_path:
+		return
+
+	kwargs["folder_path"] = desired_folder_path
+	metadata_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+	LOGGER.info(
+		"SLAy repaired spikeinterface recording metadata metadata_path=%s recording_dir=%s",
+		metadata_path,
+		recording_dir,
+	)
+
+
+def _rewrite_kilosort_params_dat_path(*, ks_dir: Path, data_filepath: Path) -> None:
+	params_path = (ks_dir / "params.py").resolve()
+	if not params_path.exists():
+		return
+
+	try:
+		original_text = params_path.read_text(encoding="utf-8")
+	except Exception:
+		return
+
+	updated_lines: list[str] = []
+	replaced = False
+	desired_line = f"dat_path = {str(data_filepath.resolve())!r}"
+	for line in original_text.splitlines():
+		if (not replaced) and ("=" in line):
+			key, _value = line.split("=", 1)
+			if str(key).strip() == "dat_path":
+				updated_lines.append(desired_line)
+				replaced = True
+				continue
+		updated_lines.append(line)
+
+	if not replaced:
+		return
+
+	updated_text = "\n".join(updated_lines)
+	if original_text.endswith("\n"):
+		updated_text += "\n"
+	if updated_text == original_text:
+		return
+
+	params_path.write_text(updated_text, encoding="utf-8")
+	LOGGER.info(
+		"SLAy repaired Kilosort params.py dat_path params_path=%s data_filepath=%s",
+		params_path,
+		data_filepath,
+	)
+
+
+def _resolve_slay_recording_dir(*, ks_dir: Path, preferred_recording_dir: Path | None = None) -> Path | None:
+	metadata_paths = _candidate_slay_recording_metadata_paths(ks_dir=ks_dir)
+	if preferred_recording_dir is not None:
+		preferred = Path(preferred_recording_dir).expanduser().resolve()
+		if preferred.exists():
+			for metadata_path in metadata_paths:
+				_rewrite_spikeinterface_recording_dir_metadata(
+					metadata_path=metadata_path,
+					recording_dir=preferred,
+				)
+			return preferred
+
+	for metadata_path in metadata_paths:
+		recording_dir = _load_spikeinterface_recording_dir_from_metadata(metadata_path=metadata_path)
+		if recording_dir is not None:
+			return recording_dir
+
+	for parent in (ks_dir, *ks_dir.parents):
+		candidate = (parent / "preprocess_outputs" / "preprocessed_recording").resolve()
+		if not candidate.exists():
+			continue
+		for metadata_path in metadata_paths:
+			_rewrite_spikeinterface_recording_dir_metadata(
+				metadata_path=metadata_path,
+				recording_dir=candidate,
+			)
+		return candidate
+
+	return None
+
+
+def _resolve_slay_data_filepath(*, ks_dir: Path, dat_path: Any, preferred_recording_dir: Path | None = None) -> str | None:
+	if isinstance(dat_path, (list, tuple)):
+		dat_path = (dat_path[0] if len(dat_path) > 0 else None)
+	if dat_path is None:
+		return None
+
+	dat_path_text = str(dat_path).strip()
+	if not dat_path_text:
+		return None
+
+	dat_path_candidate = Path(dat_path_text).expanduser()
+	direct_candidate = (
+		dat_path_candidate.resolve()
+		if dat_path_candidate.is_absolute()
+		else (ks_dir / dat_path_text).resolve()
+	)
+	if direct_candidate.exists():
+		return str(direct_candidate)
+
+	recording_dir = _resolve_slay_recording_dir(
+		ks_dir=ks_dir,
+		preferred_recording_dir=preferred_recording_dir,
+	)
+	if recording_dir is not None:
+		filename = dat_path_candidate.name
+		if filename:
+			repaired_candidate = (recording_dir / filename).resolve()
+			if repaired_candidate.exists():
+				_rewrite_kilosort_params_dat_path(ks_dir=ks_dir, data_filepath=repaired_candidate)
+				LOGGER.warning(
+					"SLAy repaired stale Kilosort data_filepath ks_dir=%s stale_path=%s repaired_path=%s",
+					ks_dir,
+					dat_path_text,
+					repaired_candidate,
+				)
+				return str(repaired_candidate)
+
+		raw_candidates = sorted(recording_dir.glob("traces_cached_seg*.raw"))
+		if len(raw_candidates) == 1:
+			_rewrite_kilosort_params_dat_path(ks_dir=ks_dir, data_filepath=raw_candidates[0])
+			LOGGER.warning(
+				"SLAy inferred Kilosort data_filepath from preprocessed recording directory ks_dir=%s stale_path=%s repaired_path=%s",
+				ks_dir,
+				dat_path_text,
+				raw_candidates[0],
+			)
+			return str(raw_candidates[0].resolve())
+
+	return str(direct_candidate)
+
+
 def _import_slay_run_function(*, package_root: str | None, allow_numpy_fallback: bool) -> Callable[[dict[str, Any]], None]:
 	def _patch_parse_kilosort_params(module: Any) -> None:
 		original = getattr(module, "parse_kilosort_params", None)
@@ -949,15 +1163,20 @@ def _import_slay_run_function(*, package_root: str | None, allow_numpy_fallback:
 			return
 
 		def _patched(args: dict[str, Any]) -> dict[str, Any]:
-			import os
-
 			ks_folder = str(args.get("KS_folder", "")).strip()
 			if not ks_folder:
 				return original(args)
 
-			ksparam_path = os.path.join(ks_folder, "params.py")
+			preferred_recording_dir_raw = args.pop("__axon_recon_preprocess_recording_dir", None)
+			preferred_recording_dir: Path | None = None
+			if preferred_recording_dir_raw is not None and str(preferred_recording_dir_raw).strip():
+				preferred_recording_dir = Path(str(preferred_recording_dir_raw)).expanduser().resolve()
+
+			ks_dir = Path(ks_folder).expanduser().resolve()
+			ksparam_path = ks_dir / "params.py"
+
 			ksparams: dict[str, Any] = {}
-			with open(ksparam_path, "r", encoding="utf-8") as f:
+			with ksparam_path.open("r", encoding="utf-8") as f:
 				for line in f:
 					if "=" not in line:
 						continue
@@ -965,14 +1184,13 @@ def _import_slay_run_function(*, package_root: str | None, allow_numpy_fallback:
 					ksparams[str(key).strip()] = eval(str(value).strip())
 
 			dat_path = ksparams.pop("dat_path", None)
-			if isinstance(dat_path, (list, tuple)):
-				dat_path = (dat_path[0] if len(dat_path) > 0 else None)
-			if dat_path is not None:
-				dat_path_s = str(dat_path)
-				if os.path.isabs(dat_path_s):
-					ksparams["data_filepath"] = dat_path_s
-				else:
-					ksparams["data_filepath"] = os.path.join(ks_folder, dat_path_s)
+			data_filepath = _resolve_slay_data_filepath(
+				ks_dir=ks_dir,
+				dat_path=dat_path,
+				preferred_recording_dir=preferred_recording_dir,
+			)
+			if data_filepath is not None:
+				ksparams["data_filepath"] = data_filepath
 			if "n_channels_dat" in ksparams:
 				ksparams["n_chan"] = ksparams.pop("n_channels_dat")
 			args.update(ksparams)
@@ -987,6 +1205,8 @@ def _import_slay_run_function(*, package_root: str | None, allow_numpy_fallback:
 	for path in reversed(search_paths):
 		if path and path not in sys.path:
 			sys.path.insert(0, path)
+
+	_install_marshmallow_field_fail_compatibility()
 
 	try:
 		module = importlib.import_module("slay.run")
@@ -5336,12 +5556,25 @@ def _run_slay_merge_method(
 
 	run_output_json = merge_out_dir / str(getattr(stage_config, "slay_output_json_relpath", "run-output.json"))
 	run_output_json.parent.mkdir(parents=True, exist_ok=True)
+	preprocess_recording_dir = _resolve_under_well(
+		well_out_dir=well_out_dir,
+		relpath=str(
+			getattr(stage_config, "preprocess_concat_recording_relpath", None)
+			or "preprocess_outputs/preprocessed_recording"
+		),
+	)
 	run_args: dict[str, Any] = {
 		"KS_folder": str(ks_dir),
 		"auto_accept_merges": bool(getattr(stage_config, "slay_auto_accept_merges", False)),
 		"plot_merges": bool(getattr(stage_config, "slay_plot_merges", False)),
 		"output_json": str(run_output_json),
 	}
+	if preprocess_recording_dir.exists():
+		_resolve_slay_recording_dir(
+			ks_dir=ks_dir,
+			preferred_recording_dir=preprocess_recording_dir,
+		)
+		run_args["__axon_recon_preprocess_recording_dir"] = str(preprocess_recording_dir)
 	extra_params = getattr(stage_config, "slay_params", None)
 	if isinstance(extra_params, dict):
 		run_args.update(dict(extra_params))
