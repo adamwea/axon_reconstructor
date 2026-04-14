@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import gc
 import importlib
+import inspect
 import itertools
 import json
 import logging
@@ -305,13 +306,52 @@ def _normalize_merge_analyzer_density_mode(raw: Any) -> str:
 	return "auto"
 
 
+def _merge_analyzer_compute_sparsity_requested(stage_config: Any) -> bool:
+	raw = getattr(stage_config, "merge_analyzer_compute_sparsity", None)
+	if raw is None:
+		return bool(
+			_normalize_merge_analyzer_density_mode(
+				getattr(stage_config, "merge_analyzer_density_mode", "auto")
+			)
+			!= "dense"
+		)
+	if isinstance(raw, bool):
+		return bool(raw)
+	token = str(raw).strip().lower()
+	if token in {"1", "true", "yes", "on"}:
+		return True
+	if token in {"0", "false", "no", "off"}:
+		return False
+	return True
+
+
 def _normalize_merge_template_random_spikes_method(raw: Any) -> str:
 	if isinstance(raw, bool):
 		return ("all" if raw else "default")
 	token = str(raw or "default").strip().lower()
+	if token in {"percentage", "percent", "fraction", "proportion"}:
+		return "percentage"
 	if token in {"all", "full", "every"}:
 		return "all"
 	return "default"
+
+
+def _normalize_merge_template_random_spikes_percentage(raw: Any) -> float | None:
+	if raw is None:
+		return None
+	if isinstance(raw, bool):
+		return None
+	try:
+		value = float(raw)
+	except Exception:
+		return None
+	if (not math.isfinite(value)) or value <= 0.0:
+		return None
+	if value > 1.0:
+		if value > 100.0:
+			return None
+		value = value / 100.0
+	return float(value)
 
 
 def _normalize_merge_analyzer_sparsity_method(raw: Any) -> str:
@@ -424,13 +464,33 @@ def _merge_analyzer_sparsity_settings(stage_config: Any) -> dict[str, Any]:
 
 
 def _merge_analyzer_random_spikes_settings(stage_config: Any) -> dict[str, Any]:
+	random_spikes_method = _normalize_merge_template_random_spikes_method(
+		getattr(stage_config, "merge_template_random_spikes_method", "default")
+	)
+	if (
+		random_spikes_method == "default"
+		and _normalize_merge_template_random_spikes_percentage(
+			getattr(stage_config, "merge_template_random_spikes_percentage", None)
+		)
+		is not None
+	):
+		random_spikes_method = "percentage"
 	try:
-		max_spikes_per_unit = int(
-			getattr(stage_config, "merge_template_random_spikes_max_spikes_per_unit", 500) or 500
+		max_spikes_per_unit_raw = getattr(
+			stage_config,
+			"merge_template_random_spikes_max_spikes_per_unit",
+			None,
+		)
+		max_spikes_per_unit = (
+			int(max_spikes_per_unit_raw)
+			if max_spikes_per_unit_raw is not None
+			else None
 		)
 	except Exception:
-		max_spikes_per_unit = 500
-	if max_spikes_per_unit <= 0:
+		max_spikes_per_unit = None
+	if max_spikes_per_unit is not None and max_spikes_per_unit <= 0:
+		max_spikes_per_unit = None
+	if max_spikes_per_unit is None and random_spikes_method != "percentage":
 		max_spikes_per_unit = 500
 
 	margin_size_raw = getattr(stage_config, "merge_template_random_spikes_margin_size", None)
@@ -451,10 +511,41 @@ def _merge_analyzer_random_spikes_settings(stage_config: Any) -> dict[str, Any]:
 	except Exception:
 		seed = None
 
+	min_spikes_per_unit_raw = getattr(
+		stage_config,
+		"merge_template_random_spikes_min_spikes_per_unit",
+		None,
+	)
+	min_spikes_per_unit = None
+	try:
+		if min_spikes_per_unit_raw is not None:
+			min_spikes_per_unit = int(min_spikes_per_unit_raw)
+			if min_spikes_per_unit <= 0:
+				min_spikes_per_unit = None
+	except Exception:
+		min_spikes_per_unit = None
+
+	log_before_after_spike_counts = bool(
+		getattr(
+			stage_config,
+			"merge_template_random_spikes_log_before_after_spike_counts",
+			False,
+		)
+	)
+
+	percentage = _normalize_merge_template_random_spikes_percentage(
+		getattr(stage_config, "merge_template_random_spikes_percentage", None)
+	)
+
 	return {
-		"template_random_spikes_max_spikes_per_unit": int(max_spikes_per_unit),
+		"template_random_spikes_max_spikes_per_unit": (
+			int(max_spikes_per_unit) if max_spikes_per_unit is not None else None
+		),
+		"template_random_spikes_min_spikes_per_unit": min_spikes_per_unit,
+		"template_random_spikes_log_before_after_spike_counts": bool(log_before_after_spike_counts),
 		"template_random_spikes_margin_size": margin_size,
 		"template_random_spikes_seed": seed,
+		"template_random_spikes_percentage": percentage,
 	}
 
 
@@ -518,11 +609,31 @@ def _merge_analyzer_extension_kwargs(stage_config: Any, extension_name: str) -> 
 	waveform_settings = _merge_analyzer_waveform_settings(stage_config)
 
 	if extension_name == "random_spikes":
-		if _merge_template_random_spikes_method(stage_config) == "all":
-			extension_kwargs["method"] = "all"
-		extension_kwargs["max_spikes_per_unit"] = int(
-			random_spikes_settings.get("template_random_spikes_max_spikes_per_unit", 500)
+		random_spikes_method = _merge_template_random_spikes_method(stage_config)
+		log_before_after_spike_counts = bool(
+			random_spikes_settings.get("template_random_spikes_log_before_after_spike_counts", False)
 		)
+		if random_spikes_method == "all":
+			extension_kwargs["method"] = "all"
+		elif random_spikes_method == "percentage":
+			extension_kwargs["method"] = "percentage"
+			percentage = random_spikes_settings.get("template_random_spikes_percentage", None)
+			if percentage is not None:
+				extension_kwargs["percentage"] = float(percentage)
+			min_spikes_per_unit = random_spikes_settings.get(
+				"template_random_spikes_min_spikes_per_unit",
+				None,
+			)
+			if min_spikes_per_unit is not None:
+				extension_kwargs["min_spikes_per_unit"] = int(min_spikes_per_unit)
+		max_spikes_per_unit = random_spikes_settings.get(
+			"template_random_spikes_max_spikes_per_unit",
+			None,
+		)
+		if max_spikes_per_unit is not None:
+			extension_kwargs["max_spikes_per_unit"] = int(max_spikes_per_unit)
+		if log_before_after_spike_counts:
+			extension_kwargs["log_before_after_spike_counts"] = True
 		margin_size = random_spikes_settings.get("template_random_spikes_margin_size", None)
 		if margin_size is not None:
 			extension_kwargs["margin_size"] = int(margin_size)
@@ -549,9 +660,7 @@ def _merge_template_heatmap_magnitude_mode(stage_config: Any) -> str:
 
 
 def _requested_merge_analyzer_policy(stage_config: Any) -> dict[str, Any]:
-	density_mode = _normalize_merge_analyzer_density_mode(
-		getattr(stage_config, "merge_analyzer_density_mode", "auto")
-	)
+	compute_sparsity = _merge_analyzer_compute_sparsity_requested(stage_config)
 	regenerate_on_replot = bool(
 		getattr(stage_config, "merge_analyzer_regenerate_on_replot", True)
 	)
@@ -563,10 +672,13 @@ def _requested_merge_analyzer_policy(stage_config: Any) -> dict[str, Any]:
 	waveform_settings = _merge_analyzer_waveform_settings(stage_config)
 	job_kwargs = _merge_analyzer_compute_job_kwargs(stage_config)
 	policy = {
-		"density_mode": str(density_mode),
-		"requested_dense_analyzer": bool(density_mode == "dense"),
+		"requested_compute_sparsity": bool(compute_sparsity),
 		"regenerate_on_replot": bool(regenerate_on_replot),
 		"template_random_spikes_method": str(random_spikes_method),
+		"template_random_spikes_percentage": random_spikes_settings.get(
+			"template_random_spikes_percentage",
+			None,
+		),
 	}
 	policy.update(sparsity_settings)
 	policy.update(random_spikes_settings)
@@ -577,7 +689,7 @@ def _requested_merge_analyzer_policy(stage_config: Any) -> dict[str, Any]:
 
 
 def _merge_dense_analyzer_requested(stage_config: Any) -> bool:
-	return bool(_requested_merge_analyzer_policy(stage_config).get("requested_dense_analyzer", False))
+	return not bool(_requested_merge_analyzer_policy(stage_config).get("requested_compute_sparsity", True))
 
 
 def _merge_template_random_spikes_method(stage_config: Any) -> str:
@@ -608,6 +720,358 @@ def _get_merge_analyzer_policy_info(analyzer: Any) -> dict[str, Any]:
 	return (dict(info) if isinstance(info, dict) else {})
 
 
+def _install_spikeinterface_random_spikes_percentage_compatibility() -> None:
+	try:
+		from spikeinterface.core.analyzer_extension_core import ComputeRandomSpikes  # type: ignore[import-not-found]
+		from spikeinterface.core.sorting_tools import random_spikes_selection as si_random_spikes_selection  # type: ignore[import-not-found]
+		from spikeinterface.core.sorting_tools import spike_vector_to_indices  # type: ignore[import-not-found]
+	except Exception:
+		return
+
+	if bool(getattr(ComputeRandomSpikes, "_axon_recon_percentage_compat_installed", False)):
+		return
+
+	original_set_params = getattr(ComputeRandomSpikes, "_set_params", None)
+	original_run = getattr(ComputeRandomSpikes, "_run", None)
+	if not callable(original_set_params) or not callable(original_run):
+		return
+
+	try:
+		supported_param_names = {
+			str(name)
+			for name in inspect.signature(original_set_params).parameters
+			if str(name) != "self"
+		}
+	except Exception:
+		supported_param_names = {"method", "max_spikes_per_unit", "margin_size", "seed"}
+
+	try:
+		low_level_supported_param_names = {
+			str(name)
+			for name in inspect.signature(si_random_spikes_selection).parameters
+		}
+	except Exception:
+		low_level_supported_param_names = {
+			"sorting",
+			"num_samples",
+			"method",
+			"max_spikes_per_unit",
+			"margin_size",
+			"seed",
+		}
+
+	low_level_supports_percentage = bool("percentage" in low_level_supported_param_names)
+
+	def _build_random_spikes_unit_candidates(
+		*,
+		sorting: Any,
+		num_samples: Any,
+		margin_size: int | None,
+	) -> list[dict[str, Any]]:
+		import numpy as np
+
+		spikes = sorting.to_spike_vector(concatenated=False)
+		cum_sizes = np.cumsum([0] + [segment.size for segment in spikes])
+		spike_indices = spike_vector_to_indices(spikes, sorting.unit_ids, absolute_index=False)
+		unit_candidates: list[dict[str, Any]] = []
+		for unit_id in sorting.unit_ids:
+			eligible_indices_by_segment: list[Any] = []
+			total_spikes = 0
+			for segment_index in range(sorting.get_num_segments()):
+				inds_in_seg = spike_indices[segment_index][unit_id]
+				total_spikes += int(getattr(inds_in_seg, "size", 0))
+				if margin_size is not None:
+					if num_samples is None:
+						raise ValueError("num_samples must be provided when margin_size is used")
+					local_spikes = spikes[segment_index][inds_in_seg]
+					mask = (local_spikes["sample_index"] >= margin_size) & (
+						local_spikes["sample_index"] < (num_samples[segment_index] - margin_size)
+					)
+					inds_in_seg = inds_in_seg[mask]
+				eligible_indices_by_segment.append(inds_in_seg + cum_sizes[segment_index])
+			eligible_indices_by_segment = [
+				indices for indices in eligible_indices_by_segment if getattr(indices, "size", 0) > 0
+			]
+			if eligible_indices_by_segment:
+				eligible_indices = np.concatenate(eligible_indices_by_segment)
+			else:
+				eligible_indices = np.array([], dtype=np.int64)
+			unit_candidates.append(
+				{
+					"unit_id": unit_id,
+					"total_spikes": int(total_spikes),
+					"eligible_indices": eligible_indices,
+					"eligible_spikes": int(getattr(eligible_indices, "size", 0)),
+				}
+			)
+		return unit_candidates
+
+	def _log_random_spikes_selection_counts(
+		*,
+		sorting: Any,
+		num_samples: Any,
+		margin_size: int | None,
+		selected_indices: Any,
+		method: str,
+		max_spikes_per_unit: int | None,
+		min_spikes_per_unit: int | None,
+		percentage: float | None,
+	) -> None:
+		import numpy as np
+
+		unit_candidates = _build_random_spikes_unit_candidates(
+			sorting=sorting,
+			num_samples=num_samples,
+			margin_size=margin_size,
+		)
+		selected_array = np.asarray(
+			([] if selected_indices is None else selected_indices),
+			dtype=np.int64,
+		).reshape(-1)
+		selected_index_set = set(selected_array.tolist())
+		LOGGER.info(
+			"Merge analyzer random_spikes counts method=%s units=%d total_spikes=%d eligible_spikes=%d selected_spikes=%d",
+			str(method),
+			len(unit_candidates),
+			sum(int(candidate["total_spikes"]) for candidate in unit_candidates),
+			sum(int(candidate["eligible_spikes"]) for candidate in unit_candidates),
+			int(selected_array.size),
+		)
+		for candidate in unit_candidates:
+			eligible_indices = np.asarray(candidate["eligible_indices"], dtype=np.int64).reshape(-1)
+			selected_count = sum(1 for index in eligible_indices if int(index) in selected_index_set)
+			if int(candidate["eligible_spikes"]) <= 0:
+				selection_reason = "no_eligible_spikes"
+			elif str(method) == "all":
+				selection_reason = "all"
+			elif str(method) == "percentage":
+				_, selection_reason = _resolve_percentage_random_spikes_target(
+					total_spikes=int(candidate["total_spikes"]),
+					eligible_spikes=int(candidate["eligible_spikes"]),
+					percentage=percentage,
+					min_spikes_per_unit=min_spikes_per_unit,
+					max_spikes_per_unit=max_spikes_per_unit,
+				)
+			else:
+				selection_reason = str(method)
+			LOGGER.info(
+				"Merge analyzer random_spikes unit=%s total_spikes=%d eligible_spikes=%d selected_spikes=%d selection=%s",
+				str(candidate["unit_id"]),
+				int(candidate["total_spikes"]),
+				int(candidate["eligible_spikes"]),
+				int(selected_count),
+				selection_reason,
+			)
+
+	def _resolve_percentage_random_spikes_target(
+		*,
+		total_spikes: int,
+		eligible_spikes: int,
+		percentage: float | None,
+		min_spikes_per_unit: int | None,
+		max_spikes_per_unit: int | None,
+	) -> tuple[int, str]:
+		eligible_spikes_int = max(int(eligible_spikes), 0)
+		if eligible_spikes_int <= 0:
+			return 0, "no_eligible_spikes"
+		if percentage is None or not (0.0 < float(percentage) <= 1.0):
+			raise ValueError("percentage must be in the interval (0, 1]")
+		if min_spikes_per_unit is not None and int(total_spikes) <= int(min_spikes_per_unit):
+			return eligible_spikes_int, "all_by_min_spikes_threshold"
+
+		target_count = int(eligible_spikes_int * float(percentage))
+		selection_reason = "sampled_percentage"
+		if min_spikes_per_unit is not None and target_count < int(min_spikes_per_unit):
+			if eligible_spikes_int < int(min_spikes_per_unit):
+				target_count = eligible_spikes_int
+				selection_reason = "min_spikes_floor_capped_by_eligible"
+			else:
+				target_count = int(min_spikes_per_unit)
+				selection_reason = "min_spikes_floor"
+		if max_spikes_per_unit is not None and target_count > int(max_spikes_per_unit):
+			target_count = int(max_spikes_per_unit)
+			if selection_reason == "sampled_percentage":
+				selection_reason = "sampled_percentage_capped_by_max"
+			elif selection_reason.startswith("min_spikes_floor"):
+				selection_reason = "min_spikes_floor_capped_by_max"
+		target_count = min(target_count, eligible_spikes_int)
+		return max(int(target_count), 0), selection_reason
+
+	def _random_spikes_selection_percentage_compat(
+		*,
+		sorting: Any,
+		num_samples: Any,
+		max_spikes_per_unit: int | None,
+		min_spikes_per_unit: int | None,
+		margin_size: int | None,
+		seed: int | None,
+		percentage: float | None,
+	) -> Any:
+		import numpy as np
+
+		if percentage is None or not (0.0 < float(percentage) <= 1.0):
+			raise ValueError("percentage must be in the interval (0, 1]")
+
+		rng = np.random.default_rng(seed=seed)
+		unit_candidates = _build_random_spikes_unit_candidates(
+			sorting=sorting,
+			num_samples=num_samples,
+			margin_size=margin_size,
+		)
+
+		random_spikes_indices: list[Any] = []
+		for candidate in unit_candidates:
+			all_unit_indices_concat = candidate["eligible_indices"]
+			if int(getattr(all_unit_indices_concat, "size", 0)) <= 0:
+				continue
+			target_count, _ = _resolve_percentage_random_spikes_target(
+				total_spikes=int(candidate["total_spikes"]),
+				eligible_spikes=int(candidate["eligible_spikes"]),
+				percentage=percentage,
+				min_spikes_per_unit=min_spikes_per_unit,
+				max_spikes_per_unit=max_spikes_per_unit,
+			)
+			if target_count >= int(getattr(all_unit_indices_concat, "size", 0)):
+				selected_unit_indices = all_unit_indices_concat
+			else:
+				if target_count <= 0:
+					continue
+				selected_unit_indices = rng.choice(
+					all_unit_indices_concat,
+					size=target_count,
+					replace=False,
+					shuffle=False,
+				)
+			random_spikes_indices.append(selected_unit_indices)
+
+		if not random_spikes_indices:
+			return np.array([], dtype=np.int64)
+		return np.sort(np.concatenate(random_spikes_indices))
+
+	def _patched_set_params(
+		self: Any,
+		method: str = "uniform",
+		max_spikes_per_unit: int | None = None,
+		min_spikes_per_unit: int | None = None,
+		log_before_after_spike_counts: bool | None = None,
+		margin_size: int | None = None,
+		seed: int | None = None,
+		percentage: float | None = None,
+		maximum_rate: float | None = None,
+	) -> dict[str, Any]:
+		original_kwargs: dict[str, Any] = {
+			"method": method,
+			"margin_size": margin_size,
+			"seed": seed,
+		}
+		if max_spikes_per_unit is not None:
+			original_kwargs["max_spikes_per_unit"] = max_spikes_per_unit
+		if "percentage" in supported_param_names:
+			original_kwargs["percentage"] = percentage
+		if "maximum_rate" in supported_param_names:
+			original_kwargs["maximum_rate"] = maximum_rate
+
+		params = original_set_params(self, **original_kwargs)
+		if not isinstance(params, dict):
+			params = {
+				"method": method,
+				"margin_size": margin_size,
+				"seed": seed,
+			}
+		if max_spikes_per_unit is not None:
+			params["max_spikes_per_unit"] = int(max_spikes_per_unit)
+		elif method == "percentage":
+			params["max_spikes_per_unit"] = None
+		if min_spikes_per_unit is not None:
+			params["min_spikes_per_unit"] = int(min_spikes_per_unit)
+		if log_before_after_spike_counts is not None:
+			params["log_before_after_spike_counts"] = bool(log_before_after_spike_counts)
+		if percentage is not None:
+			params["percentage"] = float(percentage)
+		if maximum_rate is not None:
+			params["maximum_rate"] = float(maximum_rate)
+		return params
+
+	def _patched_run(self: Any, verbose: bool = False) -> None:
+		params = dict(getattr(self, "params", {}) or {})
+		method = str(params.get("method", "uniform") or "uniform").strip().lower()
+		log_before_after_spike_counts = bool(params.get("log_before_after_spike_counts", False))
+		max_spikes_per_unit = params.get("max_spikes_per_unit", None)
+		try:
+			if max_spikes_per_unit is not None:
+				max_spikes_per_unit = int(max_spikes_per_unit)
+				if max_spikes_per_unit <= 0:
+					max_spikes_per_unit = None
+		except Exception:
+			max_spikes_per_unit = None
+		min_spikes_per_unit = params.get("min_spikes_per_unit", None)
+		try:
+			if min_spikes_per_unit is not None:
+				min_spikes_per_unit = int(min_spikes_per_unit)
+				if min_spikes_per_unit <= 0:
+					min_spikes_per_unit = None
+		except Exception:
+			min_spikes_per_unit = None
+		if method == "percentage" and (
+			max_spikes_per_unit is None
+			or min_spikes_per_unit is not None
+			or not low_level_supports_percentage
+		):
+			sorting_analyzer = getattr(self, "sorting_analyzer", None)
+			if sorting_analyzer is None:
+				raise RuntimeError("sorting_analyzer unavailable for percentage random_spikes compatibility")
+			sorting = getattr(sorting_analyzer, "sorting", None)
+			rec_attributes = getattr(sorting_analyzer, "rec_attributes", {}) or {}
+			num_samples = rec_attributes.get("num_samples", None)
+			self.data["random_spikes_indices"] = _random_spikes_selection_percentage_compat(
+				sorting=sorting,
+				num_samples=num_samples,
+				max_spikes_per_unit=max_spikes_per_unit,
+				min_spikes_per_unit=min_spikes_per_unit,
+				margin_size=params.get("margin_size", None),
+				seed=params.get("seed", None),
+				percentage=params.get("percentage", None),
+			)
+			if log_before_after_spike_counts:
+				_log_random_spikes_selection_counts(
+					sorting=sorting,
+					num_samples=num_samples,
+					margin_size=params.get("margin_size", None),
+					selected_indices=self.data.get("random_spikes_indices", None),
+					method=method,
+					max_spikes_per_unit=max_spikes_per_unit,
+					min_spikes_per_unit=min_spikes_per_unit,
+					percentage=params.get("percentage", None),
+				)
+			return
+		original_run(self, verbose=verbose)
+		if log_before_after_spike_counts:
+			sorting_analyzer = getattr(self, "sorting_analyzer", None)
+			if sorting_analyzer is None:
+				LOGGER.warning(
+					"Merge analyzer random_spikes count logging requested but sorting_analyzer is unavailable"
+				)
+				return
+			sorting = getattr(sorting_analyzer, "sorting", None)
+			rec_attributes = getattr(sorting_analyzer, "rec_attributes", {}) or {}
+			num_samples = rec_attributes.get("num_samples", None)
+			_log_random_spikes_selection_counts(
+				sorting=sorting,
+				num_samples=num_samples,
+				margin_size=params.get("margin_size", None),
+				selected_indices=self.data.get("random_spikes_indices", None),
+				method=method,
+				max_spikes_per_unit=max_spikes_per_unit,
+				min_spikes_per_unit=min_spikes_per_unit,
+				percentage=params.get("percentage", None),
+			)
+
+	setattr(ComputeRandomSpikes, "_set_params", _patched_set_params)
+	setattr(ComputeRandomSpikes, "_run", _patched_run)
+	setattr(ComputeRandomSpikes, "_axon_recon_percentage_compat_installed", True)
+	LOGGER.info("Installed SpikeInterface random_spikes percentage compatibility shim")
+
+
 def _merge_analyzer_policy_info_json_path(analyzer_dir: Path) -> Path:
 	return Path(analyzer_dir).resolve() / "axon_recon_merge_analyzer_policy.json"
 
@@ -625,8 +1089,12 @@ def _read_merge_analyzer_policy_info_from_dir(analyzer_dir: Path) -> dict[str, A
 def _merge_analyzer_policy_matches_requested(*, recorded_policy: Any, requested_policy: dict[str, Any]) -> bool:
 	if not isinstance(recorded_policy, dict):
 		return False
+	compatibility_defaults: dict[str, Any] = {
+		"template_random_spikes_log_before_after_spike_counts": False,
+	}
 	for key, value in requested_policy.items():
-		if recorded_policy.get(key, None) != value:
+		recorded_value = recorded_policy.get(key, compatibility_defaults.get(key, None))
+		if recorded_value != value:
 			return False
 	return True
 
@@ -707,7 +1175,7 @@ def _prepare_replot_workspace_analyzer(
 						regen_reason = "analyzer_load_failed"
 					else:
 						loaded_analyzer_had_sparsity = _analyzer_has_sparsity(analyzer_obj)
-						if bool(requested_policy.get("requested_dense_analyzer", False)) and loaded_analyzer_had_sparsity:
+						if (not bool(requested_policy.get("requested_compute_sparsity", True))) and loaded_analyzer_had_sparsity:
 							analyzer_obj = None
 							should_regenerate = True
 							regen_reason = "loaded_sparse_analyzer"
@@ -802,9 +1270,9 @@ def _describe_merge_analyzer_policy_info(
 			"rebuild_reason": rebuild_reason,
 			"reused_cached_analyzer": reused_cached_analyzer,
 			"final_analyzer_has_sparsity": final_has_sparsity,
-			"dense_validation_error": (
-				"dense_requested_but_analyzer_has_sparsity"
-				if bool(info.get("requested_dense_analyzer", False)) and bool(final_has_sparsity)
+			"sparsity_validation_error": (
+				"compute_sparsity_disabled_but_analyzer_has_sparsity"
+				if (not bool(info.get("requested_compute_sparsity", True))) and bool(final_has_sparsity)
 				else None
 			),
 		}
@@ -828,10 +1296,23 @@ def _compute_analyzer_extension(*, analyzer: Any, extension_name: str, kwargs: d
 		return False
 
 	extension_kwargs = dict(kwargs or {})
+	if extension_name == "random_spikes" and (
+		extension_kwargs.get("method") == "percentage"
+		or ("min_spikes_per_unit" in extension_kwargs)
+		or bool(extension_kwargs.get("log_before_after_spike_counts", False))
+	):
+		_install_spikeinterface_random_spikes_percentage_compatibility()
 	attempts: list[tuple[Any, dict[str, Any]]] = []
 	if extension_name == "random_spikes" and extension_kwargs.get("method") == "all":
 		random_spikes_payload = {"method": "all"}
-		for key in ("max_spikes_per_unit", "margin_size", "seed"):
+		for key in (
+			"max_spikes_per_unit",
+			"margin_size",
+			"seed",
+			"percentage",
+			"min_spikes_per_unit",
+			"log_before_after_spike_counts",
+		):
 			if key in extension_kwargs:
 				random_spikes_payload[key] = extension_kwargs[key]
 		random_spikes_job_kwargs = {
@@ -2524,6 +3005,42 @@ def _extract_unit_locations_from_analyzer(
 	return out, None
 
 
+def _refresh_snapshot_analyzer_payload_from_live_analyzer(
+	*,
+	snapshot: dict[str, Any],
+	analyzer: Any,
+	stage_config: Any,
+	include_unit_locations: bool,
+	analyzer_source_dir: Path | None = None,
+) -> dict[str, Any]:
+	snapshot_payload = (dict(snapshot) if isinstance(snapshot, dict) else {})
+	analyzer_payload_raw = snapshot_payload.get("analyzer", {})
+	analyzer_payload = (
+		dict(analyzer_payload_raw)
+		if isinstance(analyzer_payload_raw, dict)
+		else {}
+	)
+
+	if analyzer_source_dir is not None:
+		analyzer_payload["source_dir"] = str(Path(analyzer_source_dir).resolve())
+	analyzer_payload["available"] = True
+	analyzer_payload["load_error"] = None
+	analyzer_payload["unit_count"] = int(_unit_count(analyzer))
+	analyzer_payload["unit_ids"] = _unit_ids_from_obj(analyzer)
+	analyzer_payload["has_sparsity"] = _analyzer_has_sparsity(analyzer)
+
+	if include_unit_locations:
+		locations_by_unit, locations_error = _extract_unit_locations_from_analyzer(
+			analyzer=analyzer,
+			stage_config=stage_config,
+		)
+		analyzer_payload["unit_locations_by_unit"] = locations_by_unit
+		analyzer_payload["unit_locations_error"] = locations_error
+
+	snapshot_payload["analyzer"] = analyzer_payload
+	return snapshot_payload
+
+
 def _capture_merge_state_snapshot(
 	*,
 	well_out_dir: Path,
@@ -2582,13 +3099,24 @@ def _capture_merge_state_snapshot(
 			"unit_locations_by_unit": {},
 			"unit_locations_error": None,
 			"rebuilt": False,
-			"requested_density_mode": str(requested_policy.get("density_mode", "auto")),
-			"requested_dense_analyzer": bool(requested_policy.get("requested_dense_analyzer", False)),
+			"requested_compute_sparsity": bool(requested_policy.get("requested_compute_sparsity", True)),
 			"requested_template_random_spikes_method": str(
 				requested_policy.get("template_random_spikes_method", "default")
 			),
 			"requested_template_random_spikes_max_spikes_per_unit": requested_policy.get(
 				"template_random_spikes_max_spikes_per_unit",
+				None,
+			),
+			"requested_template_random_spikes_percentage": requested_policy.get(
+				"template_random_spikes_percentage",
+				None,
+			),
+			"requested_template_random_spikes_log_before_after_spike_counts": requested_policy.get(
+				"template_random_spikes_log_before_after_spike_counts",
+				False,
+			),
+			"requested_template_random_spikes_min_spikes_per_unit": requested_policy.get(
+				"template_random_spikes_min_spikes_per_unit",
 				None,
 			),
 			"requested_template_random_spikes_margin_size": requested_policy.get(
@@ -2616,7 +3144,7 @@ def _capture_merge_state_snapshot(
 			"requested_compute_chunk_duration": requested_policy.get("compute_chunk_duration", None),
 			"loaded_analyzer_had_sparsity": None,
 			"has_sparsity": None,
-			"dense_validation_error": None,
+			"sparsity_validation_error": None,
 			"rebuild_reason": None,
 			"reused_cached_analyzer": None,
 			"extensions_computed": [],
@@ -2691,7 +3219,7 @@ def _capture_merge_state_snapshot(
 			try:
 				loaded_analyzer_obj = load_sorting_analyzer(analyzer_dir)
 				loaded_analyzer_had_sparsity = _analyzer_has_sparsity(loaded_analyzer_obj)
-				if bool(requested_policy.get("requested_dense_analyzer", False)) and loaded_analyzer_had_sparsity:
+				if (not bool(requested_policy.get("requested_compute_sparsity", True))) and loaded_analyzer_had_sparsity:
 					rebuild_reason = "loaded_sparse_analyzer"
 					if allow_analyzer_recompute:
 						loaded_analyzer_obj = None
@@ -2749,7 +3277,7 @@ def _capture_merge_state_snapshot(
 					"final_analyzer_has_sparsity",
 					_analyzer_has_sparsity(loaded_analyzer_obj),
 				),
-				"dense_validation_error": policy_info.get("dense_validation_error", None),
+				"sparsity_validation_error": policy_info.get("sparsity_validation_error", None),
 				"rebuild_reason": policy_info.get("rebuild_reason", None),
 				"reused_cached_analyzer": policy_info.get("reused_cached_analyzer", None),
 			}
@@ -3672,8 +4200,8 @@ def _build_snapshot_metadata_summary(*, snapshot_label: str, snapshot: dict[str,
 				"unit_count": int(_snapshot_unit_count(analyzer_payload, analyzer_ids)),
 				"unit_ids": analyzer_ids,
 				"has_sparsity": analyzer_payload.get("has_sparsity", None),
-				"requested_dense_analyzer": bool(
-					analyzer_payload.get("requested_dense_analyzer", False)
+				"requested_compute_sparsity": bool(
+					analyzer_payload.get("requested_compute_sparsity", True)
 				),
 				"requested_sparsity_method": analyzer_payload.get(
 					"requested_sparsity_method",
@@ -3683,7 +4211,19 @@ def _build_snapshot_metadata_summary(*, snapshot_label: str, snapshot: dict[str,
 					"requested_template_random_spikes_method",
 					"default",
 				),
-				"dense_validation_error": analyzer_payload.get("dense_validation_error", None),
+				"requested_template_random_spikes_percentage": analyzer_payload.get(
+					"requested_template_random_spikes_percentage",
+					None,
+				),
+				"requested_template_random_spikes_log_before_after_spike_counts": analyzer_payload.get(
+					"requested_template_random_spikes_log_before_after_spike_counts",
+					False,
+				),
+				"requested_template_random_spikes_min_spikes_per_unit": analyzer_payload.get(
+					"requested_template_random_spikes_min_spikes_per_unit",
+					None,
+				),
+				"sparsity_validation_error": analyzer_payload.get("sparsity_validation_error", None),
 			},
 		},
 	}
@@ -3965,37 +4505,27 @@ def _compute_template_channel_magnitude(*, template_ch_by_t: Any, magnitude_mode
 	return np.ptp(tmpl, axis=1)
 
 
-def _write_template_amplitude_heatmap_asset(
+def _prepare_template_heatmap_scatter_payload(
 	*,
 	template_ch_by_t: Any,
 	locations_xy: Any,
-	out_path: Path,
-	title: str,
-	cmap: str,
-	marker_size: float,
-	show_colorbar: bool,
-	relative_color_bar_height: float = 1.0,
 	color_vmin: float | None = None,
 	color_vmax: float | None = None,
 	color_scale_mode: str = "linear",
 	log_epsilon: float = 1e-3,
 	magnitude_mode: str = "ptp",
-	x_limits: tuple[float, float] | None = None,
-	y_limits: tuple[float, float] | None = None,
-) -> tuple[bool, str | None]:
-	_prepare_matplotlib_for_headless_rendering()
-	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+) -> tuple[dict[str, Any] | None, str | None]:
 	from matplotlib import colors as mcolors  # type: ignore[import-not-found]
 	import numpy as np  # type: ignore[import-not-found]
 
 	tmpl = np.asarray(template_ch_by_t, dtype=float)
 	locs = np.asarray(locations_xy, dtype=float)
 	if tmpl.ndim != 2:
-		return False, "template_not_2d"
+		return None, "template_not_2d"
 	if locs.ndim != 2 or locs.shape[1] < 2:
-		return False, "locations_not_2d"
+		return None, "locations_not_2d"
 	if tmpl.shape[0] != locs.shape[0]:
-		return False, "template_location_shape_mismatch"
+		return None, "template_location_shape_mismatch"
 
 	amp = np.asarray(
 		_compute_template_channel_magnitude(
@@ -4005,7 +4535,7 @@ def _write_template_amplitude_heatmap_asset(
 		dtype=float,
 	)
 	if amp.size == 0:
-		return False, "template_empty"
+		return None, "template_empty"
 
 	vmin: float | None = None
 	vmax: float | None = None
@@ -4037,12 +4567,12 @@ def _write_template_amplitude_heatmap_asset(
 
 		positive_amp = amp[np.isfinite(amp) & (amp > 0.0)]
 		if positive_amp.size <= 0:
-			return False, "template_amp_nonpositive_for_log_scale"
+			return None, "template_amp_nonpositive_for_log_scale"
 
 		positive_min = float(np.nanmin(positive_amp))
 		positive_max = float(np.nanmax(positive_amp))
 		if not (math.isfinite(positive_min) and math.isfinite(positive_max) and positive_max > 0.0):
-			return False, "template_amp_invalid_for_log_scale"
+			return None, "template_amp_invalid_for_log_scale"
 
 		if vmin is None or vmax is None:
 			vmin = max(eps, positive_min)
@@ -4053,35 +4583,189 @@ def _write_template_amplitude_heatmap_asset(
 
 		norm = mcolors.LogNorm(vmin=vmin, vmax=vmax)
 
-	fig, ax = plt.subplots(1, 1, figsize=(4.2, 4.0), constrained_layout=True)
-	try:
-		scatter_kwargs = {
-			"c": amp,
-			"cmap": str(cmap),
-			"s": float(max(0.1, float(marker_size))),
-			"alpha": 0.95,
-		}
-		if norm is not None:
-			scatter_kwargs["norm"] = norm
-		else:
-			scatter_kwargs["vmin"] = vmin
-			scatter_kwargs["vmax"] = vmax
+	return {
+		"amp": amp,
+		"locs": np.asarray(locs[:, :2], dtype=float),
+		"norm": norm,
+		"vmin": vmin,
+		"vmax": vmax,
+		"color_scale_mode": mode,
+	}, None
 
-		sc = ax.scatter(
-			locs[:, 0],
-			locs[:, 1],
-			**scatter_kwargs,
-		)
+
+def _plot_template_amplitude_heatmap_on_axis(
+	*,
+	ax: Any,
+	template_ch_by_t: Any,
+	locations_xy: Any,
+	title: str,
+	cmap: str,
+	marker_size: float,
+	color_vmin: float | None = None,
+	color_vmax: float | None = None,
+	color_scale_mode: str = "linear",
+	log_epsilon: float = 1e-3,
+	magnitude_mode: str = "ptp",
+	x_limits: tuple[float, float] | None = None,
+	y_limits: tuple[float, float] | None = None,
+	show_axis_labels: bool = True,
+	title_fontsize: float | None = None,
+	tick_labelsize: float | None = None,
+) -> tuple[Any | None, str | None]:
+	payload, err = _prepare_template_heatmap_scatter_payload(
+		template_ch_by_t=template_ch_by_t,
+		locations_xy=locations_xy,
+		color_vmin=color_vmin,
+		color_vmax=color_vmax,
+		color_scale_mode=color_scale_mode,
+		log_epsilon=log_epsilon,
+		magnitude_mode=magnitude_mode,
+	)
+	if payload is None:
+		return None, err
+
+	scatter_kwargs = {
+		"c": payload["amp"],
+		"cmap": str(cmap),
+		"s": float(max(0.1, float(marker_size))),
+		"alpha": 0.95,
+	}
+	if payload["norm"] is not None:
+		scatter_kwargs["norm"] = payload["norm"]
+	else:
+		scatter_kwargs["vmin"] = payload["vmin"]
+		scatter_kwargs["vmax"] = payload["vmax"]
+
+	sc = ax.scatter(
+		payload["locs"][:, 0],
+		payload["locs"][:, 1],
+		**scatter_kwargs,
+	)
+	if title_fontsize is None:
 		ax.set_title(str(title))
+	else:
+		ax.set_title(str(title), fontsize=float(title_fontsize), pad=6.0)
+	if show_axis_labels:
 		ax.set_xlabel("x_um")
 		ax.set_ylabel("y_um")
-		if x_limits is not None:
-			ax.set_xlim(x_limits)
-		if y_limits is not None:
-			ax.set_ylim(y_limits)
-		ax.invert_yaxis()
-		ax.set_aspect("equal", adjustable="box")
-		ax.grid(True, alpha=0.2)
+	else:
+		ax.set_xlabel("")
+		ax.set_ylabel("")
+	if x_limits is not None:
+		ax.set_xlim(x_limits)
+	if y_limits is not None:
+		ax.set_ylim(y_limits)
+	ax.invert_yaxis()
+	ax.set_aspect("equal", adjustable="box")
+	ax.grid(True, alpha=0.2)
+	if tick_labelsize is not None and callable(getattr(ax, "tick_params", None)):
+		try:
+			ax.tick_params(axis="both", labelsize=float(tick_labelsize))
+		except Exception:
+			pass
+	return sc, None
+
+
+def _compute_template_heatmap_scale_limits(
+	*,
+	templates: list[Any],
+	color_scale_mode: str,
+	log_epsilon: float,
+	magnitude_mode: str,
+) -> tuple[float | None, float | None]:
+	import numpy as np  # type: ignore[import-not-found]
+
+	mins: list[float] = []
+	maxs: list[float] = []
+	mode = str(color_scale_mode or "linear").strip().lower()
+	if mode in {"log10", "logarithmic"}:
+		mode = "log"
+	if mode not in {"linear", "log"}:
+		mode = "linear"
+
+	try:
+		eps = float(log_epsilon)
+	except Exception:
+		eps = 1e-3
+	if (not math.isfinite(eps)) or eps <= 0.0:
+		eps = 1e-3
+
+	for template_arr in list(templates or []):
+		try:
+			amp = np.asarray(
+				_compute_template_channel_magnitude(
+					template_ch_by_t=np.asarray(template_arr, dtype=float),
+					magnitude_mode=magnitude_mode,
+				),
+				dtype=float,
+			)
+		except Exception:
+			continue
+		if amp.size <= 0:
+			continue
+		if mode == "log":
+			amp = amp[np.isfinite(amp) & (amp > 0.0)]
+			if amp.size <= 0:
+				continue
+		amp_min = float(np.nanmin(amp))
+		amp_max = float(np.nanmax(amp))
+		if math.isfinite(amp_min) and math.isfinite(amp_max):
+			mins.append(amp_min)
+			maxs.append(amp_max)
+
+	if not mins or not maxs:
+		return None, None
+
+	vmin = float(min(mins))
+	vmax = float(max(maxs))
+	if mode == "log":
+		vmin = max(eps, vmin)
+		vmax = max(vmin * (1.0 + 1e-6), vmax)
+	elif not (math.isfinite(vmin) and math.isfinite(vmax) and (vmax > vmin)):
+		return None, None
+	return vmin, vmax
+
+
+def _write_template_amplitude_heatmap_asset(
+	*,
+	template_ch_by_t: Any,
+	locations_xy: Any,
+	out_path: Path,
+	title: str,
+	cmap: str,
+	marker_size: float,
+	show_colorbar: bool,
+	relative_color_bar_height: float = 1.0,
+	color_vmin: float | None = None,
+	color_vmax: float | None = None,
+	color_scale_mode: str = "linear",
+	log_epsilon: float = 1e-3,
+	magnitude_mode: str = "ptp",
+	x_limits: tuple[float, float] | None = None,
+	y_limits: tuple[float, float] | None = None,
+) -> tuple[bool, str | None]:
+	_prepare_matplotlib_for_headless_rendering()
+	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+
+	fig, ax = plt.subplots(1, 1, figsize=(4.2, 4.0), constrained_layout=True)
+	try:
+		sc, err = _plot_template_amplitude_heatmap_on_axis(
+			ax=ax,
+			template_ch_by_t=template_ch_by_t,
+			locations_xy=locations_xy,
+			title=title,
+			cmap=cmap,
+			marker_size=marker_size,
+			color_vmin=color_vmin,
+			color_vmax=color_vmax,
+			color_scale_mode=color_scale_mode,
+			log_epsilon=log_epsilon,
+			magnitude_mode=magnitude_mode,
+			x_limits=x_limits,
+			y_limits=y_limits,
+		)
+		if sc is None:
+			return False, (err or "template_amp_render_failed")
 		if bool(show_colorbar):
 			fig.colorbar(
 				sc,
@@ -4093,7 +4777,7 @@ def _write_template_amplitude_heatmap_asset(
 			)
 
 		out_path.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(out_path, dpi=220)
+		fig.savefig(out_path, dpi=320)
 		return True, None
 	except Exception as exc:
 		return False, f"template_amp_render_failed:{type(exc).__name__}:{exc}"
@@ -4199,7 +4883,7 @@ def _probe_relative_marker_size_points2(
 
 	width_points = points_per_um * float(span_x_um)
 	height_points = points_per_um * float(span_y_um)
-	area_points2 = (math.pi * 0.25) * width_points * height_points
+	area_points2 = 0.85 * (math.pi * 0.25) * width_points * height_points
 	if (not math.isfinite(area_points2)) or area_points2 <= 0.0:
 		return None, None
 	return max(0.1, float(area_points2)), source
@@ -4267,6 +4951,58 @@ def _stack_rendered_images_vertically(*, image_paths: list[Path]) -> tuple[Any |
 	return stacked, None
 
 
+def _stack_rendered_images_horizontally(*, image_paths: list[Path]) -> tuple[Any | None, str | None]:
+	_prepare_matplotlib_for_headless_rendering()
+	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+	import numpy as np  # type: ignore[import-not-found]
+
+	if not image_paths:
+		return None, "no_images"
+
+	images: list[Any] = []
+	for path in image_paths:
+		if not path.exists():
+			continue
+		try:
+			img = np.asarray(plt.imread(path))
+		except Exception:
+			continue
+		if img.ndim == 2:
+			img = np.repeat(img[:, :, None], 3, axis=2)
+		elif img.ndim == 3 and img.shape[2] == 1:
+			img = np.repeat(img, 3, axis=2)
+		elif img.ndim != 3:
+			continue
+		images.append(np.asarray(img, dtype=float))
+
+	if not images:
+		return None, "images_unreadable"
+
+	max_height = max(int(img.shape[0]) for img in images)
+	max_channels = max(int(img.shape[2]) for img in images)
+	if max_channels <= 0:
+		max_channels = 3
+
+	separator_w = 10
+	separator = np.ones((max_height, separator_w, max_channels), dtype=float)
+
+	padded: list[Any] = []
+	for img in images:
+		arr = np.asarray(img, dtype=float)
+		if arr.shape[2] < max_channels:
+			pad_c = np.ones((arr.shape[0], arr.shape[1], max_channels - arr.shape[2]), dtype=float)
+			arr = np.concatenate([arr, pad_c], axis=2)
+		if arr.shape[0] < max_height:
+			pad_h = np.ones((max_height - arr.shape[0], arr.shape[1], arr.shape[2]), dtype=float)
+			arr = np.concatenate([arr, pad_h], axis=0)
+		padded.append(arr)
+
+	stacked = padded[0]
+	for arr in padded[1:]:
+		stacked = np.concatenate([stacked, separator, arr], axis=1)
+	return stacked, None
+
+
 def _write_merge_template_heatmap_reports(
 	*,
 	merge_out_dir: Path,
@@ -4309,7 +5045,7 @@ def _write_merge_template_heatmap_reports(
 	write_assets_png = bool(getattr(stage_config, "merge_reports_template_heatmaps_write_assets_png", True))
 	write_assets_svg = bool(getattr(stage_config, "merge_reports_template_heatmaps_write_assets_svg", False))
 
-	# Panel composition uses rendered raster assets, so keep PNG assets enabled whenever panel output is requested.
+	# Keep PNG assets enabled whenever panel output is requested so individual unit panels remain available.
 	write_assets_png = bool(write_assets_png or write_png or write_svg)
 
 	panel_width_in = float(getattr(stage_config, "merge_reports_template_heatmaps_panel_width_in", 11.0) or 11.0)
@@ -4482,6 +5218,7 @@ def _write_merge_template_heatmap_reports(
 		panel_base = f"merge_{int(mapping_idx):03d}__{group_token}"
 		pre_png_assets: list[Path] = []
 		pre_render_items: list[tuple[dict[str, Any], Any, Any, str]] = []
+		panel_render_items: list[dict[str, Any]] = []
 
 		for pre_uid in pre_unit_ids:
 			template: Any | None = None
@@ -4558,6 +5295,13 @@ def _write_merge_template_heatmap_reports(
 		}
 
 		for asset_entry, template_arr, locations_xy, pre_uid in pre_render_items:
+			panel_render_items.append(
+				{
+					"title": f"Pre unit {pre_uid}",
+					"template": template_arr,
+					"locations_xy": locations_xy,
+				}
+			)
 			asset_rel_base = f"{panel_base}__pre_{_safe_file_token(pre_uid)}"
 			asset_png_path = (assets_root_dir / f"{asset_rel_base}.png").resolve()
 			asset_svg_path = (assets_root_dir / f"{asset_rel_base}.svg").resolve()
@@ -4613,6 +5357,8 @@ def _write_merge_template_heatmap_reports(
 				asset_entry["status"] = "ok"
 
 		post_png_asset: Path | None = None
+		post_template_arr: Any | None = None
+		post_locations_xy: Any | None = None
 		if post_unit_id is not None:
 			template, locations_xy, template_error = _extract_template_and_locations_for_unit(
 				analyzer=after_analyzer,
@@ -4625,6 +5371,8 @@ def _write_merge_template_heatmap_reports(
 				"error": template_error,
 			}
 			if template is not None and locations_xy is not None:
+				post_template_arr = template
+				post_locations_xy = locations_xy
 				asset_rel_base = f"{panel_base}__post_{_safe_file_token(post_unit_id)}"
 				asset_png_path = (assets_root_dir / f"{asset_rel_base}.png").resolve()
 				asset_svg_path = (assets_root_dir / f"{asset_rel_base}.svg").resolve()
@@ -4679,35 +5427,116 @@ def _write_merge_template_heatmap_reports(
 				if "png" in post_asset or "svg" in post_asset:
 					post_asset["status"] = "ok"
 			row["post_asset"] = post_asset
+			if post_template_arr is not None and post_locations_xy is not None:
+				panel_render_items.append(
+					{
+						"title": f"Post unit {post_unit_id}",
+						"template": post_template_arr,
+						"locations_xy": post_locations_xy,
+					}
+				)
 
 		if write_png or write_svg:
-			left_img, left_err = _stack_rendered_images_vertically(image_paths=pre_png_assets)
-			right_img, right_err = _stack_rendered_images_vertically(
-				image_paths=([post_png_asset] if post_png_asset is not None else [])
+			panel_templates = [item["template"] for item in panel_render_items if isinstance(item, dict) and item.get("template", None) is not None]
+			panel_color_vmin, panel_color_vmax = _compute_template_heatmap_scale_limits(
+				templates=list(panel_templates),
+				color_scale_mode=color_scale_mode,
+				log_epsilon=log_epsilon,
+				magnitude_mode=magnitude_mode,
 			)
+			row["panel_color_scale"] = {
+				"mode": "dynamic_per_merge_strip",
+				"scale": str(color_scale_mode),
+				"magnitude_mode": str(magnitude_mode),
+				"log_epsilon": float(log_epsilon),
+				"vmin": panel_color_vmin,
+				"vmax": panel_color_vmax,
+			}
+
+			panel_slot_count = max(1, int(len(panel_render_items)))
+			panel_width_effective_in = float(panel_width_in) * (float(panel_slot_count) / 2.0)
+			panel_dpi = 360
 
 			fig, axes = plt.subplots(
 				1,
-				2,
-				figsize=(float(panel_width_in), float(panel_height_in)),
+				panel_slot_count,
+				figsize=(float(panel_width_effective_in), float(panel_height_in)),
 				constrained_layout=True,
 			)
-			axes[0].set_title(f"Pre-merge templates ({len(pre_unit_ids)})")
-			axes[1].set_title(f"Post-merge template ({post_unit_id if post_unit_id is not None else 'n/a'})")
+			layout_engine = (
+				fig.get_layout_engine()
+				if callable(getattr(fig, "get_layout_engine", None))
+				else None
+			)
+			if layout_engine is not None and callable(getattr(layout_engine, "set", None)):
+				try:
+					layout_engine.set(w_pad=0.02, h_pad=0.02, wspace=0.02, hspace=0.02)
+				except Exception:
+					pass
+			elif hasattr(fig, "set_constrained_layout_pads"):
+				try:
+					fig.set_constrained_layout_pads(w_pad=0.02, h_pad=0.02, wspace=0.02, hspace=0.02)
+				except Exception:
+					pass
+			axes_list = (
+				list(axes.flat)
+				if hasattr(axes, "flat")
+				else ([axes] if not isinstance(axes, list) else axes)
+			)
+			shared_scatter: Any | None = None
+			for idx, ax in enumerate(axes_list):
+				if idx >= len(panel_render_items):
+					ax.axis("off")
+					continue
+				item = panel_render_items[idx]
+				sc, err = _plot_template_amplitude_heatmap_on_axis(
+					ax=ax,
+					template_ch_by_t=item["template"],
+					locations_xy=item["locations_xy"],
+					title=str(item["title"]),
+					cmap=cmap,
+					marker_size=marker_size,
+					color_vmin=panel_color_vmin,
+					color_vmax=panel_color_vmax,
+					color_scale_mode=color_scale_mode,
+					log_epsilon=log_epsilon,
+					magnitude_mode=magnitude_mode,
+					x_limits=probe_x_limits,
+					y_limits=probe_y_limits,
+					show_axis_labels=False,
+					title_fontsize=10.5,
+					tick_labelsize=8.5,
+				)
+				if sc is not None:
+					shared_scatter = sc
+				else:
+					ax.text(0.5, 0.5, str(err or "render_failed"), ha="center", va="center", transform=ax.transAxes)
+					ax.axis("off")
+				if idx > 0 and callable(getattr(ax, "tick_params", None)):
+					try:
+						ax.tick_params(labelleft=False)
+					except Exception:
+						pass
 
-			if left_img is not None:
-				axes[0].imshow(left_img)
-				axes[0].axis("off")
-			else:
-				axes[0].text(0.5, 0.5, f"No pre assets\n{left_err}", ha="center", va="center", transform=axes[0].transAxes)
-				axes[0].axis("off")
-
-			if right_img is not None:
-				axes[1].imshow(right_img)
-				axes[1].axis("off")
-			else:
-				axes[1].text(0.5, 0.5, f"No post asset\n{right_err}", ha="center", va="center", transform=axes[1].transAxes)
-				axes[1].axis("off")
+			if callable(getattr(fig, "supxlabel", None)):
+				try:
+					fig.supxlabel("x_um", fontsize=10)
+				except Exception:
+					pass
+			if callable(getattr(fig, "supylabel", None)):
+				try:
+					fig.supylabel("y_um", fontsize=10)
+				except Exception:
+					pass
+			if bool(show_colorbar) and shared_scatter is not None:
+				fig.colorbar(
+					shared_scatter,
+					ax=axes_list,
+					shrink=_normalize_template_heatmap_relative_color_bar_height(
+						relative_color_bar_height
+					),
+					pad=0.01,
+				)
 
 			panel_rel_base = str((Path(report_relpath) / panel_base).as_posix())
 			for fmt, enabled in (("png", write_png), ("svg", write_svg)):
@@ -4719,7 +5548,7 @@ def _write_merge_template_heatmap_reports(
 					format_name=fmt,
 				)
 				panel_out.parent.mkdir(parents=True, exist_ok=True)
-				fig.savefig(panel_out, dpi=240)
+				fig.savefig(panel_out, dpi=panel_dpi)
 				row["panel_outputs"][fmt] = str(panel_out)
 				outputs[f"merge.report.template_heatmap_per_merge_{panel_base}_{fmt}"] = str(panel_out)
 			plt.close(fig)
@@ -4731,6 +5560,10 @@ def _write_merge_template_heatmap_reports(
 		"status": "ok",
 		"n_mappings_requested": int(len(applied_unit_mappings)),
 		"n_mappings_processed": int(len(merge_rows)),
+		"asset_dpi": 320,
+		"panel_dpi": 360,
+		"panel_layout": "single_row",
+		"panel_shared_color_scale": bool(True),
 		"pre_template_source_mode": "snapshot_before_only",
 		"report_relpath": str(report_relpath),
 		"assets_reldir": str(assets_reldir),
@@ -6619,7 +7452,10 @@ def run_spikesort_merge_stage(
 					f"replot_pre_merge_workspace_analyzer_prepare_failed:{type(exc).__name__}:{exc}"
 				)
 
-		if merge_reports_template_heatmaps_enabled and post_merge_workspace_sorter_output_dir.exists():
+		if (
+			(merge_reports_template_heatmaps_enabled or merge_reports_require_unit_locations)
+			and post_merge_workspace_sorter_output_dir.exists()
+		):
 			try:
 				_log_phase_step_start(
 					"Merge replot post-merge analyzer prepare step start",
@@ -6650,7 +7486,7 @@ def run_spikesort_merge_stage(
 				_ensure_merge_analyzer_extensions(
 					analyzer=post_merge_workspace_analyzer,
 					stage_config=stage_config,
-					include_unit_locations=False,
+					include_unit_locations=merge_reports_require_unit_locations,
 				)
 				post_merge_workspace_analyzer_built = True
 				_log_memory_usage(
@@ -6818,6 +7654,24 @@ def run_spikesort_merge_stage(
 					)
 					after_analyzer["source_dir"] = str(preferred_post_analyzer_dir)
 					after_snapshot_for_report["analyzer"] = after_analyzer
+
+			if merge_reports_error is None and merge_reports_require_unit_locations:
+				if pre_merge_workspace_analyzer_built and pre_merge_workspace_analyzer is not None:
+					before_snapshot_for_report = _refresh_snapshot_analyzer_payload_from_live_analyzer(
+						snapshot=before_snapshot_for_report,
+						analyzer=pre_merge_workspace_analyzer,
+						stage_config=stage_config,
+						include_unit_locations=True,
+						analyzer_source_dir=pre_merge_workspace_analyzer_output_dir,
+					)
+				if post_merge_workspace_analyzer_built and post_merge_workspace_analyzer is not None:
+					after_snapshot_for_report = _refresh_snapshot_analyzer_payload_from_live_analyzer(
+						snapshot=after_snapshot_for_report,
+						analyzer=post_merge_workspace_analyzer,
+						stage_config=stage_config,
+						include_unit_locations=True,
+						analyzer_source_dir=post_merge_workspace_analyzer_output_dir,
+					)
 
 			if merge_reports_error is None and (not before_snapshot_for_report or not after_snapshot_for_report):
 				merge_reports_error = "merge_reports_missing_before_after_snapshots_for_replot"
@@ -8422,11 +9276,14 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 				"force_replot": bool(inputs.force_replot),
 				"effective_force_restart": bool(effective_force_restart),
 				"resume_from": inputs.resume_from,
-				"merge_analyzer_density_mode": str(inputs.merge_analyzer_density_mode),
+				"merge_analyzer_compute_sparsity": bool(inputs.merge_analyzer_compute_sparsity),
 				"merge_template_random_spikes_method": str(
 					inputs.merge_template_random_spikes_method
 				),
+				"merge_template_random_spikes_percentage": inputs.merge_template_random_spikes_percentage,
 				"merge_template_random_spikes_max_spikes_per_unit": inputs.merge_template_random_spikes_max_spikes_per_unit,
+				"merge_template_random_spikes_log_before_after_spike_counts": inputs.merge_template_random_spikes_log_before_after_spike_counts,
+				"merge_template_random_spikes_min_spikes_per_unit": inputs.merge_template_random_spikes_min_spikes_per_unit,
 				"merge_template_random_spikes_margin_size": inputs.merge_template_random_spikes_margin_size,
 				"merge_template_random_spikes_seed": inputs.merge_template_random_spikes_seed,
 				"merge_analyzer_n_jobs": inputs.merge_analyzer_n_jobs,

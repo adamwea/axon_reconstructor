@@ -54,9 +54,13 @@ class SpikesortInputs:
 	force_restart: bool = False
 	force_replot: bool = False
 	resume_from: str | None = None
+	merge_analyzer_compute_sparsity: bool = True
 	merge_analyzer_density_mode: str = "auto"
 	merge_template_random_spikes_method: str = "default"
+	merge_template_random_spikes_percentage: float | None = None
 	merge_template_random_spikes_max_spikes_per_unit: int | None = 500
+	merge_template_random_spikes_min_spikes_per_unit: int | None = None
+	merge_template_random_spikes_log_before_after_spike_counts: bool = False
 	merge_template_random_spikes_margin_size: int | None = None
 	merge_template_random_spikes_seed: int | None = None
 	merge_analyzer_n_jobs: int | None = None

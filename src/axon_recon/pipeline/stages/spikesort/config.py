@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import math
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,9 @@ from .models.inputs import SpikesortInputs
 
 _DEFAULT_OUTPUT_REL_ROOT = "spikesort_outputs"
 _LEGACY_OUTPUT_REL_ROOT = "stg2_spikesorting_outputs"
+
+
+LOGGER = logging.getLogger("axon_recon.spikesort.config")
 
 
 def _as_bool(value: Any, default: bool) -> bool:
@@ -122,9 +126,58 @@ def _normalize_merge_template_random_spikes_method(raw: Any) -> str:
 	if isinstance(raw, bool):
 		return ("all" if raw else "default")
 	token = str(raw or "default").strip().lower()
+	if token in {"percentage", "percent", "fraction", "proportion"}:
+		return "percentage"
 	if token in {"all", "full", "every"}:
 		return "all"
 	return "default"
+
+
+def _parse_merge_template_random_spikes_percentage(raw: Any, *, field_name: str) -> float | None:
+	if raw is None:
+		return None
+	if isinstance(raw, bool):
+		raise ValueError(f"{field_name} must be a number in the interval (0, 100]")
+
+	is_percent_token = False
+	if isinstance(raw, str):
+		text = str(raw).strip()
+		if not text:
+			return None
+		if text.endswith("%"):
+			is_percent_token = True
+			text = text[:-1].strip()
+		try:
+			value = float(text)
+		except Exception as exc:
+			raise ValueError(f"{field_name} must be numeric") from exc
+	else:
+		try:
+			value = float(raw)
+		except Exception as exc:
+			raise ValueError(f"{field_name} must be numeric") from exc
+
+	if (not math.isfinite(value)) or value <= 0.0:
+		raise ValueError(f"{field_name} must be in the interval (0, 100]")
+	if is_percent_token or value > 1.0:
+		if value > 100.0:
+			raise ValueError(f"{field_name} must be in the interval (0, 100]")
+		return float(value) / 100.0
+	return float(value)
+
+
+def _warn_legacy_merge_template_random_spikes_percentage_alias() -> None:
+	LOGGER.warning(
+		"stages.spikesort.phases.merge_units.analyzer.template_extraction.min_perc_spikes_per_unit is deprecated; "
+		"prefer random_spikes_percentage instead."
+	)
+
+
+def _warn_legacy_merge_analyzer_density_mode_alias() -> None:
+	LOGGER.warning(
+		"stages.spikesort.phases.merge_units.analyzer.template_extraction.density_mode is deprecated; "
+		"prefer sparsity.compute_sparsity and template_extraction.random_spikes_method instead."
+	)
 
 
 def _normalize_merge_analyzer_sparsity_method(raw: Any) -> str:
@@ -308,9 +361,14 @@ class SpikesortStageConfig:
 	merge_force_replot: bool
 	merge_analyzer_regenerate_on_replot: bool
 	merge_analyzer_check_if_regen_is_needed: bool
+	merge_analyzer_compute_sparsity: bool
+	# Deprecated compatibility alias; no longer used as the canonical control surface.
 	merge_analyzer_density_mode: str
 	merge_template_random_spikes_method: str
+	merge_template_random_spikes_percentage: float | None
 	merge_template_random_spikes_max_spikes_per_unit: int | None
+	merge_template_random_spikes_min_spikes_per_unit: int | None
+	merge_template_random_spikes_log_before_after_spike_counts: bool
 	merge_template_random_spikes_margin_size: int | None
 	merge_template_random_spikes_seed: int | None
 	merge_analyzer_n_jobs: int | None
@@ -1925,17 +1983,31 @@ def parse_spikesort_stage_config(
 		False,
 	)
 	slay_params = _as_optional_dict(slay_cfg.get("params", None))
-	merge_analyzer_density_mode = _normalize_merge_analyzer_density_mode(
-		_coalesce(
-			merge_analyzer_template_extraction_cfg.get("density_mode", None),
-			merge_analyzer_cfg.get("density_mode", None),
-			merge_units_phase_cfg.get("analyzer_density_mode", None),
-			merge_units_phase_cfg.get("density_mode", None),
-			"auto",
-		)
+	legacy_merge_analyzer_density_mode_raw = _coalesce(
+		merge_analyzer_template_extraction_cfg.get("density_mode", None),
+		merge_analyzer_cfg.get("density_mode", None),
+		merge_units_phase_cfg.get("analyzer_density_mode", None),
+		merge_units_phase_cfg.get("density_mode", None),
+		None,
 	)
-	merge_template_random_spikes_method = _normalize_merge_template_random_spikes_method(
-		_coalesce(
+	legacy_merge_analyzer_density_mode = None
+	if legacy_merge_analyzer_density_mode_raw is not None:
+		_warn_legacy_merge_analyzer_density_mode_alias()
+		legacy_merge_analyzer_density_mode = _normalize_merge_analyzer_density_mode(
+			legacy_merge_analyzer_density_mode_raw
+		)
+	merge_analyzer_compute_sparsity_raw = _coalesce(
+		merge_analyzer_sparsity_cfg.get("compute_sparsity", None),
+		merge_analyzer_cfg.get("compute_sparsity", None),
+		merge_units_phase_cfg.get("analyzer_compute_sparsity", None),
+		merge_units_phase_cfg.get("compute_sparsity", None),
+		None,
+	)
+	if merge_analyzer_compute_sparsity_raw is None:
+		merge_analyzer_compute_sparsity = bool(legacy_merge_analyzer_density_mode != "dense")
+	else:
+		merge_analyzer_compute_sparsity = _as_bool(merge_analyzer_compute_sparsity_raw, True)
+	merge_template_random_spikes_method_explicit_raw = _coalesce(
 			merge_analyzer_template_extraction_cfg.get("random_spikes_method", None),
 			merge_analyzer_template_extraction_cfg.get("template_random_spikes_method", None),
 			merge_analyzer_template_extraction_cfg.get("method", None),
@@ -1943,10 +2015,55 @@ def parse_spikesort_stage_config(
 			merge_analyzer_cfg.get("random_spikes_method", None),
 			merge_units_phase_cfg.get("template_random_spikes_method", None),
 			merge_units_phase_cfg.get("random_spikes_method", None),
+			None,
+		)
+	merge_template_random_spikes_method_raw = _coalesce(
+			merge_template_random_spikes_method_explicit_raw,
+			("all" if legacy_merge_analyzer_density_mode == "dense" else None),
 			"default",
 		)
+	merge_template_random_spikes_method = _normalize_merge_template_random_spikes_method(
+		merge_template_random_spikes_method_raw
 	)
-	merge_template_random_spikes_max_spikes_per_unit = _as_optional_int(
+	merge_template_random_spikes_percentage_raw = _coalesce(
+		merge_analyzer_template_extraction_cfg.get("random_spikes_percentage", None),
+		merge_analyzer_template_extraction_cfg.get("template_random_spikes_percentage", None),
+		merge_analyzer_cfg.get("template_random_spikes_percentage", None),
+		merge_analyzer_cfg.get("random_spikes_percentage", None),
+		merge_units_phase_cfg.get("template_random_spikes_percentage", None),
+		merge_units_phase_cfg.get("random_spikes_percentage", None),
+		None,
+	)
+	legacy_merge_template_random_spikes_percentage_raw = _coalesce(
+		merge_analyzer_template_extraction_cfg.get("min_perc_spikes_per_unit", None),
+		merge_analyzer_cfg.get("min_perc_spikes_per_unit", None),
+		merge_units_phase_cfg.get("min_perc_spikes_per_unit", None),
+		None,
+	)
+	merge_template_random_spikes_percentage = None
+	if merge_template_random_spikes_percentage_raw is not None:
+		merge_template_random_spikes_percentage = _parse_merge_template_random_spikes_percentage(
+			merge_template_random_spikes_percentage_raw,
+			field_name="random_spikes_percentage",
+		)
+	elif legacy_merge_template_random_spikes_percentage_raw is not None:
+		_warn_legacy_merge_template_random_spikes_percentage_alias()
+		merge_template_random_spikes_percentage = _parse_merge_template_random_spikes_percentage(
+			legacy_merge_template_random_spikes_percentage_raw,
+			field_name="min_perc_spikes_per_unit",
+		)
+	if merge_template_random_spikes_method == "all" and merge_template_random_spikes_percentage is not None:
+		LOGGER.warning(
+			"Merge analyzer random_spikes_percentage is ignored when random_spikes_method=all."
+		)
+		merge_template_random_spikes_percentage = None
+	elif merge_template_random_spikes_method == "default" and merge_template_random_spikes_percentage is not None:
+		merge_template_random_spikes_method = "percentage"
+	elif merge_template_random_spikes_method == "percentage" and merge_template_random_spikes_percentage is None:
+		raise ValueError(
+			"Merge analyzer random_spikes_method=percentage requires random_spikes_percentage."
+		)
+	merge_template_random_spikes_max_spikes_per_unit_raw = _as_optional_int(
 		_coalesce(
 			merge_analyzer_template_extraction_cfg.get("random_spikes_max_spikes_per_unit", None),
 			merge_analyzer_template_extraction_cfg.get("template_random_spikes_max_spikes_per_unit", None),
@@ -1957,14 +2074,57 @@ def parse_spikesort_stage_config(
 			merge_units_phase_cfg.get("template_random_spikes_max_spikes_per_unit", None),
 			merge_units_phase_cfg.get("random_spikes_max_spikes_per_unit", None),
 			merge_units_phase_cfg.get("max_spikes_per_unit", None),
-			500,
+			None,
 		)
 	)
+	merge_template_random_spikes_max_spikes_per_unit = (
+		int(merge_template_random_spikes_max_spikes_per_unit_raw)
+		if (
+			merge_template_random_spikes_max_spikes_per_unit_raw is not None
+			and int(merge_template_random_spikes_max_spikes_per_unit_raw) > 0
+		)
+		else None
+	)
 	if (
-		merge_template_random_spikes_max_spikes_per_unit is None
-		or int(merge_template_random_spikes_max_spikes_per_unit) <= 0
+		merge_template_random_spikes_method != "percentage"
+		and merge_template_random_spikes_max_spikes_per_unit is None
 	):
 		merge_template_random_spikes_max_spikes_per_unit = 500
+	merge_template_random_spikes_min_spikes_per_unit = _as_optional_positive_int(
+		_coalesce(
+			merge_analyzer_template_extraction_cfg.get("min_spikes_per_unit", None),
+			merge_analyzer_template_extraction_cfg.get("template_random_spikes_min_spikes_per_unit", None),
+			merge_analyzer_template_extraction_cfg.get("random_spikes_min_spikes_per_unit", None),
+			merge_analyzer_cfg.get("template_random_spikes_min_spikes_per_unit", None),
+			merge_analyzer_cfg.get("random_spikes_min_spikes_per_unit", None),
+			merge_analyzer_cfg.get("min_spikes_per_unit", None),
+			merge_units_phase_cfg.get("template_random_spikes_min_spikes_per_unit", None),
+			merge_units_phase_cfg.get("random_spikes_min_spikes_per_unit", None),
+			merge_units_phase_cfg.get("min_spikes_per_unit", None),
+			None,
+		)
+	)
+	merge_template_random_spikes_log_before_after_spike_counts = _as_bool(
+		_coalesce(
+			merge_analyzer_template_extraction_cfg.get("log_before_after_spike_counts", None),
+			merge_analyzer_template_extraction_cfg.get(
+				"template_random_spikes_log_before_after_spike_counts",
+				None,
+			),
+			merge_analyzer_template_extraction_cfg.get(
+				"random_spikes_log_before_after_spike_counts",
+				None,
+			),
+			merge_analyzer_cfg.get("template_random_spikes_log_before_after_spike_counts", None),
+			merge_analyzer_cfg.get("random_spikes_log_before_after_spike_counts", None),
+			merge_analyzer_cfg.get("log_before_after_spike_counts", None),
+			merge_units_phase_cfg.get("template_random_spikes_log_before_after_spike_counts", None),
+			merge_units_phase_cfg.get("random_spikes_log_before_after_spike_counts", None),
+			merge_units_phase_cfg.get("log_before_after_spike_counts", None),
+			False,
+		),
+		False,
+	)
 	merge_template_random_spikes_margin_size = _as_optional_int(
 		_coalesce(
 			merge_analyzer_template_extraction_cfg.get("random_spikes_margin_size", None),
@@ -2357,12 +2517,26 @@ def parse_spikesort_stage_config(
 		merge_force_replot=bool(merge_force_replot),
 		merge_analyzer_regenerate_on_replot=bool(merge_analyzer_regenerate_on_replot),
 		merge_analyzer_check_if_regen_is_needed=bool(merge_analyzer_check_if_regen_is_needed),
-		merge_analyzer_density_mode=str(merge_analyzer_density_mode),
+		merge_analyzer_compute_sparsity=bool(merge_analyzer_compute_sparsity),
+		merge_analyzer_density_mode=str(legacy_merge_analyzer_density_mode or "auto"),
 		merge_template_random_spikes_method=str(merge_template_random_spikes_method),
+		merge_template_random_spikes_percentage=(
+			float(merge_template_random_spikes_percentage)
+			if merge_template_random_spikes_percentage is not None
+			else None
+		),
 		merge_template_random_spikes_max_spikes_per_unit=(
 			int(merge_template_random_spikes_max_spikes_per_unit)
 			if merge_template_random_spikes_max_spikes_per_unit is not None
 			else None
+		),
+		merge_template_random_spikes_min_spikes_per_unit=(
+			int(merge_template_random_spikes_min_spikes_per_unit)
+			if merge_template_random_spikes_min_spikes_per_unit is not None
+			else None
+		),
+		merge_template_random_spikes_log_before_after_spike_counts=bool(
+			merge_template_random_spikes_log_before_after_spike_counts
 		),
 		merge_template_random_spikes_margin_size=(
 			int(merge_template_random_spikes_margin_size)
@@ -2645,9 +2819,13 @@ def build_spikesort_inputs_for_target(
 		force_restart=stage_config.force_restart,
 		force_replot=stage_config.force_replot,
 		resume_from=stage_config.resume_from,
+		merge_analyzer_compute_sparsity=stage_config.merge_analyzer_compute_sparsity,
 		merge_analyzer_density_mode=stage_config.merge_analyzer_density_mode,
 		merge_template_random_spikes_method=stage_config.merge_template_random_spikes_method,
+		merge_template_random_spikes_percentage=stage_config.merge_template_random_spikes_percentage,
 		merge_template_random_spikes_max_spikes_per_unit=stage_config.merge_template_random_spikes_max_spikes_per_unit,
+		merge_template_random_spikes_min_spikes_per_unit=stage_config.merge_template_random_spikes_min_spikes_per_unit,
+		merge_template_random_spikes_log_before_after_spike_counts=stage_config.merge_template_random_spikes_log_before_after_spike_counts,
 		merge_template_random_spikes_margin_size=stage_config.merge_template_random_spikes_margin_size,
 		merge_template_random_spikes_seed=stage_config.merge_template_random_spikes_seed,
 		merge_analyzer_n_jobs=stage_config.merge_analyzer_n_jobs,
@@ -2748,9 +2926,13 @@ def load_spikesort_inputs_from_runtime(
 		force_restart=stage_cfg.force_restart,
 		force_replot=stage_cfg.force_replot,
 		resume_from=stage_cfg.resume_from,
+		merge_analyzer_compute_sparsity=stage_cfg.merge_analyzer_compute_sparsity,
 		merge_analyzer_density_mode=stage_cfg.merge_analyzer_density_mode,
 		merge_template_random_spikes_method=stage_cfg.merge_template_random_spikes_method,
+		merge_template_random_spikes_percentage=stage_cfg.merge_template_random_spikes_percentage,
 		merge_template_random_spikes_max_spikes_per_unit=stage_cfg.merge_template_random_spikes_max_spikes_per_unit,
+		merge_template_random_spikes_min_spikes_per_unit=stage_cfg.merge_template_random_spikes_min_spikes_per_unit,
+		merge_template_random_spikes_log_before_after_spike_counts=stage_cfg.merge_template_random_spikes_log_before_after_spike_counts,
 		merge_template_random_spikes_margin_size=stage_cfg.merge_template_random_spikes_margin_size,
 		merge_template_random_spikes_seed=stage_cfg.merge_template_random_spikes_seed,
 		merge_analyzer_n_jobs=stage_cfg.merge_analyzer_n_jobs,

@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
+import pytest
+
 from axon_reconstructor.runtime_config import RuntimeConfig
 from axon_recon.pipeline.stages.spikesort.config import (
     load_spikesort_inputs_from_runtime,
@@ -85,9 +87,12 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.merge_force_replot is False
     assert parsed.merge_analyzer_regenerate_on_replot is True
     assert parsed.merge_analyzer_check_if_regen_is_needed is True
-    assert parsed.merge_analyzer_density_mode == "auto"
+    assert parsed.merge_analyzer_compute_sparsity is True
     assert parsed.merge_template_random_spikes_method == "default"
+    assert parsed.merge_template_random_spikes_percentage is None
     assert parsed.merge_template_random_spikes_max_spikes_per_unit == 500
+    assert parsed.merge_template_random_spikes_min_spikes_per_unit is None
+    assert parsed.merge_template_random_spikes_log_before_after_spike_counts is False
     assert parsed.merge_template_random_spikes_margin_size is None
     assert parsed.merge_template_random_spikes_seed is None
     assert parsed.merge_analyzer_n_jobs is None
@@ -326,6 +331,117 @@ def test_parse_spikesort_stage_config_parses_sectioned_stage_layout() -> None:
     assert parsed.auto_merge_template_diff_thresholds == (0.05, 0.15, 0.25)
 
 
+def test_parse_spikesort_stage_config_promotes_percentage_sampling_to_effective_method(caplog) -> None:
+    caplog.set_level("WARNING")
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "analyzer": {
+                                "template_extraction": {
+                                    "random_spikes_percentage": 75,
+                                    "min_spikes_per_unit": 1000,
+                                    "log_before_after_spike_counts": True,
+                                    "max_spikes_per_unit": 5000,
+                                    "seed": 7,
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_template_random_spikes_method == "percentage"
+    assert parsed.merge_template_random_spikes_percentage == pytest.approx(0.75)
+    assert parsed.merge_template_random_spikes_min_spikes_per_unit == 1000
+    assert parsed.merge_template_random_spikes_log_before_after_spike_counts is True
+    assert parsed.merge_template_random_spikes_max_spikes_per_unit == 5000
+    assert parsed.merge_template_random_spikes_seed == 7
+    assert not caplog.records
+
+
+def test_parse_spikesort_stage_config_accepts_legacy_percentage_alias_with_warning(caplog) -> None:
+    caplog.set_level("WARNING")
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "analyzer": {
+                                "template_extraction": {
+                                    "min_perc_spikes_per_unit": 75,
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_template_random_spikes_method == "percentage"
+    assert parsed.merge_template_random_spikes_percentage == pytest.approx(0.75)
+    assert any("min_perc_spikes_per_unit is deprecated" in record.getMessage() for record in caplog.records)
+
+
+def test_parse_spikesort_stage_config_percentage_mode_does_not_impose_default_max_cap() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "analyzer": {
+                                "template_extraction": {
+                                    "random_spikes_percentage": 75,
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_template_random_spikes_method == "percentage"
+    assert parsed.merge_template_random_spikes_percentage == pytest.approx(0.75)
+    assert parsed.merge_template_random_spikes_max_spikes_per_unit is None
+
+
+def test_parse_spikesort_stage_config_rejects_invalid_percentage_sampling_values() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "analyzer": {
+                                "template_extraction": {
+                                    "random_spikes_percentage": 150,
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    with pytest.raises(ValueError, match="random_spikes_percentage"):
+        parse_spikesort_stage_config(runtime_config=cfg)
+
+
 def test_parse_spikesort_stage_config_phase_blocks_take_precedence() -> None:
     cfg = RuntimeConfig(
         {
@@ -465,7 +581,7 @@ def test_parse_spikesort_stage_config_reads_merge_analyzer_policy_knobs() -> Non
                             "analyzer": {
                                 "regenerate_on_replot": False,
                                 "check_if_regen_is_needed": False,
-                                "density_mode": "dense",
+                                "compute_sparsity": False,
                                 "template_random_spikes_method": "all",
                                 "max_spikes_per_unit": 321,
                                 "margin_size": 17,
@@ -491,7 +607,7 @@ def test_parse_spikesort_stage_config_reads_merge_analyzer_policy_knobs() -> Non
 
     assert parsed.merge_analyzer_regenerate_on_replot is False
     assert parsed.merge_analyzer_check_if_regen_is_needed is False
-    assert parsed.merge_analyzer_density_mode == "dense"
+    assert parsed.merge_analyzer_compute_sparsity is False
     assert parsed.merge_template_random_spikes_method == "all"
     assert parsed.merge_template_random_spikes_max_spikes_per_unit == 321
     assert parsed.merge_template_random_spikes_margin_size == 17
@@ -520,13 +636,13 @@ def test_parse_spikesort_stage_config_reads_grouped_merge_analyzer_policy_knobs(
                                 "n_jobs": 3,
                                 "chunk_duration": "0.25s",
                                 "template_extraction": {
-                                    "density_mode": "dense",
                                     "random_spikes_method": "all",
                                     "max_spikes_per_unit": 321,
                                     "margin_size": 17,
                                     "seed": 42,
                                 },
                                 "sparsity": {
+                                    "compute_sparsity": False,
                                     "method": "best_channels",
                                     "num_channels": 9,
                                     "peak_sign": "both",
@@ -549,7 +665,7 @@ def test_parse_spikesort_stage_config_reads_grouped_merge_analyzer_policy_knobs(
 
     assert parsed.merge_analyzer_regenerate_on_replot is False
     assert parsed.merge_analyzer_check_if_regen_is_needed is False
-    assert parsed.merge_analyzer_density_mode == "dense"
+    assert parsed.merge_analyzer_compute_sparsity is False
     assert parsed.merge_template_random_spikes_method == "all"
     assert parsed.merge_template_random_spikes_max_spikes_per_unit == 321
     assert parsed.merge_template_random_spikes_margin_size == 17
@@ -563,6 +679,36 @@ def test_parse_spikesort_stage_config_reads_grouped_merge_analyzer_policy_knobs(
     assert parsed.merge_analyzer_waveforms_ms_before == 0.75
     assert parsed.merge_analyzer_waveforms_ms_after == 1.75
     assert parsed.merge_analyzer_waveforms_dtype == "float32"
+
+
+def test_parse_spikesort_stage_config_compute_sparsity_false_disables_sparsity_masking() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_units": {
+                            "analyzer": {
+                                "template_extraction": {
+                                },
+                                "sparsity": {
+                                    "compute_sparsity": False,
+                                    "method": "best_channels",
+                                    "num_channels": 11,
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_analyzer_compute_sparsity is False
+    assert parsed.merge_analyzer_sparsity_method == "best_channels"
+    assert parsed.merge_analyzer_sparsity_num_channels == 11
 
 
 def test_parse_spikesort_stage_config_reads_legacy_merge_analyzer_regenereate_on_replot_key() -> None:
@@ -1581,7 +1727,7 @@ def test_load_spikesort_inputs_from_runtime_defaults_and_overrides(tmp_path: Pat
     assert inputs.fixed_y is True
     assert inputs.force_restart is False
     assert inputs.force_replot is True
-    assert inputs.merge_analyzer_density_mode == "auto"
+    assert inputs.merge_analyzer_compute_sparsity is True
     assert inputs.merge_template_random_spikes_method == "default"
     assert inputs.merge_template_random_spikes_max_spikes_per_unit == 500
     assert inputs.merge_analyzer_sparsity_peak_sign == "neg"
@@ -1665,12 +1811,12 @@ def test_load_spikesort_inputs_from_runtime_reads_grouped_merge_analyzer_policy_
                 "          n_jobs: 2",
                 "          chunk_duration: 0.5s",
                 "          template_extraction:",
-                "            density_mode: dense",
                 "            random_spikes_method: all",
                 "            max_spikes_per_unit: 321",
                 "            margin_size: 11",
                 "            seed: 7",
                 "          sparsity:",
+                "            compute_sparsity: false",
                 "            method: threshold",
                 "            threshold: 4.5",
                 "            peak_sign: both",
@@ -1687,7 +1833,7 @@ def test_load_spikesort_inputs_from_runtime_reads_grouped_merge_analyzer_policy_
 
     inputs = load_spikesort_inputs_from_runtime(config_path=str(runtime_path))
 
-    assert inputs.merge_analyzer_density_mode == "dense"
+    assert inputs.merge_analyzer_compute_sparsity is False
     assert inputs.merge_template_random_spikes_method == "all"
     assert inputs.merge_template_random_spikes_max_spikes_per_unit == 321
     assert inputs.merge_template_random_spikes_margin_size == 11
@@ -1701,3 +1847,96 @@ def test_load_spikesort_inputs_from_runtime_reads_grouped_merge_analyzer_policy_
     assert inputs.merge_analyzer_waveforms_ms_before == 0.8
     assert inputs.merge_analyzer_waveforms_ms_after == 1.6
     assert inputs.merge_analyzer_waveforms_dtype == "float32"
+
+
+def test_load_spikesort_inputs_from_runtime_reads_percentage_sampling_threshold_knob(tmp_path: Path) -> None:
+    data_path = tmp_path / "data.yml"
+    data_path.write_text(
+        dedent(
+            """
+            output_root: /tmp/out
+            datasets:
+              - raw_data_h5_path: /tmp/input.raw.h5
+                include_in_runtime: true
+                wells:
+                  - well_id: well006
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "runtime.yml"
+    runtime_path.write_text(
+        "\n".join(
+            [
+                f"data: {data_path}",
+                "stages:",
+                "  spikesort:",
+                "    phases:",
+                "      merge_units:",
+                "        analyzer:",
+                "          template_extraction:",
+                "            random_spikes_percentage: 75",
+                "            min_spikes_per_unit: 1000",
+                "            log_before_after_spike_counts: true",
+                "            max_spikes_per_unit: 5000",
+                "            seed: 7",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    inputs = load_spikesort_inputs_from_runtime(config_path=str(runtime_path))
+
+    assert inputs.merge_template_random_spikes_method == "percentage"
+    assert inputs.merge_template_random_spikes_percentage == pytest.approx(0.75)
+    assert inputs.merge_template_random_spikes_min_spikes_per_unit == 1000
+    assert inputs.merge_template_random_spikes_log_before_after_spike_counts is True
+    assert inputs.merge_template_random_spikes_max_spikes_per_unit == 5000
+    assert inputs.merge_template_random_spikes_seed == 7
+
+
+def test_load_spikesort_inputs_from_runtime_percentage_mode_keeps_max_cap_unset_when_omitted(
+    tmp_path: Path,
+) -> None:
+    data_path = tmp_path / "data.yml"
+    data_path.write_text(
+        dedent(
+            """
+            output_root: /tmp/out
+            datasets:
+              - raw_data_h5_path: /tmp/input.raw.h5
+                include_in_runtime: true
+                wells:
+                  - well_id: well006
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "runtime.yml"
+    runtime_path.write_text(
+        "\n".join(
+            [
+                f"data: {data_path}",
+                "stages:",
+                "  spikesort:",
+                "    phases:",
+                "      merge_units:",
+                "        analyzer:",
+                "          template_extraction:",
+                "            random_spikes_percentage: 75",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    inputs = load_spikesort_inputs_from_runtime(config_path=str(runtime_path))
+
+    assert inputs.merge_template_random_spikes_method == "percentage"
+    assert inputs.merge_template_random_spikes_percentage == pytest.approx(0.75)
+    assert inputs.merge_template_random_spikes_max_spikes_per_unit is None

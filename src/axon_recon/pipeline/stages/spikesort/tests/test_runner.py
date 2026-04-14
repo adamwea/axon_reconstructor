@@ -231,6 +231,117 @@ def test_ensure_merge_analyzer_extensions_uses_all_random_spikes_method() -> Non
     )
 
 
+def test_ensure_merge_analyzer_extensions_uses_percentage_random_spikes_method() -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    class _FakeAnalyzer:
+        def __init__(self) -> None:
+            self._computed: set[str] = set()
+            self.compute_calls: list[tuple[object, dict[str, object]]] = []
+
+        def has_extension(self, name: str) -> bool:
+            return bool(name in self._computed)
+
+        def compute(self, extension_name, **kwargs):
+            self.compute_calls.append((extension_name, dict(kwargs)))
+            if isinstance(extension_name, dict):
+                raise TypeError("dict compute signature not supported in test fake")
+            if isinstance(extension_name, (list, tuple)):
+                if len(extension_name) != 1:
+                    raise AssertionError("expected single extension")
+                extension_name = extension_name[0]
+            self._computed.add(str(extension_name))
+
+    analyzer = _FakeAnalyzer()
+    computed = spikesort_runner._ensure_merge_analyzer_extensions(
+        analyzer=analyzer,
+        stage_config=SimpleNamespace(
+            merge_template_random_spikes_method="percentage",
+            merge_template_random_spikes_percentage=0.75,
+            merge_template_random_spikes_min_spikes_per_unit=1000,
+            merge_template_random_spikes_log_before_after_spike_counts=True,
+            merge_template_random_spikes_max_spikes_per_unit=5000,
+            merge_template_random_spikes_margin_size=17,
+            merge_template_random_spikes_seed=42,
+            merge_analyzer_n_jobs=2,
+            merge_analyzer_chunk_duration="0.5s",
+            merge_analyzer_waveforms_ms_before=0.75,
+            merge_analyzer_waveforms_ms_after=1.5,
+            merge_analyzer_waveforms_dtype="float32",
+            n_jobs=None,
+            chunk_duration=None,
+        ),
+        include_unit_locations=False,
+    )
+
+    assert computed == ["random_spikes", "waveforms", "templates"]
+    assert analyzer.compute_calls[0] == (
+        "random_spikes",
+        {
+            "method": "percentage",
+            "percentage": 0.75,
+            "min_spikes_per_unit": 1000,
+            "log_before_after_spike_counts": True,
+            "max_spikes_per_unit": 5000,
+            "margin_size": 17,
+            "seed": 42,
+            "n_jobs": 2,
+            "chunk_duration": "0.5s",
+        },
+    )
+
+
+def test_ensure_merge_analyzer_extensions_omits_max_cap_for_percentage_mode_when_unset() -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    class _FakeAnalyzer:
+        def __init__(self) -> None:
+            self._computed: set[str] = set()
+            self.compute_calls: list[tuple[object, dict[str, object]]] = []
+
+        def has_extension(self, name: str) -> bool:
+            return bool(name in self._computed)
+
+        def compute(self, extension_name, **kwargs):
+            self.compute_calls.append((extension_name, dict(kwargs)))
+            if isinstance(extension_name, (list, tuple)):
+                extension_name = extension_name[0]
+            self._computed.add(str(extension_name))
+
+    analyzer = _FakeAnalyzer()
+    spikesort_runner._ensure_merge_analyzer_extensions(
+        analyzer=analyzer,
+        stage_config=SimpleNamespace(
+            merge_template_random_spikes_method="percentage",
+            merge_template_random_spikes_percentage=0.75,
+            merge_template_random_spikes_max_spikes_per_unit=None,
+            merge_template_random_spikes_min_spikes_per_unit=None,
+            merge_template_random_spikes_log_before_after_spike_counts=False,
+            merge_template_random_spikes_margin_size=None,
+            merge_template_random_spikes_seed=42,
+            merge_analyzer_n_jobs=2,
+            merge_analyzer_chunk_duration="0.5s",
+            merge_analyzer_waveforms_ms_before=0.75,
+            merge_analyzer_waveforms_ms_after=1.5,
+            merge_analyzer_waveforms_dtype="float32",
+            n_jobs=None,
+            chunk_duration=None,
+        ),
+        include_unit_locations=False,
+    )
+
+    assert analyzer.compute_calls[0] == (
+        "random_spikes",
+        {
+            "method": "percentage",
+            "percentage": 0.75,
+            "seed": 42,
+            "n_jobs": 2,
+            "chunk_duration": "0.5s",
+        },
+    )
+
+
 def test_release_loaded_analyzer_extensions_clears_loaded_extensions_without_touching_disk() -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
@@ -1351,7 +1462,7 @@ def test_write_merge_template_heatmap_reports_outputs_panel_and_debug_json(tmp_p
     monkeypatch.setattr(spikesort_runner, "_write_template_amplitude_heatmap_asset", _fake_write_asset)
     monkeypatch.setattr(
         spikesort_runner,
-        "_stack_rendered_images_vertically",
+        "_stack_rendered_images_horizontally",
         lambda image_paths: (np.ones((16, 16, 3), dtype=float), None),
     )
 
@@ -1408,6 +1519,7 @@ def test_write_merge_template_heatmap_reports_outputs_panel_and_debug_json(tmp_p
     assert debug_payload.get("n_mappings_processed") == 1
     assert len(list(debug_payload.get("rows", []))) == 1
     rows = list(debug_payload.get("rows", []))
+    assert debug_payload.get("panel_layout") == "single_row"
     assert rows[0].get("pre_color_scale", {}).get("mode") == "dynamic_per_merge_group"
     assert rows[0].get("pre_color_scale", {}).get("scale") == "log"
     assert rows[0].get("pre_color_scale", {}).get("magnitude_mode") == "abs_peak"
@@ -1480,7 +1592,7 @@ def test_write_merge_template_heatmap_reports_uses_provided_analyzers_without_sn
     )
     monkeypatch.setattr(
         spikesort_runner,
-        "_stack_rendered_images_vertically",
+        "_stack_rendered_images_horizontally",
         lambda image_paths: (np.ones((16, 16, 3), dtype=float), None),
     )
 
@@ -2146,7 +2258,7 @@ def test_capture_merge_state_snapshot_uses_analyzer_sorting_if_sorter_load_fails
     assert snapshot.get("sorter", {}).get("unit_ids") == ["11", "12", "13"]
 
 
-def test_load_or_recompute_spikesort_analyzer_rebuilds_sparse_cache_when_dense_requested(
+def test_load_or_recompute_spikesort_analyzer_rebuilds_sparse_cache_when_compute_sparsity_disabled(
     tmp_path: Path, monkeypatch
 ) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
@@ -2177,7 +2289,7 @@ def test_load_or_recompute_spikesort_analyzer_rebuilds_sparse_cache_when_dense_r
         stage_output_root_dir=tmp_path,
         sorter_output_dir=tmp_path / "sorter_output",
         stage_config=SimpleNamespace(
-            merge_analyzer_density_mode="dense",
+            merge_analyzer_compute_sparsity=False,
             merge_template_random_spikes_method="default",
         ),
     )
@@ -2185,13 +2297,13 @@ def test_load_or_recompute_spikesort_analyzer_rebuilds_sparse_cache_when_dense_r
     policy = spikesort_runner._get_merge_analyzer_policy_info(analyzer)
     assert rebuilt is True
     assert rebuilt_dir == analyzer_dir
-    assert policy.get("requested_dense_analyzer") is True
+    assert policy.get("requested_compute_sparsity") is False
     assert policy.get("loaded_analyzer_had_sparsity") is True
     assert policy.get("rebuild_reason") == "loaded_sparse_analyzer"
     assert policy.get("final_analyzer_has_sparsity") is False
 
 
-def test_load_or_recompute_spikesort_analyzer_reuses_dense_cache_when_dense_requested(
+def test_load_or_recompute_spikesort_analyzer_reuses_all_channel_cache_when_compute_sparsity_disabled(
     tmp_path: Path, monkeypatch
 ) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
@@ -2219,7 +2331,7 @@ def test_load_or_recompute_spikesort_analyzer_reuses_dense_cache_when_dense_requ
         stage_output_root_dir=tmp_path,
         sorter_output_dir=tmp_path / "sorter_output",
         stage_config=SimpleNamespace(
-            merge_analyzer_density_mode="dense",
+            merge_analyzer_compute_sparsity=False,
             merge_template_random_spikes_method="default",
         ),
     )
@@ -2227,7 +2339,7 @@ def test_load_or_recompute_spikesort_analyzer_reuses_dense_cache_when_dense_requ
     policy = spikesort_runner._get_merge_analyzer_policy_info(analyzer)
     assert rebuilt is False
     assert rebuilt_dir == analyzer_dir
-    assert policy.get("requested_dense_analyzer") is True
+    assert policy.get("requested_compute_sparsity") is False
     assert policy.get("loaded_analyzer_had_sparsity") is False
     assert policy.get("reused_cached_analyzer") is True
     assert policy.get("final_analyzer_has_sparsity") is False
@@ -2261,7 +2373,7 @@ def test_recompute_sorting_analyzer_to_dir_uses_merge_sparsity_settings(tmp_path
         stage_config=SimpleNamespace(
             preprocess_concat_recording_relpath="preprocess_outputs/preprocessed_recording",
             sorter="kilosort4",
-            merge_analyzer_density_mode="auto",
+            merge_analyzer_compute_sparsity=True,
             merge_template_random_spikes_method="default",
             merge_template_random_spikes_max_spikes_per_unit=321,
             merge_template_random_spikes_margin_size=17,
@@ -2292,7 +2404,66 @@ def test_recompute_sorting_analyzer_to_dir_uses_merge_sparsity_settings(tmp_path
     assert captured_create_kwargs.get("n_jobs") == 2
     assert captured_create_kwargs.get("chunk_duration") == "0.5s"
     assert "sparse" not in captured_create_kwargs
+    assert spikesort_runner._get_merge_analyzer_policy_info(analyzer).get("requested_compute_sparsity") is True
     assert spikesort_runner._get_merge_analyzer_policy_info(analyzer).get("sparsity_method") == "best_channels"
+
+
+def test_recompute_sorting_analyzer_to_dir_disables_sparsity_when_compute_sparsity_false(tmp_path: Path, monkeypatch) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    captured_create_kwargs: dict[str, object] = {}
+
+    class _FakeSI:
+        def create_sorting_analyzer(self, **kwargs):
+            captured_create_kwargs.update(kwargs)
+            return SimpleNamespace(sparsity=None)
+
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_load_preprocessed_recording_from_dir",
+        lambda **kwargs: "recording",
+    )
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_load_sorting_from_sorter_output_dir",
+        lambda **kwargs: "sorting",
+    )
+
+    analyzer, analyzer_dir = spikesort_runner._recompute_sorting_analyzer_to_dir(
+        si_module=_FakeSI(),
+        well_out_dir=tmp_path,
+        sorter_output_dir=tmp_path / "sorter_output",
+        stage_config=SimpleNamespace(
+            preprocess_concat_recording_relpath="preprocess_outputs/preprocessed_recording",
+            sorter="kilosort4",
+            merge_analyzer_compute_sparsity=False,
+            merge_template_random_spikes_method="default",
+            merge_template_random_spikes_max_spikes_per_unit=321,
+            merge_template_random_spikes_margin_size=17,
+            merge_template_random_spikes_seed=42,
+            merge_analyzer_n_jobs=2,
+            merge_analyzer_chunk_duration="0.5s",
+            merge_analyzer_sparsity_method="best_channels",
+            merge_analyzer_sparsity_radius_um=111.0,
+            merge_analyzer_sparsity_num_channels=8,
+            merge_analyzer_sparsity_threshold=3.5,
+            merge_analyzer_sparsity_peak_sign="both",
+            merge_analyzer_sparsity_num_spikes_for_sparsity=222,
+            merge_analyzer_sparsity_by_property=None,
+            merge_analyzer_waveforms_ms_before=0.75,
+            merge_analyzer_waveforms_ms_after=1.75,
+            merge_analyzer_waveforms_dtype="float32",
+            n_jobs=None,
+            chunk_duration=None,
+        ),
+        analyzer_dir=tmp_path / "analyzer_output",
+    )
+
+    assert analyzer_dir == (tmp_path / "analyzer_output").resolve()
+    assert captured_create_kwargs.get("sparse") is False
+    assert "method" not in captured_create_kwargs
+    assert "num_channels" not in captured_create_kwargs
+    assert spikesort_runner._get_merge_analyzer_policy_info(analyzer).get("requested_compute_sparsity") is False
 
 
 def test_capture_merge_state_snapshot_records_analyzer_policy_fields(tmp_path: Path, monkeypatch) -> None:
@@ -2344,8 +2515,11 @@ def test_capture_merge_state_snapshot_records_analyzer_policy_fields(tmp_path: P
         stage_config=SimpleNamespace(
             sorter="kilosort4",
             slay_sorter_output_relpath=None,
-            merge_analyzer_density_mode="dense",
-            merge_template_random_spikes_method="all",
+            merge_analyzer_compute_sparsity=False,
+            merge_template_random_spikes_method="percentage",
+            merge_template_random_spikes_percentage=0.75,
+            merge_template_random_spikes_min_spikes_per_unit=1000,
+            merge_template_random_spikes_log_before_after_spike_counts=True,
             merge_template_random_spikes_max_spikes_per_unit=321,
             merge_template_random_spikes_margin_size=17,
             merge_template_random_spikes_seed=42,
@@ -2369,8 +2543,14 @@ def test_capture_merge_state_snapshot_records_analyzer_policy_fields(tmp_path: P
         allow_analyzer_recompute=True,
     )
 
-    assert snapshot.get("analyzer", {}).get("requested_dense_analyzer") is True
-    assert snapshot.get("analyzer", {}).get("requested_template_random_spikes_method") == "all"
+    assert snapshot.get("analyzer", {}).get("requested_compute_sparsity") is False
+    assert snapshot.get("analyzer", {}).get("requested_template_random_spikes_method") == "percentage"
+    assert snapshot.get("analyzer", {}).get("requested_template_random_spikes_percentage") == pytest.approx(0.75)
+    assert (
+        snapshot.get("analyzer", {}).get("requested_template_random_spikes_log_before_after_spike_counts")
+        is True
+    )
+    assert snapshot.get("analyzer", {}).get("requested_template_random_spikes_min_spikes_per_unit") == 1000
     assert snapshot.get("analyzer", {}).get("requested_template_random_spikes_max_spikes_per_unit") == 321
     assert snapshot.get("analyzer", {}).get("requested_sparsity_method") == "best_channels"
     assert snapshot.get("analyzer", {}).get("requested_sparsity_num_channels") == 8
@@ -2382,7 +2562,525 @@ def test_capture_merge_state_snapshot_records_analyzer_policy_fields(tmp_path: P
     assert snapshot.get("analyzer", {}).get("requested_compute_n_jobs") == 2
     assert snapshot.get("analyzer", {}).get("has_sparsity") is True
     assert snapshot.get("analyzer", {}).get("loaded_analyzer_had_sparsity") is True
-    assert snapshot.get("analyzer", {}).get("dense_validation_error") == "dense_requested_but_analyzer_has_sparsity"
+    assert snapshot.get("analyzer", {}).get("sparsity_validation_error") == "compute_sparsity_disabled_but_analyzer_has_sparsity"
+
+
+def test_install_spikeinterface_random_spikes_percentage_compatibility_preserves_percentage(monkeypatch) -> None:
+    import sys
+    from types import ModuleType
+
+    import numpy as np
+
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    spikeinterface_module = ModuleType("spikeinterface")
+    core_module = ModuleType("spikeinterface.core")
+    analyzer_extension_core_module = ModuleType("spikeinterface.core.analyzer_extension_core")
+    sorting_tools_module = ModuleType("spikeinterface.core.sorting_tools")
+
+    class _FakeComputeRandomSpikes:
+        def _set_params(
+            self,
+            method="uniform",
+            max_spikes_per_unit=500,
+            margin_size=None,
+            seed=None,
+        ):
+            return {
+                "method": method,
+                "max_spikes_per_unit": max_spikes_per_unit,
+                "margin_size": margin_size,
+                "seed": seed,
+            }
+
+        def _run(self, verbose=False):
+            return None
+
+    analyzer_extension_core_module.ComputeRandomSpikes = _FakeComputeRandomSpikes
+    sorting_tools_module.random_spikes_selection = lambda *args, **kwargs: np.array([], dtype=np.int64)
+    sorting_tools_module.spike_vector_to_indices = lambda *args, **kwargs: []
+
+    monkeypatch.setitem(sys.modules, "spikeinterface", spikeinterface_module)
+    monkeypatch.setitem(sys.modules, "spikeinterface.core", core_module)
+    monkeypatch.setitem(sys.modules, "spikeinterface.core.analyzer_extension_core", analyzer_extension_core_module)
+    monkeypatch.setitem(sys.modules, "spikeinterface.core.sorting_tools", sorting_tools_module)
+
+    spikesort_runner._install_spikeinterface_random_spikes_percentage_compatibility()
+
+    params = _FakeComputeRandomSpikes()._set_params(
+        method="percentage",
+        percentage=0.75,
+        min_spikes_per_unit=1000,
+        log_before_after_spike_counts=True,
+        max_spikes_per_unit=5000,
+    )
+    assert params["method"] == "percentage"
+    assert params["max_spikes_per_unit"] == 5000
+    assert params["percentage"] == pytest.approx(0.75)
+    assert params["min_spikes_per_unit"] == 1000
+    assert params["log_before_after_spike_counts"] is True
+
+
+def test_install_spikeinterface_random_spikes_percentage_compatibility_runs_percentage_selection_without_upstream_support(
+    monkeypatch,
+    caplog,
+) -> None:
+    import sys
+    from types import ModuleType
+
+    import numpy as np
+
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    spikeinterface_module = ModuleType("spikeinterface")
+    core_module = ModuleType("spikeinterface.core")
+    analyzer_extension_core_module = ModuleType("spikeinterface.core.analyzer_extension_core")
+    sorting_tools_module = ModuleType("spikeinterface.core.sorting_tools")
+
+    class _FakeSorting:
+        unit_ids = np.array(["u0", "u1"])
+
+        def get_num_segments(self):
+            return 1
+
+        def to_spike_vector(self, concatenated=False):
+            spikes = np.array(
+                [
+                    (10, 0, 0),
+                    (20, 0, 0),
+                    (30, 0, 0),
+                    (40, 0, 0),
+                    (15, 1, 0),
+                    (25, 1, 0),
+                ],
+                dtype=[("sample_index", "int64"), ("unit_index", "int64"), ("segment_index", "int64")],
+            )
+            if concatenated:
+                return spikes
+            return [spikes]
+
+    def _fake_spike_vector_to_indices(spikes, unit_ids, absolute_index=False):
+        return [{"u0": np.array([0, 1, 2, 3]), "u1": np.array([4, 5])}]
+
+    def _old_random_spikes_selection(
+        sorting,
+        num_samples=None,
+        method="uniform",
+        max_spikes_per_unit=500,
+        margin_size=None,
+        seed=None,
+    ):
+        if method == "percentage":
+            raise AssertionError("compat path should bypass old random_spikes_selection for percentage mode")
+        return np.array([], dtype=np.int64)
+
+    class _FakeComputeRandomSpikes:
+        def __init__(self, sorting_analyzer=None):
+            self.sorting_analyzer = sorting_analyzer
+            self.data = {}
+            self.params = {}
+
+        def _set_params(
+            self,
+            method="uniform",
+            max_spikes_per_unit=500,
+            margin_size=None,
+            seed=None,
+        ):
+            return {
+                "method": method,
+                "max_spikes_per_unit": max_spikes_per_unit,
+                "margin_size": margin_size,
+                "seed": seed,
+            }
+
+        def _run(self, verbose=False):
+            raise AssertionError("compat path should replace _run for percentage mode")
+
+    analyzer_extension_core_module.ComputeRandomSpikes = _FakeComputeRandomSpikes
+    sorting_tools_module.random_spikes_selection = _old_random_spikes_selection
+    sorting_tools_module.spike_vector_to_indices = _fake_spike_vector_to_indices
+
+    monkeypatch.setitem(sys.modules, "spikeinterface", spikeinterface_module)
+    monkeypatch.setitem(sys.modules, "spikeinterface.core", core_module)
+    monkeypatch.setitem(sys.modules, "spikeinterface.core.analyzer_extension_core", analyzer_extension_core_module)
+    monkeypatch.setitem(sys.modules, "spikeinterface.core.sorting_tools", sorting_tools_module)
+
+    caplog.set_level("INFO")
+    spikesort_runner._install_spikeinterface_random_spikes_percentage_compatibility()
+
+    sorting_analyzer = SimpleNamespace(
+        sorting=_FakeSorting(),
+        rec_attributes={"num_samples": [100]},
+    )
+    extension = _FakeComputeRandomSpikes(sorting_analyzer=sorting_analyzer)
+    extension.params = extension._set_params(
+        method="percentage",
+        percentage=0.5,
+        min_spikes_per_unit=2,
+        log_before_after_spike_counts=True,
+        max_spikes_per_unit=1,
+        seed=0,
+    )
+
+    extension._run()
+
+    selected = extension.data["random_spikes_indices"]
+    assert selected.ndim == 1
+    assert selected.size == 3
+    assert np.all(np.isin(np.array([4, 5], dtype=np.int64), selected))
+    assert np.all(np.isin(selected, np.array([0, 1, 2, 3, 4, 5], dtype=np.int64)))
+    assert any(
+        "Merge analyzer random_spikes counts method=percentage" in record.getMessage()
+        for record in caplog.records
+    )
+    assert any(
+        "Merge analyzer random_spikes unit=u0 total_spikes=4 eligible_spikes=4 selected_spikes=1 selection=sampled_percentage_capped_by_max"
+        in record.getMessage()
+        for record in caplog.records
+    )
+    assert any(
+        "Merge analyzer random_spikes unit=u1 total_spikes=2 eligible_spikes=2 selected_spikes=2 selection=all_by_min_spikes_threshold"
+        in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_install_spikeinterface_random_spikes_percentage_compatibility_applies_min_spikes_floor(
+    monkeypatch,
+    caplog,
+) -> None:
+    import sys
+    from types import ModuleType
+
+    import numpy as np
+
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    spikeinterface_module = ModuleType("spikeinterface")
+    core_module = ModuleType("spikeinterface.core")
+    analyzer_extension_core_module = ModuleType("spikeinterface.core.analyzer_extension_core")
+    sorting_tools_module = ModuleType("spikeinterface.core.sorting_tools")
+
+    class _FakeSorting:
+        unit_ids = np.array(["u0", "u1"])
+
+        def get_num_segments(self):
+            return 1
+
+        def to_spike_vector(self, concatenated=False):
+            spikes = np.array(
+                [
+                    (10, 0, 0),
+                    (20, 0, 0),
+                    (30, 0, 0),
+                    (40, 0, 0),
+                    (15, 1, 0),
+                    (25, 1, 0),
+                ],
+                dtype=[("sample_index", "int64"), ("unit_index", "int64"), ("segment_index", "int64")],
+            )
+            if concatenated:
+                return spikes
+            return [spikes]
+
+    def _fake_spike_vector_to_indices(spikes, unit_ids, absolute_index=False):
+        return [{"u0": np.array([0, 1, 2, 3]), "u1": np.array([4, 5])}]
+
+    def _old_random_spikes_selection(
+        sorting,
+        num_samples=None,
+        method="uniform",
+        max_spikes_per_unit=500,
+        margin_size=None,
+        seed=None,
+    ):
+        if method == "percentage":
+            raise AssertionError("compat path should bypass old random_spikes_selection for percentage mode")
+        return np.array([], dtype=np.int64)
+
+    class _FakeComputeRandomSpikes:
+        def __init__(self, sorting_analyzer=None):
+            self.sorting_analyzer = sorting_analyzer
+            self.data = {}
+            self.params = {}
+
+        def _set_params(
+            self,
+            method="uniform",
+            max_spikes_per_unit=500,
+            margin_size=None,
+            seed=None,
+        ):
+            return {
+                "method": method,
+                "max_spikes_per_unit": max_spikes_per_unit,
+                "margin_size": margin_size,
+                "seed": seed,
+            }
+
+        def _run(self, verbose=False):
+            raise AssertionError("compat path should replace _run for percentage mode")
+
+    analyzer_extension_core_module.ComputeRandomSpikes = _FakeComputeRandomSpikes
+    sorting_tools_module.random_spikes_selection = _old_random_spikes_selection
+    sorting_tools_module.spike_vector_to_indices = _fake_spike_vector_to_indices
+
+    monkeypatch.setitem(sys.modules, "spikeinterface", spikeinterface_module)
+    monkeypatch.setitem(sys.modules, "spikeinterface.core", core_module)
+    monkeypatch.setitem(sys.modules, "spikeinterface.core.analyzer_extension_core", analyzer_extension_core_module)
+    monkeypatch.setitem(sys.modules, "spikeinterface.core.sorting_tools", sorting_tools_module)
+
+    caplog.set_level("INFO")
+    spikesort_runner._install_spikeinterface_random_spikes_percentage_compatibility()
+
+    sorting_analyzer = SimpleNamespace(
+        sorting=_FakeSorting(),
+        rec_attributes={"num_samples": [100]},
+    )
+    extension = _FakeComputeRandomSpikes(sorting_analyzer=sorting_analyzer)
+    extension.params = extension._set_params(
+        method="percentage",
+        percentage=0.25,
+        min_spikes_per_unit=2,
+        log_before_after_spike_counts=True,
+        seed=0,
+    )
+
+    assert extension.params["max_spikes_per_unit"] is None
+
+    extension._run()
+
+    selected = extension.data["random_spikes_indices"]
+    assert selected.ndim == 1
+    assert selected.size == 4
+    assert np.count_nonzero(np.isin(selected, np.array([0, 1, 2, 3], dtype=np.int64))) == 2
+    assert np.all(np.isin(np.array([4, 5], dtype=np.int64), selected))
+    assert any(
+        "Merge analyzer random_spikes unit=u0 total_spikes=4 eligible_spikes=4 selected_spikes=2 selection=min_spikes_floor"
+        in record.getMessage()
+        for record in caplog.records
+    )
+    assert any(
+        "Merge analyzer random_spikes unit=u1 total_spikes=2 eligible_spikes=2 selected_spikes=2 selection=all_by_min_spikes_threshold"
+        in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_install_spikeinterface_random_spikes_percentage_compatibility_does_not_apply_implicit_default_cap(
+    monkeypatch,
+) -> None:
+    import sys
+    from types import ModuleType
+
+    import numpy as np
+
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    spikeinterface_module = ModuleType("spikeinterface")
+    core_module = ModuleType("spikeinterface.core")
+    analyzer_extension_core_module = ModuleType("spikeinterface.core.analyzer_extension_core")
+    sorting_tools_module = ModuleType("spikeinterface.core.sorting_tools")
+
+    class _FakeSorting:
+        unit_ids = np.array(["u0"])
+
+        def get_num_segments(self):
+            return 1
+
+        def to_spike_vector(self, concatenated=False):
+            spikes = np.array(
+                [
+                    (10, 0, 0),
+                    (20, 0, 0),
+                    (30, 0, 0),
+                    (40, 0, 0),
+                ],
+                dtype=[("sample_index", "int64"), ("unit_index", "int64"), ("segment_index", "int64")],
+            )
+            if concatenated:
+                return spikes
+            return [spikes]
+
+    def _fake_spike_vector_to_indices(spikes, unit_ids, absolute_index=False):
+        return [{"u0": np.array([0, 1, 2, 3])}]
+
+    def _old_random_spikes_selection(
+        sorting,
+        num_samples=None,
+        method="uniform",
+        max_spikes_per_unit=500,
+        margin_size=None,
+        seed=None,
+    ):
+        if method == "percentage":
+            raise AssertionError("compat path should bypass old random_spikes_selection for percentage mode")
+        return np.array([], dtype=np.int64)
+
+    class _FakeComputeRandomSpikes:
+        def __init__(self, sorting_analyzer=None):
+            self.sorting_analyzer = sorting_analyzer
+            self.data = {}
+            self.params = {}
+
+        def _set_params(
+            self,
+            method="uniform",
+            max_spikes_per_unit=500,
+            margin_size=None,
+            seed=None,
+        ):
+            return {
+                "method": method,
+                "max_spikes_per_unit": max_spikes_per_unit,
+                "margin_size": margin_size,
+                "seed": seed,
+            }
+
+        def _run(self, verbose=False):
+            raise AssertionError("compat path should replace _run for percentage mode")
+
+    analyzer_extension_core_module.ComputeRandomSpikes = _FakeComputeRandomSpikes
+    sorting_tools_module.random_spikes_selection = _old_random_spikes_selection
+    sorting_tools_module.spike_vector_to_indices = _fake_spike_vector_to_indices
+
+    monkeypatch.setitem(sys.modules, "spikeinterface", spikeinterface_module)
+    monkeypatch.setitem(sys.modules, "spikeinterface.core", core_module)
+    monkeypatch.setitem(sys.modules, "spikeinterface.core.analyzer_extension_core", analyzer_extension_core_module)
+    monkeypatch.setitem(sys.modules, "spikeinterface.core.sorting_tools", sorting_tools_module)
+
+    spikesort_runner._install_spikeinterface_random_spikes_percentage_compatibility()
+
+    sorting_analyzer = SimpleNamespace(
+        sorting=_FakeSorting(),
+        rec_attributes={"num_samples": [100]},
+    )
+    extension = _FakeComputeRandomSpikes(sorting_analyzer=sorting_analyzer)
+    extension.params = extension._set_params(
+        method="percentage",
+        percentage=0.75,
+        seed=0,
+    )
+
+    assert extension.params["max_spikes_per_unit"] is None
+
+    extension._run()
+
+    selected = extension.data["random_spikes_indices"]
+    assert selected.ndim == 1
+    assert selected.size == 3
+    assert np.all(np.isin(selected, np.array([0, 1, 2, 3], dtype=np.int64)))
+
+
+def test_install_spikeinterface_random_spikes_percentage_compatibility_uses_threshold_even_with_upstream_percentage_support(
+    monkeypatch,
+) -> None:
+    import sys
+    from types import ModuleType
+
+    import numpy as np
+
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    spikeinterface_module = ModuleType("spikeinterface")
+    core_module = ModuleType("spikeinterface.core")
+    analyzer_extension_core_module = ModuleType("spikeinterface.core.analyzer_extension_core")
+    sorting_tools_module = ModuleType("spikeinterface.core.sorting_tools")
+
+    class _FakeSorting:
+        unit_ids = np.array(["u0", "u1"])
+
+        def get_num_segments(self):
+            return 1
+
+        def to_spike_vector(self, concatenated=False):
+            spikes = np.array(
+                [
+                    (10, 0, 0),
+                    (20, 0, 0),
+                    (30, 0, 0),
+                    (40, 0, 0),
+                    (15, 1, 0),
+                    (25, 1, 0),
+                ],
+                dtype=[("sample_index", "int64"), ("unit_index", "int64"), ("segment_index", "int64")],
+            )
+            if concatenated:
+                return spikes
+            return [spikes]
+
+    def _fake_spike_vector_to_indices(spikes, unit_ids, absolute_index=False):
+        return [{"u0": np.array([0, 1, 2, 3]), "u1": np.array([4, 5])}]
+
+    def _upstream_random_spikes_selection(
+        sorting,
+        num_samples=None,
+        method="uniform",
+        max_spikes_per_unit=500,
+        margin_size=None,
+        seed=None,
+        percentage=None,
+    ):
+        if method == "percentage":
+            raise AssertionError("thresholded percentage mode should use the local compat selector")
+        return np.array([], dtype=np.int64)
+
+    class _FakeComputeRandomSpikes:
+        def __init__(self, sorting_analyzer=None):
+            self.sorting_analyzer = sorting_analyzer
+            self.data = {}
+            self.params = {}
+
+        def _set_params(
+            self,
+            method="uniform",
+            max_spikes_per_unit=500,
+            margin_size=None,
+            seed=None,
+            percentage=None,
+        ):
+            return {
+                "method": method,
+                "max_spikes_per_unit": max_spikes_per_unit,
+                "margin_size": margin_size,
+                "seed": seed,
+                "percentage": percentage,
+            }
+
+        def _run(self, verbose=False):
+            raise AssertionError("compat path should replace _run when min_spikes_per_unit is set")
+
+    analyzer_extension_core_module.ComputeRandomSpikes = _FakeComputeRandomSpikes
+    sorting_tools_module.random_spikes_selection = _upstream_random_spikes_selection
+    sorting_tools_module.spike_vector_to_indices = _fake_spike_vector_to_indices
+
+    monkeypatch.setitem(sys.modules, "spikeinterface", spikeinterface_module)
+    monkeypatch.setitem(sys.modules, "spikeinterface.core", core_module)
+    monkeypatch.setitem(sys.modules, "spikeinterface.core.analyzer_extension_core", analyzer_extension_core_module)
+    monkeypatch.setitem(sys.modules, "spikeinterface.core.sorting_tools", sorting_tools_module)
+
+    spikesort_runner._install_spikeinterface_random_spikes_percentage_compatibility()
+
+    sorting_analyzer = SimpleNamespace(
+        sorting=_FakeSorting(),
+        rec_attributes={"num_samples": [100]},
+    )
+    extension = _FakeComputeRandomSpikes(sorting_analyzer=sorting_analyzer)
+    extension.params = extension._set_params(
+        method="percentage",
+        percentage=0.5,
+        min_spikes_per_unit=2,
+        max_spikes_per_unit=1,
+        seed=0,
+    )
+
+    extension._run()
+
+    selected = extension.data["random_spikes_indices"]
+    assert selected.ndim == 1
+    assert selected.size == 3
+    assert np.all(np.isin(np.array([4, 5], dtype=np.int64), selected))
 
 
 def test_capture_merge_state_snapshot_uses_provided_analyzer_object(tmp_path: Path, monkeypatch) -> None:
@@ -2411,7 +3109,7 @@ def test_capture_merge_state_snapshot_uses_provided_analyzer_object(tmp_path: Pa
         spikesort_runner._describe_merge_analyzer_policy_info(
             analyzer=analyzer,
             stage_config=SimpleNamespace(
-                merge_analyzer_density_mode="dense",
+                merge_analyzer_compute_sparsity=False,
                 merge_template_random_spikes_method="all",
             ),
             reused_cached_analyzer=True,
@@ -2436,7 +3134,7 @@ def test_capture_merge_state_snapshot_uses_provided_analyzer_object(tmp_path: Pa
         output_rel_root="spikesort_outputs",
         stage_config=SimpleNamespace(
             sorter="kilosort4",
-            merge_analyzer_density_mode="dense",
+            merge_analyzer_compute_sparsity=False,
             merge_template_random_spikes_method="all",
         ),
         sorter_output_dir=stage_output_root_dir / "sorter_output",
@@ -5598,6 +6296,173 @@ def test_run_spikesort_merge_stage_force_replot_only_uses_existing_metadata(tmp_
     assert "merge.report.unit_locations_before_after_png" in result.outputs
 
 
+def test_run_spikesort_merge_stage_force_replot_refreshes_unit_locations_from_live_workspace_analyzers(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    h5_path = tmp_path / "raw_data" / "input.raw.h5"
+    h5_path.parent.mkdir(parents=True, exist_ok=True)
+    h5_path.write_bytes(b"")
+
+    well_out_dir = tmp_path / "well001"
+    stage_output_root_dir = well_out_dir / "spikesort_outputs"
+    sorter_output_dir = stage_output_root_dir / "sorter_output"
+    sorter_output_dir.mkdir(parents=True, exist_ok=True)
+
+    merge_out_dir = stage_output_root_dir / "merge_output"
+    merge_out_dir.mkdir(parents=True, exist_ok=True)
+    pre_merge_workspace_dir = merge_out_dir / "cache" / "merge_workspace"
+    pre_merge_workspace_analyzer_dir = pre_merge_workspace_dir / "pre_merge_analyzer_output"
+    pre_merge_workspace_analyzer_dir.mkdir(parents=True, exist_ok=True)
+    post_merge_workspace_sorter_output_dir = pre_merge_workspace_dir / "sorter_output"
+    post_merge_workspace_sorter_output_dir.mkdir(parents=True, exist_ok=True)
+    post_merge_workspace_analyzer_dir = pre_merge_workspace_dir / "analyzer_output"
+    post_merge_workspace_analyzer_dir.mkdir(parents=True, exist_ok=True)
+
+    unit_diff_json = merge_out_dir / "unit_diffs_after_merge.json"
+    unit_diff_json.write_text(
+        json.dumps(
+            {
+                "before": {"analyzer": {"unit_locations_by_unit": {}}},
+                "after": {"analyzer": {"unit_locations_by_unit": {}}},
+                "applied_unit_mappings": [
+                    {
+                        "pre_unit_ids": ["1", "2"],
+                        "post_unit_id": "101",
+                    }
+                ],
+                "applied_merge_group_count": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary_json = merge_out_dir / "merge_stage_summary.json"
+    summary_json.write_text(
+        json.dumps(
+            {
+                "status": "ok",
+                "methods": [{"name": "slay", "status": "ok"}],
+                "merge_unit_diff_json": str(unit_diff_json),
+                "outputs": {
+                    "merge.report.unit_diff_json": str(unit_diff_json),
+                    "merge.pre_merge_workspace_analyzer_output_dir": str(pre_merge_workspace_analyzer_dir),
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class _FakeAnalyzer:
+        def __init__(self, label: str, unit_ids: list[int]) -> None:
+            self.label = label
+            self.unit_ids = list(unit_ids)
+            self.sparsity = None
+
+    pre_analyzer = _FakeAnalyzer("pre", [1, 2])
+    post_analyzer = _FakeAnalyzer("post", [101])
+
+    def _fail_if_called(**kwargs):
+        raise AssertionError("merge methods must not run in force_replot-only mode")
+
+    def _fake_prepare_replot_workspace_analyzer(**kwargs):
+        analyzer_dir = Path(kwargs["analyzer_dir"]).resolve()
+        if analyzer_dir == pre_merge_workspace_analyzer_dir.resolve():
+            return pre_analyzer, analyzer_dir, {"requested_compute_sparsity": False}, False, None
+        if analyzer_dir == post_merge_workspace_analyzer_dir.resolve():
+            return post_analyzer, analyzer_dir, {"requested_compute_sparsity": False}, False, None
+        raise AssertionError(f"unexpected analyzer_dir: {analyzer_dir}")
+
+    def _fake_ensure_merge_analyzer_extensions(*, analyzer, stage_config, include_unit_locations):
+        return ["unit_locations"] if include_unit_locations else []
+
+    def _fake_extract_unit_locations_from_analyzer(*, analyzer, stage_config=None):
+        if analyzer is pre_analyzer:
+            return {
+                "1": {"x_um": 10.0, "y_um": 20.0},
+                "2": {"x_um": 30.0, "y_um": 40.0},
+            }, None
+        if analyzer is post_analyzer:
+            return {
+                "101": {"x_um": 11.0, "y_um": 21.0},
+            }, None
+        raise AssertionError("unexpected analyzer")
+
+    report_calls: list[dict[str, object]] = []
+
+    def _fake_write_reports(*, merge_out_dir, before_snapshot, after_snapshot, applied_unit_mappings, stage_config):
+        report_calls.append(
+            {
+                "before_count": len(before_snapshot.get("analyzer", {}).get("unit_locations_by_unit", {})),
+                "after_count": len(after_snapshot.get("analyzer", {}).get("unit_locations_by_unit", {})),
+                "applied_mappings_count": len(list(applied_unit_mappings or [])),
+            }
+        )
+        return {
+            "status": "ok",
+            "before_unit_locations_count": 2,
+            "after_unit_locations_count": 1,
+            "outputs": {
+                "merge.report.unit_locations_before_after_png": str(
+                    merge_out_dir / "unit_locations_before_after_merge.png"
+                ),
+            },
+        }
+
+    monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
+    monkeypatch.setattr(spikesort_runner, "_run_slay_merge_method", _fail_if_called)
+    monkeypatch.setattr(spikesort_runner, "_run_auto_merge_method", _fail_if_called)
+    monkeypatch.setattr(spikesort_runner, "_import_spikeinterface_full_module", lambda: object())
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_prepare_replot_workspace_analyzer",
+        _fake_prepare_replot_workspace_analyzer,
+    )
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_ensure_merge_analyzer_extensions",
+        _fake_ensure_merge_analyzer_extensions,
+    )
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_extract_unit_locations_from_analyzer",
+        _fake_extract_unit_locations_from_analyzer,
+    )
+    monkeypatch.setattr(spikesort_runner, "_write_merge_unit_location_reports", _fake_write_reports)
+
+    stage_cfg = SimpleNamespace(
+        merge_sequence=("SLAy",),
+        merge_units_enabled=True,
+        merge_rel_output_root="merge_output",
+        merge_reports_enabled=True,
+        merge_reports_unit_diff_json_enabled=True,
+        merge_reports_unit_diff_json_relpath="unit_diffs_after_merge.json",
+        merge_reports_2panel_enabled=True,
+        merge_analyzer_regenerate_on_replot=False,
+    )
+
+    result = run_spikesort_merge_stage(
+        h5_path=h5_path,
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        output_rel_root="spikesort_outputs",
+        stage_config=stage_cfg,
+        force_restart=False,
+        force_replot=True,
+    )
+
+    summary = _read_json(result.summary_json)
+
+    assert summary.get("status") == "ok"
+    assert summary.get("replot_only") is True
+    assert summary.get("post_merge_workspace", {}).get("analyzer_built") is True
+    assert len(report_calls) == 1
+    assert report_calls[0].get("before_count") == 2
+    assert report_calls[0].get("after_count") == 1
+    assert report_calls[0].get("applied_mappings_count") == 1
+
+
 def test_run_spikesort_merge_stage_force_replot_only_reuses_existing_analyzer_when_regeneration_disabled(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -5714,8 +6579,7 @@ def test_run_spikesort_merge_stage_force_replot_only_reuses_existing_analyzer_wh
     (pre_merge_workspace_analyzer_dir / "axon_recon_merge_analyzer_policy.json").write_text(
         json.dumps(
             {
-                "density_mode": "dense",
-                "requested_dense_analyzer": True,
+                "requested_compute_sparsity": False,
                 "regenerate_on_replot": True,
                 "template_random_spikes_method": "all",
                 "sparsity_method": "radius",
@@ -5751,8 +6615,7 @@ def test_run_spikesort_merge_stage_force_replot_only_reuses_existing_analyzer_wh
                 },
                 "pre_merge_workspace": {
                     "analyzer_policy": {
-                        "density_mode": "dense",
-                        "requested_dense_analyzer": True,
+                        "requested_compute_sparsity": False,
                         "regenerate_on_replot": True,
                         "template_random_spikes_method": "all",
                     }
@@ -5790,7 +6653,7 @@ def test_run_spikesort_merge_stage_force_replot_only_reuses_existing_analyzer_wh
         merge_reports_enabled=False,
         merge_analyzer_regenerate_on_replot=True,
         merge_analyzer_check_if_regen_is_needed=True,
-        merge_analyzer_density_mode="dense",
+        merge_analyzer_compute_sparsity=False,
         merge_template_random_spikes_method="all",
     )
 
@@ -5826,8 +6689,7 @@ def test_prepare_replot_workspace_analyzer_recomputes_when_policy_changes(
     analyzer_output_dir.mkdir(parents=True, exist_ok=True)
 
     current_policy = {
-        "density_mode": "dense",
-        "requested_dense_analyzer": True,
+        "requested_compute_sparsity": False,
         "regenerate_on_replot": True,
         "template_random_spikes_method": "all",
         "sparsity_method": "radius",
@@ -5847,7 +6709,7 @@ def test_prepare_replot_workspace_analyzer_recomputes_when_policy_changes(
         "compute_chunk_duration": None,
     }
     (analyzer_output_dir / "axon_recon_merge_analyzer_policy.json").write_text(
-        json.dumps({**current_policy, "density_mode": "auto", "requested_dense_analyzer": False}),
+        json.dumps({**current_policy, "requested_compute_sparsity": True}),
         encoding="utf-8",
     )
 
@@ -5879,7 +6741,7 @@ def test_prepare_replot_workspace_analyzer_recomputes_when_policy_changes(
         well_out_dir=well_out_dir,
         sorter_output_dir=sorter_output_dir,
         stage_config=SimpleNamespace(
-            merge_analyzer_density_mode="dense",
+            merge_analyzer_compute_sparsity=False,
             merge_template_random_spikes_method="all",
             merge_analyzer_regenerate_on_replot=True,
             merge_analyzer_check_if_regen_is_needed=True,
@@ -5887,7 +6749,7 @@ def test_prepare_replot_workspace_analyzer_recomputes_when_policy_changes(
         analyzer_dir=analyzer_output_dir,
         regenerate_on_replot=True,
         check_if_regen_is_needed=True,
-        fallback_policy={**current_policy, "density_mode": "auto", "requested_dense_analyzer": False},
+        fallback_policy={**current_policy, "requested_compute_sparsity": True},
     )
 
     assert analyzer is rebuilt_analyzer
@@ -5896,7 +6758,7 @@ def test_prepare_replot_workspace_analyzer_recomputes_when_policy_changes(
     assert recompute_calls == [str(analyzer_output_dir.resolve())]
     assert regenerated is True
     assert regen_reason == "policy_changed"
-    assert policy_info.get("requested_dense_analyzer") is True
+    assert policy_info.get("requested_compute_sparsity") is False
 
 
 def test_run_spikesort_merge_stage_force_replot_only_does_not_fallback_to_applied_operations(tmp_path: Path, monkeypatch) -> None:
