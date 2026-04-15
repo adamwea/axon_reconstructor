@@ -44,6 +44,22 @@ class CircleReconConfig:
 
 
 @dataclass(frozen=True)
+class ReconstructionDiagnosticFigureConfig:
+	write_png: bool = False
+	write_svg: bool = False
+	relpath: str = "diagnostic_figure"
+	dpi: float = 300.0
+
+
+def _default_channel_selection_figure_config() -> ReconstructionDiagnosticFigureConfig:
+	return ReconstructionDiagnosticFigureConfig(relpath="diagnostic_figs/channel_selection")
+
+
+def _default_axon_reconstruction_figure_config() -> ReconstructionDiagnosticFigureConfig:
+	return ReconstructionDiagnosticFigureConfig(relpath="diagnostic_figs/axon_reconstruction")
+
+
+@dataclass(frozen=True)
 class PerUnitOutputsConfig:
 	unit_reldir: str = "units/{unit_id:04d}/"
 
@@ -77,6 +93,12 @@ class PerUnitOutputsConfig:
 
 	write_gtr_json: bool = False
 	gtr_json_relpath: str = "gtr.json"
+	channel_selection_figure: ReconstructionDiagnosticFigureConfig = field(
+		default_factory=_default_channel_selection_figure_config
+	)
+	axon_reconstruction_figure: ReconstructionDiagnosticFigureConfig = field(
+		default_factory=_default_axon_reconstruction_figure_config
+	)
 
 	write_amplitude_map_png: bool = False
 	amplitude_map_png_relpath: str = "amplitude_map.png"
@@ -142,6 +164,12 @@ class ReconstructionGenerateGtrsOutputsConfig:
 
 	write_gtr_json: bool = False
 	gtr_json_relpath: str = "gtr.json"
+	channel_selection_figure: ReconstructionDiagnosticFigureConfig = field(
+		default_factory=_default_channel_selection_figure_config
+	)
+	axon_reconstruction_figure: ReconstructionDiagnosticFigureConfig = field(
+		default_factory=_default_axon_reconstruction_figure_config
+	)
 
 
 @dataclass(frozen=True)

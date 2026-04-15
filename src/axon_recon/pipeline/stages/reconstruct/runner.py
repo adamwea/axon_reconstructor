@@ -15,6 +15,8 @@ from axon_recon.pipeline.shared.grid_sorting import (
 )
 
 from .core.generate_gtrs import run_generate_gtrs_phase as run_generate_gtrs_core_phase
+from .core.diagnostic_plots import write_unit_axon_reconstruction_diagnostic_figure
+from .core.diagnostic_plots import write_unit_channel_selection_diagnostic_figure
 from .core.plot_recons import run_plot_recons_phase as run_plot_recons_core_phase
 from .core.reconstruct import (
 	compute_branches_with_polyline,
@@ -549,6 +551,8 @@ def _run_generate_gtrs_batch(batch_inputs: _GenerateGtrsBatchInputs) -> list[Uni
 		compute_all_filters_payload_fn=compute_all_filters_payload,
 		compute_heuristics_payload_fn=compute_heuristics_payload,
 		compute_gtr_json_payload_fn=compute_gtr_json_payload,
+		write_unit_channel_selection_diagnostic_figure_fn=write_unit_channel_selection_diagnostic_figure,
+		write_unit_axon_reconstruction_diagnostic_figure_fn=write_unit_axon_reconstruction_diagnostic_figure,
 		read_json_fn=read_json,
 		write_json_fn=write_json,
 		resolve_unit_output_paths_fn=resolve_unit_output_paths,
@@ -595,6 +599,8 @@ def _run_reconstruct_generate_gtrs_batches(
 			compute_all_filters_payload_fn=compute_all_filters_payload,
 			compute_heuristics_payload_fn=compute_heuristics_payload,
 			compute_gtr_json_payload_fn=compute_gtr_json_payload,
+			write_unit_channel_selection_diagnostic_figure_fn=write_unit_channel_selection_diagnostic_figure,
+			write_unit_axon_reconstruction_diagnostic_figure_fn=write_unit_axon_reconstruction_diagnostic_figure,
 			read_json_fn=read_json,
 			write_json_fn=write_json,
 			resolve_unit_output_paths_fn=resolve_unit_output_paths,
@@ -651,8 +657,15 @@ def _run_reconstruct_generate_gtrs_batches(
 			compute_graph_tracking_fn=compute_graph_tracking,
 			compute_raw_branches_payload_fn=compute_raw_branches_payload,
 			compute_branches_with_polyline_fn=compute_branches_with_polyline,
+			compute_detection_filter_payload_fn=compute_detection_filter_payload,
+			compute_kurtosis_filter_payload_fn=compute_kurtosis_filter_payload,
+			compute_peak_std_filter_payload_fn=compute_peak_std_filter_payload,
+			compute_delay_filter_payload_fn=compute_delay_filter_payload,
+			compute_all_filters_payload_fn=compute_all_filters_payload,
 			compute_heuristics_payload_fn=compute_heuristics_payload,
 			compute_gtr_json_payload_fn=compute_gtr_json_payload,
+			write_unit_channel_selection_diagnostic_figure_fn=write_unit_channel_selection_diagnostic_figure,
+			write_unit_axon_reconstruction_diagnostic_figure_fn=write_unit_axon_reconstruction_diagnostic_figure,
 			read_json_fn=read_json,
 			write_json_fn=write_json,
 			resolve_unit_output_paths_fn=resolve_unit_output_paths,

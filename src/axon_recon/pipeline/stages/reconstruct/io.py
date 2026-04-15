@@ -80,6 +80,16 @@ def format_unit_reldir(unit_reldir: str, unit_id: Any) -> Path:
 	return Path(rendered)
 
 
+def _resolve_png_svg_relpaths(relpath: Any) -> tuple[Path, Path]:
+	base_rel = Path(str(relpath)).expanduser()
+	if base_rel.suffix:
+		png_rel = base_rel.with_suffix(".png")
+	else:
+		png_rel = base_rel.with_suffix(".png")
+	svg_rel = png_rel.with_suffix(".svg")
+	return png_rel, svg_rel
+
+
 def resolve_unit_output_paths(
 	*,
 	reconstruction_out_dir: Path,
@@ -88,12 +98,13 @@ def resolve_unit_output_paths(
 ) -> dict[str, Path]:
 	unit_rel = format_unit_reldir(per_unit_outputs.unit_reldir, unit_id)
 	unit_dir = reconstruction_out_dir / unit_rel
-	circle_rel = Path(str(per_unit_outputs.circle_recon.output.relpath)).expanduser()
-	if circle_rel.suffix:
-		circle_png_rel = circle_rel.with_suffix(".png")
-	else:
-		circle_png_rel = circle_rel.with_suffix(".png")
-	circle_svg_rel = circle_png_rel.with_suffix(".svg")
+	circle_png_rel, circle_svg_rel = _resolve_png_svg_relpaths(per_unit_outputs.circle_recon.output.relpath)
+	channel_selection_png_rel, channel_selection_svg_rel = _resolve_png_svg_relpaths(
+		per_unit_outputs.channel_selection_figure.relpath
+	)
+	axon_reconstruction_png_rel, axon_reconstruction_svg_rel = _resolve_png_svg_relpaths(
+		per_unit_outputs.axon_reconstruction_figure.relpath
+	)
 
 	return {
 		"unit_dir": unit_dir,
@@ -108,6 +119,10 @@ def resolve_unit_output_paths(
 		"heuristics_json": unit_dir / Path(str(per_unit_outputs.heuristics_relpath)).expanduser(),
 		"gtr_pkl": unit_dir / Path(str(per_unit_outputs.gtr_pkl_relpath)).expanduser(),
 		"gtr_json": unit_dir / Path(str(per_unit_outputs.gtr_json_relpath)).expanduser(),
+		"channel_selection_figure_png": unit_dir / channel_selection_png_rel,
+		"channel_selection_figure_svg": unit_dir / channel_selection_svg_rel,
+		"axon_reconstruction_figure_png": unit_dir / axon_reconstruction_png_rel,
+		"axon_reconstruction_figure_svg": unit_dir / axon_reconstruction_svg_rel,
 		"amplitude_map_png": unit_dir / Path(str(per_unit_outputs.amplitude_map_png_relpath)).expanduser(),
 		"circle_recon_png": unit_dir / circle_png_rel,
 		"circle_recon_svg": unit_dir / circle_svg_rel,

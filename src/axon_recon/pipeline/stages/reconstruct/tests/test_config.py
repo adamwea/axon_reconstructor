@@ -50,6 +50,14 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			          write_detection_filter_json: true
 			          detection_filter_relpath: filters/detect.json
 			          write_gtr_json: true
+			          diagnostic_figs:
+			            channel_selection:
+			              write_png: true
+			              relpath: figures/channel_selection
+			            axon_reconstruction:
+			              write_png: true
+			              write_svg: true
+			              relpath: figures/axon_reconstruction
 			    outputs:
 			      output_rel_root: recon_outputs
 			      cleanup_failed_unit_outputs: true
@@ -133,11 +141,21 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert inputs.phases.generate_gtrs.outputs.write_detection_filter_json is True
 	assert inputs.phases.generate_gtrs.outputs.detection_filter_relpath == "filters/detect.json"
 	assert inputs.phases.generate_gtrs.outputs.write_gtr_json is True
+	assert inputs.phases.generate_gtrs.outputs.channel_selection_figure.write_png is True
+	assert inputs.phases.generate_gtrs.outputs.channel_selection_figure.relpath == "figures/channel_selection"
+	assert inputs.phases.generate_gtrs.outputs.axon_reconstruction_figure.write_png is True
+	assert inputs.phases.generate_gtrs.outputs.axon_reconstruction_figure.write_svg is True
+	assert inputs.phases.generate_gtrs.outputs.axon_reconstruction_figure.relpath == "figures/axon_reconstruction"
 	assert inputs.per_unit_outputs.write_gtr_pkl is True
 	assert inputs.per_unit_outputs.write_detection_filter_json is True
 	assert inputs.per_unit_outputs.detection_filter_relpath == "filters/detect.json"
 	assert inputs.per_unit_outputs.write_gtr_json is True
 	assert inputs.per_unit_outputs.template_source == "merged"
+	assert inputs.per_unit_outputs.channel_selection_figure.write_png is True
+	assert inputs.per_unit_outputs.channel_selection_figure.relpath == "figures/channel_selection"
+	assert inputs.per_unit_outputs.axon_reconstruction_figure.write_png is True
+	assert inputs.per_unit_outputs.axon_reconstruction_figure.write_svg is True
+	assert inputs.per_unit_outputs.axon_reconstruction_figure.relpath == "figures/axon_reconstruction"
 	assert inputs.per_unit_outputs.write_amplitude_map_png is True
 	assert inputs.per_unit_outputs.amplitude_map_png_relpath == "maps/amplitude_map.png"
 	assert inputs.per_unit_outputs.amplitude_map_heatmap.colorbar_location == "bottomleft"
@@ -418,6 +436,13 @@ def test_load_config_reads_reconstruct_phase_blocks_and_overrides_legacy_paths(t
 			          all_filters_relpath: phase/all_filters.json
 			          write_gtr_json: true
 			          gtr_json_relpath: phase/gtr.json
+			          diagnostic_figs:
+			            channel_selection:
+			              write_png: true
+			              relpath: phase/channel_selection
+			            axon_reconstruction:
+			              write_svg: true
+			              relpath: phase/axon_reconstruction
 			        axon_velocity:
 			          enabled: true
 			          params:
@@ -457,6 +482,10 @@ def test_load_config_reads_reconstruct_phase_blocks_and_overrides_legacy_paths(t
 	assert inputs.phases.generate_gtrs.outputs.all_filters_relpath == "phase/all_filters.json"
 	assert inputs.phases.generate_gtrs.outputs.write_gtr_json is True
 	assert inputs.phases.generate_gtrs.outputs.gtr_json_relpath == "phase/gtr.json"
+	assert inputs.phases.generate_gtrs.outputs.channel_selection_figure.write_png is True
+	assert inputs.phases.generate_gtrs.outputs.channel_selection_figure.relpath == "phase/channel_selection"
+	assert inputs.phases.generate_gtrs.outputs.axon_reconstruction_figure.write_svg is True
+	assert inputs.phases.generate_gtrs.outputs.axon_reconstruction_figure.relpath == "phase/axon_reconstruction"
 	assert inputs.phases.plot_recons.enabled is True
 	assert inputs.phases.plot_recons.summary_json_relpath == "context/plot_phase.json"
 	assert inputs.phases.report_recons.enabled is True
@@ -472,6 +501,10 @@ def test_load_config_reads_reconstruct_phase_blocks_and_overrides_legacy_paths(t
 	assert inputs.per_unit_outputs.all_filters_relpath == "phase/all_filters.json"
 	assert inputs.per_unit_outputs.write_gtr_json is True
 	assert inputs.per_unit_outputs.gtr_json_relpath == "phase/gtr.json"
+	assert inputs.per_unit_outputs.channel_selection_figure.write_png is True
+	assert inputs.per_unit_outputs.channel_selection_figure.relpath == "phase/channel_selection"
+	assert inputs.per_unit_outputs.axon_reconstruction_figure.write_svg is True
+	assert inputs.per_unit_outputs.axon_reconstruction_figure.relpath == "phase/axon_reconstruction"
 	assert inputs.per_unit_outputs.circle_recon.output.write_png is True
 	assert inputs.per_unit_outputs.circle_recon.output.relpath == "phase_circle"
 	assert inputs.per_unit_outputs.circle_recon.display.color_scheme == "Set1"

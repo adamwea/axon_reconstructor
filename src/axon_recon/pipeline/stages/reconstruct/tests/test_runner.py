@@ -13,6 +13,7 @@ from axon_recon.pipeline.stages.reconstruct.io import resolve_unit_output_paths
 from axon_recon.pipeline.stages.reconstruct.models.inputs import (
 	PerUnitOutputsConfig,
 	ReconstructionAvReconsConfig,
+	ReconstructionDiagnosticFigureConfig,
 	ReconstructionGenerateGtrsPhaseConfig,
 	ReconstructionInputs,
 	ReconstructionPhasesConfig,
@@ -42,6 +43,10 @@ def test_resolve_unit_output_paths_includes_amplitude_map() -> None:
 	)
 	assert paths["amplitude_map_png"] == Path("/tmp/recon") / "units/0001" / "maps/amplitude_map.png"
 	assert paths["detection_filter_json"] == Path("/tmp/recon") / "units/0001" / "filters/detection.json"
+	assert paths["channel_selection_figure_png"] == Path("/tmp/recon") / "units/0001" / "diagnostic_figs/channel_selection.png"
+	assert paths["channel_selection_figure_svg"] == Path("/tmp/recon") / "units/0001" / "diagnostic_figs/channel_selection.svg"
+	assert paths["axon_reconstruction_figure_png"] == Path("/tmp/recon") / "units/0001" / "diagnostic_figs/axon_reconstruction.png"
+	assert paths["axon_reconstruction_figure_svg"] == Path("/tmp/recon") / "units/0001" / "diagnostic_figs/axon_reconstruction.svg"
 	assert paths["circle_recon_png"] == Path("/tmp/recon") / "units/0001" / "circle_recon.png"
 	assert paths["circle_recon_svg"] == Path("/tmp/recon") / "units/0001" / "circle_recon.svg"
 
@@ -281,6 +286,111 @@ def test_run_reconstruct_generate_gtrs_phase_writes_filter_selection_jsons(monke
 	all_filters_payload = json.loads(Path(unit_outputs["all_filters_json"]).read_text(encoding="utf-8"))
 	assert all_filters_payload["selected_channels"] == [0, 1]
 	assert all_filters_payload["filters"]["delay"]["selected_channels"] == [1]
+
+
+def test_run_reconstruct_generate_gtrs_phase_writes_diagnostic_figures(monkeypatch, tmp_path: Path) -> None:
+	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
+
+	well_out_dir = tmp_path / "well001"
+	well_out_dir.mkdir(parents=True, exist_ok=True)
+	templates_out = tmp_path / "templates_out"
+	merged = tmp_path / "templates_merged"
+	full = tmp_path / "templates_full"
+	templates_out.mkdir(parents=True, exist_ok=True)
+	merged.mkdir(parents=True, exist_ok=True)
+	full.mkdir(parents=True, exist_ok=True)
+
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"compute_mea_analysis_output_dir",
+		lambda *, output_root, data_file, well: well_out_dir,
+	)
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"_resolve_templates_dirs",
+		lambda _well_out_dir, **kwargs: (templates_out, merged, full),
+	)
+	monkeypatch.setattr(reconstruct_runner, "import_axon_velocity", lambda *, repo_root: object())
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"load_templates_for_unit",
+		lambda **kwargs: (
+			np.asarray([[-5.0, -10.0, -3.0], [-2.0, -4.0, -1.0]], dtype=float),
+			np.asarray([[0.0, 0.0], [17.5, 0.0]], dtype=float),
+			np.asarray([[-5.0, -10.0, -3.0], [-2.0, -4.0, -1.0]], dtype=float),
+			np.asarray([[0.0, 0.0], [17.5, 0.0]], dtype=float),
+			10_000.0,
+			"merged_per_unit_output",
+		),
+	)
+	monkeypatch.setattr(reconstruct_runner, "compute_graph_tracking", lambda **kwargs: SimpleNamespace())
+
+	def _write_channel_selection_figure(**kwargs):
+		output_png = kwargs.get("output_png")
+		output_svg = kwargs.get("output_svg")
+		if output_png is not None:
+			Path(output_png).parent.mkdir(parents=True, exist_ok=True)
+			Path(output_png).write_bytes(b"png")
+		if output_svg is not None:
+			Path(output_svg).parent.mkdir(parents=True, exist_ok=True)
+			Path(output_svg).write_text("<svg></svg>", encoding="utf-8")
+
+	def _write_axon_reconstruction_figure(**kwargs):
+		output_png = kwargs.get("output_png")
+		output_svg = kwargs.get("output_svg")
+		if output_png is not None:
+			Path(output_png).parent.mkdir(parents=True, exist_ok=True)
+			Path(output_png).write_bytes(b"png")
+		if output_svg is not None:
+			Path(output_svg).parent.mkdir(parents=True, exist_ok=True)
+			Path(output_svg).write_text("<svg></svg>", encoding="utf-8")
+
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"write_unit_channel_selection_diagnostic_figure",
+		_write_channel_selection_figure,
+	)
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"write_unit_axon_reconstruction_diagnostic_figure",
+		_write_axon_reconstruction_figure,
+	)
+
+	inputs = ReconstructionInputs(
+		h5_path=tmp_path / "input.raw.h5",
+		stream_id="well001",
+		mea_output_root=tmp_path,
+		output_rel_root="recon_outputs",
+		unit_ids=[1],
+		n_jobs=1,
+		per_unit_outputs=PerUnitOutputsConfig(
+			write_branches_raw_json=False,
+			write_branches_json=False,
+			write_heuristics_json=False,
+			write_gtr_pkl=True,
+			write_gtr_json=False,
+			write_amplitude_map_png=False,
+			channel_selection_figure=ReconstructionDiagnosticFigureConfig(
+				write_png=True,
+				write_svg=True,
+				relpath="diagnostics/channel_selection",
+				dpi=200.0,
+			),
+			axon_reconstruction_figure=ReconstructionDiagnosticFigureConfig(
+				write_png=True,
+				write_svg=False,
+				relpath="diagnostics/axon_reconstruction",
+				dpi=200.0,
+			),
+		),
+	)
+
+	summary = run_reconstruct_generate_gtrs_phase(inputs)
+	unit_outputs = summary["units"][0]["outputs"]
+	assert Path(unit_outputs["channel_selection_figure_png"]).exists()
+	assert Path(unit_outputs["channel_selection_figure_svg"]).exists()
+	assert Path(unit_outputs["axon_reconstruction_figure_png"]).exists()
+	assert "axon_reconstruction_figure_svg" not in unit_outputs
 
 
 def test_resolve_generate_gtrs_execution_plan_prefers_fewer_processes() -> None:

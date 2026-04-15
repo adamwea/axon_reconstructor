@@ -1367,26 +1367,40 @@ stages:
           write_heuristics_json: true
           heuristics_relpath: heuristics.json
 
-          # diagnostic figs.
-          # filters fig.
-          # column 1:
-          # - amplitude map
-          # - latency map
-          # column 2:
-          # - selected after detection filter
-          # - selected after kurtosis filter
-          # - selected after peak std filter
-          # - selected after init delay filter
-          # column 3:
-          # - selected after all filters
 
-          # heuristic fig.
-          # row 1:
-          # - h_init heuristics
-          # - h_edge heuristics
-          # row 2:
-          # - raw branches
-          # - branch velocities
+          diagnostic_figs:
+
+            # filters fig.
+            # column 1:
+            # - amplitude map
+            # - latency map
+            # column 2:
+            # - selected after detection filter
+            # - selected after kurtosis filter
+            # - selected after peak std filter
+            # - selected after init delay filter
+            # column 3:
+            # - selected after all filters
+            channel_selection:
+              write_png: true
+              write_svg: false
+              relpath: diagnostic_figs/channel_selection
+              dpi: 300
+
+            # heuristic fig.
+            # row 1:
+            # - h_init heuristics
+            # - h_edge heuristics
+            # row 2:
+            # - raw branches
+            # - branch velocities
+            axon_reconstruction:
+              write_png: true
+              write_svg: false
+              relpath: diagnostic_figs/axon_reconstruction
+              dpi: 300
+
+
 
           # GTR artifacts.
           template_source: merged # which template to use for GTR-based analyses and outputs; merged, square, full, or full_from_merged.
@@ -1458,7 +1472,7 @@ stages:
               base: template_circles # which template plot to put branch morphology on top of; circles, amplitude_map, or latency_map.
               channel_scope: nodes_and_branches # zoom scope in on channels contributing to nodes and branches, which can help focus the plot on the relevant channels for the reconstruction; other options are contributing_channels, recorded_channels, or all_channels.
               zoom_padding_percent: 12 # extra padding around selected node/branch channels used to set circle_recon viewport.
-              force_center_soma: true # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
+              force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
               branch_scope: raw # raw or clean; whether to plot all branches in branches_raw or only the cleaned branches in branches.
               unique_color_per_branch: true # whether to use a unique color for each branch, which can help visually distinguish branches in complex reconstructions; if false, all branches will be the same color.
               show_branch_labels: false # whether to draw branch ID labels on the plot, which can be useful for visually verifying branch correspondences between the plot and the branch data in the JSON outputs.

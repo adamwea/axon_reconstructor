@@ -53,6 +53,8 @@ def _resolve_generate_gtrs_outputs(inputs: ReconstructionInputs) -> Reconstructi
 		template_source=str(legacy.template_source),
 		write_gtr_json=bool(legacy.write_gtr_json),
 		gtr_json_relpath=str(legacy.gtr_json_relpath),
+		channel_selection_figure=legacy.channel_selection_figure,
+		axon_reconstruction_figure=legacy.axon_reconstruction_figure,
 	)
 
 
@@ -79,6 +81,14 @@ def _generate_outputs_ready(*, inputs: ReconstructionInputs, paths: dict[str, Pa
 		checks.append(paths["gtr_pkl"].exists())
 	if bool(phase_outputs.write_gtr_json):
 		checks.append(paths["gtr_json"].exists())
+	if bool(phase_outputs.channel_selection_figure.write_png):
+		checks.append(paths["channel_selection_figure_png"].exists())
+	if bool(phase_outputs.channel_selection_figure.write_svg):
+		checks.append(paths["channel_selection_figure_svg"].exists())
+	if bool(phase_outputs.axon_reconstruction_figure.write_png):
+		checks.append(paths["axon_reconstruction_figure_png"].exists())
+	if bool(phase_outputs.axon_reconstruction_figure.write_svg):
+		checks.append(paths["axon_reconstruction_figure_svg"].exists())
 	return all(checks) if checks else True
 
 
@@ -101,6 +111,8 @@ def run_generate_gtrs_phase(
 	compute_all_filters_payload_fn: Callable[..., Any],
 	compute_heuristics_payload_fn: Callable[..., Any],
 	compute_gtr_json_payload_fn: Callable[..., Any],
+	write_unit_channel_selection_diagnostic_figure_fn: Callable[..., None],
+	write_unit_axon_reconstruction_diagnostic_figure_fn: Callable[..., None],
 	read_json_fn: Callable[[Path], Any],
 	write_json_fn: Callable[[Path, Any], None],
 	resolve_unit_output_paths_fn: Callable[..., dict[str, Path]],
@@ -285,6 +297,33 @@ def run_generate_gtrs_phase(
 				payload = compute_gtr_json_payload_fn(unit_id=unit_id, gtr=gtr, locs_xy=gtr_locs_xy)
 				write_json_fn(paths["gtr_json"], payload)
 				unit_summary["outputs"]["gtr_json"] = str(paths["gtr_json"])
+
+			if bool(phase_outputs.channel_selection_figure.write_png) or bool(phase_outputs.channel_selection_figure.write_svg):
+				write_unit_channel_selection_diagnostic_figure_fn(
+					av=av,
+					output_png=(paths["channel_selection_figure_png"] if bool(phase_outputs.channel_selection_figure.write_png) else None),
+					output_svg=(paths["channel_selection_figure_svg"] if bool(phase_outputs.channel_selection_figure.write_svg) else None),
+					template_ch_by_t=gtr_template_ch_by_t,
+					locs_xy=gtr_locs_xy,
+					gtr=gtr,
+					dpi=float(phase_outputs.channel_selection_figure.dpi),
+				)
+				if bool(phase_outputs.channel_selection_figure.write_png):
+					unit_summary["outputs"]["channel_selection_figure_png"] = str(paths["channel_selection_figure_png"])
+				if bool(phase_outputs.channel_selection_figure.write_svg):
+					unit_summary["outputs"]["channel_selection_figure_svg"] = str(paths["channel_selection_figure_svg"])
+
+			if bool(phase_outputs.axon_reconstruction_figure.write_png) or bool(phase_outputs.axon_reconstruction_figure.write_svg):
+				write_unit_axon_reconstruction_diagnostic_figure_fn(
+					output_png=(paths["axon_reconstruction_figure_png"] if bool(phase_outputs.axon_reconstruction_figure.write_png) else None),
+					output_svg=(paths["axon_reconstruction_figure_svg"] if bool(phase_outputs.axon_reconstruction_figure.write_svg) else None),
+					gtr=gtr,
+					dpi=float(phase_outputs.axon_reconstruction_figure.dpi),
+				)
+				if bool(phase_outputs.axon_reconstruction_figure.write_png):
+					unit_summary["outputs"]["axon_reconstruction_figure_png"] = str(paths["axon_reconstruction_figure_png"])
+				if bool(phase_outputs.axon_reconstruction_figure.write_svg):
+					unit_summary["outputs"]["axon_reconstruction_figure_svg"] = str(paths["axon_reconstruction_figure_svg"])
 
 			active_logger.info(
 				"reconstruct.generate_gtrs unit %s complete: status=%s outputs=%s",

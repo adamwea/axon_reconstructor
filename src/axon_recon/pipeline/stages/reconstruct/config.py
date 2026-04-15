@@ -19,6 +19,7 @@ from .models.inputs import (
 	CircleReconDisplayConfig,
 	CircleReconOutputConfig,
 	PerUnitOutputsConfig,
+	ReconstructionDiagnosticFigureConfig,
 	ReconstructionGenerateGtrsOutputsConfig,
 	ReconstructionGenerateGtrsPhaseConfig,
 	ReconstructionGridReportsConfig,
@@ -128,6 +129,20 @@ def _normalize_reconstruct_template_source(raw: Any, default: str = "square") ->
 	return str(default)
 
 
+def _build_reconstruct_figure_output_config(
+	block: Any,
+	*,
+	default_relpath: str,
+) -> ReconstructionDiagnosticFigureConfig:
+	data = block if isinstance(block, dict) else {}
+	return ReconstructionDiagnosticFigureConfig(
+		write_png=_as_bool(data.get("write_png", False), False),
+		write_svg=_as_bool(data.get("write_svg", False), False),
+		relpath=str(data.get("relpath", default_relpath) or default_relpath).strip() or str(default_relpath),
+		dpi=float(data.get("dpi", 300.0) or 300.0),
+	)
+
+
 def _get_reconstruct_amplitude_map_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
 	stage_block = build_stage_plot_block(
 		runtime_config=runtime_config,
@@ -207,6 +222,11 @@ def parse_reconstruction_stage_config(
 	phase_generate_outputs_cfg = (
 		generate_gtrs_cfg.get("outputs", {}) if isinstance(generate_gtrs_cfg.get("outputs", {}), dict) else {}
 	)
+	phase_generate_diagnostic_figs_cfg = (
+		phase_generate_outputs_cfg.get("diagnostic_figs", {})
+		if isinstance(phase_generate_outputs_cfg.get("diagnostic_figs", {}), dict)
+		else {}
+	)
 	phase_plot_outputs_cfg = (
 		plot_recons_cfg.get("outputs", {}) if isinstance(plot_recons_cfg.get("outputs", {}), dict) else {}
 	)
@@ -214,6 +234,29 @@ def parse_reconstruction_stage_config(
 	grids_cfg = reports_cfg.get("grids", {}) if isinstance(reports_cfg.get("grids", {}), dict) else {}
 	circle_recon_grid_cfg = grids_cfg.get("circle_recon_grid", {}) if isinstance(grids_cfg.get("circle_recon_grid", {}), dict) else {}
 	per_unit_cfg = outputs_cfg.get("per_unit_outputs", {}) if isinstance(outputs_cfg.get("per_unit_outputs", {}), dict) else {}
+	legacy_diagnostic_figs_cfg = (
+		per_unit_cfg.get("diagnostic_figs", {}) if isinstance(per_unit_cfg.get("diagnostic_figs", {}), dict) else {}
+	)
+	legacy_channel_selection_fig_cfg = (
+		legacy_diagnostic_figs_cfg.get("channel_selection", {})
+		if isinstance(legacy_diagnostic_figs_cfg.get("channel_selection", {}), dict)
+		else {}
+	)
+	legacy_axon_reconstruction_fig_cfg = (
+		legacy_diagnostic_figs_cfg.get("axon_reconstruction", {})
+		if isinstance(legacy_diagnostic_figs_cfg.get("axon_reconstruction", {}), dict)
+		else {}
+	)
+	phase_channel_selection_fig_cfg = (
+		phase_generate_diagnostic_figs_cfg.get("channel_selection", {})
+		if isinstance(phase_generate_diagnostic_figs_cfg.get("channel_selection", {}), dict)
+		else {}
+	)
+	phase_axon_reconstruction_fig_cfg = (
+		phase_generate_diagnostic_figs_cfg.get("axon_reconstruction", {})
+		if isinstance(phase_generate_diagnostic_figs_cfg.get("axon_reconstruction", {}), dict)
+		else {}
+	)
 	av_cfg: dict[str, Any] = {}
 	legacy_av_cfg = stage_cfg.get("av", {})
 	if isinstance(legacy_av_cfg, dict):
@@ -247,6 +290,14 @@ def parse_reconstruction_stage_config(
 	)
 	if phase_amplitude_map_cfg:
 		amplitude_map_cfg = _deep_merge_dict(amplitude_map_cfg, dict(phase_amplitude_map_cfg))
+	channel_selection_figure_cfg = _build_reconstruct_figure_output_config(
+		_deep_merge_dict(legacy_channel_selection_fig_cfg, phase_channel_selection_fig_cfg),
+		default_relpath="diagnostic_figs/channel_selection",
+	)
+	axon_reconstruction_figure_cfg = _build_reconstruct_figure_output_config(
+		_deep_merge_dict(legacy_axon_reconstruction_fig_cfg, phase_axon_reconstruction_fig_cfg),
+		default_relpath="diagnostic_figs/axon_reconstruction",
+	)
 	generate_gtrs_outputs = ReconstructionGenerateGtrsOutputsConfig(
 		write_branches_raw_json=_as_bool(
 			phase_generate_outputs_cfg.get("write_branches_raw_json", per_unit_cfg.get("write_branches_raw_json", True)),
@@ -352,6 +403,8 @@ def parse_reconstruction_stage_config(
 		gtr_json_relpath=str(
 			phase_generate_outputs_cfg.get("gtr_json_relpath", per_unit_cfg.get("gtr_json_relpath", "gtr.json"))
 		),
+		channel_selection_figure=channel_selection_figure_cfg,
+		axon_reconstruction_figure=axon_reconstruction_figure_cfg,
 	)
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
@@ -598,6 +651,8 @@ def parse_reconstruction_stage_config(
 		template_source=str(generate_gtrs_outputs.template_source),
 		write_gtr_json=bool(generate_gtrs_outputs.write_gtr_json),
 		gtr_json_relpath=str(generate_gtrs_outputs.gtr_json_relpath),
+		channel_selection_figure=generate_gtrs_outputs.channel_selection_figure,
+		axon_reconstruction_figure=generate_gtrs_outputs.axon_reconstruction_figure,
 		write_amplitude_map_png=write_amplitude_map_png,
 		amplitude_map_png_relpath=amplitude_map_png_relpath,
 		amplitude_map_heatmap=SharedHeatmapConfig.from_block(amplitude_map_cfg),
