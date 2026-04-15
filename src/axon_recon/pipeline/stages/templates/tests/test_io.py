@@ -55,6 +55,33 @@ def test_write_materialized_unit_templates_writes_expected_files(tmp_path: Path)
 	np.testing.assert_allclose(np.load(full_dir / "full_channel_locations_xy.npy"), full_locs)
 
 
+def test_write_materialized_unit_templates_removes_full_files_when_disabled(tmp_path: Path) -> None:
+	templates_out_dir = tmp_path / "template_outputs"
+	merged_units_dir, full_channels_templates_dir = resolve_materialized_templates_dirs(
+		templates_out_dir=templates_out_dir
+	)
+
+	full_dir = full_channels_templates_dir / "unit_94"
+	full_dir.mkdir(parents=True, exist_ok=True)
+	np.save(full_dir / "full_template.npy", np.asarray([[9.0, 9.0]], dtype=float))
+	np.save(full_dir / "full_channel_locations_xy.npy", np.asarray([[0.0, 0.0]], dtype=float))
+
+	write_materialized_unit_templates(
+		merged_units_dir=merged_units_dir,
+		full_channels_templates_dir=full_channels_templates_dir,
+		unit_id=94,
+		merged_template=np.asarray([[1.0, 2.0]], dtype=float),
+		merged_locations_xy=np.asarray([[0.0, 0.0]], dtype=float),
+		full_template=np.asarray([[1.0, 2.0]], dtype=float),
+		full_locations_xy=np.asarray([[0.0, 0.0]], dtype=float),
+		write_full_template=False,
+	)
+
+	merged_dir = merged_units_dir / "unit_94"
+	assert (merged_dir / "merged_contributing_template.npy").exists()
+	assert not full_dir.exists()
+
+
 def test_materialized_source_payload_round_trip(tmp_path: Path) -> None:
 	templates_out_dir = tmp_path / "template_outputs"
 	template = np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=float)

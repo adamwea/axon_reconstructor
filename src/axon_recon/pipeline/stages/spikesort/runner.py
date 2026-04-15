@@ -1169,7 +1169,12 @@ def _prepare_replot_workspace_analyzer(
 					if not callable(load_sorting_analyzer):
 						raise RuntimeError("load_sorting_analyzer unavailable for replot analyzer reuse")
 					try:
-						analyzer_obj = load_sorting_analyzer(analyzer_dir)
+						analyzer_obj = _load_spikesort_analyzer_with_recording(
+							si_module=si_module,
+							analyzer_dir=analyzer_dir,
+							well_out_dir=well_out_dir,
+							stage_config=stage_config,
+						)
 					except Exception:
 						should_regenerate = True
 						regen_reason = "analyzer_load_failed"
@@ -1193,7 +1198,12 @@ def _prepare_replot_workspace_analyzer(
 		if analyzer_obj is None:
 			if not callable(load_sorting_analyzer):
 				raise RuntimeError("load_sorting_analyzer unavailable for replot analyzer reuse")
-			analyzer_obj = load_sorting_analyzer(analyzer_dir)
+			analyzer_obj = _load_spikesort_analyzer_with_recording(
+				si_module=si_module,
+				analyzer_dir=analyzer_dir,
+				well_out_dir=well_out_dir,
+				stage_config=stage_config,
+			)
 
 	loaded_analyzer_had_sparsity = _analyzer_has_sparsity(analyzer_obj)
 	policy_info = _describe_merge_analyzer_policy_info(
@@ -2352,6 +2362,67 @@ def _load_preprocessed_recording_from_dir(*, si_module: Any, recording_dir: Path
 		return si_module.load_extractor(recording_dir)
 
 
+def _spikesort_preprocessed_recording_relpath(stage_config: Any) -> str:
+	return str(
+		getattr(stage_config, "preprocess_concat_recording_relpath", None)
+		or "preprocess_outputs/preprocessed_recording"
+	)
+
+
+def _try_load_spikesort_preprocessed_recording(*, si_module: Any, well_out_dir: Path, stage_config: Any) -> Any | None:
+	recording_relpath = _spikesort_preprocessed_recording_relpath(stage_config)
+	recording_dir = _resolve_under_well(well_out_dir=well_out_dir, relpath=recording_relpath)
+	try:
+		return _load_preprocessed_recording_from_dir(si_module=si_module, recording_dir=recording_dir)
+	except Exception:
+		return None
+
+
+def _attach_temporary_recording_to_spikesort_analyzer_if_missing(*, analyzer: Any, recording: Any | None) -> Any:
+	if analyzer is None or recording is None:
+		return analyzer
+	try:
+		if callable(getattr(analyzer, "has_recording", None)) and bool(analyzer.has_recording()):
+			return analyzer
+	except Exception:
+		pass
+	try:
+		if callable(getattr(analyzer, "has_temporary_recording", None)) and bool(analyzer.has_temporary_recording()):
+			return analyzer
+	except Exception:
+		pass
+	setter = getattr(analyzer, "set_temporary_recording", None)
+	if not callable(setter):
+		return analyzer
+	try:
+		setter(recording)
+	except Exception:
+		LOGGER.debug("Failed to attach temporary recording to spikesort analyzer", exc_info=True)
+	return analyzer
+
+
+def _load_spikesort_analyzer_with_recording(
+	*,
+	si_module: Any,
+	analyzer_dir: Path,
+	well_out_dir: Path,
+	stage_config: Any,
+) -> Any:
+	load_sorting_analyzer = getattr(si_module, "load_sorting_analyzer", None)
+	if not callable(load_sorting_analyzer):
+		raise RuntimeError("load_sorting_analyzer unavailable")
+	analyzer = load_sorting_analyzer(analyzer_dir)
+	recording = _try_load_spikesort_preprocessed_recording(
+		si_module=si_module,
+		well_out_dir=well_out_dir,
+		stage_config=stage_config,
+	)
+	return _attach_temporary_recording_to_spikesort_analyzer_if_missing(
+		analyzer=analyzer,
+		recording=recording,
+	)
+
+
 def _is_kilosort_folder(folder: Path) -> bool:
 	return bool((folder / "spike_times.npy").exists() and (folder / "spike_clusters.npy").exists())
 
@@ -2570,10 +2641,7 @@ def _recompute_sorting_analyzer_to_dir(
 	stage_config: Any,
 	analyzer_dir: Path,
 ) -> tuple[Any, Path]:
-	recording_relpath = str(
-		getattr(stage_config, "preprocess_concat_recording_relpath", None)
-		or "preprocess_outputs/preprocessed_recording"
-	)
+	recording_relpath = _spikesort_preprocessed_recording_relpath(stage_config)
 	recording_dir = _resolve_under_well(well_out_dir=well_out_dir, relpath=recording_relpath)
 	recording = _load_preprocessed_recording_from_dir(si_module=si_module, recording_dir=recording_dir)
 	sorting = _load_sorting_from_sorter_output_dir(
@@ -2607,6 +2675,10 @@ def _recompute_sorting_analyzer_to_dir(
 			raise
 		create_kwargs.pop("sparse", None)
 		analyzer = create_sorting_analyzer(**create_kwargs)
+	analyzer = _attach_temporary_recording_to_spikesort_analyzer_if_missing(
+		analyzer=analyzer,
+		recording=recording,
+	)
 
 	policy_info = _describe_merge_analyzer_policy_info(
 		analyzer=analyzer,
@@ -2632,7 +2704,12 @@ def _load_or_recompute_spikesort_analyzer(
 	rebuild_reason: str | None = None
 	if analyzer_dir.exists() and callable(load_sorting_analyzer):
 		try:
-			analyzer = load_sorting_analyzer(analyzer_dir)
+			analyzer = _load_spikesort_analyzer_with_recording(
+				si_module=si_module,
+				analyzer_dir=analyzer_dir,
+				well_out_dir=well_out_dir,
+				stage_config=stage_config,
+			)
 			loaded_analyzer_had_sparsity = _analyzer_has_sparsity(analyzer)
 			if _merge_dense_analyzer_requested(stage_config) and loaded_analyzer_had_sparsity:
 				rebuild_reason = "loaded_sparse_analyzer"
@@ -3217,7 +3294,12 @@ def _capture_merge_state_snapshot(
 		rebuild_reason: str | None = None
 		if analyzer_dir.exists() and callable(load_sorting_analyzer):
 			try:
-				loaded_analyzer_obj = load_sorting_analyzer(analyzer_dir)
+				loaded_analyzer_obj = _load_spikesort_analyzer_with_recording(
+					si_module=si_module,
+					analyzer_dir=analyzer_dir,
+					well_out_dir=well_out_dir,
+					stage_config=stage_config,
+				)
 				loaded_analyzer_had_sparsity = _analyzer_has_sparsity(loaded_analyzer_obj)
 				if (not bool(requested_policy.get("requested_compute_sparsity", True))) and loaded_analyzer_had_sparsity:
 					rebuild_reason = "loaded_sparse_analyzer"
@@ -4277,7 +4359,13 @@ def _safe_file_token(raw: Any) -> str:
 	return (out or "unknown")
 
 
-def _load_sorting_analyzer_from_snapshot(*, si_module: Any, snapshot: dict[str, Any]) -> tuple[Any | None, str | None]:
+def _load_sorting_analyzer_from_snapshot(
+	*,
+	si_module: Any,
+	snapshot: dict[str, Any],
+	well_out_dir: Path | None = None,
+	stage_config: Any | None = None,
+) -> tuple[Any | None, str | None]:
 	load_sorting_analyzer = getattr(si_module, "load_sorting_analyzer", None)
 	if not callable(load_sorting_analyzer):
 		return None, "load_sorting_analyzer_api_unavailable"
@@ -4293,6 +4381,22 @@ def _load_sorting_analyzer_from_snapshot(*, si_module: Any, snapshot: dict[str, 
 		return None, f"analyzer_source_dir_missing:{source_dir}"
 
 	try:
+		resolved_well_out_dir = well_out_dir
+		if resolved_well_out_dir is None:
+			for parent in source_dir.parents:
+				if parent.name == "spikesort_outputs":
+					resolved_well_out_dir = parent.parent
+					break
+		if resolved_well_out_dir is not None and stage_config is not None:
+			return (
+				_load_spikesort_analyzer_with_recording(
+					si_module=si_module,
+					analyzer_dir=source_dir,
+					well_out_dir=resolved_well_out_dir,
+					stage_config=stage_config,
+				),
+				None,
+			)
 		return load_sorting_analyzer(source_dir), None
 	except Exception as exc:
 		return None, f"load_sorting_analyzer_failed:{type(exc).__name__}:{exc}"
@@ -5143,12 +5247,14 @@ def _write_merge_template_heatmap_reports(
 		before_analyzer, before_error = _load_sorting_analyzer_from_snapshot(
 			si_module=si_module,
 			snapshot=before_snapshot,
+			stage_config=stage_config,
 		)
 		loaded_before_analyzer = bool(before_analyzer is not None)
 	if after_analyzer is None:
 		after_analyzer, after_error = _load_sorting_analyzer_from_snapshot(
 			si_module=si_module,
 			snapshot=after_snapshot,
+			stage_config=stage_config,
 		)
 		loaded_after_analyzer = bool(after_analyzer is not None)
 	if before_analyzer is None or after_analyzer is None:

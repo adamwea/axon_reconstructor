@@ -98,8 +98,34 @@ def _resample_to_len(signal: np.ndarray, target_len: int) -> np.ndarray:
 	return np.interp(x_new, x_old, signal.astype(float, copy=False))
 
 
-def merge_sources_per_channel(
-	sources: list[tuple[Any, ...]],
+def _log_context_suffix(log_context: str | None) -> str:
+	context = str(log_context or "").strip()
+	if not context:
+		return ""
+	return f" [{context}]"
+
+
+def _match_kind_from_key(key: str) -> str:
+	text = str(key or "")
+	if text.startswith("eid:"):
+		return "electrode_id"
+	if text.startswith("cid:"):
+		return "channel_id"
+	return "location"
+
+
+def _count_present(values: list[Any] | None) -> int:
+	if values is None:
+		return 0
+	count = 0
+	for value in values:
+		if value is not None:
+			count += 1
+	return int(count)
+
+
+def _merge_sources_per_channel_with_stats(
+	named_sources: list[tuple[str, tuple[Any, ...]]],
 	*,
 	enable_merge: bool,
 	merge_method: str,
@@ -107,8 +133,8 @@ def merge_sources_per_channel(
 	max_waveforms_per_source_channel: int | None,
 	overlap_match_priority: tuple[str, ...],
 	location_tolerance_um: float,
-) -> tuple[np.ndarray, np.ndarray, list[Any] | None]:
-	if not sources:
+) -> tuple[np.ndarray, np.ndarray, list[Any] | None, dict[str, Any]]:
+	if not named_sources:
 		raise ValueError("No template sources to merge")
 
 	merge_method_norm = normalize_merge_method(merge_method)
@@ -120,11 +146,19 @@ def merge_sources_per_channel(
 	else:
 		parsed = int(max_waveforms_per_source_channel)
 		max_wf = None if parsed <= 0 else parsed
-	target_t = int(sources[0][0].shape[1])
+	target_t = int(np.asarray(named_sources[0][1][0], dtype=float).shape[1])
 	bucket_waveforms: dict[str, np.ndarray] = {}
 	bucket_weights: dict[str, float] = {}
 	bucket_locations: dict[str, np.ndarray] = {}
 	bucket_seen: set[str] = set()
+	bucket_contributions: dict[str, list[dict[str, Any]]] = {}
+	source_summaries: list[dict[str, Any]] = []
+	match_counts_by_priority: dict[str, int] = {"electrode_id": 0, "channel_id": 0, "location": 0}
+	channel_resolution_samples: list[dict[str, Any]] = []
+	input_channel_count = 0
+	overlap_events = 0
+	overlaps_applied = 0
+	overlaps_skipped = 0
 
 	def _location_key(xy: np.ndarray) -> str:
 		qx = int(np.rint(float(xy[0]) / loc_tol))
@@ -142,18 +176,31 @@ def merge_sources_per_channel(
 				keys.append(_location_key(loc_xy))
 		return keys
 
-	for payload in sources:
-		t_ch_by_t, locs, electrode_ids, channel_ids, source_waveform_count, _ = _unpack_source_payload(payload)
+	for source_name, payload in named_sources:
+		t_ch_by_t, locs, electrode_ids, channel_ids, source_waveform_count, sampling_rate_hz = _unpack_source_payload(payload)
+		source_summaries.append(
+			{
+				"source": str(source_name),
+				"channels": int(t_ch_by_t.shape[0]),
+				"waveform_count": int(source_waveform_count),
+				"sampling_rate_hz": sampling_rate_hz,
+				"electrode_ids_present": _count_present(electrode_ids),
+				"channel_ids_present": _count_present(channel_ids),
+			}
+		)
 		for ch in range(int(t_ch_by_t.shape[0])):
+			input_channel_count += 1
 			eid = (None if electrode_ids is None else electrode_ids[ch])
 			cid = (None if channel_ids is None else channel_ids[ch])
 			xy = np.asarray(locs[ch, :2], dtype=float)
 			keys = _channel_keys(electrode_id=eid, channel_id=cid, loc_xy=xy)
 
 			canonical_key = keys[0] if keys else _location_key(xy)
-			for k in keys:
-				if k in bucket_seen:
-					canonical_key = k
+			matched_by: str | None = None
+			for key in keys:
+				if key in bucket_seen:
+					canonical_key = key
+					matched_by = _match_kind_from_key(key)
 					break
 
 			wave = _resample_to_len(np.asarray(t_ch_by_t[ch, :], dtype=float), target_t)
@@ -163,16 +210,43 @@ def merge_sources_per_channel(
 				source_count = max(1, int(source_waveform_count))
 				weight = float(source_count if max_wf is None else min(max_wf, source_count))
 
+			resolution_record: dict[str, Any] = {
+				"source": str(source_name),
+				"channel_index": int(ch),
+				"candidate_keys": list(keys),
+				"canonical_key": str(canonical_key),
+				"electrode_id": eid,
+				"channel_id": cid,
+				"location_um": [float(xy[0]), float(xy[1])],
+				"waveform_count": int(source_waveform_count),
+				"weight": float(weight),
+			}
+
 			if canonical_key in bucket_waveforms:
+				overlap_events += 1
+				if matched_by is None:
+					matched_by = _match_kind_from_key(canonical_key)
+				match_counts_by_priority[matched_by] = int(match_counts_by_priority.get(matched_by, 0)) + 1
 				if bool(enable_merge):
 					bucket_waveforms[canonical_key] = bucket_waveforms[canonical_key] + (wave * weight)
 					bucket_weights[canonical_key] = float(bucket_weights[canonical_key]) + float(weight)
-				# When merge is disabled, keep first source contribution and ignore overlaps.
+					overlaps_applied += 1
+					resolution_record["action"] = "merged"
+				else:
+					overlaps_skipped += 1
+					resolution_record["action"] = "ignored_overlap_kept_first"
+				resolution_record["matched_by"] = str(matched_by)
 			else:
 				bucket_waveforms[canonical_key] = wave * float(weight)
 				bucket_weights[canonical_key] = float(weight)
 				bucket_locations[canonical_key] = xy
 				bucket_seen.add(canonical_key)
+				resolution_record["action"] = "new_bucket"
+				resolution_record["matched_by"] = None
+
+			bucket_contributions.setdefault(str(canonical_key), []).append(resolution_record)
+			if int(len(channel_resolution_samples)) < 12:
+				channel_resolution_samples.append(dict(resolution_record))
 
 	keys = sorted(bucket_waveforms.keys())
 	merged_waves = []
@@ -187,9 +261,122 @@ def merge_sources_per_channel(
 		else:
 			merged_electrode_ids.append(None)
 
+	overlap_groups: list[dict[str, Any]] = []
+	for key in sorted(bucket_contributions.keys()):
+		contributors = bucket_contributions[key]
+		if int(len(contributors)) <= 1:
+			continue
+		overlap_groups.append(
+			{
+				"canonical_key": str(key),
+				"match_types": [
+					str(item.get("matched_by"))
+					for item in contributors
+					if item.get("matched_by") is not None
+				],
+				"contributors": [
+					(
+						f"{item['source']}[ch={item['channel_index']},"
+						f"action={item['action']},weight={item['weight']},"
+						f"wf_count={item['waveform_count']}]"
+					)
+					for item in contributors
+				],
+			}
+		)
+
+	merge_stats = {
+		"source_summaries": source_summaries,
+		"input_channel_count": int(input_channel_count),
+		"output_channel_count": int(len(keys)),
+		"overlap_event_count": int(overlap_events),
+		"overlap_group_count": int(len(overlap_groups)),
+		"overlaps_applied": int(overlaps_applied),
+		"overlaps_skipped": int(overlaps_skipped),
+		"match_counts_by_priority": match_counts_by_priority,
+		"overlap_groups": overlap_groups,
+		"channel_resolution_samples": channel_resolution_samples,
+	}
+
 	if all(eid is None for eid in merged_electrode_ids):
-		return np.vstack(merged_waves), np.asarray(merged_locs, dtype=float), None
-	return np.vstack(merged_waves), np.asarray(merged_locs, dtype=float), merged_electrode_ids
+		return np.vstack(merged_waves), np.asarray(merged_locs, dtype=float), None, merge_stats
+	return np.vstack(merged_waves), np.asarray(merged_locs, dtype=float), merged_electrode_ids, merge_stats
+
+
+def _log_merge_diagnostics(
+	*,
+	merge_stats: dict[str, Any],
+	enable_merge: bool,
+	merge_method: str,
+	centering_method: str,
+	overlap_match_priority: tuple[str, ...],
+	location_tolerance_um: float,
+	log_context: str | None,
+) -> None:
+	suffix = _log_context_suffix(log_context)
+	source_summaries = list(merge_stats.get("source_summaries", []))
+	LOGGER.debug(
+		"Templates merge sources%s: %s",
+		suffix,
+		source_summaries,
+	)
+	LOGGER.info(
+		"Templates merge summary%s: source_count=%d enable_merge=%s method=%s priorities=%s location_tolerance_um=%.3f input_channels=%d output_channels=%d overlap_groups=%d overlap_events=%d overlaps_applied=%d overlaps_skipped=%d matched_by=%s",
+		suffix,
+		int(len(source_summaries)),
+		bool(enable_merge),
+		normalize_merge_method(merge_method),
+		normalize_overlap_priorities(overlap_match_priority),
+		float(location_tolerance_um),
+		int(merge_stats.get("input_channel_count", 0)),
+		int(merge_stats.get("output_channel_count", 0)),
+		int(merge_stats.get("overlap_group_count", 0)),
+		int(merge_stats.get("overlap_event_count", 0)),
+		int(merge_stats.get("overlaps_applied", 0)),
+		int(merge_stats.get("overlaps_skipped", 0)),
+		merge_stats.get("match_counts_by_priority", {}),
+	)
+	overlap_groups = list(merge_stats.get("overlap_groups", []))
+	if overlap_groups:
+		sample_groups = overlap_groups[:8]
+		omitted = int(max(0, len(overlap_groups) - len(sample_groups)))
+		LOGGER.debug(
+			"Templates merge overlap groups%s: sample=%s%s",
+			suffix,
+			sample_groups,
+			("" if omitted <= 0 else f" additional_groups={omitted}"),
+		)
+		return
+	resolution_samples = list(merge_stats.get("channel_resolution_samples", []))
+	if resolution_samples:
+		LOGGER.debug(
+			"Templates merge channel resolution samples%s: %s",
+			suffix,
+			resolution_samples,
+		)
+
+
+def merge_sources_per_channel(
+	sources: list[tuple[Any, ...]],
+	*,
+	enable_merge: bool,
+	merge_method: str,
+	centering_method: str,
+	max_waveforms_per_source_channel: int | None,
+	overlap_match_priority: tuple[str, ...],
+	location_tolerance_um: float,
+) -> tuple[np.ndarray, np.ndarray, list[Any] | None]:
+	named_sources = [(f"source_{idx:03d}", payload) for idx, payload in enumerate(sources)]
+	merged_template, merged_locs, merged_electrode_ids, _ = _merge_sources_per_channel_with_stats(
+		named_sources,
+		enable_merge=enable_merge,
+		merge_method=merge_method,
+		centering_method=centering_method,
+		max_waveforms_per_source_channel=max_waveforms_per_source_channel,
+		overlap_match_priority=overlap_match_priority,
+		location_tolerance_um=location_tolerance_um,
+	)
+	return merged_template, merged_locs, merged_electrode_ids
 
 
 def materialize_unit_templates_from_sources(
@@ -203,6 +390,7 @@ def materialize_unit_templates_from_sources(
 	location_tolerance_um: float,
 	execution_upsampling: TimeUpsampleConfig | None = None,
 	raw_sampling_rate_hz: float | None = None,
+	log_context: str | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None:
 	"""Build merged + full templates for one unit from named source payloads."""
 	materialized, _ = materialize_unit_templates_from_sources_with_meta(
@@ -215,6 +403,7 @@ def materialize_unit_templates_from_sources(
 		location_tolerance_um=location_tolerance_um,
 		execution_upsampling=execution_upsampling,
 		raw_sampling_rate_hz=raw_sampling_rate_hz,
+		log_context=log_context,
 	)
 	if materialized is None:
 		return None
@@ -233,6 +422,7 @@ def materialize_unit_templates_from_sources_with_meta(
 	location_tolerance_um: float,
 	execution_upsampling: TimeUpsampleConfig | None = None,
 	raw_sampling_rate_hz: float | None = None,
+	log_context: str | None = None,
 ) -> tuple[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[Any] | None] | None, dict[str, Any]]:
 	"""Build merged + full templates plus upsampling decision metadata."""
 	if not source_payloads:
@@ -339,9 +529,8 @@ def materialize_unit_templates_from_sources_with_meta(
 	else:
 		decision["skip_reason"] = ("disabled" if not bool(execution_upsampling.enabled) else "factor_le_1")
 
-	payloads = [payload for _, payload in prepared_payloads]
-	merged_template, merged_locs, merged_electrode_ids = merge_sources_per_channel(
-		payloads,
+	merged_template, merged_locs, merged_electrode_ids, merge_stats = _merge_sources_per_channel_with_stats(
+		prepared_payloads,
 		enable_merge=bool(enable_merge),
 		merge_method=merge_method,
 		centering_method=centering_method,
@@ -349,14 +538,31 @@ def materialize_unit_templates_from_sources_with_meta(
 		overlap_match_priority=overlap_match_priority,
 		location_tolerance_um=location_tolerance_um,
 	)
+	_log_merge_diagnostics(
+		merge_stats=merge_stats,
+		enable_merge=bool(enable_merge),
+		merge_method=merge_method,
+		centering_method=centering_method,
+		overlap_match_priority=overlap_match_priority,
+		location_tolerance_um=location_tolerance_um,
+		log_context=log_context,
+	)
 
 	full_template = merged_template
 	full_locs = merged_locs
+	full_template_source = "merged_contributing"
 	for src_name, payload in prepared_payloads:
 		if str(src_name) == "concat":
 			full_template = payload[0]
 			full_locs = payload[1]
+			full_template_source = "concat"
 			break
+	LOGGER.debug(
+		"Templates merge full-template selection%s: source=%s channels=%d",
+		_log_context_suffix(log_context),
+		str(full_template_source),
+		int(np.asarray(full_template).shape[0]),
+	)
 
 	return (merged_template, merged_locs, full_template, full_locs, merged_electrode_ids), decision
 
@@ -395,6 +601,7 @@ def materialize_unit_templates_by_unit(
 			location_tolerance_um=location_tolerance_um,
 			execution_upsampling=execution_upsampling,
 			raw_sampling_rate_hz=raw_sampling_rate_hz,
+			log_context=f"unit_id={uid}",
 		)
 		if materialized is not None:
 			results[uid] = materialized
@@ -438,6 +645,7 @@ def materialize_unit_templates_by_unit_with_meta(
 			location_tolerance_um=location_tolerance_um,
 			execution_upsampling=execution_upsampling,
 			raw_sampling_rate_hz=raw_sampling_rate_hz,
+			log_context=f"unit_id={uid}",
 		)
 		decisions[uid] = decision
 		if materialized is not None:
@@ -481,6 +689,8 @@ def materialize_templates_from_spikeinterface(
 	include_segments: bool,
 	require_concat: bool = False,
 	require_segments: bool = False,
+	concat_policy: Any | None = None,
+	segments_policy: Any | None = None,
 	waveform_ms_before: float | None = None,
 	waveform_ms_after: float | None = None,
 	waveform_max_spikes_per_unit: int | None = None,
@@ -521,6 +731,8 @@ def materialize_templates_from_spikeinterface(
 		waveform_ms_before=waveform_ms_before,
 		waveform_ms_after=waveform_ms_after,
 		waveform_max_spikes_per_unit=waveform_max_spikes_per_unit,
+		concat_policy=concat_policy,
+		segments_policy=segments_policy,
 	)
 	LOGGER.info(
 		"Templates materialization loaded analyzers: count=%d names=%s",
@@ -588,15 +800,49 @@ def materialize_templates_from_spikeinterface(
 		except Exception:
 			LOGGER.debug("Failed writing concat unit locations metadata", exc_info=True)
 
+	policy_by_analyzer_id: dict[int, Any] = {
+		id(analyzer): (concat_policy if str(src_name) == "concat" else segments_policy)
+		for src_name, analyzer in analyzers
+	}
+
+	def _payload_kwargs_for_analyzer(analyzer: Any) -> dict[str, Any]:
+		policy = policy_by_analyzer_id.get(id(analyzer), None)
+		if policy is None:
+			return {
+				"max_spikes_per_unit": waveform_max_spikes_per_unit,
+				"waveform_ms_before": waveform_ms_before,
+				"waveform_ms_after": waveform_ms_after,
+			}
+		return {
+			"max_spikes_per_unit": (
+				policy.max_spikes_per_unit
+				if policy.max_spikes_per_unit is not None
+				else waveform_max_spikes_per_unit
+			),
+			"min_spikes_per_unit": policy.min_spikes_per_unit,
+			"waveform_ms_before": (
+				policy.ms_before if policy.ms_before is not None else waveform_ms_before
+			),
+			"waveform_ms_after": (
+				policy.ms_after if policy.ms_after is not None else waveform_ms_after
+			),
+			"waveform_dtype": policy.dtype,
+			"random_spikes_method": policy.random_spikes_method,
+			"random_spikes_percentage": policy.random_spikes_percentage,
+			"random_seed": policy.random_seed,
+			"log_before_after_spike_counts": policy.log_before_after_spike_counts,
+			"margin_size": policy.margin_size,
+			"compute_n_jobs": policy.n_jobs,
+			"compute_chunk_duration": policy.chunk_duration,
+		}
+
 	materialized_by_unit, upsampling_decisions_by_unit = materialize_unit_templates_by_unit_with_meta(
 		analyzers=analyzers,
 		unit_ids=base_unit_ids,
 		payload_builder=lambda analyzer, unit_id: build_unit_source_payload(
 			analyzer=analyzer,
 			unit_id=unit_id,
-			max_spikes_per_unit=waveform_max_spikes_per_unit,
-			waveform_ms_before=waveform_ms_before,
-			waveform_ms_after=waveform_ms_after,
+			**_payload_kwargs_for_analyzer(analyzer),
 		),
 		enable_merge=bool(enable_merge),
 		merge_method=merge_method,
@@ -637,9 +883,7 @@ def materialize_templates_from_spikeinterface(
 			payload = build_unit_source_payload(
 				analyzer=analyzer,
 				unit_id=uid,
-				max_spikes_per_unit=waveform_max_spikes_per_unit,
-				waveform_ms_before=waveform_ms_before,
-				waveform_ms_after=waveform_ms_after,
+				**_payload_kwargs_for_analyzer(analyzer),
 			)
 			if payload is None or len(payload) < 9:
 				if bool(debug_overlay):

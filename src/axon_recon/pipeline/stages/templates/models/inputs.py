@@ -177,10 +177,25 @@ class WaveformExtractionConfig:
 class AnalyzerPreparationPolicyConfig:
 	ms_before: float | None = None
 	ms_after: float | None = None
+	dtype: str | None = None
 	max_spikes_per_unit: int | None = None
+	min_spikes_per_unit: int | None = None
+	random_spikes_percentage: float | None = None
+	log_before_after_spike_counts: bool = False
+	margin_size: int | None = None
 	sparsity_mode: str = "inherit"
+	compute_sparsity: bool = True
+	sparsity_method: str = "radius"
+	sparsity_radius_um: float | None = 100.0
+	sparsity_num_channels: int | None = 5
+	sparsity_threshold: float | None = 5.0
+	sparsity_peak_sign: str = "neg"
+	sparsity_num_spikes_for_sparsity: int | None = 100
+	sparsity_by_property: str | None = None
 	random_spikes_method: str = "uniform"
 	random_seed: int | None = 0
+	n_jobs: int | None = None
+	chunk_duration: str | None = None
 
 
 @dataclass(frozen=True)
@@ -790,6 +805,9 @@ class ResolveSourcesPhaseConfig:
 class TemplatesPhasesConfig:
 	resolve_sources: ResolveSourcesPhaseConfig = field(default_factory=ResolveSourcesPhaseConfig)
 	analyzers: TemplatesAnalyzersPhaseConfig = field(default_factory=TemplatesAnalyzersPhaseConfig)
+	build_templates: TemplateBuildTemplatesPhaseConfig = field(
+		default_factory=TemplateBuildTemplatesPhaseConfig
+	)
 	per_unit_processing: TemplatePerUnitProcessingPhaseConfig = field(
 		default_factory=TemplatePerUnitProcessingPhaseConfig
 	)

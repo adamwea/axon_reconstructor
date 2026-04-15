@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
 from typing import Any
 
 import numpy as np
@@ -343,6 +344,7 @@ def write_materialized_unit_templates(
 	merged_locations_xy: np.ndarray,
 	full_template: np.ndarray,
 	full_locations_xy: np.ndarray,
+	write_full_template: bool = True,
 ) -> None:
 	merged_dir = merged_units_dir / f"unit_{unit_id}"
 	merged_dir.mkdir(parents=True, exist_ok=True)
@@ -350,6 +352,10 @@ def write_materialized_unit_templates(
 	np.save(merged_dir / "merged_contributing_channel_locations.npy", np.asarray(merged_locations_xy, dtype=float))
 
 	full_dir = full_channels_templates_dir / f"unit_{unit_id}"
+	if not bool(write_full_template):
+		if full_dir.exists():
+			shutil.rmtree(full_dir)
+		return
 	full_dir.mkdir(parents=True, exist_ok=True)
 	np.save(full_dir / "full_template.npy", np.asarray(full_template, dtype=float))
 	np.save(full_dir / "full_channel_locations_xy.npy", np.asarray(full_locations_xy, dtype=float))

@@ -2345,6 +2345,68 @@ def test_load_or_recompute_spikesort_analyzer_reuses_all_channel_cache_when_comp
     assert policy.get("final_analyzer_has_sparsity") is False
 
 
+def test_load_or_recompute_spikesort_analyzer_attaches_preprocessed_recording_to_recordingless_cache(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    analyzer_dir = tmp_path / "analyzer_output"
+    analyzer_dir.mkdir(parents=True, exist_ok=True)
+
+    fake_recording = object()
+
+    class _RecordinglessAnalyzer:
+        sparsity = None
+
+        def __init__(self) -> None:
+            self.temporary_recording = None
+
+        def has_recording(self) -> bool:
+            return False
+
+        def has_temporary_recording(self) -> bool:
+            return self.temporary_recording is not None
+
+        def set_temporary_recording(self, recording, check_dtype: bool = True) -> None:
+            _ = check_dtype
+            self.temporary_recording = recording
+
+    analyzer = _RecordinglessAnalyzer()
+
+    class _FakeSI:
+        def load_sorting_analyzer(self, folder):
+            assert Path(folder).resolve() == analyzer_dir.resolve()
+            return analyzer
+
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_load_preprocessed_recording_from_dir",
+        lambda **kwargs: fake_recording,
+    )
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_recompute_spikesort_analyzer",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("recompute should not be called")),
+    )
+
+    loaded_analyzer, rebuilt_dir, rebuilt = spikesort_runner._load_or_recompute_spikesort_analyzer(
+        si_module=_FakeSI(),
+        well_out_dir=tmp_path,
+        stage_output_root_dir=tmp_path,
+        sorter_output_dir=tmp_path / "sorter_output",
+        stage_config=SimpleNamespace(
+            preprocess_concat_recording_relpath="preprocess_outputs/preprocessed_recording",
+            merge_analyzer_compute_sparsity=False,
+            merge_template_random_spikes_method="default",
+        ),
+    )
+
+    assert rebuilt is False
+    assert rebuilt_dir == analyzer_dir
+    assert loaded_analyzer is analyzer
+    assert analyzer.temporary_recording is fake_recording
+
+
 def test_recompute_sorting_analyzer_to_dir_uses_merge_sparsity_settings(tmp_path: Path, monkeypatch) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 

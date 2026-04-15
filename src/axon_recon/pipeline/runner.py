@@ -1139,7 +1139,7 @@ def run_templates_build_templates_from_runtime(
 ) -> MultiTargetStageResult:
 	return _run_templates_substage_from_runtime(
 		config_path=config_path,
-		stage_name="templates.per_unit_processing.build_templates",
+		stage_name="templates.build_templates",
 		runner_fn=run_templates_build_templates,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,

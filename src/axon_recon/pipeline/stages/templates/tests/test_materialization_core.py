@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 
 from axon_recon.pipeline.stages.templates.core.materialization import (
@@ -65,6 +67,71 @@ def test_materialize_unit_templates_uses_concat_as_full_template() -> None:
 	np.testing.assert_allclose(full_template, sources[0][1][0])
 	np.testing.assert_allclose(full_locs, sources[0][1][1])
 	assert merged_locs.shape == (3, 2)
+
+
+def test_materialize_unit_templates_logs_overlap_summary(caplog) -> None:
+	sources = [
+		(
+			"concat",
+			_payload(
+				[[1.0, 1.0], [2.0, 2.0]],
+				[[0.0, 0.0], [10.0, 0.0]],
+				electrode_ids=[10, 11],
+				channel_ids=[100, 101],
+				count=3,
+			),
+		),
+		(
+			"segment_0001",
+			_payload(
+				[[3.0, 3.0], [4.0, 4.0]],
+				[[0.0, 0.0], [20.0, 0.0]],
+				electrode_ids=[10, 12],
+				channel_ids=[100, 102],
+				count=5,
+			),
+		),
+	]
+
+	with caplog.at_level(logging.INFO, logger="axon_recon.templates"):
+		out = materialize_unit_templates_from_sources(
+			source_payloads=sources,
+			enable_merge=True,
+			merge_method="mean_all_waveforms",
+			centering_method="none",
+			max_waveforms_per_source_channel=None,
+			overlap_match_priority=("electrode_id", "channel_id", "location"),
+			location_tolerance_um=1.0,
+			log_context="unit_id=94",
+		)
+
+	assert out is not None
+	messages = [record.getMessage() for record in caplog.records]
+	assert any("Templates merge summary [unit_id=94]:" in message for message in messages)
+	assert any("source_count=2" in message for message in messages)
+	assert any("overlap_groups=1" in message for message in messages)
+	assert any("matched_by={'electrode_id': 1, 'channel_id': 0, 'location': 0}" in message for message in messages)
+	assert not any("Templates merge overlap groups [unit_id=94]:" in message for message in messages)
+	assert not any("Templates merge full-template selection [unit_id=94]: source=concat" in message for message in messages)
+
+	caplog.clear()
+	with caplog.at_level(logging.DEBUG, logger="axon_recon.templates"):
+		out = materialize_unit_templates_from_sources(
+			source_payloads=sources,
+			enable_merge=True,
+			merge_method="mean_all_waveforms",
+			centering_method="none",
+			max_waveforms_per_source_channel=None,
+			overlap_match_priority=("electrode_id", "channel_id", "location"),
+			location_tolerance_um=1.0,
+			log_context="unit_id=94",
+		)
+
+	assert out is not None
+	debug_messages = [record.getMessage() for record in caplog.records]
+	assert any("Templates merge overlap groups [unit_id=94]:" in message for message in debug_messages)
+	assert any("eid:10" in message for message in debug_messages)
+	assert any("Templates merge full-template selection [unit_id=94]: source=concat" in message for message in debug_messages)
 
 
 def test_materialize_unit_templates_returns_none_for_empty_sources() -> None:

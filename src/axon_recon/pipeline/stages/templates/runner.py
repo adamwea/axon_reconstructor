@@ -5,6 +5,7 @@ from dataclasses import replace
 import logging
 from pathlib import Path
 import shutil
+from time import perf_counter
 from typing import Any
 
 import numpy as np  # type: ignore[import-not-found]
@@ -14,7 +15,6 @@ from axon_reconstructor.pipeline.stg2_spikesorting.runner import (
 	LEGACY_SPIKESORTING_OUTPUTS_DIRNAME,
 	SPIKESORTING_OUTPUTS_DIRNAME,
 )
-from axon_recon.pipeline.shared.sampling import read_maxwell_sampling_frequency_hz
 from axon_recon.pipeline.shared.grid_sorting import (
 	coerce_grid_sort_metrics,
 	compute_template_grid_sort_metrics,
@@ -22,7 +22,8 @@ from axon_recon.pipeline.shared.grid_sorting import (
 	normalize_grid_sort_by,
 )
 
-from .core.merge import materialize_templates_from_spikeinterface, materialize_unit_templates_from_sources_with_meta
+from .core.build_templates import build_templates_phase_from_payloads, build_templates_phase_from_unit_payloads
+from .core.merge import materialize_templates_from_spikeinterface
 from .core.quality_checks import detect_multiple_negative_peaks
 from .core.render import (
 	compose_png_side_by_side,
@@ -56,7 +57,12 @@ from .io import (
 	write_materialized_unit_templates,
 	write_json,
 )
-from .integrations.spikeinterface_extract import build_unit_source_payload, load_spikeinterface_analyzers
+from .integrations.spikeinterface_extract import (
+	build_unit_source_payload,
+	discover_cached_spikeinterface_analyzer_source_names,
+	load_cached_spikeinterface_analyzers,
+	load_spikeinterface_analyzers,
+)
 from .models.inputs import ProbeGeometryConfig, TemplatesInputs, TimeUpsampleConfig
 from .models.results import TemplatesResult, UnitTemplatesResult
 
@@ -1425,15 +1431,67 @@ def _resolve_templates_phase_environment(
 	)
 	templates_out_dir = well_out_dir / str(inputs.output_rel_root)
 	templates_out_dir.mkdir(parents=True, exist_ok=True)
+	analyzer_cache_dir = _resolve_templates_analyzer_cache_dir(inputs=inputs, well_out_dir=well_out_dir)
+	return well_out_dir, alternate_well_out_dirs, templates_out_dir, analyzer_cache_dir
+
+
+def _resolve_templates_analyzer_cache_dir(*, inputs: TemplatesInputs, well_out_dir: Path) -> Path | None:
+	if not bool(inputs.analyzer_cache.enabled):
+		return None
 	cache_rel = Path(str(inputs.analyzer_cache.relpath or "analyzers")).expanduser()
 	if cache_rel.is_absolute():
 		cache_rel = Path(str(cache_rel).lstrip("/"))
-	analyzer_cache_dir = (
-		templates_out_dir / cache_rel
-		if bool(inputs.analyzer_cache.enabled)
-		else None
-	)
-	return well_out_dir, alternate_well_out_dirs, templates_out_dir, analyzer_cache_dir
+	return (well_out_dir / str(inputs.output_rel_root) / cache_rel)
+
+
+def _format_templates_log_value(value: Any) -> str:
+	if isinstance(value, float):
+		try:
+			if np.isfinite(value):
+				return f"{float(value):.4g}"
+		except Exception:
+			pass
+	return str(value)
+
+
+def _format_templates_log_fields(fields: dict[str, Any]) -> str:
+	parts: list[str] = []
+	for key, value in fields.items():
+		if value is None:
+			continue
+		parts.append(f"{key}={_format_templates_log_value(value)}")
+	return " ".join(parts)
+
+
+def _templates_analyzer_policy_log_fields(policy: Any) -> dict[str, Any]:
+	percentage = None
+	if getattr(policy, "random_spikes_percentage", None) is not None:
+		try:
+			percentage = f"{float(policy.random_spikes_percentage) * 100.0:.1f}%"
+		except Exception:
+			percentage = policy.random_spikes_percentage
+	return {
+		"ms_before": getattr(policy, "ms_before", None),
+		"ms_after": getattr(policy, "ms_after", None),
+		"dtype": getattr(policy, "dtype", None),
+		"max_spikes_per_unit": getattr(policy, "max_spikes_per_unit", None),
+		"min_spikes_per_unit": getattr(policy, "min_spikes_per_unit", None),
+		"random_spikes_method": getattr(policy, "random_spikes_method", None),
+		"random_spikes_percentage": percentage,
+		"random_seed": getattr(policy, "random_seed", None),
+		"log_before_after_spike_counts": bool(getattr(policy, "log_before_after_spike_counts", False)),
+		"margin_size": getattr(policy, "margin_size", None),
+		"compute_sparsity": bool(getattr(policy, "compute_sparsity", True)),
+		"sparsity_mode": getattr(policy, "sparsity_mode", None),
+		"sparsity_method": getattr(policy, "sparsity_method", None),
+		"sparsity_radius_um": getattr(policy, "sparsity_radius_um", None),
+		"sparsity_num_channels": getattr(policy, "sparsity_num_channels", None),
+		"sparsity_threshold": getattr(policy, "sparsity_threshold", None),
+		"sparsity_peak_sign": getattr(policy, "sparsity_peak_sign", None),
+		"sparsity_num_spikes_for_sparsity": getattr(policy, "sparsity_num_spikes_for_sparsity", None),
+		"n_jobs": getattr(policy, "n_jobs", None),
+		"chunk_duration": getattr(policy, "chunk_duration", None),
+	}
 
 
 def _templates_analyzer_policy_for_source(inputs: TemplatesInputs, source_name: str) -> Any:
@@ -1449,7 +1507,9 @@ def _load_templates_phase_analyzers(
 	alternate_well_out_dirs: list[Path],
 	analyzer_cache_dir: Path | None,
 	source_scope: str | None = None,
-) -> list[tuple[str, Any]]:
+	requested_source_names: list[str] | tuple[str, ...] | set[str] | None = None,
+	return_stats: bool = False,
+) -> Any:
 	include_concat = bool(inputs.include_concat) and bool(inputs.phases.analyzers.concat.enabled)
 	include_segments = bool(inputs.include_segments) and bool(inputs.phases.analyzers.segments.enabled)
 	if source_scope == "concat":
@@ -1487,7 +1547,163 @@ def _load_templates_phase_analyzers(
 		concat_build_if_missing=bool(inputs.phases.analyzers.concat.build_if_missing),
 		segments_use_existing_analyzer=bool(inputs.phases.analyzers.segments.use_existing_analyzer),
 		segments_build_if_missing=bool(inputs.phases.analyzers.segments.build_if_missing),
+		requested_source_names=requested_source_names,
+		return_stats=return_stats,
 	)
+
+
+def _discover_templates_cached_build_sources(
+	*,
+	inputs: TemplatesInputs,
+	well_out_dir: Path,
+	alternate_well_out_dirs: list[Path],
+) -> tuple[Path, Path | None, list[str]]:
+	include_concat = bool(inputs.include_concat) and bool(inputs.phases.analyzers.concat.enabled)
+	include_segments = bool(inputs.include_segments) and bool(inputs.phases.analyzers.segments.enabled)
+	primary_cache_dir = _resolve_templates_analyzer_cache_dir(inputs=inputs, well_out_dir=well_out_dir)
+	candidate_well_out_dirs = [well_out_dir, *list(alternate_well_out_dirs)]
+	for candidate_well_out_dir in candidate_well_out_dirs:
+		candidate_cache_dir = _resolve_templates_analyzer_cache_dir(inputs=inputs, well_out_dir=candidate_well_out_dir)
+		source_names = discover_cached_spikeinterface_analyzer_source_names(
+			analyzer_cache_dir=candidate_cache_dir,
+			analyzer_cache_concat_subdir=str(inputs.analyzer_cache.concat_analyzer_subdir or "concat"),
+			analyzer_cache_segments_subdir=str(inputs.analyzer_cache.segment_analyzers_subdir or ""),
+			include_concat=include_concat,
+			include_segments=include_segments,
+		)
+		if source_names:
+			if candidate_well_out_dir != well_out_dir:
+				LOGGER.info(
+					"templates.build_templates using fallback analyzer cache for cached build bootstrap: primary=%s fallback=%s source_count=%d",
+					str(well_out_dir),
+					str(candidate_well_out_dir),
+					int(len(source_names)),
+				)
+			return candidate_well_out_dir, candidate_cache_dir, source_names
+	return well_out_dir, primary_cache_dir, []
+
+
+def _build_templates_phase_from_cached_analyzers(
+	*,
+	inputs: TemplatesInputs,
+	well_out_dir: Path,
+	alternate_well_out_dirs: list[Path],
+	templates_out_dir: Path,
+	payload_root: Path,
+) -> dict[str, Any]:
+	analyzer_well_out_dir, analyzer_cache_dir, source_names = _discover_templates_cached_build_sources(
+		inputs=inputs,
+		well_out_dir=well_out_dir,
+		alternate_well_out_dirs=alternate_well_out_dirs,
+	)
+	if analyzer_cache_dir is None or not source_names:
+		raise FileNotFoundError(
+			"No cached templates analyzers found for build_templates. "
+			f"checked analyzer_cache_dir={analyzer_cache_dir}; run templates.analyzers before templates.build_templates."
+		)
+
+	LOGGER.info(
+		"templates.build_templates loading cached analyzers for build bootstrap: analyzer_well_out_dir=%s analyzer_cache_dir=%s source_count=%d",
+		str(analyzer_well_out_dir),
+		str(analyzer_cache_dir),
+		int(len(source_names)),
+	)
+
+	source_payloads_by_unit: dict[Any, list[tuple[str, tuple[Any, ...]]]] = {}
+	streamed_sources_summary: dict[str, Any] = {}
+	unit_ids: list[Any] | None = (None if inputs.unit_ids is None else list(inputs.unit_ids))
+	if unit_ids is not None and inputs.unit_limit is not None:
+		unit_ids = unit_ids[: int(inputs.unit_limit)]
+
+	for requested_source_name in source_names:
+		analyzers = load_cached_spikeinterface_analyzers(
+			well_out_dir=analyzer_well_out_dir,
+			preprocessed_concat_reldir=(
+				inputs.phases.analyzers.concat.preprocessed_recording_reldir or inputs.preprocessed_concat_reldir
+			),
+			preprocessed_segments_reldir=(
+				inputs.phases.analyzers.segments.preprocessed_sources_reldir or inputs.preprocessed_segments_reldir
+			),
+			preproc_seg_sources_reldir=(
+				inputs.phases.analyzers.segments.preprocessed_sources_reldir or inputs.preproc_seg_sources_reldir
+			),
+			analyzer_cache_dir=analyzer_cache_dir,
+			analyzer_cache_concat_subdir=str(inputs.analyzer_cache.concat_analyzer_subdir or "concat"),
+			analyzer_cache_segments_subdir=str(inputs.analyzer_cache.segment_analyzers_subdir or ""),
+			include_concat=bool(inputs.include_concat) and bool(inputs.phases.analyzers.concat.enabled),
+			include_segments=bool(inputs.include_segments) and bool(inputs.phases.analyzers.segments.enabled),
+			requested_source_names=[str(requested_source_name)],
+		)
+		source_match = next(
+			((name, analyzer) for name, analyzer in analyzers if str(name) == str(requested_source_name)),
+			None,
+		)
+		if source_match is None:
+			raise FileNotFoundError(
+				f"Failed loading requested templates analyzer source {requested_source_name!r} under {analyzer_well_out_dir}"
+			)
+
+		source_name, analyzer = source_match
+		if unit_ids is None:
+			unit_ids = _collect_templates_phase_unit_ids(
+				inputs=inputs,
+				analyzers=[source_match],
+				well_out_dir=well_out_dir,
+			)
+		materialized_units: list[Any] = []
+		for unit_id in list(unit_ids or []):
+			payload = build_unit_source_payload(
+				analyzer=analyzer,
+				unit_id=unit_id,
+				include_overlay_waveforms=False,
+				allow_prepare=False,
+			)
+			if payload is None:
+				continue
+			reduced_payload = (
+				payload[0],
+				payload[1],
+				payload[2],
+				payload[3],
+				payload[4],
+				payload[5],
+			)
+			source_payloads_by_unit.setdefault(unit_id, []).append((str(source_name), reduced_payload))
+			materialized_units.append(unit_id)
+			if not materialized_units:
+				LOGGER.warning(
+					"templates.build_templates cached analyzer produced no payloads without recompute: source=%s",
+					str(source_name),
+				)
+		streamed_sources_summary[str(source_name)] = {
+			"units_materialized": [unit for unit in materialized_units],
+			"unit_count": int(len(materialized_units)),
+		}
+		LOGGER.info(
+				"templates.build_templates materialized cached analyzer payloads: source=%s unit_count=%d",
+			str(source_name),
+			int(len(materialized_units)),
+		)
+		del analyzer
+		del analyzers
+
+	if unit_ids is None:
+		unit_ids = []
+
+	summary = build_templates_phase_from_unit_payloads(
+		inputs=inputs,
+		well_out_dir=well_out_dir,
+		templates_out_dir=templates_out_dir,
+		source_payloads_by_unit=source_payloads_by_unit,
+		unit_ids=list(unit_ids),
+		source_names=[str(name) for name in source_names],
+		payload_root=payload_root,
+		payload_materialization_mode="analyzer_cache",
+	)
+	summary["source_payload_well_out_dir"] = str(analyzer_well_out_dir)
+	summary["analyzer_cache_dir"] = str(analyzer_cache_dir)
+	summary["source_payload_sources"] = streamed_sources_summary
+	return summary
 
 
 def _collect_templates_phase_unit_ids(
@@ -1575,34 +1791,99 @@ def _disable_reports_config(reports: Any) -> Any:
 
 
 def run_templates_analyzers_phase(inputs: TemplatesInputs, *, source_scope: str | None = None) -> dict[str, Any]:
+	phase_started = perf_counter()
 	well_out_dir, alternate_well_out_dirs, templates_out_dir, analyzer_cache_dir = _resolve_templates_phase_environment(inputs)
+	include_concat = bool(inputs.include_concat) and bool(inputs.phases.analyzers.concat.enabled)
+	include_segments = bool(inputs.include_segments) and bool(inputs.phases.analyzers.segments.enabled)
+	require_concat = bool(inputs.require_concat_analyzer) and include_concat
+	require_segments = bool(inputs.require_segment_analyzers) and include_segments
+	if source_scope == "concat":
+		include_segments = False
+		require_segments = False
+	elif source_scope == "segments":
+		include_concat = False
+		require_concat = False
+	LOGGER.info(
+		"templates.analyzers start: source_scope=%s well_out_dir=%s templates_out_dir=%s analyzer_cache_dir=%s include_concat=%s include_segments=%s require_concat=%s require_segments=%s force_restart=%s",
+		source_scope,
+		str(well_out_dir),
+		str(templates_out_dir),
+		(None if analyzer_cache_dir is None else str(analyzer_cache_dir)),
+		bool(include_concat),
+		bool(include_segments),
+		bool(require_concat),
+		bool(require_segments),
+		bool(inputs.force_restart),
+	)
+	LOGGER.info(
+		"templates.analyzers concat settings: use_existing=%s build_if_missing=%s analyzer_relpath=%s sorting_relpath=%s preprocessed_recording_reldir=%s settings=%s",
+		bool(inputs.phases.analyzers.concat.use_existing_analyzer),
+		bool(inputs.phases.analyzers.concat.build_if_missing),
+		(inputs.phases.analyzers.concat.analyzer_relpath or inputs.concat_analyzer_relpath),
+		(inputs.phases.analyzers.concat.sorting_relpath or inputs.concat_sorting_relpath),
+		(inputs.phases.analyzers.concat.preprocessed_recording_reldir or inputs.preprocessed_concat_reldir),
+		_format_templates_log_fields(_templates_analyzer_policy_log_fields(inputs.phases.analyzers.concat.policy)),
+	)
+	LOGGER.info(
+		"templates.analyzers segments settings: use_existing=%s build_if_missing=%s preprocessed_sources_reldir=%s settings=%s",
+		bool(inputs.phases.analyzers.segments.use_existing_analyzer),
+		bool(inputs.phases.analyzers.segments.build_if_missing),
+		(inputs.phases.analyzers.segments.preprocessed_sources_reldir or inputs.preprocessed_segments_reldir or inputs.preproc_seg_sources_reldir),
+		_format_templates_log_fields(_templates_analyzer_policy_log_fields(inputs.phases.analyzers.segments.policy)),
+	)
 	if bool(inputs.force_restart) and analyzer_cache_dir is not None and analyzer_cache_dir.exists():
+		LOGGER.info("templates.analyzers clearing analyzer cache on force_restart: %s", str(analyzer_cache_dir))
 		shutil.rmtree(analyzer_cache_dir)
-	analyzers = _load_templates_phase_analyzers(
+	LOGGER.info("templates.analyzers loading analyzer sources")
+	analyzers, load_stats = _load_templates_phase_analyzers(
 		inputs=inputs,
 		well_out_dir=well_out_dir,
 		alternate_well_out_dirs=alternate_well_out_dirs,
 		analyzer_cache_dir=analyzer_cache_dir,
 		source_scope=source_scope,
+		return_stats=True,
 	)
 	sources_summary: dict[str, Any] = {}
 	for source_name, analyzer in analyzers:
 		policy = _templates_analyzer_policy_for_source(inputs, source_name)
+		num_channels: int | None = None
+		get_num_channels = getattr(analyzer, "get_num_channels", None)
+		if callable(get_num_channels):
+			try:
+				num_channels = int(get_num_channels())
+			except Exception:
+				num_channels = None
+		elif hasattr(getattr(analyzer, "recording", None), "get_num_channels"):
+			try:
+				num_channels = int(analyzer.recording.get_num_channels())
+			except Exception:
+				num_channels = None
 		sources_summary[str(source_name)] = {
 			"has_sparsity": bool(getattr(analyzer, "sparsity", None) is not None),
-			"num_channels": (
-				int(analyzer.recording.get_num_channels())
-				if hasattr(getattr(analyzer, "recording", None), "get_num_channels")
-				else None
-			),
+			"num_channels": num_channels,
 			"num_units": int(len(list(getattr(analyzer.sorting, "unit_ids", [])))) if hasattr(analyzer, "sorting") else None,
 			"policy": {
 				"sparsity_mode": str(policy.sparsity_mode),
+				"compute_sparsity": bool(policy.compute_sparsity),
+				"sparsity_method": str(policy.sparsity_method),
+				"sparsity_radius_um": policy.sparsity_radius_um,
+				"sparsity_num_channels": policy.sparsity_num_channels,
+				"sparsity_threshold": policy.sparsity_threshold,
+				"sparsity_peak_sign": str(policy.sparsity_peak_sign),
+				"sparsity_num_spikes_for_sparsity": policy.sparsity_num_spikes_for_sparsity,
+				"sparsity_by_property": policy.sparsity_by_property,
 				"random_spikes_method": str(policy.random_spikes_method),
+				"random_spikes_percentage": policy.random_spikes_percentage,
+				"min_spikes_per_unit": policy.min_spikes_per_unit,
 				"random_seed": policy.random_seed,
+				"log_before_after_spike_counts": bool(policy.log_before_after_spike_counts),
+				"margin_size": policy.margin_size,
 				"ms_before": policy.ms_before,
 				"ms_after": policy.ms_after,
+				"dtype": policy.dtype,
 				"max_spikes_per_unit": policy.max_spikes_per_unit,
+				"n_jobs": policy.n_jobs,
+				"chunk_duration": policy.chunk_duration,
 			},
 		}
 	summary = {
@@ -1613,11 +1894,25 @@ def run_templates_analyzers_phase(inputs: TemplatesInputs, *, source_scope: str 
 		"analyzer_cache_dir": (None if analyzer_cache_dir is None else str(analyzer_cache_dir)),
 		"source_scope": source_scope,
 		"source_count": int(len(analyzers)),
+		"load_stats": load_stats,
 		"sources": sources_summary,
 	}
+	summary["timing"] = {"duration_seconds": float(perf_counter() - phase_started)}
 	summary_path = templates_out_dir / str(inputs.phases.analyzers.summary_json_relpath)
+	LOGGER.info("templates.analyzers generating outputs: summary_json=%s", str(summary_path))
 	write_json(summary_path, summary)
 	summary["summary_json"] = str(summary_path)
+	LOGGER.info("templates.analyzers wrote summary output: %s", str(summary_path))
+	segment_count = int(sum(1 for name, _ in analyzers if str(name) != "concat"))
+	concat_count = int(sum(1 for name, _ in analyzers if str(name) == "concat"))
+	LOGGER.info(
+		"templates.analyzers run stats: duration_seconds=%.3f source_count=%d concat_count=%d segment_count=%d load_stats=%s",
+		float(summary["timing"]["duration_seconds"]),
+		int(len(analyzers)),
+		concat_count,
+		segment_count,
+		load_stats,
+	)
 	return summary
 
 
@@ -1643,10 +1938,17 @@ def run_templates_extract_template_segments_phase(inputs: TemplatesInputs) -> di
 				analyzer=analyzer,
 				unit_id=unit_id,
 				max_spikes_per_unit=policy.max_spikes_per_unit,
+				min_spikes_per_unit=policy.min_spikes_per_unit,
 				waveform_ms_before=policy.ms_before,
 				waveform_ms_after=policy.ms_after,
+				waveform_dtype=policy.dtype,
 				random_spikes_method=policy.random_spikes_method,
+				random_spikes_percentage=policy.random_spikes_percentage,
 				random_seed=policy.random_seed,
+				log_before_after_spike_counts=policy.log_before_after_spike_counts,
+				margin_size=policy.margin_size,
+				compute_n_jobs=policy.n_jobs,
+				compute_chunk_duration=policy.chunk_duration,
 			)
 			if payload is None:
 				continue
@@ -1685,119 +1987,88 @@ def run_templates_extract_template_segments_phase(inputs: TemplatesInputs) -> di
 	return summary
 
 
-def run_templates_build_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-	well_out_dir, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
-	payload_root = templates_out_dir / Path(str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root)).expanduser()
+def _templates_payload_root_status(payload_root: Path) -> str:
 	if not payload_root.exists():
-		raise FileNotFoundError(
-			f"Missing extracted source payloads at {payload_root}; run templates.per_unit_processing.extract_template_segments first"
-		)
-	merged_units_dir, full_channels_templates_dir = resolve_materialized_templates_dirs(templates_out_dir=templates_out_dir)
-	if bool(inputs.force_restart):
-		if merged_units_dir.exists():
-			shutil.rmtree(merged_units_dir)
-		if full_channels_templates_dir.exists():
-			shutil.rmtree(full_channels_templates_dir)
-		merged_units_dir, full_channels_templates_dir = resolve_materialized_templates_dirs(templates_out_dir=templates_out_dir)
-	source_dirs = sorted(
-		[p for p in payload_root.iterdir() if p.is_dir()],
-		key=lambda p: (0 if p.name == "concat" else 1, p.name),
+		return "missing"
+	try:
+		if any(path.is_dir() for path in payload_root.iterdir()):
+			return "ready"
+	except Exception:
+		return "unreadable"
+	return "empty"
+
+
+def run_templates_build_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+	phase_started = perf_counter()
+	well_out_dir, _, templates_out_dir, analyzer_cache_dir = _resolve_templates_phase_environment(inputs)
+	alternate_well_out_dirs = _resolve_alternate_well_out_dirs(inputs=inputs, primary_well_out_dir=well_out_dir)
+	payload_root = templates_out_dir / Path(str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root)).expanduser()
+	payload_status = _templates_payload_root_status(payload_root)
+	LOGGER.info(
+		"templates.build_templates start: well_out_dir=%s templates_out_dir=%s payload_root=%s force_restart=%s",
+		str(well_out_dir),
+		str(templates_out_dir),
+		str(payload_root),
+		bool(inputs.force_restart),
 	)
-	if not source_dirs:
-		raise FileNotFoundError(
-			f"No source payload directories found under {payload_root}; run templates.per_unit_processing.extract_template_segments first"
+	LOGGER.info(
+		"templates.build_templates settings: merge_enable=%s merge_method=%s centering_method=%s max_waveforms_per_source_channel=%s upsampling_enabled=%s upsampling_factor=%d upsampling_method=%s",
+		bool(inputs.phases.build_templates.merge.enable),
+		str(inputs.phases.build_templates.merge.method),
+		str(inputs.phases.build_templates.merge.centering_method),
+		(
+			"unlimited"
+			if inputs.phases.build_templates.merge.max_waveforms_per_source_channel is None
+			else str(int(inputs.phases.build_templates.merge.max_waveforms_per_source_channel))
+		),
+		bool(inputs.phases.build_templates.execution_upsampling.enabled),
+		int(max(1, int(inputs.phases.build_templates.execution_upsampling.factor))),
+		str(inputs.phases.build_templates.execution_upsampling.method),
+	)
+	if bool(inputs.force_restart) and payload_root.exists():
+		LOGGER.info("templates.build_templates clearing persisted source payloads on force_restart: %s", str(payload_root))
+		shutil.rmtree(payload_root)
+		payload_status = "missing"
+	if bool(inputs.force_restart) or payload_status != "ready":
+		bootstrap_reason = ("force_restart" if bool(inputs.force_restart) else payload_status)
+		LOGGER.info(
+			"templates.build_templates loading source payloads from cached analyzers: payload_root=%s reason=%s",
+			str(payload_root),
+			bootstrap_reason,
 		)
-	if inputs.unit_ids is not None:
-		unit_ids = list(inputs.unit_ids)
+		summary = _build_templates_phase_from_cached_analyzers(
+			inputs=inputs,
+			well_out_dir=well_out_dir,
+			alternate_well_out_dirs=alternate_well_out_dirs,
+			templates_out_dir=templates_out_dir,
+			payload_root=payload_root,
+		)
+		LOGGER.info(
+			"templates.build_templates loaded source payloads from cached analyzers: payload_root=%s source_count=%d analyzer_well_out_dir=%s analyzer_cache_dir=%s",
+			str(payload_root),
+			int(summary.get("source_count", 0)),
+			str(summary.get("source_payload_well_out_dir", "")),
+			str(summary.get("analyzer_cache_dir", "")),
+		)
 	else:
-		unit_tokens: list[Any] = []
-		for source_dir in source_dirs:
-			for unit_dir in sorted(source_dir.glob("unit_*")):
-				token = unit_dir.name.split("unit_", 1)[1]
-				try:
-					value: Any = int(token)
-				except Exception:
-					value = token
-				if value not in unit_tokens:
-					unit_tokens.append(value)
-		unit_ids = unit_tokens
-	if inputs.unit_limit is not None:
-		unit_ids = unit_ids[: int(inputs.unit_limit)]
-	if bool(inputs.require_curated_units) and inputs.unit_ids is None:
-		curated = _load_curated_units_from_spikesorting(well_out_dir)
-		if curated is None:
-			raise RuntimeError(
-				"Templates build phase requires curated units, but curated units file was not found/readable at "
-				f"{well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / 'qm_unfiltered.xlsx'}"
-			)
-		unit_ids = _apply_curated_filter(unit_ids, curated)
-	raw_sampling_rate_hz = read_maxwell_sampling_frequency_hz(
-		h5_path=Path(inputs.h5_path),
-		stream_id=str(inputs.stream_id),
-	)
-	merge_cfg = inputs.phases.per_unit_processing.build_templates.merge
-	upsampling_cfg = inputs.phases.per_unit_processing.build_templates.execution_upsampling
-	upsampling_decisions_by_unit: dict[Any, dict[str, Any]] = {}
-	built_units: list[Any] = []
-	for unit_id in unit_ids:
-		source_payloads: list[tuple[str, tuple[Any, ...]]] = []
-		for source_dir in source_dirs:
-			payload = load_materialized_source_payload(
-				source_payload_unit_dir=resolve_materialized_source_payload_unit_dir(
-					templates_out_dir=templates_out_dir,
-					output_rel_root=str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root),
-					source_name=source_dir.name,
-					unit_id=unit_id,
-				),
-			)
-			if payload is None:
-				continue
-			source_payloads.append((str(source_dir.name), payload))
-		if not source_payloads:
-			continue
-		materialized, decision = materialize_unit_templates_from_sources_with_meta(
-			source_payloads=source_payloads,
-			enable_merge=bool(merge_cfg.enable),
-			merge_method=str(merge_cfg.method),
-			centering_method=str(merge_cfg.centering_method),
-			max_waveforms_per_source_channel=merge_cfg.max_waveforms_per_source_channel,
-			overlap_match_priority=tuple(merge_cfg.overlap_match_priority),
-			location_tolerance_um=float(merge_cfg.location_tolerance_um),
-			execution_upsampling=upsampling_cfg,
-			raw_sampling_rate_hz=raw_sampling_rate_hz,
+		summary = build_templates_phase_from_payloads(
+			inputs=inputs,
+			well_out_dir=well_out_dir,
+			templates_out_dir=templates_out_dir,
 		)
-		if materialized is None:
-			continue
-		merged_template, merged_locs, full_template, full_locs, merged_electrode_ids = materialized
-		write_materialized_unit_templates(
-			merged_units_dir=merged_units_dir,
-			full_channels_templates_dir=full_channels_templates_dir,
-			unit_id=unit_id,
-			merged_template=merged_template,
-			merged_locations_xy=merged_locs,
-			full_template=full_template,
-			full_locations_xy=full_locs,
-		)
-		write_materialized_merged_electrode_ids(
-			merged_units_dir=merged_units_dir,
-			unit_id=unit_id,
-			electrode_ids=merged_electrode_ids,
-		)
-		upsampling_decisions_by_unit[unit_id] = dict(decision)
-		built_units.append(unit_id)
-	summary = {
-		"phase": "per_unit_processing.build_templates",
-		"stream_id": str(inputs.stream_id),
-		"well_out_dir": str(well_out_dir),
-		"templates_out_dir": str(templates_out_dir),
-		"payload_root": str(payload_root),
-		"built_units": [unit for unit in built_units],
-		"unit_count": int(len(built_units)),
-		"upsampling_decisions_by_unit": {str(k): v for k, v in upsampling_decisions_by_unit.items()},
-	}
-	summary_path = templates_out_dir / str(inputs.phases.per_unit_processing.build_templates.summary_json_relpath)
+	summary["timing"] = {"duration_seconds": float(perf_counter() - phase_started)}
+	summary_path = templates_out_dir / str(inputs.phases.build_templates.summary_json_relpath)
+	LOGGER.info("templates.build_templates generating outputs: summary_json=%s", str(summary_path))
 	write_json(summary_path, summary)
 	summary["summary_json"] = str(summary_path)
+	LOGGER.info("templates.build_templates wrote summary output: %s", str(summary_path))
+	LOGGER.info(
+		"templates.build_templates run stats: duration_seconds=%.3f unit_count=%d built_units=%d skipped_units=%d",
+		float(summary["timing"]["duration_seconds"]),
+		int(summary.get("unit_count", 0)),
+		int(len(summary.get("built_units", []))),
+		int(len(summary.get("skipped_units", []))),
+	)
 	return summary
 
 
@@ -2059,6 +2330,8 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 					include_segments=bool(inputs.include_segments),
 					require_concat=bool(inputs.require_concat_analyzer),
 					require_segments=bool(inputs.require_segment_analyzers),
+					concat_policy=inputs.phases.analyzers.concat.policy,
+					segments_policy=inputs.phases.analyzers.segments.policy,
 					waveform_ms_before=inputs.waveform_extraction.ms_before,
 					waveform_ms_after=inputs.waveform_extraction.ms_after,
 					waveform_max_spikes_per_unit=inputs.waveform_extraction.max_spikes_per_unit,

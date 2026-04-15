@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
@@ -211,9 +212,13 @@ def _phase_build_output_paths(*suffixes: str) -> tuple[str, ...]:
 	for suffix in suffixes:
 		s = suffix.strip(".")
 		if s:
+			paths.append(f"stages.templates.phases.build_templates.outputs.{s}")
+			paths.append(f"stages.templates.phases.build_templates.{s}")
 			paths.append(f"stages.templates.phases.per_unit_processing.build_templates.outputs.{s}")
 			paths.append(f"stages.templates.phases.per_unit_processing.build_templates.{s}")
 		else:
+			paths.append("stages.templates.phases.build_templates.outputs")
+			paths.append("stages.templates.phases.build_templates")
 			paths.append("stages.templates.phases.per_unit_processing.build_templates.outputs")
 			paths.append("stages.templates.phases.per_unit_processing.build_templates")
 	return tuple(paths)
@@ -245,6 +250,48 @@ def _phase_quality_paths(*suffixes: str) -> tuple[str, ...]:
 			paths.append("stages.templates.phases.per_unit_processing.quality_checks.config")
 			paths.append("stages.templates.phases.per_unit_processing.quality_checks")
 	return tuple(paths)
+
+
+def _phase_analyzer_output_paths(*suffixes: str) -> tuple[str, ...]:
+	paths: list[str] = []
+	for suffix in suffixes:
+		s = suffix.strip(".")
+		if s:
+			paths.append(f"stages.templates.phases.analyzers.outputs.{s}")
+			paths.append(f"stages.templates.phases.analyzers.{s}")
+		else:
+			paths.append("stages.templates.phases.analyzers.outputs")
+			paths.append("stages.templates.phases.analyzers")
+	return tuple(paths)
+
+
+def _phase_per_unit_output_paths(*suffixes: str) -> tuple[str, ...]:
+	paths: list[str] = []
+	for suffix in suffixes:
+		s = suffix.strip(".")
+		if s:
+			paths.append(f"stages.templates.phases.build_templates.outputs.{s}")
+			paths.append(f"stages.templates.phases.per_unit_processing.outputs.{s}")
+			paths.append(f"stages.templates.phases.per_unit_processing.plots.outputs.{s}")
+			paths.append(f"stages.templates.phases.per_unit_processing.build_templates.outputs.{s}")
+			paths.append(f"stages.templates.phases.per_unit_processing.quality_checks.outputs.{s}")
+		else:
+			paths.append("stages.templates.phases.build_templates.outputs")
+			paths.append("stages.templates.phases.per_unit_processing.outputs")
+			paths.append("stages.templates.phases.per_unit_processing.plots.outputs")
+			paths.append("stages.templates.phases.per_unit_processing.build_templates.outputs")
+			paths.append("stages.templates.phases.per_unit_processing.quality_checks.outputs")
+	return tuple(paths)
+
+
+def _get_analyzer_cache_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
+	return _first_dict_block(
+		runtime_config,
+		(
+			*_phase_analyzer_output_paths("analyzer_cache"),
+			*_output_paths("analyzer_cache"),
+		),
+	)
 
 
 def _get_template_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
@@ -461,6 +508,7 @@ def _get_merge_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
 	return _first_dict_block(
 		runtime_config,
 		(
+			"stages.templates.phases.build_templates.merge",
 			"stages.templates.phases.per_unit_processing.build_templates.merge",
 			"stages.templates.merge",
 			"stages.templates.execution.merge",
@@ -747,6 +795,22 @@ def _parse_max_spikes_per_unit(raw: Any) -> int | None:
 	return int(parsed)
 
 
+def _parse_optional_positive_int(raw: Any) -> int | None:
+	if raw in {None, ""}:
+		return None
+	parsed = _as_int(raw, -1)
+	if parsed <= 0:
+		return None
+	return int(parsed)
+
+
+def _parse_optional_text(raw: Any) -> str | None:
+	if raw is None:
+		return None
+	text = str(raw).strip()
+	return (text or None)
+
+
 def _build_waveform_extraction_config(
 	*,
 	spikeinterface_cfg: dict[str, Any],
@@ -948,9 +1012,14 @@ def _build_template_artifact_config(
 
 
 def _get_unit_reldir(runtime_config: RuntimeConfig) -> str:
-	raw = runtime_config.get("stages.templates.outputs.per_unit_outputs.unit_reldir", None)
-	if raw is None:
-		raw = runtime_config.get("stages.outputs.per_unit_outputs.unit_reldir", None)
+	raw = None
+	for path in (
+		*_phase_per_unit_output_paths("unit_reldir"),
+		*_output_paths("per_unit_outputs.unit_reldir"),
+	):
+		raw = runtime_config.get(path, None)
+		if raw is not None and str(raw).strip() != "":
+			break
 	if raw is not None and str(raw).strip() != "":
 		return str(raw)
 
@@ -1087,10 +1156,65 @@ def _normalize_sparsity_mode(raw: Any, default: str = "inherit") -> str:
 
 def _normalize_random_spikes_method(raw: Any, default: str = "uniform") -> str:
 	value = str(raw or default).strip().lower().replace("-", "_").replace(" ", "_")
+	if value in {"percentage", "percent", "fraction", "proportion"}:
+		return "percentage"
 	if value in {"all", "full", "all_spikes"}:
 		return "all"
 	if value in {"uniform", "default", "sample"}:
 		return "uniform"
+	return str(default)
+
+
+def _parse_random_spikes_percentage(raw: Any, *, field_name: str) -> float | None:
+	if raw is None:
+		return None
+	if isinstance(raw, bool):
+		raise ValueError(f"{field_name} must be a number in the interval (0, 100]")
+
+	is_percent_token = False
+	if isinstance(raw, str):
+		text = str(raw).strip()
+		if not text:
+			return None
+		if text.endswith("%"):
+			is_percent_token = True
+			text = text[:-1].strip()
+		try:
+			value = float(text)
+		except Exception as exc:
+			raise ValueError(f"{field_name} must be numeric") from exc
+	else:
+		try:
+			value = float(raw)
+		except Exception as exc:
+			raise ValueError(f"{field_name} must be numeric") from exc
+
+	if (not math.isfinite(value)) or value <= 0.0:
+		raise ValueError(f"{field_name} must be in the interval (0, 100]")
+	if is_percent_token or value > 1.0:
+		if value > 100.0:
+			raise ValueError(f"{field_name} must be in the interval (0, 100]")
+		return float(value) / 100.0
+	return float(value)
+
+
+def _normalize_sparsity_method(raw: Any, default: str = "radius") -> str:
+	value = str(raw or default).strip().lower().replace("-", "_").replace(" ", "_")
+	if value in {"best", "best_channel", "best_channels", "num_channels"}:
+		return "best_channels"
+	if value in {"threshold", "snr"}:
+		return "threshold"
+	if value in {"by_property", "property", "group"}:
+		return "by_property"
+	return str(default)
+
+
+def _normalize_peak_sign(raw: Any, default: str = "neg") -> str:
+	value = str(raw or default).strip().lower()
+	if value in {"pos", "positive"}:
+		return "pos"
+	if value in {"both", "all"}:
+		return "both"
 	return str(default)
 
 
@@ -1107,48 +1231,176 @@ def _build_analyzer_preparation_policy_config(
 	)
 	policy_cfg = _get_nested_block(raw_cfg, "policy")
 	waveform_cfg = _get_nested_block(raw_cfg, "waveform_extraction")
+	waveforms_cfg = _get_nested_block(raw_cfg, "waveforms")
+	template_extraction_cfg = _get_nested_block(raw_cfg, "template_extraction")
+	sparsity_cfg = _get_nested_block(raw_cfg, "sparsity")
 	waveform_window_cfg = _get_nested_block(waveform_cfg, "window")
+	waveforms_window_cfg = _get_nested_block(waveforms_cfg, "window")
 	ms_before = _as_float_or_none(
-		waveform_window_cfg.get(
+		waveforms_window_cfg.get(
 			"ms_before",
-			waveform_cfg.get("ms_before", policy_cfg.get("ms_before", policy_defaults.ms_before)),
+			waveforms_cfg.get(
+				"ms_before",
+				waveform_window_cfg.get(
+					"ms_before",
+					waveform_cfg.get("ms_before", policy_cfg.get("ms_before", policy_defaults.ms_before)),
+				),
+			),
 		),
 		policy_defaults.ms_before,
 	)
 	ms_after = _as_float_or_none(
-		waveform_window_cfg.get(
+		waveforms_window_cfg.get(
 			"ms_after",
-			waveform_cfg.get("ms_after", policy_cfg.get("ms_after", policy_defaults.ms_after)),
+			waveforms_cfg.get(
+				"ms_after",
+				waveform_window_cfg.get(
+					"ms_after",
+					waveform_cfg.get("ms_after", policy_cfg.get("ms_after", policy_defaults.ms_after)),
+				),
+			),
 		),
 		policy_defaults.ms_after,
 	)
 	max_spikes_per_unit = _parse_max_spikes_per_unit(
-		waveform_cfg.get(
+		template_extraction_cfg.get(
 			"max_spikes_per_unit",
-			policy_cfg.get("max_spikes_per_unit", policy_defaults.max_spikes_per_unit),
+			waveform_cfg.get(
+				"max_spikes_per_unit",
+				policy_cfg.get("max_spikes_per_unit", policy_defaults.max_spikes_per_unit),
+			),
 		)
 	)
-	random_seed_raw = policy_cfg.get("random_seed", raw_cfg.get("random_seed", policy_defaults.random_seed))
+	min_spikes_per_unit = _parse_optional_positive_int(
+		template_extraction_cfg.get(
+			"min_spikes_per_unit",
+			policy_cfg.get("min_spikes_per_unit", policy_defaults.min_spikes_per_unit),
+		)
+	)
+	random_spikes_percentage_raw = template_extraction_cfg.get(
+		"random_spikes_percentage",
+		template_extraction_cfg.get(
+			"min_perc_spikes_per_unit",
+			policy_cfg.get("random_spikes_percentage", policy_defaults.random_spikes_percentage),
+		),
+	)
+	random_spikes_percentage = _parse_random_spikes_percentage(
+		random_spikes_percentage_raw,
+		field_name="random_spikes_percentage",
+	)
+	random_seed_raw = template_extraction_cfg.get(
+		"random_seed",
+		policy_cfg.get("random_seed", raw_cfg.get("random_seed", policy_defaults.random_seed)),
+	)
 	if random_seed_raw in {None, ""}:
 		random_seed = None
 	else:
 		random_seed = _as_int(random_seed_raw, 0)
+	compute_sparsity_raw = sparsity_cfg.get(
+		"compute_sparsity",
+		policy_cfg.get("compute_sparsity", raw_cfg.get("compute_sparsity", None)),
+	)
+	legacy_density_mode = template_extraction_cfg.get("density_mode", None)
+	has_explicit_sparsity_mode = (
+		policy_cfg.get("sparsity_mode") not in {None, ""}
+		or raw_cfg.get("sparsity_mode") not in {None, ""}
+		or legacy_density_mode not in {None, ""}
+	)
+	normalized_sparsity_mode = _normalize_sparsity_mode(
+		policy_cfg.get("sparsity_mode", raw_cfg.get("sparsity_mode", policy_defaults.sparsity_mode)),
+		default=policy_defaults.sparsity_mode,
+	)
+	if compute_sparsity_raw is None:
+		compute_sparsity = (False if _normalize_sparsity_mode(legacy_density_mode, normalized_sparsity_mode) == "dense" else normalized_sparsity_mode != "dense")
+	else:
+		compute_sparsity = _as_bool(compute_sparsity_raw, policy_defaults.compute_sparsity)
+		if compute_sparsity and (not has_explicit_sparsity_mode) and normalized_sparsity_mode == "dense":
+			normalized_sparsity_mode = "inherit"
+	sparsity_mode = ("dense" if not compute_sparsity else normalized_sparsity_mode)
+	dtype = _parse_optional_text(
+		waveforms_cfg.get("dtype", policy_cfg.get("dtype", policy_defaults.dtype))
+	)
 	return AnalyzerPreparationPolicyConfig(
 		ms_before=ms_before,
 		ms_after=ms_after,
+		dtype=dtype,
 		max_spikes_per_unit=max_spikes_per_unit,
-		sparsity_mode=_normalize_sparsity_mode(
-			policy_cfg.get("sparsity_mode", raw_cfg.get("sparsity_mode", policy_defaults.sparsity_mode)),
-			default=policy_defaults.sparsity_mode,
+		min_spikes_per_unit=min_spikes_per_unit,
+		random_spikes_percentage=random_spikes_percentage,
+		log_before_after_spike_counts=_as_bool(
+			template_extraction_cfg.get(
+				"log_before_after_spike_counts",
+				policy_cfg.get(
+					"log_before_after_spike_counts",
+					policy_defaults.log_before_after_spike_counts,
+				),
+			),
+			policy_defaults.log_before_after_spike_counts,
+		),
+		margin_size=_parse_optional_positive_int(
+			template_extraction_cfg.get(
+				"margin_size",
+				policy_cfg.get("margin_size", policy_defaults.margin_size),
+			),
+		),
+		sparsity_mode=sparsity_mode,
+		compute_sparsity=bool(compute_sparsity),
+		sparsity_method=_normalize_sparsity_method(
+			sparsity_cfg.get(
+				"method",
+				policy_cfg.get("sparsity_method", policy_defaults.sparsity_method),
+			),
+			default=policy_defaults.sparsity_method,
+		),
+		sparsity_radius_um=_as_float_or_none(
+			sparsity_cfg.get("radius_um", policy_cfg.get("sparsity_radius_um", policy_defaults.sparsity_radius_um)),
+			policy_defaults.sparsity_radius_um,
+		),
+		sparsity_num_channels=_parse_optional_positive_int(
+			sparsity_cfg.get(
+				"num_channels",
+				policy_cfg.get("sparsity_num_channels", policy_defaults.sparsity_num_channels),
+			),
+		),
+		sparsity_threshold=_as_float_or_none(
+			sparsity_cfg.get("threshold", policy_cfg.get("sparsity_threshold", policy_defaults.sparsity_threshold)),
+			policy_defaults.sparsity_threshold,
+		),
+		sparsity_peak_sign=_normalize_peak_sign(
+			sparsity_cfg.get(
+				"peak_sign",
+				policy_cfg.get("sparsity_peak_sign", policy_defaults.sparsity_peak_sign),
+			),
+			default=policy_defaults.sparsity_peak_sign,
+		),
+		sparsity_num_spikes_for_sparsity=_parse_optional_positive_int(
+			sparsity_cfg.get(
+				"num_spikes_for_sparsity",
+				policy_cfg.get(
+					"sparsity_num_spikes_for_sparsity",
+					policy_defaults.sparsity_num_spikes_for_sparsity,
+				),
+			),
+		),
+		sparsity_by_property=_parse_optional_text(
+			sparsity_cfg.get(
+				"by_property",
+				policy_cfg.get("sparsity_by_property", policy_defaults.sparsity_by_property),
+			),
 		),
 		random_spikes_method=_normalize_random_spikes_method(
-			policy_cfg.get(
+			template_extraction_cfg.get(
+				"random_spikes_method",
+				policy_cfg.get(
 				"random_spikes_method",
 				raw_cfg.get("random_spikes_method", policy_defaults.random_spikes_method),
+				),
 			),
 			default=policy_defaults.random_spikes_method,
 		),
 		random_seed=random_seed,
+		n_jobs=_parse_optional_positive_int(raw_cfg.get("n_jobs", policy_defaults.n_jobs)),
+		chunk_duration=_parse_optional_text(raw_cfg.get("chunk_duration", policy_defaults.chunk_duration)),
 	)
 
 
@@ -1222,7 +1474,7 @@ def parse_templates_stage_config(
 	outputs_cfg = stage_cfg.get("outputs", {}) if isinstance(stage_cfg.get("outputs", {}), dict) else {}
 	if not outputs_cfg:
 		outputs_cfg = runtime_config.get("stages.outputs", {}) if isinstance(runtime_config.get("stages.outputs", {}), dict) else {}
-	analyzer_cache_cfg = outputs_cfg.get("analyzer_cache", {}) if isinstance(outputs_cfg.get("analyzer_cache", {}), dict) else {}
+	analyzer_cache_cfg = _get_analyzer_cache_block(runtime_config)
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
 	force_replot = _as_bool(execution_cfg.get("force_replot", False), False)
@@ -1301,7 +1553,9 @@ def parse_templates_stage_config(
 	preproc_seg_sources_reldir = preprocessed_segments_reldir
 	stage_upsampling_cfg = stage_cfg.get("upsampling", {}) if isinstance(stage_cfg.get("upsampling", {}), dict) else {}
 	execution_upsampling_cfg = execution_cfg.get("upsampling", {}) if isinstance(execution_cfg.get("upsampling", {}), dict) else {}
-	phase_build_cfg = _phase_block(phases_cfg, "per_unit_processing", "build_templates")
+	phase_build_cfg = _phase_block(phases_cfg, "build_templates")
+	if not phase_build_cfg:
+		phase_build_cfg = _phase_block(phases_cfg, "per_unit_processing", "build_templates")
 	phase_build_upsampling_cfg = _phase_block(phase_build_cfg, "execution_upsampling")
 	if not phase_build_upsampling_cfg:
 		phase_build_upsampling_cfg = _phase_block(phase_build_cfg, "upsampling")
@@ -3257,6 +3511,12 @@ def parse_templates_stage_config(
 	phase_analysis_cfg = _phase_block(phases_cfg, "per_unit_processing", "analysis")
 	phase_plots_cfg = _phase_block(phases_cfg, "per_unit_processing", "plots")
 	phase_reports_cfg = _phase_block(phases_cfg, "reports")
+	build_templates_phase = TemplateBuildTemplatesPhaseConfig(
+		enabled=_as_bool(phase_build_cfg.get("enabled", True), True),
+		summary_json_relpath=str(phase_build_cfg.get("summary_json_relpath", "context/build_templates_summary.json")),
+		merge=merge,
+		execution_upsampling=execution_upsampling,
+	)
 	per_unit_processing_phase = TemplatePerUnitProcessingPhaseConfig(
 		enabled=_as_bool(_phase_block(phases_cfg, "per_unit_processing").get("enabled", True), True),
 		extract_template_segments=TemplateExtractTemplateSegmentsPhaseConfig(
@@ -3264,12 +3524,7 @@ def parse_templates_stage_config(
 			output_rel_root=str(phase_extract_cfg.get("output_rel_root", phase_extract_cfg.get("relpath_root", "templates/source_payloads"))),
 			summary_json_relpath=str(phase_extract_cfg.get("summary_json_relpath", "context/extract_template_segments_summary.json")),
 		),
-		build_templates=TemplateBuildTemplatesPhaseConfig(
-			enabled=_as_bool(phase_build_cfg.get("enabled", True), True),
-			summary_json_relpath=str(phase_build_cfg.get("summary_json_relpath", "context/build_templates_summary.json")),
-			merge=merge,
-			execution_upsampling=execution_upsampling,
-		),
+		build_templates=build_templates_phase,
 		quality_checks=TemplateQualityChecksPhaseConfig(
 			enabled=_as_bool(phase_quality_cfg_raw.get("enabled", quality_checks.enable), quality_checks.enable),
 			config=quality_checks,
@@ -3326,6 +3581,7 @@ def parse_templates_stage_config(
 	phases = TemplatesPhasesConfig(
 		resolve_sources=resolve_sources_phase,
 		analyzers=analyzers_phase,
+		build_templates=build_templates_phase,
 		per_unit_processing=per_unit_processing_phase,
 		reports=reports_phase,
 	)

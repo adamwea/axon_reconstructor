@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import types
 import numpy as np
@@ -8,8 +9,10 @@ import pytest
 
 from axon_recon.pipeline.stages.templates.integrations.spikeinterface_extract import (
 	build_unit_source_payload,
+	discover_cached_spikeinterface_analyzer_source_names,
 	load_spikeinterface_analyzers,
 )
+from axon_recon.pipeline.stages.templates.models.inputs import AnalyzerPreparationPolicyConfig
 
 
 class _MockTemplatesExtension:
@@ -101,6 +104,7 @@ class _MockAnalyzer:
 		self._has_templates = bool(has_templates)
 		self._full_waveforms = None if full_waveforms is None else np.asarray(full_waveforms, dtype=float)
 		self.last_compute_extension_params = None
+		self.last_compute_kwargs = None
 		self.compute_call_count = 0
 		if waveforms is None:
 			self._waveforms_ext = None
@@ -121,10 +125,11 @@ class _MockAnalyzer:
 			return self._waveforms_ext
 		raise KeyError(name)
 
-	def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1) -> None:
+	def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1, **kwargs) -> None:
 		_ = names, verbose, n_jobs
 		self.compute_call_count += 1
 		self.last_compute_extension_params = extension_params
+		self.last_compute_kwargs = dict(kwargs)
 		name_list = [str(n) for n in (names or [])]
 		if "random_spikes" in name_list and "waveforms" in name_list and self._full_waveforms is not None:
 			max_spikes = None
@@ -339,6 +344,133 @@ def test_build_unit_source_payload_forwards_random_spikes_policy_on_recompute() 
 	assert "max_spikes_per_unit" not in params["random_spikes"]
 
 
+def test_build_unit_source_payload_forwards_grouped_analyzer_controls_on_recompute() -> None:
+	template_time_by_ch = np.asarray(
+		[
+			[1.0, 3.0],
+			[2.0, 4.0],
+			[0.0, 0.0],
+			[0.0, 0.0],
+		],
+		dtype=float,
+	)
+	full_waveforms = np.arange(6 * 4 * 2, dtype=float).reshape(6, 4, 2)
+	limited_waveforms = full_waveforms[:2, :, :]
+	analyzer = _MockAnalyzer(
+		templates_ext=_MockTemplatesExtension(template_time_by_ch),
+		has_templates=True,
+		waveforms=limited_waveforms,
+		full_waveforms=full_waveforms,
+	)
+
+	payload = build_unit_source_payload(
+		analyzer=analyzer,
+		unit_id=94,
+		max_spikes_per_unit=4,
+		min_spikes_per_unit=2,
+		waveform_ms_before=1.25,
+		waveform_ms_after=2.75,
+		waveform_dtype="float32",
+		random_spikes_method="percentage",
+		random_spikes_percentage=0.75,
+		random_seed=123,
+		log_before_after_spike_counts=True,
+		margin_size=7,
+		compute_n_jobs=4,
+		compute_chunk_duration="1s",
+	)
+	assert payload is not None
+
+	params = analyzer.last_compute_extension_params
+	assert isinstance(params, dict)
+	assert params["random_spikes"].get("method") == "percentage"
+	assert params["random_spikes"].get("percentage") == 0.75
+	assert params["random_spikes"].get("max_spikes_per_unit") == 4
+	assert params["random_spikes"].get("min_spikes_per_unit") == 2
+	assert params["random_spikes"].get("seed") == 123
+	assert params["random_spikes"].get("log_before_after_spike_counts") is True
+	assert params["random_spikes"].get("margin_size") == 7
+	assert params.get("waveforms", {}).get("ms_before") == 1.25
+	assert params.get("waveforms", {}).get("ms_after") == 2.75
+	assert params.get("waveforms", {}).get("dtype") == "float32"
+	assert analyzer.last_compute_kwargs == {"chunk_duration": "1s"}
+
+
+def test_build_unit_source_payload_retries_without_compat_only_kwargs() -> None:
+	template_time_by_ch = np.asarray(
+		[
+			[1.0, 3.0],
+			[2.0, 4.0],
+			[0.0, 0.0],
+			[0.0, 0.0],
+		],
+		dtype=float,
+	)
+	full_waveforms = np.arange(6 * 4 * 2, dtype=float).reshape(6, 4, 2)
+	limited_waveforms = full_waveforms[:2, :, :]
+
+	class _CompatFallbackAnalyzer(_MockAnalyzer):
+		def __init__(self) -> None:
+			super().__init__(
+				templates_ext=_MockTemplatesExtension(template_time_by_ch),
+				has_templates=True,
+				waveforms=limited_waveforms,
+				full_waveforms=full_waveforms,
+			)
+			self.compute_attempts: list[tuple[dict[str, object] | None, dict[str, object]]] = []
+
+		def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1, **kwargs) -> None:
+			_ = names, verbose, n_jobs
+			raw_params = extension_params if isinstance(extension_params, dict) else None
+			params_copy = None if raw_params is None else json.loads(json.dumps(raw_params))
+			self.compute_attempts.append((params_copy, dict(kwargs)))
+			random_spikes = {} if raw_params is None else dict(raw_params.get("random_spikes", {}))
+			waveforms = {} if raw_params is None else dict(raw_params.get("waveforms", {}))
+			if (
+				"log_before_after_spike_counts" in random_spikes
+				or "margin_size" in random_spikes
+				or "dtype" in waveforms
+				or "chunk_duration" in kwargs
+			):
+				raise TypeError("unsupported compatibility kwargs")
+			return super().compute(names, extension_params=extension_params, verbose=verbose, n_jobs=n_jobs, **kwargs)
+
+	analyzer = _CompatFallbackAnalyzer()
+	payload = build_unit_source_payload(
+		analyzer=analyzer,
+		unit_id=94,
+		max_spikes_per_unit=None,
+		waveform_ms_before=1.25,
+		waveform_ms_after=2.75,
+		waveform_dtype="float32",
+		log_before_after_spike_counts=True,
+		margin_size=7,
+		compute_chunk_duration="1s",
+	)
+
+	assert payload is not None
+	_, _, _, _, waveform_count, _, top_wf, _, top_count = payload
+	assert int(waveform_count) == 5
+	assert top_wf is not None
+	assert int(top_wf.shape[0]) == 5
+	assert top_count == 5
+	assert len(analyzer.compute_attempts) == 2
+
+	first_params, first_kwargs = analyzer.compute_attempts[0]
+	assert first_params is not None
+	assert first_params["random_spikes"].get("log_before_after_spike_counts") is True
+	assert first_params["random_spikes"].get("margin_size") == 7
+	assert first_params.get("waveforms", {}).get("dtype") == "float32"
+	assert first_kwargs == {"chunk_duration": "1s"}
+
+	second_params, second_kwargs = analyzer.compute_attempts[1]
+	assert second_params is not None
+	assert "log_before_after_spike_counts" not in second_params["random_spikes"]
+	assert "margin_size" not in second_params["random_spikes"]
+	assert "dtype" not in second_params.get("waveforms", {})
+	assert second_kwargs == {}
+
+
 def test_build_unit_source_payload_skips_recompute_when_waveforms_are_prepared() -> None:
 	template_time_by_ch = np.asarray(
 		[
@@ -413,6 +545,43 @@ def test_load_spikeinterface_analyzers_honors_explicit_source_paths(tmp_path, mo
 	assert str(seg_b) in loaded_paths
 
 
+def test_load_spikeinterface_analyzers_filters_requested_source_names(tmp_path, monkeypatch) -> None:
+	well_out_dir = tmp_path / "well001"
+	concat_dir = well_out_dir / "custom_concat"
+	segments_dir = well_out_dir / "custom_segments"
+	seg_a = segments_dir / "segA"
+	seg_b = segments_dir / "segB"
+	concat_dir.mkdir(parents=True, exist_ok=True)
+	seg_a.mkdir(parents=True, exist_ok=True)
+	seg_b.mkdir(parents=True, exist_ok=True)
+
+	loaded_paths: list[str] = []
+
+	def _fake_load_sorting_analyzer(path):
+		loaded_paths.append(str(path))
+		return {"path": str(path)}
+
+	fake_full = types.ModuleType("spikeinterface.full")
+	fake_full.load_sorting_analyzer = _fake_load_sorting_analyzer  # type: ignore[attr-defined]
+	fake_root = types.ModuleType("spikeinterface")
+	fake_root.full = fake_full  # type: ignore[attr-defined]
+
+	monkeypatch.setitem(sys.modules, "spikeinterface", fake_root)
+	monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_full)
+
+	analyzers = load_spikeinterface_analyzers(
+		well_out_dir=well_out_dir,
+		concat_analyzer_relpath="/custom_concat",
+		preproc_seg_sources_reldir="/custom_segments",
+		include_concat=True,
+		include_segments=True,
+		requested_source_names=["segB"],
+	)
+
+	assert [name for name, _ in analyzers] == ["segB"]
+	assert loaded_paths == [str(seg_b)]
+
+
 def test_load_spikeinterface_analyzers_persists_loaded_analyzers_to_cache(tmp_path, monkeypatch) -> None:
 	well_out_dir = tmp_path / "well001"
 	concat_dir = well_out_dir / "custom_concat"
@@ -434,8 +603,8 @@ def test_load_spikeinterface_analyzers_persists_loaded_analyzers_to_cache(tmp_pa
 			_ = name
 			return True
 
-		def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1) -> None:
-			_ = names, extension_params, verbose, n_jobs
+		def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1, **kwargs) -> None:
+			_ = names, extension_params, verbose, n_jobs, kwargs
 
 		def save_as(self, format="memory", folder=None, backend_options=None):
 			_ = backend_options
@@ -470,7 +639,7 @@ def test_load_spikeinterface_analyzers_persists_loaded_analyzers_to_cache(tmp_pa
 	assert (str(seg_b), str(cache_dir / "segB"), "binary_folder") in save_calls
 
 
-def test_load_spikeinterface_analyzers_builds_segment_analyzers_from_preprocessed_sources(tmp_path, monkeypatch) -> None:
+def test_load_spikeinterface_analyzers_builds_dense_segment_analyzers_from_preprocessed_sources(tmp_path, monkeypatch, caplog) -> None:
 	well_out_dir = tmp_path / "well000"
 	concat_dir = well_out_dir / "custom_concat"
 	segments_dir = well_out_dir / "custom_segments"
@@ -549,8 +718,8 @@ def test_load_spikeinterface_analyzers_builds_segment_analyzers_from_preprocesse
 			self.sorting = sorting
 			self.recording = recording
 
-		def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1):
-			_ = names, extension_params, verbose, n_jobs
+		def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1, **kwargs):
+			_ = names, extension_params, verbose, n_jobs, kwargs
 
 	concat_analyzer = _FakeConcatAnalyzer()
 
@@ -559,8 +728,15 @@ def test_load_spikeinterface_analyzers_builds_segment_analyzers_from_preprocesse
 			return concat_analyzer
 		raise RuntimeError("not an analyzer")
 
-	def _fake_create_sorting_analyzer(sorting, recording, format="memory", return_in_uV=True):
-		create_calls.append({"format": format, "return_in_uV": return_in_uV, "units": list(getattr(sorting, "unit_ids", []))})
+	def _fake_create_sorting_analyzer(sorting, recording, format="memory", return_in_uV=True, **kwargs):
+		create_calls.append(
+			{
+				"format": format,
+				"return_in_uV": return_in_uV,
+				"units": list(getattr(sorting, "unit_ids", [])),
+				**kwargs,
+			}
+		)
 		return _FakeBuiltAnalyzer(sorting=sorting, recording=recording)
 
 	def _fake_remove_excess_spikes(sorting, recording):
@@ -589,14 +765,16 @@ def test_load_spikeinterface_analyzers_builds_segment_analyzers_from_preprocesse
 	monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_full)
 	monkeypatch.setitem(sys.modules, "spikeinterface.core", fake_core)
 
-	analyzers = load_spikeinterface_analyzers(
-		well_out_dir=well_out_dir,
-		concat_analyzer_relpath="/custom_concat",
-		preproc_seg_sources_reldir="/custom_segments",
-		stream_id="well000",
-		include_concat=True,
-		include_segments=True,
-	)
+	with caplog.at_level(logging.INFO, logger="axon_recon.templates.spikeinterface"):
+		analyzers = load_spikeinterface_analyzers(
+			well_out_dir=well_out_dir,
+			concat_analyzer_relpath="/custom_concat",
+			preproc_seg_sources_reldir="/custom_segments",
+			stream_id="well000",
+			include_concat=True,
+			include_segments=True,
+			segments_policy=AnalyzerPreparationPolicyConfig(compute_sparsity=False, sparsity_mode="dense"),
+		)
 
 	names = [name for name, _ in analyzers]
 	assert "concat" in names
@@ -604,16 +782,24 @@ def test_load_spikeinterface_analyzers_builds_segment_analyzers_from_preprocesse
 	assert "001_recB" in names
 	assert len(create_calls) == 2
 	assert all(call["format"] == "memory" for call in create_calls)
+	assert all(call["sparse"] is False for call in create_calls)
+	messages = [rec.getMessage() for rec in caplog.records]
+	assert any("Discovered preprocessed segment recording sources: count=2" in msg for msg in messages)
+	assert any("Loaded preprocessed segment recording source: segment=000_recA" in msg for msg in messages)
+	assert any("Registered preprocessed segment recording with concat spikes: segment=000_recA" in msg for msg in messages)
+	assert any("Generating segment analyzer: segment=000_recA" in msg for msg in messages)
+	assert any("Computing segment analyzer extensions: segment=000_recA" in msg for msg in messages)
+	assert not any("Segment directory is not a loadable analyzer" in msg for msg in messages)
 
 
-def test_load_spikeinterface_analyzers_builds_concat_from_sorting_and_preprocessed_concat(tmp_path, monkeypatch) -> None:
+def test_load_spikeinterface_analyzers_builds_dense_concat_from_sorting_and_preprocessed_concat(tmp_path, monkeypatch) -> None:
 	well_out_dir = tmp_path / "well001"
 	sorting_dir = well_out_dir / "custom_sorting"
 	preprocessed_concat_dir = well_out_dir / "custom_preprocessed_concat"
 	sorting_dir.mkdir(parents=True, exist_ok=True)
 	preprocessed_concat_dir.mkdir(parents=True, exist_ok=True)
 
-	create_calls: list[tuple[object, object, str, bool]] = []
+	create_calls: list[dict[str, object]] = []
 
 	class _FakeSorting:
 		pass
@@ -643,8 +829,16 @@ def test_load_spikeinterface_analyzers_builds_concat_from_sorting_and_preprocess
 			return fake_recording
 		raise RuntimeError("unexpected extractor path")
 
-	def _fake_create_sorting_analyzer(sorting, recording, format="memory", return_in_uV=True):
-		create_calls.append((sorting, recording, str(format), bool(return_in_uV)))
+	def _fake_create_sorting_analyzer(sorting, recording, format="memory", return_in_uV=True, **kwargs):
+		create_calls.append(
+			{
+				"sorting": sorting,
+				"recording": recording,
+				"format": str(format),
+				"return_in_uV": bool(return_in_uV),
+				**kwargs,
+			}
+		)
 		return _FakeAnalyzer(sorting=sorting, recording=recording)
 
 	fake_full = types.ModuleType("spikeinterface.full")
@@ -666,15 +860,120 @@ def test_load_spikeinterface_analyzers_builds_concat_from_sorting_and_preprocess
 		preprocessed_concat_reldir="/custom_preprocessed_concat",
 		include_concat=True,
 		include_segments=False,
+		concat_policy=AnalyzerPreparationPolicyConfig(compute_sparsity=False, sparsity_mode="dense"),
 	)
 
 	assert len(analyzers) == 1
 	assert analyzers[0][0] == "concat"
 	assert len(create_calls) == 1
-	assert create_calls[0][0] is fake_sorting
-	assert create_calls[0][1] is fake_recording
-	assert create_calls[0][2] == "memory"
-	assert create_calls[0][3] is True
+	assert create_calls[0]["sorting"] is fake_sorting
+	assert create_calls[0]["recording"] is fake_recording
+	assert create_calls[0]["format"] == "memory"
+	assert create_calls[0]["return_in_uV"] is True
+	assert create_calls[0]["sparse"] is False
+
+
+def test_load_spikeinterface_analyzers_rebuilds_concat_without_reusing_existing_analyzer(tmp_path, monkeypatch, caplog) -> None:
+	well_out_dir = tmp_path / "well001"
+	concat_dir = well_out_dir / "custom_concat"
+	sorting_dir = well_out_dir / "custom_sorting"
+	preprocessed_concat_dir = well_out_dir / "custom_preprocessed_concat"
+	concat_dir.mkdir(parents=True, exist_ok=True)
+	sorting_dir.mkdir(parents=True, exist_ok=True)
+	preprocessed_concat_dir.mkdir(parents=True, exist_ok=True)
+
+	load_sorting_analyzer_calls: list[str] = []
+	create_calls: list[dict[str, object]] = []
+
+	class _FakeSorting:
+		pass
+
+	class _FakeRecording:
+		pass
+
+	class _FakeAnalyzer:
+		def __init__(self, sorting, recording) -> None:
+			self.sorting = sorting
+			self.recording = recording
+
+		def has_extension(self, name: str) -> bool:
+			_ = name
+			return True
+
+		def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1, **kwargs) -> None:
+			_ = names, extension_params, verbose, n_jobs, kwargs
+
+	fake_sorting = _FakeSorting()
+	fake_recording = _FakeRecording()
+
+	def _fake_load_sorting_analyzer(path):
+		load_sorting_analyzer_calls.append(str(path))
+		if str(path) == str(concat_dir):
+			raise AssertionError("existing concat analyzer should not be loaded when reuse is disabled")
+		raise RuntimeError("unexpected analyzer path")
+
+	def _fake_load_sorting(path):
+		if str(path) == str(sorting_dir):
+			return fake_sorting
+		raise RuntimeError("unexpected sorting path")
+
+	def _fake_load_extractor(path):
+		if str(path) == str(preprocessed_concat_dir):
+			return fake_recording
+		raise RuntimeError("unexpected extractor path")
+
+	def _fake_create_sorting_analyzer(sorting, recording, format="memory", return_in_uV=True, **kwargs):
+		create_calls.append(
+			{
+				"sorting": sorting,
+				"recording": recording,
+				"format": str(format),
+				"return_in_uV": bool(return_in_uV),
+				**kwargs,
+			}
+		)
+		return _FakeAnalyzer(sorting=sorting, recording=recording)
+
+	fake_full = types.ModuleType("spikeinterface.full")
+	fake_full.load_sorting_analyzer = _fake_load_sorting_analyzer  # type: ignore[attr-defined]
+	fake_full.load_sorting = _fake_load_sorting  # type: ignore[attr-defined]
+	fake_full.load_extractor = _fake_load_extractor  # type: ignore[attr-defined]
+	fake_full.load = _fake_load_extractor  # type: ignore[attr-defined]
+	fake_full.create_sorting_analyzer = _fake_create_sorting_analyzer  # type: ignore[attr-defined]
+
+	fake_root = types.ModuleType("spikeinterface")
+	fake_root.full = fake_full  # type: ignore[attr-defined]
+
+	monkeypatch.setitem(sys.modules, "spikeinterface", fake_root)
+	monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_full)
+
+	with caplog.at_level(logging.INFO, logger="axon_recon.templates.spikeinterface"):
+		analyzers = load_spikeinterface_analyzers(
+			well_out_dir=well_out_dir,
+			concat_analyzer_relpath="/custom_concat",
+			concat_sorting_relpath="/custom_sorting",
+			preprocessed_concat_reldir="/custom_preprocessed_concat",
+			include_concat=True,
+			include_segments=False,
+			concat_use_existing_analyzer=False,
+			concat_build_if_missing=True,
+			concat_policy=AnalyzerPreparationPolicyConfig(random_spikes_method="all"),
+		)
+
+	assert len(analyzers) == 1
+	assert analyzers[0][0] == "concat"
+	assert len(create_calls) == 1
+	assert create_calls[0]["sorting"] is fake_sorting
+	assert create_calls[0]["recording"] is fake_recording
+	assert create_calls[0]["format"] == "memory"
+	assert create_calls[0]["return_in_uV"] is True
+	assert create_calls[0]["sparse"] is True
+	assert load_sorting_analyzer_calls == []
+	messages = [rec.getMessage() for rec in caplog.records]
+	assert any("Concat analyzer reuse disabled; skipping existing concat analyzer load" in msg for msg in messages)
+	assert any("Loading concat sorting for analyzer build:" in msg for msg in messages)
+	assert any("Loaded preprocessed concat recording for analyzer build:" in msg for msg in messages)
+	assert any("Generating concat analyzer: creation=" in msg for msg in messages)
 
 
 def test_load_spikeinterface_analyzers_persists_cache_with_configured_subdirs(tmp_path, monkeypatch) -> None:
@@ -698,8 +997,8 @@ def test_load_spikeinterface_analyzers_persists_cache_with_configured_subdirs(tm
 			_ = name
 			return True
 
-		def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1) -> None:
-			_ = names, extension_params, verbose, n_jobs
+		def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1, **kwargs) -> None:
+			_ = names, extension_params, verbose, n_jobs, kwargs
 
 		def save_as(self, format="memory", folder=None, backend_options=None):
 			_ = backend_options
@@ -736,6 +1035,23 @@ def test_load_spikeinterface_analyzers_persists_cache_with_configured_subdirs(tm
 	assert (str(seg_b), str(cache_dir / "segments_custom" / "segB"), "binary_folder") in save_calls
 
 
+def test_discover_cached_spikeinterface_analyzer_source_names_skips_segments_container(tmp_path) -> None:
+	cache_dir = tmp_path / "templates_outputs" / "cache" / "analyzers"
+	(cache_dir / "concat").mkdir(parents=True, exist_ok=True)
+	(cache_dir / "segments" / "000_rec0000").mkdir(parents=True, exist_ok=True)
+	(cache_dir / "segments" / "001_rec0001").mkdir(parents=True, exist_ok=True)
+
+	source_names = discover_cached_spikeinterface_analyzer_source_names(
+		analyzer_cache_dir=cache_dir,
+		analyzer_cache_concat_subdir="concat",
+		analyzer_cache_segments_subdir="segments",
+		include_concat=True,
+		include_segments=True,
+	)
+
+	assert source_names == ["concat", "000_rec0000", "001_rec0001"]
+
+
 def test_load_spikeinterface_analyzers_raises_when_segments_required_but_missing(tmp_path, monkeypatch) -> None:
 	well_out_dir = tmp_path / "well001"
 	concat_dir = well_out_dir / "custom_concat"
@@ -746,8 +1062,8 @@ def test_load_spikeinterface_analyzers_raises_when_segments_required_but_missing
 			_ = name
 			return True
 
-		def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1) -> None:
-			_ = names, extension_params, verbose, n_jobs
+		def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1, **kwargs) -> None:
+			_ = names, extension_params, verbose, n_jobs, kwargs
 
 	def _fake_load_sorting_analyzer(path):
 		if str(path) == str(concat_dir):

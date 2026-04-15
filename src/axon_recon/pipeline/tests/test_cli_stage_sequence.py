@@ -43,7 +43,12 @@ def test_parse_stage_list_tokens_supports_templates_phase_substages() -> None:
 
 def test_parse_stage_list_tokens_supports_templates_phase_aliases() -> None:
     parsed = pipeline_cli._parse_stage_list_tokens(["template.reports", "templates.build_templates"])
-    assert parsed == ["templates.reports", "templates.per_unit_processing.build_templates"]
+    assert parsed == ["templates.reports", "templates.build_templates"]
+
+
+def test_parse_stage_list_tokens_maps_legacy_templates_build_templates_alias() -> None:
+    parsed = pipeline_cli._parse_stage_list_tokens(["templates.per_unit_processing.build_templates"])
+    assert parsed == ["templates.build_templates"]
 
 
 def test_parse_stage_list_tokens_supports_spikesort_sort_substage_alias() -> None:
@@ -198,7 +203,37 @@ def test_main_runs_templates_build_templates_substage(monkeypatch, tmp_path: Pat
 
     monkeypatch.setitem(
         pipeline_cli._STAGE_HANDLERS,
-        "templates.per_unit_processing.build_templates",
+        "templates.build_templates",
+        _build_templates,
+    )
+
+    rc = pipeline_cli.main(
+        [
+            "stages",
+            "templates.build_templates",
+            "--config",
+            str(runtime_cfg),
+            "--force-restart",
+        ]
+    )
+
+    assert rc == 0
+    assert calls == ["templates.build_templates"]
+
+
+def test_main_runs_legacy_templates_build_templates_substage_alias(monkeypatch, tmp_path: Path) -> None:
+    runtime_cfg = tmp_path / "runtime.yml"
+    _write_runtime_cfg(runtime_cfg)
+
+    calls: list[str] = []
+
+    def _build_templates(args):
+        calls.append(str(getattr(args, "stage", "")))
+        return 0
+
+    monkeypatch.setitem(
+        pipeline_cli._STAGE_HANDLERS,
+        "templates.build_templates",
         _build_templates,
     )
 
@@ -213,7 +248,7 @@ def test_main_runs_templates_build_templates_substage(monkeypatch, tmp_path: Pat
     )
 
     assert rc == 0
-    assert calls == ["templates.per_unit_processing.build_templates"]
+    assert calls == ["templates.build_templates"]
 
 
 def test_main_runs_spikesort_sort_substage_alias(monkeypatch, tmp_path: Path) -> None:

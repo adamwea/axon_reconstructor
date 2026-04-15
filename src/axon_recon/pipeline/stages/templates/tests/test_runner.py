@@ -8,8 +8,10 @@ import time
 from typing import Any
 
 import numpy as np  # type: ignore[import-not-found]
+import pytest
 
 from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+from axon_recon.pipeline.stages.templates.io import write_materialized_source_payload
 from axon_recon.pipeline.stages.templates.models.inputs import (
 	AnalyzerCacheConfig,
 	DataQualityChecksOutputsConfig,
@@ -39,7 +41,11 @@ from axon_recon.pipeline.stages.templates.models.inputs import (
 	UnitLocationsReportConfig,
 	WfOverlayGridReportConfig,
 )
-from axon_recon.pipeline.stages.templates.runner import run_templates_stage
+from axon_recon.pipeline.stages.templates.runner import (
+	run_templates_analyzers_phase,
+	run_templates_build_templates_phase,
+	run_templates_stage,
+)
 
 
 def _make_templates_artifacts(well_out_dir: Path) -> None:
@@ -84,6 +90,420 @@ def _make_templates_artifacts(well_out_dir: Path) -> None:
 		json.dumps({"top_electrode_id": 0, "total_waveforms_at_channel": int(wf.shape[0])}),
 		encoding="utf-8",
 	)
+
+
+def test_run_templates_analyzers_phase_logs_settings_and_writes_run_stats(tmp_path: Path, monkeypatch, caplog) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	class _FakeSorting:
+		unit_ids = [94, 95]
+
+	class _FakeAnalyzer:
+		def __init__(self, num_channels: int, *, has_sparsity: bool = False) -> None:
+			self.sorting = _FakeSorting()
+			self.sparsity = object() if has_sparsity else None
+			self._num_channels = int(num_channels)
+
+		def get_num_channels(self) -> int:
+			return int(self._num_channels)
+
+	fake_analyzers = [
+		("concat", _FakeAnalyzer(257, has_sparsity=False)),
+		("000_recA", _FakeAnalyzer(128, has_sparsity=False)),
+	]
+	fake_load_stats = {
+		"concat": {"source": "disk", "recording_attached": True},
+		"segments": {"recordings_discovered": 1, "recordings_loaded": 1, "built": 1},
+	}
+
+	def _fake_load_templates_phase_analyzers(**kwargs):
+		assert kwargs.get("return_stats") is True
+		return fake_analyzers, fake_load_stats
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner._load_templates_phase_analyzers",
+		_fake_load_templates_phase_analyzers,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		analyzer_cache=AnalyzerCacheConfig(enabled=True, relpath="cache/analyzers"),
+		force_restart=False,
+		n_jobs=1,
+	)
+
+	with caplog.at_level(logging.INFO, logger="axon_recon.templates"):
+		summary = run_templates_analyzers_phase(inputs)
+
+	summary_path = Path(str(summary["summary_json"]))
+	assert summary_path.exists()
+	payload = json.loads(summary_path.read_text(encoding="utf-8"))
+	assert payload["source_count"] == 2
+	assert payload["load_stats"] == fake_load_stats
+	assert float(payload["timing"]["duration_seconds"]) >= 0.0
+	messages = [rec.getMessage() for rec in caplog.records]
+	assert any("templates.analyzers concat settings:" in msg for msg in messages)
+	assert any("templates.analyzers segments settings:" in msg for msg in messages)
+	assert any("templates.analyzers generating outputs:" in msg for msg in messages)
+	assert any("templates.analyzers wrote summary output:" in msg for msg in messages)
+	assert any("templates.analyzers run stats:" in msg for msg in messages)
+
+
+def test_run_templates_build_templates_phase_materializes_templates_from_payloads(tmp_path: Path, monkeypatch) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	templates_out_dir = well_out_dir / "templates_outputs"
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.core.build_templates.read_maxwell_sampling_frequency_hz",
+		lambda *, h5_path, stream_id: 10_000.0,
+	)
+
+	write_materialized_source_payload(
+		templates_out_dir=templates_out_dir,
+		output_rel_root="templates/source_payloads",
+		source_name="concat",
+		unit_id=94,
+		template_c_by_t=np.asarray([[0.0, -2.0, 0.0], [0.0, -1.0, 0.0]], dtype=float),
+		locations_xy=np.asarray([[0.0, 0.0], [20.0, 0.0]], dtype=float),
+		electrode_ids=[10, 11],
+		channel_ids=[100, 101],
+		waveform_count=4,
+		sampling_rate_hz=10_000.0,
+		overlay_waveforms=None,
+		top_electrode_id=10,
+		total_waveforms_at_channel=4,
+	)
+	write_materialized_source_payload(
+		templates_out_dir=templates_out_dir,
+		output_rel_root="templates/source_payloads",
+		source_name="000_recA",
+		unit_id=94,
+		template_c_by_t=np.asarray([[0.0, -3.0, 0.0], [0.0, -0.5, 0.0]], dtype=float),
+		locations_xy=np.asarray([[0.0, 0.0], [40.0, 0.0]], dtype=float),
+		electrode_ids=[10, 12],
+		channel_ids=[100, 102],
+		waveform_count=6,
+		sampling_rate_hz=10_000.0,
+		overlay_waveforms=None,
+		top_electrode_id=10,
+		total_waveforms_at_channel=6,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			merged_template=TemplateArtifactConfig(
+				write_npy=True,
+				npy_relpath="merged_template.npy",
+				channel_locations_npy_relpath="merged_channel_locations.npy",
+			),
+			full_template=TemplateArtifactConfig(
+				write_npy=True,
+				npy_relpath="full_template.npy",
+				channel_locations_npy_relpath="full_channel_locations_xy.npy",
+			),
+			scan_template=TemplateArtifactConfig(
+				write_npy=True,
+				npy_relpath="scan_template.npy",
+				channel_locations_npy_relpath="scan_channel_locations.npy",
+			),
+			square_template=TemplateArtifactConfig(
+				write_npy=True,
+				npy_relpath="square_template.npy",
+				channel_locations_npy_relpath="square_channel_locations.npy",
+			),
+		),
+		unit_ids=[94],
+		require_curated_units=False,
+		n_jobs=1,
+	)
+
+	summary = run_templates_build_templates_phase(inputs)
+
+	assert summary["phase"] == "build_templates"
+	assert summary["built_units"] == [94]
+	assert summary["skipped_units"] == []
+	assert summary["unit_count"] == 1
+
+	unit_dir = well_out_dir / "templates_outputs" / "units" / "0094"
+	assert (unit_dir / "merged_template.npy").exists()
+	assert (unit_dir / "merged_channel_locations.npy").exists()
+	assert (unit_dir / "full_template.npy").exists()
+	assert (unit_dir / "full_channel_locations_xy.npy").exists()
+	assert (unit_dir / "scan_template.npy").exists()
+	assert (unit_dir / "scan_channel_locations.npy").exists()
+	assert (unit_dir / "square_template.npy").exists()
+	assert (unit_dir / "square_channel_locations.npy").exists()
+
+	unit_summary = json.loads((unit_dir / "unit_templates_summary.json").read_text(encoding="utf-8"))
+	assert unit_summary["selected_template_source"] == "merged_contributing"
+	assert unit_summary["status"] == "ok"
+	assert unit_summary["outputs"]["merged_template_npy"].endswith("merged_template.npy")
+	assert "grid_sort_metrics" in unit_summary
+
+	merged_unit_dir = well_out_dir / "templates_outputs" / "templates" / "merged" / "unit_94"
+	full_unit_dir = well_out_dir / "templates_outputs" / "templates" / "full" / "unit_94"
+	assert (merged_unit_dir / "merged_contributing_template.npy").exists()
+	merged_electrode_ids = json.loads((merged_unit_dir / "merged_contributing_electrode_ids.json").read_text(encoding="utf-8"))
+	assert merged_electrode_ids["electrode_ids"] == ["10", "11", "12"]
+	assert (full_unit_dir / "full_template.npy").exists()
+
+
+def test_run_templates_build_templates_phase_omits_disabled_full_outputs(tmp_path: Path, monkeypatch) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	templates_out_dir = well_out_dir / "templates_outputs"
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.core.build_templates.read_maxwell_sampling_frequency_hz",
+		lambda *, h5_path, stream_id: 10_000.0,
+	)
+
+	write_materialized_source_payload(
+		templates_out_dir=templates_out_dir,
+		output_rel_root="templates/source_payloads",
+		source_name="concat",
+		unit_id=94,
+		template_c_by_t=np.asarray([[0.0, -2.0, 0.0], [0.0, -1.0, 0.0]], dtype=float),
+		locations_xy=np.asarray([[0.0, 0.0], [20.0, 0.0]], dtype=float),
+		electrode_ids=[10, 11],
+		channel_ids=[100, 101],
+		waveform_count=4,
+		sampling_rate_hz=10_000.0,
+		overlay_waveforms=None,
+		top_electrode_id=10,
+		total_waveforms_at_channel=4,
+	)
+
+	unit_dir = templates_out_dir / "units" / "0094"
+	unit_dir.mkdir(parents=True, exist_ok=True)
+	np.save(unit_dir / "full_template.npy", np.asarray([[9.0, 9.0]], dtype=float))
+	np.save(unit_dir / "full_channel_locations_xy.npy", np.asarray([[0.0, 0.0]], dtype=float))
+	np.save(unit_dir / "scan_template.npy", np.asarray([[9.0, 9.0]], dtype=float))
+	np.save(unit_dir / "scan_channel_locations.npy", np.asarray([[0.0, 0.0]], dtype=float))
+	np.save(unit_dir / "square_template.npy", np.asarray([[9.0, 9.0]], dtype=float))
+	np.save(unit_dir / "square_channel_locations.npy", np.asarray([[0.0, 0.0]], dtype=float))
+
+	full_unit_dir = templates_out_dir / "templates" / "full" / "unit_94"
+	full_unit_dir.mkdir(parents=True, exist_ok=True)
+	np.save(full_unit_dir / "full_template.npy", np.asarray([[9.0, 9.0]], dtype=float))
+	np.save(full_unit_dir / "full_channel_locations_xy.npy", np.asarray([[0.0, 0.0]], dtype=float))
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			merged_template=TemplateArtifactConfig(
+				write_npy=True,
+				npy_relpath="merged_template.npy",
+				channel_locations_npy_relpath="merged_channel_locations.npy",
+			),
+			full_template=TemplateArtifactConfig(
+				write_npy=False,
+				npy_relpath="full_template.npy",
+				channel_locations_npy_relpath="full_channel_locations_xy.npy",
+			),
+			scan_template=TemplateArtifactConfig(
+				write_npy=False,
+				npy_relpath="scan_template.npy",
+				channel_locations_npy_relpath="scan_channel_locations.npy",
+			),
+			square_template=TemplateArtifactConfig(
+				write_npy=False,
+				npy_relpath="square_template.npy",
+				channel_locations_npy_relpath="square_channel_locations.npy",
+			),
+		),
+		unit_ids=[94],
+		require_curated_units=False,
+		n_jobs=1,
+	)
+
+	summary = run_templates_build_templates_phase(inputs)
+
+	assert summary["built_units"] == [94]
+	assert (unit_dir / "merged_template.npy").exists()
+	assert (unit_dir / "merged_channel_locations.npy").exists()
+	assert not (unit_dir / "full_template.npy").exists()
+	assert not (unit_dir / "full_channel_locations_xy.npy").exists()
+	assert not (unit_dir / "scan_template.npy").exists()
+	assert not (unit_dir / "scan_channel_locations.npy").exists()
+	assert not (unit_dir / "square_template.npy").exists()
+	assert not (unit_dir / "square_channel_locations.npy").exists()
+	assert not full_unit_dir.exists()
+
+	unit_summary = json.loads((unit_dir / "unit_templates_summary.json").read_text(encoding="utf-8"))
+	assert "full_template_npy" not in unit_summary["outputs"]
+	assert "scan_template_npy" not in unit_summary["outputs"]
+	assert "square_template_npy" not in unit_summary["outputs"]
+
+
+def test_run_templates_build_templates_phase_loads_cached_analyzers_when_payloads_missing(tmp_path: Path, monkeypatch) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	templates_out_dir = well_out_dir / "templates_outputs"
+	analyzer_cache_dir = templates_out_dir / "analyzers"
+	requested_source_batches: list[list[str]] = []
+	build_call: dict[str, Any] = {}
+
+	class _FakeSorting:
+		unit_ids = [94]
+
+	class _FakeAnalyzer:
+		def __init__(self, source_name: str) -> None:
+			self.source_name = str(source_name)
+			self.sorting = _FakeSorting()
+
+	def _fake_extract_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+		_ = inputs
+		raise AssertionError("extract phase should not run during in-memory build bootstrap")
+
+	def _fake_discover_cached_source_names(**kwargs) -> list[str]:
+		assert kwargs["analyzer_cache_dir"] == analyzer_cache_dir
+		return ["concat", "000_recA"]
+
+	def _fake_load_cached_spikeinterface_analyzers(**kwargs):
+		requested = [str(name) for name in list(kwargs.get("requested_source_names") or [])]
+		assert len(requested) == 1
+		requested_source_batches.append(requested)
+		assert kwargs["analyzer_cache_dir"] == analyzer_cache_dir
+		return [(requested[0], _FakeAnalyzer(requested[0]))]
+
+	def _fake_build_unit_source_payload(*, analyzer, unit_id, **kwargs):
+		assert kwargs["include_overlay_waveforms"] is False
+		assert kwargs["allow_prepare"] is False
+		assert unit_id == 94
+		if analyzer.source_name == "concat":
+			template = np.asarray([[0.0, -2.0, 0.0]], dtype=float)
+			locations = np.asarray([[0.0, 0.0]], dtype=float)
+			electrode_ids = [10]
+			channel_ids = [100]
+		else:
+			template = np.asarray([[0.0, -3.0, 0.0]], dtype=float)
+			locations = np.asarray([[20.0, 0.0]], dtype=float)
+			electrode_ids = [11]
+			channel_ids = [101]
+		return (template, locations, electrode_ids, channel_ids, 4, 10_000.0, np.ones((2, 3), dtype=float), 10, 2)
+
+	def _fake_build_templates_phase_from_unit_payloads(**kwargs) -> dict[str, Any]:
+		build_call.update(kwargs)
+		assert kwargs["payload_materialization_mode"] == "analyzer_cache"
+		assert kwargs["source_names"] == ["concat", "000_recA"]
+		assert kwargs["unit_ids"] == [94]
+		payloads = kwargs["source_payloads_by_unit"]
+		assert list(payloads.keys()) == [94]
+		assert [name for name, _ in payloads[94]] == ["concat", "000_recA"]
+		assert all(len(payload) == 6 for _, payload in payloads[94])
+		return {
+			"phase": "build_templates",
+			"payload_materialization_mode": "analyzer_cache",
+			"built_units": [94],
+			"skipped_units": [],
+			"unit_count": 1,
+			"source_count": 2,
+		}
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.run_templates_extract_template_segments_phase",
+		_fake_extract_phase,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.discover_cached_spikeinterface_analyzer_source_names",
+		_fake_discover_cached_source_names,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.load_cached_spikeinterface_analyzers",
+		_fake_load_cached_spikeinterface_analyzers,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.build_unit_source_payload",
+		_fake_build_unit_source_payload,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.build_templates_phase_from_unit_payloads",
+		_fake_build_templates_phase_from_unit_payloads,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			unit_reldir="units/{unit_id:04d}/",
+			merged_template=TemplateArtifactConfig(
+				write_npy=True,
+				npy_relpath="merged_template.npy",
+				channel_locations_npy_relpath="merged_channel_locations.npy",
+			),
+		),
+		unit_ids=[94],
+		require_curated_units=False,
+		force_restart=True,
+		n_jobs=1,
+	)
+
+	summary = run_templates_build_templates_phase(inputs)
+
+	assert requested_source_batches == [["concat"], ["000_recA"]]
+	assert summary["phase"] == "build_templates"
+	assert summary["payload_materialization_mode"] == "analyzer_cache"
+	assert summary["built_units"] == [94]
+	assert summary["source_payload_well_out_dir"] == str(well_out_dir)
+	assert summary["analyzer_cache_dir"] == str(analyzer_cache_dir)
+	assert summary["source_payload_sources"]["concat"]["unit_count"] == 1
+	assert build_call["payload_root"] == templates_out_dir / "templates/source_payloads"
+
+
+def test_run_templates_build_templates_phase_requires_analyzer_cache_when_payloads_missing(tmp_path: Path, monkeypatch) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	def _fake_discover_cached_source_names(**kwargs) -> list[str]:
+		_ = kwargs
+		return []
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.discover_cached_spikeinterface_analyzer_source_names",
+		_fake_discover_cached_source_names,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		unit_ids=[94],
+		require_curated_units=False,
+		force_restart=True,
+		n_jobs=1,
+	)
+
+	with pytest.raises(FileNotFoundError, match="run templates\.analyzers before templates\.build_templates"):
+		run_templates_build_templates_phase(inputs)
 
 
 def test_run_templates_stage_writes_png(tmp_path: Path) -> None:

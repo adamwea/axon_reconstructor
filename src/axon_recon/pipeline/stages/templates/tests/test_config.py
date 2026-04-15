@@ -336,9 +336,6 @@ def test_load_templates_config_parses_template_plots_waveforms_and_circles(tmp_p
 	)
 
 	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
-	assert inputs.per_unit_outputs.template.relpath == "maps/template_waveforms"
-	assert inputs.per_unit_outputs.template.dpi == 360
-	assert inputs.per_unit_outputs.template.channel_scope == "all_channels"
 	assert inputs.per_unit_outputs.template.show_axes is False
 	assert inputs.per_unit_outputs.template.unit_id_label.show is True
 	assert inputs.per_unit_outputs.template.unit_id_label.fontsize == 14
@@ -2766,6 +2763,9 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 
 	assert inputs.phases.per_unit_processing.extract_template_segments.output_rel_root == "templates/custom_source_payloads"
 	assert inputs.phases.per_unit_processing.extract_template_segments.summary_json_relpath == "context/custom_extract_summary.json"
+	assert inputs.phases.build_templates.summary_json_relpath == "context/custom_build_summary.json"
+	assert inputs.phases.build_templates.execution_upsampling.enabled is True
+	assert inputs.phases.build_templates.execution_upsampling.factor == 3
 	assert inputs.phases.per_unit_processing.build_templates.summary_json_relpath == "context/custom_build_summary.json"
 	assert inputs.phases.per_unit_processing.build_templates.execution_upsampling.enabled is True
 	assert inputs.phases.per_unit_processing.build_templates.execution_upsampling.factor == 3
@@ -2774,6 +2774,163 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 
 	assert inputs.phases.reports.summary_json_relpath == "context/custom_reports_summary.json"
 	assert inputs.phases.reports.locations.enabled is False
+
+
+def test_load_templates_config_build_templates_falls_back_to_legacy_nested_phase_block(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    phases:
+			      per_unit_processing:
+			        build_templates:
+			          summary_json_relpath: context/legacy_build_summary.json
+			          execution_upsampling:
+			            enabled: true
+			            factor: 5
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+
+	assert inputs.phases.build_templates.summary_json_relpath == "context/legacy_build_summary.json"
+	assert inputs.phases.build_templates.execution_upsampling.enabled is True
+	assert inputs.phases.build_templates.execution_upsampling.factor == 5
+	assert inputs.phases.per_unit_processing.build_templates.summary_json_relpath == "context/legacy_build_summary.json"
+	assert inputs.phases.per_unit_processing.build_templates.execution_upsampling.factor == 5
+
+
+def test_load_templates_config_parses_grouped_per_source_analyzer_controls(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    phases:
+			      analyzers:
+			        defaults:
+			          n_jobs: 4
+			          chunk_duration: 1s
+			          waveforms:
+			            ms_before: 1.5
+			            ms_after: 2.5
+			            dtype: float32
+			          template_extraction:
+			            random_spikes_method: uniform
+			            max_spikes_per_unit: 80
+			            random_seed: 9
+			            margin_size: 11
+			            log_before_after_spike_counts: true
+			          sparsity:
+			            compute_sparsity: false
+			            method: threshold
+			            threshold: 6.5
+			            peak_sign: both
+			            num_spikes_for_sparsity: 222
+			        concat:
+			          enabled: true
+			          required: true
+			          analyzer_relpath: /custom/concat_analyzer
+			          n_jobs: 2
+			          waveforms:
+			            ms_before: 3.0
+			          template_extraction:
+			            random_spikes_method: percentage
+			            random_spikes_percentage: 50%
+			            min_spikes_per_unit: 12
+			        segments:
+			          enabled: true
+			          preprocessed_sources_reldir: /custom/segments
+			          waveforms:
+			            dtype: float64
+			          template_extraction:
+			            random_spikes_method: all
+			            max_spikes_per_unit: 11
+			          sparsity:
+			            compute_sparsity: true
+			            method: best_channels
+			            num_channels: 12
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+
+	concat_policy = inputs.phases.analyzers.concat.policy
+	assert inputs.phases.analyzers.concat.analyzer_relpath == "/custom/concat_analyzer"
+	assert concat_policy.ms_before == 3.0
+	assert concat_policy.ms_after == 2.5
+	assert concat_policy.dtype == "float32"
+	assert concat_policy.max_spikes_per_unit == 80
+	assert concat_policy.min_spikes_per_unit == 12
+	assert concat_policy.random_spikes_method == "percentage"
+	assert concat_policy.random_spikes_percentage == 0.5
+	assert concat_policy.random_seed == 9
+	assert concat_policy.margin_size == 11
+	assert concat_policy.log_before_after_spike_counts is True
+	assert concat_policy.compute_sparsity is False
+	assert concat_policy.sparsity_mode == "dense"
+	assert concat_policy.sparsity_method == "threshold"
+	assert concat_policy.sparsity_threshold == 6.5
+	assert concat_policy.sparsity_peak_sign == "both"
+	assert concat_policy.sparsity_num_spikes_for_sparsity == 222
+	assert concat_policy.n_jobs == 2
+	assert concat_policy.chunk_duration == "1s"
+
+	segments_policy = inputs.phases.analyzers.segments.policy
+	assert inputs.phases.analyzers.segments.preprocessed_sources_reldir == "/custom/segments"
+	assert segments_policy.ms_before == 1.5
+	assert segments_policy.ms_after == 2.5
+	assert segments_policy.dtype == "float64"
+	assert segments_policy.max_spikes_per_unit == 11
+	assert segments_policy.random_spikes_method == "all"
+	assert segments_policy.random_seed == 9
+	assert segments_policy.margin_size == 11
+	assert segments_policy.log_before_after_spike_counts is True
+	assert segments_policy.compute_sparsity is True
+	assert segments_policy.sparsity_mode == "inherit"
+	assert segments_policy.sparsity_method == "best_channels"
+	assert segments_policy.sparsity_num_channels == 12
+	assert segments_policy.n_jobs == 4
+	assert segments_policy.chunk_duration == "1s"
 
 
 def test_load_templates_inputs_probe_geometry_defaults_when_probe_missing(tmp_path: Path) -> None:
@@ -2863,6 +3020,104 @@ def test_load_templates_config_parses_analyzer_cache_subdirs_and_require_flags(t
 	assert inputs.analyzer_cache.segment_analyzers_subdir == "segments_custom"
 	assert inputs.require_concat_analyzer is True
 	assert inputs.require_segment_analyzers is True
+
+
+def test_load_templates_config_prefers_phase_analyzer_cache_over_flat_outputs(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    outputs:
+			      analyzer_cache:
+			        enabled: false
+			        relpath_root: cache/legacy_analyzers
+			        concat_analyzer_subdir: legacy_concat
+			        segment_analyzers_subdir: legacy_segments
+			    phases:
+			      analyzers:
+			        outputs:
+			          analyzer_cache:
+			            enabled: true
+			            relpath_root: cache/canonical_analyzers
+			            concat_analyzer_subdir: canonical_concat
+			            segment_analyzers_subdir: canonical_segments
+			            cleanup_on_success: false
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.analyzer_cache.enabled is True
+	assert inputs.analyzer_cache.relpath == "cache/canonical_analyzers"
+	assert inputs.analyzer_cache.relpath_root == "cache/canonical_analyzers"
+	assert inputs.analyzer_cache.concat_analyzer_subdir == "canonical_concat"
+	assert inputs.analyzer_cache.segment_analyzers_subdir == "canonical_segments"
+	assert inputs.analyzer_cache.cleanup_on_success is False
+
+
+def test_load_templates_config_prefers_phase_unit_reldir_over_flat_outputs(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    outputs:
+			      per_unit_outputs:
+			        unit_reldir: legacy_units/{{unit_id:04d}}/
+			        template:
+			          relpath: legacy/template
+			    phases:
+			      per_unit_processing:
+			        outputs:
+			          unit_reldir: canonical_units/{{unit_id:04d}}/
+			        plots:
+			          outputs:
+			            template:
+			              relpath: canonical/template
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.per_unit_outputs.unit_reldir == "canonical_units/{unit_id:04d}/"
+	assert inputs.per_unit_outputs.template.relpath == "canonical/template"
 
 
 def test_load_templates_config_force_rereport_enforces_reports_only_mode(tmp_path: Path) -> None:

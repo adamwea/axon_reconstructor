@@ -12,6 +12,7 @@ from .render import (
 	render_topographical_amplitude_footprint,
 	render_topographical_latency_footprint,
 )
+from .build_templates import build_templates_phase_from_payloads
 from .merge import merge_sources_per_channel, normalize_merge_method, normalize_overlap_priorities
 from .materialization import materialize_unit_templates_from_sources
 from .source_payloads import normalize_source_payload, normalize_template_to_channels_by_time
@@ -29,6 +30,7 @@ __all__ = [
 	"render_template_plot",
 	"render_template_wf_overlay",
 	"render_wf_overlay_grid_from_assets",
+	"build_templates_phase_from_payloads",
 	"merge_sources_per_channel",
 	"materialize_unit_templates_from_sources",
 	"materialize_unit_templates_by_unit",
