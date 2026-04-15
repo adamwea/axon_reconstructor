@@ -325,6 +325,90 @@ def test_write_unit_circle_recon_plot_nodes_only_scope_uses_clean_payload(monkey
 	assert "selected_branch_class=dict" in caplog.text
 
 
+def test_write_unit_circle_recon_plot_selected_channels_scope_uses_filtered_channels(monkeypatch, caplog) -> None:
+	template_ch_by_t = np.array(
+		[
+			[-5.0, -10.0, -3.0, -1.0],
+			[-2.0, -4.0, -1.0, -0.5],
+			[-1.0, -6.0, -2.0, -0.5],
+			[-1.0, -2.0, -1.0, -0.2],
+		],
+		dtype=float,
+	)
+	locs_xy = np.array(
+		[
+			[0.0, 0.0],
+			[17.5, 0.0],
+			[35.0, 0.0],
+			[52.5, 0.0],
+		],
+		dtype=float,
+	)
+
+	class _GraphMock:
+		def nodes(self):
+			return [0, 1, 2]
+
+	class _GtrMock:
+		def __init__(self):
+			self._paths_raw = [[3, 2, 0]]
+			self._paths_clean = [[0, 2]]
+			self.branches = [{"branch_index": 4, "channels": [0, 2]}]
+			self.selected_channels = [0, 2, 3]
+			self.graph = _GraphMock()
+
+	gtr = _GtrMock()
+	captured: dict[str, Any] = {}
+
+	def _fake_render_template_circles_plot(**kwargs):
+		captured["template"] = np.asarray(kwargs["template"], dtype=float)
+		captured["locations_xy"] = np.asarray(kwargs["locations_xy"], dtype=float)
+		captured["branch_morphology"] = kwargs.get("branch_morphology")
+		captured["config"] = kwargs.get("config")
+		captured["plot_scope_points_xy"] = kwargs.get("plot_scope_points_xy")
+		return {"template_circles_png": "noop.png"}
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.core.render.render_template_circles_plot",
+		_fake_render_template_circles_plot,
+	)
+
+	cfg = CircleReconConfig(
+		display=CircleReconDisplayConfig(
+			base="template_circles",
+			channel_scope="selected_channels",
+			force_center_soma=False,
+			branch_scope="raw",
+			show_branch_legend=True,
+		),
+		output=CircleReconOutputConfig(write_png=False, write_svg=False, relpath="circle_recon", dpi=200.0),
+	)
+	caplog.set_level("INFO", logger="axon_recon.reconstruct")
+
+	write_unit_circle_recon_plot(
+		output_png=Path("/tmp/noop.png"),
+		output_svg=Path("/tmp/noop.svg"),
+		template_ch_by_t=template_ch_by_t,
+		locs_xy=locs_xy,
+		gtr=gtr,
+		circle_config=cfg,
+		unit_id=1,
+	)
+
+	assert captured["template"].shape == (3, 4)
+	assert captured["locations_xy"].shape == (3, 2)
+	np.testing.assert_allclose(captured["template"][0, :], template_ch_by_t[0, :])
+	np.testing.assert_allclose(captured["template"][1, :], template_ch_by_t[2, :])
+	np.testing.assert_allclose(captured["template"][2, :], template_ch_by_t[3, :])
+	np.testing.assert_allclose(captured["locations_xy"], np.asarray(captured["plot_scope_points_xy"], dtype=float))
+	assert bool(captured["config"].branch_morphology.show_branch_legend) is True
+	assert captured["branch_morphology"] == {
+		"branches": [{"branch_index": 0, "channels": [0, 1, 2], "label": 0, "color": None}]
+	}
+	assert "branch_scope=raw" in caplog.text
+	assert "source=gtr._paths_raw" in caplog.text
+
+
 def test_write_unit_circle_recon_plot_clean_scope_falls_back_to_paths_clean(monkeypatch, caplog) -> None:
 	template_ch_by_t = np.array(
 		[

@@ -261,6 +261,12 @@ def _gtr_node_indices(gtr: Any) -> set[int]:
 		return set()
 
 
+def _gtr_selected_channel_indices(gtr: Any, *, n_channels: int) -> set[int]:
+	from axon_recon.pipeline.stages.reconstruct.io import as_int_list
+
+	return {int(ch) for ch in as_int_list(getattr(gtr, "selected_channels", None)) if 0 <= int(ch) < int(n_channels)}
+
+
 def _branch_channel_set(branch_payload: list[dict[str, Any]]) -> set[int]:
 	out: set[int] = set()
 	for branch in branch_payload:
@@ -369,15 +375,20 @@ def write_unit_circle_recon_plot(
 	n_channels = int(locs.shape[0])
 	node_channels = {int(ch) for ch in _gtr_node_indices(gtr) if 0 <= int(ch) < n_channels}
 	branch_channels = {int(ch) for ch in _branch_channel_set(branch_payload) if 0 <= int(ch) < n_channels}
+	filtered_channels = _gtr_selected_channel_indices(gtr, n_channels=n_channels)
 
 	channel_scope = str(getattr(display_cfg, "channel_scope", "nodes_and_branches") or "nodes_and_branches").strip().lower()
-	if channel_scope not in {"nodes_and_branches", "branches_only", "nodes_only"}:
+	if channel_scope in {"filtered", "filtered_channels", "selected", "selected_channel"}:
+		channel_scope = "selected_channels"
+	if channel_scope not in {"nodes_and_branches", "branches_only", "nodes_only", "selected_channels"}:
 		channel_scope = "nodes_and_branches"
 
 	if channel_scope == "branches_only":
 		selected_channels = sorted(branch_channels)
 	elif channel_scope == "nodes_only":
 		selected_channels = sorted(node_channels if len(node_channels) > 0 else branch_channels)
+	elif channel_scope == "selected_channels":
+		selected_channels = sorted(filtered_channels if len(filtered_channels) > 0 else (node_channels | branch_channels))
 	else:
 		selected_union = node_channels | branch_channels
 		selected_channels = sorted(selected_union if len(selected_union) > 0 else set(range(n_channels)))
@@ -432,6 +443,7 @@ def write_unit_circle_recon_plot(
 			)
 		),
 		show_branch_labels=bool(getattr(display_cfg, "show_branch_labels", base_branch_cfg.show_branch_labels)),
+		show_branch_legend=bool(getattr(display_cfg, "show_branch_legend", getattr(base_branch_cfg, "show_branch_legend", False))),
 		unique_color_per_branch=bool(getattr(display_cfg, "unique_color_per_branch", base_branch_cfg.unique_color_per_branch)),
 		color_scheme=str(getattr(display_cfg, "color_scheme", base_branch_cfg.color_scheme) or base_branch_cfg.color_scheme),
 	)

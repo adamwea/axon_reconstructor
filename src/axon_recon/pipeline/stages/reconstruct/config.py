@@ -496,6 +496,9 @@ def parse_reconstruction_stage_config(
 	default_circle_show_labels = bool(
 		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "show_branch_labels", False)
 	)
+	default_circle_show_legend = bool(
+		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "show_branch_legend", False)
+	)
 	default_circle_color_scheme = str(
 		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "color_scheme", "tab20") or "tab20"
 	)
@@ -517,7 +520,9 @@ def parse_reconstruction_stage_config(
 	if circle_base not in {"template_circles", "amplitude_map", "latency_map"}:
 		circle_base = default_circle_base
 	circle_channel_scope = str(circle_display_cfg.get("channel_scope", "nodes_and_branches") or "nodes_and_branches").strip().lower()
-	if circle_channel_scope not in {"nodes_and_branches", "branches_only", "nodes_only"}:
+	if circle_channel_scope in {"filtered", "filtered_channels", "selected", "selected_channel"}:
+		circle_channel_scope = "selected_channels"
+	if circle_channel_scope not in {"nodes_and_branches", "branches_only", "nodes_only", "selected_channels"}:
 		circle_channel_scope = "nodes_and_branches"
 	try:
 		circle_zoom_padding_percent = float(circle_display_cfg.get("zoom_padding_percent", 20.0))
@@ -577,6 +582,7 @@ def parse_reconstruction_stage_config(
 			branch_scope=circle_branch_scope,
 			unique_color_per_branch=_as_bool(circle_display_cfg.get("unique_color_per_branch", default_circle_unique_color), default_circle_unique_color),
 			show_branch_labels=_as_bool(circle_display_cfg.get("show_branch_labels", default_circle_show_labels), default_circle_show_labels),
+				show_branch_legend=_as_bool(circle_display_cfg.get("show_branch_legend", default_circle_show_legend), default_circle_show_legend),
 			color_scheme=str(circle_display_cfg.get("color_scheme", default_circle_color_scheme) or default_circle_color_scheme),
 			node_outline_color=circle_node_outline_color,
 				node_outline_linewidth=float(max(0.0, circle_node_outline_lw)),

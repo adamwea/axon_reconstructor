@@ -17,6 +17,7 @@ class CircleReconDisplayConfig:
 	branch_scope: str = "raw"
 	unique_color_per_branch: bool = True
 	show_branch_labels: bool = False
+	show_branch_legend: bool = False
 	color_scheme: str = "tab20"
 	node_outline_color: str | None = None
 	node_outline_linewidth: float = 0.0

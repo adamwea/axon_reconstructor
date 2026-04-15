@@ -69,7 +69,9 @@ class TemplateCirclesOverlapControlsConfig:
 class TemplateScaleCircleConfig:
 	diameter: str | float = "equal_to_max_amplitude"
 	linewidth: float = 1.8
-	linestyle: str = "solid"
+	linestyle: str | None = "solid"
+	fill: bool = False
+	fill_color: str | None = None
 	fontsize: float = 6.0
 	digits_after_decimal: int = 0
 	horizontal_alignment: str = "left"
@@ -87,6 +89,7 @@ class TemplateCirclesBranchMorphologyConfig:
 	node_border_linewidth: float = 0.35
 	edge_linewidth: float = 0.8
 	show_branch_labels: bool = False
+	show_branch_legend: bool = False
 	unique_color_per_branch: bool = True
 	color_scheme: str = "tab20"
 	node_outline_color: str | None = None

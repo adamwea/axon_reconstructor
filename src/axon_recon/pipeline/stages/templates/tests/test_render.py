@@ -1319,6 +1319,70 @@ def test_render_template_circles_plot_scale_circle_label_uses_abs_negative_peak(
 	assert any(label == "6 uV" for label in labels)
 
 
+def test_render_template_circles_plot_scale_circle_style_knobs_apply_to_patch(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+	import matplotlib.colors as mcolors
+	import matplotlib.patches
+
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	patch_styles: list[dict[str, Any]] = []
+	orig_add_patch = matplotlib.axes.Axes.add_patch
+
+	def _spy_add_patch(self, patch, *args, **kwargs):
+		if isinstance(patch, matplotlib.patches.Ellipse) and str(getattr(patch, "get_gid", lambda: "")() or "") == "template_scale_circle_patch":
+			patch_styles.append(
+				{
+					"fill": bool(patch.get_fill()),
+					"facecolor": patch.get_facecolor(),
+					"edgecolor": patch.get_edgecolor(),
+					"linewidth": float(patch.get_linewidth()),
+				}
+			)
+		return orig_add_patch(self, patch, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "add_patch", _spy_add_patch)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			show_scale_circle=True,
+			scale_circle_color="yellow",
+			scale_circle=TemplateScaleCircleConfig(
+				linestyle=None,
+				fill=True,
+				fill_color="white",
+			),
+		),
+		png_path=tmp_path / "circles_scale_circle_style_knobs.png",
+		svg_path=tmp_path / "unused_scale_circle_style_knobs.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+
+	assert len(patch_styles) >= 1
+	style = patch_styles[-1]
+	assert style["fill"] is True
+	assert np.allclose(style["facecolor"], mcolors.to_rgba("white"))
+	assert np.isclose(float(style["edgecolor"][3]), 0.0)
+	assert np.isclose(style["linewidth"], 0.0)
+
+
 def test_render_template_circles_plot_branch_morphology_draws_node_borders_and_clipped_edges(tmp_path: Path, monkeypatch) -> None:
 	import matplotlib.axes
 
@@ -1514,6 +1578,82 @@ def test_render_template_circles_plot_branch_outline_preserves_color_scheme_stro
 	assert all(np.isclose(float(call["linewidth"]), 3.9) for call in outline_plot_calls)
 	assert all(call["color"] != "white" for call in main_plot_calls)
 	assert all(np.isclose(float(call["linewidth"]), 0.9) for call in main_plot_calls)
+
+
+def test_render_template_circles_plot_branch_legend_uses_branch_colors_and_labels(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[-2.0, 0.0, 0.0],
+			[-1.5, 0.0, 0.0],
+			[-1.0, 0.0, 0.0],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[20.0, 0.0],
+			[40.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	legend_calls: list[dict[str, Any]] = []
+	orig_legend = matplotlib.axes.Axes.legend
+
+	def _spy_legend(self, *args, **kwargs):
+		handles = list(kwargs.get("handles", []))
+		legend_calls.append(
+			{
+				"labels": [str(handle.get_label()) for handle in handles],
+				"colors": [handle.get_color() for handle in handles],
+				"title": kwargs.get("title"),
+			}
+		)
+		return orig_legend(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "legend", _spy_legend)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			show_scale_bar=False,
+			show_scale_circle=False,
+			branch_morphology=TemplateCirclesBranchMorphologyConfig(
+				enabled=True,
+				edge_linewidth=0.9,
+				show_branch_legend=True,
+				color_scheme="Set1",
+			),
+		),
+		png_path=tmp_path / "circles_branch_legend.png",
+		svg_path=tmp_path / "unused_branch_legend.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+		branch_morphology={
+			"branches": [
+				{
+					"branch_index": 0,
+					"channels": [0, 1],
+					"label": "A",
+				},
+				{
+					"branch_index": 1,
+					"channels": [1, 2],
+					"label": "B",
+				},
+			]
+		},
+	)
+
+	assert len(legend_calls) == 1
+	assert legend_calls[0]["title"] == "Branches"
+	assert legend_calls[0]["labels"] == ["A", "B"]
+	assert legend_calls[0]["colors"][0] != legend_calls[0]["colors"][1]
 
 
 def test_render_template_circles_plot_overlap_controls_can_trigger_zoom_out(tmp_path: Path, monkeypatch) -> None:

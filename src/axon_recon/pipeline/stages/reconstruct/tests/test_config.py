@@ -108,6 +108,7 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			              branch_scope: raw
 			              unique_color_per_branch: true
 			              show_branch_labels: true
+			              show_branch_legend: true
 			              color_scheme: tab20
 			              node_outline_color: white
 			              node_outline_linewidth: 2.5
@@ -171,6 +172,7 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert circle.display.branch_scope == "raw"
 	assert circle.display.unique_color_per_branch is True
 	assert circle.display.show_branch_labels is True
+	assert circle.display.show_branch_legend is True
 	assert circle.display.color_scheme == "tab20"
 	assert circle.display.node_outline_color == "white"
 	assert circle.display.node_outline_linewidth == 2.5
@@ -454,6 +456,7 @@ def test_load_config_reads_reconstruct_phase_blocks_and_overrides_legacy_paths(t
 			        outputs:
 			          circle_recon:
 			            display:
+			              channel_scope: selected_channels
 			              color_scheme: Set1
 			            output:
 			              write_png: true
@@ -505,6 +508,7 @@ def test_load_config_reads_reconstruct_phase_blocks_and_overrides_legacy_paths(t
 	assert inputs.per_unit_outputs.channel_selection_figure.relpath == "phase/channel_selection"
 	assert inputs.per_unit_outputs.axon_reconstruction_figure.write_svg is True
 	assert inputs.per_unit_outputs.axon_reconstruction_figure.relpath == "phase/axon_reconstruction"
+	assert inputs.per_unit_outputs.circle_recon.display.channel_scope == "selected_channels"
 	assert inputs.per_unit_outputs.circle_recon.output.write_png is True
 	assert inputs.per_unit_outputs.circle_recon.output.relpath == "phase_circle"
 	assert inputs.per_unit_outputs.circle_recon.display.color_scheme == "Set1"

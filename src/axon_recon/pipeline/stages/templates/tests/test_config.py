@@ -513,6 +513,7 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 			                node_border_linewidth: 0.22
 			                edge_linewidth: 1.1
 			                show_branch_labels: true
+			                show_branch_legend: true
 			                unique_color_per_branch: true
 			                color_scheme: tab10
 			            render:
@@ -570,6 +571,7 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 	assert bm.node_border_linewidth == 0.22
 	assert bm.edge_linewidth == 1.1
 	assert bm.show_branch_labels is True
+	assert bm.show_branch_legend is True
 	assert bm.unique_color_per_branch is True
 	assert bm.color_scheme == "tab10"
 	assert inputs.per_unit_outputs.template_circles.color_bar_tick_fontsize == 18
@@ -583,6 +585,52 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 	assert overlap.scalebar_channel_overlap_detect is True
 	assert overlap.scalecircle_channel_overlap_detect is True
 	assert overlap.max_overlap_check_iterations == 5
+
+
+def test_load_templates_config_parses_scale_circle_style_knobs(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  outputs:
+			    per_unit_outputs:
+			      full_template:
+			        template_plots:
+			          circles:
+			            display:
+			              show_scale_circle: true
+			              scale_circle:
+			                linestyle: null
+			                fill: true
+			                fill_color: white
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	scale_circle = inputs.per_unit_outputs.template_circles.scale_circle
+	assert inputs.per_unit_outputs.template_circles.show_scale_circle is True
+	assert scale_circle.linestyle is None
+	assert scale_circle.fill is True
+	assert scale_circle.fill_color == "white"
 
 
 def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: Path) -> None:

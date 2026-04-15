@@ -171,6 +171,15 @@ def _normalize_vertical_alignment(raw: Any, default: str = "top") -> str:
 		return v
 	return str(default)
 
+
+def _normalize_optional_linestyle(raw: Any, default: str | None = "solid") -> str | None:
+	if raw is None:
+		return None
+	v = str(raw).strip()
+	if v.lower() in {"", "none", "null", "off", "false"}:
+		return None
+	return v
+
 def _normalize_grid_render_mode(raw: Any, default: str = "image_composite") -> str:
 	v = str(raw or default).strip().lower().replace("-", "_").replace(" ", "_")
 	if v in {"direct_replot", "image_composite"}:
@@ -2130,15 +2139,37 @@ def parse_templates_stage_config(
 					1.8,
 				),
 			),
-			linestyle=str(
-				_nested_path_or_flat(
-					tpl_circles_cfg,
-					path=("display", "scale_circle"),
-					key="linestyle",
-					flat_keys=("scale_circle_linestyle",),
-					default="solid",
-				)
-			),
+				linestyle=_normalize_optional_linestyle(
+					_nested_path_or_flat(
+						tpl_circles_cfg,
+						path=("display", "scale_circle"),
+						key="linestyle",
+						flat_keys=("scale_circle_linestyle",),
+						default="solid",
+					),
+					"solid",
+				),
+				fill=_as_bool(
+					_nested_path_or_flat(
+						tpl_circles_cfg,
+						path=("display", "scale_circle"),
+						key="fill",
+						flat_keys=("scale_circle_fill",),
+						default=False,
+					),
+					False,
+				),
+				fill_color=(
+					lambda raw: None if raw is None else (str(raw).strip() or None)
+				)(
+					_nested_path_or_flat(
+						tpl_circles_cfg,
+						path=("display", "scale_circle"),
+						key="fill_color",
+						flat_keys=("scale_circle_fill_color",),
+						default=None,
+					)
+				),
 			fontsize=max(
 				1.0,
 				_as_float(
@@ -2282,6 +2313,16 @@ def parse_templates_stage_config(
 					path=("display", "branch_morphology"),
 					key="show_branch_labels",
 					flat_keys=("branch_morphology_show_branch_labels",),
+					default=False,
+				),
+				False,
+			),
+			show_branch_legend=_as_bool(
+				_nested_path_or_flat(
+					tpl_circles_cfg,
+					path=("display", "branch_morphology"),
+					key="show_branch_legend",
+					flat_keys=("branch_morphology_show_branch_legend",),
 					default=False,
 				),
 				False,

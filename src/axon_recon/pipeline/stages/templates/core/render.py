@@ -716,16 +716,28 @@ def _add_scale_circle(
 	cy = float(min(1.0 - ry_axes, max(ry_axes, cy)))
 
 	from matplotlib.patches import Ellipse  # type: ignore[import-not-found]
+	line_color = str(getattr(config, "scale_circle_color", "white") or "white")
+	raw_linestyle = getattr(scale_cfg, "linestyle", "solid")
+	linestyle = None if raw_linestyle is None else str(raw_linestyle).strip()
+	if linestyle is not None and linestyle.lower() in {"", "none", "null"}:
+		linestyle = None
+	linewidth = float(max(0.1, float(getattr(scale_cfg, "linewidth", 1.8))))
+	fill_enabled = bool(getattr(scale_cfg, "fill", False))
+	raw_fill_color = getattr(scale_cfg, "fill_color", None)
+	fill_color = None if raw_fill_color is None else str(raw_fill_color).strip()
+	if not fill_color:
+		fill_color = line_color
 
 	patch = Ellipse(
 		(cx, cy),
 		width=2.0 * rx_axes,
 		height=2.0 * ry_axes,
 		transform=ax.transAxes,
-		facecolor="none",
-		edgecolor=str(getattr(config, "scale_circle_color", "white") or "white"),
-		linewidth=float(max(0.1, float(getattr(scale_cfg, "linewidth", 1.8)))),
-		linestyle=str(getattr(scale_cfg, "linestyle", "solid") or "solid"),
+		fill=fill_enabled,
+		facecolor=(str(fill_color) if fill_enabled else "none"),
+		edgecolor=(line_color if linestyle is not None else "none"),
+		linewidth=(linewidth if linestyle is not None else 0.0),
+		linestyle=(linestyle if linestyle is not None else "none"),
 	)
 	patch.set_gid("template_scale_circle_patch")
 	ax.add_patch(patch)
@@ -769,7 +781,7 @@ def _add_scale_circle(
 		horizontalalignment=text_ha,
 		verticalalignment=text_va,
 		fontsize=float(max(1.0, float(getattr(scale_cfg, "fontsize", 6.0)))),
-		color=str(getattr(config, "scale_circle_color", "white") or "white"),
+		color=line_color,
 	)
 	text.set_gid("template_scale_circle_text")
 
@@ -925,6 +937,7 @@ def _draw_branch_morphology_overlay(
 
 	unique_color_per_branch = bool(getattr(branch_cfg, "unique_color_per_branch", True))
 	show_branch_labels = bool(getattr(branch_cfg, "show_branch_labels", False))
+	show_branch_legend = bool(getattr(branch_cfg, "show_branch_legend", False))
 	edge_lw = float(max(0.0, float(getattr(branch_cfg, "edge_linewidth", 0.8))))
 	node_lw = float(max(0.0, float(getattr(branch_cfg, "node_border_linewidth", 0.35))))
 	node_outline_color_raw = str(getattr(branch_cfg, "node_outline_color", "") or "").strip()
@@ -1049,6 +1062,53 @@ def _draw_branch_morphology_overlay(
 				zorder=7.3,
 			)
 			text.set_gid("template_branch_label")
+
+	if show_branch_legend:
+		from matplotlib.lines import Line2D  # type: ignore[import-not-found]
+
+		face_rgba = ax.get_facecolor()
+		luminance = (0.2126 * float(face_rgba[0])) + (0.7152 * float(face_rgba[1])) + (0.0722 * float(face_rgba[2]))
+		text_color = "black" if luminance > 0.5 else "white"
+		frame_facecolor = (1.0, 1.0, 1.0, 0.9) if luminance > 0.5 else (0.0, 0.0, 0.0, 0.85)
+		handles: list[Any] = []
+		for i, branch in enumerate(branches):
+			branch_label = branch.get("label", branch.get("branch_index", i))
+			handles.append(
+				Line2D(
+					[0.0],
+					[0.0],
+					color=branch_colors[i],
+					linewidth=max(1.0, edge_lw),
+					marker="o",
+					markersize=max(4.0, 4.0 + (2.0 * node_lw)),
+					markerfacecolor="none",
+					markeredgewidth=max(0.75, node_lw),
+					markeredgecolor=branch_colors[i],
+					label=str(branch_label),
+				)
+			)
+		if handles:
+			legend = ax.legend(
+				handles=handles,
+				title="Branches",
+				loc="best",
+				frameon=True,
+				fancybox=True,
+				framealpha=0.9,
+				fontsize=6.0,
+				title_fontsize=7.0,
+				borderpad=0.35,
+				handlelength=1.6,
+				handletextpad=0.5,
+			)
+			legend.set_zorder(7.4)
+			legend.get_frame().set_facecolor(frame_facecolor)
+			legend.get_frame().set_edgecolor(text_color)
+			legend.get_frame().set_linewidth(0.6)
+			legend.get_title().set_color(text_color)
+			for text in legend.get_texts():
+				text.set_color(text_color)
+			legend.set_gid("template_branch_legend")
 
 
 def _axes_anchor_pos(
