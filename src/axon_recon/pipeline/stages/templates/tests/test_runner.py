@@ -32,16 +32,21 @@ from axon_recon.pipeline.stages.templates.models.inputs import (
 	ReportsConfig,
 	TemplateArtifactConfig,
 	TemplateCirclesPlotConfig,
+	TemplatePlotsPhaseConfig,
 	TemplateWaveformOverlayConfig,
 	TemplatePlotConfig,
 	TimeUpsampleConfig,
 	TemplatesInputs,
+	TemplatesPhasesConfig,
 	TopographicalFootprintConfig,
 	TopographicalFootprintsConfig,
 	UnitLocationsReportConfig,
 	WfOverlayGridReportConfig,
 )
+from axon_recon.pipeline.stages.templates.models.results import TemplatesResult, UnitTemplatesResult
 from axon_recon.pipeline.stages.templates.runner import (
+	_resolve_plot_templates_execution_plan,
+	_run_templates_plot_batches,
 	run_templates_analyzers_phase,
 	run_templates_build_templates_phase,
 	run_templates_plot_templates_phase,
@@ -50,14 +55,9 @@ from axon_recon.pipeline.stages.templates.runner import (
 )
 
 
-def _make_templates_artifacts(well_out_dir: Path) -> None:
-	merged_unit_dir = well_out_dir / "templates_outputs" / "templates" / "merged" / "unit_94"
-	full_unit_dir = well_out_dir / "templates_outputs" / "templates" / "full" / "unit_94"
-	merged_unit_dir.mkdir(parents=True, exist_ok=True)
-	full_unit_dir.mkdir(parents=True, exist_ok=True)
-
+def _make_templates_artifacts(well_out_dir: Path, *, unit_ids: tuple[int, ...] = (94,)) -> None:
 	t = np.linspace(-1.0, 1.0, 40)
-	merged_template = np.vstack(
+	base_merged_template = np.vstack(
 		[
 			np.sin(3.0 * t),
 			np.sin(5.0 * t) * 0.6,
@@ -65,12 +65,6 @@ def _make_templates_artifacts(well_out_dir: Path) -> None:
 		]
 	)
 	merged_locs = np.asarray([[0.0, 0.0], [20.0, 0.0], [10.0, 18.0]], dtype=float)
-
-	np.save(merged_unit_dir / "merged_contributing_template.npy", merged_template)
-	np.save(merged_unit_dir / "merged_contributing_channel_locations.npy", merged_locs)
-
-	full_template = np.zeros((6, 40), dtype=float)
-	full_template[0:3, :] = merged_template
 	full_locs = np.asarray(
 		[
 			[0.0, 0.0],
@@ -82,16 +76,27 @@ def _make_templates_artifacts(well_out_dir: Path) -> None:
 		],
 		dtype=float,
 	)
-	np.save(full_unit_dir / "full_template.npy", full_template)
-	np.save(full_unit_dir / "full_channel_locations_xy.npy", full_locs)
+	for unit_id in unit_ids:
+		merged_unit_dir = well_out_dir / "templates_outputs" / "templates" / "merged" / f"unit_{unit_id}"
+		full_unit_dir = well_out_dir / "templates_outputs" / "templates" / "full" / f"unit_{unit_id}"
+		merged_unit_dir.mkdir(parents=True, exist_ok=True)
+		full_unit_dir.mkdir(parents=True, exist_ok=True)
 
-	# Materialized per-unit overlay payload for top-channel waveform plotting.
-	wf = np.tile(np.sin(np.linspace(-1.0, 1.0, 40, dtype=float)), (120, 1))
-	np.save(merged_unit_dir / "overlay_top_channel_waveforms.npy", wf)
-	(merged_unit_dir / "overlay_top_channel_meta.json").write_text(
-		json.dumps({"top_electrode_id": 0, "total_waveforms_at_channel": int(wf.shape[0])}),
-		encoding="utf-8",
-	)
+		merged_template = np.asarray(base_merged_template + (0.01 * float(unit_id)), dtype=float)
+		np.save(merged_unit_dir / "merged_contributing_template.npy", merged_template)
+		np.save(merged_unit_dir / "merged_contributing_channel_locations.npy", merged_locs)
+
+		full_template = np.zeros((6, 40), dtype=float)
+		full_template[0:3, :] = merged_template
+		np.save(full_unit_dir / "full_template.npy", full_template)
+		np.save(full_unit_dir / "full_channel_locations_xy.npy", full_locs)
+
+		wf = np.tile(np.sin(np.linspace(-1.0, 1.0, 40, dtype=float)), (120, 1))
+		np.save(merged_unit_dir / "overlay_top_channel_waveforms.npy", wf)
+		(merged_unit_dir / "overlay_top_channel_meta.json").write_text(
+			json.dumps({"top_electrode_id": 0, "total_waveforms_at_channel": int(wf.shape[0])}),
+			encoding="utf-8",
+		)
 
 
 def test_run_templates_analyzers_phase_logs_settings_and_writes_run_stats(tmp_path: Path, monkeypatch, caplog) -> None:
@@ -2784,6 +2789,7 @@ def test_run_templates_plot_templates_phase_writes_circle_plots_only_and_cleans_
 	assert "template_png" in summary["excluded_outputs"]
 	assert "footprint_amplitude_map_png" in summary["excluded_outputs"]
 	assert summary["rendered_units"] == [94]
+	assert summary["skipped_units"] == []
 	assert Path(str(summary["summary_json"])).exists()
 	assert (well_out_dir / "templates_outputs" / "units" / "0094" / "template_circles.png").exists()
 	assert not stale_template_png.exists()
@@ -2794,6 +2800,281 @@ def test_run_templates_plot_templates_phase_writes_circle_plots_only_and_cleans_
 	assert not (well_out_dir / "templates_outputs" / "units" / "0094" / "extremum_ch_wf_overlay.png").exists()
 	assert not (well_out_dir / "templates_outputs" / "units" / "0094" / "footprint_amplitude_map.png").exists()
 	assert not (well_out_dir / "templates_outputs" / "units" / "0094" / "propagation_plot.svg").exists()
+
+
+def test_run_templates_plot_templates_phase_skips_existing_requested_outputs(tmp_path: Path) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=False),
+		),
+		require_curated_units=False,
+		unit_ids=[94],
+		n_jobs=1,
+	)
+
+	first_summary = run_templates_plot_templates_phase(inputs)
+	assert first_summary["rendered_units"] == [94]
+
+	circles_png = well_out_dir / "templates_outputs" / "units" / "0094" / "template_circles.png"
+	assert circles_png.exists()
+	mtime_before = circles_png.stat().st_mtime_ns
+
+	time.sleep(0.02)
+
+	second_summary = run_templates_plot_templates_phase(inputs)
+
+	assert circles_png.stat().st_mtime_ns == mtime_before
+	assert second_summary["rendered_units"] == []
+	assert second_summary["skipped_units"] == [94]
+	assert second_summary["failed_units"] == []
+
+
+def test_run_templates_plot_templates_phase_force_restart_rerenders_existing_requested_outputs(tmp_path: Path) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+
+	base_inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=False),
+		),
+		require_curated_units=False,
+		unit_ids=[94],
+		n_jobs=1,
+	)
+	run_templates_plot_templates_phase(base_inputs)
+
+	circles_png = well_out_dir / "templates_outputs" / "units" / "0094" / "template_circles.png"
+	assert circles_png.exists()
+	mtime_before = circles_png.stat().st_mtime_ns
+
+	time.sleep(0.02)
+
+	force_restart_inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=False),
+		),
+		require_curated_units=False,
+		unit_ids=[94],
+		force_restart=True,
+		n_jobs=1,
+	)
+
+	summary = run_templates_plot_templates_phase(force_restart_inputs)
+
+	assert circles_png.stat().st_mtime_ns > mtime_before
+	assert summary["rendered_units"] == [94]
+	assert summary["skipped_units"] == []
+
+
+def test_resolve_plot_templates_execution_plan_prefers_fewer_concurrent_units() -> None:
+	inputs = TemplatesInputs(
+		h5_path=Path("/tmp/dataset.h5"),
+		stream_id="well000",
+		mea_output_root=Path("/tmp/out"),
+		n_jobs=24,
+	)
+
+	plot_unit_workers, unit_procs, unit_batch_size, batches = _resolve_plot_templates_execution_plan(
+		inputs=inputs,
+		unit_ids=list(range(12)),
+	)
+
+	assert plot_unit_workers == 6
+	assert unit_procs == 6
+	assert unit_batch_size == 2
+	assert batches == [
+		[0, 1],
+		[2, 3],
+		[4, 5],
+		[6, 7],
+		[8, 9],
+		[10, 11],
+	]
+
+
+def test_resolve_plot_templates_execution_plan_honors_unit_procs_override() -> None:
+	inputs = TemplatesInputs(
+		h5_path=Path("/tmp/dataset.h5"),
+		stream_id="well000",
+		mea_output_root=Path("/tmp/out"),
+		phases=TemplatesPhasesConfig(
+			plot_templates=TemplatePlotsPhaseConfig(unit_procs=4)
+		),
+		n_jobs=24,
+	)
+
+	plot_unit_workers, unit_procs, unit_batch_size, batches = _resolve_plot_templates_execution_plan(
+		inputs=inputs,
+		unit_ids=list(range(12)),
+	)
+
+	assert plot_unit_workers == 6
+	assert unit_procs == 4
+	assert unit_batch_size == 3
+	assert batches == [
+		[0, 1, 2],
+		[3, 4, 5],
+		[6, 7, 8],
+		[9, 10, 11],
+	]
+
+
+def test_run_templates_plot_templates_phase_uses_batched_plot_runner(tmp_path: Path, monkeypatch) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir, unit_ids=(91, 92, 93, 94))
+
+	captured: dict[str, Any] = {}
+
+	def _fake_run_templates_plot_batches(*, inputs: TemplatesInputs, well_out_dir: Path, templates_out_dir: Path, unit_ids: list[Any]) -> TemplatesResult:
+		captured["n_jobs"] = inputs.n_jobs
+		captured["unit_ids"] = list(unit_ids)
+		return TemplatesResult(
+			well_out_dir=well_out_dir,
+			templates_out_dir=templates_out_dir,
+			summary_json=templates_out_dir / "templates_summary.json",
+			units=[
+				UnitTemplatesResult(
+					unit_id=unit_id,
+					status="ok",
+					outputs={"template_circles_png": str(templates_out_dir / "units" / f"{int(unit_id):04d}" / "template_circles.png")},
+				)
+				for unit_id in unit_ids
+			],
+		)
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner._run_templates_plot_batches",
+		_fake_run_templates_plot_batches,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=False),
+		),
+		require_curated_units=False,
+		unit_ids=[91, 92, 93, 94],
+		n_jobs=24,
+	)
+
+	summary = run_templates_plot_templates_phase(inputs)
+
+	assert captured["n_jobs"] == 24
+	assert captured["unit_ids"] == [91, 92, 93, 94]
+	assert summary["rendered_units"] == [91, 92, 93, 94]
+	assert summary["skipped_units"] == []
+	assert summary["failed_units"] == []
+
+
+def test_run_templates_plot_batches_logs_unified_progress(tmp_path: Path, monkeypatch, caplog) -> None:
+	class _FakeFuture:
+		def __init__(self, result: TemplatesResult) -> None:
+			self._result = result
+
+		def result(self) -> TemplatesResult:
+			return self._result
+
+	class _FakeProcessPoolExecutor:
+		def __init__(self, max_workers: int) -> None:
+			self.max_workers = int(max_workers)
+
+		def __enter__(self):
+			return self
+
+		def __exit__(self, exc_type, exc, tb) -> bool:
+			return False
+
+		def submit(self, fn, batch_inputs: TemplatesInputs):
+			return _FakeFuture(fn(batch_inputs))
+
+	def _fake_as_completed(futures):
+		return list(futures.keys())
+
+	def _fake_run_templates_plot_batch(batch_inputs: TemplatesInputs) -> TemplatesResult:
+		assert batch_inputs.log_stage_unit_counts is False
+		assert batch_inputs.log_unit_progress is False
+		return TemplatesResult(
+			well_out_dir=tmp_path / "well",
+			templates_out_dir=tmp_path / "templates",
+			summary_json=tmp_path / "templates" / "templates_summary.json",
+			units=[
+				UnitTemplatesResult(
+					unit_id=unit_id,
+					status="ok",
+					outputs={},
+				)
+				for unit_id in list(batch_inputs.unit_ids or [])
+			],
+		)
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.concurrent.futures.ProcessPoolExecutor",
+		_FakeProcessPoolExecutor,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.concurrent.futures.as_completed",
+		_fake_as_completed,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner._run_templates_plot_batch",
+		_fake_run_templates_plot_batch,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=tmp_path / "dataset.h5",
+		stream_id="well000",
+		mea_output_root=tmp_path / "outputs",
+		phases=TemplatesPhasesConfig(
+			plot_templates=TemplatePlotsPhaseConfig(unit_procs=2, unit_batch_size=3)
+		),
+		n_jobs=24,
+	)
+
+	with caplog.at_level(logging.INFO, logger="axon_recon.templates"):
+		result = _run_templates_plot_batches(
+			inputs=inputs,
+			well_out_dir=tmp_path / "well",
+			templates_out_dir=tmp_path / "templates",
+			unit_ids=[10, 11, 12, 13, 14, 15],
+		)
+
+	messages = [rec.getMessage() for rec in caplog.records]
+	assert any(
+		"templates.plot_templates unified progress: 3/6 units completed (1/2 batches)" in msg
+		for msg in messages
+	)
+	assert any(
+		"templates.plot_templates unified progress: 6/6 units completed (2/2 batches)" in msg
+		for msg in messages
+	)
+	assert [unit.unit_id for unit in result.units] == [10, 11, 12, 13, 14, 15]
 
 
 def test_run_templates_report_templates_phase_requires_circle_plot_assets(tmp_path: Path) -> None:

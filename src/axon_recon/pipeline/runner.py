@@ -59,6 +59,24 @@ class PublishPolicy:
 		return "move" if bool(self.wipe_scratch_roots) else "copy"
 
 
+def _resolve_runtime_stage_parallelism(
+	*,
+	bundle: PipelineRuntimeBundle,
+	stage_name: str,
+	target_count: int,
+):
+	try:
+		return resolve_stage_parallelism(
+			bundle=bundle,
+			stage_name=stage_name,
+			target_count=int(target_count),
+		)
+	except TypeError as exc:
+		if "target_count" not in str(exc):
+			raise
+		return resolve_stage_parallelism(bundle=bundle, stage_name=stage_name)
+
+
 def _coerce_bool_or_none(value: Any) -> bool | None:
 	if value is None:
 		return None
@@ -565,7 +583,11 @@ def run_preprocess_from_runtime(
 				limit_wells,
 			)
 			targets = list(targets[:limit_wells])
-	parallelism = resolve_stage_parallelism(bundle=bundle, stage_name="preprocess")
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="preprocess",
+		target_count=len(targets),
+	)
 
 	def _worker(target):
 		inputs = build_preprocess_inputs_for_target(
@@ -617,7 +639,11 @@ def run_spikesort_from_runtime(
 				limit_wells,
 			)
 			targets = list(targets[:limit_wells])
-	parallelism = resolve_stage_parallelism(bundle=bundle, stage_name="spikesort")
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="spikesort",
+		target_count=len(targets),
+	)
 
 	def _worker(target):
 		inputs = build_spikesort_inputs_for_target(
@@ -751,7 +777,11 @@ def run_spikesort_merge_from_runtime(
 				limit_wells,
 			)
 			targets = list(targets[:limit_wells])
-	parallelism = resolve_stage_parallelism(bundle=bundle, stage_name="spikesort")
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="spikesort",
+		target_count=len(targets),
+	)
 
 	def _worker(target):
 		return run_spikesort_merge(
@@ -806,7 +836,11 @@ def run_reconstruct_from_runtime(
 	publish_policy = _resolve_publish_policy(runtime_config=bundle.runtime_config, data_config=bundle.data_config)
 	_log_publish_policy(stage_name="reconstruct", policy=publish_policy)
 	targets = select_execution_targets(bundle=bundle)
-	parallelism = resolve_stage_parallelism(bundle=bundle, stage_name="reconstruct")
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="reconstruct",
+		target_count=len(targets),
+	)
 	probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
 	stage_config = parse_reconstruction_stage_config(
 		runtime_config=bundle.runtime_config,
@@ -868,7 +902,11 @@ def run_analysis_from_runtime(
 	publish_policy = _resolve_publish_policy(runtime_config=bundle.runtime_config, data_config=bundle.data_config)
 	_log_publish_policy(stage_name="analysis", policy=publish_policy)
 	targets = select_execution_targets(bundle=bundle)
-	parallelism = resolve_stage_parallelism(bundle=bundle, stage_name="analysis")
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="analysis",
+		target_count=len(targets),
+	)
 	try:
 		probe_pitch_um = float(bundle.data_config.get("Probe.pitch_um", None))
 	except Exception:
@@ -942,7 +980,11 @@ def run_templates_from_runtime(
 	publish_policy = _resolve_publish_policy(runtime_config=bundle.runtime_config, data_config=bundle.data_config)
 	_log_publish_policy(stage_name="templates", policy=publish_policy)
 	targets = select_execution_targets(bundle=bundle)
-	parallelism = resolve_stage_parallelism(bundle=bundle, stage_name="templates")
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="templates",
+		target_count=len(targets),
+	)
 	probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
 	stage_config = parse_templates_stage_config(
 		runtime_config=bundle.runtime_config,
@@ -996,7 +1038,11 @@ def _run_templates_substage_from_runtime(
 	if publish_outputs:
 		_log_publish_policy(stage_name=stage_name, policy=publish_policy)
 	targets = select_execution_targets(bundle=bundle)
-	parallelism = resolve_stage_parallelism(bundle=bundle, stage_name="templates")
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="templates",
+		target_count=len(targets),
+	)
 	probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
 	stage_config = parse_templates_stage_config(
 		runtime_config=bundle.runtime_config,

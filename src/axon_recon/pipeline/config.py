@@ -429,7 +429,12 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 	return targets
 
 
-def resolve_stage_parallelism(*, bundle: PipelineRuntimeBundle, stage_name: str) -> StageParallelism:
+def resolve_stage_parallelism(
+	*,
+	bundle: PipelineRuntimeBundle,
+	stage_name: str,
+	target_count: int | None = None,
+) -> StageParallelism:
 	runtime_cfg = bundle.runtime_config
 	max_workers = _as_int(runtime_cfg.get("resources.max_workers", 8), 8)
 	max_workers = max(1, int(max_workers))
@@ -439,6 +444,10 @@ def resolve_stage_parallelism(*, bundle: PipelineRuntimeBundle, stage_name: str)
 
 	well_workers = _as_int(runtime_cfg.get(f"stages.{stage_name}.resources.well_workers", 1), 1)
 	well_workers = max(1, int(well_workers))
+	if target_count is not None:
+		resolved_target_count = max(0, int(target_count))
+		if resolved_target_count > 0:
+			well_workers = min(well_workers, resolved_target_count)
 
 	# Preserve legacy semantics: derive per-target unit workers from stage workers split across well workers.
 	unit_workers = max(1, int(stage_workers // well_workers))

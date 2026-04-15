@@ -102,6 +102,7 @@ class TemplateCirclesPlotConfig(TemplatePlotConfig):
 	relpath: str = "template_circles"
 	size_by: str = "amplitude"
 	color_by: str = "latency"
+	fast_render: bool = False
 	show_propagation_order_labels: bool = False
 	propagation_order_label_fontsize: float = 6.0
 	propagation_order_label_color: str = "white"
@@ -260,6 +261,9 @@ class TemplateAnalysisPhaseConfig:
 class TemplatePlotsPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/plot_templates_summary.json"
+	unit_workers: int | None = None
+	unit_procs: int | None = None
+	unit_batch_size: int | None = None
 	outputs: "PerUnitTemplatesOutputsConfig" = field(default_factory=lambda: PerUnitTemplatesOutputsConfig())
 
 
@@ -864,3 +868,6 @@ class TemplatesInputs:
 	phases: TemplatesPhasesConfig = field(default_factory=TemplatesPhasesConfig)
 	probe_geometry: ProbeGeometryConfig | None = None
 	n_jobs: int = 1
+	write_stage_summary: bool = True
+	log_stage_unit_counts: bool = True
+	log_unit_progress: bool = True

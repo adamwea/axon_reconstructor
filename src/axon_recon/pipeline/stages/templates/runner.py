@@ -29,6 +29,7 @@ from .core.plot_templates import (
 	build_plot_templates_phase_summary,
 	excluded_plot_output_keys,
 	propagation_outputs_requested,
+	requested_plot_output_keys,
 )
 from .core.report_templates import (
 	build_report_templates_phase_summary,
@@ -1148,6 +1149,70 @@ def _cleanup_unit_output_artifacts(
 				)
 
 
+def _collect_existing_unit_output_paths(
+	*,
+	templates_out_dir: Path,
+	unit_id: Any,
+	per_unit_outputs: Any,
+	output_keys: tuple[str, ...],
+) -> dict[str, str]:
+	paths = resolve_unit_output_paths(
+		templates_out_dir=templates_out_dir,
+		unit_id=unit_id,
+		per_unit_outputs=per_unit_outputs,
+	)
+	existing_outputs: dict[str, str] = {}
+	for output_key in output_keys:
+		artifact_path = paths.get(output_key)
+		if artifact_path is not None and artifact_path.exists():
+			existing_outputs[str(output_key)] = str(artifact_path)
+	return existing_outputs
+
+
+def _persist_unit_summary_output_paths(
+	*,
+	templates_out_dir: Path,
+	unit_id: Any,
+	per_unit_outputs: Any,
+	output_paths: dict[str, str],
+) -> None:
+	if not output_paths:
+		return
+	paths = resolve_unit_output_paths(
+		templates_out_dir=templates_out_dir,
+		unit_id=unit_id,
+		per_unit_outputs=per_unit_outputs,
+	)
+	unit_summary_json = paths["unit_summary_json"]
+	payload: dict[str, Any] = {}
+	if unit_summary_json.exists():
+		try:
+			existing = read_json(unit_summary_json)
+			if isinstance(existing, dict):
+				payload = dict(existing)
+		except Exception:
+			payload = {}
+	existing_outputs = payload.get("outputs", {})
+	if not isinstance(existing_outputs, dict):
+		existing_outputs = {}
+	serialized_outputs = {
+		str(key): str(value)
+		for key, value in dict(existing_outputs).items()
+		if value is not None
+	}
+	changed = not unit_summary_json.exists()
+	for output_key, output_path in output_paths.items():
+		if serialized_outputs.get(str(output_key)) != str(output_path):
+			serialized_outputs[str(output_key)] = str(output_path)
+			changed = True
+	payload.setdefault("unit_id", unit_id)
+	payload.setdefault("status", "ok")
+	payload.setdefault("error", None)
+	payload["outputs"] = serialized_outputs
+	if changed:
+		write_json(unit_summary_json, payload)
+
+
 def _load_persisted_upsampling_decision(*, unit_summary_json: Path) -> dict[str, Any] | None:
 	if not unit_summary_json.exists():
 		return None
@@ -2113,6 +2178,265 @@ def run_templates_build_templates_phase(inputs: TemplatesInputs) -> dict[str, An
 	return summary
 
 
+def _as_positive_int_or_none(value: Any) -> int | None:
+	try:
+		parsed = int(value)
+	except Exception:
+		return None
+	if parsed <= 0:
+		return None
+	return int(parsed)
+
+
+def _chunk_unit_ids(unit_ids: list[Any], *, batch_size: int) -> list[list[Any]]:
+	resolved_batch_size = max(1, int(batch_size))
+	return [list(unit_ids[idx : idx + resolved_batch_size]) for idx in range(0, len(unit_ids), resolved_batch_size)]
+
+
+def _resolve_plot_templates_execution_plan(
+	*,
+	inputs: TemplatesInputs,
+	unit_ids: list[Any],
+) -> tuple[int, int, int, list[list[Any]]]:
+	unit_count = len(unit_ids)
+	if unit_count <= 0:
+		return 1, 1, 1, []
+	derived_unit_workers = max(1, int(inputs.n_jobs))
+	phase_cfg = inputs.phases.plot_templates
+	plot_unit_workers = _as_positive_int_or_none(getattr(phase_cfg, "unit_workers", None))
+	if plot_unit_workers is None:
+		plot_unit_workers = min(derived_unit_workers, 6)
+	plot_unit_workers = max(1, min(int(plot_unit_workers), derived_unit_workers, unit_count))
+	plot_unit_procs = _as_positive_int_or_none(getattr(phase_cfg, "unit_procs", None))
+	if plot_unit_procs is None:
+		plot_unit_procs = plot_unit_workers
+	plot_unit_procs = max(1, min(int(plot_unit_procs), plot_unit_workers, unit_count))
+	plot_unit_batch_size = _as_positive_int_or_none(getattr(phase_cfg, "unit_batch_size", None))
+	if plot_unit_batch_size is None:
+		plot_unit_batch_size = max(1, (unit_count + plot_unit_procs - 1) // plot_unit_procs)
+	batches = _chunk_unit_ids(unit_ids, batch_size=plot_unit_batch_size)
+	process_workers = max(1, min(plot_unit_procs, len(batches)))
+	return plot_unit_workers, process_workers, int(plot_unit_batch_size), batches
+
+
+def _write_templates_stage_summary(
+	*,
+	inputs: TemplatesInputs,
+	well_out_dir: Path,
+	templates_out_dir: Path,
+	unit_results: list[UnitTemplatesResult],
+	report_outputs: dict[str, str],
+	analyzer_cache_dir: Path | None,
+	upsampling_decisions_by_unit: dict[Any, dict[str, Any]],
+	reports_replot_requested: bool,
+	report_only_rerun: bool,
+	preserve_stage_reports: bool,
+) -> Path:
+	summary_json = templates_out_dir / "templates_summary.json"
+	report_grid_sort_by = normalize_grid_sort_by(inputs.reports.grid_sort_by, default="unit_id")
+	quality_check_aggregate, quality_check_aggregate_json = _build_quality_check_aggregate(
+		templates_out_dir=templates_out_dir,
+		inputs=inputs,
+	)
+	summary_payload = {
+		"h5_path": str(inputs.h5_path),
+		"stream_id": str(inputs.stream_id),
+		"n_jobs": int(max(1, int(inputs.n_jobs))),
+		"well_out_dir": str(well_out_dir),
+		"templates_out_dir": str(templates_out_dir),
+		"analyzer_cache": {
+			"enabled": bool(inputs.analyzer_cache.enabled),
+			"relpath": str(inputs.analyzer_cache.relpath),
+			"concat_analyzer_subdir": str(inputs.analyzer_cache.concat_analyzer_subdir),
+			"segment_analyzers_subdir": str(inputs.analyzer_cache.segment_analyzers_subdir),
+			"cleanup_on_success": bool(inputs.analyzer_cache.cleanup_on_success),
+			"reuse_on_force_restart": bool(inputs.analyzer_cache.reuse_on_force_restart),
+			"resolved_dir": (None if analyzer_cache_dir is None else str(analyzer_cache_dir)),
+		},
+		"reports": report_outputs,
+		"reports_replot_from_disk": reports_replot_requested,
+		"force_rereport": report_only_rerun,
+		"reports_overwrite_skipped": preserve_stage_reports,
+		"reports_grid_sort_by": str(report_grid_sort_by),
+		"reports_time_upsample": {
+			"enabled": bool(inputs.reports.time_upsample.enabled),
+			"factor": int(max(1, int(inputs.reports.time_upsample.factor))),
+			"method": str(inputs.reports.time_upsample.method),
+		},
+		"require_curated_units": bool(inputs.require_curated_units),
+		"execution_inputs": {
+			"concat_analyzer_relpath": inputs.concat_analyzer_relpath,
+			"concat_sorting_relpath": inputs.concat_sorting_relpath,
+			"preprocessed_concat_reldir": inputs.preprocessed_concat_reldir,
+			"preprocessed_segments_reldir": inputs.preprocessed_segments_reldir,
+			"preproc_seg_sources_reldir": inputs.preproc_seg_sources_reldir,
+		},
+		"include_concat": bool(inputs.include_concat),
+		"include_segments": bool(inputs.include_segments),
+		"require_concat_analyzer": bool(inputs.require_concat_analyzer),
+		"require_segment_analyzers": bool(inputs.require_segment_analyzers),
+		"merge": {
+			"enable": bool(inputs.merge.enable),
+			"method": str(inputs.merge.method),
+			"centering_method": str(inputs.merge.centering_method),
+			"max_waveforms_per_source_channel": (
+				None if inputs.merge.max_waveforms_per_source_channel is None else int(inputs.merge.max_waveforms_per_source_channel)
+			),
+			"overlap_match_priority": list(inputs.merge.overlap_match_priority),
+			"location_tolerance_um": float(inputs.merge.location_tolerance_um),
+		},
+		"execution_upsampling": {
+			"enabled": bool(inputs.execution_upsampling.enabled),
+			"factor": int(max(1, int(inputs.execution_upsampling.factor))),
+			"method": str(inputs.execution_upsampling.method),
+			"mismatch_tolerance_hz": float(max(0.0, float(inputs.execution_upsampling.mismatch_tolerance_hz))),
+			"raw_rate_fallback_hz": (
+				None
+				if inputs.execution_upsampling.raw_rate_fallback_hz is None
+				else float(inputs.execution_upsampling.raw_rate_fallback_hz)
+			),
+		},
+		"quality_checks": {
+			"enabled": bool(inputs.quality_checks.enable),
+			"outputs": {
+				"run_level": {
+					"check_for_multiple_peaks_at_channel_templates": {
+						"write_json": bool(inputs.quality_checks_outputs.check_for_multiple_peaks_at_channel_templates.write_json),
+						"json_relpath": str(inputs.quality_checks_outputs.check_for_multiple_peaks_at_channel_templates.json_relpath),
+					},
+				},
+				"per_unit": {
+					"check_for_multiple_peaks_at_channel_templates": {
+						"write_json": bool(inputs.per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates.write_json),
+						"json_relpath": str(inputs.per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates.json_relpath),
+						"plot": {
+							"write_png": bool(inputs.per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates.plot.write_png),
+							"write_svg": bool(inputs.per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates.plot.write_svg),
+							"relpath": str(inputs.per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates.plot.relpath),
+						},
+					},
+				},
+			},
+			"check_for_multiple_peaks_at_channel_templates": {
+				"enabled": bool(inputs.quality_checks.check_for_multiple_peaks_at_channel_templates.enable),
+				"prominence_fraction": float(inputs.quality_checks.check_for_multiple_peaks_at_channel_templates.prominence_fraction),
+				"min_separation_samples": int(inputs.quality_checks.check_for_multiple_peaks_at_channel_templates.min_separation_samples),
+				"max_peaks_per_channel": int(inputs.quality_checks.check_for_multiple_peaks_at_channel_templates.max_peaks_per_channel),
+			},
+			"aggregate_json": (None if quality_check_aggregate_json is None else str(quality_check_aggregate_json)),
+			"aggregate": quality_check_aggregate,
+		},
+		"upsampling_decisions_by_unit": {str(k): v for k, v in upsampling_decisions_by_unit.items()},
+		"units": [
+			{
+				"unit_id": u.unit_id,
+				"status": u.status,
+				"outputs": u.outputs,
+				"error": u.error,
+			}
+			for u in unit_results
+		],
+	}
+	write_json(summary_json, summary_payload)
+	return summary_json
+
+
+def _run_templates_plot_batch(batch_inputs: TemplatesInputs) -> TemplatesResult:
+	return run_templates_stage(
+		replace(
+			batch_inputs,
+			n_jobs=1,
+			write_stage_summary=False,
+			log_stage_unit_counts=False,
+			log_unit_progress=False,
+		)
+	)
+
+
+def _run_templates_plot_batches(
+	*,
+	inputs: TemplatesInputs,
+	well_out_dir: Path,
+	templates_out_dir: Path,
+	unit_ids: list[Any],
+) -> TemplatesResult:
+	plot_unit_workers, unit_procs, unit_batch_size, batches = _resolve_plot_templates_execution_plan(
+		inputs=inputs,
+		unit_ids=unit_ids,
+	)
+	execution_inputs = replace(inputs, n_jobs=plot_unit_workers)
+	LOGGER.info(
+		"templates.plot_templates execution plan: requested_units=%d derived_unit_workers=%d plot_unit_workers=%d unit_procs=%d unit_batch_size=%d unit_batches=%d",
+		len(unit_ids),
+		int(max(1, int(inputs.n_jobs))),
+		int(plot_unit_workers),
+		int(unit_procs),
+		int(unit_batch_size),
+		len(batches),
+	)
+	if len(batches) <= 1 or unit_procs <= 1:
+		return run_templates_stage(replace(execution_inputs, unit_ids=list(unit_ids), n_jobs=1))
+
+	batch_results: list[TemplatesResult] = []
+	batch_inputs_list = [
+		replace(
+			execution_inputs,
+			unit_ids=list(batch_unit_ids),
+			n_jobs=1,
+			write_stage_summary=False,
+			log_stage_unit_counts=False,
+			log_unit_progress=False,
+		)
+		for batch_unit_ids in batches
+	]
+	with concurrent.futures.ProcessPoolExecutor(max_workers=unit_procs) as pool:
+		futures = {
+			pool.submit(_run_templates_plot_batch, batch_inputs): list(batch_inputs.unit_ids or [])
+			for batch_inputs in batch_inputs_list
+		}
+		completed = 0
+		completed_units = 0
+		total_batches = len(futures)
+		for fut in concurrent.futures.as_completed(futures):
+			batch_result = fut.result()
+			batch_results.append(batch_result)
+			completed += 1
+			completed_units += len(batch_result.units)
+			LOGGER.info(
+				"templates.plot_templates unified progress: %d/%d units completed (%d/%d batches)",
+				completed_units,
+				len(unit_ids),
+				completed,
+				total_batches,
+			)
+
+	aggregated_unit_results: list[UnitTemplatesResult] = []
+	aggregated_report_outputs: dict[str, str] = {}
+	for batch_result in batch_results:
+		aggregated_unit_results.extend(batch_result.units)
+		aggregated_report_outputs.update(batch_result.report_outputs)
+	aggregated_unit_results.sort(key=lambda result: str(result.unit_id))
+	summary_json = _write_templates_stage_summary(
+		inputs=execution_inputs,
+		well_out_dir=well_out_dir,
+		templates_out_dir=templates_out_dir,
+		unit_results=aggregated_unit_results,
+		report_outputs=aggregated_report_outputs,
+		analyzer_cache_dir=None,
+		upsampling_decisions_by_unit={},
+		reports_replot_requested=False,
+		report_only_rerun=False,
+		preserve_stage_reports=False,
+	)
+	return TemplatesResult(
+		well_out_dir=well_out_dir,
+		templates_out_dir=templates_out_dir,
+		summary_json=summary_json,
+		units=aggregated_unit_results,
+		report_outputs=aggregated_report_outputs,
+	)
+
+
 def run_templates_plot_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
 	phase_started = perf_counter()
 	well_out_dir, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
@@ -2139,22 +2463,62 @@ def run_templates_plot_templates_phase(inputs: TemplatesInputs) -> dict[str, Any
 			f"No built template artifacts found under {merged_units_dir}; run templates.build_templates first"
 		)
 	phase_inputs = build_plot_templates_phase_inputs(inputs)
+	requested_outputs = requested_plot_output_keys(phase_inputs.per_unit_outputs)
+	force_replot_requested = (
+		bool(inputs.force_restart)
+		or bool(inputs.force_replot)
+		or bool(inputs.force_replot_per_unit)
+	)
 	_cleanup_unit_output_artifacts(
 		templates_out_dir=templates_out_dir,
 		unit_ids=unit_ids,
 		per_unit_outputs=phase_inputs.per_unit_outputs,
 		output_keys=excluded_plot_output_keys(),
 	)
+	units_to_render: list[Any] = []
+	skipped_units: list[Any] = []
+	for unit_id in unit_ids:
+		existing_outputs = _collect_existing_unit_output_paths(
+			templates_out_dir=templates_out_dir,
+			unit_id=unit_id,
+			per_unit_outputs=phase_inputs.per_unit_outputs,
+			output_keys=requested_outputs,
+		)
+		if (not force_replot_requested) and len(existing_outputs) == len(requested_outputs):
+			_persist_unit_summary_output_paths(
+				templates_out_dir=templates_out_dir,
+				unit_id=unit_id,
+				per_unit_outputs=phase_inputs.per_unit_outputs,
+				output_paths=existing_outputs,
+			)
+			skipped_units.append(unit_id)
+		else:
+			units_to_render.append(unit_id)
 	LOGGER.info(
-		"templates.plot_templates start: templates_out_dir=%s units=%d force_replot=%s",
+		"templates.plot_templates start: templates_out_dir=%s units=%d units_to_render=%d skipped_units=%d force_restart=%s",
 		str(templates_out_dir),
 		len(unit_ids),
-		bool(phase_inputs.force_replot),
+		len(units_to_render),
+		len(skipped_units),
+		bool(inputs.force_restart),
 	)
-	result = run_templates_stage(phase_inputs)
+	result = TemplatesResult(
+		well_out_dir=well_out_dir,
+		templates_out_dir=templates_out_dir,
+		summary_json=templates_out_dir / "templates_summary.json",
+		units=[],
+	)
+	if units_to_render:
+		result = _run_templates_plot_batches(
+			inputs=phase_inputs,
+			well_out_dir=well_out_dir,
+			templates_out_dir=templates_out_dir,
+			unit_ids=units_to_render,
+		)
 	summary = build_plot_templates_phase_summary(
 		inputs=phase_inputs,
 		result=result,
+		skipped_units=skipped_units,
 		duration_seconds=float(perf_counter() - phase_started),
 	)
 	summary_path = templates_out_dir / str(inputs.phases.plot_templates.summary_json_relpath)
@@ -2162,10 +2526,11 @@ def run_templates_plot_templates_phase(inputs: TemplatesInputs) -> dict[str, Any
 	summary["summary_json"] = str(summary_path)
 	LOGGER.info("templates.plot_templates wrote summary output: %s", str(summary_path))
 	LOGGER.info(
-		"templates.plot_templates run stats: duration_seconds=%.3f unit_count=%d rendered_units=%d failed_units=%d",
+		"templates.plot_templates run stats: duration_seconds=%.3f unit_count=%d rendered_units=%d skipped_units=%d failed_units=%d",
 		float(summary["duration_seconds"]),
 		int(summary.get("unit_count", 0)),
 		int(len(summary.get("rendered_units", []))),
+		int(len(summary.get("skipped_units", []))),
 		int(len(summary.get("failed_units", []))),
 	)
 	return summary
@@ -2548,7 +2913,8 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 	else:
 		merged_units_dir_resolved, _ = _ensure_templates_dirs()
 		unit_ids = _build_unit_ids(inputs, merged_units_dir_resolved)
-	LOGGER.info("Templates stage discovered %d unit(s) before curated filtering", len(unit_ids))
+	if bool(inputs.log_stage_unit_counts):
+		LOGGER.info("Templates stage discovered %d unit(s) before curated filtering", len(unit_ids))
 	if bool(inputs.require_curated_units) and inputs.unit_ids is None:
 		curated = _load_curated_units_from_spikesorting(well_out_dir)
 		if curated is None:
@@ -2557,9 +2923,11 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 				f"{well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / 'qm_unfiltered.xlsx'}"
 			)
 		unit_ids = _apply_curated_filter(unit_ids, curated)
-		LOGGER.info("Templates stage curated filter retained %d unit(s)", len(unit_ids))
+		if bool(inputs.log_stage_unit_counts):
+			LOGGER.info("Templates stage curated filter retained %d unit(s)", len(unit_ids))
 
-	LOGGER.info("Templates stage will process %d unit(s)", len(unit_ids))
+	if bool(inputs.log_stage_unit_counts):
+		LOGGER.info("Templates stage will process %d unit(s)", len(unit_ids))
 
 	def _process_unit(unit_id: Any) -> UnitTemplatesResult:
 		LOGGER.info("Templates unit start: unit_id=%s", unit_id)
@@ -3184,17 +3552,19 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			)
 
 	worker_count = int(max(1, int(inputs.n_jobs)))
-	LOGGER.info(
-		"Templates unit execution start: units_to_process=%d reused_units=%d worker_count=%d",
-		len(units_to_process),
-		len(unit_results),
-		worker_count,
-	)
+	if bool(inputs.log_stage_unit_counts):
+		LOGGER.info(
+			"Templates unit execution start: units_to_process=%d reused_units=%d worker_count=%d",
+			len(units_to_process),
+			len(unit_results),
+			worker_count,
+		)
 	if worker_count <= 1 or len(units_to_process) <= 1:
 		total_to_run = len(units_to_process)
 		for idx, unit_id in enumerate(units_to_process, start=1):
 			unit_results.append(_process_unit(unit_id))
-			LOGGER.info("Templates unit progress: %d/%d completed", idx, total_to_run)
+			if bool(inputs.log_unit_progress):
+				LOGGER.info("Templates unit progress: %d/%d completed", idx, total_to_run)
 	else:
 		futures: dict[concurrent.futures.Future[UnitTemplatesResult], Any] = {}
 		with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as pool:
@@ -3207,7 +3577,8 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			for fut in concurrent.futures.as_completed(futures):
 				unit_results.append(fut.result())
 				completed += 1
-				LOGGER.info("Templates unit progress: %d/%d completed", completed, total_to_run)
+				if bool(inputs.log_unit_progress):
+					LOGGER.info("Templates unit progress: %d/%d completed", completed, total_to_run)
 
 	unit_results.sort(key=lambda r: str(r.unit_id))
 	LOGGER.info("Templates unit execution complete: total_results=%d", len(unit_results))
@@ -3426,110 +3797,19 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			LOGGER.info("Templates reports complete: generated=%d", len(report_outputs))
 
 	summary_json = templates_out_dir / "templates_summary.json"
-	quality_check_aggregate, quality_check_aggregate_json = _build_quality_check_aggregate(
-		templates_out_dir=templates_out_dir,
-		inputs=inputs,
-	)
-	summary_payload = {
-		"h5_path": str(inputs.h5_path),
-		"stream_id": str(inputs.stream_id),
-		"n_jobs": int(max(1, int(inputs.n_jobs))),
-		"well_out_dir": str(well_out_dir),
-		"templates_out_dir": str(templates_out_dir),
-			"analyzer_cache": {
-				"enabled": bool(inputs.analyzer_cache.enabled),
-				"relpath": str(inputs.analyzer_cache.relpath),
-				"concat_analyzer_subdir": str(inputs.analyzer_cache.concat_analyzer_subdir),
-				"segment_analyzers_subdir": str(inputs.analyzer_cache.segment_analyzers_subdir),
-				"cleanup_on_success": bool(inputs.analyzer_cache.cleanup_on_success),
-				"reuse_on_force_restart": bool(inputs.analyzer_cache.reuse_on_force_restart),
-				"resolved_dir": (None if analyzer_cache_dir is None else str(analyzer_cache_dir)),
-			},
-		"reports": report_outputs,
-		"reports_replot_from_disk": reports_replot_requested,
-		"force_rereport": report_only_rerun,
-		"reports_overwrite_skipped": preserve_stage_reports,
-		"reports_grid_sort_by": str(report_grid_sort_by),
-		"reports_time_upsample": {
-			"enabled": bool(inputs.reports.time_upsample.enabled),
-			"factor": int(max(1, int(inputs.reports.time_upsample.factor))),
-			"method": str(inputs.reports.time_upsample.method),
-		},
-		"require_curated_units": bool(inputs.require_curated_units),
-		"execution_inputs": {
-			"concat_analyzer_relpath": inputs.concat_analyzer_relpath,
-			"concat_sorting_relpath": inputs.concat_sorting_relpath,
-			"preprocessed_concat_reldir": inputs.preprocessed_concat_reldir,
-			"preprocessed_segments_reldir": inputs.preprocessed_segments_reldir,
-			"preproc_seg_sources_reldir": inputs.preproc_seg_sources_reldir,
-		},
-		"include_concat": bool(inputs.include_concat),
-		"include_segments": bool(inputs.include_segments),
-		"require_concat_analyzer": bool(inputs.require_concat_analyzer),
-		"require_segment_analyzers": bool(inputs.require_segment_analyzers),
-		"merge": {
-			"enable": bool(inputs.merge.enable),
-			"method": str(inputs.merge.method),
-			"centering_method": str(inputs.merge.centering_method),
-			"max_waveforms_per_source_channel": (
-				None if inputs.merge.max_waveforms_per_source_channel is None else int(inputs.merge.max_waveforms_per_source_channel)
-			),
-			"overlap_match_priority": list(inputs.merge.overlap_match_priority),
-			"location_tolerance_um": float(inputs.merge.location_tolerance_um),
-		},
-		"execution_upsampling": {
-			"enabled": bool(inputs.execution_upsampling.enabled),
-			"factor": int(max(1, int(inputs.execution_upsampling.factor))),
-			"method": str(inputs.execution_upsampling.method),
-			"mismatch_tolerance_hz": float(max(0.0, float(inputs.execution_upsampling.mismatch_tolerance_hz))),
-			"raw_rate_fallback_hz": (
-				None
-				if inputs.execution_upsampling.raw_rate_fallback_hz is None
-				else float(inputs.execution_upsampling.raw_rate_fallback_hz)
-			),
-		},
-		"quality_checks": {
-			"enabled": bool(inputs.quality_checks.enable),
-			"outputs": {
-				"run_level": {
-					"check_for_multiple_peaks_at_channel_templates": {
-						"write_json": bool(inputs.quality_checks_outputs.check_for_multiple_peaks_at_channel_templates.write_json),
-						"json_relpath": str(inputs.quality_checks_outputs.check_for_multiple_peaks_at_channel_templates.json_relpath),
-					},
-				},
-				"per_unit": {
-					"check_for_multiple_peaks_at_channel_templates": {
-						"write_json": bool(inputs.per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates.write_json),
-						"json_relpath": str(inputs.per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates.json_relpath),
-						"plot": {
-							"write_png": bool(inputs.per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates.plot.write_png),
-							"write_svg": bool(inputs.per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates.plot.write_svg),
-							"relpath": str(inputs.per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates.plot.relpath),
-						},
-					},
-				},
-			},
-			"check_for_multiple_peaks_at_channel_templates": {
-				"enabled": bool(inputs.quality_checks.check_for_multiple_peaks_at_channel_templates.enable),
-				"prominence_fraction": float(inputs.quality_checks.check_for_multiple_peaks_at_channel_templates.prominence_fraction),
-				"min_separation_samples": int(inputs.quality_checks.check_for_multiple_peaks_at_channel_templates.min_separation_samples),
-				"max_peaks_per_channel": int(inputs.quality_checks.check_for_multiple_peaks_at_channel_templates.max_peaks_per_channel),
-			},
-			"aggregate_json": (None if quality_check_aggregate_json is None else str(quality_check_aggregate_json)),
-			"aggregate": quality_check_aggregate,
-		},
-		"upsampling_decisions_by_unit": {str(k): v for k, v in upsampling_decisions_by_unit.items()},
-		"units": [
-			{
-				"unit_id": u.unit_id,
-				"status": u.status,
-				"outputs": u.outputs,
-				"error": u.error,
-			}
-			for u in unit_results
-		],
-	}
-	write_json(summary_json, summary_payload)
+	if bool(inputs.write_stage_summary):
+		summary_json = _write_templates_stage_summary(
+			inputs=inputs,
+			well_out_dir=well_out_dir,
+			templates_out_dir=templates_out_dir,
+			unit_results=unit_results,
+			report_outputs=report_outputs,
+			analyzer_cache_dir=analyzer_cache_dir,
+			upsampling_decisions_by_unit=upsampling_decisions_by_unit,
+			reports_replot_requested=reports_replot_requested,
+			report_only_rerun=report_only_rerun,
+			preserve_stage_reports=preserve_stage_reports,
+		)
 	ok_count = sum(1 for u in unit_results if str(u.status) == "ok")
 	err_count = sum(1 for u in unit_results if str(u.status) != "ok")
 	if (

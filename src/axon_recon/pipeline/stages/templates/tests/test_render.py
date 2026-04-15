@@ -996,6 +996,67 @@ def test_render_template_circles_plot_draws_scale_circle(tmp_path: Path, monkeyp
 	assert any("uV" in label for label in seen_scale_circle_labels)
 
 
+def test_render_template_circles_plot_fast_render_clamps_dpi_and_skips_scale_circle(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+	import matplotlib.figure
+
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	seen_scale_circle_patch = {"count": 0}
+	seen_savefig_dpi: list[float] = []
+	orig_add_patch = matplotlib.axes.Axes.add_patch
+	orig_savefig = matplotlib.figure.Figure.savefig
+
+	def _spy_add_patch(self, patch, *args, **kwargs):
+		if str(getattr(patch, "get_gid", lambda: "")() or "") == "template_scale_circle_patch":
+			seen_scale_circle_patch["count"] += 1
+		return orig_add_patch(self, patch, *args, **kwargs)
+
+	def _spy_savefig(self, *args, **kwargs):
+		seen_savefig_dpi.append(float(kwargs.get("dpi", 0.0) or 0.0))
+		return orig_savefig(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "add_patch", _spy_add_patch)
+	monkeypatch.setattr(matplotlib.figure.Figure, "savefig", _spy_savefig)
+
+	render_template_circles_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplateCirclesPlotConfig(
+			write_png=True,
+			write_svg=False,
+			dpi=420,
+			fast_render=True,
+			show_scale_circle=True,
+			scale_circle_color="white",
+			overlap_controls=TemplateCirclesOverlapControlsConfig(
+				scalebar_coords_overlap_detect=True,
+				scalecircle_channel_overlap_detect=True,
+				max_overlap_check_iterations=5,
+			),
+		),
+		png_path=tmp_path / "circles_fast_render.png",
+		svg_path=tmp_path / "unused_fast_render.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+
+	assert seen_savefig_dpi[-1] == 220.0
+	assert seen_scale_circle_patch["count"] == 0
+
+
 def test_render_template_circles_plot_scale_circle_label_precision_knob(tmp_path: Path, monkeypatch) -> None:
 	import matplotlib.axes
 

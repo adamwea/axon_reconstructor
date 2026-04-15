@@ -791,12 +791,14 @@ stages:
       plot_templates:
         enabled: true
         summary_json_relpath: context/plot_templates_summary.json
+        resources:
+          unit_procs: 4
         outputs:
           ## Per-Unit Template Plots
           circles:
             output:
               write_png: true
-              write_svg: true
+              write_svg: false
               dpi: 420
               relpath: template_circles
             display:
@@ -839,6 +841,7 @@ stages:
                 units: "µV" # label for scale circle units; can be empty string if no units desired.
 
             render:
+              fast_render: true # speed-oriented render mode: clamp output DPI and skip expensive overlap/scale-circle passes.
               background: black
               signal_color: white
               scale_bar_color: white
@@ -905,7 +908,7 @@ stages:
         # write pdf slide deck of all circle style template plots for all units.
         relpath: template_report.pdf
         write_pdf: true
-
+  #PENDING REORG OF FLAGS NEEDED BELOW THIS LINE
       other_plots_pending_org:
           template_plots:
             waveforms:
@@ -1340,56 +1343,96 @@ stages:
 
     #av:
 
-    reconstruct_with_axon_velocity: true
-    axon_velocity:
-      upsample: 1
-      init_delay: 0
-      # default: 3
-      min_points_after_branching: 2
-      # default: 100
-      min_path_length: 17.5
-      # default: 5
-      min_path_points: 4
-      # default: 0.5
-      # max_peak_latency_for_splitting: 2.0
-      # max_peak_latency_for_splitting: 0.5 # lower -> more aggressive splitting, higher -> less splitting; controls the maximum allowed latency of the peak channel in a branch for it to be eligible for splitting, which can help prevent over-splitting of branches with long propagation delays and/or low SNR peaks.
-      max_peak_latency_for_splitting: .25 # lower -> more aggressive splitting, higher -> less splitting; controls the maximum allowed latency of the peak channel in a branch for it to be eligible for splitting, which can help prevent over-splitting of branches with long propagation delays and/or low SNR peaks.
-      # default: 0.3
-      kurt_threshold: -10.0
-      peak_std_threshold: null
-      peak_std_distance: 30
-      # default: 3
-      n_neighbors: 8
-      # default: 2
-      # distance_exp: 1
-      distance_exp: 2
-      # default: true
-      remove_isolated: false
-      detection_type: "relative" # "relative" or "absolute". relative means the detect_threshold is relative to the expected amplitude of the branch at that location, while absolute means the detect_threshold is an absolute value in microvolts.
-      # default: 0.01
-      detect_threshold: 0.0001
-      # default: 30
-      min_selected_points: 30
-      #r2_threshold: 0.9
-      r2_threshold: 0.85
-      #max_distance_for_edge: 75
-      max_distance_for_edge: 100
-      max_distance_to_init: 200
-      # default: 8
-      mad_threshold: 10
-      init_amp_peak_ratio: 0.2
-      edge_dist_amp_ratio: 0.3
-      r2_threshold_for_outliers: 0.98
-      # default: 50
-      # min_outlier_tracking_error: 200
-      min_outlier_tracking_error: 50
-      # default: 100
-      # neighbor_radius: 50
-      neighbor_radius: 100
-      split_paths: true
-      # default: 2000
-      theilsen_maxiter: 8000
+    phases:
+      generate_gtrs:
+        enable: true
+        #reconstruct_with_axon_velocity: true
+        axon_velocity:
+          enabled: true
+          params:
+            upsample: 1
+            init_delay: 0
+            # default: 3
+            min_points_after_branching: 2
+            # default: 100
+            min_path_length: 17.5
+            # default: 5
+            min_path_points: 4
+            # default: 0.5
+            # max_peak_latency_for_splitting: 2.0
+            # max_peak_latency_for_splitting: 0.5 # lower -> more aggressive splitting, higher -> less splitting; controls the maximum allowed latency of the peak channel in a branch for it to be eligible for splitting, which can help prevent over-splitting of branches with long propagation delays and/or low SNR peaks.
+            max_peak_latency_for_splitting: .25 # lower -> more aggressive splitting, higher -> less splitting; controls the maximum allowed latency of the peak channel in a branch for it to be eligible for splitting, which can help prevent over-splitting of branches with long propagation delays and/or low SNR peaks.
+            # default: 0.3
+            kurt_threshold: -10.0
+            peak_std_threshold: null
+            peak_std_distance: 30
+            # default: 3
+            n_neighbors: 8
+            # default: 2
+            # distance_exp: 1
+            distance_exp: 2
+            # default: true
+            remove_isolated: false
+            detection_type: "relative" # "relative" or "absolute". relative means the detect_threshold is relative to the expected amplitude of the branch at that location, while absolute means the detect_threshold is an absolute value in microvolts.
+            # default: 0.01
+            detect_threshold: 0.0001
+            # default: 30
+            min_selected_points: 30
+            #r2_threshold: 0.9
+            r2_threshold: 0.85
+            #max_distance_for_edge: 75
+            max_distance_for_edge: 100
+            max_distance_to_init: 200
+            # default: 8
+            mad_threshold: 10
+            init_amp_peak_ratio: 0.2
+            edge_dist_amp_ratio: 0.3
+            r2_threshold_for_outliers: 0.98
+            # default: 50
+            # min_outlier_tracking_error: 200
+            min_outlier_tracking_error: 50
+            # default: 100
+            # neighbor_radius: 50
+            neighbor_radius: 100
+            split_paths: true
+            # default: 2000
+            theilsen_maxiter: 8000
+      plot_recons:
+        outputs:
+          circle_recon:
+            display:
+              # TODO: Since we typically focus in on branches here instead of the channels
+              # contributing to template, color bar needs to be adjusted so it dynamically
+              # adjusts based on values in the xy scope after zooming in on branches and nodes.
+              base: template_circles # which template plot to put branch morphology on top of; circles, amplitude_map, or latency_map.
+              channel_scope: nodes_and_branches # zoom scope in on channels contributing to nodes and branches, which can help focus the plot on the relevant channels for the reconstruction; other options are contributing_channels, recorded_channels, or all_channels.
+              zoom_padding_percent: 12 # extra padding around selected node/branch channels used to set circle_recon viewport.
+              force_center_soma: true # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
+              branch_scope: raw # raw or clean; whether to plot all branches in branches_raw or only the cleaned branches in branches.
+              unique_color_per_branch: true # whether to use a unique color for each branch, which can help visually distinguish branches in complex reconstructions; if false, all branches will be the same color.
+              show_branch_labels: false # whether to draw branch ID labels on the plot, which can be useful for visually verifying branch correspondences between the plot and the branch data in the JSON outputs.
+              #color_scheme: tab20 # color scheme to use when unique_color_per_branch is true; should be a valid matplotlib categorical colormap name.
+              color_scheme: Set1
+              branch_linewidth_pt: 3.5
+              node_inline_linewidth_pt: 1.0
+              node_outline_color: white
+              node_outline_linewidth: 0.5
+              branch_outline_color: white
+              branch_outline_linewidth: 0.5
+            output:
+              write_png: true
+              write_svg: false
+              relpath: circle_recon
+              #dpi: 420
+              dpi: 300
+      report_recons:
+        enable: true
+        # pdf slide deck of all circle recon plots for all units.
+        av_recons:
+          write_pdf: true
+          pdf_relpath: av_recons.pdf
 
+    # PENDING ORG OF FLAGS BELOW THIS LINE
     inputs:
       load_assets_from_v2pipeline_templates_stage: true # whether to load templates stage outputs from the v2 pipeline output directory structure; if false, will attempt to load from the same directory structure as in the previous pipeline version, which may be useful for testing and comparison purposes.
     outputs:
@@ -1452,35 +1495,7 @@ stages:
 
         # Reconstruction Plots
         recon_plots:
-          circle_recon:
-            display:
-              # TODO: Since we typically focus in on branches here instead of the channels
-              # contributing to template, color bar needs to be adjusted so it dynamically
-              # adjusts based on values in the xy scope after zooming in on branches and nodes.
-              base: template_circles # which template plot to put branch morphology on top of; circles, amplitude_map, or latency_map.
-              channel_scope: nodes_and_branches # zoom scope in on channels contributing to nodes and branches, which can help focus the plot on the relevant channels for the reconstruction; other options are contributing_channels, recorded_channels, or all_channels.
-              zoom_padding_percent: 12 # extra padding around selected node/branch channels used to set circle_recon viewport.
-              force_center_soma: true # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
-              branch_scope: raw # raw or clean; whether to plot all branches in branches_raw or only the cleaned branches in branches.
-              unique_color_per_branch: true # whether to use a unique color for each branch, which can help visually distinguish branches in complex reconstructions; if false, all branches will be the same color.
-              show_branch_labels: false # whether to draw branch ID labels on the plot, which can be useful for visually verifying branch correspondences between the plot and the branch data in the JSON outputs.
-              #color_scheme: tab20 # color scheme to use when unique_color_per_branch is true; should be a valid matplotlib categorical colormap name.
-              color_scheme: Set1
-              branch_linewidth_pt: 3.5
-              node_inline_linewidth_pt: 1.0
-              node_outline_color: white
-              node_outline_linewidth: 0.5
-              branch_outline_color: white
-              branch_outline_linewidth: 0.5
 
-
-
-            output:
-              write_png: true
-              write_svg: true
-              relpath: circle_recon
-              #dpi: 420
-              dpi: 600
 
   analysis:
     execution:

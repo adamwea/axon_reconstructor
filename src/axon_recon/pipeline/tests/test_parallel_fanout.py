@@ -169,6 +169,46 @@ stages:
     assert p.unit_workers == 4
 
 
+def test_stage_parallelism_uses_selected_target_count_when_provided(tmp_path: Path) -> None:
+    data_path = tmp_path / "debug.data.yml"
+    data_path.write_text(
+        """
+output_root: /tmp/out
+datasets:
+  - raw_data_h5_path: /tmp/ds1.h5
+    include_in_runtime: true
+    wells:
+      - well_id: well001
+        include_in_runtime: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "debug.runtime.yml"
+    runtime_path.write_text(
+        f"""
+data: {data_path}
+resources:
+  max_workers: 24
+stages:
+  templates:
+    resources:
+      max_stage_workers: 24
+      well_workers: 2
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = load_pipeline_runtime_bundle(config_path=str(runtime_path))
+    p = resolve_stage_parallelism(bundle=bundle, stage_name="templates", target_count=1)
+    assert p.max_workers == 24
+    assert p.max_stage_workers == 24
+    assert p.well_workers == 1
+    assert p.unit_workers == 24
+
+
 def test_select_execution_targets_prefers_scratch_root_for_active_output(tmp_path: Path) -> None:
     ds1_h5 = tmp_path / "raw_data" / "ds1" / "data.raw.h5"
     ds1_h5.parent.mkdir(parents=True, exist_ok=True)

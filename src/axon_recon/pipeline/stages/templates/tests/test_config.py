@@ -515,6 +515,8 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 			                show_branch_labels: true
 			                unique_color_per_branch: true
 			                color_scheme: tab10
+			            render:
+			              fast_render: true
 			            color_bar:
 			              units: ms
 			              title: Latency (ms)
@@ -546,6 +548,7 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 	assert inputs.per_unit_outputs.template_circles.color_bar_show_unit_labels is True
 	assert inputs.per_unit_outputs.template_circles.color_bar_force_zero_and_neg_values_first_color_range is True
 	assert inputs.per_unit_outputs.template_circles.color_bar_zero_transition_contrast == 2.0
+	assert inputs.per_unit_outputs.template_circles.fast_render is True
 	assert inputs.per_unit_outputs.template_circles.scale_bar_x_offset_frac == 0.25
 	assert inputs.per_unit_outputs.template_circles.scale_bar_x_offset_considers_fontsize is True
 	assert inputs.per_unit_outputs.template_circles.scale_bar_horizontal_alignment == "left"
@@ -2887,6 +2890,48 @@ def test_load_templates_config_plot_templates_parses_direct_circles_block(tmp_pa
 	assert circles.show_scale_circle is True
 	assert circles.color_bar_units == "ms"
 	assert circles.color_bar_show_axes_title is False
+
+
+def test_load_templates_config_plot_templates_parses_resources_block(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    phases:
+			      plot_templates:
+			        enabled: true
+			        resources:
+			          unit_workers: 6
+			          unit_procs: 4
+			          unit_batch_size: 2
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+
+	assert inputs.phases.plot_templates.unit_workers == 6
+	assert inputs.phases.plot_templates.unit_procs == 4
+	assert inputs.phases.plot_templates.unit_batch_size == 2
 
 
 def test_load_templates_config_plot_templates_falls_back_to_legacy_nested_phase_block(tmp_path: Path) -> None:

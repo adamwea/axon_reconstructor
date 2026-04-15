@@ -1833,6 +1833,7 @@ def parse_templates_stage_config(
 		channel_scope=_normalize_channel_scope(_nested_or_flat(tpl_circles_cfg, block="display", key="channel_scope", flat_keys=("channel_scope",), default="contributing_channels")),
 		background=str(_nested_or_flat(tpl_circles_cfg, block="render", key="background", flat_keys=("background",), default="black")),
 		signal_color=str(_nested_or_flat(tpl_circles_cfg, block="render", key="signal_color", flat_keys=("signal_color",), default="white")),
+		fast_render=_as_bool(_nested_or_flat(tpl_circles_cfg, block="render", key="fast_render", flat_keys=("fast_render",), default=False), False),
 		force_center_soma=_as_bool(_nested_or_flat(tpl_circles_cfg, block="display", key="force_center_soma", flat_keys=("force_center_soma",), default=False), False),
 		force_square_aspect=_as_bool(_nested_or_flat(tpl_circles_cfg, block="display", key="force_square_aspect", flat_keys=("force_square_aspect",), default=True), True),
 		show_scale_bar=_as_bool(_nested_or_flat(tpl_circles_cfg, block="display", key="show_scale_bar", flat_keys=("show_scale_bar",), default=True), True),
@@ -3520,6 +3521,16 @@ def parse_templates_stage_config(
 	phase_plots_cfg = _phase_block(phases_cfg, "per_unit_processing", "plots")
 	phase_reports_cfg = _phase_block(phases_cfg, "reports")
 	effective_plot_phase_cfg = (phase_plot_templates_cfg if phase_plot_templates_cfg else phase_plots_cfg)
+	plot_phase_resources_cfg = _phase_block(effective_plot_phase_cfg, "resources")
+	plot_phase_unit_workers = _parse_optional_positive_int(
+		plot_phase_resources_cfg.get("unit_workers", effective_plot_phase_cfg.get("unit_workers", None))
+	)
+	plot_phase_unit_procs = _parse_optional_positive_int(
+		plot_phase_resources_cfg.get("unit_procs", effective_plot_phase_cfg.get("unit_procs", None))
+	)
+	plot_phase_unit_batch_size = _parse_optional_positive_int(
+		plot_phase_resources_cfg.get("unit_batch_size", effective_plot_phase_cfg.get("unit_batch_size", None))
+	)
 	build_templates_phase = TemplateBuildTemplatesPhaseConfig(
 		enabled=_as_bool(phase_build_cfg.get("enabled", True), True),
 		summary_json_relpath=str(phase_build_cfg.get("summary_json_relpath", "context/build_templates_summary.json")),
@@ -3531,6 +3542,9 @@ def parse_templates_stage_config(
 		summary_json_relpath=str(
 			effective_plot_phase_cfg.get("summary_json_relpath", "context/plot_templates_summary.json")
 		),
+		unit_workers=plot_phase_unit_workers,
+		unit_procs=plot_phase_unit_procs,
+		unit_batch_size=plot_phase_unit_batch_size,
 		outputs=per_unit,
 	)
 	report_templates_phase = TemplateReportTemplatesPhaseConfig(

@@ -53,6 +53,58 @@ def excluded_plot_output_keys() -> tuple[str, ...]:
 	)
 
 
+def requested_plot_output_keys(per_unit_outputs: Any) -> tuple[str, ...]:
+	requested: list[str] = []
+	if bool(per_unit_outputs.template.write_png):
+		requested.append("template_png")
+	if bool(per_unit_outputs.template.write_svg):
+		requested.append("template_svg")
+	if bool(per_unit_outputs.template_circles.write_png):
+		requested.append("template_circles_png")
+	if bool(per_unit_outputs.template_circles.write_svg):
+		requested.append("template_circles_svg")
+	if bool(per_unit_outputs.template_wf_overlay.write_pdf):
+		requested.append("template_wf_overlay_pdf")
+	if bool(per_unit_outputs.template_wf_overlay.write_png):
+		requested.append("template_wf_overlay_png")
+	if bool(per_unit_outputs.footprint_plots.amplitude_map.write_png):
+		requested.append("footprint_amplitude_map_png")
+	if bool(per_unit_outputs.footprint_plots.amplitude_map.write_svg):
+		requested.append("footprint_amplitude_map_svg")
+	if bool(per_unit_outputs.footprint_plots.latency_map.write_png):
+		requested.append("footprint_latency_map_png")
+	if bool(per_unit_outputs.footprint_plots.latency_map.write_svg):
+		requested.append("footprint_latency_map_svg")
+	if bool(per_unit_outputs.topographical_footprints.amplitude.write_png):
+		requested.append("topographical_amplitude_footprint_png")
+	if bool(per_unit_outputs.topographical_footprints.amplitude.write_svg):
+		requested.append("topographical_amplitude_footprint_svg")
+	if bool(per_unit_outputs.topographical_footprints.latency.write_png):
+		requested.append("topographical_latency_footprint_png")
+	if bool(per_unit_outputs.topographical_footprints.latency.write_svg):
+		requested.append("topographical_latency_footprint_svg")
+	if bool(per_unit_outputs.propagation_plots.write_pdf):
+		requested.append("propagation_plot_pdf")
+	if bool(per_unit_outputs.propagation_plots.write_png):
+		requested.append("propagation_plot_png")
+	if bool(per_unit_outputs.propagation_plots.write_svg):
+		requested.append("propagation_plot_svg")
+	if bool(per_unit_outputs.propagation_plots.write_circles_template_numbered_png):
+		requested.append("circles_template_numbered_png")
+	if bool(per_unit_outputs.propagation_plots.write_circles_template_numbered_svg):
+		requested.append("circles_template_numbered_svg")
+	if bool(per_unit_outputs.propagation_plots.write_propagation_2panel_png):
+		requested.append("propagation_2panel_png")
+	if bool(per_unit_outputs.propagation_plots.write_propagation_2panel_svg):
+		requested.append("propagation_2panel_svg")
+	qc_plot = per_unit_outputs.quality_checks.check_for_multiple_peaks_at_channel_templates.plot
+	if bool(qc_plot.write_png):
+		requested.append("quality_checks_multiple_negative_peaks_plot_png")
+	if bool(qc_plot.write_svg):
+		requested.append("quality_checks_multiple_negative_peaks_plot_svg")
+	return tuple(requested)
+
+
 def _disable_reports_config(reports: ReportsConfig) -> ReportsConfig:
 	return replace(
 		reports,
@@ -159,6 +211,13 @@ def build_plot_templates_phase_inputs(inputs: TemplatesInputs) -> TemplatesInput
 	return replace(
 		inputs,
 		per_unit_outputs=per_unit_outputs,
+		quality_checks_outputs=replace(
+			inputs.quality_checks_outputs,
+			check_for_multiple_peaks_at_channel_templates=replace(
+				inputs.quality_checks_outputs.check_for_multiple_peaks_at_channel_templates,
+				write_json=False,
+			),
+		),
 		phases=phases,
 		reports=_disable_reports_config(inputs.reports),
 		force_restart=False,
@@ -172,8 +231,10 @@ def build_plot_templates_phase_summary(
 	*,
 	inputs: TemplatesInputs,
 	result: TemplatesResult,
+	skipped_units: list[Any] | None = None,
 	duration_seconds: float,
 ) -> dict[str, Any]:
+	skipped = list(skipped_units or [])
 	ok_units = [unit.unit_id for unit in result.units if str(unit.status) == "ok"]
 	failed_units = [
 		{
@@ -189,8 +250,9 @@ def build_plot_templates_phase_summary(
 		"templates_out_dir": str(result.templates_out_dir),
 		"templates_summary_json": str(result.summary_json),
 		"duration_seconds": float(duration_seconds),
-		"unit_count": int(len(result.units)),
+		"unit_count": int(len(ok_units) + len(failed_units) + len(skipped)),
 		"rendered_units": ok_units,
+		"skipped_units": skipped,
 		"failed_units": failed_units,
 		"excluded_outputs": list(excluded_plot_output_keys()),
 		"propagation_outputs_enabled": propagation_outputs_requested(inputs.per_unit_outputs.propagation_plots),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import json
 import logging
 from pathlib import Path
@@ -21,6 +22,7 @@ from ..models.inputs import (
 	FootprintMapConfig,
 	ProbeGeometryConfig,
 	PropagationPlotConfig,
+	TemplateCirclesOverlapControlsConfig,
 	TemplateCirclesPlotConfig,
 	TemplatePlotConfig,
 	TemplateWaveformOverlayConfig,
@@ -32,6 +34,9 @@ from ..models.inputs import (
 
 
 LOGGER = logging.getLogger("axon_recon.templates.render")
+
+
+FAST_RENDER_TEMPLATE_CIRCLES_MAX_DPI = 220.0
 
 
 def _as_template_channels_by_time(template: Any, n_channels: int) -> np.ndarray:
@@ -441,41 +446,60 @@ def _compute_max_non_overlapping_circle_areas(
 	ymin_pt, ymax_pt = float(min(axis_y_limits_pt)), float(max(axis_y_limits_pt))
 
 	r_base_pt = np.sqrt(np.clip(areas, 0.0, None) / np.pi)
-
-	constraints: list[float] = []
 	tol = float(max(0.0, overlap_tolerance_pt))
+	positive_mask = r_base_pt > 0.0
+	min_constraint = float("inf")
 
-	for i in range(int(centers.shape[0])):
-		r0 = float(r_base_pt[i])
-		if r0 <= 0.0:
-			continue
-		x_pt = float(centers[i, 0])
-		y_pt = float(centers[i, 1])
-		edge_clearance = float(min(x_pt - xmin_pt, xmax_pt - x_pt, y_pt - ymin_pt, ymax_pt - y_pt))
-		# Let positive edge clearance constrain the global radius, but do not collapse
-		# every circle when a single point lands on or just beyond the current bounds.
-		if np.isfinite(edge_clearance) and edge_clearance > 0.0:
-			constraints.append(edge_clearance / r0)
+	if np.any(positive_mask):
+		centers_pos = centers[positive_mask, :]
+		r_base_pos = r_base_pt[positive_mask]
 
-	n = int(centers.shape[0])
-	for i in range(n):
-		ri = float(r_base_pt[i])
-		if ri <= 0.0:
-			continue
-		xi = float(centers[i, 0])
-		yi = float(centers[i, 1])
-		for j in range(i + 1, n):
-			rj = float(r_base_pt[j])
-			if rj <= 0.0:
-				continue
-			dx = float(centers[j, 0]) - xi
-			dy = float(centers[j, 1]) - yi
-			d = float(np.hypot(dx, dy)) - tol
-			r_sum = ri + rj
-			if r_sum > 0.0:
-				constraints.append(d / r_sum)
+		edge_clearances = np.min(
+			np.column_stack(
+				[
+					centers_pos[:, 0] - xmin_pt,
+					xmax_pt - centers_pos[:, 0],
+					centers_pos[:, 1] - ymin_pt,
+					ymax_pt - centers_pos[:, 1],
+				]
+			),
+			axis=1,
+		)
+		valid_edge = np.isfinite(edge_clearances) & (edge_clearances > 0.0)
+		if np.any(valid_edge):
+			min_constraint = min(
+				min_constraint,
+				float(np.min(edge_clearances[valid_edge] / r_base_pos[valid_edge])),
+			)
 
-	s_radius = float(min(constraints)) if constraints else 1.0
+		n_pos = int(centers_pos.shape[0])
+		if n_pos > 1:
+			# Vectorize the common case to avoid Python-loop overhead on dense units,
+			# but keep a loop fallback for unusually large channel counts.
+			if n_pos <= 2048:
+				dx = np.subtract.outer(centers_pos[:, 0], centers_pos[:, 0])
+				dy = np.subtract.outer(centers_pos[:, 1], centers_pos[:, 1])
+				distances = np.hypot(dx, dy)
+				r_sum = np.add.outer(r_base_pos, r_base_pos)
+				upper = np.triu_indices(n_pos, k=1)
+				pair_constraints = (distances[upper] - tol) / r_sum[upper]
+				finite_pairs = pair_constraints[np.isfinite(pair_constraints)]
+				if finite_pairs.size > 0:
+					min_constraint = min(min_constraint, float(np.min(finite_pairs)))
+			else:
+				for i in range(n_pos):
+					xi = float(centers_pos[i, 0])
+					yi = float(centers_pos[i, 1])
+					ri = float(r_base_pos[i])
+					for j in range(i + 1, n_pos):
+						r_sum = ri + float(r_base_pos[j])
+						if r_sum <= 0.0:
+							continue
+						d = float(np.hypot(float(centers_pos[j, 0]) - xi, float(centers_pos[j, 1]) - yi)) - tol
+						if np.isfinite(d):
+							min_constraint = min(min_constraint, float(d / r_sum))
+
+	s_radius = 1.0 if not np.isfinite(min_constraint) else float(min_constraint)
 	s_radius = float(max(0.0, s_radius))
 
 	return np.asarray(areas * (s_radius ** 2), dtype=float)
@@ -748,6 +772,29 @@ def _add_scale_circle(
 		color=str(getattr(config, "scale_circle_color", "white") or "white"),
 	)
 	text.set_gid("template_scale_circle_text")
+
+
+def _resolve_fast_render_template_circles_config(config: TemplateCirclesPlotConfig) -> TemplateCirclesPlotConfig:
+	if not bool(getattr(config, "fast_render", False)):
+		return config
+	overlap_cfg = getattr(config, "overlap_controls", None)
+	if overlap_cfg is None:
+		overlap_cfg = TemplateCirclesOverlapControlsConfig()
+	return replace(
+		config,
+		dpi=min(float(getattr(config, "dpi", 300.0)), FAST_RENDER_TEMPLATE_CIRCLES_MAX_DPI),
+		show_scale_circle=False,
+		overlap_controls=replace(
+			overlap_cfg,
+			scalebar_coords_overlap_detect=False,
+			scalebar_colorbar_overlap_detect=False,
+			unitid_label_channel_overlap_detect=False,
+			coords_channel_overlap_detect=False,
+			scalebar_channel_overlap_detect=False,
+			scalecircle_channel_overlap_detect=False,
+			max_overlap_check_iterations=0,
+		),
+	)
 
 
 def _normalize_branch_morphology_payload(branch_morphology: Any) -> list[dict[str, Any]]:
@@ -1428,6 +1475,8 @@ def render_template_circles_plot(
 	matplotlib.use("Agg")
 	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
 
+	config = _resolve_fast_render_template_circles_config(config)
+
 	locs = np.asarray(locations_xy, dtype=float)
 	if locs.ndim != 2 or int(locs.shape[1]) < 2:
 		raise ValueError(f"Expected locations shape (n,2+), got {getattr(locs, 'shape', None)}")
@@ -1774,41 +1823,58 @@ def render_template_circles_plot(
 			fig.canvas.draw()
 			renderer = fig.canvas.get_renderer()
 
-			scale_bar_bboxes = [
-				artist.get_window_extent(renderer=renderer)
-				for artist in list(ax.lines) + list(ax.texts)
-				if str(getattr(artist, "get_gid", lambda: "")() or "") in {"template_scale_bar_line", "template_scale_bar_text"}
-			]
-			unit_id_bboxes = [
-				artist.get_window_extent(renderer=renderer)
-				for artist in list(ax.texts)
-				if str(getattr(artist, "get_gid", lambda: "")() or "") == "template_unit_id_label"
-			]
-			coords_bboxes = [
-				artist.get_window_extent(renderer=renderer)
-				for artist in list(ax.texts)
-				if str(getattr(artist, "get_gid", lambda: "")() or "") == "template_center_coords_label"
-			]
-			circle_bboxes = _collect_circle_bboxes()
-			colorbar_bboxes = [cbar.ax.get_window_extent(renderer=renderer)]
-			scale_circle_bboxes = [
-				artist.get_window_extent(renderer=renderer)
-				for artist in list(ax.patches) + list(ax.texts)
-				if str(getattr(artist, "get_gid", lambda: "")() or "") in {"template_scale_circle_patch", "template_scale_circle_text"}
-			]
+			scale_bar_bboxes = None
+			if check_scalebar_coords or check_scalebar_colorbar or check_scalebar_channel:
+				scale_bar_bboxes = [
+					artist.get_window_extent(renderer=renderer)
+					for artist in list(ax.lines) + list(ax.texts)
+					if str(getattr(artist, "get_gid", lambda: "")() or "") in {"template_scale_bar_line", "template_scale_bar_text"}
+				]
+
+			unit_id_bboxes = None
+			if check_unitid_channel:
+				unit_id_bboxes = [
+					artist.get_window_extent(renderer=renderer)
+					for artist in list(ax.texts)
+					if str(getattr(artist, "get_gid", lambda: "")() or "") == "template_unit_id_label"
+				]
+
+			coords_bboxes = None
+			if check_scalebar_coords or check_coords_channel:
+				coords_bboxes = [
+					artist.get_window_extent(renderer=renderer)
+					for artist in list(ax.texts)
+					if str(getattr(artist, "get_gid", lambda: "")() or "") == "template_center_coords_label"
+				]
+
+			circle_bboxes = None
+			if check_unitid_channel or check_coords_channel or check_scalebar_channel or check_scalecircle_channel:
+				circle_bboxes = _collect_circle_bboxes()
+
+			colorbar_bboxes = None
+			if check_scalebar_colorbar:
+				colorbar_bboxes = [cbar.ax.get_window_extent(renderer=renderer)]
+
+			scale_circle_bboxes = None
+			if check_scalecircle_channel:
+				scale_circle_bboxes = [
+					artist.get_window_extent(renderer=renderer)
+					for artist in list(ax.patches) + list(ax.texts)
+					if str(getattr(artist, "get_gid", lambda: "")() or "") in {"template_scale_circle_patch", "template_scale_circle_text"}
+				]
 
 			has_overlap = False
-			if check_scalebar_coords and _any_overlap(scale_bar_bboxes, coords_bboxes):
+			if check_scalebar_coords and _any_overlap(scale_bar_bboxes or [], coords_bboxes or []):
 				has_overlap = True
-			if check_scalebar_colorbar and _any_overlap(scale_bar_bboxes, colorbar_bboxes):
+			if check_scalebar_colorbar and _any_overlap(scale_bar_bboxes or [], colorbar_bboxes or []):
 				has_overlap = True
-			if check_unitid_channel and _any_overlap(unit_id_bboxes, circle_bboxes):
+			if check_unitid_channel and _any_overlap(unit_id_bboxes or [], circle_bboxes or []):
 				has_overlap = True
-			if check_coords_channel and _any_overlap(coords_bboxes, circle_bboxes):
+			if check_coords_channel and _any_overlap(coords_bboxes or [], circle_bboxes or []):
 				has_overlap = True
-			if check_scalebar_channel and _any_overlap(scale_bar_bboxes, circle_bboxes):
+			if check_scalebar_channel and _any_overlap(scale_bar_bboxes or [], circle_bboxes or []):
 				has_overlap = True
-			if check_scalecircle_channel and _any_overlap(scale_circle_bboxes, circle_bboxes):
+			if check_scalecircle_channel and _any_overlap(scale_circle_bboxes or [], circle_bboxes or []):
 				has_overlap = True
 
 			if not has_overlap:
