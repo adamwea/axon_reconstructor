@@ -39,7 +39,7 @@ from .io import read_json, resolve_report_output_paths, resolve_unit_output_path
 from .models.inputs import ReconstructionInputs
 from .models.results import ReconstructionResult, UnitReconstructionResult
 from .reporting.slides import write_reconstruct_report_markdown
-from ..templates.core.render import finalize_grid_svg_output, render_footprint_map_grid_from_assets
+from ..templates.core.render import finalize_grid_svg_output, render_footprint_map_grid_from_assets, render_template_report_pdf
 
 
 LOGGER = logging.getLogger("axon_recon.reconstruct")
@@ -156,7 +156,11 @@ def _collect_existing_reconstruct_stage_outputs(
 	inputs: ReconstructionInputs,
 ) -> dict[str, str]:
 	stage_outputs: dict[str, str] = {}
-	for key, path in resolve_report_output_paths(reconstruction_out_dir=reconstruction_out_dir, reports=inputs.reports).items():
+	for key, path in resolve_report_output_paths(
+		reconstruction_out_dir=reconstruction_out_dir,
+		reports=inputs.reports,
+		report_recons_phase=inputs.phases.report_recons,
+	).items():
 		if path.exists():
 			stage_outputs[key] = str(path)
 	if bool(inputs.write_summary_png):
@@ -742,6 +746,7 @@ def _run_reconstruct_report_recons_phase_impl(
 		write_amplitude_map_summary_png_fn=write_amplitude_map_summary_png,
 		render_footprint_map_grid_from_assets_fn=render_footprint_map_grid_from_assets,
 		finalize_grid_svg_output_fn=finalize_grid_svg_output,
+		render_template_report_pdf_fn=render_template_report_pdf,
 		write_reconstruct_report_markdown_fn=write_reconstruct_report_markdown,
 		logger=LOGGER,
 	)

@@ -129,9 +129,12 @@ def resolve_unit_output_paths(
 	}
 
 
-def resolve_report_output_paths(*, reconstruction_out_dir: Path, reports: Any) -> dict[str, Path]:
+def resolve_report_output_paths(*, reconstruction_out_dir: Path, reports: Any, report_recons_phase: Any | None = None) -> dict[str, Path]:
 	circle_grid = reports.grids.circle_recon_grid
+	av_recons = getattr(report_recons_phase, "av_recons", None)
+	av_recons_relpath = str(getattr(av_recons, "pdf_relpath", "av_recons.pdf") or "av_recons.pdf")
 	return {
+		"av_recons_pdf": reconstruction_out_dir / Path(av_recons_relpath).expanduser(),
 		"circle_recon_grid_pdf": reconstruction_out_dir / Path(str(circle_grid.pdf_relpath)).expanduser(),
 		"circle_recon_grid_png": reconstruction_out_dir / Path(str(circle_grid.png_relpath)).expanduser(),
 		"circle_recon_grid_svg": reconstruction_out_dir / Path(str(circle_grid.svg_relpath)).expanduser(),

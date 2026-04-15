@@ -543,7 +543,7 @@ def test_run_reconstruct_generate_gtrs_batches_logs_unified_progress(tmp_path: P
 	assert [item.unit_id for item in result] == [10, 11, 12, 13, 14, 15]
 
 
-def test_run_reconstruct_report_recons_phase_rejects_av_recons_pdf(monkeypatch, tmp_path: Path) -> None:
+def test_run_reconstruct_report_recons_phase_writes_av_recons_pdf(monkeypatch, tmp_path: Path) -> None:
 	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
 
 	well_out_dir = tmp_path / "well001"
@@ -566,6 +566,24 @@ def test_run_reconstruct_report_recons_phase_rejects_av_recons_pdf(monkeypatch, 
 		lambda _well_out_dir, **kwargs: (templates_out, merged, full),
 	)
 
+	reconstruction_out_dir = well_out_dir / "recon_outputs"
+	unit_dir = reconstruction_out_dir / "units" / "0001"
+	unit_dir.mkdir(parents=True, exist_ok=True)
+	circle_png = unit_dir / "circle_recon.png"
+	circle_png.write_bytes(b"png")
+	(unit_dir / "unit_reconstruction_summary.json").write_text(
+		json.dumps({"status": "ok", "outputs": {"circle_recon_png": str(circle_png)}}),
+		encoding="utf-8",
+	)
+
+	def _fake_render_template_report_pdf(**kwargs):
+		pdf_path = Path(kwargs["pdf_path"])
+		pdf_path.parent.mkdir(parents=True, exist_ok=True)
+		pdf_path.write_bytes(b"pdf")
+		return {str(kwargs.get("output_key", "av_recons_pdf")): str(pdf_path)}
+
+	monkeypatch.setattr(reconstruct_runner, "render_template_report_pdf", _fake_render_template_report_pdf)
+
 	inputs = ReconstructionInputs(
 		h5_path=tmp_path / "input.raw.h5",
 		stream_id="well001",
@@ -580,5 +598,56 @@ def test_run_reconstruct_report_recons_phase_rejects_av_recons_pdf(monkeypatch, 
 		),
 	)
 
-	with pytest.raises(NotImplementedError, match="av_recons.write_pdf"):
+	summary = run_reconstruct_report_recons_phase(inputs)
+	assert summary["phase"] == "report_recons"
+	assert summary["outputs"]["av_recons_pdf"] == str(reconstruction_out_dir / "av_recons.pdf")
+	assert Path(summary["outputs"]["av_recons_pdf"]).exists()
+
+
+def test_run_reconstruct_report_recons_phase_requires_circle_recon_assets_for_av_recons_pdf(monkeypatch, tmp_path: Path) -> None:
+	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
+
+	well_out_dir = tmp_path / "well001"
+	well_out_dir.mkdir(parents=True, exist_ok=True)
+	templates_out = tmp_path / "templates_out"
+	merged = tmp_path / "templates_merged"
+	full = tmp_path / "templates_full"
+	templates_out.mkdir(parents=True, exist_ok=True)
+	merged.mkdir(parents=True, exist_ok=True)
+	full.mkdir(parents=True, exist_ok=True)
+
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"compute_mea_analysis_output_dir",
+		lambda *, output_root, data_file, well: well_out_dir,
+	)
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"_resolve_templates_dirs",
+		lambda _well_out_dir, **kwargs: (templates_out, merged, full),
+	)
+
+	reconstruction_out_dir = well_out_dir / "recon_outputs"
+	unit_dir = reconstruction_out_dir / "units" / "0001"
+	unit_dir.mkdir(parents=True, exist_ok=True)
+	(unit_dir / "unit_reconstruction_summary.json").write_text(
+		json.dumps({"status": "ok", "outputs": {}}),
+		encoding="utf-8",
+	)
+
+	inputs = ReconstructionInputs(
+		h5_path=tmp_path / "input.raw.h5",
+		stream_id="well001",
+		mea_output_root=tmp_path,
+		output_rel_root="recon_outputs",
+		unit_ids=[1],
+		phases=ReconstructionPhasesConfig(
+			report_recons=ReconstructionReportReconsPhaseConfig(
+				enabled=True,
+				av_recons=ReconstructionAvReconsConfig(write_pdf=True, pdf_relpath="av_recons.pdf"),
+			)
+		),
+	)
+
+	with pytest.raises(FileNotFoundError, match="run reconstruct.plot_recons first"):
 		run_reconstruct_report_recons_phase(inputs)

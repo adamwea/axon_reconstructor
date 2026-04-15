@@ -1467,6 +1467,7 @@ stages:
             # default: 2000
             theilsen_maxiter: 8000
       plot_recons:
+        enable: true
         outputs:
           circle_recon:
             display:
@@ -1495,9 +1496,13 @@ stages:
               relpath: circle_recon
               #dpi: 420
               dpi: 300
+      plot_branch_propogations:
+        enable: true
+      plot_branch_velocities:
+        enable: true
       report_recons:
         enable: true
-        # Reserved for a later reporting pass; first-pass phase wiring does not implement the PDF deck yet.
+        # Emit report-stage artifacts from persisted reconstruct plot outputs.
         av_recons:
           write_pdf: true
           pdf_relpath: av_recons.pdf

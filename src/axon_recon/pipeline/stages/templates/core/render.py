@@ -3067,6 +3067,8 @@ def render_template_report_pdf(
 	*,
 	units: list[dict[str, Any]],
 	pdf_path: Path,
+	output_key: str = "template_report_pdf",
+	title_suffix: str = "circle template",
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -3085,11 +3087,11 @@ def render_template_report_pdf(
 			fig, ax = plt.subplots(figsize=(11.0, 8.5))
 			ax.imshow(plt.imread(image_path))
 			ax.axis("off")
-			fig.suptitle(f"Unit {unit_id} circle template", fontsize=16)
+			fig.suptitle(f"Unit {unit_id} {str(title_suffix).strip()}", fontsize=16)
 			pdf.savefig(fig, bbox_inches="tight")
 			plt.close(fig)
 
-	return {"template_report_pdf": str(pdf_path)}
+	return {str(output_key): str(pdf_path)}
 
 
 def render_unit_locations_report(
