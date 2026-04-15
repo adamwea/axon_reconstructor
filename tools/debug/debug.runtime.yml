@@ -908,7 +908,7 @@ stages:
         # write pdf slide deck of all circle style template plots for all units.
         relpath: template_report.pdf
         write_pdf: true
-  #PENDING REORG OF FLAGS NEEDED BELOW THIS LINE
+    #PENDING REORG OF FLAGS NEEDED BELOW THIS LINE
       other_plots_pending_org:
           template_plots:
             waveforms:
@@ -1347,11 +1347,59 @@ stages:
       generate_gtrs:
         enable: true
         #reconstruct_with_axon_velocity: true
+        outputs:
+          # JSON artifacts emitted by the generate_gtrs phase.
+          write_branches_raw_json: true
+          branches_raw_relpath: branches_raw.json
+          write_branches_json: true
+          branches_relpath: branches.json
+
+          write_detection_filter_json: true
+          detection_filter_relpath: detection_filter.json
+          write_kurtosis_filter_json: true
+          kurtosis_filter_relpath: kurtosis_filter.json
+          write_peak_std_filter_json: true
+          peak_std_filter_relpath: peak_std_filter.json
+          write_delay_filter_json: true
+          delay_filter_relpath: delay_filter.json
+          write_all_filters_json: true
+          all_filters_relpath: all_filters.json
+          write_heuristics_json: true
+          heuristics_relpath: heuristics.json
+
+          # diagnostic figs.
+          # filters fig.
+          # column 1:
+          # - amplitude map
+          # - latency map
+          # column 2:
+          # - selected after detection filter
+          # - selected after kurtosis filter
+          # - selected after peak std filter
+          # - selected after init delay filter
+          # column 3:
+          # - selected after all filters
+
+          # heuristic fig.
+          # row 1:
+          # - h_init heuristics
+          # - h_edge heuristics
+          # row 2:
+          # - raw branches
+          # - branch velocities
+
+          # GTR artifacts.
+          template_source: merged # which template to use for GTR-based analyses and outputs; merged, square, full, or full_from_merged.
+          write_gtr_pkl: true
+          gtr_pkl_relpath: gtr.pkl
+          write_gtr_json: false
+          gtr_json_relpath: gtr.json
         axon_velocity:
           enabled: true
           params:
             upsample: 1
-            init_delay: 0
+            init_delay: 0.1
+            #init_delay: 0
             # default: 3
             min_points_after_branching: 2
             # default: 100
@@ -1363,8 +1411,10 @@ stages:
             # max_peak_latency_for_splitting: 0.5 # lower -> more aggressive splitting, higher -> less splitting; controls the maximum allowed latency of the peak channel in a branch for it to be eligible for splitting, which can help prevent over-splitting of branches with long propagation delays and/or low SNR peaks.
             max_peak_latency_for_splitting: .25 # lower -> more aggressive splitting, higher -> less splitting; controls the maximum allowed latency of the peak channel in a branch for it to be eligible for splitting, which can help prevent over-splitting of branches with long propagation delays and/or low SNR peaks.
             # default: 0.3
-            kurt_threshold: -10.0
-            peak_std_threshold: null
+            kurt_threshold: 0.3
+            #kurt_threshold: -10.0
+            peak_std_threshold: 1.0
+            #peak_std_threshold: null
             peak_std_distance: 30
             # default: 3
             n_neighbors: 8
@@ -1375,7 +1425,8 @@ stages:
             remove_isolated: false
             detection_type: "relative" # "relative" or "absolute". relative means the detect_threshold is relative to the expected amplitude of the branch at that location, while absolute means the detect_threshold is an absolute value in microvolts.
             # default: 0.01
-            detect_threshold: 0.0001
+            detect_threshold: 0.01
+            #detect_threshold: 0.0001
             # default: 30
             min_selected_points: 30
             #r2_threshold: 0.9
@@ -1427,9 +1478,9 @@ stages:
               dpi: 300
       report_recons:
         enable: true
-        # pdf slide deck of all circle recon plots for all units.
+        # Reserved for a later reporting pass; first-pass phase wiring does not implement the PDF deck yet.
         av_recons:
-          write_pdf: true
+          write_pdf: false
           pdf_relpath: av_recons.pdf
 
     # PENDING ORG OF FLAGS BELOW THIS LINE
@@ -1468,21 +1519,6 @@ stages:
         # Base rel dir for all outputs for a given unit. Can be formatted with {unit_id} if desired,
         # but should not include file name or extension components since those are specified separately for each output type below.
         unit_reldir: units/{unit_id:04d}/
-
-        # JSON artifacts
-        write_branches_raw_json: true
-        branches_raw_relpath: branches_raw.json
-        write_branches_json: true
-        branches_relpath: branches.json
-        write_heuristics_json: true
-        heuristics_relpath: heuristics.json
-
-        # GTR artifacts
-        template_source: square # which template to use for GTR-based analyses and outputs; square, scan, or full.
-        write_gtr_pkl: true
-        gtr_pkl_relpath: gtr.pkl
-        write_gtr_json: false
-        gtr_json_relpath: gtr.json
 
         # Per-unit amplitude map (v2 shared heatmap path)
         write_amplitude_map_png: true

@@ -1,27 +1,34 @@
 from __future__ import annotations
 
 import concurrent.futures
+from dataclasses import dataclass, replace
 import logging
 from pathlib import Path
-import pickle
 import shutil
 from typing import Any
 
 from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_recon.pipeline.shared.grid_sorting import (
 	coerce_grid_sort_metrics,
-	compute_template_grid_sort_metrics,
 	grid_sort_key_for_unit,
 	normalize_grid_sort_by,
 )
 
+from .core.generate_gtrs import run_generate_gtrs_phase as run_generate_gtrs_core_phase
+from .core.plot_recons import run_plot_recons_phase as run_plot_recons_core_phase
 from .core.reconstruct import (
 	compute_branches_with_polyline,
+	compute_all_filters_payload,
+	compute_delay_filter_payload,
+	compute_detection_filter_payload,
 	compute_gtr_json_payload,
 	compute_heuristics_payload,
+	compute_kurtosis_filter_payload,
+	compute_peak_std_filter_payload,
 	compute_raw_branches_payload,
 	load_templates_for_unit,
 )
+from .core.report_recons import run_report_recons_phase as run_report_recons_core_phase
 from .core.summary_plots import write_amplitude_map_summary_png
 from .core.unit_plots import write_unit_amplitude_map_png
 from .core.unit_plots import write_unit_circle_recon_plot
@@ -298,7 +305,129 @@ def _cleanup_failed_reconstruct_unit_outputs(
 	return updated_results, failed_summary_json
 
 
-def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
+@dataclass(frozen=True)
+class _ReconstructPhaseEnvironment:
+	well_out_dir: Path
+	reconstruction_out_dir: Path
+	merged_units_dir: Path
+	full_channels_templates_dir: Path
+	unit_ids: list[Any]
+	preserve_stage_reports: bool
+	existing_stage_outputs: dict[str, str]
+
+
+def _unit_result_from_summary_payload(*, unit_id: Any, payload: Any) -> UnitReconstructionResult:
+	data = payload if isinstance(payload, dict) else {}
+	outputs = dict(data.get("outputs", {})) if isinstance(data.get("outputs", {}), dict) else {}
+	return UnitReconstructionResult(
+		unit_id=unit_id,
+		status=str(data.get("status", "ok")),
+		outputs={str(key): str(value) for key, value in outputs.items() if value is not None},
+		error=(None if not data.get("error") else str(data.get("error"))),
+	)
+
+
+def _load_reconstruct_unit_results(
+	*,
+	reconstruction_out_dir: Path,
+	inputs: ReconstructionInputs,
+	unit_ids: list[Any],
+) -> list[UnitReconstructionResult]:
+	results: list[UnitReconstructionResult] = []
+	for unit_id in unit_ids:
+		paths = resolve_unit_output_paths(
+			reconstruction_out_dir=reconstruction_out_dir,
+			unit_id=unit_id,
+			per_unit_outputs=inputs.per_unit_outputs,
+		)
+		unit_summary_json = paths["unit_summary_json"]
+		if not unit_summary_json.exists():
+			results.append(
+				UnitReconstructionResult(
+					unit_id=unit_id,
+					status="error",
+					outputs={},
+					error="Missing unit summary",
+				)
+			)
+			continue
+		try:
+			payload = read_json(unit_summary_json)
+		except Exception as exc:
+			results.append(
+				UnitReconstructionResult(
+					unit_id=unit_id,
+					status="error",
+					outputs={},
+					error=str(exc),
+				)
+			)
+			continue
+		results.append(_unit_result_from_summary_payload(unit_id=unit_id, payload=payload))
+	results.sort(key=lambda item: str(item.unit_id))
+	return results
+
+
+def _count_unit_statuses(unit_results: list[UnitReconstructionResult]) -> tuple[int, int]:
+	units_ok = sum(1 for item in unit_results if str(item.status).strip().lower() == "ok")
+	units_error = sum(1 for item in unit_results if str(item.status).strip().lower() != "ok")
+	return units_ok, units_error
+
+
+def _unit_rows(unit_results: list[UnitReconstructionResult]) -> list[dict[str, Any]]:
+	return [
+		{
+			"unit_id": item.unit_id,
+			"status": item.status,
+			"outputs": item.outputs,
+			"error": item.error,
+		}
+		for item in unit_results
+	]
+
+
+def _write_reconstruct_phase_summary(
+	*,
+	phase_name: str,
+	summary_json: Path,
+	inputs: ReconstructionInputs,
+	well_out_dir: Path,
+	reconstruction_out_dir: Path,
+	unit_results: list[UnitReconstructionResult],
+	stage_outputs: dict[str, str] | None = None,
+	failed_units_summary_json: Path | None = None,
+	preserve_stage_reports: bool = False,
+	extra_fields: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+	units_ok, units_error = _count_unit_statuses(unit_results)
+	payload: dict[str, Any] = {
+		"phase": phase_name,
+		"h5_path": str(inputs.h5_path),
+		"stream_id": str(inputs.stream_id),
+		"n_jobs": int(max(1, int(inputs.n_jobs))),
+		"well_out_dir": str(well_out_dir),
+		"reconstruction_out_dir": str(reconstruction_out_dir),
+		"unit_count": len(unit_results),
+		"units_ok": units_ok,
+		"units_error": units_error,
+		"outputs": dict(stage_outputs or {}),
+		"cleanup_failed_unit_outputs": bool(inputs.cleanup_failed_unit_outputs),
+		"failed_units_summary_json": str(failed_units_summary_json) if failed_units_summary_json else None,
+		"reports_overwrite_skipped": bool(preserve_stage_reports),
+		"units": _unit_rows(unit_results),
+	}
+	if extra_fields:
+		payload.update(dict(extra_fields))
+	write_json(summary_json, payload)
+	payload["summary_json"] = str(summary_json)
+	return payload
+
+
+def _prepare_reconstruct_phase_environment(
+	*,
+	inputs: ReconstructionInputs,
+	clear_output_root: bool,
+) -> _ReconstructPhaseEnvironment:
 	well_out_dir = compute_mea_analysis_output_dir(
 		output_root=inputs.mea_output_root,
 		data_file=inputs.h5_path,
@@ -315,7 +444,7 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 		if preserve_stage_reports
 		else {}
 	)
-	if full_restart and reconstruction_out_dir.exists():
+	if clear_output_root and full_restart and reconstruction_out_dir.exists():
 		if preserve_stage_reports:
 			LOGGER.info(
 				"Reconstruct unit-scoped restart preserving stage reports for unit_ids=%s",
@@ -325,7 +454,7 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 			LOGGER.info("Reconstruct full restart: clearing output root %s", reconstruction_out_dir)
 			shutil.rmtree(reconstruction_out_dir)
 	reconstruction_out_dir.mkdir(parents=True, exist_ok=True)
-	if preserve_stage_reports and full_restart:
+	if clear_output_root and preserve_stage_reports and full_restart:
 		for unit_id in inputs.unit_ids or []:
 			unit_dir = resolve_unit_output_paths(
 				reconstruction_out_dir=reconstruction_out_dir,
@@ -340,292 +469,440 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 		load_assets_from_v2pipeline_templates_stage=inputs.load_assets_from_v2pipeline_templates_stage,
 	)
 	unit_ids = _build_unit_ids(inputs, merged_units_dir)
-
-	av = import_axon_velocity(repo_root=inputs.axon_velocity_repo_root)
-
-	def _process_unit(unit_id: Any) -> UnitReconstructionResult:
-		paths = resolve_unit_output_paths(
-			reconstruction_out_dir=reconstruction_out_dir,
-			unit_id=unit_id,
-			per_unit_outputs=inputs.per_unit_outputs,
-		)
-		paths["unit_dir"].mkdir(parents=True, exist_ok=True)
-
-		if (not bool(inputs.force_restart)) and (not bool(inputs.force_replot)) and paths["unit_summary_json"].exists():
-			try:
-				existing = read_json(paths["unit_summary_json"])
-				outputs = dict((existing or {}).get("outputs", {})) if isinstance(existing, dict) else {}
-				return UnitReconstructionResult(
-					unit_id=unit_id,
-					status=str((existing or {}).get("status", "ok")),
-					outputs={str(k): str(v) for k, v in outputs.items() if v is not None},
-					error=(None if not isinstance(existing, dict) else existing.get("error")),
-				)
-			except Exception:
-				pass
-
-		unit_summary: dict[str, Any] = {
-			"unit_id": unit_id,
-			"status": "ok",
-			"error": None,
-			"outputs": {},
-		}
-		try:
-			plot_template_ch_by_t, plot_locs_xy, gtr_template_ch_by_t, gtr_locs_xy, fs_hz, selected_template_source = load_templates_for_unit(
-				unit_id=unit_id,
-				merged_units_dir=merged_units_dir,
-				full_channels_templates_dir=full_channels_templates_dir,
-				template_source=str(inputs.per_unit_outputs.template_source),
-				use_full_channels_templates=inputs.use_full_channels_templates,
-				require_full_channels_templates=inputs.require_full_channels_templates,
-				probe_geometry=inputs.probe_geometry,
-			)
-			unit_summary["selected_template_source"] = selected_template_source
-			unit_summary["graph_tracking_source"] = selected_template_source
-			unit_summary["grid_sort_metrics"] = compute_template_grid_sort_metrics(
-				template_c_by_t=gtr_template_ch_by_t,
-				locations_xy=gtr_locs_xy,
-				sampling_rate_hz=fs_hz,
-				probe_pitch_um=(None if inputs.probe_geometry is None else getattr(inputs.probe_geometry, "pitch_um", None)),
-			)
-
-			gtr = None
-			primary_exc: Exception | None = None
-			primary_template_for_tracking = _normalize_template_for_tracking(gtr_template_ch_by_t, gtr_locs_xy)
-			try:
-				gtr = compute_graph_tracking(
-					av=av,
-					template_ch_by_t=primary_template_for_tracking,
-					locs_xy=gtr_locs_xy,
-					sampling_frequency_hz=float(fs_hz),
-					params=dict(inputs.axon_velocity_params),
-				)
-			except Exception as exc:
-				primary_exc = exc
-				if (
-					_is_empty_signal_selection_error(exc)
-					and str(selected_template_source) not in {"merged_contributing", "merged_per_unit_output"}
-				):
-					raise RuntimeError(
-						"Graph tracking failed for requested template source "
-						f"{selected_template_source} (unit={unit_id}): {exc}. "
-						"Fallback to merged template source is disabled."
-					) from exc
-				else:
-					raise
-
-			if gtr is None:
-				if primary_exc is not None:
-					raise primary_exc
-				raise RuntimeError(f"Graph tracking did not return a result for unit {unit_id}")
-
-			if bool(inputs.per_unit_outputs.write_branches_raw_json):
-				payload = compute_raw_branches_payload(unit_id=unit_id, gtr=gtr)
-				write_json(paths["branches_raw_json"], payload)
-				unit_summary["outputs"]["branches_raw_json"] = str(paths["branches_raw_json"])
-
-			if bool(inputs.per_unit_outputs.write_branches_json):
-				payload = compute_branches_with_polyline(unit_id=unit_id, gtr=gtr, locs_xy=gtr_locs_xy)
-				write_json(paths["branches_json"], payload)
-				unit_summary["outputs"]["branches_json"] = str(paths["branches_json"])
-
-			if bool(inputs.per_unit_outputs.write_heuristics_json):
-				payload = compute_heuristics_payload(unit_id=unit_id, gtr=gtr, locs_xy=gtr_locs_xy)
-				write_json(paths["heuristics_json"], payload)
-				unit_summary["outputs"]["heuristics_json"] = str(paths["heuristics_json"])
-
-			if bool(inputs.per_unit_outputs.write_gtr_pkl):
-				paths["gtr_pkl"].parent.mkdir(parents=True, exist_ok=True)
-				with open(paths["gtr_pkl"], "wb") as f:
-					pickle.dump(gtr, f)
-				unit_summary["outputs"]["gtr_pkl"] = str(paths["gtr_pkl"])
-
-			if bool(inputs.per_unit_outputs.write_gtr_json):
-				payload = compute_gtr_json_payload(unit_id=unit_id, gtr=gtr, locs_xy=gtr_locs_xy)
-				write_json(paths["gtr_json"], payload)
-				unit_summary["outputs"]["gtr_json"] = str(paths["gtr_json"])
-
-			if bool(inputs.per_unit_outputs.write_amplitude_map_png):
-				amplitude_map_path = paths["amplitude_map_png"]
-				if bool(inputs.force_replot) or (not amplitude_map_path.exists()):
-					write_unit_amplitude_map_png(
-						output_png=amplitude_map_path,
-						template_ch_by_t=plot_template_ch_by_t,
-						locs_xy=plot_locs_xy,
-						heatmap_config=inputs.per_unit_outputs.amplitude_map_heatmap,
-					)
-				if amplitude_map_path.exists():
-					unit_summary["outputs"]["amplitude_map_png"] = str(amplitude_map_path)
-
-			circle_output_cfg = inputs.per_unit_outputs.circle_recon.output
-			write_circle_recon = bool(circle_output_cfg.write_png) or bool(circle_output_cfg.write_svg)
-			if write_circle_recon:
-				circle_png_path = paths["circle_recon_png"]
-				circle_svg_path = paths["circle_recon_svg"]
-				needs_plot = bool(inputs.force_replot)
-				if not needs_plot:
-					if bool(circle_output_cfg.write_png) and (not circle_png_path.exists()):
-						needs_plot = True
-					if bool(circle_output_cfg.write_svg) and (not circle_svg_path.exists()):
-						needs_plot = True
-				if needs_plot:
-					write_unit_circle_recon_plot(
-						output_png=circle_png_path,
-						output_svg=circle_svg_path,
-						template_ch_by_t=gtr_template_ch_by_t,
-						locs_xy=gtr_locs_xy,
-						gtr=gtr,
-						circle_config=inputs.per_unit_outputs.circle_recon,
-						unit_id=unit_id,
-					)
-				if bool(circle_output_cfg.write_png) and circle_png_path.exists():
-					unit_summary["outputs"]["circle_recon_png"] = str(circle_png_path)
-				if bool(circle_output_cfg.write_svg) and circle_svg_path.exists():
-					unit_summary["outputs"]["circle_recon_svg"] = str(circle_svg_path)
-
-		except Exception as exc:
-			unit_summary["status"] = "error"
-			unit_summary["error"] = str(exc)
-			if _is_expected_reconstruct_unit_failure(exc):
-				LOGGER.warning("Reconstruct unit %s failed: %s", unit_id, exc)
-			else:
-				LOGGER.exception("Failed reconstruct for unit %s", unit_id)
-
-		write_json(paths["unit_summary_json"], unit_summary)
-		return UnitReconstructionResult(
-			unit_id=unit_id,
-			status=str(unit_summary.get("status", "ok")),
-			outputs={str(k): str(v) for k, v in dict(unit_summary.get("outputs", {})).items()},
-			error=(unit_summary.get("error") if unit_summary.get("error") else None),
-		)
-
-	unit_results: list[UnitReconstructionResult] = []
-	worker_count = int(max(1, int(inputs.n_jobs)))
-	if worker_count <= 1 or len(unit_ids) <= 1:
-		for unit_id in unit_ids:
-			unit_results.append(_process_unit(unit_id))
-	else:
-		futures: dict[concurrent.futures.Future[UnitReconstructionResult], Any] = {}
-		with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as pool:
-			for unit_id in unit_ids:
-				fut = pool.submit(_process_unit, unit_id)
-				futures[fut] = unit_id
-
-			for fut in concurrent.futures.as_completed(futures):
-				unit_results.append(fut.result())
-
-	# Keep summary output deterministic across serial/threaded modes.
-	unit_results.sort(key=lambda r: str(r.unit_id))
-	unit_results, failed_units_summary_json = _cleanup_failed_reconstruct_unit_outputs(
+	return _ReconstructPhaseEnvironment(
+		well_out_dir=well_out_dir,
 		reconstruction_out_dir=reconstruction_out_dir,
+		merged_units_dir=merged_units_dir,
+		full_channels_templates_dir=full_channels_templates_dir,
+		unit_ids=unit_ids,
+		preserve_stage_reports=preserve_stage_reports,
+		existing_stage_outputs=dict(existing_stage_outputs),
+	)
+
+
+def _current_failed_units_summary_json(*, inputs: ReconstructionInputs, reconstruction_out_dir: Path) -> Path | None:
+	candidate = reconstruction_out_dir / Path(str(inputs.failed_units_summary_relpath)).expanduser()
+	return candidate if candidate.exists() else None
+
+
+def _as_positive_int_or_none(value: Any) -> int | None:
+	try:
+		parsed = int(value)
+	except Exception:
+		return None
+	if parsed <= 0:
+		return None
+	return int(parsed)
+
+
+def _chunk_unit_ids(unit_ids: list[Any], *, batch_size: int) -> list[list[Any]]:
+	resolved_batch_size = max(1, int(batch_size))
+	return [list(unit_ids[idx : idx + resolved_batch_size]) for idx in range(0, len(unit_ids), resolved_batch_size)]
+
+
+def _resolve_generate_gtrs_execution_plan(
+	*,
+	inputs: ReconstructionInputs,
+	unit_ids: list[Any],
+) -> tuple[int, int, int, list[list[Any]]]:
+	unit_count = len(unit_ids)
+	if unit_count <= 0:
+		return 1, 1, 1, []
+	derived_unit_workers = max(1, int(inputs.n_jobs))
+	phase_cfg = inputs.phases.generate_gtrs
+	unit_procs = _as_positive_int_or_none(getattr(phase_cfg, "unit_procs", None))
+	if unit_procs is None:
+		unit_procs = min(derived_unit_workers, 6)
+	unit_procs = max(1, min(int(unit_procs), derived_unit_workers, unit_count))
+	unit_batch_size = _as_positive_int_or_none(getattr(phase_cfg, "unit_batch_size", None))
+	if unit_batch_size is None:
+		unit_batch_size = max(1, (unit_count + unit_procs - 1) // unit_procs)
+	batches = _chunk_unit_ids(unit_ids, batch_size=unit_batch_size)
+	process_workers = max(1, min(unit_procs, len(batches)))
+	return derived_unit_workers, process_workers, int(unit_batch_size), batches
+
+
+@dataclass(frozen=True)
+class _GenerateGtrsBatchInputs:
+	inputs: ReconstructionInputs
+	reconstruction_out_dir: Path
+	merged_units_dir: Path
+	full_channels_templates_dir: Path
+
+
+def _run_generate_gtrs_batch(batch_inputs: _GenerateGtrsBatchInputs) -> list[UnitReconstructionResult]:
+	return run_generate_gtrs_core_phase(
+		inputs=batch_inputs.inputs,
+		reconstruction_out_dir=batch_inputs.reconstruction_out_dir,
+		merged_units_dir=batch_inputs.merged_units_dir,
+		full_channels_templates_dir=batch_inputs.full_channels_templates_dir,
+		unit_ids=list(batch_inputs.inputs.unit_ids or []),
+		import_axon_velocity_fn=import_axon_velocity,
+		load_templates_for_unit_fn=load_templates_for_unit,
+		compute_graph_tracking_fn=compute_graph_tracking,
+		compute_raw_branches_payload_fn=compute_raw_branches_payload,
+		compute_branches_with_polyline_fn=compute_branches_with_polyline,
+		compute_detection_filter_payload_fn=compute_detection_filter_payload,
+		compute_kurtosis_filter_payload_fn=compute_kurtosis_filter_payload,
+		compute_peak_std_filter_payload_fn=compute_peak_std_filter_payload,
+		compute_delay_filter_payload_fn=compute_delay_filter_payload,
+		compute_all_filters_payload_fn=compute_all_filters_payload,
+		compute_heuristics_payload_fn=compute_heuristics_payload,
+		compute_gtr_json_payload_fn=compute_gtr_json_payload,
+		read_json_fn=read_json,
+		write_json_fn=write_json,
+		resolve_unit_output_paths_fn=resolve_unit_output_paths,
+		is_empty_signal_selection_error_fn=_is_empty_signal_selection_error,
+		is_expected_reconstruct_unit_failure_fn=_is_expected_reconstruct_unit_failure,
+		normalize_template_for_tracking_fn=_normalize_template_for_tracking,
+		logger=LOGGER,
+	)
+
+
+def _run_reconstruct_generate_gtrs_batches(
+	*,
+	inputs: ReconstructionInputs,
+	env: _ReconstructPhaseEnvironment,
+) -> list[UnitReconstructionResult]:
+	derived_unit_workers, unit_procs, unit_batch_size, batches = _resolve_generate_gtrs_execution_plan(
+		inputs=inputs,
+		unit_ids=env.unit_ids,
+	)
+	LOGGER.info(
+		"reconstruct.generate_gtrs execution plan: requested_units=%d derived_unit_workers=%d unit_procs=%d unit_batch_size=%d unit_batches=%d",
+		len(env.unit_ids),
+		int(derived_unit_workers),
+		int(unit_procs),
+		int(unit_batch_size),
+		len(batches),
+	)
+	if len(batches) <= 1 or unit_procs <= 1:
+		return run_generate_gtrs_core_phase(
+			inputs=inputs,
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			merged_units_dir=env.merged_units_dir,
+			full_channels_templates_dir=env.full_channels_templates_dir,
+			unit_ids=env.unit_ids,
+			import_axon_velocity_fn=import_axon_velocity,
+			load_templates_for_unit_fn=load_templates_for_unit,
+			compute_graph_tracking_fn=compute_graph_tracking,
+			compute_raw_branches_payload_fn=compute_raw_branches_payload,
+			compute_branches_with_polyline_fn=compute_branches_with_polyline,
+			compute_detection_filter_payload_fn=compute_detection_filter_payload,
+			compute_kurtosis_filter_payload_fn=compute_kurtosis_filter_payload,
+			compute_peak_std_filter_payload_fn=compute_peak_std_filter_payload,
+			compute_delay_filter_payload_fn=compute_delay_filter_payload,
+			compute_all_filters_payload_fn=compute_all_filters_payload,
+			compute_heuristics_payload_fn=compute_heuristics_payload,
+			compute_gtr_json_payload_fn=compute_gtr_json_payload,
+			read_json_fn=read_json,
+			write_json_fn=write_json,
+			resolve_unit_output_paths_fn=resolve_unit_output_paths,
+			is_empty_signal_selection_error_fn=_is_empty_signal_selection_error,
+			is_expected_reconstruct_unit_failure_fn=_is_expected_reconstruct_unit_failure,
+			normalize_template_for_tracking_fn=_normalize_template_for_tracking,
+			logger=LOGGER,
+		)
+
+	batch_inputs_list = [
+		_GenerateGtrsBatchInputs(
+			inputs=replace(inputs, n_jobs=1, unit_ids=list(batch_unit_ids)),
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			merged_units_dir=env.merged_units_dir,
+			full_channels_templates_dir=env.full_channels_templates_dir,
+		)
+		for batch_unit_ids in batches
+	]
+	batch_results: list[UnitReconstructionResult] = []
+	try:
+		with concurrent.futures.ProcessPoolExecutor(max_workers=unit_procs) as pool:
+			futures = {
+				pool.submit(_run_generate_gtrs_batch, batch_inputs): list(batch_inputs.inputs.unit_ids or [])
+				for batch_inputs in batch_inputs_list
+			}
+			completed = 0
+			completed_units = 0
+			total_batches = len(futures)
+			for future in concurrent.futures.as_completed(futures):
+				batch_result = future.result()
+				batch_results.extend(batch_result)
+				completed += 1
+				completed_units += len(batch_result)
+				LOGGER.info(
+					"reconstruct.generate_gtrs unified progress: %d/%d units completed (%d/%d batches)",
+					completed_units,
+					len(env.unit_ids),
+					completed,
+					total_batches,
+				)
+	except Exception as exc:
+		LOGGER.warning(
+			"reconstruct.generate_gtrs process pool execution failed, falling back to in-process execution: %s",
+			exc,
+		)
+		return run_generate_gtrs_core_phase(
+			inputs=inputs,
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			merged_units_dir=env.merged_units_dir,
+			full_channels_templates_dir=env.full_channels_templates_dir,
+			unit_ids=env.unit_ids,
+			import_axon_velocity_fn=import_axon_velocity,
+			load_templates_for_unit_fn=load_templates_for_unit,
+			compute_graph_tracking_fn=compute_graph_tracking,
+			compute_raw_branches_payload_fn=compute_raw_branches_payload,
+			compute_branches_with_polyline_fn=compute_branches_with_polyline,
+			compute_heuristics_payload_fn=compute_heuristics_payload,
+			compute_gtr_json_payload_fn=compute_gtr_json_payload,
+			read_json_fn=read_json,
+			write_json_fn=write_json,
+			resolve_unit_output_paths_fn=resolve_unit_output_paths,
+			is_empty_signal_selection_error_fn=_is_empty_signal_selection_error,
+			is_expected_reconstruct_unit_failure_fn=_is_expected_reconstruct_unit_failure,
+			normalize_template_for_tracking_fn=_normalize_template_for_tracking,
+			logger=LOGGER,
+		)
+
+	batch_results.sort(key=lambda item: str(item.unit_id))
+	return batch_results
+
+
+def _run_reconstruct_generate_gtrs_phase_impl(
+	*,
+	inputs: ReconstructionInputs,
+	env: _ReconstructPhaseEnvironment,
+) -> tuple[list[UnitReconstructionResult], Path | None]:
+	unit_results = _run_reconstruct_generate_gtrs_batches(inputs=inputs, env=env)
+	return _cleanup_failed_reconstruct_unit_outputs(
+		reconstruction_out_dir=env.reconstruction_out_dir,
 		inputs=inputs,
 		unit_results=unit_results,
 	)
+
+
+def _run_reconstruct_plot_recons_phase_impl(
+	*,
+	inputs: ReconstructionInputs,
+	env: _ReconstructPhaseEnvironment,
+) -> tuple[list[UnitReconstructionResult], Path | None]:
+	unit_results = run_plot_recons_core_phase(
+		inputs=inputs,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		merged_units_dir=env.merged_units_dir,
+		full_channels_templates_dir=env.full_channels_templates_dir,
+		unit_ids=env.unit_ids,
+		load_templates_for_unit_fn=load_templates_for_unit,
+		write_unit_amplitude_map_png_fn=write_unit_amplitude_map_png,
+		write_unit_circle_recon_plot_fn=write_unit_circle_recon_plot,
+		read_json_fn=read_json,
+		write_json_fn=write_json,
+		resolve_unit_output_paths_fn=resolve_unit_output_paths,
+		logger=LOGGER,
+	)
+	return _cleanup_failed_reconstruct_unit_outputs(
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		inputs=inputs,
+		unit_results=unit_results,
+	)
+
+
+def _run_reconstruct_report_recons_phase_impl(
+	*,
+	inputs: ReconstructionInputs,
+	env: _ReconstructPhaseEnvironment,
+	unit_results: list[UnitReconstructionResult],
+) -> dict[str, str]:
 	report_grid_sort_by = normalize_grid_sort_by(inputs.reports.grids.sort_by, default="unit_id")
 	unit_results_for_reports = _sort_reconstruct_units_for_reports(
 		unit_results=unit_results,
-		reconstruction_out_dir=reconstruction_out_dir,
+		reconstruction_out_dir=env.reconstruction_out_dir,
 		inputs=inputs,
 		sort_by=report_grid_sort_by,
 	)
+	return run_report_recons_core_phase(
+		inputs=inputs,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		unit_results=unit_results,
+		unit_results_for_reports=unit_results_for_reports,
+		preserve_stage_reports=env.preserve_stage_reports,
+		existing_stage_outputs=env.existing_stage_outputs,
+		resolve_report_output_paths_fn=resolve_report_output_paths,
+		write_amplitude_map_summary_png_fn=write_amplitude_map_summary_png,
+		render_footprint_map_grid_from_assets_fn=render_footprint_map_grid_from_assets,
+		finalize_grid_svg_output_fn=finalize_grid_svg_output,
+		write_reconstruct_report_markdown_fn=write_reconstruct_report_markdown,
+		logger=LOGGER,
+	)
 
-	stage_outputs: dict[str, str] = dict(existing_stage_outputs)
-	circle_grid_cfg = inputs.reports.grids.circle_recon_grid
-	write_circle_grid = bool(circle_grid_cfg.write_png) or bool(circle_grid_cfg.write_pdf) or bool(circle_grid_cfg.write_svg)
-	if write_circle_grid and not preserve_stage_reports:
-		report_paths = resolve_report_output_paths(reconstruction_out_dir=reconstruction_out_dir, reports=inputs.reports)
-		circle_entries = [
-			Path(item.outputs["circle_recon_png"])
-			for item in unit_results_for_reports
-			if isinstance(item.outputs, dict) and "circle_recon_png" in item.outputs
-		]
-		LOGGER.info("Reconstruct reports circle_recon_grid inputs=%d", len(circle_entries))
-		circle_grid_outputs = render_footprint_map_grid_from_assets(
-			image_paths=circle_entries,
-			config=circle_grid_cfg,
-			pdf_path=report_paths["circle_recon_grid_pdf"],
-			png_path=report_paths["circle_recon_grid_png"],
-			write_svg=bool(circle_grid_cfg.write_svg),
-			svg_path=report_paths["circle_recon_grid_temp_svg"],
-			svg_output_key="circle_recon_grid_temp_svg",
-			pdf_output_key="circle_recon_grid_pdf",
-			png_output_key="circle_recon_grid_png",
-			title="Reconstruct circle recon grid",
+
+def run_reconstruct_generate_gtrs_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=True)
+	LOGGER.info(
+		"reconstruct.generate_gtrs phase start: well_out_dir=%s reconstruction_out_dir=%s units=%d",
+		str(env.well_out_dir),
+		str(env.reconstruction_out_dir),
+		len(env.unit_ids),
+	)
+	unit_results, failed_units_summary_json = _run_reconstruct_generate_gtrs_phase_impl(inputs=inputs, env=env)
+	summary_json = env.reconstruction_out_dir / Path(str(inputs.phases.generate_gtrs.summary_json_relpath)).expanduser()
+	summary = _write_reconstruct_phase_summary(
+		phase_name="generate_gtrs",
+		summary_json=summary_json,
+		inputs=inputs,
+		well_out_dir=env.well_out_dir,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		unit_results=unit_results,
+		failed_units_summary_json=failed_units_summary_json,
+		preserve_stage_reports=env.preserve_stage_reports,
+	)
+	LOGGER.info(
+		"reconstruct.generate_gtrs wrote summary output: %s",
+		str(summary_json),
+	)
+	LOGGER.info(
+		"reconstruct.generate_gtrs run stats: units_total=%d units_ok=%d units_error=%d",
+		int(summary.get("unit_count", 0)),
+		int(summary.get("units_ok", 0)),
+		int(summary.get("units_error", 0)),
+	)
+	return summary
+
+
+def run_reconstruct_plot_recons_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
+	unit_results, failed_units_summary_json = _run_reconstruct_plot_recons_phase_impl(inputs=inputs, env=env)
+	summary_json = env.reconstruction_out_dir / Path(str(inputs.phases.plot_recons.summary_json_relpath)).expanduser()
+	return _write_reconstruct_phase_summary(
+		phase_name="plot_recons",
+		summary_json=summary_json,
+		inputs=inputs,
+		well_out_dir=env.well_out_dir,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		unit_results=unit_results,
+		failed_units_summary_json=failed_units_summary_json,
+		preserve_stage_reports=env.preserve_stage_reports,
+	)
+
+
+def run_reconstruct_report_recons_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
+	unit_results = _load_reconstruct_unit_results(
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		inputs=inputs,
+		unit_ids=env.unit_ids,
+	)
+	stage_outputs = _run_reconstruct_report_recons_phase_impl(inputs=inputs, env=env, unit_results=unit_results)
+	summary_json = env.reconstruction_out_dir / Path(str(inputs.phases.report_recons.summary_json_relpath)).expanduser()
+	return _write_reconstruct_phase_summary(
+		phase_name="report_recons",
+		summary_json=summary_json,
+		inputs=inputs,
+		well_out_dir=env.well_out_dir,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		unit_results=unit_results,
+		stage_outputs=stage_outputs,
+		failed_units_summary_json=_current_failed_units_summary_json(
+			inputs=inputs,
+			reconstruction_out_dir=env.reconstruction_out_dir,
+		),
+		preserve_stage_reports=env.preserve_stage_reports,
+		extra_fields={
+			"reports_grid_sort_by": normalize_grid_sort_by(inputs.reports.grids.sort_by, default="unit_id"),
+		},
+	)
+
+
+def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
+	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=True)
+	unit_results: list[UnitReconstructionResult] = []
+	failed_units_summary_json: Path | None = _current_failed_units_summary_json(
+		inputs=inputs,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+	)
+
+	if bool(inputs.phases.generate_gtrs.enabled):
+		unit_results, failed_units_summary_json = _run_reconstruct_generate_gtrs_phase_impl(inputs=inputs, env=env)
+		_write_reconstruct_phase_summary(
+			phase_name="generate_gtrs",
+			summary_json=env.reconstruction_out_dir / Path(str(inputs.phases.generate_gtrs.summary_json_relpath)).expanduser(),
+			inputs=inputs,
+			well_out_dir=env.well_out_dir,
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			unit_results=unit_results,
+			failed_units_summary_json=failed_units_summary_json,
+			preserve_stage_reports=env.preserve_stage_reports,
 		)
-		circle_grid_outputs = finalize_grid_svg_output(
-			raw_outputs=circle_grid_outputs,
-			write_svg=bool(circle_grid_cfg.write_svg),
-			keep_temp_svg=bool(circle_grid_cfg.keep_temp_svg),
-			temp_svg_output_key="circle_recon_grid_temp_svg",
-			final_svg_output_key="circle_recon_grid_svg",
-			temp_svg_path=report_paths["circle_recon_grid_temp_svg"],
-			final_svg_path=report_paths["circle_recon_grid_svg"],
-			report_name="circle_recon_grid",
-			logger=LOGGER,
+	else:
+		unit_results = _load_reconstruct_unit_results(
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			inputs=inputs,
+			unit_ids=env.unit_ids,
 		)
-		stage_outputs.update(circle_grid_outputs)
-	if bool(inputs.write_summary_png) and not preserve_stage_reports:
-		summary_png = reconstruction_out_dir / Path(str(inputs.summary_png_relpath)).expanduser()
-		entries: list[tuple[Any, Path]] = []
-		for item in unit_results:
-			p = item.outputs.get("amplitude_map_png") if isinstance(item.outputs, dict) else None
-			if p:
-				entries.append((item.unit_id, Path(str(p))))
-		if entries:
-			wrote = write_amplitude_map_summary_png(
-				entries=entries,
-				output_png=summary_png,
-				ncols=int(max(1, int(inputs.summary_grid_ncols))),
-			)
-			if wrote and summary_png.exists():
-				stage_outputs["summary_png"] = str(summary_png)
 
-	unit_rows = [
-		{
-			"unit_id": u.unit_id,
-			"status": u.status,
-			"outputs": u.outputs,
-			"error": u.error,
-		}
-		for u in unit_results
-	]
-	units_ok = sum(1 for u in unit_results if str(u.status).strip().lower() == "ok")
-	units_error = sum(1 for u in unit_results if str(u.status).strip().lower() != "ok")
+	if bool(inputs.phases.plot_recons.enabled):
+		unit_results, failed_units_summary_json = _run_reconstruct_plot_recons_phase_impl(inputs=inputs, env=env)
+		_write_reconstruct_phase_summary(
+			phase_name="plot_recons",
+			summary_json=env.reconstruction_out_dir / Path(str(inputs.phases.plot_recons.summary_json_relpath)).expanduser(),
+			inputs=inputs,
+			well_out_dir=env.well_out_dir,
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			unit_results=unit_results,
+			failed_units_summary_json=failed_units_summary_json,
+			preserve_stage_reports=env.preserve_stage_reports,
+		)
+	elif not unit_results:
+		unit_results = _load_reconstruct_unit_results(
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			inputs=inputs,
+			unit_ids=env.unit_ids,
+		)
 
-	if bool(inputs.write_report_md) and not preserve_stage_reports:
-		report_md = reconstruction_out_dir / Path(str(inputs.report_md_relpath)).expanduser()
-		write_reconstruct_report_markdown(
-			output_md=report_md,
-			h5_path=inputs.h5_path,
-			stream_id=inputs.stream_id,
-			reconstruction_out_dir=reconstruction_out_dir,
+	if not unit_results:
+		unit_results = _load_reconstruct_unit_results(
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			inputs=inputs,
+			unit_ids=env.unit_ids,
+		)
+
+	report_grid_sort_by = normalize_grid_sort_by(inputs.reports.grids.sort_by, default="unit_id")
+	stage_outputs: dict[str, str] = dict(env.existing_stage_outputs)
+	if bool(inputs.phases.report_recons.enabled):
+		stage_outputs = _run_reconstruct_report_recons_phase_impl(inputs=inputs, env=env, unit_results=unit_results)
+		_write_reconstruct_phase_summary(
+			phase_name="report_recons",
+			summary_json=env.reconstruction_out_dir / Path(str(inputs.phases.report_recons.summary_json_relpath)).expanduser(),
+			inputs=inputs,
+			well_out_dir=env.well_out_dir,
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			unit_results=unit_results,
 			stage_outputs=stage_outputs,
-			unit_rows=unit_rows,
+			failed_units_summary_json=failed_units_summary_json,
+			preserve_stage_reports=env.preserve_stage_reports,
+			extra_fields={"reports_grid_sort_by": str(report_grid_sort_by)},
 		)
-		if report_md.exists():
-			stage_outputs["report_md"] = str(report_md)
 
-	summary_json = reconstruction_out_dir / "reconstruction_summary.json"
+	units_ok, units_error = _count_unit_statuses(unit_results)
+	summary_json = env.reconstruction_out_dir / "reconstruction_summary.json"
 	summary_payload = {
 		"h5_path": str(inputs.h5_path),
 		"stream_id": str(inputs.stream_id),
 		"n_jobs": int(max(1, int(inputs.n_jobs))),
-		"well_out_dir": str(well_out_dir),
-		"reconstruction_out_dir": str(reconstruction_out_dir),
+		"well_out_dir": str(env.well_out_dir),
+		"reconstruction_out_dir": str(env.reconstruction_out_dir),
 		"units_ok": units_ok,
 		"units_error": units_error,
 		"outputs": stage_outputs,
 		"cleanup_failed_unit_outputs": bool(inputs.cleanup_failed_unit_outputs),
 		"failed_units_summary_json": str(failed_units_summary_json) if failed_units_summary_json else None,
-		"reports_overwrite_skipped": preserve_stage_reports,
+		"reports_overwrite_skipped": env.preserve_stage_reports,
 		"reports_grid_sort_by": str(report_grid_sort_by),
-		"units": unit_rows,
+		"units": _unit_rows(unit_results),
 	}
 	write_json(summary_json, summary_payload)
 
 	return ReconstructionResult(
-		well_out_dir=well_out_dir,
-		reconstruction_out_dir=reconstruction_out_dir,
+		well_out_dir=env.well_out_dir,
+		reconstruction_out_dir=env.reconstruction_out_dir,
 		summary_json=summary_json,
 		units=unit_results,
 	)

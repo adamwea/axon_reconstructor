@@ -788,6 +788,26 @@ def test_run_reconstruct_stage_json_payloads_use_gtr_location_space(tmp_path: Pa
 		captured["branches_locs"] = np.asarray(kwargs["locs_xy"], dtype=float)
 		return {"unit_id": kwargs["unit_id"], "branches": []}
 
+	def _fake_compute_detection_filter_payload(**kwargs):
+		captured["detection_filter_locs"] = np.asarray(kwargs["locs_xy"], dtype=float)
+		return {"schema_version": 1, "unit_id": kwargs["unit_id"], "selected_channels": []}
+
+	def _fake_compute_kurtosis_filter_payload(**kwargs):
+		captured["kurtosis_filter_locs"] = np.asarray(kwargs["locs_xy"], dtype=float)
+		return {"schema_version": 1, "unit_id": kwargs["unit_id"], "selected_channels": []}
+
+	def _fake_compute_peak_std_filter_payload(**kwargs):
+		captured["peak_std_filter_locs"] = np.asarray(kwargs["locs_xy"], dtype=float)
+		return {"schema_version": 1, "unit_id": kwargs["unit_id"], "selected_channels": []}
+
+	def _fake_compute_delay_filter_payload(**kwargs):
+		captured["delay_filter_locs"] = np.asarray(kwargs["locs_xy"], dtype=float)
+		return {"schema_version": 1, "unit_id": kwargs["unit_id"], "selected_channels": []}
+
+	def _fake_compute_all_filters_payload(**kwargs):
+		captured["all_filters_locs"] = np.asarray(kwargs["locs_xy"], dtype=float)
+		return {"schema_version": 1, "unit_id": kwargs["unit_id"], "selected_channels": []}
+
 	def _fake_compute_heuristics_payload(**kwargs):
 		captured["heuristics_locs"] = np.asarray(kwargs["locs_xy"], dtype=float)
 		return {"unit_id": kwargs["unit_id"], "heuristics": {}}
@@ -802,6 +822,11 @@ def test_run_reconstruct_stage_json_payloads_use_gtr_location_space(tmp_path: Pa
 	monkeypatch.setattr(reconstruct_runner, "load_templates_for_unit", _fake_load_templates_for_unit)
 	monkeypatch.setattr(reconstruct_runner, "compute_graph_tracking", _fake_compute_graph_tracking)
 	monkeypatch.setattr(reconstruct_runner, "compute_branches_with_polyline", _fake_compute_branches_with_polyline)
+	monkeypatch.setattr(reconstruct_runner, "compute_detection_filter_payload", _fake_compute_detection_filter_payload)
+	monkeypatch.setattr(reconstruct_runner, "compute_kurtosis_filter_payload", _fake_compute_kurtosis_filter_payload)
+	monkeypatch.setattr(reconstruct_runner, "compute_peak_std_filter_payload", _fake_compute_peak_std_filter_payload)
+	monkeypatch.setattr(reconstruct_runner, "compute_delay_filter_payload", _fake_compute_delay_filter_payload)
+	monkeypatch.setattr(reconstruct_runner, "compute_all_filters_payload", _fake_compute_all_filters_payload)
 	monkeypatch.setattr(reconstruct_runner, "compute_heuristics_payload", _fake_compute_heuristics_payload)
 	monkeypatch.setattr(reconstruct_runner, "compute_gtr_json_payload", _fake_compute_gtr_json_payload)
 
@@ -817,6 +842,11 @@ def test_run_reconstruct_stage_json_payloads_use_gtr_location_space(tmp_path: Pa
 		per_unit_outputs=PerUnitOutputsConfig(
 			write_branches_raw_json=False,
 			write_branches_json=True,
+			write_detection_filter_json=True,
+			write_kurtosis_filter_json=True,
+			write_peak_std_filter_json=True,
+			write_delay_filter_json=True,
+			write_all_filters_json=True,
 			write_heuristics_json=True,
 			write_gtr_pkl=False,
 			write_gtr_json=True,
@@ -838,5 +868,10 @@ def test_run_reconstruct_stage_json_payloads_use_gtr_location_space(tmp_path: Pa
 	assert result.units[0].status == "ok"
 
 	np.testing.assert_allclose(captured["branches_locs"], gtr_locs)
+	np.testing.assert_allclose(captured["detection_filter_locs"], gtr_locs)
+	np.testing.assert_allclose(captured["kurtosis_filter_locs"], gtr_locs)
+	np.testing.assert_allclose(captured["peak_std_filter_locs"], gtr_locs)
+	np.testing.assert_allclose(captured["delay_filter_locs"], gtr_locs)
+	np.testing.assert_allclose(captured["all_filters_locs"], gtr_locs)
 	np.testing.assert_allclose(captured["heuristics_locs"], gtr_locs)
 	np.testing.assert_allclose(captured["gtr_json_locs"], gtr_locs)

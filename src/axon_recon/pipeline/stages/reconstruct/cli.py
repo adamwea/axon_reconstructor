@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import argparse
 
-from ...runner import run_reconstruct_from_runtime
+from ...runner import (
+	run_reconstruct_from_runtime,
+	run_reconstruct_generate_gtrs_from_runtime,
+	run_reconstruct_plot_recons_from_runtime,
+	run_reconstruct_report_recons_from_runtime,
+)
 
 
 def _parse_unit_ids_csv(raw: str) -> list[int]:
@@ -44,30 +49,80 @@ def register_reconstruct_subparser(subparsers: argparse._SubParsersAction[argpar
 
 
 def _run_from_args(args: argparse.Namespace) -> int:
-	agg = run_reconstruct_from_runtime(
-		config_path=str(args.config),
-		unit_id_override=getattr(args, "unit_id", None),
-		unit_ids_override=getattr(args, "unit_ids", None),
-		force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
-		force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+	return _print_reconstruct_aggregate(
+		run_reconstruct_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
 	)
+
+
+def _run_generate_gtrs_from_args(args: argparse.Namespace) -> int:
+	return _print_reconstruct_aggregate(
+		run_reconstruct_generate_gtrs_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_plot_recons_from_args(args: argparse.Namespace) -> int:
+	return _print_reconstruct_aggregate(
+		run_reconstruct_plot_recons_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_report_recons_from_args(args: argparse.Namespace) -> int:
+	return _print_reconstruct_aggregate(
+		run_reconstruct_report_recons_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _print_reconstruct_aggregate(agg: object) -> int:
 	print(f"stage: {agg.stage}")
 	print(f"targets_total: {agg.total_targets}")
 	print(f"targets_succeeded: {agg.succeeded_targets}")
 	print(f"targets_failed: {agg.failed_targets}")
 	for item in agg.target_results:
 		t = item.target
-		if item.status == "ok" and item.result is not None:
-			units_ok = sum(1 for unit in item.result.units if str(getattr(unit, "status", "ok")).strip().lower() == "ok")
-			units_error = sum(1 for unit in item.result.units if str(getattr(unit, "status", "ok")).strip().lower() != "ok")
-			print(
-				f"target[{t.dataset_index}:{t.stream_id}] status=ok "
-				f"reconstruct_out_dir={item.result.reconstruction_out_dir} "
-				f"units_processed={len(item.result.units)} units_ok={units_ok} units_error={units_error}"
-			)
-		else:
+		if item.status != "ok" or item.result is None:
 			print(
 				f"target[{t.dataset_index}:{t.stream_id}] status=error "
 				f"error={item.error or 'unknown'}"
 			)
+			continue
+		result = item.result
+		if isinstance(result, dict):
+			phase = result.get("phase", agg.stage)
+			print(
+				f"target[{t.dataset_index}:{t.stream_id}] status=ok "
+				f"phase={phase} reconstruction_out_dir={result.get('reconstruction_out_dir', None)} "
+				f"summary={result.get('summary_json', None)} units_ok={result.get('units_ok', 0)} units_error={result.get('units_error', 0)}"
+			)
+			continue
+		units_ok = sum(1 for unit in result.units if str(getattr(unit, "status", "ok")).strip().lower() == "ok")
+		units_error = sum(1 for unit in result.units if str(getattr(unit, "status", "ok")).strip().lower() != "ok")
+		print(
+			f"target[{t.dataset_index}:{t.stream_id}] status=ok "
+			f"reconstruct_out_dir={result.reconstruction_out_dir} "
+			f"units_processed={len(result.units)} units_ok={units_ok} units_error={units_error}"
+		)
 	return 0

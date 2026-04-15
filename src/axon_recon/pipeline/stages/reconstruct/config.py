@@ -13,12 +13,19 @@ from axon_recon.pipeline.stages.templates.config import parse_probe_geometry_fro
 
 from ...execution.context import ExecutionTarget
 from .models.inputs import (
+	ReconstructionAvReconsConfig,
+	ReconstructionAxonVelocityPhaseConfig,
 	CircleReconConfig,
 	CircleReconDisplayConfig,
 	CircleReconOutputConfig,
 	PerUnitOutputsConfig,
+	ReconstructionGenerateGtrsOutputsConfig,
+	ReconstructionGenerateGtrsPhaseConfig,
 	ReconstructionGridReportsConfig,
 	ReconstructionInputs,
+	ReconstructionPhasesConfig,
+	ReconstructionPlotReconsPhaseConfig,
+	ReconstructionReportReconsPhaseConfig,
 	ReconstructionReportsConfig,
 )
 
@@ -94,6 +101,33 @@ def _normalize_png_relpath(raw: Any, default: str) -> str:
 	return text
 
 
+def _phase_enabled(block: Any, default: bool = True) -> bool:
+	if not isinstance(block, dict):
+		return bool(default)
+	if "enabled" in block:
+		return _as_bool(block.get("enabled"), default)
+	if "enable" in block:
+		return _as_bool(block.get("enable"), default)
+	return bool(default)
+
+
+def _parse_optional_positive_int(value: Any) -> int | None:
+	try:
+		parsed = int(value)
+	except Exception:
+		return None
+	if parsed <= 0:
+		return None
+	return int(parsed)
+
+
+def _normalize_reconstruct_template_source(raw: Any, default: str = "square") -> str:
+	text = str(raw if raw is not None else default).strip().lower()
+	if text in {"square", "merged", "full", "full_from_merged"}:
+		return text
+	return str(default)
+
+
 def _get_reconstruct_amplitude_map_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
 	stage_block = build_stage_plot_block(
 		runtime_config=runtime_config,
@@ -130,6 +164,7 @@ class ReconstructionStageConfig:
 	unit_ids: list[int] | None
 	unit_limit: int | None
 	load_assets_from_v2pipeline_templates_stage: bool
+	phases: ReconstructionPhasesConfig
 	use_full_channels_templates: bool
 	require_full_channels_templates: bool
 	force_restart: bool
@@ -162,6 +197,19 @@ def parse_reconstruction_stage_config(
 	execution_cfg = stage_cfg.get("execution", {}) if isinstance(stage_cfg.get("execution", {}), dict) else {}
 	inputs_cfg = stage_cfg.get("inputs", {}) if isinstance(stage_cfg.get("inputs", {}), dict) else {}
 	outputs_cfg = stage_cfg.get("outputs", {}) if isinstance(stage_cfg.get("outputs", {}), dict) else {}
+	phases_cfg = stage_cfg.get("phases", {}) if isinstance(stage_cfg.get("phases", {}), dict) else {}
+	generate_gtrs_cfg = phases_cfg.get("generate_gtrs", {}) if isinstance(phases_cfg.get("generate_gtrs", {}), dict) else {}
+	plot_recons_cfg = phases_cfg.get("plot_recons", {}) if isinstance(phases_cfg.get("plot_recons", {}), dict) else {}
+	report_recons_cfg = phases_cfg.get("report_recons", {}) if isinstance(phases_cfg.get("report_recons", {}), dict) else {}
+	generate_gtrs_resources_cfg = (
+		generate_gtrs_cfg.get("resources", {}) if isinstance(generate_gtrs_cfg.get("resources", {}), dict) else {}
+	)
+	phase_generate_outputs_cfg = (
+		generate_gtrs_cfg.get("outputs", {}) if isinstance(generate_gtrs_cfg.get("outputs", {}), dict) else {}
+	)
+	phase_plot_outputs_cfg = (
+		plot_recons_cfg.get("outputs", {}) if isinstance(plot_recons_cfg.get("outputs", {}), dict) else {}
+	)
 	reports_cfg = outputs_cfg.get("reports", {}) if isinstance(outputs_cfg.get("reports", {}), dict) else {}
 	grids_cfg = reports_cfg.get("grids", {}) if isinstance(reports_cfg.get("grids", {}), dict) else {}
 	circle_recon_grid_cfg = grids_cfg.get("circle_recon_grid", {}) if isinstance(grids_cfg.get("circle_recon_grid", {}), dict) else {}
@@ -173,7 +221,138 @@ def parse_reconstruction_stage_config(
 	canonical_av_cfg = stage_cfg.get("axon_velocity", {})
 	if isinstance(canonical_av_cfg, dict):
 		av_cfg.update(dict(canonical_av_cfg))
+	phase_axon_velocity_cfg = (
+		generate_gtrs_cfg.get("axon_velocity", {})
+		if isinstance(generate_gtrs_cfg.get("axon_velocity", {}), dict)
+		else {}
+	)
+	phase_axon_velocity_params = (
+		phase_axon_velocity_cfg.get("params", {})
+		if isinstance(phase_axon_velocity_cfg.get("params", {}), dict)
+		else {}
+	)
+	if phase_axon_velocity_params:
+		av_cfg.update(dict(phase_axon_velocity_params))
+	generate_gtrs_unit_procs = _parse_optional_positive_int(
+		generate_gtrs_resources_cfg.get("unit_procs", generate_gtrs_cfg.get("unit_procs", None))
+	)
+	generate_gtrs_unit_batch_size = _parse_optional_positive_int(
+		generate_gtrs_resources_cfg.get("unit_batch_size", generate_gtrs_cfg.get("unit_batch_size", None))
+	)
 	amplitude_map_cfg = _get_reconstruct_amplitude_map_block(runtime_config)
+	phase_amplitude_map_cfg = (
+		phase_plot_outputs_cfg.get("amplitude_map", {})
+		if isinstance(phase_plot_outputs_cfg.get("amplitude_map", {}), dict)
+		else {}
+	)
+	if phase_amplitude_map_cfg:
+		amplitude_map_cfg = _deep_merge_dict(amplitude_map_cfg, dict(phase_amplitude_map_cfg))
+	generate_gtrs_outputs = ReconstructionGenerateGtrsOutputsConfig(
+		write_branches_raw_json=_as_bool(
+			phase_generate_outputs_cfg.get("write_branches_raw_json", per_unit_cfg.get("write_branches_raw_json", True)),
+			True,
+		),
+		branches_raw_relpath=str(
+			phase_generate_outputs_cfg.get("branches_raw_relpath", per_unit_cfg.get("branches_raw_relpath", "branches_raw.json"))
+		),
+		write_branches_json=_as_bool(
+			phase_generate_outputs_cfg.get("write_branches_json", per_unit_cfg.get("write_branches_json", True)),
+			True,
+		),
+		branches_relpath=str(
+			phase_generate_outputs_cfg.get("branches_relpath", per_unit_cfg.get("branches_relpath", "branches.json"))
+		),
+		write_detection_filter_json=_as_bool(
+			phase_generate_outputs_cfg.get(
+				"write_detection_filter_json",
+				per_unit_cfg.get("write_detection_filter_json", False),
+			),
+			False,
+		),
+		detection_filter_relpath=str(
+			phase_generate_outputs_cfg.get(
+				"detection_filter_relpath",
+				per_unit_cfg.get("detection_filter_relpath", "detection_filter.json"),
+			)
+		),
+		write_kurtosis_filter_json=_as_bool(
+			phase_generate_outputs_cfg.get(
+				"write_kurtosis_filter_json",
+				per_unit_cfg.get("write_kurtosis_filter_json", False),
+			),
+			False,
+		),
+		kurtosis_filter_relpath=str(
+			phase_generate_outputs_cfg.get(
+				"kurtosis_filter_relpath",
+				per_unit_cfg.get("kurtosis_filter_relpath", "kurtosis_filter.json"),
+			)
+		),
+		write_peak_std_filter_json=_as_bool(
+			phase_generate_outputs_cfg.get(
+				"write_peak_std_filter_json",
+				per_unit_cfg.get("write_peak_std_filter_json", False),
+			),
+			False,
+		),
+		peak_std_filter_relpath=str(
+			phase_generate_outputs_cfg.get(
+				"peak_std_filter_relpath",
+				per_unit_cfg.get("peak_std_filter_relpath", "peak_std_filter.json"),
+			)
+		),
+		write_delay_filter_json=_as_bool(
+			phase_generate_outputs_cfg.get(
+				"write_delay_filter_json",
+				per_unit_cfg.get("write_delay_filter_json", False),
+			),
+			False,
+		),
+		delay_filter_relpath=str(
+			phase_generate_outputs_cfg.get(
+				"delay_filter_relpath",
+				per_unit_cfg.get("delay_filter_relpath", "delay_filter.json"),
+			)
+		),
+		write_all_filters_json=_as_bool(
+			phase_generate_outputs_cfg.get(
+				"write_all_filters_json",
+				per_unit_cfg.get("write_all_filters_json", False),
+			),
+			False,
+		),
+		all_filters_relpath=str(
+			phase_generate_outputs_cfg.get(
+				"all_filters_relpath",
+				per_unit_cfg.get("all_filters_relpath", "all_filters.json"),
+			)
+		),
+		write_heuristics_json=_as_bool(
+			phase_generate_outputs_cfg.get("write_heuristics_json", per_unit_cfg.get("write_heuristics_json", True)),
+			True,
+		),
+		heuristics_relpath=str(
+			phase_generate_outputs_cfg.get("heuristics_relpath", per_unit_cfg.get("heuristics_relpath", "heuristics.json"))
+		),
+		write_gtr_pkl=_as_bool(
+			phase_generate_outputs_cfg.get("write_gtr_pkl", per_unit_cfg.get("write_gtr_pkl", True)),
+			True,
+		),
+		gtr_pkl_relpath=str(
+			phase_generate_outputs_cfg.get("gtr_pkl_relpath", per_unit_cfg.get("gtr_pkl_relpath", "gtr.pkl"))
+		),
+		template_source=_normalize_reconstruct_template_source(
+			phase_generate_outputs_cfg.get("template_source", per_unit_cfg.get("template_source", "square")),
+			default="square",
+		),
+		write_gtr_json=_as_bool(
+			phase_generate_outputs_cfg.get("write_gtr_json", per_unit_cfg.get("write_gtr_json", False)),
+			False,
+		),
+		gtr_json_relpath=str(
+			phase_generate_outputs_cfg.get("gtr_json_relpath", per_unit_cfg.get("gtr_json_relpath", "gtr.json"))
+		),
+	)
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
 	force_replot = _as_bool(execution_cfg.get("force_replot", False), False)
@@ -219,12 +398,19 @@ def parse_reconstruction_stage_config(
 	except Exception:
 		summary_grid_ncols = 5
 
-	if "write_amplitude_map_png" in per_unit_cfg:
+	if "write_png" in phase_amplitude_map_cfg:
+		write_amplitude_map_png = _as_bool(phase_amplitude_map_cfg.get("write_png", False), False)
+	elif "write_amplitude_map_png" in per_unit_cfg:
 		write_amplitude_map_png = _as_bool(per_unit_cfg.get("write_amplitude_map_png", False), False)
 	else:
 		write_amplitude_map_png = _as_bool(amplitude_map_cfg.get("write_png", False), False)
 
-	if "amplitude_map_png_relpath" in per_unit_cfg:
+	if "relpath" in phase_amplitude_map_cfg:
+		amplitude_map_png_relpath = _normalize_png_relpath(
+			phase_amplitude_map_cfg.get("relpath", "amplitude_map"),
+			"amplitude_map.png",
+		)
+	elif "amplitude_map_png_relpath" in per_unit_cfg:
 		amplitude_map_png_relpath = str(per_unit_cfg.get("amplitude_map_png_relpath", "amplitude_map.png"))
 	else:
 		amplitude_map_png_relpath = _normalize_png_relpath(
@@ -233,7 +419,15 @@ def parse_reconstruction_stage_config(
 		)
 
 	recon_plots_cfg = per_unit_cfg.get("recon_plots", {}) if isinstance(per_unit_cfg.get("recon_plots", {}), dict) else {}
-	circle_recon_cfg = recon_plots_cfg.get("circle_recon", {}) if isinstance(recon_plots_cfg.get("circle_recon", {}), dict) else {}
+	legacy_circle_recon_cfg = (
+		recon_plots_cfg.get("circle_recon", {}) if isinstance(recon_plots_cfg.get("circle_recon", {}), dict) else {}
+	)
+	phase_circle_recon_cfg = (
+		phase_plot_outputs_cfg.get("circle_recon", {})
+		if isinstance(phase_plot_outputs_cfg.get("circle_recon", {}), dict)
+		else {}
+	)
+	circle_recon_cfg = _deep_merge_dict(legacy_circle_recon_cfg, phase_circle_recon_cfg)
 	circle_display_cfg = (
 		circle_recon_cfg.get("display", {}) if isinstance(circle_recon_cfg.get("display", {}), dict) else {}
 	)
@@ -348,24 +542,62 @@ def parse_reconstruction_stage_config(
 		base_footprint_amplitude=tpl_footprint_amplitude_defaults,
 		base_footprint_latency=tpl_footprint_latency_defaults,
 	)
+	report_av_recons_cfg = (
+		report_recons_cfg.get("av_recons", {}) if isinstance(report_recons_cfg.get("av_recons", {}), dict) else {}
+	)
+	phases = ReconstructionPhasesConfig(
+		generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(
+			enabled=_phase_enabled(generate_gtrs_cfg, True),
+			summary_json_relpath=str(
+				generate_gtrs_cfg.get("summary_json_relpath", "context/generate_gtrs_summary.json")
+			),
+			unit_procs=generate_gtrs_unit_procs,
+			unit_batch_size=generate_gtrs_unit_batch_size,
+			outputs=generate_gtrs_outputs,
+			axon_velocity=ReconstructionAxonVelocityPhaseConfig(
+				enabled=_phase_enabled(phase_axon_velocity_cfg, True),
+				params=dict(av_cfg),
+			),
+		),
+		plot_recons=ReconstructionPlotReconsPhaseConfig(
+			enabled=_phase_enabled(plot_recons_cfg, True),
+			summary_json_relpath=str(plot_recons_cfg.get("summary_json_relpath", "context/plot_recons_summary.json")),
+		),
+		report_recons=ReconstructionReportReconsPhaseConfig(
+			enabled=_phase_enabled(report_recons_cfg, True),
+			summary_json_relpath=str(
+				report_recons_cfg.get("summary_json_relpath", "context/report_recons_summary.json")
+			),
+			av_recons=ReconstructionAvReconsConfig(
+				write_pdf=_as_bool(report_av_recons_cfg.get("write_pdf", False), False),
+				pdf_relpath=str(report_av_recons_cfg.get("pdf_relpath", "av_recons.pdf")),
+			),
+		),
+	)
 
 	per_unit = PerUnitOutputsConfig(
-		unit_reldir=str(per_unit_cfg.get("unit_reldir", "units/{unit_id:04d}/")),
-		write_branches_raw_json=_as_bool(per_unit_cfg.get("write_branches_raw_json", True), True),
-		branches_raw_relpath=str(per_unit_cfg.get("branches_raw_relpath", "branches_raw.json")),
-		write_branches_json=_as_bool(per_unit_cfg.get("write_branches_json", True), True),
-		branches_relpath=str(per_unit_cfg.get("branches_relpath", "branches.json")),
-		write_heuristics_json=_as_bool(per_unit_cfg.get("write_heuristics_json", True), True),
-		heuristics_relpath=str(per_unit_cfg.get("heuristics_relpath", "heuristics.json")),
-		write_gtr_pkl=_as_bool(per_unit_cfg.get("write_gtr_pkl", True), True),
-		gtr_pkl_relpath=str(per_unit_cfg.get("gtr_pkl_relpath", "gtr.pkl")),
-		template_source=(
-			str(per_unit_cfg.get("template_source", "square") or "square").strip().lower()
-			if str(per_unit_cfg.get("template_source", "square") or "square").strip().lower() in {"square", "merged", "full", "full_from_merged"}
-			else "square"
-		),
-		write_gtr_json=_as_bool(per_unit_cfg.get("write_gtr_json", False), False),
-		gtr_json_relpath=str(per_unit_cfg.get("gtr_json_relpath", "gtr.json")),
+		unit_reldir=str(phase_plot_outputs_cfg.get("unit_reldir", per_unit_cfg.get("unit_reldir", "units/{unit_id:04d}/"))),
+		write_branches_raw_json=bool(generate_gtrs_outputs.write_branches_raw_json),
+		branches_raw_relpath=str(generate_gtrs_outputs.branches_raw_relpath),
+		write_branches_json=bool(generate_gtrs_outputs.write_branches_json),
+		branches_relpath=str(generate_gtrs_outputs.branches_relpath),
+		write_detection_filter_json=bool(generate_gtrs_outputs.write_detection_filter_json),
+		detection_filter_relpath=str(generate_gtrs_outputs.detection_filter_relpath),
+		write_kurtosis_filter_json=bool(generate_gtrs_outputs.write_kurtosis_filter_json),
+		kurtosis_filter_relpath=str(generate_gtrs_outputs.kurtosis_filter_relpath),
+		write_peak_std_filter_json=bool(generate_gtrs_outputs.write_peak_std_filter_json),
+		peak_std_filter_relpath=str(generate_gtrs_outputs.peak_std_filter_relpath),
+		write_delay_filter_json=bool(generate_gtrs_outputs.write_delay_filter_json),
+		delay_filter_relpath=str(generate_gtrs_outputs.delay_filter_relpath),
+		write_all_filters_json=bool(generate_gtrs_outputs.write_all_filters_json),
+		all_filters_relpath=str(generate_gtrs_outputs.all_filters_relpath),
+		write_heuristics_json=bool(generate_gtrs_outputs.write_heuristics_json),
+		heuristics_relpath=str(generate_gtrs_outputs.heuristics_relpath),
+		write_gtr_pkl=bool(generate_gtrs_outputs.write_gtr_pkl),
+		gtr_pkl_relpath=str(generate_gtrs_outputs.gtr_pkl_relpath),
+		template_source=str(generate_gtrs_outputs.template_source),
+		write_gtr_json=bool(generate_gtrs_outputs.write_gtr_json),
+		gtr_json_relpath=str(generate_gtrs_outputs.gtr_json_relpath),
 		write_amplitude_map_png=write_amplitude_map_png,
 		amplitude_map_png_relpath=amplitude_map_png_relpath,
 		amplitude_map_heatmap=SharedHeatmapConfig.from_block(amplitude_map_cfg),
@@ -402,6 +634,7 @@ def parse_reconstruction_stage_config(
 		unit_ids=unit_ids,
 		unit_limit=unit_limit,
 		load_assets_from_v2pipeline_templates_stage=load_assets_from_v2pipeline_templates_stage,
+		phases=phases,
 		use_full_channels_templates=True,
 		require_full_channels_templates=True,
 		force_restart=force_restart,
@@ -435,6 +668,7 @@ def build_reconstruction_inputs_for_target(
 		unit_ids=stage_config.unit_ids,
 		unit_limit=stage_config.unit_limit,
 		load_assets_from_v2pipeline_templates_stage=stage_config.load_assets_from_v2pipeline_templates_stage,
+		phases=stage_config.phases,
 		use_full_channels_templates=stage_config.use_full_channels_templates,
 		require_full_channels_templates=stage_config.require_full_channels_templates,
 		force_restart=stage_config.force_restart,
@@ -507,6 +741,7 @@ def load_reconstruction_inputs_from_runtime(
 		unit_ids=stage_cfg.unit_ids,
 		unit_limit=stage_cfg.unit_limit,
 		load_assets_from_v2pipeline_templates_stage=stage_cfg.load_assets_from_v2pipeline_templates_stage,
+		phases=stage_cfg.phases,
 		use_full_channels_templates=stage_cfg.use_full_channels_templates,
 		require_full_channels_templates=stage_cfg.require_full_channels_templates,
 		force_restart=stage_cfg.force_restart,

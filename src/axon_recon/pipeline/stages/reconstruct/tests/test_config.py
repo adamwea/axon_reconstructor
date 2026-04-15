@@ -42,6 +42,14 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			      load_assets_from_v2pipeline_tempaltes_stage: true
 			    execution:
 			      force_restart: false
+			    phases:
+			      generate_gtrs:
+			        outputs:
+			          template_source: merged
+			          write_gtr_pkl: true
+			          write_detection_filter_json: true
+			          detection_filter_relpath: filters/detect.json
+			          write_gtr_json: true
 			    outputs:
 			      output_rel_root: recon_outputs
 			      cleanup_failed_unit_outputs: true
@@ -81,8 +89,6 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			          show_ticks: [2, 4, dynamic_high]
 			          linear_cap_rounding_step: 5
 			      per_unit_outputs:
-			        write_gtr_pkl: true
-			        write_gtr_json: true
 			        amplitude_map_png_relpath: maps/amplitude_map.png
 			        recon_plots:
 			          circle_recon:
@@ -122,9 +128,16 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert inputs.report_md_relpath == "reports/reconstruction_report.md"
 	assert inputs.cleanup_failed_unit_outputs is True
 	assert inputs.failed_units_summary_relpath == "reports/failed_units.json"
+	assert inputs.phases.generate_gtrs.outputs.template_source == "merged"
+	assert inputs.phases.generate_gtrs.outputs.write_gtr_pkl is True
+	assert inputs.phases.generate_gtrs.outputs.write_detection_filter_json is True
+	assert inputs.phases.generate_gtrs.outputs.detection_filter_relpath == "filters/detect.json"
+	assert inputs.phases.generate_gtrs.outputs.write_gtr_json is True
 	assert inputs.per_unit_outputs.write_gtr_pkl is True
+	assert inputs.per_unit_outputs.write_detection_filter_json is True
+	assert inputs.per_unit_outputs.detection_filter_relpath == "filters/detect.json"
 	assert inputs.per_unit_outputs.write_gtr_json is True
-	assert inputs.per_unit_outputs.template_source == "square"
+	assert inputs.per_unit_outputs.template_source == "merged"
 	assert inputs.per_unit_outputs.write_amplitude_map_png is True
 	assert inputs.per_unit_outputs.amplitude_map_png_relpath == "maps/amplitude_map.png"
 	assert inputs.per_unit_outputs.amplitude_map_heatmap.colorbar_location == "bottomleft"
@@ -313,6 +326,7 @@ def test_load_config_accepts_full_from_merged_template_source(tmp_path: Path) ->
 	)
 
 	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.phases.generate_gtrs.outputs.template_source == "full_from_merged"
 	assert inputs.per_unit_outputs.template_source == "full_from_merged"
 
 
@@ -354,3 +368,110 @@ def test_load_config_reads_canonical_axon_velocity_block_with_legacy_fallback(tm
 	assert float(inputs.axon_velocity_params["detect_threshold"]) == 0.0001
 	assert int(inputs.axon_velocity_params["min_path_points"]) == 5
 	assert int(inputs.axon_velocity_params["n_neighbors"]) == 8
+
+
+def test_load_config_reads_reconstruct_phase_blocks_and_overrides_legacy_paths(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  reconstruct:
+			    axon_velocity:
+			      detect_threshold: 0.4
+			      min_path_points: 5
+			    outputs:
+			      per_unit_outputs:
+			        write_branches_json: false
+			        template_source: square
+			        recon_plots:
+			          circle_recon:
+			            output:
+			              write_png: false
+			              relpath: legacy_circle
+			    phases:
+			      generate_gtrs:
+			        enable: false
+			        summary_json_relpath: context/gtrs_phase.json
+			        resources:
+			          unit_procs: 3
+			          unit_batch_size: 11
+			        outputs:
+			          template_source: merged
+			          write_branches_json: true
+			          write_all_filters_json: true
+			          all_filters_relpath: phase/all_filters.json
+			          write_gtr_json: true
+			          gtr_json_relpath: phase/gtr.json
+			        axon_velocity:
+			          enabled: true
+			          params:
+			            detect_threshold: 0.0001
+			            n_neighbors: 8
+			      plot_recons:
+			        enabled: true
+			        summary_json_relpath: context/plot_phase.json
+			        outputs:
+			          circle_recon:
+			            display:
+			              color_scheme: Set1
+			            output:
+			              write_png: true
+			              write_svg: false
+			              relpath: phase_circle
+			      report_recons:
+			        enable: true
+			        summary_json_relpath: context/report_phase.json
+			        av_recons:
+			          write_pdf: true
+			          pdf_relpath: reports/av_recons.pdf
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.phases.generate_gtrs.enabled is False
+	assert inputs.phases.generate_gtrs.summary_json_relpath == "context/gtrs_phase.json"
+	assert inputs.phases.generate_gtrs.unit_procs == 3
+	assert inputs.phases.generate_gtrs.unit_batch_size == 11
+	assert inputs.phases.generate_gtrs.outputs.template_source == "merged"
+	assert inputs.phases.generate_gtrs.outputs.write_branches_json is True
+	assert inputs.phases.generate_gtrs.outputs.write_all_filters_json is True
+	assert inputs.phases.generate_gtrs.outputs.all_filters_relpath == "phase/all_filters.json"
+	assert inputs.phases.generate_gtrs.outputs.write_gtr_json is True
+	assert inputs.phases.generate_gtrs.outputs.gtr_json_relpath == "phase/gtr.json"
+	assert inputs.phases.plot_recons.enabled is True
+	assert inputs.phases.plot_recons.summary_json_relpath == "context/plot_phase.json"
+	assert inputs.phases.report_recons.enabled is True
+	assert inputs.phases.report_recons.summary_json_relpath == "context/report_phase.json"
+	assert inputs.phases.report_recons.av_recons.write_pdf is True
+	assert inputs.phases.report_recons.av_recons.pdf_relpath == "reports/av_recons.pdf"
+	assert float(inputs.axon_velocity_params["detect_threshold"]) == 0.0001
+	assert int(inputs.axon_velocity_params["min_path_points"]) == 5
+	assert int(inputs.axon_velocity_params["n_neighbors"]) == 8
+	assert inputs.per_unit_outputs.template_source == "merged"
+	assert inputs.per_unit_outputs.write_branches_json is True
+	assert inputs.per_unit_outputs.write_all_filters_json is True
+	assert inputs.per_unit_outputs.all_filters_relpath == "phase/all_filters.json"
+	assert inputs.per_unit_outputs.write_gtr_json is True
+	assert inputs.per_unit_outputs.gtr_json_relpath == "phase/gtr.json"
+	assert inputs.per_unit_outputs.circle_recon.output.write_png is True
+	assert inputs.per_unit_outputs.circle_recon.output.relpath == "phase_circle"
+	assert inputs.per_unit_outputs.circle_recon.display.color_scheme == "Set1"

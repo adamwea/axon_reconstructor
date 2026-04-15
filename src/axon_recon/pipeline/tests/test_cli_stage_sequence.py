@@ -61,6 +61,22 @@ def test_parse_stage_list_tokens_maps_legacy_template_report_templates_alias() -
     assert parsed == ["templates.report_templates"]
 
 
+@pytest.mark.parametrize(
+    ("raw_token", "expected"),
+    [
+        ("reconstruct.generate_gtrs", "reconstruct.generate_gtrs"),
+        ("reconstruct.plot_recons", "reconstruct.plot_recons"),
+        ("reconstruct.report_recons", "reconstruct.report_recons"),
+        ("recon.generate_gtrs", "reconstruct.generate_gtrs"),
+        ("reconstruction.plot_recons", "reconstruct.plot_recons"),
+        ("reconstruction.report_recons", "reconstruct.report_recons"),
+    ],
+)
+def test_parse_stage_list_tokens_supports_reconstruct_phase_tokens(raw_token: str, expected: str) -> None:
+    parsed = pipeline_cli._parse_stage_list_tokens([raw_token])
+    assert parsed == [expected]
+
+
 def test_parse_stage_list_tokens_supports_spikesort_sort_substage_alias() -> None:
     parsed = pipeline_cli._parse_stage_list_tokens(["spikesort.sort"])
     assert parsed == ["spikesort"]
@@ -258,6 +274,37 @@ def test_main_runs_templates_plot_templates_substage(monkeypatch, tmp_path: Path
 
     assert rc == 0
     assert calls == ["templates.plot_templates"]
+
+
+@pytest.mark.parametrize(
+    ("stage_token", "handler_key"),
+    [
+        ("reconstruct.generate_gtrs", "reconstruct.generate_gtrs"),
+        ("reconstruct.plot_recons", "reconstruct.plot_recons"),
+        ("reconstruct.report_recons", "reconstruct.report_recons"),
+    ],
+)
+def test_main_runs_reconstruct_phase_substages(
+    monkeypatch,
+    tmp_path: Path,
+    stage_token: str,
+    handler_key: str,
+) -> None:
+    runtime_cfg = tmp_path / "runtime.yml"
+    _write_runtime_cfg(runtime_cfg)
+
+    calls: list[str] = []
+
+    def _handler(args):
+        calls.append(str(getattr(args, "stage", "")))
+        return 0
+
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, handler_key, _handler)
+
+    rc = pipeline_cli.main(["stages", stage_token, "--config", str(runtime_cfg)])
+
+    assert rc == 0
+    assert calls == [handler_key]
 
 
 def test_main_runs_templates_report_templates_substage(monkeypatch, tmp_path: Path) -> None:

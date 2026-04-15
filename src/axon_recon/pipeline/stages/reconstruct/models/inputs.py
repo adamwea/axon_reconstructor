@@ -53,6 +53,21 @@ class PerUnitOutputsConfig:
 	write_branches_json: bool = True
 	branches_relpath: str = "branches.json"
 
+	write_detection_filter_json: bool = False
+	detection_filter_relpath: str = "detection_filter.json"
+
+	write_kurtosis_filter_json: bool = False
+	kurtosis_filter_relpath: str = "kurtosis_filter.json"
+
+	write_peak_std_filter_json: bool = False
+	peak_std_filter_relpath: str = "peak_std_filter.json"
+
+	write_delay_filter_json: bool = False
+	delay_filter_relpath: str = "delay_filter.json"
+
+	write_all_filters_json: bool = False
+	all_filters_relpath: str = "all_filters.json"
+
 	write_heuristics_json: bool = True
 	heuristics_relpath: str = "heuristics.json"
 
@@ -90,6 +105,82 @@ class ReconstructionReportsConfig:
 
 
 @dataclass(frozen=True)
+class ReconstructionAxonVelocityPhaseConfig:
+	enabled: bool = True
+	params: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ReconstructionGenerateGtrsOutputsConfig:
+	write_branches_raw_json: bool = True
+	branches_raw_relpath: str = "branches_raw.json"
+
+	write_branches_json: bool = True
+	branches_relpath: str = "branches.json"
+
+	write_detection_filter_json: bool = False
+	detection_filter_relpath: str = "detection_filter.json"
+
+	write_kurtosis_filter_json: bool = False
+	kurtosis_filter_relpath: str = "kurtosis_filter.json"
+
+	write_peak_std_filter_json: bool = False
+	peak_std_filter_relpath: str = "peak_std_filter.json"
+
+	write_delay_filter_json: bool = False
+	delay_filter_relpath: str = "delay_filter.json"
+
+	write_all_filters_json: bool = False
+	all_filters_relpath: str = "all_filters.json"
+
+	write_heuristics_json: bool = True
+	heuristics_relpath: str = "heuristics.json"
+
+	write_gtr_pkl: bool = True
+	gtr_pkl_relpath: str = "gtr.pkl"
+	template_source: str = "square"
+
+	write_gtr_json: bool = False
+	gtr_json_relpath: str = "gtr.json"
+
+
+@dataclass(frozen=True)
+class ReconstructionGenerateGtrsPhaseConfig:
+	enabled: bool = True
+	summary_json_relpath: str = "context/generate_gtrs_summary.json"
+	unit_procs: int | None = None
+	unit_batch_size: int | None = None
+	outputs: ReconstructionGenerateGtrsOutputsConfig = field(default_factory=ReconstructionGenerateGtrsOutputsConfig)
+	axon_velocity: ReconstructionAxonVelocityPhaseConfig = field(default_factory=ReconstructionAxonVelocityPhaseConfig)
+
+
+@dataclass(frozen=True)
+class ReconstructionPlotReconsPhaseConfig:
+	enabled: bool = True
+	summary_json_relpath: str = "context/plot_recons_summary.json"
+
+
+@dataclass(frozen=True)
+class ReconstructionAvReconsConfig:
+	write_pdf: bool = False
+	pdf_relpath: str = "av_recons.pdf"
+
+
+@dataclass(frozen=True)
+class ReconstructionReportReconsPhaseConfig:
+	enabled: bool = True
+	summary_json_relpath: str = "context/report_recons_summary.json"
+	av_recons: ReconstructionAvReconsConfig = field(default_factory=ReconstructionAvReconsConfig)
+
+
+@dataclass(frozen=True)
+class ReconstructionPhasesConfig:
+	generate_gtrs: ReconstructionGenerateGtrsPhaseConfig = field(default_factory=ReconstructionGenerateGtrsPhaseConfig)
+	plot_recons: ReconstructionPlotReconsPhaseConfig = field(default_factory=ReconstructionPlotReconsPhaseConfig)
+	report_recons: ReconstructionReportReconsPhaseConfig = field(default_factory=ReconstructionReportReconsPhaseConfig)
+
+
+@dataclass(frozen=True)
 class ReconstructionInputs:
 	h5_path: Path
 	stream_id: str
@@ -110,6 +201,7 @@ class ReconstructionInputs:
 	unit_ids: list[Any] | None = None
 	unit_limit: int | None = None
 	load_assets_from_v2pipeline_templates_stage: bool = False
+	phases: ReconstructionPhasesConfig = field(default_factory=ReconstructionPhasesConfig)
 
 	use_full_channels_templates: bool = True
 	require_full_channels_templates: bool = True

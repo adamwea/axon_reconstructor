@@ -10,6 +10,9 @@ from axon_reconstructor.runtime_config import RuntimeConfig
 from .stages.analysis.cli import _run_from_args as _run_analysis_from_args
 from .stages.preprocess.cli import _run_from_args as _run_preprocess_from_args
 from .stages.reconstruct.cli import _run_from_args as _run_reconstruct_from_args
+from .stages.reconstruct.cli import _run_generate_gtrs_from_args as _run_reconstruct_generate_gtrs_from_args
+from .stages.reconstruct.cli import _run_plot_recons_from_args as _run_reconstruct_plot_recons_from_args
+from .stages.reconstruct.cli import _run_report_recons_from_args as _run_reconstruct_report_recons_from_args
 from .stages.spikesort.cli import _run_from_args as _run_spikesort_from_args
 from .stages.spikesort.cli import _run_merge_auto_merge_from_args as _run_spikesort_merge_auto_merge_from_args
 from .stages.spikesort.cli import _run_merge_from_args as _run_spikesort_merge_from_args
@@ -67,6 +70,12 @@ _STAGE_ALIASES: dict[str, str] = {
 	"template.reports": "templates.reports",
 	"recon": "reconstruct",
 	"reconstruction": "reconstruct",
+	"recon.generate_gtrs": "reconstruct.generate_gtrs",
+	"recon.plot_recons": "reconstruct.plot_recons",
+	"recon.report_recons": "reconstruct.report_recons",
+	"reconstruction.generate_gtrs": "reconstruct.generate_gtrs",
+	"reconstruction.plot_recons": "reconstruct.plot_recons",
+	"reconstruction.report_recons": "reconstruct.report_recons",
 	"analyse": "analysis",
 	"analyze": "analysis",
 }
@@ -92,6 +101,9 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"templates.reports.footprints": _run_templates_reports_footprints_from_args,
 	"templates.reports.overlays": _run_templates_reports_overlays_from_args,
 	"reconstruct": _run_reconstruct_from_args,
+	"reconstruct.generate_gtrs": _run_reconstruct_generate_gtrs_from_args,
+	"reconstruct.plot_recons": _run_reconstruct_plot_recons_from_args,
+	"reconstruct.report_recons": _run_reconstruct_report_recons_from_args,
 	"analysis": _run_analysis_from_args,
 }
 

@@ -22,7 +22,12 @@ from .stages.analysis.models.results import AnalysisResult
 from .stages.preprocess.api import run_preprocess
 from .stages.preprocess.config import build_preprocess_inputs_for_target, parse_preprocess_stage_config
 from .stages.preprocess.models.results import PreprocessResult
-from .stages.reconstruct.api import run_reconstruct
+from .stages.reconstruct.api import (
+	run_reconstruct,
+	run_reconstruct_generate_gtrs,
+	run_reconstruct_plot_recons,
+	run_reconstruct_report_recons,
+)
 from .stages.reconstruct.config import build_reconstruction_inputs_for_target, parse_reconstruction_stage_config
 from .stages.reconstruct.models.results import ReconstructionResult, UnitReconstructionResult
 from .stages.spikesort.api import run_spikesort, run_spikesort_merge
@@ -824,17 +829,58 @@ def run_spikesort_merge_from_runtime(
 	)
 
 
-def run_reconstruct_from_runtime(
+def _raise_reconstruct_unit_failures(*, stage_name: str, result: object) -> object:
+	if isinstance(result, ReconstructionResult):
+		ok_units = [u for u in result.units if str(getattr(u, "status", "ok")).strip().lower() == "ok"]
+		failed_units = [u for u in result.units if str(getattr(u, "status", "ok")).strip().lower() != "ok"]
+		if ok_units:
+			return result
+		if failed_units:
+			first = failed_units[0]
+			raise RuntimeError(
+				f"{stage_name} unit failures: "
+				f"succeeded={len(ok_units)}/{len(result.units)} "
+				f"failed={len(failed_units)}/{len(result.units)} "
+				f"first_unit={getattr(first, 'unit_id', 'unknown')} "
+				f"first_error={getattr(first, 'error', None) or getattr(first, 'status', 'error')}"
+			)
+		raise RuntimeError(f"{stage_name} produced no successful units")
+
+	if isinstance(result, dict):
+		units_ok = int(result.get("units_ok", 0) or 0)
+		units_error = int(result.get("units_error", 0) or 0)
+		if units_ok > 0:
+			return result
+		units = list(result.get("units", []) or [])
+		if units_error > 0 and units:
+			first = units[0] if isinstance(units[0], dict) else {}
+			raise RuntimeError(
+				f"{stage_name} unit failures: "
+				f"succeeded={units_ok}/{len(units)} "
+				f"failed={units_error}/{len(units)} "
+				f"first_unit={first.get('unit_id', 'unknown')} "
+				f"first_error={first.get('error') or first.get('status', 'error')}"
+			)
+		raise RuntimeError(f"{stage_name} produced no successful units")
+
+	return result
+
+
+def _run_reconstruct_substage_from_runtime(
 	*,
 	config_path: str,
+	stage_name: str,
+	runner_fn: Callable[[Any], Any],
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	publish_outputs: bool = False,
 ) -> MultiTargetStageResult:
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
 	publish_policy = _resolve_publish_policy(runtime_config=bundle.runtime_config, data_config=bundle.data_config)
-	_log_publish_policy(stage_name="reconstruct", policy=publish_policy)
+	if publish_outputs:
+		_log_publish_policy(stage_name=stage_name, policy=publish_policy)
 	targets = select_execution_targets(bundle=bundle)
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,
@@ -857,37 +903,102 @@ def run_reconstruct_from_runtime(
 			unit_workers=int(parallelism.unit_workers),
 			probe_geometry=probe_geometry,
 		)
-		result = run_reconstruct(inputs)
-		ok_units = [u for u in result.units if str(getattr(u, "status", "ok")).strip().lower() == "ok"]
-		failed_units = [u for u in result.units if str(getattr(u, "status", "ok")).strip().lower() != "ok"]
-		if ok_units:
-			return result
-		if failed_units:
-			first = failed_units[0]
-			raise RuntimeError(
-				"reconstruct unit failures: "
-				f"succeeded={len(ok_units)}/{len(result.units)} "
-				f"failed={len(failed_units)}/{len(result.units)} "
-				f"first_unit={getattr(first, 'unit_id', 'unknown')} "
-				f"first_error={getattr(first, 'error', None) or getattr(first, 'status', 'error')}"
-			)
-		raise RuntimeError("reconstruct produced no successful units")
+		result = runner_fn(inputs)
+		return _raise_reconstruct_unit_failures(stage_name=stage_name, result=result)
 
 	target_results = distribute_targets(
 		targets=targets,
 		well_workers=int(parallelism.well_workers),
 		worker_fn=_worker,
 	)
-	target_results = [_publish_reconstruct_target_result(item, policy=publish_policy) for item in target_results]
+	if publish_outputs:
+		target_results = [_publish_reconstruct_target_result(item, policy=publish_policy) for item in target_results]
 
 	succeeded = sum(1 for item in target_results if item.status == "ok")
 	failed = sum(1 for item in target_results if item.status != "ok")
 	return MultiTargetStageResult(
-		stage="reconstruct",
+		stage=stage_name,
 		total_targets=len(target_results),
 		succeeded_targets=succeeded,
 		failed_targets=failed,
 		target_results=target_results,
+	)
+
+
+def run_reconstruct_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct",
+		runner_fn=run_reconstruct,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+		publish_outputs=True,
+	)
+
+
+def run_reconstruct_generate_gtrs_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.generate_gtrs",
+		runner_fn=run_reconstruct_generate_gtrs,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_reconstruct_plot_recons_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.plot_recons",
+		runner_fn=run_reconstruct_plot_recons,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_reconstruct_report_recons_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.report_recons",
+		runner_fn=run_reconstruct_report_recons,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
 	)
 
 
