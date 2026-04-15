@@ -259,7 +259,16 @@ class TemplateAnalysisPhaseConfig:
 @dataclass(frozen=True)
 class TemplatePlotsPhaseConfig:
 	enabled: bool = True
+	summary_json_relpath: str = "context/plot_templates_summary.json"
 	outputs: "PerUnitTemplatesOutputsConfig" = field(default_factory=lambda: PerUnitTemplatesOutputsConfig())
+
+
+@dataclass(frozen=True)
+class TemplateReportTemplatesPhaseConfig:
+	enabled: bool = True
+	summary_json_relpath: str = "context/report_templates_summary.json"
+	relpath: str = "template_report.pdf"
+	write_pdf: bool = True
 
 
 @dataclass(frozen=True)
@@ -808,6 +817,8 @@ class TemplatesPhasesConfig:
 	build_templates: TemplateBuildTemplatesPhaseConfig = field(
 		default_factory=TemplateBuildTemplatesPhaseConfig
 	)
+	plot_templates: TemplatePlotsPhaseConfig = field(default_factory=TemplatePlotsPhaseConfig)
+	report_templates: TemplateReportTemplatesPhaseConfig = field(default_factory=TemplateReportTemplatesPhaseConfig)
 	per_unit_processing: TemplatePerUnitProcessingPhaseConfig = field(
 		default_factory=TemplatePerUnitProcessingPhaseConfig
 	)

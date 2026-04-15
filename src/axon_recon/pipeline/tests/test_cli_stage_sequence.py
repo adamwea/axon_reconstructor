@@ -51,6 +51,16 @@ def test_parse_stage_list_tokens_maps_legacy_templates_build_templates_alias() -
     assert parsed == ["templates.build_templates"]
 
 
+def test_parse_stage_list_tokens_maps_legacy_templates_plot_templates_alias() -> None:
+    parsed = pipeline_cli._parse_stage_list_tokens(["templates.per_unit_processing.plot_templates"])
+    assert parsed == ["templates.plot_templates"]
+
+
+def test_parse_stage_list_tokens_maps_legacy_template_report_templates_alias() -> None:
+    parsed = pipeline_cli._parse_stage_list_tokens(["template.report_templates"])
+    assert parsed == ["templates.report_templates"]
+
+
 def test_parse_stage_list_tokens_supports_spikesort_sort_substage_alias() -> None:
     parsed = pipeline_cli._parse_stage_list_tokens(["spikesort.sort"])
     assert parsed == ["spikesort"]
@@ -219,6 +229,64 @@ def test_main_runs_templates_build_templates_substage(monkeypatch, tmp_path: Pat
 
     assert rc == 0
     assert calls == ["templates.build_templates"]
+
+
+def test_main_runs_templates_plot_templates_substage(monkeypatch, tmp_path: Path) -> None:
+    runtime_cfg = tmp_path / "runtime.yml"
+    _write_runtime_cfg(runtime_cfg)
+
+    calls: list[str] = []
+
+    def _plot_templates(args):
+        calls.append(str(getattr(args, "stage", "")))
+        return 0
+
+    monkeypatch.setitem(
+        pipeline_cli._STAGE_HANDLERS,
+        "templates.plot_templates",
+        _plot_templates,
+    )
+
+    rc = pipeline_cli.main(
+        [
+            "stages",
+            "templates.plot_templates",
+            "--config",
+            str(runtime_cfg),
+        ]
+    )
+
+    assert rc == 0
+    assert calls == ["templates.plot_templates"]
+
+
+def test_main_runs_templates_report_templates_substage(monkeypatch, tmp_path: Path) -> None:
+    runtime_cfg = tmp_path / "runtime.yml"
+    _write_runtime_cfg(runtime_cfg)
+
+    calls: list[str] = []
+
+    def _report_templates(args):
+        calls.append(str(getattr(args, "stage", "")))
+        return 0
+
+    monkeypatch.setitem(
+        pipeline_cli._STAGE_HANDLERS,
+        "templates.report_templates",
+        _report_templates,
+    )
+
+    rc = pipeline_cli.main(
+        [
+            "stages",
+            "templates.report_templates",
+            "--config",
+            str(runtime_cfg),
+        ]
+    )
+
+    assert rc == 0
+    assert calls == ["templates.report_templates"]
 
 
 def test_main_runs_legacy_templates_build_templates_substage_alias(monkeypatch, tmp_path: Path) -> None:

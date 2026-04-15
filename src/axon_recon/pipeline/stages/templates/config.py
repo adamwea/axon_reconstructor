@@ -34,6 +34,7 @@ from .models.inputs import (
 	TemplateLeafPhaseConfig,
 	TemplatePerUnitProcessingPhaseConfig,
 	TemplatePlotsPhaseConfig,
+	TemplateReportTemplatesPhaseConfig,
 	TemplatePropagationOrderingPhaseConfig,
 	TemplateQualityChecksPhaseConfig,
 	TemplateReportsPhaseConfig,
@@ -199,9 +200,13 @@ def _phase_plot_output_paths(*suffixes: str) -> tuple[str, ...]:
 	for suffix in suffixes:
 		s = suffix.strip(".")
 		if s:
+			paths.append(f"stages.templates.phases.plot_templates.outputs.{s}")
+			paths.append(f"stages.templates.phases.plot_templates.{s}")
 			paths.append(f"stages.templates.phases.per_unit_processing.plots.outputs.{s}")
 			paths.append(f"stages.templates.phases.per_unit_processing.plots.{s}")
 		else:
+			paths.append("stages.templates.phases.plot_templates.outputs")
+			paths.append("stages.templates.phases.plot_templates")
 			paths.append("stages.templates.phases.per_unit_processing.plots.outputs")
 			paths.append("stages.templates.phases.per_unit_processing.plots")
 	return tuple(paths)
@@ -322,6 +327,7 @@ def _get_template_circles_block(runtime_config: RuntimeConfig) -> dict[str, Any]
 	return build_stage_plot_block(
 		runtime_config=runtime_config,
 		stage_paths=(
+			*_phase_plot_output_paths("circles"),
 			*_phase_plot_output_paths("template_plots.circles"),
 			*_phase_plot_output_paths("full_template.template_plots.circles"),
 			*_phase_plot_output_paths("template_circles"),
@@ -3509,13 +3515,31 @@ def parse_templates_stage_config(
 	phase_extract_cfg = _phase_block(phases_cfg, "per_unit_processing", "extract_template_segments")
 	phase_quality_cfg_raw = _phase_block(phases_cfg, "per_unit_processing", "quality_checks")
 	phase_analysis_cfg = _phase_block(phases_cfg, "per_unit_processing", "analysis")
+	phase_plot_templates_cfg = _phase_block(phases_cfg, "plot_templates")
+	phase_report_templates_cfg = _phase_block(phases_cfg, "report_templates")
 	phase_plots_cfg = _phase_block(phases_cfg, "per_unit_processing", "plots")
 	phase_reports_cfg = _phase_block(phases_cfg, "reports")
+	effective_plot_phase_cfg = (phase_plot_templates_cfg if phase_plot_templates_cfg else phase_plots_cfg)
 	build_templates_phase = TemplateBuildTemplatesPhaseConfig(
 		enabled=_as_bool(phase_build_cfg.get("enabled", True), True),
 		summary_json_relpath=str(phase_build_cfg.get("summary_json_relpath", "context/build_templates_summary.json")),
 		merge=merge,
 		execution_upsampling=execution_upsampling,
+	)
+	plot_templates_phase = TemplatePlotsPhaseConfig(
+		enabled=_as_bool(effective_plot_phase_cfg.get("enabled", True), True),
+		summary_json_relpath=str(
+			effective_plot_phase_cfg.get("summary_json_relpath", "context/plot_templates_summary.json")
+		),
+		outputs=per_unit,
+	)
+	report_templates_phase = TemplateReportTemplatesPhaseConfig(
+		enabled=_as_bool(phase_report_templates_cfg.get("enabled", True), True),
+		summary_json_relpath=str(
+			phase_report_templates_cfg.get("summary_json_relpath", "context/report_templates_summary.json")
+		),
+		relpath=str(phase_report_templates_cfg.get("relpath", "template_report.pdf")),
+		write_pdf=_as_bool(phase_report_templates_cfg.get("write_pdf", True), True),
 	)
 	per_unit_processing_phase = TemplatePerUnitProcessingPhaseConfig(
 		enabled=_as_bool(_phase_block(phases_cfg, "per_unit_processing").get("enabled", True), True),
@@ -3538,10 +3562,7 @@ def parse_templates_stage_config(
 				debug=_as_bool(phase_prop_order_cfg.get("debug", analysis_debug_ordering), analysis_debug_ordering),
 			),
 		),
-		plots=TemplatePlotsPhaseConfig(
-			enabled=_as_bool(phase_plots_cfg.get("enabled", True), True),
-			outputs=per_unit,
-		),
+		plots=plot_templates_phase,
 	)
 	reports_phase = TemplateReportsPhaseConfig(
 		enabled=_as_bool(phase_reports_cfg.get("enabled", True), True),
@@ -3582,6 +3603,8 @@ def parse_templates_stage_config(
 		resolve_sources=resolve_sources_phase,
 		analyzers=analyzers_phase,
 		build_templates=build_templates_phase,
+		plot_templates=plot_templates_phase,
+		report_templates=report_templates_phase,
 		per_unit_processing=per_unit_processing_phase,
 		reports=reports_phase,
 	)

@@ -2771,9 +2771,207 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 	assert inputs.phases.per_unit_processing.build_templates.execution_upsampling.factor == 3
 	assert inputs.execution_upsampling.factor == 3
 	assert inputs.per_unit_outputs.template.relpath == "canonical/template_plot"
+	assert inputs.phases.plot_templates.summary_json_relpath == "context/plot_templates_summary.json"
 
 	assert inputs.phases.reports.summary_json_relpath == "context/custom_reports_summary.json"
 	assert inputs.phases.reports.locations.enabled is False
+
+
+def test_load_templates_config_plot_templates_canonical_phase_overrides_legacy_plot_block(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    phases:
+			      plot_templates:
+			        enabled: true
+			        summary_json_relpath: context/custom_plot_templates_summary.json
+			        outputs:
+			          template:
+			            relpath: canonical/template_plot
+			      per_unit_processing:
+			        plots:
+			          enabled: false
+			          summary_json_relpath: context/legacy_plot_templates_summary.json
+			          outputs:
+			            template:
+			              relpath: legacy/template_plot
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+
+	assert inputs.phases.plot_templates.enabled is True
+	assert inputs.phases.plot_templates.summary_json_relpath == "context/custom_plot_templates_summary.json"
+	assert inputs.phases.per_unit_processing.plots.enabled is True
+	assert inputs.phases.per_unit_processing.plots.summary_json_relpath == "context/custom_plot_templates_summary.json"
+	assert inputs.per_unit_outputs.template.relpath == "canonical/template_plot"
+
+
+def test_load_templates_config_plot_templates_parses_direct_circles_block(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    phases:
+			      plot_templates:
+			        enabled: true
+			        outputs:
+			          circles:
+			            output:
+			              write_png: true
+			              write_svg: true
+			              dpi: 420
+			              relpath: canonical/template_circles
+			            display:
+			              channel_scope: recorded_channels
+			              size_by: latency
+			              color_by: amplitude
+			              show_scale_circle: true
+			            color_bar:
+			              units: ms
+			              show_axes_title: false
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+
+	circles = inputs.per_unit_outputs.template_circles
+	assert circles.write_png is True
+	assert circles.write_svg is True
+	assert circles.dpi == 420
+	assert circles.relpath == "canonical/template_circles"
+	assert circles.channel_scope == "recorded_channels"
+	assert circles.size_by == "latency"
+	assert circles.color_by == "amplitude"
+	assert circles.show_scale_circle is True
+	assert circles.color_bar_units == "ms"
+	assert circles.color_bar_show_axes_title is False
+
+
+def test_load_templates_config_plot_templates_falls_back_to_legacy_nested_phase_block(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    phases:
+			      per_unit_processing:
+			        plots:
+			          enabled: false
+			          summary_json_relpath: context/legacy_plot_templates_summary.json
+			          outputs:
+			            template:
+			              relpath: legacy/template_plot
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+
+	assert inputs.phases.plot_templates.enabled is False
+	assert inputs.phases.plot_templates.summary_json_relpath == "context/legacy_plot_templates_summary.json"
+	assert inputs.per_unit_outputs.template.relpath == "legacy/template_plot"
+
+
+def test_load_templates_config_parses_report_templates_phase_block(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    phases:
+			      report_templates:
+			        enabled: true
+			        summary_json_relpath: context/custom_report_templates_summary.json
+			        relpath: reports/circle_templates.pdf
+			        write_pdf: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+
+	assert inputs.phases.report_templates.enabled is True
+	assert inputs.phases.report_templates.summary_json_relpath == "context/custom_report_templates_summary.json"
+	assert inputs.phases.report_templates.relpath == "reports/circle_templates.pdf"
+	assert inputs.phases.report_templates.write_pdf is True
 
 
 def test_load_templates_config_build_templates_falls_back_to_legacy_nested_phase_block(tmp_path: Path) -> None:

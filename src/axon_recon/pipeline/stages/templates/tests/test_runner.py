@@ -44,6 +44,8 @@ from axon_recon.pipeline.stages.templates.models.inputs import (
 from axon_recon.pipeline.stages.templates.runner import (
 	run_templates_analyzers_phase,
 	run_templates_build_templates_phase,
+	run_templates_plot_templates_phase,
+	run_templates_report_templates_phase,
 	run_templates_stage,
 )
 
@@ -1426,8 +1428,16 @@ def test_run_templates_stage_sorts_grid_inputs_by_max_ptp(tmp_path: Path, monkey
 			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=True),
 			template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=False),
 			footprint_plots=FootprintPlotsConfig(
-				amplitude_map=FootprintMapConfig(write_png=True, write_svg=False),
-				latency_map=FootprintMapConfig(write_png=True, write_svg=False),
+				amplitude_map=FootprintMapConfig(
+					write_png=True,
+					write_svg=False,
+					relpath="footprint_amplitude_map",
+				),
+				latency_map=FootprintMapConfig(
+					write_png=True,
+					write_svg=False,
+					relpath="footprint_latency_map",
+				),
 			),
 			topographical_footprints=TopographicalFootprintsConfig(
 				amplitude=TopographicalFootprintConfig(write_png=False, write_svg=False),
@@ -2692,3 +2702,163 @@ def test_run_templates_stage_force_replot_rerenders_visual_outputs(tmp_path: Pat
 
 	mtime_after = template_png.stat().st_mtime_ns
 	assert mtime_after > mtime_before
+
+
+def test_run_templates_plot_templates_phase_requires_built_artifacts(tmp_path: Path) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		require_curated_units=False,
+		n_jobs=1,
+	)
+
+	with pytest.raises(FileNotFoundError, match="run templates.build_templates first"):
+		run_templates_plot_templates_phase(inputs)
+
+
+def test_run_templates_plot_templates_phase_writes_circle_plots_only_and_cleans_stale_artifacts(tmp_path: Path) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+
+	stale_template_png = well_out_dir / "templates_outputs" / "units" / "0094" / "template.png"
+	stale_overlay_png = well_out_dir / "templates_outputs" / "units" / "0094" / "extremum_ch_wf_overlay.png"
+	stale_amp_png = well_out_dir / "templates_outputs" / "units" / "0094" / "footprint_amplitude_map.png"
+	stale_prop_png = well_out_dir / "templates_outputs" / "units" / "0094" / "propagation_plot.png"
+	for stale_path in (stale_template_png, stale_overlay_png, stale_amp_png, stale_prop_png):
+		stale_path.parent.mkdir(parents=True, exist_ok=True)
+		stale_path.write_text("stale", encoding="utf-8")
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			template=TemplatePlotConfig(write_png=True, write_svg=False),
+			template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=False),
+			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=True),
+			footprint_plots=FootprintPlotsConfig(
+				amplitude_map=FootprintMapConfig(
+					write_png=True,
+					write_svg=False,
+					relpath="footprint_amplitude_map",
+				),
+				latency_map=FootprintMapConfig(
+					write_png=True,
+					write_svg=False,
+					relpath="footprint_latency_map",
+				),
+			),
+			topographical_footprints=TopographicalFootprintsConfig(
+				amplitude=TopographicalFootprintConfig(write_png=True, write_svg=False),
+				latency=TopographicalFootprintConfig(write_png=True, write_svg=False),
+			),
+			propagation_plots=PropagationPlotConfig(
+				write_pdf=False,
+				write_png=True,
+				write_svg=True,
+				write_circles_template_numbered_png=True,
+				write_circles_template_numbered_svg=True,
+				write_propagation_2panel_png=True,
+				write_propagation_2panel_svg=True,
+			),
+		),
+		require_curated_units=False,
+		unit_ids=[94],
+		n_jobs=1,
+	)
+
+	summary = run_templates_plot_templates_phase(inputs)
+
+	assert summary["phase"] == "plot_templates"
+	assert summary["propagation_outputs_enabled"] is False
+	assert "template_png" in summary["excluded_outputs"]
+	assert "footprint_amplitude_map_png" in summary["excluded_outputs"]
+	assert summary["rendered_units"] == [94]
+	assert Path(str(summary["summary_json"])).exists()
+	assert (well_out_dir / "templates_outputs" / "units" / "0094" / "template_circles.png").exists()
+	assert not stale_template_png.exists()
+	assert not stale_overlay_png.exists()
+	assert not stale_amp_png.exists()
+	assert not stale_prop_png.exists()
+	assert not (well_out_dir / "templates_outputs" / "units" / "0094" / "template.png").exists()
+	assert not (well_out_dir / "templates_outputs" / "units" / "0094" / "extremum_ch_wf_overlay.png").exists()
+	assert not (well_out_dir / "templates_outputs" / "units" / "0094" / "footprint_amplitude_map.png").exists()
+	assert not (well_out_dir / "templates_outputs" / "units" / "0094" / "propagation_plot.svg").exists()
+
+
+def test_run_templates_report_templates_phase_requires_circle_plot_assets(tmp_path: Path) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	unit_dir = well_out_dir / "templates_outputs" / "units" / "0094"
+	unit_dir.mkdir(parents=True, exist_ok=True)
+	(unit_dir / "unit_templates_summary.json").write_text(
+		json.dumps({"status": "ok", "outputs": {}}),
+		encoding="utf-8",
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		require_curated_units=False,
+		unit_ids=[94],
+		n_jobs=1,
+	)
+
+	with pytest.raises(FileNotFoundError, match="run templates.plot_templates first"):
+		run_templates_report_templates_phase(inputs)
+
+
+def test_run_templates_report_templates_phase_writes_pdf_from_circle_assets(tmp_path: Path) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+
+	plot_inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(
+			template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=False),
+		),
+		require_curated_units=False,
+		unit_ids=[94],
+		n_jobs=1,
+	)
+	run_templates_plot_templates_phase(plot_inputs)
+
+	report_inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		require_curated_units=False,
+		unit_ids=[94],
+		n_jobs=1,
+	)
+
+	summary = run_templates_report_templates_phase(report_inputs)
+
+	report_pdf = well_out_dir / "templates_outputs" / "template_report.pdf"
+	assert summary["phase"] == "report_templates"
+	assert summary["rendered_units"] == [94]
+	assert summary["missing_units"] == []
+	assert Path(str(summary["summary_json"])).exists()
+	assert report_pdf.exists()
+	assert summary["outputs"]["template_report_pdf"] == str(report_pdf)

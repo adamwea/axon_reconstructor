@@ -10,6 +10,8 @@ from ...runner import (
 	run_templates_extract_template_segments_from_runtime,
 	run_templates_from_runtime,
 	run_templates_per_unit_processing_from_runtime,
+	run_templates_plot_templates_from_runtime,
+	run_templates_report_templates_from_runtime,
 	run_templates_reports_footprints_from_runtime,
 	run_templates_reports_from_runtime,
 	run_templates_reports_locations_from_runtime,
@@ -181,6 +183,30 @@ def _run_extract_template_segments_from_args(args: argparse.Namespace) -> int:
 def _run_build_templates_from_args(args: argparse.Namespace) -> int:
 	return _print_templates_aggregate(
 		run_templates_build_templates_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_plot_templates_from_args(args: argparse.Namespace) -> int:
+	return _print_templates_aggregate(
+		run_templates_plot_templates_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_report_templates_from_args(args: argparse.Namespace) -> int:
+	return _print_templates_aggregate(
+		run_templates_report_templates_from_runtime(
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),

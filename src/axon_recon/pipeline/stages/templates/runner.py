@@ -24,6 +24,16 @@ from axon_recon.pipeline.shared.grid_sorting import (
 
 from .core.build_templates import build_templates_phase_from_payloads, build_templates_phase_from_unit_payloads
 from .core.merge import materialize_templates_from_spikeinterface
+from .core.plot_templates import (
+	build_plot_templates_phase_inputs,
+	build_plot_templates_phase_summary,
+	excluded_plot_output_keys,
+	propagation_outputs_requested,
+)
+from .core.report_templates import (
+	build_report_templates_phase_summary,
+	report_templates_pdf_requested,
+)
 from .core.quality_checks import detect_multiple_negative_peaks
 from .core.render import (
 	compose_png_side_by_side,
@@ -34,6 +44,7 @@ from .core.render import (
 	render_footprint_map_grid_from_assets,
 	render_footprint_latency_map,
 	render_multi_source_pdf,
+	render_template_report_pdf,
 	render_propagation_plot,
 	render_template_circles_plot,
 	render_unit_locations_report,
@@ -1107,6 +1118,36 @@ def _load_unit_result_from_summary(*, unit_id: Any, unit_summary_json: Path) -> 
 		return None
 
 
+def _cleanup_unit_output_artifacts(
+	*,
+	templates_out_dir: Path,
+	unit_ids: list[Any],
+	per_unit_outputs: Any,
+	output_keys: tuple[str, ...],
+) -> None:
+	for unit_id in unit_ids:
+		paths = resolve_unit_output_paths(
+			templates_out_dir=templates_out_dir,
+			unit_id=unit_id,
+			per_unit_outputs=per_unit_outputs,
+		)
+		for output_key in output_keys:
+			artifact_path = paths.get(output_key)
+			if artifact_path is None:
+				continue
+			try:
+				if artifact_path.exists():
+					artifact_path.unlink()
+			except Exception:
+				LOGGER.debug(
+					"Templates cleanup skipped artifact removal: unit_id=%s key=%s path=%s",
+					unit_id,
+					output_key,
+					artifact_path,
+					exc_info=True,
+				)
+
+
 def _load_persisted_upsampling_decision(*, unit_summary_json: Path) -> dict[str, Any] | None:
 	if not unit_summary_json.exists():
 		return None
@@ -2072,6 +2113,64 @@ def run_templates_build_templates_phase(inputs: TemplatesInputs) -> dict[str, An
 	return summary
 
 
+def run_templates_plot_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+	phase_started = perf_counter()
+	well_out_dir, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
+	try:
+		merged_units_dir, _ = _resolve_templates_dirs(
+			well_out_dir=well_out_dir,
+			templates_out_dir=templates_out_dir,
+		)
+	except FileNotFoundError as exc:
+		raise FileNotFoundError(
+			"Missing built template artifacts for plot_templates; run templates.build_templates first"
+		) from exc
+	unit_ids = _build_unit_ids(inputs, merged_units_dir)
+	if bool(inputs.require_curated_units) and inputs.unit_ids is None:
+		curated = _load_curated_units_from_spikesorting(well_out_dir)
+		if curated is None:
+			raise RuntimeError(
+				"Plot templates phase requires curated units, but curated units file was not found/readable at "
+				f"{well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / 'qm_unfiltered.xlsx'}"
+			)
+		unit_ids = _apply_curated_filter(unit_ids, curated)
+	if not unit_ids:
+		raise FileNotFoundError(
+			f"No built template artifacts found under {merged_units_dir}; run templates.build_templates first"
+		)
+	phase_inputs = build_plot_templates_phase_inputs(inputs)
+	_cleanup_unit_output_artifacts(
+		templates_out_dir=templates_out_dir,
+		unit_ids=unit_ids,
+		per_unit_outputs=phase_inputs.per_unit_outputs,
+		output_keys=excluded_plot_output_keys(),
+	)
+	LOGGER.info(
+		"templates.plot_templates start: templates_out_dir=%s units=%d force_replot=%s",
+		str(templates_out_dir),
+		len(unit_ids),
+		bool(phase_inputs.force_replot),
+	)
+	result = run_templates_stage(phase_inputs)
+	summary = build_plot_templates_phase_summary(
+		inputs=phase_inputs,
+		result=result,
+		duration_seconds=float(perf_counter() - phase_started),
+	)
+	summary_path = templates_out_dir / str(inputs.phases.plot_templates.summary_json_relpath)
+	write_json(summary_path, summary)
+	summary["summary_json"] = str(summary_path)
+	LOGGER.info("templates.plot_templates wrote summary output: %s", str(summary_path))
+	LOGGER.info(
+		"templates.plot_templates run stats: duration_seconds=%.3f unit_count=%d rendered_units=%d failed_units=%d",
+		float(summary["duration_seconds"]),
+		int(summary.get("unit_count", 0)),
+		int(len(summary.get("rendered_units", []))),
+		int(len(summary.get("failed_units", []))),
+	)
+	return summary
+
+
 def run_templates_per_unit_processing_phase(inputs: TemplatesInputs) -> dict[str, Any]:
 	_, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
 	run_templates_extract_template_segments_phase(inputs)
@@ -2145,6 +2244,82 @@ def run_templates_reports_phase(inputs: TemplatesInputs, *, report_scope: str | 
 		"phase": ("reports" if report_scope is None else f"reports.{report_scope}"),
 		"templates_out_dir": str(templates_out_dir),
 	}
+
+
+def run_templates_report_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+	phase_started = perf_counter()
+	well_out_dir, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
+	unit_ids = list(inputs.unit_ids) if inputs.unit_ids is not None else _discover_unit_ids_from_unit_summaries(templates_out_dir)
+	if bool(inputs.require_curated_units) and inputs.unit_ids is None:
+		curated = _load_curated_units_from_spikesorting(well_out_dir)
+		if curated is None:
+			raise RuntimeError(
+				"Report templates phase requires curated units, but curated units file was not found/readable at "
+				f"{well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / 'qm_unfiltered.xlsx'}"
+			)
+		unit_ids = _apply_curated_filter(unit_ids, curated)
+	if not unit_ids:
+		raise FileNotFoundError(
+			f"No unit summaries found under {templates_out_dir}; run templates.plot_templates first"
+		)
+
+	render_units: list[dict[str, Any]] = []
+	missing_units: list[dict[str, Any]] = []
+	for unit_id in unit_ids:
+		paths = resolve_unit_output_paths(
+			templates_out_dir=templates_out_dir,
+			unit_id=unit_id,
+			per_unit_outputs=inputs.per_unit_outputs,
+		)
+		unit_result = _load_unit_result_from_summary(unit_id=unit_id, unit_summary_json=paths["unit_summary_json"])
+		if unit_result is None:
+			missing_units.append({"unit_id": unit_id, "reason": "missing_unit_summary"})
+			continue
+		circle_png = unit_result.outputs.get("template_circles_png")
+		if circle_png is None:
+			missing_units.append({"unit_id": unit_id, "reason": "missing_template_circles_png"})
+			continue
+		circle_png_path = Path(str(circle_png))
+		if not circle_png_path.exists():
+			missing_units.append({"unit_id": unit_id, "reason": "missing_circle_png_file", "path": str(circle_png_path)})
+			continue
+		render_units.append({"unit_id": unit_id, "image_path": str(circle_png_path)})
+
+	if not render_units:
+		raise FileNotFoundError(
+			"Missing circle plot assets required for report_templates; run templates.plot_templates first"
+		)
+
+	report_outputs: dict[str, str] = {}
+	if report_templates_pdf_requested(inputs):
+		report_path = templates_out_dir / str(inputs.phases.report_templates.relpath)
+		LOGGER.info(
+			"templates.report_templates start: templates_out_dir=%s units=%d",
+			str(templates_out_dir),
+			len(render_units),
+		)
+		report_outputs.update(render_template_report_pdf(units=render_units, pdf_path=report_path))
+
+	summary = build_report_templates_phase_summary(
+		inputs=inputs,
+		templates_out_dir=templates_out_dir,
+		rendered_units=[unit["unit_id"] for unit in render_units],
+		missing_units=missing_units,
+		report_outputs=report_outputs,
+		duration_seconds=float(perf_counter() - phase_started),
+	)
+	summary_path = templates_out_dir / str(inputs.phases.report_templates.summary_json_relpath)
+	write_json(summary_path, summary)
+	summary["summary_json"] = str(summary_path)
+	LOGGER.info("templates.report_templates wrote summary output: %s", str(summary_path))
+	LOGGER.info(
+		"templates.report_templates run stats: duration_seconds=%.3f unit_count=%d rendered_units=%d missing_units=%d",
+		float(summary["duration_seconds"]),
+		int(summary.get("unit_count", 0)),
+		int(len(summary.get("rendered_units", []))),
+		int(len(summary.get("missing_units", []))),
+	)
+	return summary
 
 
 def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
@@ -2782,178 +2957,179 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 			)
 			unit_summary["outputs"].update(topo_lat_outputs)
 
-			prop_cfg = inputs.per_unit_outputs.propagation_plots
-			prop_order_payload = compute_propagation_channel_order(
-				template_c_by_t=np.asarray(prop_template),
-				config=prop_cfg,
-				channel_indices=np.arange(int(prop_template.shape[0]), dtype=int),
-			)
-			trace_label_mode = str(getattr(prop_cfg, "trace_label_mode", "electrode_id") or "electrode_id").strip().lower()
-			canonical_prop_order = np.asarray(prop_order_payload.get("ordered_channel_indices", []), dtype=int)
-			prop_window_channel_indices = _select_window_from_order_with_strategy(
-				template_c_by_t=np.asarray(prop_template),
-				ordered_channel_indices=canonical_prop_order,
-				window_size=int(prop_cfg.top_channels),
-				window_strategy=str(getattr(prop_cfg, "window_strategy", "max_ptp_sum") or "max_ptp_sum"),
-			)
-			order_anchor_channel: int | None = None
-			if bool(getattr(prop_cfg, "force_min_neg_peak_index_zero", False)):
-				anchor_candidate = prop_order_payload.get("max_ptp_channel", None)
-				if anchor_candidate is not None:
-					order_anchor_channel = int(anchor_candidate)
-			if order_anchor_channel is None and int(prop_window_channel_indices.shape[0]) > 0:
-				order_anchor_channel = int(prop_window_channel_indices[0])
+			if propagation_outputs_requested(inputs.per_unit_outputs.propagation_plots):
+				prop_cfg = inputs.per_unit_outputs.propagation_plots
+				prop_order_payload = compute_propagation_channel_order(
+					template_c_by_t=np.asarray(prop_template),
+					config=prop_cfg,
+					channel_indices=np.arange(int(prop_template.shape[0]), dtype=int),
+				)
+				trace_label_mode = str(getattr(prop_cfg, "trace_label_mode", "electrode_id") or "electrode_id").strip().lower()
+				canonical_prop_order = np.asarray(prop_order_payload.get("ordered_channel_indices", []), dtype=int)
+				prop_window_channel_indices = _select_window_from_order_with_strategy(
+					template_c_by_t=np.asarray(prop_template),
+					ordered_channel_indices=canonical_prop_order,
+					window_size=int(prop_cfg.top_channels),
+					window_strategy=str(getattr(prop_cfg, "window_strategy", "max_ptp_sum") or "max_ptp_sum"),
+				)
+				order_anchor_channel: int | None = None
+				if bool(getattr(prop_cfg, "force_min_neg_peak_index_zero", False)):
+					anchor_candidate = prop_order_payload.get("max_ptp_channel", None)
+					if anchor_candidate is not None:
+						order_anchor_channel = int(anchor_candidate)
+				if order_anchor_channel is None and int(prop_window_channel_indices.shape[0]) > 0:
+					order_anchor_channel = int(prop_window_channel_indices[0])
 
-			order_number_by_channel = _channel_order_labels_for_mode(
-				prop_order_payload,
-				trace_label_mode=trace_label_mode,
-				use_relative_signed_numbers=bool(prop_cfg.relative_signed_order_numbers),
-				order_index_anchor_channel=order_anchor_channel,
-			)
-
-			circles_order_payload = compute_propagation_channel_order(
-				template_c_by_t=np.asarray(template_circles),
-				config=prop_cfg,
-				channel_indices=np.arange(int(template_circles.shape[0]), dtype=int),
-			)
-			circles_anchor_channel = order_anchor_channel
-			if bool(getattr(prop_cfg, "force_min_neg_peak_index_zero", False)):
-				circles_anchor = circles_order_payload.get("max_ptp_channel", None)
-				if circles_anchor is not None:
-					circles_anchor_channel = int(circles_anchor)
-
-			circles_order_number_by_channel = _channel_order_labels_for_mode(
-				circles_order_payload,
-				trace_label_mode=trace_label_mode,
-				use_relative_signed_numbers=bool(prop_cfg.relative_signed_order_numbers),
-				order_index_anchor_channel=circles_anchor_channel,
-			)
-
-			if bool(getattr(prop_cfg, "debug_ordering", False)):
-				window_start = None
-				window_end = None
-				if int(prop_window_channel_indices.shape[0]) > 0 and int(canonical_prop_order.shape[0]) > 0:
-					first = int(prop_window_channel_indices[0])
-					hits = np.flatnonzero(canonical_prop_order == first)
-					if hits.size > 0:
-						window_start = int(hits[0])
-						window_end = int(window_start + int(prop_window_channel_indices.shape[0]))
-				prop_vals = list(order_number_by_channel.values())
-				circles_vals = list(circles_order_number_by_channel.values())
-				LOGGER.debug(
-					"Propagation ordering debug: unit_id=%s canonical_n=%d selected_n=%d window_strategy=%s window=[%s,%s) "
-					"trace_mode=%s ordering_latency_mode=%s anchor_channel=%s prop_label_minmax=(%s,%s) circles_label_minmax=(%s,%s)",
-					unit_id,
-					int(canonical_prop_order.shape[0]),
-					int(prop_window_channel_indices.shape[0]),
-					str(getattr(prop_cfg, "window_strategy", "max_ptp_sum")),
-					window_start,
-					window_end,
-					trace_label_mode,
-					str(getattr(prop_cfg, "ordering_latency_mode", "abs_peak")),
-					order_anchor_channel,
-					(min(prop_vals) if prop_vals else None),
-					(max(prop_vals) if prop_vals else None),
-					(min(circles_vals) if circles_vals else None),
-					(max(circles_vals) if circles_vals else None),
+				order_number_by_channel = _channel_order_labels_for_mode(
+					prop_order_payload,
+					trace_label_mode=trace_label_mode,
+					use_relative_signed_numbers=bool(prop_cfg.relative_signed_order_numbers),
+					order_index_anchor_channel=order_anchor_channel,
 				)
 
-			prop_outputs = render_propagation_plot(
-				template=prop_template,
-				locations_xy=prop_locs,
-				config=prop_cfg,
-				pdf_path=paths["propagation_plot_pdf"],
-				png_path=paths["propagation_plot_png"],
-				svg_path=paths["propagation_plot_svg"],
-				write_svg=bool(prop_cfg.write_svg),
-				probe_geometry=unit_probe_geometry,
-				channel_labels_by_row=(
-					merged_electrode_ids
-					if (prop_source == "merged_contributing" and merged_electrode_ids is not None and int(len(merged_electrode_ids)) == int(prop_template.shape[0]))
-					else None
-				),
-				trace_order_label_by_channel=order_number_by_channel,
-				channel_indices=prop_window_channel_indices,
-			)
-			need_numbered_png = bool(prop_cfg.write_circles_template_numbered_png) or bool(prop_cfg.write_propagation_2panel_png)
-			need_numbered_svg = bool(prop_cfg.write_circles_template_numbered_svg) or bool(prop_cfg.write_propagation_2panel_svg)
-			right_png_path = paths["circles_template_numbered_png"] if bool(prop_cfg.write_circles_template_numbered_png) else paths["propagation_plot_right_temp_png"]
-			right_svg_path = paths["circles_template_numbered_svg"] if bool(prop_cfg.write_circles_template_numbered_svg) else paths["propagation_plot_right_temp_svg"]
+				circles_order_payload = compute_propagation_channel_order(
+					template_c_by_t=np.asarray(template_circles),
+					config=prop_cfg,
+					channel_indices=np.arange(int(template_circles.shape[0]), dtype=int),
+				)
+				circles_anchor_channel = order_anchor_channel
+				if bool(getattr(prop_cfg, "force_min_neg_peak_index_zero", False)):
+					circles_anchor = circles_order_payload.get("max_ptp_channel", None)
+					if circles_anchor is not None:
+						circles_anchor_channel = int(circles_anchor)
 
-			circles_numbered_cfg = replace(
-				inputs.per_unit_outputs.template_circles,
-				write_png=bool(need_numbered_png),
-				write_svg=bool(need_numbered_svg),
-				show_propagation_order_labels=True,
-				dpi=float(prop_cfg.right_panel_png_dpi),
-			)
-			circles_numbered_outputs = render_template_circles_plot(
-				template=template_circles,
-				locations_xy=locs_circles,
-				config=circles_numbered_cfg,
-				png_path=right_png_path,
-				svg_path=right_svg_path,
-				probe_geometry=unit_probe_geometry,
-				unit_id=unit_id,
-				propagation_order_rank_by_channel=circles_order_number_by_channel,
-			)
+				circles_order_number_by_channel = _channel_order_labels_for_mode(
+					circles_order_payload,
+					trace_label_mode=trace_label_mode,
+					use_relative_signed_numbers=bool(prop_cfg.relative_signed_order_numbers),
+					order_index_anchor_channel=circles_anchor_channel,
+				)
 
-			if bool(prop_cfg.write_circles_template_numbered_png) and circles_numbered_outputs.get("template_circles_png"):
-				prop_outputs["circles_template_numbered_png"] = str(paths["circles_template_numbered_png"])
-			if bool(prop_cfg.write_circles_template_numbered_svg) and circles_numbered_outputs.get("template_circles_svg"):
-				prop_outputs["circles_template_numbered_svg"] = str(paths["circles_template_numbered_svg"])
-
-			if bool(prop_cfg.write_propagation_2panel_png) and circles_numbered_outputs.get("template_circles_png") and prop_outputs.get("propagation_plot_png"):
-				try:
-					compose_dpi = prop_cfg.composed_png_dpi
-					if compose_dpi is None:
-						compose_dpi = prop_cfg.right_panel_png_dpi
-					compose_png_side_by_side(
-						left_png_path=paths["propagation_plot_png"],
-						right_png_path=right_png_path,
-						output_png_path=paths["propagation_2panel_png"],
-						gap_fraction=float(prop_cfg.right_panel_gap_fraction),
-						right_width_scale=float(prop_cfg.right_panel_width_scale),
-						output_dpi=float(compose_dpi),
-					)
-					prop_outputs["propagation_2panel_png"] = str(paths["propagation_2panel_png"])
-				except Exception as compose_png_exc:
-					LOGGER.warning(
-						"Failed to compose propagation_2panel PNG for unit %s: %s",
+				if bool(getattr(prop_cfg, "debug_ordering", False)):
+					window_start = None
+					window_end = None
+					if int(prop_window_channel_indices.shape[0]) > 0 and int(canonical_prop_order.shape[0]) > 0:
+						first = int(prop_window_channel_indices[0])
+						hits = np.flatnonzero(canonical_prop_order == first)
+						if hits.size > 0:
+							window_start = int(hits[0])
+							window_end = int(window_start + int(prop_window_channel_indices.shape[0]))
+					prop_vals = list(order_number_by_channel.values())
+					circles_vals = list(circles_order_number_by_channel.values())
+					LOGGER.debug(
+						"Propagation ordering debug: unit_id=%s canonical_n=%d selected_n=%d window_strategy=%s window=[%s,%s) "
+						"trace_mode=%s ordering_latency_mode=%s anchor_channel=%s prop_label_minmax=(%s,%s) circles_label_minmax=(%s,%s)",
 						unit_id,
-						compose_png_exc,
+						int(canonical_prop_order.shape[0]),
+						int(prop_window_channel_indices.shape[0]),
+						str(getattr(prop_cfg, "window_strategy", "max_ptp_sum")),
+						window_start,
+						window_end,
+						trace_label_mode,
+						str(getattr(prop_cfg, "ordering_latency_mode", "abs_peak")),
+						order_anchor_channel,
+						(min(prop_vals) if prop_vals else None),
+						(max(prop_vals) if prop_vals else None),
+						(min(circles_vals) if circles_vals else None),
+						(max(circles_vals) if circles_vals else None),
 					)
 
-			if bool(prop_cfg.write_propagation_2panel_svg) and circles_numbered_outputs.get("template_circles_svg") and prop_outputs.get("propagation_plot_svg"):
-				try:
-					compose_svg_side_by_side(
-						left_svg_path=paths["propagation_plot_svg"],
-						right_svg_path=right_svg_path,
-						output_svg_path=paths["propagation_2panel_svg"],
-						gap_fraction=float(prop_cfg.right_panel_gap_fraction),
-						right_width_scale=float(prop_cfg.right_panel_width_scale),
-					)
-					prop_outputs["propagation_2panel_svg"] = str(paths["propagation_2panel_svg"])
-				except Exception as compose_exc:
-					LOGGER.warning(
-						"Failed to compose propagation_2panel SVG for unit %s: %s",
-						unit_id,
-						compose_exc,
-					)
+				prop_outputs = render_propagation_plot(
+					template=prop_template,
+					locations_xy=prop_locs,
+					config=prop_cfg,
+					pdf_path=paths["propagation_plot_pdf"],
+					png_path=paths["propagation_plot_png"],
+					svg_path=paths["propagation_plot_svg"],
+					write_svg=bool(prop_cfg.write_svg),
+					probe_geometry=unit_probe_geometry,
+					channel_labels_by_row=(
+						merged_electrode_ids
+						if (prop_source == "merged_contributing" and merged_electrode_ids is not None and int(len(merged_electrode_ids)) == int(prop_template.shape[0]))
+						else None
+					),
+					trace_order_label_by_channel=order_number_by_channel,
+					channel_indices=prop_window_channel_indices,
+				)
+				need_numbered_png = bool(prop_cfg.write_circles_template_numbered_png) or bool(prop_cfg.write_propagation_2panel_png)
+				need_numbered_svg = bool(prop_cfg.write_circles_template_numbered_svg) or bool(prop_cfg.write_propagation_2panel_svg)
+				right_png_path = paths["circles_template_numbered_png"] if bool(prop_cfg.write_circles_template_numbered_png) else paths["propagation_plot_right_temp_png"]
+				right_svg_path = paths["circles_template_numbered_svg"] if bool(prop_cfg.write_circles_template_numbered_svg) else paths["propagation_plot_right_temp_svg"]
 
-			if not bool(prop_cfg.write_circles_template_numbered_png):
-				try:
-					if right_png_path.exists():
-						right_png_path.unlink()
-				except Exception:
-					pass
-			if not bool(prop_cfg.write_circles_template_numbered_svg):
-				try:
-					if right_svg_path.exists():
-						right_svg_path.unlink()
-				except Exception:
-					pass
-			unit_summary["outputs"].update(prop_outputs)
+				circles_numbered_cfg = replace(
+					inputs.per_unit_outputs.template_circles,
+					write_png=bool(need_numbered_png),
+					write_svg=bool(need_numbered_svg),
+					show_propagation_order_labels=True,
+					dpi=float(prop_cfg.right_panel_png_dpi),
+				)
+				circles_numbered_outputs = render_template_circles_plot(
+					template=template_circles,
+					locations_xy=locs_circles,
+					config=circles_numbered_cfg,
+					png_path=right_png_path,
+					svg_path=right_svg_path,
+					probe_geometry=unit_probe_geometry,
+					unit_id=unit_id,
+					propagation_order_rank_by_channel=circles_order_number_by_channel,
+				)
+
+				if bool(prop_cfg.write_circles_template_numbered_png) and circles_numbered_outputs.get("template_circles_png"):
+					prop_outputs["circles_template_numbered_png"] = str(paths["circles_template_numbered_png"])
+				if bool(prop_cfg.write_circles_template_numbered_svg) and circles_numbered_outputs.get("template_circles_svg"):
+					prop_outputs["circles_template_numbered_svg"] = str(paths["circles_template_numbered_svg"])
+
+				if bool(prop_cfg.write_propagation_2panel_png) and circles_numbered_outputs.get("template_circles_png") and prop_outputs.get("propagation_plot_png"):
+					try:
+						compose_dpi = prop_cfg.composed_png_dpi
+						if compose_dpi is None:
+							compose_dpi = prop_cfg.right_panel_png_dpi
+						compose_png_side_by_side(
+							left_png_path=paths["propagation_plot_png"],
+							right_png_path=right_png_path,
+							output_png_path=paths["propagation_2panel_png"],
+							gap_fraction=float(prop_cfg.right_panel_gap_fraction),
+							right_width_scale=float(prop_cfg.right_panel_width_scale),
+							output_dpi=float(compose_dpi),
+						)
+						prop_outputs["propagation_2panel_png"] = str(paths["propagation_2panel_png"])
+					except Exception as compose_png_exc:
+						LOGGER.warning(
+							"Failed to compose propagation_2panel PNG for unit %s: %s",
+							unit_id,
+							compose_png_exc,
+						)
+
+				if bool(prop_cfg.write_propagation_2panel_svg) and circles_numbered_outputs.get("template_circles_svg") and prop_outputs.get("propagation_plot_svg"):
+					try:
+						compose_svg_side_by_side(
+							left_svg_path=paths["propagation_plot_svg"],
+							right_svg_path=right_svg_path,
+							output_svg_path=paths["propagation_2panel_svg"],
+							gap_fraction=float(prop_cfg.right_panel_gap_fraction),
+							right_width_scale=float(prop_cfg.right_panel_width_scale),
+						)
+						prop_outputs["propagation_2panel_svg"] = str(paths["propagation_2panel_svg"])
+					except Exception as compose_exc:
+						LOGGER.warning(
+							"Failed to compose propagation_2panel SVG for unit %s: %s",
+							unit_id,
+							compose_exc,
+						)
+
+				if not bool(prop_cfg.write_circles_template_numbered_png):
+					try:
+						if right_png_path.exists():
+							right_png_path.unlink()
+					except Exception:
+						pass
+				if not bool(prop_cfg.write_circles_template_numbered_svg):
+					try:
+						if right_svg_path.exists():
+							right_svg_path.unlink()
+					except Exception:
+						pass
+				unit_summary["outputs"].update(prop_outputs)
 			LOGGER.info("Templates unit render complete: unit_id=%s outputs=%d", unit_id, len(unit_summary["outputs"]))
 		except Exception as exc:
 			unit_summary["status"] = "error"

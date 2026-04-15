@@ -7,6 +7,8 @@ from .runner import (
 	run_templates_build_templates_phase,
 	run_templates_extract_template_segments_phase,
 	run_templates_per_unit_processing_phase,
+	run_templates_plot_templates_phase,
+	run_templates_report_templates_phase,
 	run_templates_reports_phase,
 	run_templates_resolve_sources_phase,
 	run_templates_stage,
@@ -31,6 +33,14 @@ def run_templates_extract_template_segments(inputs: TemplatesInputs) -> dict[str
 
 def run_templates_build_templates(inputs: TemplatesInputs) -> dict[str, object]:
 	return run_templates_build_templates_phase(inputs)
+
+
+def run_templates_plot_templates(inputs: TemplatesInputs) -> dict[str, object]:
+	return run_templates_plot_templates_phase(inputs)
+
+
+def run_templates_report_templates(inputs: TemplatesInputs) -> dict[str, object]:
+	return run_templates_report_templates_phase(inputs)
 
 
 def run_templates_per_unit_processing(inputs: TemplatesInputs) -> dict[str, object]:

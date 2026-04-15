@@ -21,6 +21,8 @@ from .stages.templates.cli import _run_analyzers_segments_from_args as _run_temp
 from .stages.templates.cli import _run_build_templates_from_args as _run_templates_build_templates_from_args
 from .stages.templates.cli import _run_extract_template_segments_from_args as _run_templates_extract_template_segments_from_args
 from .stages.templates.cli import _run_per_unit_processing_from_args as _run_templates_per_unit_processing_from_args
+from .stages.templates.cli import _run_plot_templates_from_args as _run_templates_plot_templates_from_args
+from .stages.templates.cli import _run_report_templates_from_args as _run_templates_report_templates_from_args
 from .stages.templates.cli import _run_reports_footprints_from_args as _run_templates_reports_footprints_from_args
 from .stages.templates.cli import _run_reports_from_args as _run_templates_reports_from_args
 from .stages.templates.cli import _run_reports_locations_from_args as _run_templates_reports_locations_from_args
@@ -59,6 +61,8 @@ _STAGE_ALIASES: dict[str, str] = {
 	"template.analyzer": "templates.analyzers",
 	"templates.extract_template_segments": "templates.per_unit_processing.extract_template_segments",
 	"templates.per_unit_processing.build_templates": "templates.build_templates",
+	"templates.per_unit_processing.plot_templates": "templates.plot_templates",
+	"template.report_templates": "templates.report_templates",
 	"template.per_unit_processing": "templates.per_unit_processing",
 	"template.reports": "templates.reports",
 	"recon": "reconstruct",
@@ -80,6 +84,8 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"templates.analyzers.segments": _run_templates_analyzers_segments_from_args,
 	"templates.per_unit_processing.extract_template_segments": _run_templates_extract_template_segments_from_args,
 	"templates.build_templates": _run_templates_build_templates_from_args,
+	"templates.plot_templates": _run_templates_plot_templates_from_args,
+	"templates.report_templates": _run_templates_report_templates_from_args,
 	"templates.per_unit_processing": _run_templates_per_unit_processing_from_args,
 	"templates.reports": _run_templates_reports_from_args,
 	"templates.reports.locations": _run_templates_reports_locations_from_args,

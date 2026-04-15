@@ -34,6 +34,8 @@ from .stages.templates.api import (
 	run_templates_build_templates,
 	run_templates_extract_template_segments,
 	run_templates_per_unit_processing,
+	run_templates_plot_templates,
+	run_templates_report_templates,
 	run_templates_reports,
 	run_templates_resolve_sources,
 )
@@ -1141,6 +1143,44 @@ def run_templates_build_templates_from_runtime(
 		config_path=config_path,
 		stage_name="templates.build_templates",
 		runner_fn=run_templates_build_templates,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_templates_plot_templates_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_templates_substage_from_runtime(
+		config_path=config_path,
+		stage_name="templates.plot_templates",
+		runner_fn=run_templates_plot_templates,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_templates_report_templates_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_templates_substage_from_runtime(
+		config_path=config_path,
+		stage_name="templates.report_templates",
+		runner_fn=run_templates_report_templates,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
 		force_restart_override=force_restart_override,

@@ -2937,6 +2937,35 @@ def render_multi_source_pdf(
 	return {"multi_source_pdf": str(pdf_path)}
 
 
+def render_template_report_pdf(
+	*,
+	units: list[dict[str, Any]],
+	pdf_path: Path,
+) -> dict[str, str]:
+	import matplotlib
+
+	matplotlib.use("Agg")
+	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+	from matplotlib.backends.backend_pdf import PdfPages  # type: ignore[import-not-found]
+
+	pdf_path.parent.mkdir(parents=True, exist_ok=True)
+	with PdfPages(pdf_path) as pdf:
+		for unit in units:
+			unit_id = unit.get("unit_id")
+			image_path = Path(str(unit.get("image_path")))
+			if not image_path.exists():
+				continue
+
+			fig, ax = plt.subplots(figsize=(11.0, 8.5))
+			ax.imshow(plt.imread(image_path))
+			ax.axis("off")
+			fig.suptitle(f"Unit {unit_id} circle template", fontsize=16)
+			pdf.savefig(fig, bbox_inches="tight")
+			plt.close(fig)
+
+	return {"template_report_pdf": str(pdf_path)}
+
+
 def render_unit_locations_report(
 	*,
 	unit_location_rows: list[dict[str, Any]],
