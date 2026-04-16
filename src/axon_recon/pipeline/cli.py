@@ -11,7 +11,10 @@ from .stages.analysis.cli import _run_from_args as _run_analysis_from_args
 from .stages.preprocess.cli import _run_from_args as _run_preprocess_from_args
 from .stages.reconstruct.cli import _run_from_args as _run_reconstruct_from_args
 from .stages.reconstruct.cli import _run_generate_gtrs_from_args as _run_reconstruct_generate_gtrs_from_args
+from .stages.reconstruct.cli import _run_plot_branch_propagations_from_args as _run_reconstruct_plot_branch_propagations_from_args
+from .stages.reconstruct.cli import _run_plot_branch_velocities_from_args as _run_reconstruct_plot_branch_velocities_from_args
 from .stages.reconstruct.cli import _run_plot_recons_from_args as _run_reconstruct_plot_recons_from_args
+from .stages.reconstruct.cli import _run_report_full_chip_layout_from_args as _run_reconstruct_report_full_chip_layout_from_args
 from .stages.reconstruct.cli import _run_report_recons_from_args as _run_reconstruct_report_recons_from_args
 from .stages.spikesort.cli import _run_from_args as _run_spikesort_from_args
 from .stages.spikesort.cli import _run_merge_auto_merge_from_args as _run_spikesort_merge_auto_merge_from_args
@@ -72,10 +75,18 @@ _STAGE_ALIASES: dict[str, str] = {
 	"reconstruction": "reconstruct",
 	"recon.generate_gtrs": "reconstruct.generate_gtrs",
 	"recon.plot_recons": "reconstruct.plot_recons",
+	"recon.plot_branch_propagations": "reconstruct.plot_branch_propagations",
+	"recon.plot_branch_velocities": "reconstruct.plot_branch_velocities",
 	"recon.report_recons": "reconstruct.report_recons",
+	"recon.report_full_chip_layout": "reconstruct.report_full_chip_layout",
+	"recon.report_full_chip_recon": "reconstruct.report_full_chip_layout",
 	"reconstruction.generate_gtrs": "reconstruct.generate_gtrs",
 	"reconstruction.plot_recons": "reconstruct.plot_recons",
+	"reconstruction.plot_branch_propagations": "reconstruct.plot_branch_propagations",
+	"reconstruction.plot_branch_velocities": "reconstruct.plot_branch_velocities",
 	"reconstruction.report_recons": "reconstruct.report_recons",
+	"reconstruction.report_full_chip_layout": "reconstruct.report_full_chip_layout",
+	"reconstruction.report_full_chip_recon": "reconstruct.report_full_chip_layout",
 	"analyse": "analysis",
 	"analyze": "analysis",
 }
@@ -103,7 +114,10 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"reconstruct": _run_reconstruct_from_args,
 	"reconstruct.generate_gtrs": _run_reconstruct_generate_gtrs_from_args,
 	"reconstruct.plot_recons": _run_reconstruct_plot_recons_from_args,
+	"reconstruct.plot_branch_propagations": _run_reconstruct_plot_branch_propagations_from_args,
+	"reconstruct.plot_branch_velocities": _run_reconstruct_plot_branch_velocities_from_args,
 	"reconstruct.report_recons": _run_reconstruct_report_recons_from_args,
+	"reconstruct.report_full_chip_layout": _run_reconstruct_report_full_chip_layout_from_args,
 	"analysis": _run_analysis_from_args,
 }
 

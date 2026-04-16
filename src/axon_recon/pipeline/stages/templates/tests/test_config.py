@@ -1263,6 +1263,7 @@ def test_load_templates_config_parses_nested_template_and_footprint_blocks(tmp_p
 	assert wf.show_axes is False
 	assert wf.background == "black"
 	assert wf.signal_color == "white"
+	assert wf.invert_y_axis is True
 
 	circles = inputs.per_unit_outputs.template_circles
 	assert circles.relpath == "nested/template_circles"
@@ -1271,20 +1272,25 @@ def test_load_templates_config_parses_nested_template_and_footprint_blocks(tmp_p
 	assert circles.show_axes is False
 	assert circles.size_by == "latency"
 	assert circles.color_by == "amplitude"
+	assert circles.invert_y_axis is True
 
 	amp = inputs.per_unit_outputs.footprint_plots.amplitude_map
 	assert amp.relpath == "nested/amp"
 	assert amp.background == "white"
 	assert amp.color_map == "plasma"
+	assert amp.invert_y_axis is True
 
 	lat = inputs.per_unit_outputs.footprint_plots.latency_map
 	assert lat.relpath == "nested/lat"
+	assert lat.invert_y_axis is True
 
 	topo = inputs.per_unit_outputs.topographical_footprints.amplitude
 	assert topo.relpath == "nested/topo_amp"
 	assert topo.elevation_deg == 22
 	assert topo.azimuth_deg == -40
 	assert topo.marker_size == 18
+	assert topo.invert_y_axis is True
+	assert inputs.per_unit_outputs.topographical_footprints.latency.invert_y_axis is True
 
 
 def test_load_templates_config_parses_template_scale_bar_under_display(tmp_path: Path) -> None:

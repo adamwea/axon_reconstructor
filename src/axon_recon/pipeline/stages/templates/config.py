@@ -752,11 +752,13 @@ def _normalize_overlap_priority(raw: Any) -> tuple[str, ...]:
 def _build_footprint_map_config(raw_cfg: dict[str, Any], *, relpath_default: str) -> FootprintMapConfig:
 	template_cfg = _get_nested_block(raw_cfg, "template")
 	color_bar_cfg = _get_nested_block(raw_cfg, "color_bar")
+	display_cfg = _get_nested_block(raw_cfg, "display")
 	return FootprintMapConfig(
 		write_png=_as_bool(_nested_or_flat(raw_cfg, block="output", key="write_png", flat_keys=("write_png",), default=True), True),
 		write_svg=_as_bool(_nested_or_flat(raw_cfg, block="output", key="write_svg", flat_keys=("write_svg",), default=False), False),
 		relpath=str(_nested_or_flat(raw_cfg, block="output", key="relpath", flat_keys=("relpath",), default=relpath_default)),
 		background=str(_nested_or_flat(raw_cfg, block="render", key="background", flat_keys=("background",), default="black")),
+		invert_y_axis=_as_bool(display_cfg.get("invert_y_axis", raw_cfg.get("invert_y_axis", True)), True),
 		color_map=str(_nested_or_flat(raw_cfg, block="render", key="color_map", flat_keys=("color_map",), default="viridis")),
 		template_shape=_normalize_template_shape(template_cfg.get("shape", raw_cfg.get("template_shape", "square")), "square"),
 		template_padding_value=_normalize_padding_value(template_cfg.get("padding_value", raw_cfg.get("template_padding_value", "zero"))),
@@ -925,11 +927,13 @@ def _build_data_quality_checks_outputs_config(raw_cfg: dict[str, Any]) -> DataQu
 def _build_topographical_footprint_config(raw_cfg: dict[str, Any], *, relpath_default: str) -> TopographicalFootprintConfig:
 	template_cfg = _get_nested_block(raw_cfg, "template")
 	color_bar_cfg = _get_nested_block(raw_cfg, "color_bar")
+	display_cfg = _get_nested_block(raw_cfg, "display")
 	return TopographicalFootprintConfig(
 		write_png=_as_bool(_nested_or_flat(raw_cfg, block="output", key="write_png", flat_keys=("write_png",), default=True), True),
 		write_svg=_as_bool(_nested_or_flat(raw_cfg, block="output", key="write_svg", flat_keys=("write_svg",), default=False), False),
 		relpath=str(_nested_or_flat(raw_cfg, block="output", key="relpath", flat_keys=("relpath",), default=relpath_default)),
 		background=str(_nested_or_flat(raw_cfg, block="render", key="background", flat_keys=("background",), default="black")),
+		invert_y_axis=_as_bool(display_cfg.get("invert_y_axis", raw_cfg.get("invert_y_axis", True)), True),
 		color_map=str(_nested_or_flat(raw_cfg, block="render", key="color_map", flat_keys=("color_map",), default="viridis")),
 		template_shape=_normalize_template_shape(template_cfg.get("shape", raw_cfg.get("template_shape", "square")), "square"),
 		template_padding_value=_normalize_padding_value(template_cfg.get("padding_value", raw_cfg.get("template_padding_value", "zero"))),
@@ -1681,6 +1685,7 @@ def parse_templates_stage_config(
 		channel_scope=_normalize_channel_scope(_nested_or_flat(tpl_cfg, block="display", key="channel_scope", flat_keys=("channel_scope",), default="contributing_channels")),
 		background=str(_nested_or_flat(tpl_cfg, block="render", key="background", flat_keys=("background",), default="black")),
 		signal_color=str(_nested_or_flat(tpl_cfg, block="render", key="signal_color", flat_keys=("signal_color",), default="white")),
+		invert_y_axis=_as_bool(_nested_or_flat(tpl_cfg, block="display", key="invert_y_axis", flat_keys=("invert_y_axis",), default=True), True),
 		force_center_soma=_as_bool(_nested_or_flat(tpl_cfg, block="display", key="force_center_soma", flat_keys=("force_center_soma",), default=False), False),
 		force_square_aspect=_as_bool(_nested_or_flat(tpl_cfg, block="display", key="force_square_aspect", flat_keys=("force_square_aspect",), default=True), True),
 		show_scale_bar=_as_bool(_nested_or_flat(tpl_cfg, block="display", key="show_scale_bar", flat_keys=("show_scale_bar",), default=True), True),
@@ -1842,6 +1847,7 @@ def parse_templates_stage_config(
 		channel_scope=_normalize_channel_scope(_nested_or_flat(tpl_circles_cfg, block="display", key="channel_scope", flat_keys=("channel_scope",), default="contributing_channels")),
 		background=str(_nested_or_flat(tpl_circles_cfg, block="render", key="background", flat_keys=("background",), default="black")),
 		signal_color=str(_nested_or_flat(tpl_circles_cfg, block="render", key="signal_color", flat_keys=("signal_color",), default="white")),
+		invert_y_axis=_as_bool(_nested_or_flat(tpl_circles_cfg, block="display", key="invert_y_axis", flat_keys=("invert_y_axis",), default=tpl.invert_y_axis), tpl.invert_y_axis),
 		fast_render=_as_bool(_nested_or_flat(tpl_circles_cfg, block="render", key="fast_render", flat_keys=("fast_render",), default=False), False),
 		force_center_soma=_as_bool(_nested_or_flat(tpl_circles_cfg, block="display", key="force_center_soma", flat_keys=("force_center_soma",), default=False), False),
 		force_square_aspect=_as_bool(_nested_or_flat(tpl_circles_cfg, block="display", key="force_square_aspect", flat_keys=("force_square_aspect",), default=True), True),

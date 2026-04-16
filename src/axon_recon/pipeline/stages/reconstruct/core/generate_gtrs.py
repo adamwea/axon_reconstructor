@@ -307,6 +307,7 @@ def run_generate_gtrs_phase(
 					locs_xy=gtr_locs_xy,
 					gtr=gtr,
 					dpi=float(phase_outputs.channel_selection_figure.dpi),
+					invert_y_axis=bool(phase_outputs.channel_selection_figure.invert_y_axis),
 				)
 				if bool(phase_outputs.channel_selection_figure.write_png):
 					unit_summary["outputs"]["channel_selection_figure_png"] = str(paths["channel_selection_figure_png"])
@@ -319,6 +320,7 @@ def run_generate_gtrs_phase(
 					output_svg=(paths["axon_reconstruction_figure_svg"] if bool(phase_outputs.axon_reconstruction_figure.write_svg) else None),
 					gtr=gtr,
 					dpi=float(phase_outputs.axon_reconstruction_figure.dpi),
+					invert_y_axis=bool(phase_outputs.axon_reconstruction_figure.invert_y_axis),
 				)
 				if bool(phase_outputs.axon_reconstruction_figure.write_png):
 					unit_summary["outputs"]["axon_reconstruction_figure_png"] = str(paths["axon_reconstruction_figure_png"])

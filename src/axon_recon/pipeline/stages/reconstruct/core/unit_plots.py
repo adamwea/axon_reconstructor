@@ -6,6 +6,9 @@ from typing import Any
 from dataclasses import replace
 
 from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
+from axon_recon.pipeline.stages.reconstruct.core.branch_styles import selection_to_branch_payload
+from axon_recon.pipeline.stages.reconstruct.core.branch_styles import select_reconstruct_branch_records
+from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionBranchColorsConfig
 from axon_recon.pipeline.stages.reconstruct.models.inputs import CircleReconConfig
 
 
@@ -89,6 +92,8 @@ def write_unit_amplitude_map_png(
 		linear_cap_rounding_step=resolved_cfg.linear_cap_rounding_step,
 		linear_cap_min_vmax=resolved_cfg.linear_cap_min_vmax,
 	)
+	if bool(getattr(resolved_cfg, "invert_y_axis", True)):
+		ax.invert_yaxis()
 
 	if bool(resolved_cfg.show_colorbar):
 		from matplotlib.cm import ScalarMappable  # type: ignore[import-not-found]
@@ -350,26 +355,26 @@ def write_unit_circle_recon_plot(
 	branch_scope = str(getattr(display_cfg, "branch_scope", "raw") or "raw").strip().lower()
 	if branch_scope not in {"raw", "clean"}:
 		branch_scope = "raw"
-	(
-		branch_payload,
-		branch_source_name,
-		branch_collection_class,
-		selected_branch_class,
-		raw_branch_count,
-		clean_branch_count,
-		clean_path_count,
-	) = _select_branch_payload_from_gtr(gtr=gtr, branch_scope=branch_scope)
+	branch_selection = select_reconstruct_branch_records(
+		gtr=gtr,
+		branch_scope=branch_scope,
+		branch_colors=ReconstructionBranchColorsConfig(
+			unique_color_per_branch=bool(getattr(display_cfg, "unique_color_per_branch", True)),
+			color_scheme=str(getattr(display_cfg, "color_scheme", "tab20") or "tab20"),
+		),
+	)
+	branch_payload = selection_to_branch_payload(branch_selection)
 	LOGGER.info(
 		"Unit %s circle_recon branch_scope=%s source=%s collection_class=%s selected_branch_class=%s selected_count=%d raw_count=%d clean_branch_count=%d clean_path_count=%d",
 		unit_id,
 		branch_scope,
-		branch_source_name,
-		branch_collection_class,
-		selected_branch_class,
+		branch_selection.source_name,
+		branch_selection.source_collection_class,
+		branch_selection.selected_branch_class,
 		len(branch_payload),
-		raw_branch_count,
-		clean_branch_count,
-		clean_path_count,
+		branch_selection.raw_branch_count,
+		branch_selection.clean_branch_count,
+		branch_selection.clean_path_count,
 	)
 
 	n_channels = int(locs.shape[0])
@@ -454,6 +459,7 @@ def write_unit_circle_recon_plot(
 		write_svg=bool(output_cfg.write_svg),
 		dpi=float(max(72.0, float(output_cfg.dpi))),
 		relpath=str(output_cfg.relpath),
+		invert_y_axis=bool(getattr(display_cfg, "invert_y_axis", getattr(base_cfg, "invert_y_axis", True))),
 		force_center_soma=bool(getattr(display_cfg, "force_center_soma", base_cfg.force_center_soma)),
 		branch_morphology=branch_cfg,
 	)
@@ -472,6 +478,7 @@ def write_unit_circle_recon_plot(
 			write_png=bool(output_cfg.write_png),
 			write_svg=bool(output_cfg.write_svg),
 			relpath=str(output_cfg.relpath),
+			invert_y_axis=bool(getattr(display_cfg, "invert_y_axis", getattr(footprint_base_cfg, "invert_y_axis", True))),
 			background=str(getattr(base_cfg, "background", footprint_base_cfg.background) or footprint_base_cfg.background),
 			template_shape=str(
 				getattr(base_cfg, "template_shape", footprint_base_cfg.template_shape) or footprint_base_cfg.template_shape

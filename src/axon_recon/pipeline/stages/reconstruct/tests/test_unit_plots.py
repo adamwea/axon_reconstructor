@@ -144,6 +144,46 @@ def test_write_unit_amplitude_map_png_uses_shared_heatmap_config(tmp_path: Path)
 	assert out.stat().st_size > 0
 
 
+def test_write_unit_amplitude_map_png_inverts_y_axis_when_enabled(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template_ch_by_t = np.array(
+		[
+			[-5.0, -10.0, -3.0],
+			[-2.0, -4.0, -1.0],
+			[-1.0, -6.0, -2.0],
+		],
+		dtype=float,
+	)
+	locs_xy = np.array(
+		[
+			[0.0, 0.0],
+			[17.5, 0.0],
+			[0.0, 17.5],
+		],
+		dtype=float,
+	)
+	out = tmp_path / "amplitude_map_inverted.png"
+	seen = {"count": 0}
+	orig_invert_yaxis = matplotlib.axes.Axes.invert_yaxis
+
+	def _spy_invert_yaxis(self, *args, **kwargs):
+		seen["count"] += 1
+		return orig_invert_yaxis(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "invert_yaxis", _spy_invert_yaxis)
+
+	write_unit_amplitude_map_png(
+		output_png=out,
+		template_ch_by_t=template_ch_by_t,
+		locs_xy=locs_xy,
+		heatmap_config=SharedHeatmapConfig(invert_y_axis=True),
+	)
+
+	assert out.exists()
+	assert seen["count"] >= 1
+
+
 def test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps(monkeypatch, caplog) -> None:
 	template_ch_by_t = np.array(
 		[
@@ -198,6 +238,7 @@ def test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps(mo
 			base="template_circles",
 			channel_scope="branches_only",
 			zoom_padding_percent=12.0,
+			invert_y_axis=False,
 			force_center_soma=False,
 			branch_scope="raw",
 			unique_color_per_branch=False,
@@ -229,7 +270,8 @@ def test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps(mo
 
 	branch_payload = captured["branch_morphology"]
 	assert isinstance(branch_payload, dict)
-	assert branch_payload.get("branches") == [{"branch_index": 0, "channels": [0, 1, 2], "label": 0, "color": None}]
+	branches = branch_payload.get("branches")
+	assert branches == [{"branch_index": 0, "channels": [0, 1, 2], "label": 0, "color": "#1f77b4"}]
 
 	render_cfg = captured["config"]
 	assert float(captured["zoom_padding_percent"]) == 12.0
@@ -240,6 +282,7 @@ def test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps(mo
 	assert str(render_cfg.branch_morphology.color_scheme) == "tab10"
 	assert float(render_cfg.branch_morphology.node_border_linewidth) == 0.5
 	assert float(render_cfg.branch_morphology.edge_linewidth) == 1.25
+	assert bool(render_cfg.invert_y_axis) is False
 	assert bool(render_cfg.force_center_soma) is False
 	assert "branch_scope=raw" in caplog.text
 	assert "source=gtr._paths_raw" in caplog.text
@@ -319,7 +362,13 @@ def test_write_unit_circle_recon_plot_nodes_only_scope_uses_clean_payload(monkey
 
 	branch_payload = captured["branch_morphology"]
 	assert isinstance(branch_payload, dict)
-	assert branch_payload.get("branches") == [{"branch_index": 7, "channels": [0, 1], "label": 7, "color": None}]
+	branches = branch_payload.get("branches")
+	assert len(branches) == 1
+	assert branches[0]["branch_index"] == 7
+	assert branches[0]["channels"] == [0, 1]
+	assert branches[0]["label"] == 7
+	assert isinstance(branches[0]["color"], str)
+	assert branches[0]["color"].startswith("#")
 	assert "branch_scope=clean" in caplog.text
 	assert "source=gtr.branches" in caplog.text
 	assert "selected_branch_class=dict" in caplog.text
@@ -403,7 +452,7 @@ def test_write_unit_circle_recon_plot_selected_channels_scope_uses_filtered_chan
 	np.testing.assert_allclose(captured["locations_xy"], np.asarray(captured["plot_scope_points_xy"], dtype=float))
 	assert bool(captured["config"].branch_morphology.show_branch_legend) is True
 	assert captured["branch_morphology"] == {
-		"branches": [{"branch_index": 0, "channels": [0, 1, 2], "label": 0, "color": None}]
+		"branches": [{"branch_index": 0, "channels": [0, 1, 2], "label": 0, "color": "#1f77b4"}]
 	}
 	assert "branch_scope=raw" in caplog.text
 	assert "source=gtr._paths_raw" in caplog.text
@@ -475,7 +524,7 @@ def test_write_unit_circle_recon_plot_clean_scope_falls_back_to_paths_clean(monk
 
 	branch_payload = captured["branch_morphology"]
 	assert isinstance(branch_payload, dict)
-	assert branch_payload.get("branches") == [{"branch_index": 0, "channels": [0, 2], "label": 0, "color": None}]
+	assert branch_payload.get("branches") == [{"branch_index": 0, "channels": [0, 2], "label": 0, "color": "#1f77b4"}]
 	assert "branch_scope=clean" in caplog.text
 	assert "source=gtr._paths_clean" in caplog.text
 	assert "selected_branch_class=list" in caplog.text
@@ -538,6 +587,7 @@ def test_write_unit_circle_recon_plot_base_amplitude_map_dispatches(monkeypatch)
 		display=CircleReconDisplayConfig(
 			base="amplitude_map",
 			channel_scope="branches_only",
+			invert_y_axis=False,
 			force_center_soma=True,
 			branch_scope="raw",
 			unique_color_per_branch=True,
@@ -568,7 +618,7 @@ def test_write_unit_circle_recon_plot_base_amplitude_map_dispatches(monkeypatch)
 	np.testing.assert_allclose(np.asarray(kwargs["template"], dtype=float), template_ch_by_t[[0, 1, 3], :])
 	np.testing.assert_allclose(np.asarray(kwargs["locations_xy"], dtype=float), locs_xy[[0, 1, 3], :])
 	assert kwargs["branch_morphology"] == {
-		"branches": [{"branch_index": 0, "channels": [0, 1, 2], "label": 0, "color": None}]
+		"branches": [{"branch_index": 0, "channels": [0, 1, 2], "label": 0, "color": "#e41a1c"}]
 	}
 	branch_cfg = kwargs["branch_cfg"]
 	assert bool(branch_cfg.enabled) is True
@@ -578,6 +628,7 @@ def test_write_unit_circle_recon_plot_base_amplitude_map_dispatches(monkeypatch)
 	assert float(branch_cfg.branch_outline_linewidth) == 1.5
 	assert float(branch_cfg.node_border_linewidth) == 0.55
 	assert float(branch_cfg.edge_linewidth) == 1.5
+	assert bool(kwargs["config"].invert_y_axis) is False
 	assert bool(kwargs["config"].write_png) is True
 	assert bool(kwargs["config"].write_svg) is False
 	assert str(kwargs["config"].relpath) == "maps/circle_recon_amp"
@@ -640,6 +691,7 @@ def test_write_unit_circle_recon_plot_base_latency_map_dispatches(monkeypatch) -
 		display=CircleReconDisplayConfig(
 			base="latency_map",
 			channel_scope="nodes_only",
+			invert_y_axis=False,
 			force_center_soma=True,
 			branch_scope="clean",
 			unique_color_per_branch=False,
@@ -666,7 +718,7 @@ def test_write_unit_circle_recon_plot_base_latency_map_dispatches(monkeypatch) -
 	np.testing.assert_allclose(np.asarray(kwargs["template"], dtype=float), template_ch_by_t[[0, 2], :])
 	np.testing.assert_allclose(np.asarray(kwargs["locations_xy"], dtype=float), locs_xy[[0, 2], :])
 	assert kwargs["branch_morphology"] == {
-		"branches": [{"branch_index": 7, "channels": [0, 1], "label": 7, "color": None}]
+		"branches": [{"branch_index": 7, "channels": [0, 1], "label": 7, "color": "#1f77b4"}]
 	}
 	branch_cfg = kwargs["branch_cfg"]
 	assert bool(branch_cfg.enabled) is True
@@ -675,6 +727,7 @@ def test_write_unit_circle_recon_plot_base_latency_map_dispatches(monkeypatch) -
 	assert str(branch_cfg.color_scheme) == "tab10"
 	assert float(branch_cfg.node_border_linewidth) == 0.5
 	assert float(branch_cfg.edge_linewidth) == 1.25
+	assert bool(kwargs["config"].invert_y_axis) is False
 	assert bool(kwargs["config"].write_png) is True
 	assert bool(kwargs["config"].write_svg) is True
 	assert str(kwargs["config"].relpath) == "maps/circle_recon_lat"

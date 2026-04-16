@@ -25,7 +25,10 @@ from .stages.preprocess.models.results import PreprocessResult
 from .stages.reconstruct.api import (
 	run_reconstruct,
 	run_reconstruct_generate_gtrs,
+	run_reconstruct_plot_branch_propagations,
+	run_reconstruct_plot_branch_velocities,
 	run_reconstruct_plot_recons,
+	run_reconstruct_report_full_chip_layout,
 	run_reconstruct_report_recons,
 )
 from .stages.reconstruct.config import build_reconstruction_inputs_for_target, parse_reconstruction_stage_config
@@ -983,6 +986,44 @@ def run_reconstruct_plot_recons_from_runtime(
 	)
 
 
+def run_reconstruct_plot_branch_propagations_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.plot_branch_propagations",
+		runner_fn=run_reconstruct_plot_branch_propagations,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_reconstruct_plot_branch_velocities_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.plot_branch_velocities",
+		runner_fn=run_reconstruct_plot_branch_velocities,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
 def run_reconstruct_report_recons_from_runtime(
 	*,
 	config_path: str,
@@ -995,6 +1036,25 @@ def run_reconstruct_report_recons_from_runtime(
 		config_path=config_path,
 		stage_name="reconstruct.report_recons",
 		runner_fn=run_reconstruct_report_recons,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_reconstruct_report_full_chip_layout_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.report_full_chip_layout",
+		runner_fn=run_reconstruct_report_full_chip_layout,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
 		force_restart_override=force_restart_override,

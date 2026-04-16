@@ -548,6 +548,8 @@ def _apply_style(fig: Any, ax: Any, *, config: TemplatePlotConfig) -> None:
 	else:
 		fig.patch.set_facecolor("white")
 		ax.set_facecolor("white")
+	if bool(getattr(config, "invert_y_axis", True)):
+		ax.invert_yaxis()
 
 
 def _add_scale_bar(ax: Any, *, config: TemplatePlotConfig) -> None:
@@ -2289,6 +2291,8 @@ def _render_topographical_footprint(
 	)
 	ax.set_xlim(xmin, xmax)
 	ax.set_ylim(ymin, ymax)
+	if bool(getattr(config, "invert_y_axis", True)):
+		ax.invert_yaxis()
 	ax.view_init(elev=float(config.elevation_deg), azim=float(config.azimuth_deg))
 	ax.set_xlabel("x (um)", color=text_color)
 	ax.set_ylabel("y (um)", color=text_color)
@@ -3682,6 +3686,8 @@ def _render_footprint_map(
 	ax.set_xlim(xmin, xmax)
 	ax.set_ylim(ymin, ymax)
 	ax.set_aspect("equal", adjustable="box")
+	if bool(getattr(config, "invert_y_axis", True)):
+		ax.invert_yaxis()
 	ax.set_xlabel("x (um)", color=text_color)
 	ax.set_ylabel("y (um)", color=text_color)
 	ax.set_title(title, color=text_color)

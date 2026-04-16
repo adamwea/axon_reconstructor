@@ -17,7 +17,13 @@ from axon_recon.pipeline.shared.grid_sorting import (
 from .core.generate_gtrs import run_generate_gtrs_phase as run_generate_gtrs_core_phase
 from .core.diagnostic_plots import write_unit_axon_reconstruction_diagnostic_figure
 from .core.diagnostic_plots import write_unit_channel_selection_diagnostic_figure
+from .core.plot_branch_propagations import run_plot_branch_propagations_phase as run_plot_branch_propagations_core_phase
+from .core.plot_branch_propagations import write_unit_branch_propagation_plot
+from .core.plot_branch_velocities import run_plot_branch_velocities_phase as run_plot_branch_velocities_core_phase
+from .core.plot_branch_velocities import write_unit_branch_velocity_plot
 from .core.plot_recons import run_plot_recons_phase as run_plot_recons_core_phase
+from .core.report_full_chip_layout import run_report_full_chip_layout_phase as run_report_full_chip_layout_core_phase
+from .core.report_full_chip_layout import write_full_chip_layout_plot
 from .core.reconstruct import (
 	compute_branches_with_polyline,
 	compute_all_filters_payload,
@@ -35,7 +41,15 @@ from .core.summary_plots import write_amplitude_map_summary_png
 from .core.unit_plots import write_unit_amplitude_map_png
 from .core.unit_plots import write_unit_circle_recon_plot
 from .integrations.axon_velocity import compute_graph_tracking, import_axon_velocity
-from .io import read_json, resolve_report_output_paths, resolve_unit_output_paths, write_json
+from .io import (
+	read_json,
+	resolve_branch_phase_branch_output_paths,
+	resolve_branch_phase_output_paths,
+	resolve_full_chip_layout_output_paths,
+	resolve_report_output_paths,
+	resolve_unit_output_paths,
+	write_json,
+)
 from .models.inputs import ReconstructionInputs
 from .models.results import ReconstructionResult, UnitReconstructionResult
 from .reporting.slides import write_reconstruct_report_markdown
@@ -160,6 +174,7 @@ def _collect_existing_reconstruct_stage_outputs(
 		reconstruction_out_dir=reconstruction_out_dir,
 		reports=inputs.reports,
 		report_recons_phase=inputs.phases.report_recons,
+		report_full_chip_layout_phase=inputs.phases.report_full_chip_layout,
 	).items():
 		if path.exists():
 			stage_outputs[key] = str(path)
@@ -372,6 +387,22 @@ def _load_reconstruct_unit_results(
 		results.append(_unit_result_from_summary_payload(unit_id=unit_id, payload=payload))
 	results.sort(key=lambda item: str(item.unit_id))
 	return results
+
+
+def _load_full_chip_layout_unit_results(
+	*,
+	reconstruction_out_dir: Path,
+	inputs: ReconstructionInputs,
+	merged_units_dir: Path,
+) -> list[UnitReconstructionResult]:
+	unit_ids = _discover_unit_ids(merged_units_dir)
+	if not unit_ids:
+		unit_ids = list(inputs.unit_ids or [])
+	return _load_reconstruct_unit_results(
+		reconstruction_out_dir=reconstruction_out_dir,
+		inputs=inputs,
+		unit_ids=unit_ids,
+	)
 
 
 def _count_unit_statuses(unit_results: list[UnitReconstructionResult]) -> tuple[int, int]:
@@ -722,6 +753,60 @@ def _run_reconstruct_plot_recons_phase_impl(
 	)
 
 
+def _run_reconstruct_plot_branch_propagations_phase_impl(
+	*,
+	inputs: ReconstructionInputs,
+	env: _ReconstructPhaseEnvironment,
+) -> tuple[list[UnitReconstructionResult], Path | None]:
+	unit_results = run_plot_branch_propagations_core_phase(
+		inputs=inputs,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		merged_units_dir=env.merged_units_dir,
+		full_channels_templates_dir=env.full_channels_templates_dir,
+		unit_ids=env.unit_ids,
+		load_templates_for_unit_fn=load_templates_for_unit,
+		write_unit_branch_propagation_plot_fn=write_unit_branch_propagation_plot,
+		read_json_fn=read_json,
+		write_json_fn=write_json,
+		resolve_unit_output_paths_fn=resolve_unit_output_paths,
+		resolve_branch_phase_output_paths_fn=resolve_branch_phase_output_paths,
+		resolve_branch_phase_branch_output_paths_fn=resolve_branch_phase_branch_output_paths,
+		logger=LOGGER,
+	)
+	return _cleanup_failed_reconstruct_unit_outputs(
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		inputs=inputs,
+		unit_results=unit_results,
+	)
+
+
+def _run_reconstruct_plot_branch_velocities_phase_impl(
+	*,
+	inputs: ReconstructionInputs,
+	env: _ReconstructPhaseEnvironment,
+) -> tuple[list[UnitReconstructionResult], Path | None]:
+	unit_results = run_plot_branch_velocities_core_phase(
+		inputs=inputs,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		merged_units_dir=env.merged_units_dir,
+		full_channels_templates_dir=env.full_channels_templates_dir,
+		unit_ids=env.unit_ids,
+		load_templates_for_unit_fn=load_templates_for_unit,
+		write_unit_branch_velocity_plot_fn=write_unit_branch_velocity_plot,
+		read_json_fn=read_json,
+		write_json_fn=write_json,
+		resolve_unit_output_paths_fn=resolve_unit_output_paths,
+		resolve_branch_phase_output_paths_fn=resolve_branch_phase_output_paths,
+		resolve_branch_phase_branch_output_paths_fn=resolve_branch_phase_branch_output_paths,
+		logger=LOGGER,
+	)
+	return _cleanup_failed_reconstruct_unit_outputs(
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		inputs=inputs,
+		unit_results=unit_results,
+	)
+
+
 def _run_reconstruct_report_recons_phase_impl(
 	*,
 	inputs: ReconstructionInputs,
@@ -748,6 +833,42 @@ def _run_reconstruct_report_recons_phase_impl(
 		finalize_grid_svg_output_fn=finalize_grid_svg_output,
 		render_template_report_pdf_fn=render_template_report_pdf,
 		write_reconstruct_report_markdown_fn=write_reconstruct_report_markdown,
+		logger=LOGGER,
+	)
+
+
+def _run_reconstruct_report_full_chip_layout_phase_impl(
+	*,
+	inputs: ReconstructionInputs,
+	env: _ReconstructPhaseEnvironment,
+	unit_results: list[UnitReconstructionResult],
+) -> dict[str, str]:
+	LOGGER.info(
+		"reconstruct.report_full_chip_layout overwrite policy: action=rewrite preserve_stage_reports_requested=%s force_restart=%s force_replot=%s selected_units=%d discovered_units=%d existing_full_chip_outputs=%s",
+		bool(env.preserve_stage_reports),
+		bool(inputs.force_restart),
+		bool(inputs.force_replot),
+		len(env.unit_ids),
+		len(unit_results),
+		sorted(
+			key
+			for key in env.existing_stage_outputs
+			if str(key).startswith("full_chip_layout_")
+		),
+	)
+	return run_report_full_chip_layout_core_phase(
+		inputs=inputs,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		merged_units_dir=env.merged_units_dir,
+		full_channels_templates_dir=env.full_channels_templates_dir,
+		unit_results=unit_results,
+		preserve_stage_reports=False,
+		existing_stage_outputs=env.existing_stage_outputs,
+		load_templates_for_unit_fn=load_templates_for_unit,
+		write_full_chip_layout_plot_fn=write_full_chip_layout_plot,
+		write_json_fn=write_json,
+		resolve_unit_output_paths_fn=resolve_unit_output_paths,
+		resolve_full_chip_layout_output_paths_fn=resolve_full_chip_layout_output_paths,
 		logger=LOGGER,
 	)
 
@@ -801,6 +922,42 @@ def run_reconstruct_plot_recons_phase(inputs: ReconstructionInputs) -> dict[str,
 	)
 
 
+def run_reconstruct_plot_branch_propagations_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
+	unit_results, failed_units_summary_json = _run_reconstruct_plot_branch_propagations_phase_impl(inputs=inputs, env=env)
+	summary_json = env.reconstruction_out_dir / Path(
+		str(inputs.phases.plot_branch_propagations.summary_json_relpath)
+	).expanduser()
+	return _write_reconstruct_phase_summary(
+		phase_name="plot_branch_propagations",
+		summary_json=summary_json,
+		inputs=inputs,
+		well_out_dir=env.well_out_dir,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		unit_results=unit_results,
+		failed_units_summary_json=failed_units_summary_json,
+		preserve_stage_reports=env.preserve_stage_reports,
+	)
+
+
+def run_reconstruct_plot_branch_velocities_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
+	unit_results, failed_units_summary_json = _run_reconstruct_plot_branch_velocities_phase_impl(inputs=inputs, env=env)
+	summary_json = env.reconstruction_out_dir / Path(
+		str(inputs.phases.plot_branch_velocities.summary_json_relpath)
+	).expanduser()
+	return _write_reconstruct_phase_summary(
+		phase_name="plot_branch_velocities",
+		summary_json=summary_json,
+		inputs=inputs,
+		well_out_dir=env.well_out_dir,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		unit_results=unit_results,
+		failed_units_summary_json=failed_units_summary_json,
+		preserve_stage_reports=env.preserve_stage_reports,
+	)
+
+
 def run_reconstruct_report_recons_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
 	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
 	unit_results = _load_reconstruct_unit_results(
@@ -826,6 +983,33 @@ def run_reconstruct_report_recons_phase(inputs: ReconstructionInputs) -> dict[st
 		extra_fields={
 			"reports_grid_sort_by": normalize_grid_sort_by(inputs.reports.grids.sort_by, default="unit_id"),
 		},
+	)
+
+
+def run_reconstruct_report_full_chip_layout_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
+	unit_results = _load_full_chip_layout_unit_results(
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		inputs=inputs,
+		merged_units_dir=env.merged_units_dir,
+	)
+	stage_outputs = _run_reconstruct_report_full_chip_layout_phase_impl(inputs=inputs, env=env, unit_results=unit_results)
+	summary_json = env.reconstruction_out_dir / Path(
+		str(inputs.phases.report_full_chip_layout.summary_json_relpath)
+	).expanduser()
+	return _write_reconstruct_phase_summary(
+		phase_name="report_full_chip_layout",
+		summary_json=summary_json,
+		inputs=inputs,
+		well_out_dir=env.well_out_dir,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		unit_results=unit_results,
+		stage_outputs=stage_outputs,
+		failed_units_summary_json=_current_failed_units_summary_json(
+			inputs=inputs,
+			reconstruction_out_dir=env.reconstruction_out_dir,
+		),
+		preserve_stage_reports=False,
 	)
 
 
@@ -875,6 +1059,46 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 			unit_ids=env.unit_ids,
 		)
 
+	if bool(inputs.phases.plot_branch_propagations.enabled):
+		unit_results, failed_units_summary_json = _run_reconstruct_plot_branch_propagations_phase_impl(inputs=inputs, env=env)
+		_write_reconstruct_phase_summary(
+			phase_name="plot_branch_propagations",
+			summary_json=env.reconstruction_out_dir
+			/ Path(str(inputs.phases.plot_branch_propagations.summary_json_relpath)).expanduser(),
+			inputs=inputs,
+			well_out_dir=env.well_out_dir,
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			unit_results=unit_results,
+			failed_units_summary_json=failed_units_summary_json,
+			preserve_stage_reports=env.preserve_stage_reports,
+		)
+	elif not unit_results:
+		unit_results = _load_reconstruct_unit_results(
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			inputs=inputs,
+			unit_ids=env.unit_ids,
+		)
+
+	if bool(inputs.phases.plot_branch_velocities.enabled):
+		unit_results, failed_units_summary_json = _run_reconstruct_plot_branch_velocities_phase_impl(inputs=inputs, env=env)
+		_write_reconstruct_phase_summary(
+			phase_name="plot_branch_velocities",
+			summary_json=env.reconstruction_out_dir
+			/ Path(str(inputs.phases.plot_branch_velocities.summary_json_relpath)).expanduser(),
+			inputs=inputs,
+			well_out_dir=env.well_out_dir,
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			unit_results=unit_results,
+			failed_units_summary_json=failed_units_summary_json,
+			preserve_stage_reports=env.preserve_stage_reports,
+		)
+	elif not unit_results:
+		unit_results = _load_reconstruct_unit_results(
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			inputs=inputs,
+			unit_ids=env.unit_ids,
+		)
+
 	if not unit_results:
 		unit_results = _load_reconstruct_unit_results(
 			reconstruction_out_dir=env.reconstruction_out_dir,
@@ -897,6 +1121,31 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 			failed_units_summary_json=failed_units_summary_json,
 			preserve_stage_reports=env.preserve_stage_reports,
 			extra_fields={"reports_grid_sort_by": str(report_grid_sort_by)},
+		)
+
+	if bool(inputs.phases.report_full_chip_layout.enabled):
+		full_chip_unit_results = _load_full_chip_layout_unit_results(
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			inputs=inputs,
+			merged_units_dir=env.merged_units_dir,
+		)
+		full_chip_outputs = _run_reconstruct_report_full_chip_layout_phase_impl(
+			inputs=inputs,
+			env=env,
+			unit_results=full_chip_unit_results,
+		)
+		stage_outputs.update(full_chip_outputs)
+		_write_reconstruct_phase_summary(
+			phase_name="report_full_chip_layout",
+			summary_json=env.reconstruction_out_dir
+			/ Path(str(inputs.phases.report_full_chip_layout.summary_json_relpath)).expanduser(),
+			inputs=inputs,
+			well_out_dir=env.well_out_dir,
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			unit_results=full_chip_unit_results,
+			stage_outputs=stage_outputs,
+			failed_units_summary_json=failed_units_summary_json,
+			preserve_stage_reports=False,
 		)
 
 	units_ok, units_error = _count_unit_statuses(unit_results)

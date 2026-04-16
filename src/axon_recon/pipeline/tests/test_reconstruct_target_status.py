@@ -8,7 +8,10 @@ from axon_recon.pipeline.execution.context import ExecutionTarget, StageParallel
 from axon_recon.pipeline.runner import (
     run_reconstruct_from_runtime,
     run_reconstruct_generate_gtrs_from_runtime,
+    run_reconstruct_plot_branch_propagations_from_runtime,
+    run_reconstruct_plot_branch_velocities_from_runtime,
     run_reconstruct_plot_recons_from_runtime,
+    run_reconstruct_report_full_chip_layout_from_runtime,
     run_reconstruct_report_recons_from_runtime,
 )
 from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionInputs
@@ -164,6 +167,24 @@ def test_run_reconstruct_from_runtime_marks_target_error_when_no_units_succeed(m
     [
         (run_reconstruct_generate_gtrs_from_runtime, "run_reconstruct_generate_gtrs", "reconstruct.generate_gtrs", "generate_gtrs"),
         (run_reconstruct_plot_recons_from_runtime, "run_reconstruct_plot_recons", "reconstruct.plot_recons", "plot_recons"),
+        (
+            run_reconstruct_plot_branch_propagations_from_runtime,
+            "run_reconstruct_plot_branch_propagations",
+            "reconstruct.plot_branch_propagations",
+            "plot_branch_propagations",
+        ),
+        (
+            run_reconstruct_plot_branch_velocities_from_runtime,
+            "run_reconstruct_plot_branch_velocities",
+            "reconstruct.plot_branch_velocities",
+            "plot_branch_velocities",
+        ),
+        (
+            run_reconstruct_report_full_chip_layout_from_runtime,
+            "run_reconstruct_report_full_chip_layout",
+            "reconstruct.report_full_chip_layout",
+            "report_full_chip_layout",
+        ),
         (run_reconstruct_report_recons_from_runtime, "run_reconstruct_report_recons", "reconstruct.report_recons", "report_recons"),
     ],
 )

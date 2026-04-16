@@ -9,6 +9,7 @@ class SharedHeatmapConfig:
     """Common heatmap rendering settings shared across pipeline_v2 stages."""
 
     background: str = "black"
+    invert_y_axis: bool = True
 
     low_color: str = "#1f4fff"
     mid_color: str = "#ffffff"
@@ -45,6 +46,8 @@ class SharedHeatmapConfig:
         src = dict(block or {})
         color_bar_raw = src.get("color_bar")
         color_bar = color_bar_raw if isinstance(color_bar_raw, dict) else {}
+        display_raw = src.get("display")
+        display = display_raw if isinstance(display_raw, dict) else {}
 
         show_ticks_raw = color_bar.get("show_ticks", src.get("show_ticks", cls.show_ticks))
         show_ticks = _to_tuple(show_ticks_raw, default=cls.show_ticks)
@@ -54,6 +57,7 @@ class SharedHeatmapConfig:
 
         return cls(
             background=str(src.get("panel_background_color", src.get("background", cls.background))),
+            invert_y_axis=_as_bool(display.get("invert_y_axis", src.get("invert_y_axis", cls.invert_y_axis)), cls.invert_y_axis),
             low_color=str(color_bar.get("low_color", src.get("low_color", cls.low_color))),
             mid_color=str(color_bar.get("mid_color", src.get("mid_color", cls.mid_color))),
             high_color=str(color_bar.get("high_color", src.get("high_color", cls.high_color))),

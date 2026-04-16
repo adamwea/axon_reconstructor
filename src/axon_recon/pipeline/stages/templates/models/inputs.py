@@ -36,6 +36,7 @@ class TemplatePlotConfig:
 	channel_scope: str = "contributing_channels"
 	background: str = "black"
 	signal_color: str = "white"
+	invert_y_axis: bool = True
 	force_center_soma: bool = False
 	force_square_aspect: bool = True
 	show_scale_bar: bool = True
@@ -312,6 +313,7 @@ class FootprintMapConfig:
 	write_svg: bool = False
 	relpath: str = "footprint_map"
 	background: str = "black"
+	invert_y_axis: bool = True
 	color_map: str = "viridis"
 	template_shape: str = "square"
 	template_padding_value: str = "zero"
@@ -354,6 +356,7 @@ class TopographicalFootprintConfig:
 	write_svg: bool = False
 	relpath: str = "topographical_footprint"
 	background: str = "black"
+	invert_y_axis: bool = True
 	color_map: str = "viridis"
 	template_shape: str = "square"
 	template_padding_value: str = "zero"

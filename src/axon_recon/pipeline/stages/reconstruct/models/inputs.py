@@ -13,6 +13,7 @@ class CircleReconDisplayConfig:
 	base: str = "template_circles"
 	channel_scope: str = "nodes_and_branches"
 	zoom_padding_percent: float = 20.0
+	invert_y_axis: bool = True
 	force_center_soma: bool = True
 	branch_scope: str = "raw"
 	unique_color_per_branch: bool = True
@@ -50,6 +51,7 @@ class ReconstructionDiagnosticFigureConfig:
 	write_svg: bool = False
 	relpath: str = "diagnostic_figure"
 	dpi: float = 300.0
+	invert_y_axis: bool = True
 
 
 def _default_channel_selection_figure_config() -> ReconstructionDiagnosticFigureConfig:
@@ -128,6 +130,12 @@ class ReconstructionReportsConfig:
 
 
 @dataclass(frozen=True)
+class ReconstructionBranchColorsConfig:
+	unique_color_per_branch: bool = True
+	color_scheme: str = "tab20"
+
+
+@dataclass(frozen=True)
 class ReconstructionAxonVelocityPhaseConfig:
 	enabled: bool = True
 	params: dict[str, Any] = field(default_factory=dict)
@@ -184,9 +192,102 @@ class ReconstructionGenerateGtrsPhaseConfig:
 
 
 @dataclass(frozen=True)
+class ReconstructionBranchPlotOutputConfig:
+	write_png: bool = False
+	write_svg: bool = False
+	relpath: str = "branch_plots"
+	manifest_relpath: str = "branch_plots_manifest.json"
+	dpi: float = 300.0
+
+
+@dataclass(frozen=True)
+class ReconstructionBranchPropagationDisplayConfig:
+	figsize: tuple[float, float] = (6.0, 4.0)
+	sort_templates: bool = False
+	show_title: bool = True
+	invert_y_axis: bool = True
+
+
+@dataclass(frozen=True)
+class ReconstructionBranchVelocityDisplayConfig:
+	figsize: tuple[float, float] = (6.0, 4.0)
+	show_title: bool = True
+	show_legend: bool = True
+	legend_fontsize: float = 8.0
+
+
+@dataclass(frozen=True)
+class ReconstructionFullChipLayoutColorConfig:
+	strategy: str = "distinct_hsv"
+	color_scheme: str = "nipy_spectral"
+
+
+@dataclass(frozen=True)
+class ReconstructionFullChipLayoutDisplayConfig:
+	figsize: tuple[float, float] = (11.0, 6.0)
+	show_title: bool = True
+	title: str = "Full-chip reconstructed branch layout"
+	invert_y_axis: bool = True
+	alpha: float = 0.8
+	linewidth: float = 1.25
+	show_legend: bool = False
+	legend_fontsize: float = 6.0
+	legend_ncols: int = 1
+	draw_chip_outline: bool = True
+	chip_outline_color: str = "#666666"
+	chip_outline_linewidth: float = 1.0
+	background_color: str = "white"
+
+
+@dataclass(frozen=True)
+class ReconstructionFullChipLayoutOutputConfig:
+	write_png: bool = True
+	write_svg: bool = False
+	relpath: str = "reports/full_chip_layout"
+	manifest_relpath: str = "reports/full_chip_layout_manifest.json"
+	dpi: float = 300.0
+
+
+def _default_branch_propagations_output_config() -> ReconstructionBranchPlotOutputConfig:
+	return ReconstructionBranchPlotOutputConfig(
+		relpath="branch_plots/propagations",
+		manifest_relpath="branch_propagations_manifest.json",
+	)
+
+
+def _default_branch_velocities_output_config() -> ReconstructionBranchPlotOutputConfig:
+	return ReconstructionBranchPlotOutputConfig(
+		relpath="branch_plots/velocities",
+		manifest_relpath="branch_velocities_manifest.json",
+	)
+
+
+@dataclass(frozen=True)
 class ReconstructionPlotReconsPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/plot_recons_summary.json"
+
+
+@dataclass(frozen=True)
+class ReconstructionPlotBranchPropagationsPhaseConfig:
+	enabled: bool = False
+	summary_json_relpath: str = "context/plot_branch_propagations_summary.json"
+	branch_scope: str = "raw"
+	display: ReconstructionBranchPropagationDisplayConfig = field(
+		default_factory=ReconstructionBranchPropagationDisplayConfig
+	)
+	output: ReconstructionBranchPlotOutputConfig = field(default_factory=_default_branch_propagations_output_config)
+
+
+@dataclass(frozen=True)
+class ReconstructionPlotBranchVelocitiesPhaseConfig:
+	enabled: bool = False
+	summary_json_relpath: str = "context/plot_branch_velocities_summary.json"
+	branch_scope: str = "raw"
+	display: ReconstructionBranchVelocityDisplayConfig = field(
+		default_factory=ReconstructionBranchVelocityDisplayConfig
+	)
+	output: ReconstructionBranchPlotOutputConfig = field(default_factory=_default_branch_velocities_output_config)
 
 
 @dataclass(frozen=True)
@@ -203,10 +304,35 @@ class ReconstructionReportReconsPhaseConfig:
 
 
 @dataclass(frozen=True)
+class ReconstructionReportFullChipLayoutPhaseConfig:
+	enabled: bool = False
+	summary_json_relpath: str = "context/report_full_chip_layout_summary.json"
+	branch_scope: str = "raw"
+	unit_colors: ReconstructionFullChipLayoutColorConfig = field(
+		default_factory=ReconstructionFullChipLayoutColorConfig
+	)
+	display: ReconstructionFullChipLayoutDisplayConfig = field(
+		default_factory=ReconstructionFullChipLayoutDisplayConfig
+	)
+	output: ReconstructionFullChipLayoutOutputConfig = field(
+		default_factory=ReconstructionFullChipLayoutOutputConfig
+	)
+
+
+@dataclass(frozen=True)
 class ReconstructionPhasesConfig:
 	generate_gtrs: ReconstructionGenerateGtrsPhaseConfig = field(default_factory=ReconstructionGenerateGtrsPhaseConfig)
 	plot_recons: ReconstructionPlotReconsPhaseConfig = field(default_factory=ReconstructionPlotReconsPhaseConfig)
+	plot_branch_propagations: ReconstructionPlotBranchPropagationsPhaseConfig = field(
+		default_factory=ReconstructionPlotBranchPropagationsPhaseConfig
+	)
+	plot_branch_velocities: ReconstructionPlotBranchVelocitiesPhaseConfig = field(
+		default_factory=ReconstructionPlotBranchVelocitiesPhaseConfig
+	)
 	report_recons: ReconstructionReportReconsPhaseConfig = field(default_factory=ReconstructionReportReconsPhaseConfig)
+	report_full_chip_layout: ReconstructionReportFullChipLayoutPhaseConfig = field(
+		default_factory=ReconstructionReportFullChipLayoutPhaseConfig
+	)
 
 
 @dataclass(frozen=True)
@@ -218,6 +344,7 @@ class ReconstructionInputs:
 
 	output_rel_root: str = "recon_outputs"
 	reports: ReconstructionReportsConfig = field(default_factory=ReconstructionReportsConfig)
+	branch_colors: ReconstructionBranchColorsConfig = field(default_factory=ReconstructionBranchColorsConfig)
 	write_summary_png: bool = False
 	summary_png_relpath: str = "summary.png"
 	summary_grid_ncols: int = 5

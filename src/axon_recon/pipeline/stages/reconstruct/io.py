@@ -129,14 +129,104 @@ def resolve_unit_output_paths(
 	}
 
 
-def resolve_report_output_paths(*, reconstruction_out_dir: Path, reports: Any, report_recons_phase: Any | None = None) -> dict[str, Path]:
+def _normalize_branch_scope_token(branch_scope: Any) -> str:
+	text = str(branch_scope or "raw").strip().lower()
+	if text not in {"raw", "clean"}:
+		return "raw"
+	return text
+
+
+def _branch_file_stem(branch_id: Any) -> str:
+	try:
+		return f"branch_{int(branch_id):04d}"
+	except Exception:
+		token = str(branch_id).strip().replace("/", "_").replace(" ", "_")
+		if not token:
+			token = "unknown"
+		return f"branch_{token}"
+
+
+def resolve_branch_phase_output_paths(
+	*,
+	reconstruction_out_dir: Path,
+	unit_id: Any,
+	per_unit_outputs: PerUnitOutputsConfig,
+	phase_output: Any,
+	branch_scope: Any,
+) -> dict[str, Path]:
+	unit_rel = format_unit_reldir(per_unit_outputs.unit_reldir, unit_id)
+	unit_dir = reconstruction_out_dir / unit_rel
+	phase_root_dir = unit_dir / Path(str(getattr(phase_output, "relpath", "branch_plots") or "branch_plots")).expanduser()
+	scope_token = _normalize_branch_scope_token(branch_scope)
+	manifest_relpath = str(getattr(phase_output, "manifest_relpath", "branch_plots_manifest.json") or "branch_plots_manifest.json")
+	return {
+		"unit_dir": unit_dir,
+		"phase_root_dir": phase_root_dir,
+		"output_dir": phase_root_dir / scope_token,
+		"manifest_json": unit_dir / Path(manifest_relpath).expanduser(),
+	}
+
+
+def resolve_branch_phase_branch_output_paths(
+	*,
+	reconstruction_out_dir: Path,
+	unit_id: Any,
+	per_unit_outputs: PerUnitOutputsConfig,
+	phase_output: Any,
+	branch_scope: Any,
+	branch_id: Any,
+) -> dict[str, Path]:
+	paths = resolve_branch_phase_output_paths(
+		reconstruction_out_dir=reconstruction_out_dir,
+		unit_id=unit_id,
+		per_unit_outputs=per_unit_outputs,
+		phase_output=phase_output,
+		branch_scope=branch_scope,
+	)
+	stem = _branch_file_stem(branch_id)
+	return {
+		**paths,
+		"png_path": paths["output_dir"] / f"{stem}.png",
+		"svg_path": paths["output_dir"] / f"{stem}.svg",
+	}
+
+
+def resolve_full_chip_layout_output_paths(*, reconstruction_out_dir: Path, phase_output: Any) -> dict[str, Path]:
+	png_rel, svg_rel = _resolve_png_svg_relpaths(getattr(phase_output, "relpath", "reports/full_chip_layout"))
+	manifest_relpath = str(
+		getattr(phase_output, "manifest_relpath", "reports/full_chip_layout_manifest.json")
+		or "reports/full_chip_layout_manifest.json"
+	)
+	return {
+		"png_path": reconstruction_out_dir / png_rel,
+		"svg_path": reconstruction_out_dir / svg_rel,
+		"manifest_json": reconstruction_out_dir / Path(manifest_relpath).expanduser(),
+	}
+
+
+def resolve_report_output_paths(
+	*,
+	reconstruction_out_dir: Path,
+	reports: Any,
+	report_recons_phase: Any | None = None,
+	report_full_chip_layout_phase: Any | None = None,
+) -> dict[str, Path]:
 	circle_grid = reports.grids.circle_recon_grid
 	av_recons = getattr(report_recons_phase, "av_recons", None)
 	av_recons_relpath = str(getattr(av_recons, "pdf_relpath", "av_recons.pdf") or "av_recons.pdf")
-	return {
+	paths = {
 		"av_recons_pdf": reconstruction_out_dir / Path(av_recons_relpath).expanduser(),
 		"circle_recon_grid_pdf": reconstruction_out_dir / Path(str(circle_grid.pdf_relpath)).expanduser(),
 		"circle_recon_grid_png": reconstruction_out_dir / Path(str(circle_grid.png_relpath)).expanduser(),
 		"circle_recon_grid_svg": reconstruction_out_dir / Path(str(circle_grid.svg_relpath)).expanduser(),
 		"circle_recon_grid_temp_svg": reconstruction_out_dir / Path(str(circle_grid.temp_svg_relpath)).expanduser(),
 	}
+	if report_full_chip_layout_phase is not None:
+		full_chip_paths = resolve_full_chip_layout_output_paths(
+			reconstruction_out_dir=reconstruction_out_dir,
+			phase_output=getattr(report_full_chip_layout_phase, "output", None),
+		)
+		paths["full_chip_layout_png"] = full_chip_paths["png_path"]
+		paths["full_chip_layout_svg"] = full_chip_paths["svg_path"]
+		paths["full_chip_layout_manifest_json"] = full_chip_paths["manifest_json"]
+	return paths

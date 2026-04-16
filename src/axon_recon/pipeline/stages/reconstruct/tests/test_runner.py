@@ -4,25 +4,41 @@ import json
 import logging
 from pathlib import Path
 from types import SimpleNamespace
+import pickle
 
 import numpy as np
 import pytest
 
+from axon_recon.pipeline.stages.reconstruct.io import resolve_branch_phase_output_paths
 from axon_recon.pipeline.stages.reconstruct.io import format_unit_reldir
+from axon_recon.pipeline.stages.reconstruct.io import resolve_full_chip_layout_output_paths
 from axon_recon.pipeline.stages.reconstruct.io import resolve_unit_output_paths
 from axon_recon.pipeline.stages.reconstruct.models.inputs import (
+	ReconstructionBranchPlotOutputConfig,
+	ReconstructionBranchPropagationDisplayConfig,
+	ReconstructionBranchVelocityDisplayConfig,
 	PerUnitOutputsConfig,
 	ReconstructionAvReconsConfig,
 	ReconstructionDiagnosticFigureConfig,
+	ReconstructionFullChipLayoutColorConfig,
+	ReconstructionFullChipLayoutDisplayConfig,
+	ReconstructionFullChipLayoutOutputConfig,
 	ReconstructionGenerateGtrsPhaseConfig,
 	ReconstructionInputs,
 	ReconstructionPhasesConfig,
+	ReconstructionPlotBranchPropagationsPhaseConfig,
+	ReconstructionPlotBranchVelocitiesPhaseConfig,
+	ReconstructionReportFullChipLayoutPhaseConfig,
 	ReconstructionReportReconsPhaseConfig,
 )
 from axon_recon.pipeline.stages.reconstruct.runner import (
 	run_reconstruct_generate_gtrs_phase,
+	run_reconstruct_plot_branch_propagations_phase,
+	run_reconstruct_plot_branch_velocities_phase,
+	run_reconstruct_report_full_chip_layout_phase,
 	run_reconstruct_report_recons_phase,
 )
+from axon_recon.pipeline.stages.templates.models.inputs import ProbeGeometryConfig
 
 
 def test_format_unit_reldir() -> None:
@@ -651,3 +667,336 @@ def test_run_reconstruct_report_recons_phase_requires_circle_recon_assets_for_av
 
 	with pytest.raises(FileNotFoundError, match="run reconstruct.plot_recons first"):
 		run_reconstruct_report_recons_phase(inputs)
+
+
+def test_resolve_branch_phase_output_paths_includes_scope_and_manifest() -> None:
+	paths = resolve_branch_phase_output_paths(
+		reconstruction_out_dir=Path("/tmp/recon"),
+		unit_id=9,
+		per_unit_outputs=PerUnitOutputsConfig(unit_reldir="units/{unit_id:04d}/"),
+		phase_output=ReconstructionBranchPlotOutputConfig(
+			write_png=True,
+			relpath="branch_qc/propagations",
+			manifest_relpath="reports/branch_propagations_manifest.json",
+		),
+		branch_scope="raw",
+	)
+	assert paths["phase_root_dir"] == Path("/tmp/recon") / "units/0009" / "branch_qc/propagations"
+	assert paths["output_dir"] == Path("/tmp/recon") / "units/0009" / "branch_qc/propagations" / "raw"
+	assert paths["manifest_json"] == Path("/tmp/recon") / "units/0009" / "reports/branch_propagations_manifest.json"
+
+
+def test_run_reconstruct_plot_branch_propagations_phase_writes_manifest(monkeypatch, tmp_path: Path) -> None:
+	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
+
+	well_out_dir = tmp_path / "well001"
+	well_out_dir.mkdir(parents=True, exist_ok=True)
+	templates_out = tmp_path / "templates_out"
+	merged = tmp_path / "templates_merged"
+	full = tmp_path / "templates_full"
+	templates_out.mkdir(parents=True, exist_ok=True)
+	merged.mkdir(parents=True, exist_ok=True)
+	full.mkdir(parents=True, exist_ok=True)
+
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"compute_mea_analysis_output_dir",
+		lambda *, output_root, data_file, well: well_out_dir,
+	)
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"_resolve_templates_dirs",
+		lambda _well_out_dir, **kwargs: (templates_out, merged, full),
+	)
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"load_templates_for_unit",
+		lambda **kwargs: (
+			np.asarray([[-5.0, -10.0, -3.0], [-2.0, -4.0, -1.0], [-1.0, -6.0, -2.0]], dtype=float),
+			np.asarray([[0.0, 0.0], [17.5, 0.0], [35.0, 0.0]], dtype=float),
+			np.asarray([[-5.0, -10.0, -3.0], [-2.0, -4.0, -1.0], [-1.0, -6.0, -2.0]], dtype=float),
+			np.asarray([[0.0, 0.0], [17.5, 0.0], [35.0, 0.0]], dtype=float),
+			10_000.0,
+			"merged",
+		),
+	)
+
+	def _write_branch_propagation_plot(**kwargs):
+		output_png = Path(kwargs["output_png"])
+		output_png.parent.mkdir(parents=True, exist_ok=True)
+		output_png.write_bytes(b"png")
+		return {"png_path": str(output_png)}
+
+	monkeypatch.setattr(reconstruct_runner, "write_unit_branch_propagation_plot", _write_branch_propagation_plot)
+
+	inputs = ReconstructionInputs(
+		h5_path=tmp_path / "input.raw.h5",
+		stream_id="well001",
+		mea_output_root=tmp_path,
+		output_rel_root="recon_outputs",
+		unit_ids=[1],
+		phases=ReconstructionPhasesConfig(
+			plot_branch_propagations=ReconstructionPlotBranchPropagationsPhaseConfig(
+				enabled=True,
+				display=ReconstructionBranchPropagationDisplayConfig(figsize=(7.0, 4.0)),
+				output=ReconstructionBranchPlotOutputConfig(
+					write_png=True,
+					relpath="branch_qc/propagations",
+					manifest_relpath="reports/branch_propagations_manifest.json",
+				),
+			),
+		),
+	)
+
+	paths = resolve_unit_output_paths(
+		reconstruction_out_dir=well_out_dir / "recon_outputs",
+		unit_id=1,
+		per_unit_outputs=inputs.per_unit_outputs,
+	)
+	paths["unit_dir"].mkdir(parents=True, exist_ok=True)
+	paths["unit_summary_json"].write_text(
+		json.dumps({"unit_id": 1, "status": "ok", "outputs": {}}),
+		encoding="utf-8",
+	)
+	with open(paths["gtr_pkl"], "wb") as handle:
+		pickle.dump(SimpleNamespace(_paths_raw=[[2, 1, 0]], branches=[], _paths_clean=[]), handle)
+
+	summary = run_reconstruct_plot_branch_propagations_phase(inputs)
+	assert summary["phase"] == "plot_branch_propagations"
+	unit_outputs = summary["units"][0]["outputs"]
+	assert Path(unit_outputs["branch_propagations_manifest_json"]).exists()
+	manifest = json.loads(Path(unit_outputs["branch_propagations_manifest_json"]).read_text(encoding="utf-8"))
+	assert manifest["branches_ok"] == 1
+	assert manifest["branches"][0]["status"] == "ok"
+	assert Path(manifest["branches"][0]["png_path"]).exists()
+
+
+def test_run_reconstruct_plot_branch_velocities_phase_writes_manifest(monkeypatch, tmp_path: Path) -> None:
+	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
+
+	well_out_dir = tmp_path / "well001"
+	well_out_dir.mkdir(parents=True, exist_ok=True)
+	templates_out = tmp_path / "templates_out"
+	merged = tmp_path / "templates_merged"
+	full = tmp_path / "templates_full"
+	templates_out.mkdir(parents=True, exist_ok=True)
+	merged.mkdir(parents=True, exist_ok=True)
+	full.mkdir(parents=True, exist_ok=True)
+
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"compute_mea_analysis_output_dir",
+		lambda *, output_root, data_file, well: well_out_dir,
+	)
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"_resolve_templates_dirs",
+		lambda _well_out_dir, **kwargs: (templates_out, merged, full),
+	)
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"load_templates_for_unit",
+		lambda **kwargs: (
+			np.asarray([[-5.0, -10.0, -3.0], [-2.0, -4.0, -1.0], [-1.0, -6.0, -2.0]], dtype=float),
+			np.asarray([[0.0, 0.0], [17.5, 0.0], [35.0, 0.0]], dtype=float),
+			np.asarray([[-5.0, -10.0, -3.0], [-2.0, -4.0, -1.0], [-1.0, -6.0, -2.0]], dtype=float),
+			np.asarray([[0.0, 0.0], [17.5, 0.0], [35.0, 0.0]], dtype=float),
+			10_000.0,
+			"merged",
+		),
+	)
+
+	def _write_branch_velocity_plot(**kwargs):
+		output_png = Path(kwargs["output_png"])
+		output_png.parent.mkdir(parents=True, exist_ok=True)
+		output_png.write_bytes(b"png")
+		return {"png_path": str(output_png)}
+
+	monkeypatch.setattr(reconstruct_runner, "write_unit_branch_velocity_plot", _write_branch_velocity_plot)
+
+	inputs = ReconstructionInputs(
+		h5_path=tmp_path / "input.raw.h5",
+		stream_id="well001",
+		mea_output_root=tmp_path,
+		output_rel_root="recon_outputs",
+		unit_ids=[1],
+		phases=ReconstructionPhasesConfig(
+			plot_branch_velocities=ReconstructionPlotBranchVelocitiesPhaseConfig(
+				enabled=True,
+				branch_scope="clean",
+				display=ReconstructionBranchVelocityDisplayConfig(figsize=(6.0, 4.0), show_legend=False),
+				output=ReconstructionBranchPlotOutputConfig(
+					write_png=True,
+					relpath="branch_qc/velocities",
+					manifest_relpath="reports/branch_velocities_manifest.json",
+				),
+			),
+		),
+	)
+
+	paths = resolve_unit_output_paths(
+		reconstruction_out_dir=well_out_dir / "recon_outputs",
+		unit_id=1,
+		per_unit_outputs=inputs.per_unit_outputs,
+	)
+	paths["unit_dir"].mkdir(parents=True, exist_ok=True)
+	paths["unit_summary_json"].write_text(
+		json.dumps({"unit_id": 1, "status": "ok", "outputs": {}}),
+		encoding="utf-8",
+	)
+	with open(paths["gtr_pkl"], "wb") as handle:
+		pickle.dump(
+			SimpleNamespace(
+				_paths_raw=[[2, 1, 0]],
+				_paths_clean=[[0, 1, 2]],
+				branches=[
+					{
+						"branch_index": 4,
+						"channels": [0, 1, 2],
+						"velocity": 1.7,
+						"offset": 0.2,
+						"r2": 0.91,
+						"peak_times": [0.8, 1.4, 2.1],
+						"distances": [12.0, 24.0, 41.0],
+					}
+				],
+			),
+			handle,
+		)
+
+	summary = run_reconstruct_plot_branch_velocities_phase(inputs)
+	assert summary["phase"] == "plot_branch_velocities"
+	unit_outputs = summary["units"][0]["outputs"]
+	assert Path(unit_outputs["branch_velocities_manifest_json"]).exists()
+	manifest = json.loads(Path(unit_outputs["branch_velocities_manifest_json"]).read_text(encoding="utf-8"))
+	assert manifest["branches_ok"] == 1
+	assert manifest["branches"][0]["status"] == "ok"
+	assert float(manifest["branches"][0]["velocity"]) == pytest.approx(1.7)
+	assert Path(manifest["branches"][0]["png_path"]).exists()
+
+
+def test_resolve_full_chip_layout_output_paths_includes_manifest() -> None:
+	paths = resolve_full_chip_layout_output_paths(
+		reconstruction_out_dir=Path("/tmp/recon"),
+		phase_output=ReconstructionFullChipLayoutOutputConfig(
+			write_png=True,
+			write_svg=True,
+			relpath="reports/full_chip_layout",
+			manifest_relpath="reports/full_chip_layout_manifest.json",
+		),
+	)
+	assert paths["png_path"] == Path("/tmp/recon") / "reports/full_chip_layout.png"
+	assert paths["svg_path"] == Path("/tmp/recon") / "reports/full_chip_layout.svg"
+	assert paths["manifest_json"] == Path("/tmp/recon") / "reports/full_chip_layout_manifest.json"
+
+
+def test_run_reconstruct_report_full_chip_layout_phase_writes_outputs(monkeypatch, tmp_path: Path, caplog) -> None:
+	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
+
+	well_out_dir = tmp_path / "well001"
+	well_out_dir.mkdir(parents=True, exist_ok=True)
+	templates_out = tmp_path / "templates_out"
+	merged = tmp_path / "templates_merged"
+	full = tmp_path / "templates_full"
+	templates_out.mkdir(parents=True, exist_ok=True)
+	merged.mkdir(parents=True, exist_ok=True)
+	full.mkdir(parents=True, exist_ok=True)
+	(merged / "unit_1").mkdir(parents=True, exist_ok=True)
+	(merged / "unit_2").mkdir(parents=True, exist_ok=True)
+
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"compute_mea_analysis_output_dir",
+		lambda *, output_root, data_file, well: well_out_dir,
+	)
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"_resolve_templates_dirs",
+		lambda _well_out_dir, **kwargs: (templates_out, merged, full),
+	)
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"load_templates_for_unit",
+		lambda **kwargs: (
+			np.asarray([[-5.0, -10.0, -3.0], [-2.0, -4.0, -1.0], [-1.0, -6.0, -2.0]], dtype=float),
+			np.asarray([[0.0, 0.0], [17.5, 0.0], [35.0, 0.0]], dtype=float),
+			np.asarray([[-5.0, -10.0, -3.0], [-2.0, -4.0, -1.0], [-1.0, -6.0, -2.0]], dtype=float),
+			np.asarray([[0.0, 0.0], [17.5, 0.0], [35.0, 0.0]], dtype=float),
+			10_000.0,
+			"merged",
+		),
+	)
+
+	def _write_full_chip_plot(**kwargs):
+		output_png = Path(kwargs["output_png"])
+		output_png.parent.mkdir(parents=True, exist_ok=True)
+		output_png.write_bytes(b"png")
+		return {"full_chip_layout_png": str(output_png)}
+
+	monkeypatch.setattr(reconstruct_runner, "write_full_chip_layout_plot", _write_full_chip_plot)
+
+	inputs = ReconstructionInputs(
+		h5_path=tmp_path / "input.raw.h5",
+		stream_id="well001",
+		mea_output_root=tmp_path,
+		output_rel_root="recon_outputs",
+		unit_ids=[1],
+		force_replot=True,
+		probe_geometry=ProbeGeometryConfig(active_area_um_x=100.0, active_area_um_y=80.0, pitch_um=17.5),
+		phases=ReconstructionPhasesConfig(
+			report_full_chip_layout=ReconstructionReportFullChipLayoutPhaseConfig(
+				enabled=True,
+				branch_scope="raw",
+				unit_colors=ReconstructionFullChipLayoutColorConfig(strategy="colormap", color_scheme="tab20"),
+				display=ReconstructionFullChipLayoutDisplayConfig(figsize=(10.0, 6.0), show_title=False),
+				output=ReconstructionFullChipLayoutOutputConfig(
+					write_png=True,
+					write_svg=False,
+					relpath="reports/full_chip_layout",
+					manifest_relpath="reports/full_chip_layout_manifest.json",
+				),
+			),
+		),
+	)
+
+	paths_ok = resolve_unit_output_paths(
+		reconstruction_out_dir=well_out_dir / "recon_outputs",
+		unit_id=1,
+		per_unit_outputs=inputs.per_unit_outputs,
+	)
+	paths_ok["unit_dir"].mkdir(parents=True, exist_ok=True)
+	paths_ok["unit_summary_json"].write_text(
+		json.dumps({"unit_id": 1, "status": "ok", "outputs": {}}),
+		encoding="utf-8",
+	)
+	with open(paths_ok["gtr_pkl"], "wb") as handle:
+		pickle.dump(SimpleNamespace(_paths_raw=[[2, 1, 0]], branches=[], _paths_clean=[]), handle)
+
+	paths_err = resolve_unit_output_paths(
+		reconstruction_out_dir=well_out_dir / "recon_outputs",
+		unit_id=2,
+		per_unit_outputs=inputs.per_unit_outputs,
+	)
+	paths_err["unit_dir"].mkdir(parents=True, exist_ok=True)
+	paths_err["unit_summary_json"].write_text(
+		json.dumps({"unit_id": 2, "status": "ok", "outputs": {}}),
+		encoding="utf-8",
+	)
+	with open(paths_err["gtr_pkl"], "wb") as handle:
+		pickle.dump(SimpleNamespace(_paths_raw=[[2, 1, 0]], branches=[], _paths_clean=[]), handle)
+
+	with caplog.at_level(logging.INFO, logger="axon_recon.reconstruct"):
+		summary = run_reconstruct_report_full_chip_layout_phase(inputs)
+	assert summary["phase"] == "report_full_chip_layout"
+	assert Path(summary["outputs"]["full_chip_layout_png"]).exists()
+	manifest_path = Path(summary["outputs"]["full_chip_layout_manifest_json"])
+	assert manifest_path.exists()
+	manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+	assert manifest["branch_scope"] == "raw"
+	assert manifest["units_successful"] == 2
+	assert manifest["units_plotted"] == 2
+	assert manifest["branches_total"] == 2
+	assert summary["reports_overwrite_skipped"] is False
+	assert "reconstruct.report_full_chip_layout overwrite policy: action=rewrite" in caplog.text
+	assert "reconstruct.report_full_chip_layout rewriting outputs branch_scope=raw" in caplog.text
+	assert "reconstruct.report_full_chip_layout wrote outputs manifest=" in caplog.text

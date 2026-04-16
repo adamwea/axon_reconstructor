@@ -66,10 +66,16 @@ def test_parse_stage_list_tokens_maps_legacy_template_report_templates_alias() -
     [
         ("reconstruct.generate_gtrs", "reconstruct.generate_gtrs"),
         ("reconstruct.plot_recons", "reconstruct.plot_recons"),
+        ("reconstruct.plot_branch_propagations", "reconstruct.plot_branch_propagations"),
+        ("reconstruct.plot_branch_velocities", "reconstruct.plot_branch_velocities"),
         ("reconstruct.report_recons", "reconstruct.report_recons"),
+        ("reconstruct.report_full_chip_layout", "reconstruct.report_full_chip_layout"),
         ("recon.generate_gtrs", "reconstruct.generate_gtrs"),
         ("reconstruction.plot_recons", "reconstruct.plot_recons"),
+        ("recon.plot_branch_propagations", "reconstruct.plot_branch_propagations"),
+        ("reconstruction.plot_branch_velocities", "reconstruct.plot_branch_velocities"),
         ("reconstruction.report_recons", "reconstruct.report_recons"),
+        ("recon.report_full_chip_recon", "reconstruct.report_full_chip_layout"),
     ],
 )
 def test_parse_stage_list_tokens_supports_reconstruct_phase_tokens(raw_token: str, expected: str) -> None:
@@ -281,7 +287,10 @@ def test_main_runs_templates_plot_templates_substage(monkeypatch, tmp_path: Path
     [
         ("reconstruct.generate_gtrs", "reconstruct.generate_gtrs"),
         ("reconstruct.plot_recons", "reconstruct.plot_recons"),
+        ("reconstruct.plot_branch_propagations", "reconstruct.plot_branch_propagations"),
+        ("reconstruct.plot_branch_velocities", "reconstruct.plot_branch_velocities"),
         ("reconstruct.report_recons", "reconstruct.report_recons"),
+        ("reconstruct.report_full_chip_layout", "reconstruct.report_full_chip_layout"),
     ],
 )
 def test_main_runs_reconstruct_phase_substages(

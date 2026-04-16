@@ -67,6 +67,14 @@ def _clear_suptitle(fig: Any) -> None:
 		suptitle.set_text("")
 
 
+def _invert_figure_y_axes(fig: Any) -> None:
+	for ax in list(getattr(fig, "axes", [])):
+		try:
+			ax.invert_yaxis()
+		except Exception:
+			continue
+
+
 def write_unit_channel_selection_diagnostic_figure(
 	*,
 	av: Any,
@@ -76,6 +84,7 @@ def write_unit_channel_selection_diagnostic_figure(
 	locs_xy: Any,
 	gtr: Any,
 	dpi: float = 300.0,
+	invert_y_axis: bool = True,
 ) -> None:
 	if output_png is None and output_svg is None:
 		return
@@ -94,6 +103,8 @@ def write_unit_channel_selection_diagnostic_figure(
 		colorbar_orientation="horizontal",
 	)
 	ax_amp.set_title("Amplitude", fontsize=16)
+	if bool(invert_y_axis):
+		ax_amp.invert_yaxis()
 
 	fig_latency = plt.figure(figsize=(7.5, 4.6))
 	ax_latency = fig_latency.add_subplot(111)
@@ -107,10 +118,14 @@ def write_unit_channel_selection_diagnostic_figure(
 		colorbar_orientation="horizontal",
 	)
 	ax_latency.set_title("Peak latency", fontsize=16)
+	if bool(invert_y_axis):
+		ax_latency.invert_yaxis()
 
 	fig_selection = gtr.plot_channel_selection()
 	fig_selection.set_size_inches(16.0, 4.8, forward=True)
 	_clear_suptitle(fig_selection)
+	if bool(invert_y_axis):
+		_invert_figure_y_axes(fig_selection)
 
 	amp_img = _figure_to_rgba_image(fig=fig_amp)
 	latency_img = _figure_to_rgba_image(fig=fig_latency)
@@ -140,6 +155,7 @@ def write_unit_axon_reconstruction_diagnostic_figure(
 	output_svg: Path | None,
 	gtr: Any,
 	dpi: float = 300.0,
+	invert_y_axis: bool = True,
 ) -> None:
 	if output_png is None and output_svg is None:
 		return
@@ -148,6 +164,8 @@ def write_unit_axon_reconstruction_diagnostic_figure(
 	fig_graph = plt.figure(figsize=(10.0, 7.0))
 	gtr.plot_graph(node_search_labels=False, fig=fig_graph, cmap_nodes="viridis", cmap_edges="YlGn")
 	_clear_suptitle(fig_graph)
+	if bool(invert_y_axis):
+		_invert_figure_y_axes(fig_graph)
 
 	fig_raw, ax_raw = plt.subplots(figsize=(7.0, 8.0))
 	gtr.plot_raw_branches(
@@ -157,6 +175,8 @@ def write_unit_axon_reconstruction_diagnostic_figure(
 		plot_full_template=True,
 		ax=ax_raw,
 	)
+	if bool(invert_y_axis):
+		ax_raw.invert_yaxis()
 	handles, labels = ax_raw.get_legend_handles_labels()
 	if handles and labels:
 		ax_raw.legend(fontsize=9, loc="best")

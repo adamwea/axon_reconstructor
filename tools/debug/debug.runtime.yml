@@ -362,7 +362,6 @@ stages:
             write_model_cache: true
             # Relative to merge output root.
             relpath: cache/slay_model/ae.pt
-
           # If true and force_restart is enabled for merge phase/SLAy, delete the selected model path
           # before running so SLAy retrains from scratch.
           force_restart_retrain_model: false
@@ -803,6 +802,7 @@ stages:
               relpath: template_circles
             display:
               channel_scope: contributing_channels
+              invert_y_axis: true
               force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
               force_square_aspect: true # increase template plot size to make it square (with padding) regardless of the spatial distribution of the channels.
               show_scale_bar: true
@@ -926,6 +926,7 @@ stages:
               # - all_channels: all channels present in full template locations - i.e. all channels physically present on the MEA regardless of whether they had signal or were recorded.
               display:
                 channel_scope: contributing_channels
+                invert_y_axis: true
                 force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
                 force_square_aspect: true # increase template plot size to make it square (with padding) regardless of the spatial distribution of the channels.
                 show_scale_bar: true
@@ -1001,6 +1002,8 @@ stages:
                 write_png: true
                 write_svg: false
                 relpath: footprint_amplitude_map
+              display:
+                invert_y_axis: true
               template:
                 shape: square # square, scan, or full
                 padding_value: zero # zero, one, or nan; only applies if template shape is square or scan
@@ -1013,6 +1016,8 @@ stages:
                 write_png: true
                 write_svg: false
                 relpath: footprint_latency_map
+              display:
+                invert_y_axis: true
               template:
                 shape: square
                 padding_value: zero
@@ -1027,6 +1032,7 @@ stages:
                 shape: square
                 padding_value: zero
               display:
+                invert_y_axis: true
                 elevation_deg: 35
                 azimuth_deg: -60
                 marker_size: 14
@@ -1040,6 +1046,7 @@ stages:
                 shape: square
                 padding_value: zero
               display:
+                invert_y_axis: true
                 elevation_deg: 35
                 azimuth_deg: -60
                 marker_size: 14
@@ -1347,6 +1354,10 @@ stages:
 
     #av:
 
+    branch_colors:
+      unique_color_per_branch: true
+      color_scheme: Set1
+
     phases:
       generate_gtrs:
         enable: true
@@ -1390,6 +1401,7 @@ stages:
               write_svg: false
               relpath: diagnostic_figs/channel_selection
               dpi: 300
+              invert_y_axis: true
 
             # heuristic fig.
             # row 1:
@@ -1403,6 +1415,7 @@ stages:
               write_svg: false
               relpath: diagnostic_figs/axon_reconstruction
               dpi: 300
+              invert_y_axis: true
 
 
 
@@ -1477,13 +1490,11 @@ stages:
               base: template_circles # which template plot to put branch morphology on top of; circles, amplitude_map, or latency_map.
               channel_scope: selected_channels # use channels that survive axon_velocity filtering, then overlay the chosen branch scope on top.
               zoom_padding_percent: 12 # extra padding around selected node/branch channels used to set circle_recon viewport.
+              invert_y_axis: true
               force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
               branch_scope: raw # raw or clean; whether to plot all branches in branches_raw or only the cleaned branches in branches.
-              unique_color_per_branch: true # whether to use a unique color for each branch, which can help visually distinguish branches in complex reconstructions; if false, all branches will be the same color.
               show_branch_labels: false # whether to draw branch ID labels on the plot, which can be useful for visually verifying branch correspondences between the plot and the branch data in the JSON outputs.
               show_branch_legend: true # whether to show a legend mapping branch colors to branch IDs, which can be helpful for interpreting the plot when unique_color_per_branch is true and there are multiple branches.
-              #color_scheme: tab20 # color scheme to use when unique_color_per_branch is true; should be a valid matplotlib categorical colormap name.
-              color_scheme: Set1
               branch_linewidth_pt: 1.5
               node_inline_linewidth_pt: 1.0
               node_outline_color: white
@@ -1496,16 +1507,69 @@ stages:
               relpath: circle_recon
               #dpi: 420
               dpi: 300
-      plot_branch_propogations:
+      plot_branch_propagations:
         enable: true
+        branch_scope: raw
+        display:
+          figsize: [7.5, 4.5]
+          sort_templates: false
+          show_title: true
+          invert_y_axis: false
+        output:
+          write_png: true
+          write_svg: false
+          relpath: branch_qc/propagations
+          manifest_relpath: reports/branch_propagations_manifest.json
+          dpi: 300
       plot_branch_velocities:
         enable: true
+        branch_scope: raw
+        display:
+          figsize: [6.5, 4.5]
+          show_title: true
+          show_legend: true
+          legend_fontsize: 9
+        output:
+          write_png: true
+          write_svg: false
+          relpath: branch_qc/velocities
+          manifest_relpath: reports/branch_velocities_manifest.json
+          dpi: 300
       report_recons:
         enable: true
         # Emit report-stage artifacts from persisted reconstruct plot outputs.
         av_recons:
           write_pdf: true
           pdf_relpath: av_recons.pdf
+      report_full_chip_layout:
+        enable: true
+        # Aggregate all successfully reconstructed unit branches onto a single chip-level layout.
+        # raw|clean
+        branch_scope: raw
+        unit_colors:
+          # distinct_hsv|colormap
+          strategy: distinct_hsv
+          color_scheme: nipy_spectral
+        display:
+          invert_y_axis: true
+          figsize: [13.0, 7.0]
+          show_title: true
+          title: Full-chip reconstructed branch layout
+          alpha: 0.80
+          linewidth: 1.25
+          show_legend: false
+          legend_fontsize: 6
+          legend_ncols: 1
+          draw_chip_outline: true
+          chip_outline_color: "#666666"
+          chip_outline_linewidth: 1.0
+          background_color: white
+        output:
+          write_png: true
+          write_svg: true
+          relpath: reports/full_chip_layout
+          manifest_relpath: reports/full_chip_layout_manifest.json
+          dpi: 300
 
     # PENDING ORG OF FLAGS BELOW THIS LINE
     inputs:
@@ -1549,6 +1613,7 @@ stages:
         amplitude_map_png_relpath: maps/amplitude_map.png
         amplitude_map:
           relpath: maps/amplitude_map
+          invert_y_axis: true
           panel_background_color: black
           color_bar:
             {}

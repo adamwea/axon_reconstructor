@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt  # type: ignore[import-not-found]
 import matplotlib.collections  # type: ignore[import-not-found]
 
 from axon_recon.pipeline.stages.templates.core.render import render_propagation_plot
+from axon_recon.pipeline.stages.templates.core.render import render_footprint_amplitude_map
 from axon_recon.pipeline.stages.templates.core.render import render_footprint_map_grid_from_assets
 from axon_recon.pipeline.stages.templates.core.render import render_template_wf_overlay
 from axon_recon.pipeline.stages.templates.core.render import render_wf_overlay_grid_from_assets
@@ -1921,6 +1922,7 @@ def test_render_template_plot_center_coords_placed_at_bottom_left_corner(tmp_pat
 		config=TemplatePlotConfig(
 			write_png=True,
 			write_svg=False,
+			invert_y_axis=False,
 			center_most_channel_coords=CenterMostChannelCoordsConfig(
 				show=True,
 				horizontal_alignment="left",
@@ -1938,6 +1940,85 @@ def test_render_template_plot_center_coords_placed_at_bottom_left_corner(tmp_pat
 	assert float(seen_coords_label["y"]) < -0.1
 	assert seen_coords_label["ha"] == "left"
 	assert seen_coords_label["va"] == "bottom"
+
+
+def test_render_template_plot_inverts_y_axis_when_enabled(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+			[-0.6, -1.5, -0.3, 0.0, 0.1],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+			[36.0, 0.0],
+		],
+		dtype=float,
+	)
+	seen = {"count": 0}
+	orig_invert_yaxis = matplotlib.axes.Axes.invert_yaxis
+
+	def _spy_invert_yaxis(self, *args, **kwargs):
+		seen["count"] += 1
+		return orig_invert_yaxis(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "invert_yaxis", _spy_invert_yaxis)
+
+	render_template_plot(
+		template=template,
+		locations_xy=locations,
+		config=TemplatePlotConfig(write_png=True, write_svg=False, invert_y_axis=True),
+		png_path=tmp_path / "template_waveforms_inverted.png",
+		svg_path=tmp_path / "unused.svg",
+	)
+
+	assert seen["count"] >= 1
+
+
+def test_render_footprint_amplitude_map_inverts_y_axis_when_enabled(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[-5.0, -10.0, -3.0],
+			[-2.0, -4.0, -1.0],
+			[-1.0, -6.0, -2.0],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[17.5, 0.0],
+			[0.0, 17.5],
+		],
+		dtype=float,
+	)
+	seen = {"count": 0}
+	orig_invert_yaxis = matplotlib.axes.Axes.invert_yaxis
+
+	def _spy_invert_yaxis(self, *args, **kwargs):
+		seen["count"] += 1
+		return orig_invert_yaxis(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "invert_yaxis", _spy_invert_yaxis)
+
+	render_footprint_amplitude_map(
+		template=template,
+		locations_xy=locations,
+		config=FootprintMapConfig(write_png=True, write_svg=False, invert_y_axis=True),
+		png_path=tmp_path / "footprint_amp_inverted.png",
+		svg_path=tmp_path / "unused.svg",
+		probe_geometry=ProbeGeometryConfig(pitch_um=17.5),
+	)
+
+	assert seen["count"] >= 1
 
 
 def test_render_footprint_map_grid_hides_title_when_disabled(tmp_path: Path, monkeypatch) -> None:
@@ -2958,6 +3039,46 @@ def test_render_topographical_amplitude_footprint_linear_mode_writes_png(tmp_pat
 
 	assert png_path.exists()
 	assert outputs.get("topographical_amplitude_footprint_png") == str(png_path)
+
+
+def test_render_topographical_amplitude_footprint_inverts_y_axis_when_enabled(tmp_path: Path, monkeypatch) -> None:
+	from mpl_toolkits.mplot3d.axes3d import Axes3D
+
+	template = np.asarray(
+		[
+			[-5.0, -10.0, -3.0],
+			[-2.0, -4.0, -1.0],
+			[-1.0, -6.0, -2.0],
+		],
+		dtype=float,
+	)
+	locs = np.asarray(
+		[
+			[0.0, 0.0],
+			[17.5, 0.0],
+			[0.0, 17.5],
+		],
+		dtype=float,
+	)
+	seen = {"count": 0}
+	orig_invert_yaxis = Axes3D.invert_yaxis
+
+	def _spy_invert_yaxis(self, *args, **kwargs):
+		seen["count"] += 1
+		return orig_invert_yaxis(self, *args, **kwargs)
+
+	monkeypatch.setattr(Axes3D, "invert_yaxis", _spy_invert_yaxis)
+
+	render_topographical_amplitude_footprint(
+		template=template,
+		locations_xy=locs,
+		config=TopographicalFootprintConfig(write_png=True, write_svg=False, invert_y_axis=True),
+		png_path=tmp_path / "topo_amp_inverted.png",
+		svg_path=tmp_path / "unused.svg",
+		probe_geometry=ProbeGeometryConfig(pitch_um=17.5),
+	)
+
+	assert seen["count"] >= 1
 
 
 def test_limits_for_template_shape_square_enforces_equal_span() -> None:

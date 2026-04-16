@@ -4,7 +4,10 @@ from .models.inputs import ReconstructionInputs
 from .models.results import ReconstructionResult
 from .runner import (
 	run_reconstruct_generate_gtrs_phase,
+	run_reconstruct_plot_branch_propagations_phase,
+	run_reconstruct_plot_branch_velocities_phase,
 	run_reconstruct_plot_recons_phase,
+	run_reconstruct_report_full_chip_layout_phase,
 	run_reconstruct_report_recons_phase,
 	run_reconstruct_stage,
 )
@@ -22,5 +25,17 @@ def run_reconstruct_plot_recons(inputs: ReconstructionInputs) -> dict[str, objec
 	return run_reconstruct_plot_recons_phase(inputs)
 
 
+def run_reconstruct_plot_branch_propagations(inputs: ReconstructionInputs) -> dict[str, object]:
+	return run_reconstruct_plot_branch_propagations_phase(inputs)
+
+
+def run_reconstruct_plot_branch_velocities(inputs: ReconstructionInputs) -> dict[str, object]:
+	return run_reconstruct_plot_branch_velocities_phase(inputs)
+
+
 def run_reconstruct_report_recons(inputs: ReconstructionInputs) -> dict[str, object]:
 	return run_reconstruct_report_recons_phase(inputs)
+
+
+def run_reconstruct_report_full_chip_layout(inputs: ReconstructionInputs) -> dict[str, object]:
+	return run_reconstruct_report_full_chip_layout_phase(inputs)

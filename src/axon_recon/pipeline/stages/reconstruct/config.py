@@ -13,6 +13,13 @@ from axon_recon.pipeline.stages.templates.config import parse_probe_geometry_fro
 
 from ...execution.context import ExecutionTarget
 from .models.inputs import (
+	ReconstructionBranchColorsConfig,
+	ReconstructionBranchPlotOutputConfig,
+	ReconstructionBranchPropagationDisplayConfig,
+	ReconstructionBranchVelocityDisplayConfig,
+	ReconstructionFullChipLayoutColorConfig,
+	ReconstructionFullChipLayoutDisplayConfig,
+	ReconstructionFullChipLayoutOutputConfig,
 	ReconstructionAvReconsConfig,
 	ReconstructionAxonVelocityPhaseConfig,
 	CircleReconConfig,
@@ -25,7 +32,10 @@ from .models.inputs import (
 	ReconstructionGridReportsConfig,
 	ReconstructionInputs,
 	ReconstructionPhasesConfig,
+	ReconstructionPlotBranchPropagationsPhaseConfig,
+	ReconstructionPlotBranchVelocitiesPhaseConfig,
 	ReconstructionPlotReconsPhaseConfig,
+	ReconstructionReportFullChipLayoutPhaseConfig,
 	ReconstructionReportReconsPhaseConfig,
 	ReconstructionReportsConfig,
 )
@@ -135,11 +145,181 @@ def _build_reconstruct_figure_output_config(
 	default_relpath: str,
 ) -> ReconstructionDiagnosticFigureConfig:
 	data = block if isinstance(block, dict) else {}
+	display_raw = data.get("display", {})
+	display = display_raw if isinstance(display_raw, dict) else {}
 	return ReconstructionDiagnosticFigureConfig(
 		write_png=_as_bool(data.get("write_png", False), False),
 		write_svg=_as_bool(data.get("write_svg", False), False),
 		relpath=str(data.get("relpath", default_relpath) or default_relpath).strip() or str(default_relpath),
 		dpi=float(data.get("dpi", 300.0) or 300.0),
+		invert_y_axis=_as_bool(display.get("invert_y_axis", data.get("invert_y_axis", True)), True),
+	)
+
+
+def _normalize_branch_scope(raw: Any, default: str = "raw") -> str:
+	text = str(raw if raw is not None else default).strip().lower()
+	if text not in {"raw", "clean"}:
+		return str(default)
+	return text
+
+
+def _parse_figsize(raw: Any, default: tuple[float, float]) -> tuple[float, float]:
+	if isinstance(raw, dict):
+		try:
+			width = float(raw.get("width", default[0]))
+			height = float(raw.get("height", default[1]))
+			return (max(1.0, width), max(1.0, height))
+		except Exception:
+			return default
+	if isinstance(raw, (list, tuple)) and len(raw) >= 2:
+		try:
+			return (max(1.0, float(raw[0])), max(1.0, float(raw[1])))
+		except Exception:
+			return default
+	if isinstance(raw, str) and "," in raw:
+		parts = [part.strip() for part in raw.split(",", 1)]
+		if len(parts) == 2:
+			try:
+				return (max(1.0, float(parts[0])), max(1.0, float(parts[1])))
+			except Exception:
+				return default
+	return default
+
+
+def _build_branch_plot_output_config(
+	block: Any,
+	*,
+	default_relpath: str,
+	default_manifest_relpath: str,
+) -> ReconstructionBranchPlotOutputConfig:
+	data = block if isinstance(block, dict) else {}
+	relpath = str(data.get("relpath", default_relpath) or default_relpath).strip() or str(default_relpath)
+	manifest_relpath = str(data.get("manifest_relpath", default_manifest_relpath) or default_manifest_relpath).strip()
+	if not manifest_relpath:
+		manifest_relpath = str(default_manifest_relpath)
+	try:
+		dpi = float(data.get("dpi", 300.0) or 300.0)
+	except Exception:
+		dpi = 300.0
+	return ReconstructionBranchPlotOutputConfig(
+		write_png=_as_bool(data.get("write_png", False), False),
+		write_svg=_as_bool(data.get("write_svg", False), False),
+		relpath=relpath,
+		manifest_relpath=manifest_relpath,
+		dpi=float(max(72.0, dpi)),
+	)
+
+
+def _build_branch_propagation_display_config(block: Any) -> ReconstructionBranchPropagationDisplayConfig:
+	data = block if isinstance(block, dict) else {}
+	default_figsize = ReconstructionBranchPropagationDisplayConfig().figsize
+	return ReconstructionBranchPropagationDisplayConfig(
+		figsize=_parse_figsize(data.get("figsize", default_figsize), default_figsize),
+		sort_templates=_as_bool(data.get("sort_templates", False), False),
+		show_title=_as_bool(data.get("show_title", True), True),
+		invert_y_axis=_as_bool(data.get("invert_y_axis", True), True),
+	)
+
+
+def _build_branch_velocity_display_config(block: Any) -> ReconstructionBranchVelocityDisplayConfig:
+	data = block if isinstance(block, dict) else {}
+	default_cfg = ReconstructionBranchVelocityDisplayConfig()
+	try:
+		legend_fontsize = float(data.get("legend_fontsize", default_cfg.legend_fontsize) or default_cfg.legend_fontsize)
+	except Exception:
+		legend_fontsize = default_cfg.legend_fontsize
+	return ReconstructionBranchVelocityDisplayConfig(
+		figsize=_parse_figsize(data.get("figsize", default_cfg.figsize), default_cfg.figsize),
+		show_title=_as_bool(data.get("show_title", default_cfg.show_title), default_cfg.show_title),
+		show_legend=_as_bool(data.get("show_legend", default_cfg.show_legend), default_cfg.show_legend),
+		legend_fontsize=float(max(1.0, legend_fontsize)),
+	)
+
+
+def _normalize_color_strategy(raw: Any, default: str = "distinct_hsv") -> str:
+	text = str(raw if raw is not None else default).strip().lower().replace("-", "_").replace(" ", "_")
+	if text in {"colormap", "cmap", "sampled_colormap", "sample_colormap"}:
+		return "colormap"
+	if text in {"distinct_hsv", "hsv", "golden_hsv"}:
+		return "distinct_hsv"
+	return str(default)
+
+
+def _build_full_chip_layout_output_config(
+	block: Any,
+	*,
+	default_relpath: str,
+	default_manifest_relpath: str,
+) -> ReconstructionFullChipLayoutOutputConfig:
+	data = block if isinstance(block, dict) else {}
+	relpath = str(data.get("relpath", default_relpath) or default_relpath).strip() or str(default_relpath)
+	manifest_relpath = str(data.get("manifest_relpath", default_manifest_relpath) or default_manifest_relpath).strip()
+	if not manifest_relpath:
+		manifest_relpath = str(default_manifest_relpath)
+	try:
+		dpi = float(data.get("dpi", 300.0) or 300.0)
+	except Exception:
+		dpi = 300.0
+	return ReconstructionFullChipLayoutOutputConfig(
+		write_png=_as_bool(data.get("write_png", True), True),
+		write_svg=_as_bool(data.get("write_svg", False), False),
+		relpath=relpath,
+		manifest_relpath=manifest_relpath,
+		dpi=float(max(72.0, dpi)),
+	)
+
+
+def _build_full_chip_layout_color_config(block: Any) -> ReconstructionFullChipLayoutColorConfig:
+	data = block if isinstance(block, dict) else {}
+	default_cfg = ReconstructionFullChipLayoutColorConfig()
+	return ReconstructionFullChipLayoutColorConfig(
+		strategy=_normalize_color_strategy(data.get("strategy", default_cfg.strategy), default=default_cfg.strategy),
+		color_scheme=str(data.get("color_scheme", default_cfg.color_scheme) or default_cfg.color_scheme),
+	)
+
+
+def _build_full_chip_layout_display_config(block: Any) -> ReconstructionFullChipLayoutDisplayConfig:
+	data = block if isinstance(block, dict) else {}
+	default_cfg = ReconstructionFullChipLayoutDisplayConfig()
+	try:
+		alpha = float(data.get("alpha", default_cfg.alpha) or default_cfg.alpha)
+	except Exception:
+		alpha = default_cfg.alpha
+	try:
+		linewidth = float(data.get("linewidth", default_cfg.linewidth) or default_cfg.linewidth)
+	except Exception:
+		linewidth = default_cfg.linewidth
+	try:
+		legend_fontsize = float(data.get("legend_fontsize", default_cfg.legend_fontsize) or default_cfg.legend_fontsize)
+	except Exception:
+		legend_fontsize = default_cfg.legend_fontsize
+	try:
+		legend_ncols = int(data.get("legend_ncols", default_cfg.legend_ncols) or default_cfg.legend_ncols)
+	except Exception:
+		legend_ncols = default_cfg.legend_ncols
+	try:
+		chip_outline_linewidth = float(
+			data.get("chip_outline_linewidth", default_cfg.chip_outline_linewidth) or default_cfg.chip_outline_linewidth
+		)
+	except Exception:
+		chip_outline_linewidth = default_cfg.chip_outline_linewidth
+	title = str(data.get("title", default_cfg.title) or default_cfg.title)
+	chip_outline_color = str(data.get("chip_outline_color", default_cfg.chip_outline_color) or default_cfg.chip_outline_color)
+	background_color = str(data.get("background_color", default_cfg.background_color) or default_cfg.background_color)
+	return ReconstructionFullChipLayoutDisplayConfig(
+		figsize=_parse_figsize(data.get("figsize", default_cfg.figsize), default_cfg.figsize),
+		show_title=_as_bool(data.get("show_title", default_cfg.show_title), default_cfg.show_title),
+		title=title,
+		invert_y_axis=_as_bool(data.get("invert_y_axis", default_cfg.invert_y_axis), default_cfg.invert_y_axis),
+		alpha=float(min(1.0, max(0.0, alpha))),
+		linewidth=float(max(0.1, linewidth)),
+		show_legend=_as_bool(data.get("show_legend", default_cfg.show_legend), default_cfg.show_legend),
+		legend_fontsize=float(max(1.0, legend_fontsize)),
+		legend_ncols=max(1, int(legend_ncols)),
+		draw_chip_outline=_as_bool(data.get("draw_chip_outline", default_cfg.draw_chip_outline), default_cfg.draw_chip_outline),
+		chip_outline_color=(chip_outline_color if chip_outline_color.strip() else default_cfg.chip_outline_color),
+		chip_outline_linewidth=float(max(0.1, chip_outline_linewidth)),
+		background_color=(background_color if background_color.strip() else default_cfg.background_color),
 	)
 
 
@@ -168,6 +348,7 @@ def _get_reconstruct_amplitude_map_block(runtime_config: RuntimeConfig) -> dict[
 class ReconstructionStageConfig:
 	output_rel_root: str
 	reports: ReconstructionReportsConfig
+	branch_colors: ReconstructionBranchColorsConfig
 	write_summary_png: bool
 	summary_png_relpath: str
 	summary_grid_ncols: int
@@ -209,13 +390,55 @@ def parse_reconstruction_stage_config(
 		tpl_circles_defaults = None
 		tpl_footprint_amplitude_defaults = None
 		tpl_footprint_latency_defaults = None
+	default_circle_unique_color = bool(
+		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "unique_color_per_branch", True)
+	)
+	default_circle_color_scheme = str(
+		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "color_scheme", "tab20") or "tab20"
+	)
 	execution_cfg = stage_cfg.get("execution", {}) if isinstance(stage_cfg.get("execution", {}), dict) else {}
 	inputs_cfg = stage_cfg.get("inputs", {}) if isinstance(stage_cfg.get("inputs", {}), dict) else {}
 	outputs_cfg = stage_cfg.get("outputs", {}) if isinstance(stage_cfg.get("outputs", {}), dict) else {}
+	branch_colors_cfg = stage_cfg.get("branch_colors", {}) if isinstance(stage_cfg.get("branch_colors", {}), dict) else {}
 	phases_cfg = stage_cfg.get("phases", {}) if isinstance(stage_cfg.get("phases", {}), dict) else {}
 	generate_gtrs_cfg = phases_cfg.get("generate_gtrs", {}) if isinstance(phases_cfg.get("generate_gtrs", {}), dict) else {}
 	plot_recons_cfg = phases_cfg.get("plot_recons", {}) if isinstance(phases_cfg.get("plot_recons", {}), dict) else {}
+	legacy_plot_branch_propogations_cfg = (
+		phases_cfg.get("plot_branch_propogations", {})
+		if isinstance(phases_cfg.get("plot_branch_propogations", {}), dict)
+		else {}
+	)
+	plot_branch_propagations_cfg = (
+		phases_cfg.get("plot_branch_propagations", {})
+		if isinstance(phases_cfg.get("plot_branch_propagations", {}), dict)
+		else {}
+	)
+	if legacy_plot_branch_propogations_cfg:
+		plot_branch_propagations_cfg = _deep_merge_dict(
+			dict(legacy_plot_branch_propogations_cfg),
+			dict(plot_branch_propagations_cfg),
+		)
+	plot_branch_velocities_cfg = (
+		phases_cfg.get("plot_branch_velocities", {})
+		if isinstance(phases_cfg.get("plot_branch_velocities", {}), dict)
+		else {}
+	)
 	report_recons_cfg = phases_cfg.get("report_recons", {}) if isinstance(phases_cfg.get("report_recons", {}), dict) else {}
+	legacy_report_full_chip_layout_cfg = (
+		phases_cfg.get("report_full_chip_recon", {})
+		if isinstance(phases_cfg.get("report_full_chip_recon", {}), dict)
+		else {}
+	)
+	report_full_chip_layout_cfg = (
+		phases_cfg.get("report_full_chip_layout", {})
+		if isinstance(phases_cfg.get("report_full_chip_layout", {}), dict)
+		else {}
+	)
+	if legacy_report_full_chip_layout_cfg:
+		report_full_chip_layout_cfg = _deep_merge_dict(
+			dict(legacy_report_full_chip_layout_cfg),
+			dict(report_full_chip_layout_cfg),
+		)
 	generate_gtrs_resources_cfg = (
 		generate_gtrs_cfg.get("resources", {}) if isinstance(generate_gtrs_cfg.get("resources", {}), dict) else {}
 	)
@@ -229,6 +452,41 @@ def parse_reconstruction_stage_config(
 	)
 	phase_plot_outputs_cfg = (
 		plot_recons_cfg.get("outputs", {}) if isinstance(plot_recons_cfg.get("outputs", {}), dict) else {}
+	)
+	plot_branch_propagations_output_cfg = (
+		plot_branch_propagations_cfg.get("output", {})
+		if isinstance(plot_branch_propagations_cfg.get("output", {}), dict)
+		else {}
+	)
+	plot_branch_velocities_output_cfg = (
+		plot_branch_velocities_cfg.get("output", {})
+		if isinstance(plot_branch_velocities_cfg.get("output", {}), dict)
+		else {}
+	)
+	plot_branch_propagations_display_cfg = (
+		plot_branch_propagations_cfg.get("display", {})
+		if isinstance(plot_branch_propagations_cfg.get("display", {}), dict)
+		else {}
+	)
+	plot_branch_velocities_display_cfg = (
+		plot_branch_velocities_cfg.get("display", {})
+		if isinstance(plot_branch_velocities_cfg.get("display", {}), dict)
+		else {}
+	)
+	report_full_chip_layout_output_cfg = (
+		report_full_chip_layout_cfg.get("output", {})
+		if isinstance(report_full_chip_layout_cfg.get("output", {}), dict)
+		else {}
+	)
+	report_full_chip_layout_display_cfg = (
+		report_full_chip_layout_cfg.get("display", {})
+		if isinstance(report_full_chip_layout_cfg.get("display", {}), dict)
+		else {}
+	)
+	report_full_chip_layout_colors_cfg = (
+		report_full_chip_layout_cfg.get("unit_colors", {})
+		if isinstance(report_full_chip_layout_cfg.get("unit_colors", {}), dict)
+		else {}
 	)
 	reports_cfg = outputs_cfg.get("reports", {}) if isinstance(outputs_cfg.get("reports", {}), dict) else {}
 	grids_cfg = reports_cfg.get("grids", {}) if isinstance(reports_cfg.get("grids", {}), dict) else {}
@@ -490,17 +748,11 @@ def parse_reconstruction_stage_config(
 
 	default_circle_base = "template_circles"
 	default_circle_force_center = bool(getattr(tpl_circles_defaults, "force_center_soma", True))
-	default_circle_unique_color = bool(
-		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "unique_color_per_branch", True)
-	)
 	default_circle_show_labels = bool(
 		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "show_branch_labels", False)
 	)
 	default_circle_show_legend = bool(
 		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "show_branch_legend", False)
-	)
-	default_circle_color_scheme = str(
-		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "color_scheme", "tab20") or "tab20"
 	)
 	default_circle_node_lw = float(
 		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "node_border_linewidth", 0.35)
@@ -515,6 +767,13 @@ def parse_reconstruction_stage_config(
 		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "branch_outline_linewidth", 0.0)
 	)
 	default_circle_dpi = float(getattr(tpl_circles_defaults, "dpi", 300.0))
+	branch_colors = ReconstructionBranchColorsConfig(
+		unique_color_per_branch=_as_bool(
+			branch_colors_cfg.get("unique_color_per_branch", default_circle_unique_color),
+			default_circle_unique_color,
+		),
+		color_scheme=str(branch_colors_cfg.get("color_scheme", default_circle_color_scheme) or default_circle_color_scheme),
+	)
 
 	circle_base = str(circle_display_cfg.get("base", default_circle_base) or default_circle_base).strip().lower()
 	if circle_base not in {"template_circles", "amplitude_map", "latency_map"}:
@@ -578,12 +837,19 @@ def parse_reconstruction_stage_config(
 			base=circle_base,
 			channel_scope=circle_channel_scope,
 			zoom_padding_percent=circle_zoom_padding_percent,
+			invert_y_axis=_as_bool(
+				circle_display_cfg.get("invert_y_axis", getattr(tpl_circles_defaults, "invert_y_axis", True)),
+				getattr(tpl_circles_defaults, "invert_y_axis", True),
+			),
 			force_center_soma=_as_bool(circle_display_cfg.get("force_center_soma", default_circle_force_center), default_circle_force_center),
 			branch_scope=circle_branch_scope,
-			unique_color_per_branch=_as_bool(circle_display_cfg.get("unique_color_per_branch", default_circle_unique_color), default_circle_unique_color),
+			unique_color_per_branch=_as_bool(
+				circle_display_cfg.get("unique_color_per_branch", branch_colors.unique_color_per_branch),
+				branch_colors.unique_color_per_branch,
+			),
 			show_branch_labels=_as_bool(circle_display_cfg.get("show_branch_labels", default_circle_show_labels), default_circle_show_labels),
 				show_branch_legend=_as_bool(circle_display_cfg.get("show_branch_legend", default_circle_show_legend), default_circle_show_legend),
-			color_scheme=str(circle_display_cfg.get("color_scheme", default_circle_color_scheme) or default_circle_color_scheme),
+			color_scheme=str(circle_display_cfg.get("color_scheme", branch_colors.color_scheme) or branch_colors.color_scheme),
 			node_outline_color=circle_node_outline_color,
 				node_outline_linewidth=float(max(0.0, circle_node_outline_lw)),
 			branch_outline_color=circle_branch_outline_color,
@@ -622,6 +888,44 @@ def parse_reconstruction_stage_config(
 			enabled=_phase_enabled(plot_recons_cfg, True),
 			summary_json_relpath=str(plot_recons_cfg.get("summary_json_relpath", "context/plot_recons_summary.json")),
 		),
+		plot_branch_propagations=ReconstructionPlotBranchPropagationsPhaseConfig(
+			enabled=_phase_enabled(plot_branch_propagations_cfg, False),
+			summary_json_relpath=str(
+				plot_branch_propagations_cfg.get(
+					"summary_json_relpath",
+					"context/plot_branch_propagations_summary.json",
+				)
+			),
+			branch_scope=_normalize_branch_scope(
+				plot_branch_propagations_cfg.get("branch_scope", "raw"),
+				default="raw",
+			),
+			display=_build_branch_propagation_display_config(plot_branch_propagations_display_cfg),
+			output=_build_branch_plot_output_config(
+				plot_branch_propagations_output_cfg,
+				default_relpath="branch_plots/propagations",
+				default_manifest_relpath="branch_propagations_manifest.json",
+			),
+		),
+		plot_branch_velocities=ReconstructionPlotBranchVelocitiesPhaseConfig(
+			enabled=_phase_enabled(plot_branch_velocities_cfg, False),
+			summary_json_relpath=str(
+				plot_branch_velocities_cfg.get(
+					"summary_json_relpath",
+					"context/plot_branch_velocities_summary.json",
+				)
+			),
+			branch_scope=_normalize_branch_scope(
+				plot_branch_velocities_cfg.get("branch_scope", "raw"),
+				default="raw",
+			),
+			display=_build_branch_velocity_display_config(plot_branch_velocities_display_cfg),
+			output=_build_branch_plot_output_config(
+				plot_branch_velocities_output_cfg,
+				default_relpath="branch_plots/velocities",
+				default_manifest_relpath="branch_velocities_manifest.json",
+			),
+		),
 		report_recons=ReconstructionReportReconsPhaseConfig(
 			enabled=_phase_enabled(report_recons_cfg, True),
 			summary_json_relpath=str(
@@ -630,6 +934,26 @@ def parse_reconstruction_stage_config(
 			av_recons=ReconstructionAvReconsConfig(
 				write_pdf=_as_bool(report_av_recons_cfg.get("write_pdf", False), False),
 				pdf_relpath=str(report_av_recons_cfg.get("pdf_relpath", "av_recons.pdf")),
+			),
+		),
+		report_full_chip_layout=ReconstructionReportFullChipLayoutPhaseConfig(
+			enabled=_phase_enabled(report_full_chip_layout_cfg, False),
+			summary_json_relpath=str(
+				report_full_chip_layout_cfg.get(
+					"summary_json_relpath",
+					"context/report_full_chip_layout_summary.json",
+				)
+			),
+			branch_scope=_normalize_branch_scope(
+				report_full_chip_layout_cfg.get("branch_scope", "raw"),
+				default="raw",
+			),
+			unit_colors=_build_full_chip_layout_color_config(report_full_chip_layout_colors_cfg),
+			display=_build_full_chip_layout_display_config(report_full_chip_layout_display_cfg),
+			output=_build_full_chip_layout_output_config(
+				report_full_chip_layout_output_cfg,
+				default_relpath="reports/full_chip_layout",
+				default_manifest_relpath="reports/full_chip_layout_manifest.json",
 			),
 		),
 	)
@@ -684,6 +1008,7 @@ def parse_reconstruction_stage_config(
 	return ReconstructionStageConfig(
 		output_rel_root=str(outputs_cfg.get("output_rel_root", "recon_outputs")),
 		reports=reports,
+		branch_colors=branch_colors,
 		write_summary_png=write_summary_png,
 		summary_png_relpath=summary_png_relpath,
 		summary_grid_ncols=summary_grid_ncols,
@@ -718,6 +1043,7 @@ def build_reconstruction_inputs_for_target(
 		final_output_root=(target.final_output_root or target.mea_output_root),
 		output_rel_root=stage_config.output_rel_root,
 		reports=stage_config.reports,
+		branch_colors=stage_config.branch_colors,
 		write_summary_png=stage_config.write_summary_png,
 		summary_png_relpath=stage_config.summary_png_relpath,
 		summary_grid_ncols=stage_config.summary_grid_ncols,
@@ -791,6 +1117,7 @@ def load_reconstruction_inputs_from_runtime(
 		final_output_root=output_root,
 		output_rel_root=stage_cfg.output_rel_root,
 		reports=stage_cfg.reports,
+		branch_colors=stage_cfg.branch_colors,
 		write_summary_png=stage_cfg.write_summary_png,
 		summary_png_relpath=stage_cfg.summary_png_relpath,
 		summary_grid_ncols=stage_cfg.summary_grid_ncols,

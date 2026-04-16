@@ -53,10 +53,12 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			          diagnostic_figs:
 			            channel_selection:
 			              write_png: true
+			              invert_y_axis: false
 			              relpath: figures/channel_selection
 			            axon_reconstruction:
 			              write_png: true
 			              write_svg: true
+			              invert_y_axis: false
 			              relpath: figures/axon_reconstruction
 			    outputs:
 			      output_rel_root: recon_outputs
@@ -91,6 +93,7 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			      amplitude_map:
 			        write_png: true
 			        relpath: maps/from_stage_block
+			        invert_y_axis: false
 			        panel_background_color: black
 			        color_bar:
 			          location: bottomleft
@@ -104,6 +107,7 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			              base: template_circles
 			              channel_scope: nodes_and_branches
 			              zoom_padding_percent: 12
+			              invert_y_axis: false
 			              force_center_soma: true
 			              branch_scope: raw
 			              unique_color_per_branch: true
@@ -143,9 +147,11 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert inputs.phases.generate_gtrs.outputs.detection_filter_relpath == "filters/detect.json"
 	assert inputs.phases.generate_gtrs.outputs.write_gtr_json is True
 	assert inputs.phases.generate_gtrs.outputs.channel_selection_figure.write_png is True
+	assert inputs.phases.generate_gtrs.outputs.channel_selection_figure.invert_y_axis is False
 	assert inputs.phases.generate_gtrs.outputs.channel_selection_figure.relpath == "figures/channel_selection"
 	assert inputs.phases.generate_gtrs.outputs.axon_reconstruction_figure.write_png is True
 	assert inputs.phases.generate_gtrs.outputs.axon_reconstruction_figure.write_svg is True
+	assert inputs.phases.generate_gtrs.outputs.axon_reconstruction_figure.invert_y_axis is False
 	assert inputs.phases.generate_gtrs.outputs.axon_reconstruction_figure.relpath == "figures/axon_reconstruction"
 	assert inputs.per_unit_outputs.write_gtr_pkl is True
 	assert inputs.per_unit_outputs.write_detection_filter_json is True
@@ -153,13 +159,16 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert inputs.per_unit_outputs.write_gtr_json is True
 	assert inputs.per_unit_outputs.template_source == "merged"
 	assert inputs.per_unit_outputs.channel_selection_figure.write_png is True
+	assert inputs.per_unit_outputs.channel_selection_figure.invert_y_axis is False
 	assert inputs.per_unit_outputs.channel_selection_figure.relpath == "figures/channel_selection"
 	assert inputs.per_unit_outputs.axon_reconstruction_figure.write_png is True
 	assert inputs.per_unit_outputs.axon_reconstruction_figure.write_svg is True
+	assert inputs.per_unit_outputs.axon_reconstruction_figure.invert_y_axis is False
 	assert inputs.per_unit_outputs.axon_reconstruction_figure.relpath == "figures/axon_reconstruction"
 	assert inputs.per_unit_outputs.write_amplitude_map_png is True
 	assert inputs.per_unit_outputs.amplitude_map_png_relpath == "maps/amplitude_map.png"
 	assert inputs.per_unit_outputs.amplitude_map_heatmap.colorbar_location == "bottomleft"
+	assert inputs.per_unit_outputs.amplitude_map_heatmap.invert_y_axis is False
 	assert inputs.per_unit_outputs.amplitude_map_heatmap.show_ticks == (2, 4, "dynamic_high")
 	assert inputs.per_unit_outputs.amplitude_map_heatmap.low_color == "navy"
 	assert inputs.per_unit_outputs.amplitude_map_heatmap.scale == "log"
@@ -168,6 +177,7 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert circle.display.base == "template_circles"
 	assert circle.display.channel_scope == "nodes_and_branches"
 	assert circle.display.zoom_padding_percent == 12.0
+	assert circle.display.invert_y_axis is False
 	assert circle.display.force_center_soma is True
 	assert circle.display.branch_scope == "raw"
 	assert circle.display.unique_color_per_branch is True
@@ -267,6 +277,245 @@ def test_load_config_reconstruct_prefers_unit_ids_override(tmp_path: Path) -> No
 		unit_ids_override=[44, 50, 44],
 	)
 	assert inputs.unit_ids == [44, 50]
+
+
+def test_load_config_reconstruct_parses_branch_plot_phase_alias_and_shared_branch_colors(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  reconstruct:
+			    branch_colors:
+			      unique_color_per_branch: false
+			      color_scheme: Set1
+			    phases:
+			      plot_recons:
+			        enable: true
+			        outputs:
+			          circle_recon:
+			            display:
+			              branch_scope: raw
+			      plot_branch_propogations:
+			        enable: true
+			        branch_scope: raw
+			        display:
+			          figsize: [7, 5]
+			          sort_templates: true
+			          show_title: false
+			          invert_y_axis: false
+			        output:
+			          write_png: true
+			          relpath: branch_qc/propagations
+			          manifest_relpath: reports/branch_propagations_manifest.json
+			      plot_branch_velocities:
+			        enable: true
+			        branch_scope: clean
+			        display:
+			          figsize: [8, 4]
+			          show_title: false
+			          show_legend: false
+			          legend_fontsize: 11
+			        output:
+			          write_png: true
+			          relpath: branch_qc/velocities
+			          manifest_relpath: reports/branch_velocities_manifest.json
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.branch_colors.unique_color_per_branch is False
+	assert inputs.branch_colors.color_scheme == "Set1"
+	assert inputs.per_unit_outputs.circle_recon.display.unique_color_per_branch is False
+	assert inputs.per_unit_outputs.circle_recon.display.color_scheme == "Set1"
+	assert inputs.phases.plot_branch_propagations.enabled is True
+	assert inputs.phases.plot_branch_propagations.branch_scope == "raw"
+	assert inputs.phases.plot_branch_propagations.display.figsize == (7.0, 5.0)
+	assert inputs.phases.plot_branch_propagations.display.sort_templates is True
+	assert inputs.phases.plot_branch_propagations.display.show_title is False
+	assert inputs.phases.plot_branch_propagations.display.invert_y_axis is False
+	assert inputs.phases.plot_branch_propagations.output.write_png is True
+	assert inputs.phases.plot_branch_propagations.output.relpath == "branch_qc/propagations"
+	assert inputs.phases.plot_branch_propagations.output.manifest_relpath == "reports/branch_propagations_manifest.json"
+	assert inputs.phases.plot_branch_velocities.enabled is True
+	assert inputs.phases.plot_branch_velocities.branch_scope == "clean"
+	assert inputs.phases.plot_branch_velocities.display.figsize == (8.0, 4.0)
+	assert inputs.phases.plot_branch_velocities.display.show_title is False
+	assert inputs.phases.plot_branch_velocities.display.show_legend is False
+	assert inputs.phases.plot_branch_velocities.display.legend_fontsize == 11.0
+	assert inputs.phases.plot_branch_velocities.output.relpath == "branch_qc/velocities"
+	assert inputs.phases.plot_branch_velocities.output.manifest_relpath == "reports/branch_velocities_manifest.json"
+
+
+def test_load_config_reconstruct_canonical_branch_plot_phase_overrides_alias(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  reconstruct:
+			    phases:
+			      plot_branch_propogations:
+			        enable: false
+			        branch_scope: clean
+			      plot_branch_propagations:
+			        enable: true
+			        branch_scope: raw
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.phases.plot_branch_propagations.enabled is True
+	assert inputs.phases.plot_branch_propagations.branch_scope == "raw"
+
+
+def test_load_config_reconstruct_parses_full_chip_layout_phase_alias(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  reconstruct:
+			    phases:
+			      report_full_chip_recon:
+			        enable: true
+			        branch_scope: clean
+			        unit_colors:
+			          strategy: colormap
+			          color_scheme: tab20
+			        display:
+			          figsize: [12, 7]
+			          show_title: false
+			          invert_y_axis: false
+			          alpha: 0.55
+			          linewidth: 2.0
+			          show_legend: true
+			          legend_fontsize: 7
+			          legend_ncols: 2
+			          draw_chip_outline: false
+			          background_color: black
+			        output:
+			          write_png: true
+			          write_svg: true
+			          relpath: reports/chip_layout
+			          manifest_relpath: reports/chip_layout_manifest.json
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
+	phase = inputs.phases.report_full_chip_layout
+	assert phase.enabled is True
+	assert phase.branch_scope == "clean"
+	assert phase.unit_colors.strategy == "colormap"
+	assert phase.unit_colors.color_scheme == "tab20"
+	assert phase.display.figsize == (12.0, 7.0)
+	assert phase.display.show_title is False
+	assert phase.display.invert_y_axis is False
+	assert phase.display.alpha == 0.55
+	assert phase.display.linewidth == 2.0
+	assert phase.display.show_legend is True
+	assert phase.display.legend_fontsize == 7.0
+	assert phase.display.legend_ncols == 2
+	assert phase.display.draw_chip_outline is False
+	assert phase.display.background_color == "black"
+	assert phase.output.write_png is True
+	assert phase.output.write_svg is True
+	assert phase.output.relpath == "reports/chip_layout"
+	assert phase.output.manifest_relpath == "reports/chip_layout_manifest.json"
+
+
+def test_load_config_reconstruct_canonical_full_chip_layout_overrides_alias(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  reconstruct:
+			    phases:
+			      report_full_chip_recon:
+			        enable: false
+			        branch_scope: clean
+			      report_full_chip_layout:
+			        enable: true
+			        branch_scope: raw
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.phases.report_full_chip_layout.enabled is True
+	assert inputs.phases.report_full_chip_layout.branch_scope == "raw"
 
 
 def test_load_config_reconstruct_legacy_stage_block_without_global_defaults(tmp_path: Path) -> None:
