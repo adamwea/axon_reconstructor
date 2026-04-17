@@ -49,6 +49,7 @@ from axon_recon.pipeline.stages.templates.runner import (
 	_run_templates_plot_batches,
 	run_templates_analyzers_phase,
 	run_templates_build_templates_phase,
+	run_templates_compute_template_similarity_phase,
 	run_templates_plot_templates_phase,
 	run_templates_report_templates_phase,
 	run_templates_stage,
@@ -509,8 +510,67 @@ def test_run_templates_build_templates_phase_requires_analyzer_cache_when_payloa
 		n_jobs=1,
 	)
 
-	with pytest.raises(FileNotFoundError, match="run templates\.analyzers before templates\.build_templates"):
+	with pytest.raises(FileNotFoundError, match=r"run templates\.analyzers before templates\.build_templates"):
 		run_templates_build_templates_phase(inputs)
+
+
+def test_run_templates_compute_template_similarity_phase_requires_built_artifacts(tmp_path: Path) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		require_curated_units=False,
+		unit_ids=[94, 95],
+		n_jobs=1,
+	)
+
+	with pytest.raises(FileNotFoundError, match="run templates.build_templates first"):
+		run_templates_compute_template_similarity_phase(inputs)
+
+
+def test_run_templates_compute_template_similarity_phase_writes_matrix_and_candidates(tmp_path: Path) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir, unit_ids=(91, 92, 93))
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		require_curated_units=False,
+		unit_ids=[91, 92, 93],
+		n_jobs=1,
+	)
+
+	summary = run_templates_compute_template_similarity_phase(inputs)
+
+	assert summary["phase"] == "compute_template_similarity"
+	assert summary["unit_count"] == 3
+	assert summary["pair_count"] == 3
+	assert summary["candidate_pair_count"] >= 1
+	assert Path(str(summary["summary_json"])).exists()
+	outputs = dict(summary["outputs"])
+	assert Path(outputs["template_similarity_matrix_png"]).exists()
+	assert Path(outputs["template_similarity_scores_json"]).exists()
+	assert Path(outputs["template_similarity_candidate_pairs_json"]).exists()
+	assert Path(outputs["template_similarity_candidate_pair_plots_dir"]).exists()
+
+	scores_payload = json.loads(Path(outputs["template_similarity_scores_json"]).read_text(encoding="utf-8"))
+	assert scores_payload["unit_ids"] == [91, 92, 93]
+	assert len(scores_payload["matrix"]) == 3
+
+	candidate_payload = json.loads(Path(outputs["template_similarity_candidate_pairs_json"]).read_text(encoding="utf-8"))
+	assert candidate_payload["candidate_count"] == summary["candidate_pair_count"]
+	assert candidate_payload["candidates"]
+	assert Path(str(candidate_payload["candidates"][0]["pair_plot_png"])).exists()
 
 
 def test_run_templates_stage_writes_png(tmp_path: Path) -> None:

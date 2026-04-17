@@ -280,6 +280,48 @@ class TemplateReportTemplatesPhaseConfig:
 
 
 @dataclass(frozen=True)
+class TemplateSimilarityMatrixOutputConfig:
+	write_png: bool = True
+	write_svg: bool = False
+	png_relpath: str = "template_similarity/similarity_matrix.png"
+	svg_relpath: str = "template_similarity/similarity_matrix.svg"
+	dpi: float = 220.0
+	color_map: str = "viridis"
+	show_tick_labels: bool = True
+	tick_fontsize: float = 7.0
+	annotate_values: bool = False
+	annotation_fontsize: float = 4.0
+
+
+@dataclass(frozen=True)
+class TemplateSimilarityCandidateSelectionConfig:
+	min_similarity: float = 0.75
+	top_k_per_unit: int = 3
+	max_pairs: int = 12
+
+
+@dataclass(frozen=True)
+class TemplateSimilarityPairPlotsConfig:
+	write_png: bool = True
+	relpath_root: str = "template_similarity/candidate_pairs"
+	dpi: float = 220.0
+
+
+@dataclass(frozen=True)
+class TemplateComputeSimilarityPhaseConfig:
+	enabled: bool = True
+	summary_json_relpath: str = "context/compute_template_similarity_summary.json"
+	method: str = "ptp_cosine"
+	scores_json_relpath: str = "template_similarity/similarity_scores.json"
+	candidate_pairs_json_relpath: str = "template_similarity/candidate_pairs.json"
+	matrix: TemplateSimilarityMatrixOutputConfig = field(default_factory=TemplateSimilarityMatrixOutputConfig)
+	candidate_selection: TemplateSimilarityCandidateSelectionConfig = field(
+		default_factory=TemplateSimilarityCandidateSelectionConfig
+	)
+	pair_plots: TemplateSimilarityPairPlotsConfig = field(default_factory=TemplateSimilarityPairPlotsConfig)
+
+
+@dataclass(frozen=True)
 class TemplatePerUnitProcessingPhaseConfig:
 	enabled: bool = True
 	extract_template_segments: TemplateExtractTemplateSegmentsPhaseConfig = field(
@@ -826,6 +868,9 @@ class TemplatesPhasesConfig:
 	analyzers: TemplatesAnalyzersPhaseConfig = field(default_factory=TemplatesAnalyzersPhaseConfig)
 	build_templates: TemplateBuildTemplatesPhaseConfig = field(
 		default_factory=TemplateBuildTemplatesPhaseConfig
+	)
+	compute_template_similarity: TemplateComputeSimilarityPhaseConfig = field(
+		default_factory=TemplateComputeSimilarityPhaseConfig
 	)
 	plot_templates: TemplatePlotsPhaseConfig = field(default_factory=TemplatePlotsPhaseConfig)
 	report_templates: TemplateReportTemplatesPhaseConfig = field(default_factory=TemplateReportTemplatesPhaseConfig)

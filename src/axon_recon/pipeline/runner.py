@@ -42,6 +42,7 @@ from .stages.templates.api import (
 	run_templates,
 	run_templates_analyzers,
 	run_templates_build_templates,
+	run_templates_compute_template_similarity,
 	run_templates_extract_template_segments,
 	run_templates_per_unit_processing,
 	run_templates_plot_templates,
@@ -1400,6 +1401,25 @@ def run_templates_build_templates_from_runtime(
 		config_path=config_path,
 		stage_name="templates.build_templates",
 		runner_fn=run_templates_build_templates,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_templates_compute_template_similarity_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_templates_substage_from_runtime(
+		config_path=config_path,
+		stage_name="templates.compute_template_similarity",
+		runner_fn=run_templates_compute_template_similarity,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
 		force_restart_override=force_restart_override,

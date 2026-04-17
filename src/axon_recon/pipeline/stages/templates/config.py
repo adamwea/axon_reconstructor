@@ -30,6 +30,7 @@ from .models.inputs import (
 	ProbeGeometryConfig,
 	TemplateAnalysisPhaseConfig,
 	TemplateBuildTemplatesPhaseConfig,
+	TemplateComputeSimilarityPhaseConfig,
 	TemplateExtractTemplateSegmentsPhaseConfig,
 	TemplateLeafPhaseConfig,
 	TemplatePerUnitProcessingPhaseConfig,
@@ -55,6 +56,9 @@ from .models.inputs import (
 	TemplatePlotConfig,
 	TemplateWaveformOverlayConfig,
 	TemplatesPhasesConfig,
+	TemplateSimilarityCandidateSelectionConfig,
+	TemplateSimilarityMatrixOutputConfig,
+	TemplateSimilarityPairPlotsConfig,
 	UnitLocationsReportConfig,
 	UnitIdLabelConfig,
 	TopographicalFootprintConfig,
@@ -3563,10 +3567,19 @@ def parse_templates_stage_config(
 	phase_extract_cfg = _phase_block(phases_cfg, "per_unit_processing", "extract_template_segments")
 	phase_quality_cfg_raw = _phase_block(phases_cfg, "per_unit_processing", "quality_checks")
 	phase_analysis_cfg = _phase_block(phases_cfg, "per_unit_processing", "analysis")
+	phase_compute_similarity_cfg = _phase_block(phases_cfg, "compute_template_similarity")
 	phase_plot_templates_cfg = _phase_block(phases_cfg, "plot_templates")
 	phase_report_templates_cfg = _phase_block(phases_cfg, "report_templates")
 	phase_plots_cfg = _phase_block(phases_cfg, "per_unit_processing", "plots")
 	phase_reports_cfg = _phase_block(phases_cfg, "reports")
+	phase_compute_similarity_outputs_cfg = _phase_block(phase_compute_similarity_cfg, "outputs")
+	phase_compute_similarity_matrix_cfg = _phase_block(phase_compute_similarity_outputs_cfg, "matrix")
+	if not phase_compute_similarity_matrix_cfg:
+		phase_compute_similarity_matrix_cfg = _phase_block(phase_compute_similarity_cfg, "matrix")
+	phase_compute_similarity_pair_plots_cfg = _phase_block(phase_compute_similarity_outputs_cfg, "pair_plots")
+	if not phase_compute_similarity_pair_plots_cfg:
+		phase_compute_similarity_pair_plots_cfg = _phase_block(phase_compute_similarity_cfg, "pair_plots")
+	phase_compute_similarity_candidate_cfg = _phase_block(phase_compute_similarity_cfg, "candidate_selection")
 	effective_plot_phase_cfg = (phase_plot_templates_cfg if phase_plot_templates_cfg else phase_plots_cfg)
 	plot_phase_resources_cfg = _phase_block(effective_plot_phase_cfg, "resources")
 	plot_phase_unit_workers = _parse_optional_positive_int(
@@ -3583,6 +3596,88 @@ def parse_templates_stage_config(
 		summary_json_relpath=str(phase_build_cfg.get("summary_json_relpath", "context/build_templates_summary.json")),
 		merge=merge,
 		execution_upsampling=execution_upsampling,
+	)
+	compute_template_similarity_phase = TemplateComputeSimilarityPhaseConfig(
+		enabled=_as_bool(phase_compute_similarity_cfg.get("enabled", True), True),
+		summary_json_relpath=str(
+			phase_compute_similarity_cfg.get(
+				"summary_json_relpath",
+				"context/compute_template_similarity_summary.json",
+			)
+		),
+		method=str(phase_compute_similarity_cfg.get("method", "ptp_cosine")),
+		scores_json_relpath=str(
+			phase_compute_similarity_cfg.get(
+				"scores_json_relpath",
+				phase_compute_similarity_outputs_cfg.get(
+					"scores_json_relpath",
+					"template_similarity/similarity_scores.json",
+				),
+			)
+		),
+		candidate_pairs_json_relpath=str(
+			phase_compute_similarity_cfg.get(
+				"candidate_pairs_json_relpath",
+				phase_compute_similarity_outputs_cfg.get(
+					"candidate_pairs_json_relpath",
+					"template_similarity/candidate_pairs.json",
+				),
+			)
+		),
+		matrix=TemplateSimilarityMatrixOutputConfig(
+			write_png=_as_bool(phase_compute_similarity_matrix_cfg.get("write_png", True), True),
+			write_svg=_as_bool(phase_compute_similarity_matrix_cfg.get("write_svg", False), False),
+			png_relpath=str(
+				phase_compute_similarity_matrix_cfg.get(
+					"png_relpath",
+					phase_compute_similarity_matrix_cfg.get(
+						"relpath",
+						"template_similarity/similarity_matrix.png",
+					),
+				)
+			),
+			svg_relpath=str(
+				phase_compute_similarity_matrix_cfg.get(
+					"svg_relpath",
+					"template_similarity/similarity_matrix.svg",
+				)
+			),
+			dpi=_as_float(phase_compute_similarity_matrix_cfg.get("dpi", 220.0), 220.0),
+			color_map=str(phase_compute_similarity_matrix_cfg.get("color_map", "viridis")),
+			show_tick_labels=_as_bool(
+				phase_compute_similarity_matrix_cfg.get("show_tick_labels", True),
+				True,
+			),
+			tick_fontsize=_as_float(phase_compute_similarity_matrix_cfg.get("tick_fontsize", 7.0), 7.0),
+			annotate_values=_as_bool(
+				phase_compute_similarity_matrix_cfg.get("annotate_values", False),
+				False,
+			),
+			annotation_fontsize=_as_float(
+				phase_compute_similarity_matrix_cfg.get("annotation_fontsize", 4.0),
+				4.0,
+			),
+		),
+		candidate_selection=TemplateSimilarityCandidateSelectionConfig(
+			min_similarity=float(
+				max(0.0, min(1.0, _as_float(phase_compute_similarity_candidate_cfg.get("min_similarity", 0.75), 0.75)))
+			),
+			top_k_per_unit=int(max(1, _as_int(phase_compute_similarity_candidate_cfg.get("top_k_per_unit", 3), 3))),
+			max_pairs=int(max(1, _as_int(phase_compute_similarity_candidate_cfg.get("max_pairs", 12), 12))),
+		),
+		pair_plots=TemplateSimilarityPairPlotsConfig(
+			write_png=_as_bool(phase_compute_similarity_pair_plots_cfg.get("write_png", True), True),
+			relpath_root=str(
+				phase_compute_similarity_pair_plots_cfg.get(
+					"relpath_root",
+					phase_compute_similarity_pair_plots_cfg.get(
+						"relpath",
+						"template_similarity/candidate_pairs",
+					),
+				)
+			),
+			dpi=_as_float(phase_compute_similarity_pair_plots_cfg.get("dpi", 220.0), 220.0),
+		),
 	)
 	plot_templates_phase = TemplatePlotsPhaseConfig(
 		enabled=_as_bool(effective_plot_phase_cfg.get("enabled", True), True),
@@ -3664,6 +3759,7 @@ def parse_templates_stage_config(
 		resolve_sources=resolve_sources_phase,
 		analyzers=analyzers_phase,
 		build_templates=build_templates_phase,
+		compute_template_similarity=compute_template_similarity_phase,
 		plot_templates=plot_templates_phase,
 		report_templates=report_templates_phase,
 		per_unit_processing=per_unit_processing_phase,

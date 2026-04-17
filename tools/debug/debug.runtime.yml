@@ -787,6 +787,8 @@ stages:
           max_waveforms_per_source_channel: -1
           overlap_match_priority: [electrode_id, location]
           location_tolerance_um: 1.0
+      compute_template_similarity:
+        enabled: true
       plot_templates:
         enabled: true
         summary_json_relpath: context/plot_templates_summary.json

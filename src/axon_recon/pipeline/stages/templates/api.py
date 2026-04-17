@@ -5,6 +5,7 @@ from .models.results import TemplatesResult
 from .runner import (
 	run_templates_analyzers_phase,
 	run_templates_build_templates_phase,
+	run_templates_compute_template_similarity_phase,
 	run_templates_extract_template_segments_phase,
 	run_templates_per_unit_processing_phase,
 	run_templates_plot_templates_phase,
@@ -33,6 +34,10 @@ def run_templates_extract_template_segments(inputs: TemplatesInputs) -> dict[str
 
 def run_templates_build_templates(inputs: TemplatesInputs) -> dict[str, object]:
 	return run_templates_build_templates_phase(inputs)
+
+
+def run_templates_compute_template_similarity(inputs: TemplatesInputs) -> dict[str, object]:
+	return run_templates_compute_template_similarity_phase(inputs)
 
 
 def run_templates_plot_templates(inputs: TemplatesInputs) -> dict[str, object]:

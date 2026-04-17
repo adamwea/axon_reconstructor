@@ -3073,6 +3073,86 @@ def test_load_templates_config_parses_report_templates_phase_block(tmp_path: Pat
 	assert inputs.phases.report_templates.write_pdf is True
 
 
+def test_load_templates_config_parses_compute_template_similarity_phase_block(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    phases:
+			      compute_template_similarity:
+			        enabled: true
+			        summary_json_relpath: context/custom_compute_similarity_summary.json
+			        method: weighted_jaccard
+			        candidate_selection:
+			          min_similarity: 0.82
+			          top_k_per_unit: 4
+			          max_pairs: 9
+			        outputs:
+			          scores_json_relpath: reports/template_similarity/scores.json
+			          candidate_pairs_json_relpath: reports/template_similarity/candidates.json
+			          matrix:
+			            write_png: true
+			            write_svg: true
+			            png_relpath: reports/template_similarity/matrix.png
+			            svg_relpath: reports/template_similarity/matrix.svg
+			            dpi: 180
+			            color_map: magma
+			            show_tick_labels: false
+			            tick_fontsize: 9
+			            annotate_values: true
+			            annotation_fontsize: 5
+			          pair_plots:
+			            write_png: true
+			            relpath_root: reports/template_similarity/pairs
+			            dpi: 160
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	phase = inputs.phases.compute_template_similarity
+	assert phase.enabled is True
+	assert phase.summary_json_relpath == "context/custom_compute_similarity_summary.json"
+	assert phase.method == "weighted_jaccard"
+	assert phase.scores_json_relpath == "reports/template_similarity/scores.json"
+	assert phase.candidate_pairs_json_relpath == "reports/template_similarity/candidates.json"
+	assert phase.candidate_selection.min_similarity == 0.82
+	assert phase.candidate_selection.top_k_per_unit == 4
+	assert phase.candidate_selection.max_pairs == 9
+	assert phase.matrix.write_png is True
+	assert phase.matrix.write_svg is True
+	assert phase.matrix.png_relpath == "reports/template_similarity/matrix.png"
+	assert phase.matrix.svg_relpath == "reports/template_similarity/matrix.svg"
+	assert phase.matrix.dpi == 180
+	assert phase.matrix.color_map == "magma"
+	assert phase.matrix.show_tick_labels is False
+	assert phase.matrix.tick_fontsize == 9
+	assert phase.matrix.annotate_values is True
+	assert phase.matrix.annotation_fontsize == 5
+	assert phase.pair_plots.write_png is True
+	assert phase.pair_plots.relpath_root == "reports/template_similarity/pairs"
+	assert phase.pair_plots.dpi == 160
+
+
 def test_load_templates_config_build_templates_falls_back_to_legacy_nested_phase_block(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(

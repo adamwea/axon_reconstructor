@@ -56,6 +56,11 @@ def test_parse_stage_list_tokens_maps_legacy_templates_plot_templates_alias() ->
     assert parsed == ["templates.plot_templates"]
 
 
+def test_parse_stage_list_tokens_maps_template_compute_template_similarity_alias() -> None:
+    parsed = pipeline_cli._parse_stage_list_tokens(["template.compute_template_similarity"])
+    assert parsed == ["templates.compute_template_similarity"]
+
+
 def test_parse_stage_list_tokens_maps_legacy_template_report_templates_alias() -> None:
     parsed = pipeline_cli._parse_stage_list_tokens(["template.report_templates"])
     assert parsed == ["templates.report_templates"]
@@ -282,6 +287,35 @@ def test_main_runs_templates_plot_templates_substage(monkeypatch, tmp_path: Path
 
     assert rc == 0
     assert calls == ["templates.plot_templates"]
+
+
+def test_main_runs_templates_compute_template_similarity_substage(monkeypatch, tmp_path: Path) -> None:
+    runtime_cfg = tmp_path / "runtime.yml"
+    _write_runtime_cfg(runtime_cfg)
+
+    calls: list[str] = []
+
+    def _compute_template_similarity(args):
+        calls.append(str(getattr(args, "stage", "")))
+        return 0
+
+    monkeypatch.setitem(
+        pipeline_cli._STAGE_HANDLERS,
+        "templates.compute_template_similarity",
+        _compute_template_similarity,
+    )
+
+    rc = pipeline_cli.main(
+        [
+            "stages",
+            "templates.compute_template_similarity",
+            "--config",
+            str(runtime_cfg),
+        ]
+    )
+
+    assert rc == 0
+    assert calls == ["templates.compute_template_similarity"]
 
 
 @pytest.mark.parametrize(

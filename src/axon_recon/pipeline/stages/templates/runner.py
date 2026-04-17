@@ -23,6 +23,10 @@ from axon_recon.pipeline.shared.grid_sorting import (
 )
 
 from .core.build_templates import build_templates_phase_from_payloads, build_templates_phase_from_unit_payloads
+from .core.compute_template_similarity import (
+	TemplateSimilarityUnitInput,
+	build_template_similarity_phase_summary,
+)
 from .core.merge import materialize_templates_from_spikeinterface
 from .core.plot_templates import (
 	build_plot_templates_phase_inputs,
@@ -63,6 +67,7 @@ from .io import (
 	resolve_materialized_source_payload_unit_dir,
 	resolve_materialized_templates_dirs,
 	resolve_report_output_paths,
+	resolve_similarity_output_paths,
 	resolve_unit_output_paths,
 	write_materialized_merged_electrode_ids,
 	write_materialized_source_payload,
@@ -769,6 +774,13 @@ def _collect_existing_templates_report_outputs(
 	for key, path in resolve_report_output_paths(templates_out_dir=templates_out_dir, reports=inputs.reports).items():
 		if path.exists():
 			report_outputs[key] = str(path)
+	if bool(inputs.phases.compute_template_similarity.enabled):
+		for key, path in resolve_similarity_output_paths(
+			templates_out_dir=templates_out_dir,
+			similarity=inputs.phases.compute_template_similarity,
+		).items():
+			if path.exists():
+				report_outputs[key] = str(path)
 	return report_outputs
 
 
@@ -2178,6 +2190,146 @@ def run_templates_build_templates_phase(inputs: TemplatesInputs) -> dict[str, An
 	return summary
 
 
+def run_templates_compute_template_similarity_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+	phase_started = perf_counter()
+	well_out_dir, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
+	try:
+		merged_units_dir, _ = _resolve_templates_dirs(
+			well_out_dir=well_out_dir,
+			templates_out_dir=templates_out_dir,
+		)
+	except FileNotFoundError as exc:
+		raise FileNotFoundError(
+			"Missing built template artifacts for compute_template_similarity; run templates.build_templates first"
+		) from exc
+	unit_ids = _build_unit_ids(inputs, merged_units_dir)
+	if bool(inputs.require_curated_units) and inputs.unit_ids is None:
+		curated = _load_curated_units_from_spikesorting(well_out_dir)
+		if curated is None:
+			raise RuntimeError(
+				"Template similarity phase requires curated units, but curated units file was not found/readable at "
+				f"{well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / 'qm_unfiltered.xlsx'}"
+			)
+		unit_ids = _apply_curated_filter(unit_ids, curated)
+	if not unit_ids:
+		raise FileNotFoundError(
+			f"No built template artifacts found under {merged_units_dir}; run templates.build_templates first"
+		)
+	phase_cfg = inputs.phases.compute_template_similarity
+	output_paths = resolve_similarity_output_paths(
+		templates_out_dir=templates_out_dir,
+		similarity=phase_cfg,
+	)
+	worker_count = int(max(1, min(len(unit_ids), int(max(1, int(inputs.n_jobs))))))
+	pair_plot_dir = output_paths["template_similarity_candidate_pair_plots_dir"]
+	if pair_plot_dir.exists():
+		shutil.rmtree(pair_plot_dir)
+	for output_key in ("template_similarity_matrix_png", "template_similarity_matrix_svg"):
+		artifact_path = output_paths[output_key]
+		if artifact_path.exists():
+			artifact_path.unlink()
+	unit_payloads_by_key: dict[str, TemplateSimilarityUnitInput] = {}
+	missing_units: list[dict[str, Any]] = []
+	progress_interval = max(1, len(unit_ids) // 10)
+
+	def _load_unit_payload(unit_id: Any) -> tuple[Any, TemplateSimilarityUnitInput | None, dict[str, Any] | None]:
+		merged_dir = merged_units_dir / f"unit_{unit_id}"
+		try:
+			merged_template, merged_locs = _load_merged_unit(merged_dir)
+		except Exception as exc:
+			return (
+				unit_id,
+				None,
+				{
+					"unit_id": unit_id,
+					"reason": "failed_to_load_merged_template",
+					"error": str(exc),
+					"path": str(merged_dir),
+				},
+			)
+		return (
+			unit_id,
+			TemplateSimilarityUnitInput(
+				unit_id=unit_id,
+				template_c_by_t=merged_template,
+				locations_xy=merged_locs,
+			),
+			None,
+		)
+
+	LOGGER.info(
+		"templates.compute_template_similarity load start: units=%d worker_count=%d",
+		int(len(unit_ids)),
+		int(worker_count),
+	)
+	if worker_count <= 1 or len(unit_ids) <= 1:
+		for idx, unit_id in enumerate(unit_ids, start=1):
+			loaded_unit_id, payload, missing = _load_unit_payload(unit_id)
+			if payload is not None:
+				unit_payloads_by_key[str(loaded_unit_id)] = payload
+			if missing is not None:
+				missing_units.append(missing)
+			if (idx % progress_interval == 0) or (idx == len(unit_ids)):
+				LOGGER.info(
+					"templates.compute_template_similarity load progress: %d/%d units scanned",
+					int(idx),
+					int(len(unit_ids)),
+				)
+	else:
+		with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as pool:
+			futures = {pool.submit(_load_unit_payload, unit_id): unit_id for unit_id in unit_ids}
+			completed = 0
+			for future in concurrent.futures.as_completed(futures):
+				loaded_unit_id, payload, missing = future.result()
+				if payload is not None:
+					unit_payloads_by_key[str(loaded_unit_id)] = payload
+				if missing is not None:
+					missing_units.append(missing)
+				completed += 1
+				if (completed % progress_interval == 0) or (completed == len(unit_ids)):
+					LOGGER.info(
+						"templates.compute_template_similarity load progress: %d/%d units scanned",
+						int(completed),
+						int(len(unit_ids)),
+					)
+	unit_payloads = [unit_payloads_by_key[str(unit_id)] for unit_id in unit_ids if str(unit_id) in unit_payloads_by_key]
+	if not unit_payloads:
+		raise FileNotFoundError(
+			"Missing built template artifacts for compute_template_similarity; run templates.build_templates first"
+		)
+	LOGGER.info(
+		"templates.compute_template_similarity start: templates_out_dir=%s loaded_units=%d missing_units=%d method=%s worker_count=%d",
+		str(templates_out_dir),
+		len(unit_payloads),
+		len(missing_units),
+		str(phase_cfg.method),
+		int(worker_count),
+	)
+	summary = build_template_similarity_phase_summary(
+		unit_payloads=unit_payloads,
+		templates_out_dir=templates_out_dir,
+		config=phase_cfg,
+		output_paths=output_paths,
+		missing_units=missing_units,
+	)
+	summary["stream_id"] = str(inputs.stream_id)
+	summary["well_out_dir"] = str(well_out_dir)
+	summary["duration_seconds"] = float(perf_counter() - phase_started)
+	summary_path = templates_out_dir / str(phase_cfg.summary_json_relpath)
+	write_json(summary_path, summary)
+	summary["summary_json"] = str(summary_path)
+	LOGGER.info("templates.compute_template_similarity wrote summary output: %s", str(summary_path))
+	LOGGER.info(
+		"templates.compute_template_similarity run stats: duration_seconds=%.3f unit_count=%d pair_count=%d candidate_pairs=%d missing_units=%d",
+		float(summary["duration_seconds"]),
+		int(summary.get("unit_count", 0)),
+		int(summary.get("pair_count", 0)),
+		int(summary.get("candidate_pair_count", 0)),
+		int(len(summary.get("missing_units", []))),
+	)
+	return summary
+
+
 def _as_positive_int_or_none(value: Any) -> int | None:
 	try:
 		parsed = int(value)
@@ -2929,6 +3081,28 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 	if bool(inputs.log_stage_unit_counts):
 		LOGGER.info("Templates stage will process %d unit(s)", len(unit_ids))
 
+	similarity_outputs: dict[str, str] = {}
+	if preserve_stage_reports:
+		LOGGER.info(
+			"Templates stage-level similarity skip: preserving existing stage outputs during unit-scoped rerun for unit_ids=%s",
+			list(inputs.unit_ids or []),
+		)
+	elif bool(inputs.phases.compute_template_similarity.enabled):
+		try:
+			similarity_summary = run_templates_compute_template_similarity_phase(inputs)
+			if isinstance(similarity_summary, dict):
+				summary_outputs = similarity_summary.get("outputs", {})
+				if isinstance(summary_outputs, dict):
+					similarity_outputs.update(
+						{
+							str(key): str(value)
+							for key, value in summary_outputs.items()
+							if value is not None
+						}
+					)
+		except Exception:
+			LOGGER.exception("Failed writing template similarity outputs for stream %s", inputs.stream_id)
+
 	def _process_unit(unit_id: Any) -> UnitTemplatesResult:
 		LOGGER.info("Templates unit start: unit_id=%s", unit_id)
 		paths = resolve_unit_output_paths(
@@ -3590,6 +3764,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		sort_by=report_grid_sort_by,
 	)
 	report_outputs: dict[str, str] = dict(existing_report_outputs)
+	report_outputs.update(similarity_outputs)
 	if preserve_stage_reports:
 		LOGGER.info(
 			"Templates reports skip: preserving existing stage reports during unit-scoped rerun for unit_ids=%s",

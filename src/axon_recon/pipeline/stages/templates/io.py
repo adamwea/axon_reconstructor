@@ -247,6 +247,21 @@ def resolve_report_output_paths(*, templates_out_dir: Path, reports: Any) -> dic
 	}
 
 
+def resolve_similarity_output_paths(*, templates_out_dir: Path, similarity: Any) -> dict[str, Path]:
+	scores_json = templates_out_dir / Path(str(similarity.scores_json_relpath)).expanduser()
+	candidate_pairs_json = templates_out_dir / Path(str(similarity.candidate_pairs_json_relpath)).expanduser()
+	pair_plots_dir = templates_out_dir / Path(str(similarity.pair_plots.relpath_root)).expanduser()
+	matrix_png = templates_out_dir / Path(str(similarity.matrix.png_relpath)).expanduser()
+	matrix_svg = templates_out_dir / Path(str(similarity.matrix.svg_relpath)).expanduser()
+	return {
+		"template_similarity_scores_json": scores_json,
+		"template_similarity_candidate_pairs_json": candidate_pairs_json,
+		"template_similarity_candidate_pair_plots_dir": pair_plots_dir,
+		"template_similarity_matrix_png": matrix_png,
+		"template_similarity_matrix_svg": matrix_svg,
+	}
+
+
 def resolve_materialized_templates_dirs(*, templates_out_dir: Path) -> tuple[Path, Path]:
 	templates_root = templates_out_dir / "templates"
 	merged_units_dir = templates_root / "merged"
