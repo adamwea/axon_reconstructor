@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import logging
 from pathlib import Path
 from time import perf_counter
@@ -8,8 +8,9 @@ from typing import Any
 
 import numpy as np
 
-from ..io import write_json
-from ..models.inputs import TemplateComputeSimilarityPhaseConfig
+from ..io import resolve_unit_output_paths, write_json
+from ..models.inputs import PerUnitTemplatesOutputsConfig, ProbeGeometryConfig, TemplateComputeSimilarityPhaseConfig
+from .render import render_template_circles_plot
 from .template_similarity_methods import (
 	TemplateSimilarityFeatures,
 	build_template_similarity_features,
@@ -50,54 +51,6 @@ def _apply_dark_axes_style(ax: Any) -> None:
 	ax.xaxis.label.set_color("white")
 	ax.yaxis.label.set_color("white")
 	ax.title.set_color("white")
-
-
-def _set_spatial_limits(*, axes: list[Any], locations: list[np.ndarray]) -> None:
-	if not locations:
-		return
-	non_empty_locations = [np.asarray(item, dtype=float)[:, :2] for item in locations if int(np.asarray(item).size) > 0]
-	if not non_empty_locations:
-		return
-	stacked = np.vstack(non_empty_locations)
-	if int(stacked.size) == 0:
-		return
-	x_min = float(np.min(stacked[:, 0]))
-	x_max = float(np.max(stacked[:, 0]))
-	y_min = float(np.min(stacked[:, 1]))
-	y_max = float(np.max(stacked[:, 1]))
-	span = max(x_max - x_min, y_max - y_min, 1.0)
-	pad = span * 0.08
-	for ax in axes:
-		ax.set_xlim(x_min - pad, x_max + pad)
-		ax.set_ylim(y_min - pad, y_max + pad)
-		ax.set_aspect("equal", adjustable="box")
-
-
-def _plot_footprint(ax: Any, *, features: TemplateSimilarityFeatures, color_max: float, title: str) -> None:
-	_apply_dark_axes_style(ax)
-	ptp_values = np.asarray(features.ptp_by_channel, dtype=float)
-	if int(ptp_values.size) <= 0:
-		ax.set_title(title)
-		return
-	max_ptp = float(np.max(ptp_values)) if int(ptp_values.size) > 0 else 0.0
-	if max_ptp > 0.0:
-		sizes = 30.0 + (220.0 * (ptp_values / max_ptp))
-	else:
-		sizes = np.full_like(ptp_values, 30.0, dtype=float)
-	ax.scatter(
-		features.locations_xy[:, 0],
-		features.locations_xy[:, 1],
-		c=ptp_values,
-		s=sizes,
-		cmap="magma",
-		vmin=0.0,
-		vmax=float(max(color_max, 1e-9)),
-		edgecolors="white",
-		linewidths=0.45,
-	)
-	ax.set_title(title)
-	ax.set_xlabel("x (um)")
-	ax.set_ylabel("y (um)")
 
 
 def _resample_waveform(trace: np.ndarray, *, target_samples: int) -> np.ndarray:
@@ -224,47 +177,72 @@ def _write_similarity_matrix_plot(
 
 def _write_candidate_pair_plot(
 	*,
+	templates_out_dir: Path,
 	features_a: TemplateSimilarityFeatures,
 	features_b: TemplateSimilarityFeatures,
 	pair_score: dict[str, Any],
 	output_path: Path,
 	dpi: float,
+	per_unit_outputs: PerUnitTemplatesOutputsConfig,
+	probe_geometry: ProbeGeometryConfig | None,
 ) -> str:
 	import matplotlib
 
 	matplotlib.use("Agg")
 	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+	import matplotlib.image as mpimg  # type: ignore[import-not-found]
 
-	fig, axes = plt.subplots(1, 3, figsize=(13.5, 4.8), constrained_layout=True)
-	fig.patch.set_facecolor("black")
-	pair_max_ptp = float(
-		max(
-			float(np.max(features_a.ptp_by_channel)) if int(features_a.ptp_by_channel.size) > 0 else 0.0,
-			float(np.max(features_b.ptp_by_channel)) if int(features_b.ptp_by_channel.size) > 0 else 0.0,
-			1.0,
+	def _resolve_template_circles_panel_png(
+		*,
+		features: TemplateSimilarityFeatures,
+		cache_dir: Path,
+	) -> Path:
+		unit_paths = resolve_unit_output_paths(
+			templates_out_dir=templates_out_dir,
+			unit_id=features.unit_id,
+			per_unit_outputs=per_unit_outputs,
 		)
-	)
-	_plot_footprint(
-		axes[0],
-		features=features_a,
-		color_max=pair_max_ptp,
-		title=f"Unit {features_a.unit_id}",
-	)
-	_plot_footprint(
-		axes[1],
-		features=features_b,
-		color_max=pair_max_ptp,
-		title=f"Unit {features_b.unit_id}",
-	)
+		canonical_png = unit_paths["template_circles_png"]
+		if canonical_png.exists():
+			return canonical_png
+		cache_dir.mkdir(parents=True, exist_ok=True)
+		cache_png = cache_dir / f"unit_{_safe_unit_token(features.unit_id)}__template_circles.png"
+		if cache_png.exists():
+			return cache_png
+		render_config = replace(
+			per_unit_outputs.template_circles,
+			write_png=True,
+			write_svg=False,
+		)
+		render_template_circles_plot(
+			template=features.template_c_by_t,
+			locations_xy=features.locations_xy,
+			config=render_config,
+			png_path=cache_png,
+			svg_path=cache_png.with_suffix(".svg"),
+			probe_geometry=probe_geometry,
+			unit_id=features.unit_id,
+		)
+		return cache_png
+
+	fig = plt.figure(figsize=(13.5, 9.0), constrained_layout=True)
+	grid_spec = fig.add_gridspec(2, 2, height_ratios=[1.0, 0.75])
+	left_ax = fig.add_subplot(grid_spec[0, 0])
+	right_ax = fig.add_subplot(grid_spec[0, 1])
+	waveform_ax = fig.add_subplot(grid_spec[1, :])
+	fig.patch.set_facecolor("black")
+	panel_cache_dir = output_path.parent / "_template_circles_cache"
+	panel_a_png = _resolve_template_circles_panel_png(features=features_a, cache_dir=panel_cache_dir)
+	panel_b_png = _resolve_template_circles_panel_png(features=features_b, cache_dir=panel_cache_dir)
+	for ax, panel_path in ((left_ax, panel_a_png), (right_ax, panel_b_png)):
+		ax.set_facecolor("black")
+		ax.imshow(mpimg.imread(panel_path), interpolation="nearest")
+		ax.axis("off")
 	_plot_waveform_overlay(
-		axes[2],
+		waveform_ax,
 		features_a=features_a,
 		features_b=features_b,
 		pair_score=pair_score,
-	)
-	_set_spatial_limits(
-		axes=[axes[0], axes[1]],
-		locations=[features_a.locations_xy, features_b.locations_xy],
 	)
 	fig.suptitle(
 		f"Template similarity candidate: unit {features_a.unit_id} vs unit {features_b.unit_id}",
@@ -411,6 +389,8 @@ def build_template_similarity_phase_summary(
 	templates_out_dir: Path,
 	config: TemplateComputeSimilarityPhaseConfig,
 	output_paths: dict[str, Path],
+	per_unit_outputs: PerUnitTemplatesOutputsConfig,
+	probe_geometry: ProbeGeometryConfig | None,
 	missing_units: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
 	resolved_method = normalize_template_similarity_method(config.method)
@@ -527,11 +507,14 @@ def build_template_similarity_phase_summary(
 				unit_id_b=candidate_pair["unit_b"],
 			)
 			pair_plot_path = _write_candidate_pair_plot(
+				templates_out_dir=templates_out_dir,
 				features_a=features_a,
 				features_b=features_b,
 				pair_score=candidate_pair,
 				output_path=plot_path,
 				dpi=float(config.pair_plots.dpi),
+				per_unit_outputs=per_unit_outputs,
+				probe_geometry=probe_geometry,
 			)
 			candidate_pair["pair_plot_png"] = pair_plot_path
 			pair_plot_records.append(

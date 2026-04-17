@@ -2310,6 +2310,8 @@ def run_templates_compute_template_similarity_phase(inputs: TemplatesInputs) -> 
 		templates_out_dir=templates_out_dir,
 		config=phase_cfg,
 		output_paths=output_paths,
+		per_unit_outputs=inputs.per_unit_outputs,
+		probe_geometry=inputs.probe_geometry,
 		missing_units=missing_units,
 	)
 	summary["stream_id"] = str(inputs.stream_id)

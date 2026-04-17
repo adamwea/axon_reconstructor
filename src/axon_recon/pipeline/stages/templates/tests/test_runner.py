@@ -11,7 +11,7 @@ import numpy as np  # type: ignore[import-not-found]
 import pytest
 
 from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
-from axon_recon.pipeline.stages.templates.io import write_materialized_source_payload
+from axon_recon.pipeline.stages.templates.io import resolve_unit_output_paths, write_materialized_source_payload
 from axon_recon.pipeline.stages.templates.models.inputs import (
 	AnalyzerCacheConfig,
 	DataQualityChecksOutputsConfig,
@@ -32,7 +32,9 @@ from axon_recon.pipeline.stages.templates.models.inputs import (
 	ReportsConfig,
 	TemplateArtifactConfig,
 	TemplateCirclesPlotConfig,
+	TemplateComputeSimilarityPhaseConfig,
 	TemplatePlotsPhaseConfig,
+	TemplateSimilarityCandidateSelectionConfig,
 	TemplateWaveformOverlayConfig,
 	TemplatePlotConfig,
 	TimeUpsampleConfig,
@@ -571,6 +573,150 @@ def test_run_templates_compute_template_similarity_phase_writes_matrix_and_candi
 	assert candidate_payload["candidate_count"] == summary["candidate_pair_count"]
 	assert candidate_payload["candidates"]
 	assert Path(str(candidate_payload["candidates"][0]["pair_plot_png"])).exists()
+
+
+def test_run_templates_compute_template_similarity_phase_reuses_existing_template_circles_png(
+	tmp_path: Path,
+	monkeypatch,
+) -> None:
+	import matplotlib
+
+	matplotlib.use("Agg")
+	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir, unit_ids=(91, 92))
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		require_curated_units=False,
+		unit_ids=[91, 92],
+		n_jobs=1,
+		phases=TemplatesPhasesConfig(
+			compute_template_similarity=TemplateComputeSimilarityPhaseConfig(
+				candidate_selection=TemplateSimilarityCandidateSelectionConfig(
+					min_similarity=0.0,
+					top_k_per_unit=1,
+					max_pairs=1,
+				)
+			)
+		),
+	)
+
+	def _write_panel_png(path: Path, label: str) -> None:
+		fig, ax = plt.subplots(figsize=(2.0, 2.0))
+		fig.patch.set_facecolor("black")
+		ax.set_facecolor("black")
+		ax.text(0.5, 0.5, label, color="white", ha="center", va="center", transform=ax.transAxes)
+		ax.set_xticks([])
+		ax.set_yticks([])
+		for spine in ax.spines.values():
+			spine.set_visible(False)
+		path.parent.mkdir(parents=True, exist_ok=True)
+		fig.savefig(path, dpi=120, facecolor=fig.get_facecolor(), bbox_inches="tight")
+		plt.close(fig)
+
+	for unit_id in (91, 92):
+		paths = resolve_unit_output_paths(
+			templates_out_dir=well_out_dir / "templates_outputs",
+			unit_id=unit_id,
+			per_unit_outputs=inputs.per_unit_outputs,
+		)
+		_write_panel_png(paths["template_circles_png"], f"unit {unit_id}")
+
+	def _unexpected_render(**kwargs):
+		raise AssertionError("render_template_circles_plot should not be called when canonical template_circles PNGs exist")
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.core.compute_template_similarity.render_template_circles_plot",
+		_unexpected_render,
+	)
+
+	summary = run_templates_compute_template_similarity_phase(inputs)
+
+	assert summary["candidate_pair_count"] == 1
+	candidate_payload = json.loads(Path(summary["outputs"]["template_similarity_candidate_pairs_json"]).read_text(encoding="utf-8"))
+	assert Path(str(candidate_payload["candidates"][0]["pair_plot_png"])).exists()
+
+
+def test_run_templates_compute_template_similarity_phase_falls_back_to_template_circles_renderer(
+	tmp_path: Path,
+	monkeypatch,
+) -> None:
+	import matplotlib
+
+	matplotlib.use("Agg")
+	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir, unit_ids=(91, 92))
+	render_calls: list[dict[str, Any]] = []
+
+	def _fake_render_template_circles_plot(**kwargs):
+		render_calls.append(
+			{
+				"unit_id": kwargs.get("unit_id"),
+				"config": kwargs.get("config"),
+				"ax": kwargs.get("ax"),
+				"png_path": kwargs.get("png_path"),
+			}
+		)
+		png_path = Path(str(kwargs["png_path"]))
+		png_path.parent.mkdir(parents=True, exist_ok=True)
+		fig, ax = plt.subplots(figsize=(1.5, 1.5))
+		fig.patch.set_facecolor("black")
+		ax.set_facecolor("black")
+		ax.text(0.5, 0.5, f"u{kwargs.get('unit_id')}", color="white", ha="center", va="center", transform=ax.transAxes)
+		ax.set_xticks([])
+		ax.set_yticks([])
+		for spine in ax.spines.values():
+			spine.set_visible(False)
+		fig.savefig(png_path, dpi=120, facecolor=fig.get_facecolor(), bbox_inches="tight")
+		plt.close(fig)
+		return {}
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.core.compute_template_similarity.render_template_circles_plot",
+		_fake_render_template_circles_plot,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		require_curated_units=False,
+		unit_ids=[91, 92],
+		n_jobs=1,
+		phases=TemplatesPhasesConfig(
+			compute_template_similarity=TemplateComputeSimilarityPhaseConfig(
+				candidate_selection=TemplateSimilarityCandidateSelectionConfig(
+					min_similarity=0.0,
+					top_k_per_unit=1,
+					max_pairs=1,
+				)
+			)
+		),
+	)
+
+	summary = run_templates_compute_template_similarity_phase(inputs)
+
+	assert summary["candidate_pair_count"] == 1
+	assert len(render_calls) == 2
+	assert {call["unit_id"] for call in render_calls} == {91, 92}
+	assert all(call["config"].write_png is True for call in render_calls)
+	assert all(call["config"].write_svg is False for call in render_calls)
+	assert all(call["ax"] is None for call in render_calls)
+	assert all(Path(str(call["png_path"])).exists() for call in render_calls)
 
 
 def test_run_templates_stage_writes_png(tmp_path: Path) -> None:
