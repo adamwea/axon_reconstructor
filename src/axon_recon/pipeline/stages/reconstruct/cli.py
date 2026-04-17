@@ -7,6 +7,7 @@ from ...runner import (
 	run_reconstruct_generate_gtrs_from_runtime,
 	run_reconstruct_plot_branch_propagations_from_runtime,
 	run_reconstruct_plot_branch_velocities_from_runtime,
+	run_reconstruct_plot_unit_summary_from_runtime,
 	run_reconstruct_plot_recons_from_runtime,
 	run_reconstruct_report_full_chip_layout_from_runtime,
 	run_reconstruct_report_recons_from_runtime,
@@ -102,6 +103,18 @@ def _run_plot_branch_propagations_from_args(args: argparse.Namespace) -> int:
 def _run_plot_branch_velocities_from_args(args: argparse.Namespace) -> int:
 	return _print_reconstruct_aggregate(
 		run_reconstruct_plot_branch_velocities_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_plot_unit_summary_from_args(args: argparse.Namespace) -> int:
+	return _print_reconstruct_aggregate(
+		run_reconstruct_plot_unit_summary_from_runtime(
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),

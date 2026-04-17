@@ -10,6 +10,7 @@ from axon_recon.pipeline.runner import (
     run_reconstruct_generate_gtrs_from_runtime,
     run_reconstruct_plot_branch_propagations_from_runtime,
     run_reconstruct_plot_branch_velocities_from_runtime,
+    run_reconstruct_plot_unit_summary_from_runtime,
     run_reconstruct_plot_recons_from_runtime,
     run_reconstruct_report_full_chip_layout_from_runtime,
     run_reconstruct_report_recons_from_runtime,
@@ -178,6 +179,12 @@ def test_run_reconstruct_from_runtime_marks_target_error_when_no_units_succeed(m
             "run_reconstruct_plot_branch_velocities",
             "reconstruct.plot_branch_velocities",
             "plot_branch_velocities",
+        ),
+        (
+            run_reconstruct_plot_unit_summary_from_runtime,
+            "run_reconstruct_plot_unit_summary",
+            "reconstruct.plot_unit_summary",
+            "plot_unit_summary",
         ),
         (
             run_reconstruct_report_full_chip_layout_from_runtime,

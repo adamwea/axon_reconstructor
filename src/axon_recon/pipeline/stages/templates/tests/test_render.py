@@ -1611,6 +1611,7 @@ def test_render_template_circles_plot_branch_legend_uses_branch_colors_and_label
 				"labels": [str(handle.get_label()) for handle in handles],
 				"colors": [handle.get_color() for handle in handles],
 				"title": kwargs.get("title"),
+				"loc": kwargs.get("loc"),
 			}
 		)
 		return orig_legend(self, *args, **kwargs)
@@ -1655,6 +1656,71 @@ def test_render_template_circles_plot_branch_legend_uses_branch_colors_and_label
 	assert legend_calls[0]["title"] == "Branches"
 	assert legend_calls[0]["labels"] == ["A", "B"]
 	assert legend_calls[0]["colors"][0] != legend_calls[0]["colors"][1]
+	assert legend_calls[0]["loc"] == "center right"
+
+
+def test_render_template_circles_plot_keeps_scale_bar_in_bottom_right_when_y_inverted(tmp_path: Path) -> None:
+	template = np.asarray(
+		[
+			[-2.0, 0.0, 0.0],
+			[-1.5, 0.0, 0.0],
+			[-1.0, 0.0, 0.0],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[20.0, 0.0],
+			[40.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	fig, ax = plt.subplots(figsize=(6.0, 4.0), dpi=120)
+	try:
+		render_template_circles_plot(
+			template=template,
+			locations_xy=locations,
+			config=TemplateCirclesPlotConfig(
+				write_png=False,
+				write_svg=False,
+				invert_y_axis=True,
+				show_scale_bar=True,
+				show_scale_circle=False,
+				background="black",
+				unit_id_label=UnitIdLabelConfig(show=True),
+			),
+			png_path=tmp_path / "unused_scale_bar_inverted.png",
+			svg_path=tmp_path / "unused_scale_bar_inverted.svg",
+			probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+			unit_id=91,
+			fig=fig,
+			ax=ax,
+			close_figure=False,
+		)
+		fig.canvas.draw()
+		renderer = fig.canvas.get_renderer()
+		scale_bar_text = next(
+			text for text in ax.texts if str(getattr(text, "get_gid", lambda: "")() or "") == "template_scale_bar_text"
+		)
+		unit_id_text = next(
+			text for text in ax.texts if str(getattr(text, "get_gid", lambda: "")() or "") == "template_unit_id_label"
+		)
+		scale_bbox = scale_bar_text.get_window_extent(renderer=renderer)
+		unit_bbox = unit_id_text.get_window_extent(renderer=renderer)
+		axes_bbox = ax.get_window_extent(renderer=renderer)
+		scale_center_x = 0.5 * (float(scale_bbox.x0) + float(scale_bbox.x1))
+		scale_center_y = 0.5 * (float(scale_bbox.y0) + float(scale_bbox.y1))
+		axes_mid_x = float(axes_bbox.x0) + (0.5 * float(axes_bbox.width))
+		axes_mid_y = float(axes_bbox.y0) + (0.5 * float(axes_bbox.height))
+		unit_center_y = 0.5 * (float(unit_bbox.y0) + float(unit_bbox.y1))
+
+		assert scale_center_x > axes_mid_x
+		assert scale_center_y < axes_mid_y
+		assert scale_center_y < unit_center_y
+	finally:
+		plt.close(fig)
 
 
 def test_render_template_circles_plot_overlap_controls_can_trigger_zoom_out(tmp_path: Path, monkeypatch) -> None:

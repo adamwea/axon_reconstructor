@@ -191,6 +191,23 @@ def resolve_branch_phase_branch_output_paths(
 	}
 
 
+def resolve_unit_summary_phase_output_paths(
+	*,
+	reconstruction_out_dir: Path,
+	unit_id: Any,
+	per_unit_outputs: PerUnitOutputsConfig,
+	phase_output: Any,
+) -> dict[str, Path]:
+	unit_rel = format_unit_reldir(per_unit_outputs.unit_reldir, unit_id)
+	unit_dir = reconstruction_out_dir / unit_rel
+	png_rel, svg_rel = _resolve_png_svg_relpaths(getattr(phase_output, "relpath", "reports/unit_summary"))
+	return {
+		"unit_dir": unit_dir,
+		"png_path": unit_dir / png_rel,
+		"svg_path": unit_dir / svg_rel,
+	}
+
+
 def resolve_full_chip_layout_output_paths(*, reconstruction_out_dir: Path, phase_output: Any) -> dict[str, Path]:
 	png_rel, svg_rel = _resolve_png_svg_relpaths(getattr(phase_output, "relpath", "reports/full_chip_layout"))
 	manifest_relpath = str(

@@ -324,6 +324,9 @@ def write_unit_circle_recon_plot(
 	gtr: Any,
 	circle_config: CircleReconConfig,
 	unit_id: Any,
+	fig: Any | None = None,
+	ax: Any | None = None,
+	close_figure: bool = True,
 ) -> dict[str, str]:
 	import numpy as np  # type: ignore[import-not-found]
 
@@ -498,6 +501,9 @@ def write_unit_circle_recon_plot(
 				svg_path=Path(output_svg),
 				branch_morphology={"branches": branch_payload},
 				branch_cfg=branch_cfg,
+				fig=fig,
+				ax=ax,
+				close_figure=close_figure,
 			)
 
 		return render_footprint_latency_map(
@@ -508,6 +514,9 @@ def write_unit_circle_recon_plot(
 			svg_path=Path(output_svg),
 			branch_morphology={"branches": branch_payload},
 			branch_cfg=branch_cfg,
+			fig=fig,
+			ax=ax,
+			close_figure=close_figure,
 		)
 
 	return render_template_circles_plot(
@@ -522,6 +531,9 @@ def write_unit_circle_recon_plot(
 		plot_scope_points_xy=locs,
 		zoom_padding_percent=float(max(0.0, float(getattr(display_cfg, "zoom_padding_percent", 20.0)))),
 		allow_scope_expansion=False,
+		fig=fig,
+		ax=ax,
+		close_figure=close_figure,
 	)
 
 

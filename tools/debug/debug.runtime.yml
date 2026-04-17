@@ -1511,8 +1511,8 @@ stages:
         enable: true
         branch_scope: raw
         display:
-          figsize: [7.5, 4.5]
-          sort_templates: false
+          figsize: [2.75, 6.0] # per-branch column size [width, height]; total figure width scales with branch count.
+          sort_templates: false # keep traces in branch channel order; true re-orders traces within each branch column by peak time.
           show_title: true
           invert_y_axis: false
         output:
@@ -1525,9 +1525,9 @@ stages:
         enable: true
         branch_scope: raw
         display:
-          figsize: [6.5, 4.5]
+          figsize: [4.5, 6.5] # single combined branch-velocity plot size [width, height]; portrait so the plot area is taller than it is wide.
           show_title: true
-          show_legend: true
+          show_legend: true # legend entries include branch id, velocity, and r^2; legend is placed outside the axes.
           legend_fontsize: 9
         output:
           write_png: true
@@ -1535,6 +1535,19 @@ stages:
           relpath: branch_qc/velocities
           manifest_relpath: reports/branch_velocities_manifest.json
           dpi: 300
+      plot_unit_summary:
+        enable: true
+        display:
+          show_title: false
+          show_velocity_legend: true
+          reserve_velocity_legend_space: true # reserve an explicit top-row gutter so the summary velocity panel keeps the standalone legend treatment.
+          velocity_legend_width: 2.25 # width in inches reserved for the velocity legend when reserve_velocity_legend_space is true.
+          top_row_panel_gap_width: 1.15 # explicit horizontal gap between the circle-recon panel/colorbar and the velocity panel so the velocity plot keeps its standalone aspect and the colorbar ticks do not crowd the velocity y-axis.
+          top_row_height: 6.5 # total height in inches for the top row containing circle recon and combined velocity plot.
+          propagation_row_height: 6.0 # total height in inches for the bottom row containing branch propagation columns.
+          circle_panel_width: 6.5 # width in inches for the circle-recon panel inside the summary figure.
+          velocity_panel_width: 2.2 # width in inches for the embedded velocity axes area; narrower so the summary panel stays visually close to the standalone plot area while leaving room for the external legend gutter.
+          propagation_panel_width: 2.75 # per-branch propagation column width in inches inside the summary figure.
       report_recons:
         enable: true
         # Emit report-stage artifacts from persisted reconstruct plot outputs.

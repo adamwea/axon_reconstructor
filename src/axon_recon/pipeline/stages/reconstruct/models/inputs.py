@@ -202,7 +202,7 @@ class ReconstructionBranchPlotOutputConfig:
 
 @dataclass(frozen=True)
 class ReconstructionBranchPropagationDisplayConfig:
-	figsize: tuple[float, float] = (6.0, 4.0)
+	figsize: tuple[float, float] = (2.75, 6.0)
 	sort_templates: bool = False
 	show_title: bool = True
 	invert_y_axis: bool = True
@@ -291,6 +291,40 @@ class ReconstructionPlotBranchVelocitiesPhaseConfig:
 
 
 @dataclass(frozen=True)
+class ReconstructionUnitSummaryDisplayConfig:
+	show_title: bool = False
+	show_velocity_legend: bool | None = None
+	reserve_velocity_legend_space: bool | None = None
+	velocity_legend_width: float = 2.25
+	top_row_panel_gap_width: float | None = None
+	top_row_height: float | None = None
+	propagation_row_height: float | None = None
+	circle_panel_width: float | None = None
+	velocity_panel_width: float | None = None
+	propagation_panel_width: float | None = None
+
+
+@dataclass(frozen=True)
+class ReconstructionUnitSummaryOutputConfig:
+	write_png: bool = True
+	write_svg: bool = False
+	relpath: str = "reports/unit_summary"
+	dpi: float = 300.0
+
+
+@dataclass(frozen=True)
+class ReconstructionPlotUnitSummaryPhaseConfig:
+	enabled: bool = False
+	summary_json_relpath: str = "context/plot_unit_summary_summary.json"
+	display: ReconstructionUnitSummaryDisplayConfig = field(
+		default_factory=ReconstructionUnitSummaryDisplayConfig
+	)
+	output: ReconstructionUnitSummaryOutputConfig = field(
+		default_factory=ReconstructionUnitSummaryOutputConfig
+	)
+
+
+@dataclass(frozen=True)
 class ReconstructionAvReconsConfig:
 	write_pdf: bool = False
 	pdf_relpath: str = "av_recons.pdf"
@@ -328,6 +362,9 @@ class ReconstructionPhasesConfig:
 	)
 	plot_branch_velocities: ReconstructionPlotBranchVelocitiesPhaseConfig = field(
 		default_factory=ReconstructionPlotBranchVelocitiesPhaseConfig
+	)
+	plot_unit_summary: ReconstructionPlotUnitSummaryPhaseConfig = field(
+		default_factory=ReconstructionPlotUnitSummaryPhaseConfig
 	)
 	report_recons: ReconstructionReportReconsPhaseConfig = field(default_factory=ReconstructionReportReconsPhaseConfig)
 	report_full_chip_layout: ReconstructionReportFullChipLayoutPhaseConfig = field(

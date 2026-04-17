@@ -34,10 +34,13 @@ from .models.inputs import (
 	ReconstructionPhasesConfig,
 	ReconstructionPlotBranchPropagationsPhaseConfig,
 	ReconstructionPlotBranchVelocitiesPhaseConfig,
+	ReconstructionPlotUnitSummaryPhaseConfig,
 	ReconstructionPlotReconsPhaseConfig,
 	ReconstructionReportFullChipLayoutPhaseConfig,
 	ReconstructionReportReconsPhaseConfig,
 	ReconstructionReportsConfig,
+	ReconstructionUnitSummaryDisplayConfig,
+	ReconstructionUnitSummaryOutputConfig,
 )
 
 
@@ -236,6 +239,91 @@ def _build_branch_velocity_display_config(block: Any) -> ReconstructionBranchVel
 	)
 
 
+def _build_unit_summary_display_config(block: Any) -> ReconstructionUnitSummaryDisplayConfig:
+	data = block if isinstance(block, dict) else {}
+	default_cfg = ReconstructionUnitSummaryDisplayConfig()
+
+	def _optional_bool(*, key: str, default: bool | None) -> bool | None:
+		if key not in data:
+			return default
+		return _as_bool(data.get(key), False)
+
+	def _optional_positive_float(raw: Any, default: float | None) -> float | None:
+		if raw is None:
+			return default
+		try:
+			parsed = float(raw)
+		except Exception:
+			return default
+		if parsed <= 0.0:
+			return default
+		return parsed
+
+	return ReconstructionUnitSummaryDisplayConfig(
+		show_title=_as_bool(data.get("show_title", default_cfg.show_title), default_cfg.show_title),
+		show_velocity_legend=_optional_bool(
+			key="show_velocity_legend",
+			default=default_cfg.show_velocity_legend,
+		),
+		reserve_velocity_legend_space=_optional_bool(
+			key="reserve_velocity_legend_space",
+			default=default_cfg.reserve_velocity_legend_space,
+		),
+		velocity_legend_width=float(
+			max(
+				0.5,
+				float(
+					_optional_positive_float(
+						data.get("velocity_legend_width", default_cfg.velocity_legend_width),
+						default_cfg.velocity_legend_width,
+					)
+					or default_cfg.velocity_legend_width
+				)
+			)
+		),
+		top_row_panel_gap_width=_optional_positive_float(
+			data.get("top_row_panel_gap_width", default_cfg.top_row_panel_gap_width),
+			default_cfg.top_row_panel_gap_width,
+		),
+		top_row_height=_optional_positive_float(data.get("top_row_height", default_cfg.top_row_height), default_cfg.top_row_height),
+		propagation_row_height=_optional_positive_float(
+			data.get("propagation_row_height", default_cfg.propagation_row_height),
+			default_cfg.propagation_row_height,
+		),
+		circle_panel_width=_optional_positive_float(
+			data.get("circle_panel_width", default_cfg.circle_panel_width),
+			default_cfg.circle_panel_width,
+		),
+		velocity_panel_width=_optional_positive_float(
+			data.get("velocity_panel_width", default_cfg.velocity_panel_width),
+			default_cfg.velocity_panel_width,
+		),
+		propagation_panel_width=_optional_positive_float(
+			data.get("propagation_panel_width", default_cfg.propagation_panel_width),
+			default_cfg.propagation_panel_width,
+		),
+	)
+
+
+def _build_unit_summary_output_config(
+	block: Any,
+	*,
+	default_relpath: str,
+) -> ReconstructionUnitSummaryOutputConfig:
+	data = block if isinstance(block, dict) else {}
+	relpath = str(data.get("relpath", default_relpath) or default_relpath).strip() or str(default_relpath)
+	try:
+		dpi = float(data.get("dpi", 300.0) or 300.0)
+	except Exception:
+		dpi = 300.0
+	return ReconstructionUnitSummaryOutputConfig(
+		write_png=_as_bool(data.get("write_png", True), True),
+		write_svg=_as_bool(data.get("write_svg", False), False),
+		relpath=relpath,
+		dpi=float(max(72.0, dpi)),
+	)
+
+
 def _normalize_color_strategy(raw: Any, default: str = "distinct_hsv") -> str:
 	text = str(raw if raw is not None else default).strip().lower().replace("-", "_").replace(" ", "_")
 	if text in {"colormap", "cmap", "sampled_colormap", "sample_colormap"}:
@@ -423,6 +511,11 @@ def parse_reconstruction_stage_config(
 		if isinstance(phases_cfg.get("plot_branch_velocities", {}), dict)
 		else {}
 	)
+	plot_unit_summary_cfg = (
+		phases_cfg.get("plot_unit_summary", {})
+		if isinstance(phases_cfg.get("plot_unit_summary", {}), dict)
+		else {}
+	)
 	report_recons_cfg = phases_cfg.get("report_recons", {}) if isinstance(phases_cfg.get("report_recons", {}), dict) else {}
 	legacy_report_full_chip_layout_cfg = (
 		phases_cfg.get("report_full_chip_recon", {})
@@ -471,6 +564,16 @@ def parse_reconstruction_stage_config(
 	plot_branch_velocities_display_cfg = (
 		plot_branch_velocities_cfg.get("display", {})
 		if isinstance(plot_branch_velocities_cfg.get("display", {}), dict)
+		else {}
+	)
+	plot_unit_summary_output_cfg = (
+		plot_unit_summary_cfg.get("output", {})
+		if isinstance(plot_unit_summary_cfg.get("output", {}), dict)
+		else {}
+	)
+	plot_unit_summary_display_cfg = (
+		plot_unit_summary_cfg.get("display", {})
+		if isinstance(plot_unit_summary_cfg.get("display", {}), dict)
 		else {}
 	)
 	report_full_chip_layout_output_cfg = (
@@ -924,6 +1027,20 @@ def parse_reconstruction_stage_config(
 				plot_branch_velocities_output_cfg,
 				default_relpath="branch_plots/velocities",
 				default_manifest_relpath="branch_velocities_manifest.json",
+			),
+		),
+		plot_unit_summary=ReconstructionPlotUnitSummaryPhaseConfig(
+			enabled=_phase_enabled(plot_unit_summary_cfg, False),
+			summary_json_relpath=str(
+				plot_unit_summary_cfg.get(
+					"summary_json_relpath",
+					"context/plot_unit_summary_summary.json",
+				)
+			),
+			display=_build_unit_summary_display_config(plot_unit_summary_display_cfg),
+			output=_build_unit_summary_output_config(
+				plot_unit_summary_output_cfg,
+				default_relpath="reports/unit_summary",
 			),
 		),
 		report_recons=ReconstructionReportReconsPhaseConfig(

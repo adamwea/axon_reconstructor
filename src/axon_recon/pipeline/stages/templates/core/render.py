@@ -559,6 +559,8 @@ def _add_scale_bar(ax: Any, *, config: TemplatePlotConfig) -> None:
 	y0, y1 = ax.get_ylim()
 	span_x = max(1.0, float(abs(x1 - x0)))
 	span_y = max(1.0, float(abs(y1 - y0)))
+	x_dir = 1.0 if float(x1) >= float(x0) else -1.0
+	y_dir = 1.0 if float(y1) >= float(y0) else -1.0
 
 	if config.scale_bar_length_um is None:
 		bar = 100.0 if span_x >= 180.0 else 50.0
@@ -604,49 +606,67 @@ def _add_scale_bar(ax: Any, *, config: TemplatePlotConfig) -> None:
 	if x_offset_frac is None:
 		margin = float(config.scale_bar_y_offset_frac) * span_x
 		if h_align == "left":
-			x_left = float(min(x0, x1)) + margin
+			x_left = float(x0) + (x_dir * margin)
+			x_right = x_left + (x_dir * bar)
 		elif h_align == "center":
-			x_left = (float(min(x0, x1)) + float(max(x0, x1)) - bar) / 2.0
+			x_center = 0.5 * (float(x0) + float(x1))
+			x_left = x_center - (0.5 * x_dir * bar)
+			x_right = x_center + (0.5 * x_dir * bar)
 		else:
-			x_right = float(max(x0, x1)) - margin
-			x_left = x_right - bar
+			x_right = float(x1) - (x_dir * margin)
+			x_left = x_right - (x_dir * bar)
 	else:
 		x_margin = float(max(0.0, float(x_offset_frac))) * span_x
 		if h_align == "right":
-			x_right = float(max(x0, x1)) - x_margin
-			x_left = x_right - bar
+			x_right = float(x1) - (x_dir * x_margin)
+			x_left = x_right - (x_dir * bar)
 		elif h_align == "center":
-			x_left = (float(min(x0, x1)) + float(max(x0, x1)) - bar) / 2.0
+			x_center = 0.5 * (float(x0) + float(x1))
+			x_left = x_center - (0.5 * x_dir * bar)
+			x_right = x_center + (0.5 * x_dir * bar)
 		else:
-			x_left = float(min(x0, x1)) + x_margin
+			x_left = float(x0) + (x_dir * x_margin)
+			x_right = x_left + (x_dir * bar)
 	if extra_pad_x > 0.0:
 		if h_align == "right":
-			x_left -= extra_pad_x
+			x_left -= (x_dir * extra_pad_x)
 		elif h_align == "left":
-			x_left += extra_pad_x
-	x_right = x_left + bar
+			x_left += (x_dir * extra_pad_x)
+			x_right = x_left + (x_dir * bar)
+	x_low = float(min(x_left, x_right))
+	x_high = float(max(x_left, x_right))
+	x_min = float(min(x0, x1))
+	x_max = float(max(x0, x1))
+	if x_low < x_min:
+		delta = x_min - x_low
+		x_left += delta
+		x_right += delta
+	if x_high > x_max:
+		delta = x_high - x_max
+		x_left -= delta
+		x_right -= delta
 
 	y_margin = float(max(0.0, float(config.scale_bar_y_offset_frac))) * span_y
 	if v_align == "top":
-		y_bar = float(max(y0, y1)) - y_margin
-		label_y = y_bar - float(config.scale_bar_text_offset_frac) * span_y
+		y_bar = float(y1) - (y_dir * y_margin)
+		label_y = y_bar - (y_dir * float(config.scale_bar_text_offset_frac) * span_y)
 		label_va = "top"
 	elif v_align == "center":
-		y_bar = (float(min(y0, y1)) + float(max(y0, y1))) / 2.0
-		label_y = y_bar + float(config.scale_bar_text_offset_frac) * span_y
+		y_bar = 0.5 * (float(y0) + float(y1))
+		label_y = y_bar + (y_dir * float(config.scale_bar_text_offset_frac) * span_y)
 		label_va = "bottom"
 	else:
-		y_bar = float(min(y0, y1)) + y_margin
-		label_y = y_bar + float(config.scale_bar_text_offset_frac) * span_y
+		y_bar = float(y0) + (y_dir * y_margin)
+		label_y = y_bar + (y_dir * float(config.scale_bar_text_offset_frac) * span_y)
 		label_va = "bottom"
 
-	if x_left <= float(min(x0, x1)):
+	if min(float(x_left), float(x_right)) <= x_min:
 		fallback_margin = float(config.scale_bar_y_offset_frac) * span_x
-		x_left = float(min(x0, x1)) + fallback_margin
-		x_right = x_left + bar
-	if x_right >= float(max(x0, x1)):
-		x_right = float(max(x0, x1)) - 1.0
-		x_left = x_right - bar
+		x_left = float(x0) + (x_dir * fallback_margin)
+		x_right = x_left + (x_dir * bar)
+	if max(float(x_left), float(x_right)) >= x_max:
+		x_right = float(x1) - (x_dir * 1.0)
+		x_left = x_right - (x_dir * bar)
 
 	(line,) = ax.plot([x_left, x_right], [y_bar, y_bar], color=str(config.scale_bar_color), lw=float(config.scale_bar_linewidth), solid_capstyle="butt")
 	line.set_gid("template_scale_bar_line")
@@ -1093,7 +1113,7 @@ def _draw_branch_morphology_overlay(
 			legend = ax.legend(
 				handles=handles,
 				title="Branches",
-				loc="best",
+				loc="center right",
 				frameon=True,
 				fancybox=True,
 				framealpha=0.9,
@@ -1531,6 +1551,9 @@ def render_template_circles_plot(
 	plot_scope_points_xy: Any | None = None,
 	zoom_padding_percent: float | None = None,
 	allow_scope_expansion: bool = True,
+	fig: Any | None = None,
+	ax: Any | None = None,
+	close_figure: bool = True,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -1647,8 +1670,13 @@ def render_template_circles_plot(
 
 	peak_idx = int(np.argmax(abs_negative_peak)) if abs_negative_peak.size > 0 else 0
 
-	fig = plt.figure(figsize=(10, 8))
-	ax = fig.add_subplot(111)
+	if (fig is None) != (ax is None):
+		raise ValueError("render_template_circles_plot requires both fig and ax when reusing an existing host")
+	if fig is None or ax is None:
+		fig = plt.figure(figsize=(10, 8))
+		ax = fig.add_subplot(111)
+	else:
+		ax.clear()
 	ax.set_xlabel("x (um)")
 	ax.set_ylabel("y (um)")
 
@@ -2006,7 +2034,8 @@ def render_template_circles_plot(
 		)
 		outputs["template_circles_svg"] = str(svg_path)
 
-	plt.close(fig)
+	if bool(close_figure):
+		plt.close(fig)
 	return outputs
 
 
@@ -3606,6 +3635,9 @@ def _render_footprint_map(
 	reverse_color_map: bool = False,
 	branch_morphology: Any | None = None,
 	branch_cfg: Any | None = None,
+	fig: Any | None = None,
+	ax: Any | None = None,
+	close_figure: bool = True,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -3622,8 +3654,13 @@ def _render_footprint_map(
 
 	vmin, vmax = _map_values_to_limits(vals, config)
 
-	fig = plt.figure(figsize=(8, 6))
-	ax = fig.add_subplot(111)
+	if (fig is None) != (ax is None):
+		raise ValueError("_render_footprint_map requires both fig and ax when reusing an existing host")
+	if fig is None or ax is None:
+		fig = plt.figure(figsize=(8, 6))
+		ax = fig.add_subplot(111)
+	else:
+		ax.clear()
 	bg = str(config.background or "").strip().lower()
 	if bg == "black":
 		fig.patch.set_facecolor("black")
@@ -3749,7 +3786,8 @@ def _render_footprint_map(
 		fig.savefig(svg_path, format="svg", bbox_inches="tight", facecolor=fig.get_facecolor())
 		outputs[output_key_svg] = str(svg_path)
 
-	plt.close(fig)
+	if bool(close_figure):
+		plt.close(fig)
 	return outputs
 
 
@@ -3763,6 +3801,9 @@ def render_footprint_amplitude_map(
 	probe_geometry: ProbeGeometryConfig | None = None,
 	branch_morphology: Any | None = None,
 	branch_cfg: Any | None = None,
+	fig: Any | None = None,
+	ax: Any | None = None,
+	close_figure: bool = True,
 ) -> dict[str, str]:
 	t = np.asarray(template)
 	if t.ndim != 2:
@@ -3781,6 +3822,9 @@ def render_footprint_amplitude_map(
 		reverse_color_map=False,
 		branch_morphology=branch_morphology,
 		branch_cfg=branch_cfg,
+		fig=fig,
+		ax=ax,
+		close_figure=close_figure,
 	)
 
 
@@ -3794,6 +3838,9 @@ def render_footprint_latency_map(
 	probe_geometry: ProbeGeometryConfig | None = None,
 	branch_morphology: Any | None = None,
 	branch_cfg: Any | None = None,
+	fig: Any | None = None,
+	ax: Any | None = None,
+	close_figure: bool = True,
 ) -> dict[str, str]:
 	t = np.asarray(template)
 	if t.ndim != 2:
@@ -3814,6 +3861,9 @@ def render_footprint_latency_map(
 		reverse_color_map=True,
 		branch_morphology=branch_morphology,
 		branch_cfg=branch_cfg,
+		fig=fig,
+		ax=ax,
+		close_figure=close_figure,
 	)
 
 

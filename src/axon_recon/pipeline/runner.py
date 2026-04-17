@@ -27,6 +27,7 @@ from .stages.reconstruct.api import (
 	run_reconstruct_generate_gtrs,
 	run_reconstruct_plot_branch_propagations,
 	run_reconstruct_plot_branch_velocities,
+	run_reconstruct_plot_unit_summary,
 	run_reconstruct_plot_recons,
 	run_reconstruct_report_full_chip_layout,
 	run_reconstruct_report_recons,
@@ -1017,6 +1018,25 @@ def run_reconstruct_plot_branch_velocities_from_runtime(
 		config_path=config_path,
 		stage_name="reconstruct.plot_branch_velocities",
 		runner_fn=run_reconstruct_plot_branch_velocities,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_reconstruct_plot_unit_summary_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.plot_unit_summary",
+		runner_fn=run_reconstruct_plot_unit_summary,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
 		force_restart_override=force_restart_override,

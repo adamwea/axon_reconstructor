@@ -335,6 +335,24 @@ def test_load_config_reconstruct_parses_branch_plot_phase_alias_and_shared_branc
 			          write_png: true
 			          relpath: branch_qc/velocities
 			          manifest_relpath: reports/branch_velocities_manifest.json
+			      plot_unit_summary:
+			        enable: true
+			        display:
+			          show_title: true
+			          show_velocity_legend: true
+			          reserve_velocity_legend_space: true
+			          velocity_legend_width: 2.75
+			          top_row_panel_gap_width: 0.85
+			          top_row_height: 7.25
+			          propagation_row_height: 5.5
+			          circle_panel_width: 6.25
+			          velocity_panel_width: 5.25
+			          propagation_panel_width: 3.0
+			        output:
+			          write_png: true
+			          write_svg: true
+			          relpath: reports/unit_summary
+			          dpi: 240
 			"""
 		).strip()
 		+ "\n",
@@ -363,6 +381,21 @@ def test_load_config_reconstruct_parses_branch_plot_phase_alias_and_shared_branc
 	assert inputs.phases.plot_branch_velocities.display.legend_fontsize == 11.0
 	assert inputs.phases.plot_branch_velocities.output.relpath == "branch_qc/velocities"
 	assert inputs.phases.plot_branch_velocities.output.manifest_relpath == "reports/branch_velocities_manifest.json"
+	assert inputs.phases.plot_unit_summary.enabled is True
+	assert inputs.phases.plot_unit_summary.display.show_title is True
+	assert inputs.phases.plot_unit_summary.display.show_velocity_legend is True
+	assert inputs.phases.plot_unit_summary.display.reserve_velocity_legend_space is True
+	assert inputs.phases.plot_unit_summary.display.velocity_legend_width == 2.75
+	assert inputs.phases.plot_unit_summary.display.top_row_panel_gap_width == 0.85
+	assert inputs.phases.plot_unit_summary.display.top_row_height == 7.25
+	assert inputs.phases.plot_unit_summary.display.propagation_row_height == 5.5
+	assert inputs.phases.plot_unit_summary.display.circle_panel_width == 6.25
+	assert inputs.phases.plot_unit_summary.display.velocity_panel_width == 5.25
+	assert inputs.phases.plot_unit_summary.display.propagation_panel_width == 3.0
+	assert inputs.phases.plot_unit_summary.output.write_png is True
+	assert inputs.phases.plot_unit_summary.output.write_svg is True
+	assert inputs.phases.plot_unit_summary.output.relpath == "reports/unit_summary"
+	assert inputs.phases.plot_unit_summary.output.dpi == 240.0
 
 
 def test_load_config_reconstruct_canonical_branch_plot_phase_overrides_alias(tmp_path: Path) -> None:

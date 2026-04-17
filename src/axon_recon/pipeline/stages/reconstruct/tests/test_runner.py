@@ -12,6 +12,7 @@ import pytest
 from axon_recon.pipeline.stages.reconstruct.io import resolve_branch_phase_output_paths
 from axon_recon.pipeline.stages.reconstruct.io import format_unit_reldir
 from axon_recon.pipeline.stages.reconstruct.io import resolve_full_chip_layout_output_paths
+from axon_recon.pipeline.stages.reconstruct.io import resolve_unit_summary_phase_output_paths
 from axon_recon.pipeline.stages.reconstruct.io import resolve_unit_output_paths
 from axon_recon.pipeline.stages.reconstruct.models.inputs import (
 	ReconstructionBranchPlotOutputConfig,
@@ -28,13 +29,17 @@ from axon_recon.pipeline.stages.reconstruct.models.inputs import (
 	ReconstructionPhasesConfig,
 	ReconstructionPlotBranchPropagationsPhaseConfig,
 	ReconstructionPlotBranchVelocitiesPhaseConfig,
+	ReconstructionPlotUnitSummaryPhaseConfig,
 	ReconstructionReportFullChipLayoutPhaseConfig,
 	ReconstructionReportReconsPhaseConfig,
+	ReconstructionUnitSummaryDisplayConfig,
+	ReconstructionUnitSummaryOutputConfig,
 )
 from axon_recon.pipeline.stages.reconstruct.runner import (
 	run_reconstruct_generate_gtrs_phase,
 	run_reconstruct_plot_branch_propagations_phase,
 	run_reconstruct_plot_branch_velocities_phase,
+	run_reconstruct_plot_unit_summary_phase,
 	run_reconstruct_report_full_chip_layout_phase,
 	run_reconstruct_report_recons_phase,
 )
@@ -686,6 +691,22 @@ def test_resolve_branch_phase_output_paths_includes_scope_and_manifest() -> None
 	assert paths["manifest_json"] == Path("/tmp/recon") / "units/0009" / "reports/branch_propagations_manifest.json"
 
 
+def test_resolve_unit_summary_phase_output_paths_includes_png_and_svg() -> None:
+	paths = resolve_unit_summary_phase_output_paths(
+		reconstruction_out_dir=Path("/tmp/recon"),
+		unit_id=9,
+		per_unit_outputs=PerUnitOutputsConfig(unit_reldir="units/{unit_id:04d}/"),
+		phase_output=ReconstructionUnitSummaryOutputConfig(
+			write_png=True,
+			write_svg=True,
+			relpath="reports/unit_summary",
+			dpi=220.0,
+		),
+	)
+	assert paths["png_path"] == Path("/tmp/recon") / "units/0009" / "reports/unit_summary.png"
+	assert paths["svg_path"] == Path("/tmp/recon") / "units/0009" / "reports/unit_summary.svg"
+
+
 def test_run_reconstruct_plot_branch_propagations_phase_writes_manifest(monkeypatch, tmp_path: Path) -> None:
 	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
 
@@ -721,7 +742,11 @@ def test_run_reconstruct_plot_branch_propagations_phase_writes_manifest(monkeypa
 		),
 	)
 
+	seen = {"count": 0, "branch_records": ()}
+
 	def _write_branch_propagation_plot(**kwargs):
+		seen["count"] += 1
+		seen["branch_records"] = tuple(kwargs.get("branch_records", ()))
 		output_png = Path(kwargs["output_png"])
 		output_png.parent.mkdir(parents=True, exist_ok=True)
 		output_png.write_bytes(b"png")
@@ -755,20 +780,35 @@ def test_run_reconstruct_plot_branch_propagations_phase_writes_manifest(monkeypa
 	)
 	paths["unit_dir"].mkdir(parents=True, exist_ok=True)
 	paths["unit_summary_json"].write_text(
-		json.dumps({"unit_id": 1, "status": "ok", "outputs": {}}),
+		json.dumps({"unit_id": 1, "status": "error", "error": "prior failure", "outputs": {}}),
 		encoding="utf-8",
 	)
+	legacy_branch_png = paths["unit_dir"] / "branch_qc/propagations/raw/branch_0000.png"
+	legacy_branch_png.parent.mkdir(parents=True, exist_ok=True)
+	legacy_branch_png.write_bytes(b"legacy")
 	with open(paths["gtr_pkl"], "wb") as handle:
-		pickle.dump(SimpleNamespace(_paths_raw=[[2, 1, 0]], branches=[], _paths_clean=[]), handle)
+		pickle.dump(SimpleNamespace(_paths_raw=[[2, 1, 0], [0, 1, 2]], branches=[], _paths_clean=[]), handle)
 
 	summary = run_reconstruct_plot_branch_propagations_phase(inputs)
 	assert summary["phase"] == "plot_branch_propagations"
+	assert seen["count"] == 1
+	assert len(seen["branch_records"]) == 2
+	assert summary["units"][0]["status"] == "ok"
 	unit_outputs = summary["units"][0]["outputs"]
 	assert Path(unit_outputs["branch_propagations_manifest_json"]).exists()
+	assert Path(unit_outputs["branch_propagations_png"]).exists()
+	unit_summary_payload = json.loads(paths["unit_summary_json"].read_text(encoding="utf-8"))
+	assert unit_summary_payload["status"] == "ok"
+	assert unit_summary_payload["error"] is None
 	manifest = json.loads(Path(unit_outputs["branch_propagations_manifest_json"]).read_text(encoding="utf-8"))
-	assert manifest["branches_ok"] == 1
+	assert manifest["branches_ok"] == 2
+	assert Path(manifest["png_path"]).exists()
 	assert manifest["branches"][0]["status"] == "ok"
+	assert manifest["branches"][0]["column_index"] == 0
+	assert manifest["branches"][1]["column_index"] == 1
+	assert manifest["branches"][0]["png_path"] == manifest["branches"][1]["png_path"]
 	assert Path(manifest["branches"][0]["png_path"]).exists()
+	assert legacy_branch_png.exists() is False
 
 
 def test_run_reconstruct_plot_branch_velocities_phase_writes_manifest(monkeypatch, tmp_path: Path) -> None:
@@ -806,7 +846,12 @@ def test_run_reconstruct_plot_branch_velocities_phase_writes_manifest(monkeypatc
 		),
 	)
 
+	seen = {"count": 0, "branch_records": (), "fit_payloads": ()}
+
 	def _write_branch_velocity_plot(**kwargs):
+		seen["count"] += 1
+		seen["branch_records"] = tuple(kwargs.get("branch_records", ()))
+		seen["fit_payloads"] = tuple(kwargs.get("fit_payloads", ()))
 		output_png = Path(kwargs["output_png"])
 		output_png.parent.mkdir(parents=True, exist_ok=True)
 		output_png.write_bytes(b"png")
@@ -841,13 +886,16 @@ def test_run_reconstruct_plot_branch_velocities_phase_writes_manifest(monkeypatc
 	)
 	paths["unit_dir"].mkdir(parents=True, exist_ok=True)
 	paths["unit_summary_json"].write_text(
-		json.dumps({"unit_id": 1, "status": "ok", "outputs": {}}),
+		json.dumps({"unit_id": 1, "status": "error", "error": "prior failure", "outputs": {}}),
 		encoding="utf-8",
 	)
+	legacy_branch_png = paths["unit_dir"] / "branch_qc/velocities/clean/branch_0004.png"
+	legacy_branch_png.parent.mkdir(parents=True, exist_ok=True)
+	legacy_branch_png.write_bytes(b"legacy")
 	with open(paths["gtr_pkl"], "wb") as handle:
 		pickle.dump(
 			SimpleNamespace(
-				_paths_raw=[[2, 1, 0]],
+				_paths_raw=[[2, 1, 0], [0, 2, 1]],
 				_paths_clean=[[0, 1, 2]],
 				branches=[
 					{
@@ -858,6 +906,15 @@ def test_run_reconstruct_plot_branch_velocities_phase_writes_manifest(monkeypatc
 						"r2": 0.91,
 						"peak_times": [0.8, 1.4, 2.1],
 						"distances": [12.0, 24.0, 41.0],
+					},
+					{
+						"branch_index": 5,
+						"channels": [0, 2, 1],
+						"velocity": 2.4,
+						"offset": 0.1,
+						"r2": 0.81,
+						"peak_times": [0.7, 1.1, 1.9],
+						"distances": [11.0, 19.0, 38.0],
 					}
 				],
 			),
@@ -866,13 +923,136 @@ def test_run_reconstruct_plot_branch_velocities_phase_writes_manifest(monkeypatc
 
 	summary = run_reconstruct_plot_branch_velocities_phase(inputs)
 	assert summary["phase"] == "plot_branch_velocities"
+	assert summary["units"][0]["status"] == "ok"
+	assert seen["count"] == 1
+	assert len(seen["branch_records"]) == 2
+	assert len(seen["fit_payloads"]) == 2
 	unit_outputs = summary["units"][0]["outputs"]
 	assert Path(unit_outputs["branch_velocities_manifest_json"]).exists()
+	assert Path(unit_outputs["branch_velocities_png"]).exists()
+	unit_summary_payload = json.loads(paths["unit_summary_json"].read_text(encoding="utf-8"))
+	assert unit_summary_payload["status"] == "ok"
+	assert unit_summary_payload["error"] is None
 	manifest = json.loads(Path(unit_outputs["branch_velocities_manifest_json"]).read_text(encoding="utf-8"))
-	assert manifest["branches_ok"] == 1
+	assert manifest["branches_ok"] == 2
+	assert Path(manifest["png_path"]).exists()
 	assert manifest["branches"][0]["status"] == "ok"
 	assert float(manifest["branches"][0]["velocity"]) == pytest.approx(1.7)
+	assert "r" not in manifest["branches"][0]
+	assert float(manifest["branches"][1]["velocity"]) == pytest.approx(2.4)
+	assert manifest["branches"][0]["png_path"] == manifest["branches"][1]["png_path"]
 	assert Path(manifest["branches"][0]["png_path"]).exists()
+	assert legacy_branch_png.exists() is False
+
+
+def test_run_reconstruct_plot_unit_summary_phase_writes_outputs(monkeypatch, tmp_path: Path) -> None:
+	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
+
+	well_out_dir = tmp_path / "well001"
+	well_out_dir.mkdir(parents=True, exist_ok=True)
+	templates_out = tmp_path / "templates_out"
+	merged = tmp_path / "templates_merged"
+	full = tmp_path / "templates_full"
+	templates_out.mkdir(parents=True, exist_ok=True)
+	merged.mkdir(parents=True, exist_ok=True)
+	full.mkdir(parents=True, exist_ok=True)
+
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"compute_mea_analysis_output_dir",
+		lambda *, output_root, data_file, well: well_out_dir,
+	)
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"_resolve_templates_dirs",
+		lambda _well_out_dir, **kwargs: (templates_out, merged, full),
+	)
+	monkeypatch.setattr(
+		reconstruct_runner,
+		"load_templates_for_unit",
+		lambda **kwargs: (
+			np.asarray([[-5.0, -10.0, -3.0], [-2.0, -4.0, -1.0], [-1.0, -6.0, -2.0]], dtype=float),
+			np.asarray([[0.0, 0.0], [17.5, 0.0], [35.0, 0.0]], dtype=float),
+			np.asarray([[-5.0, -10.0, -3.0], [-2.0, -4.0, -1.0], [-1.0, -6.0, -2.0]], dtype=float),
+			np.asarray([[0.0, 0.0], [17.5, 0.0], [35.0, 0.0]], dtype=float),
+			10_000.0,
+			"merged",
+		),
+	)
+
+	seen = {"count": 0}
+
+	def _write_unit_summary_plot(**kwargs):
+		seen["count"] += 1
+		output_png = Path(kwargs["output_png"])
+		output_png.parent.mkdir(parents=True, exist_ok=True)
+		output_png.write_bytes(b"png")
+		return {"png_path": str(output_png)}
+
+	monkeypatch.setattr(reconstruct_runner, "write_unit_summary_plot", _write_unit_summary_plot)
+
+	inputs = ReconstructionInputs(
+		h5_path=tmp_path / "input.raw.h5",
+		stream_id="well001",
+		mea_output_root=tmp_path,
+		output_rel_root="recon_outputs",
+		unit_ids=[1],
+		phases=ReconstructionPhasesConfig(
+			plot_branch_propagations=ReconstructionPlotBranchPropagationsPhaseConfig(
+				enabled=True,
+				branch_scope="raw",
+				display=ReconstructionBranchPropagationDisplayConfig(figsize=(2.75, 6.0)),
+				output=ReconstructionBranchPlotOutputConfig(
+					write_png=True,
+					relpath="branch_qc/propagations",
+					manifest_relpath="reports/branch_propagations_manifest.json",
+				),
+			),
+			plot_branch_velocities=ReconstructionPlotBranchVelocitiesPhaseConfig(
+				enabled=True,
+				branch_scope="raw",
+				display=ReconstructionBranchVelocityDisplayConfig(figsize=(4.5, 6.5), show_title=True, show_legend=False),
+				output=ReconstructionBranchPlotOutputConfig(
+					write_png=True,
+					relpath="branch_qc/velocities",
+					manifest_relpath="reports/branch_velocities_manifest.json",
+				),
+			),
+			plot_unit_summary=ReconstructionPlotUnitSummaryPhaseConfig(
+				enabled=True,
+				display=ReconstructionUnitSummaryDisplayConfig(show_title=True, show_velocity_legend=False),
+				output=ReconstructionUnitSummaryOutputConfig(
+					write_png=True,
+					write_svg=False,
+					relpath="reports/unit_summary",
+					dpi=180.0,
+				),
+			),
+		),
+	)
+
+	paths = resolve_unit_output_paths(
+		reconstruction_out_dir=well_out_dir / "recon_outputs",
+		unit_id=1,
+		per_unit_outputs=inputs.per_unit_outputs,
+	)
+	paths["unit_dir"].mkdir(parents=True, exist_ok=True)
+	paths["unit_summary_json"].write_text(
+		json.dumps({"unit_id": 1, "status": "error", "error": "prior failure", "outputs": {}}),
+		encoding="utf-8",
+	)
+	with open(paths["gtr_pkl"], "wb") as handle:
+		pickle.dump(SimpleNamespace(branches=[{"branch_index": 0, "channels": [0, 1, 2]}]), handle)
+
+	summary = run_reconstruct_plot_unit_summary_phase(inputs)
+	assert summary["phase"] == "plot_unit_summary"
+	assert summary["units"][0]["status"] == "ok"
+	assert seen["count"] == 1
+	unit_outputs = summary["units"][0]["outputs"]
+	assert Path(unit_outputs["plot_unit_summary_png"]).exists()
+	unit_summary_payload = json.loads(paths["unit_summary_json"].read_text(encoding="utf-8"))
+	assert unit_summary_payload["status"] == "ok"
+	assert unit_summary_payload["error"] is None
 
 
 def test_resolve_full_chip_layout_output_paths_includes_manifest() -> None:

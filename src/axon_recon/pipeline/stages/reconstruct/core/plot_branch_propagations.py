@@ -36,16 +36,53 @@ def _normalize_template_channels_by_time(template_ch_by_t: Any, n_channels: int)
 	raise ValueError(f"Template channels do not match locations rows: {tpl.shape} vs n_channels={n_channels}")
 
 
+def _normalize_branch_records(
+	*,
+	branch_records: Any | None = None,
+	branch_record: ReconstructBranchRecord | None = None,
+) -> tuple[ReconstructBranchRecord, ...]:
+	if branch_records is None:
+		if branch_record is None:
+			return ()
+		return (branch_record,)
+	if isinstance(branch_records, ReconstructBranchRecord):
+		return (branch_records,)
+	return tuple(item for item in branch_records if isinstance(item, ReconstructBranchRecord))
+
+
+def _filter_selected_channels(*, branch_record: ReconstructBranchRecord, n_channels: int) -> tuple[int, ...]:
+	return tuple(
+		int(channel)
+		for channel in branch_record.selected_channels
+		if 0 <= int(channel) < int(n_channels)
+	)
+
+
+def _remove_legacy_branch_artifacts(*, output_dir: Path) -> None:
+	for pattern in ("branch_*.png", "branch_*.svg"):
+		for legacy_path in output_dir.glob(pattern):
+			try:
+				legacy_path.unlink()
+			except FileNotFoundError:
+				continue
+
+
 def write_unit_branch_propagation_plot(
 	*,
 	output_png: Path,
 	output_svg: Path,
 	template_ch_by_t: Any,
 	locs_xy: Any,
-	branch_record: ReconstructBranchRecord,
+	branch_records: Any | None = None,
+	branch_record: ReconstructBranchRecord | None = None,
 	display_config: Any,
 	output_config: Any,
 	unit_id: Any,
+	fig: Any | None = None,
+	axes: Any | None = None,
+	close_figure: bool = True,
+	manage_layout: bool = True,
+	show_figure_title: bool | None = None,
 ) -> dict[str, str]:
 	import matplotlib
 	import numpy as np  # type: ignore[import-not-found]
@@ -60,36 +97,82 @@ def write_unit_branch_propagation_plot(
 		raise ValueError(f"Expected locs_xy to be [N,2+], got shape={locs.shape}")
 	locs = locs[:, :2]
 	tpl = _normalize_template_channels_by_time(template_ch_by_t, n_channels=int(locs.shape[0]))
-	selected_channels = [int(ch) for ch in branch_record.selected_channels if 0 <= int(ch) < int(locs.shape[0])]
-	if len(selected_channels) < 2:
-		raise ValueError(f"Branch {branch_record.branch_id} has fewer than two channels after bounds filtering")
+	branch_items = _normalize_branch_records(branch_records=branch_records, branch_record=branch_record)
+	if len(branch_items) <= 0:
+		raise ValueError("At least one branch propagation record is required")
 
-	figsize = tuple(getattr(display_config, "figsize", (6.0, 4.0)) or (6.0, 4.0))
-	fig, ax = plt.subplots(figsize=figsize, dpi=float(max(72.0, float(getattr(output_config, "dpi", 300.0) or 300.0))))
-	plot_template_propagation(
-		tpl,
-		locs,
-		selected_channels,
-		sort_templates=bool(getattr(display_config, "sort_templates", False)),
-		color="k",
-		color_marker=str(branch_record.color),
-		ax=ax,
-	)
-	if bool(getattr(display_config, "invert_y_axis", True)):
-		ax.invert_yaxis()
-	if bool(getattr(display_config, "show_title", True)):
-		ax.set_title(f"Unit {unit_id} branch {branch_record.label} propagation")
-	outputs: dict[str, str] = {}
-	if bool(getattr(output_config, "write_png", False)):
-		output_png.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(output_png, dpi=float(max(72.0, float(getattr(output_config, "dpi", 300.0) or 300.0))), bbox_inches="tight")
-		outputs["png_path"] = str(output_png)
-	if bool(getattr(output_config, "write_svg", False)):
-		output_svg.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(output_svg, bbox_inches="tight")
-		outputs["svg_path"] = str(output_svg)
-	plt.close(fig)
-	return outputs
+	panel_width, panel_height = tuple(getattr(display_config, "figsize", (2.75, 6.0)) or (2.75, 6.0))
+	panel_width = float(max(1.0, panel_width))
+	panel_height = float(max(1.0, panel_height))
+	dpi = float(max(72.0, float(getattr(output_config, "dpi", 300.0) or 300.0)))
+	if (fig is None) != (axes is None):
+		raise ValueError("write_unit_branch_propagation_plot requires both fig and axes when reusing an existing host")
+	if fig is None or axes is None:
+		fig, axes = plt.subplots(
+			1,
+			len(branch_items),
+			figsize=(panel_width * float(len(branch_items)), panel_height),
+			dpi=dpi,
+			squeeze=False,
+		)
+	try:
+		fig.patch.set_facecolor("black")
+		try:
+			axes_list = list(axes.ravel())
+		except Exception:
+			if isinstance(axes, (list, tuple)):
+				axes_list = list(axes)
+			else:
+				axes_list = [axes]
+		if len(axes_list) != len(branch_items):
+			raise ValueError(
+				f"Expected {len(branch_items)} propagation axes, received {len(axes_list)}"
+			)
+		show_title = bool(getattr(display_config, "show_title", True))
+		if show_figure_title is None:
+			show_figure_title = bool(show_title)
+		for ax, item in zip(axes_list, branch_items):
+			ax.clear()
+			ax.set_facecolor("black")
+			selected_channels = _filter_selected_channels(branch_record=item, n_channels=int(locs.shape[0]))
+			if len(selected_channels) < 2:
+				raise ValueError(f"Branch {item.branch_id} has fewer than two channels after bounds filtering")
+			plot_template_propagation(
+				tpl,
+				locs,
+				[int(channel) for channel in selected_channels],
+				sort_templates=bool(getattr(display_config, "sort_templates", False)),
+				color=str(item.color),
+				color_marker=str(item.color),
+				ax=ax,
+			)
+			if bool(getattr(display_config, "invert_y_axis", True)):
+				ax.invert_yaxis()
+			if show_title:
+				ax.set_title(f"branch {item.label}", color=str(item.color))
+		if bool(show_figure_title):
+			fig.suptitle(f"Unit {unit_id} branch propagations", color="white")
+		if bool(manage_layout):
+			fig.subplots_adjust(
+				wspace=0.08,
+				top=(0.84 if bool(show_figure_title) else 0.97),
+				bottom=0.03,
+				left=0.02,
+				right=0.98,
+			)
+		outputs: dict[str, str] = {}
+		if bool(getattr(output_config, "write_png", False)):
+			output_png.parent.mkdir(parents=True, exist_ok=True)
+			fig.savefig(output_png, dpi=dpi, bbox_inches="tight", facecolor=fig.get_facecolor())
+			outputs["png_path"] = str(output_png)
+		if bool(getattr(output_config, "write_svg", False)):
+			output_svg.parent.mkdir(parents=True, exist_ok=True)
+			fig.savefig(output_svg, bbox_inches="tight", facecolor=fig.get_facecolor())
+			outputs["svg_path"] = str(output_svg)
+		return outputs
+	finally:
+		if bool(close_figure):
+			plt.close(fig)
 
 
 def run_plot_branch_propagations_phase(
@@ -176,6 +259,9 @@ def run_plot_branch_propagations_phase(
 				branch_scope=phase_cfg.branch_scope,
 			)
 			phase_paths["output_dir"].mkdir(parents=True, exist_ok=True)
+			_remove_legacy_branch_artifacts(output_dir=phase_paths["output_dir"])
+			figure_png_path = phase_paths["output_dir"] / "branch_propagations.png"
+			figure_svg_path = phase_paths["output_dir"] / "branch_propagations.svg"
 
 			manifest: dict[str, Any] = {
 				"phase": phase_name,
@@ -189,60 +275,86 @@ def run_plot_branch_propagations_phase(
 			branches_ok = 0
 			branches_error = 0
 			branches_skipped = 0
+			valid_branch_records: list[ReconstructBranchRecord] = []
 			for branch_record in branch_selection.records:
-				branch_paths = resolve_branch_phase_branch_output_paths_fn(
-					reconstruction_out_dir=reconstruction_out_dir,
-					unit_id=unit_id,
-					per_unit_outputs=inputs.per_unit_outputs,
-					phase_output=phase_cfg.output,
-					branch_scope=phase_cfg.branch_scope,
-					branch_id=branch_record.branch_id,
+				selected_channels = _filter_selected_channels(
+					branch_record=branch_record,
+					n_channels=int(len(gtr_locs_xy)),
 				)
 				entry = {
 					"branch_id": int(branch_record.branch_id),
 					"branch_index": int(branch_record.branch_index),
 					"label": branch_record.label,
 					"scope": str(branch_record.scope),
-					"selected_channels": [int(ch) for ch in branch_record.selected_channels],
+					"selected_channels": [int(ch) for ch in selected_channels],
 					"color": str(branch_record.color),
-					"status": "skipped",
+					"status": "pending",
 					"error": None,
 				}
-				try:
-					needs_plot = bool(force_replot)
-					if not needs_plot:
-						if bool(phase_cfg.output.write_png) and (not branch_paths["png_path"].exists()):
-							needs_plot = True
-						if bool(phase_cfg.output.write_svg) and (not branch_paths["svg_path"].exists()):
-							needs_plot = True
-					if needs_plot:
-						write_unit_branch_propagation_plot_fn(
-							output_png=branch_paths["png_path"],
-							output_svg=branch_paths["svg_path"],
-							template_ch_by_t=gtr_template_ch_by_t,
-							locs_xy=gtr_locs_xy,
-							branch_record=branch_record,
-							display_config=phase_cfg.display,
-							output_config=phase_cfg.output,
-							unit_id=unit_id,
-						)
-					if bool(phase_cfg.output.write_png) and branch_paths["png_path"].exists():
-						entry["png_path"] = str(branch_paths["png_path"])
-					if bool(phase_cfg.output.write_svg) and branch_paths["svg_path"].exists():
-						entry["svg_path"] = str(branch_paths["svg_path"])
-					if "png_path" in entry or "svg_path" in entry:
-						entry["status"] = "ok"
-						branches_ok += 1
-					else:
-						entry["status"] = "skipped"
-						entry["error"] = "No branch propagation artifacts were written"
-						branches_skipped += 1
-				except Exception as exc:
+				if len(selected_channels) < 2:
 					entry["status"] = "error"
-					entry["error"] = str(exc)
+					entry["error"] = "Branch has fewer than two channels after bounds filtering"
 					branches_error += 1
-					active_logger.exception("Failed branch propagation plot for unit %s branch %s", unit_id, branch_record.branch_id)
+				else:
+					entry["column_index"] = len(valid_branch_records)
+					valid_branch_records.append(
+						ReconstructBranchRecord(
+							branch_id=int(branch_record.branch_id),
+							branch_index=int(branch_record.branch_index),
+							label=branch_record.label,
+							selected_channels=selected_channels,
+							color=str(branch_record.color),
+							scope=str(branch_record.scope),
+							velocity=branch_record.velocity,
+							offset=branch_record.offset,
+							r2=branch_record.r2,
+							peak_times=tuple(branch_record.peak_times),
+							distances=tuple(branch_record.distances),
+						)
+					)
 				manifest["branches"].append(entry)
+
+			if len(valid_branch_records) > 0:
+				needs_plot = bool(force_replot)
+				if not needs_plot:
+					if bool(phase_cfg.output.write_png) and (not figure_png_path.exists()):
+						needs_plot = True
+					if bool(phase_cfg.output.write_svg) and (not figure_svg_path.exists()):
+						needs_plot = True
+				if needs_plot:
+					write_unit_branch_propagation_plot_fn(
+						output_png=figure_png_path,
+						output_svg=figure_svg_path,
+						template_ch_by_t=gtr_template_ch_by_t,
+						locs_xy=gtr_locs_xy,
+						branch_records=tuple(valid_branch_records),
+						display_config=phase_cfg.display,
+						output_config=phase_cfg.output,
+						unit_id=unit_id,
+					)
+
+			has_figure_output = False
+			if bool(phase_cfg.output.write_png) and figure_png_path.exists():
+				manifest["png_path"] = str(figure_png_path)
+				has_figure_output = True
+			if bool(phase_cfg.output.write_svg) and figure_svg_path.exists():
+				manifest["svg_path"] = str(figure_svg_path)
+				has_figure_output = True
+
+			for entry in manifest["branches"]:
+				if str(entry.get("status", "")).strip().lower() != "pending":
+					continue
+				if has_figure_output:
+					if "png_path" in manifest:
+						entry["png_path"] = str(manifest["png_path"])
+					if "svg_path" in manifest:
+						entry["svg_path"] = str(manifest["svg_path"])
+					entry["status"] = "ok"
+					branches_ok += 1
+				else:
+					entry["status"] = "skipped"
+					entry["error"] = "No branch propagation figure was written"
+					branches_skipped += 1
 
 			manifest["branches_ok"] = int(branches_ok)
 			manifest["branches_error"] = int(branches_error)
@@ -250,6 +362,10 @@ def run_plot_branch_propagations_phase(
 			write_json_fn(phase_paths["manifest_json"], manifest)
 			unit_summary["outputs"]["branch_propagations_manifest_json"] = str(phase_paths["manifest_json"])
 			unit_summary["outputs"]["branch_propagations_dir"] = str(phase_paths["output_dir"])
+			if "png_path" in manifest:
+				unit_summary["outputs"]["branch_propagations_png"] = str(manifest["png_path"])
+			if "svg_path" in manifest:
+				unit_summary["outputs"]["branch_propagations_svg"] = str(manifest["svg_path"])
 			if branches_ok <= 0:
 				unit_summary["status"] = "error"
 				if len(branch_selection.records) == 0:
@@ -257,8 +373,9 @@ def run_plot_branch_propagations_phase(
 						f"No {phase_cfg.branch_scope} branches available for reconstruct.plot_branch_propagations"
 					)
 				else:
-					unit_summary["error"] = "No branch propagation artifacts were written"
+					unit_summary["error"] = "No branch propagation figure was written"
 			else:
+				unit_summary["status"] = "ok"
 				unit_summary["error"] = None
 		except Exception as exc:
 			unit_summary["status"] = "error"

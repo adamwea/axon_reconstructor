@@ -22,6 +22,8 @@ from .core.plot_branch_propagations import write_unit_branch_propagation_plot
 from .core.plot_branch_velocities import run_plot_branch_velocities_phase as run_plot_branch_velocities_core_phase
 from .core.plot_branch_velocities import write_unit_branch_velocity_plot
 from .core.plot_recons import run_plot_recons_phase as run_plot_recons_core_phase
+from .core.plot_unit_summary import run_plot_unit_summary_phase as run_plot_unit_summary_core_phase
+from .core.plot_unit_summary import write_unit_summary_plot
 from .core.report_full_chip_layout import run_report_full_chip_layout_phase as run_report_full_chip_layout_core_phase
 from .core.report_full_chip_layout import write_full_chip_layout_plot
 from .core.reconstruct import (
@@ -47,6 +49,7 @@ from .io import (
 	resolve_branch_phase_output_paths,
 	resolve_full_chip_layout_output_paths,
 	resolve_report_output_paths,
+	resolve_unit_summary_phase_output_paths,
 	resolve_unit_output_paths,
 	write_json,
 )
@@ -807,6 +810,32 @@ def _run_reconstruct_plot_branch_velocities_phase_impl(
 	)
 
 
+def _run_reconstruct_plot_unit_summary_phase_impl(
+	*,
+	inputs: ReconstructionInputs,
+	env: _ReconstructPhaseEnvironment,
+) -> tuple[list[UnitReconstructionResult], Path | None]:
+	unit_results = run_plot_unit_summary_core_phase(
+		inputs=inputs,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		merged_units_dir=env.merged_units_dir,
+		full_channels_templates_dir=env.full_channels_templates_dir,
+		unit_ids=env.unit_ids,
+		load_templates_for_unit_fn=load_templates_for_unit,
+		write_unit_summary_plot_fn=write_unit_summary_plot,
+		read_json_fn=read_json,
+		write_json_fn=write_json,
+		resolve_unit_output_paths_fn=resolve_unit_output_paths,
+		resolve_unit_summary_phase_output_paths_fn=resolve_unit_summary_phase_output_paths,
+		logger=LOGGER,
+	)
+	return _cleanup_failed_reconstruct_unit_outputs(
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		inputs=inputs,
+		unit_results=unit_results,
+	)
+
+
 def _run_reconstruct_report_recons_phase_impl(
 	*,
 	inputs: ReconstructionInputs,
@@ -958,6 +987,24 @@ def run_reconstruct_plot_branch_velocities_phase(inputs: ReconstructionInputs) -
 	)
 
 
+def run_reconstruct_plot_unit_summary_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
+	unit_results, failed_units_summary_json = _run_reconstruct_plot_unit_summary_phase_impl(inputs=inputs, env=env)
+	summary_json = env.reconstruction_out_dir / Path(
+		str(inputs.phases.plot_unit_summary.summary_json_relpath)
+	).expanduser()
+	return _write_reconstruct_phase_summary(
+		phase_name="plot_unit_summary",
+		summary_json=summary_json,
+		inputs=inputs,
+		well_out_dir=env.well_out_dir,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		unit_results=unit_results,
+		failed_units_summary_json=failed_units_summary_json,
+		preserve_stage_reports=env.preserve_stage_reports,
+	)
+
+
 def run_reconstruct_report_recons_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
 	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
 	unit_results = _load_reconstruct_unit_results(
@@ -1085,6 +1132,26 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 			phase_name="plot_branch_velocities",
 			summary_json=env.reconstruction_out_dir
 			/ Path(str(inputs.phases.plot_branch_velocities.summary_json_relpath)).expanduser(),
+			inputs=inputs,
+			well_out_dir=env.well_out_dir,
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			unit_results=unit_results,
+			failed_units_summary_json=failed_units_summary_json,
+			preserve_stage_reports=env.preserve_stage_reports,
+		)
+	elif not unit_results:
+		unit_results = _load_reconstruct_unit_results(
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			inputs=inputs,
+			unit_ids=env.unit_ids,
+		)
+
+	if bool(inputs.phases.plot_unit_summary.enabled):
+		unit_results, failed_units_summary_json = _run_reconstruct_plot_unit_summary_phase_impl(inputs=inputs, env=env)
+		_write_reconstruct_phase_summary(
+			phase_name="plot_unit_summary",
+			summary_json=env.reconstruction_out_dir
+			/ Path(str(inputs.phases.plot_unit_summary.summary_json_relpath)).expanduser(),
 			inputs=inputs,
 			well_out_dir=env.well_out_dir,
 			reconstruction_out_dir=env.reconstruction_out_dir,

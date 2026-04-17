@@ -82,15 +82,121 @@ def _fit_branch_velocity(gtr: Any, branch_record: ReconstructBranchRecord) -> di
 	}
 
 
+def _normalize_velocity_plot_items(
+	*,
+	branch_records: Any | None = None,
+	fit_payloads: Any | None = None,
+	branch_record: ReconstructBranchRecord | None = None,
+	fit_payload: dict[str, Any] | None = None,
+) -> tuple[tuple[ReconstructBranchRecord, dict[str, Any]], ...]:
+	if branch_records is None:
+		if branch_record is None or fit_payload is None:
+			return ()
+		return ((branch_record, dict(fit_payload)),)
+	if isinstance(branch_records, ReconstructBranchRecord):
+		if fit_payloads is None:
+			return ()
+		return ((branch_records, dict(fit_payloads)),)
+	branch_items = tuple(item for item in branch_records if isinstance(item, ReconstructBranchRecord))
+	fit_items = tuple(dict(item) for item in (fit_payloads or ()))
+	if len(branch_items) != len(fit_items):
+		raise ValueError("branch_records and fit_payloads must have the same length")
+	return tuple(zip(branch_items, fit_items, strict=False))
+
+
+def _format_branch_velocity_label(branch_record: ReconstructBranchRecord, fit_payload: dict[str, Any]) -> str:
+	velocity = float(fit_payload["velocity"])
+	r2_raw = fit_payload.get("r2", None)
+	parts = [f"branch {branch_record.label}: {velocity:.1f} mm/s"]
+	if r2_raw is not None:
+		r2 = float(r2_raw)
+		parts.append(f"r^2={r2:.2f}")
+	return ", ".join(parts)
+
+
+def _remove_legacy_branch_velocity_artifacts(*, output_dir: Path) -> None:
+	for pattern in ("branch_*.png", "branch_*.svg"):
+		for legacy_path in output_dir.glob(pattern):
+			try:
+				legacy_path.unlink()
+			except FileNotFoundError:
+				continue
+
+
+def prepare_branch_velocity_plot_data(
+	*,
+	gtr: Any,
+	branch_scope: str,
+	branch_colors: Any,
+	logger: logging.Logger | None = None,
+	unit_id: Any | None = None,
+) -> dict[str, Any]:
+	active_logger = logger or logging.getLogger("axon_recon.reconstruct.plot_branch_velocities")
+	branch_selection = select_reconstruct_branch_records(
+		gtr=gtr,
+		branch_scope=str(branch_scope),
+		branch_colors=branch_colors,
+	)
+	manifest_entries: list[dict[str, Any]] = []
+	valid_branch_records: list[ReconstructBranchRecord] = []
+	valid_fit_payloads: list[dict[str, Any]] = []
+	branches_error = 0
+	for branch_record in branch_selection.records:
+		entry = {
+			"branch_id": int(branch_record.branch_id),
+			"branch_index": int(branch_record.branch_index),
+			"label": branch_record.label,
+			"scope": str(branch_record.scope),
+			"selected_channels": [int(ch) for ch in branch_record.selected_channels],
+			"color": str(branch_record.color),
+			"status": "skipped",
+			"error": None,
+		}
+		try:
+			fit_payload = _fit_branch_velocity(gtr, branch_record)
+			entry["velocity"] = float(fit_payload["velocity"])
+			entry["offset"] = float(fit_payload["offset"])
+			entry["r2"] = fit_payload.get("r2", None)
+			entry["point_count"] = len(fit_payload.get("peak_times", []))
+			entry["status"] = "pending"
+			valid_branch_records.append(branch_record)
+			valid_fit_payloads.append(dict(fit_payload))
+		except Exception as exc:
+			entry["status"] = "error"
+			entry["error"] = str(exc)
+			branches_error += 1
+			active_logger.exception(
+				"Failed branch velocity fit for unit %s branch %s",
+				unit_id,
+				branch_record.branch_id,
+			)
+		manifest_entries.append(entry)
+	return {
+		"branch_selection": branch_selection,
+		"manifest_entries": manifest_entries,
+		"valid_branch_records": tuple(valid_branch_records),
+		"valid_fit_payloads": tuple(valid_fit_payloads),
+		"branches_error": int(branches_error),
+	}
+
+
 def write_unit_branch_velocity_plot(
 	*,
 	output_png: Path,
 	output_svg: Path,
-	branch_record: ReconstructBranchRecord,
-	fit_payload: dict[str, Any],
+	branch_records: Any | None = None,
+	fit_payloads: Any | None = None,
+	branch_record: ReconstructBranchRecord | None = None,
+	fit_payload: dict[str, Any] | None = None,
 	display_config: Any,
 	output_config: Any,
 	unit_id: Any,
+	fig: Any | None = None,
+	ax: Any | None = None,
+	close_figure: bool = True,
+	manage_layout: bool = True,
+	show_legend: bool | None = None,
+	reserve_legend_space: bool = True,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -99,38 +205,85 @@ def write_unit_branch_velocity_plot(
 
 	from axon_velocity.plotting import plot_velocity  # type: ignore[import-not-found]
 
-	figsize = tuple(getattr(display_config, "figsize", (6.0, 4.0)) or (6.0, 4.0))
-	fig, ax = plt.subplots(figsize=figsize, dpi=float(max(72.0, float(getattr(output_config, "dpi", 300.0) or 300.0))))
-	plot_velocity(
-		peak_times=fit_payload["peak_times"],
-		distances=fit_payload["distances"],
-		velocity=float(fit_payload["velocity"]),
-		offset=float(fit_payload["offset"]),
-		color=str(branch_record.color),
-		r2=fit_payload.get("r2", None),
-		ax=ax,
+	plot_items = _normalize_velocity_plot_items(
+		branch_records=branch_records,
+		fit_payloads=fit_payloads,
+		branch_record=branch_record,
+		fit_payload=fit_payload,
 	)
-	legend = ax.get_legend()
-	if legend is not None:
-		if not bool(getattr(display_config, "show_legend", True)):
+	if len(plot_items) <= 0:
+		raise ValueError("At least one branch velocity plot item is required")
+
+	figsize = tuple(getattr(display_config, "figsize", (6.0, 4.0)) or (6.0, 4.0))
+	dpi = float(max(72.0, float(getattr(output_config, "dpi", 300.0) or 300.0)))
+	if (fig is None) != (ax is None):
+		raise ValueError("write_unit_branch_velocity_plot requires both fig and ax when reusing an existing host")
+	if fig is None or ax is None:
+		fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+	try:
+		ax.clear()
+		fig.patch.set_facecolor("black")
+		ax.set_facecolor("black")
+		for item, item_fit_payload in plot_items:
+			line_count_before = len(ax.lines)
+			plot_velocity(
+				peak_times=item_fit_payload["peak_times"],
+				distances=item_fit_payload["distances"],
+				velocity=float(item_fit_payload["velocity"]),
+				offset=float(item_fit_payload["offset"]),
+				color=str(item.color),
+				r2=item_fit_payload.get("r2", None),
+				ax=ax,
+			)
+			new_lines = list(ax.lines[line_count_before:])
+			if len(new_lines) >= 1:
+				new_lines[0].set_label("_nolegend_")
+			if len(new_lines) >= 2:
+				new_lines[-1].set_label(_format_branch_velocity_label(item, item_fit_payload))
+
+		ax.set_xlabel("Peak time (ms)", color="white")
+		ax.set_ylabel("Distance ($\\mu$m)", color="white")
+		for spine in ax.spines.values():
+			spine.set_color("white")
+		ax.tick_params(colors="white")
+		if bool(getattr(display_config, "show_title", True)):
+			ax.set_title(f"Unit {unit_id} branch velocities", color="white")
+
+		legend = ax.get_legend()
+		if legend is not None:
 			legend.remove()
-		else:
+		resolved_show_legend = bool(getattr(display_config, "show_legend", True)) if show_legend is None else bool(show_legend)
+		if resolved_show_legend:
 			fontsize = float(max(1.0, float(getattr(display_config, "legend_fontsize", 8.0) or 8.0)))
+			legend = ax.legend(
+				fontsize=fontsize,
+				framealpha=0.9,
+				facecolor="black",
+				edgecolor="white",
+				loc="center left",
+				bbox_to_anchor=(1.02, 0.5),
+				borderaxespad=0.0,
+			)
 			for text in legend.get_texts():
-				text.set_fontsize(fontsize)
-	if bool(getattr(display_config, "show_title", True)):
-		ax.set_title(f"Unit {unit_id} branch {branch_record.label} velocity")
-	outputs: dict[str, str] = {}
-	if bool(getattr(output_config, "write_png", False)):
-		output_png.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(output_png, dpi=float(max(72.0, float(getattr(output_config, "dpi", 300.0) or 300.0))), bbox_inches="tight")
-		outputs["png_path"] = str(output_png)
-	if bool(getattr(output_config, "write_svg", False)):
-		output_svg.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(output_svg, bbox_inches="tight")
-		outputs["svg_path"] = str(output_svg)
-	plt.close(fig)
-	return outputs
+				text.set_color("white")
+			for legend_line in legend.get_lines():
+				legend_line.set_linewidth(max(1.5, legend_line.get_linewidth()))
+		if resolved_show_legend and bool(reserve_legend_space) and bool(manage_layout):
+			fig.subplots_adjust(right=0.72)
+
+		outputs: dict[str, str] = {}
+		if bool(getattr(output_config, "write_png", False)):
+			output_png.parent.mkdir(parents=True, exist_ok=True)
+			fig.savefig(output_png, dpi=dpi, bbox_inches="tight", facecolor=fig.get_facecolor())
+			outputs["png_path"] = str(output_png)
+		if bool(getattr(output_config, "write_svg", False)):
+			output_svg.parent.mkdir(parents=True, exist_ok=True)
+			fig.savefig(output_svg, bbox_inches="tight", facecolor=fig.get_facecolor())
+			outputs["svg_path"] = str(output_svg)
+		return outputs
+	finally:
+		if bool(close_figure):
+			plt.close(fig)
 
 
 def run_plot_branch_velocities_phase(
@@ -204,11 +357,14 @@ def run_plot_branch_velocities_phase(
 			with open(gtr_path, "rb") as handle:
 				gtr = pickle.load(handle)
 
-			branch_selection = select_reconstruct_branch_records(
+			prepared_plot_data = prepare_branch_velocity_plot_data(
 				gtr=gtr,
 				branch_scope=str(phase_cfg.branch_scope),
 				branch_colors=inputs.branch_colors,
+				logger=active_logger,
+				unit_id=unit_id,
 			)
+			branch_selection = prepared_plot_data["branch_selection"]
 			phase_paths = resolve_branch_phase_output_paths_fn(
 				reconstruction_out_dir=reconstruction_out_dir,
 				unit_id=unit_id,
@@ -217,6 +373,9 @@ def run_plot_branch_velocities_phase(
 				branch_scope=phase_cfg.branch_scope,
 			)
 			phase_paths["output_dir"].mkdir(parents=True, exist_ok=True)
+			_remove_legacy_branch_velocity_artifacts(output_dir=phase_paths["output_dir"])
+			figure_png_path = phase_paths["output_dir"] / "branch_velocities.png"
+			figure_svg_path = phase_paths["output_dir"] / "branch_velocities.svg"
 
 			manifest: dict[str, Any] = {
 				"phase": phase_name,
@@ -228,66 +387,52 @@ def run_plot_branch_velocities_phase(
 				"branches": [],
 			}
 			branches_ok = 0
-			branches_error = 0
+			branches_error = int(prepared_plot_data["branches_error"])
 			branches_skipped = 0
-			for branch_record in branch_selection.records:
-				branch_paths = resolve_branch_phase_branch_output_paths_fn(
-					reconstruction_out_dir=reconstruction_out_dir,
-					unit_id=unit_id,
-					per_unit_outputs=inputs.per_unit_outputs,
-					phase_output=phase_cfg.output,
-					branch_scope=phase_cfg.branch_scope,
-					branch_id=branch_record.branch_id,
-				)
-				entry = {
-					"branch_id": int(branch_record.branch_id),
-					"branch_index": int(branch_record.branch_index),
-					"label": branch_record.label,
-					"scope": str(branch_record.scope),
-					"selected_channels": [int(ch) for ch in branch_record.selected_channels],
-					"color": str(branch_record.color),
-					"status": "skipped",
-					"error": None,
-				}
-				try:
-					fit_payload = _fit_branch_velocity(gtr, branch_record)
-					entry["velocity"] = float(fit_payload["velocity"])
-					entry["offset"] = float(fit_payload["offset"])
-					entry["r2"] = fit_payload.get("r2", None)
-					entry["point_count"] = len(fit_payload.get("peak_times", []))
-					needs_plot = bool(force_replot)
-					if not needs_plot:
-						if bool(phase_cfg.output.write_png) and (not branch_paths["png_path"].exists()):
-							needs_plot = True
-						if bool(phase_cfg.output.write_svg) and (not branch_paths["svg_path"].exists()):
-							needs_plot = True
-					if needs_plot:
-						write_unit_branch_velocity_plot_fn(
-							output_png=branch_paths["png_path"],
-							output_svg=branch_paths["svg_path"],
-							branch_record=branch_record,
-							fit_payload=fit_payload,
-							display_config=phase_cfg.display,
-							output_config=phase_cfg.output,
-							unit_id=unit_id,
-						)
-					if bool(phase_cfg.output.write_png) and branch_paths["png_path"].exists():
-						entry["png_path"] = str(branch_paths["png_path"])
-					if bool(phase_cfg.output.write_svg) and branch_paths["svg_path"].exists():
-						entry["svg_path"] = str(branch_paths["svg_path"])
-					if "png_path" in entry or "svg_path" in entry:
-						entry["status"] = "ok"
-						branches_ok += 1
-					else:
-						entry["status"] = "skipped"
-						entry["error"] = "No branch velocity artifacts were written"
-						branches_skipped += 1
-				except Exception as exc:
-					entry["status"] = "error"
-					entry["error"] = str(exc)
-					branches_error += 1
-					active_logger.exception("Failed branch velocity plot for unit %s branch %s", unit_id, branch_record.branch_id)
-				manifest["branches"].append(entry)
+			valid_branch_records = list(prepared_plot_data["valid_branch_records"])
+			valid_fit_payloads = list(prepared_plot_data["valid_fit_payloads"])
+			manifest["branches"].extend(list(prepared_plot_data["manifest_entries"]))
+
+			if len(valid_branch_records) > 0:
+				needs_plot = bool(force_replot)
+				if not needs_plot:
+					if bool(phase_cfg.output.write_png) and (not figure_png_path.exists()):
+						needs_plot = True
+					if bool(phase_cfg.output.write_svg) and (not figure_svg_path.exists()):
+						needs_plot = True
+				if needs_plot:
+					write_unit_branch_velocity_plot_fn(
+						output_png=figure_png_path,
+						output_svg=figure_svg_path,
+						branch_records=tuple(valid_branch_records),
+						fit_payloads=tuple(valid_fit_payloads),
+						display_config=phase_cfg.display,
+						output_config=phase_cfg.output,
+						unit_id=unit_id,
+					)
+
+			has_figure_output = False
+			if bool(phase_cfg.output.write_png) and figure_png_path.exists():
+				manifest["png_path"] = str(figure_png_path)
+				has_figure_output = True
+			if bool(phase_cfg.output.write_svg) and figure_svg_path.exists():
+				manifest["svg_path"] = str(figure_svg_path)
+				has_figure_output = True
+
+			for entry in manifest["branches"]:
+				if str(entry.get("status", "")).strip().lower() != "pending":
+					continue
+				if has_figure_output:
+					if "png_path" in manifest:
+						entry["png_path"] = str(manifest["png_path"])
+					if "svg_path" in manifest:
+						entry["svg_path"] = str(manifest["svg_path"])
+					entry["status"] = "ok"
+					branches_ok += 1
+				else:
+					entry["status"] = "skipped"
+					entry["error"] = "No branch velocity figure was written"
+					branches_skipped += 1
 
 			manifest["branches_ok"] = int(branches_ok)
 			manifest["branches_error"] = int(branches_error)
@@ -295,13 +440,18 @@ def run_plot_branch_velocities_phase(
 			write_json_fn(phase_paths["manifest_json"], manifest)
 			unit_summary["outputs"]["branch_velocities_manifest_json"] = str(phase_paths["manifest_json"])
 			unit_summary["outputs"]["branch_velocities_dir"] = str(phase_paths["output_dir"])
+			if "png_path" in manifest:
+				unit_summary["outputs"]["branch_velocities_png"] = str(manifest["png_path"])
+			if "svg_path" in manifest:
+				unit_summary["outputs"]["branch_velocities_svg"] = str(manifest["svg_path"])
 			if branches_ok <= 0:
 				unit_summary["status"] = "error"
 				if len(branch_selection.records) == 0:
 					unit_summary["error"] = f"No {phase_cfg.branch_scope} branches available for reconstruct.plot_branch_velocities"
 				else:
-					unit_summary["error"] = "No branch velocity artifacts were written"
+					unit_summary["error"] = "No branch velocity figure was written"
 			else:
+				unit_summary["status"] = "ok"
 				unit_summary["error"] = None
 		except Exception as exc:
 			unit_summary["status"] = "error"
@@ -326,4 +476,8 @@ def run_plot_branch_velocities_phase(
 	return unit_results
 
 
-__all__ = ["run_plot_branch_velocities_phase", "write_unit_branch_velocity_plot"]
+__all__ = [
+	"prepare_branch_velocity_plot_data",
+	"run_plot_branch_velocities_phase",
+	"write_unit_branch_velocity_plot",
+]
