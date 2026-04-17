@@ -7,6 +7,7 @@ import pickle
 from typing import Any, Callable
 
 from .branch_styles import ReconstructBranchRecord
+from .branch_styles import format_branch_short_label
 from .branch_styles import select_reconstruct_branch_records
 from ..models.inputs import ReconstructionInputs
 from ..models.results import UnitReconstructionResult
@@ -107,11 +108,20 @@ def _normalize_velocity_plot_items(
 def _format_branch_velocity_label(branch_record: ReconstructBranchRecord, fit_payload: dict[str, Any]) -> str:
 	velocity = float(fit_payload["velocity"])
 	r2_raw = fit_payload.get("r2", None)
-	parts = [f"branch {branch_record.label}: {velocity:.1f} mm/s"]
+	parts = [f"{format_branch_short_label(branch_record)}: {velocity:.1f} mm/s"]
 	if r2_raw is not None:
 		r2 = float(r2_raw)
 		parts.append(f"r^2={r2:.2f}")
 	return ", ".join(parts)
+
+
+def _resolve_branch_velocity_fontsizes(display_config: Any) -> dict[str, float]:
+	return {
+		"title": float(max(1.0, float(getattr(display_config, "title_fontsize", 12.0) or 12.0))),
+		"axis_label": float(max(1.0, float(getattr(display_config, "axis_label_fontsize", 10.0) or 10.0))),
+		"tick_label": float(max(1.0, float(getattr(display_config, "tick_label_fontsize", 10.0) or 10.0))),
+		"legend": float(max(1.0, float(getattr(display_config, "legend_fontsize", 8.0) or 8.0))),
+	}
 
 
 def _remove_legacy_branch_velocity_artifacts(*, output_dir: Path) -> None:
@@ -224,6 +234,7 @@ def write_unit_branch_velocity_plot(
 		ax.clear()
 		fig.patch.set_facecolor("black")
 		ax.set_facecolor("black")
+		fonts = _resolve_branch_velocity_fontsizes(display_config)
 		for item, item_fit_payload in plot_items:
 			line_count_before = len(ax.lines)
 			plot_velocity(
@@ -241,22 +252,24 @@ def write_unit_branch_velocity_plot(
 			if len(new_lines) >= 2:
 				new_lines[-1].set_label(_format_branch_velocity_label(item, item_fit_payload))
 
-		ax.set_xlabel("Peak time (ms)", color="white")
-		ax.set_ylabel("Distance ($\\mu$m)", color="white")
+		units_only_axis_labels = bool(getattr(display_config, "units_only_axis_labels", True))
+		x_label = "ms" if units_only_axis_labels else "Peak time (ms)"
+		y_label = "$\\mu$m" if units_only_axis_labels else "Distance ($\\mu$m)"
+		ax.set_xlabel(x_label, color="white", fontsize=fonts["axis_label"])
+		ax.set_ylabel(y_label, color="white", fontsize=fonts["axis_label"])
 		for spine in ax.spines.values():
 			spine.set_color("white")
-		ax.tick_params(colors="white")
+		ax.tick_params(colors="white", labelsize=fonts["tick_label"])
 		if bool(getattr(display_config, "show_title", True)):
-			ax.set_title(f"Unit {unit_id} branch velocities", color="white")
+			ax.set_title(f"Unit {unit_id} branch velocities", color="white", fontsize=fonts["title"])
 
 		legend = ax.get_legend()
 		if legend is not None:
 			legend.remove()
 		resolved_show_legend = bool(getattr(display_config, "show_legend", True)) if show_legend is None else bool(show_legend)
 		if resolved_show_legend:
-			fontsize = float(max(1.0, float(getattr(display_config, "legend_fontsize", 8.0) or 8.0)))
 			legend = ax.legend(
-				fontsize=fontsize,
+				fontsize=fonts["legend"],
 				framealpha=0.9,
 				facecolor="black",
 				edgecolor="white",

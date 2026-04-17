@@ -10,6 +10,7 @@ from .runner import (
 	run_reconstruct_plot_recons_phase,
 	run_reconstruct_report_full_chip_layout_phase,
 	run_reconstruct_report_recons_phase,
+	run_reconstruct_report_summaries_phase,
 	run_reconstruct_stage,
 )
 
@@ -44,3 +45,7 @@ def run_reconstruct_report_recons(inputs: ReconstructionInputs) -> dict[str, obj
 
 def run_reconstruct_report_full_chip_layout(inputs: ReconstructionInputs) -> dict[str, object]:
 	return run_reconstruct_report_full_chip_layout_phase(inputs)
+
+
+def run_reconstruct_report_summaries(inputs: ReconstructionInputs) -> dict[str, object]:
+	return run_reconstruct_report_summaries_phase(inputs)

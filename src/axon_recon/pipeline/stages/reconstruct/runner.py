@@ -39,6 +39,8 @@ from .core.reconstruct import (
 	load_templates_for_unit,
 )
 from .core.report_recons import run_report_recons_phase as run_report_recons_core_phase
+from .core.report_summaries import run_report_summaries_phase as run_report_summaries_core_phase
+from .core.report_summaries import write_reconstruct_summary_slides_pdf
 from .core.summary_plots import write_amplitude_map_summary_png
 from .core.unit_plots import write_unit_amplitude_map_png
 from .core.unit_plots import write_unit_circle_recon_plot
@@ -178,6 +180,7 @@ def _collect_existing_reconstruct_stage_outputs(
 		reports=inputs.reports,
 		report_recons_phase=inputs.phases.report_recons,
 		report_full_chip_layout_phase=inputs.phases.report_full_chip_layout,
+		report_summaries_phase=inputs.phases.report_summaries,
 	).items():
 		if path.exists():
 			stage_outputs[key] = str(path)
@@ -902,6 +905,33 @@ def _run_reconstruct_report_full_chip_layout_phase_impl(
 	)
 
 
+def _run_reconstruct_report_summaries_phase_impl(
+	*,
+	inputs: ReconstructionInputs,
+	env: _ReconstructPhaseEnvironment,
+	unit_results: list[UnitReconstructionResult],
+	stage_outputs: dict[str, str],
+) -> dict[str, str]:
+	report_grid_sort_by = normalize_grid_sort_by(inputs.reports.grids.sort_by, default="unit_id")
+	unit_results_for_reports = _sort_reconstruct_units_for_reports(
+		unit_results=unit_results,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		inputs=inputs,
+		sort_by=report_grid_sort_by,
+	)
+	return run_report_summaries_core_phase(
+		inputs=inputs,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		unit_results=unit_results,
+		unit_results_for_reports=unit_results_for_reports,
+		preserve_stage_reports=env.preserve_stage_reports,
+		existing_stage_outputs=stage_outputs,
+		resolve_report_output_paths_fn=resolve_report_output_paths,
+		write_reconstruct_summary_slides_pdf_fn=write_reconstruct_summary_slides_pdf,
+		logger=LOGGER,
+	)
+
+
 def run_reconstruct_generate_gtrs_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
 	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=True)
 	LOGGER.info(
@@ -1060,6 +1090,41 @@ def run_reconstruct_report_full_chip_layout_phase(inputs: ReconstructionInputs) 
 	)
 
 
+def run_reconstruct_report_summaries_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
+	unit_results = _load_reconstruct_unit_results(
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		inputs=inputs,
+		unit_ids=env.unit_ids,
+	)
+	stage_outputs = _run_reconstruct_report_summaries_phase_impl(
+		inputs=inputs,
+		env=env,
+		unit_results=unit_results,
+		stage_outputs=dict(env.existing_stage_outputs),
+	)
+	summary_json = env.reconstruction_out_dir / Path(
+		str(inputs.phases.report_summaries.summary_json_relpath)
+	).expanduser()
+	return _write_reconstruct_phase_summary(
+		phase_name="report_summaries",
+		summary_json=summary_json,
+		inputs=inputs,
+		well_out_dir=env.well_out_dir,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		unit_results=unit_results,
+		stage_outputs=stage_outputs,
+		failed_units_summary_json=_current_failed_units_summary_json(
+			inputs=inputs,
+			reconstruction_out_dir=env.reconstruction_out_dir,
+		),
+		preserve_stage_reports=env.preserve_stage_reports,
+		extra_fields={
+			"reports_grid_sort_by": normalize_grid_sort_by(inputs.reports.grids.sort_by, default="unit_id"),
+		},
+	)
+
+
 def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=True)
 	unit_results: list[UnitReconstructionResult] = []
@@ -1213,6 +1278,27 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 			stage_outputs=stage_outputs,
 			failed_units_summary_json=failed_units_summary_json,
 			preserve_stage_reports=False,
+		)
+
+	if bool(inputs.phases.report_summaries.enabled):
+		stage_outputs = _run_reconstruct_report_summaries_phase_impl(
+			inputs=inputs,
+			env=env,
+			unit_results=unit_results,
+			stage_outputs=stage_outputs,
+		)
+		_write_reconstruct_phase_summary(
+			phase_name="report_summaries",
+			summary_json=env.reconstruction_out_dir
+			/ Path(str(inputs.phases.report_summaries.summary_json_relpath)).expanduser(),
+			inputs=inputs,
+			well_out_dir=env.well_out_dir,
+			reconstruction_out_dir=env.reconstruction_out_dir,
+			unit_results=unit_results,
+			stage_outputs=stage_outputs,
+			failed_units_summary_json=failed_units_summary_json,
+			preserve_stage_reports=env.preserve_stage_reports,
+			extra_fields={"reports_grid_sort_by": str(report_grid_sort_by)},
 		)
 
 	units_ok, units_error = _count_unit_statuses(unit_results)

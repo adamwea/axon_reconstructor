@@ -203,6 +203,7 @@ class ReconstructionBranchPlotOutputConfig:
 @dataclass(frozen=True)
 class ReconstructionBranchPropagationDisplayConfig:
 	figsize: tuple[float, float] = (2.75, 6.0)
+	total_width: float | None = None
 	sort_templates: bool = False
 	show_title: bool = True
 	invert_y_axis: bool = True
@@ -212,6 +213,10 @@ class ReconstructionBranchPropagationDisplayConfig:
 class ReconstructionBranchVelocityDisplayConfig:
 	figsize: tuple[float, float] = (6.0, 4.0)
 	show_title: bool = True
+	title_fontsize: float = 12.0
+	axis_label_fontsize: float = 10.0
+	tick_label_fontsize: float = 10.0
+	units_only_axis_labels: bool = True
 	show_legend: bool = True
 	legend_fontsize: float = 8.0
 
@@ -293,6 +298,13 @@ class ReconstructionPlotBranchVelocitiesPhaseConfig:
 @dataclass(frozen=True)
 class ReconstructionUnitSummaryDisplayConfig:
 	show_title: bool = False
+	show_summary_unit_label: bool = False
+	summary_unit_label_fontsize: float = 24.0
+	summary_unit_label_x_frac: float = 0.015
+	summary_unit_label_y_frac: float = 0.985
+	recon_show_unit_label: bool | None = None
+	recon_show_branch_legend: bool | None = None
+	velocity_show_title: bool | None = None
 	show_velocity_legend: bool | None = None
 	reserve_velocity_legend_space: bool | None = None
 	velocity_legend_width: float = 2.25
@@ -302,6 +314,12 @@ class ReconstructionUnitSummaryDisplayConfig:
 	circle_panel_width: float | None = None
 	velocity_panel_width: float | None = None
 	propagation_panel_width: float | None = None
+	recon_x_offset_frac: float = 0.0
+	recon_y_offset_frac: float = 0.0
+	velocity_x_offset_frac: float = 0.0
+	velocity_y_offset_frac: float = 0.0
+	propagation_x_offset_frac: float = 0.0
+	propagation_y_offset_frac: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -354,6 +372,14 @@ class ReconstructionReportFullChipLayoutPhaseConfig:
 
 
 @dataclass(frozen=True)
+class ReconstructionReportSummariesPhaseConfig:
+	enabled: bool = False
+	summary_json_relpath: str = "context/report_summaries_summary.json"
+	write_pdf: bool = True
+	pdf_relpath: str = "reports/reconstruct_summary_deck.pdf"
+
+
+@dataclass(frozen=True)
 class ReconstructionPhasesConfig:
 	generate_gtrs: ReconstructionGenerateGtrsPhaseConfig = field(default_factory=ReconstructionGenerateGtrsPhaseConfig)
 	plot_recons: ReconstructionPlotReconsPhaseConfig = field(default_factory=ReconstructionPlotReconsPhaseConfig)
@@ -369,6 +395,9 @@ class ReconstructionPhasesConfig:
 	report_recons: ReconstructionReportReconsPhaseConfig = field(default_factory=ReconstructionReportReconsPhaseConfig)
 	report_full_chip_layout: ReconstructionReportFullChipLayoutPhaseConfig = field(
 		default_factory=ReconstructionReportFullChipLayoutPhaseConfig
+	)
+	report_summaries: ReconstructionReportSummariesPhaseConfig = field(
+		default_factory=ReconstructionReportSummariesPhaseConfig
 	)
 
 

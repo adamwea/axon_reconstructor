@@ -7,6 +7,7 @@ import pickle
 from typing import Any, Callable
 
 from .branch_styles import ReconstructBranchRecord
+from .branch_styles import format_branch_short_label
 from .branch_styles import select_reconstruct_branch_records
 from ..models.inputs import ReconstructionInputs
 from ..models.results import UnitReconstructionResult
@@ -67,6 +68,29 @@ def _remove_legacy_branch_artifacts(*, output_dir: Path) -> None:
 				continue
 
 
+def resolve_branch_propagation_layout(*, branch_count: int, display_config: Any) -> dict[str, float]:
+	resolved_branch_count = max(1, int(branch_count))
+	panel_width, panel_height = tuple(getattr(display_config, "figsize", (2.75, 6.0)) or (2.75, 6.0))
+	panel_width = float(max(0.5, panel_width))
+	panel_height = float(max(1.0, panel_height))
+	total_width_raw = getattr(display_config, "total_width", None)
+	try:
+		total_width = None if total_width_raw is None else float(total_width_raw)
+	except Exception:
+		total_width = None
+	if total_width is not None and total_width > 0.0:
+		effective_total_width = float(max(0.5 * float(resolved_branch_count), total_width))
+		effective_panel_width = float(max(0.5, effective_total_width / float(resolved_branch_count)))
+	else:
+		effective_panel_width = panel_width
+		effective_total_width = float(effective_panel_width * float(resolved_branch_count))
+	return {
+		"panel_width": effective_panel_width,
+		"panel_height": panel_height,
+		"total_width": effective_total_width,
+	}
+
+
 def write_unit_branch_propagation_plot(
 	*,
 	output_png: Path,
@@ -101,9 +125,9 @@ def write_unit_branch_propagation_plot(
 	if len(branch_items) <= 0:
 		raise ValueError("At least one branch propagation record is required")
 
-	panel_width, panel_height = tuple(getattr(display_config, "figsize", (2.75, 6.0)) or (2.75, 6.0))
-	panel_width = float(max(1.0, panel_width))
-	panel_height = float(max(1.0, panel_height))
+	layout = resolve_branch_propagation_layout(branch_count=len(branch_items), display_config=display_config)
+	panel_height = float(layout["panel_height"])
+	total_width = float(layout["total_width"])
 	dpi = float(max(72.0, float(getattr(output_config, "dpi", 300.0) or 300.0)))
 	if (fig is None) != (axes is None):
 		raise ValueError("write_unit_branch_propagation_plot requires both fig and axes when reusing an existing host")
@@ -111,7 +135,7 @@ def write_unit_branch_propagation_plot(
 		fig, axes = plt.subplots(
 			1,
 			len(branch_items),
-			figsize=(panel_width * float(len(branch_items)), panel_height),
+			figsize=(total_width, panel_height),
 			dpi=dpi,
 			squeeze=False,
 		)
@@ -149,7 +173,7 @@ def write_unit_branch_propagation_plot(
 			if bool(getattr(display_config, "invert_y_axis", True)):
 				ax.invert_yaxis()
 			if show_title:
-				ax.set_title(f"branch {item.label}", color=str(item.color))
+				ax.set_title(format_branch_short_label(item), color=str(item.color))
 		if bool(show_figure_title):
 			fig.suptitle(f"Unit {unit_id} branch propagations", color="white")
 		if bool(manage_layout):
@@ -400,4 +424,4 @@ def run_plot_branch_propagations_phase(
 	return unit_results
 
 
-__all__ = ["run_plot_branch_propagations_phase", "write_unit_branch_propagation_plot"]
+__all__ = ["resolve_branch_propagation_layout", "run_plot_branch_propagations_phase", "write_unit_branch_propagation_plot"]

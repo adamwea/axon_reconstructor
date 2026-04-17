@@ -9,6 +9,7 @@ from .api import (
 	run_reconstruct_plot_recons,
 	run_reconstruct_report_full_chip_layout,
 	run_reconstruct_report_recons,
+	run_reconstruct_report_summaries,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
 	"run_reconstruct_plot_recons",
 	"run_reconstruct_report_full_chip_layout",
 	"run_reconstruct_report_recons",
+	"run_reconstruct_report_summaries",
 ]

@@ -38,6 +38,7 @@ from .models.inputs import (
 	ReconstructionPlotReconsPhaseConfig,
 	ReconstructionReportFullChipLayoutPhaseConfig,
 	ReconstructionReportReconsPhaseConfig,
+	ReconstructionReportSummariesPhaseConfig,
 	ReconstructionReportsConfig,
 	ReconstructionUnitSummaryDisplayConfig,
 	ReconstructionUnitSummaryOutputConfig,
@@ -216,8 +217,16 @@ def _build_branch_plot_output_config(
 def _build_branch_propagation_display_config(block: Any) -> ReconstructionBranchPropagationDisplayConfig:
 	data = block if isinstance(block, dict) else {}
 	default_figsize = ReconstructionBranchPropagationDisplayConfig().figsize
+	total_width_raw = data.get("total_width", None)
+	try:
+		total_width = None if total_width_raw is None else float(total_width_raw)
+	except Exception:
+		total_width = None
+	if total_width is not None and total_width <= 0.0:
+		total_width = None
 	return ReconstructionBranchPropagationDisplayConfig(
 		figsize=_parse_figsize(data.get("figsize", default_figsize), default_figsize),
+		total_width=total_width,
 		sort_templates=_as_bool(data.get("sort_templates", False), False),
 		show_title=_as_bool(data.get("show_title", True), True),
 		invert_y_axis=_as_bool(data.get("invert_y_axis", True), True),
@@ -231,9 +240,32 @@ def _build_branch_velocity_display_config(block: Any) -> ReconstructionBranchVel
 		legend_fontsize = float(data.get("legend_fontsize", default_cfg.legend_fontsize) or default_cfg.legend_fontsize)
 	except Exception:
 		legend_fontsize = default_cfg.legend_fontsize
+	try:
+		title_fontsize = float(data.get("title_fontsize", default_cfg.title_fontsize) or default_cfg.title_fontsize)
+	except Exception:
+		title_fontsize = default_cfg.title_fontsize
+	try:
+		axis_label_fontsize = float(
+			data.get("axis_label_fontsize", default_cfg.axis_label_fontsize) or default_cfg.axis_label_fontsize
+		)
+	except Exception:
+		axis_label_fontsize = default_cfg.axis_label_fontsize
+	try:
+		tick_label_fontsize = float(
+			data.get("tick_label_fontsize", default_cfg.tick_label_fontsize) or default_cfg.tick_label_fontsize
+		)
+	except Exception:
+		tick_label_fontsize = default_cfg.tick_label_fontsize
 	return ReconstructionBranchVelocityDisplayConfig(
 		figsize=_parse_figsize(data.get("figsize", default_cfg.figsize), default_cfg.figsize),
 		show_title=_as_bool(data.get("show_title", default_cfg.show_title), default_cfg.show_title),
+		title_fontsize=float(max(1.0, title_fontsize)),
+		axis_label_fontsize=float(max(1.0, axis_label_fontsize)),
+		tick_label_fontsize=float(max(1.0, tick_label_fontsize)),
+		units_only_axis_labels=_as_bool(
+			data.get("units_only_axis_labels", default_cfg.units_only_axis_labels),
+			default_cfg.units_only_axis_labels,
+		),
 		show_legend=_as_bool(data.get("show_legend", default_cfg.show_legend), default_cfg.show_legend),
 		legend_fontsize=float(max(1.0, legend_fontsize)),
 	)
@@ -259,8 +291,52 @@ def _build_unit_summary_display_config(block: Any) -> ReconstructionUnitSummaryD
 			return default
 		return parsed
 
+	def _optional_float(raw: Any, default: float) -> float:
+		if raw is None:
+			return default
+		try:
+			return float(raw)
+		except Exception:
+			return default
+
 	return ReconstructionUnitSummaryDisplayConfig(
 		show_title=_as_bool(data.get("show_title", default_cfg.show_title), default_cfg.show_title),
+		show_summary_unit_label=_as_bool(
+			data.get("show_summary_unit_label", default_cfg.show_summary_unit_label),
+			default_cfg.show_summary_unit_label,
+		),
+		summary_unit_label_fontsize=float(
+			max(
+				1.0,
+				float(
+					_optional_positive_float(
+						data.get("summary_unit_label_fontsize", default_cfg.summary_unit_label_fontsize),
+						default_cfg.summary_unit_label_fontsize,
+					)
+					or default_cfg.summary_unit_label_fontsize
+				)
+			)
+		),
+		summary_unit_label_x_frac=_optional_float(
+			data.get("summary_unit_label_x_frac", default_cfg.summary_unit_label_x_frac),
+			default_cfg.summary_unit_label_x_frac,
+		),
+		summary_unit_label_y_frac=_optional_float(
+			data.get("summary_unit_label_y_frac", default_cfg.summary_unit_label_y_frac),
+			default_cfg.summary_unit_label_y_frac,
+		),
+		recon_show_unit_label=_optional_bool(
+			key="recon_show_unit_label",
+			default=default_cfg.recon_show_unit_label,
+		),
+		recon_show_branch_legend=_optional_bool(
+			key="recon_show_branch_legend",
+			default=default_cfg.recon_show_branch_legend,
+		),
+		velocity_show_title=_optional_bool(
+			key="velocity_show_title",
+			default=default_cfg.velocity_show_title,
+		),
 		show_velocity_legend=_optional_bool(
 			key="show_velocity_legend",
 			default=default_cfg.show_velocity_legend,
@@ -301,6 +377,30 @@ def _build_unit_summary_display_config(block: Any) -> ReconstructionUnitSummaryD
 		propagation_panel_width=_optional_positive_float(
 			data.get("propagation_panel_width", default_cfg.propagation_panel_width),
 			default_cfg.propagation_panel_width,
+		),
+		recon_x_offset_frac=_optional_float(
+			data.get("recon_x_offset_frac", default_cfg.recon_x_offset_frac),
+			default_cfg.recon_x_offset_frac,
+		),
+		recon_y_offset_frac=_optional_float(
+			data.get("recon_y_offset_frac", default_cfg.recon_y_offset_frac),
+			default_cfg.recon_y_offset_frac,
+		),
+		velocity_x_offset_frac=_optional_float(
+			data.get("velocity_x_offset_frac", default_cfg.velocity_x_offset_frac),
+			default_cfg.velocity_x_offset_frac,
+		),
+		velocity_y_offset_frac=_optional_float(
+			data.get("velocity_y_offset_frac", default_cfg.velocity_y_offset_frac),
+			default_cfg.velocity_y_offset_frac,
+		),
+		propagation_x_offset_frac=_optional_float(
+			data.get("propagation_x_offset_frac", default_cfg.propagation_x_offset_frac),
+			default_cfg.propagation_x_offset_frac,
+		),
+		propagation_y_offset_frac=_optional_float(
+			data.get("propagation_y_offset_frac", default_cfg.propagation_y_offset_frac),
+			default_cfg.propagation_y_offset_frac,
 		),
 	)
 
@@ -517,6 +617,11 @@ def parse_reconstruction_stage_config(
 		else {}
 	)
 	report_recons_cfg = phases_cfg.get("report_recons", {}) if isinstance(phases_cfg.get("report_recons", {}), dict) else {}
+	report_summaries_cfg = (
+		phases_cfg.get("report_summaries", {})
+		if isinstance(phases_cfg.get("report_summaries", {}), dict)
+		else {}
+	)
 	legacy_report_full_chip_layout_cfg = (
 		phases_cfg.get("report_full_chip_recon", {})
 		if isinstance(phases_cfg.get("report_full_chip_recon", {}), dict)
@@ -1071,6 +1176,19 @@ def parse_reconstruction_stage_config(
 				report_full_chip_layout_output_cfg,
 				default_relpath="reports/full_chip_layout",
 				default_manifest_relpath="reports/full_chip_layout_manifest.json",
+			),
+		),
+		report_summaries=ReconstructionReportSummariesPhaseConfig(
+			enabled=_phase_enabled(report_summaries_cfg, False),
+			summary_json_relpath=str(
+				report_summaries_cfg.get(
+					"summary_json_relpath",
+					"context/report_summaries_summary.json",
+				)
+			),
+			write_pdf=_as_bool(report_summaries_cfg.get("write_pdf", True), True),
+			pdf_relpath=str(
+				report_summaries_cfg.get("pdf_relpath", "reports/reconstruct_summary_deck.pdf")
 			),
 		),
 	)

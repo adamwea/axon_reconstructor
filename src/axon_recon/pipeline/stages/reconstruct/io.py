@@ -227,6 +227,7 @@ def resolve_report_output_paths(
 	reports: Any,
 	report_recons_phase: Any | None = None,
 	report_full_chip_layout_phase: Any | None = None,
+	report_summaries_phase: Any | None = None,
 ) -> dict[str, Path]:
 	circle_grid = reports.grids.circle_recon_grid
 	av_recons = getattr(report_recons_phase, "av_recons", None)
@@ -238,6 +239,12 @@ def resolve_report_output_paths(
 		"circle_recon_grid_svg": reconstruction_out_dir / Path(str(circle_grid.svg_relpath)).expanduser(),
 		"circle_recon_grid_temp_svg": reconstruction_out_dir / Path(str(circle_grid.temp_svg_relpath)).expanduser(),
 	}
+	if report_summaries_phase is not None:
+		report_summaries_relpath = str(
+			getattr(report_summaries_phase, "pdf_relpath", "reports/reconstruct_summary_deck.pdf")
+			or "reports/reconstruct_summary_deck.pdf"
+		)
+		paths["report_summaries_pdf"] = reconstruction_out_dir / Path(report_summaries_relpath).expanduser()
 	if report_full_chip_layout_phase is not None:
 		full_chip_paths = resolve_full_chip_layout_output_paths(
 			reconstruction_out_dir=reconstruction_out_dir,

@@ -1511,7 +1511,8 @@ stages:
         enable: true
         branch_scope: raw
         display:
-          figsize: [2.75, 6.0] # per-branch column size [width, height]; total figure width scales with branch count.
+          figsize: [2.75, 6.0] # baseline per-branch column size [width, height] before any total-width modulation is applied.
+          total_width: 22.0 # keep the combined propagation figure width fixed and modulate per-branch column widths to fit it.
           sort_templates: false # keep traces in branch channel order; true re-orders traces within each branch column by peak time.
           show_title: true
           invert_y_axis: false
@@ -1527,8 +1528,12 @@ stages:
         display:
           figsize: [4.5, 6.5] # single combined branch-velocity plot size [width, height]; portrait so the plot area is taller than it is wide.
           show_title: true
-          show_legend: true # legend entries include branch id, velocity, and r^2; legend is placed outside the axes.
-          legend_fontsize: 9
+          title_fontsize: 16
+          axis_label_fontsize: 13
+          tick_label_fontsize: 11
+          units_only_axis_labels: true # default to concise axis labels that show only units; set false to restore descriptive labels.
+          show_legend: true # legend entries use compact branch labels like b0/b1 and include velocity plus r^2; legend is placed outside the axes.
+          legend_fontsize: 17
         output:
           write_png: true
           write_svg: false
@@ -1539,6 +1544,13 @@ stages:
         enable: true
         display:
           show_title: false
+          show_summary_unit_label: true
+          summary_unit_label_fontsize: 26
+          summary_unit_label_x_frac: 0.015
+          summary_unit_label_y_frac: 0.985
+          recon_show_unit_label: false
+          recon_show_branch_legend: false
+          velocity_show_title: false
           show_velocity_legend: true
           reserve_velocity_legend_space: true # reserve an explicit top-row gutter so the summary velocity panel keeps the standalone legend treatment.
           velocity_legend_width: 2.25 # width in inches reserved for the velocity legend when reserve_velocity_legend_space is true.
@@ -1547,7 +1559,12 @@ stages:
           propagation_row_height: 6.0 # total height in inches for the bottom row containing branch propagation columns.
           circle_panel_width: 6.5 # width in inches for the circle-recon panel inside the summary figure.
           velocity_panel_width: 2.2 # width in inches for the embedded velocity axes area; narrower so the summary panel stays visually close to the standalone plot area while leaving room for the external legend gutter.
-          propagation_panel_width: 2.75 # per-branch propagation column width in inches inside the summary figure.
+          recon_x_offset_frac: 0.0
+          recon_y_offset_frac: 0.0
+          velocity_x_offset_frac: 0.0
+          velocity_y_offset_frac: 0.0
+          propagation_x_offset_frac: 0.0
+          propagation_y_offset_frac: 0.0
       report_recons:
         enable: true
         # Emit report-stage artifacts from persisted reconstruct plot outputs.
@@ -1583,7 +1600,10 @@ stages:
           relpath: reports/full_chip_layout
           manifest_relpath: reports/full_chip_layout_manifest.json
           dpi: 300
-
+      report_summaries:
+        enable: true
+        write_pdf: true
+        pdf_relpath: reports/reconstruct_summary_deck.pdf
     # PENDING ORG OF FLAGS BELOW THIS LINE
     inputs:
       load_assets_from_v2pipeline_templates_stage: true # whether to load templates stage outputs from the v2 pipeline output directory structure; if false, will attempt to load from the same directory structure as in the previous pipeline version, which may be useful for testing and comparison purposes.

@@ -316,6 +316,7 @@ def test_load_config_reconstruct_parses_branch_plot_phase_alias_and_shared_branc
 			        branch_scope: raw
 			        display:
 			          figsize: [7, 5]
+			          total_width: 18
 			          sort_templates: true
 			          show_title: false
 			          invert_y_axis: false
@@ -329,6 +330,10 @@ def test_load_config_reconstruct_parses_branch_plot_phase_alias_and_shared_branc
 			        display:
 			          figsize: [8, 4]
 			          show_title: false
+			          title_fontsize: 14
+			          axis_label_fontsize: 12
+			          tick_label_fontsize: 10.5
+			          units_only_axis_labels: false
 			          show_legend: false
 			          legend_fontsize: 11
 			        output:
@@ -339,6 +344,13 @@ def test_load_config_reconstruct_parses_branch_plot_phase_alias_and_shared_branc
 			        enable: true
 			        display:
 			          show_title: true
+			          show_summary_unit_label: true
+			          summary_unit_label_fontsize: 28
+			          summary_unit_label_x_frac: 0.03
+			          summary_unit_label_y_frac: 0.97
+			          recon_show_unit_label: false
+			          recon_show_branch_legend: false
+			          velocity_show_title: false
 			          show_velocity_legend: true
 			          reserve_velocity_legend_space: true
 			          velocity_legend_width: 2.75
@@ -348,6 +360,12 @@ def test_load_config_reconstruct_parses_branch_plot_phase_alias_and_shared_branc
 			          circle_panel_width: 6.25
 			          velocity_panel_width: 5.25
 			          propagation_panel_width: 3.0
+			          recon_x_offset_frac: 0.01
+			          recon_y_offset_frac: -0.02
+			          velocity_x_offset_frac: -0.03
+			          velocity_y_offset_frac: 0.04
+			          propagation_x_offset_frac: 0.02
+			          propagation_y_offset_frac: -0.01
 			        output:
 			          write_png: true
 			          write_svg: true
@@ -367,6 +385,7 @@ def test_load_config_reconstruct_parses_branch_plot_phase_alias_and_shared_branc
 	assert inputs.phases.plot_branch_propagations.enabled is True
 	assert inputs.phases.plot_branch_propagations.branch_scope == "raw"
 	assert inputs.phases.plot_branch_propagations.display.figsize == (7.0, 5.0)
+	assert inputs.phases.plot_branch_propagations.display.total_width == 18.0
 	assert inputs.phases.plot_branch_propagations.display.sort_templates is True
 	assert inputs.phases.plot_branch_propagations.display.show_title is False
 	assert inputs.phases.plot_branch_propagations.display.invert_y_axis is False
@@ -377,12 +396,23 @@ def test_load_config_reconstruct_parses_branch_plot_phase_alias_and_shared_branc
 	assert inputs.phases.plot_branch_velocities.branch_scope == "clean"
 	assert inputs.phases.plot_branch_velocities.display.figsize == (8.0, 4.0)
 	assert inputs.phases.plot_branch_velocities.display.show_title is False
+	assert inputs.phases.plot_branch_velocities.display.title_fontsize == 14.0
+	assert inputs.phases.plot_branch_velocities.display.axis_label_fontsize == 12.0
+	assert inputs.phases.plot_branch_velocities.display.tick_label_fontsize == 10.5
+	assert inputs.phases.plot_branch_velocities.display.units_only_axis_labels is False
 	assert inputs.phases.plot_branch_velocities.display.show_legend is False
 	assert inputs.phases.plot_branch_velocities.display.legend_fontsize == 11.0
 	assert inputs.phases.plot_branch_velocities.output.relpath == "branch_qc/velocities"
 	assert inputs.phases.plot_branch_velocities.output.manifest_relpath == "reports/branch_velocities_manifest.json"
 	assert inputs.phases.plot_unit_summary.enabled is True
 	assert inputs.phases.plot_unit_summary.display.show_title is True
+	assert inputs.phases.plot_unit_summary.display.show_summary_unit_label is True
+	assert inputs.phases.plot_unit_summary.display.summary_unit_label_fontsize == 28.0
+	assert inputs.phases.plot_unit_summary.display.summary_unit_label_x_frac == 0.03
+	assert inputs.phases.plot_unit_summary.display.summary_unit_label_y_frac == 0.97
+	assert inputs.phases.plot_unit_summary.display.recon_show_unit_label is False
+	assert inputs.phases.plot_unit_summary.display.recon_show_branch_legend is False
+	assert inputs.phases.plot_unit_summary.display.velocity_show_title is False
 	assert inputs.phases.plot_unit_summary.display.show_velocity_legend is True
 	assert inputs.phases.plot_unit_summary.display.reserve_velocity_legend_space is True
 	assert inputs.phases.plot_unit_summary.display.velocity_legend_width == 2.75
@@ -392,6 +422,12 @@ def test_load_config_reconstruct_parses_branch_plot_phase_alias_and_shared_branc
 	assert inputs.phases.plot_unit_summary.display.circle_panel_width == 6.25
 	assert inputs.phases.plot_unit_summary.display.velocity_panel_width == 5.25
 	assert inputs.phases.plot_unit_summary.display.propagation_panel_width == 3.0
+	assert inputs.phases.plot_unit_summary.display.recon_x_offset_frac == 0.01
+	assert inputs.phases.plot_unit_summary.display.recon_y_offset_frac == -0.02
+	assert inputs.phases.plot_unit_summary.display.velocity_x_offset_frac == -0.03
+	assert inputs.phases.plot_unit_summary.display.velocity_y_offset_frac == 0.04
+	assert inputs.phases.plot_unit_summary.display.propagation_x_offset_frac == 0.02
+	assert inputs.phases.plot_unit_summary.display.propagation_y_offset_frac == -0.01
 	assert inputs.phases.plot_unit_summary.output.write_png is True
 	assert inputs.phases.plot_unit_summary.output.write_svg is True
 	assert inputs.phases.plot_unit_summary.output.relpath == "reports/unit_summary"
@@ -750,6 +786,11 @@ def test_load_config_reads_reconstruct_phase_blocks_and_overrides_legacy_paths(t
 			        av_recons:
 			          write_pdf: true
 			          pdf_relpath: reports/av_recons.pdf
+			      report_summaries:
+			        enable: true
+			        summary_json_relpath: context/report_summaries_phase.json
+			        write_pdf: true
+			        pdf_relpath: reports/reconstruct_summary_deck.pdf
 			"""
 		).strip()
 		+ "\n",
@@ -777,6 +818,10 @@ def test_load_config_reads_reconstruct_phase_blocks_and_overrides_legacy_paths(t
 	assert inputs.phases.report_recons.summary_json_relpath == "context/report_phase.json"
 	assert inputs.phases.report_recons.av_recons.write_pdf is True
 	assert inputs.phases.report_recons.av_recons.pdf_relpath == "reports/av_recons.pdf"
+	assert inputs.phases.report_summaries.enabled is True
+	assert inputs.phases.report_summaries.summary_json_relpath == "context/report_summaries_phase.json"
+	assert inputs.phases.report_summaries.write_pdf is True
+	assert inputs.phases.report_summaries.pdf_relpath == "reports/reconstruct_summary_deck.pdf"
 	assert float(inputs.axon_velocity_params["detect_threshold"]) == 0.0001
 	assert int(inputs.axon_velocity_params["min_path_points"]) == 5
 	assert int(inputs.axon_velocity_params["n_neighbors"]) == 8

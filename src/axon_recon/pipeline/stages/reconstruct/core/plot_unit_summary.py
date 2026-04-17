@@ -8,6 +8,7 @@ import pickle
 from typing import Any, Callable
 
 from .branch_styles import select_reconstruct_branch_records
+from .plot_branch_propagations import resolve_branch_propagation_layout
 from .plot_branch_propagations import write_unit_branch_propagation_plot
 from .plot_branch_velocities import prepare_branch_velocity_plot_data
 from .plot_branch_velocities import write_unit_branch_velocity_plot
@@ -64,6 +65,61 @@ def _resolve_optional_positive_float(value: Any, fallback: float) -> float:
 		return float(max(1.0, fallback))
 
 
+def _shift_axes(ax: Any, *, x_offset_frac: float, y_offset_frac: float) -> None:
+	if float(x_offset_frac) == 0.0 and float(y_offset_frac) == 0.0:
+		return
+	position = ax.get_position()
+	ax.set_position(
+		[
+			float(position.x0) + float(x_offset_frac),
+			float(position.y0) + float(y_offset_frac),
+			float(position.width),
+			float(position.height),
+		]
+	)
+
+
+def _build_summary_circle_config(*, circle_config: Any, display_config: Any) -> Any:
+	from axon_recon.pipeline.stages.templates.models.inputs import FootprintMapConfig
+	from axon_recon.pipeline.stages.templates.models.inputs import TemplateCirclesPlotConfig
+
+	summary_display = getattr(circle_config, "display", None)
+	recon_show_branch_legend = getattr(display_config, "recon_show_branch_legend", None)
+	if recon_show_branch_legend is not None and summary_display is not None:
+		summary_display = replace(summary_display, show_branch_legend=bool(recon_show_branch_legend))
+
+	recon_show_unit_label = getattr(display_config, "recon_show_unit_label", None)
+	base_template_circles = getattr(circle_config, "base_template_circles", None)
+	base_footprint_amplitude = getattr(circle_config, "base_footprint_amplitude", None)
+	base_footprint_latency = getattr(circle_config, "base_footprint_latency", None)
+	if recon_show_unit_label is not None:
+		show_unit_label = bool(recon_show_unit_label)
+		if not isinstance(base_template_circles, TemplateCirclesPlotConfig):
+			base_template_circles = TemplateCirclesPlotConfig()
+		base_template_circles = replace(
+			base_template_circles,
+			unit_id_label=replace(base_template_circles.unit_id_label, show=show_unit_label),
+		)
+		if isinstance(base_footprint_amplitude, FootprintMapConfig) and hasattr(base_footprint_amplitude, "unit_id_label"):
+			base_footprint_amplitude = replace(
+				base_footprint_amplitude,
+				unit_id_label=replace(base_footprint_amplitude.unit_id_label, show=show_unit_label),
+			)
+		if isinstance(base_footprint_latency, FootprintMapConfig) and hasattr(base_footprint_latency, "unit_id_label"):
+			base_footprint_latency = replace(
+				base_footprint_latency,
+				unit_id_label=replace(base_footprint_latency.unit_id_label, show=show_unit_label),
+			)
+
+	return replace(
+		circle_config,
+		display=summary_display,
+		base_template_circles=base_template_circles,
+		base_footprint_amplitude=base_footprint_amplitude,
+		base_footprint_latency=base_footprint_latency,
+	)
+
+
 def write_unit_summary_plot(
 	*,
 	output_png: Path,
@@ -109,8 +165,9 @@ def write_unit_summary_plot(
 		raise ValueError("No branch velocity figure could be prepared for reconstruct.plot_unit_summary")
 
 	velocity_figsize = tuple(getattr(branch_velocity_phase_config.display, "figsize", (6.0, 4.0)) or (6.0, 4.0))
-	propagation_figsize = tuple(
-		getattr(branch_propagation_phase_config.display, "figsize", (2.75, 6.0)) or (2.75, 6.0)
+	propagation_layout = resolve_branch_propagation_layout(
+		branch_count=max(1, int(len(propagation_selection.records))),
+		display_config=branch_propagation_phase_config.display,
 	)
 	estimated_circle_width, estimated_circle_height = _estimate_circle_panel_size(
 		velocity_figsize=velocity_figsize,
@@ -119,11 +176,11 @@ def write_unit_summary_plot(
 	velocity_height = float(max(1.0, float(velocity_figsize[1])))
 	propagation_panel_width = _resolve_optional_positive_float(
 		getattr(display_config, "propagation_panel_width", None),
-		float(max(1.0, float(propagation_figsize[0]))),
+		float(propagation_layout["panel_width"]),
 	)
 	propagation_panel_height = _resolve_optional_positive_float(
 		getattr(display_config, "propagation_row_height", None),
-		float(max(1.0, float(propagation_figsize[1]))),
+		float(propagation_layout["panel_height"]),
 	)
 	top_row_height = _resolve_optional_positive_float(
 		getattr(display_config, "top_row_height", None),
@@ -221,11 +278,31 @@ def write_unit_summary_plot(
 				ax_velocity = fig.add_subplot(top_grid[0, 1])
 		bottom_grid = outer_grid[1].subgridspec(1, branch_count, wspace=0.06)
 		propagation_axes = [fig.add_subplot(bottom_grid[0, idx]) for idx in range(branch_count)]
+		_shift_axes(
+			ax_circle,
+			x_offset_frac=float(getattr(display_config, "recon_x_offset_frac", 0.0) or 0.0),
+			y_offset_frac=float(getattr(display_config, "recon_y_offset_frac", 0.0) or 0.0),
+		)
+		_shift_axes(
+			ax_velocity,
+			x_offset_frac=float(getattr(display_config, "velocity_x_offset_frac", 0.0) or 0.0),
+			y_offset_frac=float(getattr(display_config, "velocity_y_offset_frac", 0.0) or 0.0),
+		)
+		for ax in propagation_axes:
+			_shift_axes(
+				ax,
+				x_offset_frac=float(getattr(display_config, "propagation_x_offset_frac", 0.0) or 0.0),
+				y_offset_frac=float(getattr(display_config, "propagation_y_offset_frac", 0.0) or 0.0),
+			)
 
 		summary_circle_config = replace(
-			circle_config,
+			_build_summary_circle_config(circle_config=circle_config, display_config=display_config),
 			output=replace(circle_config.output, write_png=False, write_svg=False),
 		)
+		summary_velocity_display = branch_velocity_phase_config.display
+		velocity_show_title = getattr(display_config, "velocity_show_title", None)
+		if velocity_show_title is not None:
+			summary_velocity_display = replace(summary_velocity_display, show_title=bool(velocity_show_title))
 		summary_propagation_output = replace(
 			branch_propagation_phase_config.output,
 			write_png=False,
@@ -254,7 +331,7 @@ def write_unit_summary_plot(
 			output_svg=output_svg,
 			branch_records=velocity_branch_records,
 			fit_payloads=velocity_fit_payloads,
-			display_config=branch_velocity_phase_config.display,
+			display_config=summary_velocity_display,
 			output_config=summary_velocity_output,
 			unit_id=unit_id,
 			fig=fig,
@@ -282,6 +359,17 @@ def write_unit_summary_plot(
 
 		if bool(getattr(display_config, "show_title", False)):
 			fig.suptitle(f"Unit {unit_id} summary", color="white")
+		if bool(getattr(display_config, "show_summary_unit_label", False)):
+			fig.text(
+				float(getattr(display_config, "summary_unit_label_x_frac", 0.015) or 0.015),
+				float(getattr(display_config, "summary_unit_label_y_frac", 0.985) or 0.985),
+				f"Unit {unit_id}",
+				color="white",
+				fontsize=float(max(1.0, float(getattr(display_config, "summary_unit_label_fontsize", 24.0) or 24.0))),
+				fontweight="bold",
+				horizontalalignment="left",
+				verticalalignment="top",
+			)
 		fig.subplots_adjust(
 			left=0.02,
 			right=0.98,

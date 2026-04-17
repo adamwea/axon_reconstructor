@@ -44,6 +44,19 @@ class ReconstructBranchSelection:
 		return [record.as_payload() for record in self.records]
 
 
+def format_branch_short_label(branch_like: Any) -> str:
+	label = getattr(branch_like, "label", branch_like)
+	try:
+		return f"b{int(label)}"
+	except Exception:
+		text = str(label).strip()
+		if not text:
+			return "b?"
+		if text.lower().startswith("b"):
+			return text
+		return f"b{text}"
+
+
 def _branch_item_class_name(branches: Any) -> str:
 	items = as_list(branches)
 	if len(items) == 0:

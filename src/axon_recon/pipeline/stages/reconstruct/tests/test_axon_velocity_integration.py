@@ -112,6 +112,8 @@ def test_write_unit_branch_propagation_plot_writes_png(tmp_path: Path, monkeypat
 			{
 				"figure_facecolor": tuple(float(value) for value in self.get_facecolor()),
 				"axes_facecolors": [tuple(float(value) for value in ax.get_facecolor()) for ax in self.axes],
+				"fig_size_inches": tuple(float(value) for value in self.get_size_inches()),
+				"axes_titles": [ax.get_title() for ax in self.axes],
 				"facecolor_kwarg": kwargs.get("facecolor"),
 			}
 		)
@@ -127,7 +129,13 @@ def test_write_unit_branch_propagation_plot_writes_png(tmp_path: Path, monkeypat
 		template_ch_by_t=template_ch_by_t,
 		locs_xy=locs_xy,
 		branch_records=branch_records,
-		display_config=ReconstructionBranchPropagationDisplayConfig(figsize=(2.5, 6.0), sort_templates=False, show_title=True, invert_y_axis=True),
+		display_config=ReconstructionBranchPropagationDisplayConfig(
+			figsize=(2.5, 6.0),
+			total_width=6.0,
+			sort_templates=False,
+			show_title=True,
+			invert_y_axis=True,
+		),
 		output_config=ReconstructionBranchPlotOutputConfig(write_png=True, write_svg=False, relpath="branch_plots", dpi=180.0),
 		unit_id=91,
 	)
@@ -142,6 +150,8 @@ def test_write_unit_branch_propagation_plot_writes_png(tmp_path: Path, monkeypat
 	assert len(seen_savefig_calls) >= 1
 	assert seen_savefig_calls[0]["figure_facecolor"] == (0.0, 0.0, 0.0, 1.0)
 	assert all(facecolor == (0.0, 0.0, 0.0, 1.0) for facecolor in seen_savefig_calls[0]["axes_facecolors"])
+	assert seen_savefig_calls[0]["fig_size_inches"] == pytest.approx((6.0, 6.0))
+	assert seen_savefig_calls[0]["axes_titles"] == ["b0", "b1"]
 
 
 def test_write_unit_branch_velocity_plot_writes_png(tmp_path: Path, monkeypatch) -> None:
@@ -230,6 +240,18 @@ def test_write_unit_branch_velocity_plot_writes_png(tmp_path: Path, monkeypatch)
 			{
 				"figure_facecolor": tuple(float(value) for value in self.get_facecolor()),
 				"axes_facecolors": [tuple(float(value) for value in ax.get_facecolor()) for ax in self.axes],
+				"title_fontsize": float(self.axes[0].title.get_fontsize()),
+				"xlabel_text": self.axes[0].xaxis.label.get_text(),
+				"xlabel_fontsize": float(self.axes[0].xaxis.label.get_fontsize()),
+				"ylabel_text": self.axes[0].yaxis.label.get_text(),
+				"ylabel_fontsize": float(self.axes[0].yaxis.label.get_fontsize()),
+				"tick_fontsizes": sorted(
+					{
+						float(label.get_fontsize())
+						for label in [*self.axes[0].get_xticklabels(), *self.axes[0].get_yticklabels()]
+						if label.get_text()
+					}
+				),
 				"legend_labels": ([] if legend is None else [text.get_text() for text in legend.get_texts()]),
 				"legend_text_colors": ([] if legend is None else [text.get_color() for text in legend.get_texts()]),
 				"legend_anchor_bounds": legend_anchor_bounds,
@@ -248,6 +270,10 @@ def test_write_unit_branch_velocity_plot_writes_png(tmp_path: Path, monkeypatch)
 		display_config=ReconstructionBranchVelocityDisplayConfig(
 			figsize=(6.5, 4.5),
 			show_title=True,
+			title_fontsize=16.0,
+			axis_label_fontsize=13.0,
+			tick_label_fontsize=11.0,
+			units_only_axis_labels=True,
 			show_legend=True,
 			legend_fontsize=10.0,
 		),
@@ -264,9 +290,15 @@ def test_write_unit_branch_velocity_plot_writes_png(tmp_path: Path, monkeypatch)
 	assert len(seen_savefig_calls) >= 1
 	assert seen_savefig_calls[0]["figure_facecolor"] == (0.0, 0.0, 0.0, 1.0)
 	assert all(facecolor == (0.0, 0.0, 0.0, 1.0) for facecolor in seen_savefig_calls[0]["axes_facecolors"])
-	assert any("branch 3:" in label and "r^2=" in label and "r=" not in label for label in seen_savefig_calls[0]["legend_labels"])
-	assert any("branch 4:" in label and "r^2=" in label and "r=" not in label for label in seen_savefig_calls[0]["legend_labels"])
+	assert any("b3:" in label and "r^2=" in label and "r=" not in label for label in seen_savefig_calls[0]["legend_labels"])
+	assert any("b4:" in label and "r^2=" in label and "r=" not in label for label in seen_savefig_calls[0]["legend_labels"])
 	assert all(color == "white" for color in seen_savefig_calls[0]["legend_text_colors"])
+	assert seen_savefig_calls[0]["title_fontsize"] == 16.0
+	assert seen_savefig_calls[0]["xlabel_text"] == "ms"
+	assert seen_savefig_calls[0]["xlabel_fontsize"] == 13.0
+	assert seen_savefig_calls[0]["ylabel_text"] == "$\\mu$m"
+	assert seen_savefig_calls[0]["ylabel_fontsize"] == 13.0
+	assert seen_savefig_calls[0]["tick_fontsizes"] == [11.0]
 	assert seen_savefig_calls[0]["legend_anchor_bounds"] is not None
 	assert seen_savefig_calls[0]["legend_anchor_bounds"][0] >= 1.0
 
@@ -309,8 +341,12 @@ def test_write_unit_summary_plot_rerenders_into_shared_figure(tmp_path: Path, mo
 	)
 	seen: dict[str, object] = {
 		"circle_ax_id": None,
+		"circle_unit_label_show": None,
+		"circle_branch_legend_show": None,
 		"prop_ax_ids": [],
 		"velocity_ax_ids": [],
+		"velocity_title": None,
+		"summary_texts": [],
 		"savefig_axes_count": None,
 		"fig_size_inches": None,
 	}
@@ -319,7 +355,10 @@ def test_write_unit_summary_plot_rerenders_into_shared_figure(tmp_path: Path, mo
 	def _spy_render_template_circles_plot(**kwargs):
 		ax = kwargs["ax"]
 		fig = kwargs["fig"]
+		config = kwargs["config"]
 		seen["circle_ax_id"] = id(ax)
+		seen["circle_unit_label_show"] = bool(config.unit_id_label.show)
+		seen["circle_branch_legend_show"] = bool(config.branch_morphology.show_branch_legend)
 		fig.patch.set_facecolor("black")
 		ax.set_facecolor("black")
 		ax.plot([0.0, 1.0], [0.0, 1.0], color="white")
@@ -353,6 +392,8 @@ def test_write_unit_summary_plot_rerenders_into_shared_figure(tmp_path: Path, mo
 	def _spy_savefig(self, *args, **kwargs):
 		seen["savefig_axes_count"] = len(self.axes)
 		seen["fig_size_inches"] = tuple(float(value) for value in self.get_size_inches())
+		seen["velocity_title"] = self.axes[1].get_title() if len(self.axes) > 1 else None
+		seen["summary_texts"] = [text.get_text() for text in self.texts]
 		return orig_savefig(self, *args, **kwargs)
 
 	monkeypatch.setattr(
@@ -384,12 +425,25 @@ def test_write_unit_summary_plot_rerenders_into_shared_figure(tmp_path: Path, mo
 		branch_velocity_phase_config=ReconstructionPlotBranchVelocitiesPhaseConfig(
 			enabled=True,
 			branch_scope="clean",
-			display=ReconstructionBranchVelocityDisplayConfig(figsize=(4.0, 5.0), show_title=True, show_legend=True, legend_fontsize=8.0),
+			display=ReconstructionBranchVelocityDisplayConfig(
+				figsize=(4.0, 5.0),
+				show_title=True,
+				title_fontsize=15.0,
+				axis_label_fontsize=12.0,
+				tick_label_fontsize=10.0,
+				show_legend=True,
+				legend_fontsize=8.0,
+			),
 			output=ReconstructionBranchPlotOutputConfig(write_png=True, write_svg=False, relpath="branch_qc/velocities", dpi=180.0),
 		),
 		branch_colors=ReconstructionBranchColorsConfig(unique_color_per_branch=True, color_scheme="Set1"),
 		display_config=ReconstructionUnitSummaryDisplayConfig(
 			show_title=False,
+			show_summary_unit_label=True,
+			summary_unit_label_fontsize=26.0,
+			recon_show_unit_label=False,
+			recon_show_branch_legend=False,
+			velocity_show_title=False,
 			show_velocity_legend=True,
 			reserve_velocity_legend_space=True,
 			velocity_legend_width=2.0,
@@ -412,6 +466,10 @@ def test_write_unit_summary_plot_rerenders_into_shared_figure(tmp_path: Path, mo
 	assert len(list(seen["velocity_ax_ids"])) == 1
 	assert seen["circle_ax_id"] not in list(seen["prop_ax_ids"])
 	assert seen["circle_ax_id"] not in list(seen["velocity_ax_ids"])
+	assert seen["circle_unit_label_show"] is False
+	assert seen["circle_branch_legend_show"] is False
+	assert seen["velocity_title"] == ""
+	assert "Unit 91" in list(seen["summary_texts"])
 	assert seen["savefig_axes_count"] == 3
 	assert seen["fig_size_inches"] == pytest.approx((13.75, 11.0))
 
@@ -538,7 +596,7 @@ def test_write_unit_summary_plot_inherits_velocity_legend_from_standalone_config
 
 	assert outputs["png_path"] == str(out_png)
 	assert out_png.exists()
-	assert any("branch 3:" in label for label in list(seen["legend_labels"]))
+	assert any("b3:" in label for label in list(seen["legend_labels"]))
 	assert seen["fig_size_inches"] == pytest.approx((13.75, 11.0))
 
 
