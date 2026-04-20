@@ -15,8 +15,14 @@ from .template_similarity_methods import (
 	TemplateSimilarityFeatures,
 	build_template_similarity_features,
 	build_global_amplitude_matrix,
+	build_dominant_waveform_matrix,
+	compute_hybrid_template_similarity_matrix,
+	compute_lagged_waveform_similarity_matrix,
+	compute_occupied_channel_jaccard_similarity_matrix,
 	compute_ptp_cosine_similarity_matrix,
 	compute_pairwise_template_similarity,
+	compute_slay_mean_similarity_matrix,
+	compute_weighted_jaccard_similarity_matrix,
 	normalize_template_similarity_method,
 )
 
@@ -270,22 +276,29 @@ def _build_pair_scores_from_matrix(
 	unit_ids: list[Any],
 	matrix: np.ndarray,
 	method: str,
+	metric_matrices: dict[str, np.ndarray] | None = None,
 ) -> list[dict[str, Any]]:
 	unit_count = len(unit_ids)
 	if unit_count <= 1:
 		return []
+	resolved_metric_matrices = dict(metric_matrices or {})
 	progress_interval = _progress_interval(unit_count, target_updates=8, minimum=8)
 	pair_scores: list[dict[str, Any]] = []
 	for row_idx in range(unit_count - 1):
 		row_scores = np.asarray(matrix[row_idx, row_idx + 1 :], dtype=float)
 		unit_a = unit_ids[row_idx]
 		for offset, score in enumerate(row_scores, start=row_idx + 1):
+			metrics_payload = {
+				metric_name: float(metric_matrix[row_idx, offset])
+				for metric_name, metric_matrix in resolved_metric_matrices.items()
+			}
 			pair_scores.append(
 				{
 					"unit_a": unit_a,
 					"unit_b": unit_ids[offset],
 					"method": method,
 					"score": float(score),
+					"metrics": metrics_payload,
 				}
 			)
 		if ((row_idx + 1) % progress_interval == 0) or (row_idx == (unit_count - 2)):
@@ -303,6 +316,11 @@ def _enrich_candidate_pairs(
 	candidate_pairs: list[dict[str, Any]],
 	feature_lookup: dict[str, TemplateSimilarityFeatures],
 	method: str,
+	support: str,
+	max_lag_samples: int,
+	hybrid_waveform_weight: float,
+	hybrid_amplitude_weight: float,
+	hybrid_occupancy_weight: float,
 ) -> list[dict[str, Any]]:
 	if not candidate_pairs:
 		return []
@@ -315,6 +333,11 @@ def _enrich_candidate_pairs(
 			features_a=features_a,
 			features_b=features_b,
 			method=method,
+			support=support,
+			max_lag_samples=int(max_lag_samples),
+			hybrid_waveform_weight=float(hybrid_waveform_weight),
+			hybrid_amplitude_weight=float(hybrid_amplitude_weight),
+			hybrid_occupancy_weight=float(hybrid_occupancy_weight),
 		)
 		enriched_pairs.append(
 			{
@@ -420,15 +443,91 @@ def build_template_similarity_phase_summary(
 	)
 	bulk_matrix_start = perf_counter()
 	amplitude_matrix, ordered_locations = build_global_amplitude_matrix(features_by_unit)
+	dominant_waveform_matrix = build_dominant_waveform_matrix(features_by_unit)
+	active_thresholds = np.asarray([features.active_amplitude_threshold for features in features_by_unit], dtype=float)
 	LOGGER.info(
 		"templates.compute_template_similarity amplitude matrix prepared: shape=%s unique_locations=%d",
 		tuple(amplitude_matrix.shape),
 		int(len(ordered_locations)),
 	)
+	metric_matrices: dict[str, np.ndarray] = {}
 	if resolved_method == "ptp_cosine":
 		matrix = compute_ptp_cosine_similarity_matrix(amplitude_matrix)
+		metric_matrices["ptp_cosine"] = matrix
 		LOGGER.info(
 			"templates.compute_template_similarity bulk cosine matrix complete: units=%d pair_count=%d duration_seconds=%.3f",
+			int(unit_count),
+			int((unit_count * (unit_count - 1)) // 2),
+			float(perf_counter() - bulk_matrix_start),
+		)
+	elif resolved_method == "amplitude_weighted_jaccard":
+		matrix = compute_weighted_jaccard_similarity_matrix(amplitude_matrix)
+		metric_matrices["amplitude_weighted_jaccard"] = matrix
+		LOGGER.info(
+			"templates.compute_template_similarity weighted jaccard matrix complete: units=%d pair_count=%d duration_seconds=%.3f",
+			int(unit_count),
+			int((unit_count * (unit_count - 1)) // 2),
+			float(perf_counter() - bulk_matrix_start),
+		)
+	elif resolved_method == "occupied_channel_jaccard":
+		matrix, shared_counts, union_counts = compute_occupied_channel_jaccard_similarity_matrix(
+			amplitude_matrix,
+			active_thresholds=active_thresholds,
+		)
+		metric_matrices["occupied_channel_jaccard"] = matrix
+		metric_matrices["shared_channel_count"] = np.asarray(shared_counts, dtype=float)
+		metric_matrices["union_channel_count"] = np.asarray(union_counts, dtype=float)
+		LOGGER.info(
+			"templates.compute_template_similarity occupied-channel jaccard matrix complete: units=%d pair_count=%d duration_seconds=%.3f",
+			int(unit_count),
+			int((unit_count * (unit_count - 1)) // 2),
+			float(perf_counter() - bulk_matrix_start),
+		)
+	elif resolved_method in {"lagged_cosine", "lagged_l1", "lagged_l2"}:
+		lag_metric = resolved_method.replace("lagged_", "")
+		matrix = compute_lagged_waveform_similarity_matrix(
+			dominant_waveform_matrix,
+			method=lag_metric,
+			max_lag_samples=int(config.method_options.max_lag_samples),
+		)
+		metric_matrices[resolved_method] = matrix
+		LOGGER.info(
+			"templates.compute_template_similarity lagged waveform matrix complete: method=%s units=%d pair_count=%d duration_seconds=%.3f",
+			resolved_method,
+			int(unit_count),
+			int((unit_count * (unit_count - 1)) // 2),
+			float(perf_counter() - bulk_matrix_start),
+		)
+	elif resolved_method == "slay_mean_similarity":
+		matrix = compute_slay_mean_similarity_matrix(
+			dominant_waveform_matrix,
+			max_lag_samples=int(config.method_options.max_lag_samples),
+		)
+		metric_matrices["slay_mean_similarity"] = matrix
+		LOGGER.info(
+			"templates.compute_template_similarity SLAy mean-similarity matrix complete: units=%d pair_count=%d duration_seconds=%.3f",
+			int(unit_count),
+			int((unit_count * (unit_count - 1)) // 2),
+			float(perf_counter() - bulk_matrix_start),
+		)
+	elif resolved_method == "hybrid_template_similarity":
+		matrix, hybrid_metrics = compute_hybrid_template_similarity_matrix(
+			amplitude_matrix=amplitude_matrix,
+			waveform_matrix=dominant_waveform_matrix,
+			active_thresholds=active_thresholds,
+			max_lag_samples=int(config.method_options.max_lag_samples),
+			waveform_weight=float(config.method_options.hybrid_waveform_weight),
+			amplitude_weight=float(config.method_options.hybrid_amplitude_weight),
+			occupancy_weight=float(config.method_options.hybrid_occupancy_weight),
+		)
+		metric_matrices.update(hybrid_metrics)
+		metric_matrices["ptp_cosine"] = compute_ptp_cosine_similarity_matrix(amplitude_matrix)
+		metric_matrices["slay_mean_similarity"] = compute_slay_mean_similarity_matrix(
+			dominant_waveform_matrix,
+			max_lag_samples=int(config.method_options.max_lag_samples),
+		)
+		LOGGER.info(
+			"templates.compute_template_similarity hybrid matrix complete: units=%d pair_count=%d duration_seconds=%.3f",
 			int(unit_count),
 			int((unit_count * (unit_count - 1)) // 2),
 			float(perf_counter() - bulk_matrix_start),
@@ -446,6 +545,11 @@ def build_template_similarity_phase_summary(
 					features_a=features_by_unit[row_idx],
 					features_b=features_by_unit[col_idx],
 					method=resolved_method,
+					support=config.method_options.support,
+					max_lag_samples=int(config.method_options.max_lag_samples),
+					hybrid_waveform_weight=float(config.method_options.hybrid_waveform_weight),
+					hybrid_amplitude_weight=float(config.method_options.hybrid_amplitude_weight),
+					hybrid_occupancy_weight=float(config.method_options.hybrid_occupancy_weight),
 				)
 				score = float(pairwise.score)
 				matrix[row_idx, col_idx] = score
@@ -456,13 +560,23 @@ def build_template_similarity_phase_summary(
 					int(row_idx + 1),
 					int(unit_count),
 				)
-	pair_scores = _build_pair_scores_from_matrix(unit_ids=unit_ids, matrix=matrix, method=resolved_method)
+	pair_scores = _build_pair_scores_from_matrix(
+		unit_ids=unit_ids,
+		matrix=matrix,
+		method=resolved_method,
+		metric_matrices=metric_matrices,
+	)
 	candidate_pairs = _select_candidate_pairs(unit_ids=unit_ids, pair_scores=pair_scores, config=config)
 	feature_lookup = {str(features.unit_id): features for features in features_by_unit}
 	candidate_pairs = _enrich_candidate_pairs(
 		candidate_pairs=candidate_pairs,
 		feature_lookup=feature_lookup,
 		method=resolved_method,
+		support=config.method_options.support,
+		max_lag_samples=int(config.method_options.max_lag_samples),
+		hybrid_waveform_weight=float(config.method_options.hybrid_waveform_weight),
+		hybrid_amplitude_weight=float(config.method_options.hybrid_amplitude_weight),
+		hybrid_occupancy_weight=float(config.method_options.hybrid_occupancy_weight),
 	)
 	LOGGER.info(
 		"templates.compute_template_similarity candidate selection complete: candidates=%d threshold=%.3f top_k=%d max_pairs=%d",
@@ -484,6 +598,13 @@ def build_template_similarity_phase_summary(
 	)
 	scores_payload = {
 		"method": resolved_method,
+		"method_options": {
+			"support": str(config.method_options.support),
+			"max_lag_samples": int(config.method_options.max_lag_samples),
+			"hybrid_waveform_weight": float(config.method_options.hybrid_waveform_weight),
+			"hybrid_amplitude_weight": float(config.method_options.hybrid_amplitude_weight),
+			"hybrid_occupancy_weight": float(config.method_options.hybrid_occupancy_weight),
+		},
 		"unit_ids": [unit_id for unit_id in unit_ids],
 		"matrix": np.asarray(matrix, dtype=float).tolist(),
 		"unique_location_count": int(len(ordered_locations)),
@@ -532,6 +653,13 @@ def build_template_similarity_phase_summary(
 				)
 	candidate_payload = {
 		"method": resolved_method,
+		"method_options": {
+			"support": str(config.method_options.support),
+			"max_lag_samples": int(config.method_options.max_lag_samples),
+			"hybrid_waveform_weight": float(config.method_options.hybrid_waveform_weight),
+			"hybrid_amplitude_weight": float(config.method_options.hybrid_amplitude_weight),
+			"hybrid_occupancy_weight": float(config.method_options.hybrid_occupancy_weight),
+		},
 		"candidate_count": int(len(candidate_pairs)),
 		"candidates": candidate_pairs,
 		"pair_plot_records": pair_plot_records,

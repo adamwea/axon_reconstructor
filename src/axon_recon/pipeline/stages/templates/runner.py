@@ -2224,10 +2224,18 @@ def run_templates_compute_template_similarity_phase(inputs: TemplatesInputs) -> 
 	pair_plot_dir = output_paths["template_similarity_candidate_pair_plots_dir"]
 	if pair_plot_dir.exists():
 		shutil.rmtree(pair_plot_dir)
-	for output_key in ("template_similarity_matrix_png", "template_similarity_matrix_svg"):
+	for output_key in (
+		"template_similarity_matrix_png",
+		"template_similarity_matrix_svg",
+		"template_similarity_scores_json",
+		"template_similarity_candidate_pairs_json",
+	):
 		artifact_path = output_paths[output_key]
 		if artifact_path.exists():
 			artifact_path.unlink()
+	summary_path = templates_out_dir / str(phase_cfg.summary_json_relpath)
+	if summary_path.exists():
+		summary_path.unlink()
 	unit_payloads_by_key: dict[str, TemplateSimilarityUnitInput] = {}
 	missing_units: list[dict[str, Any]] = []
 	progress_interval = max(1, len(unit_ids) // 10)

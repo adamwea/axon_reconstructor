@@ -12,6 +12,10 @@ import pytest
 
 from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_recon.pipeline.stages.templates.io import resolve_unit_output_paths, write_materialized_source_payload
+from axon_recon.pipeline.stages.templates.core.template_similarity_methods import (
+	build_template_similarity_features,
+	compute_pairwise_template_similarity,
+)
 from axon_recon.pipeline.stages.templates.models.inputs import (
 	AnalyzerCacheConfig,
 	DataQualityChecksOutputsConfig,
@@ -35,6 +39,7 @@ from axon_recon.pipeline.stages.templates.models.inputs import (
 	TemplateComputeSimilarityPhaseConfig,
 	TemplatePlotsPhaseConfig,
 	TemplateSimilarityCandidateSelectionConfig,
+	TemplateSimilarityMethodOptionsConfig,
 	TemplateWaveformOverlayConfig,
 	TemplatePlotConfig,
 	TimeUpsampleConfig,
@@ -573,6 +578,106 @@ def test_run_templates_compute_template_similarity_phase_writes_matrix_and_candi
 	assert candidate_payload["candidate_count"] == summary["candidate_pair_count"]
 	assert candidate_payload["candidates"]
 	assert Path(str(candidate_payload["candidates"][0]["pair_plot_png"])).exists()
+
+
+def test_compute_template_similarity_pairwise_lagged_methods_reward_shifted_templates() -> None:
+	template_a = np.zeros((2, 8), dtype=float)
+	template_a[0, 2] = -3.0
+	template_a[1, 4] = -1.5
+	template_b = np.zeros((2, 8), dtype=float)
+	template_b[0, 3] = -3.0
+	template_b[1, 5] = -1.5
+	locations = np.asarray([[0.0, 0.0], [20.0, 0.0]], dtype=float)
+
+	features_a = build_template_similarity_features(
+		unit_id=91,
+		template_c_by_t=template_a,
+		locations_xy=locations,
+	)
+	features_b = build_template_similarity_features(
+		unit_id=92,
+		template_c_by_t=template_b,
+		locations_xy=locations,
+	)
+
+	no_lag = compute_pairwise_template_similarity(
+		features_a=features_a,
+		features_b=features_b,
+		method="lagged_cosine",
+		max_lag_samples=0,
+	)
+	with_lag = compute_pairwise_template_similarity(
+		features_a=features_a,
+		features_b=features_b,
+		method="lagged_cosine",
+		max_lag_samples=2,
+	)
+	slay_with_lag = compute_pairwise_template_similarity(
+		features_a=features_a,
+		features_b=features_b,
+		method="slay_mean_similarity",
+		max_lag_samples=2,
+	)
+
+	assert with_lag.metrics["lagged_cosine"] > no_lag.metrics["lagged_cosine"]
+	assert abs(int(with_lag.metrics["lagged_cosine_lag_samples"])) == 1
+	assert slay_with_lag.metrics["slay_mean_similarity"] >= with_lag.metrics["lagged_cosine"]
+	assert abs(int(slay_with_lag.metrics["slay_mean_similarity_lag_samples"])) == 1
+
+
+def test_run_templates_compute_template_similarity_phase_writes_lagged_method_outputs(tmp_path: Path) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir, unit_ids=(91, 92, 93))
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		require_curated_units=False,
+		unit_ids=[91, 92, 93],
+		n_jobs=1,
+		phases=TemplatesPhasesConfig(
+			compute_template_similarity=TemplateComputeSimilarityPhaseConfig(
+				method="lagged_cosine",
+				method_options=TemplateSimilarityMethodOptionsConfig(
+					support="union",
+					max_lag_samples=2,
+					hybrid_waveform_weight=0.6,
+					hybrid_amplitude_weight=0.25,
+					hybrid_occupancy_weight=0.15,
+				),
+				candidate_selection=TemplateSimilarityCandidateSelectionConfig(
+					min_similarity=0.0,
+					top_k_per_unit=2,
+					max_pairs=3,
+				),
+			)
+		),
+	)
+
+	summary = run_templates_compute_template_similarity_phase(inputs)
+	outputs = dict(summary["outputs"])
+	scores_payload = json.loads(Path(outputs["template_similarity_scores_json"]).read_text(encoding="utf-8"))
+	candidate_payload = json.loads(Path(outputs["template_similarity_candidate_pairs_json"]).read_text(encoding="utf-8"))
+
+	assert summary["method"] == "lagged_cosine"
+	assert scores_payload["method"] == "lagged_cosine"
+	assert scores_payload["method_options"]["max_lag_samples"] == 2
+	assert scores_payload["method_options"]["support"] == "union"
+	assert len(scores_payload["pair_scores"]) == 3
+	assert scores_payload["matrix"][0][0] == pytest.approx(1.0)
+	assert candidate_payload["method_options"]["hybrid_waveform_weight"] == pytest.approx(0.6)
+	assert candidate_payload["candidates"]
+	first_metrics = candidate_payload["candidates"][0]["metrics"]
+	assert "lagged_cosine" in first_metrics
+	assert "lagged_l1" in first_metrics
+	assert "lagged_l2" in first_metrics
+	assert "slay_mean_similarity" in first_metrics
+	assert "hybrid_template_similarity" in first_metrics
 
 
 def test_run_templates_compute_template_similarity_phase_reuses_existing_template_circles_png(

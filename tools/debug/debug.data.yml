@@ -1,8 +1,8 @@
 #output_root: /home/adamm/dev/symlinks/local_RBS_data/outputs
 #output_root_2: /mnt/h/adamm/local_RBS_data/outputs
 output_root: /mnt/h/adamm/local_RBS_data/outputs
-#scratch_root: /mnt/e
-scratch_root: ~/scratch
+scratch_root: /mnt/e/scratch #windows filesystem, more space, but slower
+#scratch_root: ~/scratch #linux filesystem, faster probably
 use_scratch_root: true
 # When false, stage outputs stay on scratch and are not copied back to output_root.
 publish_outputs: false

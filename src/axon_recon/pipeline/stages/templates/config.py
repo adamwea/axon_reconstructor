@@ -57,6 +57,7 @@ from .models.inputs import (
 	TemplateWaveformOverlayConfig,
 	TemplatesPhasesConfig,
 	TemplateSimilarityCandidateSelectionConfig,
+	TemplateSimilarityMethodOptionsConfig,
 	TemplateSimilarityMatrixOutputConfig,
 	TemplateSimilarityPairPlotsConfig,
 	UnitLocationsReportConfig,
@@ -3579,6 +3580,7 @@ def parse_templates_stage_config(
 	phase_compute_similarity_pair_plots_cfg = _phase_block(phase_compute_similarity_outputs_cfg, "pair_plots")
 	if not phase_compute_similarity_pair_plots_cfg:
 		phase_compute_similarity_pair_plots_cfg = _phase_block(phase_compute_similarity_cfg, "pair_plots")
+	phase_compute_similarity_method_options_cfg = _phase_block(phase_compute_similarity_cfg, "method_options")
 	phase_compute_similarity_candidate_cfg = _phase_block(phase_compute_similarity_cfg, "candidate_selection")
 	effective_plot_phase_cfg = (phase_plot_templates_cfg if phase_plot_templates_cfg else phase_plots_cfg)
 	plot_phase_resources_cfg = _phase_block(effective_plot_phase_cfg, "resources")
@@ -3606,6 +3608,51 @@ def parse_templates_stage_config(
 			)
 		),
 		method=str(phase_compute_similarity_cfg.get("method", "ptp_cosine")),
+		method_options=TemplateSimilarityMethodOptionsConfig(
+			support=str(
+				phase_compute_similarity_method_options_cfg.get(
+					"support",
+					phase_compute_similarity_cfg.get("support", "union"),
+				)
+			),
+			max_lag_samples=max(
+				0,
+				_as_int(
+					phase_compute_similarity_method_options_cfg.get(
+						"max_lag_samples",
+						phase_compute_similarity_cfg.get("max_lag_samples", 0),
+					),
+					0,
+				),
+			),
+			hybrid_waveform_weight=float(
+				_as_float_or_none(
+					phase_compute_similarity_method_options_cfg.get(
+						"hybrid_waveform_weight",
+						phase_compute_similarity_cfg.get("hybrid_waveform_weight", 0.5),
+					),
+					0.5,
+				)
+			),
+			hybrid_amplitude_weight=float(
+				_as_float_or_none(
+					phase_compute_similarity_method_options_cfg.get(
+						"hybrid_amplitude_weight",
+						phase_compute_similarity_cfg.get("hybrid_amplitude_weight", 0.3),
+					),
+					0.3,
+				)
+			),
+			hybrid_occupancy_weight=float(
+				_as_float_or_none(
+					phase_compute_similarity_method_options_cfg.get(
+						"hybrid_occupancy_weight",
+						phase_compute_similarity_cfg.get("hybrid_occupancy_weight", 0.2),
+					),
+					0.2,
+				)
+			),
+		),
 		scores_json_relpath=str(
 			phase_compute_similarity_cfg.get(
 				"scores_json_relpath",

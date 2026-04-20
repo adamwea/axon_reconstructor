@@ -3100,6 +3100,12 @@ def test_load_templates_config_parses_compute_template_similarity_phase_block(tm
 			        enabled: true
 			        summary_json_relpath: context/custom_compute_similarity_summary.json
 			        method: weighted_jaccard
+			        method_options:
+			          support: intersection
+			          max_lag_samples: 3
+			          hybrid_waveform_weight: 0.55
+			          hybrid_amplitude_weight: 0.25
+			          hybrid_occupancy_weight: 0.20
 			        candidate_selection:
 			          min_similarity: 0.82
 			          top_k_per_unit: 4
@@ -3133,6 +3139,11 @@ def test_load_templates_config_parses_compute_template_similarity_phase_block(tm
 	assert phase.enabled is True
 	assert phase.summary_json_relpath == "context/custom_compute_similarity_summary.json"
 	assert phase.method == "weighted_jaccard"
+	assert phase.method_options.support == "intersection"
+	assert phase.method_options.max_lag_samples == 3
+	assert phase.method_options.hybrid_waveform_weight == 0.55
+	assert phase.method_options.hybrid_amplitude_weight == 0.25
+	assert phase.method_options.hybrid_occupancy_weight == 0.20
 	assert phase.scores_json_relpath == "reports/template_similarity/scores.json"
 	assert phase.candidate_pairs_json_relpath == "reports/template_similarity/candidates.json"
 	assert phase.candidate_selection.min_similarity == 0.82

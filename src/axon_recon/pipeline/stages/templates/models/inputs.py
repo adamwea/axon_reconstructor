@@ -308,10 +308,20 @@ class TemplateSimilarityPairPlotsConfig:
 
 
 @dataclass(frozen=True)
+class TemplateSimilarityMethodOptionsConfig:
+	support: str = "union"
+	max_lag_samples: int = 0
+	hybrid_waveform_weight: float = 0.5
+	hybrid_amplitude_weight: float = 0.3
+	hybrid_occupancy_weight: float = 0.2
+
+
+@dataclass(frozen=True)
 class TemplateComputeSimilarityPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/compute_template_similarity_summary.json"
 	method: str = "ptp_cosine"
+	method_options: TemplateSimilarityMethodOptionsConfig = field(default_factory=TemplateSimilarityMethodOptionsConfig)
 	scores_json_relpath: str = "template_similarity/similarity_scores.json"
 	candidate_pairs_json_relpath: str = "template_similarity/candidate_pairs.json"
 	matrix: TemplateSimilarityMatrixOutputConfig = field(default_factory=TemplateSimilarityMatrixOutputConfig)

@@ -129,6 +129,9 @@ stages:
       save_artifact_inventory: true
       save_stage_log: true
       stage_log_relpath: logs/preprocess_pipeline.log
+    resources:
+      max_stage_workers: 24
+      well_workers: 2
     outputs:
       # Save controls for preprocessed recording artifacts.
       save_concat_recording: true
@@ -140,10 +143,7 @@ stages:
       concat_save_n_jobs: null
       segment_save_n_jobs: null
       print_n_jobs_used: true
-    resources:
-      max_stage_workers: 24
-      well_workers: 2
-
+    phases:
   spikesort:
     resources:
       max_stage_workers: 24
@@ -789,6 +789,17 @@ stages:
           location_tolerance_um: 1.0
       compute_template_similarity:
         enabled: true
+        method: hybrid_template_similarity
+        method_options:
+          support: intersection
+          max_lag_samples: 2
+          hybrid_waveform_weight: 0.30
+          hybrid_amplitude_weight: 0.50
+          hybrid_occupancy_weight: 0.20
+        candidate_selection:
+          min_similarity: 0.40
+          top_k_per_unit: 3
+          max_pairs: 12
       plot_templates:
         enabled: true
         summary_json_relpath: context/plot_templates_summary.json
@@ -1655,7 +1666,6 @@ stages:
 
         # Reconstruction Plots
         recon_plots:
-
 
   analysis:
     execution:
