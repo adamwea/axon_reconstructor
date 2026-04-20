@@ -76,49 +76,6 @@ stages:
       limit_wells: null # int or null for no limit
       #limit_segments_per_well: 2 # int or null for no limit
       limit_segments_per_well: null
-    plot:
-      # Master preprocess PNG diagnostics override.
-      # true  -> force all preprocess PNG diagnostics OFF
-      # false -> force all preprocess PNG diagnostics ON
-      # null/omit -> respect individual toggles below
-      disable_all_png_diagnostics: true
-
-      # Individual diagnostic toggles for more granular control. These are all independent, so you can enable any combination of them.
-      layouts: true
-      segment_traces: true # legacy alias for per-segment enabled flag
-      # Optional explicit output roots for preprocess diagnostics.
-      # Relative paths resolve under the per-well output directory.
-      output_dir: preprocess_outputs
-      epoch_markers_output_dir: preprocess_outputs
-      assay_stats_relpath: assay_stats_{stream_id}.txt
-      channel_layouts_subdir: channel_layouts
-      segment_traces_subdir: segment_traces
-      concat_trace_relpath: concat_cluster_reps_{stream_id}.png
-      # Representative controls for concatenated trace diagnostics.
-      concat_trace:
-        enabled: true
-        # Alias-compatible with `n_representative_channels`; set to -1 to include all representatives.
-        n_reps: 3
-      # Representative controls for per-segment trace diagnostics.
-      per_segment_traces:
-        enabled: true
-        # Alias-compatible with `n_representative_channels`; set to -1 to include all representatives.
-        n_reps: 2
-      # Parallel workers for diagnostic plotting/scoring (segment trace rendering + representative scoring).
-      n_jobs: null # inherit preprocess n_jobs by default; can set an explicit number here for more control.
-
-      # Downsample plotting density for concat/segment trace figures.
-      # Example math (10 kHz source, 30 min recording):
-      #   duration_s = 30 * 60 = 1800 s
-      #   raw_points_per_channel = 10000 * 1800 = 18,000,000
-      #   downsampled_points_per_channel = 250 * 1800 = 450,000
-      #   decimation_factor = 10000 / 250 = 40x fewer samples
-      #   reduction = 1 - (250 / 10000) = 97.5% fewer points
-      # Effective plotting rate is capped further by trace_max_points.
-      #trace_downsample_hz: 250.0
-      #trace_downsample_hz: null # when null, no downsampling is applied to trace diagnostics; use with trace_max_points
-      trace_downsample_hz: 100.0 # downsample to 100 Hz for trace diagnostics; effective rate may be further reduced by trace_max_points
-      trace_max_points: -1 # int or -1 for no cap
     observability:
       # off|basic|detailed; detailed captures richer metadata artifacts for debugging.
       mode: detailed
@@ -132,18 +89,84 @@ stages:
     resources:
       max_stage_workers: 24
       well_workers: 2
-    outputs:
-      # Save controls for preprocessed recording artifacts.
-      save_concat_recording: true
-      save_segment_recordings: true
-      # Shared write settings for concat and per-segment saves.
-      save_chunk_duration: 1s
-      save_progress_bar: false
-      # Optional worker overrides (null -> inherit preprocess n_jobs).
-      concat_save_n_jobs: null
-      segment_save_n_jobs: null
-      print_n_jobs_used: true
     phases:
+      copy_src_to_scratch:
+        enabled: true
+        requires_use_scratch_root: true
+        summary_json_relpath: context/copy_src_to_scratch_summary.json
+      save_rec_metadata:
+        enabled: true
+        summary_json_relpath: context/recording_metadata_summary.json
+      preprocess_segments:
+        enabled: true
+        rel_output_root: preprocessed_segments
+        summary_json_relpath: context/segment_recordings_summary.json
+        plot:
+          # Master preprocess PNG diagnostics override.
+          # true  -> force all preprocess PNG diagnostics OFF
+          # false -> force all preprocess PNG diagnostics ON
+          # null/omit -> respect individual toggles below
+          disable_all_png_diagnostics: true
+
+          # Individual diagnostic toggles for more granular control. These are all independent, so you can enable any combination of them.
+          layouts: true
+          segment_traces: true # legacy alias for per-segment enabled flag
+          # Optional explicit output roots for preprocess diagnostics.
+          # Relative paths resolve under the per-well output directory.
+          output_dir: preprocess_outputs
+          epoch_markers_output_dir: preprocess_outputs
+          assay_stats_relpath: assay_stats_{stream_id}.txt
+          channel_layouts_subdir: channel_layouts
+          segment_traces_subdir: segment_traces
+          # Representative controls for per-segment trace diagnostics.
+          per_segment_traces:
+            enabled: true
+            # Alias-compatible with `n_representative_channels`; set to -1 to include all representatives.
+            n_reps: 2
+          # Parallel workers for diagnostic plotting/scoring (segment trace rendering + representative scoring).
+          n_jobs: null # inherit preprocess n_jobs by default; can set an explicit number here for more control.
+
+          # Downsample plotting density for concat/segment trace figures.
+          # Example math (10 kHz source, 30 min recording):
+          #   duration_s = 30 * 60 = 1800 s
+          #   raw_points_per_channel = 10000 * 1800 = 18,000,000
+          #   downsampled_points_per_channel = 250 * 1800 = 450,000
+          #   decimation_factor = 10000 / 250 = 40x fewer samples
+          #   reduction = 1 - (250 / 10000) = 97.5% fewer points
+          # Effective plotting rate is capped further by trace_max_points.
+          #trace_downsample_hz: 250.0
+          #trace_downsample_hz: null # when null, no downsampling is applied to trace diagnostics; use with trace_max_points
+          trace_downsample_hz: 100.0 # downsample to 100 Hz for trace diagnostics; effective rate may be further reduced by trace_max_points
+          trace_max_points: -1 # int or -1 for no cap
+        outputs:
+          save_chunk_duration: 1s
+          save_progress_bar: false
+          segment_save_n_jobs: null
+          print_n_jobs_used: true
+      concatenate_preprocessed_recordings:
+        enabled: true
+        summary_json_relpath: context/concatenated_recording_summary.json
+        rel_output_root: concatenated_recording
+        plot:
+          # Representative controls for concatenated trace diagnostics.
+          concat_trace:
+            enabled: true
+            # Alias-compatible with `n_representative_channels`; set to -1 to include all representatives.
+            n_reps: 3
+          concat_trace_relpath: concat_cluster_reps_{stream_id}.png
+        outputs:
+          save_chunk_duration: 1s
+          save_progress_bar: false
+          concat_save_n_jobs: null
+          print_n_jobs_used: true
+        save_common_electrodes:
+          enabled: true
+          summary_json_relpath: context/save_common_electrodes_summary.json
+      wipe_src_scratch:
+        enabled: true
+        dry_run: true # when true, logs the paths that would be deleted without actually deleting them; keep true by default for safety during debugging iterations, but can be set to false to enable actual deletion of scratch outputs when publish_outputs is false and you want to clean up scratch space during debug runs.
+        requires_use_scratch_root: true
+        summary_json_relpath: context/wipe_src_scratch_summary.json
   spikesort:
     resources:
       max_stage_workers: 24
@@ -167,7 +190,7 @@ stages:
       #resume_from: merge
     inputs:
       # Relative paths resolve under the per-well output directory.
-      preprocess_concat_recording_relpath: preprocess_outputs/preprocessed_recording
+      preprocess_concat_recording_relpath: preprocess_outputs/concatenated_recording
     phases:
       #resolve_sources:
       sort:

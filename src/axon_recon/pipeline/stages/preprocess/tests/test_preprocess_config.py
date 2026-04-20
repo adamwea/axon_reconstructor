@@ -65,6 +65,25 @@ def test_parse_preprocess_stage_config_defaults() -> None:
     assert parsed.concat_save_n_jobs is None
     assert parsed.segment_save_n_jobs is None
     assert parsed.print_n_jobs_used is False
+    assert parsed.phases.copy_src_to_scratch.enabled is False
+    assert parsed.phases.copy_src_to_scratch.summary_json_relpath == "context/copy_src_to_scratch_summary.json"
+    assert parsed.phases.save_rec_metadata.enabled is False
+    assert parsed.phases.save_rec_metadata.summary_json_relpath == "context/recording_metadata_summary.json"
+    assert parsed.phases.wipe_src_scratch.enabled is False
+    assert parsed.phases.wipe_src_scratch.dry_run is False
+    assert parsed.phases.wipe_src_scratch.requires_use_scratch_root is False
+    assert parsed.phases.wipe_src_scratch.summary_json_relpath == "context/wipe_src_scratch_summary.json"
+    assert parsed.phases.preprocess_segments.enabled is True
+    assert parsed.phases.preprocess_segments.summary_json_relpath == "context/segment_recordings_summary.json"
+    assert parsed.phases.preprocess_segments.rel_output_root == "per_segment_preprocessed"
+    assert parsed.phases.concatenate_preprocessed_recordings.enabled is True
+    assert parsed.phases.concatenate_preprocessed_recordings.summary_json_relpath == "context/concatenated_recording_summary.json"
+    assert parsed.phases.concatenate_preprocessed_recordings.rel_output_root == "preprocessed_recording"
+    assert parsed.phases.concatenate_preprocessed_recordings.save_common_electrodes.enabled is True
+    assert (
+        parsed.phases.concatenate_preprocessed_recordings.save_common_electrodes.summary_json_relpath
+        == "context/save_common_electrodes_summary.json"
+    )
 
 
 def test_parse_preprocess_stage_config_force_overrides_take_precedence() -> None:
@@ -351,6 +370,101 @@ def test_parse_preprocess_stage_config_reads_save_output_knobs() -> None:
     assert parsed.print_n_jobs_used is True
 
 
+def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "preprocess": {
+                    "phases": {
+                        "copy_src_to_scratch": {
+                            "enabled": True,
+                            "requires_use_scratch_root": True,
+                            "summary_json_relpath": "context/custom_copy_summary.json",
+                        },
+                        "save_rec_metadata": {
+                            "enabled": True,
+                            "summary_json_relpath": "context/custom_recording_metadata_summary.json",
+                        },
+                        "wipe_src_scratch": {
+                            "enabled": True,
+                            "dry_run": True,
+                            "requires_use_scratch_root": True,
+                            "summary_json_relpath": "context/custom_wipe_src_scratch_summary.json",
+                        },
+                        "preprocess_segments": {
+                            "enabled": False,
+                            "summary_json_relpath": "context/custom_segments_summary.json",
+                            "rel_output_root": "preprocessed_segments",
+                            "plot": {
+                                "layouts": False,
+                                "segment_traces": False,
+                                "output_dir": "plots/segments/{stream_id}",
+                            },
+                            "outputs": {
+                                "save_chunk_duration": "2s",
+                                "save_progress_bar": True,
+                                "segment_save_n_jobs": 2,
+                                "print_n_jobs_used": True,
+                            },
+                        },
+                        "concatenate_preprocessed_recordings": {
+                            "enabled": True,
+                            "summary_json_relpath": "context/custom_concat_summary.json",
+                            "rel_output_root": "concatenated_recording",
+                            "plot": {
+                                "concat_trace": {
+                                    "enabled": False,
+                                    "n_reps": 3,
+                                }
+                            },
+                            "outputs": {
+                                "concat_save_n_jobs": 4,
+                            },
+                            "save_common_electrodes": {
+                                "enabled": False,
+                                "summary_json_relpath": "context/custom_common_summary.json",
+                            },
+                        },
+                    },
+                }
+            }
+        }
+    )
+
+    parsed = parse_preprocess_stage_config(runtime_config=cfg)
+
+    assert parsed.phases.copy_src_to_scratch.enabled is True
+    assert parsed.phases.copy_src_to_scratch.requires_use_scratch_root is True
+    assert parsed.phases.copy_src_to_scratch.summary_json_relpath == "context/custom_copy_summary.json"
+    assert parsed.phases.save_rec_metadata.enabled is True
+    assert parsed.phases.save_rec_metadata.summary_json_relpath == "context/custom_recording_metadata_summary.json"
+    assert parsed.phases.wipe_src_scratch.enabled is True
+    assert parsed.phases.wipe_src_scratch.dry_run is True
+    assert parsed.phases.wipe_src_scratch.requires_use_scratch_root is True
+    assert parsed.phases.wipe_src_scratch.summary_json_relpath == "context/custom_wipe_src_scratch_summary.json"
+    assert parsed.phases.preprocess_segments.enabled is False
+    assert parsed.phases.preprocess_segments.summary_json_relpath == "context/custom_segments_summary.json"
+    assert parsed.phases.preprocess_segments.rel_output_root == "preprocessed_segments"
+    assert parsed.phases.preprocess_segments.plot.layouts is False
+    assert parsed.phases.preprocess_segments.plot.segment_traces is False
+    assert parsed.phases.preprocess_segments.plot.output_dir == "plots/segments/{stream_id}"
+    assert parsed.phases.preprocess_segments.outputs.save_chunk_duration == "2s"
+    assert parsed.phases.preprocess_segments.outputs.save_progress_bar is True
+    assert parsed.phases.preprocess_segments.outputs.segment_save_n_jobs == 2
+    assert parsed.phases.preprocess_segments.outputs.print_n_jobs_used is True
+    assert parsed.phases.concatenate_preprocessed_recordings.enabled is True
+    assert parsed.phases.concatenate_preprocessed_recordings.summary_json_relpath == "context/custom_concat_summary.json"
+    assert parsed.phases.concatenate_preprocessed_recordings.rel_output_root == "concatenated_recording"
+    assert parsed.phases.concatenate_preprocessed_recordings.plot.concat_trace is False
+    assert parsed.phases.concatenate_preprocessed_recordings.plot.concat_trace_n_reps == 3
+    assert parsed.phases.concatenate_preprocessed_recordings.outputs.concat_save_n_jobs == 4
+    assert parsed.phases.concatenate_preprocessed_recordings.save_common_electrodes.enabled is False
+    assert (
+        parsed.phases.concatenate_preprocessed_recordings.save_common_electrodes.summary_json_relpath
+        == "context/custom_common_summary.json"
+    )
+
+
 def test_parse_preprocess_stage_config_treats_non_positive_trace_max_points_as_uncapped() -> None:
     cfg = RuntimeConfig(
         {
@@ -432,14 +546,6 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
                         "      file_relpath: logs/preprocess_pipeline.log\n"
                         "      suppress_h5_plugin_messages: true\n"
                         "      phase_dividers: false\n"
-                        "    plot:\n"
-                        "      concat_trace: false\n"
-                        "      segment_traces: false\n"
-                        "      n_reps_per_segment: 7\n"
-                        "      n_jobs: 4\n"
-                        "      trace_downsample_hz: 200.0\n"
-                        "      trace_max_points: 32000\n"
-                        "      output_dir: preprocess_outputs/plots\n"
                         "    observability:\n"
                         "      mode: detailed\n"
                         "      output_subdir: run_metadata\n"
@@ -448,11 +554,43 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
                         "      output_rel_root: preprocess_stage_outputs\n"
                         "      save_concat_recording: true\n"
                         "      save_segment_recordings: false\n"
-                        "      save_chunk_duration: 2s\n"
-                        "      save_progress_bar: true\n"
-                        "      concat_save_n_jobs: 4\n"
-                        "      segment_save_n_jobs: 2\n"
-                        "      print_n_jobs_used: true\n"
+                        "    phases:\n"
+                        "      copy_src_to_scratch:\n"
+                        "        enabled: true\n"
+                        "        requires_use_scratch_root: false\n"
+                        "      save_rec_metadata:\n"
+                        "        enabled: true\n"
+                        "        summary_json_relpath: context/recording_metadata_summary.json\n"
+                        "      wipe_src_scratch:\n"
+                        "        enabled: true\n"
+                        "        dry_run: true\n"
+                        "        requires_use_scratch_root: true\n"
+                        "        summary_json_relpath: context/wipe_src_scratch_summary.json\n"
+                        "      preprocess_segments:\n"
+                        "        enabled: false\n"
+                        "        rel_output_root: preprocessed_segments\n"
+                        "        plot:\n"
+                        "          layouts: false\n"
+                        "          segment_traces: false\n"
+                        "          n_reps_per_segment: 7\n"
+                        "          n_jobs: 4\n"
+                        "          trace_downsample_hz: 200.0\n"
+                        "          trace_max_points: 32000\n"
+                        "          output_dir: preprocess_outputs/plots\n"
+                        "        outputs:\n"
+                        "          save_chunk_duration: 2s\n"
+                        "          save_progress_bar: true\n"
+                        "          segment_save_n_jobs: 2\n"
+                        "          print_n_jobs_used: true\n"
+                        "      concatenate_preprocessed_recordings:\n"
+                        "        enabled: true\n"
+                        "        rel_output_root: concatenated_recording\n"
+                        "        plot:\n"
+                        "          concat_trace: false\n"
+                        "        outputs:\n"
+                        "          concat_save_n_jobs: 4\n"
+                        "        save_common_electrodes:\n"
+                        "          enabled: true\n"
                 ),
         encoding="utf-8",
     )
@@ -474,16 +612,6 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
     assert inputs.logging_phase_dividers is False
     assert inputs.n_jobs == 6
     assert inputs.temporal_resample_factor == 4
-    assert inputs.plot_layouts is False
-    assert inputs.plot_concat_trace is False
-    assert inputs.plot_segment_traces is False
-    assert inputs.n_representative_channels == 7
-    assert inputs.concat_trace_n_reps == 7
-    assert inputs.segment_trace_n_reps == 7
-    assert inputs.plot_n_jobs == 4
-    assert inputs.trace_downsample_hz == 200.0
-    assert inputs.trace_max_points == 32000
-    assert inputs.plot_output_dir == "preprocess_outputs/plots"
     assert inputs.observability_mode == "detailed"
     assert inputs.observability_output_subdir == "run_metadata"
     assert inputs.observability_save_run_manifest is True
@@ -494,11 +622,32 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
     assert inputs.observability_stage_log_relpath == "logs/preprocess_pipeline.log"
     assert inputs.save_concat_recording is True
     assert inputs.save_segment_recordings is False
-    assert inputs.save_chunk_duration == "2s"
-    assert inputs.save_progress_bar is True
-    assert inputs.concat_save_n_jobs == 4
-    assert inputs.segment_save_n_jobs == 2
-    assert inputs.print_n_jobs_used is True
+    assert inputs.phases.copy_src_to_scratch.enabled is True
+    assert inputs.phases.save_rec_metadata.enabled is True
+    assert inputs.phases.save_rec_metadata.summary_json_relpath == "context/recording_metadata_summary.json"
+    assert inputs.phases.wipe_src_scratch.enabled is True
+    assert inputs.phases.wipe_src_scratch.dry_run is True
+    assert inputs.phases.wipe_src_scratch.requires_use_scratch_root is True
+    assert inputs.phases.wipe_src_scratch.summary_json_relpath == "context/wipe_src_scratch_summary.json"
+    assert inputs.phases.preprocess_segments.enabled is False
+    assert inputs.phases.preprocess_segments.rel_output_root == "preprocessed_segments"
+    assert inputs.phases.preprocess_segments.plot.layouts is False
+    assert inputs.phases.preprocess_segments.plot.segment_traces is False
+    assert inputs.phases.preprocess_segments.plot.n_representative_channels == 7
+    assert inputs.phases.preprocess_segments.plot.segment_trace_n_reps == 7
+    assert inputs.phases.preprocess_segments.plot.n_jobs == 4
+    assert inputs.phases.preprocess_segments.plot.trace_downsample_hz == 200.0
+    assert inputs.phases.preprocess_segments.plot.trace_max_points == 32000
+    assert inputs.phases.preprocess_segments.plot.output_dir == "preprocess_outputs/plots"
+    assert inputs.phases.preprocess_segments.outputs.save_chunk_duration == "2s"
+    assert inputs.phases.preprocess_segments.outputs.save_progress_bar is True
+    assert inputs.phases.preprocess_segments.outputs.segment_save_n_jobs == 2
+    assert inputs.phases.preprocess_segments.outputs.print_n_jobs_used is True
+    assert inputs.phases.concatenate_preprocessed_recordings.enabled is True
+    assert inputs.phases.concatenate_preprocessed_recordings.rel_output_root == "concatenated_recording"
+    assert inputs.phases.concatenate_preprocessed_recordings.plot.concat_trace is False
+    assert inputs.phases.concatenate_preprocessed_recordings.outputs.concat_save_n_jobs == 4
+    assert inputs.phases.concatenate_preprocessed_recordings.save_common_electrodes.enabled is True
 
 
 def test_load_preprocess_inputs_plot_n_jobs_null_inherits_preprocess_n_jobs(tmp_path: Path) -> None:
@@ -557,3 +706,5 @@ def test_build_preprocess_inputs_plot_n_jobs_inherits_unit_workers_when_unset() 
 
     assert inputs.n_jobs == 7
     assert inputs.plot_n_jobs == 7
+    assert inputs.source_h5_path == target.h5_path
+    assert inputs.copied_to_scratch is False

@@ -1,44 +1,123 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from axon_recon.pipeline.stages.preprocess.models.inputs import PreprocessInputs
-from axon_recon.pipeline.stages.preprocess.runner import run_preprocess_stage
+from axon_recon.pipeline.stages.preprocess.models.inputs import (
+    PreprocessInputs,
+    PreprocessPhasesConfig,
+    PreprocessWipeSrcScratchPhaseConfig,
+)
+from axon_recon.pipeline.stages.preprocess.runner import (
+    run_preprocess_concatenate_preprocessed_recordings_phase,
+    run_preprocess_save_rec_metadata_phase,
+    run_preprocess_stage,
+    run_preprocess_wipe_src_scratch_phase,
+)
 
 
 def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def test_run_preprocess_stage_writes_observability_artifacts(tmp_path: Path, monkeypatch) -> None:
+def _install_success_fakes(
+    monkeypatch,
+    tmp_path: Path,
+    *,
+    common_electrodes: list[int] | None = None,
+    captured_build_kwargs: dict | None = None,
+    log_path: Path | None = None,
+) -> tuple[Path, Path]:
     from axon_recon.pipeline.stages.preprocess import runner as preprocess_runner
 
     well_out_dir = tmp_path / "well001"
-    fake_log = well_out_dir / "RUN001_well001_pipeline.log"
+    fake_log = log_path or (well_out_dir / "RUN001_well001_pipeline.log")
 
     def _fake_compute_mea_analysis_output_dir(*, output_root: Path, data_file: Path, well: str) -> Path:
         return well_out_dir
 
     def _fake_compute_pipeline_log_file(*, well_out_dir: Path, data_file: Path, stream_id: str) -> Path:
-        fake_log.parent.mkdir(parents=True, exist_ok=True)
-        fake_log.write_text("pipeline log\n", encoding="utf-8")
         return fake_log
 
-    def _fake_run_legacy_preprocess_stage(**kwargs):
-        legacy_out = well_out_dir / "preprocess_outputs"
-        (legacy_out / "preprocessed_recording").mkdir(parents=True, exist_ok=True)
-        (legacy_out / "common_electrodes.npy").write_bytes(b"npy")
-        per_segment_manifest = legacy_out / "per_segment_preprocessed" / "manifest.json"
-        per_segment_manifest.parent.mkdir(parents=True, exist_ok=True)
-        per_segment_manifest.write_text('{"segments": []}\n', encoding="utf-8")
-        return object(), [11, 22, 33]
+    def _fake_setup_pipeline_logger(*, log_file: Path, logger_name: str, verbose: bool):
+        _ = verbose
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        log_file.write_text("pipeline log\n", encoding="utf-8")
+        return logging.getLogger(logger_name)
+
+    def _fake_build_preprocess_plan(*, h5_path: Path, stream_id: str):
+        return SimpleNamespace(
+            h5_path=h5_path,
+            stream_id=stream_id,
+            cfg_discovery_summary={"n_cfg_files": 0},
+        )
+
+    def _fake_run_build_preprocessed_recording_core(**kwargs):
+        if captured_build_kwargs is not None:
+            captured_build_kwargs.update(kwargs)
+            captured_build_kwargs["logger_is_none"] = kwargs.get("logger") is None
+        return (
+            object(),
+            list(common_electrodes or [1, 2, 3]),
+            {
+                "rec_names": ["seg000", "seg001"],
+                "segment_recordings_preprocessed": [object(), object()],
+                "segment_stats": [
+                    {"fs": 10_000.0, "n_samples": 100, "n_channels": 4},
+                    {"fs": 10_000.0, "n_samples": 120, "n_channels": 4},
+                ],
+                "phase_timing_s": {"build_total": 1.25},
+            },
+        )
+
+    def _fake_run_save_concatenated_recording_core(**kwargs):
+        recording_dir = Path(str(kwargs["recording_dir"]))
+        recording_dir.mkdir(parents=True, exist_ok=True)
+        return {
+            "recording_dir": str(recording_dir),
+            "saved": True,
+            "reused_existing": False,
+        }
+
+    def _fake_run_save_segment_recordings_core(**kwargs):
+        output_dir = Path(str(kwargs["output_dir"]))
+        manifest_path = Path(str(kwargs["manifest_path"]))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text('{"segments": []}\n', encoding="utf-8")
+        return {
+            "output_dir": str(output_dir),
+            "manifest_path": str(manifest_path),
+            "saved": True,
+            "reused_existing": False,
+            "segment_count": 2,
+        }
+
+    def _fake_run_save_common_electrodes_core(**kwargs):
+        output_path = Path(str(kwargs["output_path"]))
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"npy")
+        return {
+            "common_electrodes_path": str(output_path),
+            "electrode_count": int(len(list(kwargs["common_electrodes"]))),
+        }
 
     monkeypatch.setattr(preprocess_runner, "compute_mea_analysis_output_dir", _fake_compute_mea_analysis_output_dir)
     monkeypatch.setattr(preprocess_runner, "compute_pipeline_log_file", _fake_compute_pipeline_log_file)
-    monkeypatch.setattr(preprocess_runner, "run_legacy_preprocess_stage", _fake_run_legacy_preprocess_stage)
+    monkeypatch.setattr(preprocess_runner, "setup_pipeline_logger", _fake_setup_pipeline_logger)
+    monkeypatch.setattr(preprocess_runner, "build_preprocess_plan", _fake_build_preprocess_plan)
+    monkeypatch.setattr(preprocess_runner, "run_build_preprocessed_recording_core", _fake_run_build_preprocessed_recording_core)
+    monkeypatch.setattr(preprocess_runner, "run_save_concatenated_recording_core", _fake_run_save_concatenated_recording_core)
+    monkeypatch.setattr(preprocess_runner, "run_save_segment_recordings_core", _fake_run_save_segment_recordings_core)
+    monkeypatch.setattr(preprocess_runner, "run_save_common_electrodes_core", _fake_run_save_common_electrodes_core)
+    return well_out_dir, fake_log
+
+
+def test_run_preprocess_stage_writes_observability_artifacts(tmp_path: Path, monkeypatch) -> None:
+    well_out_dir, fake_log = _install_success_fakes(monkeypatch, tmp_path, common_electrodes=[11, 22, 33])
 
     inputs = PreprocessInputs(
         h5_path=tmp_path / "input.raw.h5",
@@ -60,8 +139,10 @@ def test_run_preprocess_stage_writes_observability_artifacts(tmp_path: Path, mon
 
     assert summary["n_common_electrodes"] == 3
     outputs = dict(summary.get("outputs", {}))
-    assert "pipeline_log" in outputs
     assert outputs["pipeline_log"] == str(fake_log)
+    assert "preprocess_segments_summary_json" in outputs
+    assert "concatenate_preprocessed_recordings_summary_json" in outputs
+    assert "save_common_electrodes_summary_json" in outputs
     assert "observability.run_manifest_json" in outputs
     assert "observability.event_timeline_jsonl" in outputs
     assert "observability.environment_json" in outputs
@@ -79,6 +160,7 @@ def test_run_preprocess_stage_writes_observability_artifacts(tmp_path: Path, mon
 
     captured_log = Path(outputs["observability.stage_log"])
     assert captured_log.exists()
+    assert well_out_dir.joinpath("preprocess_outputs", "context", "segment_recordings_summary.json").exists()
 
 
 def test_run_preprocess_stage_writes_failure_observability_manifest(tmp_path: Path, monkeypatch) -> None:
@@ -91,16 +173,26 @@ def test_run_preprocess_stage_writes_failure_observability_manifest(tmp_path: Pa
         return well_out_dir
 
     def _fake_compute_pipeline_log_file(*, well_out_dir: Path, data_file: Path, stream_id: str) -> Path:
-        fake_log.parent.mkdir(parents=True, exist_ok=True)
-        fake_log.write_text("pipeline log\n", encoding="utf-8")
         return fake_log
 
-    def _fake_run_legacy_preprocess_stage(**kwargs):
+    def _fake_setup_pipeline_logger(*, log_file: Path, logger_name: str, verbose: bool):
+        _ = logger_name, verbose
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        log_file.write_text("pipeline log\n", encoding="utf-8")
+        return logging.getLogger("test.preprocess.failure")
+
+    def _fake_build_preprocess_plan(*, h5_path: Path, stream_id: str):
+        return SimpleNamespace(h5_path=h5_path, stream_id=stream_id, cfg_discovery_summary={})
+
+    def _fake_run_build_preprocessed_recording_core(**kwargs):
+        _ = kwargs
         raise RuntimeError("preprocess exploded")
 
     monkeypatch.setattr(preprocess_runner, "compute_mea_analysis_output_dir", _fake_compute_mea_analysis_output_dir)
     monkeypatch.setattr(preprocess_runner, "compute_pipeline_log_file", _fake_compute_pipeline_log_file)
-    monkeypatch.setattr(preprocess_runner, "run_legacy_preprocess_stage", _fake_run_legacy_preprocess_stage)
+    monkeypatch.setattr(preprocess_runner, "setup_pipeline_logger", _fake_setup_pipeline_logger)
+    monkeypatch.setattr(preprocess_runner, "build_preprocess_plan", _fake_build_preprocess_plan)
+    monkeypatch.setattr(preprocess_runner, "run_build_preprocessed_recording_core", _fake_run_build_preprocessed_recording_core)
 
     inputs = PreprocessInputs(
         h5_path=tmp_path / "input.raw.h5",
@@ -133,30 +225,8 @@ def test_run_preprocess_stage_writes_failure_observability_manifest(tmp_path: Pa
 
 
 def test_run_preprocess_stage_treats_non_positive_trace_max_points_as_uncapped(tmp_path: Path, monkeypatch) -> None:
-    from axon_recon.pipeline.stages.preprocess import runner as preprocess_runner
-
-    well_out_dir = tmp_path / "well001"
-    captured_legacy_kwargs: dict = {}
-
-    def _fake_compute_mea_analysis_output_dir(*, output_root: Path, data_file: Path, well: str) -> Path:
-        return well_out_dir
-
-    def _fake_compute_pipeline_log_file(*, well_out_dir: Path, data_file: Path, stream_id: str) -> Path:
-        return well_out_dir / "RUN001_well001_pipeline.log"
-
-    def _fake_run_legacy_preprocess_stage(**kwargs):
-        captured_legacy_kwargs.update(kwargs)
-        legacy_out = well_out_dir / "preprocess_outputs"
-        (legacy_out / "preprocessed_recording").mkdir(parents=True, exist_ok=True)
-        (legacy_out / "common_electrodes.npy").write_bytes(b"npy")
-        per_segment_manifest = legacy_out / "per_segment_preprocessed" / "manifest.json"
-        per_segment_manifest.parent.mkdir(parents=True, exist_ok=True)
-        per_segment_manifest.write_text('{"segments": []}\n', encoding="utf-8")
-        return object(), [1, 2, 3]
-
-    monkeypatch.setattr(preprocess_runner, "compute_mea_analysis_output_dir", _fake_compute_mea_analysis_output_dir)
-    monkeypatch.setattr(preprocess_runner, "compute_pipeline_log_file", _fake_compute_pipeline_log_file)
-    monkeypatch.setattr(preprocess_runner, "run_legacy_preprocess_stage", _fake_run_legacy_preprocess_stage)
+    captured_build_kwargs: dict = {}
+    _install_success_fakes(monkeypatch, tmp_path, captured_build_kwargs=captured_build_kwargs)
 
     inputs = PreprocessInputs(
         h5_path=tmp_path / "input.raw.h5",
@@ -177,25 +247,14 @@ def test_run_preprocess_stage_treats_non_positive_trace_max_points_as_uncapped(t
     result = run_preprocess_stage(inputs)
     summary = _read_json(result.summary_json)
 
-    assert captured_legacy_kwargs.get("trace_max_points") == -1
-    assert captured_legacy_kwargs.get("limit_segments_per_well") == 2
-    assert captured_legacy_kwargs.get("log_enabled") is False
-    assert captured_legacy_kwargs.get("log_verbose") is False
-    assert captured_legacy_kwargs.get("log_file_override") == "logs/custom_preprocess.log"
-    assert captured_legacy_kwargs.get("suppress_h5_plugin_messages") is False
-    assert captured_legacy_kwargs.get("phase_dividers") is True
-    assert captured_legacy_kwargs.get("plot_concat_trace") is True
-    assert captured_legacy_kwargs.get("n_representative_channels") == 9
-    assert captured_legacy_kwargs.get("concat_trace_n_reps") == 3
-    assert captured_legacy_kwargs.get("segment_trace_n_reps") == 6
-    assert captured_legacy_kwargs.get("plot_n_jobs") == 3
-    assert captured_legacy_kwargs.get("save_concat_recording") is True
-    assert captured_legacy_kwargs.get("save_segment_recordings") is True
-    assert captured_legacy_kwargs.get("save_chunk_duration") == "1s"
-    assert captured_legacy_kwargs.get("save_progress_bar") is False
-    assert captured_legacy_kwargs.get("concat_save_n_jobs") is None
-    assert captured_legacy_kwargs.get("segment_save_n_jobs") is None
-    assert captured_legacy_kwargs.get("print_n_jobs_used") is False
+    assert captured_build_kwargs.get("trace_max_points") == -1
+    assert captured_build_kwargs.get("limit_segments_per_well") == 2
+    assert captured_build_kwargs.get("logger_is_none") is True
+    assert captured_build_kwargs.get("plot_concat_trace") is True
+    assert captured_build_kwargs.get("n_representative_channels") == 9
+    assert captured_build_kwargs.get("concat_trace_n_reps") == 3
+    assert captured_build_kwargs.get("segment_trace_n_reps") == 6
+    assert captured_build_kwargs.get("plot_n_jobs") == 3
     assert summary.get("inputs", {}).get("trace_max_points") == -1
     assert summary.get("inputs", {}).get("debug_limit_segments_per_well") == 2
     assert summary.get("inputs", {}).get("logging_enabled") is False
@@ -212,31 +271,11 @@ def test_run_preprocess_stage_treats_non_positive_trace_max_points_as_uncapped(t
 
 
 def test_run_preprocess_stage_recovers_from_self_referential_log_symlink(tmp_path: Path, monkeypatch) -> None:
-    from axon_recon.pipeline.stages.preprocess import runner as preprocess_runner
-
     well_out_dir = tmp_path / "well001"
     bad_log = well_out_dir / "logs" / "preprocess_pipeline.log"
     bad_log.parent.mkdir(parents=True, exist_ok=True)
     bad_log.symlink_to(bad_log)
-
-    def _fake_compute_mea_analysis_output_dir(*, output_root: Path, data_file: Path, well: str) -> Path:
-        return well_out_dir
-
-    def _fake_compute_pipeline_log_file(*, well_out_dir: Path, data_file: Path, stream_id: str) -> Path:
-        return bad_log
-
-    def _fake_run_legacy_preprocess_stage(**kwargs):
-        legacy_out = well_out_dir / "preprocess_outputs"
-        (legacy_out / "preprocessed_recording").mkdir(parents=True, exist_ok=True)
-        (legacy_out / "common_electrodes.npy").write_bytes(b"npy")
-        per_segment_manifest = legacy_out / "per_segment_preprocessed" / "manifest.json"
-        per_segment_manifest.parent.mkdir(parents=True, exist_ok=True)
-        per_segment_manifest.write_text('{"segments": []}\n', encoding="utf-8")
-        return object(), [1, 2, 3]
-
-    monkeypatch.setattr(preprocess_runner, "compute_mea_analysis_output_dir", _fake_compute_mea_analysis_output_dir)
-    monkeypatch.setattr(preprocess_runner, "compute_pipeline_log_file", _fake_compute_pipeline_log_file)
-    monkeypatch.setattr(preprocess_runner, "run_legacy_preprocess_stage", _fake_run_legacy_preprocess_stage)
+    _install_success_fakes(monkeypatch, tmp_path, log_path=bad_log)
 
     inputs = PreprocessInputs(
         h5_path=tmp_path / "input.raw.h5",
@@ -253,3 +292,149 @@ def test_run_preprocess_stage_recovers_from_self_referential_log_symlink(tmp_pat
 
     assert result.summary_json.exists()
     assert not bad_log.is_symlink()
+
+
+def test_run_preprocess_concatenate_preprocessed_recordings_phase_writes_targeted_summary(tmp_path: Path, monkeypatch) -> None:
+    from axon_recon.pipeline.stages.preprocess import runner as preprocess_runner
+
+    _install_success_fakes(monkeypatch, tmp_path)
+    segment_calls: list[str] = []
+    common_calls: list[str] = []
+
+    def _unexpected_segment_save(**kwargs):
+        _ = kwargs
+        segment_calls.append("segment")
+        raise AssertionError("segment save should not run for concat-only phase")
+
+    def _track_common_save(**kwargs):
+        _ = kwargs
+        common_calls.append("common")
+        return {
+            "common_electrodes_path": str(tmp_path / "common_electrodes.npy"),
+            "electrode_count": 3,
+        }
+
+    monkeypatch.setattr(preprocess_runner, "run_save_segment_recordings_core", _unexpected_segment_save)
+    monkeypatch.setattr(preprocess_runner, "run_save_common_electrodes_core", _track_common_save)
+
+    inputs = PreprocessInputs(
+        h5_path=tmp_path / "input.raw.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+    )
+
+    payload = run_preprocess_concatenate_preprocessed_recordings_phase(inputs)
+
+    assert payload["phase"] == "concatenate_preprocessed_recordings"
+    assert Path(str(payload["summary_json"])).exists()
+    assert payload["outputs"]["preprocessed_recording_dir"].endswith("preprocessed_recording")
+    assert segment_calls == []
+    assert common_calls == ["common"]
+
+
+def test_run_preprocess_save_rec_metadata_phase_writes_targeted_summary(tmp_path: Path, monkeypatch) -> None:
+    from axon_recon.pipeline.stages.preprocess import runner as preprocess_runner
+
+    _install_success_fakes(monkeypatch, tmp_path)
+
+    monkeypatch.setattr(
+        preprocess_runner,
+        "_build_recording_metadata_phase_payload",
+        lambda inputs: {
+            "source_h5_path": str(inputs.source_h5_path or inputs.h5_path),
+            "resolved_h5_path": str(inputs.h5_path),
+            "copied_to_scratch": bool(inputs.copied_to_scratch),
+            "recording_info": {
+                "sampling_frequency_hz": 10000.0,
+                "num_channels": 4,
+            },
+        },
+    )
+
+    inputs = PreprocessInputs(
+        h5_path=tmp_path / "input.raw.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        source_h5_path=tmp_path / "input.raw.h5",
+    )
+
+    payload = run_preprocess_save_rec_metadata_phase(inputs)
+
+    assert payload["phase"] == "save_rec_metadata"
+    assert Path(str(payload["summary_json"])).exists()
+    assert payload["recording_info"]["sampling_frequency_hz"] == 10000.0
+    assert payload["outputs"]["resolved_h5_path"].endswith("input.raw.h5")
+
+
+def test_run_preprocess_wipe_src_scratch_phase_removes_scratch_input_files(tmp_path: Path, monkeypatch) -> None:
+    _install_success_fakes(monkeypatch, tmp_path)
+
+    source_h5_path = tmp_path / "raw_data" / "input.raw.h5"
+    source_h5_path.parent.mkdir(parents=True, exist_ok=True)
+    source_h5_path.write_bytes(b"source")
+
+    scratch_h5_path = tmp_path / "scratch_inputs" / "input.raw.h5"
+    scratch_h5_path.parent.mkdir(parents=True, exist_ok=True)
+    scratch_h5_path.write_bytes(b"scratch")
+    scratch_cfg_path = scratch_h5_path.parent / "input.cfg"
+    scratch_cfg_path.write_text("foo=1\n", encoding="utf-8")
+
+    inputs = PreprocessInputs(
+        h5_path=scratch_h5_path,
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        source_h5_path=source_h5_path,
+        copied_to_scratch=True,
+    )
+
+    payload = run_preprocess_wipe_src_scratch_phase(inputs)
+
+    assert payload["phase"] == "wipe_src_scratch"
+    assert payload["dry_run"] is False
+    assert payload["status"] == "ok"
+    assert Path(str(payload["summary_json"])).exists()
+    assert str(scratch_h5_path) in list(payload["removed_paths"])
+    assert list(payload["would_remove_paths"]) == []
+    assert str(scratch_cfg_path) in list(payload["removed_paths"])
+    assert not scratch_h5_path.exists()
+    assert not scratch_cfg_path.exists()
+
+
+def test_run_preprocess_wipe_src_scratch_phase_dry_run_reports_paths_without_deleting(tmp_path: Path, monkeypatch) -> None:
+    _install_success_fakes(monkeypatch, tmp_path)
+
+    source_h5_path = tmp_path / "raw_data" / "input.raw.h5"
+    source_h5_path.parent.mkdir(parents=True, exist_ok=True)
+    source_h5_path.write_bytes(b"source")
+
+    scratch_h5_path = tmp_path / "scratch_inputs" / "input.raw.h5"
+    scratch_h5_path.parent.mkdir(parents=True, exist_ok=True)
+    scratch_h5_path.write_bytes(b"scratch")
+    scratch_cfg_path = scratch_h5_path.parent / "input.cfg"
+    scratch_cfg_path.write_text("foo=1\n", encoding="utf-8")
+
+    inputs = PreprocessInputs(
+        h5_path=scratch_h5_path,
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        source_h5_path=source_h5_path,
+        copied_to_scratch=True,
+        phases=PreprocessPhasesConfig(
+            wipe_src_scratch=PreprocessWipeSrcScratchPhaseConfig(
+                enabled=False,
+                dry_run=True,
+            )
+        ),
+    )
+
+    payload = run_preprocess_wipe_src_scratch_phase(inputs)
+
+    assert payload["phase"] == "wipe_src_scratch"
+    assert payload["dry_run"] is True
+    assert payload["status"] == "dry_run"
+    assert Path(str(payload["summary_json"])).exists()
+    assert list(payload["removed_paths"]) == []
+    assert str(scratch_h5_path) in list(payload["would_remove_paths"])
+    assert str(scratch_cfg_path) in list(payload["would_remove_paths"])
+    assert scratch_h5_path.exists()
+    assert scratch_cfg_path.exists()

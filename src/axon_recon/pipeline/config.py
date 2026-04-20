@@ -411,6 +411,7 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 					dataset_index=int(idx),
 					dataset_id=str(dataset_id),
 					h5_path=target_h5_path,
+					source_h5_path=h5_path,
 					stream_id=str(stream_id),
 					mea_output_root=active_root,
 					final_output_root=output_root,

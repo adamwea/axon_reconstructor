@@ -14,6 +14,7 @@ class ExecutionTarget:
     final_output_root: Path | None = None
     scratch_output_root: Path | None = None
     artifact_lookup_roots: tuple[Path, ...] = ()
+    source_h5_path: Path | None = None
 
     @property
     def active_output_root(self) -> Path:

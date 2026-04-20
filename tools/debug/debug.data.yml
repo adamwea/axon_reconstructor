@@ -38,11 +38,11 @@ Probe: # https://www.mxwbio.com/products/maxtwo
 datasets:
   #- raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5
   - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5
-    include_in_runtime: true
+    include_in_runtime: false
     DIV:
     wells:
       - well_id: well001
-        include_in_runtime: true
+        include_in_runtime: false
 
         # attributes can be any desired characteristincs or metadata about the well, such as experimental conditions,
         # plating density, media type, genotype, etc.
@@ -55,7 +55,7 @@ datasets:
 
   # /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260302/M08073/AxonTracking/000073
   - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260302/M08073/AxonTracking/000073/data.raw.h5
-    include_in_runtime: false
+    include_in_runtime: true
     DIV: 6
     wells:
       - well_id: well000
@@ -65,13 +65,13 @@ datasets:
           media: DMEM
           genotype: WT
       - well_id: well001
-        include_in_runtime: true
+        include_in_runtime: false
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
       - well_id: well002
-        include_in_runtime: true
+        include_in_runtime: false
         attributes:
           plating_density: 80000
           media: DMEM
@@ -83,13 +83,13 @@ datasets:
           media: NBP
           genotype: WT
       - well_id: well004
-        include_in_runtime: true
+        include_in_runtime: false
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
       - well_id: well005
-        include_in_runtime: true
+        include_in_runtime: false
         attributes:
           plating_density: 80000
           media: NBP

@@ -46,6 +46,30 @@ def test_parse_stage_list_tokens_supports_templates_phase_aliases() -> None:
     assert parsed == ["templates.reports", "templates.build_templates"]
 
 
+@pytest.mark.parametrize(
+    ("raw_token", "expected"),
+    [
+        ("preprocess.copy_src_to_scratch", "preprocess.copy_src_to_scratch"),
+        ("preprocess.save_rec_metadata", "preprocess.save_rec_metadata"),
+        ("preprocess.wipe_src_scratch", "preprocess.wipe_src_scratch"),
+        ("preprocess.preprocess_segments", "preprocess.preprocess_segments"),
+        ("preprocess.concatenate_preprocessed_recordings", "preprocess.concatenate_preprocessed_recordings"),
+        ("preprocess.save_common_electrodes", "preprocess.save_common_electrodes"),
+        ("pre.build_preprocessed_recording", "preprocess.preprocess_segments"),
+        ("preproc.save_rec_metadata", "preprocess.save_rec_metadata"),
+        ("preproc.wipe_src_scratch", "preprocess.wipe_src_scratch"),
+        ("preproc.save_segment_recordings", "preprocess.preprocess_segments"),
+        (
+            "preprocess.concatenate_preprocessed_recordings.save_common_electrodes",
+            "preprocess.save_common_electrodes",
+        ),
+    ],
+)
+def test_parse_stage_list_tokens_supports_preprocess_phase_tokens(raw_token: str, expected: str) -> None:
+    parsed = pipeline_cli._parse_stage_list_tokens([raw_token])
+    assert parsed == [expected]
+
+
 def test_parse_stage_list_tokens_maps_legacy_templates_build_templates_alias() -> None:
     parsed = pipeline_cli._parse_stage_list_tokens(["templates.per_unit_processing.build_templates"])
     assert parsed == ["templates.build_templates"]
@@ -316,6 +340,48 @@ def test_main_runs_templates_compute_template_similarity_substage(monkeypatch, t
 
     assert rc == 0
     assert calls == ["templates.compute_template_similarity"]
+
+
+@pytest.mark.parametrize(
+    ("stage_token", "handler_key"),
+    [
+        ("preprocess.copy_src_to_scratch", "preprocess.copy_src_to_scratch"),
+        ("preprocess.save_rec_metadata", "preprocess.save_rec_metadata"),
+        ("preprocess.wipe_src_scratch", "preprocess.wipe_src_scratch"),
+        ("preprocess.preprocess_segments", "preprocess.preprocess_segments"),
+        ("preprocess.concatenate_preprocessed_recordings", "preprocess.concatenate_preprocessed_recordings"),
+        ("preprocess.save_common_electrodes", "preprocess.save_common_electrodes"),
+        ("pre.build_preprocessed_recording", "preprocess.preprocess_segments"),
+        ("preproc.save_rec_metadata", "preprocess.save_rec_metadata"),
+        ("preproc.wipe_src_scratch", "preprocess.wipe_src_scratch"),
+        ("preproc.save_common_electrodes", "preprocess.save_common_electrodes"),
+        (
+            "preprocess.concatenate_preprocessed_recordings.save_common_electrodes",
+            "preprocess.save_common_electrodes",
+        ),
+    ],
+)
+def test_main_runs_preprocess_phase_substages(
+    monkeypatch,
+    tmp_path: Path,
+    stage_token: str,
+    handler_key: str,
+) -> None:
+    runtime_cfg = tmp_path / "runtime.yml"
+    _write_runtime_cfg(runtime_cfg)
+
+    calls: list[str] = []
+
+    def _handler(args):
+        calls.append(str(getattr(args, "stage", "")))
+        return 0
+
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, handler_key, _handler)
+
+    rc = pipeline_cli.main(["stages", stage_token, "--config", str(runtime_cfg)])
+
+    assert rc == 0
+    assert calls == [handler_key]
 
 
 @pytest.mark.parametrize(

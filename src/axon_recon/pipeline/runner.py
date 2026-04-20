@@ -19,7 +19,15 @@ from .stages.analysis.api import run_analysis
 from .stages.analysis.config import build_analysis_inputs_for_target, parse_analysis_stage_config
 from .stages.analysis.cross_well import generate_cross_well_artifacts
 from .stages.analysis.models.results import AnalysisResult
-from .stages.preprocess.api import run_preprocess
+from .stages.preprocess.api import (
+	run_preprocess_concatenate_preprocessed_recordings,
+	run_preprocess_copy_src_to_scratch,
+	run_preprocess,
+	run_preprocess_preprocess_segments,
+	run_preprocess_save_rec_metadata,
+	run_preprocess_save_common_electrodes,
+	run_preprocess_wipe_src_scratch,
+)
 from .stages.preprocess.config import build_preprocess_inputs_for_target, parse_preprocess_stage_config
 from .stages.preprocess.models.results import PreprocessResult
 from .stages.reconstruct.api import (
@@ -623,6 +631,189 @@ def run_preprocess_from_runtime(
 		succeeded_targets=succeeded,
 		failed_targets=failed,
 		target_results=target_results,
+	)
+
+
+def _run_preprocess_substage_from_runtime(
+	*,
+	config_path: str,
+	stage_name: str,
+	runner_fn: Callable[[Any], Any],
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
+	targets = select_execution_targets(bundle=bundle)
+	stage_config = parse_preprocess_stage_config(
+		runtime_config=bundle.runtime_config,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+	if stage_config.debug_limit_wells is not None:
+		limit_wells = max(1, int(stage_config.debug_limit_wells))
+		if len(targets) > limit_wells:
+			LOGGER.info(
+				"Applying preprocess debug well limit: %d -> %d target(s)",
+				len(targets),
+				limit_wells,
+			)
+			targets = list(targets[:limit_wells])
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="preprocess",
+		target_count=len(targets),
+	)
+
+	def _worker(target):
+		inputs = build_preprocess_inputs_for_target(
+			target=target,
+			stage_config=stage_config,
+			unit_workers=int(parallelism.unit_workers),
+		)
+		return runner_fn(inputs)
+
+	target_results = distribute_targets(
+		targets=targets,
+		well_workers=int(parallelism.well_workers),
+		worker_fn=_worker,
+	)
+	succeeded = sum(1 for item in target_results if item.status == "ok")
+	failed = sum(1 for item in target_results if item.status != "ok")
+	return MultiTargetStageResult(
+		stage=stage_name,
+		total_targets=len(target_results),
+		succeeded_targets=succeeded,
+		failed_targets=failed,
+		target_results=target_results,
+	)
+
+
+def run_preprocess_copy_src_to_scratch_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_preprocess_substage_from_runtime(
+		config_path=config_path,
+		stage_name="preprocess.copy_src_to_scratch",
+		runner_fn=run_preprocess_copy_src_to_scratch,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_preprocess_save_rec_metadata_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_preprocess_substage_from_runtime(
+		config_path=config_path,
+		stage_name="preprocess.save_rec_metadata",
+		runner_fn=run_preprocess_save_rec_metadata,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_preprocess_wipe_src_scratch_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_preprocess_substage_from_runtime(
+		config_path=config_path,
+		stage_name="preprocess.wipe_src_scratch",
+		runner_fn=run_preprocess_wipe_src_scratch,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_preprocess_preprocess_segments_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_preprocess_substage_from_runtime(
+		config_path=config_path,
+		stage_name="preprocess.preprocess_segments",
+		runner_fn=run_preprocess_preprocess_segments,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_preprocess_concatenate_preprocessed_recordings_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_preprocess_substage_from_runtime(
+		config_path=config_path,
+		stage_name="preprocess.concatenate_preprocessed_recordings",
+		runner_fn=run_preprocess_concatenate_preprocessed_recordings,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_preprocess_save_common_electrodes_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_preprocess_substage_from_runtime(
+		config_path=config_path,
+		stage_name="preprocess.save_common_electrodes",
+		runner_fn=run_preprocess_save_common_electrodes,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_preprocess_build_preprocessed_recording_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return run_preprocess_preprocess_segments_from_runtime(
+		config_path=config_path,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_preprocess_save_concatenated_recording_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return run_preprocess_concatenate_preprocessed_recordings_from_runtime(
+		config_path=config_path,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_preprocess_save_segment_recordings_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return run_preprocess_preprocess_segments_from_runtime(
+		config_path=config_path,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
 	)
 
 

@@ -11,7 +11,17 @@ from axon_reconstructor.pipeline.stg1_preprocessing.constants import (
 )
 
 from ...execution.context import ExecutionTarget
-from .models.inputs import PreprocessInputs
+from .models.inputs import (
+	PreprocessConcatenatePreprocessedRecordingsPhaseConfig,
+	PreprocessCopySrcToScratchPhaseConfig,
+	PreprocessInputs,
+	PreprocessPhaseConfig,
+	PreprocessPhaseOutputsConfig,
+	PreprocessPhasesConfig,
+	PreprocessPlotConfig,
+	PreprocessSegmentsPhaseConfig,
+	PreprocessWipeSrcScratchPhaseConfig,
+)
 
 
 _DEFAULT_OUTPUT_REL_ROOT = PREPROCESS_OUTPUTS_DIRNAME
@@ -189,6 +199,132 @@ class PreprocessStageConfig:
 	concat_save_n_jobs: int | None
 	segment_save_n_jobs: int | None
 	print_n_jobs_used: bool
+	phases: PreprocessPhasesConfig
+
+
+def _parse_simple_phase_config(
+	*,
+	raw_cfg: dict[str, Any] | None,
+	default_enabled: bool,
+	default_summary_json_relpath: str,
+) -> PreprocessPhaseConfig:
+	phase_cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
+	return PreprocessPhaseConfig(
+		enabled=_as_bool(phase_cfg.get("enabled", phase_cfg.get("enable", default_enabled)), default_enabled),
+		summary_json_relpath=str(
+			phase_cfg.get("summary_json_relpath", default_summary_json_relpath)
+			or default_summary_json_relpath
+		),
+	)
+
+
+def _parse_plot_phase_config(*, raw_cfg: dict[str, Any] | None, defaults: PreprocessPlotConfig) -> PreprocessPlotConfig:
+	plot_cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
+	concat_trace_raw = plot_cfg.get("concat_trace", defaults.concat_trace)
+	segment_traces_raw = plot_cfg.get("segment_traces", defaults.segment_traces)
+	per_segment_traces_raw = plot_cfg.get("per_segment_traces", None)
+	segment_trace_block_raw = per_segment_traces_raw if per_segment_traces_raw is not None else segment_traces_raw
+
+	plot_concat_trace = _plot_toggle_enabled(raw=concat_trace_raw, default=bool(defaults.concat_trace))
+	segment_default_enabled = _as_bool(segment_traces_raw, bool(defaults.segment_traces))
+	plot_segment_traces = _plot_toggle_enabled(raw=segment_trace_block_raw, default=segment_default_enabled)
+	plot_layouts = _as_bool(plot_cfg.get("layouts", defaults.layouts), bool(defaults.layouts))
+
+	raw_disable_all_png_diagnostics = plot_cfg.get(
+		"disable_all_png_diagnostics",
+		defaults.disable_all_png_diagnostics,
+	)
+	disable_all_png_diagnostics = (
+		None
+		if raw_disable_all_png_diagnostics is None
+		else _as_bool(raw_disable_all_png_diagnostics, False)
+	)
+	if raw_disable_all_png_diagnostics is not None:
+		force_all_plots_enabled = not bool(disable_all_png_diagnostics)
+		plot_layouts = bool(force_all_plots_enabled)
+		plot_concat_trace = bool(force_all_plots_enabled)
+		plot_segment_traces = bool(force_all_plots_enabled)
+
+	raw_n_representative_channels = plot_cfg.get(
+		"n_representative_channels",
+		plot_cfg.get("n_reps_per_segment", defaults.n_representative_channels),
+	)
+	raw_segment_trace_n_reps = plot_cfg.get("n_reps_per_segment", None)
+	n_representative_channels = _normalize_positive_int_or_all(
+		raw_n_representative_channels,
+		int(defaults.n_representative_channels),
+	)
+	concat_trace_n_reps = _plot_toggle_n_reps(raw=concat_trace_raw, default=int(defaults.concat_trace_n_reps))
+	segment_trace_n_reps = _plot_toggle_n_reps(
+		raw=segment_trace_block_raw,
+		default=int(defaults.segment_trace_n_reps),
+	)
+	if raw_segment_trace_n_reps is not None:
+		segment_trace_n_reps = _normalize_positive_int_or_all(
+			raw_segment_trace_n_reps,
+			int(defaults.segment_trace_n_reps),
+		)
+	plot_n_jobs = _as_optional_int(plot_cfg.get("n_jobs", defaults.n_jobs))
+	trace_downsample_hz = _as_optional_float(plot_cfg.get("trace_downsample_hz", defaults.trace_downsample_hz))
+	if trace_downsample_hz is not None and trace_downsample_hz <= 0.0:
+		trace_downsample_hz = None
+
+	raw_trace_max_points = _as_int(plot_cfg.get("trace_max_points", defaults.trace_max_points), defaults.trace_max_points)
+	trace_max_points = (-1 if int(raw_trace_max_points) <= 0 else max(1000, int(raw_trace_max_points)))
+
+	return PreprocessPlotConfig(
+		disable_all_png_diagnostics=disable_all_png_diagnostics,
+		layouts=bool(plot_layouts),
+		concat_trace=bool(plot_concat_trace),
+		segment_traces=bool(plot_segment_traces),
+		output_dir=_normalize_plot_output_dir(plot_cfg.get("output_dir", defaults.output_dir)),
+		epoch_markers_output_dir=_normalize_plot_output_dir(
+			plot_cfg.get("epoch_markers_output_dir", defaults.epoch_markers_output_dir)
+		),
+		assay_stats_relpath=str(plot_cfg.get("assay_stats_relpath", defaults.assay_stats_relpath) or defaults.assay_stats_relpath),
+		channel_layouts_subdir=str(
+			plot_cfg.get("channel_layouts_subdir", defaults.channel_layouts_subdir)
+			or defaults.channel_layouts_subdir
+		),
+		segment_traces_subdir=str(
+			plot_cfg.get("segment_traces_subdir", defaults.segment_traces_subdir)
+			or defaults.segment_traces_subdir
+		),
+		concat_trace_relpath=str(
+			plot_cfg.get("concat_trace_relpath", defaults.concat_trace_relpath)
+			or defaults.concat_trace_relpath
+		),
+		n_representative_channels=int(n_representative_channels),
+		concat_trace_n_reps=int(concat_trace_n_reps),
+		segment_trace_n_reps=int(segment_trace_n_reps),
+		n_jobs=plot_n_jobs,
+		trace_downsample_hz=trace_downsample_hz,
+		trace_max_points=int(trace_max_points),
+	)
+
+
+def _parse_phase_outputs_config(
+	*,
+	raw_cfg: dict[str, Any] | None,
+	defaults: PreprocessPhaseOutputsConfig,
+) -> PreprocessPhaseOutputsConfig:
+	outputs_cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
+	return PreprocessPhaseOutputsConfig(
+		save_chunk_duration=_as_optional_str(
+			outputs_cfg.get("save_chunk_duration", defaults.save_chunk_duration)
+		)
+		or defaults.save_chunk_duration,
+		save_progress_bar=_as_bool(
+			outputs_cfg.get("save_progress_bar", defaults.save_progress_bar),
+			bool(defaults.save_progress_bar),
+		),
+		concat_save_n_jobs=_as_optional_int(outputs_cfg.get("concat_save_n_jobs", defaults.concat_save_n_jobs)),
+		segment_save_n_jobs=_as_optional_int(outputs_cfg.get("segment_save_n_jobs", defaults.segment_save_n_jobs)),
+		print_n_jobs_used=_as_bool(
+			outputs_cfg.get("print_n_jobs_used", defaults.print_n_jobs_used),
+			bool(defaults.print_n_jobs_used),
+		),
+	)
 
 
 def parse_preprocess_stage_config(
@@ -205,6 +341,17 @@ def parse_preprocess_stage_config(
 	plot_cfg = stage_cfg.get("plot", {}) if isinstance(stage_cfg.get("plot", {}), dict) else {}
 	observability_cfg = stage_cfg.get("observability", {}) if isinstance(stage_cfg.get("observability", {}), dict) else {}
 	outputs_cfg = stage_cfg.get("outputs", {}) if isinstance(stage_cfg.get("outputs", {}), dict) else {}
+	phases_cfg = stage_cfg.get("phases", {}) if isinstance(stage_cfg.get("phases", {}), dict) else {}
+	using_new_phase_schema = any(
+		key in phases_cfg
+		for key in (
+			"copy_src_to_scratch",
+			"save_rec_metadata",
+			"wipe_src_scratch",
+			"preprocess_segments",
+			"concatenate_preprocessed_recordings",
+		)
+	)
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
 	force_replot = _as_bool(execution_cfg.get("force_replot", False), False)
@@ -325,6 +472,178 @@ def parse_preprocess_stage_config(
 	concat_save_n_jobs = _as_optional_int(outputs_cfg.get("concat_save_n_jobs", None))
 	segment_save_n_jobs = _as_optional_int(outputs_cfg.get("segment_save_n_jobs", None))
 	print_n_jobs_used = _as_bool(outputs_cfg.get("print_n_jobs_used", False), False)
+	legacy_segment_phase_cfg = phases_cfg.get("save_segment_recordings", {}) if isinstance(phases_cfg.get("save_segment_recordings", {}), dict) else {}
+	legacy_concat_phase_cfg = phases_cfg.get("save_concatenated_recording", {}) if isinstance(phases_cfg.get("save_concatenated_recording", {}), dict) else {}
+	legacy_common_phase_cfg = phases_cfg.get("save_common_electrodes", {}) if isinstance(phases_cfg.get("save_common_electrodes", {}), dict) else {}
+
+	legacy_segment_phase = _parse_simple_phase_config(
+		raw_cfg=legacy_segment_phase_cfg,
+		default_enabled=save_segment_recordings,
+		default_summary_json_relpath="context/segment_recordings_summary.json",
+	)
+	legacy_concat_phase = _parse_simple_phase_config(
+		raw_cfg=legacy_concat_phase_cfg,
+		default_enabled=save_concat_recording,
+		default_summary_json_relpath="context/concatenated_recording_summary.json",
+	)
+	legacy_common_phase = _parse_simple_phase_config(
+		raw_cfg=legacy_common_phase_cfg,
+		default_enabled=save_recording or save_concat_recording or save_segment_recordings,
+		default_summary_json_relpath="context/save_common_electrodes_summary.json",
+	)
+
+	copy_phase_cfg = phases_cfg.get("copy_src_to_scratch", {}) if isinstance(phases_cfg.get("copy_src_to_scratch", {}), dict) else {}
+	save_rec_metadata_phase_cfg = phases_cfg.get("save_rec_metadata", {}) if isinstance(phases_cfg.get("save_rec_metadata", {}), dict) else {}
+	wipe_src_scratch_phase_cfg = phases_cfg.get("wipe_src_scratch", {}) if isinstance(phases_cfg.get("wipe_src_scratch", {}), dict) else {}
+	preprocess_segments_phase_cfg = phases_cfg.get("preprocess_segments", {}) if isinstance(phases_cfg.get("preprocess_segments", {}), dict) else {}
+	concatenate_phase_cfg = phases_cfg.get("concatenate_preprocessed_recordings", {}) if isinstance(phases_cfg.get("concatenate_preprocessed_recordings", {}), dict) else {}
+	concatenate_save_common_cfg = (
+		concatenate_phase_cfg.get("save_common_electrodes", {})
+		if isinstance(concatenate_phase_cfg.get("save_common_electrodes", {}), dict)
+		else legacy_common_phase_cfg
+	)
+
+	segment_plot_defaults = PreprocessPlotConfig(
+		disable_all_png_diagnostics=raw_disable_all_png_diagnostics,
+		layouts=bool(plot_layouts_effective),
+		concat_trace=(bool(plot_concat_trace_effective) if not using_new_phase_schema else False),
+		segment_traces=bool(plot_segment_traces_effective),
+		output_dir=_normalize_plot_output_dir(plot_cfg.get("output_dir", None)),
+		epoch_markers_output_dir=_normalize_plot_output_dir(plot_cfg.get("epoch_markers_output_dir", None)),
+		assay_stats_relpath=assay_stats_relpath,
+		channel_layouts_subdir=channel_layouts_subdir,
+		segment_traces_subdir=segment_traces_subdir,
+		concat_trace_relpath=concat_trace_relpath,
+		n_representative_channels=n_representative_channels,
+		concat_trace_n_reps=concat_trace_n_reps,
+		segment_trace_n_reps=segment_trace_n_reps,
+		n_jobs=plot_n_jobs,
+		trace_downsample_hz=trace_downsample_hz,
+		trace_max_points=trace_max_points,
+	)
+	segment_outputs_defaults = PreprocessPhaseOutputsConfig(
+		save_chunk_duration=save_chunk_duration,
+		save_progress_bar=save_progress_bar,
+		segment_save_n_jobs=segment_save_n_jobs,
+		print_n_jobs_used=print_n_jobs_used,
+	)
+
+	preprocess_segments_phase = PreprocessSegmentsPhaseConfig(
+		enabled=_as_bool(
+			preprocess_segments_phase_cfg.get(
+				"enabled",
+				preprocess_segments_phase_cfg.get(
+					"enable",
+					legacy_segment_phase.enabled,
+				),
+			),
+			legacy_segment_phase.enabled,
+		),
+		summary_json_relpath=str(
+			preprocess_segments_phase_cfg.get(
+				"summary_json_relpath",
+				legacy_segment_phase.summary_json_relpath,
+			)
+			or legacy_segment_phase.summary_json_relpath
+		),
+		rel_output_root=str(
+			preprocess_segments_phase_cfg.get("rel_output_root", "per_segment_preprocessed")
+			or "per_segment_preprocessed"
+		),
+		plot=_parse_plot_phase_config(
+			raw_cfg=preprocess_segments_phase_cfg.get("plot", {}),
+			defaults=segment_plot_defaults,
+		),
+		outputs=_parse_phase_outputs_config(
+			raw_cfg=preprocess_segments_phase_cfg.get("outputs", {}),
+			defaults=segment_outputs_defaults,
+		),
+	)
+	concat_plot_defaults = PreprocessPlotConfig(
+		disable_all_png_diagnostics=preprocess_segments_phase.plot.disable_all_png_diagnostics,
+		layouts=(preprocess_segments_phase.plot.layouts if not using_new_phase_schema else False),
+		concat_trace=bool(plot_concat_trace_effective),
+		segment_traces=(preprocess_segments_phase.plot.segment_traces if not using_new_phase_schema else False),
+		output_dir=preprocess_segments_phase.plot.output_dir,
+		epoch_markers_output_dir=preprocess_segments_phase.plot.epoch_markers_output_dir,
+		assay_stats_relpath=preprocess_segments_phase.plot.assay_stats_relpath,
+		channel_layouts_subdir=preprocess_segments_phase.plot.channel_layouts_subdir,
+		segment_traces_subdir=preprocess_segments_phase.plot.segment_traces_subdir,
+		concat_trace_relpath=preprocess_segments_phase.plot.concat_trace_relpath,
+		n_representative_channels=preprocess_segments_phase.plot.n_representative_channels,
+		concat_trace_n_reps=concat_trace_n_reps,
+		segment_trace_n_reps=preprocess_segments_phase.plot.segment_trace_n_reps,
+		n_jobs=preprocess_segments_phase.plot.n_jobs,
+		trace_downsample_hz=preprocess_segments_phase.plot.trace_downsample_hz,
+		trace_max_points=preprocess_segments_phase.plot.trace_max_points,
+	)
+	concat_outputs_defaults = PreprocessPhaseOutputsConfig(
+		save_chunk_duration=preprocess_segments_phase.outputs.save_chunk_duration,
+		save_progress_bar=preprocess_segments_phase.outputs.save_progress_bar,
+		concat_save_n_jobs=concat_save_n_jobs,
+		print_n_jobs_used=preprocess_segments_phase.outputs.print_n_jobs_used,
+	)
+	concatenate_preprocessed_recordings_phase = PreprocessConcatenatePreprocessedRecordingsPhaseConfig(
+		enabled=_as_bool(
+			concatenate_phase_cfg.get(
+				"enabled",
+				concatenate_phase_cfg.get("enable", legacy_concat_phase.enabled),
+			),
+			legacy_concat_phase.enabled,
+		),
+		summary_json_relpath=str(
+			concatenate_phase_cfg.get(
+				"summary_json_relpath",
+				legacy_concat_phase.summary_json_relpath,
+			)
+			or legacy_concat_phase.summary_json_relpath
+		),
+		rel_output_root=str(
+			concatenate_phase_cfg.get("rel_output_root", "preprocessed_recording")
+			or "preprocessed_recording"
+		),
+		plot=_parse_plot_phase_config(
+			raw_cfg=concatenate_phase_cfg.get("plot", {}),
+			defaults=concat_plot_defaults,
+		),
+		outputs=_parse_phase_outputs_config(
+			raw_cfg=concatenate_phase_cfg.get("outputs", {}),
+			defaults=concat_outputs_defaults,
+		),
+		save_common_electrodes=_parse_simple_phase_config(
+			raw_cfg=concatenate_save_common_cfg,
+			default_enabled=legacy_common_phase.enabled,
+			default_summary_json_relpath=legacy_common_phase.summary_json_relpath,
+		),
+	)
+	copy_src_to_scratch_phase = PreprocessCopySrcToScratchPhaseConfig(
+		enabled=_as_bool(copy_phase_cfg.get("enabled", copy_phase_cfg.get("enable", False)), False),
+		requires_use_scratch_root=_as_bool(
+			copy_phase_cfg.get("requires_use_scratch_root", False),
+			False,
+		),
+		summary_json_relpath=str(
+			copy_phase_cfg.get("summary_json_relpath", "context/copy_src_to_scratch_summary.json")
+			or "context/copy_src_to_scratch_summary.json"
+		),
+	)
+	save_rec_metadata_phase = _parse_simple_phase_config(
+		raw_cfg=save_rec_metadata_phase_cfg,
+		default_enabled=False,
+		default_summary_json_relpath="context/recording_metadata_summary.json",
+	)
+	wipe_src_scratch_phase = PreprocessWipeSrcScratchPhaseConfig(
+		enabled=_as_bool(wipe_src_scratch_phase_cfg.get("enabled", wipe_src_scratch_phase_cfg.get("enable", False)), False),
+		dry_run=_as_bool(wipe_src_scratch_phase_cfg.get("dry_run", False), False),
+		requires_use_scratch_root=_as_bool(
+			wipe_src_scratch_phase_cfg.get("requires_use_scratch_root", False),
+			False,
+		),
+		summary_json_relpath=str(
+			wipe_src_scratch_phase_cfg.get("summary_json_relpath", "context/wipe_src_scratch_summary.json")
+			or "context/wipe_src_scratch_summary.json"
+		),
+	)
 
 	return PreprocessStageConfig(
 		output_rel_root=_normalize_output_rel_root(outputs_cfg.get("output_rel_root", _DEFAULT_OUTPUT_REL_ROOT)),
@@ -375,6 +694,13 @@ def parse_preprocess_stage_config(
 		concat_save_n_jobs=concat_save_n_jobs,
 		segment_save_n_jobs=segment_save_n_jobs,
 		print_n_jobs_used=print_n_jobs_used,
+		phases=PreprocessPhasesConfig(
+			copy_src_to_scratch=copy_src_to_scratch_phase,
+			save_rec_metadata=save_rec_metadata_phase,
+			wipe_src_scratch=wipe_src_scratch_phase,
+			preprocess_segments=preprocess_segments_phase,
+			concatenate_preprocessed_recordings=concatenate_preprocessed_recordings_phase,
+		),
 	)
 
 
@@ -386,11 +712,18 @@ def build_preprocess_inputs_for_target(
 ) -> PreprocessInputs:
 	n_jobs = stage_config.n_jobs if stage_config.n_jobs is not None else max(1, int(unit_workers))
 	plot_n_jobs = stage_config.plot_n_jobs if stage_config.plot_n_jobs is not None else int(n_jobs)
+	source_h5_path = target.source_h5_path or target.h5_path
+	try:
+		copied_to_scratch = Path(source_h5_path).expanduser().resolve() != Path(target.h5_path).expanduser().resolve()
+	except Exception:
+		copied_to_scratch = Path(source_h5_path) != Path(target.h5_path)
 	return PreprocessInputs(
 		h5_path=target.h5_path,
 		stream_id=target.stream_id,
 		mea_output_root=target.mea_output_root,
 		final_output_root=(target.final_output_root or target.mea_output_root),
+		source_h5_path=source_h5_path,
+		copied_to_scratch=bool(copied_to_scratch),
 		output_rel_root=stage_config.output_rel_root,
 		force_restart=stage_config.force_restart,
 		force_replot=stage_config.force_replot,
@@ -438,6 +771,7 @@ def build_preprocess_inputs_for_target(
 		concat_save_n_jobs=stage_config.concat_save_n_jobs,
 		segment_save_n_jobs=stage_config.segment_save_n_jobs,
 		print_n_jobs_used=stage_config.print_n_jobs_used,
+		phases=stage_config.phases,
 	)
 
 
@@ -487,6 +821,8 @@ def load_preprocess_inputs_from_runtime(
 		stream_id=stream_id,
 		mea_output_root=output_root,
 		final_output_root=output_root,
+		source_h5_path=h5_path,
+		copied_to_scratch=False,
 		output_rel_root=stage_cfg.output_rel_root,
 		force_restart=stage_cfg.force_restart,
 		force_replot=stage_cfg.force_replot,
@@ -534,4 +870,5 @@ def load_preprocess_inputs_from_runtime(
 		concat_save_n_jobs=stage_cfg.concat_save_n_jobs,
 		segment_save_n_jobs=stage_cfg.segment_save_n_jobs,
 		print_n_jobs_used=stage_cfg.print_n_jobs_used,
+		phases=stage_cfg.phases,
 	)
