@@ -3,10 +3,148 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from axon_reconstructor.pipeline.stg1_preprocessing.plotting import _plot_concat_cluster_traces
-
 from .artifacts import build_concat_time_vector, load_concat_manifest, load_recording_metadata, load_saved_recording
 from .plot_segment_traces import _resolve_representative_channels
+
+
+def _plot_concat_cluster_traces(
+	*,
+	recording: object,
+	channel_ids: list[int],
+	stitch_frames: list[int],
+	out_path: Path,
+	title: str | None = None,
+	target_hz: float | None = None,
+	max_points: int = 150_000,
+	logger: logging.Logger | None = None,
+) -> None:
+	import matplotlib
+	matplotlib.use("Agg")
+	import matplotlib.pyplot as plt
+	import numpy as np
+
+	total = int(recording.get_num_samples())
+	if total <= 0:
+		return
+
+	fs = float(recording.get_sampling_frequency())
+	has_time_vector = False
+	try:
+		has_time_vector = bool(recording.has_time_vector())
+	except Exception:
+		has_time_vector = False
+
+	try:
+		parsed_max_points = int(max_points)
+	except Exception:
+		parsed_max_points = 150_000
+	if parsed_max_points <= 0:
+		step_by_points = 1
+	else:
+		points_cap = max(1000, parsed_max_points)
+		step_by_points = max(1, total // points_cap)
+
+	step_by_rate = 1
+	try:
+		if target_hz is not None and float(target_hz) > 0.0 and fs > 0.0:
+			step_by_rate = max(1, int(round(fs / float(target_hz))))
+	except Exception:
+		step_by_rate = 1
+
+	step = max(step_by_points, step_by_rate)
+	selected_frames = np.arange(0, total, step, dtype=np.int64)
+	expected_points = int(selected_frames.size)
+	effective_hz = (float(fs) / float(step)) if step > 0 else float(fs)
+	if logger is not None:
+		logger.info(
+			"plot traces: downsample fs=%.2fHz target_hz=%s step=%d effective_hz=%.2f expected_points_per_channel=%d channels=%d out=%s",
+			float(fs),
+			(f"{float(target_hz):.2f}" if target_hz is not None else "none"),
+			int(step),
+			float(effective_hz),
+			int(expected_points),
+			int(len(channel_ids)),
+			out_path,
+		)
+		if expected_points > 200_000:
+			logger.warning(
+				"plot traces: high point count after downsampling (%d points/channel); consider lowering trace_downsample_hz or setting trace_max_points",
+				int(expected_points),
+			)
+
+	if has_time_vector:
+		try:
+			time_vector = recording.sample_index_to_time(selected_frames)
+		except Exception:
+			time_vector = selected_frames.astype(float) / fs
+	else:
+		time_vector = selected_frames.astype(float) / fs
+
+	fig, axes = plt.subplots(len(channel_ids), 1, figsize=(13.33, 7.5), dpi=180, sharex=True)
+	if len(channel_ids) == 1:
+		axes = [axes]
+
+	block = 200_000
+	total_blocks = max(1, int((total + block - 1) // block))
+	y_parts_per_channel: list[list[np.ndarray]] = [[] for _ in channel_ids]
+	for block_idx, start in enumerate(range(0, total, block), start=1):
+		end = min(total, start + block)
+		traces_block = recording.get_traces(start_frame=start, end_frame=end, channel_ids=channel_ids)
+		offset = (-start) % step
+		traces_ds = traces_block[offset::step, :]
+		for channel_index in range(len(channel_ids)):
+			y_parts_per_channel[channel_index].append(np.asarray(traces_ds[:, channel_index]))
+
+		if logger is not None and (
+			block_idx == 1
+			or block_idx == total_blocks
+			or block_idx % max(1, total_blocks // 10) == 0
+		):
+			logger.info(
+				"plot traces: load progress %d/%d blocks (%.1f%%) out=%s",
+				int(block_idx),
+				int(total_blocks),
+				float((100.0 * block_idx) / max(1, total_blocks)),
+				out_path,
+			)
+
+	for axis, channel_id, y_parts in zip(axes, channel_ids, y_parts_per_channel, strict=False):
+		y = np.concatenate(y_parts).astype(float, copy=False) if y_parts else np.asarray([], dtype=float)
+		t_plot = time_vector[: y.size]
+		y_plot = y
+		if has_time_vector and y_plot.size > 2:
+			try:
+				dt = np.diff(t_plot.astype(float))
+				baseline = float(step) / float(fs)
+				jump_idx = np.where(dt > (5.0 * max(baseline, 1e-9)))[0]
+				if jump_idx.size:
+					y_plot = y_plot.astype(float, copy=True)
+					y_plot[jump_idx + 1] = np.nan
+			except Exception:
+				pass
+
+		axis.plot(t_plot, y_plot, lw=0.2, color="black")
+		for stitch_frame in stitch_frames:
+			if has_time_vector:
+				try:
+					xline = float(recording.sample_index_to_time(int(stitch_frame)))
+				except Exception:
+					xline = float(stitch_frame) / fs
+			else:
+				xline = float(stitch_frame) / fs
+			axis.axvline(xline, color="red", lw=0.6, alpha=0.8)
+		axis.set_ylabel(f"ch {channel_id}")
+		axis.grid(False)
+
+	axes[-1].set_xlabel("time (s)")
+	if title:
+		fig.suptitle(title)
+	fig.tight_layout()
+	out_path.parent.mkdir(parents=True, exist_ok=True)
+	fig.savefig(out_path)
+	plt.close(fig)
+	if logger is not None:
+		logger.info("plot traces: wrote %s", out_path)
 
 
 def run_plot_concat_traces_core(

@@ -1,19 +1,133 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
-
-from axon_reconstructor.pipeline.stg1_preprocessing.concatenation import _load_centered_segment_with_electrode_channel_ids
-from axon_reconstructor.pipeline.stg1_preprocessing.preprocessing import apply_standard_preprocessing
 
 from .artifacts import (
 	get_segment_names_from_metadata,
 	load_common_electrodes,
 	load_recording_metadata,
 )
+
+
+def _ensure_maxwell_hdf5_plugin_path(*, prefix: str = "[axon_reconstructor]", suppress_messages: bool = False) -> None:
+	env = os.environ.get("HDF5_PLUGIN_PATH")
+	if env:
+		try:
+			if not Path(env).expanduser().exists():
+				if not bool(suppress_messages):
+					print(f"{prefix}[WARN] HDF5_PLUGIN_PATH points to missing dir: {env}; ignoring", flush=True)
+				os.environ.pop("HDF5_PLUGIN_PATH", None)
+		except Exception:
+			pass
+
+	if os.environ.get("HDF5_PLUGIN_PATH"):
+		return
+
+	here = Path(__file__).resolve()
+	for parent in [here] + list(here.parents):
+		cand_dir = parent / "vendor" / "maxwell_hdf5_plugin" / "Linux"
+		if (cand_dir / "libcompression.so").exists():
+			os.environ["HDF5_PLUGIN_PATH"] = str(cand_dir)
+			if not bool(suppress_messages):
+				print(f"{prefix}[DEBUG] set HDF5_PLUGIN_PATH={cand_dir}", flush=True)
+			return
+
+
+def _load_centered_segment_with_electrode_channel_ids(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	rec_name: str,
+	center_chunk_size: int,
+) -> tuple[Any, dict[str, Any]]:
+	try:
+		import numpy as np
+		import spikeinterface.extractors as se
+		import spikeinterface.full as si
+	except Exception as exc:  # pragma: no cover
+		raise RuntimeError("raw preprocessing requires `numpy` and `spikeinterface` installed") from exc
+
+	_ensure_maxwell_hdf5_plugin_path()
+
+	if hasattr(se, "read_maxwell"):
+		recording = se.read_maxwell(file_path=str(h5_path), stream_id=stream_id, rec_name=rec_name)
+	else:  # pragma: no cover
+		recording = se.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_name)
+
+	fs = float(recording.get_sampling_frequency())
+	n_samples = int(recording.get_num_samples())
+	chunk = min(int(center_chunk_size), int(recording.get_num_samples())) - 100
+	chunk = max(chunk, 100)
+	centered = si.center(recording, chunk_size=chunk)
+
+	recording_electrodes = np.asarray(recording.get_property("contact_vector")["electrode"], dtype=int)
+	if int(np.unique(recording_electrodes).size) != int(recording_electrodes.size):
+		raise RuntimeError(
+			f"Duplicate electrode ids found in contact_vector for segment {rec_name}; cannot map electrodes reliably"
+		)
+	processed = centered.rename_channels([int(value) for value in recording_electrodes])
+
+	renamed_channel_ids = np.asarray(processed.get_channel_ids(), dtype=object)
+	if renamed_channel_ids.shape != recording_electrodes.shape or not np.array_equal(
+		renamed_channel_ids.astype(int),
+		recording_electrodes,
+	):
+		raise RuntimeError(f"Failed to rename channel ids to electrode ids for segment {rec_name}")
+
+	return processed, {
+		"rec_name": str(rec_name),
+		"fs": float(fs),
+		"n_samples": int(n_samples),
+		"n_channels": int(centered.get_num_channels()),
+	}
+
+
+def apply_standard_preprocessing(*, recording: Any, logger: logging.Logger | None = None) -> Any:
+	try:
+		import spikeinterface.preprocessing as spre
+	except Exception as exc:  # pragma: no cover
+		raise RuntimeError("preprocessing requires `spikeinterface.preprocessing` installed") from exc
+
+	preprocessed = recording
+	try:
+		dtype_str = str(preprocessed.get_dtype())
+	except Exception:
+		dtype_str = ""
+	if dtype_str.startswith("uint"):
+		preprocessed = spre.unsigned_to_signed(preprocessed)
+
+	preprocessed = spre.highpass_filter(preprocessed, freq_min=300.0)
+
+	try:
+		preprocessed = spre.common_reference(
+			preprocessed,
+			reference="local",
+			operator="median",
+			local_radius=(250, 250),
+		)
+	except Exception as exc:
+		if logger is not None:
+			logger.warning("Local common_reference failed; falling back to global median reference (%s)", exc)
+		preprocessed = spre.common_reference(preprocessed, reference="global", operator="median")
+
+	try:
+		preprocessed.annotate(is_filtered=True)
+	except Exception:
+		pass
+
+	try:
+		dtype_after = str(preprocessed.get_dtype())
+	except Exception:
+		dtype_after = ""
+	if dtype_after != "float32":
+		preprocessed = spre.astype(preprocessed, "float32")
+
+	return preprocessed
 
 
 def _select_common_electrode_channels(*, recording: Any, common_electrodes: list[int], rec_name: str) -> Any:

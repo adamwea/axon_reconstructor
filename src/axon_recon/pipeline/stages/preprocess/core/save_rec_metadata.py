@@ -4,19 +4,236 @@ import contextlib
 import datetime as dt
 import io
 import logging
+import os
 from pathlib import Path
-from typing import Any
-
-from axon_reconstructor.pipeline.stg1_preprocessing.concatenation import find_common_electrodes_from_segments
-from axon_reconstructor.pipeline.stg1_preprocessing.h5_helpers import (
-	_print_assay_settings,
-	_print_data_store_start_stop_durations,
-	_read_well_rec_frame_nos_and_trigger_settings,
-	_tee_stdout_to_file,
-)
+import sys
+import threading
+from typing import Any, Optional
 
 from axon_recon.pipeline.shared.sampling import read_maxwell_sampling_frequency_hz
 from .artifacts import write_json
+
+
+_STDOUT_TEE_LOCK = threading.Lock()
+
+
+def _ensure_maxwell_hdf5_plugin_path(*, prefix: str = "[axon_reconstructor]", suppress_messages: bool = False) -> None:
+	env = os.environ.get("HDF5_PLUGIN_PATH")
+	if env:
+		try:
+			if not Path(env).expanduser().exists():
+				if not bool(suppress_messages):
+					print(f"{prefix}[WARN] HDF5_PLUGIN_PATH points to missing dir: {env}; ignoring", flush=True)
+				os.environ.pop("HDF5_PLUGIN_PATH", None)
+		except Exception:
+			pass
+
+	if os.environ.get("HDF5_PLUGIN_PATH"):
+		return
+
+	here = Path(__file__).resolve()
+	for parent in [here] + list(here.parents):
+		cand_dir = parent / "vendor" / "maxwell_hdf5_plugin" / "Linux"
+		if (cand_dir / "libcompression.so").exists():
+			os.environ["HDF5_PLUGIN_PATH"] = str(cand_dir)
+			if not bool(suppress_messages):
+				print(f"{prefix}[DEBUG] set HDF5_PLUGIN_PATH={cand_dir}", flush=True)
+			return
+
+
+def _print_assay_settings(*, h5_path: Path, prefix: str = "[axon_reconstructor]") -> None:
+	try:
+		import h5py
+	except Exception:
+		print(f"{prefix} assay settings: h5py not available", flush=True)
+		return
+
+	h5_path = Path(h5_path).expanduser().resolve()
+	try:
+		with h5py.File(h5_path, "r") as h5:
+			if "assay" not in h5:
+				print(f"{prefix} assay settings: no /assay group", flush=True)
+				return
+			assay = h5["assay"]
+			keys = list(assay.keys())
+			print(f"{prefix} assay settings: /assay keys={keys}", flush=True)
+	except Exception as exc:
+		print(f"{prefix} assay settings: failed to read: {exc}", flush=True)
+
+
+def _print_data_store_start_stop_durations(
+	*,
+	h5_path: Path,
+	target_stream_id: Optional[str] = None,
+	prefix: str = "[axon_reconstructor]",
+) -> None:
+	try:
+		import h5py
+		import numpy as np
+	except Exception:
+		print(f"{prefix} data_store: h5py/numpy not available", flush=True)
+		return
+
+	h5_path = Path(h5_path).expanduser().resolve()
+	try:
+		with h5py.File(h5_path, "r") as h5:
+			if "data_store" not in h5:
+				print(f"{prefix} data_store: no /data_store group", flush=True)
+				return
+
+			data_store = h5["data_store"]
+			stream_ids = sorted(data_store.keys())
+			if target_stream_id is not None:
+				stream_ids = [stream for stream in stream_ids if str(stream) == str(target_stream_id)]
+				if not stream_ids:
+					print(f"{prefix} data_store: target_stream_id={target_stream_id} not found", flush=True)
+					return
+
+			for stream_id in stream_ids:
+				stream = data_store[str(stream_id)]
+				cfg_names = sorted(stream.keys())
+				for cfg_name in cfg_names:
+					cfg = stream[str(cfg_name)]
+
+					def _read_ms(name: str) -> int | None:
+						if name not in cfg:
+							return None
+						try:
+							return int(np.asarray(cfg[name][()]).ravel()[0])
+						except Exception:
+							return None
+
+					start_ms = _read_ms("start_time")
+					stop_ms = _read_ms("stop_time")
+					if start_ms is None or stop_ms is None:
+						print(
+							f"{prefix} data_store: stream={stream_id} cfg={cfg_name} start/stop unavailable",
+							flush=True,
+						)
+						continue
+
+					duration_s = (stop_ms - start_ms) / 1000.0
+					print(
+						f"{prefix} data_store: stream={stream_id} cfg={cfg_name} "
+						f"start_ms={start_ms} stop_ms={stop_ms} dur_s={duration_s:.3f}",
+						flush=True,
+					)
+	except Exception as exc:
+		print(f"{prefix} data_store: failed to read: {exc}", flush=True)
+
+
+def _read_well_rec_frame_nos_and_trigger_settings(*, h5_path: Path, stream_id: str, rec_name: str) -> dict[str, Any]:
+	try:
+		import h5py
+		import numpy as np
+	except Exception as exc:  # pragma: no cover
+		raise RuntimeError("reading well timing requires h5py/numpy") from exc
+
+	h5_path = Path(h5_path).expanduser().resolve()
+	with h5py.File(h5_path, "r") as h5:
+		rec = h5["wells"][str(stream_id)][str(rec_name)]
+		start_raw = rec["start_time"][()]
+		stop_raw = rec["stop_time"][()]
+		start_ms = int(np.asarray(start_raw).ravel()[0])
+		stop_ms = int(np.asarray(stop_raw).ravel()[0])
+
+		routed = rec["groups"]["routed"]
+		frame_nos = np.asarray(routed["frame_nos"], dtype=np.int64)
+
+		def _read_int_1(name: str) -> int | None:
+			if name not in routed:
+				return None
+			try:
+				return int(np.asarray(routed[name][()]).ravel()[0])
+			except Exception:
+				return None
+
+		def _read_float_1(name: str) -> float | None:
+			if name not in routed:
+				return None
+			try:
+				return float(np.asarray(routed[name][()]).ravel()[0])
+			except Exception:
+				return None
+
+		triggered = _read_int_1("triggered")
+		trigger_pre = _read_int_1("trigger_pre")
+		trigger_post = _read_int_1("trigger_post")
+		trigger_minamp = _read_float_1("trigger_minamp")
+		trigger_maxamp = _read_float_1("trigger_maxamp")
+
+	return {
+		"start_ms": int(start_ms),
+		"stop_ms": int(stop_ms),
+		"frame_nos": frame_nos,
+		"triggered": triggered,
+		"trigger_pre": trigger_pre,
+		"trigger_post": trigger_post,
+		"trigger_minamp": trigger_minamp,
+		"trigger_maxamp": trigger_maxamp,
+	}
+
+
+@contextlib.contextmanager
+def _tee_stdout_to_file(out_path: Path):
+	out_path = Path(out_path)
+	out_path.parent.mkdir(parents=True, exist_ok=True)
+	with _STDOUT_TEE_LOCK, open(out_path, "w", encoding="utf-8") as file_handle:
+
+		class _Tee(io.TextIOBase):
+			def __init__(self, terminal: Any, file_stream: Any):
+				self._terminal = terminal
+				self._file_stream = file_stream
+
+			def write(self, text: str) -> int:
+				self._terminal.write(text)
+				try:
+					self._file_stream.write(text)
+				except Exception:
+					pass
+				return len(text)
+
+			def flush(self) -> None:
+				try:
+					self._terminal.flush()
+				finally:
+					try:
+						self._file_stream.flush()
+					except Exception:
+						pass
+
+		tee = _Tee(sys.stdout, file_handle)
+		with contextlib.redirect_stdout(tee):
+			yield out_path
+
+
+def find_common_electrodes_from_segments(*, h5_path: Path, stream_id: str) -> tuple[list[str], list[int]]:
+	try:
+		import h5py
+		import spikeinterface.extractors as se
+	except Exception as exc:  # pragma: no cover
+		raise RuntimeError("raw preprocessing requires `h5py` and `spikeinterface` installed") from exc
+
+	_ensure_maxwell_hdf5_plugin_path()
+
+	h5_path = Path(h5_path)
+	with h5py.File(h5_path, "r") as h5:
+		rec_names = list(h5["wells"][stream_id].keys())
+
+	common: set[int] | None = None
+	for rec_name in rec_names:
+		if hasattr(se, "read_maxwell"):
+			recording = se.read_maxwell(file_path=str(h5_path), stream_id=stream_id, rec_name=rec_name)
+		else:  # pragma: no cover
+			recording = se.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_name)
+		electrodes = recording.get_property("contact_vector")["electrode"]
+		electrode_set = set(int(value) for value in electrodes)
+		if common is None:
+			common = electrode_set
+		else:
+			common &= electrode_set
+
+	return [str(name) for name in rec_names], sorted(common or set())
 
 
 def _as_positive_float_or_none(value: Any) -> float | None:
@@ -76,6 +293,7 @@ def _try_get_spikeinterface_recording_info(
 		return {}, f"SpikeInterface import failed: {exc}"
 
 	try:
+		_ensure_maxwell_hdf5_plugin_path(suppress_messages=bool(suppress_h5_plugin_messages))
 		with contextlib.ExitStack() as stack:
 			if bool(suppress_h5_plugin_messages):
 				suppressed_stream = io.StringIO()
@@ -148,6 +366,7 @@ def _try_get_spikeinterface_segment_infos(
 	warnings: list[str] = []
 	for segment_index, rec_name in enumerate(rec_names):
 		try:
+			_ensure_maxwell_hdf5_plugin_path(suppress_messages=bool(suppress_h5_plugin_messages))
 			with contextlib.ExitStack() as stack:
 				if bool(suppress_h5_plugin_messages):
 					suppressed_stream = io.StringIO()

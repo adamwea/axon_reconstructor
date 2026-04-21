@@ -21,14 +21,15 @@ from typing import Any
 
 from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_reconstructor.pipeline.pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
-from axon_reconstructor.pipeline.stg1_preprocessing.constants import PREPROCESS_OUTPUTS_DIRNAME
-from axon_reconstructor.pipeline.stg1_preprocessing.h5_helpers import (
+
+from .constants import PREPROCESS_OUTPUTS_DIRNAME
+from .core.save_rec_metadata import (
 	_print_assay_settings,
 	_print_data_store_start_stop_durations,
 	_read_well_rec_frame_nos_and_trigger_settings,
 	_tee_stdout_to_file,
 )
-from axon_reconstructor.pipeline.stg1_preprocessing.planning import build_preprocess_plan
+from .planning import build_preprocess_plan
 
 from ...shared.sampling import read_maxwell_sampling_frequency_hz
 from .core import (
@@ -39,6 +40,7 @@ from .core import (
 	run_plot_concat_traces_core,
 	run_plot_segment_traces_core,
 	run_preprocess_segments_core,
+	run_save_common_electrodes_core,
 	run_save_concatenated_recording_core,
 	run_save_rec_metadata_core,
 	run_save_segment_recordings_core,
@@ -977,6 +979,14 @@ def _concatenate_segment_recordings(segment_recordings: list[Any]) -> Any:
 	except Exception as exc:
 		raise RuntimeError(f"SpikeInterface import failed while concatenating segment recordings: {exc}") from exc
 	return si.concatenate_recordings(segment_recordings)
+
+
+def _is_concatenate_recordings_phase(selected_phase: str | None) -> bool:
+	return str(selected_phase or "") in {
+		"concatenate_recordings",
+		"concatenate_preprocessed_recordings",
+		"concat_segments",
+	}
 
 
 def _resolve_concatenated_recording_for_save(

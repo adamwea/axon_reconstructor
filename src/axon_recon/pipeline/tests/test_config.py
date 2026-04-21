@@ -4,7 +4,8 @@ import logging
 import os
 from pathlib import Path
 
-from axon_recon.pipeline.config import _copy_file_if_needed, _materialize_dataset_input_in_scratch
+import axon_recon.pipeline.stages.preprocess.core.copy_src_to_scratch as copy_src_to_scratch_core
+from axon_recon.pipeline.stages.preprocess.core.copy_src_to_scratch import _copy_file_if_needed, _materialize_dataset_input_in_scratch
 from axon_reconstructor.pipeline.scratch_layout import resolve_scratch_layout
 
 
@@ -85,6 +86,42 @@ def test_materialize_dataset_input_in_scratch_skips_progress_logs_when_files_are
     assert resolved_h5 == target_h5.resolve()
     assert any("already materialized" in message for message in messages)
     assert not any("Scratch input copy progress" in message for message in messages)
+
+
+def test_materialize_dataset_input_in_scratch_logs_byte_progress_bar_for_h5_copy(
+    tmp_path: Path,
+    caplog,
+    monkeypatch,
+) -> None:
+    source_h5 = tmp_path / "raw_data" / "dataset" / "data.raw.h5"
+    source_h5.parent.mkdir(parents=True, exist_ok=True)
+    source_h5.write_bytes((b"0123456789abcdef" * 64))
+    source_cfg = source_h5.parent / "input.cfg"
+    source_cfg.write_text("foo=1\n", encoding="utf-8")
+
+    scratch_input_root = tmp_path / "scratch_inputs"
+
+    monkeypatch.setattr(copy_src_to_scratch_core, "_SCRATCH_COPY_CHUNK_BYTES", 64)
+    monkeypatch.setattr(copy_src_to_scratch_core, "_SCRATCH_COPY_PROGRESS_MIN_UPDATE_BYTES", 64)
+    monkeypatch.setattr(copy_src_to_scratch_core, "_SCRATCH_COPY_PROGRESS_MIN_UPDATE_SECONDS", 0.0)
+
+    caplog.set_level(logging.INFO, logger="axon_recon.pipeline.config")
+    resolved_h5 = _materialize_dataset_input_in_scratch(
+        source_h5_path=source_h5,
+        scratch_input_root=scratch_input_root,
+        dataset_id="dataset-002",
+    )
+
+    messages = [record.getMessage() for record in caplog.records]
+    progress_messages = [message for message in messages if "Scratch input copy progress" in message]
+
+    assert resolved_h5 == (scratch_input_root / "dataset" / "data.raw.h5").resolve()
+    assert resolved_h5.read_bytes() == source_h5.read_bytes()
+    assert len(progress_messages) >= 2
+    assert any("overall=" in message and "rate=" in message and "eta=" in message for message in progress_messages)
+    assert any("file_progress=" in message and "dataset-002" in message for message in progress_messages)
+    assert any("[" in message and "]" in message for message in progress_messages)
+    assert any("100.0%" in message for message in progress_messages)
 
 
 def test_resolve_scratch_layout_is_idempotent_for_base_and_canonical_paths(tmp_path: Path) -> None:

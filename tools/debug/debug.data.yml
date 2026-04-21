@@ -447,7 +447,7 @@ datasets:
   # would be DIV 22 from the plated date, not DIV 29. I used the filesystem date 260319 because
   # 2026-03-19 is exactly DIV 29 and the run numbers plus chip ids line up with those rows.
   - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260319/M08073/AxonTracking/000170/data.raw.h5
-    include_in_runtime: true
+    include_in_runtime: false
     DIV: 29
     wells:
       - well_id: well000
@@ -488,7 +488,7 @@ datasets:
           genotype: WT
 
   - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260319/M06804/AxonTracking/000174/data.raw.h5
-    include_in_runtime: true
+    include_in_runtime: false
     DIV: 29
     wells:
       - well_id: well000
@@ -531,7 +531,7 @@ datasets:
   # Kept both same-day M08073 runs because the sheet has two Axon Tracking rows on 2026-03-26
   # at DIV 36: run 208 is the baseline-before-treatment scan and run 222 is the 2-hours-post-treatment scan.
   - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260326/M08073/AxonTracking/000208/data.raw.h5
-    include_in_runtime: true
+    include_in_runtime: false
     DIV: 36
     wells:
       - well_id: well000
@@ -572,7 +572,7 @@ datasets:
           genotype: WT
 
   - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260326/M08073/AxonTracking/000222/data.raw.h5
-    include_in_runtime: true
+    include_in_runtime: false
     DIV: 36
     wells:
       - well_id: well000

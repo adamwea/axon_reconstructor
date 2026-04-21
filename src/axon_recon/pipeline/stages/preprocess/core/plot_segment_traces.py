@@ -5,19 +5,284 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-from axon_reconstructor.pipeline.stg1_preprocessing.plotting import (
-	_activity_score_rms,
-	_pick_representative_index_for_cluster,
-	_plot_concat_cluster_traces,
-	detect_electrode_clusters,
-)
-
 from .artifacts import (
 	build_segment_time_vector,
 	load_recording_metadata,
 	load_saved_recording,
 	load_segment_manifest,
 )
+
+
+def _estimate_pitch_um(x: Any, y: Any) -> float:
+	try:
+		import numpy as np
+	except Exception as exc:  # pragma: no cover
+		raise RuntimeError("pitch estimation requires numpy") from exc
+
+	xs = np.asarray(x, dtype=float)
+	ys = np.asarray(y, dtype=float)
+	if xs.size < 2:
+		return 0.0
+	dx = xs[:, None] - xs[None, :]
+	dy = ys[:, None] - ys[None, :]
+	dist = np.sqrt(dx * dx + dy * dy)
+	np.fill_diagonal(dist, np.inf)
+	nearest = np.min(dist, axis=1)
+	nearest = nearest[np.isfinite(nearest)]
+	if nearest.size == 0:
+		return 0.0
+	return float(np.median(nearest))
+
+
+def detect_electrode_clusters(
+	*,
+	x: Any,
+	y: Any,
+	eps: float | None = None,
+	max_cluster_size_warn: int = 9,
+) -> list[list[int]]:
+	import warnings
+
+	try:
+		import numpy as np
+	except Exception as exc:  # pragma: no cover
+		raise RuntimeError("clustering requires numpy") from exc
+
+	xs = np.asarray(x, dtype=float)
+	ys = np.asarray(y, dtype=float)
+	n_channels = int(xs.size)
+	if n_channels == 0:
+		return []
+
+	if eps is None:
+		pitch = _estimate_pitch_um(xs, ys)
+		eps = (pitch * 1.6) if pitch > 0 else 50.0
+
+	dx = xs[:, None] - xs[None, :]
+	dy = ys[:, None] - ys[None, :]
+	dist2 = dx * dx + dy * dy
+	adj = dist2 <= float(eps) ** 2
+	np.fill_diagonal(adj, False)
+
+	visited = np.zeros(n_channels, dtype=bool)
+	clusters: list[list[int]] = []
+	for index in range(n_channels):
+		if visited[index]:
+			continue
+		stack = [int(index)]
+		visited[index] = True
+		component: list[int] = []
+		while stack:
+			current = stack.pop()
+			component.append(int(current))
+			neighbors = np.where(adj[current])[0]
+			for neighbor in neighbors:
+				if not visited[neighbor]:
+					visited[neighbor] = True
+					stack.append(int(neighbor))
+		clusters.append(sorted(component))
+
+	clusters.sort(key=len, reverse=True)
+	too_big = [cluster for cluster in clusters if len(cluster) > int(max_cluster_size_warn)]
+	if too_big:
+		warnings.warn(
+			f"Found {len(too_big)} clusters larger than {max_cluster_size_warn} electrodes; "
+			f"largest={max(len(cluster) for cluster in clusters)}. "
+			"This may mean eps is too large or the layout is not well-separated.",
+			stacklevel=2,
+		)
+
+	return clusters
+
+
+def _pick_representative_index_for_cluster(*, x: Any, y: Any, cluster: list[int]) -> int:
+	import numpy as np
+
+	indices = np.asarray(cluster, dtype=int)
+	centroid_x = float(np.mean(np.asarray(x)[indices]))
+	centroid_y = float(np.mean(np.asarray(y)[indices]))
+	dx = np.asarray(x)[indices] - centroid_x
+	dy = np.asarray(y)[indices] - centroid_y
+	return int(indices[int(np.argmin(dx * dx + dy * dy))])
+
+
+def _activity_score_rms(
+	*,
+	recording: Any,
+	channel_id: int,
+	num_chunks: int = 6,
+	chunk_size: int = 20_000,
+	seed: int = 0,
+) -> float:
+	import numpy as np
+
+	total_samples = int(recording.get_num_samples())
+	if total_samples <= 0:
+		return 0.0
+
+	chunk_size = max(100, int(chunk_size))
+	num_chunks = max(1, int(num_chunks))
+	if total_samples <= chunk_size:
+		traces = recording.get_traces(start_frame=0, end_frame=total_samples, channel_ids=[channel_id]).astype(float)
+		channel_traces = traces[:, 0]
+		if channel_traces.size == 0:
+			return 0.0
+		return float(np.sqrt(np.mean(channel_traces * channel_traces)))
+
+	rng = np.random.default_rng(int(seed))
+	starts = rng.integers(0, total_samples - chunk_size, size=num_chunks, endpoint=False)
+
+	sum_squares = 0.0
+	count = 0
+	for start in starts:
+		start_i = int(start)
+		end_i = start_i + chunk_size
+		traces = recording.get_traces(start_frame=start_i, end_frame=end_i, channel_ids=[channel_id]).astype(float)
+		channel_traces = traces[:, 0]
+		sum_squares += float(np.sum(channel_traces * channel_traces))
+		count += int(channel_traces.size)
+
+	return float(np.sqrt(sum_squares / max(count, 1)))
+
+
+def _plot_concat_cluster_traces(
+	*,
+	recording: Any,
+	channel_ids: list[int],
+	stitch_frames: list[int],
+	out_path: Path,
+	title: str | None = None,
+	target_hz: float | None = None,
+	max_points: int = 150_000,
+	logger: logging.Logger | None = None,
+) -> None:
+	import matplotlib
+	matplotlib.use("Agg")
+	import matplotlib.pyplot as plt
+	import numpy as np
+
+	total = int(recording.get_num_samples())
+	if total <= 0:
+		return
+
+	fs = float(recording.get_sampling_frequency())
+	has_time_vector = False
+	try:
+		has_time_vector = bool(recording.has_time_vector())
+	except Exception:
+		has_time_vector = False
+
+	try:
+		parsed_max_points = int(max_points)
+	except Exception:
+		parsed_max_points = 150_000
+	if parsed_max_points <= 0:
+		step_by_points = 1
+	else:
+		points_cap = max(1000, parsed_max_points)
+		step_by_points = max(1, total // points_cap)
+
+	step_by_rate = 1
+	try:
+		if target_hz is not None and float(target_hz) > 0.0 and fs > 0.0:
+			step_by_rate = max(1, int(round(fs / float(target_hz))))
+	except Exception:
+		step_by_rate = 1
+
+	step = max(step_by_points, step_by_rate)
+	selected_frames = np.arange(0, total, step, dtype=np.int64)
+	expected_points = int(selected_frames.size)
+	effective_hz = (float(fs) / float(step)) if step > 0 else float(fs)
+	if logger is not None:
+		logger.info(
+			"plot traces: downsample fs=%.2fHz target_hz=%s step=%d effective_hz=%.2f expected_points_per_channel=%d channels=%d out=%s",
+			float(fs),
+			(f"{float(target_hz):.2f}" if target_hz is not None else "none"),
+			int(step),
+			float(effective_hz),
+			int(expected_points),
+			int(len(channel_ids)),
+			out_path,
+		)
+		if expected_points > 200_000:
+			logger.warning(
+				"plot traces: high point count after downsampling (%d points/channel); consider lowering trace_downsample_hz or setting trace_max_points",
+				int(expected_points),
+			)
+
+	if has_time_vector:
+		try:
+			time_vector = recording.sample_index_to_time(selected_frames)
+		except Exception:
+			time_vector = selected_frames.astype(float) / fs
+	else:
+		time_vector = selected_frames.astype(float) / fs
+
+	fig, axes = plt.subplots(len(channel_ids), 1, figsize=(13.33, 7.5), dpi=180, sharex=True)
+	if len(channel_ids) == 1:
+		axes = [axes]
+
+	block = 200_000
+	total_blocks = max(1, int((total + block - 1) // block))
+	y_parts_per_channel: list[list[np.ndarray]] = [[] for _ in channel_ids]
+	for block_idx, start in enumerate(range(0, total, block), start=1):
+		end = min(total, start + block)
+		traces_block = recording.get_traces(start_frame=start, end_frame=end, channel_ids=channel_ids)
+		offset = (-start) % step
+		traces_ds = traces_block[offset::step, :]
+		for channel_index in range(len(channel_ids)):
+			y_parts_per_channel[channel_index].append(np.asarray(traces_ds[:, channel_index]))
+
+		if logger is not None and (
+			block_idx == 1
+			or block_idx == total_blocks
+			or block_idx % max(1, total_blocks // 10) == 0
+		):
+			logger.info(
+				"plot traces: load progress %d/%d blocks (%.1f%%) out=%s",
+				int(block_idx),
+				int(total_blocks),
+				float((100.0 * block_idx) / max(1, total_blocks)),
+				out_path,
+			)
+
+	for axis, channel_id, y_parts in zip(axes, channel_ids, y_parts_per_channel, strict=False):
+		y = np.concatenate(y_parts).astype(float, copy=False) if y_parts else np.asarray([], dtype=float)
+		t_plot = time_vector[: y.size]
+		y_plot = y
+		if has_time_vector and y_plot.size > 2:
+			try:
+				dt = np.diff(t_plot.astype(float))
+				baseline = float(step) / float(fs)
+				jump_idx = np.where(dt > (5.0 * max(baseline, 1e-9)))[0]
+				if jump_idx.size:
+					y_plot = y_plot.astype(float, copy=True)
+					y_plot[jump_idx + 1] = np.nan
+			except Exception:
+				pass
+
+		axis.plot(t_plot, y_plot, lw=0.2, color="black")
+		for stitch_frame in stitch_frames:
+			if has_time_vector:
+				try:
+					xline = float(recording.sample_index_to_time(int(stitch_frame)))
+				except Exception:
+					xline = float(stitch_frame) / fs
+			else:
+				xline = float(stitch_frame) / fs
+			axis.axvline(xline, color="red", lw=0.6, alpha=0.8)
+		axis.set_ylabel(f"ch {channel_id}")
+		axis.grid(False)
+
+	axes[-1].set_xlabel("time (s)")
+	if title:
+		fig.suptitle(title)
+	fig.tight_layout()
+	out_path.parent.mkdir(parents=True, exist_ok=True)
+	fig.savefig(out_path)
+	plt.close(fig)
+	if logger is not None:
+		logger.info("plot traces: wrote %s", out_path)
 
 
 def _plot_channel_layout(

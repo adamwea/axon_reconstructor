@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from axon_reconstructor.runtime_config import RuntimeConfig
-from axon_reconstructor.pipeline.stg1_preprocessing.constants import (
+
+from .constants import (
 	LEGACY_PREPROCESS_OUTPUTS_DIRNAME,
 	PREPROCESS_OUTPUTS_DIRNAME,
 )

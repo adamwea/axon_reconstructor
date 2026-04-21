@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from axon_reconstructor.pipeline.stg1_preprocessing.constants import PREPROCESS_OUTPUTS_DIRNAME
+from ..constants import PREPROCESS_OUTPUTS_DIRNAME
 
 
 @dataclass(frozen=True)
