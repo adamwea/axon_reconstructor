@@ -56,30 +56,32 @@ def test_parse_stage_list_tokens_supports_templates_phase_aliases() -> None:
         ("preprocess.plot_segment_traces", "preprocess.plot_segment_traces"),
         ("preprocess.concat_segments", "preprocess.concat_segments"),
         ("preprocess.plot_concat_traces", "preprocess.plot_concat_traces"),
-        ("preprocess.concatenate_recordings", "preprocess.concat_segments"),
-        ("preprocess.concatenate_preprocessed_recordings", "preprocess.concat_segments"),
-        ("preprocess.save_common_electrodes", "preprocess.save_common_electrodes"),
-        ("pre.build_preprocessed_recording", "preprocess.preprocess_segments"),
         ("preproc.save_rec_metadata", "preprocess.save_rec_metadata"),
         ("preproc.wipe_src_scratch", "preprocess.wipe_src_scratch"),
         ("preproc.plot_segment_traces", "preprocess.plot_segment_traces"),
-        ("preproc.concatenate_recordings", "preprocess.concat_segments"),
         ("preproc.concat_segments", "preprocess.concat_segments"),
         ("preproc.plot_concat_traces", "preprocess.plot_concat_traces"),
-        ("preproc.save_segment_recordings", "preprocess.preprocess_segments"),
-        (
-            "preprocess.concatenate_recordings.save_common_electrodes",
-            "preprocess.save_common_electrodes",
-        ),
-        (
-            "preprocess.concatenate_preprocessed_recordings.save_common_electrodes",
-            "preprocess.save_common_electrodes",
-        ),
     ],
 )
 def test_parse_stage_list_tokens_supports_preprocess_phase_tokens(raw_token: str, expected: str) -> None:
     parsed = pipeline_cli._parse_stage_list_tokens([raw_token])
     assert parsed == [expected]
+
+
+@pytest.mark.parametrize(
+    "raw_token",
+    [
+        "preprocess.concatenate_recordings",
+        "preprocess.concatenate_preprocessed_recordings",
+        "preprocess.save_common_electrodes",
+        "pre.build_preprocessed_recording",
+        "pre.save_concatenated_recording",
+        "pre.save_segment_recordings",
+    ],
+)
+def test_parse_stage_list_tokens_rejects_removed_preprocess_aliases(raw_token: str) -> None:
+    with pytest.raises(SystemExit, match="Unsupported stage token"):
+        pipeline_cli._parse_stage_list_tokens([raw_token])
 
 
 def test_parse_stage_list_tokens_maps_legacy_templates_build_templates_alias() -> None:
@@ -364,25 +366,11 @@ def test_main_runs_templates_compute_template_similarity_substage(monkeypatch, t
         ("preprocess.plot_segment_traces", "preprocess.plot_segment_traces"),
         ("preprocess.concat_segments", "preprocess.concat_segments"),
         ("preprocess.plot_concat_traces", "preprocess.plot_concat_traces"),
-        ("preprocess.concatenate_recordings", "preprocess.concat_segments"),
-        ("preprocess.concatenate_preprocessed_recordings", "preprocess.concat_segments"),
-        ("preprocess.save_common_electrodes", "preprocess.save_common_electrodes"),
-        ("pre.build_preprocessed_recording", "preprocess.preprocess_segments"),
         ("preproc.save_rec_metadata", "preprocess.save_rec_metadata"),
         ("preproc.wipe_src_scratch", "preprocess.wipe_src_scratch"),
         ("preproc.plot_segment_traces", "preprocess.plot_segment_traces"),
-        ("preproc.concatenate_recordings", "preprocess.concat_segments"),
         ("preproc.concat_segments", "preprocess.concat_segments"),
         ("preproc.plot_concat_traces", "preprocess.plot_concat_traces"),
-        ("preproc.save_common_electrodes", "preprocess.save_common_electrodes"),
-        (
-            "preprocess.concatenate_recordings.save_common_electrodes",
-            "preprocess.save_common_electrodes",
-        ),
-        (
-            "preprocess.concatenate_preprocessed_recordings.save_common_electrodes",
-            "preprocess.save_common_electrodes",
-        ),
     ],
 )
 def test_main_runs_preprocess_phase_substages(

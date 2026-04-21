@@ -5,14 +5,11 @@ import argparse
 from ...runner import (
 	run_preprocess_concat_segments_from_runtime,
 	run_preprocess_from_runtime,
-	run_preprocess_concatenate_recordings_from_runtime,
-	run_preprocess_concatenate_preprocessed_recordings_from_runtime,
 	run_preprocess_copy_src_to_scratch_from_runtime,
 	run_preprocess_plot_concat_traces_from_runtime,
 	run_preprocess_plot_segment_traces_from_runtime,
 	run_preprocess_preprocess_segments_from_runtime,
 	run_preprocess_save_rec_metadata_from_runtime,
-	run_preprocess_save_common_electrodes_from_runtime,
 	run_preprocess_wipe_src_scratch_from_runtime,
 )
 
@@ -124,39 +121,9 @@ def _run_concat_segments_from_args(args: argparse.Namespace) -> int:
 	)
 
 
-def _run_concatenate_recordings_from_args(args: argparse.Namespace) -> int:
-	return _run_concat_segments_from_args(args)
-
-
-def _run_concatenate_preprocessed_recordings_from_args(args: argparse.Namespace) -> int:
-	return _run_concatenate_recordings_from_args(args)
-
-
-def _run_build_preprocessed_recording_from_args(args: argparse.Namespace) -> int:
-	return _run_preprocess_segments_from_args(args)
-
-
-def _run_save_concatenated_recording_from_args(args: argparse.Namespace) -> int:
-	return _run_concatenate_recordings_from_args(args)
-
-
-def _run_save_segment_recordings_from_args(args: argparse.Namespace) -> int:
-	return _run_preprocess_segments_from_args(args)
-
-
 def _run_plot_concat_traces_from_args(args: argparse.Namespace) -> int:
 	return _print_preprocess_aggregate(
 		run_preprocess_plot_concat_traces_from_runtime(
-			config_path=str(args.config),
-			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
-			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
-		)
-	)
-
-
-def _run_save_common_electrodes_from_args(args: argparse.Namespace) -> int:
-	return _print_preprocess_aggregate(
-		run_preprocess_save_common_electrodes_from_runtime(
 			config_path=str(args.config),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),

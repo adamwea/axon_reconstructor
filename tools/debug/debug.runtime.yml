@@ -88,7 +88,7 @@ stages:
       stage_log_relpath: logs/preprocess_pipeline.log
     resources:
       max_stage_workers: 24
-      well_workers: 1
+      well_workers: 3
     rel_output_root: preprocess_outputs # optional subdir under each well's output directory for all preprocess outputs; relative paths for preprocess phases resolve under this directory in each well's output directory
     phases:
       copy_src_to_scratch:

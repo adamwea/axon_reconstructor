@@ -21,15 +21,12 @@ from .stages.analysis.cross_well import generate_cross_well_artifacts
 from .stages.analysis.models.results import AnalysisResult
 from .stages.preprocess.api import (
 	run_preprocess_concat_segments,
-	run_preprocess_concatenate_recordings,
-	run_preprocess_concatenate_preprocessed_recordings,
 	run_preprocess_copy_src_to_scratch,
 	run_preprocess,
 	run_preprocess_plot_concat_traces,
 	run_preprocess_plot_segment_traces,
 	run_preprocess_preprocess_segments,
 	run_preprocess_save_rec_metadata,
-	run_preprocess_save_common_electrodes,
 	run_preprocess_wipe_src_scratch,
 )
 from .stages.preprocess.config import build_preprocess_inputs_for_target, parse_preprocess_stage_config
@@ -96,27 +93,13 @@ def _preprocess_stage_uses_nested_workers(stage_config: Any) -> bool:
 		return True
 	preprocess_segments_enabled = bool(getattr(getattr(phases, "preprocess_segments", None), "enabled", False))
 	concat_segments_enabled = bool(getattr(getattr(phases, "concat_segments", None), "enabled", False))
-	concatenate_recordings_enabled = bool(getattr(getattr(phases, "concatenate_recordings", None), "enabled", False))
-	legacy_concatenate_enabled = bool(
-		getattr(getattr(phases, "concatenate_preprocessed_recordings", None), "enabled", False)
-	)
-	return bool(
-		preprocess_segments_enabled
-		or concat_segments_enabled
-		or concatenate_recordings_enabled
-		or legacy_concatenate_enabled
-	)
+	return bool(preprocess_segments_enabled or concat_segments_enabled)
 
 
 def _preprocess_substage_uses_nested_workers(stage_name: str) -> bool:
 	return str(stage_name).strip() in {
 		"preprocess.preprocess_segments",
-		"preprocess.build_preprocessed_recording",
-		"preprocess.save_segment_recordings",
 		"preprocess.concat_segments",
-		"preprocess.concatenate_recordings",
-		"preprocess.concatenate_preprocessed_recordings",
-		"preprocess.save_concatenated_recording",
 	}
 
 
@@ -882,47 +865,6 @@ def run_preprocess_concat_segments_from_runtime(
 	)
 
 
-def run_preprocess_concatenate_recordings_from_runtime(
-	*,
-	config_path: str,
-	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
-) -> MultiTargetStageResult:
-	return run_preprocess_concat_segments_from_runtime(
-		config_path=config_path,
-		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
-	)
-
-
-def run_preprocess_concatenate_preprocessed_recordings_from_runtime(
-	*,
-	config_path: str,
-	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
-) -> MultiTargetStageResult:
-	return run_preprocess_concatenate_recordings_from_runtime(
-		config_path=config_path,
-		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
-	)
-
-
-def run_preprocess_save_common_electrodes_from_runtime(
-	*,
-	config_path: str,
-	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
-) -> MultiTargetStageResult:
-	return _run_preprocess_substage_from_runtime(
-		config_path=config_path,
-		stage_name="preprocess.save_common_electrodes",
-		runner_fn=run_preprocess_save_common_electrodes,
-		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
-	)
-
-
 def run_preprocess_plot_concat_traces_from_runtime(
 	*,
 	config_path: str,
@@ -933,45 +875,6 @@ def run_preprocess_plot_concat_traces_from_runtime(
 		config_path=config_path,
 		stage_name="preprocess.plot_concat_traces",
 		runner_fn=run_preprocess_plot_concat_traces,
-		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
-	)
-
-
-def run_preprocess_build_preprocessed_recording_from_runtime(
-	*,
-	config_path: str,
-	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
-) -> MultiTargetStageResult:
-	return run_preprocess_preprocess_segments_from_runtime(
-		config_path=config_path,
-		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
-	)
-
-
-def run_preprocess_save_concatenated_recording_from_runtime(
-	*,
-	config_path: str,
-	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
-) -> MultiTargetStageResult:
-	return run_preprocess_concatenate_recordings_from_runtime(
-		config_path=config_path,
-		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
-	)
-
-
-def run_preprocess_save_segment_recordings_from_runtime(
-	*,
-	config_path: str,
-	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
-) -> MultiTargetStageResult:
-	return run_preprocess_preprocess_segments_from_runtime(
-		config_path=config_path,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)

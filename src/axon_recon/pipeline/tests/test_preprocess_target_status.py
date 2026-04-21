@@ -8,15 +8,12 @@ import pytest
 from axon_recon.pipeline.execution.context import ExecutionTarget, StageParallelism
 from axon_recon.pipeline.runner import (
     run_preprocess_concat_segments_from_runtime,
-    run_preprocess_concatenate_recordings_from_runtime,
-    run_preprocess_concatenate_preprocessed_recordings_from_runtime,
     run_preprocess_copy_src_to_scratch_from_runtime,
     run_preprocess_from_runtime,
     run_preprocess_plot_concat_traces_from_runtime,
     run_preprocess_plot_segment_traces_from_runtime,
     run_preprocess_preprocess_segments_from_runtime,
     run_preprocess_save_rec_metadata_from_runtime,
-    run_preprocess_save_common_electrodes_from_runtime,
     run_preprocess_wipe_src_scratch_from_runtime,
 )
 from axon_recon.pipeline.stages.preprocess.models.inputs import PreprocessInputs
@@ -368,29 +365,11 @@ def test_run_preprocess_from_runtime_applies_debug_well_limit(monkeypatch, tmp_p
             False,
         ),
         (
-            run_preprocess_concatenate_recordings_from_runtime,
-            "run_preprocess_concatenate_recordings_from_runtime",
-            "run_preprocess_concat_segments",
-            "preprocess.concat_segments",
-            "concat_segments",
-            12,
-            False,
-        ),
-        (
             run_preprocess_plot_concat_traces_from_runtime,
             "run_preprocess_plot_concat_traces_from_runtime",
             "run_preprocess_plot_concat_traces",
             "preprocess.plot_concat_traces",
             "plot_concat_traces",
-            1,
-            True,
-        ),
-        (
-            run_preprocess_save_common_electrodes_from_runtime,
-            "run_preprocess_save_common_electrodes_from_runtime",
-            "run_preprocess_save_common_electrodes",
-            "preprocess.save_common_electrodes",
-            "save_common_electrodes",
             1,
             True,
         ),

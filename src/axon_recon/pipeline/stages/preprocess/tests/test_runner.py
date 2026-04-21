@@ -14,7 +14,7 @@ from axon_recon.pipeline.stages.preprocess.models.inputs import (
     PreprocessWipeSrcScratchPhaseConfig,
 )
 from axon_recon.pipeline.stages.preprocess.runner import (
-    run_preprocess_concatenate_recordings_phase,
+    run_preprocess_concat_segments_phase,
     run_preprocess_save_rec_metadata_phase,
     run_preprocess_stage,
     run_preprocess_wipe_src_scratch_phase,
@@ -227,9 +227,7 @@ def test_run_preprocess_stage_writes_observability_artifacts(tmp_path: Path, mon
     assert "preprocess_segments_summary_json" in outputs
     assert "plot_segment_traces_summary_json" in outputs
     assert "concat_segments_summary_json" in outputs
-    assert "concatenate_recordings_summary_json" in outputs
     assert "plot_concat_traces_summary_json" in outputs
-    assert "save_common_electrodes_summary_json" in outputs
     assert "observability.run_manifest_json" in outputs
     assert "observability.event_timeline_jsonl" in outputs
     assert "observability.environment_json" in outputs
@@ -437,7 +435,7 @@ def test_run_preprocess_stage_recovers_from_self_referential_log_symlink(tmp_pat
     assert not bad_log.is_symlink()
 
 
-def test_run_preprocess_concatenate_recordings_phase_writes_targeted_summary(tmp_path: Path, monkeypatch) -> None:
+def test_run_preprocess_concat_segments_phase_writes_targeted_summary(tmp_path: Path, monkeypatch) -> None:
     _install_success_fakes(monkeypatch, tmp_path)
 
     inputs = PreprocessInputs(
@@ -446,7 +444,7 @@ def test_run_preprocess_concatenate_recordings_phase_writes_targeted_summary(tmp
         mea_output_root=tmp_path,
     )
 
-    payload = run_preprocess_concatenate_recordings_phase(inputs)
+    payload = run_preprocess_concat_segments_phase(inputs)
 
     assert payload["phase"] == "concat_segments"
     assert Path(str(payload["summary_json"])).exists()
@@ -455,7 +453,7 @@ def test_run_preprocess_concatenate_recordings_phase_writes_targeted_summary(tmp
     assert payload["concatenate_preprocessed_recordings"] is True
 
 
-def test_run_preprocess_concatenate_recordings_phase_ignores_legacy_raw_concat_toggle(tmp_path: Path, monkeypatch) -> None:
+def test_run_preprocess_concat_segments_phase_uses_targeted_summary_when_raw_concat_toggle_disabled(tmp_path: Path, monkeypatch) -> None:
     _install_success_fakes(monkeypatch, tmp_path)
 
     inputs = PreprocessInputs(
@@ -470,7 +468,7 @@ def test_run_preprocess_concatenate_recordings_phase_ignores_legacy_raw_concat_t
         ),
     )
 
-    payload = run_preprocess_concatenate_recordings_phase(inputs)
+    payload = run_preprocess_concat_segments_phase(inputs)
 
     assert payload["phase"] == "concat_segments"
     assert payload["segment_source"] == "preprocessed"
