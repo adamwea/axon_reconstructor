@@ -1,6 +1,7 @@
 """Preprocess stage package."""
 
 from .api import (
+	run_preprocess_concatenate_recordings,
 	run_preprocess_concatenate_preprocessed_recordings,
 	run_preprocess_copy_src_to_scratch,
 	run_preprocess,
@@ -14,6 +15,7 @@ from .api import (
 )
 
 __all__ = [
+	"run_preprocess_concatenate_recordings",
 	"run_preprocess_concatenate_preprocessed_recordings",
 	"run_preprocess_copy_src_to_scratch",
 	"run_preprocess",

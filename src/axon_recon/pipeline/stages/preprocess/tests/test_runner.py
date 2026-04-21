@@ -8,12 +8,15 @@ from types import SimpleNamespace
 import pytest
 
 from axon_recon.pipeline.stages.preprocess.models.inputs import (
+    PreprocessConcatenateRecordingsPhaseConfig,
     PreprocessInputs,
+    PreprocessPhaseConfig,
     PreprocessPhasesConfig,
+    PreprocessSaveRecMetadataPhaseConfig,
     PreprocessWipeSrcScratchPhaseConfig,
 )
 from axon_recon.pipeline.stages.preprocess.runner import (
-    run_preprocess_concatenate_preprocessed_recordings_phase,
+    run_preprocess_concatenate_recordings_phase,
     run_preprocess_save_rec_metadata_phase,
     run_preprocess_stage,
     run_preprocess_wipe_src_scratch_phase,
@@ -65,7 +68,10 @@ def _install_success_fakes(
             list(common_electrodes or [1, 2, 3]),
             {
                 "rec_names": ["seg000", "seg001"],
+                "segment_recordings_raw": [object(), object()],
+                "segment_recordings_raw_concat": [object(), object()],
                 "segment_recordings_preprocessed": [object(), object()],
+                "segment_recordings_preprocessed_concat": [object(), object()],
                 "segment_stats": [
                     {"fs": 10_000.0, "n_samples": 100, "n_channels": 4},
                     {"fs": 10_000.0, "n_samples": 120, "n_channels": 4},
@@ -141,7 +147,7 @@ def test_run_preprocess_stage_writes_observability_artifacts(tmp_path: Path, mon
     outputs = dict(summary.get("outputs", {}))
     assert outputs["pipeline_log"] == str(fake_log)
     assert "preprocess_segments_summary_json" in outputs
-    assert "concatenate_preprocessed_recordings_summary_json" in outputs
+    assert "concatenate_recordings_summary_json" in outputs
     assert "save_common_electrodes_summary_json" in outputs
     assert "observability.run_manifest_json" in outputs
     assert "observability.event_timeline_jsonl" in outputs
@@ -255,6 +261,9 @@ def test_run_preprocess_stage_treats_non_positive_trace_max_points_as_uncapped(t
     assert captured_build_kwargs.get("concat_trace_n_reps") == 3
     assert captured_build_kwargs.get("segment_trace_n_reps") == 6
     assert captured_build_kwargs.get("plot_n_jobs") == 3
+    assert captured_build_kwargs.get("saved_assay_stats_path") == tmp_path / "well001" / "assay_stats_well001.txt"
+    assert captured_build_kwargs.get("require_saved_assay_stats") is True
+    assert captured_build_kwargs.get("emit_phase_dividers_to_stdout") is True
     assert summary.get("inputs", {}).get("trace_max_points") == -1
     assert summary.get("inputs", {}).get("debug_limit_segments_per_well") == 2
     assert summary.get("inputs", {}).get("logging_enabled") is False
@@ -294,7 +303,7 @@ def test_run_preprocess_stage_recovers_from_self_referential_log_symlink(tmp_pat
     assert not bad_log.is_symlink()
 
 
-def test_run_preprocess_concatenate_preprocessed_recordings_phase_writes_targeted_summary(tmp_path: Path, monkeypatch) -> None:
+def test_run_preprocess_concatenate_recordings_phase_writes_targeted_summary(tmp_path: Path, monkeypatch) -> None:
     from axon_recon.pipeline.stages.preprocess import runner as preprocess_runner
 
     _install_success_fakes(monkeypatch, tmp_path)
@@ -323,13 +332,63 @@ def test_run_preprocess_concatenate_preprocessed_recordings_phase_writes_targete
         mea_output_root=tmp_path,
     )
 
-    payload = run_preprocess_concatenate_preprocessed_recordings_phase(inputs)
+    payload = run_preprocess_concatenate_recordings_phase(inputs)
 
-    assert payload["phase"] == "concatenate_preprocessed_recordings"
+    assert payload["phase"] == "concatenate_recordings"
     assert Path(str(payload["summary_json"])).exists()
-    assert payload["outputs"]["preprocessed_recording_dir"].endswith("preprocessed_recording")
+    assert payload["outputs"]["concatenated_recording_dir"].endswith("preprocessed_recording")
+    assert payload["segment_source"] == "preprocessed"
+    assert payload["concatenate_preprocessed_recordings"] is True
     assert segment_calls == []
     assert common_calls == ["common"]
+
+
+def test_run_preprocess_concatenate_recordings_phase_can_source_raw_segments(tmp_path: Path, monkeypatch) -> None:
+    from axon_recon.pipeline.stages.preprocess import runner as preprocess_runner
+
+    _install_success_fakes(monkeypatch, tmp_path)
+    captured_concat_segments: list[object] = []
+    sentinel_concat_recording = object()
+    captured_save_multirecording: list[object] = []
+
+    def _fake_concatenate_segment_recordings(segment_recordings: list[object]) -> object:
+        captured_concat_segments.extend(segment_recordings)
+        return sentinel_concat_recording
+
+    def _fake_save_concatenated_recording_core(**kwargs):
+        captured_save_multirecording.append(kwargs["multirecording"])
+        recording_dir = Path(str(kwargs["recording_dir"]))
+        recording_dir.mkdir(parents=True, exist_ok=True)
+        return {
+            "recording_dir": str(recording_dir),
+            "saved": True,
+            "reused_existing": False,
+        }
+
+    monkeypatch.setattr(preprocess_runner, "_concatenate_segment_recordings", _fake_concatenate_segment_recordings)
+    monkeypatch.setattr(preprocess_runner, "run_save_concatenated_recording_core", _fake_save_concatenated_recording_core)
+
+    inputs = PreprocessInputs(
+        h5_path=tmp_path / "input.raw.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        phases=PreprocessPhasesConfig(
+            concatenate_recordings=PreprocessConcatenateRecordingsPhaseConfig(
+                enabled=True,
+                concatenate_preprocessed_recordings=False,
+                save_common_electrodes=PreprocessPhaseConfig(enabled=False),
+            )
+        ),
+    )
+
+    payload = run_preprocess_concatenate_recordings_phase(inputs)
+
+    assert payload["phase"] == "concatenate_recordings"
+    assert payload["segment_source"] == "raw"
+    assert payload["concatenate_preprocessed_recordings"] is False
+    assert payload["source_segment_count"] == 2
+    assert captured_save_multirecording == [sentinel_concat_recording]
+    assert len(captured_concat_segments) == 2
 
 
 def test_run_preprocess_save_rec_metadata_phase_writes_targeted_summary(tmp_path: Path, monkeypatch) -> None:
@@ -364,6 +423,190 @@ def test_run_preprocess_save_rec_metadata_phase_writes_targeted_summary(tmp_path
     assert Path(str(payload["summary_json"])).exists()
     assert payload["recording_info"]["sampling_frequency_hz"] == 10000.0
     assert payload["outputs"]["resolved_h5_path"].endswith("input.raw.h5")
+
+
+def test_run_preprocess_save_rec_metadata_phase_writes_configured_metadata_artifacts(tmp_path: Path, monkeypatch) -> None:
+    h5py = pytest.importorskip("h5py")
+    import numpy as np
+
+    from axon_recon.pipeline.stages.preprocess import runner as preprocess_runner
+
+    well_out_dir, _fake_log = _install_success_fakes(monkeypatch, tmp_path)
+
+    h5_path = tmp_path / "input.raw.h5"
+    with h5py.File(str(h5_path), "w") as h5:
+        wells = h5.create_group("wells")
+        well = wells.create_group("well001")
+
+        rec0 = well.create_group("rec0000")
+        rec0.create_dataset("start_time", data=np.asarray([1_700_000_000_000], dtype=np.int64))
+        rec0.create_dataset("stop_time", data=np.asarray([1_700_000_001_000], dtype=np.int64))
+        routed0 = rec0.create_group("groups").create_group("routed")
+        routed0.create_dataset("frame_nos", data=np.asarray([0, 1, 2, 10, 11], dtype=np.int64))
+
+        rec1 = well.create_group("rec0001")
+        rec1.create_dataset("start_time", data=np.asarray([1_700_000_010_000], dtype=np.int64))
+        rec1.create_dataset("stop_time", data=np.asarray([1_700_000_011_200], dtype=np.int64))
+        routed1 = rec1.create_group("groups").create_group("routed")
+        routed1.create_dataset("frame_nos", data=np.asarray([20, 21, 22, 23], dtype=np.int64))
+
+        data_store = h5.create_group("data_store")
+        data0 = data_store.create_group("data0000")
+        data0.create_dataset("well_id", data=np.asarray([1], dtype=np.int32))
+        settings0 = data0.create_group("settings")
+        settings0.create_dataset("sampling", data=np.asarray([10_000.0], dtype=np.float64))
+
+    monkeypatch.setattr(
+        preprocess_runner,
+        "_try_get_spikeinterface_recording_info",
+        lambda **kwargs: (
+            {
+                "sampling_frequency_hz": 10_000.0,
+                "num_channels": 4,
+                "num_segments": 2,
+            },
+            None,
+        ),
+    )
+    monkeypatch.setattr(
+        preprocess_runner,
+        "_try_get_spikeinterface_segment_infos",
+        lambda **kwargs: (
+            [
+                {
+                    "segment_index": 0,
+                    "rec_name": "rec0000",
+                    "sampling_frequency_hz": 10_000.0,
+                    "num_channels": 4,
+                    "num_samples": 5,
+                    "source": "spikeinterface",
+                },
+                {
+                    "segment_index": 1,
+                    "rec_name": "rec0001",
+                    "sampling_frequency_hz": 10_000.0,
+                    "num_channels": 4,
+                    "num_samples": 4,
+                    "source": "spikeinterface",
+                },
+            ],
+            [],
+        ),
+    )
+
+    inputs = PreprocessInputs(
+        h5_path=h5_path,
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        phases=PreprocessPhasesConfig(
+            save_rec_metadata=PreprocessSaveRecMetadataPhaseConfig(
+                enabled=True,
+                verbose=True,
+                summary_json_relpath="context/recording_metadata_summary.json",
+                segment_epochs_relpath="metadata/segment_epochs.json",
+                contiguous_epochs_relpath="metadata/continuous_epochs.json",
+                sampling_metadata_relpath="metadata/sampling_rate_metadata.json",
+            )
+        ),
+    )
+
+    payload = run_preprocess_save_rec_metadata_phase(inputs)
+
+    assert payload["phase"] == "save_rec_metadata"
+    assert payload["verbose"] is True
+    assert payload["segment_count"] == 2
+    assert payload["contiguous_epoch_count"] == 3
+    assert payload["outputs"]["segment_epochs_json"] == str(well_out_dir / "metadata" / "segment_epochs.json")
+    assert payload["outputs"]["contiguous_epochs_json"] == str(well_out_dir / "metadata" / "continuous_epochs.json")
+    assert payload["outputs"]["sampling_metadata_json"] == str(well_out_dir / "metadata" / "sampling_rate_metadata.json")
+    assert payload["outputs"]["assay_stats_txt"] == str(well_out_dir / "assay_stats_well001.txt")
+
+    segment_epochs_payload = _read_json(well_out_dir / "metadata" / "segment_epochs.json")
+    assert segment_epochs_payload["segment_count"] == 2
+    assert segment_epochs_payload["segments"][0]["rec_name"] == "rec0000"
+    assert segment_epochs_payload["segments"][0]["timestamp_unit"] == "ms_since_epoch"
+    assert segment_epochs_payload["segments"][0]["duration_wall_clock_s"] == pytest.approx(1.0)
+
+    contiguous_epochs_payload = _read_json(well_out_dir / "metadata" / "continuous_epochs.json")
+    assert contiguous_epochs_payload["contiguous_epoch_count"] == 3
+    assert contiguous_epochs_payload["epochs"][0]["rec_name"] == "rec0000"
+    assert contiguous_epochs_payload["epochs"][0]["n_samples"] == 3
+
+    sampling_payload = _read_json(well_out_dir / "metadata" / "sampling_rate_metadata.json")
+    assert sampling_payload["sampling_summary"]["stream_sampling_frequency_hz"] == pytest.approx(10_000.0)
+    assert sampling_payload["sampling_summary"]["all_segments_match"] is True
+    assert sampling_payload["segments"][1]["rec_name"] == "rec0001"
+    assert sampling_payload["segments"][1]["sampling_frequency_hz"] == pytest.approx(10_000.0)
+
+    assay_stats_text = (well_out_dir / "assay_stats_well001.txt").read_text(encoding="utf-8")
+    assert "assay_stats context" in assay_stats_text
+    assert str(h5_path) in assay_stats_text
+
+
+def test_run_preprocess_stage_build_uses_precreated_save_rec_metadata_assay_stats(tmp_path: Path, monkeypatch) -> None:
+    from axon_recon.pipeline.stages.preprocess import runner as preprocess_runner
+
+    well_out_dir, _fake_log = _install_success_fakes(monkeypatch, tmp_path)
+
+    captured_build_kwargs: dict = {}
+
+    def _fake_recording_metadata_payload(inputs):
+        assay_stats_path = well_out_dir / "assay_stats_well001.txt"
+        assay_stats_path.parent.mkdir(parents=True, exist_ok=True)
+        assay_stats_path.write_text("saved metadata\n", encoding="utf-8")
+        return {
+            "phase": "save_rec_metadata",
+            "source_h5_path": str(inputs.source_h5_path or inputs.h5_path),
+            "resolved_h5_path": str(inputs.h5_path),
+            "copied_to_scratch": bool(inputs.copied_to_scratch),
+            "segment_epochs_json": str(well_out_dir / "segment_epochs.json"),
+            "contiguous_epochs_json": str(well_out_dir / "continuous_epochs.json"),
+            "sampling_metadata_json": str(well_out_dir / "sampling_rate_metadata.json"),
+            "assay_stats_txt": str(assay_stats_path),
+        }
+
+    def _fake_run_build_preprocessed_recording_core(**kwargs):
+        captured_build_kwargs.update(kwargs)
+        assert Path(str(kwargs["saved_assay_stats_path"])).exists()
+        return (
+            object(),
+            [1, 2, 3],
+            {
+                "rec_names": ["seg000", "seg001"],
+                "segment_recordings_raw": [object(), object()],
+                "segment_recordings_raw_concat": [object(), object()],
+                "segment_recordings_preprocessed": [object(), object()],
+                "segment_recordings_preprocessed_concat": [object(), object()],
+                "segment_stats": [
+                    {"fs": 10_000.0, "n_samples": 100, "n_channels": 4},
+                    {"fs": 10_000.0, "n_samples": 120, "n_channels": 4},
+                ],
+                "phase_timing_s": {"build_total": 1.25},
+            },
+        )
+
+    monkeypatch.setattr(preprocess_runner, "_build_recording_metadata_phase_payload", _fake_recording_metadata_payload)
+    monkeypatch.setattr(
+        preprocess_runner,
+        "run_build_preprocessed_recording_core",
+        _fake_run_build_preprocessed_recording_core,
+    )
+
+    inputs = PreprocessInputs(
+        h5_path=tmp_path / "input.raw.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        phases=PreprocessPhasesConfig(
+            save_rec_metadata=PreprocessSaveRecMetadataPhaseConfig(
+                enabled=True,
+            )
+        ),
+    )
+
+    run_preprocess_stage(inputs)
+
+    assert captured_build_kwargs.get("saved_assay_stats_path") == well_out_dir / "assay_stats_well001.txt"
+    assert captured_build_kwargs.get("require_saved_assay_stats") is True
 
 
 def test_run_preprocess_wipe_src_scratch_phase_removes_scratch_input_files(tmp_path: Path, monkeypatch) -> None:
@@ -438,3 +681,19 @@ def test_run_preprocess_wipe_src_scratch_phase_dry_run_reports_paths_without_del
     assert str(scratch_cfg_path) in list(payload["would_remove_paths"])
     assert scratch_h5_path.exists()
     assert scratch_cfg_path.exists()
+
+
+def test_run_preprocess_stage_can_disable_subphase_dividers_to_stdout(tmp_path: Path, monkeypatch) -> None:
+    captured_build_kwargs: dict = {}
+    _install_success_fakes(monkeypatch, tmp_path, captured_build_kwargs=captured_build_kwargs)
+
+    inputs = PreprocessInputs(
+        h5_path=tmp_path / "input.raw.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        logging_subphase_dividers_to_stdout=False,
+    )
+
+    run_preprocess_stage(inputs)
+
+    assert captured_build_kwargs.get("emit_phase_dividers_to_stdout") is False

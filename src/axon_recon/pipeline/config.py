@@ -277,6 +277,37 @@ def _materialize_dataset_input_in_scratch(*, source_h5_path: Path, scratch_input
 	return target_h5
 
 
+def _resolve_existing_dataset_input_in_scratch(
+	*,
+	source_h5_path: Path,
+	scratch_input_root: Path,
+	dataset_id: str,
+) -> Path | None:
+	source_h5_path = source_h5_path.expanduser().resolve()
+	scratch_input_root = scratch_input_root.expanduser().resolve()
+	target_h5 = (scratch_input_root / _relative_input_tree_path(source_h5_path)).resolve()
+	if not target_h5.exists():
+		return None
+	try:
+		if not _copied_file_is_current(src_stat=source_h5_path.stat(), dst_stat=target_h5.stat()):
+			LOGGER.info(
+				"Scratch input exists but is stale; using source input dataset_id=%s source_h5=%s scratch_h5=%s",
+				dataset_id,
+				source_h5_path,
+				target_h5,
+			)
+			return None
+	except Exception:
+		pass
+	LOGGER.info(
+		"Using existing scratch input dataset_id=%s source_h5=%s scratch_h5=%s",
+		dataset_id,
+		source_h5_path,
+		target_h5,
+	)
+	return target_h5
+
+
 def load_pipeline_runtime_bundle(*, config_path: str) -> PipelineRuntimeBundle:
 	runtime_config_path = Path(config_path).expanduser().resolve()
 	runtime_cfg = RuntimeConfig.load(runtime_config_path)
@@ -302,7 +333,11 @@ def _dataset_id_for_item(item: dict[str, Any], *, index: int) -> str:
 	return f"dataset_{index:03d}"
 
 
-def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[ExecutionTarget]:
+def select_execution_targets(
+	*,
+	bundle: PipelineRuntimeBundle,
+	materialize_scratch_inputs: bool = False,
+) -> list[ExecutionTarget]:
 	datasets = bundle.data_config.get("datasets", [])
 	if not isinstance(datasets, list) or not datasets:
 		raise ValueError("Data config must define a non-empty datasets list")
@@ -380,8 +415,17 @@ def select_execution_targets(*, bundle: PipelineRuntimeBundle) -> list[Execution
 				scratch_input_root=dataset_scratch_input_root,
 				dataset_id=str(dataset_id),
 			)
-			if dataset_scratch_input_root is not None
-			else h5_path
+			if bool(materialize_scratch_inputs) and dataset_scratch_input_root is not None
+			else (
+				_resolve_existing_dataset_input_in_scratch(
+					source_h5_path=h5_path,
+					scratch_input_root=dataset_scratch_input_root,
+					dataset_id=str(dataset_id),
+				)
+				if dataset_scratch_input_root is not None
+				else None
+			)
+			or h5_path
 		)
 		active_root = dataset_scratch_output_root if dataset_scratch_output_root is not None else output_root
 		artifact_lookup_roots: list[Path] = []

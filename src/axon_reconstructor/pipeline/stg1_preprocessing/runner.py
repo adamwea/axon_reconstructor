@@ -42,10 +42,47 @@ def _emit_with_logger(message: str, *, logger: Optional[logging.Logger]) -> None
     print(f"[axon_reconstructor] {message}", flush=True)
 
 
-def _emit_phase_divider(*, title: str, logger: Optional[logging.Logger], enabled: bool) -> None:
+def _emit_logger_message(message: str, *, logger: Optional[logging.Logger], include_console: bool) -> None:
+    if logger is None:
+        return
+    try:
+        if not logger.isEnabledFor(logging.INFO):
+            return
+        record = logger.makeRecord(
+            logger.name,
+            logging.INFO,
+            __file__,
+            0,
+            message,
+            args=(),
+            exc_info=None,
+        )
+        for handler in list(logger.handlers):
+            if (not bool(include_console)) and isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+                continue
+            if record.levelno < int(getattr(handler, "level", logging.NOTSET) or logging.NOTSET):
+                continue
+            handler.handle(record)
+    except Exception:
+        try:
+            logger.info(message)
+        except Exception:
+            pass
+
+
+def _emit_phase_divider(
+    *,
+    title: str,
+    logger: Optional[logging.Logger],
+    enabled: bool,
+    emit_to_stdout: bool = True,
+) -> None:
     if not bool(enabled):
         return
-    _emit_with_logger(f"========== {title} ==========" , logger=logger)
+    message = f"========== {title} =========="
+    _emit_logger_message(message, logger=logger, include_console=False)
+    if bool(emit_to_stdout):
+        print(f"[axon_reconstructor] {message}", flush=True)
 
 
 def _maybe_quiet_neo_maxwell_auto_install(*, enabled: bool) -> None:
@@ -98,6 +135,8 @@ def build_concatenated_recording(
     temporal_resample_rate_hz: Optional[int] = None,
     temporal_resample_margin_ms: float = 100.0,
     temporal_resample_dtype: Optional[str] = None,
+    saved_assay_stats_path: Optional[Path] = None,
+    require_saved_assay_stats: bool = False,
     plot_output_dir: Optional[Path] = None,
     plot_layouts: bool = True,
     plot_concat_trace: bool = True,
@@ -116,6 +155,7 @@ def build_concatenated_recording(
     limit_segments_per_well: Optional[int] = None,
     logger: Optional[logging.Logger] = None,
     phase_dividers: bool = True,
+    emit_phase_dividers_to_stdout: bool = True,
     suppress_h5_plugin_messages: bool = False,
     return_artifacts: bool = False,
 ) -> tuple[object, list[int]] | tuple[object, list[int], dict[str, object]]:
@@ -210,40 +250,88 @@ def build_concatenated_recording(
 
     t0 = time.perf_counter()
     phase_timing_s: dict[str, float] = {}
-    _emit_phase_divider(title="Preprocess Start", logger=logger, enabled=bool(phase_dividers))
+    _emit_phase_divider(
+        title="Preprocess Start",
+        logger=logger,
+        enabled=bool(phase_dividers),
+        emit_to_stdout=bool(emit_phase_dividers_to_stdout),
+    )
     _emit_with_logger(f"preprocessing: h5={h5_path} stream={stream_id}", logger=logger)
 
     # Save assay + data_store timing stats to a text file while still echoing to terminal.
-    _emit_phase_divider(title="Assay Stats", logger=logger, enabled=bool(phase_dividers))
-    assay_t0 = time.perf_counter()
-    stats_base_dir = Path(plot_output_dir) if plot_output_dir is not None else h5_path.parent
-    stats_path = _resolve_output_path(
-        base_dir=stats_base_dir,
-        raw=str(assay_stats_relpath),
-        fallback=f"assay_stats_{stream_id}.txt",
+    _emit_phase_divider(
+        title="Assay Stats",
+        logger=logger,
+        enabled=bool(phase_dividers),
+        emit_to_stdout=bool(emit_phase_dividers_to_stdout),
     )
-    stats_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with _tee_stdout_to_file(stats_path) as p:
-            print(
-                f"[axon_reconstructor][DEBUG] assay_stats file: {p} "
-                f"(generated {dt.datetime.now(dt.timezone.utc).isoformat()})",
-                flush=True,
+    assay_t0 = time.perf_counter()
+    if saved_assay_stats_path is not None:
+        stats_path = Path(saved_assay_stats_path).expanduser().resolve()
+        if stats_path.exists():
+            _emit_with_logger(
+                f"assay stats: using save_rec_metadata artifact {stats_path}",
+                logger=logger,
             )
-            print(f"[axon_reconstructor][DEBUG] assay_stats context: h5={h5_path} stream={stream_id}", flush=True)
+        elif bool(require_saved_assay_stats):
+            _emit_with_logger(
+                f"assay stats: save_rec_metadata artifact missing at {stats_path}; skipping direct H5 metadata reads",
+                logger=logger,
+            )
+        else:
+            stats_base_dir = Path(plot_output_dir) if plot_output_dir is not None else h5_path.parent
+            stats_path = _resolve_output_path(
+                base_dir=stats_base_dir,
+                raw=str(assay_stats_relpath),
+                fallback=f"assay_stats_{stream_id}.txt",
+            )
+            stats_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                with _tee_stdout_to_file(stats_path) as p:
+                    print(
+                        f"[axon_reconstructor][DEBUG] assay_stats file: {p} "
+                        f"(generated {dt.datetime.now(dt.timezone.utc).isoformat()})",
+                        flush=True,
+                    )
+                    print(f"[axon_reconstructor][DEBUG] assay_stats context: h5={h5_path} stream={stream_id}", flush=True)
 
-            # Quick check for assay-level metadata embedded in the HDF5.
+                    _print_assay_settings(h5_path=h5_path)
+                    _print_data_store_start_stop_durations(h5_path=h5_path, target_stream_id=stream_id)
+            except Exception as e:
+                print(f"[axon_reconstructor][WARN] failed to write assay_stats file to {stats_path}: {e}", flush=True)
+                _print_assay_settings(h5_path=h5_path)
+                _print_data_store_start_stop_durations(h5_path=h5_path, target_stream_id=stream_id)
+    else:
+        stats_base_dir = Path(plot_output_dir) if plot_output_dir is not None else h5_path.parent
+        stats_path = _resolve_output_path(
+            base_dir=stats_base_dir,
+            raw=str(assay_stats_relpath),
+            fallback=f"assay_stats_{stream_id}.txt",
+        )
+        stats_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with _tee_stdout_to_file(stats_path) as p:
+                print(
+                    f"[axon_reconstructor][DEBUG] assay_stats file: {p} "
+                    f"(generated {dt.datetime.now(dt.timezone.utc).isoformat()})",
+                    flush=True,
+                )
+                print(f"[axon_reconstructor][DEBUG] assay_stats context: h5={h5_path} stream={stream_id}", flush=True)
+
+                _print_assay_settings(h5_path=h5_path)
+                _print_data_store_start_stop_durations(h5_path=h5_path, target_stream_id=stream_id)
+        except Exception as e:
+            print(f"[axon_reconstructor][WARN] failed to write assay_stats file to {stats_path}: {e}", flush=True)
             _print_assay_settings(h5_path=h5_path)
-
-            # Print start/stop/duration for each stream-config block in /data_store.
             _print_data_store_start_stop_durations(h5_path=h5_path, target_stream_id=stream_id)
-    except Exception as e:
-        print(f"[axon_reconstructor][WARN] failed to write assay_stats file to {stats_path}: {e}", flush=True)
-        _print_assay_settings(h5_path=h5_path)
-        _print_data_store_start_stop_durations(h5_path=h5_path, target_stream_id=stream_id)
     phase_timing_s["assay_stats"] = float(max(0.0, time.perf_counter() - assay_t0))
 
-    _emit_phase_divider(title="Recording Segment Discovery", logger=logger, enabled=bool(phase_dividers))
+    _emit_phase_divider(
+        title="Recording Segment Discovery",
+        logger=logger,
+        enabled=bool(phase_dividers),
+        emit_to_stdout=bool(emit_phase_dividers_to_stdout),
+    )
     discovery_t0 = time.perf_counter()
     with h5py.File(h5_path, "r") as h5:
         rec_names = list(h5["wells"][stream_id].keys())
@@ -317,7 +405,12 @@ def build_concatenated_recording(
     phase_timing_s["segment_discovery"] = float(max(0.0, time.perf_counter() - discovery_t0))
 
     plotting_layouts_t0 = time.perf_counter()
-    _emit_phase_divider(title="Plotting Setup", logger=logger, enabled=bool(phase_dividers))
+    _emit_phase_divider(
+        title="Plotting Setup",
+        logger=logger,
+        enabled=bool(phase_dividers),
+        emit_to_stdout=bool(emit_phase_dividers_to_stdout),
+    )
     if plot_output_dir is not None and bool(plot_layouts):
         plot_output_dir = Path(plot_output_dir)
         if is_single_segment:
@@ -365,8 +458,31 @@ def build_concatenated_recording(
 
     # Apply preprocessing parity before concatenation so both concat and saved segments
     # can be derived from identically preprocessed segment recordings.
-    _emit_phase_divider(title="Preprocess Segments", logger=logger, enabled=bool(phase_dividers))
+    _emit_phase_divider(
+        title="Preprocess Segments",
+        logger=logger,
+        enabled=bool(phase_dividers),
+        emit_to_stdout=bool(emit_phase_dividers_to_stdout),
+    )
     pre_t0 = time.perf_counter()
+
+    if is_single_segment:
+        raw_rec_list_concat = rec_list_full
+    else:
+        raw_rec_list_concat = [
+            seg_rec.select_channels([int(el) for el in common_el])
+            for seg_rec in rec_list_full
+        ]
+
+        for rn, seg_rec in zip(rec_names, raw_rec_list_concat, strict=False):
+            seg_ch = np.asarray(seg_rec.get_channel_ids(), dtype=int)
+            exp_ch = np.asarray(common_el, dtype=int)
+            if seg_ch.shape != exp_ch.shape or not np.array_equal(seg_ch, exp_ch):
+                raise RuntimeError(
+                    f"Raw common-channel selection mismatch for segment {rn}; "
+                    "refusing to concatenate potentially misaligned channels."
+                )
+
     preprocessed_rec_list_full = [apply_standard_preprocessing(recording=rec) for rec in rec_list_full]
 
     if is_single_segment:
@@ -394,7 +510,12 @@ def build_concatenated_recording(
     )
     phase_timing_s["preprocess_segments"] = float(max(0.0, time.perf_counter() - pre_t0))
 
-    _emit_phase_divider(title="Concatenate Segments", logger=logger, enabled=bool(phase_dividers))
+    _emit_phase_divider(
+        title="Concatenate Segments",
+        logger=logger,
+        enabled=bool(phase_dividers),
+        emit_to_stdout=bool(emit_phase_dividers_to_stdout),
+    )
     concat_t0 = time.perf_counter()
     if is_single_segment:
         multirecording = preprocessed_rec_list_concat[0]
@@ -433,7 +554,12 @@ def build_concatenated_recording(
     #  - per-segment *relative* times (0..~record_time) for plotting individual segments
     #  - concatenated *absolute-ish* times (aligned to the first segment) so inter-segment
     #    gaps appear when plotting the concatenated recording.
-    _emit_phase_divider(title="Epoch and Time-Vector Reconstruction", logger=logger, enabled=bool(phase_dividers))
+    _emit_phase_divider(
+        title="Epoch and Time-Vector Reconstruction",
+        logger=logger,
+        enabled=bool(phase_dividers),
+        emit_to_stdout=bool(emit_phase_dividers_to_stdout),
+    )
     epoch_reconstruction_t0 = time.perf_counter()
     concat_times = None
     maxwell_epochs: list[dict] = []
@@ -552,7 +678,12 @@ def build_concatenated_recording(
     # Optional: temporal resampling (e.g. 10x) to emulate higher sampling rate.
     temporal_resample_t0: Optional[float] = None
     if temporal_resample_rate_hz is not None or temporal_resample_factor is not None:
-        _emit_phase_divider(title="Temporal Resampling", logger=logger, enabled=bool(phase_dividers))
+        _emit_phase_divider(
+            title="Temporal Resampling",
+            logger=logger,
+            enabled=bool(phase_dividers),
+            emit_to_stdout=bool(emit_phase_dividers_to_stdout),
+        )
         temporal_resample_t0 = time.perf_counter()
         try:
             import numpy as np
@@ -655,7 +786,12 @@ def build_concatenated_recording(
     # Persist epoch marker JSON artifacts for later analysis.
     epoch_write_t0: Optional[float] = None
     if epoch_markers_output_dir is not None:
-        _emit_phase_divider(title="Write Epoch Marker Artifacts", logger=logger, enabled=bool(phase_dividers))
+        _emit_phase_divider(
+            title="Write Epoch Marker Artifacts",
+            logger=logger,
+            enabled=bool(phase_dividers),
+            emit_to_stdout=bool(emit_phase_dividers_to_stdout),
+        )
         epoch_write_t0 = time.perf_counter()
         out_dir = Path(epoch_markers_output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -712,7 +848,12 @@ def build_concatenated_recording(
 
     diagnostic_plot_t0: Optional[float] = None
     if plot_output_dir is not None and not is_single_segment and (bool(plot_concat_trace) or bool(plot_segment_traces)):
-        _emit_phase_divider(title="Plotting Diagnostics", logger=logger, enabled=bool(phase_dividers))
+        _emit_phase_divider(
+            title="Plotting Diagnostics",
+            logger=logger,
+            enabled=bool(phase_dividers),
+            emit_to_stdout=bool(emit_phase_dividers_to_stdout),
+        )
         diagnostic_plot_t0 = time.perf_counter()
         # Plot concatenation diagnostics: cluster reps over time + stitch markers.
         # We derive stitch frames from `concat_epochs` so they remain correct after
@@ -997,6 +1138,8 @@ def build_concatenated_recording(
     if bool(return_artifacts):
         artifacts: dict[str, object] = {
             "rec_names": [str(rn) for rn in rec_names],
+            "segment_recordings_raw": rec_list_full,
+            "segment_recordings_raw_concat": raw_rec_list_concat,
             "segment_recordings_preprocessed": preprocessed_rec_list_full,
             "segment_recordings_preprocessed_concat": preprocessed_rec_list_concat,
             "segment_stats": seg_stats,

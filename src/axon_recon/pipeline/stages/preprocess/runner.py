@@ -6,6 +6,7 @@ import getpass
 import io
 import json
 import logging
+import math
 import os
 import platform
 import shutil
@@ -21,8 +22,15 @@ from typing import Any
 from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_reconstructor.pipeline.pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
 from axon_reconstructor.pipeline.stg1_preprocessing.constants import PREPROCESS_OUTPUTS_DIRNAME
+from axon_reconstructor.pipeline.stg1_preprocessing.h5_helpers import (
+	_print_assay_settings,
+	_print_data_store_start_stop_durations,
+	_read_well_rec_frame_nos_and_trigger_settings,
+	_tee_stdout_to_file,
+)
 from axon_reconstructor.pipeline.stg1_preprocessing.planning import build_preprocess_plan
 
+from ...shared.sampling import read_maxwell_sampling_frequency_hz
 from .core import (
 	run_build_preprocessed_recording_core,
 	run_save_common_electrodes_core,
@@ -30,7 +38,7 @@ from .core import (
 	run_save_segment_recordings_core,
 )
 from .models.inputs import (
-	PreprocessConcatenatePreprocessedRecordingsPhaseConfig,
+	PreprocessConcatenateRecordingsPhaseConfig,
 	PreprocessInputs,
 	PreprocessPlotConfig,
 	PreprocessSegmentsPhaseConfig,
@@ -59,6 +67,14 @@ class _PreprocessPathSet:
 	stage_log_source: Path
 	plot_output_dir: Path | None
 	epoch_markers_output_dir: Path | None
+
+
+@dataclass(frozen=True)
+class _RecordingMetadataPathSet:
+	segment_epochs_path: Path
+	contiguous_epochs_path: Path
+	sampling_metadata_path: Path
+	assay_stats_path: Path
 
 
 def _utc_now_iso() -> str:
@@ -113,10 +129,34 @@ def _write_json(path: Path, payload: dict) -> None:
 	path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _as_positive_float_or_none(value: Any) -> float | None:
+	try:
+		out = float(value)
+	except Exception:
+		return None
+	if not math.isfinite(out) or out <= 0.0:
+		return None
+	return out
+
+
 def _resolve_path_from_root(*, root_dir: Path, raw: str | None, default: str) -> Path:
 	token = str(raw).strip() if raw is not None else ""
 	if not token:
 		token = str(default)
+	path = Path(token).expanduser()
+	if path.is_absolute():
+		return Path(os.path.abspath(str(path)))
+	return Path(os.path.abspath(str(root_dir / path)))
+
+
+def _resolve_stream_path_from_root(*, root_dir: Path, raw: str | None, default: str, stream_id: str) -> Path:
+	token = str(raw).strip() if raw is not None else ""
+	if not token:
+		token = str(default)
+	try:
+		token = token.format(stream_id=str(stream_id))
+	except Exception:
+		pass
 	path = Path(token).expanduser()
 	if path.is_absolute():
 		return Path(os.path.abspath(str(path)))
@@ -409,6 +449,14 @@ def _coalesce_config_value(*values: Any) -> Any:
 	return None
 
 
+def _is_concatenate_recordings_phase(selected_phase: str | None) -> bool:
+	return selected_phase in {
+		"concatenate_recordings",
+		"concatenate_preprocessed_recordings",
+		"save_concatenated_recording",
+	}
+
+
 def _apply_plot_input_fallback(
 	*,
 	phase_plot: PreprocessPlotConfig,
@@ -521,9 +569,9 @@ def _resolve_effective_plot_config(inputs: PreprocessInputs, *, selected_phase: 
 		default_plot=PreprocessSegmentsPhaseConfig().plot,
 	)
 	concat_plot = _apply_plot_input_fallback(
-		phase_plot=inputs.phases.concatenate_preprocessed_recordings.plot,
+		phase_plot=inputs.phases.concatenate_recordings.plot,
 		input_plot=input_plot,
-		default_plot=PreprocessConcatenatePreprocessedRecordingsPhaseConfig().plot,
+		default_plot=PreprocessConcatenateRecordingsPhaseConfig().plot,
 	)
 	primary = segment_plot
 	secondary = concat_plot
@@ -537,7 +585,7 @@ def _resolve_effective_plot_config(inputs: PreprocessInputs, *, selected_phase: 
 		layouts = bool(segment_plot.layouts)
 		segment_traces = bool(segment_plot.segment_traces)
 		concat_trace = bool(segment_plot.concat_trace)
-	elif selected_phase in {"concatenate_preprocessed_recordings", "save_concatenated_recording"}:
+	elif _is_concatenate_recordings_phase(selected_phase):
 		primary = concat_plot
 		secondary = segment_plot
 		layouts = bool(concat_plot.layouts)
@@ -555,9 +603,9 @@ def _resolve_effective_plot_config(inputs: PreprocessInputs, *, selected_phase: 
 		layouts = bool(inputs.phases.preprocess_segments.enabled and segment_plot.layouts)
 		segment_traces = bool(inputs.phases.preprocess_segments.enabled and segment_plot.segment_traces)
 		concat_trace = bool(
-			(inputs.phases.concatenate_preprocessed_recordings.enabled and concat_plot.concat_trace)
+			(inputs.phases.concatenate_recordings.enabled and concat_plot.concat_trace)
 			or (
-				not inputs.phases.concatenate_preprocessed_recordings.enabled
+				not inputs.phases.concatenate_recordings.enabled
 				and inputs.phases.preprocess_segments.enabled
 				and segment_plot.concat_trace
 			)
@@ -683,7 +731,7 @@ def _resolve_preprocess_paths(inputs: PreprocessInputs, *, plot_cfg: PreprocessP
 		legacy_out_dir=preprocess_out_dir,
 		recording_dir=_resolve_phase_output_dir(
 			preprocess_out_dir=preprocess_out_dir,
-			raw=inputs.phases.concatenate_preprocessed_recordings.rel_output_root,
+			raw=inputs.phases.concatenate_recordings.rel_output_root,
 			default="preprocessed_recording",
 		),
 		common_electrodes_path=preprocess_out_dir / "common_electrodes.npy",
@@ -747,7 +795,7 @@ def _resolve_save_workers(inputs: PreprocessInputs) -> tuple[int, int]:
 		return max(1, int(parsed))
 
 	return (
-		_resolve_jobs(inputs.phases.concatenate_preprocessed_recordings.outputs.concat_save_n_jobs, fallback=int(inputs.n_jobs)),
+		_resolve_jobs(inputs.phases.concatenate_recordings.outputs.concat_save_n_jobs, fallback=int(inputs.n_jobs)),
 		_resolve_jobs(inputs.phases.preprocess_segments.outputs.segment_save_n_jobs, fallback=int(inputs.n_jobs)),
 	)
 
@@ -799,12 +847,12 @@ def _resolve_phase_execution_flags(
 			"save_segment_recordings": False,
 			"save_common_electrodes": False,
 		}
-	if selected_phase == "concatenate_preprocessed_recordings":
+	if _is_concatenate_recordings_phase(selected_phase):
 		return {
 			"build_required": True,
 			"save_concatenated_recording": True,
 			"save_segment_recordings": False,
-			"save_common_electrodes": bool(inputs.phases.concatenate_preprocessed_recordings.save_common_electrodes.enabled),
+			"save_common_electrodes": bool(inputs.phases.concatenate_recordings.save_common_electrodes.enabled),
 		}
 	if selected_phase == "save_segment_recordings":
 		return {
@@ -820,9 +868,9 @@ def _resolve_phase_execution_flags(
 			"save_segment_recordings": False,
 			"save_common_electrodes": True,
 		}
-	save_concat_enabled = bool(inputs.phases.concatenate_preprocessed_recordings.enabled) and bool(inputs.save_concat_recording)
+	save_concat_enabled = bool(inputs.phases.concatenate_recordings.enabled) and bool(inputs.save_concat_recording)
 	save_segment_enabled = bool(inputs.phases.preprocess_segments.enabled) and bool(inputs.save_segment_recordings)
-	save_common_enabled = bool(inputs.phases.concatenate_preprocessed_recordings.save_common_electrodes.enabled) and bool(
+	save_common_enabled = bool(inputs.phases.concatenate_recordings.save_common_electrodes.enabled) and bool(
 		inputs.save_recording or save_concat_enabled or save_segment_enabled
 	)
 	build_required = bool(save_concat_enabled or save_segment_enabled or save_common_enabled)
@@ -832,6 +880,40 @@ def _resolve_phase_execution_flags(
 		"save_segment_recordings": bool(save_segment_enabled),
 		"save_common_electrodes": bool(save_common_enabled),
 	}
+
+
+def _concatenate_segment_recordings(segment_recordings: list[Any]) -> Any:
+	if not segment_recordings:
+		raise RuntimeError("No segment recordings available for concatenation")
+	if len(segment_recordings) == 1:
+		return segment_recordings[0]
+	try:
+		import spikeinterface.full as si  # type: ignore[import-not-found]
+	except Exception as exc:
+		raise RuntimeError(f"SpikeInterface import failed while concatenating segment recordings: {exc}") from exc
+	return si.concatenate_recordings(segment_recordings)
+
+
+def _resolve_concatenated_recording_for_save(
+	*,
+	built_recording: Any,
+	build_artifacts: dict[str, Any],
+	inputs: PreprocessInputs,
+) -> tuple[Any, str, int]:
+	if bool(inputs.phases.concatenate_recordings.concatenate_preprocessed_recordings):
+		segment_recordings = list(build_artifacts.get("segment_recordings_preprocessed_concat", []) or [])
+		if not segment_recordings:
+			segment_recordings = list(build_artifacts.get("segment_recordings_preprocessed", []) or [])
+		return built_recording, "preprocessed", int(len(segment_recordings))
+
+	raw_segment_recordings = list(build_artifacts.get("segment_recordings_raw_concat", []) or [])
+	if not raw_segment_recordings:
+		raw_segment_recordings = list(build_artifacts.get("segment_recordings_raw", []) or [])
+	if not raw_segment_recordings:
+		raise RuntimeError(
+			"concatenate_recordings configured concatenate_preprocessed_recordings=false, but no raw segment recordings were available"
+		)
+	return _concatenate_segment_recordings(raw_segment_recordings), "raw", int(len(raw_segment_recordings))
 
 
 def _copy_phase_requested(inputs: PreprocessInputs, *, selected_phase: str | None) -> bool:
@@ -1034,6 +1116,32 @@ def _parse_recording_context_from_path(path: Path) -> dict[str, str]:
 	return out
 
 
+def _resolve_recording_metadata_paths(*, inputs: PreprocessInputs, well_out_dir: Path) -> _RecordingMetadataPathSet:
+	return _RecordingMetadataPathSet(
+		segment_epochs_path=_resolve_path_from_root(
+			root_dir=well_out_dir,
+			raw=inputs.phases.save_rec_metadata.segment_epochs_relpath,
+			default="segment_epochs.json",
+		),
+		contiguous_epochs_path=_resolve_path_from_root(
+			root_dir=well_out_dir,
+			raw=inputs.phases.save_rec_metadata.contiguous_epochs_relpath,
+			default="continuous_epochs.json",
+		),
+		sampling_metadata_path=_resolve_path_from_root(
+			root_dir=well_out_dir,
+			raw=inputs.phases.save_rec_metadata.sampling_metadata_relpath,
+			default="sampling_rate_metadata.json",
+		),
+		assay_stats_path=_resolve_stream_path_from_root(
+			root_dir=well_out_dir,
+			raw=inputs.assay_stats_relpath,
+			default="assay_stats_{stream_id}.txt",
+			stream_id=str(inputs.stream_id),
+		),
+	)
+
+
 def _try_get_spikeinterface_recording_info(
 	*,
 	h5_path: Path,
@@ -1100,27 +1208,420 @@ def _try_get_spikeinterface_recording_info(
 	return info, None
 
 
+def _list_maxwell_recording_names(*, h5_path: Path, stream_id: str) -> tuple[list[str], str | None]:
+	try:
+		import h5py
+	except Exception as exc:
+		return [], f"h5py import failed: {exc}"
+
+	try:
+		with h5py.File(str(Path(h5_path).expanduser().resolve()), "r") as h5:
+			if "wells" not in h5:
+				return [], "Missing /wells group in Maxwell H5"
+			wells = h5["wells"]
+			if str(stream_id) not in wells:
+				return [], f"Stream '{stream_id}' not found under /wells"
+			return [str(name) for name in list(wells[str(stream_id)].keys())], None
+	except Exception as exc:
+		return [], f"Failed reading stream segments from Maxwell H5: {exc}"
+
+
+def _try_get_spikeinterface_segment_infos(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	rec_names: list[str],
+	suppress_h5_plugin_messages: bool,
+) -> tuple[list[dict[str, Any]], list[str]]:
+	try:
+		import spikeinterface.extractors as se  # type: ignore[import-not-found]
+	except Exception as exc:
+		return [], [f"SpikeInterface import failed while reading per-segment metadata: {exc}"]
+
+	segment_infos: list[dict[str, Any]] = []
+	warnings: list[str] = []
+	for segment_index, rec_name in enumerate(rec_names):
+		try:
+			with contextlib.ExitStack() as stack:
+				if bool(suppress_h5_plugin_messages):
+					suppressed_stream = io.StringIO()
+					stack.enter_context(contextlib.redirect_stdout(suppressed_stream))
+					stack.enter_context(contextlib.redirect_stderr(suppressed_stream))
+				try:
+					recording = se.read_maxwell(h5_path, stream_id=stream_id, rec_name=rec_name)
+				except TypeError:
+					recording = se.read_maxwell(file_path=str(h5_path), stream_id=stream_id, rec_name=rec_name)
+		except Exception as exc:
+			warnings.append(f"SpikeInterface read_maxwell failed for segment '{rec_name}': {exc}")
+			continue
+
+		entry: dict[str, Any] = {
+			"segment_index": int(segment_index),
+			"rec_name": str(rec_name),
+			"source": "spikeinterface",
+		}
+		try:
+			entry["sampling_frequency_hz"] = float(recording.get_sampling_frequency())
+		except Exception:
+			pass
+		try:
+			entry["num_channels"] = int(recording.get_num_channels())
+		except Exception:
+			pass
+		try:
+			get_num_samples = getattr(recording, "get_num_samples", None)
+			if callable(get_num_samples):
+				entry["num_samples"] = int(get_num_samples())
+			else:
+				entry["num_samples"] = int(recording.get_num_frames())
+		except Exception:
+			pass
+		fs_hz = _as_positive_float_or_none(entry.get("sampling_frequency_hz", None))
+		if fs_hz is not None and entry.get("num_samples", None) is not None:
+			try:
+				entry["duration_samples_s"] = float(int(entry["num_samples"]) / float(fs_hz))
+			except Exception:
+				pass
+		segment_infos.append(entry)
+	return segment_infos, warnings
+
+
+def _infer_epoch_divisor_to_seconds(values: list[int]) -> tuple[float, str]:
+	if not values:
+		return 1.0, "s"
+	vmax = max(int(v) for v in values)
+	if vmax >= 10**18:
+		return 1e9, "ns"
+	if vmax >= 10**15:
+		return 1e6, "us"
+	if vmax >= 10**12:
+		return 1e3, "ms"
+	return 1.0, "s"
+
+
+def _format_epoch_iso_utc(value: Any, *, divisor: float) -> str | None:
+	try:
+		if value is None:
+			return None
+		return dt.datetime.fromtimestamp(float(value) / float(divisor), tz=dt.timezone.utc).isoformat()
+	except Exception:
+		return None
+
+
 def _build_recording_metadata_phase_payload(inputs: PreprocessInputs) -> dict[str, Any]:
 	source_h5_path = Path(inputs.source_h5_path or inputs.h5_path)
 	resolved_h5_path = Path(inputs.h5_path)
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=inputs.mea_output_root,
+		data_file=inputs.h5_path,
+		well=inputs.stream_id,
+	)
+	metadata_paths = _resolve_recording_metadata_paths(inputs=inputs, well_out_dir=well_out_dir)
+	segment_epochs_path = metadata_paths.segment_epochs_path
+	contiguous_epochs_path = metadata_paths.contiguous_epochs_path
+	sampling_metadata_path = metadata_paths.sampling_metadata_path
+	assay_stats_path = metadata_paths.assay_stats_path
 	recording_info, recording_info_error = _try_get_spikeinterface_recording_info(
 		h5_path=resolved_h5_path,
 		stream_id=str(inputs.stream_id),
 		suppress_h5_plugin_messages=bool(inputs.logging_suppress_h5_plugin_messages),
 	)
+	rec_names, rec_names_error = _list_maxwell_recording_names(
+		h5_path=resolved_h5_path,
+		stream_id=str(inputs.stream_id),
+	)
+	segment_info_entries, segment_info_warnings = _try_get_spikeinterface_segment_infos(
+		h5_path=resolved_h5_path,
+		stream_id=str(inputs.stream_id),
+		rec_names=list(rec_names),
+		suppress_h5_plugin_messages=bool(inputs.logging_suppress_h5_plugin_messages),
+	)
+	segment_info_by_name = {
+		str(item.get("rec_name")): dict(item)
+		for item in segment_info_entries
+		if str(item.get("rec_name", "")).strip()
+	}
+	stream_sampling_hz = read_maxwell_sampling_frequency_hz(
+		h5_path=resolved_h5_path,
+		stream_id=str(inputs.stream_id),
+	)
+	metadata_warnings: list[str] = []
+	if rec_names_error is not None:
+		metadata_warnings.append(str(rec_names_error))
+	metadata_warnings.extend(str(item) for item in segment_info_warnings if str(item).strip())
+
+	segment_epochs: list[dict[str, Any]] = []
+	contiguous_epochs: list[dict[str, Any]] = []
+	raw_epoch_values: list[int] = []
+	segment_start_seconds_by_name: dict[str, float] = {}
+	try:
+		import numpy as np
+	except Exception as exc:
+		metadata_warnings.append(f"numpy import failed while reading recording metadata: {exc}")
+		np = None  # type: ignore[assignment]
+
+	if np is not None:
+		for segment_index, rec_name in enumerate(rec_names):
+			segment_si_info = dict(segment_info_by_name.get(str(rec_name), {}))
+			sampling_hz = _as_positive_float_or_none(segment_si_info.get("sampling_frequency_hz", None))
+			if sampling_hz is None:
+				sampling_hz = _as_positive_float_or_none(stream_sampling_hz)
+			try:
+				segment_info = _read_well_rec_frame_nos_and_trigger_settings(
+					h5_path=resolved_h5_path,
+					stream_id=str(inputs.stream_id),
+					rec_name=str(rec_name),
+				)
+			except Exception as exc:
+				metadata_warnings.append(f"Failed reading frame/timing metadata for segment '{rec_name}': {exc}")
+				continue
+
+			start_raw = int(segment_info["start_ms"])
+			stop_raw = int(segment_info["stop_ms"])
+			raw_epoch_values.extend([int(start_raw), int(stop_raw)])
+			frame_nos = np.asarray(segment_info.get("frame_nos", []), dtype=np.int64)
+			frame_count = int(frame_nos.size)
+			segment_payload: dict[str, Any] = {
+				"segment_index": int(segment_index),
+				"rec_name": str(rec_name),
+				"start_timestamp_raw": int(start_raw),
+				"stop_timestamp_raw": int(stop_raw),
+				"n_samples": int(frame_count),
+			}
+			if frame_count > 0:
+				segment_payload["frame_no_start"] = int(frame_nos[0])
+				segment_payload["frame_no_end"] = int(frame_nos[-1])
+			if sampling_hz is not None:
+				segment_payload["sampling_frequency_hz"] = float(sampling_hz)
+				segment_payload["duration_samples_s"] = float(frame_count / float(sampling_hz))
+				if frame_count > 0:
+					segment_payload["frame_span_s"] = float((int(frame_nos[-1]) - int(frame_nos[0])) / float(sampling_hz))
+			for key in ("triggered", "trigger_pre", "trigger_post", "trigger_minamp", "trigger_maxamp"):
+				value = segment_info.get(key, None)
+				if value is not None:
+					segment_payload[str(key)] = value
+			if segment_si_info.get("num_channels", None) is not None:
+				segment_payload["num_channels"] = int(segment_si_info["num_channels"])
+			segment_epochs.append(segment_payload)
+
+			if frame_count <= 0:
+				continue
+
+			diffs = np.diff(frame_nos)
+			split_points = np.flatnonzero(diffs != 1) + 1
+			run_starts = np.concatenate(([0], split_points))
+			run_ends = np.concatenate((split_points, [frame_count]))
+			frame0 = int(frame_nos[0])
+			for epoch_index, (run_start, run_end) in enumerate(zip(run_starts, run_ends, strict=False)):
+				run_start_i = int(run_start)
+				run_end_i = int(run_end)
+				if run_end_i <= run_start_i:
+					continue
+				epoch_payload: dict[str, Any] = {
+					"segment_index": int(segment_index),
+					"rec_name": str(rec_name),
+					"epoch_index": int(epoch_index),
+					"segment_start_sample": int(run_start_i),
+					"segment_end_sample": int(run_end_i),
+					"n_samples": int(run_end_i - run_start_i),
+					"frame_no_start": int(frame_nos[run_start_i]),
+					"frame_no_end": int(frame_nos[run_end_i - 1]),
+				}
+				if sampling_hz is not None:
+					segment_relative_start_s = float((int(frame_nos[run_start_i]) - frame0) / float(sampling_hz))
+					segment_relative_end_s = float(((int(frame_nos[run_end_i - 1]) - frame0) + 1) / float(sampling_hz))
+					epoch_payload["segment_relative_start_s"] = segment_relative_start_s
+					epoch_payload["segment_relative_end_s"] = segment_relative_end_s
+					epoch_payload["duration_s"] = float(max(0.0, segment_relative_end_s - segment_relative_start_s))
+				contiguous_epochs.append(epoch_payload)
+
+	divisor_to_seconds, epoch_unit = _infer_epoch_divisor_to_seconds(raw_epoch_values)
+	timestamp_unit = f"{epoch_unit}_since_epoch"
+	segment_epoch_by_name = {str(item.get("rec_name")): item for item in segment_epochs}
+	for segment_payload in segment_epochs:
+		segment_payload["timestamp_unit"] = timestamp_unit
+		start_raw = segment_payload.get("start_timestamp_raw", None)
+		stop_raw = segment_payload.get("stop_timestamp_raw", None)
+		if start_raw is not None:
+			start_s = float(start_raw) / float(divisor_to_seconds)
+			segment_payload["start_time_seconds_since_epoch"] = start_s
+			segment_payload["start_time_utc"] = _format_epoch_iso_utc(start_raw, divisor=float(divisor_to_seconds))
+			segment_start_seconds_by_name[str(segment_payload.get("rec_name", ""))] = start_s
+		if stop_raw is not None:
+			stop_s = float(stop_raw) / float(divisor_to_seconds)
+			segment_payload["stop_time_seconds_since_epoch"] = stop_s
+			segment_payload["stop_time_utc"] = _format_epoch_iso_utc(stop_raw, divisor=float(divisor_to_seconds))
+		if start_raw is not None and stop_raw is not None:
+			segment_payload["duration_wall_clock_s"] = float((float(stop_raw) - float(start_raw)) / float(divisor_to_seconds))
+
+	for epoch_payload in contiguous_epochs:
+		epoch_payload["timestamp_unit"] = timestamp_unit
+		segment_name = str(epoch_payload.get("rec_name", ""))
+		segment_start_s = segment_start_seconds_by_name.get(segment_name, None)
+		segment_relative_start_s = epoch_payload.get("segment_relative_start_s", None)
+		segment_relative_end_s = epoch_payload.get("segment_relative_end_s", None)
+		if segment_start_s is not None and segment_relative_start_s is not None:
+			epoch_start_s = float(segment_start_s + float(segment_relative_start_s))
+			epoch_payload["start_time_seconds_since_epoch"] = epoch_start_s
+			epoch_payload["start_time_utc"] = _format_epoch_iso_utc(
+				epoch_start_s * float(divisor_to_seconds),
+				divisor=float(divisor_to_seconds),
+			)
+		if segment_start_s is not None and segment_relative_end_s is not None:
+			epoch_end_s = float(segment_start_s + float(segment_relative_end_s))
+			epoch_payload["end_time_seconds_since_epoch"] = epoch_end_s
+			epoch_payload["end_time_utc"] = _format_epoch_iso_utc(
+				epoch_end_s * float(divisor_to_seconds),
+				divisor=float(divisor_to_seconds),
+			)
+
+	sampling_segments: list[dict[str, Any]] = []
+	distinct_sampling_rates_hz: list[float] = []
+	for segment_index, rec_name in enumerate(rec_names):
+		segment_si_info = dict(segment_info_by_name.get(str(rec_name), {}))
+		sampling_hz = _as_positive_float_or_none(segment_si_info.get("sampling_frequency_hz", None))
+		sampling_source = str(segment_si_info.get("source", "spikeinterface")) if sampling_hz is not None else None
+		if sampling_hz is None:
+			sampling_hz = _as_positive_float_or_none(stream_sampling_hz)
+			if sampling_hz is not None:
+				sampling_source = "data_store_or_attrs"
+		segment_payload = {
+			"segment_index": int(segment_index),
+			"rec_name": str(rec_name),
+			"sampling_frequency_hz": (None if sampling_hz is None else float(sampling_hz)),
+			"source": sampling_source,
+		}
+		segment_epoch_payload = segment_epoch_by_name.get(str(rec_name), None)
+		if segment_epoch_payload is not None:
+			for key in (
+				"n_samples",
+				"frame_no_start",
+				"frame_no_end",
+				"duration_samples_s",
+				"duration_wall_clock_s",
+			):
+				if key in segment_epoch_payload:
+					segment_payload[str(key)] = segment_epoch_payload[key]
+		if segment_si_info.get("num_channels", None) is not None:
+			segment_payload["num_channels"] = int(segment_si_info["num_channels"])
+		if sampling_hz is not None:
+			distinct_sampling_rates_hz.append(float(sampling_hz))
+		sampling_segments.append(segment_payload)
+
+	distinct_sampling_rates_hz = sorted({round(float(value), 9) for value in distinct_sampling_rates_hz})
+	sampling_summary = {
+		"stream_sampling_frequency_hz": (
+			None if _as_positive_float_or_none(stream_sampling_hz) is None else float(stream_sampling_hz)
+		),
+		"recording_info_sampling_frequency_hz": (
+			None
+			if _as_positive_float_or_none(recording_info.get("sampling_frequency_hz", None)) is None
+			else float(recording_info["sampling_frequency_hz"])
+		),
+		"distinct_sampling_frequency_hz": [float(value) for value in distinct_sampling_rates_hz],
+		"all_segments_match": bool(len(distinct_sampling_rates_hz) <= 1),
+	}
+
+	segment_epochs_payload = {
+		"h5_path": str(resolved_h5_path),
+		"source_h5_path": str(source_h5_path),
+		"stream_id": str(inputs.stream_id),
+		"timestamp_unit": timestamp_unit,
+		"segment_count": int(len(segment_epochs)),
+		"segments": segment_epochs,
+	}
+	if metadata_warnings:
+		segment_epochs_payload["warnings"] = list(metadata_warnings)
+
+	contiguous_epochs_payload = {
+		"h5_path": str(resolved_h5_path),
+		"source_h5_path": str(source_h5_path),
+		"stream_id": str(inputs.stream_id),
+		"timestamp_unit": timestamp_unit,
+		"segment_count": int(len(segment_epochs)),
+		"contiguous_epoch_count": int(len(contiguous_epochs)),
+		"epochs": contiguous_epochs,
+	}
+	if metadata_warnings:
+		contiguous_epochs_payload["warnings"] = list(metadata_warnings)
+
+	sampling_metadata_payload = {
+		"h5_path": str(resolved_h5_path),
+		"source_h5_path": str(source_h5_path),
+		"stream_id": str(inputs.stream_id),
+		"segment_count": int(len(sampling_segments)),
+		"sampling_summary": sampling_summary,
+		"segments": sampling_segments,
+	}
+	if metadata_warnings:
+		sampling_metadata_payload["warnings"] = list(metadata_warnings)
+
+	_write_json(segment_epochs_path, _json_ready(segment_epochs_payload))
+	_write_json(contiguous_epochs_path, _json_ready(contiguous_epochs_payload))
+	_write_json(sampling_metadata_path, _json_ready(sampling_metadata_payload))
+	try:
+		with _tee_stdout_to_file(assay_stats_path) as written_path:
+			print(
+				f"[axon_reconstructor][DEBUG] assay_stats file: {written_path} "
+				f"(generated {dt.datetime.now(dt.timezone.utc).isoformat()})",
+				flush=True,
+			)
+			print(
+				f"[axon_reconstructor][DEBUG] assay_stats context: h5={resolved_h5_path} stream={inputs.stream_id}",
+				flush=True,
+			)
+			_print_assay_settings(h5_path=resolved_h5_path)
+			_print_data_store_start_stop_durations(
+				h5_path=resolved_h5_path,
+				target_stream_id=str(inputs.stream_id),
+			)
+	except Exception as exc:
+		metadata_warnings.append(f"Failed writing assay stats artifact '{assay_stats_path}': {exc}")
 	payload: dict[str, Any] = {
+		"phase": "save_rec_metadata",
 		"source_h5_path": str(source_h5_path),
 		"resolved_h5_path": str(resolved_h5_path),
 		"copied_to_scratch": bool(inputs.copied_to_scratch),
+		"verbose": bool(inputs.phases.save_rec_metadata.verbose),
 		"source_path_context": _parse_recording_context_from_path(source_h5_path),
-		"source_file": _collect_path_details(source_h5_path),
+		"source_file": (
+			_collect_path_details(source_h5_path)
+			if _paths_equal_no_resolve(left=source_h5_path, right=resolved_h5_path)
+			else {
+				"path": str(source_h5_path),
+				"metadata_source": "path_only_prefer_resolved_h5_path",
+			}
+		),
 		"recording_info": recording_info,
+		"segment_count": int(len(segment_epochs)),
+		"contiguous_epoch_count": int(len(contiguous_epochs)),
+		"segment_epochs_json": str(segment_epochs_path),
+		"contiguous_epochs_json": str(contiguous_epochs_path),
+		"sampling_metadata_json": str(sampling_metadata_path),
+		"assay_stats_txt": str(assay_stats_path),
+		"sampling_summary": sampling_summary,
 	}
+	payload["resolved_file"] = _collect_path_details(resolved_h5_path)
 	if not _paths_equal_no_resolve(left=source_h5_path, right=resolved_h5_path):
 		payload["resolved_path_context"] = _parse_recording_context_from_path(resolved_h5_path)
-		payload["resolved_file"] = _collect_path_details(resolved_h5_path)
 	if recording_info_error is not None:
 		payload["recording_info_error"] = str(recording_info_error)
+	if metadata_warnings:
+		payload["metadata_warnings"] = list(metadata_warnings)
+	if bool(inputs.phases.save_rec_metadata.verbose):
+		payload["segment_epochs_preview"] = list(segment_epochs[: min(len(segment_epochs), 10)])
+		payload["contiguous_epochs_preview"] = list(contiguous_epochs[: min(len(contiguous_epochs), 20)])
+		payload["sampling_segments"] = list(sampling_segments)
+		LOGGER.info(
+			"Saved recording metadata stream_id=%s segment_count=%d contiguous_epoch_count=%d segment_epochs=%s contiguous_epochs=%s sampling_metadata=%s assay_stats=%s",
+			str(inputs.stream_id),
+			int(len(segment_epochs)),
+			int(len(contiguous_epochs)),
+			segment_epochs_path,
+			contiguous_epochs_path,
+			sampling_metadata_path,
+			assay_stats_path,
+		)
 	return payload
 
 
@@ -1171,11 +1672,17 @@ def _write_preprocess_config_json(
 			"overwrite_saved_recording": bool(inputs.overwrite_saved_recording),
 			"save_concat_recording": bool(effective_save_concat_recording),
 			"save_segment_recordings": bool(effective_save_segment_recordings),
-			"concatenate_preprocessed_recordings": {
-				"save_chunk_duration": str(inputs.phases.concatenate_preprocessed_recordings.outputs.save_chunk_duration),
-				"save_progress_bar": bool(inputs.phases.concatenate_preprocessed_recordings.outputs.save_progress_bar),
+			"concatenate_recordings": {
+				"concatenate_preprocessed_recordings": bool(inputs.phases.concatenate_recordings.concatenate_preprocessed_recordings),
+				"segment_source": (
+					"preprocessed"
+					if bool(inputs.phases.concatenate_recordings.concatenate_preprocessed_recordings)
+					else "raw"
+				),
+				"save_chunk_duration": str(inputs.phases.concatenate_recordings.outputs.save_chunk_duration),
+				"save_progress_bar": bool(inputs.phases.concatenate_recordings.outputs.save_progress_bar),
 				"concat_save_n_jobs": int(concat_jobs),
-				"print_n_jobs_used": bool(inputs.phases.concatenate_preprocessed_recordings.outputs.print_n_jobs_used),
+				"print_n_jobs_used": bool(inputs.phases.concatenate_recordings.outputs.print_n_jobs_used),
 			},
 			"preprocess_segments": {
 				"save_chunk_duration": str(inputs.phases.preprocess_segments.outputs.save_chunk_duration),
@@ -1219,12 +1726,14 @@ def _execute_preprocess_phase_work(
 	inputs: PreprocessInputs,
 	paths: _PreprocessPathSet,
 	selected_phase: str | None,
+	saved_assay_stats_path: Path | None,
 ) -> tuple[dict[str, bool], dict[str, str], dict[str, Any], list[int], dict[str, float], dict[str, Any]]:
 	_validate_copy_phase_requirements(inputs, selected_phase=selected_phase)
 	_validate_wipe_phase_requirements(inputs, selected_phase=selected_phase)
 	phase_flags = _resolve_phase_execution_flags(inputs, selected_phase=selected_phase)
 	outputs: dict[str, str] = {
 		"legacy.preprocess_out_dir": str(paths.legacy_out_dir),
+		"concatenated_recording_dir": str(paths.recording_dir),
 		"preprocessed_recording_dir": str(paths.recording_dir),
 		"common_electrodes_path": str(paths.common_electrodes_path),
 		"per_segment_manifest_json": str(paths.per_segment_manifest_path),
@@ -1277,7 +1786,10 @@ def _execute_preprocess_phase_work(
 		temporal_resample_rate_hz=inputs.temporal_resample_rate_hz,
 		temporal_resample_margin_ms=float(inputs.temporal_resample_margin_ms),
 		temporal_resample_dtype=inputs.temporal_resample_dtype,
+		saved_assay_stats_path=saved_assay_stats_path,
+		require_saved_assay_stats=True,
 		phase_dividers=bool(inputs.logging_phase_dividers),
+		emit_phase_dividers_to_stdout=bool(inputs.logging_subphase_dividers_to_stdout),
 		suppress_h5_plugin_messages=bool(inputs.logging_suppress_h5_plugin_messages),
 		logger=phase_logger,
 	)
@@ -1306,14 +1818,28 @@ def _execute_preprocess_phase_work(
 		build_plot_cfg=build_plot_cfg,
 	)
 	if bool(phase_flags["save_concatenated_recording"]):
+		concat_recording, concat_segment_source, concat_segment_count = _resolve_concatenated_recording_for_save(
+			built_recording=multirecording,
+			build_artifacts=build_artifacts,
+			inputs=inputs,
+		)
 		phase_results["save_concatenated_recording"] = run_save_concatenated_recording_core(
-			multirecording=multirecording,
+			multirecording=concat_recording,
 			recording_dir=paths.recording_dir,
 			overwrite_saved_recording=bool(inputs.overwrite_saved_recording),
 			n_jobs=concat_jobs,
-			chunk_duration=str(inputs.phases.concatenate_preprocessed_recordings.outputs.save_chunk_duration),
-			progress_bar=bool(inputs.phases.concatenate_preprocessed_recordings.outputs.save_progress_bar),
+			chunk_duration=str(inputs.phases.concatenate_recordings.outputs.save_chunk_duration),
+			progress_bar=bool(inputs.phases.concatenate_recordings.outputs.save_progress_bar),
 			logger=phase_logger,
+		)
+		phase_results["save_concatenated_recording"].update(
+			{
+				"segment_source": str(concat_segment_source),
+				"concatenate_preprocessed_recordings": bool(
+					inputs.phases.concatenate_recordings.concatenate_preprocessed_recordings
+				),
+				"source_segment_count": int(concat_segment_count),
+			}
 		)
 	if bool(phase_flags["save_segment_recordings"]):
 		phase_results["save_segment_recordings"] = run_save_segment_recordings_core(
@@ -1349,6 +1875,7 @@ def _write_enabled_phase_summaries(
 	common_electrodes: list[int],
 	phase_timing_s: dict[str, float],
 	selected_phase: str | None,
+	recording_metadata_payload: dict[str, Any] | None = None,
 	wipe_src_scratch_payload: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
 	phase_summaries: dict[str, dict[str, Any]] = {}
@@ -1365,16 +1892,28 @@ def _write_enabled_phase_summaries(
 			extra_payload=_build_copy_src_to_scratch_phase_payload(inputs),
 		)
 	if _recording_metadata_phase_requested(inputs, selected_phase=selected_phase):
+		recording_metadata_payload = (
+			dict(recording_metadata_payload)
+			if recording_metadata_payload is not None
+			else _build_recording_metadata_phase_payload(inputs)
+		)
+		recording_metadata_outputs = {
+			"source_h5_path": str(inputs.source_h5_path or inputs.h5_path),
+			"resolved_h5_path": str(inputs.h5_path),
+		}
+		for output_key in ("segment_epochs_json", "contiguous_epochs_json", "sampling_metadata_json", "assay_stats_txt"):
+			value = recording_metadata_payload.get(output_key, None)
+			if value is None:
+				continue
+			recording_metadata_outputs[str(output_key)] = str(value)
+		outputs.update(recording_metadata_outputs)
 		phase_summaries["save_rec_metadata"] = _write_phase_summary(
 			inputs=inputs,
 			paths=paths,
 			phase_name="save_rec_metadata",
 			summary_json_relpath=str(inputs.phases.save_rec_metadata.summary_json_relpath),
-			outputs={
-				"source_h5_path": str(inputs.source_h5_path or inputs.h5_path),
-				"resolved_h5_path": str(inputs.h5_path),
-			},
-			extra_payload=_build_recording_metadata_phase_payload(inputs),
+			outputs=recording_metadata_outputs,
+			extra_payload=recording_metadata_payload,
 		)
 	if _wipe_src_scratch_phase_requested(inputs, selected_phase=selected_phase) and wipe_src_scratch_payload is not None:
 		phase_summaries["wipe_src_scratch"] = _write_phase_summary(
@@ -1415,35 +1954,42 @@ def _write_enabled_phase_summaries(
 			extra_payload=segment_payload,
 		)
 	if "save_concatenated_recording" in phase_results and (
-		selected_phase in {"save_concatenated_recording", "concatenate_preprocessed_recordings"}
-		or (selected_phase is None and bool(inputs.phases.concatenate_preprocessed_recordings.enabled))
+		_is_concatenate_recordings_phase(selected_phase)
+		or (selected_phase is None and bool(inputs.phases.concatenate_recordings.enabled))
 	):
-		phase_summaries["concatenate_preprocessed_recordings"] = _write_phase_summary(
+		phase_summaries["concatenate_recordings"] = _write_phase_summary(
 			inputs=inputs,
 			paths=paths,
-			phase_name="concatenate_preprocessed_recordings",
-			summary_json_relpath=str(inputs.phases.concatenate_preprocessed_recordings.summary_json_relpath),
-			outputs={"preprocessed_recording_dir": outputs["preprocessed_recording_dir"]},
+			phase_name="concatenate_recordings",
+			summary_json_relpath=str(inputs.phases.concatenate_recordings.summary_json_relpath),
+			outputs={
+				"concatenated_recording_dir": outputs["concatenated_recording_dir"],
+				"preprocessed_recording_dir": outputs["preprocessed_recording_dir"],
+			},
 			extra_payload=dict(phase_results["save_concatenated_recording"]),
 		)
 	if "save_common_electrodes" in phase_results and (
 		selected_phase == "save_common_electrodes"
-		or selected_phase == "concatenate_preprocessed_recordings"
+		or _is_concatenate_recordings_phase(selected_phase)
 		or (
 			selected_phase is None
-			and bool(inputs.phases.concatenate_preprocessed_recordings.save_common_electrodes.enabled)
+			and bool(inputs.phases.concatenate_recordings.save_common_electrodes.enabled)
 		)
 	):
 		phase_summaries["save_common_electrodes"] = _write_phase_summary(
 			inputs=inputs,
 			paths=paths,
 			phase_name="save_common_electrodes",
-			summary_json_relpath=str(inputs.phases.concatenate_preprocessed_recordings.save_common_electrodes.summary_json_relpath),
+			summary_json_relpath=str(inputs.phases.concatenate_recordings.save_common_electrodes.summary_json_relpath),
 			outputs={"common_electrodes_path": outputs["common_electrodes_path"]},
 			extra_payload=dict(phase_results["save_common_electrodes"]),
 		)
 	for phase_name, payload in phase_summaries.items():
 		outputs[f"{phase_name}_summary_json"] = str(payload["summary_json"])
+	if "concatenate_recordings" in phase_summaries:
+		outputs["concatenate_preprocessed_recordings_summary_json"] = str(
+			phase_summaries["concatenate_recordings"]["summary_json"]
+		)
 	return phase_summaries
 
 def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
@@ -1485,12 +2031,17 @@ def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
 	scratch_usage_key = _acquire_scratch_input_usage(inputs, selected_phase=None)
 	scratch_usage_released = False
 	wipe_src_scratch_payload: dict[str, Any] | None = None
+	recording_metadata_paths = _resolve_recording_metadata_paths(inputs=inputs, well_out_dir=paths.well_out_dir)
+	recording_metadata_payload: dict[str, Any] | None = None
 
 	try:
+		if _recording_metadata_phase_requested(inputs, selected_phase=None):
+			recording_metadata_payload = _build_recording_metadata_phase_payload(inputs)
 		phase_flags, outputs, phase_results, common_electrodes, phase_timing_s, _cfg_summary = _execute_preprocess_phase_work(
 			inputs=inputs,
 			paths=paths,
 			selected_phase=None,
+			saved_assay_stats_path=recording_metadata_paths.assay_stats_path,
 		)
 		if _wipe_src_scratch_phase_requested(inputs, selected_phase=None):
 			wipe_src_scratch_payload = _execute_wipe_src_scratch_phase(inputs, usage_key=scratch_usage_key)
@@ -1510,6 +2061,7 @@ def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
 			common_electrodes=common_electrodes,
 			phase_timing_s=phase_timing_s,
 			selected_phase=None,
+			recording_metadata_payload=recording_metadata_payload,
 			wipe_src_scratch_payload=wipe_src_scratch_payload,
 		)
 		event_records.append(
@@ -1619,6 +2171,7 @@ def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
 			"logging_file_relpath": inputs.logging_file_relpath,
 			"logging_suppress_h5_plugin_messages": bool(inputs.logging_suppress_h5_plugin_messages),
 			"logging_phase_dividers": bool(inputs.logging_phase_dividers),
+			"logging_subphase_dividers_to_stdout": bool(inputs.logging_subphase_dividers_to_stdout),
 			"enable_checkpointing": bool(inputs.enable_checkpointing),
 			"n_jobs": int(max(1, int(inputs.n_jobs))),
 			"plot_layouts": bool(inputs.plot_layouts),
@@ -1709,11 +2262,16 @@ def _run_preprocess_selected_phase(inputs: PreprocessInputs, *, selected_phase: 
 	_clear_self_referential_symlink(paths.stage_log_source)
 	scratch_usage_key = _acquire_scratch_input_usage(inputs, selected_phase=selected_phase)
 	scratch_usage_released = False
+	recording_metadata_paths = _resolve_recording_metadata_paths(inputs=inputs, well_out_dir=paths.well_out_dir)
+	recording_metadata_payload: dict[str, Any] | None = None
 	try:
+		if _recording_metadata_phase_requested(inputs, selected_phase=selected_phase):
+			recording_metadata_payload = _build_recording_metadata_phase_payload(inputs)
 		phase_flags, outputs, phase_results, common_electrodes, phase_timing_s, _cfg_summary = _execute_preprocess_phase_work(
 			inputs=inputs,
 			paths=paths,
 			selected_phase=selected_phase,
+			saved_assay_stats_path=recording_metadata_paths.assay_stats_path,
 		)
 		_ = phase_flags
 		wipe_src_scratch_payload: dict[str, Any] | None = None
@@ -1728,6 +2286,7 @@ def _run_preprocess_selected_phase(inputs: PreprocessInputs, *, selected_phase: 
 			common_electrodes=common_electrodes,
 			phase_timing_s=phase_timing_s,
 			selected_phase=selected_phase,
+			recording_metadata_payload=recording_metadata_payload,
 			wipe_src_scratch_payload=wipe_src_scratch_payload,
 		)
 	finally:
@@ -1739,8 +2298,9 @@ def _run_preprocess_selected_phase(inputs: PreprocessInputs, *, selected_phase: 
 		"wipe_src_scratch": "wipe_src_scratch",
 		"save_segment_recordings": "preprocess_segments",
 		"preprocess_segments": "preprocess_segments",
-		"save_concatenated_recording": "concatenate_preprocessed_recordings",
-		"concatenate_preprocessed_recordings": "concatenate_preprocessed_recordings",
+		"save_concatenated_recording": "concatenate_recordings",
+		"concatenate_recordings": "concatenate_recordings",
+		"concatenate_preprocessed_recordings": "concatenate_recordings",
 		"copy_src_to_scratch": "copy_src_to_scratch",
 		"save_common_electrodes": "save_common_electrodes",
 	}.get(selected_phase, selected_phase)
@@ -1768,8 +2328,12 @@ def run_preprocess_preprocess_segments_phase(inputs: PreprocessInputs) -> dict[s
 	return _run_preprocess_selected_phase(inputs, selected_phase="preprocess_segments")
 
 
+def run_preprocess_concatenate_recordings_phase(inputs: PreprocessInputs) -> dict[str, Any]:
+	return _run_preprocess_selected_phase(inputs, selected_phase="concatenate_recordings")
+
+
 def run_preprocess_concatenate_preprocessed_recordings_phase(inputs: PreprocessInputs) -> dict[str, Any]:
-	return _run_preprocess_selected_phase(inputs, selected_phase="concatenate_preprocessed_recordings")
+	return run_preprocess_concatenate_recordings_phase(inputs)
 
 
 def run_preprocess_build_preprocessed_recording_phase(inputs: PreprocessInputs) -> dict[str, Any]:
@@ -1777,7 +2341,7 @@ def run_preprocess_build_preprocessed_recording_phase(inputs: PreprocessInputs) 
 
 
 def run_preprocess_save_concatenated_recording_phase(inputs: PreprocessInputs) -> dict[str, Any]:
-	return run_preprocess_concatenate_preprocessed_recordings_phase(inputs)
+	return run_preprocess_concatenate_recordings_phase(inputs)
 
 
 def run_preprocess_save_segment_recordings_phase(inputs: PreprocessInputs) -> dict[str, Any]:

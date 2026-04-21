@@ -20,6 +20,16 @@ class PreprocessCopySrcToScratchPhaseConfig:
 
 
 @dataclass(frozen=True)
+class PreprocessSaveRecMetadataPhaseConfig:
+	enabled: bool = False
+	verbose: bool = False
+	summary_json_relpath: str = "context/recording_metadata_summary.json"
+	segment_epochs_relpath: str = "segment_epochs.json"
+	contiguous_epochs_relpath: str = "continuous_epochs.json"
+	sampling_metadata_relpath: str = "sampling_rate_metadata.json"
+
+
+@dataclass(frozen=True)
 class PreprocessWipeSrcScratchPhaseConfig:
 	enabled: bool = False
 	dry_run: bool = False
@@ -70,8 +80,9 @@ class PreprocessSegmentsPhaseConfig:
 
 
 @dataclass(frozen=True)
-class PreprocessConcatenatePreprocessedRecordingsPhaseConfig:
+class PreprocessConcatenateRecordingsPhaseConfig:
 	enabled: bool = True
+	concatenate_preprocessed_recordings: bool = True
 	summary_json_relpath: str = "context/concatenated_recording_summary.json"
 	rel_output_root: str = "preprocessed_recording"
 	plot: PreprocessPlotConfig = field(
@@ -89,15 +100,22 @@ class PreprocessConcatenatePreprocessedRecordingsPhaseConfig:
 	)
 
 
+PreprocessConcatenatePreprocessedRecordingsPhaseConfig = PreprocessConcatenateRecordingsPhaseConfig
+
+
 @dataclass(frozen=True)
 class PreprocessPhasesConfig:
 	copy_src_to_scratch: PreprocessCopySrcToScratchPhaseConfig = field(
 		default_factory=PreprocessCopySrcToScratchPhaseConfig
 	)
-	save_rec_metadata: PreprocessPhaseConfig = field(
-		default_factory=lambda: PreprocessPhaseConfig(
+	save_rec_metadata: PreprocessSaveRecMetadataPhaseConfig = field(
+		default_factory=lambda: PreprocessSaveRecMetadataPhaseConfig(
 			enabled=False,
+			verbose=False,
 			summary_json_relpath="context/recording_metadata_summary.json",
+			segment_epochs_relpath="segment_epochs.json",
+			contiguous_epochs_relpath="continuous_epochs.json",
+			sampling_metadata_relpath="sampling_rate_metadata.json",
 		)
 	)
 	wipe_src_scratch: PreprocessWipeSrcScratchPhaseConfig = field(
@@ -106,9 +124,13 @@ class PreprocessPhasesConfig:
 	preprocess_segments: PreprocessSegmentsPhaseConfig = field(
 		default_factory=PreprocessSegmentsPhaseConfig
 	)
-	concatenate_preprocessed_recordings: PreprocessConcatenatePreprocessedRecordingsPhaseConfig = field(
-		default_factory=PreprocessConcatenatePreprocessedRecordingsPhaseConfig
+	concatenate_recordings: PreprocessConcatenateRecordingsPhaseConfig = field(
+		default_factory=PreprocessConcatenateRecordingsPhaseConfig
 	)
+
+	@property
+	def concatenate_preprocessed_recordings(self) -> PreprocessConcatenateRecordingsPhaseConfig:
+		return self.concatenate_recordings
 
 
 @dataclass(frozen=True)
@@ -129,6 +151,7 @@ class PreprocessInputs:
 	logging_file_relpath: str | None = None
 	logging_suppress_h5_plugin_messages: bool = False
 	logging_phase_dividers: bool = True
+	logging_subphase_dividers_to_stdout: bool = True
 	enable_checkpointing: bool = True
 	n_jobs: int = 1
 	plot_layouts: bool = True

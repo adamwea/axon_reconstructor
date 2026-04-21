@@ -32,7 +32,10 @@ def run_build_preprocessed_recording_core(
 	temporal_resample_rate_hz: int | None,
 	temporal_resample_margin_ms: float,
 	temporal_resample_dtype: str | None,
+	saved_assay_stats_path: Path | None,
+	require_saved_assay_stats: bool,
 	phase_dividers: bool,
+	emit_phase_dividers_to_stdout: bool,
 	suppress_h5_plugin_messages: bool,
 	logger: logging.Logger | None,
 ) -> tuple[Any, list[int], dict[str, object]]:
@@ -60,8 +63,11 @@ def run_build_preprocessed_recording_core(
 		temporal_resample_rate_hz=(int(temporal_resample_rate_hz) if temporal_resample_rate_hz is not None else None),
 		temporal_resample_margin_ms=float(temporal_resample_margin_ms),
 		temporal_resample_dtype=temporal_resample_dtype,
+		saved_assay_stats_path=saved_assay_stats_path,
+		require_saved_assay_stats=bool(require_saved_assay_stats),
 		logger=logger,
 		phase_dividers=bool(phase_dividers),
+		emit_phase_dividers_to_stdout=bool(emit_phase_dividers_to_stdout),
 		suppress_h5_plugin_messages=bool(suppress_h5_plugin_messages),
 		return_artifacts=True,
 	)

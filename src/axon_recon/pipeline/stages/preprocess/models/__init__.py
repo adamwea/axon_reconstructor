@@ -1,4 +1,5 @@
 from .inputs import (
+	PreprocessConcatenateRecordingsPhaseConfig,
 	PreprocessConcatenatePreprocessedRecordingsPhaseConfig,
 	PreprocessCopySrcToScratchPhaseConfig,
 	PreprocessInputs,
@@ -6,12 +7,14 @@ from .inputs import (
 	PreprocessPhaseOutputsConfig,
 	PreprocessPhasesConfig,
 	PreprocessPlotConfig,
+	PreprocessSaveRecMetadataPhaseConfig,
 	PreprocessSegmentsPhaseConfig,
 	PreprocessWipeSrcScratchPhaseConfig,
 )
 from .results import PreprocessResult
 
 __all__ = [
+	"PreprocessConcatenateRecordingsPhaseConfig",
 	"PreprocessConcatenatePreprocessedRecordingsPhaseConfig",
 	"PreprocessCopySrcToScratchPhaseConfig",
 	"PreprocessInputs",
@@ -19,6 +22,7 @@ __all__ = [
 	"PreprocessPhaseOutputsConfig",
 	"PreprocessPhasesConfig",
 	"PreprocessPlotConfig",
+	"PreprocessSaveRecMetadataPhaseConfig",
 	"PreprocessSegmentsPhaseConfig",
 	"PreprocessWipeSrcScratchPhaseConfig",
 	"PreprocessResult",

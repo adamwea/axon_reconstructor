@@ -20,6 +20,7 @@ from .stages.analysis.config import build_analysis_inputs_for_target, parse_anal
 from .stages.analysis.cross_well import generate_cross_well_artifacts
 from .stages.analysis.models.results import AnalysisResult
 from .stages.preprocess.api import (
+	run_preprocess_concatenate_recordings,
 	run_preprocess_concatenate_preprocessed_recordings,
 	run_preprocess_copy_src_to_scratch,
 	run_preprocess,
@@ -76,6 +77,65 @@ class PublishPolicy:
 
 	def publish_mode(self) -> str:
 		return "move" if bool(self.wipe_scratch_roots) else "copy"
+
+
+def _preprocess_copy_phase_enabled(stage_config: Any) -> bool:
+	try:
+		return bool(stage_config.phases.copy_src_to_scratch.enabled)
+	except Exception:
+		return False
+
+
+def _preprocess_stage_uses_nested_workers(stage_config: Any) -> bool:
+	try:
+		phases = stage_config.phases
+	except Exception:
+		return True
+	preprocess_segments_enabled = bool(getattr(getattr(phases, "preprocess_segments", None), "enabled", False))
+	concatenate_recordings_enabled = bool(getattr(getattr(phases, "concatenate_recordings", None), "enabled", False))
+	legacy_concatenate_enabled = bool(
+		getattr(getattr(phases, "concatenate_preprocessed_recordings", None), "enabled", False)
+	)
+	return bool(preprocess_segments_enabled or concatenate_recordings_enabled or legacy_concatenate_enabled)
+
+
+def _preprocess_substage_uses_nested_workers(stage_name: str) -> bool:
+	return str(stage_name).strip() in {
+		"preprocess.preprocess_segments",
+		"preprocess.build_preprocessed_recording",
+		"preprocess.save_segment_recordings",
+		"preprocess.concatenate_recordings",
+		"preprocess.concatenate_preprocessed_recordings",
+		"preprocess.save_concatenated_recording",
+	}
+
+
+def _preprocess_runtime_uses_nested_workers(*, stage_name: str, stage_config: Any) -> bool:
+	return (
+		_preprocess_stage_uses_nested_workers(stage_config)
+		if str(stage_name).strip() == "preprocess"
+		else _preprocess_substage_uses_nested_workers(stage_name)
+	)
+
+
+def _resolve_preprocess_runtime_unit_workers(*, stage_name: str, parallelism: Any, stage_config: Any) -> int:
+	uses_nested_workers = _preprocess_runtime_uses_nested_workers(stage_name=stage_name, stage_config=stage_config)
+	unit_workers = int(parallelism.unit_workers) if bool(uses_nested_workers) else 1
+	emit_subphase_dividers_to_stdout = not (bool(uses_nested_workers) and int(parallelism.well_workers) > 1)
+	LOGGER.info(
+		"Preprocess worker allocation stage=%s well_workers=%d unit_workers=%d uses_nested_workers=%s emit_subphase_dividers_to_stdout=%s",
+		str(stage_name),
+		int(parallelism.well_workers),
+		int(max(1, unit_workers)),
+		bool(uses_nested_workers),
+		bool(emit_subphase_dividers_to_stdout),
+	)
+	return max(1, int(unit_workers))
+
+
+def _resolve_preprocess_subphase_dividers_to_stdout(*, stage_name: str, parallelism: Any, stage_config: Any) -> bool:
+	uses_nested_workers = _preprocess_runtime_uses_nested_workers(stage_name=stage_name, stage_config=stage_config)
+	return not (bool(uses_nested_workers) and int(parallelism.well_workers) > 1)
 
 
 def _resolve_runtime_stage_parallelism(
@@ -592,7 +652,10 @@ def run_preprocess_from_runtime(
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
-	targets = select_execution_targets(bundle=bundle)
+	targets = select_execution_targets(
+		bundle=bundle,
+		materialize_scratch_inputs=_preprocess_copy_phase_enabled(stage_config),
+	)
 	if stage_config.debug_limit_wells is not None:
 		limit_wells = max(1, int(stage_config.debug_limit_wells))
 		if len(targets) > limit_wells:
@@ -607,12 +670,26 @@ def run_preprocess_from_runtime(
 		stage_name="preprocess",
 		target_count=len(targets),
 	)
+	unit_workers = _resolve_preprocess_runtime_unit_workers(
+		stage_name="preprocess",
+		parallelism=parallelism,
+		stage_config=stage_config,
+	)
+	emit_subphase_dividers_to_stdout = _resolve_preprocess_subphase_dividers_to_stdout(
+		stage_name="preprocess",
+		parallelism=parallelism,
+		stage_config=stage_config,
+	)
 
 	def _worker(target):
 		inputs = build_preprocess_inputs_for_target(
 			target=target,
 			stage_config=stage_config,
-			unit_workers=int(parallelism.unit_workers),
+			unit_workers=int(unit_workers),
+		)
+		inputs = replace(
+			inputs,
+			logging_subphase_dividers_to_stdout=bool(emit_subphase_dividers_to_stdout),
 		)
 		return run_preprocess(inputs)
 
@@ -643,11 +720,14 @@ def _run_preprocess_substage_from_runtime(
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
-	targets = select_execution_targets(bundle=bundle)
 	stage_config = parse_preprocess_stage_config(
 		runtime_config=bundle.runtime_config,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+	)
+	targets = select_execution_targets(
+		bundle=bundle,
+		materialize_scratch_inputs=(str(stage_name).strip() == "preprocess.copy_src_to_scratch"),
 	)
 	if stage_config.debug_limit_wells is not None:
 		limit_wells = max(1, int(stage_config.debug_limit_wells))
@@ -663,12 +743,26 @@ def _run_preprocess_substage_from_runtime(
 		stage_name="preprocess",
 		target_count=len(targets),
 	)
+	unit_workers = _resolve_preprocess_runtime_unit_workers(
+		stage_name=stage_name,
+		parallelism=parallelism,
+		stage_config=stage_config,
+	)
+	emit_subphase_dividers_to_stdout = _resolve_preprocess_subphase_dividers_to_stdout(
+		stage_name=stage_name,
+		parallelism=parallelism,
+		stage_config=stage_config,
+	)
 
 	def _worker(target):
 		inputs = build_preprocess_inputs_for_target(
 			target=target,
 			stage_config=stage_config,
-			unit_workers=int(parallelism.unit_workers),
+			unit_workers=int(unit_workers),
+		)
+		inputs = replace(
+			inputs,
+			logging_subphase_dividers_to_stdout=bool(emit_subphase_dividers_to_stdout),
 		)
 		return runner_fn(inputs)
 
@@ -748,7 +842,7 @@ def run_preprocess_preprocess_segments_from_runtime(
 	)
 
 
-def run_preprocess_concatenate_preprocessed_recordings_from_runtime(
+def run_preprocess_concatenate_recordings_from_runtime(
 	*,
 	config_path: str,
 	force_restart_override: bool | None = None,
@@ -756,8 +850,21 @@ def run_preprocess_concatenate_preprocessed_recordings_from_runtime(
 ) -> MultiTargetStageResult:
 	return _run_preprocess_substage_from_runtime(
 		config_path=config_path,
-		stage_name="preprocess.concatenate_preprocessed_recordings",
-		runner_fn=run_preprocess_concatenate_preprocessed_recordings,
+		stage_name="preprocess.concatenate_recordings",
+		runner_fn=run_preprocess_concatenate_recordings,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_preprocess_concatenate_preprocessed_recordings_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return run_preprocess_concatenate_recordings_from_runtime(
+		config_path=config_path,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -797,7 +904,7 @@ def run_preprocess_save_concatenated_recording_from_runtime(
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
-	return run_preprocess_concatenate_preprocessed_recordings_from_runtime(
+	return run_preprocess_concatenate_recordings_from_runtime(
 		config_path=config_path,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
