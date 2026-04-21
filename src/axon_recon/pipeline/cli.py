@@ -9,8 +9,11 @@ from axon_reconstructor.runtime_config import RuntimeConfig
 
 from .stages.analysis.cli import _run_from_args as _run_analysis_from_args
 from .stages.preprocess.cli import _run_concatenate_recordings_from_args as _run_preprocess_concatenate_recordings_from_args
+from .stages.preprocess.cli import _run_concat_segments_from_args as _run_preprocess_concat_segments_from_args
 from .stages.preprocess.cli import _run_copy_src_to_scratch_from_args as _run_preprocess_copy_src_to_scratch_from_args
 from .stages.preprocess.cli import _run_from_args as _run_preprocess_from_args
+from .stages.preprocess.cli import _run_plot_concat_traces_from_args as _run_preprocess_plot_concat_traces_from_args
+from .stages.preprocess.cli import _run_plot_segment_traces_from_args as _run_preprocess_plot_segment_traces_from_args
 from .stages.preprocess.cli import _run_preprocess_segments_from_args as _run_preprocess_preprocess_segments_from_args
 from .stages.preprocess.cli import _run_save_rec_metadata_from_args as _run_preprocess_save_rec_metadata_from_args
 from .stages.preprocess.cli import _run_save_common_electrodes_from_args as _run_preprocess_save_common_electrodes_from_args
@@ -63,27 +66,37 @@ _STAGE_ALIASES: dict[str, str] = {
 	"pre.save_rec_metadata": "preprocess.save_rec_metadata",
 	"pre.wipe_src_scratch": "preprocess.wipe_src_scratch",
 	"pre.preprocess_segments": "preprocess.preprocess_segments",
-	"pre.concatenate_recordings": "preprocess.concatenate_recordings",
-	"pre.concatenate_preprocessed_recordings": "preprocess.concatenate_recordings",
+	"pre.plot_segment_traces": "preprocess.plot_segment_traces",
+	"pre.concat_segments": "preprocess.concat_segments",
+	"pre.plot_concat_traces": "preprocess.plot_concat_traces",
+	"pre.concatenate_recordings": "preprocess.concat_segments",
+	"pre.concatenate_preprocessed_recordings": "preprocess.concat_segments",
 	"pre.save_common_electrodes": "preprocess.save_common_electrodes",
 	"preproc.copy_src_to_scratch": "preprocess.copy_src_to_scratch",
 	"preproc.save_rec_metadata": "preprocess.save_rec_metadata",
 	"preproc.wipe_src_scratch": "preprocess.wipe_src_scratch",
 	"preproc.preprocess_segments": "preprocess.preprocess_segments",
-	"preproc.concatenate_recordings": "preprocess.concatenate_recordings",
-	"preproc.concatenate_preprocessed_recordings": "preprocess.concatenate_recordings",
+	"preproc.plot_segment_traces": "preprocess.plot_segment_traces",
+	"preproc.concat_segments": "preprocess.concat_segments",
+	"preproc.plot_concat_traces": "preprocess.plot_concat_traces",
+	"preproc.concatenate_recordings": "preprocess.concat_segments",
+	"preproc.concatenate_preprocessed_recordings": "preprocess.concat_segments",
 	"preproc.save_common_electrodes": "preprocess.save_common_electrodes",
 	"pre.build_preprocessed_recording": "preprocess.preprocess_segments",
-	"pre.save_concatenated_recording": "preprocess.concatenate_recordings",
+	"pre.save_concatenated_recording": "preprocess.concat_segments",
 	"pre.save_segment_recordings": "preprocess.preprocess_segments",
 	"preproc.build_preprocessed_recording": "preprocess.preprocess_segments",
-	"preproc.save_concatenated_recording": "preprocess.concatenate_recordings",
+	"preproc.save_concatenated_recording": "preprocess.concat_segments",
 	"preproc.save_segment_recordings": "preprocess.preprocess_segments",
 	"preprocess.build_preprocessed_recording": "preprocess.preprocess_segments",
-	"preprocess.save_concatenated_recording": "preprocess.concatenate_recordings",
+	"preprocess.plot_segment_traces": "preprocess.plot_segment_traces",
+	"preprocess.concat_segments": "preprocess.concat_segments",
+	"preprocess.plot_concat_traces": "preprocess.plot_concat_traces",
+	"preprocess.save_concatenated_recording": "preprocess.concat_segments",
 	"preprocess.save_segment_recordings": "preprocess.preprocess_segments",
 	"preprocess.concatenate_recordings.save_common_electrodes": "preprocess.save_common_electrodes",
-	"preprocess.concatenate_preprocessed_recordings": "preprocess.concatenate_recordings",
+	"preprocess.concatenate_recordings": "preprocess.concat_segments",
+	"preprocess.concatenate_preprocessed_recordings": "preprocess.concat_segments",
 	"preprocess.concatenate_preprocessed_recordings.save_common_electrodes": "preprocess.save_common_electrodes",
 	"sort": "spikesort",
 	"spikesort.sort": "spikesort",
@@ -137,6 +150,9 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"preprocess.save_rec_metadata": _run_preprocess_save_rec_metadata_from_args,
 	"preprocess.wipe_src_scratch": _run_preprocess_wipe_src_scratch_from_args,
 	"preprocess.preprocess_segments": _run_preprocess_preprocess_segments_from_args,
+	"preprocess.plot_segment_traces": _run_preprocess_plot_segment_traces_from_args,
+	"preprocess.concat_segments": _run_preprocess_concat_segments_from_args,
+	"preprocess.plot_concat_traces": _run_preprocess_plot_concat_traces_from_args,
 	"preprocess.concatenate_recordings": _run_preprocess_concatenate_recordings_from_args,
 	"preprocess.save_common_electrodes": _run_preprocess_save_common_electrodes_from_args,
 	"spikesort": _run_spikesort_from_args,

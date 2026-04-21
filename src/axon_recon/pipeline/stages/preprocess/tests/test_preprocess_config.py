@@ -79,14 +79,18 @@ def test_parse_preprocess_stage_config_defaults() -> None:
     assert parsed.phases.wipe_src_scratch.summary_json_relpath == "context/wipe_src_scratch_summary.json"
     assert parsed.phases.preprocess_segments.enabled is True
     assert parsed.phases.preprocess_segments.summary_json_relpath == "context/segment_recordings_summary.json"
-    assert parsed.phases.preprocess_segments.rel_output_root == "per_segment_preprocessed"
-    assert parsed.phases.concatenate_recordings.enabled is True
-    assert parsed.phases.concatenate_recordings.concatenate_preprocessed_recordings is True
-    assert parsed.phases.concatenate_recordings.summary_json_relpath == "context/concatenated_recording_summary.json"
-    assert parsed.phases.concatenate_recordings.rel_output_root == "preprocessed_recording"
-    assert parsed.phases.concatenate_recordings.save_common_electrodes.enabled is True
+    assert parsed.phases.preprocess_segments.rel_output_root == "preprocessed_segments"
+    assert parsed.phases.plot_segment_traces.enabled is True
+    assert parsed.phases.plot_segment_traces.summary_json_relpath == "context/plot_segment_traces_summary.json"
+    assert parsed.phases.concat_segments.enabled is True
+    assert parsed.phases.concat_segments.concatenate_preprocessed_recordings is True
+    assert parsed.phases.concat_segments.summary_json_relpath == "context/concat_segments_summary.json"
+    assert parsed.phases.concat_segments.rel_output_root == "concatenated_recording"
+    assert parsed.phases.plot_concat_traces.enabled is True
+    assert parsed.phases.plot_concat_traces.summary_json_relpath == "context/plot_concat_traces_summary.json"
+    assert parsed.phases.save_rec_metadata.common_electrodes_relpath == "common_electrodes.npy"
     assert (
-        parsed.phases.concatenate_recordings.save_common_electrodes.summary_json_relpath
+        parsed.phases.save_rec_metadata.common_electrodes_summary_json_relpath
         == "context/save_common_electrodes_summary.json"
     )
 
@@ -393,6 +397,7 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                             "segment_epochs_relpath": "meta/segments.json",
                             "contiguous_epochs_relpath": "meta/contiguous.json",
                             "sampling_metadata_relpath": "meta/sampling.json",
+                            "common_electrodes_summary_json_relpath": "context/custom_common_summary.json",
                         },
                         "wipe_src_scratch": {
                             "enabled": True,
@@ -404,11 +409,6 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                             "enabled": False,
                             "summary_json_relpath": "context/custom_segments_summary.json",
                             "rel_output_root": "preprocessed_segments",
-                            "plot": {
-                                "layouts": False,
-                                "segment_traces": False,
-                                "output_dir": "plots/segments/{stream_id}",
-                            },
                             "outputs": {
                                 "save_chunk_duration": "2s",
                                 "save_progress_bar": True,
@@ -416,23 +416,32 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                                 "print_n_jobs_used": True,
                             },
                         },
-                        "concatenate_recordings": {
+                        "plot_segment_traces": {
+                            "enabled": True,
+                            "summary_json_relpath": "context/custom_plot_segment_traces_summary.json",
+                            "plot": {
+                                "layouts": False,
+                                "segment_traces": False,
+                                "output_dir": "plots/segments/{stream_id}",
+                            },
+                        },
+                        "concat_segments": {
                             "enabled": True,
                             "concatenate_preprocessed_recordings": False,
-                            "summary_json_relpath": "context/custom_concat_summary.json",
+                            "summary_json_relpath": "context/custom_concat_segments_summary.json",
                             "rel_output_root": "concatenated_recording",
+                            "outputs": {
+                                "concat_save_n_jobs": 4,
+                            },
+                        },
+                        "plot_concat_traces": {
+                            "enabled": True,
+                            "summary_json_relpath": "context/custom_plot_concat_traces_summary.json",
                             "plot": {
                                 "concat_trace": {
                                     "enabled": False,
                                     "n_reps": 3,
                                 }
-                            },
-                            "outputs": {
-                                "concat_save_n_jobs": 4,
-                            },
-                            "save_common_electrodes": {
-                                "enabled": False,
-                                "summary_json_relpath": "context/custom_common_summary.json",
                             },
                         },
                     },
@@ -459,23 +468,26 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
     assert parsed.phases.preprocess_segments.enabled is False
     assert parsed.phases.preprocess_segments.summary_json_relpath == "context/custom_segments_summary.json"
     assert parsed.phases.preprocess_segments.rel_output_root == "preprocessed_segments"
-    assert parsed.phases.preprocess_segments.plot.layouts is False
-    assert parsed.phases.preprocess_segments.plot.segment_traces is False
-    assert parsed.phases.preprocess_segments.plot.output_dir == "plots/segments/{stream_id}"
     assert parsed.phases.preprocess_segments.outputs.save_chunk_duration == "2s"
     assert parsed.phases.preprocess_segments.outputs.save_progress_bar is True
     assert parsed.phases.preprocess_segments.outputs.segment_save_n_jobs == 2
     assert parsed.phases.preprocess_segments.outputs.print_n_jobs_used is True
-    assert parsed.phases.concatenate_recordings.enabled is True
-    assert parsed.phases.concatenate_recordings.concatenate_preprocessed_recordings is False
-    assert parsed.phases.concatenate_recordings.summary_json_relpath == "context/custom_concat_summary.json"
-    assert parsed.phases.concatenate_recordings.rel_output_root == "concatenated_recording"
-    assert parsed.phases.concatenate_recordings.plot.concat_trace is False
-    assert parsed.phases.concatenate_recordings.plot.concat_trace_n_reps == 3
-    assert parsed.phases.concatenate_recordings.outputs.concat_save_n_jobs == 4
-    assert parsed.phases.concatenate_recordings.save_common_electrodes.enabled is False
+    assert parsed.phases.plot_segment_traces.enabled is True
+    assert parsed.phases.plot_segment_traces.summary_json_relpath == "context/custom_plot_segment_traces_summary.json"
+    assert parsed.phases.plot_segment_traces.plot.layouts is False
+    assert parsed.phases.plot_segment_traces.plot.segment_traces is False
+    assert parsed.phases.plot_segment_traces.plot.output_dir == "plots/segments/{stream_id}"
+    assert parsed.phases.concat_segments.enabled is True
+    assert parsed.phases.concat_segments.concatenate_preprocessed_recordings is False
+    assert parsed.phases.concat_segments.summary_json_relpath == "context/custom_concat_segments_summary.json"
+    assert parsed.phases.concat_segments.rel_output_root == "concatenated_recording"
+    assert parsed.phases.concat_segments.outputs.concat_save_n_jobs == 4
+    assert parsed.phases.plot_concat_traces.enabled is True
+    assert parsed.phases.plot_concat_traces.summary_json_relpath == "context/custom_plot_concat_traces_summary.json"
+    assert parsed.phases.plot_concat_traces.plot.concat_trace is False
+    assert parsed.phases.plot_concat_traces.plot.concat_trace_n_reps == 3
     assert (
-        parsed.phases.concatenate_recordings.save_common_electrodes.summary_json_relpath
+        parsed.phases.save_rec_metadata.common_electrodes_summary_json_relpath
         == "context/custom_common_summary.json"
     )
 
@@ -580,6 +592,7 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
                         "        segment_epochs_relpath: segment_epochs.json\n"
                         "        contiguous_epochs_relpath: continuous_epochs.json\n"
                         "        sampling_metadata_relpath: sampling_rate_metadata.json\n"
+                        "        common_electrodes_summary_json_relpath: context/save_common_electrodes_summary.json\n"
                         "      wipe_src_scratch:\n"
                         "        enabled: true\n"
                         "        dry_run: true\n"
@@ -601,16 +614,16 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
                         "          save_progress_bar: true\n"
                         "          segment_save_n_jobs: 2\n"
                         "          print_n_jobs_used: true\n"
-                        "      concatenate_recordings:\n"
+                        "      concat_segments:\n"
                         "        enabled: true\n"
                         "        concatenate_preprocessed_recordings: false\n"
                         "        rel_output_root: concatenated_recording\n"
-                        "        plot:\n"
-                        "          concat_trace: false\n"
                         "        outputs:\n"
                         "          concat_save_n_jobs: 4\n"
-                        "        save_common_electrodes:\n"
-                        "          enabled: true\n"
+                        "      plot_concat_traces:\n"
+                        "        enabled: true\n"
+                        "        plot:\n"
+                        "          concat_trace: false\n"
                 ),
         encoding="utf-8",
     )
@@ -655,24 +668,26 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
     assert inputs.phases.wipe_src_scratch.summary_json_relpath == "context/wipe_src_scratch_summary.json"
     assert inputs.phases.preprocess_segments.enabled is False
     assert inputs.phases.preprocess_segments.rel_output_root == "preprocessed_segments"
-    assert inputs.phases.preprocess_segments.plot.layouts is False
-    assert inputs.phases.preprocess_segments.plot.segment_traces is False
-    assert inputs.phases.preprocess_segments.plot.n_representative_channels == 7
-    assert inputs.phases.preprocess_segments.plot.segment_trace_n_reps == 7
-    assert inputs.phases.preprocess_segments.plot.n_jobs == 4
-    assert inputs.phases.preprocess_segments.plot.trace_downsample_hz == 200.0
-    assert inputs.phases.preprocess_segments.plot.trace_max_points == 32000
-    assert inputs.phases.preprocess_segments.plot.output_dir == "preprocess_outputs/plots"
     assert inputs.phases.preprocess_segments.outputs.save_chunk_duration == "2s"
     assert inputs.phases.preprocess_segments.outputs.save_progress_bar is True
     assert inputs.phases.preprocess_segments.outputs.segment_save_n_jobs == 2
     assert inputs.phases.preprocess_segments.outputs.print_n_jobs_used is True
-    assert inputs.phases.concatenate_recordings.enabled is True
-    assert inputs.phases.concatenate_recordings.concatenate_preprocessed_recordings is False
-    assert inputs.phases.concatenate_recordings.rel_output_root == "concatenated_recording"
-    assert inputs.phases.concatenate_recordings.plot.concat_trace is False
-    assert inputs.phases.concatenate_recordings.outputs.concat_save_n_jobs == 4
-    assert inputs.phases.concatenate_recordings.save_common_electrodes.enabled is True
+    assert inputs.phases.plot_segment_traces.enabled is True
+    assert inputs.phases.plot_segment_traces.plot.layouts is False
+    assert inputs.phases.plot_segment_traces.plot.segment_traces is False
+    assert inputs.phases.plot_segment_traces.plot.n_representative_channels == 7
+    assert inputs.phases.plot_segment_traces.plot.segment_trace_n_reps == 7
+    assert inputs.phases.plot_segment_traces.plot.n_jobs == 4
+    assert inputs.phases.plot_segment_traces.plot.trace_downsample_hz == 200.0
+    assert inputs.phases.plot_segment_traces.plot.trace_max_points == 32000
+    assert inputs.phases.plot_segment_traces.plot.output_dir == "preprocess_outputs/plots"
+    assert inputs.phases.concat_segments.enabled is True
+    assert inputs.phases.concat_segments.concatenate_preprocessed_recordings is False
+    assert inputs.phases.concat_segments.rel_output_root == "concatenated_recording"
+    assert inputs.phases.plot_concat_traces.enabled is True
+    assert inputs.phases.plot_concat_traces.plot.concat_trace is False
+    assert inputs.phases.concat_segments.outputs.concat_save_n_jobs == 4
+    assert inputs.phases.save_rec_metadata.common_electrodes_summary_json_relpath == "context/save_common_electrodes_summary.json"
 
 
 def test_load_preprocess_inputs_plot_n_jobs_null_inherits_preprocess_n_jobs(tmp_path: Path) -> None:

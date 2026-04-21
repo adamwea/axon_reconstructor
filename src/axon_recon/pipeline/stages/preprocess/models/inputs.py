@@ -27,6 +27,8 @@ class PreprocessSaveRecMetadataPhaseConfig:
 	segment_epochs_relpath: str = "segment_epochs.json"
 	contiguous_epochs_relpath: str = "continuous_epochs.json"
 	sampling_metadata_relpath: str = "sampling_rate_metadata.json"
+	common_electrodes_relpath: str = "common_electrodes.npy"
+	common_electrodes_summary_json_relpath: str = "context/save_common_electrodes_summary.json"
 
 
 @dataclass(frozen=True)
@@ -70,37 +72,45 @@ class PreprocessPhaseOutputsConfig:
 class PreprocessSegmentsPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/segment_recordings_summary.json"
-	rel_output_root: str = "per_segment_preprocessed"
+	rel_output_root: str = "preprocessed_segments"
+	outputs: PreprocessPhaseOutputsConfig = field(default_factory=PreprocessPhaseOutputsConfig)
+
+
+@dataclass(frozen=True)
+class PreprocessPlotSegmentTracesPhaseConfig:
+	enabled: bool = True
+	summary_json_relpath: str = "context/plot_segment_traces_summary.json"
 	plot: PreprocessPlotConfig = field(
 		default_factory=lambda: PreprocessPlotConfig(
 			concat_trace=False,
 		)
 	)
+
+
+@dataclass(frozen=True)
+class PreprocessConcatSegmentsPhaseConfig:
+	enabled: bool = True
+	concatenate_preprocessed_recordings: bool = True
+	summary_json_relpath: str = "context/concat_segments_summary.json"
+	rel_output_root: str = "concatenated_recording"
+	manifest_relpath: str = "context/concat_segments_manifest.json"
 	outputs: PreprocessPhaseOutputsConfig = field(default_factory=PreprocessPhaseOutputsConfig)
 
 
 @dataclass(frozen=True)
-class PreprocessConcatenateRecordingsPhaseConfig:
+class PreprocessPlotConcatTracesPhaseConfig:
 	enabled: bool = True
-	concatenate_preprocessed_recordings: bool = True
-	summary_json_relpath: str = "context/concatenated_recording_summary.json"
-	rel_output_root: str = "preprocessed_recording"
+	summary_json_relpath: str = "context/plot_concat_traces_summary.json"
 	plot: PreprocessPlotConfig = field(
 		default_factory=lambda: PreprocessPlotConfig(
 			layouts=False,
 			segment_traces=False,
 		)
 	)
-	outputs: PreprocessPhaseOutputsConfig = field(default_factory=PreprocessPhaseOutputsConfig)
-	save_common_electrodes: PreprocessPhaseConfig = field(
-		default_factory=lambda: PreprocessPhaseConfig(
-			enabled=True,
-			summary_json_relpath="context/save_common_electrodes_summary.json",
-		)
-	)
 
 
-PreprocessConcatenatePreprocessedRecordingsPhaseConfig = PreprocessConcatenateRecordingsPhaseConfig
+PreprocessConcatenateRecordingsPhaseConfig = PreprocessConcatSegmentsPhaseConfig
+PreprocessConcatenatePreprocessedRecordingsPhaseConfig = PreprocessConcatSegmentsPhaseConfig
 
 
 @dataclass(frozen=True)
@@ -116,6 +126,8 @@ class PreprocessPhasesConfig:
 			segment_epochs_relpath="segment_epochs.json",
 			contiguous_epochs_relpath="continuous_epochs.json",
 			sampling_metadata_relpath="sampling_rate_metadata.json",
+			common_electrodes_relpath="common_electrodes.npy",
+			common_electrodes_summary_json_relpath="context/save_common_electrodes_summary.json",
 		)
 	)
 	wipe_src_scratch: PreprocessWipeSrcScratchPhaseConfig = field(
@@ -124,13 +136,23 @@ class PreprocessPhasesConfig:
 	preprocess_segments: PreprocessSegmentsPhaseConfig = field(
 		default_factory=PreprocessSegmentsPhaseConfig
 	)
-	concatenate_recordings: PreprocessConcatenateRecordingsPhaseConfig = field(
-		default_factory=PreprocessConcatenateRecordingsPhaseConfig
+	plot_segment_traces: PreprocessPlotSegmentTracesPhaseConfig = field(
+		default_factory=PreprocessPlotSegmentTracesPhaseConfig
+	)
+	concat_segments: PreprocessConcatSegmentsPhaseConfig = field(
+		default_factory=PreprocessConcatSegmentsPhaseConfig
+	)
+	plot_concat_traces: PreprocessPlotConcatTracesPhaseConfig = field(
+		default_factory=PreprocessPlotConcatTracesPhaseConfig
 	)
 
 	@property
-	def concatenate_preprocessed_recordings(self) -> PreprocessConcatenateRecordingsPhaseConfig:
-		return self.concatenate_recordings
+	def concatenate_recordings(self) -> PreprocessConcatSegmentsPhaseConfig:
+		return self.concat_segments
+
+	@property
+	def concatenate_preprocessed_recordings(self) -> PreprocessConcatSegmentsPhaseConfig:
+		return self.concat_segments
 
 
 @dataclass(frozen=True)

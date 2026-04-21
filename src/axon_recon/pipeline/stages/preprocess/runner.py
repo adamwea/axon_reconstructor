@@ -32,15 +32,24 @@ from axon_reconstructor.pipeline.stg1_preprocessing.planning import build_prepro
 
 from ...shared.sampling import read_maxwell_sampling_frequency_hz
 from .core import (
+	load_common_electrodes,
+	run_concat_segments_core,
+	run_copy_src_to_scratch_core,
 	run_build_preprocessed_recording_core,
-	run_save_common_electrodes_core,
+	run_plot_concat_traces_core,
+	run_plot_segment_traces_core,
+	run_preprocess_segments_core,
 	run_save_concatenated_recording_core,
+	run_save_rec_metadata_core,
 	run_save_segment_recordings_core,
+	run_wipe_src_scratch_core,
 )
 from .models.inputs import (
-	PreprocessConcatenateRecordingsPhaseConfig,
+	PreprocessConcatSegmentsPhaseConfig,
 	PreprocessInputs,
+	PreprocessPlotConcatTracesPhaseConfig,
 	PreprocessPlotConfig,
+	PreprocessPlotSegmentTracesPhaseConfig,
 	PreprocessSegmentsPhaseConfig,
 )
 from .models.results import PreprocessResult
@@ -59,6 +68,7 @@ class _PreprocessPathSet:
 	preprocess_out_dir: Path
 	legacy_out_dir: Path
 	recording_dir: Path
+	concat_manifest_path: Path
 	common_electrodes_path: Path
 	per_segment_preprocessed_dir: Path
 	per_segment_manifest_path: Path
@@ -75,6 +85,7 @@ class _RecordingMetadataPathSet:
 	contiguous_epochs_path: Path
 	sampling_metadata_path: Path
 	assay_stats_path: Path
+	common_electrodes_path: Path
 
 
 def _utc_now_iso() -> str:
@@ -149,6 +160,47 @@ def _resolve_path_from_root(*, root_dir: Path, raw: str | None, default: str) ->
 	return Path(os.path.abspath(str(root_dir / path)))
 
 
+def _strip_preprocess_root_prefix(path: Path) -> Path:
+	parts = list(path.parts)
+	if parts and parts[0] == PREPROCESS_OUTPUTS_DIRNAME:
+		if len(parts) == 1:
+			return Path(".")
+		return Path(*parts[1:])
+	return path
+
+
+def _resolve_preprocess_path_from_root(*, preprocess_out_dir: Path, raw: str | None, default: str) -> Path:
+	token = str(raw).strip() if raw is not None else ""
+	if not token:
+		token = str(default)
+	path = Path(token).expanduser()
+	if path.is_absolute():
+		return Path(os.path.abspath(str(path)))
+	path = _strip_preprocess_root_prefix(path)
+	return Path(os.path.abspath(str(preprocess_out_dir / path)))
+
+
+def _resolve_preprocess_stream_path_from_root(
+	*,
+	preprocess_out_dir: Path,
+	raw: str | None,
+	default: str,
+	stream_id: str,
+) -> Path:
+	token = str(raw).strip() if raw is not None else ""
+	if not token:
+		token = str(default)
+	try:
+		token = token.format(stream_id=str(stream_id))
+	except Exception:
+		pass
+	path = Path(token).expanduser()
+	if path.is_absolute():
+		return Path(os.path.abspath(str(path)))
+	path = _strip_preprocess_root_prefix(path)
+	return Path(os.path.abspath(str(preprocess_out_dir / path)))
+
+
 def _resolve_stream_path_from_root(*, root_dir: Path, raw: str | None, default: str, stream_id: str) -> Path:
 	token = str(raw).strip() if raw is not None else ""
 	if not token:
@@ -205,15 +257,15 @@ def _clear_self_referential_symlink(path: Path) -> bool:
 		return False
 
 
-def _resolve_stage_log_source(*, inputs: PreprocessInputs, well_out_dir: Path) -> Path:
+def _resolve_stage_log_source(*, inputs: PreprocessInputs, preprocess_out_dir: Path) -> Path:
 	if inputs.logging_file_relpath is not None and str(inputs.logging_file_relpath).strip():
-		return _resolve_path_from_root(
-			root_dir=well_out_dir,
+		return _resolve_preprocess_path_from_root(
+			preprocess_out_dir=preprocess_out_dir,
 			raw=inputs.logging_file_relpath,
 			default="logs/preprocess_pipeline.log",
 		)
 	return compute_pipeline_log_file(
-		well_out_dir=well_out_dir,
+		well_out_dir=preprocess_out_dir,
 		data_file=inputs.h5_path,
 		stream_id=inputs.stream_id,
 	)
@@ -276,6 +328,24 @@ def _capture_stage_log(*, source: Path, destination: Path) -> str | None:
 	except Exception:
 		shutil.copy2(source, destination)
 		return "copy"
+
+
+def _reset_preprocess_output_root_for_force_restart(
+	*,
+	inputs: PreprocessInputs,
+	preprocess_out_dir: Path,
+	selected_phase: str | None,
+) -> bool:
+	if not bool(inputs.force_restart) or selected_phase is not None:
+		return False
+	if not _safe_path_exists(preprocess_out_dir) and not preprocess_out_dir.is_symlink():
+		return False
+	if preprocess_out_dir.is_dir() and not preprocess_out_dir.is_symlink():
+		shutil.rmtree(preprocess_out_dir)
+	else:
+		preprocess_out_dir.unlink()
+	LOGGER.info("Force restart cleared preprocess output dir: %s", preprocess_out_dir)
+	return True
 
 
 def _write_observability_artifacts(
@@ -449,8 +519,9 @@ def _coalesce_config_value(*values: Any) -> Any:
 	return None
 
 
-def _is_concatenate_recordings_phase(selected_phase: str | None) -> bool:
+def _is_concat_segments_phase(selected_phase: str | None) -> bool:
 	return selected_phase in {
+		"concat_segments",
 		"concatenate_recordings",
 		"concatenate_preprocessed_recordings",
 		"save_concatenated_recording",
@@ -564,52 +635,57 @@ def _resolve_effective_plot_config(inputs: PreprocessInputs, *, selected_phase: 
 		trace_max_points=int(inputs.trace_max_points),
 	)
 	segment_plot = _apply_plot_input_fallback(
-		phase_plot=inputs.phases.preprocess_segments.plot,
+		phase_plot=inputs.phases.plot_segment_traces.plot,
 		input_plot=input_plot,
-		default_plot=PreprocessSegmentsPhaseConfig().plot,
+		default_plot=PreprocessPlotSegmentTracesPhaseConfig().plot,
 	)
 	concat_plot = _apply_plot_input_fallback(
-		phase_plot=inputs.phases.concatenate_recordings.plot,
+		phase_plot=inputs.phases.plot_concat_traces.plot,
 		input_plot=input_plot,
-		default_plot=PreprocessConcatenateRecordingsPhaseConfig().plot,
+		default_plot=PreprocessPlotConcatTracesPhaseConfig().plot,
 	)
 	primary = segment_plot
 	secondary = concat_plot
-	layouts = bool(segment_plot.layouts)
-	segment_traces = bool(segment_plot.segment_traces)
-	concat_trace = bool(concat_plot.concat_trace)
+	layouts = False
+	segment_traces = False
+	concat_trace = False
 
 	if selected_phase in {"preprocess_segments", "save_segment_recordings", "build_preprocessed_recording"}:
 		primary = segment_plot
 		secondary = concat_plot
+		layouts = False
+		segment_traces = False
+		concat_trace = False
+	elif selected_phase == "plot_segment_traces":
+		primary = segment_plot
+		secondary = concat_plot
 		layouts = bool(segment_plot.layouts)
 		segment_traces = bool(segment_plot.segment_traces)
-		concat_trace = bool(segment_plot.concat_trace)
-	elif _is_concatenate_recordings_phase(selected_phase):
-		primary = concat_plot
-		secondary = segment_plot
-		layouts = bool(concat_plot.layouts)
-		segment_traces = bool(concat_plot.segment_traces)
-		concat_trace = bool(concat_plot.concat_trace)
-	elif selected_phase == "save_common_electrodes":
+		concat_trace = False
+	elif _is_concat_segments_phase(selected_phase):
 		primary = concat_plot
 		secondary = segment_plot
 		layouts = False
 		segment_traces = False
 		concat_trace = False
+	elif selected_phase == "plot_concat_traces":
+		primary = concat_plot
+		secondary = segment_plot
+		layouts = False
+		segment_traces = False
+		concat_trace = bool(concat_plot.concat_trace)
+	elif selected_phase == "save_common_electrodes":
+		primary = segment_plot
+		secondary = segment_plot
+		layouts = False
+		segment_traces = False
+		concat_trace = False
 	else:
-		primary = segment_plot if bool(inputs.phases.preprocess_segments.enabled) else concat_plot
+		primary = segment_plot if bool(inputs.phases.plot_segment_traces.enabled) else concat_plot
 		secondary = concat_plot if primary is segment_plot else segment_plot
-		layouts = bool(inputs.phases.preprocess_segments.enabled and segment_plot.layouts)
-		segment_traces = bool(inputs.phases.preprocess_segments.enabled and segment_plot.segment_traces)
-		concat_trace = bool(
-			(inputs.phases.concatenate_recordings.enabled and concat_plot.concat_trace)
-			or (
-				not inputs.phases.concatenate_recordings.enabled
-				and inputs.phases.preprocess_segments.enabled
-				and segment_plot.concat_trace
-			)
-		)
+		layouts = bool(inputs.phases.plot_segment_traces.enabled and segment_plot.layouts)
+		segment_traces = bool(inputs.phases.plot_segment_traces.enabled and segment_plot.segment_traces)
+		concat_trace = bool(inputs.phases.plot_concat_traces.enabled and concat_plot.concat_trace)
 
 	disable_all_png_diagnostics = _coalesce_config_value(
 		primary.disable_all_png_diagnostics,
@@ -709,19 +785,19 @@ def _resolve_preprocess_paths(inputs: PreprocessInputs, *, plot_cfg: PreprocessP
 	plot_output_dir: Path | None = None
 	if bool(plot_cfg.layouts or plot_cfg.concat_trace or plot_cfg.segment_traces):
 		if plot_cfg.output_dir is not None and str(plot_cfg.output_dir).strip():
-			plot_output_dir = _resolve_path_from_root(
-				root_dir=well_out_dir,
+			plot_output_dir = _resolve_preprocess_path_from_root(
+				preprocess_out_dir=preprocess_out_dir,
 				raw=plot_cfg.output_dir,
-				default=PREPROCESS_OUTPUTS_DIRNAME,
+				default=".",
 			)
 		else:
 			plot_output_dir = preprocess_out_dir
 	epoch_markers_output_dir: Path | None
 	if plot_cfg.epoch_markers_output_dir is not None and str(plot_cfg.epoch_markers_output_dir).strip():
-		epoch_markers_output_dir = _resolve_path_from_root(
-			root_dir=well_out_dir,
+		epoch_markers_output_dir = _resolve_preprocess_path_from_root(
+			preprocess_out_dir=preprocess_out_dir,
 			raw=plot_cfg.epoch_markers_output_dir,
-			default=PREPROCESS_OUTPUTS_DIRNAME,
+			default=".",
 		)
 	else:
 		epoch_markers_output_dir = preprocess_out_dir
@@ -731,23 +807,32 @@ def _resolve_preprocess_paths(inputs: PreprocessInputs, *, plot_cfg: PreprocessP
 		legacy_out_dir=preprocess_out_dir,
 		recording_dir=_resolve_phase_output_dir(
 			preprocess_out_dir=preprocess_out_dir,
-			raw=inputs.phases.concatenate_recordings.rel_output_root,
-			default="preprocessed_recording",
+			raw=inputs.phases.concat_segments.rel_output_root,
+			default="concatenated_recording",
 		),
-		common_electrodes_path=preprocess_out_dir / "common_electrodes.npy",
+		concat_manifest_path=_resolve_phase_output_dir(
+			preprocess_out_dir=preprocess_out_dir,
+			raw=inputs.phases.concat_segments.manifest_relpath,
+			default="context/concat_segments_manifest.json",
+		),
+		common_electrodes_path=_resolve_preprocess_path_from_root(
+			preprocess_out_dir=preprocess_out_dir,
+			raw=inputs.phases.save_rec_metadata.common_electrodes_relpath,
+			default="common_electrodes.npy",
+		),
 		per_segment_preprocessed_dir=_resolve_phase_output_dir(
 			preprocess_out_dir=preprocess_out_dir,
 			raw=inputs.phases.preprocess_segments.rel_output_root,
-			default="per_segment_preprocessed",
+			default="preprocessed_segments",
 		),
 		per_segment_manifest_path=_resolve_phase_output_dir(
 			preprocess_out_dir=preprocess_out_dir,
 			raw=inputs.phases.preprocess_segments.rel_output_root,
-			default="per_segment_preprocessed",
+			default="preprocessed_segments",
 		) / "manifest.json",
 		preprocess_config_path=preprocess_out_dir / "preprocess_config.json",
 		stage_summary_json=preprocess_out_dir / "preprocess_summary.json",
-		stage_log_source=_resolve_stage_log_source(inputs=inputs, well_out_dir=well_out_dir),
+		stage_log_source=_resolve_stage_log_source(inputs=inputs, preprocess_out_dir=preprocess_out_dir),
 		plot_output_dir=plot_output_dir,
 		epoch_markers_output_dir=epoch_markers_output_dir,
 	)
@@ -1116,28 +1201,33 @@ def _parse_recording_context_from_path(path: Path) -> dict[str, str]:
 	return out
 
 
-def _resolve_recording_metadata_paths(*, inputs: PreprocessInputs, well_out_dir: Path) -> _RecordingMetadataPathSet:
+def _resolve_recording_metadata_paths(*, inputs: PreprocessInputs, preprocess_out_dir: Path) -> _RecordingMetadataPathSet:
 	return _RecordingMetadataPathSet(
-		segment_epochs_path=_resolve_path_from_root(
-			root_dir=well_out_dir,
+		segment_epochs_path=_resolve_preprocess_path_from_root(
+			preprocess_out_dir=preprocess_out_dir,
 			raw=inputs.phases.save_rec_metadata.segment_epochs_relpath,
 			default="segment_epochs.json",
 		),
-		contiguous_epochs_path=_resolve_path_from_root(
-			root_dir=well_out_dir,
+		contiguous_epochs_path=_resolve_preprocess_path_from_root(
+			preprocess_out_dir=preprocess_out_dir,
 			raw=inputs.phases.save_rec_metadata.contiguous_epochs_relpath,
 			default="continuous_epochs.json",
 		),
-		sampling_metadata_path=_resolve_path_from_root(
-			root_dir=well_out_dir,
+		sampling_metadata_path=_resolve_preprocess_path_from_root(
+			preprocess_out_dir=preprocess_out_dir,
 			raw=inputs.phases.save_rec_metadata.sampling_metadata_relpath,
 			default="sampling_rate_metadata.json",
 		),
-		assay_stats_path=_resolve_stream_path_from_root(
-			root_dir=well_out_dir,
+		assay_stats_path=_resolve_preprocess_stream_path_from_root(
+			preprocess_out_dir=preprocess_out_dir,
 			raw=inputs.assay_stats_relpath,
 			default="assay_stats_{stream_id}.txt",
 			stream_id=str(inputs.stream_id),
+		),
+		common_electrodes_path=_resolve_preprocess_path_from_root(
+			preprocess_out_dir=preprocess_out_dir,
+			raw=inputs.phases.save_rec_metadata.common_electrodes_relpath,
+			default="common_electrodes.npy",
 		),
 	)
 
@@ -1866,131 +1956,355 @@ def _execute_preprocess_phase_work(
 	return phase_flags, outputs, phase_results, common_electrodes, phase_timing_s, cfg_summary
 
 
-def _write_enabled_phase_summaries(
+def _normalize_requested_preprocess_phase(selected_phase: str | None) -> str | None:
+	if selected_phase is None:
+		return None
+	return {
+		"build_preprocessed_recording": "preprocess_segments",
+		"save_segment_recordings": "preprocess_segments",
+		"concatenate_recordings": "concat_segments",
+		"concatenate_preprocessed_recordings": "concat_segments",
+		"save_concatenated_recording": "concat_segments",
+	}.get(str(selected_phase), str(selected_phase))
+
+
+def _phase_enabled(inputs: PreprocessInputs, phase_name: str) -> bool:
+	if phase_name == "copy_src_to_scratch":
+		return bool(inputs.phases.copy_src_to_scratch.enabled)
+	if phase_name == "save_rec_metadata":
+		return bool(inputs.phases.save_rec_metadata.enabled)
+	if phase_name == "preprocess_segments":
+		return bool(inputs.phases.preprocess_segments.enabled) and bool(inputs.save_segment_recordings)
+	if phase_name == "plot_segment_traces":
+		return bool(inputs.phases.plot_segment_traces.enabled)
+	if phase_name == "concat_segments":
+		return bool(inputs.phases.concat_segments.enabled) and bool(inputs.save_concat_recording)
+	if phase_name == "plot_concat_traces":
+		return bool(inputs.phases.plot_concat_traces.enabled)
+	if phase_name == "wipe_src_scratch":
+		return bool(inputs.phases.wipe_src_scratch.enabled)
+	return False
+
+
+def _summary_relpath_for_phase(inputs: PreprocessInputs, phase_name: str) -> str:
+	if phase_name == "copy_src_to_scratch":
+		return str(inputs.phases.copy_src_to_scratch.summary_json_relpath)
+	if phase_name == "save_rec_metadata":
+		return str(inputs.phases.save_rec_metadata.summary_json_relpath)
+	if phase_name == "preprocess_segments":
+		return str(inputs.phases.preprocess_segments.summary_json_relpath)
+	if phase_name == "plot_segment_traces":
+		return str(inputs.phases.plot_segment_traces.summary_json_relpath)
+	if phase_name == "concat_segments":
+		return str(inputs.phases.concat_segments.summary_json_relpath)
+	if phase_name == "plot_concat_traces":
+		return str(inputs.phases.plot_concat_traces.summary_json_relpath)
+	if phase_name == "wipe_src_scratch":
+		return str(inputs.phases.wipe_src_scratch.summary_json_relpath)
+	if phase_name == "save_common_electrodes":
+		return str(inputs.phases.save_rec_metadata.common_electrodes_summary_json_relpath)
+	return "context/preprocess_phase_summary.json"
+
+
+def _summary_outputs_for_phase(
+	*,
+	phase_name: str,
+	paths: _PreprocessPathSet,
+	recording_metadata_paths: _RecordingMetadataPathSet,
+	payload: dict[str, Any],
+	outputs: dict[str, str],
+) -> dict[str, str]:
+	if phase_name == "copy_src_to_scratch":
+		return {
+			"source_h5_path": str(payload.get("source_h5_path", "")),
+			"resolved_h5_path": str(payload.get("resolved_h5_path", "")),
+		}
+	if phase_name == "save_rec_metadata":
+		return {
+			"segment_epochs_json": str(recording_metadata_paths.segment_epochs_path),
+			"contiguous_epochs_json": str(recording_metadata_paths.contiguous_epochs_path),
+			"sampling_metadata_json": str(recording_metadata_paths.sampling_metadata_path),
+			"assay_stats_txt": str(recording_metadata_paths.assay_stats_path),
+			"common_electrodes_path": str(recording_metadata_paths.common_electrodes_path),
+		}
+	if phase_name == "preprocess_segments":
+		return {
+			"per_segment_preprocessed_dir": str(paths.per_segment_preprocessed_dir),
+			"per_segment_manifest_json": str(paths.per_segment_manifest_path),
+		}
+	if phase_name == "plot_segment_traces":
+		return {
+			"plot_output_dir": outputs.get("plot_output_dir", str(paths.preprocess_out_dir)),
+		}
+	if phase_name == "concat_segments":
+		return {
+			"concatenated_recording_dir": str(paths.recording_dir),
+			"preprocessed_recording_dir": str(paths.recording_dir),
+			"concat_manifest_path": str(paths.concat_manifest_path),
+		}
+	if phase_name == "plot_concat_traces":
+		return {
+			"plot_output_dir": outputs.get("plot_output_dir", str(paths.preprocess_out_dir)),
+			"concatenated_recording_dir": str(paths.recording_dir),
+			"concat_manifest_path": str(paths.concat_manifest_path),
+		}
+	if phase_name == "wipe_src_scratch":
+		return {
+			"source_h5_path": str(payload.get("source_h5_path", "")),
+			"resolved_h5_path": str(payload.get("resolved_h5_path", "")),
+		}
+	if phase_name == "save_common_electrodes":
+		return {"common_electrodes_path": str(recording_metadata_paths.common_electrodes_path)}
+	return {}
+
+
+def _load_common_electrodes_or_empty(path: Path) -> list[int]:
+	try:
+		return load_common_electrodes(path)
+	except Exception:
+		return []
+
+
+def _build_save_common_electrodes_payload(path: Path) -> dict[str, Any]:
+	common_electrodes = _load_common_electrodes_or_empty(path)
+	return {
+		"phase": "save_common_electrodes",
+		"common_electrodes_path": str(path),
+		"electrode_count": int(len(common_electrodes)),
+		"common_electrodes_preview": [int(value) for value in common_electrodes[:64]],
+	}
+
+
+def _run_preprocess_phase_sequence(
 	*,
 	inputs: PreprocessInputs,
 	paths: _PreprocessPathSet,
-	phase_results: dict[str, Any],
-	outputs: dict[str, str],
-	common_electrodes: list[int],
-	phase_timing_s: dict[str, float],
+	recording_metadata_paths: _RecordingMetadataPathSet,
 	selected_phase: str | None,
-	recording_metadata_payload: dict[str, Any] | None = None,
-	wipe_src_scratch_payload: dict[str, Any] | None = None,
-) -> dict[str, dict[str, Any]]:
+	event_records: list[dict[str, Any]] | None = None,
+	scratch_usage_key: str | None = None,
+) -> tuple[dict[str, str], dict[str, dict[str, Any]], list[int], bool]:
+	canonical_selected_phase = _normalize_requested_preprocess_phase(selected_phase)
+	outputs: dict[str, str] = {
+		"legacy.preprocess_out_dir": str(paths.legacy_out_dir),
+		"concatenated_recording_dir": str(paths.recording_dir),
+		"preprocessed_recording_dir": str(paths.recording_dir),
+		"concat_manifest_path": str(paths.concat_manifest_path),
+		"common_electrodes_path": str(recording_metadata_paths.common_electrodes_path),
+		"per_segment_manifest_json": str(paths.per_segment_manifest_path),
+		"per_segment_preprocessed_dir": str(paths.per_segment_preprocessed_dir),
+	}
+	if bool(inputs.logging_enabled) or _safe_path_exists(paths.stage_log_source):
+		outputs["pipeline_log"] = str(paths.stage_log_source)
+	build_plot_cfg = _resolve_effective_plot_config(inputs, selected_phase=canonical_selected_phase)
+	if paths.plot_output_dir is not None:
+		outputs["plot_output_dir"] = str(paths.plot_output_dir)
+	if paths.epoch_markers_output_dir is not None:
+		outputs["epoch_markers_output_dir"] = str(paths.epoch_markers_output_dir)
+	phase_logger = _prepare_phase_logger(inputs, paths)
 	phase_summaries: dict[str, dict[str, Any]] = {}
-	if _copy_phase_requested(inputs, selected_phase=selected_phase):
-		phase_summaries["copy_src_to_scratch"] = _write_phase_summary(
+	scratch_usage_released = False
+	if canonical_selected_phase == "save_common_electrodes":
+		phases_to_run = ["save_rec_metadata"]
+	else:
+		all_phases = [
+			"copy_src_to_scratch",
+			"save_rec_metadata",
+			"preprocess_segments",
+			"plot_segment_traces",
+			"concat_segments",
+			"plot_concat_traces",
+			"wipe_src_scratch",
+		]
+		phases_to_run = [canonical_selected_phase] if canonical_selected_phase is not None else [
+			phase_name for phase_name in all_phases if _phase_enabled(inputs, phase_name)
+		]
+
+	for phase_name in phases_to_run:
+		phase_t0 = time.perf_counter()
+		if phase_name == "copy_src_to_scratch":
+			_validate_copy_phase_requirements(inputs, selected_phase=selected_phase)
+			payload = run_copy_src_to_scratch_core(
+				h5_path=inputs.h5_path,
+				source_h5_path=(inputs.source_h5_path or inputs.h5_path),
+				stream_id=str(inputs.stream_id),
+				copied_to_scratch=bool(inputs.copied_to_scratch),
+				requires_use_scratch_root=bool(inputs.phases.copy_src_to_scratch.requires_use_scratch_root),
+			)
+		elif phase_name == "save_rec_metadata":
+			payload = run_save_rec_metadata_core(
+				h5_path=inputs.h5_path,
+				source_h5_path=(inputs.source_h5_path or inputs.h5_path),
+				stream_id=str(inputs.stream_id),
+				segment_epochs_path=recording_metadata_paths.segment_epochs_path,
+				contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
+				sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
+				assay_stats_path=recording_metadata_paths.assay_stats_path,
+				common_electrodes_path=recording_metadata_paths.common_electrodes_path,
+				verbose=bool(inputs.phases.save_rec_metadata.verbose),
+				suppress_h5_plugin_messages=bool(inputs.logging_suppress_h5_plugin_messages),
+				logger=phase_logger,
+			)
+		elif phase_name == "preprocess_segments":
+			payload = run_preprocess_segments_core(
+				h5_path=inputs.h5_path,
+				stream_id=str(inputs.stream_id),
+				n_jobs=max(1, int(inputs.n_jobs)),
+				segment_epochs_path=recording_metadata_paths.segment_epochs_path,
+				contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
+				sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
+				common_electrodes_path=recording_metadata_paths.common_electrodes_path,
+				output_dir=paths.per_segment_preprocessed_dir,
+				manifest_path=paths.per_segment_manifest_path,
+				overwrite_saved_recording=bool(inputs.overwrite_saved_recording),
+				save_n_jobs=max(1, int(inputs.phases.preprocess_segments.outputs.segment_save_n_jobs or inputs.n_jobs)),
+				chunk_duration=str(inputs.phases.preprocess_segments.outputs.save_chunk_duration),
+				progress_bar=bool(inputs.phases.preprocess_segments.outputs.save_progress_bar),
+				limit_segments_per_well=inputs.debug_limit_segments_per_well,
+				logger=phase_logger,
+				run_save_segment_recordings_core=run_save_segment_recordings_core,
+			)
+		elif phase_name == "plot_segment_traces":
+			payload = run_plot_segment_traces_core(
+				stream_id=str(inputs.stream_id),
+				segment_manifest_path=paths.per_segment_manifest_path,
+				segment_epochs_path=recording_metadata_paths.segment_epochs_path,
+				contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
+				sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
+				plot_output_dir=(paths.plot_output_dir or paths.preprocess_out_dir),
+				channel_layouts_subdir=build_plot_cfg.channel_layouts_subdir,
+				segment_traces_subdir=build_plot_cfg.segment_traces_subdir,
+				plot_layouts=bool(build_plot_cfg.layouts),
+				plot_segment_traces=bool(build_plot_cfg.segment_traces),
+				segment_trace_n_reps=int(build_plot_cfg.segment_trace_n_reps),
+				plot_n_jobs=max(1, int(build_plot_cfg.n_jobs or inputs.plot_n_jobs)),
+				trace_downsample_hz=build_plot_cfg.trace_downsample_hz,
+				trace_max_points=_normalize_trace_max_points(build_plot_cfg.trace_max_points),
+				logger=phase_logger,
+			)
+		elif phase_name == "concat_segments":
+			payload = run_concat_segments_core(
+				segment_manifest_path=paths.per_segment_manifest_path,
+				recording_dir=paths.recording_dir,
+				concat_manifest_path=paths.concat_manifest_path,
+				overwrite_saved_recording=bool(inputs.overwrite_saved_recording),
+				n_jobs=max(1, int(inputs.phases.concat_segments.outputs.concat_save_n_jobs or inputs.n_jobs)),
+				chunk_duration=str(inputs.phases.concat_segments.outputs.save_chunk_duration),
+				progress_bar=bool(inputs.phases.concat_segments.outputs.save_progress_bar),
+				logger=phase_logger,
+				run_save_concatenated_recording_core=run_save_concatenated_recording_core,
+			)
+		elif phase_name == "plot_concat_traces":
+			payload = run_plot_concat_traces_core(
+				stream_id=str(inputs.stream_id),
+				recording_dir=paths.recording_dir,
+				concat_manifest_path=paths.concat_manifest_path,
+				segment_epochs_path=recording_metadata_paths.segment_epochs_path,
+				contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
+				sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
+				plot_output_dir=(paths.plot_output_dir or paths.preprocess_out_dir),
+				concat_trace_relpath=build_plot_cfg.concat_trace_relpath,
+				plot_concat_trace=bool(build_plot_cfg.concat_trace),
+				concat_trace_n_reps=int(build_plot_cfg.concat_trace_n_reps),
+				plot_n_jobs=max(1, int(build_plot_cfg.n_jobs or inputs.plot_n_jobs)),
+				trace_downsample_hz=build_plot_cfg.trace_downsample_hz,
+				trace_max_points=_normalize_trace_max_points(build_plot_cfg.trace_max_points),
+				logger=phase_logger,
+			)
+		elif phase_name == "wipe_src_scratch":
+			_validate_wipe_phase_requirements(inputs, selected_phase=selected_phase)
+			active_shared_users_remaining = _release_scratch_input_usage(scratch_usage_key)
+			scratch_usage_released = True
+			payload = run_wipe_src_scratch_core(
+				h5_path=inputs.h5_path,
+				source_h5_path=(inputs.source_h5_path or inputs.h5_path),
+				copied_to_scratch=bool(inputs.copied_to_scratch),
+				dry_run=bool(inputs.phases.wipe_src_scratch.dry_run),
+				requires_use_scratch_root=bool(inputs.phases.wipe_src_scratch.requires_use_scratch_root),
+				active_shared_users_remaining=int(active_shared_users_remaining),
+			)
+		else:
+			raise RuntimeError(f"Unsupported preprocess phase: {phase_name}")
+
+		payload = dict(payload)
+		payload.setdefault("phase_elapsed_s", float(max(0.0, time.perf_counter() - phase_t0)))
+		if event_records is not None:
+			event_records.append(
+				{
+					"event": f"phase_complete:{phase_name}",
+					"utc": _utc_now_iso(),
+					"details": {
+						"elapsed_s": float(payload.get("phase_elapsed_s", 0.0) or 0.0),
+					},
+				}
+			)
+		summary_outputs = _summary_outputs_for_phase(
+			phase_name=phase_name,
+			paths=paths,
+			recording_metadata_paths=recording_metadata_paths,
+			payload=payload,
+			outputs=outputs,
+		)
+		outputs.update({str(key): str(value) for key, value in summary_outputs.items()})
+		phase_summaries[phase_name] = _write_phase_summary(
 			inputs=inputs,
 			paths=paths,
-			phase_name="copy_src_to_scratch",
-			summary_json_relpath=str(inputs.phases.copy_src_to_scratch.summary_json_relpath),
-			outputs={
-				"source_h5_path": str(inputs.source_h5_path or inputs.h5_path),
-				"resolved_h5_path": str(inputs.h5_path),
-			},
-			extra_payload=_build_copy_src_to_scratch_phase_payload(inputs),
+			phase_name=phase_name,
+			summary_json_relpath=_summary_relpath_for_phase(inputs, phase_name),
+			outputs=summary_outputs,
+			extra_payload=payload,
 		)
-	if _recording_metadata_phase_requested(inputs, selected_phase=selected_phase):
-		recording_metadata_payload = (
-			dict(recording_metadata_payload)
-			if recording_metadata_payload is not None
-			else _build_recording_metadata_phase_payload(inputs)
-		)
-		recording_metadata_outputs = {
-			"source_h5_path": str(inputs.source_h5_path or inputs.h5_path),
-			"resolved_h5_path": str(inputs.h5_path),
-		}
-		for output_key in ("segment_epochs_json", "contiguous_epochs_json", "sampling_metadata_json", "assay_stats_txt"):
-			value = recording_metadata_payload.get(output_key, None)
-			if value is None:
-				continue
-			recording_metadata_outputs[str(output_key)] = str(value)
-		outputs.update(recording_metadata_outputs)
-		phase_summaries["save_rec_metadata"] = _write_phase_summary(
-			inputs=inputs,
+		outputs[f"{phase_name}_summary_json"] = str(phase_summaries[phase_name]["summary_json"])
+		if phase_name == "save_rec_metadata":
+			compat_payload = _build_save_common_electrodes_payload(recording_metadata_paths.common_electrodes_path)
+			compat_outputs = _summary_outputs_for_phase(
+				phase_name="save_common_electrodes",
+				paths=paths,
+				recording_metadata_paths=recording_metadata_paths,
+				payload=compat_payload,
+				outputs=outputs,
+			)
+			phase_summaries["save_common_electrodes"] = _write_phase_summary(
+				inputs=inputs,
+				paths=paths,
+				phase_name="save_common_electrodes",
+				summary_json_relpath=_summary_relpath_for_phase(inputs, "save_common_electrodes"),
+				outputs=compat_outputs,
+				extra_payload=compat_payload,
+			)
+			outputs.update({str(key): str(value) for key, value in compat_outputs.items()})
+			outputs["save_common_electrodes_summary_json"] = str(
+				phase_summaries["save_common_electrodes"]["summary_json"]
+			)
+		if phase_name == "concat_segments":
+			outputs["concatenate_recordings_summary_json"] = str(phase_summaries[phase_name]["summary_json"])
+
+	if canonical_selected_phase == "save_common_electrodes":
+		compat_payload = _build_save_common_electrodes_payload(recording_metadata_paths.common_electrodes_path)
+		compat_outputs = _summary_outputs_for_phase(
+			phase_name="save_common_electrodes",
 			paths=paths,
-			phase_name="save_rec_metadata",
-			summary_json_relpath=str(inputs.phases.save_rec_metadata.summary_json_relpath),
-			outputs=recording_metadata_outputs,
-			extra_payload=recording_metadata_payload,
+			recording_metadata_paths=recording_metadata_paths,
+			payload=compat_payload,
+			outputs=outputs,
 		)
-	if _wipe_src_scratch_phase_requested(inputs, selected_phase=selected_phase) and wipe_src_scratch_payload is not None:
-		phase_summaries["wipe_src_scratch"] = _write_phase_summary(
-			inputs=inputs,
-			paths=paths,
-			phase_name="wipe_src_scratch",
-			summary_json_relpath=str(inputs.phases.wipe_src_scratch.summary_json_relpath),
-			outputs={
-				"source_h5_path": str(inputs.source_h5_path or inputs.h5_path),
-				"resolved_h5_path": str(inputs.h5_path),
-			},
-			extra_payload=dict(wipe_src_scratch_payload),
-		)
-	if ("build_preprocessed_recording" in phase_results or "save_segment_recordings" in phase_results) and (
-		selected_phase in {"build_preprocessed_recording", "save_segment_recordings", "preprocess_segments"}
-		or (selected_phase is None and bool(inputs.phases.preprocess_segments.enabled))
-	):
-		segment_payload = dict(phase_results.get("save_segment_recordings", {}))
-		segment_payload.update(
-			{
-				"n_common_electrodes": int(len(common_electrodes)),
-				"segment_count": int(phase_results.get("build_preprocessed_recording", {}).get("segment_count", 0)),
-				"rec_names": list(phase_results.get("build_preprocessed_recording", {}).get("rec_names", [])),
-				"phase_timing_s": phase_timing_s,
-			}
-		)
-		phase_summaries["preprocess_segments"] = _write_phase_summary(
-			inputs=inputs,
-			paths=paths,
-			phase_name="preprocess_segments",
-			summary_json_relpath=str(inputs.phases.preprocess_segments.summary_json_relpath),
-			outputs={
-				"per_segment_preprocessed_dir": outputs["per_segment_preprocessed_dir"],
-				"per_segment_manifest_json": outputs["per_segment_manifest_json"],
-				"plot_output_dir": outputs.get("plot_output_dir", outputs["legacy.preprocess_out_dir"]),
-				"epoch_markers_output_dir": outputs.get("epoch_markers_output_dir", outputs["legacy.preprocess_out_dir"]),
-			},
-			extra_payload=segment_payload,
-		)
-	if "save_concatenated_recording" in phase_results and (
-		_is_concatenate_recordings_phase(selected_phase)
-		or (selected_phase is None and bool(inputs.phases.concatenate_recordings.enabled))
-	):
-		phase_summaries["concatenate_recordings"] = _write_phase_summary(
-			inputs=inputs,
-			paths=paths,
-			phase_name="concatenate_recordings",
-			summary_json_relpath=str(inputs.phases.concatenate_recordings.summary_json_relpath),
-			outputs={
-				"concatenated_recording_dir": outputs["concatenated_recording_dir"],
-				"preprocessed_recording_dir": outputs["preprocessed_recording_dir"],
-			},
-			extra_payload=dict(phase_results["save_concatenated_recording"]),
-		)
-	if "save_common_electrodes" in phase_results and (
-		selected_phase == "save_common_electrodes"
-		or _is_concatenate_recordings_phase(selected_phase)
-		or (
-			selected_phase is None
-			and bool(inputs.phases.concatenate_recordings.save_common_electrodes.enabled)
-		)
-	):
 		phase_summaries["save_common_electrodes"] = _write_phase_summary(
 			inputs=inputs,
 			paths=paths,
 			phase_name="save_common_electrodes",
-			summary_json_relpath=str(inputs.phases.concatenate_recordings.save_common_electrodes.summary_json_relpath),
-			outputs={"common_electrodes_path": outputs["common_electrodes_path"]},
-			extra_payload=dict(phase_results["save_common_electrodes"]),
+			summary_json_relpath=_summary_relpath_for_phase(inputs, "save_common_electrodes"),
+			outputs=compat_outputs,
+			extra_payload=compat_payload,
 		)
-	for phase_name, payload in phase_summaries.items():
-		outputs[f"{phase_name}_summary_json"] = str(payload["summary_json"])
-	if "concatenate_recordings" in phase_summaries:
+		outputs.update({str(key): str(value) for key, value in compat_outputs.items()})
+		outputs["save_common_electrodes_summary_json"] = str(phase_summaries["save_common_electrodes"]["summary_json"])
+
+	if "concat_segments" in phase_summaries:
 		outputs["concatenate_preprocessed_recordings_summary_json"] = str(
-			phase_summaries["concatenate_recordings"]["summary_json"]
+			phase_summaries["concat_segments"]["summary_json"]
 		)
-	return phase_summaries
+	common_electrodes = _load_common_electrodes_or_empty(recording_metadata_paths.common_electrodes_path)
+	return outputs, phase_summaries, common_electrodes, scratch_usage_released
 
 def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
 	build_plot_cfg = _resolve_effective_plot_config(inputs, selected_phase=None)
@@ -2025,44 +2339,38 @@ def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
 				"details": _build_copy_src_to_scratch_phase_payload(inputs),
 			}
 		)
+	if _reset_preprocess_output_root_for_force_restart(
+		inputs=inputs,
+		preprocess_out_dir=paths.preprocess_out_dir,
+		selected_phase=None,
+	):
+		event_records.append(
+			{
+				"event": "force_restart_reset_preprocess_outputs",
+				"utc": _utc_now_iso(),
+				"details": {
+					"preprocess_out_dir": str(paths.preprocess_out_dir),
+				},
+			}
+		)
 
 	stage_log_source = paths.stage_log_source
 	_clear_self_referential_symlink(stage_log_source)
 	scratch_usage_key = _acquire_scratch_input_usage(inputs, selected_phase=None)
 	scratch_usage_released = False
-	wipe_src_scratch_payload: dict[str, Any] | None = None
-	recording_metadata_paths = _resolve_recording_metadata_paths(inputs=inputs, well_out_dir=paths.well_out_dir)
-	recording_metadata_payload: dict[str, Any] | None = None
+	recording_metadata_paths = _resolve_recording_metadata_paths(inputs=inputs, preprocess_out_dir=paths.preprocess_out_dir)
+	outputs: dict[str, str] = {"legacy.preprocess_out_dir": str(legacy_out_dir)}
+	phase_summaries: dict[str, dict[str, Any]] = {}
+	common_electrodes: list[int] = []
 
 	try:
-		if _recording_metadata_phase_requested(inputs, selected_phase=None):
-			recording_metadata_payload = _build_recording_metadata_phase_payload(inputs)
-		phase_flags, outputs, phase_results, common_electrodes, phase_timing_s, _cfg_summary = _execute_preprocess_phase_work(
+		outputs, phase_summaries, common_electrodes, scratch_usage_released = _run_preprocess_phase_sequence(
 			inputs=inputs,
 			paths=paths,
+			recording_metadata_paths=recording_metadata_paths,
 			selected_phase=None,
-			saved_assay_stats_path=recording_metadata_paths.assay_stats_path,
-		)
-		if _wipe_src_scratch_phase_requested(inputs, selected_phase=None):
-			wipe_src_scratch_payload = _execute_wipe_src_scratch_phase(inputs, usage_key=scratch_usage_key)
-			scratch_usage_released = True
-			event_records.append(
-				{
-					"event": "wipe_src_scratch",
-					"utc": _utc_now_iso(),
-					"details": dict(wipe_src_scratch_payload),
-				}
-			)
-		phase_summaries = _write_enabled_phase_summaries(
-			inputs=inputs,
-			paths=paths,
-			phase_results=phase_results,
-			outputs=outputs,
-			common_electrodes=common_electrodes,
-			phase_timing_s=phase_timing_s,
-			selected_phase=None,
-			recording_metadata_payload=recording_metadata_payload,
-			wipe_src_scratch_payload=wipe_src_scratch_payload,
+			event_records=event_records,
+			scratch_usage_key=scratch_usage_key,
 		)
 		event_records.append(
 			{
@@ -2131,6 +2439,10 @@ def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
 			_release_scratch_input_usage(scratch_usage_key)
 
 	stage_elapsed_s = float(max(0.0, time.perf_counter() - stage_t0))
+	phase_timing_s = {
+		str(name): float(payload.get("phase_elapsed_s", 0.0) or 0.0)
+		for name, payload in phase_summaries.items()
+	}
 	event_records.append(
 		{
 			"event": "stage_complete",
@@ -2256,51 +2568,37 @@ def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
 
 
 def _run_preprocess_selected_phase(inputs: PreprocessInputs, *, selected_phase: str) -> dict[str, Any]:
-	build_plot_cfg = _resolve_effective_plot_config(inputs, selected_phase=selected_phase)
+	canonical_selected_phase = _normalize_requested_preprocess_phase(selected_phase)
+	build_plot_cfg = _resolve_effective_plot_config(inputs, selected_phase=canonical_selected_phase)
 	paths = _resolve_preprocess_paths(inputs, plot_cfg=build_plot_cfg)
 	paths.preprocess_out_dir.mkdir(parents=True, exist_ok=True)
 	_clear_self_referential_symlink(paths.stage_log_source)
 	scratch_usage_key = _acquire_scratch_input_usage(inputs, selected_phase=selected_phase)
 	scratch_usage_released = False
-	recording_metadata_paths = _resolve_recording_metadata_paths(inputs=inputs, well_out_dir=paths.well_out_dir)
-	recording_metadata_payload: dict[str, Any] | None = None
+	recording_metadata_paths = _resolve_recording_metadata_paths(inputs=inputs, preprocess_out_dir=paths.preprocess_out_dir)
 	try:
-		if _recording_metadata_phase_requested(inputs, selected_phase=selected_phase):
-			recording_metadata_payload = _build_recording_metadata_phase_payload(inputs)
-		phase_flags, outputs, phase_results, common_electrodes, phase_timing_s, _cfg_summary = _execute_preprocess_phase_work(
+		outputs, phase_summaries, _common_electrodes, scratch_usage_released = _run_preprocess_phase_sequence(
 			inputs=inputs,
 			paths=paths,
+			recording_metadata_paths=recording_metadata_paths,
 			selected_phase=selected_phase,
-			saved_assay_stats_path=recording_metadata_paths.assay_stats_path,
-		)
-		_ = phase_flags
-		wipe_src_scratch_payload: dict[str, Any] | None = None
-		if _wipe_src_scratch_phase_requested(inputs, selected_phase=selected_phase):
-			wipe_src_scratch_payload = _execute_wipe_src_scratch_phase(inputs, usage_key=scratch_usage_key)
-			scratch_usage_released = True
-		phase_summaries = _write_enabled_phase_summaries(
-			inputs=inputs,
-			paths=paths,
-			phase_results=phase_results,
-			outputs=outputs,
-			common_electrodes=common_electrodes,
-			phase_timing_s=phase_timing_s,
-			selected_phase=selected_phase,
-			recording_metadata_payload=recording_metadata_payload,
-			wipe_src_scratch_payload=wipe_src_scratch_payload,
+			scratch_usage_key=scratch_usage_key,
 		)
 	finally:
 		if scratch_usage_key is not None and not bool(scratch_usage_released):
 			_release_scratch_input_usage(scratch_usage_key)
 	requested_phase_key = {
 		"build_preprocessed_recording": "preprocess_segments",
+		"plot_segment_traces": "plot_segment_traces",
 		"save_rec_metadata": "save_rec_metadata",
 		"wipe_src_scratch": "wipe_src_scratch",
 		"save_segment_recordings": "preprocess_segments",
 		"preprocess_segments": "preprocess_segments",
-		"save_concatenated_recording": "concatenate_recordings",
-		"concatenate_recordings": "concatenate_recordings",
-		"concatenate_preprocessed_recordings": "concatenate_recordings",
+		"save_concatenated_recording": "concat_segments",
+		"concat_segments": "concat_segments",
+		"concatenate_recordings": "concat_segments",
+		"concatenate_preprocessed_recordings": "concat_segments",
+		"plot_concat_traces": "plot_concat_traces",
 		"copy_src_to_scratch": "copy_src_to_scratch",
 		"save_common_electrodes": "save_common_electrodes",
 	}.get(selected_phase, selected_phase)
@@ -2328,8 +2626,16 @@ def run_preprocess_preprocess_segments_phase(inputs: PreprocessInputs) -> dict[s
 	return _run_preprocess_selected_phase(inputs, selected_phase="preprocess_segments")
 
 
+def run_preprocess_plot_segment_traces_phase(inputs: PreprocessInputs) -> dict[str, Any]:
+	return _run_preprocess_selected_phase(inputs, selected_phase="plot_segment_traces")
+
+
+def run_preprocess_concat_segments_phase(inputs: PreprocessInputs) -> dict[str, Any]:
+	return _run_preprocess_selected_phase(inputs, selected_phase="concat_segments")
+
+
 def run_preprocess_concatenate_recordings_phase(inputs: PreprocessInputs) -> dict[str, Any]:
-	return _run_preprocess_selected_phase(inputs, selected_phase="concatenate_recordings")
+	return run_preprocess_concat_segments_phase(inputs)
 
 
 def run_preprocess_concatenate_preprocessed_recordings_phase(inputs: PreprocessInputs) -> dict[str, Any]:
@@ -2346,6 +2652,10 @@ def run_preprocess_save_concatenated_recording_phase(inputs: PreprocessInputs) -
 
 def run_preprocess_save_segment_recordings_phase(inputs: PreprocessInputs) -> dict[str, Any]:
 	return run_preprocess_preprocess_segments_phase(inputs)
+
+
+def run_preprocess_plot_concat_traces_phase(inputs: PreprocessInputs) -> dict[str, Any]:
+	return _run_preprocess_selected_phase(inputs, selected_phase="plot_concat_traces")
 
 
 def run_preprocess_save_common_electrodes_phase(inputs: PreprocessInputs) -> dict[str, Any]:

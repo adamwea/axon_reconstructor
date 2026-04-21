@@ -65,7 +65,7 @@ stages:
     logging:
       enabled: true
       verbose: true
-      # Optional custom preprocess log path. Relative paths resolve under per-well output dir.
+      # Optional custom preprocess log path. Relative paths resolve under preprocess_outputs.
       file_relpath: logs/preprocess_pipeline.log
       # Suppress repetitive Neo Maxwell plugin status print (opt-in).
       suppress_h5_plugin_messages: true
@@ -89,6 +89,7 @@ stages:
     resources:
       max_stage_workers: 24
       well_workers: 1
+    rel_output_root: preprocess_outputs # optional subdir under each well's output directory for all preprocess outputs; relative paths for preprocess phases resolve under this directory in each well's output directory
     phases:
       copy_src_to_scratch:
         enabled: true
@@ -98,27 +99,35 @@ stages:
         enabled: true
         verbose: true
         summary_json_relpath: context/recording_metadata_summary.json
-        segment_epochs_relpath: segment_epochs.json # start/stop timestamps for each segment; relative to per-well output dir
-        contiguous_epochs_relpath: contiguous_epochs.json # start/stop timestamps for contiguous data within each segment; relative to per-well output dir
-        sampling_metadata_relpath: sampling_metadata.json # per-segment sampling rate metadata; relative to per-well output dir
+        segment_epochs_relpath: segment_epochs.json # start/stop timestamps for each segment; relative to preprocess output dir
+        contiguous_epochs_relpath: contiguous_epochs.json # start/stop timestamps for contiguous data within each segment; relative to preprocess output dir
+        sampling_metadata_relpath: sampling_metadata.json # per-segment sampling rate metadata; relative to preprocess output dir
+        common_electrodes_relpath: common_electrodes.npy
+        common_electrodes_summary_json_relpath: context/save_common_electrodes_summary.json
       preprocess_segments:
         enabled: true
         rel_output_root: preprocessed_segments
         summary_json_relpath: context/segment_recordings_summary.json
+        outputs:
+          save_chunk_duration: 1s
+          save_progress_bar: true
+          segment_save_n_jobs: null
+          print_n_jobs_used: true
+      plot_segment_traces:
+        enabled: true
+        summary_json_relpath: context/plot_segment_traces_summary.json
         plot:
           # Master preprocess PNG diagnostics override.
           # true  -> force all preprocess PNG diagnostics OFF
           # false -> force all preprocess PNG diagnostics ON
           # null/omit -> respect individual toggles below
-          disable_all_png_diagnostics: true
+          disable_all_png_diagnostics: false
 
           # Individual diagnostic toggles for more granular control. These are all independent, so you can enable any combination of them.
           layouts: true
           segment_traces: true # legacy alias for per-segment enabled flag
           # Optional explicit output roots for preprocess diagnostics.
-          # Relative paths resolve under the per-well output directory.
-          output_dir: preprocess_outputs
-          epoch_markers_output_dir: preprocess_outputs
+          # Relative paths resolve under the preprocess output directory.
           assay_stats_relpath: assay_stats_{stream_id}.txt
           channel_layouts_subdir: channel_layouts
           segment_traces_subdir: segment_traces
@@ -142,16 +151,20 @@ stages:
           #trace_downsample_hz: null # when null, no downsampling is applied to trace diagnostics; use with trace_max_points
           trace_downsample_hz: 100.0 # downsample to 100 Hz for trace diagnostics; effective rate may be further reduced by trace_max_points
           trace_max_points: -1 # int or -1 for no cap
+      concat_segments:
+        enabled: true
+        concatenate_preprocessed_recordings: true # when true, concatenate the preprocessed segment recordings; when false, concatenate raw segment recordings instead while keeping the rest of the concat phase wiring the same.
+        summary_json_relpath: context/concat_segments_summary.json
+        rel_output_root: concatenated_recording
+        manifest_relpath: context/concat_segments_manifest.json
         outputs:
           save_chunk_duration: 1s
           save_progress_bar: true
-          segment_save_n_jobs: null
+          concat_save_n_jobs: null
           print_n_jobs_used: true
-      concatenate_recordings:
+      plot_concat_traces:
         enabled: true
-        concatenate_preprocessed_recordings: true # when true, concatenate the preprocessed segment recordings; when false, concatenate raw segment recordings instead while keeping the rest of the concat phase wiring the same.
-        summary_json_relpath: context/concatenated_recording_summary.json
-        rel_output_root: concatenated_recording
+        summary_json_relpath: context/plot_concat_traces_summary.json
         plot:
           # Representative controls for concatenated trace diagnostics.
           concat_trace:
@@ -159,14 +172,6 @@ stages:
             # Alias-compatible with `n_representative_channels`; set to -1 to include all representatives.
             n_reps: 3
           concat_trace_relpath: concat_cluster_reps_{stream_id}.png
-        outputs:
-          save_chunk_duration: 1s
-          save_progress_bar: true
-          concat_save_n_jobs: null
-          print_n_jobs_used: true
-        save_common_electrodes:
-          enabled: true
-          summary_json_relpath: context/save_common_electrodes_summary.json
       wipe_src_scratch:
         enabled: true
         dry_run: true # when true, logs the paths that would be deleted without actually deleting them; keep true by default for safety during debugging iterations, but can be set to false to enable actual deletion of scratch outputs when publish_outputs is false and you want to clean up scratch space during debug runs.

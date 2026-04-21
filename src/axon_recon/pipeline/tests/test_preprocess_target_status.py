@@ -7,10 +7,13 @@ import pytest
 
 from axon_recon.pipeline.execution.context import ExecutionTarget, StageParallelism
 from axon_recon.pipeline.runner import (
+    run_preprocess_concat_segments_from_runtime,
     run_preprocess_concatenate_recordings_from_runtime,
     run_preprocess_concatenate_preprocessed_recordings_from_runtime,
     run_preprocess_copy_src_to_scratch_from_runtime,
     run_preprocess_from_runtime,
+    run_preprocess_plot_concat_traces_from_runtime,
+    run_preprocess_plot_segment_traces_from_runtime,
     run_preprocess_preprocess_segments_from_runtime,
     run_preprocess_save_rec_metadata_from_runtime,
     run_preprocess_save_common_electrodes_from_runtime,
@@ -88,6 +91,79 @@ def test_run_preprocess_from_runtime_marks_target_ok(monkeypatch, tmp_path: Path
     assert select_calls == [False]
     assert unit_worker_calls == [12]
     assert divider_stdout_calls == [False]
+
+
+def test_run_preprocess_from_runtime_applies_force_restart_override_to_stage_inputs(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    target = ExecutionTarget(
+        dataset_index=0,
+        dataset_id="dataset_000:test.h5",
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+    )
+
+    class _DummyBundle:
+        runtime_config = object()
+        data_config = object()
+
+    parse_force_restart_overrides: list[bool | None] = []
+    captured_force_restart_inputs: list[bool] = []
+
+    def _fake_load_pipeline_runtime_bundle(*, config_path: str):
+        return _DummyBundle()
+
+    def _fake_select_execution_targets(*, bundle, materialize_scratch_inputs: bool = False):
+        _ = bundle, materialize_scratch_inputs
+        return [target]
+
+    def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
+        _ = bundle, stage_name
+        return StageParallelism(max_workers=24, max_stage_workers=24, well_workers=1, unit_workers=8)
+
+    def _fake_parse_preprocess_stage_config(**kwargs):
+        parse_force_restart_overrides.append(kwargs.get("force_restart_override"))
+        return SimpleNamespace(debug_limit_wells=None, force_restart=True)
+
+    def _fake_build_preprocess_inputs_for_target(*, target, stage_config, unit_workers: int):
+        _ = unit_workers
+        return PreprocessInputs(
+            h5_path=target.h5_path,
+            stream_id=target.stream_id,
+            mea_output_root=target.mea_output_root,
+            force_restart=bool(getattr(stage_config, "force_restart", False)),
+        )
+
+    def _fake_run_preprocess(inputs: PreprocessInputs) -> PreprocessResult:
+        captured_force_restart_inputs.append(bool(inputs.force_restart))
+        return PreprocessResult(
+            well_out_dir=tmp_path / "well_out",
+            preprocess_out_dir=tmp_path / "preprocess_out",
+            summary_json=tmp_path / "preprocess_summary.json",
+            outputs={},
+        )
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", _fake_load_pipeline_runtime_bundle)
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", _fake_select_execution_targets)
+    monkeypatch.setattr(pipeline_runner, "resolve_stage_parallelism", _fake_resolve_stage_parallelism)
+    monkeypatch.setattr(pipeline_runner, "parse_preprocess_stage_config", _fake_parse_preprocess_stage_config)
+    monkeypatch.setattr(pipeline_runner, "build_preprocess_inputs_for_target", _fake_build_preprocess_inputs_for_target)
+    monkeypatch.setattr(pipeline_runner, "run_preprocess", _fake_run_preprocess)
+
+    agg = run_preprocess_from_runtime(
+        config_path=str(tmp_path / "runtime.yml"),
+        force_restart_override=True,
+    )
+
+    assert agg.total_targets == 1
+    assert agg.succeeded_targets == 1
+    assert agg.failed_targets == 0
+    assert parse_force_restart_overrides == [True]
+    assert captured_force_restart_inputs == [True]
 
 
 def test_run_preprocess_from_runtime_marks_target_error(monkeypatch, tmp_path: Path) -> None:
@@ -274,13 +350,40 @@ def test_run_preprocess_from_runtime_applies_debug_well_limit(monkeypatch, tmp_p
             False,
         ),
         (
-            run_preprocess_concatenate_recordings_from_runtime,
-            "run_preprocess_concatenate_recordings_from_runtime",
-            "run_preprocess_concatenate_recordings",
-            "preprocess.concatenate_recordings",
-            "concatenate_recordings",
+            run_preprocess_plot_segment_traces_from_runtime,
+            "run_preprocess_plot_segment_traces_from_runtime",
+            "run_preprocess_plot_segment_traces",
+            "preprocess.plot_segment_traces",
+            "plot_segment_traces",
+            1,
+            True,
+        ),
+        (
+            run_preprocess_concat_segments_from_runtime,
+            "run_preprocess_concat_segments_from_runtime",
+            "run_preprocess_concat_segments",
+            "preprocess.concat_segments",
+            "concat_segments",
             12,
             False,
+        ),
+        (
+            run_preprocess_concatenate_recordings_from_runtime,
+            "run_preprocess_concatenate_recordings_from_runtime",
+            "run_preprocess_concat_segments",
+            "preprocess.concat_segments",
+            "concat_segments",
+            12,
+            False,
+        ),
+        (
+            run_preprocess_plot_concat_traces_from_runtime,
+            "run_preprocess_plot_concat_traces_from_runtime",
+            "run_preprocess_plot_concat_traces",
+            "preprocess.plot_concat_traces",
+            "plot_concat_traces",
+            1,
+            True,
         ),
         (
             run_preprocess_save_common_electrodes_from_runtime,
@@ -488,7 +591,7 @@ def test_run_preprocess_from_runtime_uses_nested_workers_when_heavy_phases_enabl
             phases=SimpleNamespace(
                 copy_src_to_scratch=SimpleNamespace(enabled=False),
                 preprocess_segments=SimpleNamespace(enabled=True),
-                concatenate_recordings=SimpleNamespace(enabled=True),
+                concat_segments=SimpleNamespace(enabled=True),
             ),
         )
 
