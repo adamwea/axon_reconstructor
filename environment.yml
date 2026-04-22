@@ -5,6 +5,8 @@ channels:
 dependencies:
   - python=3.11
   - pip
+  - ipykernel
+  - nodejs
   # Dev/test tooling
   - pytest
   - ruff
@@ -19,9 +21,10 @@ dependencies:
   - openpyxl
   - scipy
   - torch
-  - docker
-  # Note: runtime scientific deps (spikeinterface, h5py, etc.) will be added
-  # incrementally as the rebuild progresses.
+    - pyyaml
+    # Keep sibling editable repos out of the base env spec.
+    # Install them after env creation with tools/bootstrap_editable_deps.sh.
   - pip:
-      # Install this package in editable mode with dev extras
+      - docker
+      - pypdf
       - -e .[dev]
