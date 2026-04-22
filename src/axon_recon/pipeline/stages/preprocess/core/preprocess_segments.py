@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -184,10 +184,19 @@ def run_preprocess_segments_core(
 		max_workers = min(len(rec_names), max(1, int(n_jobs)))
 	except Exception:
 		max_workers = 1
+	segment_count = int(len(rec_names))
+	if logger is not None:
+		logger.info(
+			"Starting preprocess_segments for well=%s segment_count=%d common_electrodes=%d workers=%d",
+			str(stream_id),
+			int(segment_count),
+			int(len(common_electrodes)),
+			int(max_workers),
+		)
 
 	load_preprocess_t0 = time.perf_counter()
 
-	def _process_segment(rec_name: str) -> tuple[Any, dict[str, Any]]:
+	def _process_segment(segment_index: int, rec_name: str) -> tuple[int, Any, dict[str, Any]]:
 		segment_recording, stats = _load_centered_segment_with_electrode_channel_ids(
 			h5_path=Path(h5_path).expanduser().resolve(),
 			stream_id=str(stream_id),
@@ -206,13 +215,43 @@ def run_preprocess_segments_core(
 			"n_samples": int(stats.get("n_samples", 0) or 0),
 			"n_channels": int(preprocessed.get_num_channels()),
 		}
-		return preprocessed, stats_payload
+		return int(segment_index), preprocessed, stats_payload
 
 	if max_workers > 1 and len(rec_names) > 1:
+		ordered_results: list[tuple[Any, dict[str, Any]] | None] = [None] * int(len(rec_names))
 		with ThreadPoolExecutor(max_workers=int(max_workers)) as pool:
-			results = list(pool.map(_process_segment, rec_names))
+			futures = {
+				pool.submit(_process_segment, int(segment_index), str(rec_name)): (int(segment_index), str(rec_name))
+				for segment_index, rec_name in enumerate(rec_names)
+			}
+			for completed_count, future in enumerate(as_completed(futures), start=1):
+				segment_index, rec_name = futures[future]
+				result_index, segment_recording, stats_payload = future.result()
+				ordered_results[int(result_index)] = (segment_recording, stats_payload)
+				if logger is not None:
+					logger.info(
+						"preprocess_segments progress well=%s completed=%d/%d rec_name=%s",
+						str(stream_id),
+						int(completed_count),
+						int(segment_count),
+						str(rec_name),
+					)
+		if any(item is None for item in ordered_results):
+			raise RuntimeError(f"Missing preprocess segment results for stream={stream_id}")
+		results = [item for item in ordered_results if item is not None]
 	else:
-		results = [_process_segment(rec_name) for rec_name in rec_names]
+		results = []
+		for segment_index, rec_name in enumerate(rec_names, start=1):
+			_result_index, segment_recording, stats_payload = _process_segment(int(segment_index - 1), str(rec_name))
+			results.append((segment_recording, stats_payload))
+			if logger is not None:
+				logger.info(
+					"preprocess_segments progress well=%s completed=%d/%d rec_name=%s",
+					str(stream_id),
+					int(segment_index),
+					int(segment_count),
+					str(rec_name),
+				)
 
 	segment_recordings = [item[0] for item in results]
 	segment_stats = [dict(item[1]) for item in results]

@@ -1,7 +1,8 @@
 #output_root: /home/adamm/dev/symlinks/local_RBS_data/outputs
 #output_root_2: /mnt/h/adamm/local_RBS_data/outputs
 output_root: /mnt/h/adamm/local_RBS_data/outputs
-scratch_root: /mnt/e/scratch #windows filesystem, more space, but slower
+scratch_root: /mnt/c/Users/adamm/scratch
+#scratch_root: /mnt/e/scratch #windows filesystem, more space, but slower
 #scratch_root: ~/scratch #linux filesystem, faster probably
 use_scratch_root: true
 # When false, stage outputs stay on scratch and are not copied back to output_root.
@@ -62,7 +63,7 @@ datasets:
   # filesystem date, or run number do not agree cleanly.
 
   - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260224/M08073/AxonTracking/000031/data.raw.h5
-    include_in_runtime: true
+    include_in_runtime: false
     DIV: 6
     wells:
       - well_id: well000
@@ -103,7 +104,7 @@ datasets:
           genotype: WT
 
   - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260224/M06804/AxonTracking/000032/data.raw.h5
-    include_in_runtime: true
+    include_in_runtime: false
     DIV: 6
     wells:
       - well_id: well000
@@ -144,7 +145,7 @@ datasets:
           genotype: WT
 
   - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260226/M08073/AxonTracking/000057/data.raw.h5
-    include_in_runtime: true
+    include_in_runtime: false
     DIV: 8
     wells:
       - well_id: well000
@@ -189,7 +190,7 @@ datasets:
   # date/DIV delta from 2026-02-18 lines up exactly and the chip/date/assay match cleanly.
   # I treated the run-number mismatch as a sheet/filesystem inconsistency rather than a bad date.
   - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260302/M08073/AxonTracking/000073/data.raw.h5
-    include_in_runtime: true
+    include_in_runtime: false
     DIV: 12
     wells:
       - well_id: well000
@@ -234,7 +235,7 @@ datasets:
   # pasted 2026-03-02 sheet data, so I left this filesystem-only path out instead of inventing a row.
 
   - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260305/M08073/AxonTracking/000096/data.raw.h5
-    include_in_runtime: true
+    include_in_runtime: false
     DIV: 15
     wells:
       - well_id: well000
@@ -275,7 +276,7 @@ datasets:
           genotype: WT
 
   - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260305/M06804/AxonTracking/000099/data.raw.h5
-    include_in_runtime: true
+    include_in_runtime: false
     DIV: 15
     wells:
       - well_id: well000
@@ -316,7 +317,7 @@ datasets:
           genotype: WT
 
   - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260309/M08073/AxonTracking/000118/data.raw.h5
-    include_in_runtime: true
+    include_in_runtime: false
     DIV: 19
     wells:
       - well_id: well000
@@ -447,7 +448,7 @@ datasets:
   # would be DIV 22 from the plated date, not DIV 29. I used the filesystem date 260319 because
   # 2026-03-19 is exactly DIV 29 and the run numbers plus chip ids line up with those rows.
   - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260319/M08073/AxonTracking/000170/data.raw.h5
-    include_in_runtime: false
+    include_in_runtime: true
     DIV: 29
     wells:
       - well_id: well000

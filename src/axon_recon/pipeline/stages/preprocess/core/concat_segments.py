@@ -10,6 +10,7 @@ from .artifacts import build_stitch_frames_from_segment_manifest, load_saved_rec
 
 def run_concat_segments_core(
 	*,
+	stream_id: str,
 	segment_manifest_path: Path,
 	recording_dir: Path,
 	concat_manifest_path: Path,
@@ -26,12 +27,37 @@ def run_concat_segments_core(
 	segment_entries = load_segment_manifest(segment_manifest_path)
 	if not segment_entries:
 		raise RuntimeError(f"No saved preprocessed segments available to concatenate: {segment_manifest_path}")
-	segment_recordings = [load_saved_recording(Path(str(item.get("folder")))) for item in segment_entries]
+	if logger is not None:
+		logger.info(
+			"Starting concat_segments for well=%s segment_count=%d manifest=%s",
+			str(stream_id),
+			int(len(segment_entries)),
+			segment_manifest_path,
+		)
+	segment_recordings: list[Any] = []
+	for segment_index, item in enumerate(segment_entries, start=1):
+		rec_name = str(item.get("rec_name", f"segment_{segment_index - 1:03d}")).strip() or f"segment_{segment_index - 1:03d}"
+		segment_recordings.append(load_saved_recording(Path(str(item.get("folder")))))
+		if logger is not None:
+			logger.info(
+				"concat_segments progress well=%s loaded=%d/%d rec_name=%s",
+				str(stream_id),
+				int(segment_index),
+				int(len(segment_entries)),
+				str(rec_name),
+			)
 	if len(segment_recordings) == 1:
 		multirecording = segment_recordings[0]
 	else:
 		multirecording = si.concatenate_recordings(segment_recordings)
 	stitch_frames = build_stitch_frames_from_segment_manifest(segment_entries)
+	if logger is not None:
+		logger.info(
+			"Saving concatenated recording for well=%s segment_count=%d out=%s",
+			str(stream_id),
+			int(len(segment_entries)),
+			recording_dir,
+		)
 	save_result = run_save_concatenated_recording_core(
 		multirecording=multirecording,
 		recording_dir=recording_dir,

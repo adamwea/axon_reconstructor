@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
 import json
 import logging
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -23,6 +26,15 @@ from axon_recon.pipeline.stages.preprocess.runner import (
 
 def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_test_png(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(
+        base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAF/gL+2m30GQAAAABJRU5ErkJggg=="
+        )
+    )
 
 
 def _full_stage_phases() -> PreprocessPhasesConfig:
@@ -69,6 +81,8 @@ def _install_success_fakes(
 
     def _fake_run_save_rec_metadata_core(**kwargs):
         _capture("save_rec_metadata", kwargs)
+        import numpy as np
+
         segment_epochs_path = Path(str(kwargs["segment_epochs_path"]))
         contiguous_epochs_path = Path(str(kwargs["contiguous_epochs_path"]))
         sampling_metadata_path = Path(str(kwargs["sampling_metadata_path"]))
@@ -93,6 +107,7 @@ def _install_success_fakes(
             json.dumps(
                 {
                     "sampling_summary": {"stream_sampling_frequency_hz": 10_000.0},
+                    "segment_count": 2,
                     "segments": [
                         {"rec_name": "seg000", "sampling_frequency_hz": 10_000.0},
                         {"rec_name": "seg001", "sampling_frequency_hz": 10_000.0},
@@ -102,7 +117,7 @@ def _install_success_fakes(
             encoding="utf-8",
         )
         assay_stats_path.write_text("assay stats\n", encoding="utf-8")
-        common_electrodes_path.write_bytes(b"npy")
+        np.save(common_electrodes_path, np.asarray(common, dtype=np.int64))
         return {
             "phase": "save_rec_metadata",
             "source_h5_path": str(kwargs["source_h5_path"]),
@@ -112,6 +127,11 @@ def _install_success_fakes(
             "recording_info": {"sampling_frequency_hz": 10_000.0, "num_channels": 4},
             "common_electrode_count": len(common),
             "common_electrodes_preview": list(common),
+            "segment_epochs_json": str(segment_epochs_path),
+            "contiguous_epochs_json": str(contiguous_epochs_path),
+            "sampling_metadata_json": str(sampling_metadata_path),
+            "assay_stats_txt": str(assay_stats_path),
+            "common_electrodes_path": str(common_electrodes_path),
             "verbose": bool(kwargs["verbose"]),
         }
 
@@ -121,12 +141,27 @@ def _install_success_fakes(
         manifest_path = Path(str(kwargs["manifest_path"]))
         output_dir.mkdir(parents=True, exist_ok=True)
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        segment_entries = []
+        for segment_index, rec_name in enumerate(("seg000", "seg001")):
+            seg_dir = output_dir / f"{segment_index:03d}_{rec_name}"
+            seg_dir.mkdir(parents=True, exist_ok=True)
+            (seg_dir / "recording.marker").write_text("ok\n", encoding="utf-8")
+            segment_entries.append(
+                {
+                    "segment_index": segment_index,
+                    "rec_name": rec_name,
+                    "folder": str(seg_dir),
+                    "fs_hz": 10_000.0,
+                    "n_samples": 100,
+                    "n_channels": 4,
+                }
+            )
         manifest_path.write_text(
             json.dumps(
-                [
-                    {"name": "seg000", "folder": str(output_dir / "seg000")},
-                    {"name": "seg001", "folder": str(output_dir / "seg001")},
-                ]
+                {
+                    "version": 1,
+                    "segments": segment_entries,
+                }
             ),
             encoding="utf-8",
         )
@@ -143,11 +178,22 @@ def _install_success_fakes(
         _capture("plot_segment_traces", kwargs)
         plot_output_dir = Path(str(kwargs["plot_output_dir"]))
         plot_output_dir.mkdir(parents=True, exist_ok=True)
-        (plot_output_dir / "segment_traces.png").write_text("plot\n", encoding="utf-8")
+        layout_plot_paths: list[str] = []
+        if bool(kwargs["plot_layouts"]):
+            layout_path = plot_output_dir / str(kwargs["channel_layouts_subdir"]) / f"common_channel_layout_{kwargs['stream_id']}.png"
+            _write_test_png(layout_path)
+            layout_plot_paths.append(str(layout_path))
+        segment_trace_paths: list[str] = []
+        if bool(kwargs["plot_segment_traces"]):
+            for rec_name in ("seg000", "seg001"):
+                trace_path = plot_output_dir / str(kwargs["segment_traces_subdir"]) / f"segment_trace_{kwargs['stream_id']}_{rec_name}.png"
+                _write_test_png(trace_path)
+                segment_trace_paths.append(str(trace_path))
         return {
             "phase": "plot_segment_traces",
-            "plot_output_dir": str(plot_output_dir),
-            "segment_plot_count": 2,
+            "layout_plot_paths": layout_plot_paths,
+            "segment_trace_paths": segment_trace_paths,
+            "segment_count": 2,
         }
 
     def _fake_run_concat_segments_core(**kwargs):
@@ -156,11 +202,16 @@ def _install_success_fakes(
         concat_manifest_path = Path(str(kwargs["concat_manifest_path"]))
         recording_dir.mkdir(parents=True, exist_ok=True)
         concat_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        (recording_dir / "recording.marker").write_text("ok\n", encoding="utf-8")
         concat_manifest_path.write_text(
             json.dumps(
                 {
                     "segment_count": 2,
                     "segment_source": "preprocessed",
+                    "segment_entries": [
+                        {"segment_index": 0, "rec_name": "seg000", "folder": str(Path(str(kwargs["segment_manifest_path"])).parent / "000_seg000")},
+                        {"segment_index": 1, "rec_name": "seg001", "folder": str(Path(str(kwargs["segment_manifest_path"])).parent / "001_seg001")},
+                    ],
                     "stitch_frames": [100],
                 }
             ),
@@ -173,17 +224,20 @@ def _install_success_fakes(
             "segment_source": "preprocessed",
             "source_segment_count": 2,
             "concatenate_preprocessed_recordings": True,
+            "stitch_frame_count": 1,
         }
 
     def _fake_run_plot_concat_traces_core(**kwargs):
         _capture("plot_concat_traces", kwargs)
         plot_output_dir = Path(str(kwargs["plot_output_dir"]))
         plot_output_dir.mkdir(parents=True, exist_ok=True)
-        (plot_output_dir / "concat_trace.png").write_text("plot\n", encoding="utf-8")
+        trace_plot_path = plot_output_dir / str(kwargs["concat_trace_relpath"])
+        _write_test_png(trace_plot_path)
         return {
             "phase": "plot_concat_traces",
-            "plot_output_dir": str(plot_output_dir),
-            "concat_trace_plot_path": str(plot_output_dir / "concat_trace.png"),
+            "trace_plot_path": str(trace_plot_path),
+            "segment_count": 2,
+            "stitch_frame_count": 1,
         }
 
     monkeypatch.setattr(preprocess_runner, "compute_mea_analysis_output_dir", _fake_compute_mea_analysis_output_dir)
@@ -220,7 +274,7 @@ def test_run_preprocess_stage_writes_observability_artifacts(tmp_path: Path, mon
     result = run_preprocess_stage(inputs)
     summary = _read_json(result.summary_json)
 
-    assert summary["n_common_electrodes"] == 0
+    assert summary["n_common_electrodes"] == 3
     outputs = dict(summary.get("outputs", {}))
     assert outputs["pipeline_log"] == str(fake_log)
     assert str(fake_log).startswith(str(canonical_out_dir))
@@ -237,7 +291,7 @@ def test_run_preprocess_stage_writes_observability_artifacts(tmp_path: Path, mon
     run_manifest = _read_json(Path(outputs["observability.run_manifest_json"]))
     assert run_manifest["status"] == "ok"
     assert run_manifest["mode"] == "detailed"
-    assert run_manifest["common_electrodes"]["count"] == 0
+    assert run_manifest["common_electrodes"]["count"] == 3
 
     event_timeline = Path(outputs["observability.event_timeline_jsonl"])
     assert event_timeline.exists()
@@ -411,6 +465,152 @@ def test_run_preprocess_stage_force_restart_clears_outputs_and_reruns_enabled_ph
     assert Path(outputs["pipeline_log"]).exists()
 
 
+def test_run_preprocess_stage_logs_phase_start_per_well(tmp_path: Path, monkeypatch, caplog: pytest.LogCaptureFixture) -> None:
+    _install_success_fakes(monkeypatch, tmp_path)
+
+    inputs = PreprocessInputs(
+        h5_path=tmp_path / "input.raw.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        logging_enabled=True,
+        logging_verbose=True,
+        phases=_full_stage_phases(),
+    )
+
+    with caplog.at_level(logging.INFO):
+        run_preprocess_stage(inputs)
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("Starting preprocess work for well=well001 phase_count=5 selected_phase=all" in message for message in messages)
+    assert any("Starting preprocess phase 1/5 for well=well001 phase=save_rec_metadata" in message for message in messages)
+    assert any("Starting preprocess phase 4/5 for well=well001 phase=concat_segments" in message for message in messages)
+
+
+def test_run_preprocess_stage_resumes_complete_phase_artifacts_without_force_restart(
+    tmp_path: Path,
+    monkeypatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from axon_recon.pipeline.stages.preprocess import runner as preprocess_runner
+
+    _install_success_fakes(monkeypatch, tmp_path)
+
+    def _fake_load_saved_recording(path: Path):
+        resolved = Path(path)
+        if not resolved.exists():
+            raise FileNotFoundError(resolved)
+        return {"path": str(resolved)}
+
+    monkeypatch.setattr(preprocess_runner, "load_saved_recording", _fake_load_saved_recording)
+
+    inputs = PreprocessInputs(
+        h5_path=tmp_path / "input.raw.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        logging_enabled=True,
+        logging_verbose=True,
+        phases=_full_stage_phases(),
+    )
+
+    with caplog.at_level(logging.INFO):
+        first_result = run_preprocess_stage(inputs)
+    assert first_result.summary_json.exists()
+    caplog.clear()
+
+    def _explode(**_kwargs):
+        raise AssertionError("phase core should not run when resume artifacts are complete")
+
+    monkeypatch.setattr(preprocess_runner, "run_save_rec_metadata_core", _explode)
+    monkeypatch.setattr(preprocess_runner, "run_preprocess_segments_core", _explode)
+    monkeypatch.setattr(preprocess_runner, "run_plot_segment_traces_core", _explode)
+    monkeypatch.setattr(preprocess_runner, "run_concat_segments_core", _explode)
+    monkeypatch.setattr(preprocess_runner, "run_plot_concat_traces_core", _explode)
+
+    with caplog.at_level(logging.INFO):
+        second_result = run_preprocess_stage(inputs)
+    stage_summary = _read_json(second_result.summary_json)
+    phase_summary_paths = {str(name): Path(str(path)) for name, path in dict(stage_summary.get("phase_summaries", {})).items()}
+    messages = [record.getMessage() for record in caplog.records]
+
+    for phase_name in (
+        "save_rec_metadata",
+        "preprocess_segments",
+        "plot_segment_traces",
+        "concat_segments",
+        "plot_concat_traces",
+    ):
+        phase_summary = _read_json(phase_summary_paths[phase_name])
+        assert phase_summary["status"] == "skipped"
+        assert phase_summary["reused_existing_artifacts"] is True
+
+    assert any(
+        "Resuming preprocess phase for well=well001 phase=preprocess_segments; found existing complete artifacts:" in message
+        and "manifest_path=" in message
+        and "output_dir=" in message
+        for message in messages
+    )
+    assert any(
+        "Resuming preprocess phase for well=well001 phase=concat_segments; found existing complete artifacts:" in message
+        and "recording_dir=" in message
+        and "concat_manifest_path=" in message
+        for message in messages
+    )
+
+
+def test_run_preprocess_stage_reruns_phase_when_resume_artifact_is_incomplete(tmp_path: Path, monkeypatch) -> None:
+    from axon_recon.pipeline.stages.preprocess import runner as preprocess_runner
+
+    _install_success_fakes(monkeypatch, tmp_path)
+
+    def _fake_load_saved_recording(path: Path):
+        resolved = Path(path)
+        if not resolved.exists():
+            raise FileNotFoundError(resolved)
+        return {"path": str(resolved)}
+
+    monkeypatch.setattr(preprocess_runner, "load_saved_recording", _fake_load_saved_recording)
+
+    inputs = PreprocessInputs(
+        h5_path=tmp_path / "input.raw.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        phases=_full_stage_phases(),
+    )
+
+    first_result = run_preprocess_stage(inputs)
+    assert first_result.summary_json.exists()
+
+    first_stage_summary = _read_json(first_result.summary_json)
+    plot_segment_summary_path = Path(str(first_stage_summary["phase_summaries"]["plot_segment_traces"]))
+    plot_segment_summary = _read_json(plot_segment_summary_path)
+    incomplete_plot = Path(str(plot_segment_summary["segment_trace_paths"][0]))
+    incomplete_plot.unlink()
+
+    rerun_calls: list[str] = []
+    original_plot_segment = preprocess_runner.run_plot_segment_traces_core
+
+    def _tracked_plot_segment_traces_core(**kwargs):
+        rerun_calls.append("plot_segment_traces")
+        return original_plot_segment(**kwargs)
+
+    def _explode(**_kwargs):
+        raise AssertionError("unexpected phase rerun")
+
+    monkeypatch.setattr(preprocess_runner, "run_save_rec_metadata_core", _explode)
+    monkeypatch.setattr(preprocess_runner, "run_preprocess_segments_core", _explode)
+    monkeypatch.setattr(preprocess_runner, "run_plot_segment_traces_core", _tracked_plot_segment_traces_core)
+    monkeypatch.setattr(preprocess_runner, "run_concat_segments_core", _explode)
+    monkeypatch.setattr(preprocess_runner, "run_plot_concat_traces_core", _explode)
+
+    second_result = run_preprocess_stage(inputs)
+    assert rerun_calls == ["plot_segment_traces"]
+
+    phase_summary_path = Path(str(_read_json(second_result.summary_json)["phase_summaries"]["plot_segment_traces"]))
+    phase_summary = _read_json(phase_summary_path)
+    assert phase_summary.get("reused_existing_artifacts") is not True
+    assert incomplete_plot.exists()
+
+
 def test_run_preprocess_stage_recovers_from_self_referential_log_symlink(tmp_path: Path, monkeypatch) -> None:
     well_out_dir = tmp_path / "well001"
     bad_log = well_out_dir / "preprocess_outputs" / "logs" / "preprocess_pipeline.log"
@@ -433,6 +633,130 @@ def test_run_preprocess_stage_recovers_from_self_referential_log_symlink(tmp_pat
 
     assert result.summary_json.exists()
     assert not bad_log.is_symlink()
+
+
+def test_run_preprocess_segments_core_logs_progress_per_well(monkeypatch, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    from axon_recon.pipeline.stages.preprocess.core import preprocess_segments as preprocess_segments_core
+
+    class _FakeRecording:
+        def get_num_channels(self) -> int:
+            return 4
+
+    monkeypatch.setattr(
+        preprocess_segments_core,
+        "load_recording_metadata",
+        lambda **_kwargs: (
+            {
+                "segments": [
+                    {"rec_name": "seg000"},
+                    {"rec_name": "seg001"},
+                    {"rec_name": "seg002"},
+                ]
+            },
+            {"epochs": []},
+            {"segments": []},
+        ),
+    )
+    monkeypatch.setattr(preprocess_segments_core, "load_common_electrodes", lambda _path: [11, 22])
+    monkeypatch.setattr(
+        preprocess_segments_core,
+        "_load_centered_segment_with_electrode_channel_ids",
+        lambda **kwargs: (_FakeRecording(), {"fs": 10_000.0, "n_samples": 100, "rec_name": kwargs["rec_name"]}),
+    )
+    monkeypatch.setattr(preprocess_segments_core, "_select_common_electrode_channels", lambda **kwargs: kwargs["recording"])
+    monkeypatch.setattr(preprocess_segments_core, "apply_standard_preprocessing", lambda **kwargs: kwargs["recording"])
+
+    saved_payloads: list[dict[str, object]] = []
+
+    def _fake_save(**kwargs):
+        saved_payloads.append(dict(kwargs))
+        return {"output_dir": str(kwargs["output_dir"]), "manifest_path": str(kwargs["manifest_path"]), "saved": True}
+
+    with caplog.at_level(logging.INFO):
+        payload = preprocess_segments_core.run_preprocess_segments_core(
+            h5_path=tmp_path / "input.raw.h5",
+            stream_id="well001",
+            n_jobs=1,
+            segment_epochs_path=tmp_path / "segment_epochs.json",
+            contiguous_epochs_path=tmp_path / "contiguous_epochs.json",
+            sampling_metadata_path=tmp_path / "sampling_metadata.json",
+            common_electrodes_path=tmp_path / "common_electrodes.npy",
+            output_dir=tmp_path / "segments",
+            manifest_path=tmp_path / "segments_manifest.json",
+            overwrite_saved_recording=False,
+            save_n_jobs=1,
+            chunk_duration="1s",
+            progress_bar=False,
+            limit_segments_per_well=None,
+            logger=logging.getLogger("test.preprocess_segments.progress"),
+            run_save_segment_recordings_core=_fake_save,
+        )
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert payload["segment_count"] == 3
+    assert len(saved_payloads) == 1
+    assert any("Starting preprocess_segments for well=well001 segment_count=3 common_electrodes=2 workers=1" in message for message in messages)
+    assert any("preprocess_segments progress well=well001 completed=1/3 rec_name=seg000" in message for message in messages)
+    assert any("preprocess_segments progress well=well001 completed=3/3 rec_name=seg002" in message for message in messages)
+
+
+def test_run_concat_segments_core_logs_progress_per_well(monkeypatch, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    from axon_recon.pipeline.stages.preprocess.core import concat_segments as concat_segments_core
+
+    class _FakeRecording:
+        pass
+
+    fake_spikeinterface = types.ModuleType("spikeinterface")
+    fake_spikeinterface_full = types.ModuleType("spikeinterface.full")
+    fake_spikeinterface_full.concatenate_recordings = lambda recordings: {"concatenated": len(recordings)}
+    fake_spikeinterface.full = fake_spikeinterface_full
+    monkeypatch.setitem(sys.modules, "spikeinterface", fake_spikeinterface)
+    monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_spikeinterface_full)
+
+    monkeypatch.setattr(
+        concat_segments_core,
+        "load_segment_manifest",
+        lambda _path: [
+            {"segment_index": 0, "rec_name": "seg000", "folder": str(tmp_path / "seg000")},
+            {"segment_index": 1, "rec_name": "seg001", "folder": str(tmp_path / "seg001")},
+        ],
+    )
+    monkeypatch.setattr(concat_segments_core, "load_saved_recording", lambda _path: _FakeRecording())
+    monkeypatch.setattr(concat_segments_core, "build_stitch_frames_from_segment_manifest", lambda _entries: [100])
+    written_manifests: list[tuple[Path, dict[str, object]]] = []
+    monkeypatch.setattr(
+        concat_segments_core,
+        "write_json",
+        lambda path, payload: written_manifests.append((Path(path), dict(payload))),
+    )
+
+    saved_payloads: list[dict[str, object]] = []
+
+    def _fake_save(**kwargs):
+        saved_payloads.append(dict(kwargs))
+        return {"recording_dir": str(kwargs["recording_dir"]), "saved": True}
+
+    with caplog.at_level(logging.INFO):
+        payload = concat_segments_core.run_concat_segments_core(
+            stream_id="well001",
+            segment_manifest_path=tmp_path / "segments_manifest.json",
+            recording_dir=tmp_path / "concatenated_recording",
+            concat_manifest_path=tmp_path / "concat_manifest.json",
+            overwrite_saved_recording=False,
+            n_jobs=1,
+            chunk_duration="1s",
+            progress_bar=False,
+            logger=logging.getLogger("test.concat_segments.progress"),
+            run_save_concatenated_recording_core=_fake_save,
+        )
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert payload["segment_count"] == 2
+    assert len(saved_payloads) == 1
+    assert len(written_manifests) == 1
+    assert any("Starting concat_segments for well=well001 segment_count=2" in message for message in messages)
+    assert any("concat_segments progress well=well001 loaded=1/2 rec_name=seg000" in message for message in messages)
+    assert any("concat_segments progress well=well001 loaded=2/2 rec_name=seg001" in message for message in messages)
 
 
 def test_run_preprocess_concat_segments_phase_writes_targeted_summary(tmp_path: Path, monkeypatch) -> None:
