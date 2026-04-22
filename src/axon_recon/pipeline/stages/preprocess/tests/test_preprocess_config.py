@@ -69,25 +69,43 @@ def test_parse_preprocess_stage_config_defaults() -> None:
     assert parsed.phases.copy_src_to_scratch.summary_json_relpath == "context/copy_src_to_scratch_summary.json"
     assert parsed.phases.save_rec_metadata.enabled is False
     assert parsed.phases.save_rec_metadata.verbose is False
+    assert parsed.phases.save_rec_metadata.metadata_source == "source_h5"
     assert parsed.phases.save_rec_metadata.summary_json_relpath == "context/recording_metadata_summary.json"
     assert parsed.phases.save_rec_metadata.segment_epochs_relpath == "segment_epochs.json"
     assert parsed.phases.save_rec_metadata.contiguous_epochs_relpath == "continuous_epochs.json"
     assert parsed.phases.save_rec_metadata.sampling_metadata_relpath == "sampling_rate_metadata.json"
+    assert parsed.phases.prepare_raw_binaries.enabled is True
+    assert parsed.phases.prepare_raw_binaries.summary_json_relpath == "context/prepare_raw_binaries_summary.json"
+    assert parsed.phases.prepare_raw_binaries.rel_output_root == "raw_binary_recording"
+    assert parsed.phases.prepare_raw_binaries.manifest_relpath == "context/raw_binary_manifest.json"
     assert parsed.phases.wipe_src_scratch.enabled is False
     assert parsed.phases.wipe_src_scratch.dry_run is False
     assert parsed.phases.wipe_src_scratch.requires_use_scratch_root is False
     assert parsed.phases.wipe_src_scratch.summary_json_relpath == "context/wipe_src_scratch_summary.json"
     assert parsed.phases.preprocess_segments.enabled is True
+    assert parsed.phases.preprocess_segments.output_mode == "lazy"
+    assert parsed.phases.preprocess_segments.lazy_source == "scratch"
     assert parsed.phases.preprocess_segments.summary_json_relpath == "context/segment_recordings_summary.json"
     assert parsed.phases.preprocess_segments.rel_output_root == "preprocessed_segments"
     assert parsed.phases.plot_segment_traces.enabled is True
     assert parsed.phases.plot_segment_traces.summary_json_relpath == "context/plot_segment_traces_summary.json"
+    assert parsed.phases.plot_segment_channel_layouts.enabled is True
+    assert parsed.phases.plot_segment_channel_layouts.summary_json_relpath == "context/plot_segment_channel_layouts_summary.json"
     assert parsed.phases.concat_segments.enabled is True
     assert parsed.phases.concat_segments.concatenate_preprocessed_recordings is True
+    assert parsed.phases.concat_segments.output_mode == "binary"
     assert parsed.phases.concat_segments.summary_json_relpath == "context/concat_segments_summary.json"
     assert parsed.phases.concat_segments.rel_output_root == "concatenated_recording"
     assert parsed.phases.plot_concat_traces.enabled is True
     assert parsed.phases.plot_concat_traces.summary_json_relpath == "context/plot_concat_traces_summary.json"
+    assert parsed.phases.plot_concat_channel_layout.enabled is False
+    assert parsed.phases.plot_concat_channel_layout.summary_json_relpath == "context/plot_concat_channel_layout_summary.json"
+    assert parsed.phases.plot_raster_threshold.enabled is False
+    assert parsed.phases.plot_raster_threshold.summary_json_relpath == "context/plot_raster_threshold_summary.json"
+    assert parsed.phases.report_preprocessing.enabled is False
+    assert parsed.phases.report_preprocessing.summary_json_relpath == "context/report_preprocessing_summary.json"
+    assert parsed.phases.cleanup_preprocessing_outputs.enabled is False
+    assert parsed.phases.cleanup_preprocessing_outputs.summary_json_relpath == "context/cleanup_preprocessing_outputs_summary.json"
     assert parsed.phases.save_rec_metadata.common_electrodes_relpath == "common_electrodes.npy"
     assert (
         parsed.phases.save_rec_metadata.common_electrodes_summary_json_relpath
@@ -393,11 +411,22 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                         "save_rec_metadata": {
                             "enabled": True,
                             "verbose": True,
+                            "metadata_source": "scratch_copy",
                             "summary_json_relpath": "context/custom_recording_metadata_summary.json",
                             "segment_epochs_relpath": "meta/segments.json",
                             "contiguous_epochs_relpath": "meta/contiguous.json",
                             "sampling_metadata_relpath": "meta/sampling.json",
                             "common_electrodes_summary_json_relpath": "context/custom_common_summary.json",
+                        },
+                        "prepare_raw_binaries": {
+                            "enabled": True,
+                            "summary_json_relpath": "context/custom_prepare_raw_binaries_summary.json",
+                            "rel_output_root": "raw_binary_recording",
+                            "manifest_relpath": "context/custom_raw_binary_manifest.json",
+                            "outputs": {
+                                "save_chunk_duration": "3s",
+                                "save_progress_bar": True,
+                            },
                         },
                         "wipe_src_scratch": {
                             "enabled": True,
@@ -407,6 +436,8 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                         },
                         "preprocess_segments": {
                             "enabled": False,
+                            "output_mode": "binary",
+                            "lazy_source": "src",
                             "summary_json_relpath": "context/custom_segments_summary.json",
                             "rel_output_root": "preprocessed_segments",
                             "outputs": {
@@ -425,9 +456,18 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                                 "output_dir": "plots/segments/{stream_id}",
                             },
                         },
+                        "plot_segment_channel_layouts": {
+                            "enabled": True,
+                            "summary_json_relpath": "context/custom_plot_segment_channel_layouts_summary.json",
+                            "plot": {
+                                "layouts": True,
+                                "channel_layouts_subdir": "custom_segment_layouts",
+                            },
+                        },
                         "concat_segments": {
                             "enabled": True,
                             "concatenate_preprocessed_recordings": False,
+                            "output_mode": "lazy",
                             "summary_json_relpath": "context/custom_concat_segments_summary.json",
                             "rel_output_root": "concatenated_recording",
                             "outputs": {
@@ -444,6 +484,29 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                                 }
                             },
                         },
+                        "plot_concat_channel_layout": {
+                            "enabled": True,
+                            "summary_json_relpath": "context/custom_plot_concat_channel_layout_summary.json",
+                            "plot": {
+                                "layouts": True,
+                                "channel_layouts_subdir": "custom_concat_layouts",
+                            },
+                        },
+                        "plot_raster_threshold": {
+                            "enabled": True,
+                            "summary_json_relpath": "context/custom_plot_raster_threshold_summary.json",
+                            "rel_output_root": "raster_threshold_outputs",
+                        },
+                        "report_preprocessing": {
+                            "enabled": True,
+                            "summary_json_relpath": "context/custom_report_preprocessing_summary.json",
+                            "report_relpath": "report/custom_preprocessing_report.md",
+                            "json_summary_relpath": "report/custom_preprocessing_report.json",
+                        },
+                        "cleanup_preprocessing_outputs": {
+                            "enabled": True,
+                            "summary_json_relpath": "context/custom_cleanup_preprocessing_outputs_summary.json",
+                        },
                     },
                 }
             }
@@ -457,15 +520,24 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
     assert parsed.phases.copy_src_to_scratch.summary_json_relpath == "context/custom_copy_summary.json"
     assert parsed.phases.save_rec_metadata.enabled is True
     assert parsed.phases.save_rec_metadata.verbose is True
+    assert parsed.phases.save_rec_metadata.metadata_source == "scratch_copy"
     assert parsed.phases.save_rec_metadata.summary_json_relpath == "context/custom_recording_metadata_summary.json"
     assert parsed.phases.save_rec_metadata.segment_epochs_relpath == "meta/segments.json"
     assert parsed.phases.save_rec_metadata.contiguous_epochs_relpath == "meta/contiguous.json"
     assert parsed.phases.save_rec_metadata.sampling_metadata_relpath == "meta/sampling.json"
+    assert parsed.phases.prepare_raw_binaries.enabled is True
+    assert parsed.phases.prepare_raw_binaries.summary_json_relpath == "context/custom_prepare_raw_binaries_summary.json"
+    assert parsed.phases.prepare_raw_binaries.rel_output_root == "raw_binary_recording"
+    assert parsed.phases.prepare_raw_binaries.manifest_relpath == "context/custom_raw_binary_manifest.json"
+    assert parsed.phases.prepare_raw_binaries.outputs.save_chunk_duration == "3s"
+    assert parsed.phases.prepare_raw_binaries.outputs.save_progress_bar is True
     assert parsed.phases.wipe_src_scratch.enabled is True
     assert parsed.phases.wipe_src_scratch.dry_run is True
     assert parsed.phases.wipe_src_scratch.requires_use_scratch_root is True
     assert parsed.phases.wipe_src_scratch.summary_json_relpath == "context/custom_wipe_src_scratch_summary.json"
     assert parsed.phases.preprocess_segments.enabled is False
+    assert parsed.phases.preprocess_segments.output_mode == "binary"
+    assert parsed.phases.preprocess_segments.lazy_source == "src"
     assert parsed.phases.preprocess_segments.summary_json_relpath == "context/custom_segments_summary.json"
     assert parsed.phases.preprocess_segments.rel_output_root == "preprocessed_segments"
     assert parsed.phases.preprocess_segments.outputs.save_chunk_duration == "2s"
@@ -477,8 +549,13 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
     assert parsed.phases.plot_segment_traces.plot.layouts is False
     assert parsed.phases.plot_segment_traces.plot.segment_traces is False
     assert parsed.phases.plot_segment_traces.plot.output_dir == "plots/segments/{stream_id}"
+    assert parsed.phases.plot_segment_channel_layouts.enabled is True
+    assert parsed.phases.plot_segment_channel_layouts.summary_json_relpath == "context/custom_plot_segment_channel_layouts_summary.json"
+    assert parsed.phases.plot_segment_channel_layouts.plot.layouts is True
+    assert parsed.phases.plot_segment_channel_layouts.plot.channel_layouts_subdir == "custom_segment_layouts"
     assert parsed.phases.concat_segments.enabled is True
     assert parsed.phases.concat_segments.concatenate_preprocessed_recordings is False
+    assert parsed.phases.concat_segments.output_mode == "lazy"
     assert parsed.phases.concat_segments.summary_json_relpath == "context/custom_concat_segments_summary.json"
     assert parsed.phases.concat_segments.rel_output_root == "concatenated_recording"
     assert parsed.phases.concat_segments.outputs.concat_save_n_jobs == 4
@@ -486,6 +563,19 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
     assert parsed.phases.plot_concat_traces.summary_json_relpath == "context/custom_plot_concat_traces_summary.json"
     assert parsed.phases.plot_concat_traces.plot.concat_trace is False
     assert parsed.phases.plot_concat_traces.plot.concat_trace_n_reps == 3
+    assert parsed.phases.plot_concat_channel_layout.enabled is True
+    assert parsed.phases.plot_concat_channel_layout.summary_json_relpath == "context/custom_plot_concat_channel_layout_summary.json"
+    assert parsed.phases.plot_concat_channel_layout.plot.layouts is True
+    assert parsed.phases.plot_concat_channel_layout.plot.channel_layouts_subdir == "custom_concat_layouts"
+    assert parsed.phases.plot_raster_threshold.enabled is True
+    assert parsed.phases.plot_raster_threshold.summary_json_relpath == "context/custom_plot_raster_threshold_summary.json"
+    assert parsed.phases.plot_raster_threshold.rel_output_root == "raster_threshold_outputs"
+    assert parsed.phases.report_preprocessing.enabled is True
+    assert parsed.phases.report_preprocessing.summary_json_relpath == "context/custom_report_preprocessing_summary.json"
+    assert parsed.phases.report_preprocessing.report_relpath == "report/custom_preprocessing_report.md"
+    assert parsed.phases.report_preprocessing.json_summary_relpath == "report/custom_preprocessing_report.json"
+    assert parsed.phases.cleanup_preprocessing_outputs.enabled is True
+    assert parsed.phases.cleanup_preprocessing_outputs.summary_json_relpath == "context/custom_cleanup_preprocessing_outputs_summary.json"
     assert (
         parsed.phases.save_rec_metadata.common_electrodes_summary_json_relpath
         == "context/custom_common_summary.json"
@@ -588,11 +678,16 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
                         "      save_rec_metadata:\n"
                         "        enabled: true\n"
                         "        verbose: true\n"
+                        "        metadata_source: source_h5\n"
                         "        summary_json_relpath: context/recording_metadata_summary.json\n"
                         "        segment_epochs_relpath: segment_epochs.json\n"
                         "        contiguous_epochs_relpath: continuous_epochs.json\n"
                         "        sampling_metadata_relpath: sampling_rate_metadata.json\n"
                         "        common_electrodes_summary_json_relpath: context/save_common_electrodes_summary.json\n"
+                        "      prepare_raw_binaries:\n"
+                        "        enabled: true\n"
+                        "        rel_output_root: raw_binary_recording\n"
+                        "        manifest_relpath: context/raw_binary_manifest.json\n"
                         "      wipe_src_scratch:\n"
                         "        enabled: true\n"
                         "        dry_run: true\n"
@@ -600,6 +695,8 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
                         "        summary_json_relpath: context/wipe_src_scratch_summary.json\n"
                         "      preprocess_segments:\n"
                         "        enabled: false\n"
+                        "        output_mode: lazy\n"
+                        "        lazy_source: src\n"
                         "        rel_output_root: preprocessed_segments\n"
                         "        plot:\n"
                         "          layouts: false\n"
@@ -617,6 +714,7 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
                         "      concat_segments:\n"
                         "        enabled: true\n"
                         "        concatenate_preprocessed_recordings: false\n"
+                        "        output_mode: binary\n"
                         "        rel_output_root: concatenated_recording\n"
                         "        outputs:\n"
                         "          concat_save_n_jobs: 4\n"
@@ -624,6 +722,16 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
                         "        enabled: true\n"
                         "        plot:\n"
                         "          concat_trace: false\n"
+                        "      plot_segment_channel_layouts:\n"
+                        "        enabled: true\n"
+                        "      plot_concat_channel_layout:\n"
+                        "        enabled: false\n"
+                        "      plot_raster_threshold:\n"
+                        "        enabled: false\n"
+                        "      report_preprocessing:\n"
+                        "        enabled: false\n"
+                        "      cleanup_preprocessing_outputs:\n"
+                        "        enabled: false\n"
                 ),
         encoding="utf-8",
     )
@@ -658,15 +766,21 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
     assert inputs.phases.copy_src_to_scratch.enabled is True
     assert inputs.phases.save_rec_metadata.enabled is True
     assert inputs.phases.save_rec_metadata.verbose is True
+    assert inputs.phases.save_rec_metadata.metadata_source == "source_h5"
     assert inputs.phases.save_rec_metadata.summary_json_relpath == "context/recording_metadata_summary.json"
     assert inputs.phases.save_rec_metadata.segment_epochs_relpath == "segment_epochs.json"
     assert inputs.phases.save_rec_metadata.contiguous_epochs_relpath == "continuous_epochs.json"
     assert inputs.phases.save_rec_metadata.sampling_metadata_relpath == "sampling_rate_metadata.json"
+    assert inputs.phases.prepare_raw_binaries.enabled is True
+    assert inputs.phases.prepare_raw_binaries.rel_output_root == "raw_binary_recording"
+    assert inputs.phases.prepare_raw_binaries.manifest_relpath == "context/raw_binary_manifest.json"
     assert inputs.phases.wipe_src_scratch.enabled is True
     assert inputs.phases.wipe_src_scratch.dry_run is True
     assert inputs.phases.wipe_src_scratch.requires_use_scratch_root is True
     assert inputs.phases.wipe_src_scratch.summary_json_relpath == "context/wipe_src_scratch_summary.json"
     assert inputs.phases.preprocess_segments.enabled is False
+    assert inputs.phases.preprocess_segments.output_mode == "lazy"
+    assert inputs.phases.preprocess_segments.lazy_source == "src"
     assert inputs.phases.preprocess_segments.rel_output_root == "preprocessed_segments"
     assert inputs.phases.preprocess_segments.outputs.save_chunk_duration == "2s"
     assert inputs.phases.preprocess_segments.outputs.save_progress_bar is True
@@ -681,11 +795,17 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
     assert inputs.phases.plot_segment_traces.plot.trace_downsample_hz == 200.0
     assert inputs.phases.plot_segment_traces.plot.trace_max_points == 32000
     assert inputs.phases.plot_segment_traces.plot.output_dir == "preprocess_outputs/plots"
+    assert inputs.phases.plot_segment_channel_layouts.enabled is True
     assert inputs.phases.concat_segments.enabled is True
     assert inputs.phases.concat_segments.concatenate_preprocessed_recordings is False
+    assert inputs.phases.concat_segments.output_mode == "binary"
     assert inputs.phases.concat_segments.rel_output_root == "concatenated_recording"
     assert inputs.phases.plot_concat_traces.enabled is True
     assert inputs.phases.plot_concat_traces.plot.concat_trace is False
+    assert inputs.phases.plot_concat_channel_layout.enabled is False
+    assert inputs.phases.plot_raster_threshold.enabled is False
+    assert inputs.phases.report_preprocessing.enabled is False
+    assert inputs.phases.cleanup_preprocessing_outputs.enabled is False
     assert inputs.phases.concat_segments.outputs.concat_save_n_jobs == 4
     assert inputs.phases.save_rec_metadata.common_electrodes_summary_json_relpath == "context/save_common_electrodes_summary.json"
 

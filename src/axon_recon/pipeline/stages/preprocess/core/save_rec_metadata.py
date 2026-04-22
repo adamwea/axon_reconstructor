@@ -412,6 +412,8 @@ def run_save_rec_metadata_core(
 	*,
 	h5_path: Path,
 	source_h5_path: Path,
+	requested_metadata_source: str,
+	metadata_source: str,
 	stream_id: str,
 	segment_epochs_path: Path,
 	contiguous_epochs_path: Path,
@@ -604,6 +606,8 @@ def run_save_rec_metadata_core(
 	}
 
 	segment_epochs_payload = {
+		"requested_metadata_source": str(requested_metadata_source),
+		"metadata_source": str(metadata_source),
 		"h5_path": str(resolved_h5_path),
 		"source_h5_path": str(source_h5_path),
 		"stream_id": str(stream_id),
@@ -615,6 +619,8 @@ def run_save_rec_metadata_core(
 		segment_epochs_payload["warnings"] = list(metadata_warnings)
 
 	contiguous_epochs_payload = {
+		"requested_metadata_source": str(requested_metadata_source),
+		"metadata_source": str(metadata_source),
 		"h5_path": str(resolved_h5_path),
 		"source_h5_path": str(source_h5_path),
 		"stream_id": str(stream_id),
@@ -627,6 +633,8 @@ def run_save_rec_metadata_core(
 		contiguous_epochs_payload["warnings"] = list(metadata_warnings)
 
 	sampling_metadata_payload = {
+		"requested_metadata_source": str(requested_metadata_source),
+		"metadata_source": str(metadata_source),
 		"h5_path": str(resolved_h5_path),
 		"source_h5_path": str(source_h5_path),
 		"stream_id": str(stream_id),
@@ -672,6 +680,8 @@ def run_save_rec_metadata_core(
 
 	payload: dict[str, Any] = {
 		"phase": "save_rec_metadata",
+		"requested_metadata_source": str(requested_metadata_source),
+		"metadata_source": str(metadata_source),
 		"source_h5_path": str(source_h5_path),
 		"resolved_h5_path": str(resolved_h5_path),
 		"verbose": bool(verbose),
@@ -698,8 +708,9 @@ def run_save_rec_metadata_core(
 		payload["common_electrodes_preview"] = [int(value) for value in list(common_electrodes)[:64]]
 	if logger is not None:
 		logger.info(
-			"Saved recording metadata stream_id=%s segment_count=%d contiguous_epoch_count=%d common_electrodes=%d segment_epochs=%s contiguous_epochs=%s sampling_metadata=%s assay_stats=%s",
+			"Saved recording metadata stream_id=%s metadata_source=%s segment_count=%d contiguous_epoch_count=%d common_electrodes=%d segment_epochs=%s contiguous_epochs=%s sampling_metadata=%s assay_stats=%s",
 			str(stream_id),
+			str(metadata_source),
 			int(len(segment_epochs)),
 			int(len(contiguous_epochs)),
 			int(len(common_electrodes)),

@@ -11,7 +11,10 @@ from .stages.analysis.cli import _run_from_args as _run_analysis_from_args
 from .stages.preprocess.cli import _run_concat_segments_from_args as _run_preprocess_concat_segments_from_args
 from .stages.preprocess.cli import _run_copy_src_to_scratch_from_args as _run_preprocess_copy_src_to_scratch_from_args
 from .stages.preprocess.cli import _run_from_args as _run_preprocess_from_args
+from .stages.preprocess.cli import _run_plot_concat_channel_layout_from_args as _run_preprocess_plot_concat_channel_layout_from_args
+from .stages.preprocess.cli import _run_prepare_raw_binaries_from_args as _run_preprocess_prepare_raw_binaries_from_args
 from .stages.preprocess.cli import _run_plot_concat_traces_from_args as _run_preprocess_plot_concat_traces_from_args
+from .stages.preprocess.cli import _run_plot_segment_channel_layouts_from_args as _run_preprocess_plot_segment_channel_layouts_from_args
 from .stages.preprocess.cli import _run_plot_segment_traces_from_args as _run_preprocess_plot_segment_traces_from_args
 from .stages.preprocess.cli import _run_preprocess_segments_from_args as _run_preprocess_preprocess_segments_from_args
 from .stages.preprocess.cli import _run_save_rec_metadata_from_args as _run_preprocess_save_rec_metadata_from_args
@@ -62,21 +65,30 @@ _STAGE_ALIASES: dict[str, str] = {
 	"preproc": "preprocess",
 	"pre.copy_src_to_scratch": "preprocess.copy_src_to_scratch",
 	"pre.save_rec_metadata": "preprocess.save_rec_metadata",
+	"pre.prepare_raw_binaries": "preprocess.prepare_raw_binaries",
 	"pre.wipe_src_scratch": "preprocess.wipe_src_scratch",
 	"pre.preprocess_segments": "preprocess.preprocess_segments",
 	"pre.plot_segment_traces": "preprocess.plot_segment_traces",
+	"pre.plot_segment_channel_layouts": "preprocess.plot_segment_channel_layouts",
 	"pre.concat_segments": "preprocess.concat_segments",
 	"pre.plot_concat_traces": "preprocess.plot_concat_traces",
+	"pre.plot_concat_channel_layout": "preprocess.plot_concat_channel_layout",
 	"preproc.copy_src_to_scratch": "preprocess.copy_src_to_scratch",
 	"preproc.save_rec_metadata": "preprocess.save_rec_metadata",
+	"preproc.prepare_raw_binaries": "preprocess.prepare_raw_binaries",
 	"preproc.wipe_src_scratch": "preprocess.wipe_src_scratch",
 	"preproc.preprocess_segments": "preprocess.preprocess_segments",
 	"preproc.plot_segment_traces": "preprocess.plot_segment_traces",
+	"preproc.plot_segment_channel_layouts": "preprocess.plot_segment_channel_layouts",
 	"preproc.concat_segments": "preprocess.concat_segments",
 	"preproc.plot_concat_traces": "preprocess.plot_concat_traces",
+	"preproc.plot_concat_channel_layout": "preprocess.plot_concat_channel_layout",
+	"preprocess.plot_segment_channel_layouts": "preprocess.plot_segment_channel_layouts",
+	"preprocess.prepare_raw_binaries": "preprocess.prepare_raw_binaries",
 	"preprocess.plot_segment_traces": "preprocess.plot_segment_traces",
 	"preprocess.concat_segments": "preprocess.concat_segments",
 	"preprocess.plot_concat_traces": "preprocess.plot_concat_traces",
+	"preprocess.plot_concat_channel_layout": "preprocess.plot_concat_channel_layout",
 	"sort": "spikesort",
 	"spikesort.sort": "spikesort",
 	"merge": "spikesort.merge",
@@ -127,11 +139,14 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"preprocess": _run_preprocess_from_args,
 	"preprocess.copy_src_to_scratch": _run_preprocess_copy_src_to_scratch_from_args,
 	"preprocess.save_rec_metadata": _run_preprocess_save_rec_metadata_from_args,
+	"preprocess.prepare_raw_binaries": _run_preprocess_prepare_raw_binaries_from_args,
 	"preprocess.wipe_src_scratch": _run_preprocess_wipe_src_scratch_from_args,
 	"preprocess.preprocess_segments": _run_preprocess_preprocess_segments_from_args,
 	"preprocess.plot_segment_traces": _run_preprocess_plot_segment_traces_from_args,
+	"preprocess.plot_segment_channel_layouts": _run_preprocess_plot_segment_channel_layouts_from_args,
 	"preprocess.concat_segments": _run_preprocess_concat_segments_from_args,
 	"preprocess.plot_concat_traces": _run_preprocess_plot_concat_traces_from_args,
+	"preprocess.plot_concat_channel_layout": _run_preprocess_plot_concat_channel_layout_from_args,
 	"spikesort": _run_spikesort_from_args,
 	"spikesort.merge": _run_spikesort_merge_from_args,
 	"spikesort.merge.slay": _run_spikesort_merge_slay_from_args,

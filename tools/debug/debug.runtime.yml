@@ -98,14 +98,29 @@ stages:
       save_rec_metadata:
         enabled: true
         verbose: true
+        #metadata_source: source_h5
+        metadata_source: scratch_h5 # use scratch H5 metadata as the source of truth for recording metadata during debugging iterations to validate the integrity of copied recordings and their metadata in scratch space; can be set to source_h5 to use source H5 metadata instead, which is faster to access and can be used when copy_src_to_scratch is false or not the focus of debugging iterations.
         summary_json_relpath: context/recording_metadata_summary.json
         segment_epochs_relpath: segment_epochs.json # start/stop timestamps for each segment; relative to preprocess output dir
         contiguous_epochs_relpath: contiguous_epochs.json # start/stop timestamps for contiguous data within each segment; relative to preprocess output dir
         sampling_metadata_relpath: sampling_metadata.json # per-segment sampling rate metadata; relative to preprocess output dir
         common_electrodes_relpath: common_electrodes.npy
         common_electrodes_summary_json_relpath: context/save_common_electrodes_summary.json
+      prepare_raw_binaries:
+        enabled: false
+        summary_json_relpath: context/prepare_raw_binaries_summary.json
+        rel_output_root: raw_binary_recording
+        manifest_relpath: context/raw_binary_manifest.json
+        outputs:
+          save_chunk_duration: 1s
+          save_progress_bar: true
+          segment_save_n_jobs: null
+          print_n_jobs_used: true
       preprocess_segments:
         enabled: true
+        output_mode: lazy # lazy | binary; lazy mode saves per-segment preprocessed outputs in a way that supports lazy loading for downstream phases, while binary mode saves concatenated preprocessed outputs directly as memory-mapped binaries without intermediate per-segment files; keep lazy by default for debugging iterations to allow more granular inspection of per-segment preprocessing outputs, but can be set to binary to skip intermediate file saving and speed up iterations when segment-level inspection is not the focus.
+        #lazy_source: src # src | scratch
+        lazy_source: scratch # use scratch as the default lazy source for preprocess_segments to test lazy loading from scratch outputs during debugging iterations; can be set to src to test lazy loading directly from source recordings instead.
         rel_output_root: preprocessed_segments
         summary_json_relpath: context/segment_recordings_summary.json
         outputs:
@@ -114,7 +129,7 @@ stages:
           segment_save_n_jobs: null
           print_n_jobs_used: true
       plot_segment_traces:
-        enabled: true
+        enabled: false
         summary_json_relpath: context/plot_segment_traces_summary.json
         plot:
           # Master preprocess PNG diagnostics override.
@@ -124,7 +139,7 @@ stages:
           disable_all_png_diagnostics: false
 
           # Individual diagnostic toggles for more granular control. These are all independent, so you can enable any combination of them.
-          layouts: true
+          layouts: false
           segment_traces: true # legacy alias for per-segment enabled flag
           # Optional explicit output roots for preprocess diagnostics.
           # Relative paths resolve under the preprocess output directory.
@@ -137,7 +152,9 @@ stages:
             # Alias-compatible with `n_representative_channels`; set to -1 to include all representatives.
             n_reps: 2
           # Parallel workers for diagnostic plotting/scoring (segment trace rendering + representative scoring).
-          n_jobs: null # inherit preprocess n_jobs by default; can set an explicit number here for more control.
+          #n_jobs: null # inherit preprocess n_jobs by default; can set an explicit number here for more control.
+          n_jobs: 1 # force one job at a time, probably better for read/write contention
+          #well_workers: 1 # force one well at a time for the same reason
 
           # Downsample plotting density for concat/segment trace figures.
           # Example math (10 kHz source, 30 min recording):
@@ -151,9 +168,16 @@ stages:
           #trace_downsample_hz: null # when null, no downsampling is applied to trace diagnostics; use with trace_max_points
           trace_downsample_hz: 100.0 # downsample to 100 Hz for trace diagnostics; effective rate may be further reduced by trace_max_points
           trace_max_points: -1 # int or -1 for no cap
+      plot_segment_channel_layouts:
+        enabled: false
+        summary_json_relpath: context/plot_segment_channel_layouts_summary.json
+        plot:
+          layouts: true
+          channel_layouts_subdir: channel_layouts
       concat_segments:
         enabled: true
         concatenate_preprocessed_recordings: true # when true, concatenate the preprocessed segment recordings; when false, concatenate raw segment recordings instead while keeping the rest of the concat phase wiring the same.
+        output_mode: binary
         summary_json_relpath: context/concat_segments_summary.json
         rel_output_root: concatenated_recording
         manifest_relpath: context/concat_segments_manifest.json
@@ -163,7 +187,7 @@ stages:
           concat_save_n_jobs: null
           print_n_jobs_used: true
       plot_concat_traces:
-        enabled: true
+        enabled: false
         summary_json_relpath: context/plot_concat_traces_summary.json
         plot:
           # Representative controls for concatenated trace diagnostics.
@@ -172,8 +196,26 @@ stages:
             # Alias-compatible with `n_representative_channels`; set to -1 to include all representatives.
             n_reps: 3
           concat_trace_relpath: concat_cluster_reps_{stream_id}.png
+      plot_concat_channel_layout:
+        enabled: false
+        summary_json_relpath: context/plot_concat_channel_layout_summary.json
+        plot:
+          layouts: true
+          channel_layouts_subdir: channel_layouts
+      plot_raster_threshold:
+        enabled: false
+        summary_json_relpath: context/plot_raster_threshold_summary.json
+        rel_output_root: raster_threshold
+      report_preprocessing:
+        enabled: false
+        summary_json_relpath: context/report_preprocessing_summary.json
+        report_relpath: report/preprocessing_report.md
+        json_summary_relpath: report/preprocessing_report.json
+      cleanup_preprocessing_outputs:
+        enabled: false
+        summary_json_relpath: context/cleanup_preprocessing_outputs_summary.json
       wipe_src_scratch:
-        enabled: true
+        enabled: false
         dry_run: true # when true, logs the paths that would be deleted without actually deleting them; keep true by default for safety during debugging iterations, but can be set to false to enable actual deletion of scratch outputs when publish_outputs is false and you want to clean up scratch space during debug runs.
         requires_use_scratch_root: true
         summary_json_relpath: context/wipe_src_scratch_summary.json

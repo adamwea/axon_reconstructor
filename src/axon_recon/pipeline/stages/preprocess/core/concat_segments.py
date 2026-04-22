@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .artifacts import build_stitch_frames_from_segment_manifest, load_saved_recording, load_segment_manifest, write_json
+from .artifacts import build_stitch_frames_from_segment_manifest, load_segment_manifest, load_segment_recording_from_entry, write_json
 
 
 def run_concat_segments_core(
@@ -26,7 +26,7 @@ def run_concat_segments_core(
 	t0 = time.perf_counter()
 	segment_entries = load_segment_manifest(segment_manifest_path)
 	if not segment_entries:
-		raise RuntimeError(f"No saved preprocessed segments available to concatenate: {segment_manifest_path}")
+		raise RuntimeError(f"No preprocessed segments available to concatenate: {segment_manifest_path}")
 	if logger is not None:
 		logger.info(
 			"Starting concat_segments for well=%s segment_count=%d manifest=%s",
@@ -37,7 +37,7 @@ def run_concat_segments_core(
 	segment_recordings: list[Any] = []
 	for segment_index, item in enumerate(segment_entries, start=1):
 		rec_name = str(item.get("rec_name", f"segment_{segment_index - 1:03d}")).strip() or f"segment_{segment_index - 1:03d}"
-		segment_recordings.append(load_saved_recording(Path(str(item.get("folder")))))
+		segment_recordings.append(load_segment_recording_from_entry(dict(item)))
 		if logger is not None:
 			logger.info(
 				"concat_segments progress well=%s loaded=%d/%d rec_name=%s",
@@ -78,7 +78,7 @@ def run_concat_segments_core(
 	write_json(concat_manifest_path, concat_manifest_payload)
 	if logger is not None:
 		logger.info(
-			"Concatenated %d saved segment recording(s) into %s",
+			"Concatenated %d preprocessed segment recording(s) into %s",
 			int(len(segment_entries)),
 			recording_dir,
 		)

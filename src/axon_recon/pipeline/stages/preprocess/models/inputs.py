@@ -23,12 +23,22 @@ class PreprocessCopySrcToScratchPhaseConfig:
 class PreprocessSaveRecMetadataPhaseConfig:
 	enabled: bool = False
 	verbose: bool = False
+	metadata_source: str = "source_h5"
 	summary_json_relpath: str = "context/recording_metadata_summary.json"
 	segment_epochs_relpath: str = "segment_epochs.json"
 	contiguous_epochs_relpath: str = "continuous_epochs.json"
 	sampling_metadata_relpath: str = "sampling_rate_metadata.json"
 	common_electrodes_relpath: str = "common_electrodes.npy"
 	common_electrodes_summary_json_relpath: str = "context/save_common_electrodes_summary.json"
+
+
+@dataclass(frozen=True)
+class PreprocessPrepareRawBinariesPhaseConfig:
+	enabled: bool = True
+	summary_json_relpath: str = "context/prepare_raw_binaries_summary.json"
+	rel_output_root: str = "raw_binary_recording"
+	manifest_relpath: str = "context/raw_binary_manifest.json"
+	outputs: PreprocessPhaseOutputsConfig = field(default_factory=lambda: PreprocessPhaseOutputsConfig())
 
 
 @dataclass(frozen=True)
@@ -71,6 +81,8 @@ class PreprocessPhaseOutputsConfig:
 @dataclass(frozen=True)
 class PreprocessSegmentsPhaseConfig:
 	enabled: bool = True
+	output_mode: str = "lazy"
+	lazy_source: str = "scratch"
 	summary_json_relpath: str = "context/segment_recordings_summary.json"
 	rel_output_root: str = "preprocessed_segments"
 	outputs: PreprocessPhaseOutputsConfig = field(default_factory=PreprocessPhaseOutputsConfig)
@@ -91,6 +103,7 @@ class PreprocessPlotSegmentTracesPhaseConfig:
 class PreprocessConcatSegmentsPhaseConfig:
 	enabled: bool = True
 	concatenate_preprocessed_recordings: bool = True
+	output_mode: str = "binary"
 	summary_json_relpath: str = "context/concat_segments_summary.json"
 	rel_output_root: str = "concatenated_recording"
 	manifest_relpath: str = "context/concat_segments_manifest.json"
@@ -109,6 +122,51 @@ class PreprocessPlotConcatTracesPhaseConfig:
 	)
 
 
+@dataclass(frozen=True)
+class PreprocessPlotSegmentChannelLayoutsPhaseConfig:
+	enabled: bool = True
+	summary_json_relpath: str = "context/plot_segment_channel_layouts_summary.json"
+	plot: PreprocessPlotConfig = field(
+		default_factory=lambda: PreprocessPlotConfig(
+			concat_trace=False,
+			segment_traces=False,
+		)
+	)
+
+
+@dataclass(frozen=True)
+class PreprocessPlotConcatChannelLayoutPhaseConfig:
+	enabled: bool = False
+	summary_json_relpath: str = "context/plot_concat_channel_layout_summary.json"
+	plot: PreprocessPlotConfig = field(
+		default_factory=lambda: PreprocessPlotConfig(
+			segment_traces=False,
+			concat_trace=False,
+		)
+	)
+
+
+@dataclass(frozen=True)
+class PreprocessPlotRasterThresholdPhaseConfig:
+	enabled: bool = False
+	summary_json_relpath: str = "context/plot_raster_threshold_summary.json"
+	rel_output_root: str = "raster_threshold"
+
+
+@dataclass(frozen=True)
+class PreprocessReportPreprocessingPhaseConfig:
+	enabled: bool = False
+	summary_json_relpath: str = "context/report_preprocessing_summary.json"
+	report_relpath: str = "report/preprocessing_report.md"
+	json_summary_relpath: str = "report/preprocessing_report.json"
+
+
+@dataclass(frozen=True)
+class PreprocessCleanupOutputsPhaseConfig:
+	enabled: bool = False
+	summary_json_relpath: str = "context/cleanup_preprocessing_outputs_summary.json"
+
+
 PreprocessConcatenateRecordingsPhaseConfig = PreprocessConcatSegmentsPhaseConfig
 PreprocessConcatenatePreprocessedRecordingsPhaseConfig = PreprocessConcatSegmentsPhaseConfig
 
@@ -122,6 +180,7 @@ class PreprocessPhasesConfig:
 		default_factory=lambda: PreprocessSaveRecMetadataPhaseConfig(
 			enabled=False,
 			verbose=False,
+			metadata_source="source_h5",
 			summary_json_relpath="context/recording_metadata_summary.json",
 			segment_epochs_relpath="segment_epochs.json",
 			contiguous_epochs_relpath="continuous_epochs.json",
@@ -129,6 +188,9 @@ class PreprocessPhasesConfig:
 			common_electrodes_relpath="common_electrodes.npy",
 			common_electrodes_summary_json_relpath="context/save_common_electrodes_summary.json",
 		)
+	)
+	prepare_raw_binaries: PreprocessPrepareRawBinariesPhaseConfig = field(
+		default_factory=PreprocessPrepareRawBinariesPhaseConfig
 	)
 	wipe_src_scratch: PreprocessWipeSrcScratchPhaseConfig = field(
 		default_factory=PreprocessWipeSrcScratchPhaseConfig
@@ -139,11 +201,26 @@ class PreprocessPhasesConfig:
 	plot_segment_traces: PreprocessPlotSegmentTracesPhaseConfig = field(
 		default_factory=PreprocessPlotSegmentTracesPhaseConfig
 	)
+	plot_segment_channel_layouts: PreprocessPlotSegmentChannelLayoutsPhaseConfig = field(
+		default_factory=PreprocessPlotSegmentChannelLayoutsPhaseConfig
+	)
 	concat_segments: PreprocessConcatSegmentsPhaseConfig = field(
 		default_factory=PreprocessConcatSegmentsPhaseConfig
 	)
 	plot_concat_traces: PreprocessPlotConcatTracesPhaseConfig = field(
 		default_factory=PreprocessPlotConcatTracesPhaseConfig
+	)
+	plot_concat_channel_layout: PreprocessPlotConcatChannelLayoutPhaseConfig = field(
+		default_factory=PreprocessPlotConcatChannelLayoutPhaseConfig
+	)
+	plot_raster_threshold: PreprocessPlotRasterThresholdPhaseConfig = field(
+		default_factory=PreprocessPlotRasterThresholdPhaseConfig
+	)
+	report_preprocessing: PreprocessReportPreprocessingPhaseConfig = field(
+		default_factory=PreprocessReportPreprocessingPhaseConfig
+	)
+	cleanup_preprocessing_outputs: PreprocessCleanupOutputsPhaseConfig = field(
+		default_factory=PreprocessCleanupOutputsPhaseConfig
 	)
 
 	@property

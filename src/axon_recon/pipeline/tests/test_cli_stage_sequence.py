@@ -51,16 +51,22 @@ def test_parse_stage_list_tokens_supports_templates_phase_aliases() -> None:
     [
         ("preprocess.copy_src_to_scratch", "preprocess.copy_src_to_scratch"),
         ("preprocess.save_rec_metadata", "preprocess.save_rec_metadata"),
+        ("preprocess.prepare_raw_binaries", "preprocess.prepare_raw_binaries"),
         ("preprocess.wipe_src_scratch", "preprocess.wipe_src_scratch"),
         ("preprocess.preprocess_segments", "preprocess.preprocess_segments"),
         ("preprocess.plot_segment_traces", "preprocess.plot_segment_traces"),
+        ("preprocess.plot_segment_channel_layouts", "preprocess.plot_segment_channel_layouts"),
         ("preprocess.concat_segments", "preprocess.concat_segments"),
         ("preprocess.plot_concat_traces", "preprocess.plot_concat_traces"),
+        ("preprocess.plot_concat_channel_layout", "preprocess.plot_concat_channel_layout"),
         ("preproc.save_rec_metadata", "preprocess.save_rec_metadata"),
+        ("preproc.prepare_raw_binaries", "preprocess.prepare_raw_binaries"),
         ("preproc.wipe_src_scratch", "preprocess.wipe_src_scratch"),
         ("preproc.plot_segment_traces", "preprocess.plot_segment_traces"),
+        ("preproc.plot_segment_channel_layouts", "preprocess.plot_segment_channel_layouts"),
         ("preproc.concat_segments", "preprocess.concat_segments"),
         ("preproc.plot_concat_traces", "preprocess.plot_concat_traces"),
+        ("preproc.plot_concat_channel_layout", "preprocess.plot_concat_channel_layout"),
     ],
 )
 def test_parse_stage_list_tokens_supports_preprocess_phase_tokens(raw_token: str, expected: str) -> None:

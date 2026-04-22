@@ -10,6 +10,7 @@ from axon_recon.pipeline.runner import (
     run_preprocess_concat_segments_from_runtime,
     run_preprocess_copy_src_to_scratch_from_runtime,
     run_preprocess_from_runtime,
+    run_preprocess_prepare_raw_binaries_from_runtime,
     run_preprocess_plot_concat_traces_from_runtime,
     run_preprocess_plot_segment_traces_from_runtime,
     run_preprocess_preprocess_segments_from_runtime,
@@ -327,6 +328,15 @@ def test_run_preprocess_from_runtime_applies_debug_well_limit(monkeypatch, tmp_p
             "save_rec_metadata",
             1,
             True,
+        ),
+        (
+            run_preprocess_prepare_raw_binaries_from_runtime,
+            "run_preprocess_prepare_raw_binaries_from_runtime",
+            "run_preprocess_prepare_raw_binaries",
+            "preprocess.prepare_raw_binaries",
+            "prepare_raw_binaries",
+            12,
+            False,
         ),
         (
             run_preprocess_wipe_src_scratch_from_runtime,

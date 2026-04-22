@@ -34,15 +34,18 @@ from ...shared.sampling import read_maxwell_sampling_frequency_hz
 from .core import (
 	load_common_electrodes,
 	load_concat_manifest,
+	load_raw_binary_manifest,
 	load_recording_metadata,
 	load_saved_recording,
 	load_segment_manifest,
 	read_json,
 	run_concat_segments_core,
 	run_copy_src_to_scratch_core,
+	run_plot_concat_channel_layout_core,
 	run_plot_concat_traces_core,
 	run_plot_segment_traces_core,
 	run_preprocess_segments_core,
+	run_prepare_raw_binaries_core,
 	run_save_concatenated_recording_core,
 	run_save_rec_metadata_core,
 	run_save_segment_recordings_core,
@@ -51,8 +54,10 @@ from .core import (
 from .models.inputs import (
 	PreprocessConcatSegmentsPhaseConfig,
 	PreprocessInputs,
+	PreprocessPlotConcatChannelLayoutPhaseConfig,
 	PreprocessPlotConcatTracesPhaseConfig,
 	PreprocessPlotConfig,
+	PreprocessPlotSegmentChannelLayoutsPhaseConfig,
 	PreprocessPlotSegmentTracesPhaseConfig,
 	PreprocessSegmentsPhaseConfig,
 )
@@ -71,6 +76,8 @@ class _PreprocessPathSet:
 	well_out_dir: Path
 	preprocess_out_dir: Path
 	legacy_out_dir: Path
+	raw_binary_dir: Path
+	raw_binary_manifest_path: Path
 	recording_dir: Path
 	concat_manifest_path: Path
 	common_electrodes_path: Path
@@ -664,10 +671,20 @@ def _resolve_effective_plot_config(inputs: PreprocessInputs, *, selected_phase: 
 		input_plot=input_plot,
 		default_plot=PreprocessPlotSegmentTracesPhaseConfig().plot,
 	)
+	segment_layout_plot = _apply_plot_input_fallback(
+		phase_plot=inputs.phases.plot_segment_channel_layouts.plot,
+		input_plot=input_plot,
+		default_plot=PreprocessPlotSegmentChannelLayoutsPhaseConfig().plot,
+	)
 	concat_plot = _apply_plot_input_fallback(
 		phase_plot=inputs.phases.plot_concat_traces.plot,
 		input_plot=input_plot,
 		default_plot=PreprocessPlotConcatTracesPhaseConfig().plot,
+	)
+	concat_layout_plot = _apply_plot_input_fallback(
+		phase_plot=inputs.phases.plot_concat_channel_layout.plot,
+		input_plot=input_plot,
+		default_plot=PreprocessPlotConcatChannelLayoutPhaseConfig().plot,
 	)
 	primary = segment_plot
 	secondary = concat_plot
@@ -683,26 +700,51 @@ def _resolve_effective_plot_config(inputs: PreprocessInputs, *, selected_phase: 
 		concat_trace = False
 	elif selected_phase == "plot_segment_traces":
 		primary = segment_plot
-		secondary = concat_plot
-		layouts = bool(segment_plot.layouts)
+		secondary = segment_layout_plot
+		layouts = False
 		segment_traces = bool(segment_plot.segment_traces)
+		concat_trace = False
+	elif selected_phase == "plot_segment_channel_layouts":
+		primary = segment_layout_plot
+		secondary = segment_plot
+		layouts = bool(segment_layout_plot.layouts)
+		segment_traces = False
 		concat_trace = False
 	elif _is_concat_segments_phase(selected_phase):
 		primary = concat_plot
-		secondary = segment_plot
+		secondary = concat_layout_plot
 		layouts = False
 		segment_traces = False
 		concat_trace = False
 	elif selected_phase == "plot_concat_traces":
 		primary = concat_plot
-		secondary = segment_plot
+		secondary = concat_layout_plot
 		layouts = False
 		segment_traces = False
 		concat_trace = bool(concat_plot.concat_trace)
+	elif selected_phase == "plot_concat_channel_layout":
+		primary = concat_layout_plot
+		secondary = concat_plot
+		layouts = bool(concat_layout_plot.layouts)
+		segment_traces = False
+		concat_trace = False
 	else:
-		primary = segment_plot if bool(inputs.phases.plot_segment_traces.enabled) else concat_plot
-		secondary = concat_plot if primary is segment_plot else segment_plot
-		layouts = bool(inputs.phases.plot_segment_traces.enabled and segment_plot.layouts)
+		active_plot_cfgs = [
+			cfg
+			for enabled, cfg in (
+				(bool(inputs.phases.plot_segment_traces.enabled), segment_plot),
+				(bool(inputs.phases.plot_segment_channel_layouts.enabled), segment_layout_plot),
+				(bool(inputs.phases.plot_concat_traces.enabled), concat_plot),
+				(bool(inputs.phases.plot_concat_channel_layout.enabled), concat_layout_plot),
+			)
+			if bool(enabled)
+		]
+		primary = active_plot_cfgs[0] if active_plot_cfgs else segment_plot
+		secondary = active_plot_cfgs[1] if len(active_plot_cfgs) > 1 else concat_plot
+		layouts = bool(
+			(inputs.phases.plot_segment_channel_layouts.enabled and segment_layout_plot.layouts)
+			or (inputs.phases.plot_concat_channel_layout.enabled and concat_layout_plot.layouts)
+		)
 		segment_traces = bool(inputs.phases.plot_segment_traces.enabled and segment_plot.segment_traces)
 		concat_trace = bool(inputs.phases.plot_concat_traces.enabled and concat_plot.concat_trace)
 
@@ -824,6 +866,16 @@ def _resolve_preprocess_paths(inputs: PreprocessInputs, *, plot_cfg: PreprocessP
 		well_out_dir=well_out_dir,
 		preprocess_out_dir=preprocess_out_dir,
 		legacy_out_dir=preprocess_out_dir,
+		raw_binary_dir=_resolve_phase_output_dir(
+			preprocess_out_dir=preprocess_out_dir,
+			raw=inputs.phases.prepare_raw_binaries.rel_output_root,
+			default="raw_binary_recording",
+		),
+		raw_binary_manifest_path=_resolve_phase_output_dir(
+			preprocess_out_dir=preprocess_out_dir,
+			raw=inputs.phases.prepare_raw_binaries.manifest_relpath,
+			default="context/raw_binary_manifest.json",
+		),
 		recording_dir=_resolve_phase_output_dir(
 			preprocess_out_dir=preprocess_out_dir,
 			raw=inputs.phases.concat_segments.rel_output_root,
@@ -1301,9 +1353,45 @@ def _format_epoch_iso_utc(value: Any, *, divisor: float) -> str | None:
 		return None
 
 
+def _resolve_metadata_source_selection(
+	inputs: PreprocessInputs,
+) -> tuple[Path, Path, str, str]:
+	source_h5_path = Path(inputs.source_h5_path or inputs.h5_path).expanduser().resolve()
+	resolved_h5_path = Path(inputs.h5_path).expanduser().resolve()
+	requested_metadata_source = str(inputs.phases.save_rec_metadata.metadata_source or "source_h5")
+	metadata_source = "source_h5"
+	metadata_h5_path = source_h5_path
+	if (
+		requested_metadata_source == "scratch_copy"
+		and _safe_path_exists(resolved_h5_path)
+		and not _paths_equal_no_resolve(left=resolved_h5_path, right=source_h5_path)
+	):
+		metadata_h5_path = resolved_h5_path
+		metadata_source = "scratch_copy"
+	return metadata_h5_path, source_h5_path, requested_metadata_source, metadata_source
+
+
+def _resolve_preprocess_segments_source_selection(
+	inputs: PreprocessInputs,
+) -> tuple[Path, Path, str]:
+	resolved_h5_path = Path(inputs.h5_path).expanduser().resolve()
+	source_h5_path = Path(inputs.source_h5_path or inputs.h5_path).expanduser().resolve()
+	lazy_source = str(inputs.phases.preprocess_segments.lazy_source or "scratch")
+	selected_h5_path = source_h5_path if lazy_source == "src" else resolved_h5_path
+	return selected_h5_path, source_h5_path, lazy_source
+
+
+def _resolve_preprocess_segments_output_mode(
+	inputs: PreprocessInputs,
+) -> str:
+	requested_output_mode = str(inputs.phases.preprocess_segments.output_mode or "lazy").strip().lower()
+	if requested_output_mode not in {"binary", "lazy"}:
+		requested_output_mode = "lazy"
+	return requested_output_mode
+
+
 def _build_recording_metadata_phase_payload(inputs: PreprocessInputs) -> dict[str, Any]:
-	source_h5_path = Path(inputs.source_h5_path or inputs.h5_path)
-	resolved_h5_path = Path(inputs.h5_path)
+	resolved_h5_path, source_h5_path, requested_metadata_source, metadata_source = _resolve_metadata_source_selection(inputs)
 	well_out_dir = compute_mea_analysis_output_dir(
 		output_root=inputs.mea_output_root,
 		data_file=inputs.h5_path,
@@ -1572,6 +1660,8 @@ def _build_recording_metadata_phase_payload(inputs: PreprocessInputs) -> dict[st
 		metadata_warnings.append(f"Failed writing assay stats artifact '{assay_stats_path}': {exc}")
 	payload: dict[str, Any] = {
 		"phase": "save_rec_metadata",
+		"requested_metadata_source": str(requested_metadata_source),
+		"metadata_source": str(metadata_source),
 		"source_h5_path": str(source_h5_path),
 		"resolved_h5_path": str(resolved_h5_path),
 		"copied_to_scratch": bool(inputs.copied_to_scratch),
@@ -1723,14 +1813,20 @@ def _phase_enabled(inputs: PreprocessInputs, phase_name: str) -> bool:
 		return bool(inputs.phases.copy_src_to_scratch.enabled)
 	if phase_name == "save_rec_metadata":
 		return bool(inputs.phases.save_rec_metadata.enabled)
+	if phase_name == "prepare_raw_binaries":
+		return bool(inputs.phases.prepare_raw_binaries.enabled)
 	if phase_name == "preprocess_segments":
 		return bool(inputs.phases.preprocess_segments.enabled) and bool(inputs.save_segment_recordings)
 	if phase_name == "plot_segment_traces":
 		return bool(inputs.phases.plot_segment_traces.enabled)
+	if phase_name == "plot_segment_channel_layouts":
+		return bool(inputs.phases.plot_segment_channel_layouts.enabled)
 	if phase_name == "concat_segments":
 		return bool(inputs.phases.concat_segments.enabled) and bool(inputs.save_concat_recording)
 	if phase_name == "plot_concat_traces":
 		return bool(inputs.phases.plot_concat_traces.enabled)
+	if phase_name == "plot_concat_channel_layout":
+		return bool(inputs.phases.plot_concat_channel_layout.enabled)
 	if phase_name == "wipe_src_scratch":
 		return bool(inputs.phases.wipe_src_scratch.enabled)
 	return False
@@ -1741,14 +1837,20 @@ def _summary_relpath_for_phase(inputs: PreprocessInputs, phase_name: str) -> str
 		return str(inputs.phases.copy_src_to_scratch.summary_json_relpath)
 	if phase_name == "save_rec_metadata":
 		return str(inputs.phases.save_rec_metadata.summary_json_relpath)
+	if phase_name == "prepare_raw_binaries":
+		return str(inputs.phases.prepare_raw_binaries.summary_json_relpath)
 	if phase_name == "preprocess_segments":
 		return str(inputs.phases.preprocess_segments.summary_json_relpath)
 	if phase_name == "plot_segment_traces":
 		return str(inputs.phases.plot_segment_traces.summary_json_relpath)
+	if phase_name == "plot_segment_channel_layouts":
+		return str(inputs.phases.plot_segment_channel_layouts.summary_json_relpath)
 	if phase_name == "concat_segments":
 		return str(inputs.phases.concat_segments.summary_json_relpath)
 	if phase_name == "plot_concat_traces":
 		return str(inputs.phases.plot_concat_traces.summary_json_relpath)
+	if phase_name == "plot_concat_channel_layout":
+		return str(inputs.phases.plot_concat_channel_layout.summary_json_relpath)
 	if phase_name == "wipe_src_scratch":
 		return str(inputs.phases.wipe_src_scratch.summary_json_relpath)
 	return "context/preprocess_phase_summary.json"
@@ -1775,12 +1877,21 @@ def _summary_outputs_for_phase(
 			"assay_stats_txt": str(recording_metadata_paths.assay_stats_path),
 			"common_electrodes_path": str(recording_metadata_paths.common_electrodes_path),
 		}
+	if phase_name == "prepare_raw_binaries":
+		return {
+			"raw_binary_recording_dir": str(paths.raw_binary_dir),
+			"raw_binary_manifest_json": str(paths.raw_binary_manifest_path),
+		}
 	if phase_name == "preprocess_segments":
 		return {
 			"per_segment_preprocessed_dir": str(paths.per_segment_preprocessed_dir),
 			"per_segment_manifest_json": str(paths.per_segment_manifest_path),
 		}
 	if phase_name == "plot_segment_traces":
+		return {
+			"plot_output_dir": outputs.get("plot_output_dir", str(paths.preprocess_out_dir)),
+		}
+	if phase_name == "plot_segment_channel_layouts":
 		return {
 			"plot_output_dir": outputs.get("plot_output_dir", str(paths.preprocess_out_dir)),
 		}
@@ -1795,6 +1906,11 @@ def _summary_outputs_for_phase(
 			"plot_output_dir": outputs.get("plot_output_dir", str(paths.preprocess_out_dir)),
 			"concatenated_recording_dir": str(paths.recording_dir),
 			"concat_manifest_path": str(paths.concat_manifest_path),
+		}
+	if phase_name == "plot_concat_channel_layout":
+		return {
+			"plot_output_dir": outputs.get("plot_output_dir", str(paths.preprocess_out_dir)),
+			"concatenated_recording_dir": str(paths.recording_dir),
 		}
 	if phase_name == "wipe_src_scratch":
 		return {
@@ -1860,6 +1976,9 @@ def _resume_artifact_log_details(payload: dict[str, Any]) -> str:
 	details: list[str] = []
 	for key in (
 		"resolved_h5_path",
+		"output_mode",
+		"lazy_source",
+		"metadata_source",
 		"segment_epochs_json",
 		"contiguous_epochs_json",
 		"sampling_metadata_json",
@@ -1867,6 +1986,8 @@ def _resume_artifact_log_details(payload: dict[str, Any]) -> str:
 		"common_electrodes_path",
 		"output_dir",
 		"manifest_path",
+		"raw_binary_recording_dir",
+		"raw_binary_manifest_path",
 		"recording_dir",
 		"concat_manifest_path",
 		"trace_plot_path",
@@ -1912,6 +2033,7 @@ def _resume_save_rec_metadata_payload_if_complete(
 	paths: _PreprocessPathSet,
 	recording_metadata_paths: _RecordingMetadataPathSet,
 ) -> dict[str, Any] | None:
+	resolved_h5_path, source_h5_path, requested_metadata_source, metadata_source = _resolve_metadata_source_selection(inputs)
 	try:
 		segment_epochs_payload, contiguous_epochs_payload, sampling_metadata_payload = load_recording_metadata(
 			segment_epochs_path=recording_metadata_paths.segment_epochs_path,
@@ -1931,12 +2053,26 @@ def _resume_save_rec_metadata_payload_if_complete(
 		return None
 	sampling_summary = sampling_metadata_payload.get("sampling_summary", {})
 	existing_payload = _load_existing_phase_payload(inputs=inputs, paths=paths, phase_name="save_rec_metadata")
+	if existing_payload is not None:
+		existing_resolved_h5_path = str(existing_payload.get("resolved_h5_path", "")).strip()
+		if existing_resolved_h5_path:
+			try:
+				stored_resolved_h5_path = Path(existing_resolved_h5_path).expanduser().resolve()
+			except Exception:
+				return None
+			if not _paths_equal_no_resolve(left=stored_resolved_h5_path, right=resolved_h5_path):
+				return None
+		existing_metadata_source = str(existing_payload.get("metadata_source", "")).strip()
+		if existing_metadata_source and existing_metadata_source != str(metadata_source):
+			return None
 	return _build_resumed_phase_payload(
 		phase_name="save_rec_metadata",
 		existing_payload=existing_payload,
 		payload_updates={
-			"source_h5_path": str(Path(inputs.source_h5_path or inputs.h5_path).expanduser().resolve()),
-			"resolved_h5_path": str(Path(inputs.h5_path).expanduser().resolve()),
+			"requested_metadata_source": str(requested_metadata_source),
+			"metadata_source": str(metadata_source),
+			"source_h5_path": str(source_h5_path),
+			"resolved_h5_path": str(resolved_h5_path),
 			"verbose": bool(inputs.phases.save_rec_metadata.verbose),
 			"segment_count": int(len(segments)),
 			"contiguous_epoch_count": int(len(epochs)),
@@ -1951,11 +2087,79 @@ def _resume_save_rec_metadata_payload_if_complete(
 	)
 
 
+def _resume_prepare_raw_binaries_payload_if_complete(
+	*,
+	inputs: PreprocessInputs,
+	paths: _PreprocessPathSet,
+) -> dict[str, Any] | None:
+	try:
+		manifest_payload = load_raw_binary_manifest(paths.raw_binary_manifest_path)
+		segment_entries = [
+			dict(item)
+			for item in list(manifest_payload.get("segments", []))
+			if isinstance(item, dict)
+		]
+		if segment_entries:
+			for entry in segment_entries:
+				folder = Path(str(entry.get("folder", ""))).expanduser().resolve()
+				if not str(folder):
+					return None
+				load_saved_recording(folder)
+		else:
+			load_saved_recording(paths.raw_binary_dir)
+	except Exception:
+		return None
+	recorded_h5_path = str(manifest_payload.get("resolved_h5_path", "")).strip()
+	if recorded_h5_path:
+		try:
+			stored_h5_path = Path(recorded_h5_path).expanduser().resolve()
+		except Exception:
+			return None
+		if not _paths_equal_no_resolve(left=stored_h5_path, right=Path(inputs.h5_path).expanduser().resolve()):
+			return None
+	segment_count = int(manifest_payload.get("segment_count", 0) or 0)
+	if segment_count <= 0:
+		return None
+	rec_names = [str(value) for value in list(manifest_payload.get("rec_names", [])) if str(value).strip()]
+	if not rec_names and segment_entries:
+		rec_names = [
+			str(item.get("rec_name"))
+			for item in segment_entries
+			if str(item.get("rec_name", "")).strip()
+		]
+	num_frames_by_segment = [
+		int(value)
+		for value in list(manifest_payload.get("num_frames_by_segment", []))
+	]
+	if not num_frames_by_segment and segment_entries:
+		num_frames_by_segment = [int(item.get("n_samples", 0) or 0) for item in segment_entries]
+	existing_payload = _load_existing_phase_payload(inputs=inputs, paths=paths, phase_name="prepare_raw_binaries")
+	return _build_resumed_phase_payload(
+		phase_name="prepare_raw_binaries",
+		existing_payload=existing_payload,
+		payload_updates={
+			"source_h5_path": str(Path(inputs.source_h5_path or inputs.h5_path).expanduser().resolve()),
+			"resolved_h5_path": str(Path(inputs.h5_path).expanduser().resolve()),
+			"recording_dir": str(paths.raw_binary_dir),
+			"manifest_path": str(paths.raw_binary_manifest_path),
+			"raw_binary_recording_dir": str(paths.raw_binary_dir),
+			"raw_binary_manifest_path": str(paths.raw_binary_manifest_path),
+			"segment_count": int(segment_count),
+			"rec_names": [str(value) for value in rec_names],
+			"num_channels": int(manifest_payload.get("num_channels", 0) or 0),
+			"sampling_frequency_hz": float(manifest_payload.get("sampling_frequency_hz", 0.0) or 0.0),
+			"num_frames_by_segment": [int(value) for value in num_frames_by_segment],
+		},
+	)
+
+
 def _resume_preprocess_segments_payload_if_complete(
 	*,
 	inputs: PreprocessInputs,
 	paths: _PreprocessPathSet,
 ) -> dict[str, Any] | None:
+	selected_h5_path, source_h5_path, lazy_source = _resolve_preprocess_segments_source_selection(inputs)
+	output_mode = _resolve_preprocess_segments_output_mode(inputs)
 	try:
 		segment_entries = load_segment_manifest(paths.per_segment_manifest_path)
 	except Exception:
@@ -1964,20 +2168,68 @@ def _resume_preprocess_segments_payload_if_complete(
 		return None
 	rec_names: list[str] = []
 	for entry in segment_entries:
-		folder = Path(str(entry.get("folder", ""))).expanduser().resolve()
-		if not _safe_path_exists(folder):
-			return None
-		try:
-			load_saved_recording(folder)
-		except Exception:
-			return None
-		rec_name = str(entry.get("rec_name", folder.name)).strip()
-		rec_names.append(rec_name or folder.name)
+		rec_name = str(entry.get("rec_name", "")).strip()
+		if output_mode == "binary":
+			folder = Path(str(entry.get("folder", ""))).expanduser().resolve()
+			if not _safe_path_exists(folder):
+				return None
+			try:
+				load_saved_recording(folder)
+			except Exception:
+				return None
+			rec_name = rec_name or folder.name
+		else:
+			provenance_path = Path(str(entry.get("provenance_path", ""))).expanduser().resolve()
+			if not _safe_path_exists(provenance_path):
+				return None
+			try:
+				load_saved_recording(provenance_path)
+			except Exception:
+				return None
+			if not rec_name:
+				return None
+		rec_names.append(rec_name)
 	existing_payload = _load_existing_phase_payload(inputs=inputs, paths=paths, phase_name="preprocess_segments")
+	if existing_payload is not None:
+		existing_output_mode = str(existing_payload.get("output_mode", "")).strip()
+		if existing_output_mode:
+			if existing_output_mode != str(output_mode):
+				return None
+		elif output_mode != "binary":
+			return None
+		existing_resolved_h5_path = str(existing_payload.get("resolved_h5_path", "")).strip()
+		if existing_resolved_h5_path:
+			try:
+				stored_resolved_h5_path = Path(existing_resolved_h5_path).expanduser().resolve()
+			except Exception:
+				return None
+			if not _paths_equal_no_resolve(left=stored_resolved_h5_path, right=selected_h5_path):
+				return None
+		elif lazy_source != "scratch":
+			return None
+		existing_source_h5_path = str(existing_payload.get("source_h5_path", "")).strip()
+		if existing_source_h5_path:
+			try:
+				stored_source_h5_path = Path(existing_source_h5_path).expanduser().resolve()
+			except Exception:
+				return None
+			if not _paths_equal_no_resolve(left=stored_source_h5_path, right=source_h5_path):
+				return None
+		existing_lazy_source = str(existing_payload.get("lazy_source", "")).strip()
+		if existing_lazy_source:
+			if existing_lazy_source != str(lazy_source):
+				return None
+		elif lazy_source != "scratch":
+			return None
 	return _build_resumed_phase_payload(
 		phase_name="preprocess_segments",
 		existing_payload=existing_payload,
 		payload_updates={
+			"requested_output_mode": str(inputs.phases.preprocess_segments.output_mode),
+			"output_mode": str(output_mode),
+			"source_h5_path": str(source_h5_path),
+			"resolved_h5_path": str(selected_h5_path),
+			"lazy_source": str(lazy_source),
 			"segment_count": int(len(segment_entries)),
 			"rec_names": [str(value) for value in rec_names],
 			"output_dir": str(paths.per_segment_preprocessed_dir),
@@ -1990,7 +2242,7 @@ def _resume_plot_segment_traces_payload_if_complete(
 	*,
 	inputs: PreprocessInputs,
 	paths: _PreprocessPathSet,
-	build_plot_cfg: PreprocessPlotConfig,
+	phase_plot_cfg: PreprocessPlotConfig,
 ) -> dict[str, Any] | None:
 	try:
 		segment_entries = load_segment_manifest(paths.per_segment_manifest_path)
@@ -2000,16 +2252,16 @@ def _resume_plot_segment_traces_payload_if_complete(
 		return None
 	plot_root = paths.plot_output_dir or paths.preprocess_out_dir
 	layout_paths: list[str] = []
-	if bool(build_plot_cfg.layouts):
-		layout_path = Path(plot_root) / str(build_plot_cfg.channel_layouts_subdir) / f"common_channel_layout_{inputs.stream_id}.png"
+	if bool(phase_plot_cfg.layouts):
+		layout_path = Path(plot_root) / str(phase_plot_cfg.channel_layouts_subdir) / f"common_channel_layout_{inputs.stream_id}.png"
 		if not _is_complete_png(layout_path):
 			return None
 		layout_paths.append(str(layout_path))
 	segment_trace_paths: list[str] = []
-	if bool(build_plot_cfg.segment_traces):
+	if bool(phase_plot_cfg.segment_traces):
 		for entry in segment_entries:
 			rec_name = str(entry.get("rec_name", "segment")).strip() or "segment"
-			trace_path = Path(plot_root) / str(build_plot_cfg.segment_traces_subdir) / f"segment_trace_{inputs.stream_id}_{rec_name}.png"
+			trace_path = Path(plot_root) / str(phase_plot_cfg.segment_traces_subdir) / f"segment_trace_{inputs.stream_id}_{rec_name}.png"
 			if not _is_complete_png(trace_path):
 				return None
 			segment_trace_paths.append(str(trace_path))
@@ -2021,6 +2273,34 @@ def _resume_plot_segment_traces_payload_if_complete(
 			"segment_count": int(len(segment_entries)),
 			"layout_plot_paths": list(layout_paths),
 			"segment_trace_paths": list(segment_trace_paths),
+		},
+	)
+
+
+def _resume_plot_segment_channel_layouts_payload_if_complete(
+	*,
+	inputs: PreprocessInputs,
+	paths: _PreprocessPathSet,
+	phase_plot_cfg: PreprocessPlotConfig,
+) -> dict[str, Any] | None:
+	try:
+		segment_entries = load_segment_manifest(paths.per_segment_manifest_path)
+	except Exception:
+		return None
+	if not segment_entries or not bool(phase_plot_cfg.layouts):
+		return None
+	plot_root = paths.plot_output_dir or paths.preprocess_out_dir
+	layout_path = Path(plot_root) / str(phase_plot_cfg.channel_layouts_subdir) / f"common_channel_layout_{inputs.stream_id}.png"
+	if not _is_complete_png(layout_path):
+		return None
+	existing_payload = _load_existing_phase_payload(inputs=inputs, paths=paths, phase_name="plot_segment_channel_layouts")
+	return _build_resumed_phase_payload(
+		phase_name="plot_segment_channel_layouts",
+		existing_payload=existing_payload,
+		payload_updates={
+			"segment_count": int(len(segment_entries)),
+			"layout_plot_paths": [str(layout_path)],
+			"segment_trace_paths": [],
 		},
 	)
 
@@ -2066,7 +2346,7 @@ def _resume_plot_concat_traces_payload_if_complete(
 	*,
 	inputs: PreprocessInputs,
 	paths: _PreprocessPathSet,
-	build_plot_cfg: PreprocessPlotConfig,
+	phase_plot_cfg: PreprocessPlotConfig,
 ) -> dict[str, Any] | None:
 	try:
 		concat_manifest = load_concat_manifest(paths.concat_manifest_path)
@@ -2080,8 +2360,8 @@ def _resume_plot_concat_traces_payload_if_complete(
 	]
 	if not segment_entries:
 		return None
-	trace_plot_path = Path(paths.plot_output_dir or paths.preprocess_out_dir) / str(build_plot_cfg.concat_trace_relpath)
-	if bool(build_plot_cfg.concat_trace) and not _is_complete_png(trace_plot_path):
+	trace_plot_path = Path(paths.plot_output_dir or paths.preprocess_out_dir) / str(phase_plot_cfg.concat_trace_relpath)
+	if bool(phase_plot_cfg.concat_trace) and not _is_complete_png(trace_plot_path):
 		return None
 	stitch_frames = [int(value) for value in concat_manifest.get("stitch_frames", []) if value is not None]
 	existing_payload = _load_existing_phase_payload(inputs=inputs, paths=paths, phase_name="plot_concat_traces")
@@ -2092,6 +2372,31 @@ def _resume_plot_concat_traces_payload_if_complete(
 			"segment_count": int(len(segment_entries)),
 			"trace_plot_path": str(trace_plot_path),
 			"stitch_frame_count": int(len(stitch_frames)),
+		},
+	)
+
+
+def _resume_plot_concat_channel_layout_payload_if_complete(
+	*,
+	inputs: PreprocessInputs,
+	paths: _PreprocessPathSet,
+	phase_plot_cfg: PreprocessPlotConfig,
+) -> dict[str, Any] | None:
+	if not bool(phase_plot_cfg.layouts):
+		return None
+	try:
+		load_saved_recording(paths.recording_dir)
+	except Exception:
+		return None
+	layout_path = Path(paths.plot_output_dir or paths.preprocess_out_dir) / str(phase_plot_cfg.channel_layouts_subdir) / f"concat_channel_layout_{inputs.stream_id}.png"
+	if not _is_complete_png(layout_path):
+		return None
+	existing_payload = _load_existing_phase_payload(inputs=inputs, paths=paths, phase_name="plot_concat_channel_layout")
+	return _build_resumed_phase_payload(
+		phase_name="plot_concat_channel_layout",
+		existing_payload=existing_payload,
+		payload_updates={
+			"layout_plot_paths": [str(layout_path)],
 		},
 	)
 
@@ -2140,7 +2445,7 @@ def _resume_phase_payload_if_complete(
 	inputs: PreprocessInputs,
 	paths: _PreprocessPathSet,
 	recording_metadata_paths: _RecordingMetadataPathSet,
-	build_plot_cfg: PreprocessPlotConfig,
+	phase_plot_cfg: PreprocessPlotConfig,
 ) -> dict[str, Any] | None:
 	if bool(inputs.force_restart):
 		return None
@@ -2152,13 +2457,21 @@ def _resume_phase_payload_if_complete(
 			paths=paths,
 			recording_metadata_paths=recording_metadata_paths,
 		)
+	if phase_name == "prepare_raw_binaries":
+		return _resume_prepare_raw_binaries_payload_if_complete(inputs=inputs, paths=paths)
 	if phase_name == "preprocess_segments":
 		return _resume_preprocess_segments_payload_if_complete(inputs=inputs, paths=paths)
 	if phase_name == "plot_segment_traces":
 		return _resume_plot_segment_traces_payload_if_complete(
 			inputs=inputs,
 			paths=paths,
-			build_plot_cfg=build_plot_cfg,
+			phase_plot_cfg=phase_plot_cfg,
+		)
+	if phase_name == "plot_segment_channel_layouts":
+		return _resume_plot_segment_channel_layouts_payload_if_complete(
+			inputs=inputs,
+			paths=paths,
+			phase_plot_cfg=phase_plot_cfg,
 		)
 	if phase_name == "concat_segments":
 		return _resume_concat_segments_payload_if_complete(inputs=inputs, paths=paths)
@@ -2166,7 +2479,13 @@ def _resume_phase_payload_if_complete(
 		return _resume_plot_concat_traces_payload_if_complete(
 			inputs=inputs,
 			paths=paths,
-			build_plot_cfg=build_plot_cfg,
+			phase_plot_cfg=phase_plot_cfg,
+		)
+	if phase_name == "plot_concat_channel_layout":
+		return _resume_plot_concat_channel_layout_payload_if_complete(
+			inputs=inputs,
+			paths=paths,
+			phase_plot_cfg=phase_plot_cfg,
 		)
 	if phase_name == "wipe_src_scratch":
 		return _resume_wipe_src_scratch_payload_if_complete(inputs=inputs, paths=paths)
@@ -2185,6 +2504,8 @@ def _run_preprocess_phase_sequence(
 	canonical_selected_phase = _normalize_requested_preprocess_phase(selected_phase)
 	outputs: dict[str, str] = {
 		"legacy.preprocess_out_dir": str(paths.legacy_out_dir),
+		"raw_binary_recording_dir": str(paths.raw_binary_dir),
+		"raw_binary_manifest_json": str(paths.raw_binary_manifest_path),
 		"concatenated_recording_dir": str(paths.recording_dir),
 		"preprocessed_recording_dir": str(paths.recording_dir),
 		"concat_manifest_path": str(paths.concat_manifest_path),
@@ -2194,7 +2515,6 @@ def _run_preprocess_phase_sequence(
 	}
 	if bool(inputs.logging_enabled) or _safe_path_exists(paths.stage_log_source):
 		outputs["pipeline_log"] = str(paths.stage_log_source)
-	build_plot_cfg = _resolve_effective_plot_config(inputs, selected_phase=canonical_selected_phase)
 	if paths.plot_output_dir is not None:
 		outputs["plot_output_dir"] = str(paths.plot_output_dir)
 	if paths.epoch_markers_output_dir is not None:
@@ -2205,10 +2525,13 @@ def _run_preprocess_phase_sequence(
 	all_phases = [
 		"copy_src_to_scratch",
 		"save_rec_metadata",
+		"prepare_raw_binaries",
 		"preprocess_segments",
 		"plot_segment_traces",
+		"plot_segment_channel_layouts",
 		"concat_segments",
 		"plot_concat_traces",
+		"plot_concat_channel_layout",
 		"wipe_src_scratch",
 	]
 	phases_to_run = [canonical_selected_phase] if canonical_selected_phase is not None else [
@@ -2224,6 +2547,7 @@ def _run_preprocess_phase_sequence(
 
 	for phase_index, phase_name in enumerate(phases_to_run, start=1):
 		phase_t0 = time.perf_counter()
+		phase_plot_cfg = _resolve_effective_plot_config(inputs, selected_phase=phase_name)
 		if phase_logger is not None:
 			phase_logger.info(
 				"Starting preprocess phase %d/%d for well=%s phase=%s",
@@ -2242,7 +2566,7 @@ def _run_preprocess_phase_sequence(
 			inputs=inputs,
 			paths=paths,
 			recording_metadata_paths=recording_metadata_paths,
-			build_plot_cfg=build_plot_cfg,
+			phase_plot_cfg=phase_plot_cfg,
 		)
 		if payload is not None and phase_logger is not None:
 			resume_artifacts = _resume_artifact_log_details(payload)
@@ -2263,9 +2587,21 @@ def _run_preprocess_phase_sequence(
 					requires_use_scratch_root=bool(inputs.phases.copy_src_to_scratch.requires_use_scratch_root),
 				)
 			elif phase_name == "save_rec_metadata":
+				metadata_h5_path, source_h5_path, requested_metadata_source, metadata_source = _resolve_metadata_source_selection(inputs)
+				if (
+					requested_metadata_source == "scratch_copy"
+					and metadata_source != "scratch_copy"
+					and phase_logger is not None
+				):
+					phase_logger.info(
+						"save_rec_metadata requested scratch_copy for well=%s but scratch copy was unavailable; falling back to source_h5",
+						str(inputs.stream_id),
+					)
 				payload = run_save_rec_metadata_core(
-					h5_path=inputs.h5_path,
-					source_h5_path=(inputs.source_h5_path or inputs.h5_path),
+					h5_path=metadata_h5_path,
+					source_h5_path=source_h5_path,
+					requested_metadata_source=requested_metadata_source,
+					metadata_source=metadata_source,
 					stream_id=str(inputs.stream_id),
 					segment_epochs_path=recording_metadata_paths.segment_epochs_path,
 					contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
@@ -2276,10 +2612,39 @@ def _run_preprocess_phase_sequence(
 					suppress_h5_plugin_messages=bool(inputs.logging_suppress_h5_plugin_messages),
 					logger=phase_logger,
 				)
-			elif phase_name == "preprocess_segments":
-				payload = run_preprocess_segments_core(
+			elif phase_name == "prepare_raw_binaries":
+				payload = run_prepare_raw_binaries_core(
 					h5_path=inputs.h5_path,
+					source_h5_path=(inputs.source_h5_path or inputs.h5_path),
 					stream_id=str(inputs.stream_id),
+					recording_dir=paths.raw_binary_dir,
+					manifest_path=paths.raw_binary_manifest_path,
+					overwrite_saved_recording=bool(inputs.overwrite_saved_recording),
+					n_jobs=max(1, int(inputs.phases.prepare_raw_binaries.outputs.segment_save_n_jobs or inputs.n_jobs)),
+					chunk_duration=str(inputs.phases.prepare_raw_binaries.outputs.save_chunk_duration),
+					progress_bar=bool(inputs.phases.prepare_raw_binaries.outputs.save_progress_bar),
+					suppress_h5_plugin_messages=bool(inputs.logging_suppress_h5_plugin_messages),
+					logger=phase_logger,
+				)
+				payload.setdefault("raw_binary_recording_dir", str(paths.raw_binary_dir))
+				payload.setdefault("raw_binary_manifest_path", str(paths.raw_binary_manifest_path))
+			elif phase_name == "preprocess_segments":
+				selected_segment_h5_path, selected_source_h5_path, selected_lazy_source = _resolve_preprocess_segments_source_selection(inputs)
+				effective_segment_output_mode = _resolve_preprocess_segments_output_mode(inputs)
+				if phase_logger is not None:
+					phase_logger.info(
+						"preprocess_segments using lazy_source=%s output_mode=%s h5=%s source_h5=%s",
+						str(selected_lazy_source),
+						str(effective_segment_output_mode),
+						selected_segment_h5_path,
+						selected_source_h5_path,
+					)
+				payload = run_preprocess_segments_core(
+					h5_path=selected_segment_h5_path,
+					source_h5_path=selected_source_h5_path,
+					stream_id=str(inputs.stream_id),
+					output_mode=str(effective_segment_output_mode),
+					lazy_source=str(selected_lazy_source),
 					n_jobs=max(1, int(inputs.n_jobs)),
 					segment_epochs_path=recording_metadata_paths.segment_epochs_path,
 					contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
@@ -2295,6 +2660,10 @@ def _run_preprocess_phase_sequence(
 					logger=phase_logger,
 					run_save_segment_recordings_core=run_save_segment_recordings_core,
 				)
+				payload.setdefault("output_mode", str(effective_segment_output_mode))
+				payload.setdefault("source_h5_path", str(selected_source_h5_path))
+				payload.setdefault("resolved_h5_path", str(selected_segment_h5_path))
+				payload.setdefault("lazy_source", str(selected_lazy_source))
 			elif phase_name == "plot_segment_traces":
 				payload = run_plot_segment_traces_core(
 					stream_id=str(inputs.stream_id),
@@ -2303,16 +2672,35 @@ def _run_preprocess_phase_sequence(
 					contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
 					sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
 					plot_output_dir=(paths.plot_output_dir or paths.preprocess_out_dir),
-					channel_layouts_subdir=build_plot_cfg.channel_layouts_subdir,
-					segment_traces_subdir=build_plot_cfg.segment_traces_subdir,
-					plot_layouts=bool(build_plot_cfg.layouts),
-					plot_segment_traces=bool(build_plot_cfg.segment_traces),
-					segment_trace_n_reps=int(build_plot_cfg.segment_trace_n_reps),
-					plot_n_jobs=max(1, int(build_plot_cfg.n_jobs or inputs.plot_n_jobs)),
-					trace_downsample_hz=build_plot_cfg.trace_downsample_hz,
-					trace_max_points=_normalize_trace_max_points(build_plot_cfg.trace_max_points),
+					channel_layouts_subdir=phase_plot_cfg.channel_layouts_subdir,
+					segment_traces_subdir=phase_plot_cfg.segment_traces_subdir,
+					plot_layouts=bool(phase_plot_cfg.layouts),
+					plot_segment_traces=bool(phase_plot_cfg.segment_traces),
+					segment_trace_n_reps=int(phase_plot_cfg.segment_trace_n_reps),
+					plot_n_jobs=max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs)),
+					trace_downsample_hz=phase_plot_cfg.trace_downsample_hz,
+					trace_max_points=_normalize_trace_max_points(phase_plot_cfg.trace_max_points),
 					logger=phase_logger,
 				)
+			elif phase_name == "plot_segment_channel_layouts":
+				payload = run_plot_segment_traces_core(
+					stream_id=str(inputs.stream_id),
+					segment_manifest_path=paths.per_segment_manifest_path,
+					segment_epochs_path=recording_metadata_paths.segment_epochs_path,
+					contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
+					sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
+					plot_output_dir=(paths.plot_output_dir or paths.preprocess_out_dir),
+					channel_layouts_subdir=phase_plot_cfg.channel_layouts_subdir,
+					segment_traces_subdir=phase_plot_cfg.segment_traces_subdir,
+					plot_layouts=bool(phase_plot_cfg.layouts),
+					plot_segment_traces=False,
+					segment_trace_n_reps=int(phase_plot_cfg.segment_trace_n_reps),
+					plot_n_jobs=max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs)),
+					trace_downsample_hz=phase_plot_cfg.trace_downsample_hz,
+					trace_max_points=_normalize_trace_max_points(phase_plot_cfg.trace_max_points),
+					logger=phase_logger,
+				)
+				payload["phase"] = "plot_segment_channel_layouts"
 			elif phase_name == "concat_segments":
 				payload = run_concat_segments_core(
 					stream_id=str(inputs.stream_id),
@@ -2335,12 +2723,22 @@ def _run_preprocess_phase_sequence(
 					contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
 					sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
 					plot_output_dir=(paths.plot_output_dir or paths.preprocess_out_dir),
-					concat_trace_relpath=build_plot_cfg.concat_trace_relpath,
-					plot_concat_trace=bool(build_plot_cfg.concat_trace),
-					concat_trace_n_reps=int(build_plot_cfg.concat_trace_n_reps),
-					plot_n_jobs=max(1, int(build_plot_cfg.n_jobs or inputs.plot_n_jobs)),
-					trace_downsample_hz=build_plot_cfg.trace_downsample_hz,
-					trace_max_points=_normalize_trace_max_points(build_plot_cfg.trace_max_points),
+					concat_trace_relpath=phase_plot_cfg.concat_trace_relpath,
+					plot_concat_trace=bool(phase_plot_cfg.concat_trace),
+					concat_trace_n_reps=int(phase_plot_cfg.concat_trace_n_reps),
+					plot_n_jobs=max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs)),
+					trace_downsample_hz=phase_plot_cfg.trace_downsample_hz,
+					trace_max_points=_normalize_trace_max_points(phase_plot_cfg.trace_max_points),
+					logger=phase_logger,
+				)
+			elif phase_name == "plot_concat_channel_layout":
+				payload = run_plot_concat_channel_layout_core(
+					stream_id=str(inputs.stream_id),
+					recording_dir=paths.recording_dir,
+					plot_output_dir=(paths.plot_output_dir or paths.preprocess_out_dir),
+					channel_layouts_subdir=phase_plot_cfg.channel_layouts_subdir,
+					n_representative_channels=int(phase_plot_cfg.n_representative_channels),
+					plot_n_jobs=max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs)),
 					logger=phase_logger,
 				)
 			elif phase_name == "wipe_src_scratch":
@@ -2554,6 +2952,7 @@ def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
 		},
 		"inputs": {
 			"source_h5_path": str(inputs.source_h5_path or inputs.h5_path),
+			"preprocess_segments_lazy_source": str(inputs.phases.preprocess_segments.lazy_source),
 			"copied_to_scratch": bool(inputs.copied_to_scratch),
 			"force_restart": bool(inputs.force_restart),
 			"force_replot": bool(inputs.force_replot),
@@ -2680,28 +3079,60 @@ def _run_preprocess_selected_phase(inputs: PreprocessInputs, *, selected_phase: 
 
 
 def run_preprocess_copy_src_to_scratch_phase(inputs: PreprocessInputs) -> dict[str, Any]:
-	return _run_preprocess_selected_phase(inputs, selected_phase="copy_src_to_scratch")
+	from .orchestrators.copy_src_to_scratch import run_preprocess_copy_src_to_scratch
+
+	return run_preprocess_copy_src_to_scratch(inputs)
 
 
 def run_preprocess_save_rec_metadata_phase(inputs: PreprocessInputs) -> dict[str, Any]:
-	return _run_preprocess_selected_phase(inputs, selected_phase="save_rec_metadata")
+	from .orchestrators.save_rec_metadata import run_preprocess_save_rec_metadata
+
+	return run_preprocess_save_rec_metadata(inputs)
+
+
+def run_preprocess_prepare_raw_binaries_phase(inputs: PreprocessInputs) -> dict[str, Any]:
+	from .orchestrators.prepare_raw_binaries import run_preprocess_prepare_raw_binaries
+
+	return run_preprocess_prepare_raw_binaries(inputs)
 
 
 def run_preprocess_wipe_src_scratch_phase(inputs: PreprocessInputs) -> dict[str, Any]:
-	return _run_preprocess_selected_phase(inputs, selected_phase="wipe_src_scratch")
+	from .orchestrators.wipe_src_scratch import run_preprocess_wipe_src_scratch
+
+	return run_preprocess_wipe_src_scratch(inputs)
 
 
 def run_preprocess_preprocess_segments_phase(inputs: PreprocessInputs) -> dict[str, Any]:
-	return _run_preprocess_selected_phase(inputs, selected_phase="preprocess_segments")
+	from .orchestrators.preprocess_segments import run_preprocess_preprocess_segments
+
+	return run_preprocess_preprocess_segments(inputs)
 
 
 def run_preprocess_plot_segment_traces_phase(inputs: PreprocessInputs) -> dict[str, Any]:
-	return _run_preprocess_selected_phase(inputs, selected_phase="plot_segment_traces")
+	from .orchestrators.plot_segment_traces import run_preprocess_plot_segment_traces
+
+	return run_preprocess_plot_segment_traces(inputs)
+
+
+def run_preprocess_plot_segment_channel_layouts_phase(inputs: PreprocessInputs) -> dict[str, Any]:
+	from .orchestrators.plot_segment_channel_layouts import run_preprocess_plot_segment_channel_layouts
+
+	return run_preprocess_plot_segment_channel_layouts(inputs)
 
 
 def run_preprocess_concat_segments_phase(inputs: PreprocessInputs) -> dict[str, Any]:
-	return _run_preprocess_selected_phase(inputs, selected_phase="concat_segments")
+	from .orchestrators.concat_segments import run_preprocess_concat_segments
+
+	return run_preprocess_concat_segments(inputs)
 
 
 def run_preprocess_plot_concat_traces_phase(inputs: PreprocessInputs) -> dict[str, Any]:
-	return _run_preprocess_selected_phase(inputs, selected_phase="plot_concat_traces")
+	from .orchestrators.plot_concat_traces import run_preprocess_plot_concat_traces
+
+	return run_preprocess_plot_concat_traces(inputs)
+
+
+def run_preprocess_plot_concat_channel_layout_phase(inputs: PreprocessInputs) -> dict[str, Any]:
+	from .orchestrators.plot_concat_channel_layout import run_preprocess_plot_concat_channel_layout
+
+	return run_preprocess_plot_concat_channel_layout(inputs)

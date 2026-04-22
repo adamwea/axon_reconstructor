@@ -8,7 +8,7 @@ from typing import Any
 from .artifacts import (
 	build_segment_time_vector,
 	load_recording_metadata,
-	load_saved_recording,
+	load_segment_recording_from_entry,
 	load_segment_manifest,
 )
 
@@ -400,13 +400,13 @@ def run_plot_segment_traces_core(
 ) -> dict[str, object]:
 	segment_entries = load_segment_manifest(segment_manifest_path)
 	if not segment_entries:
-		raise RuntimeError(f"No saved segment recordings available for plotting: {segment_manifest_path}")
+		raise RuntimeError(f"No preprocessed segment recordings available for plotting: {segment_manifest_path}")
 	segment_epochs_payload, contiguous_epochs_payload, sampling_metadata_payload = load_recording_metadata(
 		segment_epochs_path=segment_epochs_path,
 		contiguous_epochs_path=contiguous_epochs_path,
 		sampling_metadata_path=sampling_metadata_path,
 	)
-	reference_recording = load_saved_recording(Path(str(segment_entries[0].get("folder"))))
+	reference_recording = load_segment_recording_from_entry(dict(segment_entries[0]))
 	representative_channels = _resolve_representative_channels(
 		recording=reference_recording,
 		n_representative_channels=int(segment_trace_n_reps),
@@ -430,7 +430,7 @@ def run_plot_segment_traces_core(
 
 		def _render_segment(entry: dict[str, Any]) -> str:
 			rec_name = str(entry.get("rec_name", "segment"))
-			recording = load_saved_recording(Path(str(entry.get("folder"))))
+			recording = load_segment_recording_from_entry(dict(entry))
 			time_vector = build_segment_time_vector(
 				rec_name=str(rec_name),
 				segment_epochs_payload=segment_epochs_payload,

@@ -19,7 +19,7 @@ def load_saved_recording(path: Path) -> Any:
 	import spikeinterface.full as si  # type: ignore[import-not-found]
 
 	resolved = Path(path).expanduser().resolve()
-	for method_name in ("load_extractor", "load_recording", "load"):
+	for method_name in ("load", "load_recording", "load_extractor"):
 		loader = getattr(si, method_name, None)
 		if not callable(loader):
 			continue
@@ -28,6 +28,18 @@ def load_saved_recording(path: Path) -> Any:
 		except Exception:
 			continue
 	raise RuntimeError(f"Could not load saved recording extractor from {resolved}")
+
+
+def resolve_segment_recording_path(segment_entry: dict[str, Any]) -> Path:
+	for key in ("folder", "provenance_path"):
+		raw_value = str(segment_entry.get(key, "")).strip()
+		if raw_value:
+			return Path(raw_value).expanduser().resolve()
+	raise RuntimeError(f"Segment manifest entry is missing a loadable recording path: {segment_entry}")
+
+
+def load_segment_recording_from_entry(segment_entry: dict[str, Any]) -> Any:
+	return load_saved_recording(resolve_segment_recording_path(segment_entry))
 
 
 def load_segment_manifest(manifest_path: Path) -> list[dict[str, Any]]:
@@ -50,6 +62,16 @@ def load_concat_manifest(manifest_path: Path) -> dict[str, Any]:
 	payload = read_json(resolved)
 	if not isinstance(payload, dict):
 		raise RuntimeError(f"Invalid concat segment manifest payload: {resolved}")
+	return dict(payload)
+
+
+def load_raw_binary_manifest(manifest_path: Path) -> dict[str, Any]:
+	resolved = Path(manifest_path).expanduser().resolve()
+	if not resolved.exists():
+		raise FileNotFoundError(f"Raw binary manifest not found: {resolved}")
+	payload = read_json(resolved)
+	if not isinstance(payload, dict):
+		raise RuntimeError(f"Invalid raw binary manifest payload: {resolved}")
 	return dict(payload)
 
 

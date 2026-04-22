@@ -23,7 +23,10 @@ from .stages.preprocess.api import (
 	run_preprocess_concat_segments,
 	run_preprocess_copy_src_to_scratch,
 	run_preprocess,
+	run_preprocess_plot_concat_channel_layout,
+	run_preprocess_prepare_raw_binaries,
 	run_preprocess_plot_concat_traces,
+	run_preprocess_plot_segment_channel_layouts,
 	run_preprocess_plot_segment_traces,
 	run_preprocess_preprocess_segments,
 	run_preprocess_save_rec_metadata,
@@ -93,11 +96,13 @@ def _preprocess_stage_uses_nested_workers(stage_config: Any) -> bool:
 		return True
 	preprocess_segments_enabled = bool(getattr(getattr(phases, "preprocess_segments", None), "enabled", False))
 	concat_segments_enabled = bool(getattr(getattr(phases, "concat_segments", None), "enabled", False))
-	return bool(preprocess_segments_enabled or concat_segments_enabled)
+	prepare_raw_binaries_enabled = bool(getattr(getattr(phases, "prepare_raw_binaries", None), "enabled", False))
+	return bool(prepare_raw_binaries_enabled or preprocess_segments_enabled or concat_segments_enabled)
 
 
 def _preprocess_substage_uses_nested_workers(stage_name: str) -> bool:
 	return str(stage_name).strip() in {
+		"preprocess.prepare_raw_binaries",
 		"preprocess.preprocess_segments",
 		"preprocess.concat_segments",
 	}
@@ -805,6 +810,36 @@ def run_preprocess_save_rec_metadata_from_runtime(
 	)
 
 
+def run_preprocess_prepare_raw_binaries_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_preprocess_substage_from_runtime(
+		config_path=config_path,
+		stage_name="preprocess.prepare_raw_binaries",
+		runner_fn=run_preprocess_prepare_raw_binaries,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_preprocess_plot_segment_channel_layouts_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_preprocess_substage_from_runtime(
+		config_path=config_path,
+		stage_name="preprocess.plot_segment_channel_layouts",
+		runner_fn=run_preprocess_plot_segment_channel_layouts,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
 def run_preprocess_wipe_src_scratch_from_runtime(
 	*,
 	config_path: str,
@@ -875,6 +910,21 @@ def run_preprocess_plot_concat_traces_from_runtime(
 		config_path=config_path,
 		stage_name="preprocess.plot_concat_traces",
 		runner_fn=run_preprocess_plot_concat_traces,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_preprocess_plot_concat_channel_layout_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_preprocess_substage_from_runtime(
+		config_path=config_path,
+		stage_name="preprocess.plot_concat_channel_layout",
+		runner_fn=run_preprocess_plot_concat_channel_layout,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)

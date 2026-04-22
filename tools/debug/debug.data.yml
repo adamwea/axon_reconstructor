@@ -448,7 +448,7 @@ datasets:
   # would be DIV 22 from the plated date, not DIV 29. I used the filesystem date 260319 because
   # 2026-03-19 is exactly DIV 29 and the run numbers plus chip ids line up with those rows.
   - raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260319/M08073/AxonTracking/000170/data.raw.h5
-    include_in_runtime: true
+    include_in_runtime: false
     DIV: 29
     wells:
       - well_id: well000

@@ -15,14 +15,20 @@ from ...execution.context import ExecutionTarget
 from .models.inputs import (
 	PreprocessConcatSegmentsPhaseConfig,
 	PreprocessConcatenatePreprocessedRecordingsPhaseConfig,
+	PreprocessCleanupOutputsPhaseConfig,
 	PreprocessCopySrcToScratchPhaseConfig,
 	PreprocessInputs,
+	PreprocessPlotConcatChannelLayoutPhaseConfig,
 	PreprocessPhaseConfig,
 	PreprocessPhaseOutputsConfig,
 	PreprocessPhasesConfig,
 	PreprocessPlotConfig,
 	PreprocessPlotConcatTracesPhaseConfig,
+	PreprocessPlotRasterThresholdPhaseConfig,
+	PreprocessPlotSegmentChannelLayoutsPhaseConfig,
 	PreprocessPlotSegmentTracesPhaseConfig,
+	PreprocessPrepareRawBinariesPhaseConfig,
+	PreprocessReportPreprocessingPhaseConfig,
 	PreprocessSaveRecMetadataPhaseConfig,
 	PreprocessSegmentsPhaseConfig,
 	PreprocessWipeSrcScratchPhaseConfig,
@@ -83,6 +89,43 @@ def _as_optional_str(value: Any) -> str | None:
 		return None
 	text = str(value).strip()
 	return text if text else None
+
+
+def _as_lower_token(value: Any, default: str) -> str:
+	text = str(value or default).strip().lower()
+	return text or str(default).strip().lower()
+
+
+def _normalize_metadata_source(value: Any) -> str:
+	token = _as_lower_token(value, "source_h5")
+	if token in {"source", "source_h5", "h5", "original", "src"}:
+		return "source_h5"
+	if token in {"scratch", "scratch_copy", "scratch_h5"}:
+		return "scratch_copy"
+	return "source_h5"
+
+
+def _normalize_preprocess_output_mode(value: Any) -> str:
+	token = _as_lower_token(value, "lazy")
+	if token in {"binary", "save", "materialized", "eager"}:
+		return "binary"
+	return "lazy"
+
+
+def _normalize_preprocess_lazy_source(value: Any) -> str:
+	token = _as_lower_token(value, "scratch")
+	if token in {"src", "source", "source_h5", "original", "raw_source"}:
+		return "src"
+	if token in {"scratch", "scratch_copy", "scratch_h5", "copied"}:
+		return "scratch"
+	return "scratch"
+
+
+def _normalize_concat_output_mode(value: Any) -> str:
+	token = _as_lower_token(value, "binary")
+	if token in {"lazy", "reference", "referential"}:
+		return "lazy"
+	return "binary"
 
 
 def _as_mapping_or_none(value: Any) -> dict[str, Any] | None:
@@ -231,6 +274,7 @@ def _parse_save_rec_metadata_phase_config(
 	return PreprocessSaveRecMetadataPhaseConfig(
 		enabled=_as_bool(phase_cfg.get("enabled", phase_cfg.get("enable", False)), False),
 		verbose=_as_bool(phase_cfg.get("verbose", False), False),
+		metadata_source=_normalize_metadata_source(phase_cfg.get("metadata_source", "source_h5")),
 		summary_json_relpath=str(
 			phase_cfg.get("summary_json_relpath", "context/recording_metadata_summary.json")
 			or "context/recording_metadata_summary.json"
@@ -254,6 +298,33 @@ def _parse_save_rec_metadata_phase_config(
 		common_electrodes_summary_json_relpath=str(
 			phase_cfg.get("common_electrodes_summary_json_relpath", "context/save_common_electrodes_summary.json")
 			or "context/save_common_electrodes_summary.json"
+		),
+	)
+
+
+def _parse_prepare_raw_binaries_phase_config(
+	*,
+	raw_cfg: dict[str, Any] | None,
+	defaults: PreprocessPhaseOutputsConfig,
+) -> PreprocessPrepareRawBinariesPhaseConfig:
+	phase_cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
+	return PreprocessPrepareRawBinariesPhaseConfig(
+		enabled=_as_bool(phase_cfg.get("enabled", phase_cfg.get("enable", True)), True),
+		summary_json_relpath=str(
+			phase_cfg.get("summary_json_relpath", "context/prepare_raw_binaries_summary.json")
+			or "context/prepare_raw_binaries_summary.json"
+		),
+		rel_output_root=str(
+			phase_cfg.get("rel_output_root", "raw_binary_recording")
+			or "raw_binary_recording"
+		),
+		manifest_relpath=str(
+			phase_cfg.get("manifest_relpath", "context/raw_binary_manifest.json")
+			or "context/raw_binary_manifest.json"
+		),
+		outputs=_parse_phase_outputs_config(
+			raw_cfg=phase_cfg.get("outputs", {}),
+			defaults=defaults,
 		),
 	)
 
@@ -382,20 +453,17 @@ def parse_preprocess_stage_config(
 	observability_cfg = stage_cfg.get("observability", {}) if isinstance(stage_cfg.get("observability", {}), dict) else {}
 	outputs_cfg = stage_cfg.get("outputs", {}) if isinstance(stage_cfg.get("outputs", {}), dict) else {}
 	phases_cfg = stage_cfg.get("phases", {}) if isinstance(stage_cfg.get("phases", {}), dict) else {}
-	using_new_phase_schema = any(
+	using_legacy_phase_schema = any(
 		key in phases_cfg
 		for key in (
-			"copy_src_to_scratch",
-			"save_rec_metadata",
-			"wipe_src_scratch",
-			"preprocess_segments",
-			"plot_segment_traces",
-			"concat_segments",
-			"plot_concat_traces",
 			"concatenate_recordings",
 			"concatenate_preprocessed_recordings",
+			"save_segment_recordings",
+			"save_concatenated_recording",
+			"save_common_electrodes",
 		)
 	)
+	using_new_phase_schema = not using_legacy_phase_schema
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
 	force_replot = _as_bool(execution_cfg.get("force_replot", False), False)
@@ -538,9 +606,11 @@ def parse_preprocess_stage_config(
 
 	copy_phase_cfg = phases_cfg.get("copy_src_to_scratch", {}) if isinstance(phases_cfg.get("copy_src_to_scratch", {}), dict) else {}
 	save_rec_metadata_phase_cfg = phases_cfg.get("save_rec_metadata", {}) if isinstance(phases_cfg.get("save_rec_metadata", {}), dict) else {}
+	prepare_raw_binaries_phase_cfg = phases_cfg.get("prepare_raw_binaries", {}) if isinstance(phases_cfg.get("prepare_raw_binaries", {}), dict) else {}
 	wipe_src_scratch_phase_cfg = phases_cfg.get("wipe_src_scratch", {}) if isinstance(phases_cfg.get("wipe_src_scratch", {}), dict) else {}
 	preprocess_segments_phase_cfg = phases_cfg.get("preprocess_segments", {}) if isinstance(phases_cfg.get("preprocess_segments", {}), dict) else {}
 	plot_segment_traces_phase_cfg = phases_cfg.get("plot_segment_traces", {}) if isinstance(phases_cfg.get("plot_segment_traces", {}), dict) else {}
+	plot_segment_channel_layouts_phase_cfg = phases_cfg.get("plot_segment_channel_layouts", {}) if isinstance(phases_cfg.get("plot_segment_channel_layouts", {}), dict) else {}
 	concatenate_phase_cfg_raw = phases_cfg.get("concat_segments", None)
 	if not isinstance(concatenate_phase_cfg_raw, dict):
 		concatenate_phase_cfg_raw = phases_cfg.get("concatenate_recordings", None)
@@ -558,6 +628,10 @@ def parse_preprocess_stage_config(
 			concatenate_save_common_cfg.get("summary_json_relpath", "context/save_common_electrodes_summary.json"),
 		)
 
+	plot_concat_channel_layout_phase_cfg = phases_cfg.get("plot_concat_channel_layout", {}) if isinstance(phases_cfg.get("plot_concat_channel_layout", {}), dict) else {}
+	plot_raster_threshold_phase_cfg = phases_cfg.get("plot_raster_threshold", {}) if isinstance(phases_cfg.get("plot_raster_threshold", {}), dict) else {}
+	report_preprocessing_phase_cfg = phases_cfg.get("report_preprocessing", {}) if isinstance(phases_cfg.get("report_preprocessing", {}), dict) else {}
+	cleanup_preprocessing_outputs_phase_cfg = phases_cfg.get("cleanup_preprocessing_outputs", {}) if isinstance(phases_cfg.get("cleanup_preprocessing_outputs", {}), dict) else {}
 	segment_plot_defaults = PreprocessPlotConfig(
 		disable_all_png_diagnostics=raw_disable_all_png_diagnostics,
 		layouts=bool(plot_layouts_effective),
@@ -582,6 +656,10 @@ def parse_preprocess_stage_config(
 		segment_save_n_jobs=segment_save_n_jobs,
 		print_n_jobs_used=print_n_jobs_used,
 	)
+	prepare_raw_binaries_phase = _parse_prepare_raw_binaries_phase_config(
+		raw_cfg=prepare_raw_binaries_phase_cfg,
+		defaults=segment_outputs_defaults,
+	)
 
 	preprocess_segments_phase = PreprocessSegmentsPhaseConfig(
 		enabled=_as_bool(
@@ -593,6 +671,12 @@ def parse_preprocess_stage_config(
 				),
 			),
 			legacy_segment_phase.enabled,
+		),
+		output_mode=_normalize_preprocess_output_mode(
+			preprocess_segments_phase_cfg.get("output_mode", "lazy")
+		),
+		lazy_source=_normalize_preprocess_lazy_source(
+			preprocess_segments_phase_cfg.get("lazy_source", "scratch")
 		),
 		summary_json_relpath=str(
 			preprocess_segments_phase_cfg.get(
@@ -630,6 +714,64 @@ def parse_preprocess_stage_config(
 			defaults=segment_plot_defaults,
 		),
 	)
+	plot_segment_channel_layouts_phase_raw = plot_segment_channel_layouts_phase_cfg
+	if not plot_segment_channel_layouts_phase_raw and isinstance(plot_segment_traces_phase_raw.get("plot", {}), dict):
+		plot_segment_channel_layouts_phase_raw = {
+			"enabled": plot_segment_traces_phase_raw.get("enabled", preprocess_segments_phase.enabled),
+			"plot": {
+				"disable_all_png_diagnostics": plot_segment_traces_phase_raw.get("plot", {}).get(
+					"disable_all_png_diagnostics",
+					segment_plot_defaults.disable_all_png_diagnostics,
+				),
+				"layouts": plot_segment_traces_phase_raw.get("plot", {}).get("layouts", segment_plot_defaults.layouts),
+				"output_dir": plot_segment_traces_phase_raw.get("plot", {}).get("output_dir", segment_plot_defaults.output_dir),
+				"assay_stats_relpath": plot_segment_traces_phase_raw.get("plot", {}).get(
+					"assay_stats_relpath",
+					segment_plot_defaults.assay_stats_relpath,
+				),
+				"channel_layouts_subdir": plot_segment_traces_phase_raw.get("plot", {}).get(
+					"channel_layouts_subdir",
+					segment_plot_defaults.channel_layouts_subdir,
+				),
+			},
+		}
+	plot_segment_channel_layouts_phase = PreprocessPlotSegmentChannelLayoutsPhaseConfig(
+		enabled=_as_bool(
+			plot_segment_channel_layouts_phase_raw.get(
+				"enabled",
+				plot_segment_traces_phase.plot.layouts,
+			),
+			plot_segment_traces_phase.plot.layouts,
+		),
+		summary_json_relpath=str(
+			plot_segment_channel_layouts_phase_raw.get(
+				"summary_json_relpath",
+				"context/plot_segment_channel_layouts_summary.json",
+			)
+			or "context/plot_segment_channel_layouts_summary.json"
+		),
+		plot=_parse_plot_phase_config(
+			raw_cfg=plot_segment_channel_layouts_phase_raw.get("plot", {}),
+			defaults=PreprocessPlotConfig(
+				disable_all_png_diagnostics=segment_plot_defaults.disable_all_png_diagnostics,
+				layouts=segment_plot_defaults.layouts,
+				concat_trace=False,
+				segment_traces=False,
+				output_dir=segment_plot_defaults.output_dir,
+				epoch_markers_output_dir=segment_plot_defaults.epoch_markers_output_dir,
+				assay_stats_relpath=segment_plot_defaults.assay_stats_relpath,
+				channel_layouts_subdir=segment_plot_defaults.channel_layouts_subdir,
+				segment_traces_subdir=segment_plot_defaults.segment_traces_subdir,
+				concat_trace_relpath=segment_plot_defaults.concat_trace_relpath,
+				n_representative_channels=segment_plot_defaults.n_representative_channels,
+				concat_trace_n_reps=segment_plot_defaults.concat_trace_n_reps,
+				segment_trace_n_reps=segment_plot_defaults.segment_trace_n_reps,
+				n_jobs=segment_plot_defaults.n_jobs,
+				trace_downsample_hz=segment_plot_defaults.trace_downsample_hz,
+				trace_max_points=segment_plot_defaults.trace_max_points,
+			),
+		),
+	)
 	concat_plot_defaults = PreprocessPlotConfig(
 		disable_all_png_diagnostics=plot_segment_traces_phase.plot.disable_all_png_diagnostics,
 		layouts=(plot_segment_traces_phase.plot.layouts if not using_new_phase_schema else False),
@@ -665,6 +807,9 @@ def parse_preprocess_stage_config(
 		concatenate_preprocessed_recordings=_as_bool(
 			concatenate_phase_cfg.get("concatenate_preprocessed_recordings", True),
 			True,
+		),
+		output_mode=_normalize_concat_output_mode(
+			concatenate_phase_cfg.get("output_mode", "binary")
 		),
 		summary_json_relpath=str(
 			concatenate_phase_cfg.get(
@@ -704,6 +849,118 @@ def parse_preprocess_stage_config(
 		plot=_parse_plot_phase_config(
 			raw_cfg=plot_concat_traces_phase_raw.get("plot", {}),
 			defaults=concat_plot_defaults,
+		),
+	)
+	plot_concat_channel_layout_phase_raw = plot_concat_channel_layout_phase_cfg
+	if not plot_concat_channel_layout_phase_raw and isinstance(plot_concat_traces_phase_raw.get("plot", {}), dict):
+		plot_concat_channel_layout_phase_raw = {
+			"enabled": False if using_new_phase_schema else concat_plot_defaults.layouts,
+			"plot": {
+				"disable_all_png_diagnostics": plot_concat_traces_phase_raw.get("plot", {}).get(
+					"disable_all_png_diagnostics",
+					concat_plot_defaults.disable_all_png_diagnostics,
+				),
+				"layouts": plot_concat_traces_phase_raw.get("plot", {}).get("layouts", concat_plot_defaults.layouts),
+				"output_dir": plot_concat_traces_phase_raw.get("plot", {}).get("output_dir", concat_plot_defaults.output_dir),
+				"assay_stats_relpath": plot_concat_traces_phase_raw.get("plot", {}).get(
+					"assay_stats_relpath",
+					concat_plot_defaults.assay_stats_relpath,
+				),
+				"channel_layouts_subdir": plot_concat_traces_phase_raw.get("plot", {}).get(
+					"channel_layouts_subdir",
+					concat_plot_defaults.channel_layouts_subdir,
+				),
+			},
+		}
+	plot_concat_channel_layout_phase = PreprocessPlotConcatChannelLayoutPhaseConfig(
+		enabled=_as_bool(
+			plot_concat_channel_layout_phase_raw.get(
+				"enabled",
+				concat_plot_defaults.layouts,
+			),
+			concat_plot_defaults.layouts,
+		),
+		summary_json_relpath=str(
+			plot_concat_channel_layout_phase_raw.get(
+				"summary_json_relpath",
+				"context/plot_concat_channel_layout_summary.json",
+			)
+			or "context/plot_concat_channel_layout_summary.json"
+		),
+		plot=_parse_plot_phase_config(
+			raw_cfg=plot_concat_channel_layout_phase_raw.get("plot", {}),
+			defaults=PreprocessPlotConfig(
+				disable_all_png_diagnostics=concat_plot_defaults.disable_all_png_diagnostics,
+				layouts=concat_plot_defaults.layouts,
+				concat_trace=False,
+				segment_traces=False,
+				output_dir=concat_plot_defaults.output_dir,
+				epoch_markers_output_dir=concat_plot_defaults.epoch_markers_output_dir,
+				assay_stats_relpath=concat_plot_defaults.assay_stats_relpath,
+				channel_layouts_subdir=concat_plot_defaults.channel_layouts_subdir,
+				segment_traces_subdir=concat_plot_defaults.segment_traces_subdir,
+				concat_trace_relpath=concat_plot_defaults.concat_trace_relpath,
+				n_representative_channels=concat_plot_defaults.n_representative_channels,
+				concat_trace_n_reps=concat_plot_defaults.concat_trace_n_reps,
+				segment_trace_n_reps=concat_plot_defaults.segment_trace_n_reps,
+				n_jobs=concat_plot_defaults.n_jobs,
+				trace_downsample_hz=concat_plot_defaults.trace_downsample_hz,
+				trace_max_points=concat_plot_defaults.trace_max_points,
+			),
+		),
+	)
+	plot_raster_threshold_phase = PreprocessPlotRasterThresholdPhaseConfig(
+		enabled=_as_bool(
+			plot_raster_threshold_phase_cfg.get("enabled", plot_raster_threshold_phase_cfg.get("enable", False)),
+			False,
+		),
+		summary_json_relpath=str(
+			plot_raster_threshold_phase_cfg.get(
+				"summary_json_relpath",
+				"context/plot_raster_threshold_summary.json",
+			)
+			or "context/plot_raster_threshold_summary.json"
+		),
+		rel_output_root=str(
+			plot_raster_threshold_phase_cfg.get("rel_output_root", "raster_threshold")
+			or "raster_threshold"
+		),
+	)
+	report_preprocessing_phase = PreprocessReportPreprocessingPhaseConfig(
+		enabled=_as_bool(
+			report_preprocessing_phase_cfg.get("enabled", report_preprocessing_phase_cfg.get("enable", False)),
+			False,
+		),
+		summary_json_relpath=str(
+			report_preprocessing_phase_cfg.get(
+				"summary_json_relpath",
+				"context/report_preprocessing_summary.json",
+			)
+			or "context/report_preprocessing_summary.json"
+		),
+		report_relpath=str(
+			report_preprocessing_phase_cfg.get("report_relpath", "report/preprocessing_report.md")
+			or "report/preprocessing_report.md"
+		),
+		json_summary_relpath=str(
+			report_preprocessing_phase_cfg.get("json_summary_relpath", "report/preprocessing_report.json")
+			or "report/preprocessing_report.json"
+		),
+	)
+	cleanup_preprocessing_outputs_phase = PreprocessCleanupOutputsPhaseConfig(
+		enabled=_as_bool(
+			cleanup_preprocessing_outputs_phase_cfg.get(
+				"enabled",
+				cleanup_preprocessing_outputs_phase_cfg.get("enable", False),
+			),
+			False,
+		),
+		summary_json_relpath=str(
+			cleanup_preprocessing_outputs_phase_cfg.get(
+				"summary_json_relpath",
+				"context/cleanup_preprocessing_outputs_summary.json",
+			)
+			or "context/cleanup_preprocessing_outputs_summary.json"
 		),
 	)
 	copy_src_to_scratch_phase = PreprocessCopySrcToScratchPhaseConfig(
@@ -785,11 +1042,17 @@ def parse_preprocess_stage_config(
 		phases=PreprocessPhasesConfig(
 			copy_src_to_scratch=copy_src_to_scratch_phase,
 			save_rec_metadata=save_rec_metadata_phase,
+			prepare_raw_binaries=prepare_raw_binaries_phase,
 			wipe_src_scratch=wipe_src_scratch_phase,
 			preprocess_segments=preprocess_segments_phase,
 			plot_segment_traces=plot_segment_traces_phase,
+			plot_segment_channel_layouts=plot_segment_channel_layouts_phase,
 			concat_segments=concat_segments_phase,
 			plot_concat_traces=plot_concat_traces_phase,
+			plot_concat_channel_layout=plot_concat_channel_layout_phase,
+			plot_raster_threshold=plot_raster_threshold_phase,
+			report_preprocessing=report_preprocessing_phase,
+			cleanup_preprocessing_outputs=cleanup_preprocessing_outputs_phase,
 		),
 	)
 

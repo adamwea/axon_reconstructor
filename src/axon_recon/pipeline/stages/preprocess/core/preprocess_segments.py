@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -11,6 +12,7 @@ from .artifacts import (
 	get_segment_names_from_metadata,
 	load_common_electrodes,
 	load_recording_metadata,
+	write_json,
 )
 
 
@@ -145,10 +147,74 @@ def _select_common_electrode_channels(*, recording: Any, common_electrodes: list
 	return selected
 
 
+def _write_lazy_segment_manifest(
+	*,
+	segment_recordings: list[Any],
+	segment_names: list[str],
+	segment_stats: list[dict[str, Any]],
+	output_dir: Path,
+	manifest_path: Path,
+	overwrite_saved_recording: bool,
+	logger: logging.Logger | None,
+) -> dict[str, object]:
+	if output_dir.exists() and bool(overwrite_saved_recording):
+		shutil.rmtree(output_dir)
+	output_dir.mkdir(parents=True, exist_ok=True)
+	manifest_segments: list[dict[str, object]] = []
+	for seg_idx, seg_rec in enumerate(segment_recordings):
+		rec_name = segment_names[seg_idx] if seg_idx < len(segment_names) else f"segment_{seg_idx:03d}"
+		seg_token = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(rec_name)).strip("_")
+		if not seg_token:
+			seg_token = f"segment_{seg_idx:03d}"
+		provenance_path = output_dir / f"{seg_idx:03d}_{seg_token}.json"
+		seg_rec.dump_to_json(provenance_path)
+		segment_entry: dict[str, object] = {
+			"segment_index": int(seg_idx),
+			"rec_name": str(rec_name),
+			"provenance_path": str(provenance_path),
+		}
+		if seg_idx < len(segment_stats) and isinstance(segment_stats[seg_idx], dict):
+			segment_entry.update(
+				{
+					"fs_hz": float(segment_stats[seg_idx].get("fs", 0.0) or 0.0),
+					"n_samples": int(segment_stats[seg_idx].get("n_samples", 0) or 0),
+					"n_channels": int(segment_stats[seg_idx].get("n_channels", 0) or 0),
+				}
+			)
+		manifest_segments.append(segment_entry)
+	write_json(
+		manifest_path,
+		{
+			"version": 1,
+			"output_mode": "lazy",
+			"segment_count": int(len(manifest_segments)),
+			"segments": manifest_segments,
+		},
+	)
+	if logger is not None:
+		logger.info(
+			"Preprocess segment lazy manifest wrote %d segment provenance entry(s): %s",
+			int(len(manifest_segments)),
+			manifest_path,
+		)
+	return {
+		"output_dir": str(output_dir),
+		"manifest_path": str(manifest_path),
+		"saved": False,
+		"manifest_saved": True,
+		"reused_existing": False,
+		"materialized_segments": False,
+		"segment_count": int(len(manifest_segments)),
+	}
+
+
 def run_preprocess_segments_core(
 	*,
 	h5_path: Path,
+	source_h5_path: Path | None,
 	stream_id: str,
+	output_mode: str,
+	lazy_source: str,
 	n_jobs: int,
 	segment_epochs_path: Path,
 	contiguous_epochs_path: Path,
@@ -165,6 +231,10 @@ def run_preprocess_segments_core(
 	run_save_segment_recordings_core: Any,
 ) -> dict[str, object]:
 	_ = contiguous_epochs_path
+	output_mode_token = str(output_mode or "binary").strip().lower()
+	if output_mode_token not in {"binary", "lazy"}:
+		output_mode_token = "binary"
+	materialize_segments = output_mode_token == "binary"
 	t0 = time.perf_counter()
 	segment_epochs_payload, contiguous_epochs_payload, sampling_metadata_payload = load_recording_metadata(
 		segment_epochs_path=segment_epochs_path,
@@ -187,11 +257,12 @@ def run_preprocess_segments_core(
 	segment_count = int(len(rec_names))
 	if logger is not None:
 		logger.info(
-			"Starting preprocess_segments for well=%s segment_count=%d common_electrodes=%d workers=%d",
+			"Starting preprocess_segments for well=%s segment_count=%d common_electrodes=%d workers=%d output_mode=%s",
 			str(stream_id),
 			int(segment_count),
 			int(len(common_electrodes)),
 			int(max_workers),
+			str(output_mode_token),
 		)
 
 	load_preprocess_t0 = time.perf_counter()
@@ -267,24 +338,37 @@ def run_preprocess_segments_core(
 			int(max_workers),
 		)
 
-	save_result = run_save_segment_recordings_core(
-		segment_recordings=list(segment_recordings),
-		segment_names=[str(value) for value in rec_names],
-		segment_stats=[dict(item) for item in segment_stats],
-		output_dir=output_dir,
-		manifest_path=manifest_path,
-		overwrite_saved_recording=bool(overwrite_saved_recording),
-		n_jobs=max(1, int(save_n_jobs)),
-		chunk_duration=str(chunk_duration),
-		progress_bar=bool(progress_bar),
-		logger=logger,
-	)
-	phase_timing_s["save_preprocessed_segments"] = float(max(0.0, time.perf_counter() - load_preprocess_t0))
+	if materialize_segments:
+		save_result = run_save_segment_recordings_core(
+			segment_recordings=list(segment_recordings),
+			segment_names=[str(value) for value in rec_names],
+			segment_stats=[dict(item) for item in segment_stats],
+			output_dir=output_dir,
+			manifest_path=manifest_path,
+			overwrite_saved_recording=bool(overwrite_saved_recording),
+			n_jobs=max(1, int(save_n_jobs)),
+			chunk_duration=str(chunk_duration),
+			progress_bar=bool(progress_bar),
+			logger=logger,
+		)
+		phase_timing_s["save_preprocessed_segments"] = float(max(0.0, time.perf_counter() - load_preprocess_t0))
+	else:
+		save_result = _write_lazy_segment_manifest(
+			segment_recordings=list(segment_recordings),
+			segment_names=[str(value) for value in rec_names],
+			segment_stats=[dict(item) for item in segment_stats],
+			output_dir=output_dir,
+			manifest_path=manifest_path,
+			overwrite_saved_recording=bool(overwrite_saved_recording),
+			logger=logger,
+		)
+		phase_timing_s["write_lazy_segment_manifest"] = float(max(0.0, time.perf_counter() - load_preprocess_t0))
 	phase_timing_s["total"] = float(max(0.0, time.perf_counter() - t0))
 
 	payload: dict[str, object] = {
 		"phase": "preprocess_segments",
-		"segment_count": int(len(segment_recordings)),
+		"output_mode": str(output_mode_token),
+		"segment_count": int(len(rec_names)),
 		"rec_names": [str(value) for value in rec_names],
 		"common_electrode_count": int(len(common_electrodes)),
 		"phase_timing_s": phase_timing_s,
