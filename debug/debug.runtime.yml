@@ -240,7 +240,7 @@ stages:
     resources:
       #max_stage_workers: 24
       max_stage_workers: 36 # lab server
-      well_workers: 3
+      well_workers: 6
       chunk_duration: 1s
     logging:
       enabled: true
@@ -266,7 +266,7 @@ stages:
       sort:
         enabled: true
         debug_mode:
-          enabled: true
+          enabled: false
           limit_datasets: 1
           limit_wells: 1
 

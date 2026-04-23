@@ -21,6 +21,7 @@ from axon_recon.pipeline.shared.grid_sorting import (
 	grid_sort_key_for_unit,
 	normalize_grid_sort_by,
 )
+from axon_recon.pipeline.execution import install_linux_parent_death_signal
 
 from .core.build_templates import build_templates_phase_from_payloads, build_templates_phase_from_unit_payloads
 from .core.compute_template_similarity import (
@@ -2551,7 +2552,10 @@ def _run_templates_plot_batches(
 		)
 		for batch_unit_ids in batches
 	]
-	with concurrent.futures.ProcessPoolExecutor(max_workers=unit_procs) as pool:
+	with concurrent.futures.ProcessPoolExecutor(
+		max_workers=unit_procs,
+		initializer=install_linux_parent_death_signal,
+	) as pool:
 		futures = {
 			pool.submit(_run_templates_plot_batch, batch_inputs): list(batch_inputs.unit_ids or [])
 			for batch_inputs in batch_inputs_list

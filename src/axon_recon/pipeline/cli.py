@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from axon_reconstructor.runtime_config import RuntimeConfig
 
+from .execution import install_process_lifecycle
 from .stages.analysis.cli import _run_from_args as _run_analysis_from_args
 from .stages.preprocess.cli import _run_concat_segments_from_args as _run_preprocess_concat_segments_from_args
 from .stages.preprocess.cli import _run_copy_src_to_scratch_from_args as _run_preprocess_copy_src_to_scratch_from_args
@@ -367,6 +368,7 @@ def _configure_runtime_logging_from_args(args: argparse.Namespace) -> None:
 def main(argv: list[str] | None = None) -> int:
 	parser = build_parser()
 	args = parser.parse_args(argv)
+	install_process_lifecycle()
 	_configure_runtime_logging_from_args(args)
 	handler = getattr(args, "handler", None)
 	if handler is None:

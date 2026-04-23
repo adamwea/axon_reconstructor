@@ -13,6 +13,7 @@ from axon_recon.pipeline.shared.grid_sorting import (
 	grid_sort_key_for_unit,
 	normalize_grid_sort_by,
 )
+from axon_recon.pipeline.execution import install_linux_parent_death_signal
 
 from .core.generate_gtrs import run_generate_gtrs_phase as run_generate_gtrs_core_phase
 from .core.diagnostic_plots import write_unit_axon_reconstruction_diagnostic_figure
@@ -662,7 +663,10 @@ def _run_reconstruct_generate_gtrs_batches(
 	]
 	batch_results: list[UnitReconstructionResult] = []
 	try:
-		with concurrent.futures.ProcessPoolExecutor(max_workers=unit_procs) as pool:
+		with concurrent.futures.ProcessPoolExecutor(
+			max_workers=unit_procs,
+			initializer=install_linux_parent_death_signal,
+		) as pool:
 			futures = {
 				pool.submit(_run_generate_gtrs_batch, batch_inputs): list(batch_inputs.inputs.unit_ids or [])
 				for batch_inputs in batch_inputs_list

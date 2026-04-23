@@ -12,6 +12,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 from typing import Any, Optional
 
 from ..checkpointing import ProcessingStage as AxonProcessingStage, load_checkpoint
@@ -22,6 +23,75 @@ from ..stg1_preprocessing.constants import LEGACY_PREPROCESS_OUTPUTS_DIRNAME, PR
 
 SPIKESORTING_OUTPUTS_DIRNAME = "spikesort_outputs"
 LEGACY_SPIKESORTING_OUTPUTS_DIRNAME = "stg2_spikesorting_outputs"
+
+
+def _normalize_docker_mount_source(path: str | Path | None) -> str | None:
+    if path is None:
+        return None
+    token = str(path).strip()
+    if not token:
+        return None
+    try:
+        return str(Path(token).expanduser().resolve())
+    except Exception:
+        return str(Path(token).expanduser().absolute())
+
+
+def _cleanup_interrupted_sorter_containers(
+    *,
+    docker_image: str | None,
+    mount_source: Path,
+    logger: logging.Logger,
+) -> list[str]:
+    image = str(docker_image or "").strip()
+    expected_mount_source = _normalize_docker_mount_source(mount_source)
+    if not image or expected_mount_source is None or not sys.platform.startswith("linux"):
+        return []
+
+    try:
+        import docker  # type: ignore[import-not-found]
+    except Exception:
+        logger.debug("Docker SDK unavailable; interrupted sorter cleanup skipped", exc_info=True)
+        return []
+
+    client = None
+    removed: list[str] = []
+    try:
+        client = docker.from_env(timeout=300)
+        containers = client.containers.list(all=True, filters={"ancestor": image})
+        for container in containers:
+            mounts = getattr(container, "attrs", {}).get("Mounts", []) or []
+            matches_mount = any(
+                _normalize_docker_mount_source(mount.get("Source", None)) == expected_mount_source
+                for mount in mounts
+                if isinstance(mount, dict)
+            )
+            if not matches_mount:
+                continue
+            label = (
+                f"{getattr(container, 'name', 'unknown')}"
+                f"({getattr(container, 'short_id', getattr(container, 'id', 'unknown'))})"
+            )
+            try:
+                container.remove(force=True)
+                removed.append(label)
+            except Exception:
+                logger.warning("Failed to remove interrupted sorter container %s", label, exc_info=True)
+    except Exception:
+        logger.warning(
+            "Interrupted sorter cleanup failed for image=%s mount_source=%s",
+            image,
+            expected_mount_source,
+            exc_info=True,
+        )
+    finally:
+        try:
+            if client is not None:
+                client.close()
+        except Exception:
+            pass
+
+    return removed
 
 
 def _recording_profile_from_h5(h5_path: Path) -> str:
@@ -177,6 +247,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
     output_subdir_after_well = str(getattr(inputs, "output_subdir_after_well", SPIKESORTING_OUTPUTS_DIRNAME) or "").strip()
     if not output_subdir_after_well:
         output_subdir_after_well = SPIKESORTING_OUTPUTS_DIRNAME
+    stage_output_dir = (well_out_dir / output_subdir_after_well).resolve()
 
     # Configure spikesort stage logging before emitting runtime snapshot lines.
     if bool(inputs.log_enabled):
@@ -273,7 +344,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         state=axon_ckpt,
         stage=AxonProcessingStage.SORTING,
         extra_fields={
-            "spikesorting_out_dir": str(well_out_dir / output_subdir_after_well),
+            "spikesorting_out_dir": str(stage_output_dir),
             "recording_profile": str(_recording_profile_from_h5(inputs.h5_path)),
             "checkpoint_owner": "axon_reconstructor_wrapper",
             "delegate_checkpoint_owner": "MEA_Analysis",
@@ -519,7 +590,20 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
             merged_sorting_dir=merged_sorting_dir,
             merged_sorter_output_dir=merged_sorter_output_dir,
         )
-    except Exception as e:
+    except BaseException as e:
+        removed_containers = _cleanup_interrupted_sorter_containers(
+            docker_image=inputs.docker_image,
+            mount_source=stage_output_dir,
+            logger=logger,
+        )
+        if removed_containers:
+            logger.warning(
+                "Interrupted sorter cleanup removed %d container(s): %s",
+                len(removed_containers),
+                removed_containers,
+            )
+        if not isinstance(e, Exception):
+            raise
         logger.exception("Spikesorting stage raised an exception before completion")
         save_stage_failed(
             checkpoint_file=axon_ckpt_file,
@@ -528,7 +612,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
             failed_stage="SPIKESORT",
             error=e,
             extra_fields={
-                "spikesorting_out_dir": str(well_out_dir / output_subdir_after_well),
+                "spikesorting_out_dir": str(stage_output_dir),
                 "recording_profile": str(_recording_profile_from_h5(inputs.h5_path)),
                 "checkpoint_owner": "axon_reconstructor_wrapper",
                 "delegate_checkpoint_owner": "MEA_Analysis",
