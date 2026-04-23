@@ -2611,6 +2611,7 @@ def _run_preprocess_phase_sequence(
 					verbose=bool(inputs.phases.save_rec_metadata.verbose),
 					suppress_h5_plugin_messages=bool(inputs.logging_suppress_h5_plugin_messages),
 					logger=phase_logger,
+					report_step_timers=bool(inputs.phases.save_rec_metadata.report_step_timers),
 				)
 			elif phase_name == "prepare_raw_binaries":
 				payload = run_prepare_raw_binaries_core(

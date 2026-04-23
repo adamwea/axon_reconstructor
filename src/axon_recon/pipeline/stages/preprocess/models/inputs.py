@@ -24,6 +24,10 @@ class PreprocessSaveRecMetadataPhaseConfig:
 	enabled: bool = False
 	verbose: bool = False
 	metadata_source: str = "source_h5"
+	debug_mode_enabled: bool = False
+	debug_limit_datasets: int | None = None
+	debug_limit_wells: int | None = None
+	report_step_timers: bool = False
 	summary_json_relpath: str = "context/recording_metadata_summary.json"
 	segment_epochs_relpath: str = "segment_epochs.json"
 	contiguous_epochs_relpath: str = "continuous_epochs.json"
@@ -181,6 +185,10 @@ class PreprocessPhasesConfig:
 			enabled=False,
 			verbose=False,
 			metadata_source="source_h5",
+			debug_mode_enabled=False,
+			debug_limit_datasets=None,
+			debug_limit_wells=None,
+			report_step_timers=False,
 			summary_json_relpath="context/recording_metadata_summary.json",
 			segment_epochs_relpath="segment_epochs.json",
 			contiguous_epochs_relpath="continuous_epochs.json",

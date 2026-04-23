@@ -99,6 +99,12 @@ stages:
       save_rec_metadata:
         enabled: true
         verbose: true
+        debug_mode:
+          #enabled: true
+          enabled: false
+          limit_datasets: 1
+          limit_wells: 3
+          report_step_timers: true
         #metadata_source: source_h5
         metadata_source: scratch_h5 # use scratch H5 metadata as the source of truth for recording metadata during debugging iterations to validate the integrity of copied recordings and their metadata in scratch space; can be set to source_h5 to use source H5 metadata instead, which is faster to access and can be used when copy_src_to_scratch is false or not the focus of debugging iterations.
         summary_json_relpath: context/recording_metadata_summary.json

@@ -576,6 +576,36 @@ def test_run_preprocess_save_rec_metadata_phase_prefers_requested_metadata_sourc
     assert captured_phase_kwargs["save_rec_metadata"]["metadata_source"] == "scratch_copy"
 
 
+def test_run_preprocess_save_rec_metadata_phase_passes_step_timer_flag(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    captured_phase_kwargs: dict[str, dict] = {}
+    _install_success_fakes(monkeypatch, tmp_path, captured_phase_kwargs=captured_phase_kwargs)
+
+    source_h5_path = tmp_path / "source" / "input.raw.h5"
+    source_h5_path.parent.mkdir(parents=True, exist_ok=True)
+    source_h5_path.write_text("source\n", encoding="utf-8")
+
+    inputs = PreprocessInputs(
+        h5_path=source_h5_path,
+        source_h5_path=source_h5_path,
+        copied_to_scratch=False,
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        phases=PreprocessPhasesConfig(
+            save_rec_metadata=PreprocessSaveRecMetadataPhaseConfig(
+                enabled=True,
+                report_step_timers=True,
+            )
+        ),
+    )
+
+    run_preprocess_save_rec_metadata_phase(inputs)
+
+    assert captured_phase_kwargs["save_rec_metadata"]["report_step_timers"] is True
+
+
 def test_run_preprocess_save_rec_metadata_phase_falls_back_to_source_when_scratch_missing(
     tmp_path: Path,
     monkeypatch,

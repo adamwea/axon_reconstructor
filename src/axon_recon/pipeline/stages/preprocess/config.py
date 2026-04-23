@@ -271,10 +271,19 @@ def _parse_save_rec_metadata_phase_config(
 	raw_cfg: dict[str, Any] | None,
 ) -> PreprocessSaveRecMetadataPhaseConfig:
 	phase_cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
+	debug_cfg = phase_cfg.get("debug_mode", {}) if isinstance(phase_cfg.get("debug_mode", {}), dict) else {}
+	debug_mode_enabled = _as_bool(debug_cfg.get("enabled", debug_cfg.get("enable", False)), False)
+	debug_limit_datasets = _as_optional_int(debug_cfg.get("limit_datasets", None)) if debug_mode_enabled else None
+	debug_limit_wells = _as_optional_int(debug_cfg.get("limit_wells", None)) if debug_mode_enabled else None
+	report_step_timers = _as_bool(debug_cfg.get("report_step_timers", False), False) if debug_mode_enabled else False
 	return PreprocessSaveRecMetadataPhaseConfig(
 		enabled=_as_bool(phase_cfg.get("enabled", phase_cfg.get("enable", False)), False),
 		verbose=_as_bool(phase_cfg.get("verbose", False), False),
 		metadata_source=_normalize_metadata_source(phase_cfg.get("metadata_source", "source_h5")),
+		debug_mode_enabled=debug_mode_enabled,
+		debug_limit_datasets=debug_limit_datasets,
+		debug_limit_wells=debug_limit_wells,
+		report_step_timers=report_step_timers,
 		summary_json_relpath=str(
 			phase_cfg.get("summary_json_relpath", "context/recording_metadata_summary.json")
 			or "context/recording_metadata_summary.json"

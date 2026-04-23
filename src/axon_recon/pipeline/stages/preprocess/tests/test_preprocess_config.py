@@ -412,6 +412,12 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                             "enabled": True,
                             "verbose": True,
                             "metadata_source": "scratch_copy",
+                            "debug_mode": {
+                                "enabled": True,
+                                "limit_datasets": 1,
+                                "limit_wells": 3,
+                                "report_step_timers": True,
+                            },
                             "summary_json_relpath": "context/custom_recording_metadata_summary.json",
                             "segment_epochs_relpath": "meta/segments.json",
                             "contiguous_epochs_relpath": "meta/contiguous.json",
@@ -521,6 +527,10 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
     assert parsed.phases.save_rec_metadata.enabled is True
     assert parsed.phases.save_rec_metadata.verbose is True
     assert parsed.phases.save_rec_metadata.metadata_source == "scratch_copy"
+    assert parsed.phases.save_rec_metadata.debug_mode_enabled is True
+    assert parsed.phases.save_rec_metadata.debug_limit_datasets == 1
+    assert parsed.phases.save_rec_metadata.debug_limit_wells == 3
+    assert parsed.phases.save_rec_metadata.report_step_timers is True
     assert parsed.phases.save_rec_metadata.summary_json_relpath == "context/custom_recording_metadata_summary.json"
     assert parsed.phases.save_rec_metadata.segment_epochs_relpath == "meta/segments.json"
     assert parsed.phases.save_rec_metadata.contiguous_epochs_relpath == "meta/contiguous.json"

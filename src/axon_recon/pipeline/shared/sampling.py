@@ -101,12 +101,7 @@ def _sorted_data_store_keys(keys: list[str]) -> list[str]:
 	return sorted(keys, key=_key_num)
 
 
-def read_maxwell_sampling_frequency_hz(*, h5_path: Path, stream_id: str) -> float | None:
-	try:
-		import h5py
-	except Exception:
-		return None
-
+def read_maxwell_sampling_frequency_hz_from_h5(*, h5: Any, stream_id: str) -> float | None:
 	target_well_label = _stream_to_well_label(str(stream_id))
 	attr_names = [
 		"sampling_frequency",
@@ -120,41 +115,55 @@ def read_maxwell_sampling_frequency_hz(*, h5_path: Path, stream_id: str) -> floa
 	]
 
 	try:
-		with h5py.File(str(Path(h5_path).expanduser().resolve()), "r") as h5:
-			# Preferred source: /data_store/dataXXXX/settings/sampling (copied from stg1 helper approach).
-			if "data_store" in h5:
-				data_store = h5["data_store"]
-				keys = [str(k) for k in data_store.keys() if str(k).startswith("data")]
-				rates: list[float] = []
-				for key in _sorted_data_store_keys(keys):
-					entry = data_store[key]
-					well_id = _read_h5_scalar_dataset(entry, "well_id")
-					well_label = _well_label_from_well_id(well_id)
-					if well_label is not None and str(well_label) != str(target_well_label):
-						continue
-					hz = _safe_float_hz(_read_h5_scalar_dataset(entry, "settings/sampling"))
-					if hz is not None:
-						rates.append(float(hz))
-				if rates:
-					return float(np.median(np.asarray(rates, dtype=float)))
-
-			# Fallback: common sampling-frequency attributes at stream/wells/root scopes.
-			candidates: list[Any] = []
-			if "wells" in h5:
-				wells = h5["wells"]
-				if str(target_well_label) in wells:
-					candidates.append(wells[str(target_well_label)])
-				if str(stream_id) in wells and str(stream_id) != str(target_well_label):
-					candidates.append(wells[str(stream_id)])
-				candidates.append(wells)
-			candidates.extend([h5.get("data_store"), h5])
-
-			for obj in candidates:
-				if obj is None:
+		# Preferred source: /data_store/dataXXXX/settings/sampling.
+		if "data_store" in h5:
+			data_store = h5["data_store"]
+			keys = [str(k) for k in data_store.keys() if str(k).startswith("data")]
+			rates: list[float] = []
+			for key in _sorted_data_store_keys(keys):
+				entry = data_store[key]
+				well_id = _read_h5_scalar_dataset(entry, "well_id")
+				well_label = _well_label_from_well_id(well_id)
+				if well_label is not None and str(well_label) != str(target_well_label):
 					continue
-				hz = _try_get_attr_hz(obj, attr_names)
+				hz = _safe_float_hz(_read_h5_scalar_dataset(entry, "settings/sampling"))
 				if hz is not None:
-					return float(hz)
+					rates.append(float(hz))
+			if rates:
+				return float(np.median(np.asarray(rates, dtype=float)))
+
+		# Fallback: common sampling-frequency attributes at stream/wells/root scopes.
+		candidates: list[Any] = []
+		if "wells" in h5:
+			wells = h5["wells"]
+			if str(target_well_label) in wells:
+				candidates.append(wells[str(target_well_label)])
+			if str(stream_id) in wells and str(stream_id) != str(target_well_label):
+				candidates.append(wells[str(stream_id)])
+			candidates.append(wells)
+		candidates.extend([h5.get("data_store"), h5])
+
+		for obj in candidates:
+			if obj is None:
+				continue
+			hz = _try_get_attr_hz(obj, attr_names)
+			if hz is not None:
+				return float(hz)
+	except Exception:
+		return None
+
+	return None
+
+
+def read_maxwell_sampling_frequency_hz(*, h5_path: Path, stream_id: str) -> float | None:
+	try:
+		import h5py
+	except Exception:
+		return None
+
+	try:
+		with h5py.File(str(Path(h5_path).expanduser().resolve()), "r") as h5:
+			return read_maxwell_sampling_frequency_hz_from_h5(h5=h5, stream_id=str(stream_id))
 	except Exception:
 		return None
 
