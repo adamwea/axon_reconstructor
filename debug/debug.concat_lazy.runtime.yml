@@ -73,7 +73,7 @@ stages:
       phase_dividers: true
     debug:
       # Optional debug overrides for preprocess execution and outputs.
-      limit_wells: null # int or null for no limit
+      limit_wells: 1 # int or null for no limit
       #limit_segments_per_well: 2 # int or null for no limit
       limit_segments_per_well: null
     observability:
@@ -87,8 +87,8 @@ stages:
       save_stage_log: true
       stage_log_relpath: logs/preprocess_pipeline.log
     resources:
-      #max_stage_workers: 24 # desktop
-      max_stage_workers: 36 # lab server
+      #max_stage_workers: 24
+      max_stage_workers: 32
       well_workers: 3
     rel_output_root: preprocess_outputs # optional subdir under each well's output directory for all preprocess outputs; relative paths for preprocess phases resolve under this directory in each well's output directory
     phases:
@@ -184,10 +184,6 @@ stages:
       concat_segments:
         enabled: true
         concatenate_preprocessed_recordings: true # when true, concatenate the preprocessed segment recordings; when false, concatenate raw segment recordings instead while keeping the rest of the concat phase wiring the same.
-        debug_mode:
-          enabled: false
-          limit_datasets: 1
-          limit_wells: 1
         output_mode: lazy
         summary_json_relpath: context/concat_segments_summary.json
         rel_output_root: concatenated_recording
@@ -238,9 +234,8 @@ stages:
         summary_json_relpath: context/wipe_src_scratch_summary.json
   spikesort:
     resources:
-      #max_stage_workers: 24
-      max_stage_workers: 36 # lab server
-      well_workers: 3
+      max_stage_workers: 24
+      well_workers: 2
       chunk_duration: 1s
     logging:
       enabled: true

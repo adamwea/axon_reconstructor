@@ -107,6 +107,9 @@ class PreprocessPlotSegmentTracesPhaseConfig:
 class PreprocessConcatSegmentsPhaseConfig:
 	enabled: bool = True
 	concatenate_preprocessed_recordings: bool = True
+	debug_mode_enabled: bool = False
+	debug_limit_datasets: int | None = None
+	debug_limit_wells: int | None = None
 	output_mode: str = "binary"
 	summary_json_relpath: str = "context/concat_segments_summary.json"
 	rel_output_root: str = "concatenated_recording"

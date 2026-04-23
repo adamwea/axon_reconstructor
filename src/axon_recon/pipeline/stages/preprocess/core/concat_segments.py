@@ -15,6 +15,7 @@ def run_concat_segments_core(
 	recording_dir: Path,
 	concat_manifest_path: Path,
 	overwrite_saved_recording: bool,
+	output_mode: str,
 	n_jobs: int,
 	chunk_duration: str,
 	progress_bar: bool,
@@ -50,18 +51,23 @@ def run_concat_segments_core(
 		multirecording = segment_recordings[0]
 	else:
 		multirecording = si.concatenate_recordings(segment_recordings)
+	requested_output_mode = str(output_mode or "binary").strip().lower()
+	if requested_output_mode not in {"binary", "lazy"}:
+		requested_output_mode = "binary"
 	stitch_frames = build_stitch_frames_from_segment_manifest(segment_entries)
 	if logger is not None:
 		logger.info(
-			"Saving concatenated recording for well=%s segment_count=%d out=%s",
+			"Saving concatenated recording for well=%s segment_count=%d out=%s output_mode=%s",
 			str(stream_id),
 			int(len(segment_entries)),
 			recording_dir,
+			str(requested_output_mode),
 		)
 	save_result = run_save_concatenated_recording_core(
 		multirecording=multirecording,
 		recording_dir=recording_dir,
 		overwrite_saved_recording=bool(overwrite_saved_recording),
+		output_mode=str(requested_output_mode),
 		n_jobs=max(1, int(n_jobs)),
 		chunk_duration=str(chunk_duration),
 		progress_bar=bool(progress_bar),
@@ -69,6 +75,7 @@ def run_concat_segments_core(
 	)
 	concat_manifest_payload = {
 		"version": 1,
+		"output_mode": str(save_result.get("output_mode", requested_output_mode)),
 		"segment_count": int(len(segment_entries)),
 		"segment_source": "preprocessed",
 		"segment_entries": [dict(item) for item in segment_entries],
@@ -84,6 +91,7 @@ def run_concat_segments_core(
 		)
 	payload: dict[str, object] = {
 		"phase": "concat_segments",
+		"output_mode": str(save_result.get("output_mode", requested_output_mode)),
 		"segment_count": int(len(segment_entries)),
 		"segment_source": "preprocessed",
 		"source_segment_count": int(len(segment_entries)),

@@ -2328,6 +2328,9 @@ def _resume_concat_segments_payload_if_complete(
 	inputs: PreprocessInputs,
 	paths: _PreprocessPathSet,
 ) -> dict[str, Any] | None:
+	requested_output_mode = str(inputs.phases.concat_segments.output_mode or "binary").strip().lower()
+	if requested_output_mode not in {"binary", "lazy"}:
+		requested_output_mode = "binary"
 	try:
 		concat_manifest = load_concat_manifest(paths.concat_manifest_path)
 		load_saved_recording(paths.recording_dir)
@@ -2345,10 +2348,25 @@ def _resume_concat_segments_payload_if_complete(
 	if len(stitch_frames) not in {0, max(0, int(len(segment_entries) - 1))}:
 		return None
 	existing_payload = _load_existing_phase_payload(inputs=inputs, paths=paths, phase_name="concat_segments")
+	manifest_output_mode = str(concat_manifest.get("output_mode", "")).strip().lower()
+	if manifest_output_mode:
+		if manifest_output_mode != requested_output_mode:
+			return None
+	elif requested_output_mode != "binary":
+		return None
+	if existing_payload is not None:
+		existing_output_mode = str(existing_payload.get("output_mode", "")).strip().lower()
+		if existing_output_mode:
+			if existing_output_mode != requested_output_mode:
+				return None
+		elif requested_output_mode != "binary":
+			return None
 	return _build_resumed_phase_payload(
 		phase_name="concat_segments",
 		existing_payload=existing_payload,
 		payload_updates={
+			"requested_output_mode": str(inputs.phases.concat_segments.output_mode),
+			"output_mode": str(requested_output_mode),
 			"segment_count": int(len(segment_entries)),
 			"segment_source": str(concat_manifest.get("segment_source", "preprocessed") or "preprocessed"),
 			"source_segment_count": int(len(segment_entries)),
@@ -2767,6 +2785,7 @@ def _run_preprocess_phase_sequence(
 					recording_dir=paths.recording_dir,
 					concat_manifest_path=paths.concat_manifest_path,
 					overwrite_saved_recording=bool(inputs.overwrite_saved_recording),
+					output_mode=str(inputs.phases.concat_segments.output_mode),
 					n_jobs=max(1, int(inputs.phases.concat_segments.outputs.concat_save_n_jobs or inputs.n_jobs)),
 					chunk_duration=str(inputs.phases.concat_segments.outputs.save_chunk_duration),
 					progress_bar=bool(inputs.phases.concat_segments.outputs.save_progress_bar),

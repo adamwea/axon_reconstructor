@@ -1031,6 +1031,110 @@ def test_run_preprocess_segments_core_lazy_mode_writes_provenance_manifest_witho
     assert all(Path(str(item["provenance_path"])).is_file() for item in manifest_payload["segments"])
 
 
+def test_run_save_concatenated_recording_core_lazy_mode_writes_cached_json_without_binary_save(tmp_path: Path) -> None:
+    from axon_recon.pipeline.stages.preprocess.core import save_concatenated_recording as save_concat_core
+
+    class _FakeRecording:
+        def dump_to_json(self, file_path, relative_to=None) -> None:
+            Path(file_path).write_text(
+                json.dumps(
+                    {
+                        "class": "fake._FakeRecording",
+                        "annotations": {},
+                        "properties": {},
+                        "kwargs": {},
+                        "version": "test",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        def save(self, **_kwargs) -> None:
+            raise AssertionError("lazy concat output mode should not materialize a binary recording")
+
+    recording_dir = tmp_path / "concatenated_recording"
+    payload = save_concat_core.run_save_concatenated_recording_core(
+        multirecording=_FakeRecording(),
+        recording_dir=recording_dir,
+        overwrite_saved_recording=True,
+        output_mode="lazy",
+        n_jobs=1,
+        chunk_duration="1s",
+        progress_bar=False,
+        logger=None,
+    )
+
+    assert payload["saved"] is True
+    assert payload["output_mode"] == "lazy"
+    assert payload["materialized_recording"] is False
+    assert payload["recording_json_path"] == str(recording_dir / "cached.json")
+    assert (recording_dir / "cached.json").is_file()
+
+
+def test_run_concat_segments_core_records_lazy_output_mode(monkeypatch, tmp_path: Path) -> None:
+    from axon_recon.pipeline.stages.preprocess.core import concat_segments as concat_segments_core
+
+    class _FakeRecording:
+        pass
+
+    fake_spikeinterface = types.ModuleType("spikeinterface")
+    fake_spikeinterface_full = types.ModuleType("spikeinterface.full")
+    fake_spikeinterface_full.concatenate_recordings = lambda recordings: {"concatenated": len(recordings)}
+    fake_spikeinterface.full = fake_spikeinterface_full
+    monkeypatch.setitem(sys.modules, "spikeinterface", fake_spikeinterface)
+    monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_spikeinterface_full)
+
+    written_manifests: list[tuple[Path, dict[str, object]]] = []
+    monkeypatch.setattr(
+        concat_segments_core,
+        "load_segment_manifest",
+        lambda _path: [
+            {"segment_index": 0, "rec_name": "seg000", "provenance_path": str(tmp_path / "seg000.json"), "n_samples": 100},
+            {"segment_index": 1, "rec_name": "seg001", "provenance_path": str(tmp_path / "seg001.json"), "n_samples": 120},
+        ],
+    )
+    monkeypatch.setattr(concat_segments_core, "load_segment_recording_from_entry", lambda _entry: _FakeRecording())
+    monkeypatch.setattr(concat_segments_core, "build_stitch_frames_from_segment_manifest", lambda _entries: [100])
+    monkeypatch.setattr(
+        concat_segments_core,
+        "write_json",
+        lambda path, payload: written_manifests.append((Path(path), dict(payload))),
+    )
+
+    saved_payloads: list[dict[str, object]] = []
+
+    def _fake_save(**kwargs):
+        saved_payloads.append(dict(kwargs))
+        return {
+            "recording_dir": str(kwargs["recording_dir"]),
+            "recording_json_path": str(Path(str(kwargs["recording_dir"])) / "cached.json"),
+            "output_mode": str(kwargs["output_mode"]),
+            "materialized_recording": False,
+            "saved": True,
+        }
+
+    payload = concat_segments_core.run_concat_segments_core(
+        stream_id="well001",
+        segment_manifest_path=tmp_path / "segments_manifest.json",
+        recording_dir=tmp_path / "concatenated_recording",
+        concat_manifest_path=tmp_path / "concat_manifest.json",
+        overwrite_saved_recording=True,
+        output_mode="lazy",
+        n_jobs=1,
+        chunk_duration="1s",
+        progress_bar=False,
+        logger=None,
+        run_save_concatenated_recording_core=_fake_save,
+    )
+
+    assert payload["output_mode"] == "lazy"
+    assert payload["materialized_recording"] is False
+    assert len(saved_payloads) == 1
+    assert saved_payloads[0]["output_mode"] == "lazy"
+    assert len(written_manifests) == 1
+    assert written_manifests[0][1]["output_mode"] == "lazy"
+
+
 def test_run_preprocess_stage_uses_lazy_output_mode_for_preprocess_segments_when_no_downstream_consumers_enabled(
     tmp_path: Path,
     monkeypatch,
@@ -1176,6 +1280,7 @@ def test_run_concat_segments_core_logs_progress_per_well(monkeypatch, tmp_path: 
             recording_dir=tmp_path / "concatenated_recording",
             concat_manifest_path=tmp_path / "concat_manifest.json",
             overwrite_saved_recording=False,
+            output_mode="binary",
             n_jobs=1,
             chunk_duration="1s",
             progress_bar=False,
@@ -1406,6 +1511,7 @@ def test_run_concat_segments_core_loads_lazy_provenance_entries(monkeypatch, tmp
         recording_dir=tmp_path / "concatenated_recording",
         concat_manifest_path=tmp_path / "concat_manifest.json",
         overwrite_saved_recording=False,
+        output_mode="binary",
         n_jobs=1,
         chunk_duration="1s",
         progress_bar=False,

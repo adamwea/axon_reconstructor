@@ -176,6 +176,7 @@ def _apply_preprocess_substage_phase_debug_limits(
 ) -> list[Any]:
 	phase_attr_by_stage_name = {
 		"preprocess.save_rec_metadata": "save_rec_metadata",
+		"preprocess.concat_segments": "concat_segments",
 		"preprocess.plot_raster_threshold": "plot_raster_threshold",
 	}
 	phase_attr = phase_attr_by_stage_name.get(str(stage_name).strip())

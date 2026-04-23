@@ -838,6 +838,15 @@ def parse_preprocess_stage_config(
 		concat_save_n_jobs=concat_save_n_jobs,
 		print_n_jobs_used=preprocess_segments_phase.outputs.print_n_jobs_used,
 	)
+	concat_debug_cfg = (
+		concatenate_phase_cfg.get("debug_mode", {})
+		if isinstance(concatenate_phase_cfg.get("debug_mode", {}), dict)
+		else {}
+	)
+	concat_debug_mode_enabled = _as_bool(
+		concat_debug_cfg.get("enabled", concat_debug_cfg.get("enable", False)),
+		False,
+	)
 	concat_segments_phase = PreprocessConcatSegmentsPhaseConfig(
 		enabled=_as_bool(
 			concatenate_phase_cfg.get(
@@ -849,6 +858,17 @@ def parse_preprocess_stage_config(
 		concatenate_preprocessed_recordings=_as_bool(
 			concatenate_phase_cfg.get("concatenate_preprocessed_recordings", True),
 			True,
+		),
+		debug_mode_enabled=concat_debug_mode_enabled,
+		debug_limit_datasets=(
+			_as_optional_int(concat_debug_cfg.get("limit_datasets", None))
+			if concat_debug_mode_enabled
+			else None
+		),
+		debug_limit_wells=(
+			_as_optional_int(concat_debug_cfg.get("limit_wells", None))
+			if concat_debug_mode_enabled
+			else None
 		),
 		output_mode=_normalize_concat_output_mode(
 			concatenate_phase_cfg.get("output_mode", "binary")

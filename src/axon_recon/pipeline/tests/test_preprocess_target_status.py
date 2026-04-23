@@ -810,3 +810,102 @@ def test_run_preprocess_plot_raster_threshold_from_runtime_applies_phase_debug_d
     assert agg.succeeded_targets == 2
     assert agg.failed_targets == 0
     assert built_targets == [(0, "well001"), (0, "well002")]
+
+
+def test_run_preprocess_concat_segments_from_runtime_applies_phase_debug_dataset_and_well_limits(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    targets = [
+        ExecutionTarget(
+            dataset_index=0,
+            dataset_id="dataset_000:test_a.h5",
+            h5_path=tmp_path / "test_a.h5",
+            stream_id="well001",
+            mea_output_root=tmp_path,
+        ),
+        ExecutionTarget(
+            dataset_index=0,
+            dataset_id="dataset_000:test_a.h5",
+            h5_path=tmp_path / "test_a.h5",
+            stream_id="well002",
+            mea_output_root=tmp_path,
+        ),
+        ExecutionTarget(
+            dataset_index=0,
+            dataset_id="dataset_000:test_a.h5",
+            h5_path=tmp_path / "test_a.h5",
+            stream_id="well003",
+            mea_output_root=tmp_path,
+        ),
+        ExecutionTarget(
+            dataset_index=1,
+            dataset_id="dataset_001:test_b.h5",
+            h5_path=tmp_path / "test_b.h5",
+            stream_id="well001",
+            mea_output_root=tmp_path,
+        ),
+    ]
+
+    class _DummyBundle:
+        runtime_config = object()
+        data_config = object()
+
+    built_targets: list[tuple[int, str]] = []
+
+    def _fake_load_pipeline_runtime_bundle(*, config_path: str):
+        return _DummyBundle()
+
+    def _fake_select_execution_targets(*, bundle, materialize_scratch_inputs: bool = False):
+        _ = bundle, materialize_scratch_inputs
+        return list(targets)
+
+    def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
+        _ = bundle, stage_name
+        return StageParallelism(max_workers=24, max_stage_workers=24, well_workers=2, unit_workers=12)
+
+    def _fake_parse_preprocess_stage_config(**kwargs):
+        _ = kwargs
+        return SimpleNamespace(
+            debug_limit_wells=None,
+            phases=SimpleNamespace(
+                concat_segments=SimpleNamespace(
+                    debug_mode_enabled=True,
+                    debug_limit_datasets=1,
+                    debug_limit_wells=2,
+                )
+            ),
+        )
+
+    def _fake_build_preprocess_inputs_for_target(*, target, stage_config, unit_workers: int):
+        _ = stage_config, unit_workers
+        built_targets.append((int(target.dataset_index), str(target.stream_id)))
+        return PreprocessInputs(
+            h5_path=target.h5_path,
+            stream_id=target.stream_id,
+            mea_output_root=target.mea_output_root,
+        )
+
+    def _fake_run_substage(inputs: PreprocessInputs) -> dict[str, object]:
+        return {
+            "phase": "concat_segments",
+            "preprocess_out_dir": str(tmp_path / f"preprocess_out_{inputs.stream_id}"),
+            "summary_json": str(tmp_path / f"concat_segments_{inputs.stream_id}.json"),
+            "outputs": {},
+        }
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", _fake_load_pipeline_runtime_bundle)
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", _fake_select_execution_targets)
+    monkeypatch.setattr(pipeline_runner, "resolve_stage_parallelism", _fake_resolve_stage_parallelism)
+    monkeypatch.setattr(pipeline_runner, "parse_preprocess_stage_config", _fake_parse_preprocess_stage_config)
+    monkeypatch.setattr(pipeline_runner, "build_preprocess_inputs_for_target", _fake_build_preprocess_inputs_for_target)
+    monkeypatch.setattr(pipeline_runner, "run_preprocess_concat_segments", _fake_run_substage)
+
+    agg = run_preprocess_concat_segments_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+
+    assert agg.total_targets == 2
+    assert agg.succeeded_targets == 2
+    assert agg.failed_targets == 0
+    assert built_targets == [(0, "well001"), (0, "well002")]
