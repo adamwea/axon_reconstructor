@@ -154,6 +154,131 @@ def test_extract_unit_locations_from_analyzer_computes_dependency_chain() -> Non
     assert {"random_spikes", "waveforms", "templates", "unit_locations"}.issubset(set(analyzer.compute_calls))
 
 
+def test_run_spikesort_stage_generates_sort_summary_artifacts(monkeypatch, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    class _FakeSorting:
+        def get_unit_ids(self):
+            return [1, 2, 3]
+
+        def get_num_segments(self):
+            return 1
+
+        def get_unit_spike_train(self, unit_id=None, segment_index=0):
+            mapping = {
+                1: [0, 1, 2],
+                2: list(range(7)),
+                3: list(range(2)),
+            }
+            return mapping[unit_id]
+
+    class _LegacyOutputs:
+        def __init__(self, output_dir: Path):
+            self.output_dir = output_dir
+            self.recording_dir = output_dir / "recording"
+            self.sorter_output_dir = output_dir / "sorter_output"
+            self.analyzer_dir = output_dir / "analyzer_output"
+            self.merged_sorting_dir = None
+            self.merged_sorter_output_dir = None
+
+    well_out_dir = tmp_path / "well001"
+    stage_output_root_dir = well_out_dir / "spikesort_outputs"
+    sorter_output_dir = stage_output_root_dir / "sorter_output"
+    nested_kilosort_dir = sorter_output_dir / "sorter_output"
+    nested_kilosort_dir.mkdir(parents=True)
+    (nested_kilosort_dir / "spike_times.npy").write_bytes(b"fake")
+    (nested_kilosort_dir / "spike_clusters.npy").write_bytes(b"fake")
+    (nested_kilosort_dir / "cluster_KSLabel.tsv").write_text(
+        "cluster_id\tKSLabel\n1\tgood\n2\tmua\n3\tgood\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
+    monkeypatch.setattr(
+        spikesort_runner,
+        "run_legacy_spikesorting_stage",
+        lambda **kwargs: _LegacyOutputs(stage_output_root_dir),
+    )
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_load_sorting_from_sorter_output_dir",
+        lambda **kwargs: _FakeSorting(),
+    )
+    monkeypatch.setattr(spikesort_runner, "_import_spikeinterface_full_module", lambda: object())
+
+    inputs = SpikesortInputs(
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        summarize_sort_enabled=True,
+        summarize_sort_emit_logs=True,
+        summarize_sort_generate_artifacts=True,
+    )
+
+    with caplog.at_level("INFO"):
+        result = run_spikesort_stage(inputs)
+
+    payload = _read_json(result.summary_json)
+    summarize_payload = payload["summarize_sort"]
+    assert summarize_payload["status"] == "ok"
+    assert summarize_payload["unit_count"] == 3
+    assert summarize_payload["counts_by_label"] == {"good": 2, "mua": 1}
+    assert summarize_payload["spike_count_stats"] == {"min": 2, "max": 7}
+    assert [unit["unit_id"] for unit in summarize_payload["units"]] == ["1", "2", "3"]
+    assert summarize_payload["sorter_output_dir"].endswith("sorter_output/sorter_output")
+    assert summarize_payload["label_sources"]["cluster_kslabel_tsv"].endswith("sorter_output/sorter_output/cluster_KSLabel.tsv")
+    assert result.outputs["summarize_sort.summary_json"].endswith("summarize_sort_summary.json")
+    assert result.outputs["summarize_sort.units_tsv"].endswith("summarize_sort_units.tsv")
+    assert "Sort summary [stream=well001] units=3" in caplog.text
+
+
+def test_run_spikesort_summarize_sort_writes_summary_when_artifacts_disabled(monkeypatch, tmp_path: Path) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    class _FakeSorting:
+        def get_unit_ids(self):
+            return [10]
+
+        def get_num_segments(self):
+            return 1
+
+        def get_unit_spike_train(self, unit_id=None, segment_index=0):
+            return [0, 1, 2, 3]
+
+    well_out_dir = tmp_path / "well001"
+    stage_output_root_dir = well_out_dir / "spikesort_outputs"
+    sorter_output_dir = stage_output_root_dir / "sorter_output"
+    sorter_output_dir.mkdir(parents=True)
+    (sorter_output_dir / "cluster_group.tsv").write_text(
+        "cluster_id\tgroup\n10\tunsorted\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_load_sorting_from_sorter_output_dir",
+        lambda **kwargs: _FakeSorting(),
+    )
+    monkeypatch.setattr(spikesort_runner, "_import_spikeinterface_full_module", lambda: object())
+
+    inputs = SpikesortInputs(
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        summarize_sort_enabled=True,
+        summarize_sort_emit_logs=False,
+        summarize_sort_generate_artifacts=False,
+    )
+
+    result = spikesort_runner.run_spikesort_summarize_sort(inputs)
+
+    payload = _read_json(result.summary_json)
+    assert payload["status"] == "ok"
+    assert payload["counts_by_label"] == {"unsorted": 1}
+    assert result.outputs["summarize_sort.summary_json"].endswith("summarize_sort_summary.json")
+
+
 def test_ensure_merge_analyzer_extensions_uses_all_random_spikes_method() -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 

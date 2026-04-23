@@ -27,6 +27,9 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.sort_debug_mode_enabled is False
     assert parsed.sort_debug_limit_datasets is None
     assert parsed.sort_debug_limit_wells is None
+    assert parsed.summarize_sort_debug_mode_enabled is False
+    assert parsed.summarize_sort_debug_limit_datasets is None
+    assert parsed.summarize_sort_debug_limit_wells is None
     assert parsed.sorter == "kilosort4"
     assert parsed.docker_image is None
     assert parsed.recording_num == "rec0000"
@@ -46,6 +49,9 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.no_curation is False
     assert parsed.export_to_phy is False
     assert parsed.force_rerun_analyzer is False
+    assert parsed.summarize_sort_enabled is False
+    assert parsed.summarize_sort_emit_logs is True
+    assert parsed.summarize_sort_generate_artifacts is False
     assert parsed.bombcell_label_enabled is False
     assert parsed.bombcell_label_relpath == "bombcell_label_outputs"
     assert parsed.bombcell_label_delete_outputs_on_force_restart is True
@@ -138,6 +144,30 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.merge_reports_2panel_point_size == 9.0
     assert parsed.merge_reports_2panel_relpath == "unit_locations_before_after_merge.png"
     assert parsed.merge_reports_2panel_label_pre_and_post_units is False
+
+
+def test_parse_spikesort_stage_config_summarize_sort_phase() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "summarize_sort": {
+                            "enabled": True,
+                            "emit_logs": False,
+                            "generate_artifacts": True,
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.summarize_sort_enabled is True
+    assert parsed.summarize_sort_emit_logs is False
+    assert parsed.summarize_sort_generate_artifacts is True
     assert parsed.merge_reports_2panel_write_png is True
     assert parsed.merge_reports_2panel_write_svg is False
     assert parsed.merge_reports_2panel_before_relpath == "unit_locations_before_merge.png"
@@ -233,6 +263,32 @@ def test_parse_spikesort_stage_config_reads_sort_debug_mode() -> None:
     assert parsed.sort_debug_mode_enabled is True
     assert parsed.sort_debug_limit_datasets == 1
     assert parsed.sort_debug_limit_wells == 1
+
+
+def test_parse_spikesort_stage_config_reads_summarize_sort_debug_mode() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "summarize_sort": {
+                            "debug_mode": {
+                                "enabled": True,
+                                "limit_datasets": 1,
+                                "limit_wells": 1,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.summarize_sort_debug_mode_enabled is True
+    assert parsed.summarize_sort_debug_limit_datasets == 1
+    assert parsed.summarize_sort_debug_limit_wells == 1
 
 
 def test_parse_spikesort_stage_config_parses_sectioned_stage_layout() -> None:

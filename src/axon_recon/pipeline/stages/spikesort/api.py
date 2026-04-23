@@ -6,11 +6,15 @@ from typing import Any
 from .models.inputs import SpikesortInputs
 from .models.results import SpikesortMergeResult, SpikesortResult
 from .orchestrators import run_spikesort_sort
-from .runner import run_spikesort_merge_stage
+from .runner import run_spikesort_merge_stage, run_spikesort_summarize_sort
 
 
 def run_spikesort(inputs: SpikesortInputs) -> SpikesortResult:
 	return run_spikesort_sort(inputs)
+
+
+def summarize_spikesort(inputs: SpikesortInputs) -> SpikesortResult:
+	return run_spikesort_summarize_sort(inputs)
 
 
 def run_spikesort_merge(

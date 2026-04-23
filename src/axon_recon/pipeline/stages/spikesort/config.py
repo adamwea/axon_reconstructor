@@ -286,6 +286,9 @@ class SpikesortStageConfig:
 	sort_debug_mode_enabled: bool
 	sort_debug_limit_datasets: int | None
 	sort_debug_limit_wells: int | None
+	summarize_sort_debug_mode_enabled: bool
+	summarize_sort_debug_limit_datasets: int | None
+	summarize_sort_debug_limit_wells: int | None
 	sorter: str
 	docker_image: str | None
 	recording_num: str
@@ -316,6 +319,9 @@ class SpikesortStageConfig:
 	no_curation: bool
 	export_to_phy: bool
 	force_rerun_analyzer: bool
+	summarize_sort_enabled: bool
+	summarize_sort_emit_logs: bool
+	summarize_sort_generate_artifacts: bool
 	bombcell_label_enabled: bool
 	bombcell_label_relpath: str
 	bombcell_label_delete_outputs_on_force_restart: bool
@@ -505,6 +511,7 @@ def parse_spikesort_stage_config(
 	merge_analyzer_template_extraction_cfg = _as_section(
 		merge_analyzer_cfg.get("template_extraction", {})
 	)
+	summarize_sort_phase_cfg = _as_section(phases_cfg.get("summarize_sort", {}))
 	bombcell_phase_cfg_raw = phases_cfg.get("bombcell_label", None)
 	bombcell_phase_cfg = _as_section(bombcell_phase_cfg_raw)
 	bombcell_params_cfg = _as_section(bombcell_phase_cfg.get("params", {}))
@@ -636,6 +643,14 @@ def parse_spikesort_stage_config(
 	sort_debug_mode_enabled = _as_bool(sort_debug_cfg.get("enabled", False), False)
 	sort_debug_limit_datasets = _as_optional_positive_int(sort_debug_cfg.get("limit_datasets", None))
 	sort_debug_limit_wells = _as_optional_positive_int(sort_debug_cfg.get("limit_wells", None))
+	summarize_sort_debug_cfg = _as_section(summarize_sort_phase_cfg.get("debug_mode", {}))
+	summarize_sort_debug_mode_enabled = _as_bool(summarize_sort_debug_cfg.get("enabled", False), False)
+	summarize_sort_debug_limit_datasets = _as_optional_positive_int(
+		summarize_sort_debug_cfg.get("limit_datasets", None)
+	)
+	summarize_sort_debug_limit_wells = _as_optional_positive_int(
+		summarize_sort_debug_cfg.get("limit_wells", None)
+	)
 
 	plot_enabled = _as_bool(plot_cfg.get("enabled", True), True)
 	sort_enabled = _as_bool(
@@ -695,6 +710,27 @@ def parse_spikesort_stage_config(
 			execution_cfg.get("rerun_analyzer", None),
 			stage_cfg.get("force_rerun_analyzer", None),
 			stage_cfg.get("rerun_analyzer", None),
+			False,
+		),
+		False,
+	)
+	summarize_sort_enabled = _as_bool(
+		_coalesce(
+			summarize_sort_phase_cfg.get("enabled", None),
+			False,
+		),
+		False,
+	)
+	summarize_sort_emit_logs = _as_bool(
+		_coalesce(
+			summarize_sort_phase_cfg.get("emit_logs", None),
+			True,
+		),
+		True,
+	)
+	summarize_sort_generate_artifacts = _as_bool(
+		_coalesce(
+			summarize_sort_phase_cfg.get("generate_artifacts", None),
 			False,
 		),
 		False,
@@ -2372,6 +2408,9 @@ def parse_spikesort_stage_config(
 		sort_debug_mode_enabled=bool(sort_debug_mode_enabled),
 		sort_debug_limit_datasets=sort_debug_limit_datasets,
 		sort_debug_limit_wells=sort_debug_limit_wells,
+		summarize_sort_debug_mode_enabled=bool(summarize_sort_debug_mode_enabled),
+		summarize_sort_debug_limit_datasets=summarize_sort_debug_limit_datasets,
+		summarize_sort_debug_limit_wells=summarize_sort_debug_limit_wells,
 		sorter=str(
 			_coalesce(
 				sort_phase_cfg.get("sorter", None),
@@ -2479,6 +2518,9 @@ def parse_spikesort_stage_config(
 		no_curation=no_curation,
 		export_to_phy=export_to_phy,
 		force_rerun_analyzer=force_rerun_analyzer,
+		summarize_sort_enabled=bool(summarize_sort_enabled),
+		summarize_sort_emit_logs=bool(summarize_sort_emit_logs),
+		summarize_sort_generate_artifacts=bool(summarize_sort_generate_artifacts),
 		bombcell_label_enabled=bool(bombcell_label_enabled),
 		bombcell_label_relpath=str(bombcell_label_relpath),
 		bombcell_label_delete_outputs_on_force_restart=bool(bombcell_label_delete_outputs_on_force_restart),
@@ -2823,6 +2865,9 @@ def build_spikesort_inputs_for_target(
 		no_curation=stage_config.no_curation,
 		export_to_phy=stage_config.export_to_phy,
 		force_rerun_analyzer=stage_config.force_rerun_analyzer,
+		summarize_sort_enabled=stage_config.summarize_sort_enabled,
+		summarize_sort_emit_logs=stage_config.summarize_sort_emit_logs,
+		summarize_sort_generate_artifacts=stage_config.summarize_sort_generate_artifacts,
 		um_kwargs=stage_config.um_kwargs,
 		am_kwargs=stage_config.am_kwargs,
 		option_kwargs=stage_config.option_kwargs,
@@ -2930,6 +2975,9 @@ def load_spikesort_inputs_from_runtime(
 		no_curation=stage_cfg.no_curation,
 		export_to_phy=stage_cfg.export_to_phy,
 		force_rerun_analyzer=stage_cfg.force_rerun_analyzer,
+		summarize_sort_enabled=stage_cfg.summarize_sort_enabled,
+		summarize_sort_emit_logs=stage_cfg.summarize_sort_emit_logs,
+		summarize_sort_generate_artifacts=stage_cfg.summarize_sort_generate_artifacts,
 		um_kwargs=stage_cfg.um_kwargs,
 		am_kwargs=stage_cfg.am_kwargs,
 		option_kwargs=stage_cfg.option_kwargs,

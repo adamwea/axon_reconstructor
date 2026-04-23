@@ -1975,6 +1975,212 @@ def _read_kilosort_cluster_labels_tsv(*, path: Path, default_label_column: str) 
 	return out, label_column
 
 
+def _spike_count_for_unit(*, sorting: Any, unit_id: Any) -> int:
+	get_num_segments = getattr(sorting, "get_num_segments", None)
+	try:
+		num_segments = int(get_num_segments()) if callable(get_num_segments) else 1
+	except Exception:
+		num_segments = 1
+	if num_segments <= 0:
+		num_segments = 1
+
+	get_unit_spike_train = getattr(sorting, "get_unit_spike_train", None)
+	if not callable(get_unit_spike_train):
+		return 0
+
+	unit_id_candidates: list[Any] = [unit_id]
+	try:
+		normalized_int = int(unit_id)
+	except Exception:
+		normalized_int = None
+	if normalized_int is not None and all(candidate != normalized_int for candidate in unit_id_candidates):
+		unit_id_candidates.append(normalized_int)
+
+	total = 0
+	for segment_index in range(int(num_segments)):
+		spike_train = None
+		for candidate_unit_id in unit_id_candidates:
+			try:
+				spike_train = get_unit_spike_train(unit_id=candidate_unit_id, segment_index=int(segment_index))
+				break
+			except TypeError:
+				if segment_index > 0:
+					continue
+				try:
+					spike_train = get_unit_spike_train(candidate_unit_id)
+					break
+				except Exception:
+					continue
+			except Exception:
+				continue
+		if spike_train is None:
+			continue
+		try:
+			total += int(len(spike_train))
+		except Exception:
+			try:
+				total += int(getattr(spike_train, "size", 0))
+			except Exception:
+				continue
+	return int(total)
+
+
+def _resolve_existing_sorter_output_dir(*, stage_output_root_dir: Path) -> Path:
+	candidates = [
+		(stage_output_root_dir / "sorter_output" / "sorter_output").resolve(),
+		(stage_output_root_dir / "sorter_output" / "in_container_sorting").resolve(),
+		(stage_output_root_dir / "sorter_output").resolve(),
+		stage_output_root_dir.resolve(),
+	]
+	for candidate in candidates:
+		if not candidate.exists():
+			continue
+		if _is_kilosort_folder(candidate):
+			return candidate
+		if (candidate / "cluster_KSLabel.tsv").exists() or (candidate / "cluster_group.tsv").exists():
+			return candidate
+	for candidate in candidates:
+		if candidate.exists():
+			return candidate
+	raise FileNotFoundError(f"Sorter output directory not found under {stage_output_root_dir}")
+
+
+def _build_sort_summary_payload(
+	*,
+	stream_id: str,
+	stage_output_root_dir: Path,
+	sorter_output_dir: Path,
+	sorter_name: str,
+) -> dict[str, Any]:
+	si_module = _import_spikeinterface_full_module()
+	sorting = _load_sorting_from_sorter_output_dir(
+		si_module=si_module,
+		sorter_output_dir=sorter_output_dir,
+		sorter_name=sorter_name,
+	)
+	unit_ids = list(_unit_ids_from_obj(sorting))
+	ks_labels, ks_label_column = _read_kilosort_cluster_labels_tsv(
+		path=(sorter_output_dir / "cluster_KSLabel.tsv").resolve(),
+		default_label_column="KSLabel",
+	)
+	group_labels, group_label_column = _read_kilosort_cluster_labels_tsv(
+		path=(sorter_output_dir / "cluster_group.tsv").resolve(),
+		default_label_column="group",
+	)
+
+	units: list[dict[str, Any]] = []
+	label_counts: dict[str, int] = {}
+	spike_counts: list[int] = []
+	for unit_id in sorted(unit_ids, key=_unit_sort_key):
+		spike_count = _spike_count_for_unit(sorting=sorting, unit_id=unit_id)
+		spike_counts.append(int(spike_count))
+		label = str(ks_labels.get(unit_id) or group_labels.get(unit_id) or "unlabeled")
+		label_counts[label] = int(label_counts.get(label, 0)) + 1
+		units.append(
+			{
+				"unit_id": str(unit_id),
+				"kilosort_label": label,
+				"spike_count": int(spike_count),
+			}
+		)
+
+	payload: dict[str, Any] = {
+		"status": "ok",
+		"stream_id": str(stream_id),
+		"stage_output_root_dir": str(stage_output_root_dir),
+		"sorter_output_dir": str(sorter_output_dir),
+		"sorter": str(sorter_name),
+		"label_sources": {
+			"cluster_kslabel_tsv": str((sorter_output_dir / "cluster_KSLabel.tsv").resolve()),
+			"cluster_group_tsv": str((sorter_output_dir / "cluster_group.tsv").resolve()),
+			"cluster_kslabel_column": str(ks_label_column),
+			"cluster_group_column": str(group_label_column),
+		},
+		"unit_count": int(len(units)),
+		"counts_by_label": dict(sorted(label_counts.items())),
+		"spike_count_stats": {
+			"min": int(min(spike_counts)) if spike_counts else 0,
+			"max": int(max(spike_counts)) if spike_counts else 0,
+		},
+		"units": units,
+	}
+	return payload
+
+
+def _emit_sort_summary_logs(*, payload: dict[str, Any]) -> None:
+	stream_id = str(payload.get("stream_id", ""))
+	unit_count = int(payload.get("unit_count", 0) or 0)
+	counts_by_label = dict(payload.get("counts_by_label", {}) or {})
+	spike_count_stats = dict(payload.get("spike_count_stats", {}) or {})
+	LOGGER.info(
+		"Sort summary [stream=%s] units=%d labels=%s spike_count_min=%s spike_count_max=%s",
+		stream_id,
+		unit_count,
+		counts_by_label,
+		spike_count_stats.get("min", 0),
+		spike_count_stats.get("max", 0),
+	)
+	for unit_payload in list(payload.get("units", []) or []):
+		if not isinstance(unit_payload, dict):
+			continue
+		LOGGER.info(
+			"Sort unit [stream=%s] unit_id=%s kilosort_label=%s spike_count=%s",
+			stream_id,
+			unit_payload.get("unit_id", ""),
+			unit_payload.get("kilosort_label", "unlabeled"),
+			unit_payload.get("spike_count", 0),
+		)
+
+
+def _write_sort_summary_artifacts(*, stage_output_root_dir: Path, payload: dict[str, Any]) -> dict[str, str]:
+	artifacts: dict[str, str] = {}
+	summary_json = (stage_output_root_dir / "summarize_sort_summary.json").resolve()
+	units_tsv = (stage_output_root_dir / "summarize_sort_units.tsv").resolve()
+	_write_json(summary_json, payload)
+	with units_tsv.open("w", encoding="utf-8", newline="") as f:
+		writer = csv.DictWriter(f, fieldnames=["unit_id", "kilosort_label", "spike_count"], delimiter="\t")
+		writer.writeheader()
+		for row in list(payload.get("units", []) or []):
+			if not isinstance(row, dict):
+				continue
+			writer.writerow(
+				{
+					"unit_id": str(row.get("unit_id", "")),
+					"kilosort_label": str(row.get("kilosort_label", "unlabeled")),
+					"spike_count": int(row.get("spike_count", 0) or 0),
+				}
+			)
+	artifacts["summarize_sort.summary_json"] = str(summary_json)
+	artifacts["summarize_sort.units_tsv"] = str(units_tsv)
+	return artifacts
+
+
+def _run_summarize_sort_phase(
+	*,
+	stream_id: str,
+	stage_output_root_dir: Path,
+	sorter_name: str,
+	emit_logs: bool,
+	generate_artifacts: bool,
+) -> dict[str, Any]:
+	sorter_output_dir = _resolve_existing_sorter_output_dir(stage_output_root_dir=stage_output_root_dir)
+	payload = _build_sort_summary_payload(
+		stream_id=stream_id,
+		stage_output_root_dir=stage_output_root_dir,
+		sorter_output_dir=sorter_output_dir,
+		sorter_name=sorter_name,
+	)
+	payload["emit_logs"] = bool(emit_logs)
+	payload["generate_artifacts"] = bool(generate_artifacts)
+	artifacts: dict[str, str] = {}
+	if bool(emit_logs):
+		_emit_sort_summary_logs(payload=payload)
+	if bool(generate_artifacts):
+		artifacts = _write_sort_summary_artifacts(stage_output_root_dir=stage_output_root_dir, payload=payload)
+	payload["outputs"] = dict(artifacts)
+	return payload
+
+
 def _write_kilosort_cluster_labels_tsv(*, path: Path, label_column: str, labels_by_unit: dict[str, str]) -> None:
 	path.parent.mkdir(parents=True, exist_ok=True)
 	with path.open("w", encoding="utf-8", newline="") as f:
@@ -9387,6 +9593,19 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 		"sorter_output_dir": str(legacy_outputs.sorter_output_dir),
 		"analyzer_dir": str(legacy_outputs.analyzer_dir),
 	}
+	summarize_sort_report: dict[str, Any] = {
+		"status": "skipped",
+		"reason": "summarize_sort_disabled",
+	}
+	if bool(inputs.summarize_sort_enabled):
+		summarize_sort_report = _run_summarize_sort_phase(
+			stream_id=str(inputs.stream_id),
+			stage_output_root_dir=spikesort_out_dir,
+			sorter_name=str(inputs.sorter),
+			emit_logs=bool(inputs.summarize_sort_emit_logs),
+			generate_artifacts=bool(inputs.summarize_sort_generate_artifacts),
+		)
+		outputs.update(dict(summarize_sort_report.get("outputs", {}) or {}))
 	if legacy_outputs.merged_sorting_dir is not None:
 		outputs["merged_sorting_dir"] = str(legacy_outputs.merged_sorting_dir)
 	if legacy_outputs.merged_sorter_output_dir is not None:
@@ -9424,6 +9643,9 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 				"fixed_y": bool(inputs.fixed_y),
 				"no_curation": bool(inputs.no_curation),
 				"export_to_phy": bool(inputs.export_to_phy),
+				"summarize_sort_enabled": bool(inputs.summarize_sort_enabled),
+				"summarize_sort_emit_logs": bool(inputs.summarize_sort_emit_logs),
+				"summarize_sort_generate_artifacts": bool(inputs.summarize_sort_generate_artifacts),
 				"force_restart": bool(inputs.force_restart),
 				"force_replot": bool(inputs.force_replot),
 				"effective_force_restart": bool(effective_force_restart),
@@ -9454,6 +9676,7 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 			"cleanup": {
 				"removed_on_force_restart": list(removed_on_force_restart),
 			},
+			"summarize_sort": summarize_sort_report,
 			"outputs": outputs,
 		},
 	)
@@ -9461,6 +9684,40 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 	return SpikesortResult(
 		well_out_dir=well_out_dir,
 		spikesort_out_dir=spikesort_out_dir,
+		summary_json=summary_json,
+		outputs=outputs,
+	)
+
+
+def run_spikesort_summarize_sort(inputs: SpikesortInputs) -> SpikesortResult:
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=inputs.mea_output_root,
+		data_file=inputs.h5_path,
+		well=inputs.stream_id,
+	)
+	stage_output_root_dir = _resolve_under_well(
+		well_out_dir=well_out_dir,
+		relpath=(str(inputs.output_rel_root).strip() or "spikesort_outputs"),
+	)
+	summary_json = (stage_output_root_dir / "summarize_sort_summary.json").resolve()
+	payload = _run_summarize_sort_phase(
+		stream_id=str(inputs.stream_id),
+		stage_output_root_dir=stage_output_root_dir,
+		sorter_name=str(inputs.sorter),
+		emit_logs=bool(inputs.summarize_sort_emit_logs),
+		generate_artifacts=bool(inputs.summarize_sort_generate_artifacts),
+	)
+	outputs = dict(payload.get("outputs", {}) or {})
+	if not bool(inputs.summarize_sort_generate_artifacts):
+		_write_json(summary_json, payload)
+		outputs.setdefault("summarize_sort.summary_json", str(summary_json))
+	else:
+		artifact_summary = outputs.get("summarize_sort.summary_json", None)
+		if artifact_summary is not None:
+			summary_json = Path(str(artifact_summary)).resolve()
+	return SpikesortResult(
+		well_out_dir=well_out_dir,
+		spikesort_out_dir=stage_output_root_dir,
 		summary_json=summary_json,
 		outputs=outputs,
 	)

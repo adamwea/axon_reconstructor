@@ -45,6 +45,9 @@ class SpikesortInputs:
 	no_curation: bool = False
 	export_to_phy: bool = False
 	force_rerun_analyzer: bool = False
+	summarize_sort_enabled: bool = False
+	summarize_sort_emit_logs: bool = True
+	summarize_sort_generate_artifacts: bool = False
 	um_kwargs: dict[str, Any] | None = field(default=None)
 	am_kwargs: dict[str, Any] | None = field(default=None)
 	option_kwargs: dict[str, Any] | None = field(default=None)

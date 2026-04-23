@@ -518,6 +518,24 @@ def test_main_runs_spikesort_sort_substage_alias(monkeypatch, tmp_path: Path) ->
     assert calls == ["spikesort.sort"]
 
 
+def test_main_runs_spikesort_summarize_sort_substage(monkeypatch, tmp_path: Path) -> None:
+    runtime_cfg = tmp_path / "runtime.yml"
+    _write_runtime_cfg(runtime_cfg)
+
+    calls: list[str] = []
+
+    def _spikesort_summarize_sort(args):
+        calls.append(str(getattr(args, "stage", "")))
+        return 0
+
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "spikesort.summarize_sort", _spikesort_summarize_sort)
+
+    rc = pipeline_cli.main(["stages", "spikesort.summarize_sort", "--config", str(runtime_cfg), "--force-restart"])
+
+    assert rc == 0
+    assert calls == ["spikesort.summarize_sort"]
+
+
 def test_main_runs_spikesort_merge_substage(monkeypatch, tmp_path: Path) -> None:
     runtime_cfg = tmp_path / "runtime.yml"
     _write_runtime_cfg(runtime_cfg)

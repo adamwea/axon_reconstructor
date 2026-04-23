@@ -297,6 +297,15 @@ stages:
           no_curation: true
           export_to_phy: false
 
+      summarize_sort:
+        enabled: false
+        debug_mode:
+          enabled: true
+          limit_datasets: 1
+          limit_wells: 1
+        emit_logs: true
+        generate_artifacts: false
+
       bombcell_label:
         enabled: false # TODO: untested
         # outputs live under <well>/<spikesort_output_root>/<merge_units.rel_output_root>/<relpath>

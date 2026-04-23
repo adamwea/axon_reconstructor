@@ -48,7 +48,7 @@ from .stages.reconstruct.api import (
 )
 from .stages.reconstruct.config import build_reconstruction_inputs_for_target, parse_reconstruction_stage_config
 from .stages.reconstruct.models.results import ReconstructionResult, UnitReconstructionResult
-from .stages.spikesort.api import run_spikesort, run_spikesort_merge
+from .stages.spikesort.api import run_spikesort, run_spikesort_merge, summarize_spikesort
 from .stages.spikesort.config import build_spikesort_inputs_for_target, parse_spikesort_stage_config
 from .stages.spikesort.models.results import SpikesortMergeResult, SpikesortResult
 from .stages.templates.api import (
@@ -238,9 +238,30 @@ def _apply_spikesort_sort_debug_limits(
 	stage_config: Any,
 	targets: list[Any],
 ) -> list[Any]:
+	return _apply_spikesort_phase_debug_limits(
+		stage_name=stage_name,
+		stage_config=stage_config,
+		targets=targets,
+		phase_label="sort",
+		enabled_attr="sort_debug_mode_enabled",
+		limit_datasets_attr="sort_debug_limit_datasets",
+		limit_wells_attr="sort_debug_limit_wells",
+	)
+
+
+def _apply_spikesort_phase_debug_limits(
+	*,
+	stage_name: str,
+	stage_config: Any,
+	targets: list[Any],
+	phase_label: str,
+	enabled_attr: str,
+	limit_datasets_attr: str,
+	limit_wells_attr: str,
+) -> list[Any]:
 	limited_targets = list(targets)
-	if bool(getattr(stage_config, "sort_debug_mode_enabled", False)):
-		limit_datasets = getattr(stage_config, "sort_debug_limit_datasets", None)
+	if bool(getattr(stage_config, str(enabled_attr), False)):
+		limit_datasets = getattr(stage_config, str(limit_datasets_attr), None)
 		if limit_datasets is not None:
 			selected_dataset_indices: list[int] = []
 			seen_dataset_indices: set[int] = set()
@@ -264,18 +285,20 @@ def _apply_spikesort_sort_debug_limits(
 			]
 			if len(limited_targets) < original_count:
 				LOGGER.info(
-					"Applying %s sort debug dataset limit: %d -> %d target(s) dataset_indices=%s",
+					"Applying %s %s debug dataset limit: %d -> %d target(s) dataset_indices=%s",
 					str(stage_name),
+					str(phase_label),
 					original_count,
 					len(limited_targets),
 					selected_dataset_indices,
 				)
 
-		limit_wells = getattr(stage_config, "sort_debug_limit_wells", None)
+		limit_wells = getattr(stage_config, str(limit_wells_attr), None)
 		if limit_wells is not None and len(limited_targets) > int(limit_wells):
 			LOGGER.info(
-				"Applying %s sort debug well limit: %d -> %d target(s)",
+				"Applying %s %s debug well limit: %d -> %d target(s)",
 				str(stage_name),
+				str(phase_label),
 				len(limited_targets),
 				int(limit_wells),
 			)
@@ -1103,6 +1126,58 @@ def run_spikesort_sort_from_runtime(
 		stage_name="spikesort.sort",
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+	)
+
+
+def run_spikesort_summarize_sort_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
+	stage_config = parse_spikesort_stage_config(
+		runtime_config=bundle.runtime_config,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+	targets = select_execution_targets(bundle=bundle)
+	targets = _apply_spikesort_phase_debug_limits(
+		stage_name="spikesort.summarize_sort",
+		stage_config=stage_config,
+		targets=list(targets),
+		phase_label="summarize_sort",
+		enabled_attr="summarize_sort_debug_mode_enabled",
+		limit_datasets_attr="summarize_sort_debug_limit_datasets",
+		limit_wells_attr="summarize_sort_debug_limit_wells",
+	)
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="spikesort",
+		target_count=len(targets),
+	)
+
+	def _worker(target):
+		inputs = build_spikesort_inputs_for_target(
+			target=target,
+			stage_config=stage_config,
+			unit_workers=int(parallelism.unit_workers),
+		)
+		return summarize_spikesort(inputs)
+
+	target_results = distribute_targets(
+		targets=targets,
+		well_workers=int(parallelism.well_workers),
+		worker_fn=_worker,
+	)
+	succeeded = sum(1 for item in target_results if item.status == "ok")
+	failed = sum(1 for item in target_results if item.status != "ok")
+	return MultiTargetStageResult(
+		stage="spikesort.summarize_sort",
+		total_targets=len(target_results),
+		succeeded_targets=succeeded,
+		failed_targets=failed,
+		target_results=target_results,
 	)
 
 
