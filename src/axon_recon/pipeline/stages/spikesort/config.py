@@ -283,6 +283,9 @@ class SpikesortStageConfig:
 	logging_verbose: bool
 	logging_file_relpath: str | None
 	debug_limit_wells: int | None
+	sort_debug_mode_enabled: bool
+	sort_debug_limit_datasets: int | None
+	sort_debug_limit_wells: int | None
 	sorter: str
 	docker_image: str | None
 	recording_num: str
@@ -629,6 +632,10 @@ def parse_spikesort_stage_config(
 			debug_cfg.get("limit_wells", None),
 		)
 	)
+	sort_debug_cfg = _as_section(sort_phase_cfg.get("debug_mode", {}))
+	sort_debug_mode_enabled = _as_bool(sort_debug_cfg.get("enabled", False), False)
+	sort_debug_limit_datasets = _as_optional_positive_int(sort_debug_cfg.get("limit_datasets", None))
+	sort_debug_limit_wells = _as_optional_positive_int(sort_debug_cfg.get("limit_wells", None))
 
 	plot_enabled = _as_bool(plot_cfg.get("enabled", True), True)
 	sort_enabled = _as_bool(
@@ -2362,6 +2369,9 @@ def parse_spikesort_stage_config(
 		logging_verbose=logging_verbose,
 		logging_file_relpath=logging_file_relpath,
 		debug_limit_wells=debug_limit_wells,
+		sort_debug_mode_enabled=bool(sort_debug_mode_enabled),
+		sort_debug_limit_datasets=sort_debug_limit_datasets,
+		sort_debug_limit_wells=sort_debug_limit_wells,
 		sorter=str(
 			_coalesce(
 				sort_phase_cfg.get("sorter", None),

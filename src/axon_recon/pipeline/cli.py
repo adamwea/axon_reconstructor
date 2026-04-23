@@ -33,6 +33,7 @@ from .stages.spikesort.cli import _run_from_args as _run_spikesort_from_args
 from .stages.spikesort.cli import _run_merge_auto_merge_from_args as _run_spikesort_merge_auto_merge_from_args
 from .stages.spikesort.cli import _run_merge_from_args as _run_spikesort_merge_from_args
 from .stages.spikesort.cli import _run_merge_slay_from_args as _run_spikesort_merge_slay_from_args
+from .stages.spikesort.orchestrators import _run_sort_from_args as _run_spikesort_sort_from_args
 from .stages.templates.cli import _run_from_args as _run_templates_from_args
 from .stages.templates.cli import _run_analyzers_concat_from_args as _run_templates_analyzers_concat_from_args
 from .stages.templates.cli import _run_analyzers_from_args as _run_templates_analyzers_from_args
@@ -94,7 +95,6 @@ _STAGE_ALIASES: dict[str, str] = {
 	"preprocess.plot_concat_channel_layout": "preprocess.plot_concat_channel_layout",
 	"preprocess.plot_raster_threshold": "preprocess.plot_raster_threshold",
 	"sort": "spikesort",
-	"spikesort.sort": "spikesort",
 	"merge": "spikesort.merge",
 	"spikesort.merge_units": "spikesort.merge",
 	"spikesort.merge.automerge": "spikesort.merge.auto_merge",
@@ -153,6 +153,7 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"preprocess.plot_concat_channel_layout": _run_preprocess_plot_concat_channel_layout_from_args,
 	"preprocess.plot_raster_threshold": _run_preprocess_plot_raster_threshold_from_args,
 	"spikesort": _run_spikesort_from_args,
+	"spikesort.sort": _run_spikesort_sort_from_args,
 	"spikesort.merge": _run_spikesort_merge_from_args,
 	"spikesort.merge.slay": _run_spikesort_merge_slay_from_args,
 	"spikesort.merge.auto_merge": _run_spikesort_merge_auto_merge_from_args,

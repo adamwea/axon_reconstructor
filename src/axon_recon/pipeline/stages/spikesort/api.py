@@ -5,11 +5,12 @@ from typing import Any
 
 from .models.inputs import SpikesortInputs
 from .models.results import SpikesortMergeResult, SpikesortResult
-from .runner import run_spikesort_merge_stage, run_spikesort_stage
+from .orchestrators import run_spikesort_sort
+from .runner import run_spikesort_merge_stage
 
 
 def run_spikesort(inputs: SpikesortInputs) -> SpikesortResult:
-	return run_spikesort_stage(inputs)
+	return run_spikesort_sort(inputs)
 
 
 def run_spikesort_merge(

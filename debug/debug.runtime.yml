@@ -260,6 +260,10 @@ stages:
       #resolve_sources:
       sort:
         enabled: true
+        debug_mode:
+          enabled: true
+          limit_datasets: 1
+          limit_wells: 1
 
         # Sorter Options
         sorter: kilosort4

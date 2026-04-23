@@ -138,7 +138,7 @@ def test_parse_stage_list_tokens_supports_reconstruct_phase_tokens(raw_token: st
 
 def test_parse_stage_list_tokens_supports_spikesort_sort_substage_alias() -> None:
     parsed = pipeline_cli._parse_stage_list_tokens(["spikesort.sort"])
-    assert parsed == ["spikesort"]
+    assert parsed == ["spikesort.sort"]
 
 
 def test_parse_stage_list_tokens_supports_spikesort_merge_substage() -> None:
@@ -506,16 +506,16 @@ def test_main_runs_spikesort_sort_substage_alias(monkeypatch, tmp_path: Path) ->
 
     calls: list[str] = []
 
-    def _spikesort(args):
+    def _spikesort_sort(args):
         calls.append(str(getattr(args, "stage", "")))
         return 0
 
-    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "spikesort", _spikesort)
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "spikesort.sort", _spikesort_sort)
 
     rc = pipeline_cli.main(["stages", "spikesort.sort", "--config", str(runtime_cfg), "--force-restart"])
 
     assert rc == 0
-    assert calls == ["spikesort"]
+    assert calls == ["spikesort.sort"]
 
 
 def test_main_runs_spikesort_merge_substage(monkeypatch, tmp_path: Path) -> None:
