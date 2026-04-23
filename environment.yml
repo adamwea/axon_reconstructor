@@ -20,10 +20,10 @@ dependencies:
   - pandas
   - openpyxl
   - scipy
-  - torch
-    - pyyaml
-    # Keep sibling editable repos out of the base env spec.
-    # Install them after env creation with tools/bootstrap_editable_deps.sh.
+  # - torch
+  - pyyaml
+  # Keep sibling editable repos out of the base env spec.
+  # Install them after env creation with tools/bootstrap_editable_deps.sh.
   - pip:
       - docker
       - pypdf
