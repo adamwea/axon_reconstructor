@@ -311,6 +311,39 @@ def _parse_save_rec_metadata_phase_config(
 	)
 
 
+def _parse_plot_raster_threshold_phase_config(
+	*,
+	raw_cfg: dict[str, Any] | None,
+) -> PreprocessPlotRasterThresholdPhaseConfig:
+	phase_cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
+	debug_cfg = phase_cfg.get("debug_mode", {}) if isinstance(phase_cfg.get("debug_mode", {}), dict) else {}
+	debug_mode_enabled = _as_bool(debug_cfg.get("enabled", debug_cfg.get("enable", False)), False)
+	debug_limit_datasets = _as_optional_int(debug_cfg.get("limit_datasets", None)) if debug_mode_enabled else None
+	debug_limit_wells = _as_optional_int(debug_cfg.get("limit_wells", None)) if debug_mode_enabled else None
+	report_step_timers = _as_bool(debug_cfg.get("report_step_timers", False), False) if debug_mode_enabled else False
+	return PreprocessPlotRasterThresholdPhaseConfig(
+		enabled=_as_bool(
+			phase_cfg.get("enabled", phase_cfg.get("enable", False)),
+			False,
+		),
+		debug_mode_enabled=debug_mode_enabled,
+		debug_limit_datasets=debug_limit_datasets,
+		debug_limit_wells=debug_limit_wells,
+		report_step_timers=report_step_timers,
+		summary_json_relpath=str(
+			phase_cfg.get(
+				"summary_json_relpath",
+				"context/plot_raster_threshold_summary.json",
+			)
+			or "context/plot_raster_threshold_summary.json"
+		),
+		rel_output_root=str(
+			phase_cfg.get("rel_output_root", "raster_threshold")
+			or "raster_threshold"
+		),
+	)
+
+
 def _parse_prepare_raw_binaries_phase_config(
 	*,
 	raw_cfg: dict[str, Any] | None,
@@ -918,22 +951,8 @@ def parse_preprocess_stage_config(
 			),
 		),
 	)
-	plot_raster_threshold_phase = PreprocessPlotRasterThresholdPhaseConfig(
-		enabled=_as_bool(
-			plot_raster_threshold_phase_cfg.get("enabled", plot_raster_threshold_phase_cfg.get("enable", False)),
-			False,
-		),
-		summary_json_relpath=str(
-			plot_raster_threshold_phase_cfg.get(
-				"summary_json_relpath",
-				"context/plot_raster_threshold_summary.json",
-			)
-			or "context/plot_raster_threshold_summary.json"
-		),
-		rel_output_root=str(
-			plot_raster_threshold_phase_cfg.get("rel_output_root", "raster_threshold")
-			or "raster_threshold"
-		),
+	plot_raster_threshold_phase = _parse_plot_raster_threshold_phase_config(
+		raw_cfg=plot_raster_threshold_phase_cfg,
 	)
 	report_preprocessing_phase = PreprocessReportPreprocessingPhaseConfig(
 		enabled=_as_bool(

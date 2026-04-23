@@ -26,6 +26,7 @@ from .stages.preprocess.api import (
 	run_preprocess_plot_concat_channel_layout,
 	run_preprocess_prepare_raw_binaries,
 	run_preprocess_plot_concat_traces,
+	run_preprocess_plot_raster_threshold,
 	run_preprocess_plot_segment_channel_layouts,
 	run_preprocess_plot_segment_traces,
 	run_preprocess_preprocess_segments,
@@ -173,10 +174,15 @@ def _apply_preprocess_substage_phase_debug_limits(
 	stage_config: Any,
 	targets: list[Any],
 ) -> list[Any]:
-	if str(stage_name).strip() != "preprocess.save_rec_metadata":
+	phase_attr_by_stage_name = {
+		"preprocess.save_rec_metadata": "save_rec_metadata",
+		"preprocess.plot_raster_threshold": "plot_raster_threshold",
+	}
+	phase_attr = phase_attr_by_stage_name.get(str(stage_name).strip())
+	if phase_attr is None:
 		return list(targets)
 
-	phase_cfg = getattr(getattr(stage_config, "phases", None), "save_rec_metadata", None)
+	phase_cfg = getattr(getattr(stage_config, "phases", None), str(phase_attr), None)
 	if phase_cfg is None or not bool(getattr(phase_cfg, "debug_mode_enabled", False)):
 		return list(targets)
 
@@ -205,7 +211,8 @@ def _apply_preprocess_substage_phase_debug_limits(
 		]
 		if len(limited_targets) < original_count:
 			LOGGER.info(
-				"Applying preprocess.save_rec_metadata debug dataset limit: %d -> %d target(s) dataset_indices=%s",
+				"Applying %s debug dataset limit: %d -> %d target(s) dataset_indices=%s",
+				str(stage_name),
 				original_count,
 				len(limited_targets),
 				selected_dataset_indices,
@@ -214,7 +221,8 @@ def _apply_preprocess_substage_phase_debug_limits(
 	limit_wells = getattr(phase_cfg, "debug_limit_wells", None)
 	if limit_wells is not None and len(limited_targets) > int(limit_wells):
 		LOGGER.info(
-			"Applying preprocess.save_rec_metadata debug well limit: %d -> %d target(s)",
+			"Applying %s debug well limit: %d -> %d target(s)",
+			str(stage_name),
 			len(limited_targets),
 			int(limit_wells),
 		)
@@ -986,6 +994,21 @@ def run_preprocess_plot_concat_channel_layout_from_runtime(
 		config_path=config_path,
 		stage_name="preprocess.plot_concat_channel_layout",
 		runner_fn=run_preprocess_plot_concat_channel_layout,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_preprocess_plot_raster_threshold_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_preprocess_substage_from_runtime(
+		config_path=config_path,
+		stage_name="preprocess.plot_raster_threshold",
+		runner_fn=run_preprocess_plot_raster_threshold,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)

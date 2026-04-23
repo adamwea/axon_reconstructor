@@ -13,6 +13,7 @@ from axon_recon.pipeline.stages.preprocess.models.inputs import (
     PreprocessConcatSegmentsPhaseConfig,
     PreprocessInputs,
     PreprocessPhasesConfig,
+    PreprocessPlotRasterThresholdPhaseConfig,
     PreprocessPlotConcatTracesPhaseConfig,
     PreprocessPlotSegmentChannelLayoutsPhaseConfig,
     PreprocessPlotSegmentTracesPhaseConfig,
@@ -23,6 +24,7 @@ from axon_recon.pipeline.stages.preprocess.models.inputs import (
 )
 from axon_recon.pipeline.stages.preprocess.runner import (
     run_preprocess_concat_segments_phase,
+    run_preprocess_plot_raster_threshold_phase,
     run_preprocess_plot_segment_channel_layouts_phase,
     run_preprocess_prepare_raw_binaries_phase,
     run_preprocess_save_rec_metadata_phase,
@@ -264,6 +266,22 @@ def _install_success_fakes(
             "representative_channel_ids": [11, 22, 33],
         }
 
+    def _fake_run_plot_raster_threshold_core(**kwargs):
+        _capture("plot_raster_threshold", kwargs)
+        raster_output_dir = Path(str(kwargs["raster_output_dir"]))
+        raster_output_dir.mkdir(parents=True, exist_ok=True)
+        raster_plot_path = raster_output_dir / f"threshold_raster_{kwargs['stream_id']}.png"
+        _write_test_png(raster_plot_path)
+        return {
+            "phase": "plot_raster_threshold",
+            "segment_count": 2,
+            "electrode_count": 3,
+            "electrode_ids": [11, 22, 33],
+            "raster_output_dir": str(raster_output_dir),
+            "raster_plot_path": str(raster_plot_path),
+            "total_event_count": 7,
+        }
+
     def _fake_run_concat_segments_core(**kwargs):
         _capture("concat_segments", kwargs)
         recording_dir = Path(str(kwargs["recording_dir"]))
@@ -318,6 +336,7 @@ def _install_success_fakes(
     monkeypatch.setattr(preprocess_runner, "run_concat_segments_core", _fake_run_concat_segments_core)
     monkeypatch.setattr(preprocess_runner, "run_plot_concat_traces_core", _fake_run_plot_concat_traces_core)
     monkeypatch.setattr(preprocess_runner, "run_plot_concat_channel_layout_core", _fake_run_plot_concat_channel_layout_core)
+    monkeypatch.setattr(preprocess_runner, "run_plot_raster_threshold_core", _fake_run_plot_raster_threshold_core)
     return well_out_dir, fake_log
 
 
@@ -1236,6 +1255,114 @@ def test_run_plot_segment_traces_core_loads_lazy_provenance_entries(monkeypatch,
     assert len(rendered_paths) == 2
 
 
+def test_run_plot_raster_threshold_core_loads_lazy_provenance_entries(monkeypatch, tmp_path: Path) -> None:
+    import numpy as np
+
+    from axon_recon.pipeline.stages.preprocess.core import plot_raster_threshold as plot_raster_threshold_core
+
+    class _FakeRecording:
+        def __init__(self, channel_ids: list[int]) -> None:
+            self._channel_ids = channel_ids
+
+        def get_channel_ids(self):
+            return list(self._channel_ids)
+
+        def get_num_samples(self) -> int:
+            return 20
+
+        def get_sampling_frequency(self) -> float:
+            return 10_000.0
+
+    provenance_paths = [tmp_path / "segments" / "000_seg000.json", tmp_path / "segments" / "001_seg001.json"]
+    load_calls: list[str] = []
+    written: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        plot_raster_threshold_core,
+        "load_segment_manifest",
+        lambda _path: [
+            {"segment_index": 0, "rec_name": "seg000", "provenance_path": str(provenance_paths[0])},
+            {"segment_index": 1, "rec_name": "seg001", "provenance_path": str(provenance_paths[1])},
+        ],
+    )
+    monkeypatch.setattr(
+        plot_raster_threshold_core,
+        "load_recording_metadata",
+        lambda **_kwargs: (
+            {
+                "segments": [
+                    {
+                        "rec_name": "seg000",
+                        "n_samples": 20,
+                        "sampling_frequency_hz": 10_000.0,
+                        "start_time_seconds_since_epoch": 100.0,
+                        "stop_time_seconds_since_epoch": 100.002,
+                    },
+                    {
+                        "rec_name": "seg001",
+                        "n_samples": 20,
+                        "sampling_frequency_hz": 10_000.0,
+                        "start_time_seconds_since_epoch": 101.0,
+                        "stop_time_seconds_since_epoch": 101.002,
+                    },
+                ]
+            },
+            {"epochs": []},
+            {"segments": []},
+        ),
+    )
+    monkeypatch.setattr(
+        plot_raster_threshold_core,
+        "load_segment_recording_from_entry",
+        lambda entry: load_calls.append(str(entry["provenance_path"])) or _FakeRecording([11, 22]),
+    )
+    monkeypatch.setattr(
+        plot_raster_threshold_core,
+        "build_segment_time_vector",
+        lambda **kwargs: np.linspace(
+            0.0 if kwargs["rec_name"] == "seg000" else 1.0,
+            0.0019 if kwargs["rec_name"] == "seg000" else 1.0019,
+            20,
+            dtype=float,
+        ),
+    )
+    monkeypatch.setattr(
+        plot_raster_threshold_core,
+        "_estimate_channel_thresholds",
+        lambda **_kwargs: np.asarray([5.0, 5.0], dtype=float),
+    )
+    monkeypatch.setattr(
+        plot_raster_threshold_core,
+        "_collect_threshold_crossings",
+        lambda **kwargs: (
+            np.asarray([float(np.asarray(kwargs["time_vector"])[3]), float(np.asarray(kwargs["time_vector"])[7])], dtype=float),
+            np.asarray([11, 22], dtype=int),
+        ),
+    )
+    monkeypatch.setattr(
+        plot_raster_threshold_core,
+        "_write_threshold_raster_plot",
+        lambda **kwargs: written.update(kwargs),
+    )
+
+    payload = plot_raster_threshold_core.run_plot_raster_threshold_core(
+        stream_id="well001",
+        segment_manifest_path=tmp_path / "segments_manifest.json",
+        segment_epochs_path=tmp_path / "segment_epochs.json",
+        contiguous_epochs_path=tmp_path / "contiguous_epochs.json",
+        sampling_metadata_path=tmp_path / "sampling_metadata.json",
+        raster_output_dir=tmp_path / "raster_threshold",
+        logger=None,
+    )
+
+    assert payload["segment_count"] == 2
+    assert payload["electrode_ids"] == [11, 22]
+    assert payload["total_event_count"] == 4
+    assert load_calls == [str(provenance_paths[0]), str(provenance_paths[1])]
+    assert Path(str(payload["raster_plot_path"])).name == "threshold_raster_well001.png"
+    assert written["unique_electrodes"] == [11, 22]
+
+
 def test_run_concat_segments_core_loads_lazy_provenance_entries(monkeypatch, tmp_path: Path) -> None:
     from axon_recon.pipeline.stages.preprocess.core import concat_segments as concat_segments_core
 
@@ -1395,6 +1522,42 @@ def test_run_preprocess_plot_segment_channel_layouts_phase_writes_targeted_summa
     assert Path(str(payload["summary_json"])).exists()
     assert payload["outputs"]["plot_output_dir"].endswith("preprocess_outputs")
     assert len(list(payload.get("layout_plot_paths", []))) == 1
+
+
+def test_run_preprocess_plot_raster_threshold_phase_writes_targeted_summary(tmp_path: Path, monkeypatch) -> None:
+    captured_phase_kwargs: dict[str, dict] = {}
+    well_out_dir, _fake_log = _install_success_fakes(monkeypatch, tmp_path, captured_phase_kwargs=captured_phase_kwargs)
+    canonical_out_dir = well_out_dir / "preprocess_outputs"
+
+    inputs = PreprocessInputs(
+        h5_path=tmp_path / "input.raw.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        phases=PreprocessPhasesConfig(
+            save_rec_metadata=PreprocessSaveRecMetadataPhaseConfig(enabled=True),
+            prepare_raw_binaries=PreprocessPrepareRawBinariesPhaseConfig(enabled=False),
+            preprocess_segments=PreprocessSegmentsPhaseConfig(enabled=True),
+            plot_segment_traces=PreprocessPlotSegmentTracesPhaseConfig(enabled=False),
+            plot_segment_channel_layouts=PreprocessPlotSegmentChannelLayoutsPhaseConfig(enabled=False),
+            concat_segments=PreprocessConcatSegmentsPhaseConfig(enabled=False),
+            plot_concat_traces=PreprocessPlotConcatTracesPhaseConfig(enabled=False),
+            plot_raster_threshold=PreprocessPlotRasterThresholdPhaseConfig(
+                enabled=True,
+                debug_mode_enabled=True,
+                report_step_timers=True,
+                rel_output_root="raster_threshold_outputs",
+            ),
+            wipe_src_scratch=PreprocessWipeSrcScratchPhaseConfig(enabled=False),
+        ),
+    )
+
+    payload = run_preprocess_plot_raster_threshold_phase(inputs)
+
+    assert payload["phase"] == "plot_raster_threshold"
+    assert payload["outputs"]["raster_output_dir"] == str(canonical_out_dir / "raster_threshold_outputs")
+    assert Path(str(payload["raster_plot_path"])).exists()
+    assert Path(str(captured_phase_kwargs["plot_raster_threshold"]["raster_output_dir"])) == canonical_out_dir / "raster_threshold_outputs"
+    assert captured_phase_kwargs["plot_raster_threshold"]["report_step_timers"] is True
 
 
 def test_run_preprocess_wipe_src_scratch_phase_removes_scratch_input_files(tmp_path: Path, monkeypatch) -> None:

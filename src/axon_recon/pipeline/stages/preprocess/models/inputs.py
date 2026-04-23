@@ -153,6 +153,10 @@ class PreprocessPlotConcatChannelLayoutPhaseConfig:
 @dataclass(frozen=True)
 class PreprocessPlotRasterThresholdPhaseConfig:
 	enabled: bool = False
+	debug_mode_enabled: bool = False
+	debug_limit_datasets: int | None = None
+	debug_limit_wells: int | None = None
+	report_step_timers: bool = False
 	summary_json_relpath: str = "context/plot_raster_threshold_summary.json"
 	rel_output_root: str = "raster_threshold"
 

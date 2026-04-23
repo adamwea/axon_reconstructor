@@ -59,6 +59,7 @@ def test_parse_stage_list_tokens_supports_templates_phase_aliases() -> None:
         ("preprocess.concat_segments", "preprocess.concat_segments"),
         ("preprocess.plot_concat_traces", "preprocess.plot_concat_traces"),
         ("preprocess.plot_concat_channel_layout", "preprocess.plot_concat_channel_layout"),
+        ("preprocess.plot_raster_threshold", "preprocess.plot_raster_threshold"),
         ("preproc.save_rec_metadata", "preprocess.save_rec_metadata"),
         ("preproc.prepare_raw_binaries", "preprocess.prepare_raw_binaries"),
         ("preproc.wipe_src_scratch", "preprocess.wipe_src_scratch"),
@@ -67,6 +68,7 @@ def test_parse_stage_list_tokens_supports_templates_phase_aliases() -> None:
         ("preproc.concat_segments", "preprocess.concat_segments"),
         ("preproc.plot_concat_traces", "preprocess.plot_concat_traces"),
         ("preproc.plot_concat_channel_layout", "preprocess.plot_concat_channel_layout"),
+        ("preproc.plot_raster_threshold", "preprocess.plot_raster_threshold"),
     ],
 )
 def test_parse_stage_list_tokens_supports_preprocess_phase_tokens(raw_token: str, expected: str) -> None:
@@ -372,11 +374,13 @@ def test_main_runs_templates_compute_template_similarity_substage(monkeypatch, t
         ("preprocess.plot_segment_traces", "preprocess.plot_segment_traces"),
         ("preprocess.concat_segments", "preprocess.concat_segments"),
         ("preprocess.plot_concat_traces", "preprocess.plot_concat_traces"),
+        ("preprocess.plot_raster_threshold", "preprocess.plot_raster_threshold"),
         ("preproc.save_rec_metadata", "preprocess.save_rec_metadata"),
         ("preproc.wipe_src_scratch", "preprocess.wipe_src_scratch"),
         ("preproc.plot_segment_traces", "preprocess.plot_segment_traces"),
         ("preproc.concat_segments", "preprocess.concat_segments"),
         ("preproc.plot_concat_traces", "preprocess.plot_concat_traces"),
+        ("preproc.plot_raster_threshold", "preprocess.plot_raster_threshold"),
     ],
 )
 def test_main_runs_preprocess_phase_substages(

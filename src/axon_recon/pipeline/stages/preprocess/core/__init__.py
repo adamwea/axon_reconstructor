@@ -14,6 +14,7 @@ from .concat_segments import run_concat_segments_core
 from .copy_src_to_scratch import run_copy_src_to_scratch_core
 from .plot_concat_channel_layout import run_plot_concat_channel_layout_core
 from .plot_concat_traces import run_plot_concat_traces_core
+from .plot_raster_threshold import run_plot_raster_threshold_core
 from .plot_segment_traces import run_plot_segment_traces_core
 from .preprocess_segments import run_preprocess_segments_core
 from .prepare_raw_binaries import run_prepare_raw_binaries_core
@@ -37,6 +38,7 @@ __all__ = [
 	"run_copy_src_to_scratch_core",
 	"run_plot_concat_channel_layout_core",
 	"run_plot_concat_traces_core",
+	"run_plot_raster_threshold_core",
 	"run_plot_segment_traces_core",
 	"run_preprocess_segments_core",
 	"run_prepare_raw_binaries_core",

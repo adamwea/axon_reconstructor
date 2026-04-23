@@ -211,6 +211,12 @@ stages:
           channel_layouts_subdir: channel_layouts
       plot_raster_threshold:
         enabled: false
+        debug_mode:
+          enabled: true
+          #enabled: false
+          limit_datasets: 1
+          limit_wells: 1
+          report_step_timers: false
         summary_json_relpath: context/plot_raster_threshold_summary.json
         rel_output_root: raster_threshold
       report_preprocessing:

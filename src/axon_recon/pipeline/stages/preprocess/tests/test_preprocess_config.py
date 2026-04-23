@@ -101,6 +101,10 @@ def test_parse_preprocess_stage_config_defaults() -> None:
     assert parsed.phases.plot_concat_channel_layout.enabled is False
     assert parsed.phases.plot_concat_channel_layout.summary_json_relpath == "context/plot_concat_channel_layout_summary.json"
     assert parsed.phases.plot_raster_threshold.enabled is False
+    assert parsed.phases.plot_raster_threshold.debug_mode_enabled is False
+    assert parsed.phases.plot_raster_threshold.debug_limit_datasets is None
+    assert parsed.phases.plot_raster_threshold.debug_limit_wells is None
+    assert parsed.phases.plot_raster_threshold.report_step_timers is False
     assert parsed.phases.plot_raster_threshold.summary_json_relpath == "context/plot_raster_threshold_summary.json"
     assert parsed.phases.report_preprocessing.enabled is False
     assert parsed.phases.report_preprocessing.summary_json_relpath == "context/report_preprocessing_summary.json"
@@ -500,6 +504,12 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                         },
                         "plot_raster_threshold": {
                             "enabled": True,
+                            "debug_mode": {
+                                "enabled": True,
+                                "limit_datasets": 1,
+                                "limit_wells": 1,
+                                "report_step_timers": True,
+                            },
                             "summary_json_relpath": "context/custom_plot_raster_threshold_summary.json",
                             "rel_output_root": "raster_threshold_outputs",
                         },
@@ -578,6 +588,10 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
     assert parsed.phases.plot_concat_channel_layout.plot.layouts is True
     assert parsed.phases.plot_concat_channel_layout.plot.channel_layouts_subdir == "custom_concat_layouts"
     assert parsed.phases.plot_raster_threshold.enabled is True
+    assert parsed.phases.plot_raster_threshold.debug_mode_enabled is True
+    assert parsed.phases.plot_raster_threshold.debug_limit_datasets == 1
+    assert parsed.phases.plot_raster_threshold.debug_limit_wells == 1
+    assert parsed.phases.plot_raster_threshold.report_step_timers is True
     assert parsed.phases.plot_raster_threshold.summary_json_relpath == "context/custom_plot_raster_threshold_summary.json"
     assert parsed.phases.plot_raster_threshold.rel_output_root == "raster_threshold_outputs"
     assert parsed.phases.report_preprocessing.enabled is True

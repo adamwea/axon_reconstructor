@@ -43,6 +43,7 @@ from .core import (
 	run_copy_src_to_scratch_core,
 	run_plot_concat_channel_layout_core,
 	run_plot_concat_traces_core,
+	run_plot_raster_threshold_core,
 	run_plot_segment_traces_core,
 	run_preprocess_segments_core,
 	run_prepare_raw_binaries_core,
@@ -87,6 +88,7 @@ class _PreprocessPathSet:
 	stage_summary_json: Path
 	stage_log_source: Path
 	plot_output_dir: Path | None
+	raster_threshold_output_dir: Path
 	epoch_markers_output_dir: Path | None
 
 
@@ -862,6 +864,11 @@ def _resolve_preprocess_paths(inputs: PreprocessInputs, *, plot_cfg: PreprocessP
 		)
 	else:
 		epoch_markers_output_dir = preprocess_out_dir
+	raster_threshold_output_dir = _resolve_phase_output_dir(
+		preprocess_out_dir=preprocess_out_dir,
+		raw=inputs.phases.plot_raster_threshold.rel_output_root,
+		default="raster_threshold",
+	)
 	return _PreprocessPathSet(
 		well_out_dir=well_out_dir,
 		preprocess_out_dir=preprocess_out_dir,
@@ -905,6 +912,7 @@ def _resolve_preprocess_paths(inputs: PreprocessInputs, *, plot_cfg: PreprocessP
 		stage_summary_json=preprocess_out_dir / "preprocess_summary.json",
 		stage_log_source=_resolve_stage_log_source(inputs=inputs, preprocess_out_dir=preprocess_out_dir),
 		plot_output_dir=plot_output_dir,
+		raster_threshold_output_dir=raster_threshold_output_dir,
 		epoch_markers_output_dir=epoch_markers_output_dir,
 	)
 
@@ -1827,6 +1835,8 @@ def _phase_enabled(inputs: PreprocessInputs, phase_name: str) -> bool:
 		return bool(inputs.phases.plot_concat_traces.enabled)
 	if phase_name == "plot_concat_channel_layout":
 		return bool(inputs.phases.plot_concat_channel_layout.enabled)
+	if phase_name == "plot_raster_threshold":
+		return bool(inputs.phases.plot_raster_threshold.enabled)
 	if phase_name == "wipe_src_scratch":
 		return bool(inputs.phases.wipe_src_scratch.enabled)
 	return False
@@ -1851,6 +1861,8 @@ def _summary_relpath_for_phase(inputs: PreprocessInputs, phase_name: str) -> str
 		return str(inputs.phases.plot_concat_traces.summary_json_relpath)
 	if phase_name == "plot_concat_channel_layout":
 		return str(inputs.phases.plot_concat_channel_layout.summary_json_relpath)
+	if phase_name == "plot_raster_threshold":
+		return str(inputs.phases.plot_raster_threshold.summary_json_relpath)
 	if phase_name == "wipe_src_scratch":
 		return str(inputs.phases.wipe_src_scratch.summary_json_relpath)
 	return "context/preprocess_phase_summary.json"
@@ -1911,6 +1923,10 @@ def _summary_outputs_for_phase(
 		return {
 			"plot_output_dir": outputs.get("plot_output_dir", str(paths.preprocess_out_dir)),
 			"concatenated_recording_dir": str(paths.recording_dir),
+		}
+	if phase_name == "plot_raster_threshold":
+		return {
+			"raster_output_dir": str(paths.raster_threshold_output_dir),
 		}
 	if phase_name == "wipe_src_scratch":
 		return {
@@ -1991,6 +2007,8 @@ def _resume_artifact_log_details(payload: dict[str, Any]) -> str:
 		"recording_dir",
 		"concat_manifest_path",
 		"trace_plot_path",
+		"raster_output_dir",
+		"raster_plot_path",
 	):
 		value = str(payload.get(key, "")).strip()
 		if value:
@@ -2401,6 +2419,38 @@ def _resume_plot_concat_channel_layout_payload_if_complete(
 	)
 
 
+def _resume_plot_raster_threshold_payload_if_complete(
+	*,
+	inputs: PreprocessInputs,
+	paths: _PreprocessPathSet,
+	recording_metadata_paths: _RecordingMetadataPathSet,
+) -> dict[str, Any] | None:
+	try:
+		segment_entries = load_segment_manifest(paths.per_segment_manifest_path)
+		load_recording_metadata(
+			segment_epochs_path=recording_metadata_paths.segment_epochs_path,
+			contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
+			sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
+		)
+	except Exception:
+		return None
+	if not segment_entries:
+		return None
+	raster_plot_path = Path(paths.raster_threshold_output_dir) / f"threshold_raster_{inputs.stream_id}.png"
+	if not _is_complete_png(raster_plot_path):
+		return None
+	existing_payload = _load_existing_phase_payload(inputs=inputs, paths=paths, phase_name="plot_raster_threshold")
+	return _build_resumed_phase_payload(
+		phase_name="plot_raster_threshold",
+		existing_payload=existing_payload,
+		payload_updates={
+			"segment_count": int(len(segment_entries)),
+			"raster_output_dir": str(paths.raster_threshold_output_dir),
+			"raster_plot_path": str(raster_plot_path),
+		},
+	)
+
+
 def _resume_wipe_src_scratch_payload_if_complete(
 	*,
 	inputs: PreprocessInputs,
@@ -2487,6 +2537,12 @@ def _resume_phase_payload_if_complete(
 			paths=paths,
 			phase_plot_cfg=phase_plot_cfg,
 		)
+	if phase_name == "plot_raster_threshold":
+		return _resume_plot_raster_threshold_payload_if_complete(
+			inputs=inputs,
+			paths=paths,
+			recording_metadata_paths=recording_metadata_paths,
+		)
 	if phase_name == "wipe_src_scratch":
 		return _resume_wipe_src_scratch_payload_if_complete(inputs=inputs, paths=paths)
 	return None
@@ -2512,6 +2568,7 @@ def _run_preprocess_phase_sequence(
 		"common_electrodes_path": str(recording_metadata_paths.common_electrodes_path),
 		"per_segment_manifest_json": str(paths.per_segment_manifest_path),
 		"per_segment_preprocessed_dir": str(paths.per_segment_preprocessed_dir),
+		"raster_output_dir": str(paths.raster_threshold_output_dir),
 	}
 	if bool(inputs.logging_enabled) or _safe_path_exists(paths.stage_log_source):
 		outputs["pipeline_log"] = str(paths.stage_log_source)
@@ -2529,6 +2586,7 @@ def _run_preprocess_phase_sequence(
 		"preprocess_segments",
 		"plot_segment_traces",
 		"plot_segment_channel_layouts",
+		"plot_raster_threshold",
 		"concat_segments",
 		"plot_concat_traces",
 		"plot_concat_channel_layout",
@@ -2740,6 +2798,17 @@ def _run_preprocess_phase_sequence(
 					channel_layouts_subdir=phase_plot_cfg.channel_layouts_subdir,
 					n_representative_channels=int(phase_plot_cfg.n_representative_channels),
 					plot_n_jobs=max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs)),
+					logger=phase_logger,
+				)
+			elif phase_name == "plot_raster_threshold":
+				payload = run_plot_raster_threshold_core(
+					stream_id=str(inputs.stream_id),
+					segment_manifest_path=paths.per_segment_manifest_path,
+					segment_epochs_path=recording_metadata_paths.segment_epochs_path,
+					contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
+					sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
+					raster_output_dir=paths.raster_threshold_output_dir,
+					report_step_timers=bool(inputs.phases.plot_raster_threshold.report_step_timers),
 					logger=phase_logger,
 				)
 			elif phase_name == "wipe_src_scratch":
@@ -3137,3 +3206,9 @@ def run_preprocess_plot_concat_channel_layout_phase(inputs: PreprocessInputs) ->
 	from .orchestrators.plot_concat_channel_layout import run_preprocess_plot_concat_channel_layout
 
 	return run_preprocess_plot_concat_channel_layout(inputs)
+
+
+def run_preprocess_plot_raster_threshold_phase(inputs: PreprocessInputs) -> dict[str, Any]:
+	from .orchestrators.plot_raster_threshold import run_preprocess_plot_raster_threshold
+
+	return run_preprocess_plot_raster_threshold(inputs)

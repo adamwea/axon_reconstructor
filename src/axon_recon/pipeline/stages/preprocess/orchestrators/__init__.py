@@ -2,6 +2,7 @@ from .concat_segments import _run_concat_segments_from_args, run_preprocess_conc
 from .copy_src_to_scratch import _run_copy_src_to_scratch_from_args, run_preprocess_copy_src_to_scratch, run_preprocess_copy_src_to_scratch_from_runtime
 from .plot_concat_channel_layout import _run_plot_concat_channel_layout_from_args, run_preprocess_plot_concat_channel_layout, run_preprocess_plot_concat_channel_layout_from_runtime
 from .plot_concat_traces import _run_plot_concat_traces_from_args, run_preprocess_plot_concat_traces, run_preprocess_plot_concat_traces_from_runtime
+from .plot_raster_threshold import _run_plot_raster_threshold_from_args, run_preprocess_plot_raster_threshold, run_preprocess_plot_raster_threshold_from_runtime
 from .plot_segment_channel_layouts import _run_plot_segment_channel_layouts_from_args, run_preprocess_plot_segment_channel_layouts, run_preprocess_plot_segment_channel_layouts_from_runtime
 from .plot_segment_traces import _run_plot_segment_traces_from_args, run_preprocess_plot_segment_traces, run_preprocess_plot_segment_traces_from_runtime
 from .prepare_raw_binaries import _run_prepare_raw_binaries_from_args, run_preprocess_prepare_raw_binaries, run_preprocess_prepare_raw_binaries_from_runtime
@@ -14,6 +15,7 @@ __all__ = [
 	"_run_copy_src_to_scratch_from_args",
 	"_run_plot_concat_channel_layout_from_args",
 	"_run_plot_concat_traces_from_args",
+	"_run_plot_raster_threshold_from_args",
 	"_run_plot_segment_channel_layouts_from_args",
 	"_run_plot_segment_traces_from_args",
 	"_run_prepare_raw_binaries_from_args",
@@ -28,6 +30,8 @@ __all__ = [
 	"run_preprocess_plot_concat_channel_layout_from_runtime",
 	"run_preprocess_plot_concat_traces",
 	"run_preprocess_plot_concat_traces_from_runtime",
+	"run_preprocess_plot_raster_threshold",
+	"run_preprocess_plot_raster_threshold_from_runtime",
 	"run_preprocess_plot_segment_channel_layouts",
 	"run_preprocess_plot_segment_channel_layouts_from_runtime",
 	"run_preprocess_plot_segment_traces",

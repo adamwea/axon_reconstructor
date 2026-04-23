@@ -14,6 +14,7 @@ from .stages.preprocess.cli import _run_from_args as _run_preprocess_from_args
 from .stages.preprocess.cli import _run_plot_concat_channel_layout_from_args as _run_preprocess_plot_concat_channel_layout_from_args
 from .stages.preprocess.cli import _run_prepare_raw_binaries_from_args as _run_preprocess_prepare_raw_binaries_from_args
 from .stages.preprocess.cli import _run_plot_concat_traces_from_args as _run_preprocess_plot_concat_traces_from_args
+from .stages.preprocess.cli import _run_plot_raster_threshold_from_args as _run_preprocess_plot_raster_threshold_from_args
 from .stages.preprocess.cli import _run_plot_segment_channel_layouts_from_args as _run_preprocess_plot_segment_channel_layouts_from_args
 from .stages.preprocess.cli import _run_plot_segment_traces_from_args as _run_preprocess_plot_segment_traces_from_args
 from .stages.preprocess.cli import _run_preprocess_segments_from_args as _run_preprocess_preprocess_segments_from_args
@@ -73,6 +74,7 @@ _STAGE_ALIASES: dict[str, str] = {
 	"pre.concat_segments": "preprocess.concat_segments",
 	"pre.plot_concat_traces": "preprocess.plot_concat_traces",
 	"pre.plot_concat_channel_layout": "preprocess.plot_concat_channel_layout",
+	"pre.plot_raster_threshold": "preprocess.plot_raster_threshold",
 	"preproc.copy_src_to_scratch": "preprocess.copy_src_to_scratch",
 	"preproc.save_rec_metadata": "preprocess.save_rec_metadata",
 	"preproc.prepare_raw_binaries": "preprocess.prepare_raw_binaries",
@@ -83,12 +85,14 @@ _STAGE_ALIASES: dict[str, str] = {
 	"preproc.concat_segments": "preprocess.concat_segments",
 	"preproc.plot_concat_traces": "preprocess.plot_concat_traces",
 	"preproc.plot_concat_channel_layout": "preprocess.plot_concat_channel_layout",
+	"preproc.plot_raster_threshold": "preprocess.plot_raster_threshold",
 	"preprocess.plot_segment_channel_layouts": "preprocess.plot_segment_channel_layouts",
 	"preprocess.prepare_raw_binaries": "preprocess.prepare_raw_binaries",
 	"preprocess.plot_segment_traces": "preprocess.plot_segment_traces",
 	"preprocess.concat_segments": "preprocess.concat_segments",
 	"preprocess.plot_concat_traces": "preprocess.plot_concat_traces",
 	"preprocess.plot_concat_channel_layout": "preprocess.plot_concat_channel_layout",
+	"preprocess.plot_raster_threshold": "preprocess.plot_raster_threshold",
 	"sort": "spikesort",
 	"spikesort.sort": "spikesort",
 	"merge": "spikesort.merge",
@@ -147,6 +151,7 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"preprocess.concat_segments": _run_preprocess_concat_segments_from_args,
 	"preprocess.plot_concat_traces": _run_preprocess_plot_concat_traces_from_args,
 	"preprocess.plot_concat_channel_layout": _run_preprocess_plot_concat_channel_layout_from_args,
+	"preprocess.plot_raster_threshold": _run_preprocess_plot_raster_threshold_from_args,
 	"spikesort": _run_spikesort_from_args,
 	"spikesort.merge": _run_spikesort_merge_from_args,
 	"spikesort.merge.slay": _run_spikesort_merge_slay_from_args,
