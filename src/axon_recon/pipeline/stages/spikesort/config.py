@@ -289,6 +289,9 @@ class SpikesortStageConfig:
 	summarize_sort_debug_mode_enabled: bool
 	summarize_sort_debug_limit_datasets: int | None
 	summarize_sort_debug_limit_wells: int | None
+	bombcell_label_debug_mode_enabled: bool
+	bombcell_label_debug_limit_datasets: int | None
+	bombcell_label_debug_limit_wells: int | None
 	sorter: str
 	docker_image: str | None
 	recording_num: str
@@ -325,6 +328,9 @@ class SpikesortStageConfig:
 	bombcell_label_enabled: bool
 	bombcell_label_relpath: str
 	bombcell_label_delete_outputs_on_force_restart: bool
+	bombcell_label_cache_sorter_output_before_analyzer_gen: bool
+	bombcell_label_publish_cached_sorter_output_on_success: bool
+	bombcell_label_publish_cached_analyzer_on_success: bool
 	bombcell_label_thresholds: dict[str, Any] | None
 	bombcell_label_thresholds_path: str | None
 	bombcell_label_label_non_somatic: bool
@@ -335,6 +341,28 @@ class SpikesortStageConfig:
 	bombcell_label_reports_enabled: bool
 	bombcell_label_reports_summary_json_enabled: bool
 	bombcell_label_reports_summary_json_relpath: str
+	bombcell_label_analyzer_regenerate_on_replot: bool
+	bombcell_label_analyzer_check_if_regen_is_needed: bool
+	bombcell_label_analyzer_compute_sparsity: bool
+	bombcell_label_template_random_spikes_method: str
+	bombcell_label_template_random_spikes_percentage: float | None
+	bombcell_label_template_random_spikes_max_spikes_per_unit: int | None
+	bombcell_label_template_random_spikes_min_spikes_per_unit: int | None
+	bombcell_label_template_random_spikes_log_before_after_spike_counts: bool
+	bombcell_label_template_random_spikes_margin_size: int | None
+	bombcell_label_template_random_spikes_seed: int | None
+	bombcell_label_analyzer_n_jobs: int | None
+	bombcell_label_analyzer_chunk_duration: str | None
+	bombcell_label_analyzer_sparsity_method: str
+	bombcell_label_analyzer_sparsity_radius_um: float | None
+	bombcell_label_analyzer_sparsity_num_channels: int | None
+	bombcell_label_analyzer_sparsity_threshold: float | None
+	bombcell_label_analyzer_sparsity_peak_sign: str
+	bombcell_label_analyzer_sparsity_num_spikes_for_sparsity: int | None
+	bombcell_label_analyzer_sparsity_by_property: str | None
+	bombcell_label_analyzer_waveforms_ms_before: float | None
+	bombcell_label_analyzer_waveforms_ms_after: float | None
+	bombcell_label_analyzer_waveforms_dtype: str | None
 	um_kwargs: dict[str, Any] | None
 	am_kwargs: dict[str, Any] | None
 	option_kwargs: dict[str, Any] | None
@@ -514,6 +542,12 @@ def parse_spikesort_stage_config(
 	summarize_sort_phase_cfg = _as_section(phases_cfg.get("summarize_sort", {}))
 	bombcell_phase_cfg_raw = phases_cfg.get("bombcell_label", None)
 	bombcell_phase_cfg = _as_section(bombcell_phase_cfg_raw)
+	bombcell_analyzer_cfg = _as_section(bombcell_phase_cfg.get("analyzer", {}))
+	bombcell_analyzer_waveforms_cfg = _as_section(bombcell_analyzer_cfg.get("waveforms", {}))
+	bombcell_analyzer_sparsity_cfg = _as_section(bombcell_analyzer_cfg.get("sparsity", {}))
+	bombcell_analyzer_template_extraction_cfg = _as_section(
+		bombcell_analyzer_cfg.get("template_extraction", {})
+	)
 	bombcell_params_cfg = _as_section(bombcell_phase_cfg.get("params", {}))
 	bombcell_reports_cfg = _as_section(bombcell_phase_cfg.get("reports", {}))
 	bombcell_reports_summary_json_cfg = _as_section(bombcell_reports_cfg.get("summary_json", {}))
@@ -650,6 +684,14 @@ def parse_spikesort_stage_config(
 	)
 	summarize_sort_debug_limit_wells = _as_optional_positive_int(
 		summarize_sort_debug_cfg.get("limit_wells", None)
+	)
+	bombcell_debug_cfg = _as_section(bombcell_phase_cfg.get("debug_mode", {}))
+	bombcell_label_debug_mode_enabled = _as_bool(bombcell_debug_cfg.get("enabled", False), False)
+	bombcell_label_debug_limit_datasets = _as_optional_positive_int(
+		bombcell_debug_cfg.get("limit_datasets", None)
+	)
+	bombcell_label_debug_limit_wells = _as_optional_positive_int(
+		bombcell_debug_cfg.get("limit_wells", None)
 	)
 
 	plot_enabled = _as_bool(plot_cfg.get("enabled", True), True)
@@ -1904,6 +1946,163 @@ def parse_spikesort_stage_config(
 			"bombcell_label_summary.json",
 		)
 	) or "bombcell_label_summary.json"
+	bombcell_label_cache_sorter_output_before_analyzer_gen = _as_bool(
+		_coalesce(
+			bombcell_phase_cfg.get("cache_sorter_output_before_analyzer_gen", None),
+			False,
+		),
+		False,
+	)
+	bombcell_label_publish_cached_sorter_output_on_success = _as_bool(
+		_coalesce(
+			bombcell_phase_cfg.get("publish_cached_sorter_output_on_success", None),
+			False,
+		),
+		False,
+	)
+	bombcell_label_publish_cached_analyzer_on_success = _as_bool(
+		_coalesce(
+			bombcell_phase_cfg.get("publish_cached_analyzer_on_success", None),
+			False,
+		),
+		False,
+	)
+	bombcell_label_analyzer_regenerate_on_replot = _as_bool(
+		_coalesce(
+			bombcell_analyzer_cfg.get("regenerate_on_replot", None),
+			False,
+		),
+		False,
+	)
+	bombcell_label_analyzer_check_if_regen_is_needed = _as_bool(
+		_coalesce(
+			bombcell_analyzer_cfg.get("check_if_regen_is_needed", None),
+			True,
+		),
+		True,
+	)
+	bombcell_label_analyzer_compute_sparsity = _as_bool(
+		_coalesce(
+			bombcell_analyzer_sparsity_cfg.get("compute_sparsity", None),
+			bombcell_analyzer_cfg.get("compute_sparsity", None),
+			True,
+		),
+		True,
+	)
+	bombcell_label_template_random_spikes_method = _normalize_merge_template_random_spikes_method(
+		_coalesce(
+			bombcell_analyzer_template_extraction_cfg.get("random_spikes_method", None),
+			"default",
+		)
+	)
+	bombcell_label_template_random_spikes_percentage = None
+	bombcell_label_template_random_spikes_percentage_raw = _coalesce(
+		bombcell_analyzer_template_extraction_cfg.get("random_spikes_percentage", None),
+		None,
+	)
+	if bombcell_label_template_random_spikes_percentage_raw is not None:
+		bombcell_label_template_random_spikes_percentage = _parse_merge_template_random_spikes_percentage(
+			bombcell_label_template_random_spikes_percentage_raw,
+			field_name="stages.spikesort.phases.bombcell_label.analyzer.template_extraction.random_spikes_percentage",
+		)
+	if (
+		bombcell_label_template_random_spikes_method == "default"
+		and bombcell_label_template_random_spikes_percentage is not None
+	):
+		bombcell_label_template_random_spikes_method = "percentage"
+	elif (
+		bombcell_label_template_random_spikes_method == "percentage"
+		and bombcell_label_template_random_spikes_percentage is None
+	):
+		raise ValueError(
+			"Bombcell analyzer random_spikes_method=percentage requires random_spikes_percentage."
+		)
+	elif (
+		bombcell_label_template_random_spikes_method == "all"
+		and bombcell_label_template_random_spikes_percentage is not None
+	):
+		bombcell_label_template_random_spikes_percentage = None
+	bombcell_label_template_random_spikes_max_spikes_per_unit = _as_optional_positive_int(
+		bombcell_analyzer_template_extraction_cfg.get("max_spikes_per_unit", None)
+	)
+	if (
+		bombcell_label_template_random_spikes_method != "percentage"
+		and bombcell_label_template_random_spikes_max_spikes_per_unit is None
+	):
+		bombcell_label_template_random_spikes_max_spikes_per_unit = 500
+	bombcell_label_template_random_spikes_min_spikes_per_unit = _as_optional_positive_int(
+		bombcell_analyzer_template_extraction_cfg.get("min_spikes_per_unit", None)
+	)
+	bombcell_label_template_random_spikes_log_before_after_spike_counts = _as_bool(
+		bombcell_analyzer_template_extraction_cfg.get("log_before_after_spike_counts", False),
+		False,
+	)
+	bombcell_label_template_random_spikes_margin_size = _as_optional_int(
+		bombcell_analyzer_template_extraction_cfg.get("margin_size", None)
+	)
+	bombcell_label_template_random_spikes_seed = _as_optional_int(
+		bombcell_analyzer_template_extraction_cfg.get("seed", None)
+	)
+	bombcell_label_analyzer_n_jobs = _as_optional_int(
+		bombcell_analyzer_cfg.get("n_jobs", None)
+	)
+	bombcell_label_analyzer_chunk_duration = _as_optional_str(
+		bombcell_analyzer_cfg.get("chunk_duration", None)
+	)
+	bombcell_label_analyzer_sparsity_method = _normalize_merge_analyzer_sparsity_method(
+		_coalesce(
+			bombcell_analyzer_sparsity_cfg.get("method", None),
+			"radius",
+		)
+	)
+	bombcell_label_analyzer_sparsity_radius_um = _as_optional_float(
+		_coalesce(
+			bombcell_analyzer_sparsity_cfg.get("radius_um", None),
+			100.0,
+		)
+	)
+	bombcell_label_analyzer_sparsity_num_channels = _as_optional_positive_int(
+		_coalesce(
+			bombcell_analyzer_sparsity_cfg.get("num_channels", None),
+			5,
+		)
+	)
+	bombcell_label_analyzer_sparsity_threshold = _as_optional_float(
+		_coalesce(
+			bombcell_analyzer_sparsity_cfg.get("threshold", None),
+			5.0,
+		)
+	)
+	bombcell_label_analyzer_sparsity_peak_sign = _normalize_merge_analyzer_peak_sign(
+		_coalesce(
+			bombcell_analyzer_sparsity_cfg.get("peak_sign", None),
+			"neg",
+		)
+	)
+	bombcell_label_analyzer_sparsity_num_spikes_for_sparsity = _as_optional_positive_int(
+		_coalesce(
+			bombcell_analyzer_sparsity_cfg.get("num_spikes_for_sparsity", None),
+			100,
+		)
+	)
+	bombcell_label_analyzer_sparsity_by_property = _as_optional_str(
+		bombcell_analyzer_sparsity_cfg.get("by_property", None)
+	)
+	bombcell_label_analyzer_waveforms_ms_before = _as_optional_float(
+		_coalesce(
+			bombcell_analyzer_waveforms_cfg.get("ms_before", None),
+			1.0,
+		)
+	)
+	bombcell_label_analyzer_waveforms_ms_after = _as_optional_float(
+		_coalesce(
+			bombcell_analyzer_waveforms_cfg.get("ms_after", None),
+			2.0,
+		)
+	)
+	bombcell_label_analyzer_waveforms_dtype = _as_optional_str(
+		bombcell_analyzer_waveforms_cfg.get("dtype", None)
+	)
 
 	slay_enabled = _as_bool(_coalesce(slay_cfg.get("enabled", None), False), False)
 	slay_relpath = _normalize_optional_relpath(
@@ -2411,6 +2610,9 @@ def parse_spikesort_stage_config(
 		summarize_sort_debug_mode_enabled=bool(summarize_sort_debug_mode_enabled),
 		summarize_sort_debug_limit_datasets=summarize_sort_debug_limit_datasets,
 		summarize_sort_debug_limit_wells=summarize_sort_debug_limit_wells,
+		bombcell_label_debug_mode_enabled=bool(bombcell_label_debug_mode_enabled),
+		bombcell_label_debug_limit_datasets=bombcell_label_debug_limit_datasets,
+		bombcell_label_debug_limit_wells=bombcell_label_debug_limit_wells,
 		sorter=str(
 			_coalesce(
 				sort_phase_cfg.get("sorter", None),
@@ -2524,6 +2726,15 @@ def parse_spikesort_stage_config(
 		bombcell_label_enabled=bool(bombcell_label_enabled),
 		bombcell_label_relpath=str(bombcell_label_relpath),
 		bombcell_label_delete_outputs_on_force_restart=bool(bombcell_label_delete_outputs_on_force_restart),
+		bombcell_label_cache_sorter_output_before_analyzer_gen=bool(
+			bombcell_label_cache_sorter_output_before_analyzer_gen
+		),
+		bombcell_label_publish_cached_sorter_output_on_success=bool(
+			bombcell_label_publish_cached_sorter_output_on_success
+		),
+		bombcell_label_publish_cached_analyzer_on_success=bool(
+			bombcell_label_publish_cached_analyzer_on_success
+		),
 		bombcell_label_thresholds=(dict(bombcell_label_thresholds) if isinstance(bombcell_label_thresholds, dict) else None),
 		bombcell_label_thresholds_path=(str(bombcell_label_thresholds_path) if bombcell_label_thresholds_path is not None else None),
 		bombcell_label_label_non_somatic=bool(bombcell_label_label_non_somatic),
@@ -2534,6 +2745,30 @@ def parse_spikesort_stage_config(
 		bombcell_label_reports_enabled=bool(bombcell_label_reports_enabled),
 		bombcell_label_reports_summary_json_enabled=bool(bombcell_label_reports_summary_json_enabled),
 		bombcell_label_reports_summary_json_relpath=str(bombcell_label_reports_summary_json_relpath),
+		bombcell_label_analyzer_regenerate_on_replot=bool(bombcell_label_analyzer_regenerate_on_replot),
+		bombcell_label_analyzer_check_if_regen_is_needed=bool(bombcell_label_analyzer_check_if_regen_is_needed),
+		bombcell_label_analyzer_compute_sparsity=bool(bombcell_label_analyzer_compute_sparsity),
+		bombcell_label_template_random_spikes_method=str(bombcell_label_template_random_spikes_method),
+		bombcell_label_template_random_spikes_percentage=bombcell_label_template_random_spikes_percentage,
+		bombcell_label_template_random_spikes_max_spikes_per_unit=bombcell_label_template_random_spikes_max_spikes_per_unit,
+		bombcell_label_template_random_spikes_min_spikes_per_unit=bombcell_label_template_random_spikes_min_spikes_per_unit,
+		bombcell_label_template_random_spikes_log_before_after_spike_counts=bool(
+			bombcell_label_template_random_spikes_log_before_after_spike_counts
+		),
+		bombcell_label_template_random_spikes_margin_size=bombcell_label_template_random_spikes_margin_size,
+		bombcell_label_template_random_spikes_seed=bombcell_label_template_random_spikes_seed,
+		bombcell_label_analyzer_n_jobs=bombcell_label_analyzer_n_jobs,
+		bombcell_label_analyzer_chunk_duration=bombcell_label_analyzer_chunk_duration,
+		bombcell_label_analyzer_sparsity_method=str(bombcell_label_analyzer_sparsity_method),
+		bombcell_label_analyzer_sparsity_radius_um=bombcell_label_analyzer_sparsity_radius_um,
+		bombcell_label_analyzer_sparsity_num_channels=bombcell_label_analyzer_sparsity_num_channels,
+		bombcell_label_analyzer_sparsity_threshold=bombcell_label_analyzer_sparsity_threshold,
+		bombcell_label_analyzer_sparsity_peak_sign=str(bombcell_label_analyzer_sparsity_peak_sign),
+		bombcell_label_analyzer_sparsity_num_spikes_for_sparsity=bombcell_label_analyzer_sparsity_num_spikes_for_sparsity,
+		bombcell_label_analyzer_sparsity_by_property=bombcell_label_analyzer_sparsity_by_property,
+		bombcell_label_analyzer_waveforms_ms_before=bombcell_label_analyzer_waveforms_ms_before,
+		bombcell_label_analyzer_waveforms_ms_after=bombcell_label_analyzer_waveforms_ms_after,
+		bombcell_label_analyzer_waveforms_dtype=bombcell_label_analyzer_waveforms_dtype,
 		um_kwargs=resolved_um_kwargs,
 		am_kwargs=resolved_am_kwargs,
 		option_kwargs=resolved_option_kwargs,

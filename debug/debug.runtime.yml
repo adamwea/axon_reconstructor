@@ -239,8 +239,9 @@ stages:
   spikesort:
     resources:
       #max_stage_workers: 24
-      max_stage_workers: 36 # lab server
-      well_workers: 6
+      #max_stage_workers: 36 # lab server
+      max_stage_workers: 24 # 36 is too much for i/o probably.
+      well_workers: 3
       chunk_duration: 1s
     logging:
       enabled: true
@@ -307,14 +308,63 @@ stages:
         generate_artifacts: false
 
       bombcell_label:
-        enabled: false # TODO: untested
+        enabled: true # TODO: untested
+        debug_mode:
+          enabled: false
+          limit_datasets: 1
+          limit_wells: 1
         # outputs live under <well>/<spikesort_output_root>/<merge_units.rel_output_root>/<relpath>
         relpath: bombcell_label_outputs
         delete_outputs_on_force_restart: true
 
+        # enable debugging and comparison.
+        cache_sorter_output_before_analyzer_gen: true
+        publish_cached_sorter_output_on_success: false
+        publish_cached_analyzer_on_success: false
+
         # analyzer
         analyzer:
-          compute_sparsity: false # recompute / compute analyzer as needed if it currently does or does not include sparsity mask.
+          #regenerate_on_replot: false # when false, force_replot reuses an existing pre-merge workspace analyzer if present and only regenerates it when missing.
+          regenerate_on_replot: false # when true, force_replot always regenerates the pre-merge workspace analyzer from the pre-merge workspace sorter output to ensure that merge reports reflect the current state of the pre-merge workspace, even if merge outputs are not being regenerated; keep false by default for faster iterations when merge debugging is not the focus, but can be set to true to ensure consistency between the pre-merge workspace and merge reports during debugging iterations that involve changes to the pre-merge workspace or its sorter output.
+          check_if_regen_is_needed: true # when true, merge phase logic checks whether the pre-merge workspace analyzer needs to be regenerated based on the presence and freshness of an existing analyzer relative to the pre-merge workspace sorter output, and only regenerates the analyzer if needed; keep true by default to avoid unnecessary regenerations and speed up iterations when merge debugging is not the focus, but can be set to false to always regenerate the analyzer for consistency during debugging iterations that involve changes to the pre-merge workspace or its sorter output.
+          #n_jobs: 1 # optional merge-only analyzer compute parallelism override for waveform/template/unit-location extensions and sparsity estimation. Omit to inherit stage-level n_jobs.
+          n_jobs: 24 # increase merge-side analyzer compute parallelism to speed up waveform/template/unit-location extensions and sparsity estimation during merge iterations, which can be computationally intensive; keep 1 by default for debugging iterations to simplify resource usage and make logs easier to follow, but can be set to a higher number for faster iterations when merge debugging is not the focus.
+          #n_jobs: 32
+          #chunk_duration: 0.5s # optional merge-only analyzer compute chunking override. Omit to inherit stage-level chunk_duration.
+          template_extraction:
+            random_spikes_method: default # default|percentage|all. When random_spikes_percentage is set, default promotes to percentage automatically; "all" disables random spike subsampling entirely.
+            #random_spikes_method: all # use all spikes for template-critical analyzer extensions during merge and in merge reports to ensure the most accurate templates for merge recommendations and reporting; keep default for faster iterations when merge debugging is not the focus.
+            #max_spikes_per_unit: 500 # used when random_spikes_method stays sampled instead of "all".
+            max_spikes_per_unit: 1000 # keep a moderate cap on spikes per unit for template-critical analyzer extensions during merge and in merge reports to balance template quality with computational load during debugging iterations; can be set to a higher number or disabled entirely for more thorough template extraction in non-debug runs when computational load is less of a concern.
+            #max_spikes_per_unit: 5000 # increase max spikes per unit for template-critical analyzer extensions during merge and in merge reports to provide more comprehensive templates for merge recommendations and reporting; keep 500 by default for faster iterations when merge debugging is not the focus, but can be set to a higher number for more thorough template extraction in non-debug runs.
+            #margin_size: 60 # optional border margin in samples for merge-side random spike selection.
+            seed: 0 # optional seed for reproducible merge-side random spike selection.
+
+            # custom density knobs
+            #random_spikes_percentage: 25 # optional percentage of spikes per unit to use for template-critical analyzer extensions during merge and in merge reports; when combined with max_spikes_per_unit, the smaller cap wins. Use random_spikes_method: all to disable random spike subsampling entirely.
+            #min_spikes_per_unit: 1000 # percentage-mode minimum selected-spike floor: if a unit has <= this many total spikes, use all eligible spikes; otherwise if eligible_spikes * random_spikes_percentage would fall below this number, raise the selected-spike count to this floor before applying any explicit max_spikes_per_unit cap; omit or set <= 0 to disable.
+            #log_before_after_spike_counts: true # whether to log pre- and post-subsampling spike counts per unit for merge-side template-critical analyzer extensions to provide visibility into the effects of density controls during merge debugging iterations.
+
+          sparsity:
+            compute_sparsity: false # if false, force dense/all-channel merge analyzers and ignore sparsity-mask creation. If true, compute a sparsity mask using the method below and include only those channels in merge-side analyzers and merge reports.
+            #method: radius # radius|best_channels|threshold|by_property. Ignored when compute_sparsity is false.
+            #method: best_channels # use best_channels method for sparsity estimation to identify the most relevant channels for each unit based on their activity, which can improve the quality of merge recommendations by focusing on the channels that contribute most to each unit's signal; keep radius by default for debugging iterations to maintain a more inclusive channel selection that can provide additional context during early development stages.
+            #radius_um: 100.0 # used by method=radius. Default matches SpikeInterface.
+            #num_channels: 5 # used by method=best_channels. Default matches SpikeInterface.
+            #num_channels: 300 # hacky way to just tell sorting analyzer that I want all channels.
+            #num_channels: 300
+            #threshold: 5.0 # used by method=threshold (SNR threshold). Default matches SpikeInterface.
+            #peak_sign: neg # neg|pos|both. Default matches SpikeInterface.
+            #peak_sign: both # include both negative and positive peaks when estimating sparsity for merge-side analyzers, which can provide a more comprehensive view of unit spatial footprints and improve merge recommendation quality; keep neg by default for debugging iterations to focus on negative peaks, which are more traditional for spike sorting and can simplify analysis during early debugging stages.
+            #num_spikes_for_sparsity: 100 # optional spike cap used only while estimating merge-side sparsity. Default matches SpikeInterface.
+            #by_property: group # used by method=by_property, for example on tetrodes.
+
+          waveforms:
+            #ms_before: 1.0 # optional merge-side waveform/template extraction window before each spike in ms.
+            ms_before: 2.0 # increase pre-spike waveform extraction window to capture more of the spike waveform leading edge, which can be important for accurately characterizing units and improving merge recommendation quality; keep 1.0 ms by default for debugging iterations to reduce computational load and speed up iterations when merge debugging is not the focus, but can be set to a higher value for more thorough template extraction in non-debug runs.
+            #ms_after: 2.0 # optional merge-side waveform/template extraction window after each spike in ms.
+            ms_after: 5.0 # increase post-spike waveform extraction window to capture more of the spike waveform trailing edge, which can be important for accurately characterizing units and improving merge recommendation quality; keep 2.0 ms by default for debugging iterations to reduce computational load and speed up iterations when merge debugging is not the focus, but can be set to a higher value for more thorough template extraction in non-debug runs.
+            #dtype: float32 # optional merge-side waveform dtype override for waveforms/templates/unit_locations dependencies.
 
         # Canonical Bombcell labeling function arguments.
         # Mirrors spikeinterface.curation.bombcell_label_units(...)
@@ -337,7 +387,6 @@ stages:
           summary_json:
             enabled: true
             relpath: bombcell_label_summary.json
-
       merge_units:
 
         enabled: true # master toggle for merge phase; when false, skips the entire merge phase and any associated outputs, regardless of individual merge method settings below.

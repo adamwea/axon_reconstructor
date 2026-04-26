@@ -31,6 +31,7 @@ from .stages.reconstruct.cli import _run_report_full_chip_layout_from_args as _r
 from .stages.reconstruct.cli import _run_report_recons_from_args as _run_reconstruct_report_recons_from_args
 from .stages.reconstruct.cli import _run_report_summaries_from_args as _run_reconstruct_report_summaries_from_args
 from .stages.spikesort.cli import _run_from_args as _run_spikesort_from_args
+from .stages.spikesort.cli import _run_bombcell_from_args as _run_spikesort_bombcell_from_args
 from .stages.spikesort.cli import _run_merge_auto_merge_from_args as _run_spikesort_merge_auto_merge_from_args
 from .stages.spikesort.cli import _run_merge_from_args as _run_spikesort_merge_from_args
 from .stages.spikesort.cli import _run_merge_slay_from_args as _run_spikesort_merge_slay_from_args
@@ -97,6 +98,8 @@ _STAGE_ALIASES: dict[str, str] = {
 	"preprocess.plot_concat_channel_layout": "preprocess.plot_concat_channel_layout",
 	"preprocess.plot_raster_threshold": "preprocess.plot_raster_threshold",
 	"sort": "spikesort",
+	"bombcell": "spikesort.bombcell_label",
+	"spikesort.bombcell": "spikesort.bombcell_label",
 	"merge": "spikesort.merge",
 	"spikesort.summary": "spikesort.summarize_sort",
 	"spikesort.merge_units": "spikesort.merge",
@@ -157,6 +160,7 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"preprocess.plot_raster_threshold": _run_preprocess_plot_raster_threshold_from_args,
 	"spikesort": _run_spikesort_from_args,
 	"spikesort.sort": _run_spikesort_sort_from_args,
+	"spikesort.bombcell_label": _run_spikesort_bombcell_from_args,
 	"spikesort.summarize_sort": _run_spikesort_summarize_sort_from_args,
 	"spikesort.merge": _run_spikesort_merge_from_args,
 	"spikesort.merge.slay": _run_spikesort_merge_slay_from_args,

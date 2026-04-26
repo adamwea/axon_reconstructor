@@ -55,6 +55,9 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.bombcell_label_enabled is False
     assert parsed.bombcell_label_relpath == "bombcell_label_outputs"
     assert parsed.bombcell_label_delete_outputs_on_force_restart is True
+    assert parsed.bombcell_label_cache_sorter_output_before_analyzer_gen is False
+    assert parsed.bombcell_label_publish_cached_sorter_output_on_success is False
+    assert parsed.bombcell_label_publish_cached_analyzer_on_success is False
     assert parsed.bombcell_label_thresholds is None
     assert parsed.bombcell_label_thresholds_path is None
     assert parsed.bombcell_label_label_non_somatic is True
@@ -928,6 +931,9 @@ def test_parse_spikesort_stage_config_reads_bombcell_phase_knobs() -> None:
                             "enabled": True,
                             "relpath": "merge_output/bombcell_labels",
                             "delete_outputs_on_force_restart": False,
+                            "cache_sorter_output_before_analyzer_gen": True,
+                            "publish_cached_sorter_output_on_success": False,
+                            "publish_cached_analyzer_on_success": True,
                             "params": {
                                 "thresholds": {
                                     "noise": {
@@ -962,6 +968,9 @@ def test_parse_spikesort_stage_config_reads_bombcell_phase_knobs() -> None:
     assert parsed.bombcell_label_enabled is True
     assert parsed.bombcell_label_relpath == "merge_output/bombcell_labels"
     assert parsed.bombcell_label_delete_outputs_on_force_restart is False
+    assert parsed.bombcell_label_cache_sorter_output_before_analyzer_gen is True
+    assert parsed.bombcell_label_publish_cached_sorter_output_on_success is False
+    assert parsed.bombcell_label_publish_cached_analyzer_on_success is True
     assert isinstance(parsed.bombcell_label_thresholds, dict)
     assert parsed.bombcell_label_thresholds.get("noise", {}).get("snr", {}).get("greater") == 4.0
     assert parsed.bombcell_label_thresholds_path == "/tmp/bombcell_thresholds.json"

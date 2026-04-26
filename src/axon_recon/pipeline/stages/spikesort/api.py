@@ -4,9 +4,13 @@ from pathlib import Path
 from typing import Any
 
 from .models.inputs import SpikesortInputs
-from .models.results import SpikesortMergeResult, SpikesortResult
-from .orchestrators import run_spikesort_sort
-from .runner import run_spikesort_merge_stage, run_spikesort_summarize_sort
+from .models.results import SpikesortBombcellResult, SpikesortMergeResult, SpikesortResult
+from .orchestrators import (
+	run_spikesort_bombcell_label,
+	run_spikesort_merge_units,
+	run_spikesort_sort,
+	run_spikesort_summarize,
+)
 
 
 def run_spikesort(inputs: SpikesortInputs) -> SpikesortResult:
@@ -14,7 +18,7 @@ def run_spikesort(inputs: SpikesortInputs) -> SpikesortResult:
 
 
 def summarize_spikesort(inputs: SpikesortInputs) -> SpikesortResult:
-	return run_spikesort_summarize_sort(inputs)
+	return run_spikesort_summarize(inputs)
 
 
 def run_spikesort_merge(
@@ -27,7 +31,7 @@ def run_spikesort_merge(
 	force_restart: bool,
 	force_replot: bool = False,
 ) -> SpikesortMergeResult:
-	return run_spikesort_merge_stage(
+	return run_spikesort_merge_units(
 		h5_path=h5_path,
 		stream_id=stream_id,
 		mea_output_root=mea_output_root,
@@ -35,4 +39,23 @@ def run_spikesort_merge(
 		stage_config=stage_config,
 		force_restart=force_restart,
 		force_replot=force_replot,
+	)
+
+
+def run_spikesort_bombcell(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	mea_output_root: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	force_restart: bool,
+) -> SpikesortBombcellResult:
+	return run_spikesort_bombcell_label(
+		h5_path=h5_path,
+		stream_id=stream_id,
+		mea_output_root=mea_output_root,
+		output_rel_root=output_rel_root,
+		stage_config=stage_config,
+		force_restart=force_restart,
 	)

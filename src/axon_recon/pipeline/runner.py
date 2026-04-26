@@ -48,9 +48,18 @@ from .stages.reconstruct.api import (
 )
 from .stages.reconstruct.config import build_reconstruction_inputs_for_target, parse_reconstruction_stage_config
 from .stages.reconstruct.models.results import ReconstructionResult, UnitReconstructionResult
-from .stages.spikesort.api import run_spikesort, run_spikesort_merge, summarize_spikesort
+from .stages.spikesort.api import (
+	run_spikesort,
+	run_spikesort_bombcell,
+	run_spikesort_merge,
+	summarize_spikesort,
+)
 from .stages.spikesort.config import build_spikesort_inputs_for_target, parse_spikesort_stage_config
-from .stages.spikesort.models.results import SpikesortMergeResult, SpikesortResult
+from .stages.spikesort.models.results import (
+	SpikesortBombcellResult,
+	SpikesortMergeResult,
+	SpikesortResult,
+)
 from .stages.templates.api import (
 	run_templates,
 	run_templates_analyzers,
@@ -633,6 +642,38 @@ def _publish_spikesort_merge_target_result(item: TargetStageResult, *, policy: P
 		well_out_dir=_remap_stage_path(result.well_out_dir, active_root=active_root, final_root=final_root),
 		merge_out_dir=_remap_stage_path(result.merge_out_dir, active_root=active_root, final_root=final_root),
 		summary_json=_remap_stage_path(result.summary_json, active_root=active_root, final_root=final_root),
+		outputs=_remap_output_map(result.outputs, active_root=active_root, final_root=final_root),
+	)
+	return TargetStageResult(target=item.target, status=item.status, result=updated, error=item.error)
+
+
+def _publish_spikesort_bombcell_target_result(item: TargetStageResult, *, policy: PublishPolicy | None = None) -> TargetStageResult:
+	publish_policy = policy or PublishPolicy()
+	if item.status != "ok" or not isinstance(item.result, SpikesortBombcellResult):
+		return item
+	roots = _publish_roots_for_target(item.target)
+	if roots is None:
+		return item
+	active_root, final_root = roots
+	result = item.result
+	published = _publish_stage_output(
+		stage_name="spikesort.bombcell_label",
+		target=item.target,
+		path=result.bombcell_out_dir,
+		active_root=active_root,
+		final_root=final_root,
+		policy=publish_policy,
+	)
+	if not published:
+		return item
+	updated = SpikesortBombcellResult(
+		well_out_dir=_remap_stage_path(result.well_out_dir, active_root=active_root, final_root=final_root),
+		bombcell_out_dir=_remap_stage_path(result.bombcell_out_dir, active_root=active_root, final_root=final_root),
+		summary_json=(
+			_remap_stage_path(result.summary_json, active_root=active_root, final_root=final_root)
+			if result.summary_json is not None
+			else None
+		),
 		outputs=_remap_output_map(result.outputs, active_root=active_root, final_root=final_root),
 	)
 	return TargetStageResult(target=item.target, status=item.status, result=updated, error=item.error)
@@ -1375,6 +1416,68 @@ def run_spikesort_merge_from_runtime(
 		worker_fn=_worker,
 	)
 	target_results = [_publish_spikesort_merge_target_result(item, policy=publish_policy) for item in target_results]
+
+	succeeded = sum(1 for item in target_results if item.status == "ok")
+	failed = sum(1 for item in target_results if item.status != "ok")
+	return MultiTargetStageResult(
+		stage=stage_name,
+		total_targets=len(target_results),
+		succeeded_targets=succeeded,
+		failed_targets=failed,
+		target_results=target_results,
+	)
+
+
+def run_spikesort_bombcell_label_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+	stage_name: str = "spikesort.bombcell_label",
+) -> MultiTargetStageResult:
+	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
+	publish_policy = _resolve_publish_policy(runtime_config=bundle.runtime_config, data_config=bundle.data_config)
+	_log_publish_policy(stage_name=stage_name, policy=publish_policy)
+	stage_config = parse_spikesort_stage_config(
+		runtime_config=bundle.runtime_config,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+	targets = select_execution_targets(bundle=bundle)
+	targets = _apply_spikesort_phase_debug_limits(
+		stage_name=stage_name,
+		stage_config=stage_config,
+		targets=list(targets),
+		phase_label="bombcell_label",
+		enabled_attr="bombcell_label_debug_mode_enabled",
+		limit_datasets_attr="bombcell_label_debug_limit_datasets",
+		limit_wells_attr="bombcell_label_debug_limit_wells",
+	)
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="spikesort",
+		target_count=len(targets),
+	)
+
+	def _worker(target):
+		return run_spikesort_bombcell(
+			h5_path=target.h5_path,
+			stream_id=target.stream_id,
+			mea_output_root=target.mea_output_root,
+			output_rel_root=stage_config.output_rel_root,
+			stage_config=stage_config,
+			force_restart=bool(stage_config.force_restart),
+		)
+
+	target_results = distribute_targets(
+		targets=targets,
+		well_workers=int(parallelism.well_workers),
+		worker_fn=_worker,
+	)
+	target_results = [
+		_publish_spikesort_bombcell_target_result(item, policy=publish_policy)
+		for item in target_results
+	]
 
 	succeeded = sum(1 for item in target_results if item.status == "ok")
 	failed = sum(1 for item in target_results if item.status != "ok")

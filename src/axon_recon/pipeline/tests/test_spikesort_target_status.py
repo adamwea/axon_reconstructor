@@ -5,13 +5,18 @@ from types import SimpleNamespace
 
 from axon_recon.pipeline.execution.context import ExecutionTarget, StageParallelism
 from axon_recon.pipeline.runner import (
+    run_spikesort_bombcell_label_from_runtime,
     run_spikesort_from_runtime,
     run_spikesort_merge_from_runtime,
     run_spikesort_sort_from_runtime,
     run_spikesort_summarize_sort_from_runtime,
 )
 from axon_recon.pipeline.stages.spikesort.models.inputs import SpikesortInputs
-from axon_recon.pipeline.stages.spikesort.models.results import SpikesortMergeResult, SpikesortResult
+from axon_recon.pipeline.stages.spikesort.models.results import (
+    SpikesortBombcellResult,
+    SpikesortMergeResult,
+    SpikesortResult,
+)
 
 
 def test_run_spikesort_from_runtime_marks_target_ok(monkeypatch, tmp_path: Path) -> None:
@@ -404,6 +409,136 @@ def test_run_spikesort_summarize_sort_from_runtime_applies_phase_debug_limits(mo
     agg = run_spikesort_summarize_sort_from_runtime(config_path=str(tmp_path / "runtime.yml"))
 
     assert agg.stage == "spikesort.summarize_sort"
+    assert agg.total_targets == 1
+    assert agg.succeeded_targets == 1
+    assert agg.failed_targets == 0
+    assert agg.target_results[0].target.dataset_index == 0
+    assert agg.target_results[0].target.stream_id == "well001"
+
+
+def test_run_spikesort_bombcell_label_from_runtime_marks_target_ok(monkeypatch, tmp_path: Path) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    target = ExecutionTarget(
+        dataset_index=0,
+        dataset_id="dataset_000:test.h5",
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+    )
+
+    class _DummyBundle:
+        runtime_config = object()
+        data_config = object()
+
+    def _fake_load_pipeline_runtime_bundle(*, config_path: str):
+        return _DummyBundle()
+
+    def _fake_select_execution_targets(*, bundle):
+        return [target]
+
+    def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
+        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+
+    def _fake_parse_spikesort_stage_config(**kwargs):
+        return SimpleNamespace(
+            debug_limit_wells=None,
+            output_rel_root="spikesort_outputs",
+            force_restart=False,
+            bombcell_label_debug_mode_enabled=False,
+            bombcell_label_debug_limit_datasets=None,
+            bombcell_label_debug_limit_wells=None,
+        )
+
+    def _fake_run_spikesort_bombcell(**kwargs) -> SpikesortBombcellResult:
+        return SpikesortBombcellResult(
+            well_out_dir=tmp_path / "well_out",
+            bombcell_out_dir=tmp_path / "bombcell_out",
+            summary_json=tmp_path / "bombcell_summary.json",
+            outputs={"bombcell_label.summary_json": str(tmp_path / "bombcell_summary.json")},
+        )
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", _fake_load_pipeline_runtime_bundle)
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", _fake_select_execution_targets)
+    monkeypatch.setattr(pipeline_runner, "resolve_stage_parallelism", _fake_resolve_stage_parallelism)
+    monkeypatch.setattr(pipeline_runner, "parse_spikesort_stage_config", _fake_parse_spikesort_stage_config)
+    monkeypatch.setattr(pipeline_runner, "run_spikesort_bombcell", _fake_run_spikesort_bombcell)
+
+    agg = run_spikesort_bombcell_label_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+
+    assert agg.stage == "spikesort.bombcell_label"
+    assert agg.total_targets == 1
+    assert agg.succeeded_targets == 1
+    assert agg.failed_targets == 0
+    assert agg.target_results[0].status == "ok"
+
+
+def test_run_spikesort_bombcell_label_from_runtime_applies_phase_debug_limits(monkeypatch, tmp_path: Path) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    target_a = ExecutionTarget(
+        dataset_index=0,
+        dataset_id="dataset_000:test_a.h5",
+        h5_path=tmp_path / "test_a.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+    )
+    target_b = ExecutionTarget(
+        dataset_index=0,
+        dataset_id="dataset_000:test_b.h5",
+        h5_path=tmp_path / "test_b.h5",
+        stream_id="well002",
+        mea_output_root=tmp_path,
+    )
+    target_c = ExecutionTarget(
+        dataset_index=1,
+        dataset_id="dataset_001:test_c.h5",
+        h5_path=tmp_path / "test_c.h5",
+        stream_id="well003",
+        mea_output_root=tmp_path,
+    )
+
+    class _DummyBundle:
+        runtime_config = object()
+        data_config = object()
+
+    def _fake_load_pipeline_runtime_bundle(*, config_path: str):
+        return _DummyBundle()
+
+    def _fake_select_execution_targets(*, bundle):
+        return [target_a, target_b, target_c]
+
+    def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
+        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+
+    def _fake_parse_spikesort_stage_config(**kwargs):
+        return SimpleNamespace(
+            debug_limit_wells=None,
+            output_rel_root="spikesort_outputs",
+            force_restart=False,
+            bombcell_label_debug_mode_enabled=True,
+            bombcell_label_debug_limit_datasets=1,
+            bombcell_label_debug_limit_wells=1,
+        )
+
+    def _fake_run_spikesort_bombcell(**kwargs) -> SpikesortBombcellResult:
+        stream_id = str(kwargs.get("stream_id"))
+        return SpikesortBombcellResult(
+            well_out_dir=tmp_path / f"well_out_{stream_id}",
+            bombcell_out_dir=tmp_path / f"bombcell_out_{stream_id}",
+            summary_json=tmp_path / f"bombcell_summary_{stream_id}.json",
+            outputs={"bombcell_label.summary_json": str(tmp_path / f"bombcell_summary_{stream_id}.json")},
+        )
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", _fake_load_pipeline_runtime_bundle)
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", _fake_select_execution_targets)
+    monkeypatch.setattr(pipeline_runner, "resolve_stage_parallelism", _fake_resolve_stage_parallelism)
+    monkeypatch.setattr(pipeline_runner, "parse_spikesort_stage_config", _fake_parse_spikesort_stage_config)
+    monkeypatch.setattr(pipeline_runner, "run_spikesort_bombcell", _fake_run_spikesort_bombcell)
+
+    agg = run_spikesort_bombcell_label_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+
+    assert agg.stage == "spikesort.bombcell_label"
     assert agg.total_targets == 1
     assert agg.succeeded_targets == 1
     assert agg.failed_targets == 0
