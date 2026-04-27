@@ -3995,8 +3995,7 @@ def test_run_spikesort_merge_stage_writes_recommended_candidate_outputs(tmp_path
     stale_merge_out_dir.mkdir(parents=True, exist_ok=True)
     (stale_merge_out_dir / "stale.txt").write_text("old", encoding="utf-8")
 
-    def _fake_import_slay_run_function(*, package_root, allow_numpy_fallback):
-        assert package_root == "/tmp/slay"
+    def _fake_import_slay_run_function(*, allow_numpy_fallback):
         assert allow_numpy_fallback is True
 
         def _fake_run_slay(args):
@@ -4023,7 +4022,6 @@ def test_run_spikesort_merge_stage_writes_recommended_candidate_outputs(tmp_path
     stage_cfg = SimpleNamespace(
         slay_enabled=True,
         slay_relpath="SLAy_outputs",
-        slay_package_root="/tmp/slay",
         slay_sorter_output_relpath=None,
         slay_output_json_relpath="run-output.json",
         slay_candidate_pairs_relpath="recommended_merge_candidates.tsv",
@@ -4075,8 +4073,8 @@ def test_import_slay_run_function_repairs_stale_data_filepath_and_marshmallow_fa
 
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
-    package_root = tmp_path / "fake_slay"
-    slay_dir = package_root / "src" / "slay"
+    fake_slay_repo = tmp_path / "fake_slay"
+    slay_dir = fake_slay_repo / "src" / "slay"
     slay_dir.mkdir(parents=True, exist_ok=True)
     (slay_dir / "__init__.py").write_text("", encoding="utf-8")
     (slay_dir / "schemas.py").write_text(
@@ -4163,10 +4161,10 @@ def test_import_slay_run_function_repairs_stale_data_filepath_and_marshmallow_fa
             delattr(Field, "fail")
         for name in ("slay", "slay.run", "slay.schemas"):
             sys.modules.pop(name, None)
+        sys.path.insert(0, str((fake_slay_repo / "src").resolve()))
         importlib.invalidate_caches()
 
         run_slay = spikesort_runner._import_slay_run_function(
-            package_root=str(package_root),
             allow_numpy_fallback=False,
         )
         run_slay(
@@ -4291,7 +4289,7 @@ def test_run_spikesort_merge_stage_reports_plot_generation_note_when_auto_accept
     )
     (ks_dir / "data.bin").write_bytes(b"0")
 
-    def _fake_import_slay_run_function(*, package_root, allow_numpy_fallback):
+    def _fake_import_slay_run_function(*, allow_numpy_fallback):
         def _fake_run_slay(args):
             automerge_dir = Path(args["KS_folder"]) / "automerge"
             automerge_dir.mkdir(parents=True, exist_ok=True)
@@ -4313,7 +4311,6 @@ def test_run_spikesort_merge_stage_reports_plot_generation_note_when_auto_accept
     stage_cfg = SimpleNamespace(
         slay_enabled=True,
         slay_relpath="SLAy_outputs",
-        slay_package_root="/tmp/slay",
         slay_sorter_output_relpath=None,
         slay_output_json_relpath="run-output.json",
         slay_candidate_pairs_relpath="recommended_merge_candidates.tsv",
@@ -4536,7 +4533,7 @@ def test_run_slay_merge_method_writes_outputs_under_merge_rel_output_root(tmp_pa
     )
     (ks_dir / "data.bin").write_bytes(b"0")
 
-    def _fake_import_slay_run_function(*, package_root, allow_numpy_fallback):
+    def _fake_import_slay_run_function(*, allow_numpy_fallback):
         def _fake_run_slay(args):
             automerge_dir = Path(args["KS_folder"]) / "automerge"
             automerge_dir.mkdir(parents=True, exist_ok=True)
@@ -4556,7 +4553,6 @@ def test_run_slay_merge_method_writes_outputs_under_merge_rel_output_root(tmp_pa
         merge_rel_output_root="merge_outputs",
         slay_enabled=True,
         slay_relpath="SLAy_outputs",
-        slay_package_root="/tmp/slay",
         slay_sorter_output_relpath=None,
         slay_output_json_relpath="run-output.json",
         slay_candidate_pairs_relpath="recommended_merge_candidates.tsv",
@@ -4593,7 +4589,7 @@ def test_run_slay_merge_method_normalizes_wrapper_sorter_output_path(tmp_path: P
     ks_dir.mkdir(parents=True, exist_ok=True)
     (ks_dir / "params.py").write_text("n_channels_dat=4\n", encoding="utf-8")
 
-    def _fake_import_slay_run_function(*, package_root, allow_numpy_fallback):
+    def _fake_import_slay_run_function(*, allow_numpy_fallback):
         def _fake_run_slay(args):
             automerge_dir = Path(args["KS_folder"]) / "automerge"
             automerge_dir.mkdir(parents=True, exist_ok=True)
@@ -4606,7 +4602,6 @@ def test_run_slay_merge_method_normalizes_wrapper_sorter_output_path(tmp_path: P
     stage_cfg = SimpleNamespace(
         slay_enabled=True,
         slay_relpath="SLAy_outputs",
-        slay_package_root="/tmp/slay",
         slay_sorter_output_relpath=None,
         slay_output_json_relpath="run-output.json",
         slay_candidate_pairs_relpath="recommended_merge_candidates.tsv",
@@ -4646,7 +4641,7 @@ def test_run_slay_merge_method_disables_model_cache_read_and_write_when_knobs_fa
 
     captured_args: dict[str, object] = {}
 
-    def _fake_import_slay_run_function(*, package_root, allow_numpy_fallback):
+    def _fake_import_slay_run_function(*, allow_numpy_fallback):
         def _fake_run_slay(args):
             captured_args.update(dict(args))
             automerge_dir = Path(args["KS_folder"]) / "automerge"
@@ -4661,7 +4656,6 @@ def test_run_slay_merge_method_disables_model_cache_read_and_write_when_knobs_fa
     stage_cfg = SimpleNamespace(
         slay_enabled=True,
         slay_relpath="SLAy_outputs",
-        slay_package_root="/tmp/slay",
         slay_sorter_output_relpath=None,
         slay_output_json_relpath="run-output.json",
         slay_candidate_pairs_relpath="recommended_merge_candidates.tsv",
@@ -4712,7 +4706,7 @@ def test_run_slay_merge_method_retrains_without_using_existing_cached_model_when
 
     captured_args: dict[str, object] = {}
 
-    def _fake_import_slay_run_function(*, package_root, allow_numpy_fallback):
+    def _fake_import_slay_run_function(*, allow_numpy_fallback):
         def _fake_run_slay(args):
             captured_args.update(dict(args))
             model_path = Path(str(args["model_path"]))
@@ -4731,7 +4725,6 @@ def test_run_slay_merge_method_retrains_without_using_existing_cached_model_when
     stage_cfg = SimpleNamespace(
         slay_enabled=True,
         slay_relpath="SLAy_outputs",
-        slay_package_root="/tmp/slay",
         slay_sorter_output_relpath=None,
         slay_output_json_relpath="run-output.json",
         slay_candidate_pairs_relpath="recommended_merge_candidates.tsv",
@@ -5521,7 +5514,7 @@ def test_run_spikesort_merge_stage_preserves_existing_outputs_when_delete_disabl
     sentinel = merge_out_dir / "keep_me.txt"
     sentinel.write_text("persist", encoding="utf-8")
 
-    def _fake_import_slay_run_function(*, package_root, allow_numpy_fallback):
+    def _fake_import_slay_run_function(*, allow_numpy_fallback):
         def _fake_run_slay(args):
             automerge_dir = Path(args["KS_folder"]) / "automerge"
             automerge_dir.mkdir(parents=True, exist_ok=True)
@@ -5539,7 +5532,6 @@ def test_run_spikesort_merge_stage_preserves_existing_outputs_when_delete_disabl
     stage_cfg = SimpleNamespace(
         slay_enabled=True,
         slay_relpath="SLAy_outputs",
-        slay_package_root="/tmp/slay",
         slay_sorter_output_relpath=None,
         slay_output_json_relpath="run-output.json",
         slay_candidate_pairs_relpath="recommended_merge_candidates.tsv",

@@ -1954,7 +1954,7 @@ def _preflight_slay_binary_input(*, sorter_output_dir: Path, well_out_dir: Path,
 	}
 
 
-def _import_slay_run_function(*, package_root: str | None, allow_numpy_fallback: bool) -> Callable[[dict[str, Any]], None]:
+def _import_slay_run_function(*, allow_numpy_fallback: bool) -> Callable[[dict[str, Any]], None]:
 	def _patch_parse_kilosort_params(module: Any) -> None:
 		original = getattr(module, "parse_kilosort_params", None)
 		if not callable(original):
@@ -1995,14 +1995,6 @@ def _import_slay_run_function(*, package_root: str | None, allow_numpy_fallback:
 			return args
 
 		setattr(module, "parse_kilosort_params", _patched)
-
-	search_paths: list[str] = []
-	if package_root:
-		base = Path(package_root).expanduser().resolve()
-		search_paths.extend([str(base / "src"), str(base)])
-	for path in reversed(search_paths):
-		if path and path not in sys.path:
-			sys.path.insert(0, path)
 
 	_install_marshmallow_field_fail_compatibility()
 
@@ -7456,7 +7448,6 @@ def _run_slay_merge_method(
 		)
 
 	run_slay = _import_slay_run_function(
-		package_root=getattr(stage_config, "slay_package_root", None),
 		allow_numpy_fallback=bool(getattr(stage_config, "slay_allow_numpy_fallback", True)),
 	)
 

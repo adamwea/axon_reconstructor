@@ -1119,7 +1119,6 @@ def test_parse_spikesort_stage_config_reads_slay_merge_knobs() -> None:
                         "merge_SLAy": {
                             "enabled": True,
                             "relpath": "SLAy_outputs_custom",
-                            "package_root": "/tmp/slay",
                             "sorter_output_relpath": "spikesort_outputs/sorter_output/sorter_output",
                             "output_json_relpath": "reports/slay_run_output.json",
                             "candidate_pairs_relpath": "candidates/recommended.tsv",
@@ -1154,7 +1153,6 @@ def test_parse_spikesort_stage_config_reads_slay_merge_knobs() -> None:
     assert parsed.sort_delete_outputs_on_force_restart is True
     assert parsed.slay_enabled is True
     assert parsed.slay_relpath == "SLAy_outputs_custom"
-    assert parsed.slay_package_root == "/tmp/slay"
     assert parsed.slay_sorter_output_relpath == "spikesort_outputs/sorter_output/sorter_output"
     assert parsed.slay_output_json_relpath == "reports/slay_run_output.json"
     assert parsed.slay_candidate_pairs_relpath == "candidates/recommended.tsv"

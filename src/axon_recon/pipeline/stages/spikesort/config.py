@@ -461,7 +461,6 @@ class SpikesortStageConfig:
 	option_kwargs: dict[str, Any] | None
 	slay_enabled: bool
 	slay_relpath: str
-	slay_package_root: str | None
 	slay_sorter_output_relpath: str | None
 	slay_output_json_relpath: str
 	slay_candidate_pairs_relpath: str
@@ -2679,13 +2678,6 @@ def parse_spikesort_stage_config(
 			"SLAy_outputs",
 		)
 	) or "SLAy_outputs"
-	slay_package_root = _as_optional_str(
-		_coalesce(
-			slay_cfg.get("package_root", None),
-			slay_cfg.get("package_path", None),
-			slay_cfg.get("repo_root", None),
-		)
-	)
 	slay_sorter_output_relpath = _normalize_optional_relpath(
 		_coalesce(
 			slay_cfg.get("sorter_output_relpath", None),
@@ -3381,7 +3373,6 @@ def parse_spikesort_stage_config(
 		option_kwargs=resolved_option_kwargs,
 		slay_enabled=bool(slay_enabled),
 		slay_relpath=slay_relpath,
-		slay_package_root=slay_package_root,
 		slay_sorter_output_relpath=slay_sorter_output_relpath,
 		slay_output_json_relpath=slay_output_json_relpath,
 		slay_candidate_pairs_relpath=slay_candidate_pairs_relpath,

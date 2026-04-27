@@ -424,8 +424,6 @@ stages:
           delete_outputs_on_force_restart: true # merge-method cleanup toggle for SLAy. When force_restart is true, removes only <well>/<output_root>/<SLAy.relpath> before rerunning SLAy merge.
           # Relative to spikesort.execution.output_root.
           relpath: SLAy_outputs
-          # Optional local source checkout for imports when SLAy is not pip-installed.
-          package_root: /home/adamm/dev/pkgs/SLAy
           # Optional explicit KS folder (relative to spikesort.execution.output_root).
           # If null, defaults to sorter_output and auto-probes nested sorter_output/.
           # sorter_output_relpath: ../sorter_output/sorter_output

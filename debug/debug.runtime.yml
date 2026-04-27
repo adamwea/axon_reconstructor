@@ -356,7 +356,7 @@ stages:
         debug_mode:
           enabled: true
           limit_datasets: 1
-          limit_wells: 1
+          limit_wells: 2
         # outputs live under <well>/<spikesort_output_root>/<merge_units.rel_output_root>/<relpath>
         relpath: bombcell_label_outputs
         delete_outputs_on_force_restart: true
@@ -444,7 +444,7 @@ stages:
         debug_mode:
           enabled: true
           limit_datasets: 1
-          limit_wells: 1
+          limit_wells: 2
 
         # phase-local canonical merge workspace mode:
         # 1) copy live sorter/analyzer outputs into a workspace under merge outputs,
@@ -575,7 +575,6 @@ stages:
         #TODO: can probably implement spikeinterface integration of this instead of manually
         # integration as we have it currently.
         relpath: SLAy_outputs
-        package_root: /home/adamm/dev/pkgs/SLAy
         # Optional explicit KS folder (relative to spikesort.execution.output_root).
         # If null, defaults to sorter_output and auto-probes nested sorter_output/.
         # sorter_output_relpath: ../sorter_output/sorter_output
