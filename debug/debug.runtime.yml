@@ -75,9 +75,12 @@ stages:
       # Optional debug overrides for preprocess execution and outputs.
       #limit_wells: null # int or null for no limit
       #limit_segments_per_well: 2 # int or null for no limit
+      enabled: true
       limit_segments_per_well: null
-      limit_datasets: 1
-      limit_wells: 2
+      limit_datasets: 2
+      #limit_wells: 2
+      #limit_wells: null
+      limit_wells_per_dataset: 2
     observability:
       # off|basic|detailed; detailed captures richer metadata artifacts for debugging.
       mode: detailed
@@ -90,7 +93,7 @@ stages:
       stage_log_relpath: logs/preprocess_pipeline.log
     resources:
       #max_stage_workers: 24 # desktop
-      max_stage_workers: 24 # lab server
+      max_stage_workers: 28 # lab server
       well_workers: 6
       divide_stage_workers_by_wells: true # This controls the derived value of n_jobs. when true, stage workers are divided evenly among wells up to the max number of well workers.
     rel_output_root: preprocess_outputs # optional subdir under each well's output directory for all preprocess outputs; relative paths for preprocess phases resolve under this directory in each well's output directory
@@ -254,7 +257,7 @@ stages:
         summary_json_relpath: context/wipe_src_scratch_summary.json
   spikesort:
     resources:
-      max_stage_workers: 24
+      max_stage_workers: 28
       well_workers: 6
       divide_stage_workers_by_wells: true # This controls the derived value of n_jobs. when true, stage workers are divided evenly among wells up to the max number of well workers.
       chunk_duration: 1s
@@ -264,8 +267,10 @@ stages:
       file_relpath: logs/spikesort_pipeline.log
     debug_mode:
       enabled: true
-      limit_datasets: 1
-      limit_wells: 2
+      limit_datasets: 2
+      #limit_wells: 2
+      limit_wells: null
+      limit_wells_per_dataset: 2
     execution:
       force_restart: false
       force_replot: false
@@ -287,7 +292,7 @@ stages:
       bootstrap_concat_binary:
         enabled: true
         debug_mode:
-          enabled: true
+          enabled: false
           limit_datasets: 1
           limit_wells: 2
         # Source manifest is produced by preprocess.preprocess_segments; the binary cache is local to spikesort_outputs.
@@ -306,7 +311,7 @@ stages:
       sort:
         enabled: true
         debug_mode:
-          enabled: true
+          enabled: false
           limit_datasets: 1
           limit_wells: 2
 
@@ -354,7 +359,7 @@ stages:
       bombcell_label:
         enabled: true
         debug_mode:
-          enabled: true
+          enabled: false
           limit_datasets: 1
           limit_wells: 2
         # outputs live under <well>/<spikesort_output_root>/<merge_units.rel_output_root>/<relpath>
@@ -365,6 +370,9 @@ stages:
         cache_sorter_output_before_analyzer_gen: true
         publish_cached_sorter_output_on_success: true
         publish_cached_analyzer_on_success: false # not sure this is needed.
+        cleanup_on_success:
+          analyzer: true # delete the Bombcell-local analyzer after labels and optional publish-back finish.
+          cached_sorter_output: true # delete the Bombcell sorter-output cache after labels and optional publish-back finish.
 
         # analyzer
         analyzer:
@@ -420,7 +428,8 @@ stages:
           # thresholds: null
           # thresholds_path: null
 
-        # write labels back into sorter_output/sorter_output/cluster_KSLabel.tsv before merge methods
+        # write labels into the active sorter output; when the active sorter output is cached,
+        # publish_cached_sorter_output_on_success controls whether that cache replaces canonical sorter_output.
         apply_to_sorter_output: true
         write_cluster_group: true
         # keep false for iterative debugging so merge can continue even if labeling fails
@@ -442,23 +451,21 @@ stages:
         force_replot: false
 
         debug_mode:
-          enabled: true
+          enabled: false
           limit_datasets: 1
           limit_wells: 2
 
-        # phase-local canonical merge workspace mode:
-        # 1) copy live sorter/analyzer outputs into a workspace under merge outputs,
-        # 2) (re)build analyzer there from the copied sorter output,
-        # 3) run this merge phase against that workspace,
-        # 4) optionally publish merged sorter/analyzer back to live stage outputs.
-        use_cache_as_canonical_workspace:
+        # Work on a sorter-output copy so the stage's canonical sorter output is only
+        # replaced after SLAy completes successfully. Analyzer outputs are not copied.
+        working_cache:
           enabled: true
-          canonical_workspace_relpath: cache/merge_workspace
-          canonical_workspace_refresh_on_run: true
-          canonical_workspace_rebuild_analyzer: true
-          assert_uses_canonical_workspace: true
-          publish_to_stage_outputs_on_success: false
-          publish_to_stage_outputs_on_failure: false
+          relpath: cache/merge_workspace
+          refresh_on_run: true
+          assert_selected_sorter_output: true
+          publish_to_canonical_on_success: true
+          publish_to_canonical_on_failure: false
+
+        cleanup_generated_analyzers_on_success: true
 
         analyzer:
           regenerate_on_replot: false
@@ -570,95 +577,55 @@ stages:
               write_svg: false
             inherit_probe_dimensions: true
 
-        # SLAy - https://github.com/saikoukunt/SLAy
-        # New option that is better suited to working with incomplete templates at least.
-        #TODO: can probably implement spikeinterface integration of this instead of manually
-        # integration as we have it currently.
-        relpath: SLAy_outputs
-        # Optional explicit KS folder (relative to spikesort.execution.output_root).
-        # If null, defaults to sorter_output and auto-probes nested sorter_output/.
-        # sorter_output_relpath: ../sorter_output/sorter_output
-        # If true and cupy is unavailable, inject a numpy-based fallback shim.
-        allow_numpy_fallback: true
-        # Copy SLAy automerge artifacts from KS folder into this stage output dir.
-        copy_automerge_artifacts: true
-        # Keep false by default: we only want candidate outputs, not direct KS cluster rewrites.
-        auto_accept_merges: true
-        # NOTE: upstream SLAy only emits automerge/merges plots when auto_accept_merges is false.
-        # Keep false by default to avoid plotting overhead for debug iterations.
-        plot_merges: true
-        # Stage-managed output artifact names.
-        output_json_relpath: run-output.json
-        candidate_pairs_relpath: recommended_merge_candidates.tsv
-        merge_groups_relpath: recommended_merge_groups.json
-
-        # Optional SLAy model-cache controls.
-        # These knobs govern the cache under merge outputs (for example cache/slay_model/ae.pt).
-        model_cache:
-          enabled: true
-          # When true, reuse an existing cached model file if present.
-          use_cached_model: true
-          # When true, allow SLAy to write/update the cached model file.
-          write_model_cache: true
-          # Relative to merge output root.
-          relpath: cache/slay_model/ae.pt
-        # If true and force_restart is enabled for merge phase/SLAy, delete the selected model path
-        # before running so SLAy retrains from scratch.
-        #force_restart_retrain_model: false
-        force_restart_retrain_model: true
-
-        # Optional passthrough params for slay.run_slay.
-        # Values below mirror SLAy RunParams defaults so you can tweak them explicitly.
-        # Note: KS_folder and output_json are managed by this pipeline wrapper.
-        # Note: auto_accept_merges / plot_merges are controlled by top-level SLAy keys above.
-        params:
-          dtype: int16
-          pre_samples: 20
-          post_samples: 62
-          #min_spikes: 100
-          min_spikes: 50
-          #max_spikes: 500
-          max_spikes: -1
-          #good_lbls: [good] # Only these KS labels are treated as valid units for SLAy similarity/merge candidate scoring.
-          #good_lbls: [good, mua] # include unsorted units as candidate participants in SLAy merges by treating them as valid units for similarity/merge candidate scoring; keep false by default to focus on merges between well-isolated units during debugging iterations, but can be set to true to explore potential merges involving unsorted units.
-          good_lbls: [good, non_soma_good] # include non-somatic units as candidate participants in SLAy merges by treating them as valid units for similarity/merge candidate scoring, which can help identify merges between somatic and non-somatic units that likely belong together; keep [good] by default to focus on merges between well-isolated somatic units during debugging iterations, but can be set to this broader set to explore potential merges involving non-somatic units.
-
-          window_size: 0.1
-          xcorr_bin_width: 0.0005
-          overlap_tol: 0.00016666666666666666 # 5 / 30000
-          min_xcorr_rate: 800
-          xcorr_coeff: 0.25
-
-          ref_pen_bin_width: 1
-          max_viol: 0.15
-          ref_pen_coeff: 1
-
-          spikes_path: null
-          model_path: null
-          sim_thresh: 0.4
-          # Autoencoder embedding window/control knobs used by SLAy similarity scoring.
-          ae_pre: 10 # samples before spike center used in AE input window
-          ae_post: 30 # samples after spike center used in AE input window
-          ae_chan: 8 # number of local channels included in AE input tensor
-          #ae_chan: 10
-          #ae_noise: false # purpose: noise augmentation for AE embeddings/training. ON can improve robustness to noisy waveforms and amplitude variation; OFF is faster and usually more repeatable for debugging.
-          ae_noise: true
-          ae_shft: false # purpose: temporal-shift augmentation for AE embeddings/training. ON can improve tolerance to spike-alignment jitter; OFF is faster and keeps embeddings more timing-sensitive.
-          #ae_epochs: 25 # training epochs when SLAy needs to train/fine-tune the AE model
-          ae_epochs: 50
-          #ae_epochs: 10 # reduced for debugging iterations; can increase for more thorough training in non-debug runs.
-
-          final_thresh: 0.5
-          max_dist: 10
-          #auto_accept_merges: false
+        slay:
+          # SLAy - https://github.com/saikoukunt/SLAy
+          relpath: SLAy_outputs
+          # Optional explicit KS folder. If null, use the selected sorter output and auto-probe nested sorter_output/.
+          # sorter_output_relpath: ../sorter_output/sorter_output
+          allow_numpy_fallback: true
+          copy_automerge_artifacts: true
           auto_accept_merges: true
           plot_merges: true
+          output_json_relpath: run-output.json
+          candidate_pairs_relpath: recommended_merge_candidates.tsv
+          merge_groups_relpath: recommended_merge_groups.json
+          recompute_analyzer: false
 
-        # recompute analyzer after applying merges recommended by SLAy.
-        # i think merges applied by SLAy are applied to the sorting object directly,
-        # so the analyzer might be out of date after the merges are applied,
-        # which could lead to inconsistencies between the merged sorting and the analyzer outputs that are used for downstream template building and plotting.
-        recompute_analyzer: true # whether to trigger a rerun of the analyzer after applying merges recommended by SLAy; keep false by default to avoid the overhead of repeated analyzer runs during merge debugging iterations.
+          model_cache:
+            enabled: true
+            use_cached_model: true
+            write_model_cache: true
+            relpath: cache/slay_model/ae.pt
+          force_restart_retrain_model: true
+
+          params:
+            dtype: int16
+            pre_samples: 20
+            post_samples: 62
+            min_spikes: 50
+            max_spikes: -1
+            good_lbls: [good, non_soma_good]
+            window_size: 0.1
+            xcorr_bin_width: 0.0005
+            overlap_tol: 0.00016666666666666666 # 5 / 30000
+            min_xcorr_rate: 800
+            xcorr_coeff: 0.25
+            ref_pen_bin_width: 1
+            max_viol: 0.15
+            ref_pen_coeff: 1
+            spikes_path: null
+            model_path: null
+            sim_thresh: 0.4
+            ae_pre: 10
+            ae_post: 30
+            ae_chan: 8
+            ae_noise: true
+            ae_shft: false
+            ae_epochs: 50
+            final_thresh: 0.5
+            max_dist: 10
+            auto_accept_merges: true
+            plot_merges: true
 
       merge_si_auto:
 
@@ -668,15 +635,15 @@ stages:
         force_restart: false
         force_replot: false
 
-        # phase-local canonical merge workspace mode:
-        use_cache_as_canonical_workspace:
+        working_cache:
           enabled: true
-          canonical_workspace_relpath: cache/merge_workspace
-          canonical_workspace_refresh_on_run: true
-          canonical_workspace_rebuild_analyzer: true
-          assert_uses_canonical_workspace: true
-          publish_to_stage_outputs_on_success: true
-          publish_to_stage_outputs_on_failure: false
+          relpath: cache/merge_workspace
+          refresh_on_run: true
+          assert_selected_sorter_output: true
+          publish_to_canonical_on_success: true
+          publish_to_canonical_on_failure: false
+
+        cleanup_generated_analyzers_on_success: true
 
         analyzer:
           regenerate_on_replot: false
@@ -811,15 +778,15 @@ stages:
         force_restart: false
         force_replot: false
 
-        # phase-local canonical merge workspace mode:
-        use_cache_as_canonical_workspace:
+        working_cache:
           enabled: true
-          canonical_workspace_relpath: cache/merge_workspace
-          canonical_workspace_refresh_on_run: true
-          canonical_workspace_rebuild_analyzer: true
-          assert_uses_canonical_workspace: true
-          publish_to_stage_outputs_on_success: true
-          publish_to_stage_outputs_on_failure: false
+          relpath: cache/merge_workspace
+          refresh_on_run: true
+          assert_selected_sorter_output: true
+          publish_to_canonical_on_success: true
+          publish_to_canonical_on_failure: false
+
+        cleanup_generated_analyzers_on_success: true
 
         analyzer:
           regenerate_on_replot: false

@@ -424,6 +424,8 @@ class SpikesortStageConfig:
 	bombcell_label_cache_sorter_output_before_analyzer_gen: bool
 	bombcell_label_publish_cached_sorter_output_on_success: bool
 	bombcell_label_publish_cached_analyzer_on_success: bool
+	bombcell_label_cleanup_analyzer_on_success: bool
+	bombcell_label_cleanup_cached_sorter_output_on_success: bool
 	bombcell_label_thresholds: dict[str, Any] | None
 	bombcell_label_thresholds_path: str | None
 	bombcell_label_label_non_somatic: bool
@@ -534,6 +536,7 @@ class SpikesortStageConfig:
 	merge_delete_outputs_on_force_restart: bool
 	merge_force_restart: bool
 	merge_force_replot: bool
+	merge_cleanup_generated_analyzers_on_success: bool
 	merge_analyzer_regenerate_on_replot: bool
 	merge_analyzer_check_if_regen_is_needed: bool
 	merge_analyzer_compute_sparsity: bool
@@ -663,6 +666,7 @@ _MERGE_PHASE_RUNTIME_OVERRIDE_EXPLICIT_FIELDS = (
 	"merge_delete_outputs_on_force_restart",
 	"merge_force_restart",
 	"merge_force_replot",
+	"merge_cleanup_generated_analyzers_on_success",
 	"cache_sorting_outputs_before_merge_use_canonical_workspace",
 	"cache_sorting_outputs_before_merge_canonical_workspace_relpath",
 	"cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run",
@@ -744,6 +748,7 @@ def parse_spikesort_stage_config(
 		bombcell_analyzer_cfg.get("template_extraction", {})
 	)
 	bombcell_params_cfg = _as_section(bombcell_phase_cfg.get("params", {}))
+	bombcell_cleanup_on_success_cfg = _as_section(bombcell_phase_cfg.get("cleanup_on_success", {}))
 	bombcell_reports_cfg = _as_section(bombcell_phase_cfg.get("reports", {}))
 	bombcell_reports_summary_json_cfg = _as_section(bombcell_reports_cfg.get("summary_json", {}))
 	resources_cfg = _as_section(stage_cfg.get("resources", {}))
@@ -800,7 +805,11 @@ def parse_spikesort_stage_config(
 	legacy_merge_phase_auto_merge_cfg = _as_section(merge_units_phase_cfg.get("auto_merge", {}))
 	cache_sorting_outputs_cfg_raw = merge_units_phase_cfg.get("cache_sorting_outputs_before_merge", None)
 	cache_sorting_outputs_cfg = _as_section(cache_sorting_outputs_cfg_raw)
-	canonical_workspace_cfg_raw = merge_units_phase_cfg.get("use_cache_as_canonical_workspace", None)
+	working_cache_cfg_raw = merge_units_phase_cfg.get("working_cache", None)
+	canonical_workspace_cfg_raw = _coalesce(
+		working_cache_cfg_raw,
+		merge_units_phase_cfg.get("use_cache_as_canonical_workspace", None),
+	)
 	canonical_workspace_cfg = _as_section(canonical_workspace_cfg_raw)
 	merge_reports_cfg = _as_section(merge_units_phase_cfg.get("reports", {}))
 	merge_reports_unit_diff_json_cfg = _as_section(merge_reports_cfg.get("unit_diff_json", {}))
@@ -852,6 +861,7 @@ def parse_spikesort_stage_config(
 	slay_cfg.update(execution_slay_cfg)
 	slay_cfg.update(legacy_merge_phase_slay_cfg)
 	slay_cfg.update(merge_slay_phase_cfg)
+	slay_cfg.update(_as_section(merge_slay_phase_cfg.get("slay", {})))
 	slay_model_cache_cfg = _as_section(slay_cfg.get("model_cache", {}))
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
@@ -1423,6 +1433,16 @@ def parse_spikesort_stage_config(
 	# Merge-phase force flags inherit global spikesort execution toggles.
 	merge_force_restart = bool(force_restart or merge_force_restart)
 	merge_force_replot = bool(force_replot or merge_force_replot)
+	merge_cleanup_generated_analyzers_on_success = _as_bool(
+		_coalesce(
+			merge_units_phase_cfg.get("cleanup_generated_analyzers_on_success", None),
+			merge_units_phase_cfg.get("merge_cleanup_generated_analyzers_on_success", None),
+			execution_cfg.get("merge_cleanup_generated_analyzers_on_success", None),
+			stage_cfg.get("merge_cleanup_generated_analyzers_on_success", None),
+			True,
+		),
+		True,
+	)
 	cache_sorting_outputs_before_merge = _as_bool(
 		_coalesce(
 			cache_sorting_outputs_cfg.get("enabled", None),
@@ -1506,6 +1526,7 @@ def parse_spikesort_stage_config(
 				else None
 			),
 			cache_sorting_outputs_cfg.get("use_as_canonical_workspace", None),
+			cache_sorting_outputs_cfg.get("use_working_cache", None),
 			cache_sorting_outputs_cfg.get("run_merge_in_cached_workspace", None),
 			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_use_canonical_workspace", None),
 			execution_cfg.get("cache_sorting_outputs_before_merge_use_canonical_workspace", None),
@@ -1516,21 +1537,25 @@ def parse_spikesort_stage_config(
 	)
 	cache_sorting_outputs_before_merge_canonical_workspace_relpath = _normalize_optional_relpath(
 		_coalesce(
+			canonical_workspace_cfg.get("working_cache_relpath", None),
 			canonical_workspace_cfg.get("canonical_workspace_relpath", None),
 			canonical_workspace_cfg.get("workspace_relpath", None),
 			canonical_workspace_cfg.get("relpath", None),
+			cache_sorting_outputs_cfg.get("working_cache_relpath", None),
 			cache_sorting_outputs_cfg.get("canonical_workspace_relpath", None),
 			cache_sorting_outputs_cfg.get("workspace_relpath", None),
 			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_relpath", None),
 			execution_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_relpath", None),
 			stage_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_relpath", None),
-			"cache/merge_canonical_workspace",
+			"cache/merge_workspace",
 		)
-	) or "cache/merge_canonical_workspace"
+	) or "cache/merge_workspace"
 	cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run = _as_bool(
 		_coalesce(
+			canonical_workspace_cfg.get("working_cache_refresh_on_run", None),
 			canonical_workspace_cfg.get("canonical_workspace_refresh_on_run", None),
 			canonical_workspace_cfg.get("refresh_on_run", None),
+			cache_sorting_outputs_cfg.get("working_cache_refresh_on_run", None),
 			cache_sorting_outputs_cfg.get("canonical_workspace_refresh_on_run", None),
 			cache_sorting_outputs_cfg.get("canonical_workspace_always_refresh_on_run", None),
 			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run", None),
@@ -1542,20 +1567,27 @@ def parse_spikesort_stage_config(
 	)
 	cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer = _as_bool(
 		_coalesce(
+			canonical_workspace_cfg.get("working_cache_rebuild_analyzer", None),
 			canonical_workspace_cfg.get("canonical_workspace_rebuild_analyzer", None),
 			canonical_workspace_cfg.get("rebuild_analyzer", None),
+			cache_sorting_outputs_cfg.get("working_cache_rebuild_analyzer", None),
 			cache_sorting_outputs_cfg.get("canonical_workspace_rebuild_analyzer", None),
 			cache_sorting_outputs_cfg.get("canonical_workspace_recompute_analyzer", None),
 			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer", None),
 			execution_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer", None),
 			stage_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer", None),
-			True,
+			False,
 		),
-		True,
+		False,
 	)
 	cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success = _as_bool(
 		_coalesce(
+			canonical_workspace_cfg.get("publish_to_canonical_on_success", None),
+			canonical_workspace_cfg.get("publish_working_cache_to_canonical_on_success", None),
+			canonical_workspace_cfg.get("publish_sorter_output_to_canonical_on_success", None),
 			canonical_workspace_cfg.get("publish_to_stage_outputs_on_success", None),
+			cache_sorting_outputs_cfg.get("publish_to_canonical_on_success", None),
+			cache_sorting_outputs_cfg.get("publish_working_cache_to_canonical_on_success", None),
 			cache_sorting_outputs_cfg.get("publish_to_stage_outputs_on_success", None),
 			cache_sorting_outputs_cfg.get("publish_canonical_to_stage_outputs_on_success", None),
 			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success", None),
@@ -1567,7 +1599,12 @@ def parse_spikesort_stage_config(
 	)
 	cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure = _as_bool(
 		_coalesce(
+			canonical_workspace_cfg.get("publish_to_canonical_on_failure", None),
+			canonical_workspace_cfg.get("publish_working_cache_to_canonical_on_failure", None),
+			canonical_workspace_cfg.get("publish_sorter_output_to_canonical_on_failure", None),
 			canonical_workspace_cfg.get("publish_to_stage_outputs_on_failure", None),
+			cache_sorting_outputs_cfg.get("publish_to_canonical_on_failure", None),
+			cache_sorting_outputs_cfg.get("publish_working_cache_to_canonical_on_failure", None),
 			cache_sorting_outputs_cfg.get("publish_to_stage_outputs_on_failure", None),
 			cache_sorting_outputs_cfg.get("publish_canonical_to_stage_outputs_on_failure", None),
 			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure", None),
@@ -1579,6 +1616,8 @@ def parse_spikesort_stage_config(
 	)
 	cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace = _as_bool(
 		_coalesce(
+			canonical_workspace_cfg.get("assert_selected_sorter_output", None),
+			canonical_workspace_cfg.get("assert_slay_uses_working_cache", None),
 			canonical_workspace_cfg.get("assert_slay_uses_canonical_workspace", None),
 			canonical_workspace_cfg.get("assert_slay_uses_workspace", None),
 			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace", None),
@@ -1590,6 +1629,8 @@ def parse_spikesort_stage_config(
 	)
 	cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace = _as_bool(
 		_coalesce(
+			canonical_workspace_cfg.get("assert_selected_sorter_output", None),
+			canonical_workspace_cfg.get("assert_auto_merge_uses_working_cache", None),
 			canonical_workspace_cfg.get("assert_auto_merge_uses_canonical_workspace", None),
 			canonical_workspace_cfg.get("assert_auto_merge_uses_workspace", None),
 			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace", None),
@@ -1616,7 +1657,13 @@ def parse_spikesort_stage_config(
 		default_publish_on_failure: bool,
 		default_assert_uses_canonical_workspace: bool,
 	) -> dict[str, Any]:
-		phase_canonical_workspace_cfg = _as_section(phase_cfg.get("use_cache_as_canonical_workspace", {}))
+		phase_canonical_workspace_cfg = _as_section(
+			_coalesce(
+				phase_cfg.get("working_cache", None),
+				phase_cfg.get("use_cache_as_canonical_workspace", None),
+				{},
+			)
+		)
 		phase_debug_cfg = _as_section(phase_cfg.get("debug_mode", {}))
 		return {
 			"enabled": _as_bool(
@@ -1666,6 +1713,7 @@ def parse_spikesort_stage_config(
 			),
 			"canonical_workspace_relpath": _normalize_optional_relpath(
 				_coalesce(
+					phase_canonical_workspace_cfg.get("working_cache_relpath", None),
 					phase_canonical_workspace_cfg.get("canonical_workspace_relpath", None),
 					phase_canonical_workspace_cfg.get("workspace_relpath", None),
 					phase_canonical_workspace_cfg.get("relpath", None),
@@ -1675,6 +1723,7 @@ def parse_spikesort_stage_config(
 			or default_canonical_workspace_relpath,
 			"canonical_workspace_refresh_on_run": _as_bool(
 				_coalesce(
+					phase_canonical_workspace_cfg.get("working_cache_refresh_on_run", None),
 					phase_canonical_workspace_cfg.get("canonical_workspace_refresh_on_run", None),
 					phase_canonical_workspace_cfg.get("refresh_on_run", None),
 					default_canonical_workspace_refresh_on_run,
@@ -1683,6 +1732,7 @@ def parse_spikesort_stage_config(
 			),
 			"canonical_workspace_rebuild_analyzer": _as_bool(
 				_coalesce(
+					phase_canonical_workspace_cfg.get("working_cache_rebuild_analyzer", None),
 					phase_canonical_workspace_cfg.get("canonical_workspace_rebuild_analyzer", None),
 					phase_canonical_workspace_cfg.get("rebuild_analyzer", None),
 					default_canonical_workspace_rebuild_analyzer,
@@ -1691,6 +1741,9 @@ def parse_spikesort_stage_config(
 			),
 			"publish_canonical_to_stage_outputs_on_success": _as_bool(
 				_coalesce(
+					phase_canonical_workspace_cfg.get("publish_to_canonical_on_success", None),
+					phase_canonical_workspace_cfg.get("publish_working_cache_to_canonical_on_success", None),
+					phase_canonical_workspace_cfg.get("publish_sorter_output_to_canonical_on_success", None),
 					phase_canonical_workspace_cfg.get("publish_to_stage_outputs_on_success", None),
 					default_publish_on_success,
 				),
@@ -1698,6 +1751,9 @@ def parse_spikesort_stage_config(
 			),
 			"publish_canonical_to_stage_outputs_on_failure": _as_bool(
 				_coalesce(
+					phase_canonical_workspace_cfg.get("publish_to_canonical_on_failure", None),
+					phase_canonical_workspace_cfg.get("publish_working_cache_to_canonical_on_failure", None),
+					phase_canonical_workspace_cfg.get("publish_sorter_output_to_canonical_on_failure", None),
 					phase_canonical_workspace_cfg.get("publish_to_stage_outputs_on_failure", None),
 					default_publish_on_failure,
 				),
@@ -1705,6 +1761,8 @@ def parse_spikesort_stage_config(
 			),
 			"assert_uses_canonical_workspace": _as_bool(
 				_coalesce(
+					phase_canonical_workspace_cfg.get("assert_selected_sorter_output", None),
+					phase_canonical_workspace_cfg.get("assert_uses_working_cache", None),
 					phase_canonical_workspace_cfg.get("assert_uses_canonical_workspace", None),
 					default_assert_uses_canonical_workspace,
 				),
@@ -1725,10 +1783,10 @@ def parse_spikesort_stage_config(
 		default_force_restart=bool(merge_force_restart),
 		default_force_replot=bool(merge_force_replot),
 		default_use_canonical_workspace=True,
-		default_canonical_workspace_relpath="cache/merge_canonical_workspace",
+		default_canonical_workspace_relpath="cache/merge_workspace",
 		default_canonical_workspace_refresh_on_run=True,
-		default_canonical_workspace_rebuild_analyzer=True,
-		default_publish_on_success=False,
+		default_canonical_workspace_rebuild_analyzer=False,
+		default_publish_on_success=True,
 		default_publish_on_failure=False,
 		default_assert_uses_canonical_workspace=True,
 	)
@@ -1740,10 +1798,10 @@ def parse_spikesort_stage_config(
 		default_force_restart=bool(merge_force_restart),
 		default_force_replot=bool(merge_force_replot),
 		default_use_canonical_workspace=True,
-		default_canonical_workspace_relpath="cache/merge_canonical_workspace",
+		default_canonical_workspace_relpath="cache/merge_workspace",
 		default_canonical_workspace_refresh_on_run=True,
-		default_canonical_workspace_rebuild_analyzer=True,
-		default_publish_on_success=False,
+		default_canonical_workspace_rebuild_analyzer=False,
+		default_publish_on_success=True,
 		default_publish_on_failure=False,
 		default_assert_uses_canonical_workspace=True,
 	)
@@ -1755,10 +1813,10 @@ def parse_spikesort_stage_config(
 		default_force_restart=bool(merge_force_restart),
 		default_force_replot=bool(merge_force_replot),
 		default_use_canonical_workspace=True,
-		default_canonical_workspace_relpath="cache/merge_canonical_workspace",
+		default_canonical_workspace_relpath="cache/merge_workspace",
 		default_canonical_workspace_refresh_on_run=True,
-		default_canonical_workspace_rebuild_analyzer=True,
-		default_publish_on_success=False,
+		default_canonical_workspace_rebuild_analyzer=False,
+		default_publish_on_success=True,
 		default_publish_on_failure=False,
 		default_assert_uses_canonical_workspace=True,
 	)
@@ -2529,6 +2587,29 @@ def parse_spikesort_stage_config(
 	bombcell_label_publish_cached_analyzer_on_success = _as_bool(
 		_coalesce(
 			bombcell_phase_cfg.get("publish_cached_analyzer_on_success", None),
+			False,
+		),
+		False,
+	)
+	bombcell_label_cleanup_analyzer_on_success = _as_bool(
+		_coalesce(
+			bombcell_cleanup_on_success_cfg.get("analyzer", None),
+			bombcell_cleanup_on_success_cfg.get("analyzer_output", None),
+			bombcell_phase_cfg.get("cleanup_analyzer_on_success", None),
+			bombcell_phase_cfg.get("cleanup_analyzer_output_on_success", None),
+			bombcell_phase_cfg.get("wipe_analyzer_on_success", None),
+			False,
+		),
+		False,
+	)
+	bombcell_label_cleanup_cached_sorter_output_on_success = _as_bool(
+		_coalesce(
+			bombcell_cleanup_on_success_cfg.get("cached_sorter_output", None),
+			bombcell_cleanup_on_success_cfg.get("sorter_output_cache", None),
+			bombcell_cleanup_on_success_cfg.get("sorter_output", None),
+			bombcell_phase_cfg.get("cleanup_cached_sorter_output_on_success", None),
+			bombcell_phase_cfg.get("cleanup_sorter_output_cache_on_success", None),
+			bombcell_phase_cfg.get("wipe_cached_sorter_output_on_success", None),
 			False,
 		),
 		False,
@@ -3334,6 +3415,10 @@ def parse_spikesort_stage_config(
 		bombcell_label_publish_cached_analyzer_on_success=bool(
 			bombcell_label_publish_cached_analyzer_on_success
 		),
+		bombcell_label_cleanup_analyzer_on_success=bool(bombcell_label_cleanup_analyzer_on_success),
+		bombcell_label_cleanup_cached_sorter_output_on_success=bool(
+			bombcell_label_cleanup_cached_sorter_output_on_success
+		),
 		bombcell_label_thresholds=(dict(bombcell_label_thresholds) if isinstance(bombcell_label_thresholds, dict) else None),
 		bombcell_label_thresholds_path=(str(bombcell_label_thresholds_path) if bombcell_label_thresholds_path is not None else None),
 		bombcell_label_label_non_somatic=bool(bombcell_label_label_non_somatic),
@@ -3497,6 +3582,9 @@ def parse_spikesort_stage_config(
 		merge_delete_outputs_on_force_restart=bool(merge_delete_outputs_on_force_restart),
 		merge_force_restart=bool(merge_force_restart),
 		merge_force_replot=bool(merge_force_replot),
+		merge_cleanup_generated_analyzers_on_success=bool(
+			merge_cleanup_generated_analyzers_on_success
+		),
 		merge_analyzer_regenerate_on_replot=bool(merge_analyzer_regenerate_on_replot),
 		merge_analyzer_check_if_regen_is_needed=bool(merge_analyzer_check_if_regen_is_needed),
 		merge_analyzer_compute_sparsity=bool(merge_analyzer_compute_sparsity),

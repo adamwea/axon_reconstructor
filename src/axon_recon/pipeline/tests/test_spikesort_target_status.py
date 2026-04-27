@@ -1026,7 +1026,7 @@ def test_run_spikesort_merge_slay_from_runtime_applies_phase_workspace_config(
             merge_force_replot=False,
             cache_sorting_outputs_before_merge=True,
             cache_sorting_outputs_before_merge_use_canonical_workspace=False,
-            cache_sorting_outputs_before_merge_canonical_workspace_relpath="cache/merge_canonical_workspace",
+            cache_sorting_outputs_before_merge_canonical_workspace_relpath="cache/merge_workspace",
             cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run=False,
             cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer=False,
             cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success=True,
@@ -1041,8 +1041,8 @@ def test_run_spikesort_merge_slay_from_runtime_applies_phase_workspace_config(
             merge_slay_use_canonical_workspace=True,
             merge_slay_canonical_workspace_relpath="cache/slay_workspace",
             merge_slay_canonical_workspace_refresh_on_run=True,
-            merge_slay_canonical_workspace_rebuild_analyzer=True,
-            merge_slay_publish_canonical_to_stage_outputs_on_success=False,
+            merge_slay_canonical_workspace_rebuild_analyzer=False,
+            merge_slay_publish_canonical_to_stage_outputs_on_success=True,
             merge_slay_publish_canonical_to_stage_outputs_on_failure=False,
             merge_slay_assert_uses_canonical_workspace=True,
             merge_phase_runtime_overrides={
@@ -1088,8 +1088,8 @@ def test_run_spikesort_merge_slay_from_runtime_applies_phase_workspace_config(
     assert mapped_stage_config.cache_sorting_outputs_before_merge_use_canonical_workspace is True
     assert mapped_stage_config.cache_sorting_outputs_before_merge_canonical_workspace_relpath == "cache/slay_workspace"
     assert mapped_stage_config.cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run is True
-    assert mapped_stage_config.cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer is True
-    assert mapped_stage_config.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success is False
+    assert mapped_stage_config.cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer is False
+    assert mapped_stage_config.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success is True
     assert mapped_stage_config.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure is False
     assert mapped_stage_config.cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace is True
     assert mapped_stage_config.slay_enabled is True
@@ -1150,7 +1150,7 @@ def test_run_spikesort_merge_slay_from_runtime_applies_phase_debug_limits(
             merge_force_replot=False,
             cache_sorting_outputs_before_merge=True,
             cache_sorting_outputs_before_merge_use_canonical_workspace=False,
-            cache_sorting_outputs_before_merge_canonical_workspace_relpath="cache/merge_canonical_workspace",
+            cache_sorting_outputs_before_merge_canonical_workspace_relpath="cache/merge_workspace",
             cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run=False,
             cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer=False,
             cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success=True,
@@ -1165,8 +1165,8 @@ def test_run_spikesort_merge_slay_from_runtime_applies_phase_debug_limits(
             merge_slay_use_canonical_workspace=True,
             merge_slay_canonical_workspace_relpath="cache/slay_workspace",
             merge_slay_canonical_workspace_refresh_on_run=True,
-            merge_slay_canonical_workspace_rebuild_analyzer=True,
-            merge_slay_publish_canonical_to_stage_outputs_on_success=False,
+            merge_slay_canonical_workspace_rebuild_analyzer=False,
+            merge_slay_publish_canonical_to_stage_outputs_on_success=True,
             merge_slay_publish_canonical_to_stage_outputs_on_failure=False,
             merge_slay_assert_uses_canonical_workspace=True,
             merge_slay_debug_mode_enabled=True,

@@ -4063,6 +4063,106 @@ def test_run_spikesort_merge_stage_writes_recommended_candidate_outputs(tmp_path
     assert "2\t3" in candidates_tsv
 
 
+def test_run_spikesort_merge_stage_working_cache_is_sorter_only_and_lazy_analyzer(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    h5_path = tmp_path / "raw_data" / "input.raw.h5"
+    h5_path.parent.mkdir(parents=True, exist_ok=True)
+    h5_path.write_bytes(b"")
+    stream_id = "well001"
+    output_rel_root = "spikesort_outputs"
+    well_out_dir = compute_mea_analysis_output_dir(
+        output_root=tmp_path,
+        data_file=h5_path,
+        well=stream_id,
+    )
+    stage_output_root_dir = well_out_dir / output_rel_root
+    canonical_wrapper_dir = stage_output_root_dir / "sorter_output"
+    canonical_ks_dir = canonical_wrapper_dir / "sorter_output"
+    canonical_ks_dir.mkdir(parents=True, exist_ok=True)
+    (canonical_ks_dir / "params.py").write_text(
+        "dat_path = 'data.bin'\n"
+        "n_channels_dat = 4\n"
+        "dtype = 'int16'\n"
+        "sample_rate = 30000\n",
+        encoding="utf-8",
+    )
+    (canonical_ks_dir / "data.bin").write_bytes(b"0")
+    canonical_analyzer_dir = stage_output_root_dir / "analyzer_output"
+    canonical_analyzer_dir.mkdir(parents=True)
+    (canonical_analyzer_dir / "stale.txt").write_text("stale", encoding="utf-8")
+
+    def _fail_recompute(*args, **kwargs):
+        raise AssertionError("merge should not build an analyzer when reports and metadata do not need one")
+
+    monkeypatch.setattr(spikesort_runner, "_recompute_sorting_analyzer_to_dir", _fail_recompute)
+    monkeypatch.setattr(spikesort_runner, "_recompute_spikesort_analyzer", _fail_recompute)
+
+    def _fake_slay(**kwargs):
+        sorter_output_dir = Path(kwargs["sorter_output_dir"])
+        assert "merge_workspace" in sorter_output_dir.parts
+        marker_dir = sorter_output_dir / "sorter_output" if (sorter_output_dir / "sorter_output").exists() else sorter_output_dir
+        (marker_dir / "merged.marker").write_text("post", encoding="utf-8")
+        return {
+            "name": "slay",
+            "status": "ok",
+            "reason": None,
+            "out_dir": str((stage_output_root_dir / "merge_SLAy" / "SLAy_outputs").resolve()),
+            "summary_json": None,
+            "outputs": {},
+            "ks_dir": str(sorter_output_dir),
+            "applied_merges": True,
+        }
+
+    monkeypatch.setattr(spikesort_runner, "_run_slay_merge_method", _fake_slay)
+
+    result = run_spikesort_merge_stage(
+        h5_path=h5_path,
+        stream_id=stream_id,
+        mea_output_root=tmp_path,
+        output_rel_root=output_rel_root,
+        stage_config=SimpleNamespace(
+            merge_units_enabled=True,
+            merge_sequence=["slay"],
+            merge_rel_output_root="merge_SLAy",
+            slay_enabled=True,
+            slay_auto_accept_merges=True,
+            slay_recompute_analyzer=False,
+            slay_sorter_output_relpath=None,
+            cache_sorting_outputs_before_merge_use_canonical_workspace=True,
+            cache_sorting_outputs_before_merge_canonical_workspace_relpath="cache/merge_workspace",
+            cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run=True,
+            cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer=False,
+            cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success=True,
+            cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure=False,
+            cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace=True,
+            merge_cleanup_generated_analyzers_on_success=True,
+            merge_reports_enabled=False,
+            merge_metadata_enabled=False,
+            pre_merge_metadata_enabled=False,
+            post_merge_metadata_enabled=False,
+        ),
+        force_restart=False,
+    )
+
+    summary = _read_json(result.summary_json)
+    working_cache_dir = stage_output_root_dir / "merge_SLAy" / "cache" / "merge_workspace"
+
+    assert summary.get("status") == "ok"
+    assert (canonical_ks_dir / "merged.marker").read_text(encoding="utf-8") == "post"
+    assert not (working_cache_dir / "analyzer_output").exists()
+    assert not canonical_analyzer_dir.exists()
+    assert summary.get("pre_merge_workspace", {}).get("analyzer_built") is False
+    assert summary.get("working_cache", {}).get("sorter_output_dir") == str(
+        (working_cache_dir / "sorter_output").resolve()
+    )
+    assert "analyzer_output" not in "\n".join(summary.get("working_cache", {}).get("copied_paths", []))
+    assert summary.get("working_cache_publish", {}).get("published") is True
+
+
 def test_import_slay_run_function_repairs_stale_data_filepath_and_marshmallow_fail(
     tmp_path: Path,
 ) -> None:
@@ -4207,11 +4307,11 @@ def test_run_spikesort_merge_stage_fails_fast_when_slay_binary_input_is_missing(
 
     well_out_dir = tmp_path / "well001"
     stage_output_root_dir = well_out_dir / "spikesort_outputs"
-    canonical_workspace_root = stage_output_root_dir / "merge_output" / "cache" / "merge_workspace"
-    ks_dir = canonical_workspace_root / "sorter_output" / "sorter_output"
+    working_cache_root = stage_output_root_dir / "merge_output" / "cache" / "merge_workspace"
+    ks_dir = working_cache_root / "sorter_output" / "sorter_output"
 
-    def _fake_cache_sorting_outputs_before_merge(*, stage_output_root_dir, cache_root_dir):
-        assert Path(cache_root_dir).resolve() == canonical_workspace_root.resolve()
+    def _fake_cache_canonical_sorter_output_for_merge(*, stage_output_root_dir, cache_root_dir):
+        assert Path(cache_root_dir).resolve() == working_cache_root.resolve()
         ks_dir.mkdir(parents=True, exist_ok=True)
         (ks_dir / "params.py").write_text(
             "dat_path = ['/tmp/missing-recording.dat']\n"
@@ -4220,13 +4320,13 @@ def test_run_spikesort_merge_stage_fails_fast_when_slay_binary_input_is_missing(
             "sample_rate = 10000.0\n",
             encoding="utf-8",
         )
-        return {"summary_json": str((canonical_workspace_root / "pre_merge_cache_summary.json").resolve())}
+        return {"summary_json": str((working_cache_root / "working_cache_summary.json").resolve())}
 
     monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
     monkeypatch.setattr(
         spikesort_runner,
-        "_cache_sorting_outputs_before_merge",
-        _fake_cache_sorting_outputs_before_merge,
+        "_cache_canonical_sorter_output_for_merge",
+        _fake_cache_canonical_sorter_output_for_merge,
     )
     monkeypatch.setattr(
         spikesort_runner,
@@ -4247,7 +4347,7 @@ def test_run_spikesort_merge_stage_fails_fast_when_slay_binary_input_is_missing(
         cache_sorting_outputs_before_merge_use_canonical_workspace=True,
         cache_sorting_outputs_before_merge_canonical_workspace_relpath="cache/merge_workspace",
         cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run=True,
-        cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer=True,
+        cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer=False,
         merge_reports_enabled=False,
     )
 
@@ -5064,7 +5164,7 @@ def test_run_spikesort_merge_stage_cleans_up_cache_on_success_when_enabled(tmp_p
     assert result.outputs.get("merge.pre_merge_cache_dir") is None
 
 
-def test_run_spikesort_merge_stage_runs_methods_in_canonical_workspace_without_publish(
+def test_run_spikesort_merge_stage_runs_methods_in_working_cache_without_publish(
     tmp_path: Path, monkeypatch
 ) -> None:
     from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
@@ -5145,17 +5245,17 @@ def test_run_spikesort_merge_stage_runs_methods_in_canonical_workspace_without_p
     )
 
     summary = _read_json(result.summary_json)
-    canonical_root = (stage_output_root_dir / "merge_outputs" / "cache" / "merge_workspace").resolve()
+    working_cache_root = (stage_output_root_dir / "merge_outputs" / "cache" / "merge_workspace").resolve()
 
-    assert seen_stage_output_roots == [canonical_root]
+    assert seen_stage_output_roots == [working_cache_root]
     assert (live_sorter_dir / "sorter_marker.txt").read_text(encoding="utf-8") == "live"
-    assert (canonical_root / "sorter_output" / "sorter_marker.txt").read_text(encoding="utf-8") == "canonical-merged"
+    assert (working_cache_root / "sorter_output" / "sorter_marker.txt").read_text(encoding="utf-8") == "canonical-merged"
     assert summary.get("cache_sorting_outputs_before_merge_config", {}).get("canonical_workspace_prepared") is True
     assert summary.get("cache_sorting_outputs_before_merge_config", {}).get("canonical_workspace_published") is False
-    assert result.outputs.get("merge.canonical_workspace_dir") == str(canonical_root)
+    assert result.outputs.get("merge.working_cache_dir") == str(working_cache_root)
 
 
-def test_run_spikesort_merge_stage_asserts_slay_uses_canonical_workspace_by_default(
+def test_run_spikesort_merge_stage_asserts_slay_uses_working_cache_by_default(
     tmp_path: Path, monkeypatch
 ) -> None:
     from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
@@ -5217,7 +5317,7 @@ def test_run_spikesort_merge_stage_asserts_slay_uses_canonical_workspace_by_defa
         slay_relpath="SLAy_outputs",
     )
 
-    with pytest.raises(RuntimeError, match="SLAy expected canonical workspace sorter output"):
+    with pytest.raises(RuntimeError, match="SLAy expected working cache sorter output"):
         run_spikesort_merge_stage(
             h5_path=h5_path,
             stream_id=stream_id,
@@ -5228,7 +5328,7 @@ def test_run_spikesort_merge_stage_asserts_slay_uses_canonical_workspace_by_defa
         )
 
 
-def test_run_spikesort_merge_stage_asserts_auto_merge_uses_canonical_workspace_by_default(
+def test_run_spikesort_merge_stage_asserts_auto_merge_uses_working_cache_by_default(
     tmp_path: Path, monkeypatch
 ) -> None:
     from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
@@ -5275,7 +5375,7 @@ def test_run_spikesort_merge_stage_asserts_auto_merge_uses_canonical_workspace_b
         }
 
     def _auto_merge_should_not_run(**kwargs):
-        raise AssertionError("auto_merge should not run when canonical assertion fails")
+        raise AssertionError("auto_merge should not run when working-cache assertion fails")
 
     monkeypatch.setattr(spikesort_runner, "_run_slay_merge_method", _fake_slay)
     monkeypatch.setattr(spikesort_runner, "_run_auto_merge_method", _auto_merge_should_not_run)
@@ -5296,7 +5396,7 @@ def test_run_spikesort_merge_stage_asserts_auto_merge_uses_canonical_workspace_b
         auto_merge_enabled=True,
     )
 
-    with pytest.raises(RuntimeError, match="auto_merge expected canonical workspace sorter output"):
+    with pytest.raises(RuntimeError, match="auto_merge expected working cache sorter output"):
         run_spikesort_merge_stage(
             h5_path=h5_path,
             stream_id=stream_id,
@@ -5307,7 +5407,7 @@ def test_run_spikesort_merge_stage_asserts_auto_merge_uses_canonical_workspace_b
         )
 
 
-def test_run_spikesort_merge_stage_publishes_canonical_workspace_when_enabled(
+def test_run_spikesort_merge_stage_publishes_working_cache_when_enabled(
      tmp_path: Path, monkeypatch, caplog
 ) -> None:
     from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
@@ -5387,19 +5487,19 @@ def test_run_spikesort_merge_stage_publishes_canonical_workspace_when_enabled(
     assert summary.get("cache_sorting_outputs_before_merge_config", {}).get("canonical_workspace_published") is True
     assert result.outputs.get("merge.published_sorter_output_dir") == str(live_sorter_dir.resolve())
     assert any(
-        "Merge canonical workspace publish decision [stream=well001, merge_status=ok, requested=True"
+        "Merge working cache publish decision [stream=well001, merge_status=ok, requested=True"
         in record.getMessage()
         for record in caplog.records
     )
     assert any(
-        "Merge canonical workspace publish complete [stream=well001" in record.getMessage()
+        "Merge working cache publish complete [stream=well001" in record.getMessage()
         and "published_sorter_output_dir=" in record.getMessage()
-        and "published_analyzer_output_dir=" in record.getMessage()
+        and "removed_stale_analyzer_output_dir=" in record.getMessage()
         for record in caplog.records
     )
 
 
-def test_run_spikesort_merge_stage_logs_canonical_workspace_publish_skip_when_disabled(
+def test_run_spikesort_merge_stage_logs_working_cache_publish_skip_when_disabled(
     tmp_path: Path, monkeypatch, caplog
 ) -> None:
     from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
@@ -5476,9 +5576,9 @@ def test_run_spikesort_merge_stage_logs_canonical_workspace_publish_skip_when_di
 
     assert summary.get("cache_sorting_outputs_before_merge_config", {}).get("canonical_workspace_published") is False
     assert any(
-        "Merge canonical workspace publish decision [stream=well001, merge_status=ok, requested=False"
+        "Merge working cache publish decision [stream=well001, merge_status=ok, requested=False"
         in record.getMessage()
-        and "reason=publish_to_stage_outputs_on_success_disabled" in record.getMessage()
+        and "reason=publish_working_cache_to_canonical_on_success_disabled" in record.getMessage()
         for record in caplog.records
     )
 
@@ -6520,7 +6620,7 @@ def test_run_spikesort_merge_stage_template_heatmaps_only_do_not_require_unit_lo
             "n_iterations": 1,
         }
 
-    def _fake_ensure_merge_extensions(*, analyzer, stage_config, include_unit_locations):
+    def _fake_ensure_merge_extensions(*, analyzer, stage_config, include_unit_locations, include_templates=True):
         extension_requests.append(bool(include_unit_locations))
         return []
 
@@ -8019,6 +8119,8 @@ def test_run_bombcell_label_phase_uses_cached_sorter_output_workspace(tmp_path: 
         bombcell_label_cache_sorter_output_before_analyzer_gen=True,
         bombcell_label_publish_cached_sorter_output_on_success=False,
         bombcell_label_publish_cached_analyzer_on_success=False,
+        bombcell_label_cleanup_analyzer_on_success=False,
+        bombcell_label_cleanup_cached_sorter_output_on_success=False,
         bombcell_label_thresholds=None,
         bombcell_label_thresholds_path=None,
         bombcell_label_label_non_somatic=True,
@@ -8151,6 +8253,8 @@ def test_run_bombcell_label_phase_publishes_cached_workspace_outputs_on_success(
         bombcell_label_cache_sorter_output_before_analyzer_gen=True,
         bombcell_label_publish_cached_sorter_output_on_success=True,
         bombcell_label_publish_cached_analyzer_on_success=True,
+        bombcell_label_cleanup_analyzer_on_success=True,
+        bombcell_label_cleanup_cached_sorter_output_on_success=True,
         bombcell_label_thresholds=None,
         bombcell_label_thresholds_path=None,
         bombcell_label_label_non_somatic=True,
@@ -8173,10 +8277,19 @@ def test_run_bombcell_label_phase_publishes_cached_workspace_outputs_on_success(
     )
 
     canonical_kslabel_text = (canonical_ks_dir / "cluster_KSLabel.tsv").read_text(encoding="utf-8")
+    cached_sorter_output_dir = (
+        stage_output_root_dir / "merge_output" / "bombcell_label_outputs" / "cache" / "sorter_output"
+    ).resolve()
 
     assert report.get("status") == "ok"
     assert "1\tnon_soma_good" in canonical_kslabel_text
     assert (canonical_analyzer_dir / "marker.txt").read_text(encoding="utf-8") == "bombcell"
+    assert not cached_sorter_output_dir.exists()
+    assert not bombcell_analyzer_dir.exists()
+    removed_on_success = report.get("removed_on_success")
+    assert isinstance(removed_on_success, dict)
+    assert Path(str(removed_on_success.get("cached_sorter_output_dir"))).resolve() == cached_sorter_output_dir
+    assert Path(str(removed_on_success.get("analyzer_dir"))).resolve() == bombcell_analyzer_dir.resolve()
 
 
 def test_run_spikesort_merge_stage_does_not_invoke_bombcell_when_enabled(tmp_path: Path, monkeypatch) -> None:

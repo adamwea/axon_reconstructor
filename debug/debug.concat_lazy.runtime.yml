@@ -341,21 +341,16 @@ stages:
 
         rel_output_root: merge_output # subdir under spikesort_outputs for all merge-related outputs; relative paths for merge outputs resolve under this directory in each well's output directory
         delete_outputs_on_force_restart: true # merge-phase cleanup toggle. When force_restart is true, removes stale merge outputs under <well>/<spikesort_output_root>/<merge_units.rel_output_root> before rerunning merge phase logic.
-        # Canonical merge workspace mode:
-        # 1) copy live sorter/analyzer outputs into a workspace under merge outputs,
-        # 2) (re)build analyzer there from the copied sorter output,
-        # 3) run merge methods against that workspace,
-        # 4) optionally publish merged sorter/analyzer back to live stage outputs.
-        use_cache_as_canonical_workspace:
+        # Work on a sorter-output copy and publish the sorter output back only after success.
+        working_cache:
           enabled: true
-          canonical_workspace_relpath: cache/merge_workspace
-          canonical_workspace_refresh_on_run: true
-          canonical_workspace_rebuild_analyzer: true
-          # Guardrails: ensure merge methods are actually consuming canonical workspace sorter outputs.
-          assert_slay_uses_canonical_workspace: true
-          assert_auto_merge_uses_canonical_workspace: true
-          publish_to_stage_outputs_on_success: true
-          publish_to_stage_outputs_on_failure: false
+          relpath: cache/merge_workspace
+          refresh_on_run: true
+          assert_selected_sorter_output: true
+          publish_to_canonical_on_success: true
+          publish_to_canonical_on_failure: false
+
+        cleanup_generated_analyzers_on_success: true
 
         analyzer:
           #regenerate_on_replot: false # when false, force_replot reuses an existing pre-merge workspace analyzer if present and only regenerates it when missing.
@@ -502,11 +497,7 @@ stages:
             auto_accept_merges: true
             plot_merges: true
 
-          # recompute analyzer after applying merges recommended by SLAy.
-          # i think merges applied by SLAy are applied to the sorting object directly,
-          # so the analyzer might be out of date after the merges are applied,
-          # which could lead to inconsistencies between the merged sorting and the analyzer outputs that are used for downstream template building and plotting.
-          recompute_analyzer: true # whether to trigger a rerun of the analyzer after applying merges recommended by SLAy; keep false by default to avoid the overhead of repeated analyzer runs during merge debugging iterations.
+          recompute_analyzer: false
 
         # Automerge via Spikeinterface built in automerge method.
         # Pretty straight forward. This is the Spikeinterfaces recommended way of doing template matching

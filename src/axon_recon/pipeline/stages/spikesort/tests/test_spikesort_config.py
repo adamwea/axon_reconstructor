@@ -88,6 +88,8 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.bombcell_label_cache_sorter_output_before_analyzer_gen is False
     assert parsed.bombcell_label_publish_cached_sorter_output_on_success is False
     assert parsed.bombcell_label_publish_cached_analyzer_on_success is False
+    assert parsed.bombcell_label_cleanup_analyzer_on_success is False
+    assert parsed.bombcell_label_cleanup_cached_sorter_output_on_success is False
     assert parsed.bombcell_label_thresholds is None
     assert parsed.bombcell_label_thresholds_path is None
     assert parsed.bombcell_label_label_non_somatic is True
@@ -125,8 +127,9 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.merge_slay_enabled is False
     assert parsed.merge_slay_rel_output_root == "merge_SLAy"
     assert parsed.merge_slay_use_canonical_workspace is True
-    assert parsed.merge_slay_canonical_workspace_relpath == "cache/merge_canonical_workspace"
-    assert parsed.merge_slay_publish_canonical_to_stage_outputs_on_success is False
+    assert parsed.merge_slay_canonical_workspace_relpath == "cache/merge_workspace"
+    assert parsed.merge_slay_canonical_workspace_rebuild_analyzer is False
+    assert parsed.merge_slay_publish_canonical_to_stage_outputs_on_success is True
     assert parsed.merge_slay_debug_mode_enabled is False
     assert parsed.merge_slay_debug_limit_datasets is None
     assert parsed.merge_slay_debug_limit_wells is None
@@ -147,6 +150,7 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.merge_delete_outputs_on_force_restart is False
     assert parsed.merge_force_restart is False
     assert parsed.merge_force_replot is False
+    assert parsed.merge_cleanup_generated_analyzers_on_success is True
     assert parsed.merge_analyzer_regenerate_on_replot is True
     assert parsed.merge_analyzer_check_if_regen_is_needed is True
     assert parsed.merge_analyzer_compute_sparsity is True
@@ -177,9 +181,9 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.cache_sorting_outputs_before_merge_refresh_on_run is False
     assert parsed.cache_sorting_outputs_before_merge_strict_restore_on_force_restart is True
     assert parsed.cache_sorting_outputs_before_merge_use_canonical_workspace is False
-    assert parsed.cache_sorting_outputs_before_merge_canonical_workspace_relpath == "cache/merge_canonical_workspace"
+    assert parsed.cache_sorting_outputs_before_merge_canonical_workspace_relpath == "cache/merge_workspace"
     assert parsed.cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run is True
-    assert parsed.cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer is True
+    assert parsed.cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer is False
     assert parsed.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success is False
     assert parsed.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure is False
     assert parsed.cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace is True
@@ -1172,6 +1176,37 @@ def test_parse_spikesort_stage_config_reads_slay_merge_knobs() -> None:
     assert parsed.slay_params.get("final_thresh") == 0.6
 
 
+def test_parse_spikesort_stage_config_reads_nested_merge_slay_block() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_SLAy": {
+                            "enabled": True,
+                            "slay": {
+                                "relpath": "SLAy_nested",
+                                "output_json_relpath": "nested/run-output.json",
+                                "recompute_analyzer": False,
+                                "params": {"final_thresh": 0.42},
+                            },
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.slay_enabled is True
+    assert parsed.slay_relpath == "SLAy_nested"
+    assert parsed.slay_output_json_relpath == "nested/run-output.json"
+    assert parsed.slay_recompute_analyzer is False
+    assert isinstance(parsed.slay_params, dict)
+    assert parsed.slay_params.get("final_thresh") == 0.42
+
+
 def test_parse_spikesort_stage_config_reads_bombcell_phase_knobs() -> None:
     cfg = RuntimeConfig(
         {
@@ -1185,6 +1220,10 @@ def test_parse_spikesort_stage_config_reads_bombcell_phase_knobs() -> None:
                             "cache_sorter_output_before_analyzer_gen": True,
                             "publish_cached_sorter_output_on_success": False,
                             "publish_cached_analyzer_on_success": True,
+                            "cleanup_on_success": {
+                                "analyzer": True,
+                                "cached_sorter_output": True,
+                            },
                             "params": {
                                 "thresholds": {
                                     "noise": {
@@ -1222,6 +1261,8 @@ def test_parse_spikesort_stage_config_reads_bombcell_phase_knobs() -> None:
     assert parsed.bombcell_label_cache_sorter_output_before_analyzer_gen is True
     assert parsed.bombcell_label_publish_cached_sorter_output_on_success is False
     assert parsed.bombcell_label_publish_cached_analyzer_on_success is True
+    assert parsed.bombcell_label_cleanup_analyzer_on_success is True
+    assert parsed.bombcell_label_cleanup_cached_sorter_output_on_success is True
     assert isinstance(parsed.bombcell_label_thresholds, dict)
     assert parsed.bombcell_label_thresholds.get("noise", {}).get("snr", {}).get("greater") == 4.0
     assert parsed.bombcell_label_thresholds_path == "/tmp/bombcell_thresholds.json"
@@ -1339,13 +1380,12 @@ def test_parse_spikesort_stage_config_reads_phase_local_merge_common_overrides()
                                     "enabled": False,
                                 },
                             },
-                            "use_cache_as_canonical_workspace": {
+                            "working_cache": {
                                 "enabled": True,
-                                "canonical_workspace_relpath": "cache/slay_workspace",
-                                "canonical_workspace_refresh_on_run": False,
-                                "canonical_workspace_rebuild_analyzer": False,
-                                "publish_to_stage_outputs_on_success": True,
-                                "publish_to_stage_outputs_on_failure": False,
+                                "relpath": "cache/slay_workspace",
+                                "refresh_on_run": False,
+                                "publish_to_canonical_on_success": True,
+                                "publish_to_canonical_on_failure": False,
                             },
                         },
                     }
@@ -1391,14 +1431,13 @@ def test_parse_spikesort_stage_config_reads_merge_slay_phase_knobs() -> None:
                                 "limit_datasets": 1,
                                 "limit_wells": 1,
                             },
-                            "use_cache_as_canonical_workspace": {
+                            "working_cache": {
                                 "enabled": True,
-                                "canonical_workspace_relpath": "cache/slay_workspace",
-                                "canonical_workspace_refresh_on_run": False,
-                                "canonical_workspace_rebuild_analyzer": False,
-                                "publish_to_stage_outputs_on_success": True,
-                                "publish_to_stage_outputs_on_failure": False,
-                                "assert_uses_canonical_workspace": False,
+                                "relpath": "cache/slay_workspace",
+                                "refresh_on_run": False,
+                                "publish_to_canonical_on_success": True,
+                                "publish_to_canonical_on_failure": False,
+                                "assert_selected_sorter_output": False,
                             },
                         }
                     }
@@ -1496,22 +1535,20 @@ def test_parse_spikesort_stage_config_reads_merge_phase_master_enable_and_cache_
     assert parsed.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure is False
 
 
-def test_parse_spikesort_stage_config_reads_canonical_workspace_cache_knobs() -> None:
+def test_parse_spikesort_stage_config_reads_working_cache_knobs() -> None:
     cfg = RuntimeConfig(
         {
             "stages": {
                 "spikesort": {
                     "phases": {
                         "merge_units": {
-                            "use_cache_as_canonical_workspace": {
+                            "working_cache": {
                                 "enabled": True,
-                                "canonical_workspace_relpath": "cache/merge_workspace",
-                                "canonical_workspace_refresh_on_run": False,
-                                "canonical_workspace_rebuild_analyzer": False,
-                                "publish_to_stage_outputs_on_success": True,
-                                "publish_to_stage_outputs_on_failure": True,
-                                "assert_slay_uses_canonical_workspace": False,
-                                "assert_auto_merge_uses_canonical_workspace": False,
+                                "relpath": "cache/merge_workspace",
+                                "refresh_on_run": False,
+                                "publish_to_canonical_on_success": True,
+                                "publish_to_canonical_on_failure": True,
+                                "assert_selected_sorter_output": False,
                             },
                         }
                     }
