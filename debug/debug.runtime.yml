@@ -88,7 +88,7 @@ stages:
       stage_log_relpath: logs/preprocess_pipeline.log
     resources:
       #max_stage_workers: 24 # desktop
-      max_stage_workers: 36 # lab server
+      max_stage_workers: 24 # lab server
       well_workers: 3
     rel_output_root: preprocess_outputs # optional subdir under each well's output directory for all preprocess outputs; relative paths for preprocess phases resolve under this directory in each well's output directory
     phases:
@@ -181,6 +181,8 @@ stages:
         plot:
           layouts: true
           channel_layouts_subdir: channel_layouts
+
+      #deprecated pretty much.
       concat_segments:
         enabled: false
         concatenate_preprocessed_recordings: true # when true, concatenate the preprocessed segment recordings; when false, concatenate raw segment recordings instead while keeping the rest of the concat phase wiring the same.
@@ -1707,6 +1709,7 @@ stages:
 
     output_rel_root: template_outputs
     # Base output root for templates stage artifacts.
+
   reconstruct:
     execution:
       debug: false
