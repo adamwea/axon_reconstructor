@@ -281,6 +281,7 @@ class PreprocessStageConfig:
 	phase_sequence: tuple[str, ...]
 	force_restart: bool
 	force_replot: bool
+	debug_limit_datasets: int | None
 	debug_limit_wells: int | None
 	debug_limit_segments_per_well: int | None
 	logging_enabled: bool
@@ -569,7 +570,13 @@ def parse_preprocess_stage_config(
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
 	execution_cfg = stage_cfg.get("execution", {}) if isinstance(stage_cfg.get("execution", {}), dict) else {}
 	resources_cfg = stage_cfg.get("resources", {}) if isinstance(stage_cfg.get("resources", {}), dict) else {}
-	debug_cfg = stage_cfg.get("debug", {}) if isinstance(stage_cfg.get("debug", {}), dict) else {}
+	debug_cfg: dict[str, Any] = {}
+	legacy_debug_cfg = stage_cfg.get("debug", {})
+	if isinstance(legacy_debug_cfg, dict):
+		debug_cfg.update(legacy_debug_cfg)
+	debug_mode_cfg = stage_cfg.get("debug_mode", {})
+	if isinstance(debug_mode_cfg, dict):
+		debug_cfg.update(debug_mode_cfg)
 	logging_cfg = stage_cfg.get("logging", {}) if isinstance(stage_cfg.get("logging", {}), dict) else {}
 	plot_cfg = stage_cfg.get("plot", {}) if isinstance(stage_cfg.get("plot", {}), dict) else {}
 	observability_cfg = stage_cfg.get("observability", {}) if isinstance(stage_cfg.get("observability", {}), dict) else {}
@@ -1129,6 +1136,7 @@ def parse_preprocess_stage_config(
 		),
 		force_restart=force_restart,
 		force_replot=force_replot,
+		debug_limit_datasets=_as_optional_int(debug_cfg.get("limit_datasets", None)),
 		debug_limit_wells=_as_optional_int(debug_cfg.get("limit_wells", None)),
 		debug_limit_segments_per_well=_as_optional_int(debug_cfg.get("limit_segments_per_well", None)),
 		logging_enabled=logging_enabled,

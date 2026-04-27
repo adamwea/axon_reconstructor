@@ -22,6 +22,7 @@ def test_parse_preprocess_stage_config_defaults() -> None:
     assert parsed.phase_sequence == DEFAULT_PREPROCESS_PHASE_SEQUENCE
     assert parsed.force_restart is False
     assert parsed.force_replot is False
+    assert parsed.debug_limit_datasets is None
     assert parsed.debug_limit_wells is None
     assert parsed.debug_limit_segments_per_well is None
     assert parsed.logging_enabled is True
@@ -658,6 +659,28 @@ def test_parse_preprocess_stage_config_reads_resources_n_jobs() -> None:
     parsed = parse_preprocess_stage_config(runtime_config=cfg)
 
     assert parsed.n_jobs == 5
+
+
+def test_parse_preprocess_stage_config_reads_global_debug_mode_alias() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "preprocess": {
+                    "debug_mode": {
+                        "limit_datasets": 1,
+                        "limit_wells": 2,
+                        "limit_segments_per_well": 3,
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_preprocess_stage_config(runtime_config=cfg)
+
+    assert parsed.debug_limit_datasets == 1
+    assert parsed.debug_limit_wells == 2
+    assert parsed.debug_limit_segments_per_well == 3
 
 
 def test_parse_preprocess_stage_config_treats_non_positive_trace_max_points_as_uncapped() -> None:

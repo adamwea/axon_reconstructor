@@ -234,6 +234,72 @@ def _coerce_bool_or_none(value: Any) -> bool | None:
 	return None
 
 
+def _apply_preprocess_debug_target_limits(
+	*,
+	stage_name: str,
+	targets: list[Any],
+	limit_datasets: Any,
+	limit_wells: Any,
+) -> list[Any]:
+	limited_targets = list(targets)
+	if limit_datasets is not None:
+		dataset_limit = max(1, int(limit_datasets))
+		selected_dataset_indices: list[int] = []
+		seen_dataset_indices: set[int] = set()
+		for target in limited_targets:
+			try:
+				dataset_index = int(getattr(target, "dataset_index", -1))
+			except Exception:
+				continue
+			if dataset_index in seen_dataset_indices:
+				continue
+			seen_dataset_indices.add(dataset_index)
+			selected_dataset_indices.append(dataset_index)
+			if len(selected_dataset_indices) >= dataset_limit:
+				break
+		selected_dataset_index_set = set(selected_dataset_indices)
+		original_count = len(limited_targets)
+		limited_targets = [
+			item
+			for item in limited_targets
+			if int(getattr(item, "dataset_index", -1)) in selected_dataset_index_set
+		]
+		if len(limited_targets) < original_count:
+			LOGGER.info(
+				"Applying %s debug dataset limit: %d -> %d target(s) dataset_indices=%s",
+				str(stage_name),
+				original_count,
+				len(limited_targets),
+				selected_dataset_indices,
+			)
+
+	if limit_wells is not None and len(limited_targets) > int(limit_wells):
+		well_limit = max(1, int(limit_wells))
+		LOGGER.info(
+			"Applying %s debug well limit: %d -> %d target(s)",
+			str(stage_name),
+			len(limited_targets),
+			well_limit,
+		)
+		limited_targets = list(limited_targets[:well_limit])
+
+	return limited_targets
+
+
+def _apply_preprocess_stage_debug_limits(
+	*,
+	stage_name: str,
+	stage_config: Any,
+	targets: list[Any],
+) -> list[Any]:
+	return _apply_preprocess_debug_target_limits(
+		stage_name=stage_name,
+		targets=list(targets),
+		limit_datasets=getattr(stage_config, "debug_limit_datasets", None),
+		limit_wells=getattr(stage_config, "debug_limit_wells", None),
+	)
+
+
 def _apply_preprocess_substage_phase_debug_limits(
 	*,
 	stage_name: str,
@@ -253,49 +319,14 @@ def _apply_preprocess_substage_phase_debug_limits(
 	if phase_cfg is None or not bool(getattr(phase_cfg, "debug_mode_enabled", False)):
 		return list(targets)
 
-	limited_targets = list(targets)
 	limit_datasets = getattr(phase_cfg, "debug_limit_datasets", None)
-	if limit_datasets is not None:
-		selected_dataset_indices: list[int] = []
-		seen_dataset_indices: set[int] = set()
-		for target in limited_targets:
-			try:
-				dataset_index = int(getattr(target, "dataset_index", -1))
-			except Exception:
-				continue
-			if dataset_index in seen_dataset_indices:
-				continue
-			seen_dataset_indices.add(dataset_index)
-			selected_dataset_indices.append(dataset_index)
-			if len(selected_dataset_indices) >= int(limit_datasets):
-				break
-		selected_dataset_index_set = set(selected_dataset_indices)
-		original_count = len(limited_targets)
-		limited_targets = [
-			item
-			for item in limited_targets
-			if int(getattr(item, "dataset_index", -1)) in selected_dataset_index_set
-		]
-		if len(limited_targets) < original_count:
-			LOGGER.info(
-				"Applying %s debug dataset limit: %d -> %d target(s) dataset_indices=%s",
-				str(stage_name),
-				original_count,
-				len(limited_targets),
-				selected_dataset_indices,
-			)
-
 	limit_wells = getattr(phase_cfg, "debug_limit_wells", None)
-	if limit_wells is not None and len(limited_targets) > int(limit_wells):
-		LOGGER.info(
-			"Applying %s debug well limit: %d -> %d target(s)",
-			str(stage_name),
-			len(limited_targets),
-			int(limit_wells),
-		)
-		limited_targets = list(limited_targets[: max(1, int(limit_wells))])
-
-	return limited_targets
+	return _apply_preprocess_debug_target_limits(
+		stage_name=stage_name,
+		targets=list(targets),
+		limit_datasets=limit_datasets,
+		limit_wells=limit_wells,
+	)
 
 
 def _apply_spikesort_sort_debug_limits(
@@ -960,15 +991,11 @@ def run_preprocess_from_runtime(
 		bundle=bundle,
 		materialize_scratch_inputs=_preprocess_copy_phase_enabled(stage_config),
 	)
-	if stage_config.debug_limit_wells is not None:
-		limit_wells = max(1, int(stage_config.debug_limit_wells))
-		if len(targets) > limit_wells:
-			LOGGER.info(
-				"Applying preprocess debug well limit: %d -> %d target(s)",
-				len(targets),
-				limit_wells,
-			)
-			targets = list(targets[:limit_wells])
+	targets = _apply_preprocess_stage_debug_limits(
+		stage_name="preprocess",
+		stage_config=stage_config,
+		targets=list(targets),
+	)
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,
 		stage_name="preprocess",
@@ -1033,15 +1060,11 @@ def _run_preprocess_substage_from_runtime(
 		bundle=bundle,
 		materialize_scratch_inputs=(str(stage_name).strip() == "preprocess.copy_src_to_scratch"),
 	)
-	if stage_config.debug_limit_wells is not None:
-		limit_wells = max(1, int(stage_config.debug_limit_wells))
-		if len(targets) > limit_wells:
-			LOGGER.info(
-				"Applying preprocess debug well limit: %d -> %d target(s)",
-				len(targets),
-				limit_wells,
-			)
-			targets = list(targets[:limit_wells])
+	targets = _apply_preprocess_stage_debug_limits(
+		stage_name="preprocess",
+		stage_config=stage_config,
+		targets=list(targets),
+	)
 	targets = _apply_preprocess_substage_phase_debug_limits(
 		stage_name=stage_name,
 		stage_config=stage_config,

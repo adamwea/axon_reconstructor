@@ -71,11 +71,13 @@ stages:
       suppress_h5_plugin_messages: true
       # Emit high-visibility phase divider lines in terminal and preprocess log.
       phase_dividers: true
-    debug:
+    debug_mode:
       # Optional debug overrides for preprocess execution and outputs.
-      limit_wells: null # int or null for no limit
+      #limit_wells: null # int or null for no limit
       #limit_segments_per_well: 2 # int or null for no limit
       limit_segments_per_well: null
+      limit_datasets: 1
+      limit_wells: 2
     observability:
       # off|basic|detailed; detailed captures richer metadata artifacts for debugging.
       mode: detailed
@@ -227,7 +229,7 @@ stages:
       plot_raster_threshold:
         enabled: false
         debug_mode:
-          enabled: true
+          enabled: false
           #enabled: false
           limit_datasets: 1
           limit_wells: 1
