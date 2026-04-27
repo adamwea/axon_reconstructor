@@ -278,6 +278,8 @@ def _resolve_data_config_path(runtime_config_path: Path, data_ref: str | None) -
 class SpikesortStageConfig:
 	output_rel_root: str
 	preprocess_concat_recording_relpath: str | None
+	sort_original_preprocess_concat_recording_relpath: str | None
+	sort_bootstrapped_concat_recording_relpath: str | None
 	merge_sequence: tuple[str, ...]
 	logging_enabled: bool
 	logging_verbose: bool
@@ -286,6 +288,12 @@ class SpikesortStageConfig:
 	sort_debug_mode_enabled: bool
 	sort_debug_limit_datasets: int | None
 	sort_debug_limit_wells: int | None
+	bootstrap_concat_binary_debug_mode_enabled: bool
+	bootstrap_concat_binary_debug_limit_datasets: int | None
+	bootstrap_concat_binary_debug_limit_wells: int | None
+	cleanup_concat_binary_debug_mode_enabled: bool
+	cleanup_concat_binary_debug_limit_datasets: int | None
+	cleanup_concat_binary_debug_limit_wells: int | None
 	summarize_sort_debug_mode_enabled: bool
 	summarize_sort_debug_limit_datasets: int | None
 	summarize_sort_debug_limit_wells: int | None
@@ -314,6 +322,9 @@ class SpikesortStageConfig:
 	run_reports: bool
 	sort_enabled: bool
 	sort_delete_outputs_on_force_restart: bool
+	sort_use_bootstrapped_concat_binary: bool
+	sort_use_lazy_source: bool
+	sort_assert_one_source: bool
 	plot_enabled: bool
 	plot_mode: str
 	plot_debug: bool
@@ -322,6 +333,21 @@ class SpikesortStageConfig:
 	no_curation: bool
 	export_to_phy: bool
 	force_rerun_analyzer: bool
+	bootstrap_concat_binary_enabled: bool
+	bootstrap_concat_binary_cache_relpath: str
+	bootstrap_concat_binary_recording_relpath: str
+	bootstrap_concat_binary_manifest_relpath: str
+	bootstrap_concat_binary_summary_json_relpath: str
+	bootstrap_concat_binary_source_segment_manifest_relpath: str
+	bootstrap_concat_binary_use_as_preprocess_concat_recording: bool
+	bootstrap_concat_binary_overwrite_existing: bool
+	bootstrap_concat_binary_overwrite_on_force_restart: bool
+	bootstrap_concat_binary_n_jobs: int | None
+	bootstrap_concat_binary_chunk_duration: str | None
+	bootstrap_concat_binary_progress_bar: bool
+	cleanup_concat_binary_enabled: bool
+	cleanup_concat_binary_relpath: str
+	cleanup_concat_binary_summary_json_relpath: str
 	summarize_sort_enabled: bool
 	summarize_sort_emit_logs: bool
 	summarize_sort_generate_artifacts: bool
@@ -391,6 +417,52 @@ class SpikesortStageConfig:
 	auto_merge_merged_units_reldir: str
 	auto_merge_auto_accept_merges: bool
 	auto_merge_template_diff_thresholds: tuple[float, ...]
+	merge_slay_enabled: bool
+	merge_slay_rel_output_root: str
+	merge_slay_delete_outputs_on_force_restart: bool
+	merge_slay_force_restart: bool
+	merge_slay_force_replot: bool
+	merge_slay_use_canonical_workspace: bool
+	merge_slay_canonical_workspace_relpath: str
+	merge_slay_canonical_workspace_refresh_on_run: bool
+	merge_slay_canonical_workspace_rebuild_analyzer: bool
+	merge_slay_publish_canonical_to_stage_outputs_on_success: bool
+	merge_slay_publish_canonical_to_stage_outputs_on_failure: bool
+	merge_slay_assert_uses_canonical_workspace: bool
+	merge_slay_debug_mode_enabled: bool
+	merge_slay_debug_limit_datasets: int | None
+	merge_slay_debug_limit_wells: int | None
+	merge_si_auto_enabled: bool
+	merge_si_auto_rel_output_root: str
+	merge_si_auto_delete_outputs_on_force_restart: bool
+	merge_si_auto_force_restart: bool
+	merge_si_auto_force_replot: bool
+	merge_si_auto_use_canonical_workspace: bool
+	merge_si_auto_canonical_workspace_relpath: str
+	merge_si_auto_canonical_workspace_refresh_on_run: bool
+	merge_si_auto_canonical_workspace_rebuild_analyzer: bool
+	merge_si_auto_publish_canonical_to_stage_outputs_on_success: bool
+	merge_si_auto_publish_canonical_to_stage_outputs_on_failure: bool
+	merge_si_auto_assert_uses_canonical_workspace: bool
+	merge_si_auto_debug_mode_enabled: bool
+	merge_si_auto_debug_limit_datasets: int | None
+	merge_si_auto_debug_limit_wells: int | None
+	merge_unitmatch_enabled: bool
+	merge_unitmatch_rel_output_root: str
+	merge_unitmatch_delete_outputs_on_force_restart: bool
+	merge_unitmatch_force_restart: bool
+	merge_unitmatch_force_replot: bool
+	merge_unitmatch_use_canonical_workspace: bool
+	merge_unitmatch_canonical_workspace_relpath: str
+	merge_unitmatch_canonical_workspace_refresh_on_run: bool
+	merge_unitmatch_canonical_workspace_rebuild_analyzer: bool
+	merge_unitmatch_publish_canonical_to_stage_outputs_on_success: bool
+	merge_unitmatch_publish_canonical_to_stage_outputs_on_failure: bool
+	merge_unitmatch_assert_uses_canonical_workspace: bool
+	merge_unitmatch_debug_mode_enabled: bool
+	merge_unitmatch_debug_limit_datasets: int | None
+	merge_unitmatch_debug_limit_wells: int | None
+	merge_phase_runtime_overrides: dict[str, dict[str, Any]] | None
 	merge_units_enabled: bool
 	merge_rel_output_root: str | None
 	merge_delete_outputs_on_force_restart: bool
@@ -515,10 +587,43 @@ class SpikesortStageConfig:
 	post_merge_metadata_json_relpath: str
 	post_merge_metadata_include_unit_locations: bool
 	post_merge_metadata_log_summary_details: bool
-
 	force_restart: bool
 	force_replot: bool
 	resume_from: str | None
+
+
+_MERGE_PHASE_RUNTIME_OVERRIDE_EXPLICIT_FIELDS = (
+	"merge_rel_output_root",
+	"merge_delete_outputs_on_force_restart",
+	"merge_force_restart",
+	"merge_force_replot",
+	"cache_sorting_outputs_before_merge_use_canonical_workspace",
+	"cache_sorting_outputs_before_merge_canonical_workspace_relpath",
+	"cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run",
+	"cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer",
+	"cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success",
+	"cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure",
+)
+_MERGE_PHASE_RUNTIME_OVERRIDE_PREFIXES = (
+	"merge_analyzer_",
+	"merge_template_",
+	"merge_reports_",
+	"merge_metadata_",
+	"pre_merge_metadata_",
+	"post_merge_metadata_",
+)
+
+
+def _collect_merge_phase_runtime_overrides(
+	parsed_config: SpikesortStageConfig,
+) -> dict[str, Any]:
+	overrides: dict[str, Any] = {}
+	for field_name in SpikesortStageConfig.__dataclass_fields__:
+		if field_name in _MERGE_PHASE_RUNTIME_OVERRIDE_EXPLICIT_FIELDS or field_name.startswith(
+			_MERGE_PHASE_RUNTIME_OVERRIDE_PREFIXES
+		):
+			overrides[field_name] = getattr(parsed_config, field_name)
+	return overrides
 
 
 def parse_spikesort_stage_config(
@@ -526,13 +631,37 @@ def parse_spikesort_stage_config(
 	runtime_config: RuntimeConfig,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	_include_merge_phase_runtime_overrides: bool = True,
 ) -> SpikesortStageConfig:
 	stage_cfg = runtime_config.get("stages.spikesort", {})
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
 	execution_cfg = _as_section(stage_cfg.get("execution", {}))
 	phases_cfg = _as_section(stage_cfg.get("phases", {}))
 	sort_phase_cfg = _as_section(phases_cfg.get("sort", {}))
+	bootstrap_concat_binary_phase_cfg = _as_section(phases_cfg.get("bootstrap_concat_binary", {}))
+	cleanup_concat_binary_phase_cfg = _as_section(
+		_coalesce(
+			phases_cfg.get("cleanup_concat_binary", None),
+			phases_cfg.get("clear_concat_binary", None),
+			{},
+		)
+	)
 	merge_units_phase_cfg = _as_section(phases_cfg.get("merge_units", {}))
+	merge_slay_phase_cfg = _as_section(
+		_coalesce(
+			phases_cfg.get("merge_SLAy", None),
+			phases_cfg.get("merge_slay", None),
+			{},
+		)
+	)
+	merge_si_auto_phase_cfg = _as_section(
+		_coalesce(
+			phases_cfg.get("merge_si_auto", None),
+			phases_cfg.get("merge_auto_merge", None),
+			{},
+		)
+	)
+	merge_unitmatch_phase_cfg = _as_section(phases_cfg.get("merge_unitmatch", {}))
 	merge_analyzer_cfg = _as_section(merge_units_phase_cfg.get("analyzer", {}))
 	merge_analyzer_waveforms_cfg = _as_section(merge_analyzer_cfg.get("waveforms", {}))
 	merge_analyzer_sparsity_cfg = _as_section(merge_analyzer_cfg.get("sparsity", {}))
@@ -584,16 +713,17 @@ def parse_spikesort_stage_config(
 
 	stage_unitmatch_cfg = _as_section(stage_cfg.get("unitmatch", {}))
 	execution_unitmatch_cfg = _as_section(execution_cfg.get("unitmatch", {}))
-	merge_phase_unitmatch_cfg = _as_section(merge_units_phase_cfg.get("unitmatch", {}))
+	legacy_merge_phase_unitmatch_cfg = _as_section(merge_units_phase_cfg.get("unitmatch", {}))
 	unitmatch_cfg = dict(stage_unitmatch_cfg)
 	unitmatch_cfg.update(execution_unitmatch_cfg)
-	unitmatch_cfg.update(merge_phase_unitmatch_cfg)
+	unitmatch_cfg.update(legacy_merge_phase_unitmatch_cfg)
+	unitmatch_cfg.update(merge_unitmatch_phase_cfg)
 	unitmatch_limits_cfg = _as_section(unitmatch_cfg.get("limits", {}))
 	unitmatch_iterations_cfg = _as_section(unitmatch_cfg.get("iterations", {}))
 
 	stage_auto_merge_cfg = _as_section(stage_cfg.get("auto_merge", {}))
 	execution_auto_merge_cfg = _as_section(execution_cfg.get("auto_merge", {}))
-	merge_phase_auto_merge_cfg = _as_section(merge_units_phase_cfg.get("auto_merge", {}))
+	legacy_merge_phase_auto_merge_cfg = _as_section(merge_units_phase_cfg.get("auto_merge", {}))
 	cache_sorting_outputs_cfg_raw = merge_units_phase_cfg.get("cache_sorting_outputs_before_merge", None)
 	cache_sorting_outputs_cfg = _as_section(cache_sorting_outputs_cfg_raw)
 	canonical_workspace_cfg_raw = merge_units_phase_cfg.get("use_cache_as_canonical_workspace", None)
@@ -620,7 +750,8 @@ def parse_spikesort_stage_config(
 	post_merge_metadata_cfg = _as_section(merge_units_phase_cfg.get("post_merge_metadata", {}))
 	auto_merge_cfg = dict(stage_auto_merge_cfg)
 	auto_merge_cfg.update(execution_auto_merge_cfg)
-	auto_merge_cfg.update(merge_phase_auto_merge_cfg)
+	auto_merge_cfg.update(legacy_merge_phase_auto_merge_cfg)
+	auto_merge_cfg.update(merge_si_auto_phase_cfg)
 
 	stage_slay_cfg = _as_section(
 		_coalesce(
@@ -636,7 +767,7 @@ def parse_spikesort_stage_config(
 			{},
 		)
 	)
-	merge_phase_slay_cfg = _as_section(
+	legacy_merge_phase_slay_cfg = _as_section(
 		_coalesce(
 			merge_units_phase_cfg.get("SLAy", None),
 			merge_units_phase_cfg.get("slay", None),
@@ -645,7 +776,8 @@ def parse_spikesort_stage_config(
 	)
 	slay_cfg = dict(stage_slay_cfg)
 	slay_cfg.update(execution_slay_cfg)
-	slay_cfg.update(merge_phase_slay_cfg)
+	slay_cfg.update(legacy_merge_phase_slay_cfg)
+	slay_cfg.update(merge_slay_phase_cfg)
 	slay_model_cache_cfg = _as_section(slay_cfg.get("model_cache", {}))
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
@@ -677,6 +809,28 @@ def parse_spikesort_stage_config(
 	sort_debug_mode_enabled = _as_bool(sort_debug_cfg.get("enabled", False), False)
 	sort_debug_limit_datasets = _as_optional_positive_int(sort_debug_cfg.get("limit_datasets", None))
 	sort_debug_limit_wells = _as_optional_positive_int(sort_debug_cfg.get("limit_wells", None))
+	bootstrap_concat_binary_debug_cfg = _as_section(bootstrap_concat_binary_phase_cfg.get("debug_mode", {}))
+	bootstrap_concat_binary_debug_mode_enabled = _as_bool(
+		bootstrap_concat_binary_debug_cfg.get("enabled", False),
+		False,
+	)
+	bootstrap_concat_binary_debug_limit_datasets = _as_optional_positive_int(
+		bootstrap_concat_binary_debug_cfg.get("limit_datasets", None)
+	)
+	bootstrap_concat_binary_debug_limit_wells = _as_optional_positive_int(
+		bootstrap_concat_binary_debug_cfg.get("limit_wells", None)
+	)
+	cleanup_concat_binary_debug_cfg = _as_section(cleanup_concat_binary_phase_cfg.get("debug_mode", {}))
+	cleanup_concat_binary_debug_mode_enabled = _as_bool(
+		cleanup_concat_binary_debug_cfg.get("enabled", False),
+		False,
+	)
+	cleanup_concat_binary_debug_limit_datasets = _as_optional_positive_int(
+		cleanup_concat_binary_debug_cfg.get("limit_datasets", None)
+	)
+	cleanup_concat_binary_debug_limit_wells = _as_optional_positive_int(
+		cleanup_concat_binary_debug_cfg.get("limit_wells", None)
+	)
 	summarize_sort_debug_cfg = _as_section(summarize_sort_phase_cfg.get("debug_mode", {}))
 	summarize_sort_debug_mode_enabled = _as_bool(summarize_sort_debug_cfg.get("enabled", False), False)
 	summarize_sort_debug_limit_datasets = _as_optional_positive_int(
@@ -756,6 +910,144 @@ def parse_spikesort_stage_config(
 		),
 		False,
 	)
+	bootstrap_concat_binary_enabled = _as_bool(
+		_coalesce(
+			bootstrap_concat_binary_phase_cfg.get("enabled", None),
+			False,
+		),
+		False,
+	)
+	bootstrap_concat_binary_cache_relpath = _normalize_optional_relpath(
+		_coalesce(
+			bootstrap_concat_binary_phase_cfg.get("cache_relpath", None),
+			bootstrap_concat_binary_phase_cfg.get("rel_output_root", None),
+			"cache/bootstrap_concat_binary",
+		)
+	) or "cache/bootstrap_concat_binary"
+	bootstrap_concat_binary_recording_relpath = _normalize_optional_relpath(
+		_coalesce(
+			bootstrap_concat_binary_phase_cfg.get("recording_relpath", None),
+			f"{bootstrap_concat_binary_cache_relpath}/recording",
+		)
+	) or f"{bootstrap_concat_binary_cache_relpath}/recording"
+	bootstrap_concat_binary_manifest_relpath = _normalize_optional_relpath(
+		_coalesce(
+			bootstrap_concat_binary_phase_cfg.get("manifest_relpath", None),
+			f"{bootstrap_concat_binary_cache_relpath}/concat_segments_manifest.json",
+		)
+	) or f"{bootstrap_concat_binary_cache_relpath}/concat_segments_manifest.json"
+	bootstrap_concat_binary_summary_json_relpath = _normalize_optional_relpath(
+		_coalesce(
+			bootstrap_concat_binary_phase_cfg.get("summary_json_relpath", None),
+			f"{bootstrap_concat_binary_cache_relpath}/bootstrap_concat_binary_summary.json",
+		)
+	) or f"{bootstrap_concat_binary_cache_relpath}/bootstrap_concat_binary_summary.json"
+	bootstrap_concat_binary_source_segment_manifest_relpath = _normalize_optional_relpath(
+		_coalesce(
+			bootstrap_concat_binary_phase_cfg.get("source_segment_manifest_relpath", None),
+			bootstrap_concat_binary_phase_cfg.get("segment_manifest_relpath", None),
+			"preprocess_outputs/preprocessed_segments/manifest.json",
+		)
+	) or "preprocess_outputs/preprocessed_segments/manifest.json"
+	bootstrap_concat_binary_use_as_preprocess_concat_recording = _as_bool(
+		_coalesce(
+			bootstrap_concat_binary_phase_cfg.get("use_as_preprocess_concat_recording", None),
+			bootstrap_concat_binary_phase_cfg.get("use_as_spikesort_recording", None),
+			True,
+		),
+		True,
+	)
+	bootstrap_concat_binary_overwrite_existing = _as_bool(
+		_coalesce(
+			bootstrap_concat_binary_phase_cfg.get("overwrite_existing", None),
+			False,
+		),
+		False,
+	)
+	bootstrap_concat_binary_overwrite_on_force_restart = _as_bool(
+		_coalesce(
+			bootstrap_concat_binary_phase_cfg.get("overwrite_on_force_restart", None),
+			True,
+		),
+		True,
+	)
+	bootstrap_concat_binary_n_jobs = _as_optional_positive_int(
+		_coalesce(
+			bootstrap_concat_binary_phase_cfg.get("n_jobs", None),
+			_get_nested_value(bootstrap_concat_binary_phase_cfg, ("outputs", "concat_save_n_jobs")),
+			None,
+		)
+	)
+	bootstrap_concat_binary_chunk_duration = _as_optional_str(
+		_coalesce(
+			bootstrap_concat_binary_phase_cfg.get("chunk_duration", None),
+			_get_nested_value(bootstrap_concat_binary_phase_cfg, ("outputs", "save_chunk_duration")),
+			None,
+		)
+	)
+	bootstrap_concat_binary_progress_bar = _as_bool(
+		_coalesce(
+			bootstrap_concat_binary_phase_cfg.get("progress_bar", None),
+			_get_nested_value(bootstrap_concat_binary_phase_cfg, ("outputs", "save_progress_bar")),
+			True,
+		),
+		True,
+	)
+	sort_source_cfg = _as_section(sort_phase_cfg.get("source", {}))
+	sort_use_bootstrapped_default = bool(
+		bootstrap_concat_binary_enabled and bootstrap_concat_binary_use_as_preprocess_concat_recording
+	)
+	sort_use_bootstrapped_concat_binary = _as_bool(
+		_coalesce(
+			sort_phase_cfg.get("use_bootstrapped_concat_binary", None),
+			sort_source_cfg.get("use_bootstrapped_concat_binary", None),
+			sort_phase_cfg.get("use_bootstrap_concat_binary", None),
+			sort_source_cfg.get("use_bootstrap_concat_binary", None),
+			stage_cfg.get("sort_use_bootstrapped_concat_binary", None),
+			sort_use_bootstrapped_default,
+		),
+		sort_use_bootstrapped_default,
+	)
+	sort_use_lazy_source = _as_bool(
+		_coalesce(
+			sort_phase_cfg.get("use_lazy_source", None),
+			sort_source_cfg.get("use_lazy_source", None),
+			stage_cfg.get("sort_use_lazy_source", None),
+			True,
+		),
+		True,
+	)
+	sort_assert_one_source = _as_bool(
+		_coalesce(
+			sort_phase_cfg.get("assert_one_source", None),
+			sort_source_cfg.get("assert_one_source", None),
+			sort_phase_cfg.get("assert_single_source", None),
+			sort_source_cfg.get("assert_single_source", None),
+			stage_cfg.get("sort_assert_one_source", None),
+			False,
+		),
+		False,
+	)
+	cleanup_concat_binary_enabled = _as_bool(
+		_coalesce(
+			cleanup_concat_binary_phase_cfg.get("enabled", None),
+			False,
+		),
+		False,
+	)
+	cleanup_concat_binary_relpath = _normalize_optional_relpath(
+		_coalesce(
+			cleanup_concat_binary_phase_cfg.get("relpath", None),
+			cleanup_concat_binary_phase_cfg.get("cache_relpath", None),
+			bootstrap_concat_binary_cache_relpath,
+		)
+	) or bootstrap_concat_binary_cache_relpath
+	cleanup_concat_binary_summary_json_relpath = _normalize_optional_relpath(
+		_coalesce(
+			cleanup_concat_binary_phase_cfg.get("summary_json_relpath", None),
+			"cache/bootstrap_concat_binary_cleanup_summary.json",
+		)
+	) or "cache/bootstrap_concat_binary_cleanup_summary.json"
 	summarize_sort_enabled = _as_bool(
 		_coalesce(
 			summarize_sort_phase_cfg.get("enabled", None),
@@ -1226,6 +1518,169 @@ def parse_spikesort_stage_config(
 			True,
 		),
 		True,
+	)
+
+	def _parse_standalone_merge_phase_settings(
+		phase_cfg: dict[str, Any],
+		*,
+		default_enabled: bool,
+		default_rel_output_root: str,
+		default_delete_outputs_on_force_restart: bool,
+		default_force_restart: bool,
+		default_force_replot: bool,
+		default_use_canonical_workspace: bool,
+		default_canonical_workspace_relpath: str,
+		default_canonical_workspace_refresh_on_run: bool,
+		default_canonical_workspace_rebuild_analyzer: bool,
+		default_publish_on_success: bool,
+		default_publish_on_failure: bool,
+		default_assert_uses_canonical_workspace: bool,
+	) -> dict[str, Any]:
+		phase_canonical_workspace_cfg = _as_section(phase_cfg.get("use_cache_as_canonical_workspace", {}))
+		phase_debug_cfg = _as_section(phase_cfg.get("debug_mode", {}))
+		return {
+			"enabled": _as_bool(
+				_coalesce(
+					phase_cfg.get("enabled", None),
+					default_enabled,
+				),
+				default_enabled,
+			),
+			"rel_output_root": _normalize_optional_relpath(
+				_coalesce(
+					phase_cfg.get("rel_output_root", None),
+					phase_cfg.get("output_rel_root", None),
+					phase_cfg.get("merge_rel_output_root", None),
+					phase_cfg.get("merge_output_rel_root", None),
+					default_rel_output_root,
+				)
+			)
+			or default_rel_output_root,
+			"delete_outputs_on_force_restart": _as_bool(
+				_coalesce(
+					phase_cfg.get("delete_outputs_on_force_restart", None),
+					default_delete_outputs_on_force_restart,
+				),
+				default_delete_outputs_on_force_restart,
+			),
+			"force_restart": _as_bool(
+				_coalesce(
+					phase_cfg.get("force_restart", None),
+					default_force_restart,
+				),
+				default_force_restart,
+			),
+			"force_replot": _as_bool(
+				_coalesce(
+					phase_cfg.get("force_replot", None),
+					default_force_replot,
+				),
+				default_force_replot,
+			),
+			"use_canonical_workspace": _as_bool(
+				_coalesce(
+					phase_canonical_workspace_cfg.get("enabled", None),
+					default_use_canonical_workspace,
+				),
+				default_use_canonical_workspace,
+			),
+			"canonical_workspace_relpath": _normalize_optional_relpath(
+				_coalesce(
+					phase_canonical_workspace_cfg.get("canonical_workspace_relpath", None),
+					phase_canonical_workspace_cfg.get("workspace_relpath", None),
+					phase_canonical_workspace_cfg.get("relpath", None),
+					default_canonical_workspace_relpath,
+				)
+			)
+			or default_canonical_workspace_relpath,
+			"canonical_workspace_refresh_on_run": _as_bool(
+				_coalesce(
+					phase_canonical_workspace_cfg.get("canonical_workspace_refresh_on_run", None),
+					phase_canonical_workspace_cfg.get("refresh_on_run", None),
+					default_canonical_workspace_refresh_on_run,
+				),
+				default_canonical_workspace_refresh_on_run,
+			),
+			"canonical_workspace_rebuild_analyzer": _as_bool(
+				_coalesce(
+					phase_canonical_workspace_cfg.get("canonical_workspace_rebuild_analyzer", None),
+					phase_canonical_workspace_cfg.get("rebuild_analyzer", None),
+					default_canonical_workspace_rebuild_analyzer,
+				),
+				default_canonical_workspace_rebuild_analyzer,
+			),
+			"publish_canonical_to_stage_outputs_on_success": _as_bool(
+				_coalesce(
+					phase_canonical_workspace_cfg.get("publish_to_stage_outputs_on_success", None),
+					default_publish_on_success,
+				),
+				default_publish_on_success,
+			),
+			"publish_canonical_to_stage_outputs_on_failure": _as_bool(
+				_coalesce(
+					phase_canonical_workspace_cfg.get("publish_to_stage_outputs_on_failure", None),
+					default_publish_on_failure,
+				),
+				default_publish_on_failure,
+			),
+			"assert_uses_canonical_workspace": _as_bool(
+				_coalesce(
+					phase_canonical_workspace_cfg.get("assert_uses_canonical_workspace", None),
+					default_assert_uses_canonical_workspace,
+				),
+				default_assert_uses_canonical_workspace,
+			),
+			"debug_mode_enabled": _as_bool(phase_debug_cfg.get("enabled", False), False),
+			"debug_limit_datasets": _as_optional_positive_int(
+				phase_debug_cfg.get("limit_datasets", None)
+			),
+			"debug_limit_wells": _as_optional_positive_int(phase_debug_cfg.get("limit_wells", None)),
+		}
+
+	merge_slay_phase_settings = _parse_standalone_merge_phase_settings(
+		merge_slay_phase_cfg,
+		default_enabled=False,
+		default_rel_output_root="merge_SLAy",
+		default_delete_outputs_on_force_restart=bool(merge_delete_outputs_on_force_restart),
+		default_force_restart=bool(merge_force_restart),
+		default_force_replot=bool(merge_force_replot),
+		default_use_canonical_workspace=True,
+		default_canonical_workspace_relpath="cache/merge_canonical_workspace",
+		default_canonical_workspace_refresh_on_run=True,
+		default_canonical_workspace_rebuild_analyzer=True,
+		default_publish_on_success=False,
+		default_publish_on_failure=False,
+		default_assert_uses_canonical_workspace=True,
+	)
+	merge_si_auto_phase_settings = _parse_standalone_merge_phase_settings(
+		merge_si_auto_phase_cfg,
+		default_enabled=False,
+		default_rel_output_root="merge_si_auto",
+		default_delete_outputs_on_force_restart=bool(merge_delete_outputs_on_force_restart),
+		default_force_restart=bool(merge_force_restart),
+		default_force_replot=bool(merge_force_replot),
+		default_use_canonical_workspace=True,
+		default_canonical_workspace_relpath="cache/merge_canonical_workspace",
+		default_canonical_workspace_refresh_on_run=True,
+		default_canonical_workspace_rebuild_analyzer=True,
+		default_publish_on_success=False,
+		default_publish_on_failure=False,
+		default_assert_uses_canonical_workspace=True,
+	)
+	merge_unitmatch_phase_settings = _parse_standalone_merge_phase_settings(
+		merge_unitmatch_phase_cfg,
+		default_enabled=False,
+		default_rel_output_root="merge_unitmatch",
+		default_delete_outputs_on_force_restart=bool(merge_delete_outputs_on_force_restart),
+		default_force_restart=bool(merge_force_restart),
+		default_force_replot=bool(merge_force_replot),
+		default_use_canonical_workspace=True,
+		default_canonical_workspace_relpath="cache/merge_canonical_workspace",
+		default_canonical_workspace_refresh_on_run=True,
+		default_canonical_workspace_rebuild_analyzer=True,
+		default_publish_on_success=False,
+		default_publish_on_failure=False,
+		default_assert_uses_canonical_workspace=True,
 	)
 	merge_reports_enabled = _as_bool(
 		_coalesce(
@@ -1806,6 +2261,7 @@ def parse_spikesort_stage_config(
 	merge_sequence = tuple(
 		_as_list_of_strings(
 			_coalesce(
+				phases_cfg.get("merge_sequence", None),
 				merge_units_phase_cfg.get("sequence", None),
 				execution_cfg.get("merge_sequence", None),
 				stage_cfg.get("merge_sequence", None),
@@ -1846,6 +2302,28 @@ def parse_spikesort_stage_config(
 		or {}
 	)
 	option_kwargs.setdefault("force_rerun_analyzer", bool(force_rerun_analyzer))
+
+	merge_phase_runtime_overrides: dict[str, dict[str, Any]] | None = None
+	if _include_merge_phase_runtime_overrides:
+		def _build_merge_phase_runtime_override(phase_cfg: dict[str, Any]) -> dict[str, Any]:
+			synthetic_stage_cfg = dict(stage_cfg)
+			synthetic_stage_cfg["phases"] = {
+				"merge_units": dict(phase_cfg),
+			}
+			synthetic_runtime_config = RuntimeConfig({"stages": {"spikesort": synthetic_stage_cfg}})
+			synthetic_parsed = parse_spikesort_stage_config(
+				runtime_config=synthetic_runtime_config,
+				force_restart_override=force_restart_override,
+				force_replot_override=force_replot_override,
+				_include_merge_phase_runtime_overrides=False,
+			)
+			return _collect_merge_phase_runtime_overrides(synthetic_parsed)
+
+		merge_phase_runtime_overrides = {
+			"merge_slay": _build_merge_phase_runtime_override(merge_slay_phase_cfg),
+			"merge_si_auto": _build_merge_phase_runtime_override(merge_si_auto_phase_cfg),
+			"merge_unitmatch": _build_merge_phase_runtime_override(merge_unitmatch_phase_cfg),
+		}
 
 	bombcell_label_enabled = _as_bool(
 		_coalesce(
@@ -2585,20 +3063,29 @@ def parse_spikesort_stage_config(
 	resolved_um_kwargs = (um_kwargs if um_kwargs else None)
 	resolved_am_kwargs = (am_kwargs if am_kwargs else None)
 	resolved_option_kwargs = (option_kwargs if option_kwargs else None)
+	output_rel_root = _normalize_output_rel_root(
+		_coalesce(
+			execution_cfg.get("output_root", None),
+			execution_cfg.get("output_rel_root", None),
+			stage_cfg.get("output_root", None),
+			stage_cfg.get("output_rel_root", None),
+			outputs_cfg.get("output_root", None),
+			outputs_cfg.get("output_rel_root", None),
+			_DEFAULT_OUTPUT_REL_ROOT,
+		)
+	)
+	sort_bootstrapped_concat_recording_relpath = _normalize_optional_relpath(
+		f"{output_rel_root}/{bootstrap_concat_binary_recording_relpath}"
+	)
+	effective_preprocess_concat_recording_relpath = preprocess_concat_recording_relpath
+	if bool(sort_use_bootstrapped_concat_binary):
+		effective_preprocess_concat_recording_relpath = sort_bootstrapped_concat_recording_relpath
 
 	return SpikesortStageConfig(
-		output_rel_root=_normalize_output_rel_root(
-			_coalesce(
-				execution_cfg.get("output_root", None),
-				execution_cfg.get("output_rel_root", None),
-				stage_cfg.get("output_root", None),
-				stage_cfg.get("output_rel_root", None),
-				outputs_cfg.get("output_root", None),
-				outputs_cfg.get("output_rel_root", None),
-				_DEFAULT_OUTPUT_REL_ROOT,
-			)
-		),
-		preprocess_concat_recording_relpath=preprocess_concat_recording_relpath,
+		output_rel_root=output_rel_root,
+		preprocess_concat_recording_relpath=effective_preprocess_concat_recording_relpath,
+		sort_original_preprocess_concat_recording_relpath=preprocess_concat_recording_relpath,
+		sort_bootstrapped_concat_recording_relpath=sort_bootstrapped_concat_recording_relpath,
 		merge_sequence=merge_sequence,
 		logging_enabled=logging_enabled,
 		logging_verbose=logging_verbose,
@@ -2607,6 +3094,12 @@ def parse_spikesort_stage_config(
 		sort_debug_mode_enabled=bool(sort_debug_mode_enabled),
 		sort_debug_limit_datasets=sort_debug_limit_datasets,
 		sort_debug_limit_wells=sort_debug_limit_wells,
+		bootstrap_concat_binary_debug_mode_enabled=bool(bootstrap_concat_binary_debug_mode_enabled),
+		bootstrap_concat_binary_debug_limit_datasets=bootstrap_concat_binary_debug_limit_datasets,
+		bootstrap_concat_binary_debug_limit_wells=bootstrap_concat_binary_debug_limit_wells,
+		cleanup_concat_binary_debug_mode_enabled=bool(cleanup_concat_binary_debug_mode_enabled),
+		cleanup_concat_binary_debug_limit_datasets=cleanup_concat_binary_debug_limit_datasets,
+		cleanup_concat_binary_debug_limit_wells=cleanup_concat_binary_debug_limit_wells,
 		summarize_sort_debug_mode_enabled=bool(summarize_sort_debug_mode_enabled),
 		summarize_sort_debug_limit_datasets=summarize_sort_debug_limit_datasets,
 		summarize_sort_debug_limit_wells=summarize_sort_debug_limit_wells,
@@ -2712,6 +3205,9 @@ def parse_spikesort_stage_config(
 		run_reports=run_reports,
 		sort_enabled=bool(sort_enabled),
 		sort_delete_outputs_on_force_restart=bool(sort_delete_outputs_on_force_restart),
+		sort_use_bootstrapped_concat_binary=bool(sort_use_bootstrapped_concat_binary),
+		sort_use_lazy_source=bool(sort_use_lazy_source),
+		sort_assert_one_source=bool(sort_assert_one_source),
 		plot_enabled=plot_enabled,
 		plot_mode=plot_mode,
 		plot_debug=plot_debug,
@@ -2720,6 +3216,25 @@ def parse_spikesort_stage_config(
 		no_curation=no_curation,
 		export_to_phy=export_to_phy,
 		force_rerun_analyzer=force_rerun_analyzer,
+		bootstrap_concat_binary_enabled=bool(bootstrap_concat_binary_enabled),
+		bootstrap_concat_binary_cache_relpath=str(bootstrap_concat_binary_cache_relpath),
+		bootstrap_concat_binary_recording_relpath=str(bootstrap_concat_binary_recording_relpath),
+		bootstrap_concat_binary_manifest_relpath=str(bootstrap_concat_binary_manifest_relpath),
+		bootstrap_concat_binary_summary_json_relpath=str(bootstrap_concat_binary_summary_json_relpath),
+		bootstrap_concat_binary_source_segment_manifest_relpath=str(
+			bootstrap_concat_binary_source_segment_manifest_relpath
+		),
+		bootstrap_concat_binary_use_as_preprocess_concat_recording=bool(
+			bootstrap_concat_binary_use_as_preprocess_concat_recording
+		),
+		bootstrap_concat_binary_overwrite_existing=bool(bootstrap_concat_binary_overwrite_existing),
+		bootstrap_concat_binary_overwrite_on_force_restart=bool(bootstrap_concat_binary_overwrite_on_force_restart),
+		bootstrap_concat_binary_n_jobs=bootstrap_concat_binary_n_jobs,
+		bootstrap_concat_binary_chunk_duration=bootstrap_concat_binary_chunk_duration,
+		bootstrap_concat_binary_progress_bar=bool(bootstrap_concat_binary_progress_bar),
+		cleanup_concat_binary_enabled=bool(cleanup_concat_binary_enabled),
+		cleanup_concat_binary_relpath=str(cleanup_concat_binary_relpath),
+		cleanup_concat_binary_summary_json_relpath=str(cleanup_concat_binary_summary_json_relpath),
 		summarize_sort_enabled=bool(summarize_sort_enabled),
 		summarize_sort_emit_logs=bool(summarize_sort_emit_logs),
 		summarize_sort_generate_artifacts=bool(summarize_sort_generate_artifacts),
@@ -2797,6 +3312,103 @@ def parse_spikesort_stage_config(
 		auto_merge_merged_units_reldir=str(auto_merge_merged_units_reldir),
 		auto_merge_auto_accept_merges=bool(auto_merge_auto_accept_merges),
 		auto_merge_template_diff_thresholds=tuple(auto_merge_template_diff_thresholds),
+		merge_slay_enabled=bool(merge_slay_phase_settings["enabled"]),
+		merge_slay_rel_output_root=str(merge_slay_phase_settings["rel_output_root"]),
+		merge_slay_delete_outputs_on_force_restart=bool(
+			merge_slay_phase_settings["delete_outputs_on_force_restart"]
+		),
+		merge_slay_force_restart=bool(merge_slay_phase_settings["force_restart"]),
+		merge_slay_force_replot=bool(merge_slay_phase_settings["force_replot"]),
+		merge_slay_use_canonical_workspace=bool(merge_slay_phase_settings["use_canonical_workspace"]),
+		merge_slay_canonical_workspace_relpath=str(
+			merge_slay_phase_settings["canonical_workspace_relpath"]
+		),
+		merge_slay_canonical_workspace_refresh_on_run=bool(
+			merge_slay_phase_settings["canonical_workspace_refresh_on_run"]
+		),
+		merge_slay_canonical_workspace_rebuild_analyzer=bool(
+			merge_slay_phase_settings["canonical_workspace_rebuild_analyzer"]
+		),
+		merge_slay_publish_canonical_to_stage_outputs_on_success=bool(
+			merge_slay_phase_settings["publish_canonical_to_stage_outputs_on_success"]
+		),
+		merge_slay_publish_canonical_to_stage_outputs_on_failure=bool(
+			merge_slay_phase_settings["publish_canonical_to_stage_outputs_on_failure"]
+		),
+		merge_slay_assert_uses_canonical_workspace=bool(
+			merge_slay_phase_settings["assert_uses_canonical_workspace"]
+		),
+		merge_slay_debug_mode_enabled=bool(merge_slay_phase_settings["debug_mode_enabled"]),
+		merge_slay_debug_limit_datasets=merge_slay_phase_settings["debug_limit_datasets"],
+		merge_slay_debug_limit_wells=merge_slay_phase_settings["debug_limit_wells"],
+		merge_si_auto_enabled=bool(merge_si_auto_phase_settings["enabled"]),
+		merge_si_auto_rel_output_root=str(merge_si_auto_phase_settings["rel_output_root"]),
+		merge_si_auto_delete_outputs_on_force_restart=bool(
+			merge_si_auto_phase_settings["delete_outputs_on_force_restart"]
+		),
+		merge_si_auto_force_restart=bool(merge_si_auto_phase_settings["force_restart"]),
+		merge_si_auto_force_replot=bool(merge_si_auto_phase_settings["force_replot"]),
+		merge_si_auto_use_canonical_workspace=bool(merge_si_auto_phase_settings["use_canonical_workspace"]),
+		merge_si_auto_canonical_workspace_relpath=str(
+			merge_si_auto_phase_settings["canonical_workspace_relpath"]
+		),
+		merge_si_auto_canonical_workspace_refresh_on_run=bool(
+			merge_si_auto_phase_settings["canonical_workspace_refresh_on_run"]
+		),
+		merge_si_auto_canonical_workspace_rebuild_analyzer=bool(
+			merge_si_auto_phase_settings["canonical_workspace_rebuild_analyzer"]
+		),
+		merge_si_auto_publish_canonical_to_stage_outputs_on_success=bool(
+			merge_si_auto_phase_settings["publish_canonical_to_stage_outputs_on_success"]
+		),
+		merge_si_auto_publish_canonical_to_stage_outputs_on_failure=bool(
+			merge_si_auto_phase_settings["publish_canonical_to_stage_outputs_on_failure"]
+		),
+		merge_si_auto_assert_uses_canonical_workspace=bool(
+			merge_si_auto_phase_settings["assert_uses_canonical_workspace"]
+		),
+		merge_si_auto_debug_mode_enabled=bool(merge_si_auto_phase_settings["debug_mode_enabled"]),
+		merge_si_auto_debug_limit_datasets=merge_si_auto_phase_settings["debug_limit_datasets"],
+		merge_si_auto_debug_limit_wells=merge_si_auto_phase_settings["debug_limit_wells"],
+		merge_unitmatch_enabled=bool(merge_unitmatch_phase_settings["enabled"]),
+		merge_unitmatch_rel_output_root=str(merge_unitmatch_phase_settings["rel_output_root"]),
+		merge_unitmatch_delete_outputs_on_force_restart=bool(
+			merge_unitmatch_phase_settings["delete_outputs_on_force_restart"]
+		),
+		merge_unitmatch_force_restart=bool(merge_unitmatch_phase_settings["force_restart"]),
+		merge_unitmatch_force_replot=bool(merge_unitmatch_phase_settings["force_replot"]),
+		merge_unitmatch_use_canonical_workspace=bool(
+			merge_unitmatch_phase_settings["use_canonical_workspace"]
+		),
+		merge_unitmatch_canonical_workspace_relpath=str(
+			merge_unitmatch_phase_settings["canonical_workspace_relpath"]
+		),
+		merge_unitmatch_canonical_workspace_refresh_on_run=bool(
+			merge_unitmatch_phase_settings["canonical_workspace_refresh_on_run"]
+		),
+		merge_unitmatch_canonical_workspace_rebuild_analyzer=bool(
+			merge_unitmatch_phase_settings["canonical_workspace_rebuild_analyzer"]
+		),
+		merge_unitmatch_publish_canonical_to_stage_outputs_on_success=bool(
+			merge_unitmatch_phase_settings["publish_canonical_to_stage_outputs_on_success"]
+		),
+		merge_unitmatch_publish_canonical_to_stage_outputs_on_failure=bool(
+			merge_unitmatch_phase_settings["publish_canonical_to_stage_outputs_on_failure"]
+		),
+		merge_unitmatch_assert_uses_canonical_workspace=bool(
+			merge_unitmatch_phase_settings["assert_uses_canonical_workspace"]
+		),
+		merge_unitmatch_debug_mode_enabled=bool(merge_unitmatch_phase_settings["debug_mode_enabled"]),
+		merge_unitmatch_debug_limit_datasets=merge_unitmatch_phase_settings["debug_limit_datasets"],
+		merge_unitmatch_debug_limit_wells=merge_unitmatch_phase_settings["debug_limit_wells"],
+		merge_phase_runtime_overrides=(
+			{
+				str(phase_name): dict(phase_overrides)
+				for phase_name, phase_overrides in merge_phase_runtime_overrides.items()
+			}
+			if isinstance(merge_phase_runtime_overrides, dict)
+			else None
+		),
 		merge_units_enabled=bool(merge_units_enabled),
 		merge_rel_output_root=(str(merge_rel_output_root) if merge_rel_output_root is not None else None),
 		merge_delete_outputs_on_force_restart=bool(merge_delete_outputs_on_force_restart),
@@ -3070,6 +3682,8 @@ def build_spikesort_inputs_for_target(
 		final_output_root=(target.final_output_root or target.mea_output_root),
 		output_rel_root=stage_config.output_rel_root,
 		preprocess_concat_recording_relpath=stage_config.preprocess_concat_recording_relpath,
+		sort_original_preprocess_concat_recording_relpath=stage_config.sort_original_preprocess_concat_recording_relpath,
+		sort_bootstrapped_concat_recording_relpath=stage_config.sort_bootstrapped_concat_recording_relpath,
 		logging_enabled=stage_config.logging_enabled,
 		logging_verbose=stage_config.logging_verbose,
 		logging_file_relpath=stage_config.logging_file_relpath,
@@ -3092,6 +3706,9 @@ def build_spikesort_inputs_for_target(
 		run_reports=stage_config.run_reports,
 		sort_enabled=stage_config.sort_enabled,
 		sort_delete_outputs_on_force_restart=stage_config.sort_delete_outputs_on_force_restart,
+		sort_use_bootstrapped_concat_binary=stage_config.sort_use_bootstrapped_concat_binary,
+		sort_use_lazy_source=stage_config.sort_use_lazy_source,
+		sort_assert_one_source=stage_config.sort_assert_one_source,
 		plot_enabled=stage_config.plot_enabled,
 		plot_mode=stage_config.plot_mode,
 		plot_debug=stage_config.plot_debug,
@@ -3180,6 +3797,8 @@ def load_spikesort_inputs_from_runtime(
 		final_output_root=output_root,
 		output_rel_root=stage_cfg.output_rel_root,
 		preprocess_concat_recording_relpath=stage_cfg.preprocess_concat_recording_relpath,
+		sort_original_preprocess_concat_recording_relpath=stage_cfg.sort_original_preprocess_concat_recording_relpath,
+		sort_bootstrapped_concat_recording_relpath=stage_cfg.sort_bootstrapped_concat_recording_relpath,
 		logging_enabled=stage_cfg.logging_enabled,
 		logging_verbose=stage_cfg.logging_verbose,
 		logging_file_relpath=stage_cfg.logging_file_relpath,
@@ -3202,6 +3821,9 @@ def load_spikesort_inputs_from_runtime(
 		run_reports=stage_cfg.run_reports,
 		sort_enabled=stage_cfg.sort_enabled,
 		sort_delete_outputs_on_force_restart=stage_cfg.sort_delete_outputs_on_force_restart,
+		sort_use_bootstrapped_concat_binary=stage_cfg.sort_use_bootstrapped_concat_binary,
+		sort_use_lazy_source=stage_cfg.sort_use_lazy_source,
+		sort_assert_one_source=stage_cfg.sort_assert_one_source,
 		plot_enabled=stage_cfg.plot_enabled,
 		plot_mode=stage_cfg.plot_mode,
 		plot_debug=stage_cfg.plot_debug,

@@ -49,6 +49,8 @@ from .stages.reconstruct.api import (
 from .stages.reconstruct.config import build_reconstruction_inputs_for_target, parse_reconstruction_stage_config
 from .stages.reconstruct.models.results import ReconstructionResult, UnitReconstructionResult
 from .stages.spikesort.api import (
+	bootstrap_spikesort_concat_binary,
+	cleanup_spikesort_concat_binary,
 	run_spikesort,
 	run_spikesort_bombcell,
 	run_spikesort_merge,
@@ -1148,12 +1150,70 @@ def run_spikesort_from_runtime(
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
-	return _run_spikesort_sort_from_runtime(
-		config_path=config_path,
-		stage_name="spikesort",
+	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
+	stage_config = parse_spikesort_stage_config(
+		runtime_config=bundle.runtime_config,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
+	phase_plan = _enabled_spikesort_runtime_phase_plan(stage_config)
+	if not phase_plan:
+		LOGGER.info("spikesort: no enabled phases")
+		return MultiTargetStageResult(
+			stage="spikesort",
+			total_targets=0,
+			succeeded_targets=0,
+			failed_targets=0,
+			target_results=[],
+		)
+
+	last_result: MultiTargetStageResult | None = None
+	for phase_name, phase_runner in phase_plan:
+		LOGGER.info("spikesort: starting enabled phase %s", phase_name)
+		phase_result = phase_runner(
+			config_path=config_path,
+			force_restart_override=force_restart_override,
+			force_replot_override=force_replot_override,
+		)
+		last_result = phase_result
+		if int(phase_result.failed_targets) > 0:
+			LOGGER.error(
+				"spikesort: enabled phase %s failed for %d target(s); stopping remaining phases",
+				phase_name,
+				int(phase_result.failed_targets),
+			)
+			return replace(phase_result, stage="spikesort")
+		LOGGER.info("spikesort: completed enabled phase %s", phase_name)
+
+	assert last_result is not None
+	return replace(last_result, stage="spikesort")
+
+
+def _enabled_spikesort_runtime_phase_plan(
+	stage_config: Any,
+) -> list[tuple[str, Callable[..., MultiTargetStageResult]]]:
+	from .stages.spikesort.orchestrators.merge_si_auto import run_spikesort_merge_si_auto_from_runtime
+	from .stages.spikesort.orchestrators.merge_slay import run_spikesort_merge_slay_from_runtime
+	from .stages.spikesort.orchestrators.merge_unitmatch import run_spikesort_merge_unitmatch_from_runtime
+
+	phase_plan: list[tuple[str, Callable[..., MultiTargetStageResult]]] = []
+	if bool(getattr(stage_config, "bootstrap_concat_binary_enabled", False)):
+		phase_plan.append(("spikesort.bootstrap_concat_binary", run_spikesort_bootstrap_concat_binary_from_runtime))
+	if bool(getattr(stage_config, "sort_enabled", True)):
+		phase_plan.append(("spikesort.sort", run_spikesort_sort_from_runtime))
+	if bool(getattr(stage_config, "summarize_sort_enabled", False)):
+		phase_plan.append(("spikesort.summarize_sort", run_spikesort_summarize_sort_from_runtime))
+	if bool(getattr(stage_config, "bombcell_label_enabled", False)):
+		phase_plan.append(("spikesort.bombcell_label", run_spikesort_bombcell_label_from_runtime))
+	if bool(getattr(stage_config, "merge_slay_enabled", False)):
+		phase_plan.append(("spikesort.merge_SLAy", run_spikesort_merge_slay_from_runtime))
+	if bool(getattr(stage_config, "merge_si_auto_enabled", False)):
+		phase_plan.append(("spikesort.merge_si_auto", run_spikesort_merge_si_auto_from_runtime))
+	if bool(getattr(stage_config, "merge_unitmatch_enabled", False)):
+		phase_plan.append(("spikesort.merge_unitmatch", run_spikesort_merge_unitmatch_from_runtime))
+	if bool(getattr(stage_config, "cleanup_concat_binary_enabled", False)):
+		phase_plan.append(("spikesort.cleanup_concat_binary", run_spikesort_cleanup_concat_binary_from_runtime))
+	return phase_plan
 
 
 def run_spikesort_sort_from_runtime(
@@ -1222,6 +1282,113 @@ def run_spikesort_summarize_sort_from_runtime(
 	)
 
 
+def _run_spikesort_concat_binary_phase_from_runtime(
+	*,
+	config_path: str,
+	stage_name: str,
+	runner_fn: Callable[..., SpikesortResult],
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+	debug_phase_label: str,
+	debug_enabled_attr: str,
+	debug_limit_datasets_attr: str,
+	debug_limit_wells_attr: str,
+	publish_after_run: bool = False,
+) -> MultiTargetStageResult:
+	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
+	publish_policy = _resolve_publish_policy(runtime_config=bundle.runtime_config, data_config=bundle.data_config)
+	if publish_after_run:
+		_log_publish_policy(stage_name=stage_name, policy=publish_policy)
+	stage_config = parse_spikesort_stage_config(
+		runtime_config=bundle.runtime_config,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+	targets = select_execution_targets(bundle=bundle)
+	targets = _apply_spikesort_phase_debug_limits(
+		stage_name=stage_name,
+		stage_config=stage_config,
+		targets=list(targets),
+		phase_label=debug_phase_label,
+		enabled_attr=debug_enabled_attr,
+		limit_datasets_attr=debug_limit_datasets_attr,
+		limit_wells_attr=debug_limit_wells_attr,
+	)
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="spikesort",
+		target_count=len(targets),
+	)
+
+	def _worker(target):
+		return runner_fn(
+			h5_path=target.h5_path,
+			stream_id=target.stream_id,
+			mea_output_root=target.mea_output_root,
+			output_rel_root=stage_config.output_rel_root,
+			stage_config=stage_config,
+			force_restart=bool(stage_config.force_restart or stage_config.force_replot),
+		)
+
+	target_results = distribute_targets(
+		targets=targets,
+		well_workers=int(parallelism.well_workers),
+		worker_fn=_worker,
+	)
+	if publish_after_run:
+		target_results = [_publish_spikesort_target_result(item, policy=publish_policy) for item in target_results]
+
+	succeeded = sum(1 for item in target_results if item.status == "ok")
+	failed = sum(1 for item in target_results if item.status != "ok")
+	return MultiTargetStageResult(
+		stage=stage_name,
+		total_targets=len(target_results),
+		succeeded_targets=succeeded,
+		failed_targets=failed,
+		target_results=target_results,
+	)
+
+
+def run_spikesort_bootstrap_concat_binary_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_spikesort_concat_binary_phase_from_runtime(
+		config_path=config_path,
+		stage_name="spikesort.bootstrap_concat_binary",
+		runner_fn=bootstrap_spikesort_concat_binary,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+		debug_phase_label="bootstrap_concat_binary",
+		debug_enabled_attr="bootstrap_concat_binary_debug_mode_enabled",
+		debug_limit_datasets_attr="bootstrap_concat_binary_debug_limit_datasets",
+		debug_limit_wells_attr="bootstrap_concat_binary_debug_limit_wells",
+		publish_after_run=False,
+	)
+
+
+def run_spikesort_cleanup_concat_binary_from_runtime(
+	*,
+	config_path: str,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_spikesort_concat_binary_phase_from_runtime(
+		config_path=config_path,
+		stage_name="spikesort.cleanup_concat_binary",
+		runner_fn=cleanup_spikesort_concat_binary,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+		debug_phase_label="cleanup_concat_binary",
+		debug_enabled_attr="cleanup_concat_binary_debug_mode_enabled",
+		debug_limit_datasets_attr="cleanup_concat_binary_debug_limit_datasets",
+		debug_limit_wells_attr="cleanup_concat_binary_debug_limit_wells",
+		publish_after_run=True,
+	)
+
+
 def _run_spikesort_sort_from_runtime(
 	*,
 	config_path: str,
@@ -1281,6 +1448,11 @@ def run_spikesort_merge_from_runtime(
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 	merge_sequence_override: tuple[str, ...] | list[str] | None = None,
+	stage_config_transformer: Callable[[Any], Any] | None = None,
+	debug_phase_label: str | None = None,
+	debug_enabled_attr: str | None = None,
+	debug_limit_datasets_attr: str | None = None,
+	debug_limit_wells_attr: str | None = None,
 	stage_name: str = "spikesort.merge",
 ) -> MultiTargetStageResult:
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
@@ -1295,6 +1467,8 @@ def run_spikesort_merge_from_runtime(
 		normalized_override = tuple(str(token).strip() for token in tuple(merge_sequence_override) if str(token).strip())
 		if normalized_override:
 			stage_config = replace(stage_config, merge_sequence=normalized_override)
+	if stage_config_transformer is not None:
+		stage_config = stage_config_transformer(stage_config)
 
 	inherit_2panel_probe_dimensions = bool(
 		getattr(stage_config, "merge_reports_2panel_inherit_probe_dimensions", False)
@@ -1372,15 +1546,31 @@ def run_spikesort_merge_from_runtime(
 					for field_name, field_value in replace_kwargs.items():
 						setattr(stage_config, field_name, field_value)
 	targets = select_execution_targets(bundle=bundle)
-	if stage_config.debug_limit_wells is not None:
-		limit_wells = max(1, int(stage_config.debug_limit_wells))
-		if len(targets) > limit_wells:
-			LOGGER.info(
-				"Applying spikesort.merge debug well limit: %d -> %d target(s)",
-				len(targets),
-				limit_wells,
-			)
-			targets = list(targets[:limit_wells])
+	if (
+		debug_phase_label is not None
+		and debug_enabled_attr is not None
+		and debug_limit_datasets_attr is not None
+		and debug_limit_wells_attr is not None
+	):
+		targets = _apply_spikesort_phase_debug_limits(
+			stage_name=stage_name,
+			stage_config=stage_config,
+			targets=list(targets),
+			phase_label=debug_phase_label,
+			enabled_attr=debug_enabled_attr,
+			limit_datasets_attr=debug_limit_datasets_attr,
+			limit_wells_attr=debug_limit_wells_attr,
+		)
+	else:
+		if stage_config.debug_limit_wells is not None:
+			limit_wells = max(1, int(stage_config.debug_limit_wells))
+			if len(targets) > limit_wells:
+				LOGGER.info(
+					"Applying spikesort.merge debug well limit: %d -> %d target(s)",
+					len(targets),
+					limit_wells,
+				)
+				targets = list(targets[:limit_wells])
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,
 		stage_name="spikesort",

@@ -27,6 +27,12 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.sort_debug_mode_enabled is False
     assert parsed.sort_debug_limit_datasets is None
     assert parsed.sort_debug_limit_wells is None
+    assert parsed.bootstrap_concat_binary_debug_mode_enabled is False
+    assert parsed.bootstrap_concat_binary_debug_limit_datasets is None
+    assert parsed.bootstrap_concat_binary_debug_limit_wells is None
+    assert parsed.cleanup_concat_binary_debug_mode_enabled is False
+    assert parsed.cleanup_concat_binary_debug_limit_datasets is None
+    assert parsed.cleanup_concat_binary_debug_limit_wells is None
     assert parsed.summarize_sort_debug_mode_enabled is False
     assert parsed.summarize_sort_debug_limit_datasets is None
     assert parsed.summarize_sort_debug_limit_wells is None
@@ -41,6 +47,11 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.run_reports is True
     assert parsed.sort_enabled is True
     assert parsed.sort_delete_outputs_on_force_restart is False
+    assert parsed.sort_original_preprocess_concat_recording_relpath is None
+    assert parsed.sort_bootstrapped_concat_recording_relpath == "spikesort_outputs/cache/bootstrap_concat_binary/recording"
+    assert parsed.sort_use_bootstrapped_concat_binary is False
+    assert parsed.sort_use_lazy_source is True
+    assert parsed.sort_assert_one_source is False
     assert parsed.plot_enabled is True
     assert parsed.plot_mode == "separate"
     assert parsed.plot_debug is False
@@ -49,6 +60,21 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.no_curation is False
     assert parsed.export_to_phy is False
     assert parsed.force_rerun_analyzer is False
+    assert parsed.bootstrap_concat_binary_enabled is False
+    assert parsed.bootstrap_concat_binary_cache_relpath == "cache/bootstrap_concat_binary"
+    assert parsed.bootstrap_concat_binary_recording_relpath == "cache/bootstrap_concat_binary/recording"
+    assert parsed.bootstrap_concat_binary_manifest_relpath == "cache/bootstrap_concat_binary/concat_segments_manifest.json"
+    assert parsed.bootstrap_concat_binary_summary_json_relpath == "cache/bootstrap_concat_binary/bootstrap_concat_binary_summary.json"
+    assert parsed.bootstrap_concat_binary_source_segment_manifest_relpath == "preprocess_outputs/preprocessed_segments/manifest.json"
+    assert parsed.bootstrap_concat_binary_use_as_preprocess_concat_recording is True
+    assert parsed.bootstrap_concat_binary_overwrite_existing is False
+    assert parsed.bootstrap_concat_binary_overwrite_on_force_restart is True
+    assert parsed.bootstrap_concat_binary_n_jobs is None
+    assert parsed.bootstrap_concat_binary_chunk_duration is None
+    assert parsed.bootstrap_concat_binary_progress_bar is True
+    assert parsed.cleanup_concat_binary_enabled is False
+    assert parsed.cleanup_concat_binary_relpath == "cache/bootstrap_concat_binary"
+    assert parsed.cleanup_concat_binary_summary_json_relpath == "cache/bootstrap_concat_binary_cleanup_summary.json"
     assert parsed.summarize_sort_enabled is False
     assert parsed.summarize_sort_emit_logs is True
     assert parsed.summarize_sort_generate_artifacts is False
@@ -92,6 +118,26 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.auto_merge_merged_units_reldir == "merged_units"
     assert parsed.auto_merge_auto_accept_merges is False
     assert parsed.auto_merge_template_diff_thresholds == (0.25,)
+    assert parsed.merge_slay_enabled is False
+    assert parsed.merge_slay_rel_output_root == "merge_SLAy"
+    assert parsed.merge_slay_use_canonical_workspace is True
+    assert parsed.merge_slay_canonical_workspace_relpath == "cache/merge_canonical_workspace"
+    assert parsed.merge_slay_publish_canonical_to_stage_outputs_on_success is False
+    assert parsed.merge_slay_debug_mode_enabled is False
+    assert parsed.merge_slay_debug_limit_datasets is None
+    assert parsed.merge_slay_debug_limit_wells is None
+    assert parsed.merge_si_auto_enabled is False
+    assert parsed.merge_si_auto_rel_output_root == "merge_si_auto"
+    assert parsed.merge_si_auto_use_canonical_workspace is True
+    assert parsed.merge_si_auto_debug_mode_enabled is False
+    assert parsed.merge_si_auto_debug_limit_datasets is None
+    assert parsed.merge_si_auto_debug_limit_wells is None
+    assert parsed.merge_unitmatch_enabled is False
+    assert parsed.merge_unitmatch_rel_output_root == "merge_unitmatch"
+    assert parsed.merge_unitmatch_use_canonical_workspace is True
+    assert parsed.merge_unitmatch_debug_mode_enabled is False
+    assert parsed.merge_unitmatch_debug_limit_datasets is None
+    assert parsed.merge_unitmatch_debug_limit_wells is None
     assert parsed.merge_units_enabled is True
     assert parsed.merge_rel_output_root is None
     assert parsed.merge_delete_outputs_on_force_restart is False
@@ -292,6 +338,161 @@ def test_parse_spikesort_stage_config_reads_summarize_sort_debug_mode() -> None:
     assert parsed.summarize_sort_debug_mode_enabled is True
     assert parsed.summarize_sort_debug_limit_datasets == 1
     assert parsed.summarize_sort_debug_limit_wells == 1
+
+
+def test_parse_spikesort_stage_config_reads_bootstrap_concat_binary_phase() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "execution": {
+                        "output_root": "spikesort_outputs_v2",
+                    },
+                    "inputs": {
+                        "preprocess_concat_recording_relpath": "preprocess_outputs/concatenated_recording",
+                    },
+                    "phases": {
+                        "bootstrap_concat_binary": {
+                            "enabled": True,
+                            "cache_relpath": "cache/local_concat",
+                            "recording_relpath": "cache/local_concat/recording",
+                            "manifest_relpath": "cache/local_concat/manifest.json",
+                            "summary_json_relpath": "cache/local_concat/summary.json",
+                            "source_segment_manifest_relpath": "preprocess_outputs/preprocessed_segments/manifest.json",
+                            "overwrite_existing": True,
+                            "overwrite_on_force_restart": False,
+                            "n_jobs": 3,
+                            "chunk_duration": "2s",
+                            "progress_bar": False,
+                            "debug_mode": {
+                                "enabled": True,
+                                "limit_datasets": 1,
+                                "limit_wells": 2,
+                            },
+                        }
+                    },
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.bootstrap_concat_binary_enabled is True
+    assert parsed.bootstrap_concat_binary_cache_relpath == "cache/local_concat"
+    assert parsed.bootstrap_concat_binary_recording_relpath == "cache/local_concat/recording"
+    assert parsed.bootstrap_concat_binary_manifest_relpath == "cache/local_concat/manifest.json"
+    assert parsed.bootstrap_concat_binary_summary_json_relpath == "cache/local_concat/summary.json"
+    assert parsed.bootstrap_concat_binary_source_segment_manifest_relpath == "preprocess_outputs/preprocessed_segments/manifest.json"
+    assert parsed.bootstrap_concat_binary_overwrite_existing is True
+    assert parsed.bootstrap_concat_binary_overwrite_on_force_restart is False
+    assert parsed.bootstrap_concat_binary_n_jobs == 3
+    assert parsed.bootstrap_concat_binary_chunk_duration == "2s"
+    assert parsed.bootstrap_concat_binary_progress_bar is False
+    assert parsed.bootstrap_concat_binary_debug_mode_enabled is True
+    assert parsed.bootstrap_concat_binary_debug_limit_datasets == 1
+    assert parsed.bootstrap_concat_binary_debug_limit_wells == 2
+    assert parsed.sort_use_bootstrapped_concat_binary is True
+    assert parsed.sort_use_lazy_source is True
+    assert parsed.sort_assert_one_source is False
+    assert parsed.sort_original_preprocess_concat_recording_relpath == "preprocess_outputs/concatenated_recording"
+    assert parsed.sort_bootstrapped_concat_recording_relpath == "spikesort_outputs_v2/cache/local_concat/recording"
+    assert parsed.preprocess_concat_recording_relpath == "spikesort_outputs_v2/cache/local_concat/recording"
+
+
+def test_parse_spikesort_stage_config_reads_sort_source_controls() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "output_root": "spikesort_outputs_v2",
+                    "inputs": {
+                        "preprocess_concat_recording_relpath": "preprocess_outputs/concatenated_recording",
+                    },
+                    "phases": {
+                        "bootstrap_concat_binary": {
+                            "recording_relpath": "cache/local_concat/recording",
+                        },
+                        "sort": {
+                            "use_bootstrapped_concat_binary": True,
+                            "use_lazy_source": False,
+                            "assert_one_source": True,
+                        },
+                    },
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.sort_original_preprocess_concat_recording_relpath == "preprocess_outputs/concatenated_recording"
+    assert parsed.sort_bootstrapped_concat_recording_relpath == "spikesort_outputs_v2/cache/local_concat/recording"
+    assert parsed.preprocess_concat_recording_relpath == "spikesort_outputs_v2/cache/local_concat/recording"
+    assert parsed.sort_use_bootstrapped_concat_binary is True
+    assert parsed.sort_use_lazy_source is False
+    assert parsed.sort_assert_one_source is True
+
+
+def test_parse_spikesort_stage_config_sort_source_controls_can_keep_original_source() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "output_root": "spikesort_outputs_v2",
+                    "inputs": {
+                        "preprocess_concat_recording_relpath": "preprocess_outputs/concatenated_recording",
+                    },
+                    "phases": {
+                        "bootstrap_concat_binary": {
+                            "enabled": True,
+                            "recording_relpath": "cache/local_concat/recording",
+                        },
+                        "sort": {
+                            "use_bootstrapped_concat_binary": False,
+                        },
+                    },
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.sort_use_bootstrapped_concat_binary is False
+    assert parsed.preprocess_concat_recording_relpath == "preprocess_outputs/concatenated_recording"
+
+
+def test_parse_spikesort_stage_config_reads_clear_concat_binary_alias() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "clear_concat_binary": {
+                            "enabled": True,
+                            "relpath": "cache/local_concat",
+                            "summary_json_relpath": "cache/local_concat_cleanup.json",
+                            "debug_mode": {
+                                "enabled": True,
+                                "limit_datasets": 1,
+                                "limit_wells": 1,
+                            },
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.cleanup_concat_binary_enabled is True
+    assert parsed.cleanup_concat_binary_relpath == "cache/local_concat"
+    assert parsed.cleanup_concat_binary_summary_json_relpath == "cache/local_concat_cleanup.json"
+    assert parsed.cleanup_concat_binary_debug_mode_enabled is True
+    assert parsed.cleanup_concat_binary_debug_limit_datasets == 1
+    assert parsed.cleanup_concat_binary_debug_limit_wells == 1
 
 
 def test_parse_spikesort_stage_config_parses_sectioned_stage_layout() -> None:
@@ -832,11 +1033,9 @@ def test_parse_spikesort_stage_config_unitmatch_enabled_false_disables_merge_uni
                         }
                     },
                     "phases": {
-                        "merge_units": {
-                            "unitmatch": {
-                                "enabled": False,
-                                "merge_units": True,
-                            }
+                        "merge_unitmatch": {
+                            "enabled": False,
+                            "merge_units": True,
                         }
                     },
                 }
@@ -861,34 +1060,32 @@ def test_parse_spikesort_stage_config_reads_slay_merge_knobs() -> None:
                             "enabled": False,
                             "delete_outputs_on_force_restart": True,
                         },
-                        "merge_units": {
-                            "SLAy": {
+                        "merge_SLAy": {
+                            "enabled": True,
+                            "relpath": "SLAy_outputs_custom",
+                            "package_root": "/tmp/slay",
+                            "sorter_output_relpath": "spikesort_outputs/sorter_output/sorter_output",
+                            "output_json_relpath": "reports/slay_run_output.json",
+                            "candidate_pairs_relpath": "candidates/recommended.tsv",
+                            "merge_groups_relpath": "candidates/groups.json",
+                            "allow_numpy_fallback": False,
+                            "plot_merges": True,
+                            "auto_accept_merges": False,
+                            "copy_automerge_artifacts": False,
+                            "delete_outputs_on_force_restart": False,
+                            "recompute_analyzer": True,
+                            "model_cache": {
                                 "enabled": True,
-                                "relpath": "SLAy_outputs_custom",
-                                "package_root": "/tmp/slay",
-                                "sorter_output_relpath": "spikesort_outputs/sorter_output/sorter_output",
-                                "output_json_relpath": "reports/slay_run_output.json",
-                                "candidate_pairs_relpath": "candidates/recommended.tsv",
-                                "merge_groups_relpath": "candidates/groups.json",
-                                "allow_numpy_fallback": False,
-                                "plot_merges": True,
-                                "auto_accept_merges": False,
-                                "copy_automerge_artifacts": False,
-                                "delete_outputs_on_force_restart": False,
-                                "recompute_analyzer": True,
-                                "model_cache": {
-                                    "enabled": True,
-                                    "relpath": "cache/slay_model/custom_ae.pt",
-                                    "use_cached_model": False,
-                                    "write_model_cache": True,
-                                },
-                                "force_restart_retrain_model": True,
-                                "params": {
-                                    "max_spikes": 250,
-                                    "final_thresh": 0.6,
-                                },
-                            }
-                        }
+                                "relpath": "cache/slay_model/custom_ae.pt",
+                                "use_cached_model": False,
+                                "write_model_cache": True,
+                            },
+                            "force_restart_retrain_model": True,
+                            "params": {
+                                "max_spikes": 250,
+                                "final_thresh": 0.6,
+                            },
+                        },
                     }
                 }
             }
@@ -1034,18 +1231,16 @@ def test_parse_spikesort_stage_config_reads_auto_merge_knobs() -> None:
             "stages": {
                 "spikesort": {
                     "phases": {
-                        "merge_units": {
-                            "sequence": ["SLAy", "auto_merge"],
-                            "auto_merge": {
-                                "enabled": True,
-                                "template_diff_thresh": "0.07,0.11",
-                                "relpath": "merge_outputs/automerge",
-                                "delete_outputs_on_force_restart": False,
-                                "candidate_pairs_reldir": "pairs_by_iteration",
-                                "merged_units_reldir": "merged_units_by_iteration",
-                                "auto_accept_merges": True,
-                            },
-                        }
+                        "merge_sequence": ["SLAy", "auto_merge"],
+                        "merge_si_auto": {
+                            "enabled": True,
+                            "template_diff_thresh": "0.07,0.11",
+                            "relpath": "merge_outputs/automerge",
+                            "delete_outputs_on_force_restart": False,
+                            "candidate_pairs_reldir": "pairs_by_iteration",
+                            "merged_units_reldir": "merged_units_by_iteration",
+                            "auto_accept_merges": True,
+                        },
                     }
                 }
             }
@@ -1062,6 +1257,119 @@ def test_parse_spikesort_stage_config_reads_auto_merge_knobs() -> None:
     assert parsed.auto_merge_merged_units_reldir == "merged_units_by_iteration"
     assert parsed.auto_merge_auto_accept_merges is True
     assert parsed.auto_merge_template_diff_thresholds == (0.07, 0.11)
+
+
+def test_parse_spikesort_stage_config_reads_phase_local_merge_common_overrides() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_sequence": ["SLAy", "auto_merge"],
+                        "merge_SLAy": {
+                            "enabled": True,
+                            "rel_output_root": "merge_output/custom_slay",
+                            "force_restart": True,
+                            "analyzer": {
+                                "n_jobs": 7,
+                            },
+                            "pre_merge_metadata": {
+                                "enabled": False,
+                            },
+                            "post_merge_metadata": {
+                                "json_relpath": "reports/slay_post.json",
+                            },
+                            "reports": {
+                                "enabled": False,
+                                "unit_diff_json": {
+                                    "enabled": False,
+                                },
+                            },
+                            "use_cache_as_canonical_workspace": {
+                                "enabled": True,
+                                "canonical_workspace_relpath": "cache/slay_workspace",
+                                "canonical_workspace_refresh_on_run": False,
+                                "canonical_workspace_rebuild_analyzer": False,
+                                "publish_to_stage_outputs_on_success": True,
+                                "publish_to_stage_outputs_on_failure": False,
+                            },
+                        },
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_sequence == ("SLAy", "auto_merge")
+    assert isinstance(parsed.merge_phase_runtime_overrides, dict)
+    slay_overrides = parsed.merge_phase_runtime_overrides.get("merge_slay")
+    assert isinstance(slay_overrides, dict)
+    assert slay_overrides.get("merge_rel_output_root") == "merge_output/custom_slay"
+    assert slay_overrides.get("merge_force_restart") is True
+    assert slay_overrides.get("merge_analyzer_n_jobs") == 7
+    assert slay_overrides.get("pre_merge_metadata_enabled") is False
+    assert slay_overrides.get("post_merge_metadata_json_relpath") == "reports/slay_post.json"
+    assert slay_overrides.get("merge_reports_enabled") is False
+    assert slay_overrides.get("merge_reports_unit_diff_json_enabled") is False
+    assert slay_overrides.get("cache_sorting_outputs_before_merge_use_canonical_workspace") is True
+    assert (
+        slay_overrides.get("cache_sorting_outputs_before_merge_canonical_workspace_relpath")
+        == "cache/slay_workspace"
+    )
+
+
+def test_parse_spikesort_stage_config_reads_merge_slay_phase_knobs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "merge_SLAy": {
+                            "enabled": True,
+                            "rel_output_root": "merge_outputs/slay_only",
+                            "delete_outputs_on_force_restart": True,
+                            "force_restart": True,
+                            "force_replot": False,
+                            "debug_mode": {
+                                "enabled": True,
+                                "limit_datasets": 1,
+                                "limit_wells": 1,
+                            },
+                            "use_cache_as_canonical_workspace": {
+                                "enabled": True,
+                                "canonical_workspace_relpath": "cache/slay_workspace",
+                                "canonical_workspace_refresh_on_run": False,
+                                "canonical_workspace_rebuild_analyzer": False,
+                                "publish_to_stage_outputs_on_success": True,
+                                "publish_to_stage_outputs_on_failure": False,
+                                "assert_uses_canonical_workspace": False,
+                            },
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.merge_slay_enabled is True
+    assert parsed.merge_slay_rel_output_root == "merge_outputs/slay_only"
+    assert parsed.merge_slay_delete_outputs_on_force_restart is True
+    assert parsed.merge_slay_force_restart is True
+    assert parsed.merge_slay_force_replot is False
+    assert parsed.merge_slay_use_canonical_workspace is True
+    assert parsed.merge_slay_canonical_workspace_relpath == "cache/slay_workspace"
+    assert parsed.merge_slay_canonical_workspace_refresh_on_run is False
+    assert parsed.merge_slay_canonical_workspace_rebuild_analyzer is False
+    assert parsed.merge_slay_publish_canonical_to_stage_outputs_on_success is True
+    assert parsed.merge_slay_publish_canonical_to_stage_outputs_on_failure is False
+    assert parsed.merge_slay_assert_uses_canonical_workspace is False
+    assert parsed.merge_slay_debug_mode_enabled is True
+    assert parsed.merge_slay_debug_limit_datasets == 1
+    assert parsed.merge_slay_debug_limit_wells == 1
 
 
 def test_parse_spikesort_stage_config_reads_merge_metadata_knobs() -> None:
@@ -1872,6 +2180,11 @@ def test_load_spikesort_inputs_from_runtime_reads_stage_level_input_and_output_r
     assert inputs.stream_id == "well006"
     assert inputs.output_rel_root == "spikesort_stage_outputs"
     assert inputs.preprocess_concat_recording_relpath == "preprocess_outputs/preprocessed_recording"
+    assert inputs.sort_original_preprocess_concat_recording_relpath == "preprocess_outputs/preprocessed_recording"
+    assert inputs.sort_bootstrapped_concat_recording_relpath == "spikesort_stage_outputs/cache/bootstrap_concat_binary/recording"
+    assert inputs.sort_use_bootstrapped_concat_binary is False
+    assert inputs.sort_use_lazy_source is True
+    assert inputs.sort_assert_one_source is False
     assert inputs.chunk_duration == "1s"
 
 

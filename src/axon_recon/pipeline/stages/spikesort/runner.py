@@ -1868,6 +1868,92 @@ def _resolve_slay_data_filepath(*, ks_dir: Path, dat_path: Any, preferred_record
 	return str(direct_candidate)
 
 
+def _resolve_existing_slay_preferred_recording_dir(*, well_out_dir: Path, stage_config: Any) -> Path | None:
+	recording_dir = _resolve_under_well(
+		well_out_dir=well_out_dir,
+		relpath=str(
+			getattr(stage_config, "preprocess_concat_recording_relpath", None)
+			or "preprocess_outputs/preprocessed_recording"
+		),
+	)
+	if recording_dir.exists():
+		return recording_dir.resolve()
+	return None
+
+
+def _preflight_slay_binary_input(*, sorter_output_dir: Path, well_out_dir: Path, stage_config: Any) -> dict[str, Any]:
+	ks_dir = _normalize_slay_kilosort_dir(sorter_output_dir=sorter_output_dir)
+	params_path = (ks_dir / "params.py").resolve()
+	if not params_path.exists():
+		raise FileNotFoundError(
+			"SLAy preflight requires a Kilosort params.py file; "
+			f"ks_dir={ks_dir} params_path={params_path}"
+		)
+
+	ksparams: dict[str, Any] = {}
+	with params_path.open("r", encoding="utf-8") as f:
+		for line in f:
+			if "=" not in line:
+				continue
+			key, value = line.split("=", 1)
+			ksparams[str(key).strip()] = eval(str(value).strip())
+
+	dat_path = ksparams.get("dat_path", None)
+	preferred_recording_dir = _resolve_existing_slay_preferred_recording_dir(
+		well_out_dir=well_out_dir,
+		stage_config=stage_config,
+	)
+	resolved_data_filepath = _resolve_slay_data_filepath(
+		ks_dir=ks_dir,
+		dat_path=dat_path,
+		preferred_recording_dir=preferred_recording_dir,
+	)
+	resolved_recording_dir = _resolve_slay_recording_dir(
+		ks_dir=ks_dir,
+		preferred_recording_dir=preferred_recording_dir,
+	)
+
+	if resolved_data_filepath is None:
+		raise FileNotFoundError(
+			"SLAy requires a materialized binary recording file before merge execution, "
+			"but params.py does not define dat_path and no fallback binary could be inferred; "
+			f"ks_dir={ks_dir} params_path={params_path} preferred_recording_dir={preferred_recording_dir} "
+			f"resolved_recording_dir={resolved_recording_dir}"
+		)
+
+	resolved_data_path = Path(str(resolved_data_filepath)).expanduser().resolve()
+	if (not resolved_data_path.exists()) or (not resolved_data_path.is_file()):
+		fallback_raw_candidates: list[str] = []
+		if resolved_recording_dir is not None and resolved_recording_dir.exists():
+			fallback_raw_candidates = [
+				str(path.resolve())
+				for path in sorted(resolved_recording_dir.glob("traces_cached_seg*.raw"))
+			]
+		raise FileNotFoundError(
+			"SLAy requires a materialized binary recording file before merge execution; "
+			f"ks_dir={ks_dir} params_path={params_path} dat_path={dat_path!r} "
+			f"resolved_data_filepath={resolved_data_path} preferred_recording_dir={preferred_recording_dir} "
+			f"resolved_recording_dir={resolved_recording_dir} fallback_raw_candidates={fallback_raw_candidates}"
+		)
+
+	return {
+		"ks_dir": str(ks_dir),
+		"params_path": str(params_path),
+		"dat_path": dat_path,
+		"data_filepath": str(resolved_data_path),
+		"preferred_recording_dir": (
+			str(preferred_recording_dir)
+			if preferred_recording_dir is not None
+			else None
+		),
+		"resolved_recording_dir": (
+			str(resolved_recording_dir)
+			if resolved_recording_dir is not None
+			else None
+		),
+	}
+
+
 def _import_slay_run_function(*, package_root: str | None, allow_numpy_fallback: bool) -> Callable[[dict[str, Any]], None]:
 	def _patch_parse_kilosort_params(module: Any) -> None:
 		original = getattr(module, "parse_kilosort_params", None)
@@ -2039,10 +2125,15 @@ def _resolve_sorter_output_dir(*, well_out_dir: Path, output_rel_root: str, stag
 	)
 	stage_output_rel_root = str(output_rel_root).strip().lstrip("/") or "spikesort_outputs"
 
-	search_roots = [merge_output_rel_root]
-	# Backward-compat: keep default sorter_output discovery under stage root if merge root is configured.
-	if configured_relpath is None and merge_output_rel_root != stage_output_rel_root:
-		search_roots.append(stage_output_rel_root)
+	search_roots: list[str]
+	if configured_relpath is None:
+		search_roots = [stage_output_rel_root]
+		if merge_output_rel_root != stage_output_rel_root:
+			search_roots.append(merge_output_rel_root)
+	else:
+		search_roots = [merge_output_rel_root]
+		if merge_output_rel_root != stage_output_rel_root:
+			search_roots.append(stage_output_rel_root)
 
 	def _normalize_candidate(path: Path) -> Path:
 		has_wrapper_markers = bool(
@@ -3001,6 +3092,241 @@ def _load_preprocessed_recording_from_dir(*, si_module: Any, recording_dir: Path
 		return si_module.load(recording_dir)
 	except Exception:
 		return si_module.load_extractor(recording_dir)
+
+
+def _resolve_bootstrap_concat_binary_paths(
+	*,
+	well_out_dir: Path,
+	stage_output_root_dir: Path,
+	stage_config: Any,
+) -> dict[str, Path]:
+	cache_root_dir = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=str(getattr(stage_config, "output_rel_root", "spikesort_outputs") or "spikesort_outputs"),
+		relpath=str(getattr(stage_config, "bootstrap_concat_binary_cache_relpath", "cache/bootstrap_concat_binary")),
+	)
+	recording_dir = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=str(getattr(stage_config, "output_rel_root", "spikesort_outputs") or "spikesort_outputs"),
+		relpath=str(getattr(stage_config, "bootstrap_concat_binary_recording_relpath", "cache/bootstrap_concat_binary/recording")),
+	)
+	concat_manifest_path = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=str(getattr(stage_config, "output_rel_root", "spikesort_outputs") or "spikesort_outputs"),
+		relpath=str(getattr(stage_config, "bootstrap_concat_binary_manifest_relpath", "cache/bootstrap_concat_binary/concat_segments_manifest.json")),
+	)
+	summary_json = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=str(getattr(stage_config, "output_rel_root", "spikesort_outputs") or "spikesort_outputs"),
+		relpath=str(getattr(stage_config, "bootstrap_concat_binary_summary_json_relpath", "cache/bootstrap_concat_binary/bootstrap_concat_binary_summary.json")),
+	)
+	segment_manifest_path = _resolve_under_well(
+		well_out_dir=well_out_dir,
+		relpath=str(
+			getattr(
+				stage_config,
+				"bootstrap_concat_binary_source_segment_manifest_relpath",
+				"preprocess_outputs/preprocessed_segments/manifest.json",
+			)
+		),
+	)
+	return {
+		"cache_root_dir": cache_root_dir,
+		"recording_dir": recording_dir,
+		"concat_manifest_path": concat_manifest_path,
+		"summary_json": summary_json,
+		"segment_manifest_path": segment_manifest_path,
+		"stage_output_root_dir": stage_output_root_dir,
+	}
+
+
+def run_spikesort_bootstrap_concat_binary_stage(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	mea_output_root: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	force_restart: bool,
+) -> SpikesortResult:
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=mea_output_root,
+		data_file=h5_path,
+		well=stream_id,
+	)
+	stage_output_root_dir = _resolve_under_well(
+		well_out_dir=well_out_dir,
+		relpath=(str(output_rel_root).strip() or "spikesort_outputs"),
+	)
+	stage_output_root_dir.mkdir(parents=True, exist_ok=True)
+	paths = _resolve_bootstrap_concat_binary_paths(
+		well_out_dir=well_out_dir,
+		stage_output_root_dir=stage_output_root_dir,
+		stage_config=stage_config,
+	)
+	summary_json = paths["summary_json"]
+
+	if not bool(getattr(stage_config, "bootstrap_concat_binary_enabled", False)):
+		payload = {
+			"status": "skipped",
+			"reason": "bootstrap_concat_binary_disabled",
+			"well_out_dir": str(well_out_dir),
+			"stage_output_root_dir": str(stage_output_root_dir),
+			"outputs": {"summary_json": str(summary_json)},
+		}
+		_write_json(summary_json, payload)
+		return SpikesortResult(
+			well_out_dir=well_out_dir,
+			spikesort_out_dir=stage_output_root_dir,
+			summary_json=summary_json,
+			outputs={"summary_json": str(summary_json)},
+		)
+
+	from axon_recon.pipeline.stages.preprocess.core.concat_segments import run_concat_segments_core
+	from axon_recon.pipeline.stages.preprocess.core.save_concatenated_recording import (
+		run_save_concatenated_recording_core,
+	)
+
+	overwrite_saved_recording = bool(getattr(stage_config, "bootstrap_concat_binary_overwrite_existing", False))
+	if bool(force_restart) and bool(getattr(stage_config, "bootstrap_concat_binary_overwrite_on_force_restart", True)):
+		overwrite_saved_recording = True
+	n_jobs = getattr(stage_config, "bootstrap_concat_binary_n_jobs", None)
+	if n_jobs is None:
+		n_jobs = getattr(stage_config, "n_jobs", None)
+	if n_jobs is None:
+		n_jobs = 1
+	chunk_duration = (
+		getattr(stage_config, "bootstrap_concat_binary_chunk_duration", None)
+		or getattr(stage_config, "chunk_duration", None)
+		or "1s"
+	)
+
+	_log_phase_step_start(
+		"Spikesort bootstrap concat binary step start",
+		stream_id=str(stream_id),
+		segment_manifest_path=paths["segment_manifest_path"],
+		recording_dir=paths["recording_dir"],
+		force_restart=bool(force_restart),
+		overwrite_saved_recording=bool(overwrite_saved_recording),
+	)
+	payload = run_concat_segments_core(
+		stream_id=str(stream_id),
+		segment_manifest_path=paths["segment_manifest_path"],
+		recording_dir=paths["recording_dir"],
+		concat_manifest_path=paths["concat_manifest_path"],
+		overwrite_saved_recording=bool(overwrite_saved_recording),
+		output_mode="binary",
+		n_jobs=max(1, int(n_jobs)),
+		chunk_duration=str(chunk_duration),
+		progress_bar=bool(getattr(stage_config, "bootstrap_concat_binary_progress_bar", True)),
+		logger=LOGGER,
+		run_save_concatenated_recording_core=run_save_concatenated_recording_core,
+	)
+	binary_candidates = [
+		path
+		for pattern in ("traces_cached_seg*.raw", "*.raw", "recording.dat")
+		for path in paths["recording_dir"].glob(pattern)
+		if path.is_file()
+	]
+	if not binary_candidates:
+		raise RuntimeError(
+			"bootstrap_concat_binary did not produce a materialized binary recording: "
+			f"recording_dir={paths['recording_dir']} reused_existing={payload.get('reused_existing', False)}. "
+			"Rerun with --force-restart or set overwrite_existing=true."
+		)
+	outputs = {
+		"summary_json": str(summary_json),
+		"bootstrap_concat_binary.recording_dir": str(paths["recording_dir"]),
+		"bootstrap_concat_binary.concat_manifest_path": str(paths["concat_manifest_path"]),
+		"bootstrap_concat_binary.cache_root_dir": str(paths["cache_root_dir"]),
+	}
+	if "recording_json_path" in payload:
+		outputs["bootstrap_concat_binary.recording_json_path"] = str(payload["recording_json_path"])
+	_write_json(
+		summary_json,
+		{
+			"status": "ok",
+			"well_out_dir": str(well_out_dir),
+			"stage_output_root_dir": str(stage_output_root_dir),
+			"cache_root_dir": str(paths["cache_root_dir"]),
+			"recording_dir": str(paths["recording_dir"]),
+			"segment_manifest_path": str(paths["segment_manifest_path"]),
+			"concat_manifest_path": str(paths["concat_manifest_path"]),
+			"force_restart": bool(force_restart),
+			"overwrite_saved_recording": bool(overwrite_saved_recording),
+			"output_mode": str(payload.get("output_mode", "binary")),
+			"materialized_recording": bool(payload.get("materialized_recording", True)),
+			"saved": bool(payload.get("saved", False)),
+			"reused_existing": bool(payload.get("reused_existing", False)),
+			"outputs": outputs,
+		},
+	)
+	return SpikesortResult(
+		well_out_dir=well_out_dir,
+		spikesort_out_dir=stage_output_root_dir,
+		summary_json=summary_json,
+		outputs=outputs,
+	)
+
+
+def run_spikesort_cleanup_concat_binary_stage(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	mea_output_root: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	force_restart: bool,
+) -> SpikesortResult:
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=mea_output_root,
+		data_file=h5_path,
+		well=stream_id,
+	)
+	stage_output_root_dir = _resolve_under_well(
+		well_out_dir=well_out_dir,
+		relpath=(str(output_rel_root).strip() or "spikesort_outputs"),
+	)
+	stage_output_root_dir.mkdir(parents=True, exist_ok=True)
+	summary_json = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=output_rel_root,
+		relpath=str(getattr(stage_config, "cleanup_concat_binary_summary_json_relpath", "cache/bootstrap_concat_binary_cleanup_summary.json")),
+	)
+	target_dir = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=output_rel_root,
+		relpath=str(getattr(stage_config, "cleanup_concat_binary_relpath", "cache/bootstrap_concat_binary")),
+	)
+	removed_paths: list[str] = []
+	if bool(getattr(stage_config, "cleanup_concat_binary_enabled", False)) and target_dir.exists():
+		if target_dir.is_dir():
+			shutil.rmtree(target_dir, ignore_errors=True)
+		else:
+			target_dir.unlink(missing_ok=True)
+		removed_paths.append(str(target_dir))
+	status = "ok" if bool(getattr(stage_config, "cleanup_concat_binary_enabled", False)) else "skipped"
+	reason = None if status == "ok" else "cleanup_concat_binary_disabled"
+	outputs = {"summary_json": str(summary_json)}
+	_write_json(
+		summary_json,
+		{
+			"status": status,
+			"reason": reason,
+			"well_out_dir": str(well_out_dir),
+			"stage_output_root_dir": str(stage_output_root_dir),
+			"target_dir": str(target_dir),
+			"removed_paths": removed_paths,
+			"force_restart": bool(force_restart),
+			"outputs": outputs,
+		},
+	)
+	return SpikesortResult(
+		well_out_dir=well_out_dir,
+		spikesort_out_dir=stage_output_root_dir,
+		summary_json=summary_json,
+		outputs=outputs,
+	)
 
 
 def _spikesort_preprocessed_recording_relpath(stage_config: Any) -> str:
@@ -7136,12 +7462,9 @@ def _run_slay_merge_method(
 
 	run_output_json = merge_out_dir / str(getattr(stage_config, "slay_output_json_relpath", "run-output.json"))
 	run_output_json.parent.mkdir(parents=True, exist_ok=True)
-	preprocess_recording_dir = _resolve_under_well(
+	preprocess_recording_dir = _resolve_existing_slay_preferred_recording_dir(
 		well_out_dir=well_out_dir,
-		relpath=str(
-			getattr(stage_config, "preprocess_concat_recording_relpath", None)
-			or "preprocess_outputs/preprocessed_recording"
-		),
+		stage_config=stage_config,
 	)
 	run_args: dict[str, Any] = {
 		"KS_folder": str(ks_dir),
@@ -7149,7 +7472,7 @@ def _run_slay_merge_method(
 		"plot_merges": bool(getattr(stage_config, "slay_plot_merges", False)),
 		"output_json": str(run_output_json),
 	}
-	if preprocess_recording_dir.exists():
+	if preprocess_recording_dir is not None:
 		_resolve_slay_recording_dir(
 			ks_dir=ks_dir,
 			preferred_recording_dir=preprocess_recording_dir,
@@ -7699,6 +8022,8 @@ def run_spikesort_merge_stage(
 	requested_sequence_raw = list(getattr(stage_config, "merge_sequence", ()) or [])
 	if not requested_sequence_raw:
 		requested_sequence_raw = ["SLAy", "auto_merge", "unitmatch"]
+	requested_sequence_normalized = [_normalize_merge_method_token(token) for token in requested_sequence_raw]
+	slay_requested = bool(bool(getattr(stage_config, "slay_enabled", False)) and ("slay" in requested_sequence_normalized))
 	_log_phase_step_start(
 		"Spikesort merge stage start",
 		stream_id=str(stream_id),
@@ -8727,6 +9052,7 @@ def run_spikesort_merge_stage(
 	canonical_workspace_published = False
 	active_stage_output_root_dir: Path = stage_output_root_dir
 	active_sorter_output_dir: Path | None = None
+	slay_binary_input_preflight: dict[str, Any] | None = None
 	bombcell_report: dict[str, Any] | None = None
 	bombcell_report_error: str | None = None
 
@@ -8760,6 +9086,16 @@ def run_spikesort_merge_stage(
 				raise FileNotFoundError(
 					"Canonical merge workspace is missing sorter output: "
 					+ str(canonical_workspace_sorter_output_dir)
+				)
+
+			if slay_requested:
+				slay_binary_input_preflight = _preflight_slay_binary_input(
+					sorter_output_dir=canonical_workspace_sorter_output_dir,
+					well_out_dir=well_out_dir,
+					stage_config=stage_config,
+				)
+				cache_outputs["slay.preflight_data_filepath"] = str(
+					slay_binary_input_preflight.get("data_filepath", "")
 				)
 
 			canonical_workspace_analyzer_output_dir = (canonical_workspace_root_dir / "analyzer_output").resolve()
@@ -8798,43 +9134,23 @@ def run_spikesort_merge_stage(
 			)
 			raise RuntimeError(canonical_workspace_error) from exc
 
-	try:
-		bombcell_call_kwargs: dict[str, Any] = {
-			"well_out_dir": well_out_dir,
-			"stage_output_root_dir": active_stage_output_root_dir,
-			"output_rel_root": output_rel_root,
-			"stage_config": stage_config,
-			"force_restart": bool(force_restart),
-		}
-		if active_sorter_output_dir is not None:
-			bombcell_call_kwargs["sorter_output_dir"] = active_sorter_output_dir
-		bombcell_report = _run_bombcell_label_phase(**bombcell_call_kwargs)
-
-		if isinstance(bombcell_report, dict):
-			resolved_sorter_output_dir_raw = bombcell_report.get("sorter_output_dir", None)
-			if resolved_sorter_output_dir_raw is not None:
-				active_sorter_output_dir = Path(str(resolved_sorter_output_dir_raw)).resolve()
-			if str(bombcell_report.get("status", "")).lower() == "error" and bool(
-				getattr(stage_config, "bombcell_label_fail_on_error", False)
-			):
-				raise RuntimeError(str(bombcell_report.get("error", "bombcell_label_failed")))
-	except Exception as exc:
-		bombcell_report_error = f"bombcell_label_phase_failed:{type(exc).__name__}:{exc}"
-		if bool(getattr(stage_config, "bombcell_label_fail_on_error", False)):
-			raise RuntimeError(bombcell_report_error) from exc
-
 	resolved_sorter_output_dir: Path | None = active_sorter_output_dir
 	pre_snapshot_sorter_output_dir: Path | None = active_sorter_output_dir
-	if isinstance(bombcell_report, dict):
-		bombcell_sorter_output_dir_raw = bombcell_report.get("sorter_output_dir", None)
-		if bombcell_sorter_output_dir_raw is not None:
-			resolved_sorter_output_dir = Path(str(bombcell_sorter_output_dir_raw)).resolve()
 
 	if resolved_sorter_output_dir is None:
 		resolved_sorter_output_dir = _resolve_sorter_output_dir(
 			well_out_dir=well_out_dir,
 			output_rel_root=output_rel_root,
 			stage_config=stage_config,
+		)
+	if slay_requested and slay_binary_input_preflight is None:
+		slay_binary_input_preflight = _preflight_slay_binary_input(
+			sorter_output_dir=resolved_sorter_output_dir,
+			well_out_dir=well_out_dir,
+			stage_config=stage_config,
+		)
+		cache_outputs["slay.preflight_data_filepath"] = str(
+			slay_binary_input_preflight.get("data_filepath", "")
 		)
 	workspace_sorter_output_dir = resolved_sorter_output_dir
 
@@ -9691,7 +10007,7 @@ def run_spikesort_merge_stage(
 			if isinstance(bombcell_report, dict)
 			else {
 				"status": "skipped",
-				"reason": "bombcell_label_not_run",
+				"reason": "bombcell_label_not_invoked_by_merge_stage",
 			}
 		),
 		"methods": method_reports,
@@ -9975,6 +10291,11 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 		mea_output_root=inputs.mea_output_root,
 		output_subdir_after_well=(str(inputs.output_rel_root).strip() or "spikesort_outputs"),
 		preprocess_concat_recording_relpath=inputs.preprocess_concat_recording_relpath,
+		sort_original_preprocess_concat_recording_relpath=inputs.sort_original_preprocess_concat_recording_relpath,
+		sort_bootstrapped_concat_recording_relpath=inputs.sort_bootstrapped_concat_recording_relpath,
+		sort_use_bootstrapped_concat_binary=bool(inputs.sort_use_bootstrapped_concat_binary),
+		sort_use_lazy_source=bool(inputs.sort_use_lazy_source),
+		sort_assert_one_source=bool(inputs.sort_assert_one_source),
 		log_enabled=bool(inputs.logging_enabled),
 		log_verbose=bool(inputs.logging_verbose),
 		log_file_override=inputs.logging_file_relpath,
@@ -10011,6 +10332,10 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 	_log_phase_step_start(
 		"Spikesort sort phase start",
 		stream_id=str(inputs.stream_id),
+		preprocess_concat_recording_relpath=inputs.preprocess_concat_recording_relpath,
+		use_bootstrapped_concat_binary=bool(inputs.sort_use_bootstrapped_concat_binary),
+		use_lazy_source=bool(inputs.sort_use_lazy_source),
+		assert_one_source=bool(inputs.sort_assert_one_source),
 		run_analyzer=bool(inputs.run_analyzer),
 		run_reports=bool(inputs.run_reports),
 		plot_mode=str(inputs.plot_mode),
@@ -10057,6 +10382,11 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 			"output_rel_root": str(inputs.output_rel_root),
 			"inputs": {
 				"preprocess_concat_recording_relpath": inputs.preprocess_concat_recording_relpath,
+				"sort_original_preprocess_concat_recording_relpath": inputs.sort_original_preprocess_concat_recording_relpath,
+				"sort_bootstrapped_concat_recording_relpath": inputs.sort_bootstrapped_concat_recording_relpath,
+				"sort_use_bootstrapped_concat_binary": bool(inputs.sort_use_bootstrapped_concat_binary),
+				"sort_use_lazy_source": bool(inputs.sort_use_lazy_source),
+				"sort_assert_one_source": bool(inputs.sort_assert_one_source),
 				"logging_enabled": bool(inputs.logging_enabled),
 				"logging_verbose": bool(inputs.logging_verbose),
 				"logging_file_relpath": inputs.logging_file_relpath,

@@ -131,20 +131,20 @@ def resolve_copy_src_to_scratch_input_path(
 	dataset_id: str,
 	materialize_scratch_inputs: bool,
 ) -> Path:
-	resolved_source_h5_path = source_h5_path.expanduser().resolve()
+	normalized_source_h5_path = source_h5_path.expanduser()
 	if scratch_input_root is None:
-		return resolved_source_h5_path
+		return normalized_source_h5_path
 	if bool(materialize_scratch_inputs):
 		return _materialize_dataset_input_in_scratch(
-			source_h5_path=resolved_source_h5_path,
+			source_h5_path=normalized_source_h5_path,
 			scratch_input_root=scratch_input_root,
 			dataset_id=dataset_id,
 		)
 	return _resolve_existing_dataset_input_in_scratch(
-		source_h5_path=resolved_source_h5_path,
+		source_h5_path=normalized_source_h5_path,
 		scratch_input_root=scratch_input_root,
 		dataset_id=dataset_id,
-	) or resolved_source_h5_path
+	) or normalized_source_h5_path
 
 
 def _materialize_dataset_input_in_scratch(*, source_h5_path: Path, scratch_input_root: Path, dataset_id: str) -> Path:
@@ -357,22 +357,11 @@ def _resolve_existing_dataset_input_in_scratch(
 	scratch_input_root: Path,
 	dataset_id: str,
 ) -> Path | None:
-	source_h5_path = source_h5_path.expanduser().resolve()
-	scratch_input_root = scratch_input_root.expanduser().resolve()
-	target_h5 = (scratch_input_root / _relative_input_tree_path(source_h5_path)).resolve()
+	source_h5_path = source_h5_path.expanduser()
+	scratch_input_root = scratch_input_root.expanduser()
+	target_h5 = scratch_input_root / _relative_input_tree_path(source_h5_path)
 	if not target_h5.exists():
 		return None
-	try:
-		if not _copied_file_is_current(src_stat=source_h5_path.stat(), dst_stat=target_h5.stat()):
-			LOGGER.info(
-				"Scratch input exists but is stale; using source input dataset_id=%s source_h5=%s scratch_h5=%s",
-				dataset_id,
-				source_h5_path,
-				target_h5,
-			)
-			return None
-	except Exception:
-		pass
 	LOGGER.info(
 		"Using existing scratch input dataset_id=%s source_h5=%s scratch_h5=%s",
 		dataset_id,

@@ -116,6 +116,11 @@ class SpikeSortingInputs:
     # Optional per-well preprocess recording override. Relative paths resolve
     # under the computed well output directory.
     preprocess_concat_recording_relpath: Optional[str] = None
+    sort_original_preprocess_concat_recording_relpath: Optional[str] = None
+    sort_bootstrapped_concat_recording_relpath: Optional[str] = None
+    sort_use_bootstrapped_concat_binary: bool = False
+    sort_use_lazy_source: bool = True
+    sort_assert_one_source: bool = False
 
     # Logging controls
     log_enabled: bool = True
@@ -204,6 +209,54 @@ def _resolve_preprocess_dir(*, well_out_dir: Path) -> Path:
 
     # Default to new location for error messaging.
     return canonical_dir
+
+
+def _resolve_recording_source_candidate(*, well_out_dir: Path, relpath: str) -> Path:
+    candidate = Path(str(relpath)).expanduser()
+    if not candidate.is_absolute():
+        candidate = (well_out_dir / str(relpath).lstrip("/")).resolve()
+    else:
+        candidate = candidate.resolve()
+    if candidate.name in {"preprocessed_recording", "recording"}:
+        return candidate
+    nested_recording_dir = candidate / "preprocessed_recording"
+    if nested_recording_dir.exists():
+        return nested_recording_dir
+    return candidate
+
+
+def _recording_source_relpaths_for_assertion(*, inputs: SpikeSortingInputs) -> list[str]:
+    relpaths: list[str] = []
+    for value in (
+        inputs.sort_original_preprocess_concat_recording_relpath,
+        inputs.sort_bootstrapped_concat_recording_relpath,
+    ):
+        token = str(value or "").strip()
+        if token and token not in relpaths:
+            relpaths.append(token)
+    if not relpaths:
+        selected = str(inputs.preprocess_concat_recording_relpath or "").strip()
+        if selected:
+            relpaths.append(selected)
+    return relpaths
+
+
+def _recording_dir_has_materialized_traces(recording_dir: Path) -> bool:
+    if not recording_dir.exists() or not recording_dir.is_dir():
+        return False
+    trace_suffixes = {".raw", ".dat", ".bin"}
+    try:
+        for child in recording_dir.rglob("*"):
+            if not child.is_file():
+                continue
+            suffix = child.suffix.lower()
+            if suffix in trace_suffixes:
+                return True
+            if suffix == ".npy" and "trace" in child.stem.lower():
+                return True
+    except Exception:
+        return False
+    return False
 
 
 def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger) -> SpikeSortingOutputs:
@@ -364,31 +417,48 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
             "(single-segment handling is applied in preprocessing)."
         )
 
+    if bool(inputs.sort_assert_one_source):
+        valid_sources: list[Path] = []
+        for source_relpath in _recording_source_relpaths_for_assertion(inputs=inputs):
+            source_dir = _resolve_recording_source_candidate(well_out_dir=well_out_dir, relpath=source_relpath)
+            if source_dir.exists() and source_dir.is_dir() and source_dir not in valid_sources:
+                valid_sources.append(source_dir)
+        if len(valid_sources) != 1:
+            raise RuntimeError(
+                "Expected exactly one valid spikesort source recording because sort.assert_one_source=true; "
+                f"found={len(valid_sources)} candidates={[str(path) for path in valid_sources]}"
+            )
+
     preprocess_relpath = str(getattr(inputs, "preprocess_concat_recording_relpath", "") or "").strip()
     if preprocess_relpath:
-        candidate = Path(preprocess_relpath).expanduser()
-        if not candidate.is_absolute():
-            candidate = (well_out_dir / preprocess_relpath.lstrip("/")).resolve()
-        if candidate.name == "preprocessed_recording":
-            recording_dir = candidate
-            preprocess_dir = candidate.parent
-        else:
-            nested_recording_dir = candidate / "preprocessed_recording"
-            if nested_recording_dir.exists():
-                recording_dir = nested_recording_dir
-                preprocess_dir = candidate
-            else:
-                recording_dir = candidate
-                preprocess_dir = candidate.parent
+        recording_dir = _resolve_recording_source_candidate(
+            well_out_dir=well_out_dir,
+            relpath=preprocess_relpath,
+        )
+        preprocess_dir = recording_dir.parent
     else:
         preprocess_dir = _resolve_preprocess_dir(well_out_dir=well_out_dir)
         recording_dir = preprocess_dir / "preprocessed_recording"
+    logger.info(
+        "Spikesort source policy: use_bootstrapped_concat_binary=%s use_lazy_source=%s assert_one_source=%s selected_relpath=%s original_relpath=%s bootstrapped_relpath=%s",
+        bool(inputs.sort_use_bootstrapped_concat_binary),
+        bool(inputs.sort_use_lazy_source),
+        bool(inputs.sort_assert_one_source),
+        preprocess_relpath or None,
+        inputs.sort_original_preprocess_concat_recording_relpath,
+        inputs.sort_bootstrapped_concat_recording_relpath,
+    )
     logger.info("Resolved preprocessing outputs dir: %s", preprocess_dir)
     if not recording_dir.exists():
         raise FileNotFoundError(
             "Saved preprocessed recording folder not found. "
             "Run preprocessing first with `mea_output_root` set. "
             f"Expected: {recording_dir}"
+        )
+    if not bool(inputs.sort_use_lazy_source) and not _recording_dir_has_materialized_traces(recording_dir):
+        raise FileNotFoundError(
+            "Materialized spikesort source recording not found because sort.use_lazy_source=false. "
+            f"Expected binary trace files under: {recording_dir}"
         )
 
     logger.info("Loading saved preprocessed recording from %s", recording_dir)

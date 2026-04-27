@@ -1,12 +1,80 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from ....execution.results import MultiTargetStageResult
 from ..models.results import SpikesortMergeResult
 from ..runner import run_spikesort_merge_stage
+
+
+def _with_merge_sequence_override(stage_config: Any, merge_sequence: tuple[str, ...] | list[str]) -> Any:
+	normalized_sequence = tuple(str(token).strip() for token in tuple(merge_sequence) if str(token).strip())
+	if not normalized_sequence:
+		return stage_config
+	return _with_stage_config_overrides(stage_config, merge_sequence=normalized_sequence)
+
+
+def _with_stage_config_overrides(stage_config: Any, **replace_kwargs: Any) -> Any:
+	if getattr(stage_config, "__dataclass_fields__", None) is not None:
+		return replace(stage_config, **replace_kwargs)
+	for field_name, field_value in replace_kwargs.items():
+		setattr(stage_config, field_name, field_value)
+	return stage_config
+
+
+def _with_standalone_merge_phase_stage_config(
+	stage_config: Any,
+	*,
+	phase_prefix: str,
+	merge_sequence: tuple[str, ...] | list[str],
+	method_enabled_field: str | None = None,
+	assert_field: str | None = None,
+) -> Any:
+	phase_enabled = bool(getattr(stage_config, f"{phase_prefix}_enabled", False))
+	replace_kwargs: dict[str, Any] = {
+		"merge_sequence": tuple(str(token).strip() for token in tuple(merge_sequence) if str(token).strip()),
+		"merge_units_enabled": bool(phase_enabled),
+		"merge_rel_output_root": str(getattr(stage_config, f"{phase_prefix}_rel_output_root")),
+		"merge_delete_outputs_on_force_restart": bool(
+			getattr(stage_config, f"{phase_prefix}_delete_outputs_on_force_restart")
+		),
+		"merge_force_restart": bool(getattr(stage_config, f"{phase_prefix}_force_restart")),
+		"merge_force_replot": bool(getattr(stage_config, f"{phase_prefix}_force_replot")),
+		"cache_sorting_outputs_before_merge": False,
+		"cache_sorting_outputs_before_merge_use_canonical_workspace": bool(
+			getattr(stage_config, f"{phase_prefix}_use_canonical_workspace")
+		),
+		"cache_sorting_outputs_before_merge_canonical_workspace_relpath": str(
+			getattr(stage_config, f"{phase_prefix}_canonical_workspace_relpath")
+		),
+		"cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run": bool(
+			getattr(stage_config, f"{phase_prefix}_canonical_workspace_refresh_on_run")
+		),
+		"cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer": bool(
+			getattr(stage_config, f"{phase_prefix}_canonical_workspace_rebuild_analyzer")
+		),
+		"cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success": bool(
+			getattr(stage_config, f"{phase_prefix}_publish_canonical_to_stage_outputs_on_success")
+		),
+		"cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure": bool(
+			getattr(stage_config, f"{phase_prefix}_publish_canonical_to_stage_outputs_on_failure")
+		),
+	}
+	phase_runtime_overrides = getattr(stage_config, "merge_phase_runtime_overrides", None)
+	if isinstance(phase_runtime_overrides, dict):
+		phase_override_payload = phase_runtime_overrides.get(phase_prefix, None)
+		if isinstance(phase_override_payload, dict):
+			replace_kwargs.update(dict(phase_override_payload))
+	if method_enabled_field is not None:
+		replace_kwargs[method_enabled_field] = bool(phase_enabled)
+	if assert_field is not None:
+		replace_kwargs[assert_field] = bool(
+			getattr(stage_config, f"{phase_prefix}_assert_uses_canonical_workspace")
+		)
+	return _with_stage_config_overrides(stage_config, **replace_kwargs)
 
 
 def run_spikesort_merge_units(

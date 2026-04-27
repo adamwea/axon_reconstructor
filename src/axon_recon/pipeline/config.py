@@ -53,7 +53,7 @@ def _as_int(value: Any, default: int) -> int:
 		return int(default)
 
 
-def _as_path_list(value: Any) -> list[Path]:
+def _as_path_list(value: Any, *, base_dir: Path | None = None) -> list[Path]:
 	if value is None:
 		return []
 	if isinstance(value, (list, tuple, set)):
@@ -69,7 +69,7 @@ def _as_path_list(value: Any) -> list[Path]:
 		token = str(item).strip()
 		if token == "":
 			continue
-		path = Path(token).expanduser().resolve()
+		path = _normalize_config_input_path(token, base_dir=base_dir) if base_dir is not None else Path(token).expanduser()
 		if path in seen:
 			continue
 		seen.add(path)
@@ -84,6 +84,13 @@ def _resolve_data_config_path(runtime_config_path: Path, data_ref: str | None) -
 	if not p.is_absolute():
 		p = (runtime_config_path.parent / p).resolve()
 	return p
+
+
+def _normalize_config_input_path(raw_path: Any, *, base_dir: Path) -> Path:
+	path = Path(str(raw_path)).expanduser()
+	if not path.is_absolute():
+		path = base_dir / path
+	return path
 
 
 def load_pipeline_runtime_bundle(*, config_path: str) -> PipelineRuntimeBundle:
@@ -136,8 +143,11 @@ def select_execution_targets(
 	output_root_raw = bundle.data_config.get("output_root", None)
 	if not output_root_raw:
 		raise ValueError("Data config missing output_root")
-	output_root = Path(str(output_root_raw)).expanduser().resolve()
-	default_lookup_roots = _as_path_list(bundle.data_config.get("output_root_2", None))
+	output_root = _normalize_config_input_path(output_root_raw, base_dir=bundle.data_config_path.parent)
+	default_lookup_roots = _as_path_list(
+		bundle.data_config.get("output_root_2", None),
+		base_dir=bundle.data_config_path.parent,
+	)
 	scratch_root_raw = bundle.data_config.get("scratch_root", None)
 	use_scratch_root = _as_bool(bundle.data_config.get("use_scratch_root", True), True)
 	default_scratch_layout = resolve_scratch_layout(scratch_root_raw) if bool(use_scratch_root) else None
@@ -159,7 +169,7 @@ def select_execution_targets(
 		h5_raw = item.get("raw_data_h5_path", None)
 		if not h5_raw:
 			continue
-		h5_path = Path(str(h5_raw)).expanduser().resolve()
+		h5_path = _normalize_config_input_path(h5_raw, base_dir=bundle.data_config_path.parent)
 		dataset_id = _dataset_id_for_item(item, index=idx)
 
 		dataset_scratch_root_raw = item.get("scratch_root", None)
@@ -195,7 +205,10 @@ def select_execution_targets(
 		)
 		active_root = dataset_scratch_output_root if dataset_scratch_output_root is not None else output_root
 		artifact_lookup_roots: list[Path] = []
-		for candidate_root in _as_path_list(item.get("output_root_2", None)) + default_lookup_roots:
+		for candidate_root in _as_path_list(
+			item.get("output_root_2", None),
+			base_dir=bundle.data_config_path.parent,
+		) + default_lookup_roots:
 			if candidate_root == active_root:
 				continue
 			if candidate_root in artifact_lookup_roots:

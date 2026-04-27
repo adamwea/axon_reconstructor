@@ -5,7 +5,11 @@ import os
 from pathlib import Path
 
 import axon_recon.pipeline.stages.preprocess.core.copy_src_to_scratch as copy_src_to_scratch_core
-from axon_recon.pipeline.stages.preprocess.core.copy_src_to_scratch import _copy_file_if_needed, _materialize_dataset_input_in_scratch
+from axon_recon.pipeline.stages.preprocess.core.copy_src_to_scratch import (
+    _copy_file_if_needed,
+    _materialize_dataset_input_in_scratch,
+    resolve_copy_src_to_scratch_input_path,
+)
 from axon_reconstructor.pipeline.scratch_layout import resolve_scratch_layout
 
 
@@ -122,6 +126,25 @@ def test_materialize_dataset_input_in_scratch_logs_byte_progress_bar_for_h5_copy
     assert any("file_progress=" in message and "dataset-002" in message for message in progress_messages)
     assert any("[" in message and "]" in message for message in progress_messages)
     assert any("100.0%" in message for message in progress_messages)
+
+
+def test_resolve_copy_src_to_scratch_input_path_reuses_existing_scratch_without_source_stat(
+    tmp_path: Path,
+) -> None:
+    source_h5 = tmp_path / "raw_data" / "dataset" / "data.raw.h5"
+    scratch_input_root = tmp_path / "scratch_inputs"
+    target_h5 = scratch_input_root / "dataset" / "data.raw.h5"
+    target_h5.parent.mkdir(parents=True, exist_ok=True)
+    target_h5.write_bytes(b"cached")
+
+    resolved_h5 = resolve_copy_src_to_scratch_input_path(
+        source_h5_path=source_h5,
+        scratch_input_root=scratch_input_root,
+        dataset_id="dataset-003",
+        materialize_scratch_inputs=False,
+    )
+
+    assert resolved_h5 == target_h5
 
 
 def test_resolve_scratch_layout_is_idempotent_for_base_and_canonical_paths(tmp_path: Path) -> None:

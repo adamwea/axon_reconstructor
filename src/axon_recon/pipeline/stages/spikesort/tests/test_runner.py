@@ -7,7 +7,12 @@ from types import SimpleNamespace
 import pytest
 
 from axon_recon.pipeline.stages.spikesort.models.inputs import SpikesortInputs
-from axon_recon.pipeline.stages.spikesort.runner import run_spikesort_merge_stage, run_spikesort_stage
+from axon_recon.pipeline.stages.spikesort.runner import (
+    run_spikesort_bootstrap_concat_binary_stage,
+    run_spikesort_cleanup_concat_binary_stage,
+    run_spikesort_merge_stage,
+    run_spikesort_stage,
+)
 
 
 def _read_json(path: Path) -> dict:
@@ -152,6 +157,99 @@ def test_extract_unit_locations_from_analyzer_computes_dependency_chain() -> Non
         "202": {"x_um": 300.0, "y_um": 400.0},
     }
     assert {"random_spikes", "waveforms", "templates", "unit_locations"}.issubset(set(analyzer.compute_calls))
+
+
+def test_run_spikesort_bootstrap_concat_binary_stage_materializes_binary(monkeypatch, tmp_path: Path) -> None:
+    from axon_recon.pipeline.stages.preprocess.core import concat_segments as concat_segments_module
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    well_out_dir = tmp_path / "well001"
+    monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
+
+    captured: dict[str, object] = {}
+
+    def _fake_run_concat_segments_core(**kwargs):
+        captured.update(kwargs)
+        recording_dir = Path(kwargs["recording_dir"])
+        recording_dir.mkdir(parents=True, exist_ok=True)
+        (recording_dir / "traces_cached_seg0.raw").write_bytes(b"raw")
+        concat_manifest_path = Path(kwargs["concat_manifest_path"])
+        concat_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        concat_manifest_path.write_text("{}\n", encoding="utf-8")
+        return {
+            "output_mode": "binary",
+            "materialized_recording": True,
+            "saved": True,
+            "reused_existing": False,
+        }
+
+    monkeypatch.setattr(concat_segments_module, "run_concat_segments_core", _fake_run_concat_segments_core)
+
+    stage_config = SimpleNamespace(
+        output_rel_root="spikesort_outputs",
+        bootstrap_concat_binary_enabled=True,
+        bootstrap_concat_binary_cache_relpath="cache/bootstrap_concat_binary",
+        bootstrap_concat_binary_recording_relpath="cache/bootstrap_concat_binary/recording",
+        bootstrap_concat_binary_manifest_relpath="cache/bootstrap_concat_binary/concat_segments_manifest.json",
+        bootstrap_concat_binary_summary_json_relpath="cache/bootstrap_concat_binary/bootstrap_concat_binary_summary.json",
+        bootstrap_concat_binary_source_segment_manifest_relpath="preprocess_outputs/preprocessed_segments/manifest.json",
+        bootstrap_concat_binary_overwrite_existing=False,
+        bootstrap_concat_binary_overwrite_on_force_restart=True,
+        bootstrap_concat_binary_n_jobs=2,
+        bootstrap_concat_binary_chunk_duration="1s",
+        bootstrap_concat_binary_progress_bar=False,
+        n_jobs=4,
+        chunk_duration="2s",
+    )
+
+    result = run_spikesort_bootstrap_concat_binary_stage(
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        output_rel_root="spikesort_outputs",
+        stage_config=stage_config,
+        force_restart=True,
+    )
+
+    assert Path(captured["recording_dir"]) == well_out_dir / "spikesort_outputs/cache/bootstrap_concat_binary/recording"
+    assert captured["output_mode"] == "binary"
+    assert captured["overwrite_saved_recording"] is True
+    assert captured["n_jobs"] == 2
+    assert result.summary_json.exists()
+    payload = _read_json(result.summary_json)
+    assert payload["status"] == "ok"
+    assert payload["recording_dir"].endswith("spikesort_outputs/cache/bootstrap_concat_binary/recording")
+
+
+def test_run_spikesort_cleanup_concat_binary_stage_removes_cache(monkeypatch, tmp_path: Path) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    well_out_dir = tmp_path / "well001"
+    cache_dir = well_out_dir / "spikesort_outputs/cache/bootstrap_concat_binary"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "traces_cached_seg0.raw").write_bytes(b"raw")
+    monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
+
+    stage_config = SimpleNamespace(
+        cleanup_concat_binary_enabled=True,
+        cleanup_concat_binary_relpath="cache/bootstrap_concat_binary",
+        cleanup_concat_binary_summary_json_relpath="cache/bootstrap_concat_binary_cleanup_summary.json",
+    )
+
+    result = run_spikesort_cleanup_concat_binary_stage(
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        output_rel_root="spikesort_outputs",
+        stage_config=stage_config,
+        force_restart=False,
+    )
+
+    assert not cache_dir.exists()
+    assert result.summary_json == well_out_dir / "spikesort_outputs/cache/bootstrap_concat_binary_cleanup_summary.json"
+    payload = _read_json(result.summary_json)
+    assert payload["status"] == "ok"
+    assert payload["removed_paths"] == [str(cache_dir.resolve())]
 
 
 def test_run_spikesort_stage_generates_sort_summary_artifacts(monkeypatch, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
@@ -1707,7 +1805,7 @@ def test_write_merge_template_heatmap_reports_outputs_panel_and_debug_json(tmp_p
     monkeypatch.setattr(
         spikesort_runner,
         "_load_sorting_analyzer_from_snapshot",
-        lambda si_module, snapshot: (object(), None),
+        lambda si_module, snapshot, stage_config=None: (object(), None),
     )
     monkeypatch.setattr(
         spikesort_runner,
@@ -2535,12 +2633,11 @@ def test_capture_merge_state_snapshot_uses_analyzer_sorting_if_sorter_load_fails
     )
     monkeypatch.setattr(
         spikesort_runner,
-        "_load_or_recompute_bombcell_sorting_analyzer",
+        "_load_or_recompute_spikesort_analyzer",
         lambda **kwargs: (
             _FakeAnalyzer(),
             stage_output_root_dir / "bombcell_label_outputs" / "analyzer_output",
             False,
-            None,
         ),
     )
 
@@ -3533,6 +3630,30 @@ def test_resolve_sorter_output_dir_prefers_wrapper_with_spikeinterface_markers(t
     assert resolved == wrapper_dir.resolve()
 
 
+def test_resolve_sorter_output_dir_prefers_stage_root_when_merge_root_also_exists(tmp_path: Path) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    well_out_dir = tmp_path / "well001"
+    stage_ks_dir = well_out_dir / "spikesort_outputs" / "sorter_output" / "sorter_output"
+    stage_ks_dir.mkdir(parents=True, exist_ok=True)
+    (stage_ks_dir / "params.py").write_text("n_channels_dat=4\n", encoding="utf-8")
+
+    merge_ks_dir = well_out_dir / "spikesort_outputs" / "merge_outputs" / "sorter_output" / "sorter_output"
+    merge_ks_dir.mkdir(parents=True, exist_ok=True)
+    (merge_ks_dir / "params.py").write_text("n_channels_dat=8\n", encoding="utf-8")
+
+    resolved = spikesort_runner._resolve_sorter_output_dir(
+        well_out_dir=well_out_dir,
+        output_rel_root="spikesort_outputs",
+        stage_config=SimpleNamespace(
+            merge_rel_output_root="merge_outputs",
+            slay_sorter_output_relpath=None,
+        ),
+    )
+
+    assert resolved == stage_ks_dir.resolve()
+
+
 def test_load_sorting_from_sorter_output_dir_tries_wrapper_parent(tmp_path: Path) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
@@ -3654,6 +3775,21 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
         captured_legacy_inputs.update(
             {
                 "preprocess_concat_recording_relpath": getattr(inputs, "preprocess_concat_recording_relpath", None),
+                "sort_original_preprocess_concat_recording_relpath": getattr(
+                    inputs,
+                    "sort_original_preprocess_concat_recording_relpath",
+                    None,
+                ),
+                "sort_bootstrapped_concat_recording_relpath": getattr(
+                    inputs,
+                    "sort_bootstrapped_concat_recording_relpath",
+                    None,
+                ),
+                "sort_use_bootstrapped_concat_binary": bool(
+                    getattr(inputs, "sort_use_bootstrapped_concat_binary")
+                ),
+                "sort_use_lazy_source": bool(getattr(inputs, "sort_use_lazy_source")),
+                "sort_assert_one_source": bool(getattr(inputs, "sort_assert_one_source")),
                 "log_enabled": bool(getattr(inputs, "log_enabled")),
                 "log_verbose": bool(getattr(inputs, "log_verbose")),
                 "log_file_override": getattr(inputs, "log_file_override"),
@@ -3678,6 +3814,11 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
         mea_output_root=tmp_path,
         output_rel_root="spikesort_outputs_v2",
         preprocess_concat_recording_relpath="preprocess_outputs/preprocessed_recording",
+        sort_original_preprocess_concat_recording_relpath="preprocess_outputs/concatenated_recording",
+        sort_bootstrapped_concat_recording_relpath="spikesort_outputs_v2/cache/bootstrap_concat_binary/recording",
+        sort_use_bootstrapped_concat_binary=True,
+        sort_use_lazy_source=False,
+        sort_assert_one_source=True,
         logging_enabled=False,
         logging_verbose=True,
         logging_file_relpath="logs/custom_spikesort.log",
@@ -3697,6 +3838,11 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
     assert captured_legacy_inputs.get("log_verbose") is True
     assert captured_legacy_inputs.get("log_file_override") == "logs/custom_spikesort.log"
     assert captured_legacy_inputs.get("preprocess_concat_recording_relpath") == "preprocess_outputs/preprocessed_recording"
+    assert captured_legacy_inputs.get("sort_original_preprocess_concat_recording_relpath") == "preprocess_outputs/concatenated_recording"
+    assert captured_legacy_inputs.get("sort_bootstrapped_concat_recording_relpath") == "spikesort_outputs_v2/cache/bootstrap_concat_binary/recording"
+    assert captured_legacy_inputs.get("sort_use_bootstrapped_concat_binary") is True
+    assert captured_legacy_inputs.get("sort_use_lazy_source") is False
+    assert captured_legacy_inputs.get("sort_assert_one_source") is True
     assert captured_legacy_inputs.get("output_subdir_after_well") == "spikesort_outputs_v2"
     assert captured_legacy_inputs.get("plot_mode") == "merged"
     assert captured_legacy_inputs.get("plot_debug") is True
@@ -3710,6 +3856,11 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
     assert summary.get("inputs", {}).get("logging_verbose") is True
     assert summary.get("inputs", {}).get("logging_file_relpath") == "logs/custom_spikesort.log"
     assert summary.get("inputs", {}).get("preprocess_concat_recording_relpath") == "preprocess_outputs/preprocessed_recording"
+    assert summary.get("inputs", {}).get("sort_original_preprocess_concat_recording_relpath") == "preprocess_outputs/concatenated_recording"
+    assert summary.get("inputs", {}).get("sort_bootstrapped_concat_recording_relpath") == "spikesort_outputs_v2/cache/bootstrap_concat_binary/recording"
+    assert summary.get("inputs", {}).get("sort_use_bootstrapped_concat_binary") is True
+    assert summary.get("inputs", {}).get("sort_use_lazy_source") is False
+    assert summary.get("inputs", {}).get("sort_assert_one_source") is True
     assert summary.get("inputs", {}).get("plot_mode") == "merged"
     assert summary.get("inputs", {}).get("plot_debug") is True
     assert summary.get("inputs", {}).get("raster_sort") == "unit_id"
@@ -3838,6 +3989,7 @@ def test_run_spikesort_merge_stage_writes_recommended_candidate_outputs(tmp_path
         "sample_rate = 30000\n",
         encoding="utf-8",
     )
+    (ks_dir / "data.bin").write_bytes(b"0")
 
     stale_merge_out_dir = well_out_dir / output_rel_root / "SLAy_outputs"
     stale_merge_out_dir.mkdir(parents=True, exist_ok=True)
@@ -4048,6 +4200,71 @@ def test_import_slay_run_function_repairs_stale_data_filepath_and_marshmallow_fa
     assert f"dat_path = '{raw_path.resolve()}'" in (ks_dir / "params.py").read_text(encoding="utf-8")
 
 
+def test_run_spikesort_merge_stage_fails_fast_when_slay_binary_input_is_missing(tmp_path: Path, monkeypatch) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    h5_path = tmp_path / "raw_data" / "input.raw.h5"
+    h5_path.parent.mkdir(parents=True, exist_ok=True)
+    h5_path.write_bytes(b"")
+
+    well_out_dir = tmp_path / "well001"
+    stage_output_root_dir = well_out_dir / "spikesort_outputs"
+    canonical_workspace_root = stage_output_root_dir / "merge_output" / "cache" / "merge_workspace"
+    ks_dir = canonical_workspace_root / "sorter_output" / "sorter_output"
+
+    def _fake_cache_sorting_outputs_before_merge(*, stage_output_root_dir, cache_root_dir):
+        assert Path(cache_root_dir).resolve() == canonical_workspace_root.resolve()
+        ks_dir.mkdir(parents=True, exist_ok=True)
+        (ks_dir / "params.py").write_text(
+            "dat_path = ['/tmp/missing-recording.dat']\n"
+            "n_channels_dat = 4\n"
+            "dtype = 'float32'\n"
+            "sample_rate = 10000.0\n",
+            encoding="utf-8",
+        )
+        return {"summary_json": str((canonical_workspace_root / "pre_merge_cache_summary.json").resolve())}
+
+    monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_cache_sorting_outputs_before_merge",
+        _fake_cache_sorting_outputs_before_merge,
+    )
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_recompute_spikesort_analyzer",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("should fail before canonical workspace analyzer rebuild")),
+    )
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_recompute_sorting_analyzer_to_dir",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("should fail before pre-merge analyzer build")),
+    )
+
+    stage_cfg = SimpleNamespace(
+        merge_units_enabled=True,
+        merge_sequence=("SLAy",),
+        slay_enabled=True,
+        merge_rel_output_root="merge_output",
+        cache_sorting_outputs_before_merge_use_canonical_workspace=True,
+        cache_sorting_outputs_before_merge_canonical_workspace_relpath="cache/merge_workspace",
+        cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run=True,
+        cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer=True,
+        merge_reports_enabled=False,
+    )
+
+    with pytest.raises(RuntimeError, match="materialized binary recording file"):
+        run_spikesort_merge_stage(
+            h5_path=h5_path,
+            stream_id="well001",
+            mea_output_root=tmp_path,
+            output_rel_root="spikesort_outputs",
+            stage_config=stage_cfg,
+            force_restart=False,
+            force_replot=False,
+        )
+
+
 def test_run_spikesort_merge_stage_reports_plot_generation_note_when_auto_accept_enabled(tmp_path: Path, monkeypatch) -> None:
     from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
@@ -4072,6 +4289,7 @@ def test_run_spikesort_merge_stage_reports_plot_generation_note_when_auto_accept
         "sample_rate = 30000\n",
         encoding="utf-8",
     )
+    (ks_dir / "data.bin").write_bytes(b"0")
 
     def _fake_import_slay_run_function(*, package_root, allow_numpy_fallback):
         def _fake_run_slay(args):
@@ -4142,6 +4360,14 @@ def test_run_spikesort_merge_stage_releases_pre_merge_analyzer_before_slay(tmp_p
     )
     sorter_output_dir = well_out_dir / output_rel_root / "sorter_output" / "sorter_output"
     sorter_output_dir.mkdir(parents=True, exist_ok=True)
+    (sorter_output_dir / "params.py").write_text(
+        "dat_path = 'data.bin'\n"
+        "n_channels_dat = 4\n"
+        "dtype = 'int16'\n"
+        "sample_rate = 30000\n",
+        encoding="utf-8",
+    )
+    (sorter_output_dir / "data.bin").write_bytes(b"0")
 
     class _FakeAnalyzer:
         pass
@@ -4157,12 +4383,7 @@ def test_run_spikesort_merge_stage_releases_pre_merge_analyzer_before_slay(tmp_p
     monkeypatch.setattr(
         spikesort_runner,
         "_run_bombcell_label_phase",
-        lambda **kwargs: {
-            "status": "skipped",
-            "reason": "bombcell_label_disabled",
-            "outputs": {},
-            "sorter_output_dir": str(sorter_output_dir),
-        },
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("merge stage should not invoke bombcell")),
     )
     monkeypatch.setattr(
         spikesort_runner,
@@ -4235,7 +4456,7 @@ def test_run_spikesort_merge_stage_releases_pre_merge_analyzer_before_slay(tmp_p
             pre_merge_metadata_write_json=True,
             pre_merge_metadata_include_unit_locations=True,
             merge_reports_enabled=False,
-            bombcell_label_enabled=False,
+            bombcell_label_enabled=True,
         ),
         force_restart=False,
     )
@@ -4313,6 +4534,7 @@ def test_run_slay_merge_method_writes_outputs_under_merge_rel_output_root(tmp_pa
         "sample_rate = 30000\n",
         encoding="utf-8",
     )
+    (ks_dir / "data.bin").write_bytes(b"0")
 
     def _fake_import_slay_run_function(*, package_root, allow_numpy_fallback):
         def _fake_run_slay(args):
@@ -4617,6 +4839,14 @@ def test_run_spikesort_merge_stage_caches_sorting_outputs_before_merge_when_enab
     sorter_output_dir.mkdir(parents=True, exist_ok=True)
     analyzer_output_dir.mkdir(parents=True, exist_ok=True)
     (sorter_output_dir / "sorter_marker.txt").write_text("sorter", encoding="utf-8")
+    (sorter_output_dir / "params.py").write_text(
+        "dat_path = 'data.bin'\n"
+        "n_channels_dat = 4\n"
+        "dtype = 'int16'\n"
+        "sample_rate = 30000\n",
+        encoding="utf-8",
+    )
+    (sorter_output_dir / "data.bin").write_bytes(b"0")
     (analyzer_output_dir / "analyzer_marker.txt").write_text("analyzer", encoding="utf-8")
 
     stage_cfg = SimpleNamespace(
@@ -5259,6 +5489,7 @@ def test_run_spikesort_merge_stage_preserves_existing_outputs_when_delete_disabl
         "sample_rate = 30000\n",
         encoding="utf-8",
     )
+    (ks_dir / "data.bin").write_bytes(b"0")
 
     merge_out_dir = well_out_dir / output_rel_root / "SLAy_outputs"
     merge_out_dir.mkdir(parents=True, exist_ok=True)
@@ -7931,18 +8162,45 @@ def test_run_bombcell_label_phase_publishes_cached_workspace_outputs_on_success(
     assert (canonical_analyzer_dir / "marker.txt").read_text(encoding="utf-8") == "bombcell"
 
 
-def test_run_spikesort_merge_stage_raises_when_bombcell_fail_on_error_enabled(tmp_path: Path, monkeypatch) -> None:
+def test_run_spikesort_merge_stage_does_not_invoke_bombcell_when_enabled(tmp_path: Path, monkeypatch) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    h5_path = tmp_path / "raw_data" / "input.raw.h5"
+    h5_path.parent.mkdir(parents=True, exist_ok=True)
+    h5_path.write_bytes(b"")
+
+    well_out_dir = tmp_path / "well001"
+    stage_output_root_dir = well_out_dir / "spikesort_outputs"
+    sorter_output_dir = stage_output_root_dir / "sorter_output" / "sorter_output"
+    sorter_output_dir.mkdir(parents=True, exist_ok=True)
+    (sorter_output_dir / "params.py").write_text("n_channels_dat=4\n", encoding="utf-8")
 
     monkeypatch.setattr(
         spikesort_runner,
         "_run_bombcell_label_phase",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("merge stage should not invoke bombcell")),
+    )
+    monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
+    monkeypatch.setattr(spikesort_runner, "_resolve_sorter_output_dir", lambda **kwargs: sorter_output_dir)
+    monkeypatch.setattr(spikesort_runner, "_import_spikeinterface_full_module", lambda: object())
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_recompute_sorting_analyzer_to_dir",
+        lambda **kwargs: (object(), Path(kwargs["analyzer_dir"]).resolve()),
+    )
+    monkeypatch.setattr(spikesort_runner, "_release_loaded_analyzer_extensions", lambda **kwargs: [])
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_run_slay_merge_method",
         lambda **kwargs: {
-            "name": "bombcell_label",
-            "status": "error",
-            "reason": "bombcell_label_failed",
-            "error": "bombcell exploded",
+            "name": "slay",
+            "status": "skipped",
+            "reason": "slay_disabled",
+            "out_dir": str(stage_output_root_dir / "SLAy_outputs"),
+            "summary_json": None,
             "outputs": {},
+            "ks_dir": str(sorter_output_dir),
+            "applied_merges": False,
         },
     )
 
@@ -7956,13 +8214,16 @@ def test_run_spikesort_merge_stage_raises_when_bombcell_fail_on_error_enabled(tm
         bombcell_label_fail_on_error=True,
     )
 
-    with pytest.raises(RuntimeError, match="bombcell exploded"):
-        run_spikesort_merge_stage(
-            h5_path=tmp_path / "dummy.h5",
-            stream_id="well001",
-            mea_output_root=tmp_path,
-            output_rel_root="spikesort_outputs",
-            stage_config=stage_cfg,
-            force_restart=False,
-            force_replot=False,
-        )
+    result = run_spikesort_merge_stage(
+        h5_path=h5_path,
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        output_rel_root="spikesort_outputs",
+        stage_config=stage_cfg,
+        force_restart=False,
+        force_replot=False,
+    )
+
+    summary = _read_json(result.summary_json)
+    assert summary.get("bombcell_label", {}).get("status") == "skipped"
+    assert summary.get("bombcell_label", {}).get("reason") == "bombcell_label_not_invoked_by_merge_stage"

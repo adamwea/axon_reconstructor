@@ -32,9 +32,12 @@ from .stages.reconstruct.cli import _run_report_recons_from_args as _run_reconst
 from .stages.reconstruct.cli import _run_report_summaries_from_args as _run_reconstruct_report_summaries_from_args
 from .stages.spikesort.cli import _run_from_args as _run_spikesort_from_args
 from .stages.spikesort.cli import _run_bombcell_from_args as _run_spikesort_bombcell_from_args
-from .stages.spikesort.cli import _run_merge_auto_merge_from_args as _run_spikesort_merge_auto_merge_from_args
+from .stages.spikesort.cli import _run_bootstrap_concat_binary_from_args as _run_spikesort_bootstrap_concat_binary_from_args
+from .stages.spikesort.cli import _run_cleanup_concat_binary_from_args as _run_spikesort_cleanup_concat_binary_from_args
 from .stages.spikesort.cli import _run_merge_from_args as _run_spikesort_merge_from_args
+from .stages.spikesort.cli import _run_merge_si_auto_from_args as _run_spikesort_merge_si_auto_from_args
 from .stages.spikesort.cli import _run_merge_slay_from_args as _run_spikesort_merge_slay_from_args
+from .stages.spikesort.cli import _run_merge_unitmatch_from_args as _run_spikesort_merge_unitmatch_from_args
 from .stages.spikesort.cli import _run_summarize_sort_from_args as _run_spikesort_summarize_sort_from_args
 from .stages.spikesort.orchestrators import _run_sort_from_args as _run_spikesort_sort_from_args
 from .stages.templates.cli import _run_from_args as _run_templates_from_args
@@ -98,14 +101,29 @@ _STAGE_ALIASES: dict[str, str] = {
 	"preprocess.plot_concat_channel_layout": "preprocess.plot_concat_channel_layout",
 	"preprocess.plot_raster_threshold": "preprocess.plot_raster_threshold",
 	"sort": "spikesort",
+	"bootstrap_concat_binary": "spikesort.bootstrap_concat_binary",
+	"cleanup_concat_binary": "spikesort.cleanup_concat_binary",
+	"clear_concat_binary": "spikesort.cleanup_concat_binary",
+	"spikesort.clear_concat_binary": "spikesort.cleanup_concat_binary",
 	"bombcell": "spikesort.bombcell_label",
 	"spikesort.bombcell": "spikesort.bombcell_label",
 	"merge": "spikesort.merge",
+	"merge_SLAy": "spikesort.merge_SLAy",
+	"merge_si_auto": "spikesort.merge_si_auto",
+	"merge_unitmatch": "spikesort.merge_unitmatch",
 	"spikesort.summary": "spikesort.summarize_sort",
 	"spikesort.merge_units": "spikesort.merge",
-	"spikesort.merge.automerge": "spikesort.merge.auto_merge",
-	"spikesort.merge_units.slay": "spikesort.merge.slay",
-	"spikesort.merge_units.auto_merge": "spikesort.merge.auto_merge",
+	"spikesort.merge.slay": "spikesort.merge_SLAy",
+	"spikesort.merge_SLAy": "spikesort.merge_SLAy",
+	"spikesort.merge_slay": "spikesort.merge_SLAy",
+	"spikesort.merge.automerge": "spikesort.merge_si_auto",
+	"spikesort.merge.auto_merge": "spikesort.merge_si_auto",
+	"spikesort.merge_si_auto": "spikesort.merge_si_auto",
+	"spikesort.merge.unitmatch": "spikesort.merge_unitmatch",
+	"spikesort.merge_unitmatch": "spikesort.merge_unitmatch",
+	"spikesort.merge_units.slay": "spikesort.merge_SLAy",
+	"spikesort.merge_units.auto_merge": "spikesort.merge_si_auto",
+	"spikesort.merge_units.unitmatch": "spikesort.merge_unitmatch",
 	"spike": "spikesort",
 	"spikesorting": "spikesort",
 	"template": "templates",
@@ -159,12 +177,15 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"preprocess.plot_concat_channel_layout": _run_preprocess_plot_concat_channel_layout_from_args,
 	"preprocess.plot_raster_threshold": _run_preprocess_plot_raster_threshold_from_args,
 	"spikesort": _run_spikesort_from_args,
+	"spikesort.bootstrap_concat_binary": _run_spikesort_bootstrap_concat_binary_from_args,
+	"spikesort.cleanup_concat_binary": _run_spikesort_cleanup_concat_binary_from_args,
 	"spikesort.sort": _run_spikesort_sort_from_args,
 	"spikesort.bombcell_label": _run_spikesort_bombcell_from_args,
 	"spikesort.summarize_sort": _run_spikesort_summarize_sort_from_args,
 	"spikesort.merge": _run_spikesort_merge_from_args,
-	"spikesort.merge.slay": _run_spikesort_merge_slay_from_args,
-	"spikesort.merge.auto_merge": _run_spikesort_merge_auto_merge_from_args,
+	"spikesort.merge_SLAy": _run_spikesort_merge_slay_from_args,
+	"spikesort.merge_si_auto": _run_spikesort_merge_si_auto_from_args,
+	"spikesort.merge_unitmatch": _run_spikesort_merge_unitmatch_from_args,
 	"templates": _run_templates_from_args,
 	"templates.resolve_sources": _run_templates_resolve_sources_from_args,
 	"templates.analyzers": _run_templates_analyzers_from_args,

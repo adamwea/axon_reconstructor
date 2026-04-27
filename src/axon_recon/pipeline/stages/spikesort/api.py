@@ -7,6 +7,8 @@ from .models.inputs import SpikesortInputs
 from .models.results import SpikesortBombcellResult, SpikesortMergeResult, SpikesortResult
 from .orchestrators import (
 	run_spikesort_bombcell_label,
+	run_spikesort_bootstrap_concat_binary,
+	run_spikesort_cleanup_concat_binary,
 	run_spikesort_merge_units,
 	run_spikesort_sort,
 	run_spikesort_summarize,
@@ -52,6 +54,44 @@ def run_spikesort_bombcell(
 	force_restart: bool,
 ) -> SpikesortBombcellResult:
 	return run_spikesort_bombcell_label(
+		h5_path=h5_path,
+		stream_id=stream_id,
+		mea_output_root=mea_output_root,
+		output_rel_root=output_rel_root,
+		stage_config=stage_config,
+		force_restart=force_restart,
+	)
+
+
+def bootstrap_spikesort_concat_binary(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	mea_output_root: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	force_restart: bool,
+) -> SpikesortResult:
+	return run_spikesort_bootstrap_concat_binary(
+		h5_path=h5_path,
+		stream_id=stream_id,
+		mea_output_root=mea_output_root,
+		output_rel_root=output_rel_root,
+		stage_config=stage_config,
+		force_restart=force_restart,
+	)
+
+
+def cleanup_spikesort_concat_binary(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	mea_output_root: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	force_restart: bool,
+) -> SpikesortResult:
+	return run_spikesort_cleanup_concat_binary(
 		h5_path=h5_path,
 		stream_id=stream_id,
 		mea_output_root=mea_output_root,

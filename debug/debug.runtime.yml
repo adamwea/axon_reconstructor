@@ -182,7 +182,7 @@ stages:
           layouts: true
           channel_layouts_subdir: channel_layouts
       concat_segments:
-        enabled: true
+        enabled: false
         concatenate_preprocessed_recordings: true # when true, concatenate the preprocessed segment recordings; when false, concatenate raw segment recordings instead while keeping the rest of the concat phase wiring the same.
         debug_mode:
           enabled: false
@@ -241,7 +241,7 @@ stages:
       #max_stage_workers: 24
       #max_stage_workers: 36 # lab server
       max_stage_workers: 24 # 36 is too much for i/o probably.
-      well_workers: 3
+      well_workers: 6
       chunk_duration: 1s
     logging:
       enabled: true
@@ -264,12 +264,35 @@ stages:
       preprocess_concat_recording_relpath: preprocess_outputs/concatenated_recording
     phases:
       #resolve_sources:
+      bootstrap_concat_binary:
+        enabled: true
+        debug_mode:
+          enabled: true
+          limit_datasets: 1
+          limit_wells: 1
+        # Source manifest is produced by preprocess.preprocess_segments; the binary cache is local to spikesort_outputs.
+        source_segment_manifest_relpath: preprocess_outputs/preprocessed_segments/manifest.json
+        cache_relpath: cache/bootstrap_concat_binary
+        recording_relpath: cache/bootstrap_concat_binary/recording
+        manifest_relpath: cache/bootstrap_concat_binary/concat_segments_manifest.json
+        summary_json_relpath: cache/bootstrap_concat_binary/bootstrap_concat_binary_summary.json
+        use_as_preprocess_concat_recording: true
+        overwrite_existing: false
+        overwrite_on_force_restart: true
+        n_jobs: null
+        chunk_duration: 1s
+        progress_bar: true
       sort:
         enabled: true
         debug_mode:
-          enabled: false
+          enabled: true
           limit_datasets: 1
           limit_wells: 1
+
+        # source
+        use_bootstrapped_concat_binary: true # when true, uses the output of the bootstrap_concat_binary phase as the source recording for sorting; when false, uses the original concatenated recording from preprocess outputs instead. Keep true by default to test the full pipeline from bootstrapped binary during debugging iterations, but can be set to false to skip the bootstrapped binary and use the original concatenated recording when the focus of debugging iterations is not on the bootstrapping phase.
+        use_lazy_source: false # when true, uses the lazy loading mechanism for the source recording during sorting; when false, loads the source recording directly into memory for sorting. Keep false by default to avoid potential complications with lazy loading during debugging iterations, but can be set to true to test lazy loading during sorting when that is the focus of debugging iterations.
+        assert_one_source: false # when true, asserts that there is exactly one valid source recording available for sorting; when false, allows multiple source recordings and relies on other logic to select the appropriate one. Keep true by default to enforce a clear source for sorting during debugging iterations, but can be set to false to allow more flexible source handling when the focus of debugging iterations is not on source selection.
 
         # Sorter Options
         sorter: kilosort4
@@ -297,7 +320,6 @@ stages:
           enabled: true
           no_curation: true
           export_to_phy: false
-
       summarize_sort:
         enabled: false
         debug_mode:
@@ -306,11 +328,10 @@ stages:
           limit_wells: 1
         emit_logs: true
         generate_artifacts: false
-
       bombcell_label:
-        enabled: true # TODO: untested
+        enabled: true
         debug_mode:
-          enabled: false
+          enabled: true
           limit_datasets: 1
           limit_wells: 1
         # outputs live under <well>/<spikesort_output_root>/<merge_units.rel_output_root>/<relpath>
@@ -319,8 +340,8 @@ stages:
 
         # enable debugging and comparison.
         cache_sorter_output_before_analyzer_gen: true
-        publish_cached_sorter_output_on_success: false
-        publish_cached_analyzer_on_success: false
+        publish_cached_sorter_output_on_success: true
+        publish_cached_analyzer_on_success: false # not sure this is needed.
 
         # analyzer
         analyzer:
@@ -328,8 +349,9 @@ stages:
           regenerate_on_replot: false # when true, force_replot always regenerates the pre-merge workspace analyzer from the pre-merge workspace sorter output to ensure that merge reports reflect the current state of the pre-merge workspace, even if merge outputs are not being regenerated; keep false by default for faster iterations when merge debugging is not the focus, but can be set to true to ensure consistency between the pre-merge workspace and merge reports during debugging iterations that involve changes to the pre-merge workspace or its sorter output.
           check_if_regen_is_needed: true # when true, merge phase logic checks whether the pre-merge workspace analyzer needs to be regenerated based on the presence and freshness of an existing analyzer relative to the pre-merge workspace sorter output, and only regenerates the analyzer if needed; keep true by default to avoid unnecessary regenerations and speed up iterations when merge debugging is not the focus, but can be set to false to always regenerate the analyzer for consistency during debugging iterations that involve changes to the pre-merge workspace or its sorter output.
           #n_jobs: 1 # optional merge-only analyzer compute parallelism override for waveform/template/unit-location extensions and sparsity estimation. Omit to inherit stage-level n_jobs.
-          n_jobs: 24 # increase merge-side analyzer compute parallelism to speed up waveform/template/unit-location extensions and sparsity estimation during merge iterations, which can be computationally intensive; keep 1 by default for debugging iterations to simplify resource usage and make logs easier to follow, but can be set to a higher number for faster iterations when merge debugging is not the focus.
+          #n_jobs: 24 # increase merge-side analyzer compute parallelism to speed up waveform/template/unit-location extensions and sparsity estimation during merge iterations, which can be computationally intensive; keep 1 by default for debugging iterations to simplify resource usage and make logs easier to follow, but can be set to a higher number for faster iterations when merge debugging is not the focus.
           #n_jobs: 32
+          n_jobs: null # inherit stage-level n_jobs by default; can set an explicit number here for more control.
           #chunk_duration: 0.5s # optional merge-only analyzer compute chunking override. Omit to inherit stage-level chunk_duration.
           template_extraction:
             random_spikes_method: default # default|percentage|all. When random_spikes_percentage is set, default promotes to percentage automatically; "all" disables random spike subsampling entirely.
@@ -387,293 +409,104 @@ stages:
           summary_json:
             enabled: true
             relpath: bombcell_label_summary.json
-      merge_units:
 
-        enabled: true # master toggle for merge phase; when false, skips the entire merge phase and any associated outputs, regardless of individual merge method settings below.
+      # In the event that we desire to chain merge subphases, follow this priority order when multiple are enabled:
+      # 1) SLAy recommended merges (if enabled)
+      # 2) Spikeinterface automerge (if enabled)
+      # 3) Unitmatch (if enabled)
+      merge_sequence: [SLAy, auto_merge, unitmatch]
 
-        # force restart and replot toggles for the merge phase.
-        # force_restart controls whether to rerun the merge phase logic and regenerate merge outputs; when true, merge outputs are deleted before rerunning merge logic to ensure a clean slate for debugging iterations.
-        # force_replot controls whether to replot merge reports and diagnostics even if merge outputs are not regenerated; when true, existing merge outputs are used to regenerate plots and reports.
+      merge_SLAy:
+
+        enabled: true
+        rel_output_root: merge_SLAy
+        delete_outputs_on_force_restart: true
         force_restart: false
         force_replot: false
 
-        # logging:
-        #   enabled: true
-        #   file_relpath: logs/merge_units_pipeline.log
-        #   level: DEBUG # ERROR | WARNING | INFO | DEBUG
+        debug_mode:
+          enabled: true
+          limit_datasets: 1
+          limit_wells: 1
 
-        rel_output_root: merge_output # subdir under spikesort_outputs for all merge-related outputs; relative paths for merge outputs resolve under this directory in each well's output directory
-        delete_outputs_on_force_restart: true # merge-phase cleanup toggle. When force_restart is true, removes stale merge outputs under <well>/<spikesort_output_root>/<merge_units.rel_output_root> before rerunning merge phase logic.
-        # Canonical merge workspace mode:
+        # phase-local canonical merge workspace mode:
         # 1) copy live sorter/analyzer outputs into a workspace under merge outputs,
         # 2) (re)build analyzer there from the copied sorter output,
-        # 3) run merge methods against that workspace,
+        # 3) run this merge phase against that workspace,
         # 4) optionally publish merged sorter/analyzer back to live stage outputs.
         use_cache_as_canonical_workspace:
           enabled: true
           canonical_workspace_relpath: cache/merge_workspace
           canonical_workspace_refresh_on_run: true
           canonical_workspace_rebuild_analyzer: true
-          # Guardrails: ensure merge methods are actually consuming canonical workspace sorter outputs.
-          assert_slay_uses_canonical_workspace: true
-          assert_auto_merge_uses_canonical_workspace: true
-          publish_to_stage_outputs_on_success: true
+          assert_uses_canonical_workspace: true
+          publish_to_stage_outputs_on_success: false
           publish_to_stage_outputs_on_failure: false
 
         analyzer:
-          #regenerate_on_replot: false # when false, force_replot reuses an existing pre-merge workspace analyzer if present and only regenerates it when missing.
-          regenerate_on_replot: false # when true, force_replot always regenerates the pre-merge workspace analyzer from the pre-merge workspace sorter output to ensure that merge reports reflect the current state of the pre-merge workspace, even if merge outputs are not being regenerated; keep false by default for faster iterations when merge debugging is not the focus, but can be set to true to ensure consistency between the pre-merge workspace and merge reports during debugging iterations that involve changes to the pre-merge workspace or its sorter output.
-          check_if_regen_is_needed: true # when true, merge phase logic checks whether the pre-merge workspace analyzer needs to be regenerated based on the presence and freshness of an existing analyzer relative to the pre-merge workspace sorter output, and only regenerates the analyzer if needed; keep true by default to avoid unnecessary regenerations and speed up iterations when merge debugging is not the focus, but can be set to false to always regenerate the analyzer for consistency during debugging iterations that involve changes to the pre-merge workspace or its sorter output.
-          #n_jobs: 1 # optional merge-only analyzer compute parallelism override for waveform/template/unit-location extensions and sparsity estimation. Omit to inherit stage-level n_jobs.
-          n_jobs: 24 # increase merge-side analyzer compute parallelism to speed up waveform/template/unit-location extensions and sparsity estimation during merge iterations, which can be computationally intensive; keep 1 by default for debugging iterations to simplify resource usage and make logs easier to follow, but can be set to a higher number for faster iterations when merge debugging is not the focus.
-          #chunk_duration: 0.5s # optional merge-only analyzer compute chunking override. Omit to inherit stage-level chunk_duration.
+          regenerate_on_replot: false
+          check_if_regen_is_needed: true
+          #n_jobs: 24
+          n_jobs: null # inherit stage-level n_jobs by default; can set an explicit number here for more control.
           template_extraction:
-            #random_spikes_method: default # default|percentage|all. When random_spikes_percentage is set, default promotes to percentage automatically; "all" disables random spike subsampling entirely.
-            #random_spikes_method: all # use all spikes for template-critical analyzer extensions during merge and in merge reports to ensure the most accurate templates for merge recommendations and reporting; keep default for faster iterations when merge debugging is not the focus.
-            #max_spikes_per_unit: 500 # used when random_spikes_method stays sampled instead of "all".
-            #max_spikes_per_unit: 5000 # increase max spikes per unit for template-critical analyzer extensions during merge and in merge reports to provide more comprehensive templates for merge recommendations and reporting; keep 500 by default for faster iterations when merge debugging is not the focus, but can be set to a higher number for more thorough template extraction in non-debug runs.
-            #margin_size: 60 # optional border margin in samples for merge-side random spike selection.
-            seed: 0 # optional seed for reproducible merge-side random spike selection.
-
-            # custom density knobs
-            random_spikes_percentage: 25 # optional percentage of spikes per unit to use for template-critical analyzer extensions during merge and in merge reports; when combined with max_spikes_per_unit, the smaller cap wins. Use random_spikes_method: all to disable random spike subsampling entirely.
-            min_spikes_per_unit: 1000 # percentage-mode minimum selected-spike floor: if a unit has <= this many total spikes, use all eligible spikes; otherwise if eligible_spikes * random_spikes_percentage would fall below this number, raise the selected-spike count to this floor before applying any explicit max_spikes_per_unit cap; omit or set <= 0 to disable.
-            log_before_after_spike_counts: true # whether to log pre- and post-subsampling spike counts per unit for merge-side template-critical analyzer extensions to provide visibility into the effects of density controls during merge debugging iterations.
-
+            seed: 0
+            random_spikes_percentage: 25
+            min_spikes_per_unit: 1000
+            log_before_after_spike_counts: true
           sparsity:
-            compute_sparsity: false # if false, force dense/all-channel merge analyzers and ignore sparsity-mask creation. If true, compute a sparsity mask using the method below and include only those channels in merge-side analyzers and merge reports.
-            #method: radius # radius|best_channels|threshold|by_property. Ignored when compute_sparsity is false.
-            method: best_channels # use best_channels method for sparsity estimation to identify the most relevant channels for each unit based on their activity, which can improve the quality of merge recommendations by focusing on the channels that contribute most to each unit's signal; keep radius by default for debugging iterations to maintain a more inclusive channel selection that can provide additional context during early development stages.
-            #radius_um: 100.0 # used by method=radius. Default matches SpikeInterface.
-            #num_channels: 5 # used by method=best_channels. Default matches SpikeInterface.
-            #num_channels: 300 # hacky way to just tell sorting analyzer that I want all channels.
+            compute_sparsity: false
+            method: best_channels
             num_channels: 300
-            #threshold: 5.0 # used by method=threshold (SNR threshold). Default matches SpikeInterface.
-            #peak_sign: neg # neg|pos|both. Default matches SpikeInterface.
-            peak_sign: both # include both negative and positive peaks when estimating sparsity for merge-side analyzers, which can provide a more comprehensive view of unit spatial footprints and improve merge recommendation quality; keep neg by default for debugging iterations to focus on negative peaks, which are more traditional for spike sorting and can simplify analysis during early debugging stages.
-            num_spikes_for_sparsity: 100 # optional spike cap used only while estimating merge-side sparsity. Default matches SpikeInterface.
-            #by_property: group # used by method=by_property, for example on tetrodes.
-
+            peak_sign: both
+            num_spikes_for_sparsity: 100
           waveforms:
-            #ms_before: 1.0 # optional merge-side waveform/template extraction window before each spike in ms.
-            ms_before: 2.0 # increase pre-spike waveform extraction window to capture more of the spike waveform leading edge, which can be important for accurately characterizing units and improving merge recommendation quality; keep 1.0 ms by default for debugging iterations to reduce computational load and speed up iterations when merge debugging is not the focus, but can be set to a higher value for more thorough template extraction in non-debug runs.
-            #ms_after: 2.0 # optional merge-side waveform/template extraction window after each spike in ms.
-            ms_after: 5.0 # increase post-spike waveform extraction window to capture more of the spike waveform trailing edge, which can be important for accurately characterizing units and improving merge recommendation quality; keep 2.0 ms by default for debugging iterations to reduce computational load and speed up iterations when merge debugging is not the focus, but can be set to a higher value for more thorough template extraction in non-debug runs.
-            #dtype: float32 # optional merge-side waveform dtype override for waveforms/templates/unit_locations dependencies.
+            ms_before: 2.0
+            ms_after: 5.0
 
         pre_merge_metadata:
-          # Write one consolidated merge metadata summary for quick before/after comparisons.
-          # The file captures sorter and analyzer unit IDs before/after merge, applied merge groups,
-          # pre/post unit mapping hints, and optional unit locations from analyzer extension data.
           enabled: true
           write_json: true
           json_relpath: pre_merge_metadata_summary.json
           include_unit_locations: true
           log_summary_details: true
 
-        # In the event that we desire to chain automerging methods, follow this priority order when multiple are enabled:
-        # 1) SLAy recommended merges (if enabled)
-        # 2) Spikeinterface automerge (if enabled)
-        # 3) Unitmatch (if enabled)
-        sequence: [SLAy, auto_merge, unitmatch]
-
-        # SLAy - https://github.com/saikoukunt/SLAy
-        # New option that is better suited to working with incomplete templates at least.
-        SLAy:
-          #TODO: can probably implement spikeinterface integration of this instead of manually
-          # integration as we have it currently.
-
-          enabled: true
-          delete_outputs_on_force_restart: true # merge-method cleanup toggle for SLAy. When force_restart is true, removes only <well>/<output_root>/<SLAy.relpath> before rerunning SLAy merge.
-          # Relative to spikesort.execution.output_root.
-          relpath: SLAy_outputs
-          # Optional local source checkout for imports when SLAy is not pip-installed.
-          package_root: /home/adamm/dev/pkgs/SLAy
-          # Optional explicit KS folder (relative to spikesort.execution.output_root).
-          # If null, defaults to sorter_output and auto-probes nested sorter_output/.
-          # sorter_output_relpath: ../sorter_output/sorter_output
-          # If true and cupy is unavailable, inject a numpy-based fallback shim.
-          allow_numpy_fallback: true
-          # Copy SLAy automerge artifacts from KS folder into this stage output dir.
-          copy_automerge_artifacts: true
-          # Keep false by default: we only want candidate outputs, not direct KS cluster rewrites.
-          auto_accept_merges: true
-          # NOTE: upstream SLAy only emits automerge/merges plots when auto_accept_merges is false.
-          # Keep false by default to avoid plotting overhead for debug iterations.
-          plot_merges: true
-          # Stage-managed output artifact names.
-          output_json_relpath: run-output.json
-          candidate_pairs_relpath: recommended_merge_candidates.tsv
-          merge_groups_relpath: recommended_merge_groups.json
-
-          # Optional SLAy model-cache controls.
-          # These knobs govern the cache under merge outputs (for example cache/slay_model/ae.pt).
-          model_cache:
-            enabled: true
-            # When true, reuse an existing cached model file if present.
-            use_cached_model: true
-            #use_cached_model: false # keep false by default to ensure fresh training iterations during debugging, but can be set to true to speed up iterations when model training is not the focus.
-            # When true, allow SLAy to write/update the cached model file.
-            write_model_cache: true
-            # Relative to merge output root.
-            relpath: cache/slay_model/ae.pt
-          # If true and force_restart is enabled for merge phase/SLAy, delete the selected model path
-          # before running so SLAy retrains from scratch.
-          force_restart_retrain_model: false
-
-          # Optional passthrough params for slay.run_slay.
-          # Values below mirror SLAy RunParams defaults so you can tweak them explicitly.
-          # Note: KS_folder and output_json are managed by this pipeline wrapper.
-          # Note: auto_accept_merges / plot_merges are controlled by top-level SLAy keys above.
-          params:
-            dtype: int16
-            pre_samples: 20
-            post_samples: 62
-            #min_spikes: 100
-            min_spikes: 50
-            #max_spikes: 500
-            max_spikes: -1
-            #good_lbls: [good] # Only these KS labels are treated as valid units for SLAy similarity/merge candidate scoring.
-            good_lbls: [good, mua] # include unsorted units as candidate participants in SLAy merges by treating them as valid units for similarity/merge candidate scoring; keep false by default to focus on merges between well-isolated units during debugging iterations, but can be set to true to explore potential merges involving unsorted units.
-
-            window_size: 0.1
-            xcorr_bin_width: 0.0005
-            overlap_tol: 0.00016666666666666666 # 5 / 30000
-            min_xcorr_rate: 800
-            xcorr_coeff: 0.25
-
-            ref_pen_bin_width: 1
-            max_viol: 0.15
-            ref_pen_coeff: 1
-
-            spikes_path: null
-            model_path: null
-            sim_thresh: 0.4
-            # Autoencoder embedding window/control knobs used by SLAy similarity scoring.
-            ae_pre: 10 # samples before spike center used in AE input window
-            ae_post: 30 # samples after spike center used in AE input window
-            ae_chan: 8 # number of local channels included in AE input tensor
-            #ae_chan: 10
-            #ae_noise: false # purpose: noise augmentation for AE embeddings/training. ON can improve robustness to noisy waveforms and amplitude variation; OFF is faster and usually more repeatable for debugging.
-            ae_noise: true
-            ae_shft: false # purpose: temporal-shift augmentation for AE embeddings/training. ON can improve tolerance to spike-alignment jitter; OFF is faster and keeps embeddings more timing-sensitive.
-            #ae_epochs: 25 # training epochs when SLAy needs to train/fine-tune the AE model
-            ae_epochs: 50
-            #ae_epochs: 10 # reduced for debugging iterations; can increase for more thorough training in non-debug runs.
-
-            final_thresh: 0.5
-            max_dist: 10
-            #auto_accept_merges: false
-            auto_accept_merges: true
-            plot_merges: true
-
-          # recompute analyzer after applying merges recommended by SLAy.
-          # i think merges applied by SLAy are applied to the sorting object directly,
-          # so the analyzer might be out of date after the merges are applied,
-          # which could lead to inconsistencies between the merged sorting and the analyzer outputs that are used for downstream template building and plotting.
-          recompute_analyzer: true # whether to trigger a rerun of the analyzer after applying merges recommended by SLAy; keep false by default to avoid the overhead of repeated analyzer runs during merge debugging iterations.
-
-        # Automerge via Spikeinterface built in automerge method.
-        # Pretty straight forward. This is the Spikeinterfaces recommended way of doing template matching
-        # I don't like this though because we're basically matching based on incomplete templates.
-        # I'd prefer to do something like this in the templates stage when we have the more fully formed templates to work with,
-        # but this is a start and we can iterate on it.
-        # TODO: this might be broken for now.
-        auto_merge:
-          enabled: false
-          template_diff_thresh: 0.05,0.15,0.25
-          relpath: automerge_outputs
-          delete_outputs_on_force_restart: true # merge-method cleanup toggle for auto_merge. When force_restart is true, removes only <well>/<output_root>/<auto_merge.relpath> before rerunning auto_merge.
-          candidate_pairs_reldir: recommended_merge_candidates
-          merged_units_reldir: merged_units
-          # Note: This autoaccepts merges at each threshold level, so recommended merges may not clearly
-          # describe the incremental effect of new merged templates appearing in the analyzer with each threshold auto_accepted
-          # Use with caution for debugging and consider setting auto_accept_merges to false and inspecting candidate pairs manually in that case.
-          auto_accept_merges: true # whether to automatically apply merges recommended by the spikeinterface automerge method, which can be a bit aggressive and lead to over-merging if left on without manual review, so keep false by default for debugging iterations.
-
-        # Experimental, auto-merge using unitmatch in a way it isn't really designed for.
-        # moreover, the model behind it isnt trained on this kind of data, so results may be unreliable and should be taken with a grain of salt.
-        # TODO: refine this, and potentially train a custom model on simulated MEA data with known ground truth to improve performance and reliability for this use case.
-        unitmatch:
-          enabled: false
-          merge_units: false
-          dry_run: false
-          output_subdir_name: unitmatch_outputs
-          throughput_subdir_name: unitmatch_throughput
-          max_spikes_per_unit: -1
-          oversplit_min_probability: 0.95
-          limits:
-            # max_candidate_pairs: 20000
-            # oversplit_max_suggestions: 2000
-            max_candidate_pairs: -1
-            oversplit_max_suggestions: -1
-          apply_merges: false
-          recursive: false
-          iterations:
-            #max: 5
-            max: -1
-            keep_all: false
-
         post_merge_metadata:
-          # Write one consolidated post-merge metadata summary for quick comparisons with the pre-merge summary.
           enabled: true
           write_json: true
           json_relpath: post_merge_metadata_summary.json
           include_unit_locations: true
           log_summary_details: true
 
-        # merge reports
         reports:
           enabled: true
 
-          # json report summarizing unit diffs after merge
-          # includes unit-level metadata before/after merge, merge groups, and generally data that can be used for
-          # 2 panel unit location plots and other merge diagnostics.
           unit_diff_json:
             enabled: true
             relpath: unit_diffs_after_merge.json
 
-          # operation-level merge lineage map (includes chained merge edges).
           unit_diff_map:
             enabled: true
             relpath: unit_diff_map.json
 
-          # flattened merge lineage map (merged-participant units only).
           unit_diff_map_flat:
             enabled: true
             relpath: unit_diff_map_flat.json
 
-          # post-merge unit locations serialized directly from post-merge analyzer snapshot.
           post_merge_unit_locations:
             enabled: true
             relpath: post_merge_unit_locations.json
 
-          # xy view of unit locations before and after merge, with lines connecting units that were merged together.
-          # Useful for visually assessing the spatial relationships between merged units and the overall effect of the merge on unit locations.
           2panels_unit_locations_before_after_merge:
             enabled: true
-            # scatter point size in points^2 (matplotlib scatter s parameter).
-            # slightly smaller than previous default to reduce overlap in dense wells.
             point_size: 2
             highlight_merges:
               enabled: true
-              # units that would become the merged unit in the before plot
-              # and units that are the result of merging in the after plot are highlighted in the same color to visually link them.
               linked_highlight: true
-              # used when linked_highlight is false
               before_color: "#ff7f0e"
               after_color: "#2ca02c"
-              # used when linked_highlight is true
               palette: tab20
-
-              #jic affected units get burried under other scatter points, deliberately plot them after the other units so they appear on top and are more visible.
               plot_after_other_units: true
-
-              #jic affected units are hard to find. Optionally label only the units affected by the merge with their unit IDs in the before and after plots to make them easier to track visually;
-              # keep false by default to reduce visual clutter, but can be set to true for debugging iterations to provide more information in the plots.
               label_affected_units: false
-
-              # show legend for highlighted units
               show_legend: true
               legend_position: center left
               legend_x: -0.75
@@ -681,16 +514,9 @@ stages:
               sort_pre_legend_by_groups: true
               debug_json: true
               debug_json_relpath: unit_locations_highlight_linkage.json
-
-            # inherit probe dimensions specified in data.yml if available.
-            # this can control relative size of electrodes if plotted, xy extent of the plots, and the scaling of location markers if point_size is not explicitly set here.
             inherit_probe_dimensions: true
-
-            # Get xy extent for affected units before and after.
-            # take the largest x and y extent of both
-            # apply that zoom to both panels to better visualize the units affected by the merge and their spatial relationships.
             zoom_to_affected_units: true
-            label_pre_and_post_units: false # whether to label units with their pre-merge IDs in the before plot and post-merge IDs in the after plot, which can help visually track how individual units are affected by the merge; keep true by default for debugging iterations to provide more information in the plots, but can be set to false to reduce visual clutter if there are many units.
+            label_pre_and_post_units: false
             assets:
               before:
                 write_png: true
@@ -706,8 +532,6 @@ stages:
             write_svg: false
             relpath: unit_locations_before_after_merge.png
 
-          # for each applied merge group, render pre templates (left panel) and post template (right panel)
-          # as amplitude heatmaps, plus per-template assets and a debug manifest json.
           template_heatmaps_per_merge:
             enabled: true
             relpath: template_heatmaps_per_merge
@@ -718,31 +542,408 @@ stages:
             marker_size: 10.0
             cmap: viridis
             show_colorbar: true
-            relative_color_bar_height: 0.5 # shorten the vertical colorbar to half the plot height and keep it centered on the heatmap plotting area.
-            # linear|log
+            relative_color_bar_height: 0.5
             color_scale: log
-            # used only when color_scale is log
             log_epsilon: 0.001
-            # ptp|abs_peak|peak|trough
             magnitude_mode: ptp
-            # null/omitted = no cap.
-            # max_merges: 25
             debug_json_relpath: template_heatmaps_per_merge_report.json
             assets:
               relpath: assets
               write_png: true
               write_svg: false
-
-            # inherit probe dimensions specified in data.yml if available.
-            # this can control relative size of electrodes if plotted, xy extent of the plots, and the scaling of location markers if point_size is not explicitly set here.
             inherit_probe_dimensions: true
 
+        # SLAy - https://github.com/saikoukunt/SLAy
+        # New option that is better suited to working with incomplete templates at least.
+        #TODO: can probably implement spikeinterface integration of this instead of manually
+        # integration as we have it currently.
+        relpath: SLAy_outputs
+        package_root: /home/adamm/dev/pkgs/SLAy
+        # Optional explicit KS folder (relative to spikesort.execution.output_root).
+        # If null, defaults to sorter_output and auto-probes nested sorter_output/.
+        # sorter_output_relpath: ../sorter_output/sorter_output
+        # If true and cupy is unavailable, inject a numpy-based fallback shim.
+        allow_numpy_fallback: true
+        # Copy SLAy automerge artifacts from KS folder into this stage output dir.
+        copy_automerge_artifacts: true
+        # Keep false by default: we only want candidate outputs, not direct KS cluster rewrites.
+        auto_accept_merges: true
+        # NOTE: upstream SLAy only emits automerge/merges plots when auto_accept_merges is false.
+        # Keep false by default to avoid plotting overhead for debug iterations.
+        plot_merges: true
+        # Stage-managed output artifact names.
+        output_json_relpath: run-output.json
+        candidate_pairs_relpath: recommended_merge_candidates.tsv
+        merge_groups_relpath: recommended_merge_groups.json
 
+        # Optional SLAy model-cache controls.
+        # These knobs govern the cache under merge outputs (for example cache/slay_model/ae.pt).
+        model_cache:
+          enabled: true
+          # When true, reuse an existing cached model file if present.
+          use_cached_model: true
+          # When true, allow SLAy to write/update the cached model file.
+          write_model_cache: true
+          # Relative to merge output root.
+          relpath: cache/slay_model/ae.pt
+        # If true and force_restart is enabled for merge phase/SLAy, delete the selected model path
+        # before running so SLAy retrains from scratch.
+        #force_restart_retrain_model: false
+        force_restart_retrain_model: true
 
-            # Presence ratio
-            # rp_contamination
-            # firing_rate
-            # amplitude median
+        # Optional passthrough params for slay.run_slay.
+        # Values below mirror SLAy RunParams defaults so you can tweak them explicitly.
+        # Note: KS_folder and output_json are managed by this pipeline wrapper.
+        # Note: auto_accept_merges / plot_merges are controlled by top-level SLAy keys above.
+        params:
+          dtype: int16
+          pre_samples: 20
+          post_samples: 62
+          #min_spikes: 100
+          min_spikes: 50
+          #max_spikes: 500
+          max_spikes: -1
+          #good_lbls: [good] # Only these KS labels are treated as valid units for SLAy similarity/merge candidate scoring.
+          #good_lbls: [good, mua] # include unsorted units as candidate participants in SLAy merges by treating them as valid units for similarity/merge candidate scoring; keep false by default to focus on merges between well-isolated units during debugging iterations, but can be set to true to explore potential merges involving unsorted units.
+          good_lbls: [good, non_soma_good] # include non-somatic units as candidate participants in SLAy merges by treating them as valid units for similarity/merge candidate scoring, which can help identify merges between somatic and non-somatic units that likely belong together; keep [good] by default to focus on merges between well-isolated somatic units during debugging iterations, but can be set to this broader set to explore potential merges involving non-somatic units.
+
+          window_size: 0.1
+          xcorr_bin_width: 0.0005
+          overlap_tol: 0.00016666666666666666 # 5 / 30000
+          min_xcorr_rate: 800
+          xcorr_coeff: 0.25
+
+          ref_pen_bin_width: 1
+          max_viol: 0.15
+          ref_pen_coeff: 1
+
+          spikes_path: null
+          model_path: null
+          sim_thresh: 0.4
+          # Autoencoder embedding window/control knobs used by SLAy similarity scoring.
+          ae_pre: 10 # samples before spike center used in AE input window
+          ae_post: 30 # samples after spike center used in AE input window
+          ae_chan: 8 # number of local channels included in AE input tensor
+          #ae_chan: 10
+          #ae_noise: false # purpose: noise augmentation for AE embeddings/training. ON can improve robustness to noisy waveforms and amplitude variation; OFF is faster and usually more repeatable for debugging.
+          ae_noise: true
+          ae_shft: false # purpose: temporal-shift augmentation for AE embeddings/training. ON can improve tolerance to spike-alignment jitter; OFF is faster and keeps embeddings more timing-sensitive.
+          #ae_epochs: 25 # training epochs when SLAy needs to train/fine-tune the AE model
+          ae_epochs: 50
+          #ae_epochs: 10 # reduced for debugging iterations; can increase for more thorough training in non-debug runs.
+
+          final_thresh: 0.5
+          max_dist: 10
+          #auto_accept_merges: false
+          auto_accept_merges: true
+          plot_merges: true
+
+        # recompute analyzer after applying merges recommended by SLAy.
+        # i think merges applied by SLAy are applied to the sorting object directly,
+        # so the analyzer might be out of date after the merges are applied,
+        # which could lead to inconsistencies between the merged sorting and the analyzer outputs that are used for downstream template building and plotting.
+        recompute_analyzer: true # whether to trigger a rerun of the analyzer after applying merges recommended by SLAy; keep false by default to avoid the overhead of repeated analyzer runs during merge debugging iterations.
+
+      merge_si_auto:
+
+        enabled: false
+        rel_output_root: merge_si_auto
+        delete_outputs_on_force_restart: true
+        force_restart: false
+        force_replot: false
+
+        # phase-local canonical merge workspace mode:
+        use_cache_as_canonical_workspace:
+          enabled: true
+          canonical_workspace_relpath: cache/merge_workspace
+          canonical_workspace_refresh_on_run: true
+          canonical_workspace_rebuild_analyzer: true
+          assert_uses_canonical_workspace: true
+          publish_to_stage_outputs_on_success: true
+          publish_to_stage_outputs_on_failure: false
+
+        analyzer:
+          regenerate_on_replot: false
+          check_if_regen_is_needed: true
+          n_jobs: 24
+          template_extraction:
+            seed: 0
+            random_spikes_percentage: 25
+            min_spikes_per_unit: 1000
+            log_before_after_spike_counts: true
+          sparsity:
+            compute_sparsity: false
+            method: best_channels
+            num_channels: 300
+            peak_sign: both
+            num_spikes_for_sparsity: 100
+          waveforms:
+            ms_before: 2.0
+            ms_after: 5.0
+
+        pre_merge_metadata:
+          enabled: true
+          write_json: true
+          json_relpath: pre_merge_metadata_summary.json
+          include_unit_locations: true
+          log_summary_details: true
+
+        post_merge_metadata:
+          enabled: true
+          write_json: true
+          json_relpath: post_merge_metadata_summary.json
+          include_unit_locations: true
+          log_summary_details: true
+
+        reports:
+          enabled: true
+
+          unit_diff_json:
+            enabled: true
+            relpath: unit_diffs_after_merge.json
+
+          unit_diff_map:
+            enabled: true
+            relpath: unit_diff_map.json
+
+          unit_diff_map_flat:
+            enabled: true
+            relpath: unit_diff_map_flat.json
+
+          post_merge_unit_locations:
+            enabled: true
+            relpath: post_merge_unit_locations.json
+
+          2panels_unit_locations_before_after_merge:
+            enabled: true
+            point_size: 2
+            highlight_merges:
+              enabled: true
+              linked_highlight: true
+              before_color: "#ff7f0e"
+              after_color: "#2ca02c"
+              palette: tab20
+              plot_after_other_units: true
+              label_affected_units: false
+              show_legend: true
+              legend_position: center left
+              legend_x: -0.75
+              legend_y: 0.5
+              sort_pre_legend_by_groups: true
+              debug_json: true
+              debug_json_relpath: unit_locations_highlight_linkage.json
+            inherit_probe_dimensions: true
+            zoom_to_affected_units: true
+            label_pre_and_post_units: false
+            assets:
+              before:
+                write_png: true
+                write_svg: false
+                relpath: unit_locations_before_merge.png
+                point_color: "#7a7a7a"
+              after:
+                write_png: true
+                write_svg: false
+                relpath: unit_locations_after_merge.png
+                point_color: "#7a7a7a"
+            write_png: true
+            write_svg: false
+            relpath: unit_locations_before_after_merge.png
+
+          template_heatmaps_per_merge:
+            enabled: true
+            relpath: template_heatmaps_per_merge
+            write_png: true
+            write_svg: false
+            panel_width_in: 11.0
+            panel_height_in: 6.0
+            marker_size: 10.0
+            cmap: viridis
+            show_colorbar: true
+            relative_color_bar_height: 0.5
+            color_scale: log
+            log_epsilon: 0.001
+            magnitude_mode: ptp
+            debug_json_relpath: template_heatmaps_per_merge_report.json
+            assets:
+              relpath: assets
+              write_png: true
+              write_svg: false
+            inherit_probe_dimensions: true
+
+        # Automerge via Spikeinterface built in automerge method.
+        # Pretty straight forward. This is the Spikeinterfaces recommended way of doing template matching
+        # I don't like this though because we're basically matching based on incomplete templates.
+        # I'd prefer to do something like this in the templates stage when we have the more fully formed templates to work with,
+        # but this is a start and we can iterate on it.
+        # TODO: this might be broken for now.
+        template_diff_thresh: 0.05,0.15,0.25
+        relpath: automerge_outputs
+        delete_outputs_on_force_restart: true # merge-method cleanup toggle for auto_merge. When force_restart is true, removes only <well>/<output_root>/<auto_merge.relpath> before rerunning auto_merge.
+        candidate_pairs_reldir: recommended_merge_candidates
+        merged_units_reldir: merged_units
+        # Note: This autoaccepts merges at each threshold level, so recommended merges may not clearly
+        # describe the incremental effect of new merged templates appearing in the analyzer with each threshold auto_accepted
+        # Use with caution for debugging and consider setting auto_accept_merges to false and inspecting candidate pairs manually in that case.
+        auto_accept_merges: true # whether to automatically apply merges recommended by the spikeinterface automerge method, which can be a bit aggressive and lead to over-merging if left on without manual review, so keep false by default for debugging iterations.
+
+      merge_unitmatch:
+
+        enabled: false
+        rel_output_root: merge_unitmatch
+        delete_outputs_on_force_restart: true
+        force_restart: false
+        force_replot: false
+
+        # phase-local canonical merge workspace mode:
+        use_cache_as_canonical_workspace:
+          enabled: true
+          canonical_workspace_relpath: cache/merge_workspace
+          canonical_workspace_refresh_on_run: true
+          canonical_workspace_rebuild_analyzer: true
+          assert_uses_canonical_workspace: true
+          publish_to_stage_outputs_on_success: true
+          publish_to_stage_outputs_on_failure: false
+
+        analyzer:
+          regenerate_on_replot: false
+          check_if_regen_is_needed: true
+          n_jobs: 24
+          template_extraction:
+            seed: 0
+            random_spikes_percentage: 25
+            min_spikes_per_unit: 1000
+            log_before_after_spike_counts: true
+          sparsity:
+            compute_sparsity: false
+            method: best_channels
+            num_channels: 300
+            peak_sign: both
+            num_spikes_for_sparsity: 100
+          waveforms:
+            ms_before: 2.0
+            ms_after: 5.0
+
+        pre_merge_metadata:
+          enabled: true
+          write_json: true
+          json_relpath: pre_merge_metadata_summary.json
+          include_unit_locations: true
+          log_summary_details: true
+
+        post_merge_metadata:
+          enabled: true
+          write_json: true
+          json_relpath: post_merge_metadata_summary.json
+          include_unit_locations: true
+          log_summary_details: true
+
+        reports:
+          enabled: true
+
+          unit_diff_json:
+            enabled: true
+            relpath: unit_diffs_after_merge.json
+
+          unit_diff_map:
+            enabled: true
+            relpath: unit_diff_map.json
+
+          unit_diff_map_flat:
+            enabled: true
+            relpath: unit_diff_map_flat.json
+
+          post_merge_unit_locations:
+            enabled: true
+            relpath: post_merge_unit_locations.json
+
+          2panels_unit_locations_before_after_merge:
+            enabled: true
+            point_size: 2
+            highlight_merges:
+              enabled: true
+              linked_highlight: true
+              before_color: "#ff7f0e"
+              after_color: "#2ca02c"
+              palette: tab20
+              plot_after_other_units: true
+              label_affected_units: false
+              show_legend: true
+              legend_position: center left
+              legend_x: -0.75
+              legend_y: 0.5
+              sort_pre_legend_by_groups: true
+              debug_json: true
+              debug_json_relpath: unit_locations_highlight_linkage.json
+            inherit_probe_dimensions: true
+            zoom_to_affected_units: true
+            label_pre_and_post_units: false
+            assets:
+              before:
+                write_png: true
+                write_svg: false
+                relpath: unit_locations_before_merge.png
+                point_color: "#7a7a7a"
+              after:
+                write_png: true
+                write_svg: false
+                relpath: unit_locations_after_merge.png
+                point_color: "#7a7a7a"
+            write_png: true
+            write_svg: false
+            relpath: unit_locations_before_after_merge.png
+
+          template_heatmaps_per_merge:
+            enabled: true
+            relpath: template_heatmaps_per_merge
+            write_png: true
+            write_svg: false
+            panel_width_in: 11.0
+            panel_height_in: 6.0
+            marker_size: 10.0
+            cmap: viridis
+            show_colorbar: true
+            relative_color_bar_height: 0.5
+            color_scale: log
+            log_epsilon: 0.001
+            magnitude_mode: ptp
+            debug_json_relpath: template_heatmaps_per_merge_report.json
+            assets:
+              relpath: assets
+              write_png: true
+              write_svg: false
+            inherit_probe_dimensions: true
+
+        # Experimental, auto-merge using unitmatch in a way it isn't really designed for.
+        # moreover, the model behind it isnt trained on this kind of data, so results may be unreliable and should be taken with a grain of salt.
+        # TODO: refine this, and potentially train a custom model on simulated MEA data with known ground truth to improve performance and reliability for this use case.
+        merge_units: false
+        dry_run: false
+        output_subdir_name: unitmatch_outputs
+        throughput_subdir_name: unitmatch_throughput
+        max_spikes_per_unit: -1
+        oversplit_min_probability: 0.95
+        limits:
+          # max_candidate_pairs: 20000
+          # oversplit_max_suggestions: 2000
+          max_candidate_pairs: -1
+          oversplit_max_suggestions: -1
+        apply_merges: false
+        recursive: false
+        iterations:
+          #max: 5
+          max: -1
+          keep_all: false
+
+      cleanup_concat_binary:
+        enabled: true
+        debug_mode:
+          enabled: false
+          limit_datasets: 1
+          limit_wells: 1
+        relpath: cache/bootstrap_concat_binary
+        summary_json_relpath: cache/bootstrap_concat_binary_cleanup_summary.json
+
   templates:
     resources:
       max_stage_workers: 24

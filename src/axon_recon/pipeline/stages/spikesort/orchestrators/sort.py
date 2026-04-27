@@ -35,9 +35,15 @@ def _print_spikesort_aggregate(agg: object) -> int:
 	for item in agg.target_results:
 		target = item.target
 		if item.status == "ok" and item.result is not None:
+			result_dir = (
+				getattr(item.result, "spikesort_out_dir", None)
+				or getattr(item.result, "bombcell_out_dir", None)
+				or getattr(item.result, "merge_out_dir", None)
+				or getattr(item.result, "summary_json", "")
+			)
 			print(
 				f"target[{target.dataset_index}:{target.stream_id}] status=ok "
-				f"spikesort_out_dir={item.result.spikesort_out_dir} "
+				f"out_dir={result_dir} "
 				f"outputs={len(item.result.outputs)}"
 			)
 		else:

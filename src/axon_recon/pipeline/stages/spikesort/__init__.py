@@ -1,9 +1,26 @@
 """Spikesort stage package."""
 
-from .api import run_spikesort, run_spikesort_bombcell, run_spikesort_merge, summarize_spikesort
+from .api import (
+	bootstrap_spikesort_concat_binary,
+	cleanup_spikesort_concat_binary,
+	run_spikesort,
+	run_spikesort_bombcell,
+	run_spikesort_merge,
+	summarize_spikesort,
+)
 from .orchestrators import (
 	run_spikesort_bombcell_label,
 	run_spikesort_bombcell_label_from_runtime,
+	run_spikesort_bootstrap_concat_binary,
+	run_spikesort_bootstrap_concat_binary_from_runtime,
+	run_spikesort_cleanup_concat_binary,
+	run_spikesort_cleanup_concat_binary_from_runtime,
+	run_spikesort_merge_si_auto,
+	run_spikesort_merge_si_auto_from_runtime,
+	run_spikesort_merge_slay,
+	run_spikesort_merge_slay_from_runtime,
+	run_spikesort_merge_unitmatch,
+	run_spikesort_merge_unitmatch_from_runtime,
 	run_spikesort_merge_units,
 	run_spikesort_merge_units_from_runtime,
 	run_spikesort_sort,
@@ -14,9 +31,21 @@ from .orchestrators import (
 
 __all__ = [
 	"run_spikesort",
+	"bootstrap_spikesort_concat_binary",
+	"cleanup_spikesort_concat_binary",
 	"run_spikesort_bombcell",
 	"run_spikesort_bombcell_label",
 	"run_spikesort_bombcell_label_from_runtime",
+	"run_spikesort_bootstrap_concat_binary",
+	"run_spikesort_bootstrap_concat_binary_from_runtime",
+	"run_spikesort_cleanup_concat_binary",
+	"run_spikesort_cleanup_concat_binary_from_runtime",
+	"run_spikesort_merge_si_auto",
+	"run_spikesort_merge_si_auto_from_runtime",
+	"run_spikesort_merge_slay",
+	"run_spikesort_merge_slay_from_runtime",
+	"run_spikesort_merge_unitmatch",
+	"run_spikesort_merge_unitmatch_from_runtime",
 	"run_spikesort_merge_units",
 	"run_spikesort_merge_units_from_runtime",
 	"run_spikesort_merge",

@@ -141,6 +141,21 @@ def test_parse_stage_list_tokens_supports_spikesort_sort_substage_alias() -> Non
     assert parsed == ["spikesort.sort"]
 
 
+@pytest.mark.parametrize(
+    ("raw_token", "expected"),
+    [
+        ("bootstrap_concat_binary", "spikesort.bootstrap_concat_binary"),
+        ("spikesort.bootstrap_concat_binary", "spikesort.bootstrap_concat_binary"),
+        ("cleanup_concat_binary", "spikesort.cleanup_concat_binary"),
+        ("clear_concat_binary", "spikesort.cleanup_concat_binary"),
+        ("spikesort.clear_concat_binary", "spikesort.cleanup_concat_binary"),
+    ],
+)
+def test_parse_stage_list_tokens_supports_spikesort_concat_binary_phase_tokens(raw_token: str, expected: str) -> None:
+    parsed = pipeline_cli._parse_stage_list_tokens([raw_token])
+    assert parsed == [expected]
+
+
 def test_parse_stage_list_tokens_supports_spikesort_merge_substage() -> None:
     parsed = pipeline_cli._parse_stage_list_tokens(["spikesort.merge"])
     assert parsed == ["spikesort.merge"]
@@ -148,17 +163,32 @@ def test_parse_stage_list_tokens_supports_spikesort_merge_substage() -> None:
 
 def test_parse_stage_list_tokens_supports_spikesort_merge_slay_substage() -> None:
     parsed = pipeline_cli._parse_stage_list_tokens(["spikesort.merge.slay"])
-    assert parsed == ["spikesort.merge.slay"]
+    assert parsed == ["spikesort.merge_SLAy"]
+
+
+def test_parse_stage_list_tokens_supports_spikesort_merge_slay_phase_name() -> None:
+    parsed = pipeline_cli._parse_stage_list_tokens(["spikesort.merge_SLAy"])
+    assert parsed == ["spikesort.merge_SLAy"]
 
 
 def test_parse_stage_list_tokens_supports_spikesort_merge_auto_merge_substage() -> None:
     parsed = pipeline_cli._parse_stage_list_tokens(["spikesort.merge.auto_merge"])
-    assert parsed == ["spikesort.merge.auto_merge"]
+    assert parsed == ["spikesort.merge_si_auto"]
+
+
+def test_parse_stage_list_tokens_supports_spikesort_merge_si_auto_phase_name() -> None:
+    parsed = pipeline_cli._parse_stage_list_tokens(["spikesort.merge_si_auto"])
+    assert parsed == ["spikesort.merge_si_auto"]
 
 
 def test_parse_stage_list_tokens_supports_spikesort_merge_automerge_alias() -> None:
     parsed = pipeline_cli._parse_stage_list_tokens(["spikesort.merge.automerge"])
-    assert parsed == ["spikesort.merge.auto_merge"]
+    assert parsed == ["spikesort.merge_si_auto"]
+
+
+def test_parse_stage_list_tokens_supports_spikesort_merge_unitmatch_phase_name() -> None:
+    parsed = pipeline_cli._parse_stage_list_tokens(["spikesort.merge_unitmatch"])
+    assert parsed == ["spikesort.merge_unitmatch"]
 
 
 def test_build_parser_supports_stage_command_alias() -> None:
@@ -564,30 +594,48 @@ def test_main_runs_spikesort_merge_slay_substage(monkeypatch, tmp_path: Path) ->
         calls.append(str(getattr(args, "stage", "")))
         return 0
 
-    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "spikesort.merge.slay", _spikesort_merge_slay)
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "spikesort.merge_SLAy", _spikesort_merge_slay)
 
     rc = pipeline_cli.main(["stages", "spikesort.merge.slay", "--config", str(runtime_cfg), "--force-restart"])
 
     assert rc == 0
-    assert calls == ["spikesort.merge.slay"]
+    assert calls == ["spikesort.merge_SLAy"]
 
 
-def test_main_runs_spikesort_merge_auto_merge_substage(monkeypatch, tmp_path: Path) -> None:
+def test_main_runs_spikesort_merge_si_auto_substage(monkeypatch, tmp_path: Path) -> None:
     runtime_cfg = tmp_path / "runtime.yml"
     _write_runtime_cfg(runtime_cfg)
 
     calls: list[str] = []
 
-    def _spikesort_merge_auto_merge(args):
+    def _spikesort_merge_si_auto(args):
         calls.append(str(getattr(args, "stage", "")))
         return 0
 
-    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "spikesort.merge.auto_merge", _spikesort_merge_auto_merge)
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "spikesort.merge_si_auto", _spikesort_merge_si_auto)
 
     rc = pipeline_cli.main(["stages", "spikesort.merge.auto_merge", "--config", str(runtime_cfg), "--force-restart"])
 
     assert rc == 0
-    assert calls == ["spikesort.merge.auto_merge"]
+    assert calls == ["spikesort.merge_si_auto"]
+
+
+def test_main_runs_spikesort_merge_unitmatch_substage(monkeypatch, tmp_path: Path) -> None:
+    runtime_cfg = tmp_path / "runtime.yml"
+    _write_runtime_cfg(runtime_cfg)
+
+    calls: list[str] = []
+
+    def _spikesort_merge_unitmatch(args):
+        calls.append(str(getattr(args, "stage", "")))
+        return 0
+
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "spikesort.merge_unitmatch", _spikesort_merge_unitmatch)
+
+    rc = pipeline_cli.main(["stages", "spikesort.merge_unitmatch", "--config", str(runtime_cfg), "--force-restart"])
+
+    assert rc == 0
+    assert calls == ["spikesort.merge_unitmatch"]
 
 
 def test_parse_stage_list_tokens_rejects_unknown_stage() -> None:

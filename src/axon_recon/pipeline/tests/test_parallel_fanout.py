@@ -99,6 +99,117 @@ data: {data_path}
     assert targets[0].stream_id == "well001"
 
 
+def test_select_execution_targets_preserves_symlinked_h5_path(tmp_path: Path) -> None:
+    real_h5 = tmp_path / "real" / "data.raw.h5"
+    real_h5.parent.mkdir(parents=True, exist_ok=True)
+    real_h5.write_text("placeholder\n", encoding="utf-8")
+    link_h5 = tmp_path / "links" / "data_link.raw.h5"
+    link_h5.parent.mkdir(parents=True, exist_ok=True)
+    link_h5.symlink_to(real_h5)
+
+    data_path = tmp_path / "debug.data.yml"
+    data_path.write_text(
+        f"""
+output_root: /tmp/out
+datasets:
+  - raw_data_h5_path: {link_h5}
+    include_in_runtime: true
+    wells:
+      - well_id: well001
+        include_in_runtime: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "debug.runtime.yml"
+    runtime_path.write_text(
+        f"""
+data: {data_path}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = load_pipeline_runtime_bundle(config_path=str(runtime_path))
+    targets = select_execution_targets(bundle=bundle)
+
+    assert len(targets) == 1
+    assert targets[0].h5_path == link_h5
+
+
+def test_select_execution_targets_resolves_relative_h5_path_against_data_config(tmp_path: Path) -> None:
+    relative_h5 = Path("relative/input.raw.h5")
+    data_path = tmp_path / "configs" / "debug.data.yml"
+    data_path.parent.mkdir(parents=True, exist_ok=True)
+    data_path.write_text(
+        f"""
+output_root: /tmp/out
+datasets:
+  - raw_data_h5_path: {relative_h5.as_posix()}
+    include_in_runtime: true
+    wells:
+      - well_id: well001
+        include_in_runtime: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "debug.runtime.yml"
+    runtime_path.write_text(
+        f"""
+data: {data_path}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = load_pipeline_runtime_bundle(config_path=str(runtime_path))
+    targets = select_execution_targets(bundle=bundle)
+
+    assert len(targets) == 1
+    assert targets[0].h5_path == data_path.parent / relative_h5
+
+
+def test_select_execution_targets_preserves_symlinked_output_root(tmp_path: Path) -> None:
+    real_output_root = tmp_path / "real_outputs"
+    real_output_root.mkdir(parents=True, exist_ok=True)
+    linked_output_root = tmp_path / "linked_outputs"
+    linked_output_root.symlink_to(real_output_root)
+
+    data_path = tmp_path / "debug.data.yml"
+    data_path.write_text(
+        f"""
+output_root: {linked_output_root}
+datasets:
+  - raw_data_h5_path: /tmp/input.raw.h5
+    include_in_runtime: true
+    wells:
+      - well_id: well001
+        include_in_runtime: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "debug.runtime.yml"
+    runtime_path.write_text(
+        f"""
+data: {data_path}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = load_pipeline_runtime_bundle(config_path=str(runtime_path))
+    targets = select_execution_targets(bundle=bundle)
+
+    assert len(targets) == 1
+    assert targets[0].mea_output_root == linked_output_root
+    assert targets[0].final_output_root == linked_output_root
+
+
 def test_select_execution_targets_errors_when_no_dataset_enabled(tmp_path: Path) -> None:
     data_path = tmp_path / "debug.data.yml"
     data_path.write_text(

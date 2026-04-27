@@ -14,6 +14,8 @@ class SpikesortInputs:
 
 	output_rel_root: str = "spikesort_outputs"
 	preprocess_concat_recording_relpath: str | None = None
+	sort_original_preprocess_concat_recording_relpath: str | None = None
+	sort_bootstrapped_concat_recording_relpath: str | None = None
 	logging_enabled: bool = True
 	logging_verbose: bool = False
 	logging_file_relpath: str | None = None
@@ -53,6 +55,9 @@ class SpikesortInputs:
 	option_kwargs: dict[str, Any] | None = field(default=None)
 	sort_enabled: bool = True
 	sort_delete_outputs_on_force_restart: bool = False
+	sort_use_bootstrapped_concat_binary: bool = False
+	sort_use_lazy_source: bool = True
+	sort_assert_one_source: bool = False
 
 	force_restart: bool = False
 	force_replot: bool = False
