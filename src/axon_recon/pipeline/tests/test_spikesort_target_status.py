@@ -205,6 +205,102 @@ def test_run_spikesort_from_runtime_applies_debug_well_limit(monkeypatch, tmp_pa
     assert agg.target_results[0].target.stream_id == "well001"
 
 
+def test_run_spikesort_from_runtime_applies_global_debug_dataset_and_well_limits(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    targets = [
+        ExecutionTarget(
+            dataset_index=0,
+            dataset_id="dataset_000:test_a.h5",
+            h5_path=tmp_path / "test_a.h5",
+            stream_id="well001",
+            mea_output_root=tmp_path,
+        ),
+        ExecutionTarget(
+            dataset_index=0,
+            dataset_id="dataset_000:test_a.h5",
+            h5_path=tmp_path / "test_a.h5",
+            stream_id="well002",
+            mea_output_root=tmp_path,
+        ),
+        ExecutionTarget(
+            dataset_index=0,
+            dataset_id="dataset_000:test_a.h5",
+            h5_path=tmp_path / "test_a.h5",
+            stream_id="well003",
+            mea_output_root=tmp_path,
+        ),
+        ExecutionTarget(
+            dataset_index=1,
+            dataset_id="dataset_001:test_b.h5",
+            h5_path=tmp_path / "test_b.h5",
+            stream_id="well001",
+            mea_output_root=tmp_path,
+        ),
+    ]
+
+    class _DummyBundle:
+        runtime_config = object()
+        data_config = object()
+
+    built_targets: list[tuple[int, str]] = []
+
+    def _fake_load_pipeline_runtime_bundle(*, config_path: str):
+        return _DummyBundle()
+
+    def _fake_select_execution_targets(*, bundle):
+        return list(targets)
+
+    def _fake_resolve_stage_parallelism(*, bundle, stage_name: str, target_count: int | None = None):
+        _ = bundle, stage_name, target_count
+        return StageParallelism(max_workers=2, max_stage_workers=2, well_workers=2, unit_workers=1)
+
+    def _fake_parse_spikesort_stage_config(**kwargs):
+        _ = kwargs
+        return SimpleNamespace(
+            debug_limit_datasets=1,
+            debug_limit_wells=2,
+            output_rel_root="spikesort_outputs",
+            phase_sequence=("sort",),
+            sort_enabled=True,
+            sort_debug_mode_enabled=False,
+        )
+
+    def _fake_build_spikesort_inputs_for_target(*, target, stage_config, unit_workers: int):
+        _ = stage_config, unit_workers
+        built_targets.append((int(target.dataset_index), str(target.stream_id)))
+        return SpikesortInputs(
+            h5_path=target.h5_path,
+            stream_id=target.stream_id,
+            mea_output_root=target.mea_output_root,
+        )
+
+    def _fake_run_spikesort(inputs: SpikesortInputs) -> SpikesortResult:
+        return SpikesortResult(
+            well_out_dir=tmp_path / f"well_out_{inputs.stream_id}",
+            spikesort_out_dir=tmp_path / f"spikesort_out_{inputs.stream_id}",
+            summary_json=tmp_path / f"spikesort_summary_{inputs.stream_id}.json",
+            outputs={"sorter_output_dir": f"sorter_output_{inputs.stream_id}"},
+        )
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", _fake_load_pipeline_runtime_bundle)
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", _fake_select_execution_targets)
+    monkeypatch.setattr(pipeline_runner, "resolve_stage_parallelism", _fake_resolve_stage_parallelism)
+    monkeypatch.setattr(pipeline_runner, "parse_spikesort_stage_config", _fake_parse_spikesort_stage_config)
+    monkeypatch.setattr(pipeline_runner, "build_spikesort_inputs_for_target", _fake_build_spikesort_inputs_for_target)
+    monkeypatch.setattr(pipeline_runner, "run_spikesort", _fake_run_spikesort)
+
+    agg = run_spikesort_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+
+    assert agg.total_targets == 2
+    assert agg.succeeded_targets == 2
+    assert agg.failed_targets == 0
+    assert built_targets == [(0, "well001"), (0, "well002")]
+
+
 def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
     monkeypatch,
     tmp_path: Path,
@@ -428,6 +524,100 @@ def test_run_spikesort_sort_from_runtime_applies_phase_debug_limits(monkeypatch,
     assert agg.failed_targets == 0
     assert agg.target_results[0].target.dataset_index == 0
     assert agg.target_results[0].target.stream_id == "well001"
+
+
+def test_run_spikesort_sort_from_runtime_applies_global_debug_dataset_and_well_limits(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    targets = [
+        ExecutionTarget(
+            dataset_index=0,
+            dataset_id="dataset_000:test_a.h5",
+            h5_path=tmp_path / "test_a.h5",
+            stream_id="well001",
+            mea_output_root=tmp_path,
+        ),
+        ExecutionTarget(
+            dataset_index=0,
+            dataset_id="dataset_000:test_a.h5",
+            h5_path=tmp_path / "test_a.h5",
+            stream_id="well002",
+            mea_output_root=tmp_path,
+        ),
+        ExecutionTarget(
+            dataset_index=0,
+            dataset_id="dataset_000:test_a.h5",
+            h5_path=tmp_path / "test_a.h5",
+            stream_id="well003",
+            mea_output_root=tmp_path,
+        ),
+        ExecutionTarget(
+            dataset_index=1,
+            dataset_id="dataset_001:test_b.h5",
+            h5_path=tmp_path / "test_b.h5",
+            stream_id="well001",
+            mea_output_root=tmp_path,
+        ),
+    ]
+
+    class _DummyBundle:
+        runtime_config = object()
+        data_config = object()
+
+    built_targets: list[tuple[int, str]] = []
+
+    def _fake_load_pipeline_runtime_bundle(*, config_path: str):
+        return _DummyBundle()
+
+    def _fake_select_execution_targets(*, bundle):
+        return list(targets)
+
+    def _fake_resolve_stage_parallelism(*, bundle, stage_name: str, target_count: int | None = None):
+        _ = bundle, stage_name, target_count
+        return StageParallelism(max_workers=2, max_stage_workers=2, well_workers=2, unit_workers=1)
+
+    def _fake_parse_spikesort_stage_config(**kwargs):
+        _ = kwargs
+        return SimpleNamespace(
+            debug_limit_datasets=1,
+            debug_limit_wells=2,
+            sort_debug_mode_enabled=False,
+        )
+
+    def _fake_build_spikesort_inputs_for_target(*, target, stage_config, unit_workers: int):
+        _ = stage_config, unit_workers
+        built_targets.append((int(target.dataset_index), str(target.stream_id)))
+        return SpikesortInputs(
+            h5_path=target.h5_path,
+            stream_id=target.stream_id,
+            mea_output_root=target.mea_output_root,
+        )
+
+    def _fake_run_spikesort(inputs: SpikesortInputs) -> SpikesortResult:
+        return SpikesortResult(
+            well_out_dir=tmp_path / f"well_out_{inputs.stream_id}",
+            spikesort_out_dir=tmp_path / f"spikesort_out_{inputs.stream_id}",
+            summary_json=tmp_path / f"spikesort_summary_{inputs.stream_id}.json",
+            outputs={"sorter_output_dir": f"sorter_output_{inputs.stream_id}"},
+        )
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", _fake_load_pipeline_runtime_bundle)
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", _fake_select_execution_targets)
+    monkeypatch.setattr(pipeline_runner, "resolve_stage_parallelism", _fake_resolve_stage_parallelism)
+    monkeypatch.setattr(pipeline_runner, "parse_spikesort_stage_config", _fake_parse_spikesort_stage_config)
+    monkeypatch.setattr(pipeline_runner, "build_spikesort_inputs_for_target", _fake_build_spikesort_inputs_for_target)
+    monkeypatch.setattr(pipeline_runner, "run_spikesort", _fake_run_spikesort)
+
+    agg = run_spikesort_sort_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+
+    assert agg.stage == "spikesort.sort"
+    assert agg.total_targets == 2
+    assert agg.succeeded_targets == 2
+    assert agg.failed_targets == 0
+    assert built_targets == [(0, "well001"), (0, "well002")]
 
 
 def test_run_spikesort_summarize_sort_from_runtime_marks_target_ok(monkeypatch, tmp_path: Path) -> None:

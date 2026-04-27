@@ -25,6 +25,8 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.logging_enabled is True
     assert parsed.logging_verbose is False
     assert parsed.logging_file_relpath is None
+    assert parsed.debug_mode_enabled is False
+    assert parsed.debug_limit_datasets is None
     assert parsed.debug_limit_wells is None
     assert parsed.sort_debug_mode_enabled is False
     assert parsed.sort_debug_limit_datasets is None
@@ -225,6 +227,28 @@ def test_parse_spikesort_stage_config_reads_phase_sequence() -> None:
         "merge_si_auto",
         "cleanup_concat_binary",
     )
+
+
+def test_parse_spikesort_stage_config_reads_global_debug_mode() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "debug_mode": {
+                        "enabled": True,
+                        "limit_datasets": 1,
+                        "limit_wells": 2,
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.debug_mode_enabled is True
+    assert parsed.debug_limit_datasets == 1
+    assert parsed.debug_limit_wells == 2
 
 
 def test_parse_spikesort_stage_config_summarize_sort_phase() -> None:

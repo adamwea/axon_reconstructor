@@ -262,11 +262,15 @@ stages:
       enabled: true
       verbose: true
       file_relpath: logs/spikesort_pipeline.log
+    debug_mode:
+      enabled: true
+      limit_datasets: 1
+      limit_wells: 2
     execution:
       force_restart: false
       force_replot: false
       # Optional debug overrides for spikesort execution and outputs.
-      limit_wells: null # int or null for no limit
+      # limit_wells: null # int or null for no limit
       # Relative paths resolve under the per-well output directory.
       output_root: spikesort_outputs # put all outputs during spikesort stage under this subdir in each well's output directory
       delete_outputs_on_force_restart: true # sort-phase cleanup toggle (alias for phases.sort.delete_outputs_on_force_restart). When force_restart is true, removes stale sort outputs under <well>/<output_root> (for example sorter_output and analyzer_output) before rerunning sort.
@@ -285,7 +289,7 @@ stages:
         debug_mode:
           enabled: true
           limit_datasets: 1
-          limit_wells: 1
+          limit_wells: 2
         # Source manifest is produced by preprocess.preprocess_segments; the binary cache is local to spikesort_outputs.
         source_segment_manifest_relpath: preprocess_outputs/preprocessed_segments/manifest.json
         cache_relpath: cache/bootstrap_concat_binary
@@ -304,7 +308,7 @@ stages:
         debug_mode:
           enabled: true
           limit_datasets: 1
-          limit_wells: 1
+          limit_wells: 2
 
         # source
         use_bootstrapped_concat_binary: true # when true, uses the output of the bootstrap_concat_binary phase as the source recording for sorting; when false, uses the original concatenated recording from preprocess outputs instead. Keep true by default to test the full pipeline from bootstrapped binary during debugging iterations, but can be set to false to skip the bootstrapped binary and use the original concatenated recording when the focus of debugging iterations is not on the bootstrapping phase.

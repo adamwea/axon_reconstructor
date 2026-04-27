@@ -349,6 +349,8 @@ class SpikesortStageConfig:
 	logging_enabled: bool
 	logging_verbose: bool
 	logging_file_relpath: str | None
+	debug_mode_enabled: bool
+	debug_limit_datasets: int | None
 	debug_limit_wells: int | None
 	sort_debug_mode_enabled: bool
 	sort_debug_limit_datasets: int | None
@@ -747,7 +749,15 @@ def parse_spikesort_stage_config(
 	bombcell_reports_summary_json_cfg = _as_section(bombcell_reports_cfg.get("summary_json", {}))
 	resources_cfg = _as_section(stage_cfg.get("resources", {}))
 	logging_cfg = _as_section(stage_cfg.get("logging", {}))
-	debug_cfg = _as_section(stage_cfg.get("debug", {}))
+	legacy_debug_cfg = _as_section(stage_cfg.get("debug", {}))
+	debug_mode_cfg = _as_section(stage_cfg.get("debug_mode", {}))
+	debug_mode_enabled = _as_bool(
+		_coalesce(debug_mode_cfg.get("enabled", None), legacy_debug_cfg.get("enabled", None), False),
+		False,
+	)
+	debug_cfg = dict(legacy_debug_cfg)
+	if bool(debug_mode_enabled):
+		debug_cfg.update(debug_mode_cfg)
 	inputs_cfg = _as_section(stage_cfg.get("inputs", {}))
 	execution_inputs_cfg = _as_section(execution_cfg.get("inputs", {}))
 	resolved_inputs_cfg = dict(execution_inputs_cfg)
@@ -864,6 +874,12 @@ def parse_spikesort_stage_config(
 		)
 	)
 
+	debug_limit_datasets = _as_optional_positive_int(
+		_coalesce(
+			execution_cfg.get("limit_datasets", None),
+			debug_cfg.get("limit_datasets", None),
+		)
+	)
 	debug_limit_wells = _as_optional_positive_int(
 		_coalesce(
 			execution_cfg.get("limit_wells", None),
@@ -3164,6 +3180,8 @@ def parse_spikesort_stage_config(
 		logging_enabled=logging_enabled,
 		logging_verbose=logging_verbose,
 		logging_file_relpath=logging_file_relpath,
+		debug_mode_enabled=bool(debug_mode_enabled),
+		debug_limit_datasets=debug_limit_datasets,
 		debug_limit_wells=debug_limit_wells,
 		sort_debug_mode_enabled=bool(sort_debug_mode_enabled),
 		sort_debug_limit_datasets=sort_debug_limit_datasets,

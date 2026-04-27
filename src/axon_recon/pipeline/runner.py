@@ -413,6 +413,77 @@ def _apply_spikesort_sort_debug_limits(
 	)
 
 
+def _apply_spikesort_debug_target_limits(
+	*,
+	stage_name: str,
+	targets: list[Any],
+	limit_datasets: Any,
+	limit_wells: Any,
+	phase_label: str | None = None,
+) -> list[Any]:
+	limited_targets = list(targets)
+	debug_label = str(stage_name)
+	if phase_label is not None:
+		debug_label = f"{debug_label} {phase_label}"
+
+	if limit_datasets is not None:
+		dataset_limit = max(1, int(limit_datasets))
+		selected_dataset_indices: list[int] = []
+		seen_dataset_indices: set[int] = set()
+		for target in limited_targets:
+			try:
+				dataset_index = int(getattr(target, "dataset_index", -1))
+			except Exception:
+				continue
+			if dataset_index in seen_dataset_indices:
+				continue
+			seen_dataset_indices.add(dataset_index)
+			selected_dataset_indices.append(dataset_index)
+			if len(selected_dataset_indices) >= dataset_limit:
+				break
+		selected_dataset_index_set = set(selected_dataset_indices)
+		original_count = len(limited_targets)
+		limited_targets = [
+			item
+			for item in limited_targets
+			if int(getattr(item, "dataset_index", -1)) in selected_dataset_index_set
+		]
+		if len(limited_targets) < original_count:
+			LOGGER.info(
+				"Applying %s debug dataset limit: %d -> %d target(s) dataset_indices=%s",
+				debug_label,
+				original_count,
+				len(limited_targets),
+				selected_dataset_indices,
+			)
+
+	if limit_wells is not None and len(limited_targets) > int(limit_wells):
+		well_limit = max(1, int(limit_wells))
+		LOGGER.info(
+			"Applying %s debug well limit: %d -> %d target(s)",
+			debug_label,
+			len(limited_targets),
+			well_limit,
+		)
+		limited_targets = list(limited_targets[:well_limit])
+
+	return limited_targets
+
+
+def _apply_spikesort_stage_debug_limits(
+	*,
+	stage_name: str,
+	stage_config: Any,
+	targets: list[Any],
+) -> list[Any]:
+	return _apply_spikesort_debug_target_limits(
+		stage_name=stage_name,
+		targets=list(targets),
+		limit_datasets=getattr(stage_config, "debug_limit_datasets", None),
+		limit_wells=getattr(stage_config, "debug_limit_wells", None),
+	)
+
+
 def _apply_spikesort_phase_debug_limits(
 	*,
 	stage_name: str,
@@ -426,58 +497,14 @@ def _apply_spikesort_phase_debug_limits(
 	limited_targets = list(targets)
 	if bool(getattr(stage_config, str(enabled_attr), False)):
 		limit_datasets = getattr(stage_config, str(limit_datasets_attr), None)
-		if limit_datasets is not None:
-			selected_dataset_indices: list[int] = []
-			seen_dataset_indices: set[int] = set()
-			for target in limited_targets:
-				try:
-					dataset_index = int(getattr(target, "dataset_index", -1))
-				except Exception:
-					continue
-				if dataset_index in seen_dataset_indices:
-					continue
-				seen_dataset_indices.add(dataset_index)
-				selected_dataset_indices.append(dataset_index)
-				if len(selected_dataset_indices) >= int(limit_datasets):
-					break
-			selected_dataset_index_set = set(selected_dataset_indices)
-			original_count = len(limited_targets)
-			limited_targets = [
-				item
-				for item in limited_targets
-				if int(getattr(item, "dataset_index", -1)) in selected_dataset_index_set
-			]
-			if len(limited_targets) < original_count:
-				LOGGER.info(
-					"Applying %s %s debug dataset limit: %d -> %d target(s) dataset_indices=%s",
-					str(stage_name),
-					str(phase_label),
-					original_count,
-					len(limited_targets),
-					selected_dataset_indices,
-				)
-
 		limit_wells = getattr(stage_config, str(limit_wells_attr), None)
-		if limit_wells is not None and len(limited_targets) > int(limit_wells):
-			LOGGER.info(
-				"Applying %s %s debug well limit: %d -> %d target(s)",
-				str(stage_name),
-				str(phase_label),
-				len(limited_targets),
-				int(limit_wells),
-			)
-			limited_targets = list(limited_targets[: max(1, int(limit_wells))])
-		return limited_targets
-
-	stage_limit_wells = getattr(stage_config, "debug_limit_wells", None)
-	if stage_limit_wells is not None and len(limited_targets) > int(stage_limit_wells):
-		LOGGER.info(
-			"Applying %s debug well limit: %d -> %d target(s)",
-			str(stage_name),
-			len(limited_targets),
-			int(stage_limit_wells),
+		return _apply_spikesort_debug_target_limits(
+			stage_name=stage_name,
+			targets=limited_targets,
+			limit_datasets=limit_datasets,
+			limit_wells=limit_wells,
+			phase_label=str(phase_label),
 		)
-		limited_targets = list(limited_targets[: max(1, int(stage_limit_wells))])
 
 	return limited_targets
 
@@ -1580,15 +1607,11 @@ def _apply_spikesort_runtime_phase_plan_debug_limits(
 	targets: list[Any],
 	phase_plan: list[_SpikesortRuntimePhase],
 ) -> list[Any]:
-	limited_targets = list(targets)
-	stage_limit_wells = getattr(stage_config, "debug_limit_wells", None)
-	if stage_limit_wells is not None and len(limited_targets) > int(stage_limit_wells):
-		LOGGER.info(
-			"Applying spikesort debug well limit: %d -> %d target(s)",
-			len(limited_targets),
-			int(stage_limit_wells),
-		)
-		limited_targets = list(limited_targets[: max(1, int(stage_limit_wells))])
+	limited_targets = _apply_spikesort_stage_debug_limits(
+		stage_name="spikesort",
+		stage_config=stage_config,
+		targets=list(targets),
+	)
 	for phase in phase_plan:
 		limited_targets = _apply_spikesort_phase_debug_limits(
 			stage_name=phase.name,
@@ -1720,6 +1743,11 @@ def run_spikesort_summarize_sort_from_runtime(
 		force_replot_override=force_replot_override,
 	)
 	targets = select_execution_targets(bundle=bundle)
+	targets = _apply_spikesort_stage_debug_limits(
+		stage_name="spikesort",
+		stage_config=stage_config,
+		targets=list(targets),
+	)
 	targets = _apply_spikesort_phase_debug_limits(
 		stage_name="spikesort.summarize_sort",
 		stage_config=stage_config,
@@ -1790,6 +1818,11 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 		force_replot_override=force_replot_override,
 	)
 	targets = select_execution_targets(bundle=bundle)
+	targets = _apply_spikesort_stage_debug_limits(
+		stage_name="spikesort",
+		stage_config=stage_config,
+		targets=list(targets),
+	)
 	targets = _apply_spikesort_phase_debug_limits(
 		stage_name=stage_name,
 		stage_config=stage_config,
@@ -1906,6 +1939,11 @@ def _run_spikesort_sort_from_runtime(
 		force_replot_override=force_replot_override,
 	)
 	targets = select_execution_targets(bundle=bundle)
+	targets = _apply_spikesort_stage_debug_limits(
+		stage_name="spikesort",
+		stage_config=stage_config,
+		targets=list(targets),
+	)
 	targets = _apply_spikesort_sort_debug_limits(
 		stage_name=stage_name,
 		stage_config=stage_config,
@@ -2055,6 +2093,11 @@ def run_spikesort_merge_from_runtime(
 					for field_name, field_value in replace_kwargs.items():
 						setattr(stage_config, field_name, field_value)
 	targets = select_execution_targets(bundle=bundle)
+	targets = _apply_spikesort_stage_debug_limits(
+		stage_name="spikesort",
+		stage_config=stage_config,
+		targets=list(targets),
+	)
 	if (
 		debug_phase_label is not None
 		and debug_enabled_attr is not None
@@ -2070,16 +2113,6 @@ def run_spikesort_merge_from_runtime(
 			limit_datasets_attr=debug_limit_datasets_attr,
 			limit_wells_attr=debug_limit_wells_attr,
 		)
-	else:
-		if stage_config.debug_limit_wells is not None:
-			limit_wells = max(1, int(stage_config.debug_limit_wells))
-			if len(targets) > limit_wells:
-				LOGGER.info(
-					"Applying spikesort.merge debug well limit: %d -> %d target(s)",
-					len(targets),
-					limit_wells,
-				)
-				targets = list(targets[:limit_wells])
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,
 		stage_name="spikesort",
@@ -2159,6 +2192,11 @@ def run_spikesort_bombcell_label_from_runtime(
 		force_replot_override=force_replot_override,
 	)
 	targets = select_execution_targets(bundle=bundle)
+	targets = _apply_spikesort_stage_debug_limits(
+		stage_name="spikesort",
+		stage_config=stage_config,
+		targets=list(targets),
+	)
 	targets = _apply_spikesort_phase_debug_limits(
 		stage_name=stage_name,
 		stage_config=stage_config,
