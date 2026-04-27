@@ -207,7 +207,6 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
     tmp_path: Path,
 ) -> None:
     import axon_recon.pipeline.runner as pipeline_runner
-    import axon_recon.pipeline.stages.spikesort.orchestrators.merge_slay as merge_slay_orchestrator
 
     target = ExecutionTarget(
         dataset_index=0,
@@ -222,12 +221,21 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
         data_config = object()
 
     calls: list[str] = []
+    distribute_calls: list[tuple[list[ExecutionTarget], int]] = []
 
     def _fake_load_pipeline_runtime_bundle(*, config_path: str):
         return _DummyBundle()
 
+    def _fake_select_execution_targets(*, bundle):
+        return [target]
+
+    def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
+        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+
     def _fake_parse_spikesort_stage_config(**kwargs):
         return SimpleNamespace(
+            debug_limit_wells=None,
+            output_rel_root="spikesort_outputs",
             bootstrap_concat_binary_enabled=True,
             sort_enabled=True,
             summarize_sort_enabled=False,
@@ -238,60 +246,57 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
             cleanup_concat_binary_enabled=True,
         )
 
-    def _fake_phase_runner(stage_name: str):
+    def _fake_target_phase_runner(stage_name: str):
         def _runner(**kwargs):
             calls.append(stage_name)
-            return MultiTargetStageResult(
-                stage=stage_name,
-                total_targets=1,
-                succeeded_targets=1,
-                failed_targets=0,
-                target_results=[
-                    TargetStageResult(
-                        target=target,
-                        status="ok",
-                        result=SpikesortResult(
-                            well_out_dir=tmp_path / "well_out",
-                            spikesort_out_dir=tmp_path / "spikesort_out",
-                            summary_json=tmp_path / f"{stage_name.replace('.', '_')}.json",
-                            outputs={},
-                        ),
-                    )
-                ],
+            return SpikesortResult(
+                well_out_dir=tmp_path / "well_out",
+                spikesort_out_dir=tmp_path / "well_out" / "spikesort_outputs",
+                summary_json=tmp_path / f"{stage_name.replace('.', '_')}.json",
+                outputs={},
             )
 
         return _runner
 
+    def _fake_distribute_targets(*, targets, well_workers: int, worker_fn):
+        distribute_calls.append((list(targets), int(well_workers)))
+        return [TargetStageResult(target=item, status="ok", result=worker_fn(item)) for item in targets]
+
     monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", _fake_load_pipeline_runtime_bundle)
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", _fake_select_execution_targets)
+    monkeypatch.setattr(pipeline_runner, "resolve_stage_parallelism", _fake_resolve_stage_parallelism)
     monkeypatch.setattr(pipeline_runner, "parse_spikesort_stage_config", _fake_parse_spikesort_stage_config)
     monkeypatch.setattr(
         pipeline_runner,
-        "run_spikesort_bootstrap_concat_binary_from_runtime",
-        _fake_phase_runner("spikesort.bootstrap_concat_binary"),
+        "_run_spikesort_bootstrap_concat_binary_target",
+        _fake_target_phase_runner("spikesort.bootstrap_concat_binary"),
     )
     monkeypatch.setattr(
         pipeline_runner,
-        "run_spikesort_sort_from_runtime",
-        _fake_phase_runner("spikesort.sort"),
+        "_run_spikesort_sort_target",
+        _fake_target_phase_runner("spikesort.sort"),
     )
     monkeypatch.setattr(
         pipeline_runner,
-        "run_spikesort_bombcell_label_from_runtime",
-        _fake_phase_runner("spikesort.bombcell_label"),
-    )
-    monkeypatch.setattr(
-        merge_slay_orchestrator,
-        "run_spikesort_merge_slay_from_runtime",
-        _fake_phase_runner("spikesort.merge_SLAy"),
+        "_run_spikesort_bombcell_label_target",
+        _fake_target_phase_runner("spikesort.bombcell_label"),
     )
     monkeypatch.setattr(
         pipeline_runner,
-        "run_spikesort_cleanup_concat_binary_from_runtime",
-        _fake_phase_runner("spikesort.cleanup_concat_binary"),
+        "_run_spikesort_merge_slay_target",
+        _fake_target_phase_runner("spikesort.merge_SLAy"),
     )
+    monkeypatch.setattr(
+        pipeline_runner,
+        "_run_spikesort_cleanup_concat_binary_target",
+        _fake_target_phase_runner("spikesort.cleanup_concat_binary"),
+    )
+    monkeypatch.setattr(pipeline_runner, "distribute_targets", _fake_distribute_targets)
 
     agg = run_spikesort_from_runtime(config_path=str(tmp_path / "runtime.yml"))
 
+    assert len(distribute_calls) == 1
+    assert distribute_calls[0][0] == [target]
     assert calls == [
         "spikesort.bootstrap_concat_binary",
         "spikesort.sort",

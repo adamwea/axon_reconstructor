@@ -4896,6 +4896,11 @@ def test_run_spikesort_merge_stage_caches_outputs_under_merge_rel_output_root(tm
     sorter_output_dir.mkdir(parents=True, exist_ok=True)
     analyzer_output_dir.mkdir(parents=True, exist_ok=True)
     (sorter_output_dir / "sorter_marker.txt").write_text("sorter", encoding="utf-8")
+    (sorter_output_dir / "recording.dat").write_bytes(b"\0\0")
+    (sorter_output_dir / "params.py").write_text(
+        f"dat_path = '{(sorter_output_dir / 'recording.dat').resolve()}'\n",
+        encoding="utf-8",
+    )
     (analyzer_output_dir / "analyzer_marker.txt").write_text("analyzer", encoding="utf-8")
 
     stage_cfg = SimpleNamespace(
@@ -5010,6 +5015,11 @@ def test_run_spikesort_merge_stage_cleans_up_cache_on_success_when_enabled(tmp_p
     sorter_output_dir.mkdir(parents=True, exist_ok=True)
     analyzer_output_dir.mkdir(parents=True, exist_ok=True)
     (sorter_output_dir / "sorter_marker.txt").write_text("sorter", encoding="utf-8")
+    (sorter_output_dir / "recording.dat").write_bytes(b"\0\0")
+    (sorter_output_dir / "params.py").write_text(
+        f"dat_path = '{(sorter_output_dir / 'recording.dat').resolve()}'\n",
+        encoding="utf-8",
+    )
     (analyzer_output_dir / "analyzer_marker.txt").write_text("analyzer", encoding="utf-8")
 
     def _fake_slay(*, well_out_dir, stage_output_root_dir, output_rel_root, stage_config, force_restart):
@@ -5084,6 +5094,11 @@ def test_run_spikesort_merge_stage_runs_methods_in_canonical_workspace_without_p
     live_sorter_dir.mkdir(parents=True, exist_ok=True)
     live_analyzer_dir.mkdir(parents=True, exist_ok=True)
     (live_sorter_dir / "sorter_marker.txt").write_text("live", encoding="utf-8")
+    (live_sorter_dir / "recording.dat").write_bytes(b"\0\0")
+    (live_sorter_dir / "params.py").write_text(
+        f"dat_path = '{(live_sorter_dir / 'recording.dat').resolve()}'\n",
+        encoding="utf-8",
+    )
     (live_analyzer_dir / "analyzer_marker.txt").write_text("live", encoding="utf-8")
 
     seen_stage_output_roots: list[Path] = []
@@ -5170,6 +5185,11 @@ def test_run_spikesort_merge_stage_asserts_slay_uses_canonical_workspace_by_defa
     live_sorter_dir.mkdir(parents=True, exist_ok=True)
     live_analyzer_dir.mkdir(parents=True, exist_ok=True)
     (live_sorter_dir / "sorter_marker.txt").write_text("live", encoding="utf-8")
+    (live_sorter_dir / "recording.dat").write_bytes(b"\0\0")
+    (live_sorter_dir / "params.py").write_text(
+        f"dat_path = '{(live_sorter_dir / 'recording.dat').resolve()}'\n",
+        encoding="utf-8",
+    )
     (live_analyzer_dir / "analyzer_marker.txt").write_text("live", encoding="utf-8")
 
     def _fake_slay(*, well_out_dir, stage_output_root_dir, output_rel_root, stage_config, force_restart, sorter_output_dir=None):
@@ -5238,6 +5258,11 @@ def test_run_spikesort_merge_stage_asserts_auto_merge_uses_canonical_workspace_b
     live_sorter_dir.mkdir(parents=True, exist_ok=True)
     live_analyzer_dir.mkdir(parents=True, exist_ok=True)
     (live_sorter_dir / "sorter_marker.txt").write_text("live", encoding="utf-8")
+    (live_sorter_dir / "recording.dat").write_bytes(b"\0\0")
+    (live_sorter_dir / "params.py").write_text(
+        f"dat_path = '{(live_sorter_dir / 'recording.dat').resolve()}'\n",
+        encoding="utf-8",
+    )
     (live_analyzer_dir / "analyzer_marker.txt").write_text("live", encoding="utf-8")
 
     def _fake_slay(*, well_out_dir, stage_output_root_dir, output_rel_root, stage_config, force_restart, sorter_output_dir=None):

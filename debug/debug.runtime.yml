@@ -284,6 +284,7 @@ stages:
         n_jobs: null
         chunk_duration: 1s
         progress_bar: true
+
       sort:
         enabled: true
         debug_mode:
@@ -322,6 +323,7 @@ stages:
           enabled: true
           no_curation: true
           export_to_phy: false
+
       summarize_sort:
         enabled: false
         debug_mode:
@@ -330,6 +332,7 @@ stages:
           limit_wells: 1
         emit_logs: true
         generate_artifacts: false
+
       bombcell_label:
         enabled: true
         debug_mode:
