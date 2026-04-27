@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -636,7 +637,11 @@ def test_run_preprocess_from_runtime_materializes_inputs_when_copy_phase_enabled
     assert divider_stdout_calls == [True]
 
 
-def test_run_preprocess_from_runtime_uses_nested_workers_when_heavy_phases_enabled(monkeypatch, tmp_path: Path) -> None:
+def test_run_preprocess_from_runtime_uses_nested_workers_when_heavy_phases_enabled(
+    monkeypatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     import axon_recon.pipeline.runner as pipeline_runner
 
     target = ExecutionTarget(
@@ -699,11 +704,20 @@ def test_run_preprocess_from_runtime_uses_nested_workers_when_heavy_phases_enabl
     monkeypatch.setattr(pipeline_runner, "build_preprocess_inputs_for_target", _fake_build_preprocess_inputs_for_target)
     monkeypatch.setattr(pipeline_runner, "run_preprocess", _fake_run_preprocess)
 
-    agg = run_preprocess_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+    with caplog.at_level(logging.INFO):
+        agg = run_preprocess_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+
+    messages = [record.getMessage() for record in caplog.records]
 
     assert agg.succeeded_targets == 1
     assert unit_worker_calls == [12]
     assert divider_stdout_calls == [False]
+    assert any(
+        "Preprocess worker allocation stage=preprocess stage_workers=24 well_workers=2 n_jobs=12 n_jobs_source=derived"
+        in message
+        for message in messages
+    )
+    assert not any("unit_workers" in message for message in messages if "worker allocation" in message)
 
 
 def test_run_preprocess_from_runtime_uses_phase_sequence_for_scratch_and_worker_decisions(

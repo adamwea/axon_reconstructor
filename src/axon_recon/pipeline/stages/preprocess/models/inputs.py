@@ -284,6 +284,9 @@ class PreprocessInputs:
 	logging_subphase_dividers_to_stdout: bool = True
 	enable_checkpointing: bool = True
 	n_jobs: int = 1
+	runtime_stage_workers: int | None = None
+	runtime_well_workers: int | None = None
+	runtime_n_jobs_source: str | None = None
 	plot_layouts: bool = True
 	plot_concat_trace: bool = True
 	plot_segment_traces: bool = True

@@ -166,19 +166,35 @@ def _preprocess_runtime_uses_nested_workers(*, stage_name: str, stage_config: An
 	)
 
 
+def _preprocess_runtime_n_jobs_source(*, stage_config: Any, uses_nested_workers: bool) -> str:
+	if getattr(stage_config, "n_jobs", None) is not None:
+		return "configured"
+	return "derived" if bool(uses_nested_workers) else "serial"
+
+
 def _resolve_preprocess_runtime_unit_workers(*, stage_name: str, parallelism: Any, stage_config: Any) -> int:
 	uses_nested_workers = _preprocess_runtime_uses_nested_workers(stage_name=stage_name, stage_config=stage_config)
-	unit_workers = int(parallelism.unit_workers) if bool(uses_nested_workers) else 1
+	configured_n_jobs = getattr(stage_config, "n_jobs", None)
+	if configured_n_jobs is not None:
+		n_jobs = max(1, int(configured_n_jobs))
+	else:
+		n_jobs = int(parallelism.unit_workers) if bool(uses_nested_workers) else 1
+	n_jobs_source = _preprocess_runtime_n_jobs_source(
+		stage_config=stage_config,
+		uses_nested_workers=bool(uses_nested_workers),
+	)
 	emit_subphase_dividers_to_stdout = not (bool(uses_nested_workers) and int(parallelism.well_workers) > 1)
 	LOGGER.info(
-		"Preprocess worker allocation stage=%s well_workers=%d unit_workers=%d uses_nested_workers=%s emit_subphase_dividers_to_stdout=%s",
+		"Preprocess worker allocation stage=%s stage_workers=%d well_workers=%d n_jobs=%d n_jobs_source=%s uses_nested_workers=%s emit_subphase_dividers_to_stdout=%s",
 		str(stage_name),
+		int(parallelism.max_stage_workers),
 		int(parallelism.well_workers),
-		int(max(1, unit_workers)),
+		int(max(1, n_jobs)),
+		str(n_jobs_source),
 		bool(uses_nested_workers),
 		bool(emit_subphase_dividers_to_stdout),
 	)
-	return max(1, int(unit_workers))
+	return max(1, int(n_jobs))
 
 
 def _resolve_preprocess_subphase_dividers_to_stdout(*, stage_name: str, parallelism: Any, stage_config: Any) -> bool:
@@ -219,6 +235,57 @@ def _stage_config_with_runtime_n_jobs(stage_config: Any, *, unit_workers: int) -
 		return stage_config_copy
 	except Exception:
 		return stage_config
+
+
+def _runtime_n_jobs_source(stage_config: Any) -> str:
+	return "configured" if getattr(stage_config, "n_jobs", None) is not None else "derived"
+
+
+def _runtime_n_jobs_from_stage_config(stage_config: Any, *, fallback_n_jobs: int) -> int:
+	raw_n_jobs = getattr(stage_config, "n_jobs", None)
+	if raw_n_jobs is None:
+		raw_n_jobs = fallback_n_jobs
+	return max(1, int(raw_n_jobs))
+
+
+def _with_preprocess_runtime_worker_allocation(
+	inputs: Any,
+	*,
+	parallelism: Any,
+	n_jobs_source: str,
+) -> Any:
+	try:
+		return replace(
+			inputs,
+			runtime_stage_workers=max(1, int(parallelism.max_stage_workers)),
+			runtime_well_workers=max(1, int(parallelism.well_workers)),
+			runtime_n_jobs_source=str(n_jobs_source),
+		)
+	except Exception:
+		return inputs
+
+
+def _target_log_label(target: Any) -> str:
+	return f"{getattr(target, 'dataset_index', 'unknown')}:{getattr(target, 'stream_id', 'unknown')}"
+
+
+def _log_spikesort_phase_worker_allocation(
+	*,
+	phase_name: str,
+	target: Any,
+	parallelism: Any,
+	n_jobs: int,
+	n_jobs_source: str,
+) -> None:
+	LOGGER.info(
+		"Spikesort phase worker allocation stage=spikesort phase=%s target=%s stage_workers=%d well_workers=%d n_jobs=%d n_jobs_source=%s",
+		str(phase_name),
+		_target_log_label(target),
+		int(parallelism.max_stage_workers),
+		int(parallelism.well_workers),
+		max(1, int(n_jobs)),
+		str(n_jobs_source),
+	)
 
 
 def _coerce_bool_or_none(value: Any) -> bool | None:
@@ -1006,6 +1073,10 @@ def run_preprocess_from_runtime(
 		parallelism=parallelism,
 		stage_config=stage_config,
 	)
+	n_jobs_source = _preprocess_runtime_n_jobs_source(
+		stage_config=stage_config,
+		uses_nested_workers=_preprocess_runtime_uses_nested_workers(stage_name="preprocess", stage_config=stage_config),
+	)
 	emit_subphase_dividers_to_stdout = _resolve_preprocess_subphase_dividers_to_stdout(
 		stage_name="preprocess",
 		parallelism=parallelism,
@@ -1017,6 +1088,11 @@ def run_preprocess_from_runtime(
 			target=target,
 			stage_config=stage_config,
 			unit_workers=int(unit_workers),
+		)
+		inputs = _with_preprocess_runtime_worker_allocation(
+			inputs,
+			parallelism=parallelism,
+			n_jobs_source=str(n_jobs_source),
 		)
 		inputs = replace(
 			inputs,
@@ -1080,6 +1156,10 @@ def _run_preprocess_substage_from_runtime(
 		parallelism=parallelism,
 		stage_config=stage_config,
 	)
+	n_jobs_source = _preprocess_runtime_n_jobs_source(
+		stage_config=stage_config,
+		uses_nested_workers=_preprocess_runtime_uses_nested_workers(stage_name=stage_name, stage_config=stage_config),
+	)
 	emit_subphase_dividers_to_stdout = _resolve_preprocess_subphase_dividers_to_stdout(
 		stage_name=stage_name,
 		parallelism=parallelism,
@@ -1091,6 +1171,11 @@ def _run_preprocess_substage_from_runtime(
 			target=target,
 			stage_config=stage_config,
 			unit_workers=int(unit_workers),
+		)
+		inputs = _with_preprocess_runtime_worker_allocation(
+			inputs,
+			parallelism=parallelism,
+			n_jobs_source=str(n_jobs_source),
 		)
 		inputs = replace(
 			inputs,
@@ -1314,26 +1399,44 @@ def run_spikesort_from_runtime(
 		stage_name="spikesort",
 		target_count=len(targets),
 	)
+	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	runtime_stage_config = _stage_config_with_runtime_n_jobs(
 		stage_config,
 		unit_workers=int(parallelism.unit_workers),
 	)
+	runtime_n_jobs = _runtime_n_jobs_from_stage_config(
+		runtime_stage_config,
+		fallback_n_jobs=int(parallelism.unit_workers),
+	)
 	LOGGER.info(
-		"spikesort: starting target-local phase chains targets=%d phases=%s well_workers=%d",
+		"spikesort: starting target-local phase chains targets=%d phases=%s stage_workers=%d well_workers=%d n_jobs=%d n_jobs_source=%s",
 		len(targets),
 		[phase.name for phase in phase_plan],
+		int(parallelism.max_stage_workers),
 		int(parallelism.well_workers),
+		int(runtime_n_jobs),
+		str(n_jobs_source),
 	)
 
 	def _worker(target):
 		def _descriptor_for_phase(phase: _SpikesortRuntimePhase) -> PhaseDescriptor:
-			return PhaseDescriptor(
-				name=phase.name,
-				runner=lambda phase=phase: phase.target_runner(
+			def _run_phase(phase: _SpikesortRuntimePhase = phase):
+				_log_spikesort_phase_worker_allocation(
+					phase_name=str(phase.phase_label),
+					target=target,
+					parallelism=parallelism,
+					n_jobs=int(runtime_n_jobs),
+					n_jobs_source=str(n_jobs_source),
+				)
+				return phase.target_runner(
 					target=target,
 					stage_config=runtime_stage_config,
-					unit_workers=int(parallelism.unit_workers),
-				),
+					unit_workers=int(runtime_n_jobs),
+				)
+
+			return PhaseDescriptor(
+				name=phase.name,
+				runner=_run_phase,
 			)
 
 		chain_result = run_phase_chain(
@@ -1631,12 +1734,20 @@ def run_spikesort_summarize_sort_from_runtime(
 		stage_name="spikesort",
 		target_count=len(targets),
 	)
+	n_jobs_source = _runtime_n_jobs_source(stage_config)
 
 	def _worker(target):
 		inputs = build_spikesort_inputs_for_target(
 			target=target,
 			stage_config=stage_config,
 			unit_workers=int(parallelism.unit_workers),
+		)
+		_log_spikesort_phase_worker_allocation(
+			phase_name="summarize_sort",
+			target=target,
+			parallelism=parallelism,
+			n_jobs=_runtime_n_jobs_from_stage_config(stage_config, fallback_n_jobs=int(parallelism.unit_workers)),
+			n_jobs_source=str(n_jobs_source),
 		)
 		return summarize_spikesort(inputs)
 
@@ -1693,12 +1804,24 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 		stage_name="spikesort",
 		target_count=len(targets),
 	)
+	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	runtime_stage_config = _stage_config_with_runtime_n_jobs(
 		stage_config,
 		unit_workers=int(parallelism.unit_workers),
 	)
+	runtime_n_jobs = _runtime_n_jobs_from_stage_config(
+		runtime_stage_config,
+		fallback_n_jobs=int(parallelism.unit_workers),
+	)
 
 	def _worker(target):
+		_log_spikesort_phase_worker_allocation(
+			phase_name=str(debug_phase_label),
+			target=target,
+			parallelism=parallelism,
+			n_jobs=int(runtime_n_jobs),
+			n_jobs_source=str(n_jobs_source),
+		)
 		return runner_fn(
 			h5_path=target.h5_path,
 			stream_id=target.stream_id,
@@ -1793,12 +1916,20 @@ def _run_spikesort_sort_from_runtime(
 		stage_name="spikesort",
 		target_count=len(targets),
 	)
+	n_jobs_source = _runtime_n_jobs_source(stage_config)
 
 	def _worker(target):
 		inputs = build_spikesort_inputs_for_target(
 			target=target,
 			stage_config=stage_config,
 			unit_workers=int(parallelism.unit_workers),
+		)
+		_log_spikesort_phase_worker_allocation(
+			phase_name="sort",
+			target=target,
+			parallelism=parallelism,
+			n_jobs=_runtime_n_jobs_from_stage_config(stage_config, fallback_n_jobs=int(parallelism.unit_workers)),
+			n_jobs_source=str(n_jobs_source),
 		)
 		return run_spikesort(inputs)
 
@@ -1954,12 +2085,24 @@ def run_spikesort_merge_from_runtime(
 		stage_name="spikesort",
 		target_count=len(targets),
 	)
+	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	runtime_stage_config = _stage_config_with_runtime_n_jobs(
 		stage_config,
 		unit_workers=int(parallelism.unit_workers),
 	)
+	runtime_n_jobs = _runtime_n_jobs_from_stage_config(
+		runtime_stage_config,
+		fallback_n_jobs=int(parallelism.unit_workers),
+	)
 
 	def _worker(target):
+		_log_spikesort_phase_worker_allocation(
+			phase_name=str(stage_name).split(".", 1)[1] if "." in str(stage_name) else str(stage_name),
+			target=target,
+			parallelism=parallelism,
+			n_jobs=int(runtime_n_jobs),
+			n_jobs_source=str(n_jobs_source),
+		)
 		return run_spikesort_merge(
 			h5_path=target.h5_path,
 			stream_id=target.stream_id,
@@ -2030,12 +2173,24 @@ def run_spikesort_bombcell_label_from_runtime(
 		stage_name="spikesort",
 		target_count=len(targets),
 	)
+	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	runtime_stage_config = _stage_config_with_runtime_n_jobs(
 		stage_config,
 		unit_workers=int(parallelism.unit_workers),
 	)
+	runtime_n_jobs = _runtime_n_jobs_from_stage_config(
+		runtime_stage_config,
+		fallback_n_jobs=int(parallelism.unit_workers),
+	)
 
 	def _worker(target):
+		_log_spikesort_phase_worker_allocation(
+			phase_name="bombcell_label",
+			target=target,
+			parallelism=parallelism,
+			n_jobs=int(runtime_n_jobs),
+			n_jobs_source=str(n_jobs_source),
+		)
 		return run_spikesort_bombcell(
 			h5_path=target.h5_path,
 			stream_id=target.stream_id,

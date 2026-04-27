@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from axon_recon.pipeline.execution.context import ExecutionTarget, StageParallelism
 from axon_recon.pipeline.execution.results import MultiTargetStageResult, TargetStageResult
@@ -205,6 +208,7 @@ def test_run_spikesort_from_runtime_applies_debug_well_limit(monkeypatch, tmp_pa
 def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
     monkeypatch,
     tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     import axon_recon.pipeline.runner as pipeline_runner
 
@@ -295,7 +299,10 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
     )
     monkeypatch.setattr(pipeline_runner, "distribute_targets", _fake_distribute_targets)
 
-    agg = run_spikesort_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+    with caplog.at_level(logging.INFO):
+        agg = run_spikesort_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+
+    messages = [record.getMessage() for record in caplog.records]
 
     assert len(distribute_calls) == 1
     assert distribute_calls[0][0] == [target]
@@ -307,6 +314,12 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
         "spikesort.cleanup_concat_binary",
     ]
     assert n_jobs_seen == [6, 6, 6, 6, 6]
+    assert any(
+        "Spikesort phase worker allocation stage=spikesort phase=sort target=0:well001 stage_workers=12 well_workers=2 n_jobs=6 n_jobs_source=derived"
+        in message
+        for message in messages
+    )
+    assert not any("unit_workers" in message for message in messages if "worker allocation" in message)
     assert agg.stage == "spikesort"
     assert agg.total_targets == 1
     assert agg.succeeded_targets == 1

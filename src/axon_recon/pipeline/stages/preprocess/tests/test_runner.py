@@ -738,6 +738,10 @@ def test_run_preprocess_stage_logs_phase_start_per_well(tmp_path: Path, monkeypa
         mea_output_root=tmp_path,
         logging_enabled=True,
         logging_verbose=True,
+        n_jobs=12,
+        runtime_stage_workers=24,
+        runtime_well_workers=2,
+        runtime_n_jobs_source="derived",
         phases=_full_stage_phases(),
     )
 
@@ -746,8 +750,14 @@ def test_run_preprocess_stage_logs_phase_start_per_well(tmp_path: Path, monkeypa
 
     messages = [record.getMessage() for record in caplog.records]
     assert any("Starting preprocess work for well=well001 phase_count=7 selected_phase=all" in message for message in messages)
+    assert any(
+        "Preprocess phase worker allocation stage=preprocess phase=preprocess_segments well=well001 stage_workers=24 well_workers=2 n_jobs=12 n_jobs_source=derived phase_n_jobs=12"
+        in message
+        for message in messages
+    )
     assert any("Starting preprocess phase 1/7 for well=well001 phase=save_rec_metadata" in message for message in messages)
     assert any("Starting preprocess phase 6/7 for well=well001 phase=concat_segments" in message for message in messages)
+    assert not any("unit_workers" in message for message in messages if "worker allocation" in message)
 
 
 def test_run_preprocess_stage_resumes_complete_phase_artifacts_without_force_restart(

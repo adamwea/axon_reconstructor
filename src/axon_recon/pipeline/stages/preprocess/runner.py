@@ -965,6 +965,63 @@ def _resolve_save_workers(inputs: PreprocessInputs) -> tuple[int, int]:
 	)
 
 
+def _format_worker_count(value: Any) -> str:
+	if value is None:
+		return "unknown"
+	try:
+		return str(max(1, int(value)))
+	except Exception:
+		return "unknown"
+
+
+def _resolve_preprocess_phase_n_jobs(
+	*,
+	inputs: PreprocessInputs,
+	phase_name: str,
+	phase_plot_cfg: PreprocessPlotConfig,
+) -> int:
+	base_n_jobs = max(1, int(inputs.n_jobs))
+	if phase_name == "prepare_raw_binaries":
+		return max(1, int(inputs.phases.prepare_raw_binaries.outputs.segment_save_n_jobs or base_n_jobs))
+	if phase_name == "preprocess_segments":
+		return base_n_jobs
+	if phase_name == "concat_segments":
+		return max(1, int(inputs.phases.concat_segments.outputs.concat_save_n_jobs or base_n_jobs))
+	if phase_name in {
+		"plot_segment_traces",
+		"plot_segment_channel_layouts",
+		"plot_concat_traces",
+		"plot_concat_channel_layout",
+	}:
+		return max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs))
+	return 1
+
+
+def _log_preprocess_phase_worker_allocation(
+	*,
+	phase_logger: logging.Logger | None,
+	inputs: PreprocessInputs,
+	phase_name: str,
+	phase_plot_cfg: PreprocessPlotConfig,
+) -> None:
+	if phase_logger is None:
+		return
+	phase_logger.info(
+		"Preprocess phase worker allocation stage=preprocess phase=%s well=%s stage_workers=%s well_workers=%s n_jobs=%d n_jobs_source=%s phase_n_jobs=%d",
+		str(phase_name),
+		str(inputs.stream_id),
+		_format_worker_count(getattr(inputs, "runtime_stage_workers", None)),
+		_format_worker_count(getattr(inputs, "runtime_well_workers", None)),
+		max(1, int(inputs.n_jobs)),
+		str(getattr(inputs, "runtime_n_jobs_source", None) or "input"),
+		_resolve_preprocess_phase_n_jobs(
+			inputs=inputs,
+			phase_name=str(phase_name),
+			phase_plot_cfg=phase_plot_cfg,
+		),
+	)
+
+
 def _configured_preprocess_phase_sequence(inputs: PreprocessInputs) -> tuple[str, ...]:
 	sequence = tuple(str(item) for item in (getattr(inputs, "phase_sequence", None) or DEFAULT_PREPROCESS_PHASE_SEQUENCE))
 	allowed = set(DEFAULT_PREPROCESS_PHASE_SEQUENCE)
@@ -2625,6 +2682,12 @@ def _run_preprocess_phase_sequence(
 	for phase_index, phase_name in enumerate(phases_to_run, start=1):
 		phase_t0 = time.perf_counter()
 		phase_plot_cfg = _resolve_effective_plot_config(inputs, selected_phase=phase_name)
+		_log_preprocess_phase_worker_allocation(
+			phase_logger=phase_logger,
+			inputs=inputs,
+			phase_name=str(phase_name),
+			phase_plot_cfg=phase_plot_cfg,
+		)
 		if phase_logger is not None:
 			phase_logger.info(
 				"Starting preprocess phase %d/%d for well=%s phase=%s",
