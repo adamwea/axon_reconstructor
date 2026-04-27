@@ -13,6 +13,7 @@ from .constants import (
 
 from ...execution.context import ExecutionTarget
 from .models.inputs import (
+	DEFAULT_PREPROCESS_PHASE_SEQUENCE,
 	PreprocessConcatSegmentsPhaseConfig,
 	PreprocessConcatenatePreprocessedRecordingsPhaseConfig,
 	PreprocessCleanupOutputsPhaseConfig,
@@ -36,6 +37,47 @@ from .models.inputs import (
 
 
 _DEFAULT_OUTPUT_REL_ROOT = PREPROCESS_OUTPUTS_DIRNAME
+
+
+_PREPROCESS_PHASE_ALIASES: dict[str, str] = {
+	"copy_src_to_scratch": "copy_src_to_scratch",
+	"copy_source_to_scratch": "copy_src_to_scratch",
+	"copy_src": "copy_src_to_scratch",
+	"save_rec_metadata": "save_rec_metadata",
+	"save_recording_metadata": "save_rec_metadata",
+	"recording_metadata": "save_rec_metadata",
+	"save_common_electrodes": "save_rec_metadata",
+	"prepare_raw_binaries": "prepare_raw_binaries",
+	"prepare_raw_binary": "prepare_raw_binaries",
+	"raw_binaries": "prepare_raw_binaries",
+	"preprocess_segments": "preprocess_segments",
+	"save_segment_recordings": "preprocess_segments",
+	"segment_recordings": "preprocess_segments",
+	"plot_segment_traces": "plot_segment_traces",
+	"plot_segment_channel_layouts": "plot_segment_channel_layouts",
+	"plot_segment_channel_layout": "plot_segment_channel_layouts",
+	"concat_segments": "concat_segments",
+	"concatenate_segments": "concat_segments",
+	"concatenate_recordings": "concat_segments",
+	"concatenate_preprocessed_recordings": "concat_segments",
+	"save_concatenated_recording": "concat_segments",
+	"plot_concat_traces": "plot_concat_traces",
+	"plot_concatenated_traces": "plot_concat_traces",
+	"plot_concat_channel_layout": "plot_concat_channel_layout",
+	"plot_concatenated_channel_layout": "plot_concat_channel_layout",
+	"plot_raster_threshold": "plot_raster_threshold",
+	"raster_threshold": "plot_raster_threshold",
+	"wipe_src_scratch": "wipe_src_scratch",
+	"wipe_source_scratch": "wipe_src_scratch",
+	"cleanup_scratch_copy": "wipe_src_scratch",
+}
+
+
+def _coalesce(*values: Any) -> Any:
+	for value in values:
+		if value is not None:
+			return value
+	return None
 
 
 def _as_bool(value: Any, default: bool) -> bool:
@@ -89,6 +131,42 @@ def _as_optional_str(value: Any) -> str | None:
 		return None
 	text = str(value).strip()
 	return text if text else None
+
+
+def _as_list_of_strings(value: Any) -> list[str]:
+	if value is None:
+		return []
+	if isinstance(value, str):
+		return [token.strip() for token in value.split(",") if token.strip()]
+	if isinstance(value, (list, tuple, set)):
+		out: list[str] = []
+		for item in value:
+			text = _as_optional_str(item)
+			if text is not None:
+				out.append(text)
+		return out
+	text = _as_optional_str(value)
+	return [text] if text is not None else []
+
+
+def _normalize_preprocess_phase_name(value: Any) -> str:
+	text = str(value or "").strip()
+	if not text:
+		raise ValueError("preprocess phase_sequence contains an empty phase name")
+	if text.startswith("preprocess."):
+		text = text.split(".", 1)[1]
+	token = text.strip().replace("-", "_").replace(" ", "_").lower()
+	canonical = _PREPROCESS_PHASE_ALIASES.get(token)
+	if canonical is None:
+		raise ValueError(f"Unknown preprocess phase_sequence entry: {value!r}")
+	return canonical
+
+
+def _normalize_preprocess_phase_sequence(value: Any) -> tuple[str, ...]:
+	items = _as_list_of_strings(value)
+	if not items:
+		return DEFAULT_PREPROCESS_PHASE_SEQUENCE
+	return tuple(_normalize_preprocess_phase_name(item) for item in items)
 
 
 def _as_lower_token(value: Any, default: str) -> str:
@@ -200,6 +278,7 @@ def _resolve_data_config_path(runtime_config_path: Path, data_ref: str | None) -
 @dataclass(frozen=True)
 class PreprocessStageConfig:
 	output_rel_root: str
+	phase_sequence: tuple[str, ...]
 	force_restart: bool
 	force_replot: bool
 	debug_limit_wells: int | None
@@ -489,6 +568,7 @@ def parse_preprocess_stage_config(
 	stage_cfg = runtime_config.get("stages.preprocess", {})
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
 	execution_cfg = stage_cfg.get("execution", {}) if isinstance(stage_cfg.get("execution", {}), dict) else {}
+	resources_cfg = stage_cfg.get("resources", {}) if isinstance(stage_cfg.get("resources", {}), dict) else {}
 	debug_cfg = stage_cfg.get("debug", {}) if isinstance(stage_cfg.get("debug", {}), dict) else {}
 	logging_cfg = stage_cfg.get("logging", {}) if isinstance(stage_cfg.get("logging", {}), dict) else {}
 	plot_cfg = stage_cfg.get("plot", {}) if isinstance(stage_cfg.get("plot", {}), dict) else {}
@@ -1040,6 +1120,13 @@ def parse_preprocess_stage_config(
 
 	return PreprocessStageConfig(
 		output_rel_root=_normalize_output_rel_root(outputs_cfg.get("output_rel_root", _DEFAULT_OUTPUT_REL_ROOT)),
+		phase_sequence=_normalize_preprocess_phase_sequence(
+			_coalesce(
+				stage_cfg.get("phase_sequence", None),
+				execution_cfg.get("phase_sequence", None),
+				phases_cfg.get("sequence", None),
+			)
+		),
 		force_restart=force_restart,
 		force_replot=force_replot,
 		debug_limit_wells=_as_optional_int(debug_cfg.get("limit_wells", None)),
@@ -1050,7 +1137,7 @@ def parse_preprocess_stage_config(
 		logging_suppress_h5_plugin_messages=logging_suppress_h5_plugin_messages,
 		logging_phase_dividers=logging_phase_dividers,
 		enable_checkpointing=_as_bool(execution_cfg.get("enable_checkpointing", True), True),
-		n_jobs=_as_optional_int(execution_cfg.get("n_jobs", None)),
+		n_jobs=_as_optional_int(_coalesce(resources_cfg.get("n_jobs", None), execution_cfg.get("n_jobs", None))),
 		plot_layouts=plot_layouts_effective,
 		plot_concat_trace=plot_concat_trace_effective,
 		plot_segment_traces=plot_segment_traces_effective,
@@ -1125,6 +1212,7 @@ def build_preprocess_inputs_for_target(
 		final_output_root=(target.final_output_root or target.mea_output_root),
 		source_h5_path=source_h5_path,
 		copied_to_scratch=bool(copied_to_scratch),
+		phase_sequence=stage_config.phase_sequence,
 		output_rel_root=stage_config.output_rel_root,
 		force_restart=stage_config.force_restart,
 		force_replot=stage_config.force_replot,
@@ -1224,6 +1312,7 @@ def load_preprocess_inputs_from_runtime(
 		final_output_root=output_root,
 		source_h5_path=h5_path,
 		copied_to_scratch=False,
+		phase_sequence=stage_cfg.phase_sequence,
 		output_rel_root=stage_cfg.output_rel_root,
 		force_restart=stage_cfg.force_restart,
 		force_replot=stage_cfg.force_replot,

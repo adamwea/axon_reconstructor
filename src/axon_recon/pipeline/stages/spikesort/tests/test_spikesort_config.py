@@ -7,6 +7,7 @@ import pytest
 
 from axon_reconstructor.runtime_config import RuntimeConfig
 from axon_recon.pipeline.stages.spikesort.config import (
+    DEFAULT_SPIKESORT_PHASE_SEQUENCE,
     load_spikesort_inputs_from_runtime,
     parse_spikesort_stage_config,
 )
@@ -20,6 +21,7 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.output_rel_root == "spikesort_outputs"
     assert parsed.preprocess_concat_recording_relpath is None
     assert parsed.merge_sequence == ("SLAy", "auto_merge", "unitmatch")
+    assert parsed.phase_sequence == DEFAULT_SPIKESORT_PHASE_SEQUENCE
     assert parsed.logging_enabled is True
     assert parsed.logging_verbose is False
     assert parsed.logging_file_relpath is None
@@ -193,6 +195,36 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.merge_reports_2panel_point_size == 9.0
     assert parsed.merge_reports_2panel_relpath == "unit_locations_before_after_merge.png"
     assert parsed.merge_reports_2panel_label_pre_and_post_units is False
+
+
+def test_parse_spikesort_stage_config_reads_phase_sequence() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phase_sequence": [
+                        "bootstrap_concat_binary",
+                        "spikesort.sort",
+                        "bombcell",
+                        "merge_slay",
+                        "auto_merge",
+                        "cleanup",
+                    ]
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.phase_sequence == (
+        "bootstrap_concat_binary",
+        "sort",
+        "bombcell_label",
+        "merge_SLAy",
+        "merge_si_auto",
+        "cleanup_concat_binary",
+    )
 
 
 def test_parse_spikesort_stage_config_summarize_sort_phase() -> None:

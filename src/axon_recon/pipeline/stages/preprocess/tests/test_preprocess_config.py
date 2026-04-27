@@ -5,6 +5,7 @@ from textwrap import dedent
 
 from axon_reconstructor.runtime_config import RuntimeConfig
 from axon_recon.pipeline.execution.context import ExecutionTarget
+from axon_recon.pipeline.stages.preprocess.models.inputs import DEFAULT_PREPROCESS_PHASE_SEQUENCE
 from axon_recon.pipeline.stages.preprocess.config import (
     build_preprocess_inputs_for_target,
     load_preprocess_inputs_from_runtime,
@@ -18,6 +19,7 @@ def test_parse_preprocess_stage_config_defaults() -> None:
     parsed = parse_preprocess_stage_config(runtime_config=cfg)
 
     assert parsed.output_rel_root == "preprocess_outputs"
+    assert parsed.phase_sequence == DEFAULT_PREPROCESS_PHASE_SEQUENCE
     assert parsed.force_restart is False
     assert parsed.force_replot is False
     assert parsed.debug_limit_wells is None
@@ -615,6 +617,47 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
         parsed.phases.save_rec_metadata.common_electrodes_summary_json_relpath
         == "context/custom_common_summary.json"
     )
+
+
+def test_parse_preprocess_stage_config_reads_phase_sequence() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "preprocess": {
+                    "phase_sequence": [
+                        "preprocess.copy_src_to_scratch",
+                        "save_segment_recordings",
+                        "concat_segments",
+                    ]
+                }
+            }
+        }
+    )
+
+    parsed = parse_preprocess_stage_config(runtime_config=cfg)
+
+    assert parsed.phase_sequence == (
+        "copy_src_to_scratch",
+        "preprocess_segments",
+        "concat_segments",
+    )
+
+
+def test_parse_preprocess_stage_config_reads_resources_n_jobs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "preprocess": {
+                    "execution": {"n_jobs": 2},
+                    "resources": {"n_jobs": 5},
+                }
+            }
+        }
+    )
+
+    parsed = parse_preprocess_stage_config(runtime_config=cfg)
+
+    assert parsed.n_jobs == 5
 
 
 def test_parse_preprocess_stage_config_treats_non_positive_trace_max_points_as_uncapped() -> None:

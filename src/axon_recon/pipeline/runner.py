@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, replace
 import logging
 from pathlib import Path
@@ -57,7 +58,12 @@ from .stages.spikesort.api import (
 	run_spikesort_merge,
 	summarize_spikesort,
 )
-from .stages.spikesort.config import build_spikesort_inputs_for_target, parse_spikesort_stage_config
+from .stages.spikesort.config import (
+	DEFAULT_SPIKESORT_PHASE_SEQUENCE,
+	build_spikesort_inputs_for_target,
+	normalize_spikesort_phase_name,
+	parse_spikesort_stage_config,
+)
 from .stages.spikesort.models.results import (
 	SpikesortBombcellResult,
 	SpikesortMergeResult,
@@ -114,9 +120,19 @@ class PublishPolicy:
 
 def _preprocess_copy_phase_enabled(stage_config: Any) -> bool:
 	try:
-		return bool(stage_config.phases.copy_src_to_scratch.enabled)
+		return bool(stage_config.phases.copy_src_to_scratch.enabled) and _preprocess_stage_phase_in_sequence(
+			stage_config,
+			"copy_src_to_scratch",
+		)
 	except Exception:
 		return False
+
+
+def _preprocess_stage_phase_in_sequence(stage_config: Any, phase_name: str) -> bool:
+	sequence = getattr(stage_config, "phase_sequence", None)
+	if sequence is None:
+		return True
+	return str(phase_name) in {str(item) for item in sequence}
 
 
 def _preprocess_stage_uses_nested_workers(stage_config: Any) -> bool:
@@ -127,7 +143,11 @@ def _preprocess_stage_uses_nested_workers(stage_config: Any) -> bool:
 	preprocess_segments_enabled = bool(getattr(getattr(phases, "preprocess_segments", None), "enabled", False))
 	concat_segments_enabled = bool(getattr(getattr(phases, "concat_segments", None), "enabled", False))
 	prepare_raw_binaries_enabled = bool(getattr(getattr(phases, "prepare_raw_binaries", None), "enabled", False))
-	return bool(prepare_raw_binaries_enabled or preprocess_segments_enabled or concat_segments_enabled)
+	return bool(
+		(prepare_raw_binaries_enabled and _preprocess_stage_phase_in_sequence(stage_config, "prepare_raw_binaries"))
+		or (preprocess_segments_enabled and _preprocess_stage_phase_in_sequence(stage_config, "preprocess_segments"))
+		or (concat_segments_enabled and _preprocess_stage_phase_in_sequence(stage_config, "concat_segments"))
+	)
 
 
 def _preprocess_substage_uses_nested_workers(stage_name: str) -> bool:
@@ -182,6 +202,23 @@ def _resolve_runtime_stage_parallelism(
 		if "target_count" not in str(exc):
 			raise
 		return resolve_stage_parallelism(bundle=bundle, stage_name=stage_name)
+
+
+def _stage_config_with_runtime_n_jobs(stage_config: Any, *, unit_workers: int) -> Any:
+	if getattr(stage_config, "n_jobs", None) is not None:
+		return stage_config
+	runtime_n_jobs = max(1, int(unit_workers))
+	if getattr(stage_config, "__dataclass_fields__", None) is not None:
+		try:
+			return replace(stage_config, n_jobs=runtime_n_jobs)
+		except Exception:
+			return stage_config
+	try:
+		stage_config_copy = copy.copy(stage_config)
+		setattr(stage_config_copy, "n_jobs", runtime_n_jobs)
+		return stage_config_copy
+	except Exception:
+		return stage_config
 
 
 def _coerce_bool_or_none(value: Any) -> bool | None:
@@ -1254,6 +1291,10 @@ def run_spikesort_from_runtime(
 		stage_name="spikesort",
 		target_count=len(targets),
 	)
+	runtime_stage_config = _stage_config_with_runtime_n_jobs(
+		stage_config,
+		unit_workers=int(parallelism.unit_workers),
+	)
 	LOGGER.info(
 		"spikesort: starting target-local phase chains targets=%d phases=%s well_workers=%d",
 		len(targets),
@@ -1267,7 +1308,7 @@ def run_spikesort_from_runtime(
 				name=phase.name,
 				runner=lambda phase=phase: phase.target_runner(
 					target=target,
-					stage_config=stage_config,
+					stage_config=runtime_stage_config,
 					unit_workers=int(parallelism.unit_workers),
 				),
 			)
@@ -1308,9 +1349,9 @@ def run_spikesort_from_runtime(
 def _enabled_spikesort_runtime_phase_plan(
 	stage_config: Any,
 ) -> list[_SpikesortRuntimePhase]:
-	phase_plan: list[_SpikesortRuntimePhase] = []
+	available_phases: dict[str, _SpikesortRuntimePhase] = {}
 	if bool(getattr(stage_config, "bootstrap_concat_binary_enabled", False)):
-		phase_plan.append(
+		available_phases["bootstrap_concat_binary"] = (
 			_SpikesortRuntimePhase(
 				name="spikesort.bootstrap_concat_binary",
 				phase_label="bootstrap_concat_binary",
@@ -1321,7 +1362,7 @@ def _enabled_spikesort_runtime_phase_plan(
 			)
 		)
 	if bool(getattr(stage_config, "sort_enabled", True)):
-		phase_plan.append(
+		available_phases["sort"] = (
 			_SpikesortRuntimePhase(
 				name="spikesort.sort",
 				phase_label="sort",
@@ -1332,7 +1373,7 @@ def _enabled_spikesort_runtime_phase_plan(
 			)
 		)
 	if bool(getattr(stage_config, "summarize_sort_enabled", False)):
-		phase_plan.append(
+		available_phases["summarize_sort"] = (
 			_SpikesortRuntimePhase(
 				name="spikesort.summarize_sort",
 				phase_label="summarize_sort",
@@ -1343,7 +1384,7 @@ def _enabled_spikesort_runtime_phase_plan(
 			)
 		)
 	if bool(getattr(stage_config, "bombcell_label_enabled", False)):
-		phase_plan.append(
+		available_phases["bombcell_label"] = (
 			_SpikesortRuntimePhase(
 				name="spikesort.bombcell_label",
 				phase_label="bombcell_label",
@@ -1354,7 +1395,7 @@ def _enabled_spikesort_runtime_phase_plan(
 			)
 		)
 	if bool(getattr(stage_config, "merge_slay_enabled", False)):
-		phase_plan.append(
+		available_phases["merge_SLAy"] = (
 			_SpikesortRuntimePhase(
 				name="spikesort.merge_SLAy",
 				phase_label="merge_SLAy",
@@ -1365,7 +1406,7 @@ def _enabled_spikesort_runtime_phase_plan(
 			)
 		)
 	if bool(getattr(stage_config, "merge_si_auto_enabled", False)):
-		phase_plan.append(
+		available_phases["merge_si_auto"] = (
 			_SpikesortRuntimePhase(
 				name="spikesort.merge_si_auto",
 				phase_label="merge_si_auto",
@@ -1376,7 +1417,7 @@ def _enabled_spikesort_runtime_phase_plan(
 			)
 		)
 	if bool(getattr(stage_config, "merge_unitmatch_enabled", False)):
-		phase_plan.append(
+		available_phases["merge_unitmatch"] = (
 			_SpikesortRuntimePhase(
 				name="spikesort.merge_unitmatch",
 				phase_label="merge_unitmatch",
@@ -1387,7 +1428,7 @@ def _enabled_spikesort_runtime_phase_plan(
 			)
 		)
 	if bool(getattr(stage_config, "cleanup_concat_binary_enabled", False)):
-		phase_plan.append(
+		available_phases["cleanup_concat_binary"] = (
 			_SpikesortRuntimePhase(
 				name="spikesort.cleanup_concat_binary",
 				phase_label="cleanup_concat_binary",
@@ -1397,6 +1438,13 @@ def _enabled_spikesort_runtime_phase_plan(
 				target_runner=_run_spikesort_cleanup_concat_binary_target,
 			)
 		)
+	configured_sequence = tuple(getattr(stage_config, "phase_sequence", None) or DEFAULT_SPIKESORT_PHASE_SEQUENCE)
+	phase_plan: list[_SpikesortRuntimePhase] = []
+	for phase_name in configured_sequence:
+		canonical_phase_name = normalize_spikesort_phase_name(phase_name)
+		phase = available_phases.get(canonical_phase_name)
+		if phase is not None:
+			phase_plan.append(phase)
 	return phase_plan
 
 
@@ -1622,15 +1670,19 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 		stage_name="spikesort",
 		target_count=len(targets),
 	)
+	runtime_stage_config = _stage_config_with_runtime_n_jobs(
+		stage_config,
+		unit_workers=int(parallelism.unit_workers),
+	)
 
 	def _worker(target):
 		return runner_fn(
 			h5_path=target.h5_path,
 			stream_id=target.stream_id,
 			mea_output_root=target.mea_output_root,
-			output_rel_root=stage_config.output_rel_root,
-			stage_config=stage_config,
-			force_restart=bool(stage_config.force_restart or stage_config.force_replot),
+			output_rel_root=runtime_stage_config.output_rel_root,
+			stage_config=runtime_stage_config,
+			force_restart=bool(runtime_stage_config.force_restart or runtime_stage_config.force_replot),
 		)
 
 	target_results = distribute_targets(
@@ -1879,26 +1931,30 @@ def run_spikesort_merge_from_runtime(
 		stage_name="spikesort",
 		target_count=len(targets),
 	)
+	runtime_stage_config = _stage_config_with_runtime_n_jobs(
+		stage_config,
+		unit_workers=int(parallelism.unit_workers),
+	)
 
 	def _worker(target):
 		return run_spikesort_merge(
 			h5_path=target.h5_path,
 			stream_id=target.stream_id,
 			mea_output_root=target.mea_output_root,
-			output_rel_root=stage_config.output_rel_root,
-			stage_config=stage_config,
+			output_rel_root=runtime_stage_config.output_rel_root,
+			stage_config=runtime_stage_config,
 			force_restart=bool(
 				getattr(
-					stage_config,
+					runtime_stage_config,
 					"merge_force_restart",
-					bool(stage_config.force_restart),
+					bool(runtime_stage_config.force_restart),
 				)
 			),
 			force_replot=bool(
 				getattr(
-					stage_config,
+					runtime_stage_config,
 					"merge_force_replot",
-					bool(stage_config.force_replot),
+					bool(runtime_stage_config.force_replot),
 				)
 			),
 		)
@@ -1951,15 +2007,19 @@ def run_spikesort_bombcell_label_from_runtime(
 		stage_name="spikesort",
 		target_count=len(targets),
 	)
+	runtime_stage_config = _stage_config_with_runtime_n_jobs(
+		stage_config,
+		unit_workers=int(parallelism.unit_workers),
+	)
 
 	def _worker(target):
 		return run_spikesort_bombcell(
 			h5_path=target.h5_path,
 			stream_id=target.stream_id,
 			mea_output_root=target.mea_output_root,
-			output_rel_root=stage_config.output_rel_root,
-			stage_config=stage_config,
-			force_restart=bool(stage_config.force_restart),
+			output_rel_root=runtime_stage_config.output_rel_root,
+			stage_config=runtime_stage_config,
+			force_restart=bool(runtime_stage_config.force_restart),
 		)
 
 	target_results = distribute_targets(

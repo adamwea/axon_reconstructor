@@ -53,6 +53,7 @@ from .core import (
 	run_wipe_src_scratch_core,
 )
 from .models.inputs import (
+	DEFAULT_PREPROCESS_PHASE_SEQUENCE,
 	PreprocessConcatSegmentsPhaseConfig,
 	PreprocessInputs,
 	PreprocessPlotConcatChannelLayoutPhaseConfig,
@@ -964,12 +965,25 @@ def _resolve_save_workers(inputs: PreprocessInputs) -> tuple[int, int]:
 	)
 
 
+def _configured_preprocess_phase_sequence(inputs: PreprocessInputs) -> tuple[str, ...]:
+	sequence = tuple(str(item) for item in (getattr(inputs, "phase_sequence", None) or DEFAULT_PREPROCESS_PHASE_SEQUENCE))
+	allowed = set(DEFAULT_PREPROCESS_PHASE_SEQUENCE)
+	unknown = [item for item in sequence if item not in allowed]
+	if unknown:
+		raise ValueError(f"Unknown preprocess phase_sequence entries: {unknown}")
+	return sequence
+
+
+def _phase_in_configured_sequence(inputs: PreprocessInputs, phase_name: str) -> bool:
+	return str(phase_name) in set(_configured_preprocess_phase_sequence(inputs))
+
+
 def _copy_phase_requested(inputs: PreprocessInputs, *, selected_phase: str | None) -> bool:
 	if selected_phase == "copy_src_to_scratch":
 		return True
 	if selected_phase is not None:
 		return False
-	return bool(inputs.phases.copy_src_to_scratch.enabled)
+	return bool(inputs.phases.copy_src_to_scratch.enabled) and _phase_in_configured_sequence(inputs, "copy_src_to_scratch")
 
 
 def _recording_metadata_phase_requested(inputs: PreprocessInputs, *, selected_phase: str | None) -> bool:
@@ -977,7 +991,7 @@ def _recording_metadata_phase_requested(inputs: PreprocessInputs, *, selected_ph
 		return True
 	if selected_phase is not None:
 		return False
-	return bool(inputs.phases.save_rec_metadata.enabled)
+	return bool(inputs.phases.save_rec_metadata.enabled) and _phase_in_configured_sequence(inputs, "save_rec_metadata")
 
 
 def _wipe_src_scratch_phase_requested(inputs: PreprocessInputs, *, selected_phase: str | None) -> bool:
@@ -985,7 +999,7 @@ def _wipe_src_scratch_phase_requested(inputs: PreprocessInputs, *, selected_phas
 		return True
 	if selected_phase is not None:
 		return False
-	return bool(inputs.phases.wipe_src_scratch.enabled)
+	return bool(inputs.phases.wipe_src_scratch.enabled) and _phase_in_configured_sequence(inputs, "wipe_src_scratch")
 
 
 def _validate_copy_phase_requirements(inputs: PreprocessInputs, *, selected_phase: str | None) -> None:
@@ -2597,21 +2611,8 @@ def _run_preprocess_phase_sequence(
 	phase_logger = _prepare_phase_logger(inputs, paths)
 	phase_summaries: dict[str, dict[str, Any]] = {}
 	scratch_usage_released = False
-	all_phases = [
-		"copy_src_to_scratch",
-		"save_rec_metadata",
-		"prepare_raw_binaries",
-		"preprocess_segments",
-		"plot_segment_traces",
-		"plot_segment_channel_layouts",
-		"plot_raster_threshold",
-		"concat_segments",
-		"plot_concat_traces",
-		"plot_concat_channel_layout",
-		"wipe_src_scratch",
-	]
 	phases_to_run = [canonical_selected_phase] if canonical_selected_phase is not None else [
-		phase_name for phase_name in all_phases if _phase_enabled(inputs, phase_name)
+		phase_name for phase_name in _configured_preprocess_phase_sequence(inputs) if _phase_enabled(inputs, phase_name)
 	]
 	if phase_logger is not None and phases_to_run:
 		phase_logger.info(
@@ -3041,6 +3042,7 @@ def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
 		},
 		"inputs": {
 			"source_h5_path": str(inputs.source_h5_path or inputs.h5_path),
+			"phase_sequence": list(_configured_preprocess_phase_sequence(inputs)),
 			"preprocess_segments_lazy_source": str(inputs.phases.preprocess_segments.lazy_source),
 			"copied_to_scratch": bool(inputs.copied_to_scratch),
 			"force_restart": bool(inputs.force_restart),

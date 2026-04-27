@@ -6,6 +6,21 @@ from pathlib import Path
 from ..constants import PREPROCESS_OUTPUTS_DIRNAME
 
 
+DEFAULT_PREPROCESS_PHASE_SEQUENCE: tuple[str, ...] = (
+	"copy_src_to_scratch",
+	"save_rec_metadata",
+	"prepare_raw_binaries",
+	"preprocess_segments",
+	"plot_segment_traces",
+	"plot_segment_channel_layouts",
+	"plot_raster_threshold",
+	"concat_segments",
+	"plot_concat_traces",
+	"plot_concat_channel_layout",
+	"wipe_src_scratch",
+)
+
+
 @dataclass(frozen=True)
 class PreprocessPhaseConfig:
 	enabled: bool = True
@@ -255,6 +270,7 @@ class PreprocessInputs:
 	final_output_root: Path | None = None
 	source_h5_path: Path | None = None
 	copied_to_scratch: bool = False
+	phase_sequence: tuple[str, ...] = DEFAULT_PREPROCESS_PHASE_SEQUENCE
 
 	output_rel_root: str = PREPROCESS_OUTPUTS_DIRNAME
 	force_restart: bool = False

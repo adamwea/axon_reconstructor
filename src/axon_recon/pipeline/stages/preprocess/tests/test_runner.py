@@ -703,6 +703,32 @@ def test_run_preprocess_stage_force_restart_clears_outputs_and_reruns_enabled_ph
     assert Path(outputs["pipeline_log"]).exists()
 
 
+def test_run_preprocess_stage_uses_configured_phase_sequence_and_skips_disabled_phases(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    phase_call_order: list[str] = []
+    _install_success_fakes(
+        monkeypatch,
+        tmp_path,
+        phase_call_order=phase_call_order,
+    )
+
+    inputs = PreprocessInputs(
+        h5_path=tmp_path / "input.raw.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        phases=_full_stage_phases(),
+        phase_sequence=("save_rec_metadata", "plot_raster_threshold", "preprocess_segments"),
+    )
+
+    result = run_preprocess_stage(inputs)
+    summary = _read_json(result.summary_json)
+
+    assert phase_call_order == ["save_rec_metadata", "preprocess_segments"]
+    assert set(summary.get("phase_summaries", {})) == {"save_rec_metadata", "preprocess_segments"}
+
+
 def test_run_preprocess_stage_logs_phase_start_per_well(tmp_path: Path, monkeypatch, caplog: pytest.LogCaptureFixture) -> None:
     _install_success_fakes(monkeypatch, tmp_path)
 

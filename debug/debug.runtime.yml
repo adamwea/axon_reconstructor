@@ -89,13 +89,16 @@ stages:
     resources:
       #max_stage_workers: 24 # desktop
       max_stage_workers: 24 # lab server
-      well_workers: 3
+      well_workers: 6
+      divide_stage_workers_by_wells: true # This controls the derived value of n_jobs. when true, stage workers are divided evenly among wells up to the max number of well workers.
     rel_output_root: preprocess_outputs # optional subdir under each well's output directory for all preprocess outputs; relative paths for preprocess phases resolve under this directory in each well's output directory
+    phase_sequence: [copy_src_to_scratch, save_rec_metadata, preprocess_segments, plot_segment_traces, plot_segment_channel_layouts, plot_raster_threshold]
     phases:
       copy_src_to_scratch:
         enabled: true
         requires_use_scratch_root: true
         summary_json_relpath: context/copy_src_to_scratch_summary.json
+
       save_rec_metadata:
         enabled: true
         verbose: true
@@ -113,6 +116,7 @@ stages:
         sampling_metadata_relpath: sampling_metadata.json # per-segment sampling rate metadata; relative to preprocess output dir
         common_electrodes_relpath: common_electrodes.npy
         common_electrodes_summary_json_relpath: context/save_common_electrodes_summary.json
+
       prepare_raw_binaries:
         enabled: false
         summary_json_relpath: context/prepare_raw_binaries_summary.json
@@ -123,6 +127,7 @@ stages:
           save_progress_bar: true
           segment_save_n_jobs: null
           print_n_jobs_used: true
+
       preprocess_segments:
         enabled: true
         output_mode: lazy # lazy | binary; lazy mode saves per-segment preprocessed outputs in a way that supports lazy loading for downstream phases, while binary mode saves concatenated preprocessed outputs directly as memory-mapped binaries without intermediate per-segment files; keep lazy by default for debugging iterations to allow more granular inspection of per-segment preprocessing outputs, but can be set to binary to skip intermediate file saving and speed up iterations when segment-level inspection is not the focus.
@@ -135,6 +140,7 @@ stages:
           save_progress_bar: true
           segment_save_n_jobs: null
           print_n_jobs_used: true
+
       plot_segment_traces:
         enabled: false
         summary_json_relpath: context/plot_segment_traces_summary.json
@@ -175,6 +181,7 @@ stages:
           #trace_downsample_hz: null # when null, no downsampling is applied to trace diagnostics; use with trace_max_points
           trace_downsample_hz: 100.0 # downsample to 100 Hz for trace diagnostics; effective rate may be further reduced by trace_max_points
           trace_max_points: -1 # int or -1 for no cap
+
       plot_segment_channel_layouts:
         enabled: false
         summary_json_relpath: context/plot_segment_channel_layouts_summary.json
@@ -182,7 +189,6 @@ stages:
           layouts: true
           channel_layouts_subdir: channel_layouts
 
-      #deprecated pretty much.
       concat_segments:
         enabled: false
         concatenate_preprocessed_recordings: true # when true, concatenate the preprocessed segment recordings; when false, concatenate raw segment recordings instead while keeping the rest of the concat phase wiring the same.
@@ -199,6 +205,7 @@ stages:
           save_progress_bar: true
           concat_save_n_jobs: null
           print_n_jobs_used: true
+
       plot_concat_traces:
         enabled: false
         summary_json_relpath: context/plot_concat_traces_summary.json
@@ -209,12 +216,14 @@ stages:
             # Alias-compatible with `n_representative_channels`; set to -1 to include all representatives.
             n_reps: 3
           concat_trace_relpath: concat_cluster_reps_{stream_id}.png
+
       plot_concat_channel_layout:
         enabled: false
         summary_json_relpath: context/plot_concat_channel_layout_summary.json
         plot:
           layouts: true
           channel_layouts_subdir: channel_layouts
+
       plot_raster_threshold:
         enabled: false
         debug_mode:
@@ -225,14 +234,17 @@ stages:
           report_step_timers: false
         summary_json_relpath: context/plot_raster_threshold_summary.json
         rel_output_root: raster_threshold
+
       report_preprocessing:
         enabled: false
         summary_json_relpath: context/report_preprocessing_summary.json
         report_relpath: report/preprocessing_report.md
         json_summary_relpath: report/preprocessing_report.json
+
       cleanup_preprocessing_outputs:
         enabled: false
         summary_json_relpath: context/cleanup_preprocessing_outputs_summary.json
+
       wipe_src_scratch:
         enabled: false
         dry_run: true # when true, logs the paths that would be deleted without actually deleting them; keep true by default for safety during debugging iterations, but can be set to false to enable actual deletion of scratch outputs when publish_outputs is false and you want to clean up scratch space during debug runs.
@@ -240,10 +252,9 @@ stages:
         summary_json_relpath: context/wipe_src_scratch_summary.json
   spikesort:
     resources:
-      #max_stage_workers: 24
-      #max_stage_workers: 36 # lab server
-      max_stage_workers: 24 # 36 is too much for i/o probably.
+      max_stage_workers: 24
       well_workers: 6
+      divide_stage_workers_by_wells: true # This controls the derived value of n_jobs. when true, stage workers are divided evenly among wells up to the max number of well workers.
       chunk_duration: 1s
     logging:
       enabled: true
@@ -264,6 +275,7 @@ stages:
     inputs:
       # Relative paths resolve under the per-well output directory.
       preprocess_concat_recording_relpath: preprocess_outputs/concatenated_recording
+    phase_sequence: [bootstrap_concat_binary, sort, bombcell_label, merge_SLAy, cleanup_concat_binary]
     phases:
       #resolve_sources:
       bootstrap_concat_binary:
@@ -414,12 +426,6 @@ stages:
           summary_json:
             enabled: true
             relpath: bombcell_label_summary.json
-
-      # In the event that we desire to chain merge subphases, follow this priority order when multiple are enabled:
-      # 1) SLAy recommended merges (if enabled)
-      # 2) Spikeinterface automerge (if enabled)
-      # 3) Unitmatch (if enabled)
-      merge_sequence: [SLAy, auto_merge, unitmatch]
 
       merge_SLAy:
 

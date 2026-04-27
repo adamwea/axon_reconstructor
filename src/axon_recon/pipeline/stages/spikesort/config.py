@@ -229,6 +229,70 @@ def _as_list_of_strings(value: Any) -> list[str]:
 	return ([text] if text is not None else [])
 
 
+DEFAULT_SPIKESORT_PHASE_SEQUENCE: tuple[str, ...] = (
+	"bootstrap_concat_binary",
+	"sort",
+	"summarize_sort",
+	"bombcell_label",
+	"merge_SLAy",
+	"merge_si_auto",
+	"merge_unitmatch",
+	"cleanup_concat_binary",
+)
+
+
+_SPIKESORT_PHASE_ALIASES: dict[str, str] = {
+	"bootstrap_concat_binary": "bootstrap_concat_binary",
+	"bootstrap_concat": "bootstrap_concat_binary",
+	"bootstrap_binary": "bootstrap_concat_binary",
+	"bootstrap": "bootstrap_concat_binary",
+	"sort": "sort",
+	"spikesort": "sort",
+	"summarize_sort": "summarize_sort",
+	"summarise_sort": "summarize_sort",
+	"sort_summary": "summarize_sort",
+	"summary": "summarize_sort",
+	"bombcell_label": "bombcell_label",
+	"bombcell": "bombcell_label",
+	"label_bombcell": "bombcell_label",
+	"merge_slay": "merge_SLAy",
+	"merge_sla_y": "merge_SLAy",
+	"merge_slay_outputs": "merge_SLAy",
+	"slay": "merge_SLAy",
+	"merge_si_auto": "merge_si_auto",
+	"merge_auto": "merge_si_auto",
+	"merge_auto_merge": "merge_si_auto",
+	"auto_merge": "merge_si_auto",
+	"si_auto": "merge_si_auto",
+	"merge_unitmatch": "merge_unitmatch",
+	"unitmatch": "merge_unitmatch",
+	"cleanup_concat_binary": "cleanup_concat_binary",
+	"cleanup_concat": "cleanup_concat_binary",
+	"cleanup_binary": "cleanup_concat_binary",
+	"cleanup": "cleanup_concat_binary",
+}
+
+
+def normalize_spikesort_phase_name(value: Any) -> str:
+	text = str(value or "").strip()
+	if not text:
+		raise ValueError("spikesort phase_sequence contains an empty phase name")
+	if text.startswith("spikesort."):
+		text = text.split(".", 1)[1]
+	token = text.strip().replace("-", "_").replace(" ", "_").lower()
+	canonical = _SPIKESORT_PHASE_ALIASES.get(token)
+	if canonical is None:
+		raise ValueError(f"Unknown spikesort phase_sequence entry: {value!r}")
+	return canonical
+
+
+def _normalize_spikesort_phase_sequence(value: Any) -> tuple[str, ...]:
+	items = _as_list_of_strings(value)
+	if not items:
+		return DEFAULT_SPIKESORT_PHASE_SEQUENCE
+	return tuple(normalize_spikesort_phase_name(item) for item in items)
+
+
 def _as_optional_float_tuple(value: Any) -> tuple[float, ...] | None:
 	if value is None:
 		return None
@@ -281,6 +345,7 @@ class SpikesortStageConfig:
 	sort_original_preprocess_concat_recording_relpath: str | None
 	sort_bootstrapped_concat_recording_relpath: str | None
 	merge_sequence: tuple[str, ...]
+	phase_sequence: tuple[str, ...]
 	logging_enabled: bool
 	logging_verbose: bool
 	logging_file_relpath: str | None
@@ -2271,6 +2336,14 @@ def parse_spikesort_stage_config(
 	if not merge_sequence:
 		merge_sequence = ("SLAy", "auto_merge", "unitmatch")
 
+	phase_sequence = _normalize_spikesort_phase_sequence(
+		_coalesce(
+			stage_cfg.get("phase_sequence", None),
+			execution_cfg.get("phase_sequence", None),
+			phases_cfg.get("sequence", None),
+		)
+	)
+
 	am_kwargs = (
 		_as_optional_dict(
 			_coalesce(
@@ -3087,6 +3160,7 @@ def parse_spikesort_stage_config(
 		sort_original_preprocess_concat_recording_relpath=preprocess_concat_recording_relpath,
 		sort_bootstrapped_concat_recording_relpath=sort_bootstrapped_concat_recording_relpath,
 		merge_sequence=merge_sequence,
+		phase_sequence=phase_sequence,
 		logging_enabled=logging_enabled,
 		logging_verbose=logging_verbose,
 		logging_file_relpath=logging_file_relpath,

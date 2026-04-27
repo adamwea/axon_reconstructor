@@ -612,6 +612,84 @@ def test_run_preprocess_from_runtime_uses_nested_workers_when_heavy_phases_enabl
     assert divider_stdout_calls == [False]
 
 
+def test_run_preprocess_from_runtime_uses_phase_sequence_for_scratch_and_worker_decisions(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    target = ExecutionTarget(
+        dataset_index=0,
+        dataset_id="dataset_000:test.h5",
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+    )
+
+    dummy_inputs = PreprocessInputs(
+        h5_path=target.h5_path,
+        stream_id=target.stream_id,
+        mea_output_root=target.mea_output_root,
+    )
+
+    class _DummyBundle:
+        runtime_config = object()
+        data_config = object()
+
+    select_calls: list[bool] = []
+    unit_worker_calls: list[int] = []
+    divider_stdout_calls: list[bool] = []
+
+    def _fake_load_pipeline_runtime_bundle(*, config_path: str):
+        return _DummyBundle()
+
+    def _fake_select_execution_targets(*, bundle, materialize_scratch_inputs: bool = False):
+        select_calls.append(bool(materialize_scratch_inputs))
+        return [target]
+
+    def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
+        return StageParallelism(max_workers=24, max_stage_workers=24, well_workers=2, unit_workers=12)
+
+    def _fake_parse_preprocess_stage_config(**kwargs):
+        return SimpleNamespace(
+            debug_limit_wells=None,
+            phase_sequence=("save_rec_metadata",),
+            phases=SimpleNamespace(
+                copy_src_to_scratch=SimpleNamespace(enabled=True),
+                prepare_raw_binaries=SimpleNamespace(enabled=True),
+                preprocess_segments=SimpleNamespace(enabled=True),
+                concat_segments=SimpleNamespace(enabled=True),
+            ),
+        )
+
+    def _fake_build_preprocess_inputs_for_target(*, target, stage_config, unit_workers: int):
+        unit_worker_calls.append(int(unit_workers))
+        return dummy_inputs
+
+    def _fake_run_preprocess(inputs: PreprocessInputs) -> PreprocessResult:
+        divider_stdout_calls.append(bool(inputs.logging_subphase_dividers_to_stdout))
+        return PreprocessResult(
+            well_out_dir=tmp_path / "well_out",
+            preprocess_out_dir=tmp_path / "preprocess_out",
+            summary_json=tmp_path / "preprocess_summary.json",
+            outputs={},
+        )
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", _fake_load_pipeline_runtime_bundle)
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", _fake_select_execution_targets)
+    monkeypatch.setattr(pipeline_runner, "resolve_stage_parallelism", _fake_resolve_stage_parallelism)
+    monkeypatch.setattr(pipeline_runner, "parse_preprocess_stage_config", _fake_parse_preprocess_stage_config)
+    monkeypatch.setattr(pipeline_runner, "build_preprocess_inputs_for_target", _fake_build_preprocess_inputs_for_target)
+    monkeypatch.setattr(pipeline_runner, "run_preprocess", _fake_run_preprocess)
+
+    agg = run_preprocess_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+
+    assert agg.succeeded_targets == 1
+    assert select_calls == [False]
+    assert unit_worker_calls == [1]
+    assert divider_stdout_calls == [True]
+
+
 def test_run_preprocess_save_rec_metadata_from_runtime_applies_phase_debug_dataset_and_well_limits(
     monkeypatch,
     tmp_path: Path,

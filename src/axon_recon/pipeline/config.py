@@ -273,8 +273,14 @@ def resolve_stage_parallelism(
 		if resolved_target_count > 0:
 			well_workers = min(well_workers, resolved_target_count)
 
-	# Preserve legacy semantics: derive per-target unit workers from stage workers split across well workers.
-	unit_workers = max(1, int(stage_workers // well_workers))
+	divide_stage_workers_by_wells = _as_bool(
+		runtime_cfg.get(f"stages.{stage_name}.resources.divide_stage_workers_by_wells", True),
+		True,
+	)
+	if bool(divide_stage_workers_by_wells) and int(well_workers) > 1:
+		unit_workers = max(1, int(stage_workers // well_workers))
+	else:
+		unit_workers = max(1, int(stage_workers))
 
 	return StageParallelism(
 		max_workers=max_workers,

@@ -221,6 +221,7 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
         data_config = object()
 
     calls: list[str] = []
+    n_jobs_seen: list[int | None] = []
     distribute_calls: list[tuple[list[ExecutionTarget], int]] = []
 
     def _fake_load_pipeline_runtime_bundle(*, config_path: str):
@@ -230,7 +231,7 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(max_workers=12, max_stage_workers=12, well_workers=2, unit_workers=6)
 
     def _fake_parse_spikesort_stage_config(**kwargs):
         return SimpleNamespace(
@@ -249,6 +250,7 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
     def _fake_target_phase_runner(stage_name: str):
         def _runner(**kwargs):
             calls.append(stage_name)
+            n_jobs_seen.append(getattr(kwargs["stage_config"], "n_jobs", None))
             return SpikesortResult(
                 well_out_dir=tmp_path / "well_out",
                 spikesort_out_dir=tmp_path / "well_out" / "spikesort_outputs",
@@ -304,10 +306,37 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
         "spikesort.merge_SLAy",
         "spikesort.cleanup_concat_binary",
     ]
+    assert n_jobs_seen == [6, 6, 6, 6, 6]
     assert agg.stage == "spikesort"
     assert agg.total_targets == 1
     assert agg.succeeded_targets == 1
     assert agg.failed_targets == 0
+
+
+def test_enabled_spikesort_runtime_phase_plan_uses_configured_sequence_and_skips_disabled() -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    stage_config = SimpleNamespace(
+        bootstrap_concat_binary_enabled=True,
+        sort_enabled=True,
+        summarize_sort_enabled=False,
+        bombcell_label_enabled=True,
+        merge_slay_enabled=True,
+        merge_si_auto_enabled=False,
+        merge_unitmatch_enabled=False,
+        cleanup_concat_binary_enabled=True,
+        phase_sequence=("bombcell_label", "merge_unitmatch", "sort", "cleanup", "merge_slay", "bootstrap"),
+    )
+
+    phase_plan = pipeline_runner._enabled_spikesort_runtime_phase_plan(stage_config)
+
+    assert [phase.name for phase in phase_plan] == [
+        "spikesort.bombcell_label",
+        "spikesort.sort",
+        "spikesort.cleanup_concat_binary",
+        "spikesort.merge_SLAy",
+        "spikesort.bootstrap_concat_binary",
+    ]
 
 
 def test_run_spikesort_sort_from_runtime_applies_phase_debug_limits(monkeypatch, tmp_path: Path) -> None:
