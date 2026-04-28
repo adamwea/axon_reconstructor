@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from axon_recon.pipeline.execution.logging_context import install_pipeline_log_record_factory
 from axon_reconstructor import env_utils
 from axon_reconstructor.pipeline.scratch_layout import resolve_canonical_scratch_output_root
 from axon_reconstructor.runtime_config import RuntimeConfig
@@ -75,15 +76,18 @@ def _resolve_bool(*, cli_value: bool | None, env_key: str, default: bool) -> boo
 
 def _configure_cli_logging(*, debug_enabled: bool) -> None:
     level = logging.DEBUG if bool(debug_enabled) else logging.INFO
+    install_pipeline_log_record_factory()
+    fmt = "[%(levelname)s] [%(pipeline_target)s] %(message)s"
     root = logging.getLogger()
     if not root.handlers:
-        logging.basicConfig(level=level, format="[%(levelname)s] %(message)s", force=True)
+        logging.basicConfig(level=level, format=fmt, force=True)
         return
 
     root.setLevel(level)
     for handler in root.handlers:
         try:
             handler.setLevel(level)
+            handler.setFormatter(logging.Formatter(fmt))
         except Exception:
             continue
 

@@ -8,6 +8,7 @@ from typing import Any, Callable
 from axon_reconstructor.runtime_config import RuntimeConfig
 
 from .execution import install_process_lifecycle
+from .execution.logging_context import ensure_pipeline_target_in_format, install_pipeline_log_record_factory
 from .stages.analysis.cli import _run_from_args as _run_analysis_from_args
 from .stages.preprocess.cli import _run_concat_segments_from_args as _run_preprocess_concat_segments_from_args
 from .stages.preprocess.cli import _run_copy_src_to_scratch_from_args as _run_preprocess_copy_src_to_scratch_from_args
@@ -347,7 +348,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _configure_runtime_logging_from_args(args: argparse.Namespace) -> None:
 	default_level = logging.INFO
-	default_format = "[%(levelname)s] %(message)s"
+	install_pipeline_log_record_factory()
+	default_format = "[%(levelname)s] [%(pipeline_target)s] %(message)s"
 	level = default_level
 	fmt = default_format
 
@@ -377,6 +379,7 @@ def _configure_runtime_logging_from_args(args: argparse.Namespace) -> None:
 			level = default_level
 			fmt = default_format
 
+	fmt = ensure_pipeline_target_in_format(fmt)
 	root = logging.getLogger()
 	if not root.handlers:
 		logging.basicConfig(level=level, format=fmt)

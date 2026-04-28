@@ -259,7 +259,7 @@ stages:
   spikesort:
     resources:
       max_stage_workers: 18
-      well_workers: 2
+      well_workers: 3
       divide_stage_workers_by_wells: true # This controls the derived value of n_jobs. when true, stage workers are divided evenly among wells up to the max number of well workers.
       chunk_duration: 1s
     logging:
@@ -267,11 +267,11 @@ stages:
       verbose: true
       file_relpath: logs/spikesort_pipeline.log
     debug_mode:
-      enabled: true
-      limit_datasets: 2
+      enabled: false
+      #limit_datasets: 2
       #limit_wells: 2
-      limit_wells: null
-      limit_wells_per_dataset: 1
+      #limit_wells: null
+      #limit_wells_per_dataset: 1
     execution:
       force_restart: false
       force_replot: false
@@ -937,7 +937,7 @@ stages:
 
   templates:
     resources:
-      max_stage_workers: 24
+      max_stage_workers: 18
       well_workers: 2
 
     phase_sequence:
@@ -945,7 +945,7 @@ stages:
       - analyzers
       - extract_template_segments
       - build_templates
-      - compute_template_similarity
+      #- compute_template_similarity
       - plot_templates
       - report_templates
       - reports
@@ -1150,7 +1150,7 @@ stages:
           overlap_match_priority: [electrode_id, location]
           location_tolerance_um: 1.0
       compute_template_similarity:
-        enabled: true
+        enabled: false
         method: hybrid_template_similarity
         method_options:
           support: intersection

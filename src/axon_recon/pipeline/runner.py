@@ -16,6 +16,7 @@ from .config import (
 	select_execution_targets,
 )
 from .execution.distributor import distribute_targets
+from .execution.logging_context import install_pipeline_log_record_factory, pipeline_log_context_for_target
 from .execution.phase_chain import PhaseDescriptor, run_phase_chain
 from .execution.results import MultiTargetStageResult, TargetStageResult
 from .stages.analysis.api import run_analysis
@@ -235,10 +236,16 @@ def _distribute_runtime_targets(
 	parallelism: Any,
 	worker_fn: Callable[[Any], Any],
 ) -> list[TargetStageResult]:
+	install_pipeline_log_record_factory()
+
+	def worker_with_log_context(target: Any) -> Any:
+		with pipeline_log_context_for_target(target):
+			return worker_fn(target)
+
 	return distribute_targets(
 		targets=targets,
 		well_workers=int(parallelism.well_workers),
-		worker_fn=worker_fn,
+		worker_fn=worker_with_log_context,
 		max_simultaneous_well_reads_per_dataset=getattr(
 			parallelism,
 			"max_simultaneous_well_reads_per_dataset",

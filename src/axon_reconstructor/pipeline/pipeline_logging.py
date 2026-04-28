@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from axon_recon.pipeline.execution.logging_context import install_pipeline_log_record_factory
+
 from .checkpointing import parse_mea_style_metadata
 
 
@@ -83,6 +85,7 @@ def setup_pipeline_logger(
         Stream to log to (defaults to sys.stdout).
     """
 
+    install_pipeline_log_record_factory()
     log_file = Path(log_file)
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -91,7 +94,7 @@ def setup_pipeline_logger(
     logger.setLevel(logging.DEBUG)
     logger.propagate = False
 
-    formatter = logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s")
+    formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(pipeline_target)s]: %(message)s")
 
     # File handler (append). Only attach once per log file.
     file_level = logging.DEBUG if verbose else logging.INFO
@@ -106,6 +109,7 @@ def setup_pipeline_logger(
         fh.setLevel(file_level)
         logger.addHandler(fh)
     else:
+        existing_fh.setFormatter(formatter)
         existing_fh.setLevel(file_level)
 
     # Stream handler (stdout). Attach at most one.
@@ -118,6 +122,7 @@ def setup_pipeline_logger(
         ch.setLevel(console_level)
         logger.addHandler(ch)
     else:
+        existing_ch.setFormatter(formatter)
         existing_ch.setLevel(console_level)
 
     return logger
