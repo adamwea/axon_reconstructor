@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 import copy
 from dataclasses import dataclass, replace
 import logging
@@ -18,6 +19,7 @@ from .config import (
 from .execution.distributor import distribute_targets
 from .execution.logging_context import install_pipeline_log_record_factory, pipeline_log_context_for_target
 from .execution.phase_chain import PhaseDescriptor, run_phase_chain
+from .execution.progress import PipelineProgress, ProgressSpec, pipeline_progress_context
 from .execution.results import MultiTargetStageResult, TargetStageResult
 from .stages.analysis.api import run_analysis
 from .stages.analysis.config import build_analysis_inputs_for_target, parse_analysis_stage_config
@@ -235,23 +237,44 @@ def _distribute_runtime_targets(
 	targets: list[Any],
 	parallelism: Any,
 	worker_fn: Callable[[Any], Any],
+	progress: PipelineProgress | None = None,
+	advance_progress_on_target_complete: bool = False,
 ) -> list[TargetStageResult]:
 	install_pipeline_log_record_factory()
 
 	def worker_with_log_context(target: Any) -> Any:
-		with pipeline_log_context_for_target(target):
+		with pipeline_log_context_for_target(target), pipeline_progress_context(progress):
 			return worker_fn(target)
 
-	return distribute_targets(
-		targets=targets,
-		well_workers=int(parallelism.well_workers),
-		worker_fn=worker_with_log_context,
-		max_simultaneous_well_reads_per_dataset=getattr(
-			parallelism,
-			"max_simultaneous_well_reads_per_dataset",
-			None,
-		),
-	)
+	def _on_target_complete(_result: TargetStageResult) -> None:
+		if progress is not None and bool(advance_progress_on_target_complete):
+			progress.update(1)
+
+	progress_context = progress if progress is not None else nullcontext()
+	with progress_context:
+		return distribute_targets(
+			targets=targets,
+			well_workers=int(parallelism.well_workers),
+			worker_fn=worker_with_log_context,
+			max_simultaneous_well_reads_per_dataset=getattr(
+				parallelism,
+				"max_simultaneous_well_reads_per_dataset",
+				None,
+			),
+			on_target_complete=_on_target_complete,
+		)
+
+
+def _reconstruct_unit_progress(stage_name: str) -> PipelineProgress | None:
+	if str(stage_name) not in {"reconstruct", "reconstruct.generate_gtrs"}:
+		return None
+	return PipelineProgress(ProgressSpec(label=f"{stage_name} units", total=0, unit="unit"))
+
+
+def _templates_unit_progress(stage_name: str) -> PipelineProgress | None:
+	if str(stage_name) not in {"templates", "templates.per_unit_processing", "templates.plot_templates"}:
+		return None
+	return PipelineProgress(ProgressSpec(label=f"{stage_name} units", total=0, unit="unit"))
 
 
 def _stage_config_with_runtime_n_jobs(stage_config: Any, *, unit_workers: int) -> Any:
@@ -1232,6 +1255,8 @@ def run_preprocess_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		progress=PipelineProgress(ProgressSpec(label="preprocess wells", total=len(targets), unit="well")),
+		advance_progress_on_target_complete=True,
 	)
 	target_results = [_publish_preprocess_target_result(item, policy=publish_policy) for item in target_results]
 
@@ -1316,6 +1341,8 @@ def _run_preprocess_substage_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
+		advance_progress_on_target_complete=True,
 	)
 	succeeded = sum(1 for item in target_results if item.status == "ok")
 	failed = sum(1 for item in target_results if item.status != "ok")
@@ -1582,6 +1609,8 @@ def run_spikesort_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		progress=PipelineProgress(ProgressSpec(label="spikesort wells", total=len(targets), unit="well")),
+		advance_progress_on_target_complete=True,
 	)
 	target_results = [
 		_publish_spikesort_chain_target_result(
@@ -1897,6 +1926,8 @@ def run_spikesort_summarize_sort_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		progress=PipelineProgress(ProgressSpec(label="spikesort.summarize_sort wells", total=len(targets), unit="well")),
+		advance_progress_on_target_complete=True,
 	)
 	succeeded = sum(1 for item in target_results if item.status == "ok")
 	failed = sum(1 for item in target_results if item.status != "ok")
@@ -1985,6 +2016,8 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
+		advance_progress_on_target_complete=True,
 	)
 	if publish_after_run:
 		target_results = [_publish_spikesort_target_result(item, policy=publish_policy) for item in target_results]
@@ -2095,6 +2128,8 @@ def _run_spikesort_sort_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
+		advance_progress_on_target_complete=True,
 	)
 	target_results = [_publish_spikesort_target_result(item, policy=publish_policy) for item in target_results]
 
@@ -2285,6 +2320,8 @@ def run_spikesort_merge_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
+		advance_progress_on_target_complete=True,
 	)
 	target_results = [_publish_spikesort_merge_target_result(item, policy=publish_policy) for item in target_results]
 
@@ -2367,6 +2404,8 @@ def run_spikesort_bombcell_label_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
+		advance_progress_on_target_complete=True,
 	)
 	target_results = [
 		_publish_spikesort_bombcell_target_result(item, policy=publish_policy)
@@ -2474,6 +2513,7 @@ def _run_reconstruct_substage_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		progress=_reconstruct_unit_progress(stage_name),
 	)
 	if publish_outputs:
 		target_results = [_publish_reconstruct_target_result(item, policy=publish_policy) for item in target_results]
@@ -2788,6 +2828,7 @@ def run_templates_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		progress=_templates_unit_progress("templates"),
 	)
 	target_results = [_publish_templates_target_result(item, policy=publish_policy) for item in target_results]
 
@@ -2855,6 +2896,7 @@ def _run_templates_substage_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		progress=_templates_unit_progress(stage_name),
 	)
 	if publish_outputs:
 		target_results = [_publish_templates_target_result(item, policy=publish_policy) for item in target_results]

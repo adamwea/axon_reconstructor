@@ -19,6 +19,7 @@ from axon_recon.pipeline.shared.grid_sorting import (
 )
 from axon_recon.pipeline.execution import install_linux_parent_death_signal
 from axon_recon.pipeline.execution.phase_chain import PhaseDescriptor, run_phase_chain
+from axon_recon.pipeline.execution.progress import add_current_progress_total, advance_current_progress
 
 from .core.build_templates import build_templates_phase_from_payloads, build_templates_phase_from_unit_payloads
 from .core.compute_template_similarity import (
@@ -2679,6 +2680,7 @@ def _run_templates_plot_batches(
 		)
 		for batch_unit_ids in batches
 	]
+	add_current_progress_total(len(unit_ids))
 	with concurrent.futures.ProcessPoolExecutor(
 		max_workers=unit_procs,
 		initializer=install_linux_parent_death_signal,
@@ -2694,7 +2696,9 @@ def _run_templates_plot_batches(
 			batch_result = fut.result()
 			batch_results.append(batch_result)
 			completed += 1
-			completed_units += len(batch_result.units)
+			completed_batch_units = len(batch_result.units)
+			completed_units += completed_batch_units
+			advance_current_progress(completed_batch_units)
 			LOGGER.info(
 				"templates.plot_templates unified progress: %d/%d units completed (%d/%d batches)",
 				completed_units,
@@ -3851,10 +3855,12 @@ def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 			len(unit_results),
 			worker_count,
 		)
+	add_current_progress_total(len(units_to_process))
 	if worker_count <= 1 or len(units_to_process) <= 1:
 		total_to_run = len(units_to_process)
 		for idx, unit_id in enumerate(units_to_process, start=1):
 			unit_results.append(_process_unit(unit_id))
+			advance_current_progress()
 			if bool(inputs.log_unit_progress):
 				LOGGER.info("Templates unit progress: %d/%d completed", idx, total_to_run)
 	else:
@@ -3869,6 +3875,7 @@ def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 			for fut in concurrent.futures.as_completed(futures):
 				unit_results.append(fut.result())
 				completed += 1
+				advance_current_progress()
 				if bool(inputs.log_unit_progress):
 					LOGGER.info("Templates unit progress: %d/%d completed", completed, total_to_run)
 

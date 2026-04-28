@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from axon_recon.pipeline.execution.logging_context import install_pipeline_log_record_factory
+from axon_recon.pipeline.execution.progress import PipelineProgressStreamHandler
 
 from .checkpointing import parse_mea_style_metadata
 
@@ -117,7 +118,7 @@ def setup_pipeline_logger(
     console_level = logging.DEBUG if verbose else logging.INFO
     existing_ch = _get_console_handler(logger)
     if existing_ch is None:
-        ch = logging.StreamHandler(stream)
+        ch = PipelineProgressStreamHandler(stream)
         ch.setFormatter(formatter)
         ch.setLevel(console_level)
         logger.addHandler(ch)

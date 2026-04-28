@@ -267,11 +267,11 @@ stages:
       verbose: true
       file_relpath: logs/spikesort_pipeline.log
     debug_mode:
-      enabled: false
+      enabled: true
       #limit_datasets: 2
       #limit_wells: 2
       #limit_wells: null
-      #limit_wells_per_dataset: 1
+      limit_wells_per_dataset: 1
     execution:
       force_restart: false
       force_replot: false

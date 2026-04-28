@@ -15,6 +15,7 @@ from axon_recon.pipeline.shared.grid_sorting import (
 )
 from axon_recon.pipeline.execution import install_linux_parent_death_signal
 from axon_recon.pipeline.execution.phase_chain import PhaseDescriptor, run_phase_chain
+from axon_recon.pipeline.execution.progress import add_current_progress_total, advance_current_progress
 
 from .core.generate_gtrs import run_generate_gtrs_phase as run_generate_gtrs_core_phase
 from .core.diagnostic_plots import write_unit_axon_reconstruction_diagnostic_figure
@@ -662,6 +663,7 @@ def _run_reconstruct_generate_gtrs_batches(
 	]
 	batch_results: list[UnitReconstructionResult] = []
 	try:
+		add_current_progress_total(len(env.unit_ids))
 		with concurrent.futures.ProcessPoolExecutor(
 			max_workers=unit_procs,
 			initializer=install_linux_parent_death_signal,
@@ -677,7 +679,9 @@ def _run_reconstruct_generate_gtrs_batches(
 				batch_result = future.result()
 				batch_results.extend(batch_result)
 				completed += 1
-				completed_units += len(batch_result)
+				completed_batch_units = len(batch_result)
+				completed_units += completed_batch_units
+				advance_current_progress(completed_batch_units)
 				LOGGER.info(
 					"reconstruct.generate_gtrs unified progress: %d/%d units completed (%d/%d batches)",
 					completed_units,
@@ -717,6 +721,7 @@ def _run_reconstruct_generate_gtrs_batches(
 			is_expected_reconstruct_unit_failure_fn=_is_expected_reconstruct_unit_failure,
 			normalize_template_for_tracking_fn=_normalize_template_for_tracking,
 			logger=LOGGER,
+			progress_total_already_added=True,
 		)
 
 	batch_results.sort(key=lambda item: str(item.unit_id))

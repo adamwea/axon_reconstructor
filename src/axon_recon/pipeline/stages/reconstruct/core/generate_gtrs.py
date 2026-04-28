@@ -6,6 +6,8 @@ from pathlib import Path
 import pickle
 from typing import Any, Callable
 
+from axon_recon.pipeline.execution.progress import add_current_progress_total, advance_current_progress
+
 from ..models.inputs import ReconstructionGenerateGtrsOutputsConfig, ReconstructionInputs
 from ..models.results import UnitReconstructionResult
 
@@ -120,6 +122,7 @@ def run_generate_gtrs_phase(
 	is_expected_reconstruct_unit_failure_fn: Callable[[Exception], bool],
 	normalize_template_for_tracking_fn: Callable[[Any, Any], Any],
 	logger: logging.Logger | None = None,
+	progress_total_already_added: bool = False,
 ) -> list[UnitReconstructionResult]:
 	active_logger = logger or logging.getLogger("axon_recon.reconstruct.generate_gtrs")
 	phase_cfg = inputs.phases.generate_gtrs
@@ -139,6 +142,8 @@ def run_generate_gtrs_phase(
 		active_logger.info(
 			"reconstruct.generate_gtrs forcing gtr.pkl persistence for phase contract even though configured write_gtr_pkl=false"
 		)
+	if not bool(progress_total_already_added):
+		add_current_progress_total(len(unit_ids))
 
 	av = import_axon_velocity_fn(repo_root=inputs.axon_velocity_repo_root)
 
@@ -355,11 +360,13 @@ def run_generate_gtrs_phase(
 	if worker_count <= 1 or len(unit_ids) <= 1:
 		for unit_id in unit_ids:
 			unit_results.append(_process_unit(unit_id))
+			advance_current_progress()
 	else:
 		with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as pool:
 			futures = {pool.submit(_process_unit, unit_id): unit_id for unit_id in unit_ids}
 			for future in concurrent.futures.as_completed(futures):
 				unit_results.append(future.result())
+				advance_current_progress()
 
 	unit_results.sort(key=lambda item: str(item.unit_id))
 	units_ok = sum(1 for item in unit_results if str(item.status).strip().lower() == "ok")

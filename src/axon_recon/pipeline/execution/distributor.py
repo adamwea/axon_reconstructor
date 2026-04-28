@@ -9,6 +9,18 @@ from .read_groups import target_read_group_key
 from .results import TargetStageResult
 
 
+TargetCompleteCallback = Callable[[TargetStageResult], None]
+
+
+def _notify_target_complete(callback: TargetCompleteCallback | None, result: TargetStageResult) -> None:
+    if callback is None:
+        return
+    try:
+        callback(result)
+    except Exception:
+        return
+
+
 def _target_stage_result_from_future(
     *,
     future: concurrent.futures.Future[Any],
@@ -39,6 +51,7 @@ def _distribute_targets_with_read_group_cap(
     well_workers: int,
     max_simultaneous_well_reads_per_dataset: int,
     worker_fn: Callable[[ExecutionTarget], Any],
+    on_target_complete: TargetCompleteCallback | None = None,
 ) -> list[TargetStageResult]:
     group_order: list[Any] = []
     queues: dict[Any, deque[ExecutionTarget]] = {}
@@ -87,7 +100,9 @@ def _distribute_targets_with_read_group_cap(
             for future in done:
                 target, key = futures.pop(future)
                 active_counts[key] = max(0, int(active_counts[key]) - 1)
-                out.append(_target_stage_result_from_future(future=future, target=target))
+                result = _target_stage_result_from_future(future=future, target=target)
+                out.append(result)
+                _notify_target_complete(on_target_complete, result)
             _submit_available(pool)
 
     out.sort(key=lambda item: (item.target.dataset_index, item.target.stream_id))
@@ -100,15 +115,18 @@ def distribute_targets(
     well_workers: int,
     worker_fn: Callable[[ExecutionTarget], Any],
     max_simultaneous_well_reads_per_dataset: int | None = None,
+    on_target_complete: TargetCompleteCallback | None = None,
 ) -> list[TargetStageResult]:
     if int(max(1, int(well_workers))) <= 1:
         out: list[TargetStageResult] = []
         for target in targets:
             try:
                 result = worker_fn(target)
-                out.append(TargetStageResult(target=target, status="ok", result=result, error=None))
+                target_result = TargetStageResult(target=target, status="ok", result=result, error=None)
             except Exception as exc:
-                out.append(TargetStageResult(target=target, status="error", result=None, error=str(exc)))
+                target_result = TargetStageResult(target=target, status="error", result=None, error=str(exc))
+            out.append(target_result)
+            _notify_target_complete(on_target_complete, target_result)
         return out
 
     read_cap = _coerce_positive_optional_int(max_simultaneous_well_reads_per_dataset)
@@ -118,6 +136,7 @@ def distribute_targets(
             well_workers=well_workers,
             max_simultaneous_well_reads_per_dataset=int(read_cap),
             worker_fn=worker_fn,
+            on_target_complete=on_target_complete,
         )
 
     futures: dict[concurrent.futures.Future[Any], ExecutionTarget] = {}
@@ -129,7 +148,9 @@ def distribute_targets(
 
         for fut in concurrent.futures.as_completed(futures):
             target = futures[fut]
-            out.append(_target_stage_result_from_future(future=fut, target=target))
+            result = _target_stage_result_from_future(future=fut, target=target)
+            out.append(result)
+            _notify_target_complete(on_target_complete, result)
 
     out.sort(key=lambda item: (item.target.dataset_index, item.target.stream_id))
     return out

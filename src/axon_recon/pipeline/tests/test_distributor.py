@@ -112,6 +112,24 @@ def test_distributor_threaded_continue_on_error() -> None:
     assert len(oks) == 2
 
 
+def test_distributor_notifies_target_completion() -> None:
+    targets = [_target(0), _target(1)]
+    completed: list[tuple[int, str]] = []
+
+    def worker(target: ExecutionTarget) -> str:
+        return f"ok-{target.dataset_index}"
+
+    out = distribute_targets(
+        targets=targets,
+        well_workers=2,
+        worker_fn=worker,
+        on_target_complete=lambda result: completed.append((result.target.dataset_index, result.status)),
+    )
+
+    assert [item.status for item in out] == ["ok", "ok"]
+    assert sorted(completed) == [(0, "ok"), (1, "ok")]
+
+
 def test_distributor_read_cap_starts_one_well_per_h5_before_reusing_h5() -> None:
     targets = [
         _target_for(0, "well000"),
