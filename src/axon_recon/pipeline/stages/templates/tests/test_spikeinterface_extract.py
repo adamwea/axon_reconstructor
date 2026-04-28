@@ -792,6 +792,149 @@ def test_load_spikeinterface_analyzers_builds_dense_segment_analyzers_from_prepr
 	assert not any("Segment directory is not a loadable analyzer" in msg for msg in messages)
 
 
+def test_load_spikeinterface_analyzers_builds_segments_from_concat_sorting_without_concat_analyzer(
+	tmp_path,
+	monkeypatch,
+	caplog,
+) -> None:
+	well_out_dir = tmp_path / "well000"
+	sorting_dir = well_out_dir / "custom_sorting"
+	segments_dir = well_out_dir / "custom_segments"
+	seg_a = segments_dir / "000_recA"
+	sorting_dir.mkdir(parents=True, exist_ok=True)
+	seg_a.mkdir(parents=True, exist_ok=True)
+
+	epochs = [{"segment_index": 0, "rec_name": "recA", "start_sample": 0, "end_sample": 100}]
+	(well_out_dir / "concatenation_stitch_epochs_well000.json").write_text(json.dumps(epochs), encoding="utf-8")
+
+	class _FakeConcatSorting:
+		def get_unit_ids(self):
+			return [94]
+
+		def get_num_segments(self):
+			return 1
+
+		def get_sampling_frequency(self):
+			return 10_000.0
+
+		def get_unit_spike_train(self, unit_id: int, segment_index: int = 0):
+			_ = unit_id, segment_index
+			return np.asarray([10, 20, 110, 120], dtype=int)
+
+	class _FakeRecording:
+		def get_sampling_frequency(self):
+			return 10_000.0
+
+	class _FakeNumpySorting:
+		def __init__(self, mapping: dict[int, np.ndarray], fs: float) -> None:
+			self._mapping = {int(k): np.asarray(v, dtype=int) for k, v in mapping.items()}
+			self._fs = float(fs)
+
+		@property
+		def unit_ids(self):
+			return [u for u, spikes in sorted(self._mapping.items()) if int(spikes.size) > 0]
+
+		def remove_empty_units(self):
+			self._mapping = {u: spikes for u, spikes in self._mapping.items() if int(spikes.size) > 0}
+			return self
+
+		@staticmethod
+		def from_unit_dict(unit_trains: dict[int, np.ndarray], sampling_frequency: float):
+			return _FakeNumpySorting(mapping=unit_trains, fs=sampling_frequency)
+
+		@staticmethod
+		def from_times_labels(times_list, labels_list, sampling_frequency: float):
+			times = np.asarray(times_list[0], dtype=int)
+			labels = np.asarray(labels_list[0], dtype=int)
+			mapping: dict[int, list[int]] = {}
+			for t, lab in zip(times.tolist(), labels.tolist(), strict=False):
+				mapping.setdefault(int(lab), []).append(int(t))
+			return _FakeNumpySorting(
+				mapping={int(k): np.asarray(v, dtype=int) for k, v in mapping.items()},
+				fs=sampling_frequency,
+			)
+
+	create_calls: list[dict[str, object]] = []
+	fake_sorting = _FakeConcatSorting()
+
+	class _FakeBuiltAnalyzer:
+		def __init__(self, sorting, recording):
+			self.sorting = sorting
+			self.recording = recording
+
+		def compute(self, names, extension_params=None, verbose: bool = False, n_jobs: int = 1, **kwargs):
+			_ = names, extension_params, verbose, n_jobs, kwargs
+
+	def _fake_load_sorting_analyzer(path):
+		_ = path
+		raise AssertionError("concat analyzer should not be loaded for segment-only registration")
+
+	def _fake_load_sorting(path):
+		if str(path) == str(sorting_dir):
+			return fake_sorting
+		raise RuntimeError("unexpected sorting path")
+
+	def _fake_create_sorting_analyzer(sorting, recording, format="memory", return_in_uV=True, **kwargs):
+		create_calls.append(
+			{
+				"format": format,
+				"return_in_uV": return_in_uV,
+				"units": list(getattr(sorting, "unit_ids", [])),
+				**kwargs,
+			}
+		)
+		return _FakeBuiltAnalyzer(sorting=sorting, recording=recording)
+
+	def _fake_remove_excess_spikes(sorting, recording):
+		_ = recording
+		return sorting
+
+	def _fake_load_extractor(path):
+		if str(path) == str(seg_a):
+			return _FakeRecording()
+		raise RuntimeError("unexpected extractor path")
+
+	fake_full = types.ModuleType("spikeinterface.full")
+	fake_full.load_sorting_analyzer = _fake_load_sorting_analyzer  # type: ignore[attr-defined]
+	fake_full.load_sorting = _fake_load_sorting  # type: ignore[attr-defined]
+	fake_full.create_sorting_analyzer = _fake_create_sorting_analyzer  # type: ignore[attr-defined]
+	fake_full.remove_excess_spikes = _fake_remove_excess_spikes  # type: ignore[attr-defined]
+	fake_full.load_extractor = _fake_load_extractor  # type: ignore[attr-defined]
+	fake_full.load = _fake_load_extractor  # type: ignore[attr-defined]
+
+	fake_core = types.ModuleType("spikeinterface.core")
+	fake_core.NumpySorting = _FakeNumpySorting  # type: ignore[attr-defined]
+
+	fake_root = types.ModuleType("spikeinterface")
+	fake_root.full = fake_full  # type: ignore[attr-defined]
+	fake_root.core = fake_core  # type: ignore[attr-defined]
+
+	monkeypatch.setitem(sys.modules, "spikeinterface", fake_root)
+	monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_full)
+	monkeypatch.setitem(sys.modules, "spikeinterface.core", fake_core)
+
+	with caplog.at_level(logging.INFO, logger="axon_recon.templates.spikeinterface"):
+		analyzers = load_spikeinterface_analyzers(
+			well_out_dir=well_out_dir,
+			concat_sorting_relpath="/custom_sorting",
+			preproc_seg_sources_reldir="/custom_segments",
+			stream_id="well000",
+			include_concat=False,
+			include_segments=True,
+			segments_policy=AnalyzerPreparationPolicyConfig(compute_sparsity=False, sparsity_mode="dense"),
+		)
+
+	names = [name for name, _ in analyzers]
+	assert names == ["000_recA"]
+	assert len(create_calls) == 1
+	assert create_calls[0]["units"] == [94]
+	assert create_calls[0]["sparse"] is False
+	messages = [rec.getMessage() for rec in caplog.records]
+	assert any("Loading concat sorting for segment registration:" in msg for msg in messages)
+	assert any("Registered preprocessed segment recording with concat spikes: segment=000_recA" in msg for msg in messages)
+	assert not any("Concat analyzer selection:" in msg for msg in messages)
+
+
 def test_load_spikeinterface_analyzers_builds_dense_concat_from_sorting_and_preprocessed_concat(tmp_path, monkeypatch) -> None:
 	well_out_dir = tmp_path / "well001"
 	sorting_dir = well_out_dir / "custom_sorting"

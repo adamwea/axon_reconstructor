@@ -259,7 +259,7 @@ stages:
   spikesort:
     resources:
       max_stage_workers: 18
-      well_workers: 3
+      well_workers: 2
       divide_stage_workers_by_wells: true # This controls the derived value of n_jobs. when true, stage workers are divided evenly among wells up to the max number of well workers.
       chunk_duration: 1s
     logging:
@@ -1025,13 +1025,13 @@ stages:
             peak_sign: neg
             num_spikes_for_sparsity: 100
         concat:
-          enabled: true
-          required: true
-          # Fast path: reuse the concat analyzer already materialized by spikesort merge/sort stage.
-          use_existing_analyzer: true
-          # If use_existing_analyzer is false, templates will rebuild its own local concat analyzer/cache
-          # from sorting + preprocessed recording and will not overwrite spikesort_outputs/analyzer_output.
-          build_if_missing: true
+          enabled: false
+          required: false
+          # Segment-only template extraction path: keep this disabled when spikesort cleans up the concat recording binary.
+          # Segment analyzer registration still uses sorting_relpath below and does not require the concat analyzer.
+          use_existing_analyzer: false
+          # Leave false in segment-only mode; rebuilding a concat analyzer requires the preprocessed concat recording.
+          build_if_missing: false
           analyzer_relpath: /spikesort_outputs/analyzer_output
           sorting_relpath: /spikesort_outputs/sorter_output
           preprocessed_recording_reldir: /preprocess_outputs/preprocessed_recording

@@ -238,7 +238,8 @@ def _build_segment_analyzer_from_preprocessed_recording(
 	si: Any,
 	si_core: Any,
 	policy: AnalyzerPreparationPolicyConfig,
-	concat_analyzer: Any,
+	concat_analyzer: Any | None,
+	concat_sorting: Any | None,
 	seg_dir: Path,
 	seg_name: str,
 	seg_index: int,
@@ -270,7 +271,9 @@ def _build_segment_analyzer_from_preprocessed_recording(
 		str(seg_dir),
 	)
 
-	sorting = getattr(concat_analyzer, "sorting", None)
+	sorting = concat_sorting
+	if sorting is None and concat_analyzer is not None:
+		sorting = getattr(concat_analyzer, "sorting", None)
 	if sorting is None:
 		LOGGER.info("Skipping segment analyzer build: concat sorting unavailable for segment=%s", str(seg_name))
 		return None
@@ -284,11 +287,10 @@ def _build_segment_analyzer_from_preprocessed_recording(
 		return None
 
 	fs_hz: float | None = None
-	for getter in (
-		lambda: sorting.get_sampling_frequency(),
-		lambda: concat_analyzer.recording.get_sampling_frequency(),
-		lambda: seg_rec.get_sampling_frequency(),
-	):
+	frequency_getters = [lambda: sorting.get_sampling_frequency(), lambda: seg_rec.get_sampling_frequency()]
+	if concat_analyzer is not None:
+		frequency_getters.insert(1, lambda: concat_analyzer.recording.get_sampling_frequency())
+	for getter in frequency_getters:
 		try:
 			cand = float(getter())
 			if cand > 0.0 and np.isfinite(cand):
@@ -1693,6 +1695,7 @@ def load_spikeinterface_analyzers(
 			"source": None,
 			"recording_attached": False,
 			"sorting_loaded_for_build": False,
+			"sorting_loaded_for_segment_registration": False,
 			"recording_loaded_for_build": False,
 		},
 		"segments": {
@@ -1942,7 +1945,34 @@ def load_spikeinterface_analyzers(
 
 	analyzers: list[tuple[str, Any]] = []
 	concat_analyzer_obj: Any | None = None
+	concat_sorting_obj: Any | None = None
 	concat_selection_logged = False
+
+	def _load_concat_sorting_for_segment_registration() -> Any | None:
+		nonlocal concat_sorting_obj
+		if concat_sorting_obj is not None:
+			return concat_sorting_obj
+		if concat_analyzer_obj is not None:
+			try:
+				concat_sorting_obj = getattr(concat_analyzer_obj, "sorting", None)
+			except Exception:
+				concat_sorting_obj = None
+			if concat_sorting_obj is not None:
+				return concat_sorting_obj
+		if concat_sorting_dir is None:
+			LOGGER.info("Concat sorting unavailable for segment registration: concat sorting path is not configured")
+			return None
+		if not concat_sorting_dir.exists():
+			LOGGER.info("Concat sorting unavailable for segment registration: path missing: %s", str(concat_sorting_dir))
+			return None
+		LOGGER.info("Loading concat sorting for segment registration: %s", str(concat_sorting_dir))
+		concat_sorting_obj = _load_with_methods(concat_sorting_dir, ("load_sorting", "load_extractor", "load"))
+		if concat_sorting_obj is None:
+			LOGGER.warning("Failed to load concat sorting for segment registration: %s", str(concat_sorting_dir))
+			return None
+		load_stats["concat"]["sorting_loaded_for_segment_registration"] = True
+		LOGGER.info("Loaded concat sorting for segment registration: %s", str(concat_sorting_dir))
+		return concat_sorting_obj
 
 	def _ensure_concat_analyzer_loaded(*, register_requested_source: bool) -> Any | None:
 		nonlocal concat_analyzer_obj, concat_selection_logged
@@ -2139,9 +2169,12 @@ def load_spikeinterface_analyzers(
 				)
 
 		if segments_build_if_missing and unloadable_seg_dirs and concat_analyzer_obj is None:
-			_ensure_concat_analyzer_loaded(register_requested_source=False)
+			_load_concat_sorting_for_segment_registration()
+			if concat_sorting_obj is None and include_concat:
+				_ensure_concat_analyzer_loaded(register_requested_source=False)
+				_load_concat_sorting_for_segment_registration()
 
-		if segments_build_if_missing and unloadable_seg_dirs and concat_analyzer_obj is not None:
+		if segments_build_if_missing and unloadable_seg_dirs and (concat_analyzer_obj is not None or concat_sorting_obj is not None):
 			try:
 				import spikeinterface.core as si_core  # type: ignore[import-not-found]
 			except Exception:
@@ -2153,7 +2186,7 @@ def load_spikeinterface_analyzers(
 				)
 				unloadable_seg_dirs = []
 
-		if segments_build_if_missing and unloadable_seg_dirs and concat_analyzer_obj is not None:
+		if segments_build_if_missing and unloadable_seg_dirs and (concat_analyzer_obj is not None or concat_sorting_obj is not None):
 			LOGGER.info(
 				"Generating segment analyzers from preprocessed recordings: count=%d source_dir=%s settings=%s",
 				int(len(unloadable_seg_dirs)),
@@ -2210,6 +2243,7 @@ def load_spikeinterface_analyzers(
 					si_core=si_core,
 					policy=segments_policy_resolved,
 					concat_analyzer=concat_analyzer_obj,
+					concat_sorting=concat_sorting_obj,
 					seg_dir=seg_dir,
 					seg_name=seg_name,
 					seg_index=int(seg_index),
@@ -2235,9 +2269,9 @@ def load_spikeinterface_analyzers(
 					int(built_count),
 					str(segments_dir),
 				)
-		elif unloadable_seg_dirs and concat_analyzer_obj is None:
+		elif unloadable_seg_dirs and concat_analyzer_obj is None and concat_sorting_obj is None:
 			LOGGER.info(
-				"Segment fallback build skipped: concat analyzer unavailable for source_dir=%s",
+				"Segment fallback build skipped: concat sorting unavailable for source_dir=%s",
 				str(segments_dir),
 			)
 	if include_segments and (not segments_dir.exists()) and (len([k for k in cached_analyzers.keys() if k != "concat"]) == 0):
