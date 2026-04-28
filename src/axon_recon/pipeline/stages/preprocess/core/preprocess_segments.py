@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import logging
 import os
 import shutil
@@ -46,6 +48,7 @@ def _load_centered_segment_with_electrode_channel_ids(
 	stream_id: str,
 	rec_name: str,
 	center_chunk_size: int,
+	suppress_h5_plugin_messages: bool = False,
 ) -> tuple[Any, dict[str, Any]]:
 	try:
 		import numpy as np
@@ -54,12 +57,33 @@ def _load_centered_segment_with_electrode_channel_ids(
 	except Exception as exc:  # pragma: no cover
 		raise RuntimeError("raw preprocessing requires `numpy` and `spikeinterface` installed") from exc
 
-	_ensure_maxwell_hdf5_plugin_path()
+	_ensure_maxwell_hdf5_plugin_path(suppress_messages=bool(suppress_h5_plugin_messages))
 
-	if hasattr(se, "read_maxwell"):
-		recording = se.read_maxwell(file_path=str(h5_path), stream_id=stream_id, rec_name=rec_name)
-	else:  # pragma: no cover
-		recording = se.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_name)
+	with contextlib.ExitStack() as stack:
+		if bool(suppress_h5_plugin_messages):
+			suppressed_stream = io.StringIO()
+			stack.enter_context(contextlib.redirect_stdout(suppressed_stream))
+			stack.enter_context(contextlib.redirect_stderr(suppressed_stream))
+		if hasattr(se, "read_maxwell"):
+			try:
+				recording = se.read_maxwell(
+					file_path=str(h5_path),
+					stream_id=stream_id,
+					rec_name=rec_name,
+					install_maxwell_plugin=(not bool(suppress_h5_plugin_messages)),
+				)
+			except TypeError:
+				recording = se.read_maxwell(file_path=str(h5_path), stream_id=stream_id, rec_name=rec_name)
+		else:  # pragma: no cover
+			try:
+				recording = se.MaxwellRecordingExtractor(
+					str(h5_path),
+					stream_id=stream_id,
+					rec_name=rec_name,
+					install_maxwell_plugin=(not bool(suppress_h5_plugin_messages)),
+				)
+			except TypeError:
+				recording = se.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_name)
 
 	fs = float(recording.get_sampling_frequency())
 	n_samples = int(recording.get_num_samples())
@@ -229,6 +253,7 @@ def run_preprocess_segments_core(
 	limit_segments_per_well: int | None,
 	logger: logging.Logger | None,
 	run_save_segment_recordings_core: Any,
+	suppress_h5_plugin_messages: bool = False,
 ) -> dict[str, object]:
 	_ = contiguous_epochs_path
 	output_mode_token = str(output_mode or "binary").strip().lower()
@@ -273,6 +298,7 @@ def run_preprocess_segments_core(
 			stream_id=str(stream_id),
 			rec_name=str(rec_name),
 			center_chunk_size=10_000,
+			suppress_h5_plugin_messages=bool(suppress_h5_plugin_messages),
 		)
 		segment_recording = _select_common_electrode_channels(
 			recording=segment_recording,

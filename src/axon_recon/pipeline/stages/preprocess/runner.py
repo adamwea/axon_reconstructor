@@ -2798,6 +2798,7 @@ def _run_preprocess_phase_sequence(
 					chunk_duration=str(inputs.phases.preprocess_segments.outputs.save_chunk_duration),
 					progress_bar=bool(inputs.phases.preprocess_segments.outputs.save_progress_bar),
 					limit_segments_per_well=inputs.debug_limit_segments_per_well,
+					suppress_h5_plugin_messages=bool(inputs.logging_suppress_h5_plugin_messages),
 					logger=phase_logger,
 					run_save_segment_recordings_core=run_save_segment_recordings_core,
 				)

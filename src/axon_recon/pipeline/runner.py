@@ -21,6 +21,7 @@ from .execution.logging_context import install_pipeline_log_record_factory, pipe
 from .execution.phase_chain import PhaseDescriptor, run_phase_chain
 from .execution.progress import PipelineProgress, ProgressSpec, pipeline_progress_context
 from .execution.results import MultiTargetStageResult, TargetStageResult
+from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
 from .stages.analysis.api import run_analysis
 from .stages.analysis.config import build_analysis_inputs_for_target, parse_analysis_stage_config
 from .stages.analysis.cross_well import generate_cross_well_artifacts
@@ -241,6 +242,7 @@ def _distribute_runtime_targets(
 	advance_progress_on_target_complete: bool = False,
 ) -> list[TargetStageResult]:
 	install_pipeline_log_record_factory()
+	install_maxwell_hdf5_plugin_message_filter()
 
 	def worker_with_log_context(target: Any) -> Any:
 		with pipeline_log_context_for_target(target), pipeline_progress_context(progress):

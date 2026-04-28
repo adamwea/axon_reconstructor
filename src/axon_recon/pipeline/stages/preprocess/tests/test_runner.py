@@ -461,6 +461,7 @@ def test_run_preprocess_stage_passes_plot_and_segment_controls_to_phase_cores(tm
 
     assert captured_phase_kwargs["preprocess_segments"]["limit_segments_per_well"] == 2
     assert captured_phase_kwargs["preprocess_segments"]["logger_is_none"] is True
+    assert captured_phase_kwargs["preprocess_segments"]["suppress_h5_plugin_messages"] is True
     assert Path(str(captured_phase_kwargs["save_rec_metadata"]["segment_epochs_path"])) == canonical_out_dir / "segment_epochs.json"
     assert Path(str(captured_phase_kwargs["save_rec_metadata"]["assay_stats_path"])) == canonical_out_dir / "assay_stats_well001.txt"
     assert Path(str(captured_phase_kwargs["prepare_raw_binaries"]["recording_dir"])) == canonical_out_dir / "raw_binary_recording"
@@ -983,6 +984,69 @@ def test_run_preprocess_segments_core_logs_progress_per_well(monkeypatch, tmp_pa
     )
     assert any("preprocess_segments progress well=well001 completed=1/3 rec_name=seg000" in message for message in messages)
     assert any("preprocess_segments progress well=well001 completed=3/3 rec_name=seg002" in message for message in messages)
+
+
+def test_load_centered_segment_suppresses_maxwell_plugin_output(monkeypatch, tmp_path: Path, capsys) -> None:
+    from axon_recon.pipeline.stages.preprocess.core import preprocess_segments as preprocess_segments_core
+
+    class _FakeRecording:
+        def __init__(self) -> None:
+            self._channel_ids = [11, 22]
+
+        def get_sampling_frequency(self) -> float:
+            return 10_000.0
+
+        def get_num_samples(self) -> int:
+            return 200
+
+        def get_num_channels(self) -> int:
+            return 2
+
+        def get_property(self, name: str):
+            assert name == "contact_vector"
+            return {"electrode": [11, 22]}
+
+        def rename_channels(self, channel_ids):
+            self._channel_ids = list(channel_ids)
+            return self
+
+        def get_channel_ids(self):
+            return list(self._channel_ids)
+
+    read_kwargs: list[dict[str, object]] = []
+
+    def _fake_read_maxwell(*args, **kwargs):
+        _ = args
+        read_kwargs.append(dict(kwargs))
+        print("The h5 compression library for Maxwell is already located somewhere!")
+        return _FakeRecording()
+
+    fake_spikeinterface = types.ModuleType("spikeinterface")
+    fake_extractors = types.ModuleType("spikeinterface.extractors")
+    fake_extractors.read_maxwell = _fake_read_maxwell
+    fake_full = types.ModuleType("spikeinterface.full")
+    fake_full.center = lambda recording, chunk_size: recording
+    fake_spikeinterface.extractors = fake_extractors
+    fake_spikeinterface.full = fake_full
+    monkeypatch.setitem(sys.modules, "spikeinterface", fake_spikeinterface)
+    monkeypatch.setitem(sys.modules, "spikeinterface.extractors", fake_extractors)
+    monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_full)
+    monkeypatch.setattr(preprocess_segments_core, "_ensure_maxwell_hdf5_plugin_path", lambda **kwargs: None)
+
+    recording, stats = preprocess_segments_core._load_centered_segment_with_electrode_channel_ids(
+        h5_path=tmp_path / "input.raw.h5",
+        stream_id="well001",
+        rec_name="rec0000",
+        center_chunk_size=10_000,
+        suppress_h5_plugin_messages=True,
+    )
+
+    captured = capsys.readouterr()
+    assert "The h5 compression library for Maxwell" not in captured.out
+    assert "The h5 compression library for Maxwell" not in captured.err
+    assert read_kwargs[0]["install_maxwell_plugin"] is False
+    assert recording.get_channel_ids() == [11, 22]
+    assert stats["rec_name"] == "rec0000"
 
 
 def test_run_preprocess_segments_core_lazy_mode_writes_provenance_manifest_without_saving(monkeypatch, tmp_path: Path) -> None:
