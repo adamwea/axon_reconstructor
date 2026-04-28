@@ -6,15 +6,11 @@ import logging
 from pathlib import Path
 import shutil
 from time import perf_counter
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np  # type: ignore[import-not-found]
 
 from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir #TODO: dont import this from v1
-from axon_reconstructor.pipeline.stg2_spikesorting.runner import (
-	LEGACY_SPIKESORTING_OUTPUTS_DIRNAME,
-	SPIKESORTING_OUTPUTS_DIRNAME,
-)
 from axon_recon.pipeline.shared.grid_sorting import (
 	coerce_grid_sort_metrics,
 	compute_template_grid_sort_metrics,
@@ -22,6 +18,7 @@ from axon_recon.pipeline.shared.grid_sorting import (
 	normalize_grid_sort_by,
 )
 from axon_recon.pipeline.execution import install_linux_parent_death_signal
+from axon_recon.pipeline.execution.phase_chain import PhaseDescriptor, run_phase_chain
 
 from .core.build_templates import build_templates_phase_from_payloads, build_templates_phase_from_unit_payloads
 from .core.compute_template_similarity import (
@@ -40,6 +37,7 @@ from .core.report_templates import (
 	build_report_templates_phase_summary,
 	report_templates_pdf_requested,
 )
+from .core.unit_labels import count_labels, filter_unit_ids_by_labels, load_unit_labels_from_spikesorting
 from .core.quality_checks import detect_multiple_negative_peaks
 from .core.render import (
 	compose_png_side_by_side,
@@ -86,6 +84,17 @@ from .models.results import TemplatesResult, UnitTemplatesResult
 
 
 LOGGER = logging.getLogger("axon_recon.templates")
+
+DEFAULT_INTERNAL_TEMPLATES_PHASE_SEQUENCE: tuple[str, ...] = (
+	"resolve_sources",
+	"analyzers",
+	"extract_template_segments",
+	"build_templates",
+	"compute_template_similarity",
+	"plot_templates",
+	"report_templates",
+	"reports",
+)
 
 
 def _as_positive_float_or_none(value: Any) -> float | None:
@@ -785,6 +794,135 @@ def _collect_existing_templates_report_outputs(
 	return report_outputs
 
 
+def collect_templates_result_from_outputs(inputs: TemplatesInputs) -> TemplatesResult:
+	well_out_dir, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
+	unit_ids = list(inputs.unit_ids) if inputs.unit_ids is not None else _discover_unit_ids_from_unit_summaries(templates_out_dir)
+	if inputs.unit_limit is not None:
+		unit_ids = unit_ids[: int(inputs.unit_limit)]
+	unit_ids = _apply_unit_label_filter(inputs, unit_ids, well_out_dir, context="collect_result")
+	unit_results: list[UnitTemplatesResult] = []
+	for unit_id in unit_ids:
+		paths = resolve_unit_output_paths(
+			templates_out_dir=templates_out_dir,
+			unit_id=unit_id,
+			per_unit_outputs=inputs.per_unit_outputs,
+		)
+		unit_result = _load_unit_result_from_summary(unit_id=unit_id, unit_summary_json=paths["unit_summary_json"])
+		if unit_result is not None:
+			unit_results.append(unit_result)
+	report_outputs = _collect_existing_templates_report_outputs(templates_out_dir=templates_out_dir, inputs=inputs)
+	summary_json = _write_templates_stage_summary(
+		inputs=inputs,
+		well_out_dir=well_out_dir,
+		templates_out_dir=templates_out_dir,
+		unit_results=unit_results,
+		report_outputs=report_outputs,
+		analyzer_cache_dir=None,
+		upsampling_decisions_by_unit={},
+		reports_replot_requested=_reports_replot_requested(inputs),
+		report_only_rerun=False,
+		preserve_stage_reports=_should_preserve_templates_reports(inputs),
+	)
+	return TemplatesResult(
+		well_out_dir=well_out_dir,
+		templates_out_dir=templates_out_dir,
+		summary_json=summary_json,
+		units=unit_results,
+		report_outputs=report_outputs,
+	)
+
+
+def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
+	if inputs.phase_sequence is None:
+		return _run_templates_stage_monolithic(inputs)
+	phase_sequence = tuple(
+		_normalize_templates_stage_phase_name(phase)
+		for phase in inputs.phase_sequence
+	)
+	phase_plan = [phase for phase in phase_sequence if _templates_stage_phase_enabled(inputs, phase)]
+	if not phase_plan:
+		return collect_templates_result_from_outputs(inputs)
+
+	def _descriptor_for_phase(phase_name: str) -> PhaseDescriptor:
+		def _run_phase(phase_name: str = phase_name):
+			return _templates_stage_phase_runner(phase_name)(inputs)
+
+		return PhaseDescriptor(name=str(phase_name), runner=_run_phase)
+
+	run_phase_chain(
+		phases=[_descriptor_for_phase(phase) for phase in phase_plan],
+		logger=LOGGER,
+		target_label=str(inputs.stream_id),
+	)
+	return collect_templates_result_from_outputs(inputs)
+
+
+def _normalize_templates_stage_phase_name(raw: Any) -> str:
+	token = str(raw or "").strip().replace("-", "_").replace(" ", "_")
+	aliases = {
+		"resolve": "resolve_sources",
+		"analyzer": "analyzers",
+		"extract": "extract_template_segments",
+		"build": "build_templates",
+		"similarity": "compute_template_similarity",
+		"compute_similarity": "compute_template_similarity",
+		"plot": "plot_templates",
+		"plots": "plot_templates",
+		"template_report": "report_templates",
+		"per_unit_processing.extract_template_segments": "extract_template_segments",
+		"per_unit_processing.build_templates": "build_templates",
+		"per_unit_processing.plots": "plot_templates",
+	}
+	return aliases.get(token, token)
+
+
+def _templates_stage_phase_enabled(inputs: TemplatesInputs, phase_name: str) -> bool:
+	phase = _normalize_templates_stage_phase_name(phase_name)
+	phases = inputs.phases
+	if phase == "resolve_sources":
+		return bool(inputs.resolve_sources_phase.enabled)
+	if phase == "analyzers":
+		return bool(phases.analyzers.enabled)
+	if phase == "extract_template_segments":
+		return bool(phases.per_unit_processing.enabled) and bool(phases.per_unit_processing.extract_template_segments.enabled)
+	if phase == "build_templates":
+		return bool(phases.per_unit_processing.enabled) and bool(phases.per_unit_processing.build_templates.enabled)
+	if phase == "compute_template_similarity":
+		return bool(phases.compute_template_similarity.enabled)
+	if phase == "plot_templates":
+		return bool(phases.per_unit_processing.enabled) and bool(phases.plot_templates.enabled)
+	if phase == "report_templates":
+		return bool(phases.report_templates.enabled)
+	if phase == "reports":
+		return bool(phases.reports.enabled)
+	if phase == "per_unit_processing":
+		return bool(phases.per_unit_processing.enabled)
+	return False
+
+
+def _templates_stage_phase_runner(phase_name: str) -> Callable[[TemplatesInputs], Any]:
+	phase = _normalize_templates_stage_phase_name(phase_name)
+	if phase == "resolve_sources":
+		return run_templates_resolve_sources_phase
+	if phase == "analyzers":
+		return run_templates_analyzers_phase
+	if phase == "extract_template_segments":
+		return run_templates_extract_template_segments_phase
+	if phase == "build_templates":
+		return run_templates_build_templates_phase
+	if phase == "compute_template_similarity":
+		return run_templates_compute_template_similarity_phase
+	if phase == "plot_templates":
+		return run_templates_plot_templates_phase
+	if phase == "report_templates":
+		return run_templates_report_templates_phase
+	if phase == "reports":
+		return run_templates_reports_phase
+	if phase == "per_unit_processing":
+		return run_templates_per_unit_processing_phase
+	raise ValueError(f"Unknown templates phase: {phase_name!r}")
+
+
 def _path_is_within_preserved_set(path: Path, preserve_paths: list[Path]) -> bool:
 	resolved = path.resolve()
 	for preserve_path in preserve_paths:
@@ -1088,32 +1226,33 @@ def _build_unit_ids(inputs: TemplatesInputs, merged_units_dir: Path) -> list[Any
 	return unit_ids
 
 
-def _normalize_compare_token(value: Any) -> str:
-	return str(value).strip()
-
-
-def _load_curated_units_from_spikesorting(well_out_dir: Path) -> list[Any] | None:
-	qm_xlsx = well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / "qm_unfiltered.xlsx"
-	if not qm_xlsx.exists():
-		legacy_qm_xlsx = well_out_dir / LEGACY_SPIKESORTING_OUTPUTS_DIRNAME / "qm_unfiltered.xlsx"
-		if legacy_qm_xlsx.exists():
-			qm_xlsx = legacy_qm_xlsx
-	if not qm_xlsx.exists():
-		return None
-	try:
-		import pandas as pd  # type: ignore[import-not-found]
-
-		df = pd.read_excel(qm_xlsx, index_col=0)
-		return list(df.index.values)
-	except Exception:
-		return None
-
-
-def _apply_curated_filter(unit_ids: list[Any], curated_units: list[Any]) -> list[Any]:
-	if not curated_units:
+def _apply_unit_label_filter(inputs: TemplatesInputs, unit_ids: list[Any], well_out_dir: Path, *, context: str) -> list[Any]:
+	allowed_labels = tuple(str(label).strip().lower() for label in inputs.unit_label_filter_labels if str(label).strip())
+	if not allowed_labels:
 		return list(unit_ids)
-	curated_tokens = {_normalize_compare_token(x) for x in curated_units}
-	return [uid for uid in unit_ids if _normalize_compare_token(uid) in curated_tokens]
+	labels_by_unit = load_unit_labels_from_spikesorting(well_out_dir)
+	if not labels_by_unit:
+		if bool(inputs.unit_label_filter_required):
+			raise RuntimeError(
+				"Templates unit label filter is enabled, but no Bombcell/Kilosort unit labels were found under "
+				f"{well_out_dir}."
+			)
+		LOGGER.warning(
+			"Templates %s: unit label filter skipped because no labels were found under %s",
+			context,
+			well_out_dir,
+		)
+		return list(unit_ids)
+	filtered = filter_unit_ids_by_labels(unit_ids, labels_by_unit, allowed_labels)
+	LOGGER.info(
+		"Templates %s: unit label filter allowed=%s kept=%d/%d counts=%s",
+		context,
+		list(allowed_labels),
+		len(filtered),
+		len(unit_ids),
+		count_labels(labels_by_unit),
+	)
+	return filtered
 
 
 def _load_unit_result_from_summary(*, unit_id: Any, unit_summary_json: Path) -> UnitTemplatesResult | None:
@@ -1436,20 +1575,21 @@ def run_templates_resolve_sources_phase(inputs: TemplatesInputs) -> dict[str, An
 		),
 	}
 
-	curated_probe: dict[str, Any] = {
-		"required": bool(inputs.require_curated_units),
+	unit_label_probe: dict[str, Any] = {
+		"allowed_labels": list(inputs.unit_label_filter_labels),
+		"required": bool(inputs.unit_label_filter_required),
 		"probe_attempted": False,
 		"available": None,
-		"count": 0,
+		"counts_by_label": {},
 	}
-	if bool(phase_cfg.probe_curated_units) and bool(inputs.require_curated_units) and inputs.unit_ids is None:
-		curated_probe["probe_attempted"] = True
-		curated_units = _load_curated_units_from_spikesorting(well_out_dir)
-		if curated_units is not None:
-			curated_probe["available"] = True
-			curated_probe["count"] = int(len(curated_units))
+	if bool(phase_cfg.probe_unit_labels) and inputs.unit_label_filter_labels:
+		unit_label_probe["probe_attempted"] = True
+		labels_by_unit = load_unit_labels_from_spikesorting(well_out_dir)
+		if labels_by_unit is not None:
+			unit_label_probe["available"] = True
+			unit_label_probe["counts_by_label"] = count_labels(labels_by_unit)
 		else:
-			curated_probe["available"] = False
+			unit_label_probe["available"] = False
 
 	summary: dict[str, Any] = {
 		"phase": "resolve_sources",
@@ -1466,8 +1606,7 @@ def run_templates_resolve_sources_phase(inputs: TemplatesInputs) -> dict[str, An
 		"unit_scope": {
 			"unit_ids": (None if inputs.unit_ids is None else list(inputs.unit_ids)),
 			"unit_limit": inputs.unit_limit,
-			"require_curated_units": bool(inputs.require_curated_units),
-			"curated_probe": curated_probe,
+			"unit_label_filter": unit_label_probe,
 		},
 		"source_requirements": {
 			"include_concat": bool(inputs.include_concat),
@@ -1839,15 +1978,7 @@ def _collect_templates_phase_unit_ids(
 		unit_ids = []
 	if inputs.unit_limit is not None:
 		unit_ids = unit_ids[: int(inputs.unit_limit)]
-	if bool(inputs.require_curated_units) and inputs.unit_ids is None:
-		curated = _load_curated_units_from_spikesorting(well_out_dir)
-		if curated is None:
-			raise RuntimeError(
-				"Templates phase requires curated units, but curated units file was not found/readable at "
-				f"{well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / 'qm_unfiltered.xlsx'}"
-			)
-		unit_ids = _apply_curated_filter(unit_ids, curated)
-	return unit_ids
+	return _apply_unit_label_filter(inputs, unit_ids, well_out_dir, context="collect_unit_ids")
 
 
 def _report_scope_config(reports: Any, scope: str | None) -> Any:
@@ -2204,14 +2335,7 @@ def run_templates_compute_template_similarity_phase(inputs: TemplatesInputs) -> 
 			"Missing built template artifacts for compute_template_similarity; run templates.build_templates first"
 		) from exc
 	unit_ids = _build_unit_ids(inputs, merged_units_dir)
-	if bool(inputs.require_curated_units) and inputs.unit_ids is None:
-		curated = _load_curated_units_from_spikesorting(well_out_dir)
-		if curated is None:
-			raise RuntimeError(
-				"Template similarity phase requires curated units, but curated units file was not found/readable at "
-				f"{well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / 'qm_unfiltered.xlsx'}"
-			)
-		unit_ids = _apply_curated_filter(unit_ids, curated)
+	unit_ids = _apply_unit_label_filter(inputs, unit_ids, well_out_dir, context="compute_template_similarity")
 	if not unit_ids:
 		raise FileNotFoundError(
 			f"No built template artifacts found under {merged_units_dir}; run templates.build_templates first"
@@ -2426,7 +2550,10 @@ def _write_templates_stage_summary(
 			"factor": int(max(1, int(inputs.reports.time_upsample.factor))),
 			"method": str(inputs.reports.time_upsample.method),
 		},
-		"require_curated_units": bool(inputs.require_curated_units),
+		"unit_label_filter": {
+			"allowed_labels": list(inputs.unit_label_filter_labels),
+			"required": bool(inputs.unit_label_filter_required),
+		},
 		"execution_inputs": {
 			"concat_analyzer_relpath": inputs.concat_analyzer_relpath,
 			"concat_sorting_relpath": inputs.concat_sorting_relpath,
@@ -2505,7 +2632,7 @@ def _write_templates_stage_summary(
 
 
 def _run_templates_plot_batch(batch_inputs: TemplatesInputs) -> TemplatesResult:
-	return run_templates_stage(
+	return _run_templates_stage_monolithic(
 		replace(
 			batch_inputs,
 			n_jobs=1,
@@ -2538,7 +2665,7 @@ def _run_templates_plot_batches(
 		len(batches),
 	)
 	if len(batches) <= 1 or unit_procs <= 1:
-		return run_templates_stage(replace(execution_inputs, unit_ids=list(unit_ids), n_jobs=1))
+		return _run_templates_stage_monolithic(replace(execution_inputs, unit_ids=list(unit_ids), n_jobs=1))
 
 	batch_results: list[TemplatesResult] = []
 	batch_inputs_list = [
@@ -2616,14 +2743,7 @@ def run_templates_plot_templates_phase(inputs: TemplatesInputs) -> dict[str, Any
 			"Missing built template artifacts for plot_templates; run templates.build_templates first"
 		) from exc
 	unit_ids = _build_unit_ids(inputs, merged_units_dir)
-	if bool(inputs.require_curated_units) and inputs.unit_ids is None:
-		curated = _load_curated_units_from_spikesorting(well_out_dir)
-		if curated is None:
-			raise RuntimeError(
-				"Plot templates phase requires curated units, but curated units file was not found/readable at "
-				f"{well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / 'qm_unfiltered.xlsx'}"
-			)
-		unit_ids = _apply_curated_filter(unit_ids, curated)
+	unit_ids = _apply_unit_label_filter(inputs, unit_ids, well_out_dir, context="plot_templates")
 	if not unit_ids:
 		raise FileNotFoundError(
 			f"No built template artifacts found under {merged_units_dir}; run templates.build_templates first"
@@ -2725,7 +2845,7 @@ def run_templates_per_unit_processing_phase(inputs: TemplatesInputs) -> dict[str
 		force_rereport=False,
 		reports=_disable_reports_config(inputs.reports),
 	)
-	run_templates_stage(unit_inputs)
+	_run_templates_stage_monolithic(unit_inputs)
 	summary_json = templates_out_dir / "templates_summary.json"
 	if summary_json.exists():
 		summary = read_json(summary_json)
@@ -2764,7 +2884,7 @@ def run_templates_reports_phase(inputs: TemplatesInputs, *, report_scope: str | 
 		force_rereport=True,
 		reports=_report_scope_config(inputs.reports, report_scope),
 	)
-	run_templates_stage(report_inputs)
+	_run_templates_stage_monolithic(report_inputs)
 	summary_json = templates_out_dir / "templates_summary.json"
 	if summary_json.exists():
 		summary = read_json(summary_json)
@@ -2781,14 +2901,7 @@ def run_templates_report_templates_phase(inputs: TemplatesInputs) -> dict[str, A
 	phase_started = perf_counter()
 	well_out_dir, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
 	unit_ids = list(inputs.unit_ids) if inputs.unit_ids is not None else _discover_unit_ids_from_unit_summaries(templates_out_dir)
-	if bool(inputs.require_curated_units) and inputs.unit_ids is None:
-		curated = _load_curated_units_from_spikesorting(well_out_dir)
-		if curated is None:
-			raise RuntimeError(
-				"Report templates phase requires curated units, but curated units file was not found/readable at "
-				f"{well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / 'qm_unfiltered.xlsx'}"
-			)
-		unit_ids = _apply_curated_filter(unit_ids, curated)
+	unit_ids = _apply_unit_label_filter(inputs, unit_ids, well_out_dir, context="report_templates")
 	if not unit_ids:
 		raise FileNotFoundError(
 			f"No unit summaries found under {templates_out_dir}; run templates.plot_templates first"
@@ -2853,7 +2966,7 @@ def run_templates_report_templates_phase(inputs: TemplatesInputs) -> dict[str, A
 	return summary
 
 
-def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
+def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 	reports_replot_requested = _reports_replot_requested(inputs)
 	report_only_rerun = bool(inputs.force_rereport)
 	LOGGER.info(
@@ -3080,17 +3193,8 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 		merged_units_dir_resolved, _ = _ensure_templates_dirs()
 		unit_ids = _build_unit_ids(inputs, merged_units_dir_resolved)
 	if bool(inputs.log_stage_unit_counts):
-		LOGGER.info("Templates stage discovered %d unit(s) before curated filtering", len(unit_ids))
-	if bool(inputs.require_curated_units) and inputs.unit_ids is None:
-		curated = _load_curated_units_from_spikesorting(well_out_dir)
-		if curated is None:
-			raise RuntimeError(
-				"Templates stage requires curated units, but curated units file was not found/readable at "
-				f"{well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / 'qm_unfiltered.xlsx'}"
-			)
-		unit_ids = _apply_curated_filter(unit_ids, curated)
-		if bool(inputs.log_stage_unit_counts):
-			LOGGER.info("Templates stage curated filter retained %d unit(s)", len(unit_ids))
+		LOGGER.info("Templates stage discovered %d unit(s) before label filtering", len(unit_ids))
+	unit_ids = _apply_unit_label_filter(inputs, unit_ids, well_out_dir, context="stage")
 
 	if bool(inputs.log_stage_unit_counts):
 		LOGGER.info("Templates stage will process %d unit(s)", len(unit_ids))

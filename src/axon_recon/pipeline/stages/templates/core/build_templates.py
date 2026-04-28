@@ -7,7 +7,6 @@ from typing import Any
 
 import numpy as np  # type: ignore[import-not-found]
 
-from axon_reconstructor.pipeline.stg2_spikesorting.runner import SPIKESORTING_OUTPUTS_DIRNAME
 from axon_recon.pipeline.shared.grid_sorting import compute_template_grid_sort_metrics
 from axon_recon.pipeline.shared.sampling import read_maxwell_sampling_frequency_hz
 
@@ -23,33 +22,34 @@ from ..io import (
 
 from ..models.inputs import TemplatesInputs
 from .merge import materialize_unit_templates_from_sources_with_meta
+from .unit_labels import count_labels, filter_unit_ids_by_labels, load_unit_labels_from_spikesorting
 
 
 LOGGER = logging.getLogger("axon_recon.templates.build_templates")
 
 
-def _normalize_compare_token(value: Any) -> str:
-	return str(value).strip()
-
-
-def _load_curated_units_from_spikesorting(well_out_dir: Path) -> list[Any] | None:
-	qm_xlsx = well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / "qm_unfiltered.xlsx"
-	if not qm_xlsx.exists():
-		return None
-	try:
-		import pandas as pd  # type: ignore[import-not-found]
-
-		df = pd.read_excel(qm_xlsx, index_col=0)
-		return list(df.index.values)
-	except Exception:
-		return None
-
-
-def _apply_curated_filter(unit_ids: list[Any], curated_units: list[Any]) -> list[Any]:
-	if not curated_units:
+def _apply_unit_label_filter(inputs: TemplatesInputs, unit_ids: list[Any], well_out_dir: Path) -> list[Any]:
+	allowed_labels = tuple(str(label).strip().lower() for label in inputs.unit_label_filter_labels if str(label).strip())
+	if not allowed_labels:
 		return list(unit_ids)
-	curated_tokens = {_normalize_compare_token(x) for x in curated_units}
-	return [uid for uid in unit_ids if _normalize_compare_token(uid) in curated_tokens]
+	labels_by_unit = load_unit_labels_from_spikesorting(well_out_dir)
+	if not labels_by_unit:
+		if bool(inputs.unit_label_filter_required):
+			raise RuntimeError(
+				"Templates unit label filter is enabled, but no Bombcell/Kilosort unit labels were found under "
+				f"{well_out_dir}."
+			)
+		LOGGER.warning("Templates build phase: unit label filter skipped because no labels were found under %s", well_out_dir)
+		return list(unit_ids)
+	filtered = filter_unit_ids_by_labels(unit_ids, labels_by_unit, allowed_labels)
+	LOGGER.info(
+		"Templates build phase: unit label filter allowed=%s kept=%d/%d counts=%s",
+		list(allowed_labels),
+		len(filtered),
+		len(unit_ids),
+		count_labels(labels_by_unit),
+	)
+	return filtered
 
 
 def _pad_value_from_mode(mode: str) -> float:
@@ -512,14 +512,7 @@ def build_templates_phase_from_payloads(
 		unit_ids = _discover_unit_ids_from_payloads(source_dirs)
 	if inputs.unit_limit is not None:
 		unit_ids = unit_ids[: int(inputs.unit_limit)]
-	if bool(inputs.require_curated_units) and inputs.unit_ids is None:
-		curated = _load_curated_units_from_spikesorting(well_out_dir)
-		if curated is None:
-			raise RuntimeError(
-				"Templates build phase requires curated units, but curated units file was not found/readable at "
-				f"{well_out_dir / SPIKESORTING_OUTPUTS_DIRNAME / 'qm_unfiltered.xlsx'}"
-			)
-		unit_ids = _apply_curated_filter(unit_ids, curated)
+	unit_ids = _apply_unit_label_filter(inputs, unit_ids, well_out_dir)
 	source_payloads_by_unit: dict[Any, list[tuple[str, tuple[Any, ...]]]] = {}
 	for unit_id in unit_ids:
 		for source_dir in source_dirs:

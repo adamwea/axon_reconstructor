@@ -3,6 +3,7 @@ from __future__ import annotations
 from .models.inputs import TemplatesInputs
 from .models.results import TemplatesResult
 from .runner import (
+	collect_templates_result_from_outputs,
 	run_templates_analyzers_phase,
 	run_templates_build_templates_phase,
 	run_templates_compute_template_similarity_phase,
@@ -18,6 +19,10 @@ from .runner import (
 
 def run_templates(inputs: TemplatesInputs) -> TemplatesResult:
 	return run_templates_stage(inputs)
+
+
+def collect_templates_result(inputs: TemplatesInputs) -> TemplatesResult:
+	return collect_templates_result_from_outputs(inputs)
 
 
 def run_templates_resolve_sources(inputs: TemplatesInputs) -> dict[str, object]:

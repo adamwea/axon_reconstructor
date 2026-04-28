@@ -45,6 +45,38 @@ from .models.inputs import (
 )
 
 
+DEFAULT_RECONSTRUCTION_PHASE_SEQUENCE: tuple[str, ...] = (
+	"generate_gtrs",
+	"plot_recons",
+	"plot_branch_propagations",
+	"plot_branch_velocities",
+	"plot_unit_summary",
+	"report_recons",
+	"report_full_chip_layout",
+	"report_summaries",
+)
+
+_RECONSTRUCTION_PHASE_ALIASES: dict[str, str] = {
+	"generate_gtrs": "generate_gtrs",
+	"generate": "generate_gtrs",
+	"gtrs": "generate_gtrs",
+	"plot_recons": "plot_recons",
+	"plot_reconstructions": "plot_recons",
+	"plot_branch_propagations": "plot_branch_propagations",
+	"plot_branch_velocities": "plot_branch_velocities",
+	"plot_unit_summary": "plot_unit_summary",
+	"report_recons": "report_recons",
+	"report_reconstructions": "report_recons",
+	"report_full_chip_layout": "report_full_chip_layout",
+	"report_summaries": "report_summaries",
+}
+
+
+def normalize_reconstruction_phase_name(raw: Any) -> str:
+	token = str(raw or "").strip().replace("-", "_").replace(" ", "_")
+	return _RECONSTRUCTION_PHASE_ALIASES.get(token, token)
+
+
 def _as_bool(value: Any, default: bool) -> bool:
 	if value is None:
 		return bool(default)
@@ -56,6 +88,37 @@ def _as_bool(value: Any, default: bool) -> bool:
 	if token in {"0", "false", "no", "off"}:
 		return False
 	return bool(default)
+
+
+def _normalize_phase_sequence(raw: Any, default: tuple[str, ...]) -> tuple[str, ...]:
+	if raw is None:
+		return default
+	if isinstance(raw, str):
+		items = [part.strip() for part in raw.split(",")]
+	elif isinstance(raw, (list, tuple)):
+		items = [str(item).strip() for item in raw]
+	else:
+		return default
+	sequence: list[str] = []
+	for item in items:
+		phase = normalize_reconstruction_phase_name(item)
+		if not phase:
+			continue
+		if phase not in _RECONSTRUCTION_PHASE_ALIASES.values():
+			raise ValueError(f"Unknown reconstruct phase in phase_sequence: {item!r}")
+		if phase not in sequence:
+			sequence.append(phase)
+	return tuple(sequence) or default
+
+
+def _as_optional_positive_int(raw: Any) -> int | None:
+	if raw is None or str(raw).strip() == "":
+		return None
+	try:
+		value = int(raw)
+	except (TypeError, ValueError):
+		return None
+	return value if value > 0 else None
 
 
 def _normalize_unit_ids(raw: Any) -> list[int] | None:
@@ -535,6 +598,11 @@ def _get_reconstruct_amplitude_map_block(runtime_config: RuntimeConfig) -> dict[
 @dataclass(frozen=True)
 class ReconstructionStageConfig:
 	output_rel_root: str
+	phase_sequence: tuple[str, ...]
+	debug_mode_enabled: bool
+	debug_limit_datasets: int | None
+	debug_limit_wells: int | None
+	debug_limit_wells_per_dataset: int | None
 	reports: ReconstructionReportsConfig
 	branch_colors: ReconstructionBranchColorsConfig
 	write_summary_png: bool
@@ -547,7 +615,6 @@ class ReconstructionStageConfig:
 	per_unit_outputs: PerUnitOutputsConfig
 	unit_ids: list[int] | None
 	unit_limit: int | None
-	load_assets_from_v2pipeline_templates_stage: bool
 	phases: ReconstructionPhasesConfig
 	use_full_channels_templates: bool
 	require_full_channels_templates: bool
@@ -585,27 +652,23 @@ def parse_reconstruction_stage_config(
 		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "color_scheme", "tab20") or "tab20"
 	)
 	execution_cfg = stage_cfg.get("execution", {}) if isinstance(stage_cfg.get("execution", {}), dict) else {}
+	debug_mode_cfg = stage_cfg.get("debug_mode", {}) if isinstance(stage_cfg.get("debug_mode", {}), dict) else {}
 	inputs_cfg = stage_cfg.get("inputs", {}) if isinstance(stage_cfg.get("inputs", {}), dict) else {}
 	outputs_cfg = stage_cfg.get("outputs", {}) if isinstance(stage_cfg.get("outputs", {}), dict) else {}
 	branch_colors_cfg = stage_cfg.get("branch_colors", {}) if isinstance(stage_cfg.get("branch_colors", {}), dict) else {}
 	phases_cfg = stage_cfg.get("phases", {}) if isinstance(stage_cfg.get("phases", {}), dict) else {}
+	phase_sequence = _normalize_phase_sequence(stage_cfg.get("phase_sequence", None), DEFAULT_RECONSTRUCTION_PHASE_SEQUENCE)
+	debug_mode_enabled = _as_bool(debug_mode_cfg.get("enabled", False), False)
+	debug_limit_datasets = _as_optional_positive_int(debug_mode_cfg.get("limit_datasets", None))
+	debug_limit_wells = _as_optional_positive_int(debug_mode_cfg.get("limit_wells", None))
+	debug_limit_wells_per_dataset = _as_optional_positive_int(debug_mode_cfg.get("limit_wells_per_dataset", None))
 	generate_gtrs_cfg = phases_cfg.get("generate_gtrs", {}) if isinstance(phases_cfg.get("generate_gtrs", {}), dict) else {}
 	plot_recons_cfg = phases_cfg.get("plot_recons", {}) if isinstance(phases_cfg.get("plot_recons", {}), dict) else {}
-	legacy_plot_branch_propogations_cfg = (
-		phases_cfg.get("plot_branch_propogations", {})
-		if isinstance(phases_cfg.get("plot_branch_propogations", {}), dict)
-		else {}
-	)
 	plot_branch_propagations_cfg = (
 		phases_cfg.get("plot_branch_propagations", {})
 		if isinstance(phases_cfg.get("plot_branch_propagations", {}), dict)
 		else {}
 	)
-	if legacy_plot_branch_propogations_cfg:
-		plot_branch_propagations_cfg = _deep_merge_dict(
-			dict(legacy_plot_branch_propogations_cfg),
-			dict(plot_branch_propagations_cfg),
-		)
 	plot_branch_velocities_cfg = (
 		phases_cfg.get("plot_branch_velocities", {})
 		if isinstance(phases_cfg.get("plot_branch_velocities", {}), dict)
@@ -622,21 +685,11 @@ def parse_reconstruction_stage_config(
 		if isinstance(phases_cfg.get("report_summaries", {}), dict)
 		else {}
 	)
-	legacy_report_full_chip_layout_cfg = (
-		phases_cfg.get("report_full_chip_recon", {})
-		if isinstance(phases_cfg.get("report_full_chip_recon", {}), dict)
-		else {}
-	)
 	report_full_chip_layout_cfg = (
 		phases_cfg.get("report_full_chip_layout", {})
 		if isinstance(phases_cfg.get("report_full_chip_layout", {}), dict)
 		else {}
 	)
-	if legacy_report_full_chip_layout_cfg:
-		report_full_chip_layout_cfg = _deep_merge_dict(
-			dict(legacy_report_full_chip_layout_cfg),
-			dict(report_full_chip_layout_cfg),
-		)
 	generate_gtrs_resources_cfg = (
 		generate_gtrs_cfg.get("resources", {}) if isinstance(generate_gtrs_cfg.get("resources", {}), dict) else {}
 	)
@@ -700,19 +753,6 @@ def parse_reconstruction_stage_config(
 	grids_cfg = reports_cfg.get("grids", {}) if isinstance(reports_cfg.get("grids", {}), dict) else {}
 	circle_recon_grid_cfg = grids_cfg.get("circle_recon_grid", {}) if isinstance(grids_cfg.get("circle_recon_grid", {}), dict) else {}
 	per_unit_cfg = outputs_cfg.get("per_unit_outputs", {}) if isinstance(outputs_cfg.get("per_unit_outputs", {}), dict) else {}
-	legacy_diagnostic_figs_cfg = (
-		per_unit_cfg.get("diagnostic_figs", {}) if isinstance(per_unit_cfg.get("diagnostic_figs", {}), dict) else {}
-	)
-	legacy_channel_selection_fig_cfg = (
-		legacy_diagnostic_figs_cfg.get("channel_selection", {})
-		if isinstance(legacy_diagnostic_figs_cfg.get("channel_selection", {}), dict)
-		else {}
-	)
-	legacy_axon_reconstruction_fig_cfg = (
-		legacy_diagnostic_figs_cfg.get("axon_reconstruction", {})
-		if isinstance(legacy_diagnostic_figs_cfg.get("axon_reconstruction", {}), dict)
-		else {}
-	)
 	phase_channel_selection_fig_cfg = (
 		phase_generate_diagnostic_figs_cfg.get("channel_selection", {})
 		if isinstance(phase_generate_diagnostic_figs_cfg.get("channel_selection", {}), dict)
@@ -723,13 +763,8 @@ def parse_reconstruction_stage_config(
 		if isinstance(phase_generate_diagnostic_figs_cfg.get("axon_reconstruction", {}), dict)
 		else {}
 	)
-	av_cfg: dict[str, Any] = {}
-	legacy_av_cfg = stage_cfg.get("av", {})
-	if isinstance(legacy_av_cfg, dict):
-		av_cfg.update(dict(legacy_av_cfg))
 	canonical_av_cfg = stage_cfg.get("axon_velocity", {})
-	if isinstance(canonical_av_cfg, dict):
-		av_cfg.update(dict(canonical_av_cfg))
+	av_cfg: dict[str, Any] = dict(canonical_av_cfg) if isinstance(canonical_av_cfg, dict) else {}
 	phase_axon_velocity_cfg = (
 		generate_gtrs_cfg.get("axon_velocity", {})
 		if isinstance(generate_gtrs_cfg.get("axon_velocity", {}), dict)
@@ -757,11 +792,11 @@ def parse_reconstruction_stage_config(
 	if phase_amplitude_map_cfg:
 		amplitude_map_cfg = _deep_merge_dict(amplitude_map_cfg, dict(phase_amplitude_map_cfg))
 	channel_selection_figure_cfg = _build_reconstruct_figure_output_config(
-		_deep_merge_dict(legacy_channel_selection_fig_cfg, phase_channel_selection_fig_cfg),
+		phase_channel_selection_fig_cfg,
 		default_relpath="diagnostic_figs/channel_selection",
 	)
 	axon_reconstruction_figure_cfg = _build_reconstruct_figure_output_config(
-		_deep_merge_dict(legacy_axon_reconstruction_fig_cfg, phase_axon_reconstruction_fig_cfg),
+		phase_axon_reconstruction_fig_cfg,
 		default_relpath="diagnostic_figs/axon_reconstruction",
 	)
 	generate_gtrs_outputs = ReconstructionGenerateGtrsOutputsConfig(
@@ -898,13 +933,6 @@ def parse_reconstruction_stage_config(
 		unit_ids = [int(unit_id_override)]
 	else:
 		unit_ids = runtime_unit_ids
-	load_assets_from_v2pipeline_templates_stage = _as_bool(
-		inputs_cfg.get(
-			"load_assets_from_v2pipeline_templates_stage",
-			inputs_cfg.get("load_assets_from_v2pipeline_tempaltes_stage", False),
-		),
-		False,
-	)
 
 	write_summary_png = _as_bool(outputs_cfg.get("write_summary", False), False)
 	summary_png_relpath = _normalize_png_relpath(outputs_cfg.get("summary_relpath", "summary.png"), "summary.png")
@@ -937,16 +965,12 @@ def parse_reconstruction_stage_config(
 			"amplitude_map.png",
 		)
 
-	recon_plots_cfg = per_unit_cfg.get("recon_plots", {}) if isinstance(per_unit_cfg.get("recon_plots", {}), dict) else {}
-	legacy_circle_recon_cfg = (
-		recon_plots_cfg.get("circle_recon", {}) if isinstance(recon_plots_cfg.get("circle_recon", {}), dict) else {}
-	)
 	phase_circle_recon_cfg = (
 		phase_plot_outputs_cfg.get("circle_recon", {})
 		if isinstance(phase_plot_outputs_cfg.get("circle_recon", {}), dict)
 		else {}
 	)
-	circle_recon_cfg = _deep_merge_dict(legacy_circle_recon_cfg, phase_circle_recon_cfg)
+	circle_recon_cfg = phase_circle_recon_cfg
 	circle_display_cfg = (
 		circle_recon_cfg.get("display", {}) if isinstance(circle_recon_cfg.get("display", {}), dict) else {}
 	)
@@ -1242,6 +1266,11 @@ def parse_reconstruction_stage_config(
 
 	return ReconstructionStageConfig(
 		output_rel_root=str(outputs_cfg.get("output_rel_root", "recon_outputs")),
+		phase_sequence=phase_sequence,
+		debug_mode_enabled=debug_mode_enabled,
+		debug_limit_datasets=debug_limit_datasets,
+		debug_limit_wells=debug_limit_wells,
+		debug_limit_wells_per_dataset=debug_limit_wells_per_dataset,
 		reports=reports,
 		branch_colors=branch_colors,
 		write_summary_png=write_summary_png,
@@ -1254,7 +1283,6 @@ def parse_reconstruction_stage_config(
 		per_unit_outputs=per_unit,
 		unit_ids=unit_ids,
 		unit_limit=unit_limit,
-		load_assets_from_v2pipeline_templates_stage=load_assets_from_v2pipeline_templates_stage,
 		phases=phases,
 		use_full_channels_templates=True,
 		require_full_channels_templates=True,
@@ -1277,6 +1305,7 @@ def build_reconstruction_inputs_for_target(
 		mea_output_root=target.mea_output_root,
 		final_output_root=(target.final_output_root or target.mea_output_root),
 		output_rel_root=stage_config.output_rel_root,
+		phase_sequence=stage_config.phase_sequence,
 		reports=stage_config.reports,
 		branch_colors=stage_config.branch_colors,
 		write_summary_png=stage_config.write_summary_png,
@@ -1289,7 +1318,6 @@ def build_reconstruction_inputs_for_target(
 		per_unit_outputs=stage_config.per_unit_outputs,
 		unit_ids=stage_config.unit_ids,
 		unit_limit=stage_config.unit_limit,
-		load_assets_from_v2pipeline_templates_stage=stage_config.load_assets_from_v2pipeline_templates_stage,
 		phases=stage_config.phases,
 		use_full_channels_templates=stage_config.use_full_channels_templates,
 		require_full_channels_templates=stage_config.require_full_channels_templates,
@@ -1351,6 +1379,7 @@ def load_reconstruction_inputs_from_runtime(
 		mea_output_root=output_root,
 		final_output_root=output_root,
 		output_rel_root=stage_cfg.output_rel_root,
+		phase_sequence=stage_cfg.phase_sequence,
 		reports=stage_cfg.reports,
 		branch_colors=stage_cfg.branch_colors,
 		write_summary_png=stage_cfg.write_summary_png,
@@ -1363,7 +1392,6 @@ def load_reconstruction_inputs_from_runtime(
 		per_unit_outputs=stage_cfg.per_unit_outputs,
 		unit_ids=stage_cfg.unit_ids,
 		unit_limit=stage_cfg.unit_limit,
-		load_assets_from_v2pipeline_templates_stage=stage_cfg.load_assets_from_v2pipeline_templates_stage,
 		phases=stage_cfg.phases,
 		use_full_channels_templates=stage_cfg.use_full_channels_templates,
 		require_full_channels_templates=stage_cfg.require_full_channels_templates,

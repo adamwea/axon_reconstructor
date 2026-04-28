@@ -77,6 +77,12 @@ def test_load_templates_config_reads_runtime_unit_ids(tmp_path: Path) -> None:
 			data: {data_path}
 			stages:
 			  templates:
+			    phase_sequence: [resolve_sources, analyzers, build_templates]
+			    debug_mode:
+			      enabled: true
+			      limit_datasets: 2
+			      limit_wells: 5
+			      limit_wells_per_dataset: 1
 			    execution:
 			      unit_ids: [10, 17, 20, 10]
 			"""
@@ -86,6 +92,7 @@ def test_load_templates_config_reads_runtime_unit_ids(tmp_path: Path) -> None:
 	)
 
 	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.phase_sequence == ("resolve_sources", "analyzers", "build_templates")
 	assert inputs.unit_ids == [10, 17, 20]
 
 
@@ -432,19 +439,19 @@ def test_load_templates_config_parses_global_outputs_schema(tmp_path: Path) -> N
 			  templates:
 			    execution:
 			      force_restart: false
-			  outputs:
-			    output_rel_root: template_outputs
-			    per_unit_outputs:
-			      full_template:
-			        template_plots:
-			          waveforms:
-			            write_png: true
-			            relpath: global/template_waveforms
-			          circles:
-			            write_png: true
-			            relpath: global/template_circles
-			            size_by: latency
-			            color_by: amplitude
+			    outputs:
+			      output_rel_root: template_outputs
+			      per_unit_outputs:
+			        full_template:
+			          template_plots:
+			            waveforms:
+			              write_png: true
+			              relpath: global/template_waveforms
+			            circles:
+			              write_png: true
+			              relpath: global/template_circles
+			              size_by: latency
+			              color_by: amplitude
 			"""
 		).strip()
 		+ "\n",
@@ -481,61 +488,62 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 			f"""
 			data: {data_path}
 			stages:
-			  outputs:
-			    per_unit_outputs:
-			      full_template:
-			        template_plots:
-			          circles:
-			            write_png: true
-			            color_by: latency
-			            display:
-			              scale_bar:
-			                x_offset_frac: 0.25
-			                x_offset_considers_fontsize: true
-			                horizontal_alignment: left
-			                vertical_alignment: top
-			              show_scale_circle: true
-			              scale_circle:
-			                diameter: equal_to_max_amplitude
-			                linewidth: 2.2
-			                linestyle: solid
-			                fontsize: 9
-			                digits_after_decimal: 1
-			                horizontal_alignment: left
-			                vertical_alignment: top
-			                x_offset_frac: 0.05
-			                y_offset_frac: 0.07
-			                font_location: inside
-			                font_location_circle_too_small: below
-			                units: uV
-			              branch_morphology:
-			                enabled: true
-			                node_border_linewidth: 0.22
-			                edge_linewidth: 1.1
-			                show_branch_labels: true
-			                show_branch_legend: true
-			                unique_color_per_branch: true
-			                color_scheme: tab10
-			            render:
-			              fast_render: true
-			            color_bar:
-			              units: ms
-			              title: Latency (ms)
-			              show_axes_title: false
-			              show_unit_label: true
-			              force_zero_and_neg_values_first_color_range: true
-			              zero_transition_contrast: 2.0
-			              tick_fontsize: 18
-			              tick_decimal_places: 3
-			              tick_target_count: 10
-			            overlap_controls:
-			              scalebar_coords_overlap_detect: true
-			              scalebar_colorbar_overlap_detect: true
-			              unitid_label_channel_overlap_detect: true
-			              coords_channel_overlap_detect: true
-			              scalebar_channel_overlap_detect: true
-			              scalecircle_channel_overlap_detect: true
-			              max_overlap_check_iterations: 5
+			  templates:
+			    outputs:
+			      per_unit_outputs:
+			        full_template:
+			          template_plots:
+			            circles:
+			              write_png: true
+			              color_by: latency
+			              display:
+			                scale_bar:
+			                  x_offset_frac: 0.25
+			                  x_offset_considers_fontsize: true
+			                  horizontal_alignment: left
+			                  vertical_alignment: top
+			                show_scale_circle: true
+			                scale_circle:
+			                  diameter: equal_to_max_amplitude
+			                  linewidth: 2.2
+			                  linestyle: solid
+			                  fontsize: 9
+			                  digits_after_decimal: 1
+			                  horizontal_alignment: left
+			                  vertical_alignment: top
+			                  x_offset_frac: 0.05
+			                  y_offset_frac: 0.07
+			                  font_location: inside
+			                  font_location_circle_too_small: below
+			                  units: uV
+			                branch_morphology:
+			                  enabled: true
+			                  node_border_linewidth: 0.22
+			                  edge_linewidth: 1.1
+			                  show_branch_labels: true
+			                  show_branch_legend: true
+			                  unique_color_per_branch: true
+			                  color_scheme: tab10
+			              render:
+			                fast_render: true
+			              color_bar:
+			                units: ms
+			                title: Latency (ms)
+			                show_axes_title: false
+			                show_unit_label: true
+			                force_zero_and_neg_values_first_color_range: true
+			                zero_transition_contrast: 2.0
+			                tick_fontsize: 18
+			                tick_decimal_places: 3
+			                tick_target_count: 10
+			              overlap_controls:
+			                scalebar_coords_overlap_detect: true
+			                scalebar_colorbar_overlap_detect: true
+			                unitid_label_channel_overlap_detect: true
+			                coords_channel_overlap_detect: true
+			                scalebar_channel_overlap_detect: true
+			                scalecircle_channel_overlap_detect: true
+			                max_overlap_check_iterations: 5
 			"""
 		).strip()
 		+ "\n",
@@ -608,17 +616,18 @@ def test_load_templates_config_parses_scale_circle_style_knobs(tmp_path: Path) -
 			f"""
 			data: {data_path}
 			stages:
-			  outputs:
-			    per_unit_outputs:
-			      full_template:
-			        template_plots:
-			          circles:
-			            display:
-			              show_scale_circle: true
-			              scale_circle:
-			                linestyle: null
-			                fill: true
-			                fill_color: white
+			  templates:
+			    outputs:
+			      per_unit_outputs:
+			        full_template:
+			          template_plots:
+			            circles:
+			              display:
+			                show_scale_circle: true
+			                scale_circle:
+			                  linestyle: null
+			                  fill: true
+			                  fill_color: white
 			"""
 		).strip()
 		+ "\n",
@@ -659,7 +668,9 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			      force_restart: false
 			      force_replot: true
 			      force_replot_per_unit: true
-			      require_curated_units: false
+			      unit_label_filter:
+			        allowed_labels: [good, non_soma_good]
+			        required: false
 			      unit_limit: 7
 			      spikeinterface:
 			        template_extraction:
@@ -813,7 +824,8 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.force_replot is True
 	assert inputs.force_replot_per_unit is True
-	assert inputs.require_curated_units is False
+	assert inputs.unit_label_filter_labels == ("good", "non_soma_good")
+	assert inputs.unit_label_filter_required is False
 	assert inputs.unit_limit == 7
 	assert inputs.include_concat is False
 	assert inputs.include_segments is True
@@ -2211,7 +2223,7 @@ def test_load_templates_config_parses_execution_upsampling_block(tmp_path: Path)
 	assert inputs.execution_upsampling.raw_rate_fallback_hz == 10000
 
 
-def test_load_templates_config_parses_waveform_extraction_controls_with_fallback(tmp_path: Path) -> None:
+def test_load_templates_config_parses_waveform_extraction_controls(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(
 		dedent(
@@ -2232,10 +2244,6 @@ def test_load_templates_config_parses_waveform_extraction_controls_with_fallback
 			f"""
 			data: {data_path}
 			stages:
-			  waveforms:
-			    ms_before: 1.1
-			    ms_after: 2.2
-			    max_spikes_per_unit: 999
 			  templates:
 			    execution:
 			      inputs:
@@ -2264,30 +2272,6 @@ def test_load_templates_config_parses_waveform_extraction_controls_with_fallback
 	assert inputs.concat_sorting_relpath == "/spikesort_outputs/sorter_output"
 	assert inputs.concat_analyzer_relpath == "/stg2_spikesorting_outputs/analyzer_output"
 	assert inputs.preproc_seg_sources_reldir == "/preprocess_outputs/per_segment_recordings"
-
-	runtime_path_fallback = tmp_path / "runtime_fallback.yml"
-	runtime_path_fallback.write_text(
-		dedent(
-			f"""
-			data: {data_path}
-			stages:
-			  waveforms:
-			    ms_before: 1.1
-			    ms_after: 2.2
-			    max_spikes_per_unit: 777
-			  templates:
-			    execution:
-			      force_restart: false
-			"""
-		).strip()
-		+ "\n",
-		encoding="utf-8",
-	)
-
-	inputs_fallback = load_templates_inputs_from_runtime(config_path=str(runtime_path_fallback))
-	assert inputs_fallback.waveform_extraction.ms_before == 1.1
-	assert inputs_fallback.waveform_extraction.ms_after == 2.2
-	assert inputs_fallback.waveform_extraction.max_spikes_per_unit == 777
 
 
 def test_load_templates_config_supports_legacy_segment_sources_alias(tmp_path: Path) -> None:
@@ -3581,7 +3565,7 @@ def test_load_templates_config_parses_resolve_sources_phase_knobs(tmp_path: Path
 			        log_candidates: false
 			        check_path_exists: true
 			        include_alternate_well_dirs: false
-			        probe_curated_units: false
+			        probe_unit_labels: false
 			        max_candidates_per_source: 7
 			        fail_if_required_sources_missing: true
 			        write_json: true
@@ -3599,7 +3583,7 @@ def test_load_templates_config_parses_resolve_sources_phase_knobs(tmp_path: Path
 	assert cfg.log_candidates is False
 	assert cfg.check_path_exists is True
 	assert cfg.include_alternate_well_dirs is False
-	assert cfg.probe_curated_units is False
+	assert cfg.probe_unit_labels is False
 	assert cfg.max_candidates_per_source == 7
 	assert cfg.fail_if_required_sources_missing is True
 	assert cfg.write_json is True

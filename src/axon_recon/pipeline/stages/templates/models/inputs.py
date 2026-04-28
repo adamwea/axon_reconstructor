@@ -865,7 +865,7 @@ class ResolveSourcesPhaseConfig:
 	log_candidates: bool = True
 	check_path_exists: bool = True
 	include_alternate_well_dirs: bool = True
-	probe_curated_units: bool = True
+	probe_unit_labels: bool = True
 	max_candidates_per_source: int = 12
 	fail_if_required_sources_missing: bool = False
 	write_json: bool = False
@@ -897,6 +897,7 @@ class TemplatesInputs:
 	mea_output_root: Path
 	final_output_root: Path | None = None
 	artifact_lookup_roots: tuple[Path, ...] = field(default_factory=tuple)
+	phase_sequence: tuple[str, ...] | None = None
 	concat_analyzer_relpath: str | None = None
 	concat_sorting_relpath: str | None = None
 	preprocessed_concat_reldir: str | None = None
@@ -915,7 +916,8 @@ class TemplatesInputs:
 	force_replot: bool = False
 	force_replot_per_unit: bool = False
 	force_rereport: bool = False
-	require_curated_units: bool = True
+	unit_label_filter_labels: tuple[str, ...] = ("good", "non_soma_good")
+	unit_label_filter_required: bool = True
 	include_concat: bool = True
 	include_segments: bool = True
 	require_concat_analyzer: bool = False

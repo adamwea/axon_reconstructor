@@ -11,6 +11,7 @@ from axon_recon.pipeline.shared.grid_sorting import normalize_grid_sort_by
 from axon_recon.pipeline.shared.plotting import build_stage_plot_block
 
 from ...execution.context import ExecutionTarget
+from .core.unit_labels import DEFAULT_UNIT_LABEL_FILTER
 from .models.inputs import (
 	AnalyzerPreparationPolicyConfig,
 	AnalyzerCacheConfig,
@@ -72,6 +73,47 @@ from .models.inputs import (
 
 
 LOGGER = logging.getLogger("axon_recon.templates.config")
+
+
+DEFAULT_TEMPLATES_PHASE_SEQUENCE: tuple[str, ...] = (
+	"resolve_sources",
+	"analyzers",
+	"extract_template_segments",
+	"build_templates",
+	"compute_template_similarity",
+	"plot_templates",
+	"report_templates",
+	"reports",
+)
+
+_TEMPLATES_PHASE_ALIASES: dict[str, str] = {
+	"resolve": "resolve_sources",
+	"resolve_sources": "resolve_sources",
+	"analyzer": "analyzers",
+	"analyzers": "analyzers",
+	"extract": "extract_template_segments",
+	"extract_template_segments": "extract_template_segments",
+	"per_unit_processing.extract_template_segments": "extract_template_segments",
+	"build": "build_templates",
+	"build_templates": "build_templates",
+	"per_unit_processing.build_templates": "build_templates",
+	"similarity": "compute_template_similarity",
+	"compute_similarity": "compute_template_similarity",
+	"compute_template_similarity": "compute_template_similarity",
+	"plot": "plot_templates",
+	"plots": "plot_templates",
+	"plot_templates": "plot_templates",
+	"per_unit_processing.plots": "plot_templates",
+	"report_templates": "report_templates",
+	"template_report": "report_templates",
+	"per_unit_processing": "per_unit_processing",
+	"reports": "reports",
+}
+
+
+def normalize_templates_phase_name(raw: Any) -> str:
+	token = str(raw or "").strip().replace("-", "_").replace(" ", "_")
+	return _TEMPLATES_PHASE_ALIASES.get(token, token)
 
 
 def _as_bool(value: Any, default: bool) -> bool:
@@ -205,7 +247,6 @@ def _output_paths(*suffixes: str) -> tuple[str, ...]:
 	for suffix in suffixes:
 		s = suffix.strip(".")
 		paths.append(f"stages.templates.outputs.{s}")
-		paths.append(f"stages.outputs.{s}")
 	return tuple(paths)
 
 
@@ -840,25 +881,22 @@ def _build_waveform_extraction_config(
 ) -> WaveformExtractionConfig:
 	wf_extract_cfg = spikeinterface_cfg.get("waveform_extraction", {}) if isinstance(spikeinterface_cfg.get("waveform_extraction", {}), dict) else {}
 	wf_extract_window_cfg = _get_nested_block(wf_extract_cfg, "window")
-	legacy_waveforms_cfg = runtime_config.get("stages.waveforms", {}) if isinstance(runtime_config.get("stages.waveforms", {}), dict) else {}
 
 	ms_before = _as_float_or_none(
 		wf_extract_window_cfg.get(
 			"ms_before",
-			wf_extract_cfg.get("ms_before", legacy_waveforms_cfg.get("ms_before", None)),
+			wf_extract_cfg.get("ms_before", None),
 		),
 		None,
 	)
 	ms_after = _as_float_or_none(
 		wf_extract_window_cfg.get(
 			"ms_after",
-			wf_extract_cfg.get("ms_after", legacy_waveforms_cfg.get("ms_after", None)),
+			wf_extract_cfg.get("ms_after", None),
 		),
 		None,
 	)
-	max_spikes_per_unit = _parse_max_spikes_per_unit(
-		wf_extract_cfg.get("max_spikes_per_unit", legacy_waveforms_cfg.get("max_spikes_per_unit", None))
-	)
+	max_spikes_per_unit = _parse_max_spikes_per_unit(wf_extract_cfg.get("max_spikes_per_unit", None))
 
 	return WaveformExtractionConfig(
 		ms_before=ms_before,
@@ -1057,6 +1095,11 @@ def _get_unit_reldir(runtime_config: RuntimeConfig) -> str:
 @dataclass(frozen=True)
 class TemplatesStageConfig:
 	output_rel_root: str
+	phase_sequence: tuple[str, ...]
+	debug_mode_enabled: bool
+	debug_limit_datasets: int | None
+	debug_limit_wells: int | None
+	debug_limit_wells_per_dataset: int | None
 	analyzer_cache: AnalyzerCacheConfig
 	per_unit_outputs: PerUnitTemplatesOutputsConfig
 	reports: ReportsConfig
@@ -1074,7 +1117,8 @@ class TemplatesStageConfig:
 	force_replot: bool
 	force_replot_per_unit: bool
 	force_rereport: bool
-	require_curated_units: bool
+	unit_label_filter_labels: tuple[str, ...]
+	unit_label_filter_required: bool
 	include_concat: bool
 	include_segments: bool
 	require_concat_analyzer: bool
@@ -1093,6 +1137,50 @@ def _normalize_optional_path_token(raw: Any) -> str | None:
 	if not token:
 		return None
 	return token
+
+
+def _normalize_phase_sequence(raw: Any, default: tuple[str, ...]) -> tuple[str, ...]:
+	if raw is None:
+		return default
+	if isinstance(raw, str):
+		items = [part.strip() for part in raw.split(",")]
+	elif isinstance(raw, (list, tuple)):
+		items = [str(item).strip() for item in raw]
+	else:
+		return default
+	sequence: list[str] = []
+	for item in items:
+		phase = normalize_templates_phase_name(item)
+		if not phase:
+			continue
+		if phase not in _TEMPLATES_PHASE_ALIASES.values():
+			raise ValueError(f"Unknown templates phase in phase_sequence: {item!r}")
+		if phase not in sequence:
+			sequence.append(phase)
+	return tuple(sequence) or default
+
+
+def _normalize_string_sequence(raw: Any, default: tuple[str, ...]) -> tuple[str, ...]:
+	if raw is None:
+		return default
+	if isinstance(raw, str):
+		items = [part.strip() for part in raw.split(",")]
+	elif isinstance(raw, (list, tuple, set)):
+		items = [str(item).strip() for item in raw]
+	else:
+		return default
+	values = tuple(item for item in items if item)
+	return values or default
+
+
+def _as_optional_positive_int(raw: Any) -> int | None:
+	if raw is None or str(raw).strip() == "":
+		return None
+	try:
+		value = int(raw)
+	except (TypeError, ValueError):
+		return None
+	return value if value > 0 else None
 
 
 def parse_probe_geometry_from_data_config(*, data_config: RuntimeConfig) -> ProbeGeometryConfig | None:
@@ -1495,16 +1583,29 @@ def parse_templates_stage_config(
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
 	phases_cfg = stage_cfg.get("phases", {}) if isinstance(stage_cfg.get("phases", {}), dict) else {}
 	execution_cfg = stage_cfg.get("execution", {}) if isinstance(stage_cfg.get("execution", {}), dict) else {}
+	debug_mode_cfg = stage_cfg.get("debug_mode", {}) if isinstance(stage_cfg.get("debug_mode", {}), dict) else {}
 	outputs_cfg = stage_cfg.get("outputs", {}) if isinstance(stage_cfg.get("outputs", {}), dict) else {}
-	if not outputs_cfg:
-		outputs_cfg = runtime_config.get("stages.outputs", {}) if isinstance(runtime_config.get("stages.outputs", {}), dict) else {}
 	analyzer_cache_cfg = _get_analyzer_cache_block(runtime_config)
+	phase_sequence = _normalize_phase_sequence(stage_cfg.get("phase_sequence", None), DEFAULT_TEMPLATES_PHASE_SEQUENCE)
+	debug_mode_enabled = _as_bool(debug_mode_cfg.get("enabled", False), False)
+	debug_limit_datasets = _as_optional_positive_int(debug_mode_cfg.get("limit_datasets", None))
+	debug_limit_wells = _as_optional_positive_int(debug_mode_cfg.get("limit_wells", None))
+	debug_limit_wells_per_dataset = _as_optional_positive_int(debug_mode_cfg.get("limit_wells_per_dataset", None))
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
 	force_replot = _as_bool(execution_cfg.get("force_replot", False), False)
 	force_replot_per_unit = _as_bool(execution_cfg.get("force_replot_per_unit", False), False)
 	force_rereport = _as_bool(execution_cfg.get("force_rereport", False), False)
-	require_curated_units = _as_bool(execution_cfg.get("require_curated_units", True), True)
+	unit_label_filter_cfg = execution_cfg.get("unit_label_filter", {}) if isinstance(execution_cfg.get("unit_label_filter", {}), dict) else {}
+	unit_label_filter_labels = tuple(
+		label.strip().lower()
+		for label in _normalize_string_sequence(
+			unit_label_filter_cfg.get("allowed_labels", unit_label_filter_cfg.get("labels", None)),
+			DEFAULT_UNIT_LABEL_FILTER,
+		)
+		if label.strip()
+	)
+	unit_label_filter_required = _as_bool(unit_label_filter_cfg.get("required", True), True)
 	stage_inputs_cfg = stage_cfg.get("inputs", {}) if isinstance(stage_cfg.get("inputs", {}), dict) else {}
 	execution_inputs_cfg = execution_cfg.get("inputs", {}) if isinstance(execution_cfg.get("inputs", {}), dict) else {}
 	inputs_cfg = dict(execution_inputs_cfg)
@@ -3549,7 +3650,7 @@ def parse_templates_stage_config(
 		log_candidates=_as_bool(resolve_sources_phase_cfg.get("log_candidates", True), True),
 		check_path_exists=_as_bool(resolve_sources_phase_cfg.get("check_path_exists", True), True),
 		include_alternate_well_dirs=_as_bool(resolve_sources_phase_cfg.get("include_alternate_well_dirs", True), True),
-		probe_curated_units=_as_bool(resolve_sources_phase_cfg.get("probe_curated_units", True), True),
+		probe_unit_labels=_as_bool(resolve_sources_phase_cfg.get("probe_unit_labels", True), True),
 		max_candidates_per_source=max_candidates_per_source,
 		fail_if_required_sources_missing=_as_bool(
 			resolve_sources_phase_cfg.get("fail_if_required_sources_missing", False),
@@ -3815,6 +3916,11 @@ def parse_templates_stage_config(
 
 	return TemplatesStageConfig(
 		output_rel_root=str(stage_cfg.get("output_rel_root", outputs_cfg.get("output_rel_root", "templates_outputs"))),
+		phase_sequence=phase_sequence,
+		debug_mode_enabled=debug_mode_enabled,
+		debug_limit_datasets=debug_limit_datasets,
+		debug_limit_wells=debug_limit_wells,
+		debug_limit_wells_per_dataset=debug_limit_wells_per_dataset,
 		analyzer_cache=analyzer_cache,
 		per_unit_outputs=per_unit,
 		reports=reports,
@@ -3832,7 +3938,8 @@ def parse_templates_stage_config(
 		force_replot=force_replot,
 		force_replot_per_unit=force_replot_per_unit,
 		force_rereport=force_rereport,
-		require_curated_units=require_curated_units,
+		unit_label_filter_labels=unit_label_filter_labels,
+		unit_label_filter_required=unit_label_filter_required,
 		include_concat=include_concat,
 		include_segments=include_segments,
 		require_concat_analyzer=require_concat_analyzer,
@@ -3859,6 +3966,7 @@ def build_templates_inputs_for_target(
 		mea_output_root=target.mea_output_root,
 		final_output_root=(target.final_output_root or target.mea_output_root),
 		artifact_lookup_roots=tuple(target.artifact_lookup_roots or ()),
+		phase_sequence=stage_config.phase_sequence,
 		concat_analyzer_relpath=stage_config.concat_analyzer_relpath,
 		concat_sorting_relpath=stage_config.concat_sorting_relpath,
 		preprocessed_concat_reldir=stage_config.preprocessed_concat_reldir,
@@ -3877,7 +3985,8 @@ def build_templates_inputs_for_target(
 		force_replot=stage_config.force_replot,
 		force_replot_per_unit=stage_config.force_replot_per_unit,
 		force_rereport=stage_config.force_rereport,
-		require_curated_units=stage_config.require_curated_units,
+		unit_label_filter_labels=stage_config.unit_label_filter_labels,
+		unit_label_filter_required=stage_config.unit_label_filter_required,
 		include_concat=stage_config.include_concat,
 		include_segments=stage_config.include_segments,
 		require_concat_analyzer=stage_config.require_concat_analyzer,
@@ -3958,6 +4067,7 @@ def load_templates_inputs_from_runtime(
 		mea_output_root=output_root,
 		final_output_root=output_root,
 		artifact_lookup_roots=tuple(artifact_lookup_roots),
+		phase_sequence=stage_cfg.phase_sequence,
 		concat_analyzer_relpath=stage_cfg.concat_analyzer_relpath,
 		concat_sorting_relpath=stage_cfg.concat_sorting_relpath,
 		preprocessed_concat_reldir=stage_cfg.preprocessed_concat_reldir,
@@ -3976,7 +4086,8 @@ def load_templates_inputs_from_runtime(
 		force_replot=stage_cfg.force_replot,
 		force_replot_per_unit=stage_cfg.force_replot_per_unit,
 		force_rereport=stage_cfg.force_rereport,
-		require_curated_units=stage_cfg.require_curated_units,
+		unit_label_filter_labels=stage_cfg.unit_label_filter_labels,
+		unit_label_filter_required=stage_cfg.unit_label_filter_required,
 		include_concat=stage_cfg.include_concat,
 		include_segments=stage_cfg.include_segments,
 		require_concat_analyzer=stage_cfg.require_concat_analyzer,

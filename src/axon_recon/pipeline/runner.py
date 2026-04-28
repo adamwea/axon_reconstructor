@@ -2430,12 +2430,6 @@ def _run_reconstruct_substage_from_runtime(
 	if publish_outputs:
 		_log_publish_policy(stage_name=stage_name, policy=publish_policy)
 	targets = select_execution_targets(bundle=bundle)
-	parallelism = _resolve_runtime_stage_parallelism(
-		bundle=bundle,
-		stage_name="reconstruct",
-		target_count=len(targets),
-		targets=targets,
-	)
 	probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
 	stage_config = parse_reconstruction_stage_config(
 		runtime_config=bundle.runtime_config,
@@ -2443,6 +2437,20 @@ def _run_reconstruct_substage_from_runtime(
 		unit_ids_override=unit_ids_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+	)
+	if bool(getattr(stage_config, "debug_mode_enabled", False)):
+		targets = _apply_spikesort_debug_target_limits(
+			stage_name=stage_name,
+			targets=list(targets),
+			limit_datasets=getattr(stage_config, "debug_limit_datasets", None),
+			limit_wells=getattr(stage_config, "debug_limit_wells", None),
+			limit_wells_per_dataset=getattr(stage_config, "debug_limit_wells_per_dataset", None),
+		)
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="reconstruct",
+		target_count=len(targets),
+		targets=targets,
 	)
 
 	def _worker(target):
@@ -2736,12 +2744,6 @@ def run_templates_from_runtime(
 	publish_policy = _resolve_publish_policy(runtime_config=bundle.runtime_config, data_config=bundle.data_config)
 	_log_publish_policy(stage_name="templates", policy=publish_policy)
 	targets = select_execution_targets(bundle=bundle)
-	parallelism = _resolve_runtime_stage_parallelism(
-		bundle=bundle,
-		stage_name="templates",
-		target_count=len(targets),
-		targets=targets,
-	)
 	probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
 	stage_config = parse_templates_stage_config(
 		runtime_config=bundle.runtime_config,
@@ -2750,6 +2752,20 @@ def run_templates_from_runtime(
 		unit_ids_override=unit_ids_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+	)
+	if bool(getattr(stage_config, "debug_mode_enabled", False)):
+		targets = _apply_spikesort_debug_target_limits(
+			stage_name="templates",
+			targets=list(targets),
+			limit_datasets=getattr(stage_config, "debug_limit_datasets", None),
+			limit_wells=getattr(stage_config, "debug_limit_wells", None),
+			limit_wells_per_dataset=getattr(stage_config, "debug_limit_wells_per_dataset", None),
+		)
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="templates",
+		target_count=len(targets),
+		targets=targets,
 	)
 
 	def _worker(target):
@@ -2795,12 +2811,6 @@ def _run_templates_substage_from_runtime(
 	if publish_outputs:
 		_log_publish_policy(stage_name=stage_name, policy=publish_policy)
 	targets = select_execution_targets(bundle=bundle)
-	parallelism = _resolve_runtime_stage_parallelism(
-		bundle=bundle,
-		stage_name="templates",
-		target_count=len(targets),
-		targets=targets,
-	)
 	probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
 	stage_config = parse_templates_stage_config(
 		runtime_config=bundle.runtime_config,
@@ -2809,6 +2819,20 @@ def _run_templates_substage_from_runtime(
 		unit_ids_override=unit_ids_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+	)
+	if bool(getattr(stage_config, "debug_mode_enabled", False)):
+		targets = _apply_spikesort_debug_target_limits(
+			stage_name=stage_name,
+			targets=list(targets),
+			limit_datasets=getattr(stage_config, "debug_limit_datasets", None),
+			limit_wells=getattr(stage_config, "debug_limit_wells", None),
+			limit_wells_per_dataset=getattr(stage_config, "debug_limit_wells_per_dataset", None),
+		)
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="templates",
+		target_count=len(targets),
+		targets=targets,
 	)
 
 	def _worker(target):

@@ -128,7 +128,6 @@ def test_parse_stage_list_tokens_maps_legacy_template_report_templates_alias() -
         ("reconstruction.plot_branch_velocities", "reconstruct.plot_branch_velocities"),
         ("reconstruction.plot_unit_summary", "reconstruct.plot_unit_summary"),
         ("reconstruction.report_recons", "reconstruct.report_recons"),
-        ("recon.report_full_chip_recon", "reconstruct.report_full_chip_layout"),
     ],
 )
 def test_parse_stage_list_tokens_supports_reconstruct_phase_tokens(raw_token: str, expected: str) -> None:

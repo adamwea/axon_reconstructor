@@ -38,8 +38,12 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			      scale: log
 			stages:
 			  reconstruct:
-			    inputs:
-			      load_assets_from_v2pipeline_tempaltes_stage: true
+			    phase_sequence: [generate_gtrs, plot_recons, report_summaries]
+			    debug_mode:
+			      enabled: true
+			      limit_datasets: 2
+			      limit_wells: 4
+			      limit_wells_per_dataset: 1
 			    execution:
 			      force_restart: false
 			    phases:
@@ -60,6 +64,31 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			              write_svg: true
 			              invert_y_axis: false
 			              relpath: figures/axon_reconstruction
+			      plot_recons:
+			        outputs:
+			          circle_recon:
+			            display:
+			              base: template_circles
+			              channel_scope: nodes_and_branches
+			              zoom_padding_percent: 12
+			              invert_y_axis: false
+			              force_center_soma: true
+			              branch_scope: raw
+			              unique_color_per_branch: true
+			              show_branch_labels: true
+			              show_branch_legend: true
+			              color_scheme: tab20
+			              node_outline_color: white
+			              node_outline_linewidth: 2.5
+			              branch_outline_color: white
+			              branch_outline_linewidth: 1.5
+			              node_inline_linewidth_pt: 0.42
+			              branch_linewidth_pt: 1.1
+			            output:
+			              write_png: true
+			              write_svg: true
+			              relpath: maps/circle_recon
+			              dpi: 420
 			    outputs:
 			      output_rel_root: recon_outputs
 			      cleanup_failed_unit_outputs: true
@@ -101,30 +130,6 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			          linear_cap_rounding_step: 5
 			      per_unit_outputs:
 			        amplitude_map_png_relpath: maps/amplitude_map.png
-			        recon_plots:
-			          circle_recon:
-			            display:
-			              base: template_circles
-			              channel_scope: nodes_and_branches
-			              zoom_padding_percent: 12
-			              invert_y_axis: false
-			              force_center_soma: true
-			              branch_scope: raw
-			              unique_color_per_branch: true
-			              show_branch_labels: true
-			              show_branch_legend: true
-			              color_scheme: tab20
-			              node_outline_color: white
-			              node_outline_linewidth: 2.5
-			              branch_outline_color: white
-			              branch_outline_linewidth: 1.5
-			              node_inline_linewidth_pt: 0.42
-			              branch_linewidth_pt: 1.1
-			            output:
-			              write_png: true
-			              write_svg: true
-			              relpath: maps/circle_recon
-			              dpi: 420
 			"""
 		).strip()
 		+ "\n",
@@ -133,6 +138,7 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 
 	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path), unit_id_override=94)
 	assert inputs.stream_id == "well001"
+	assert inputs.phase_sequence == ("generate_gtrs", "plot_recons", "report_summaries")
 	assert inputs.output_rel_root == "recon_outputs"
 	assert inputs.write_summary_png is True
 	assert inputs.summary_png_relpath == "reports/reconstruction_summary.png"
@@ -204,7 +210,6 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert inputs.reports.grids.circle_recon_grid.render_mode == "direct_replot"
 	assert inputs.reports.grids.circle_recon_grid.dpi == 420.0
 	assert inputs.reports.grids.sort_by == "template_density"
-	assert inputs.load_assets_from_v2pipeline_templates_stage is True
 	assert inputs.unit_ids == [94]
 
 
@@ -279,7 +284,7 @@ def test_load_config_reconstruct_prefers_unit_ids_override(tmp_path: Path) -> No
 	assert inputs.unit_ids == [44, 50]
 
 
-def test_load_config_reconstruct_parses_branch_plot_phase_alias_and_shared_branch_colors(tmp_path: Path) -> None:
+def test_load_config_reconstruct_parses_branch_plot_phase_and_shared_branch_colors(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(
 		dedent(
@@ -311,7 +316,7 @@ def test_load_config_reconstruct_parses_branch_plot_phase_alias_and_shared_branc
 			          circle_recon:
 			            display:
 			              branch_scope: raw
-			      plot_branch_propogations:
+			      plot_branch_propagations:
 			        enable: true
 			        branch_scope: raw
 			        display:
@@ -434,7 +439,7 @@ def test_load_config_reconstruct_parses_branch_plot_phase_alias_and_shared_branc
 	assert inputs.phases.plot_unit_summary.output.dpi == 240.0
 
 
-def test_load_config_reconstruct_canonical_branch_plot_phase_overrides_alias(tmp_path: Path) -> None:
+def test_load_config_reconstruct_parses_full_chip_layout_phase(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(
 		dedent(
@@ -457,47 +462,7 @@ def test_load_config_reconstruct_canonical_branch_plot_phase_overrides_alias(tmp
 			stages:
 			  reconstruct:
 			    phases:
-			      plot_branch_propogations:
-			        enable: false
-			        branch_scope: clean
-			      plot_branch_propagations:
-			        enable: true
-			        branch_scope: raw
-			"""
-		).strip()
-		+ "\n",
-		encoding="utf-8",
-	)
-
-	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
-	assert inputs.phases.plot_branch_propagations.enabled is True
-	assert inputs.phases.plot_branch_propagations.branch_scope == "raw"
-
-
-def test_load_config_reconstruct_parses_full_chip_layout_phase_alias(tmp_path: Path) -> None:
-	data_path = tmp_path / "data.yml"
-	data_path.write_text(
-		dedent(
-			"""
-			output_root: /tmp/out
-			datasets:
-			  - raw_data_h5_path: /tmp/input.raw.h5
-			    include_in_runtime: true
-			"""
-		).strip()
-		+ "\n",
-		encoding="utf-8",
-	)
-
-	runtime_path = tmp_path / "runtime.yml"
-	runtime_path.write_text(
-		dedent(
-			f"""
-			data: {data_path}
-			stages:
-			  reconstruct:
-			    phases:
-			      report_full_chip_recon:
+			      report_full_chip_layout:
 			        enable: true
 			        branch_scope: clean
 			        unit_colors:
@@ -545,46 +510,6 @@ def test_load_config_reconstruct_parses_full_chip_layout_phase_alias(tmp_path: P
 	assert phase.output.write_svg is True
 	assert phase.output.relpath == "reports/chip_layout"
 	assert phase.output.manifest_relpath == "reports/chip_layout_manifest.json"
-
-
-def test_load_config_reconstruct_canonical_full_chip_layout_overrides_alias(tmp_path: Path) -> None:
-	data_path = tmp_path / "data.yml"
-	data_path.write_text(
-		dedent(
-			"""
-			output_root: /tmp/out
-			datasets:
-			  - raw_data_h5_path: /tmp/input.raw.h5
-			    include_in_runtime: true
-			"""
-		).strip()
-		+ "\n",
-		encoding="utf-8",
-	)
-
-	runtime_path = tmp_path / "runtime.yml"
-	runtime_path.write_text(
-		dedent(
-			f"""
-			data: {data_path}
-			stages:
-			  reconstruct:
-			    phases:
-			      report_full_chip_recon:
-			        enable: false
-			        branch_scope: clean
-			      report_full_chip_layout:
-			        enable: true
-			        branch_scope: raw
-			"""
-		).strip()
-		+ "\n",
-		encoding="utf-8",
-	)
-
-	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
-	assert inputs.phases.report_full_chip_layout.enabled is True
-	assert inputs.phases.report_full_chip_layout.branch_scope == "raw"
 
 
 def test_load_config_reconstruct_legacy_stage_block_without_global_defaults(tmp_path: Path) -> None:
@@ -668,7 +593,7 @@ def test_load_config_accepts_full_from_merged_template_source(tmp_path: Path) ->
 	assert inputs.per_unit_outputs.template_source == "full_from_merged"
 
 
-def test_load_config_reads_canonical_axon_velocity_block_with_legacy_fallback(tmp_path: Path) -> None:
+def test_load_config_reads_canonical_axon_velocity_block(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(
 		dedent(
@@ -690,11 +615,9 @@ def test_load_config_reads_canonical_axon_velocity_block_with_legacy_fallback(tm
 			data: {data_path}
 			stages:
 			  reconstruct:
-			    av:
-			      detect_threshold: 0.4
-			      min_path_points: 5
 			    axon_velocity:
 			      detect_threshold: 0.0001
+			      min_path_points: 5
 			      n_neighbors: 8
 			"""
 		).strip()
@@ -708,7 +631,7 @@ def test_load_config_reads_canonical_axon_velocity_block_with_legacy_fallback(tm
 	assert int(inputs.axon_velocity_params["n_neighbors"]) == 8
 
 
-def test_load_config_reads_reconstruct_phase_blocks_and_overrides_legacy_paths(tmp_path: Path) -> None:
+def test_load_config_reads_reconstruct_phase_blocks_and_overrides_stage_defaults(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(
 		dedent(
@@ -737,11 +660,6 @@ def test_load_config_reads_reconstruct_phase_blocks_and_overrides_legacy_paths(t
 			      per_unit_outputs:
 			        write_branches_json: false
 			        template_source: square
-			        recon_plots:
-			          circle_recon:
-			            output:
-			              write_png: false
-			              relpath: legacy_circle
 			    phases:
 			      generate_gtrs:
 			        enable: false

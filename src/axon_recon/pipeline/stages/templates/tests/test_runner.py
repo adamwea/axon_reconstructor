@@ -107,6 +107,49 @@ def _make_templates_artifacts(well_out_dir: Path, *, unit_ids: tuple[int, ...] =
 		)
 
 
+def test_run_templates_stage_honors_phase_sequence_order(tmp_path: Path, monkeypatch) -> None:
+	calls: list[str] = []
+
+	def _phase(name: str):
+		def _run(_inputs: TemplatesInputs) -> dict[str, str]:
+			calls.append(name)
+			return {"phase": name}
+
+		return _run
+
+	expected_result = TemplatesResult(
+		well_out_dir=tmp_path / "well",
+		templates_out_dir=tmp_path / "templates",
+		summary_json=tmp_path / "templates" / "templates_summary.json",
+		units=[],
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.run_templates_plot_templates_phase",
+		_phase("plot_templates"),
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.run_templates_resolve_sources_phase",
+		_phase("resolve_sources"),
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.runner.collect_templates_result_from_outputs",
+		lambda _inputs: expected_result,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=tmp_path / "dataset.h5",
+		stream_id="well000",
+		mea_output_root=tmp_path / "outputs",
+		output_rel_root="templates_outputs",
+		phase_sequence=("plot_templates", "resolve_sources"),
+		unit_label_filter_required=False,
+	)
+
+	result = run_templates_stage(inputs)
+	assert result is expected_result
+	assert calls == ["plot_templates", "resolve_sources"]
+
+
 def test_run_templates_analyzers_phase_logs_settings_and_writes_run_stats(tmp_path: Path, monkeypatch, caplog) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
@@ -242,7 +285,7 @@ def test_run_templates_build_templates_phase_materializes_templates_from_payload
 			),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		n_jobs=1,
 	)
 
@@ -349,7 +392,7 @@ def test_run_templates_build_templates_phase_omits_disabled_full_outputs(tmp_pat
 			),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		n_jobs=1,
 	)
 
@@ -475,7 +518,7 @@ def test_run_templates_build_templates_phase_loads_cached_analyzers_when_payload
 			),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -512,7 +555,7 @@ def test_run_templates_build_templates_phase_requires_analyzer_cache_when_payloa
 		mea_output_root=output_root,
 		output_rel_root="templates_outputs",
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -531,7 +574,7 @@ def test_run_templates_compute_template_similarity_phase_requires_built_artifact
 		stream_id="well000",
 		mea_output_root=output_root,
 		output_rel_root="templates_outputs",
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		unit_ids=[94, 95],
 		n_jobs=1,
 	)
@@ -552,7 +595,7 @@ def test_run_templates_compute_template_similarity_phase_writes_matrix_and_candi
 		stream_id="well000",
 		mea_output_root=output_root,
 		output_rel_root="templates_outputs",
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		unit_ids=[91, 92, 93],
 		n_jobs=1,
 	)
@@ -637,7 +680,7 @@ def test_run_templates_compute_template_similarity_phase_writes_lagged_method_ou
 		stream_id="well000",
 		mea_output_root=output_root,
 		output_rel_root="templates_outputs",
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		unit_ids=[91, 92, 93],
 		n_jobs=1,
 		phases=TemplatesPhasesConfig(
@@ -700,7 +743,7 @@ def test_run_templates_compute_template_similarity_phase_reuses_existing_templat
 		stream_id="well000",
 		mea_output_root=output_root,
 		output_rel_root="templates_outputs",
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		unit_ids=[91, 92],
 		n_jobs=1,
 		phases=TemplatesPhasesConfig(
@@ -799,7 +842,7 @@ def test_run_templates_compute_template_similarity_phase_falls_back_to_template_
 		stream_id="well000",
 		mea_output_root=output_root,
 		output_rel_root="templates_outputs",
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		unit_ids=[91, 92],
 		n_jobs=1,
 		phases=TemplatesPhasesConfig(
@@ -855,6 +898,7 @@ def test_run_templates_stage_writes_png(tmp_path: Path) -> None:
 			),
 		),
 		unit_ids=[94],
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -890,6 +934,7 @@ def test_run_templates_stage_writes_template_circles_png(tmp_path: Path) -> None
 			template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=False, relpath="template_circles"),
 		),
 		unit_ids=[94],
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -971,7 +1016,7 @@ def test_run_templates_stage_writes_multiple_negative_peaks_quality_artifacts(tm
 			),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=False,
 		n_jobs=1,
 	)
@@ -1092,7 +1137,7 @@ def test_run_templates_stage_quality_check_violation_plot_and_output_knobs(tmp_p
 			),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=False,
 		n_jobs=1,
 	)
@@ -1187,7 +1232,7 @@ def test_run_templates_stage_quality_check_warnings_can_be_suppressed(tmp_path: 
 			),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=False,
 		n_jobs=1,
 	)
@@ -1243,7 +1288,7 @@ def test_run_templates_stage_propagation_ordering_debug_logs_are_debug_level(tmp
 		),
 		reports=ReportsConfig(wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False)),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -1381,7 +1426,7 @@ def test_run_templates_stage_propagation_right_panel_composes_svg(tmp_path: Path
 		),
 		reports=ReportsConfig(wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False)),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=False,
 		n_jobs=1,
 	)
@@ -1458,7 +1503,7 @@ def test_run_templates_stage_writes_channel_locations_for_all_template_artifacts
 			template_wf_overlay=TemplateWaveformOverlayConfig(write_pdf=False, write_png=False),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -1551,7 +1596,7 @@ def test_run_templates_stage_writes_overlay_and_grid(tmp_path: Path) -> None:
 			)
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -1638,7 +1683,7 @@ def test_run_templates_stage_prefers_composition_asset_apis_when_assets_exist(tm
 			),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -1771,7 +1816,7 @@ def test_run_templates_stage_sorts_grid_inputs_by_max_ptp(tmp_path: Path, monkey
 			),
 		),
 		unit_ids=[1, 2],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=False,
 		n_jobs=1,
 	)
@@ -1831,7 +1876,7 @@ def test_run_templates_stage_writes_unit_locations_report_json(tmp_path: Path, m
 			),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=False,
 		n_jobs=1,
 	)
@@ -1920,7 +1965,7 @@ def test_run_templates_stage_locations_report_passes_underlay_channel_payloads(t
 		),
 		probe_geometry=ProbeGeometryConfig(active_area_um_x=3850.0, active_area_um_y=2100.0),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=False,
 		n_jobs=1,
 	)
@@ -2017,7 +2062,7 @@ def test_run_templates_stage_locations_report_prefers_global_concat_locations(tm
 			),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=False,
 		n_jobs=1,
 	)
@@ -2098,7 +2143,7 @@ def test_run_templates_stage_writes_footprint_maps(tmp_path: Path) -> None:
 			),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -2180,7 +2225,7 @@ def test_run_templates_stage_reports_replot_from_disk_uses_unit_summaries(tmp_pa
 			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=True),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -2212,7 +2257,7 @@ def test_run_templates_stage_reports_replot_from_disk_uses_unit_summaries(tmp_pa
 			),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=False,
 		n_jobs=1,
 	)
@@ -2253,7 +2298,7 @@ def test_run_templates_stage_force_rereport_skips_missing_unit_summaries(tmp_pat
 			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
 		),
 		unit_ids=[95],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=False,
 		force_rereport=True,
 		n_jobs=1,
@@ -2293,7 +2338,7 @@ def test_run_templates_stage_time_upsample_nearest_method(tmp_path: Path) -> Non
 			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -2353,7 +2398,7 @@ def test_run_templates_stage_uses_spikeinterface_materialization_fallback(tmp_pa
 			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -2414,7 +2459,7 @@ def test_run_templates_stage_force_restart_prefers_spikeinterface_materializatio
 			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -2473,7 +2518,7 @@ def test_run_templates_stage_unit_force_restart_preserves_reports_when_not_overw
 			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=True, png_relpath="reports/wf_overlay_grid.png"),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -2552,7 +2597,7 @@ def test_run_templates_stage_force_restart_reuses_analyzer_cache_when_enabled(tm
 			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
 		),
 		unit_ids=[94, 95],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -2625,7 +2670,7 @@ def test_run_templates_stage_writes_upsampling_decisions_to_summaries(tmp_path: 
 			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -2754,7 +2799,7 @@ def test_run_templates_stage_passes_effective_sampling_rate_to_timing_renderers(
 			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -2858,7 +2903,7 @@ def test_force_replot_reuses_persisted_sampling_metadata_for_timing_renderers(tm
 			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=False,
 		force_replot=True,
 		n_jobs=1,
@@ -2939,7 +2984,7 @@ def test_force_replot_infers_sampling_rate_from_execution_when_metadata_missing(
 			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=False),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=False,
 		force_replot=True,
 		n_jobs=1,
@@ -2976,7 +3021,7 @@ def test_run_templates_stage_force_replot_rerenders_visual_outputs(tmp_path: Pat
 			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=True),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=True,
 		n_jobs=1,
 	)
@@ -3007,7 +3052,7 @@ def test_run_templates_stage_force_replot_rerenders_visual_outputs(tmp_path: Pat
 			wf_overlay_grid=WfOverlayGridReportConfig(write_pdf=False, write_png=True),
 		),
 		unit_ids=[94],
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		force_restart=False,
 		force_replot=True,
 		n_jobs=1,
@@ -3030,7 +3075,7 @@ def test_run_templates_plot_templates_phase_requires_built_artifacts(tmp_path: P
 		stream_id="well000",
 		mea_output_root=output_root,
 		output_rel_root="templates_outputs",
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		n_jobs=1,
 	)
 
@@ -3088,7 +3133,7 @@ def test_run_templates_plot_templates_phase_writes_circle_plots_only_and_cleans_
 				write_propagation_2panel_svg=True,
 			),
 		),
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		unit_ids=[94],
 		n_jobs=1,
 	)
@@ -3128,7 +3173,7 @@ def test_run_templates_plot_templates_phase_skips_existing_requested_outputs(tmp
 		per_unit_outputs=PerUnitTemplatesOutputsConfig(
 			template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=False),
 		),
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		unit_ids=[94],
 		n_jobs=1,
 	)
@@ -3165,7 +3210,7 @@ def test_run_templates_plot_templates_phase_force_restart_rerenders_existing_req
 		per_unit_outputs=PerUnitTemplatesOutputsConfig(
 			template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=False),
 		),
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		unit_ids=[94],
 		n_jobs=1,
 	)
@@ -3185,7 +3230,7 @@ def test_run_templates_plot_templates_phase_force_restart_rerenders_existing_req
 		per_unit_outputs=PerUnitTemplatesOutputsConfig(
 			template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=False),
 		),
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		unit_ids=[94],
 		force_restart=True,
 		n_jobs=1,
@@ -3290,7 +3335,7 @@ def test_run_templates_plot_templates_phase_uses_batched_plot_runner(tmp_path: P
 		per_unit_outputs=PerUnitTemplatesOutputsConfig(
 			template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=False),
 		),
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		unit_ids=[91, 92, 93, 94],
 		n_jobs=24,
 	)
@@ -3313,7 +3358,7 @@ def test_run_templates_plot_batches_logs_unified_progress(tmp_path: Path, monkey
 			return self._result
 
 	class _FakeProcessPoolExecutor:
-		def __init__(self, max_workers: int) -> None:
+		def __init__(self, max_workers: int, **_kwargs: Any) -> None:
 			self.max_workers = int(max_workers)
 
 		def __enter__(self):
@@ -3405,7 +3450,7 @@ def test_run_templates_report_templates_phase_requires_circle_plot_assets(tmp_pa
 		stream_id="well000",
 		mea_output_root=output_root,
 		output_rel_root="templates_outputs",
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		unit_ids=[94],
 		n_jobs=1,
 	)
@@ -3429,7 +3474,7 @@ def test_run_templates_report_templates_phase_writes_pdf_from_circle_assets(tmp_
 		per_unit_outputs=PerUnitTemplatesOutputsConfig(
 			template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=False),
 		),
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		unit_ids=[94],
 		n_jobs=1,
 	)
@@ -3440,7 +3485,7 @@ def test_run_templates_report_templates_phase_writes_pdf_from_circle_assets(tmp_
 		stream_id="well000",
 		mea_output_root=output_root,
 		output_rel_root="templates_outputs",
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		unit_ids=[94],
 		n_jobs=1,
 	)

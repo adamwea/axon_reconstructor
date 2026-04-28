@@ -484,7 +484,7 @@ def test_run_reconstruct_generate_gtrs_batches_logs_unified_progress(tmp_path: P
 			return self._result
 
 	class _FakeProcessPoolExecutor:
-		def __init__(self, max_workers: int) -> None:
+		def __init__(self, max_workers: int, **_kwargs) -> None:
 			self.max_workers = int(max_workers)
 
 		def __enter__(self):

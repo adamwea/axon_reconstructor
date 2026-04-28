@@ -40,7 +40,7 @@ def test_run_templates_resolve_sources_phase_resolves_expected_sources(tmp_path:
 		stream_id="well000",
 		mea_output_root=output_root,
 		output_rel_root="templates_outputs",
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		resolve_sources_phase=ResolveSourcesPhaseConfig(
 			enabled=True,
 			log_candidates=False,
@@ -57,7 +57,8 @@ def test_run_templates_resolve_sources_phase_resolves_expected_sources(tmp_path:
 	assert sources["concat_sorting"]["first_existing"] == str(resolved["concat_sorting"])
 	assert sources["preprocessed_concat"]["first_existing"] == str(resolved["preprocessed_concat"])
 	assert sources["preprocessed_segments"]["first_existing"] == str(resolved["preprocessed_segments"])
-	assert summary["unit_scope"]["curated_probe"]["probe_attempted"] is False
+	assert summary["unit_scope"]["unit_label_filter"]["probe_attempted"] is True
+	assert summary["unit_scope"]["unit_label_filter"]["available"] is False
 
 
 def test_run_templates_resolve_sources_phase_writes_summary_json_when_enabled(tmp_path: Path) -> None:
@@ -73,7 +74,7 @@ def test_run_templates_resolve_sources_phase_writes_summary_json_when_enabled(tm
 		stream_id="well000",
 		mea_output_root=output_root,
 		output_rel_root="templates_outputs",
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		resolve_sources_phase=ResolveSourcesPhaseConfig(
 			enabled=True,
 			log_candidates=False,
@@ -105,7 +106,7 @@ def test_run_templates_resolve_sources_phase_logs_header_when_enabled(tmp_path: 
 		stream_id="well000",
 		mea_output_root=output_root,
 		output_rel_root="templates_outputs",
-		require_curated_units=False,
+		unit_label_filter_required=False,
 		resolve_sources_phase=ResolveSourcesPhaseConfig(
 			enabled=True,
 			show_header=True,

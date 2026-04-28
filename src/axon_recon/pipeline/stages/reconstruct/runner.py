@@ -14,6 +14,7 @@ from axon_recon.pipeline.shared.grid_sorting import (
 	normalize_grid_sort_by,
 )
 from axon_recon.pipeline.execution import install_linux_parent_death_signal
+from axon_recon.pipeline.execution.phase_chain import PhaseDescriptor, run_phase_chain
 
 from .core.generate_gtrs import run_generate_gtrs_phase as run_generate_gtrs_core_phase
 from .core.diagnostic_plots import write_unit_axon_reconstruction_diagnostic_figure
@@ -63,6 +64,17 @@ from ..templates.core.render import finalize_grid_svg_output, render_footprint_m
 
 
 LOGGER = logging.getLogger("axon_recon.reconstruct")
+
+DEFAULT_INTERNAL_RECONSTRUCTION_PHASE_SEQUENCE: tuple[str, ...] = (
+	"generate_gtrs",
+	"plot_recons",
+	"plot_branch_propagations",
+	"plot_branch_velocities",
+	"plot_unit_summary",
+	"report_recons",
+	"report_full_chip_layout",
+	"report_summaries",
+)
 
 
 def _is_empty_signal_selection_error(exc: Exception) -> bool:
@@ -116,38 +128,28 @@ def _discover_unit_ids(merged_units_dir: Path) -> list[Any]:
 	return unit_ids
 
 
-def _resolve_templates_dirs(
-	well_out_dir: Path,
-	*,
-	load_assets_from_v2pipeline_templates_stage: bool = False,
-) -> tuple[Path, Path, Path]:
-	if bool(load_assets_from_v2pipeline_templates_stage):
-		templates_out_dir = well_out_dir / "template_outputs"
-		merged_units_dir = templates_out_dir / "units"
-		full_channels_templates_dir = merged_units_dir
+def _resolve_templates_dirs(well_out_dir: Path) -> tuple[Path, Path, Path]:
+	last_merged_units_dir = well_out_dir / "templates_outputs" / "templates" / "merged"
+	for templates_out_dir in (
+		well_out_dir / "template_outputs",
+		well_out_dir / "templates_outputs",
+		well_out_dir / "stg4_templates_outputs",
+	):
+		templates_dir = templates_out_dir / "templates"
+		merged_units_dir = templates_dir / "merged"
+		full_channels_templates_dir = templates_dir / "full"
+		if not merged_units_dir.exists():
+			legacy = templates_out_dir / "merged_units"
+			if legacy.exists():
+				merged_units_dir = legacy
+		if not full_channels_templates_dir.exists():
+			legacy = templates_out_dir / "full_channels_templates"
+			if legacy.exists():
+				full_channels_templates_dir = legacy
 		if merged_units_dir.exists():
 			return templates_out_dir, merged_units_dir, full_channels_templates_dir
-
-	templates_out_dir = well_out_dir / "stg4_templates_outputs"
-	templates_dir = templates_out_dir / "templates"
-
-	merged_units_dir = templates_dir / "merged"
-	full_channels_templates_dir = templates_dir / "full"
-
-	if not merged_units_dir.exists():
-		legacy = templates_out_dir / "merged_units"
-		if legacy.exists():
-			merged_units_dir = legacy
-
-	if not full_channels_templates_dir.exists():
-		legacy = templates_out_dir / "full_channels_templates"
-		if legacy.exists():
-			full_channels_templates_dir = legacy
-
-	if not merged_units_dir.exists():
-		raise FileNotFoundError(f"Missing merged templates directory: {merged_units_dir}")
-
-	return templates_out_dir, merged_units_dir, full_channels_templates_dir
+		last_merged_units_dir = merged_units_dir
+	raise FileNotFoundError(f"Missing merged templates directory: {last_merged_units_dir}")
 
 
 def _build_unit_ids(inputs: ReconstructionInputs, merged_units_dir: Path) -> list[Any]:
@@ -508,10 +510,7 @@ def _prepare_reconstruct_phase_environment(
 			if unit_dir.exists():
 				shutil.rmtree(unit_dir)
 
-	_, merged_units_dir, full_channels_templates_dir = _resolve_templates_dirs(
-		well_out_dir,
-		load_assets_from_v2pipeline_templates_stage=inputs.load_assets_from_v2pipeline_templates_stage,
-	)
+	_, merged_units_dir, full_channels_templates_dir = _resolve_templates_dirs(well_out_dir)
 	unit_ids = _build_unit_ids(inputs, merged_units_dir)
 	return _ReconstructPhaseEnvironment(
 		well_out_dir=well_out_dir,
@@ -1129,7 +1128,133 @@ def run_reconstruct_report_summaries_phase(inputs: ReconstructionInputs) -> dict
 	)
 
 
+def _normalize_reconstruct_stage_phase_name(raw: Any) -> str:
+	token = str(raw or "").strip().replace("-", "_").replace(" ", "_")
+	aliases = {
+		"generate": "generate_gtrs",
+		"gtrs": "generate_gtrs",
+		"plot_reconstructions": "plot_recons",
+		"report_reconstructions": "report_recons",
+	}
+	return aliases.get(token, token)
+
+
+def _reconstruct_stage_phase_enabled(inputs: ReconstructionInputs, phase_name: str) -> bool:
+	phase = _normalize_reconstruct_stage_phase_name(phase_name)
+	if phase == "generate_gtrs":
+		return bool(inputs.phases.generate_gtrs.enabled)
+	if phase == "plot_recons":
+		return bool(inputs.phases.plot_recons.enabled)
+	if phase == "plot_branch_propagations":
+		return bool(inputs.phases.plot_branch_propagations.enabled)
+	if phase == "plot_branch_velocities":
+		return bool(inputs.phases.plot_branch_velocities.enabled)
+	if phase == "plot_unit_summary":
+		return bool(inputs.phases.plot_unit_summary.enabled)
+	if phase == "report_recons":
+		return bool(inputs.phases.report_recons.enabled)
+	if phase == "report_full_chip_layout":
+		return bool(inputs.phases.report_full_chip_layout.enabled)
+	if phase == "report_summaries":
+		return bool(inputs.phases.report_summaries.enabled)
+	return False
+
+
+def _reconstruct_phase_selected(inputs: ReconstructionInputs, phase_name: str) -> bool:
+	sequence = tuple(_normalize_reconstruct_stage_phase_name(phase) for phase in (inputs.phase_sequence or ()))
+	return (not sequence) or _normalize_reconstruct_stage_phase_name(phase_name) in sequence
+
+
+def _reconstruct_stage_phase_runner(phase_name: str):
+	phase = _normalize_reconstruct_stage_phase_name(phase_name)
+	if phase == "generate_gtrs":
+		return run_reconstruct_generate_gtrs_phase
+	if phase == "plot_recons":
+		return run_reconstruct_plot_recons_phase
+	if phase == "plot_branch_propagations":
+		return run_reconstruct_plot_branch_propagations_phase
+	if phase == "plot_branch_velocities":
+		return run_reconstruct_plot_branch_velocities_phase
+	if phase == "plot_unit_summary":
+		return run_reconstruct_plot_unit_summary_phase
+	if phase == "report_recons":
+		return run_reconstruct_report_recons_phase
+	if phase == "report_full_chip_layout":
+		return run_reconstruct_report_full_chip_layout_phase
+	if phase == "report_summaries":
+		return run_reconstruct_report_summaries_phase
+	raise ValueError(f"Unknown reconstruct phase: {phase_name!r}")
+
+
+def collect_reconstruct_result_from_outputs(inputs: ReconstructionInputs) -> ReconstructionResult:
+	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
+	unit_results = _load_reconstruct_unit_results(
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		inputs=inputs,
+		unit_ids=env.unit_ids,
+	)
+	units_ok, units_error = _count_unit_statuses(unit_results)
+	report_grid_sort_by = normalize_grid_sort_by(inputs.reports.grids.sort_by, default="unit_id")
+	stage_outputs = _collect_existing_reconstruct_stage_outputs(
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		inputs=inputs,
+	)
+	failed_units_summary_json = _current_failed_units_summary_json(
+		inputs=inputs,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+	)
+	summary_json = env.reconstruction_out_dir / "reconstruction_summary.json"
+	write_json(
+		summary_json,
+		{
+			"h5_path": str(inputs.h5_path),
+			"stream_id": str(inputs.stream_id),
+			"n_jobs": int(max(1, int(inputs.n_jobs))),
+			"phase_sequence": list(inputs.phase_sequence or []),
+			"well_out_dir": str(env.well_out_dir),
+			"reconstruction_out_dir": str(env.reconstruction_out_dir),
+			"units_ok": units_ok,
+			"units_error": units_error,
+			"outputs": stage_outputs,
+			"cleanup_failed_unit_outputs": bool(inputs.cleanup_failed_unit_outputs),
+			"failed_units_summary_json": str(failed_units_summary_json) if failed_units_summary_json else None,
+			"reports_overwrite_skipped": env.preserve_stage_reports,
+			"reports_grid_sort_by": str(report_grid_sort_by),
+			"units": _unit_rows(unit_results),
+		},
+	)
+	return ReconstructionResult(
+		well_out_dir=env.well_out_dir,
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		summary_json=summary_json,
+		units=unit_results,
+	)
+
+
 def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
+	phase_sequence = tuple(
+		_normalize_reconstruct_stage_phase_name(phase)
+		for phase in (inputs.phase_sequence or DEFAULT_INTERNAL_RECONSTRUCTION_PHASE_SEQUENCE)
+	)
+	phase_plan = [phase for phase in phase_sequence if _reconstruct_stage_phase_enabled(inputs, phase)]
+	if not phase_plan:
+		return collect_reconstruct_result_from_outputs(inputs)
+
+	def _descriptor_for_phase(phase_name: str) -> PhaseDescriptor:
+		def _run_phase(phase_name: str = phase_name):
+			return _reconstruct_stage_phase_runner(phase_name)(inputs)
+
+		return PhaseDescriptor(name=str(phase_name), runner=_run_phase)
+
+	run_phase_chain(
+		phases=[_descriptor_for_phase(phase) for phase in phase_plan],
+		logger=LOGGER,
+		target_label=str(inputs.stream_id),
+	)
+	return collect_reconstruct_result_from_outputs(inputs)
+
+
+def _run_reconstruct_stage_default_order(inputs: ReconstructionInputs) -> ReconstructionResult:
 	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=True)
 	unit_results: list[UnitReconstructionResult] = []
 	failed_units_summary_json: Path | None = _current_failed_units_summary_json(
@@ -1137,7 +1262,7 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 		reconstruction_out_dir=env.reconstruction_out_dir,
 	)
 
-	if bool(inputs.phases.generate_gtrs.enabled):
+	if _reconstruct_phase_selected(inputs, "generate_gtrs") and bool(inputs.phases.generate_gtrs.enabled):
 		unit_results, failed_units_summary_json = _run_reconstruct_generate_gtrs_phase_impl(inputs=inputs, env=env)
 		_write_reconstruct_phase_summary(
 			phase_name="generate_gtrs",
@@ -1156,7 +1281,7 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 			unit_ids=env.unit_ids,
 		)
 
-	if bool(inputs.phases.plot_recons.enabled):
+	if _reconstruct_phase_selected(inputs, "plot_recons") and bool(inputs.phases.plot_recons.enabled):
 		unit_results, failed_units_summary_json = _run_reconstruct_plot_recons_phase_impl(inputs=inputs, env=env)
 		_write_reconstruct_phase_summary(
 			phase_name="plot_recons",
@@ -1175,7 +1300,7 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 			unit_ids=env.unit_ids,
 		)
 
-	if bool(inputs.phases.plot_branch_propagations.enabled):
+	if _reconstruct_phase_selected(inputs, "plot_branch_propagations") and bool(inputs.phases.plot_branch_propagations.enabled):
 		unit_results, failed_units_summary_json = _run_reconstruct_plot_branch_propagations_phase_impl(inputs=inputs, env=env)
 		_write_reconstruct_phase_summary(
 			phase_name="plot_branch_propagations",
@@ -1195,7 +1320,7 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 			unit_ids=env.unit_ids,
 		)
 
-	if bool(inputs.phases.plot_branch_velocities.enabled):
+	if _reconstruct_phase_selected(inputs, "plot_branch_velocities") and bool(inputs.phases.plot_branch_velocities.enabled):
 		unit_results, failed_units_summary_json = _run_reconstruct_plot_branch_velocities_phase_impl(inputs=inputs, env=env)
 		_write_reconstruct_phase_summary(
 			phase_name="plot_branch_velocities",
@@ -1215,7 +1340,7 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 			unit_ids=env.unit_ids,
 		)
 
-	if bool(inputs.phases.plot_unit_summary.enabled):
+	if _reconstruct_phase_selected(inputs, "plot_unit_summary") and bool(inputs.phases.plot_unit_summary.enabled):
 		unit_results, failed_units_summary_json = _run_reconstruct_plot_unit_summary_phase_impl(inputs=inputs, env=env)
 		_write_reconstruct_phase_summary(
 			phase_name="plot_unit_summary",
@@ -1244,7 +1369,7 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 
 	report_grid_sort_by = normalize_grid_sort_by(inputs.reports.grids.sort_by, default="unit_id")
 	stage_outputs: dict[str, str] = dict(env.existing_stage_outputs)
-	if bool(inputs.phases.report_recons.enabled):
+	if _reconstruct_phase_selected(inputs, "report_recons") and bool(inputs.phases.report_recons.enabled):
 		stage_outputs = _run_reconstruct_report_recons_phase_impl(inputs=inputs, env=env, unit_results=unit_results)
 		_write_reconstruct_phase_summary(
 			phase_name="report_recons",
@@ -1259,7 +1384,7 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 			extra_fields={"reports_grid_sort_by": str(report_grid_sort_by)},
 		)
 
-	if bool(inputs.phases.report_full_chip_layout.enabled):
+	if _reconstruct_phase_selected(inputs, "report_full_chip_layout") and bool(inputs.phases.report_full_chip_layout.enabled):
 		full_chip_unit_results = _load_full_chip_layout_unit_results(
 			reconstruction_out_dir=env.reconstruction_out_dir,
 			inputs=inputs,
@@ -1284,7 +1409,7 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 			preserve_stage_reports=False,
 		)
 
-	if bool(inputs.phases.report_summaries.enabled):
+	if _reconstruct_phase_selected(inputs, "report_summaries") and bool(inputs.phases.report_summaries.enabled):
 		stage_outputs = _run_reconstruct_report_summaries_phase_impl(
 			inputs=inputs,
 			env=env,
@@ -1311,6 +1436,7 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 		"h5_path": str(inputs.h5_path),
 		"stream_id": str(inputs.stream_id),
 		"n_jobs": int(max(1, int(inputs.n_jobs))),
+		"phase_sequence": list(inputs.phase_sequence or []),
 		"well_out_dir": str(env.well_out_dir),
 		"reconstruction_out_dir": str(env.reconstruction_out_dir),
 		"units_ok": units_ok,
