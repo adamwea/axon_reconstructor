@@ -15,6 +15,7 @@ resources:
   # Global fallbacks when a stage-specific resources block omits a key.
   max_workers: 24
   chunk_duration: 1s
+  max_simultaneous_well_reads_per_dataset: 1
 
 global_logger:
   level: INFO
@@ -93,8 +94,8 @@ stages:
       stage_log_relpath: logs/preprocess_pipeline.log
     resources:
       #max_stage_workers: 24 # desktop
-      max_stage_workers: 28 # lab server
-      well_workers: 6
+      max_stage_workers: 18 # lab server
+      well_workers: 3
       divide_stage_workers_by_wells: true # This controls the derived value of n_jobs. when true, stage workers are divided evenly among wells up to the max number of well workers.
     rel_output_root: preprocess_outputs # optional subdir under each well's output directory for all preprocess outputs; relative paths for preprocess phases resolve under this directory in each well's output directory
     phase_sequence: [copy_src_to_scratch, save_rec_metadata, preprocess_segments, plot_segment_traces, plot_segment_channel_layouts, plot_raster_threshold]
@@ -257,8 +258,8 @@ stages:
         summary_json_relpath: context/wipe_src_scratch_summary.json
   spikesort:
     resources:
-      max_stage_workers: 28
-      well_workers: 6
+      max_stage_workers: 18
+      well_workers: 2
       divide_stage_workers_by_wells: true # This controls the derived value of n_jobs. when true, stage workers are divided evenly among wells up to the max number of well workers.
       chunk_duration: 1s
     logging:
@@ -286,7 +287,8 @@ stages:
     inputs:
       # Relative paths resolve under the per-well output directory.
       preprocess_concat_recording_relpath: preprocess_outputs/concatenated_recording
-    phase_sequence: [bootstrap_concat_binary, sort, bombcell_label, merge_SLAy, cleanup_concat_binary]
+    #phase_sequence: [bootstrap_concat_binary, sort, bombcell_label, merge_SLAy, cleanup_concat_binary]
+    phase_sequence: [bootstrap_concat_binary, sort, summarize_sort, bombcell_label, cleanup_concat_binary]
     phases:
       #resolve_sources:
       bootstrap_concat_binary:
@@ -352,14 +354,14 @@ stages:
         debug_mode:
           enabled: true
           limit_datasets: 1
-          limit_wells: 1
+          limit_wells: 2
         emit_logs: true
         generate_artifacts: false
 
       bombcell_label:
         enabled: true
         debug_mode:
-          enabled: false
+          enabled: true
           limit_datasets: 1
           limit_wells: 2
         # outputs live under <well>/<spikesort_output_root>/<merge_units.rel_output_root>/<relpath>
@@ -388,7 +390,9 @@ stages:
             random_spikes_method: default # default|percentage|all. When random_spikes_percentage is set, default promotes to percentage automatically; "all" disables random spike subsampling entirely.
             #random_spikes_method: all # use all spikes for template-critical analyzer extensions during merge and in merge reports to ensure the most accurate templates for merge recommendations and reporting; keep default for faster iterations when merge debugging is not the focus.
             #max_spikes_per_unit: 500 # used when random_spikes_method stays sampled instead of "all".
-            max_spikes_per_unit: 1000 # keep a moderate cap on spikes per unit for template-critical analyzer extensions during merge and in merge reports to balance template quality with computational load during debugging iterations; can be set to a higher number or disabled entirely for more thorough template extraction in non-debug runs when computational load is less of a concern.
+            #max_spikes_per_unit: 1000 # keep a moderate cap on spikes per unit for template-critical analyzer extensions during merge and in merge reports to balance template quality with computational load during debugging iterations; can be set to a higher number or disabled entirely for more thorough template extraction in non-debug runs when computational load is less of a concern.
+            max_spikes_per_unit: 500
+            #max_spikes_per_unit: 500
             #max_spikes_per_unit: 5000 # increase max spikes per unit for template-critical analyzer extensions during merge and in merge reports to provide more comprehensive templates for merge recommendations and reporting; keep 500 by default for faster iterations when merge debugging is not the focus, but can be set to a higher number for more thorough template extraction in non-debug runs.
             #margin_size: 60 # optional border margin in samples for merge-side random spike selection.
             seed: 0 # optional seed for reproducible merge-side random spike selection.
@@ -444,16 +448,16 @@ stages:
 
       merge_SLAy:
 
-        enabled: true
+        enabled: false
         rel_output_root: merge_SLAy
         delete_outputs_on_force_restart: true
         force_restart: false
         force_replot: false
 
         debug_mode:
-          enabled: false
+          enabled: true
           limit_datasets: 1
-          limit_wells: 2
+          limit_wells: 1
 
         # Work on a sorter-output copy so the stage's canonical sorter output is only
         # replaced after SLAy completes successfully. Analyzer outputs are not copied.
@@ -462,7 +466,7 @@ stages:
           relpath: cache/merge_workspace
           refresh_on_run: true
           assert_selected_sorter_output: true
-          publish_to_canonical_on_success: true
+          publish_to_canonical_on_success: false
           publish_to_canonical_on_failure: false
 
         cleanup_generated_analyzers_on_success: true
@@ -474,14 +478,16 @@ stages:
           n_jobs: null # inherit stage-level n_jobs by default; can set an explicit number here for more control.
           template_extraction:
             seed: 0
-            random_spikes_percentage: 25
-            min_spikes_per_unit: 1000
+            #random_spikes_percentage: 25
+            #min_spikes_per_unit: 1000
+            max_spikes_per_unit: 100
             log_before_after_spike_counts: true
           sparsity:
-            compute_sparsity: false
-            method: best_channels
-            num_channels: 300
-            peak_sign: both
+            #compute_sparsity: false
+            compute_sparsity: true
+            #method: best_channels
+            #num_channels: 300
+            #peak_sign: both
             num_spikes_for_sparsity: 100
           waveforms:
             ms_before: 2.0
@@ -603,8 +609,9 @@ stages:
             pre_samples: 20
             post_samples: 62
             min_spikes: 50
-            max_spikes: -1
-            good_lbls: [good, non_soma_good]
+            #max_spikes: -1
+            max_spikes: 1000
+            good_lbls: [good, non_soma_good, mua, noise]
             window_size: 0.1
             xcorr_bin_width: 0.0005
             overlap_tol: 0.00016666666666666666 # 5 / 30000
@@ -618,10 +625,11 @@ stages:
             sim_thresh: 0.4
             ae_pre: 10
             ae_post: 30
-            ae_chan: 8
+            ae_chan: 8 #
             ae_noise: true
-            ae_shft: false
-            ae_epochs: 50
+            ae_shft: false #
+            ae_epochs: 10
+            #ae_epochs: 50
             final_thresh: 0.5
             max_dist: 10
             auto_accept_merges: true

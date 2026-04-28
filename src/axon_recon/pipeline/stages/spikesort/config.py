@@ -352,21 +352,27 @@ class SpikesortStageConfig:
 	debug_mode_enabled: bool
 	debug_limit_datasets: int | None
 	debug_limit_wells: int | None
+	debug_limit_wells_per_dataset: int | None
 	sort_debug_mode_enabled: bool
 	sort_debug_limit_datasets: int | None
 	sort_debug_limit_wells: int | None
+	sort_debug_limit_wells_per_dataset: int | None
 	bootstrap_concat_binary_debug_mode_enabled: bool
 	bootstrap_concat_binary_debug_limit_datasets: int | None
 	bootstrap_concat_binary_debug_limit_wells: int | None
+	bootstrap_concat_binary_debug_limit_wells_per_dataset: int | None
 	cleanup_concat_binary_debug_mode_enabled: bool
 	cleanup_concat_binary_debug_limit_datasets: int | None
 	cleanup_concat_binary_debug_limit_wells: int | None
+	cleanup_concat_binary_debug_limit_wells_per_dataset: int | None
 	summarize_sort_debug_mode_enabled: bool
 	summarize_sort_debug_limit_datasets: int | None
 	summarize_sort_debug_limit_wells: int | None
+	summarize_sort_debug_limit_wells_per_dataset: int | None
 	bombcell_label_debug_mode_enabled: bool
 	bombcell_label_debug_limit_datasets: int | None
 	bombcell_label_debug_limit_wells: int | None
+	bombcell_label_debug_limit_wells_per_dataset: int | None
 	sorter: str
 	docker_image: str | None
 	recording_num: str
@@ -500,6 +506,7 @@ class SpikesortStageConfig:
 	merge_slay_debug_mode_enabled: bool
 	merge_slay_debug_limit_datasets: int | None
 	merge_slay_debug_limit_wells: int | None
+	merge_slay_debug_limit_wells_per_dataset: int | None
 	merge_si_auto_enabled: bool
 	merge_si_auto_rel_output_root: str
 	merge_si_auto_delete_outputs_on_force_restart: bool
@@ -515,6 +522,7 @@ class SpikesortStageConfig:
 	merge_si_auto_debug_mode_enabled: bool
 	merge_si_auto_debug_limit_datasets: int | None
 	merge_si_auto_debug_limit_wells: int | None
+	merge_si_auto_debug_limit_wells_per_dataset: int | None
 	merge_unitmatch_enabled: bool
 	merge_unitmatch_rel_output_root: str
 	merge_unitmatch_delete_outputs_on_force_restart: bool
@@ -530,6 +538,7 @@ class SpikesortStageConfig:
 	merge_unitmatch_debug_mode_enabled: bool
 	merge_unitmatch_debug_limit_datasets: int | None
 	merge_unitmatch_debug_limit_wells: int | None
+	merge_unitmatch_debug_limit_wells_per_dataset: int | None
 	merge_phase_runtime_overrides: dict[str, dict[str, Any]] | None
 	merge_units_enabled: bool
 	merge_rel_output_root: str | None
@@ -895,10 +904,19 @@ def parse_spikesort_stage_config(
 			debug_cfg.get("limit_wells", None),
 		)
 	)
+	debug_limit_wells_per_dataset = _as_optional_positive_int(
+		_coalesce(
+			execution_cfg.get("limit_wells_per_dataset", None),
+			debug_cfg.get("limit_wells_per_dataset", None),
+		)
+	)
 	sort_debug_cfg = _as_section(sort_phase_cfg.get("debug_mode", {}))
 	sort_debug_mode_enabled = _as_bool(sort_debug_cfg.get("enabled", False), False)
 	sort_debug_limit_datasets = _as_optional_positive_int(sort_debug_cfg.get("limit_datasets", None))
 	sort_debug_limit_wells = _as_optional_positive_int(sort_debug_cfg.get("limit_wells", None))
+	sort_debug_limit_wells_per_dataset = _as_optional_positive_int(
+		sort_debug_cfg.get("limit_wells_per_dataset", None)
+	)
 	bootstrap_concat_binary_debug_cfg = _as_section(bootstrap_concat_binary_phase_cfg.get("debug_mode", {}))
 	bootstrap_concat_binary_debug_mode_enabled = _as_bool(
 		bootstrap_concat_binary_debug_cfg.get("enabled", False),
@@ -909,6 +927,9 @@ def parse_spikesort_stage_config(
 	)
 	bootstrap_concat_binary_debug_limit_wells = _as_optional_positive_int(
 		bootstrap_concat_binary_debug_cfg.get("limit_wells", None)
+	)
+	bootstrap_concat_binary_debug_limit_wells_per_dataset = _as_optional_positive_int(
+		bootstrap_concat_binary_debug_cfg.get("limit_wells_per_dataset", None)
 	)
 	cleanup_concat_binary_debug_cfg = _as_section(cleanup_concat_binary_phase_cfg.get("debug_mode", {}))
 	cleanup_concat_binary_debug_mode_enabled = _as_bool(
@@ -921,6 +942,9 @@ def parse_spikesort_stage_config(
 	cleanup_concat_binary_debug_limit_wells = _as_optional_positive_int(
 		cleanup_concat_binary_debug_cfg.get("limit_wells", None)
 	)
+	cleanup_concat_binary_debug_limit_wells_per_dataset = _as_optional_positive_int(
+		cleanup_concat_binary_debug_cfg.get("limit_wells_per_dataset", None)
+	)
 	summarize_sort_debug_cfg = _as_section(summarize_sort_phase_cfg.get("debug_mode", {}))
 	summarize_sort_debug_mode_enabled = _as_bool(summarize_sort_debug_cfg.get("enabled", False), False)
 	summarize_sort_debug_limit_datasets = _as_optional_positive_int(
@@ -929,6 +953,9 @@ def parse_spikesort_stage_config(
 	summarize_sort_debug_limit_wells = _as_optional_positive_int(
 		summarize_sort_debug_cfg.get("limit_wells", None)
 	)
+	summarize_sort_debug_limit_wells_per_dataset = _as_optional_positive_int(
+		summarize_sort_debug_cfg.get("limit_wells_per_dataset", None)
+	)
 	bombcell_debug_cfg = _as_section(bombcell_phase_cfg.get("debug_mode", {}))
 	bombcell_label_debug_mode_enabled = _as_bool(bombcell_debug_cfg.get("enabled", False), False)
 	bombcell_label_debug_limit_datasets = _as_optional_positive_int(
@@ -936,6 +963,9 @@ def parse_spikesort_stage_config(
 	)
 	bombcell_label_debug_limit_wells = _as_optional_positive_int(
 		bombcell_debug_cfg.get("limit_wells", None)
+	)
+	bombcell_label_debug_limit_wells_per_dataset = _as_optional_positive_int(
+		bombcell_debug_cfg.get("limit_wells_per_dataset", None)
 	)
 
 	plot_enabled = _as_bool(plot_cfg.get("enabled", True), True)
@@ -1773,6 +1803,9 @@ def parse_spikesort_stage_config(
 				phase_debug_cfg.get("limit_datasets", None)
 			),
 			"debug_limit_wells": _as_optional_positive_int(phase_debug_cfg.get("limit_wells", None)),
+			"debug_limit_wells_per_dataset": _as_optional_positive_int(
+				phase_debug_cfg.get("limit_wells_per_dataset", None)
+			),
 		}
 
 	merge_slay_phase_settings = _parse_standalone_merge_phase_settings(
@@ -3256,21 +3289,31 @@ def parse_spikesort_stage_config(
 		debug_mode_enabled=bool(debug_mode_enabled),
 		debug_limit_datasets=debug_limit_datasets,
 		debug_limit_wells=debug_limit_wells,
+		debug_limit_wells_per_dataset=debug_limit_wells_per_dataset,
 		sort_debug_mode_enabled=bool(sort_debug_mode_enabled),
 		sort_debug_limit_datasets=sort_debug_limit_datasets,
 		sort_debug_limit_wells=sort_debug_limit_wells,
+		sort_debug_limit_wells_per_dataset=sort_debug_limit_wells_per_dataset,
 		bootstrap_concat_binary_debug_mode_enabled=bool(bootstrap_concat_binary_debug_mode_enabled),
 		bootstrap_concat_binary_debug_limit_datasets=bootstrap_concat_binary_debug_limit_datasets,
 		bootstrap_concat_binary_debug_limit_wells=bootstrap_concat_binary_debug_limit_wells,
+		bootstrap_concat_binary_debug_limit_wells_per_dataset=(
+			bootstrap_concat_binary_debug_limit_wells_per_dataset
+		),
 		cleanup_concat_binary_debug_mode_enabled=bool(cleanup_concat_binary_debug_mode_enabled),
 		cleanup_concat_binary_debug_limit_datasets=cleanup_concat_binary_debug_limit_datasets,
 		cleanup_concat_binary_debug_limit_wells=cleanup_concat_binary_debug_limit_wells,
+		cleanup_concat_binary_debug_limit_wells_per_dataset=(
+			cleanup_concat_binary_debug_limit_wells_per_dataset
+		),
 		summarize_sort_debug_mode_enabled=bool(summarize_sort_debug_mode_enabled),
 		summarize_sort_debug_limit_datasets=summarize_sort_debug_limit_datasets,
 		summarize_sort_debug_limit_wells=summarize_sort_debug_limit_wells,
+		summarize_sort_debug_limit_wells_per_dataset=summarize_sort_debug_limit_wells_per_dataset,
 		bombcell_label_debug_mode_enabled=bool(bombcell_label_debug_mode_enabled),
 		bombcell_label_debug_limit_datasets=bombcell_label_debug_limit_datasets,
 		bombcell_label_debug_limit_wells=bombcell_label_debug_limit_wells,
+		bombcell_label_debug_limit_wells_per_dataset=bombcell_label_debug_limit_wells_per_dataset,
 		sorter=str(
 			_coalesce(
 				sort_phase_cfg.get("sorter", None),
@@ -3509,6 +3552,9 @@ def parse_spikesort_stage_config(
 		merge_slay_debug_mode_enabled=bool(merge_slay_phase_settings["debug_mode_enabled"]),
 		merge_slay_debug_limit_datasets=merge_slay_phase_settings["debug_limit_datasets"],
 		merge_slay_debug_limit_wells=merge_slay_phase_settings["debug_limit_wells"],
+		merge_slay_debug_limit_wells_per_dataset=merge_slay_phase_settings[
+			"debug_limit_wells_per_dataset"
+		],
 		merge_si_auto_enabled=bool(merge_si_auto_phase_settings["enabled"]),
 		merge_si_auto_rel_output_root=str(merge_si_auto_phase_settings["rel_output_root"]),
 		merge_si_auto_delete_outputs_on_force_restart=bool(
@@ -3538,6 +3584,9 @@ def parse_spikesort_stage_config(
 		merge_si_auto_debug_mode_enabled=bool(merge_si_auto_phase_settings["debug_mode_enabled"]),
 		merge_si_auto_debug_limit_datasets=merge_si_auto_phase_settings["debug_limit_datasets"],
 		merge_si_auto_debug_limit_wells=merge_si_auto_phase_settings["debug_limit_wells"],
+		merge_si_auto_debug_limit_wells_per_dataset=merge_si_auto_phase_settings[
+			"debug_limit_wells_per_dataset"
+		],
 		merge_unitmatch_enabled=bool(merge_unitmatch_phase_settings["enabled"]),
 		merge_unitmatch_rel_output_root=str(merge_unitmatch_phase_settings["rel_output_root"]),
 		merge_unitmatch_delete_outputs_on_force_restart=bool(
@@ -3569,6 +3618,9 @@ def parse_spikesort_stage_config(
 		merge_unitmatch_debug_mode_enabled=bool(merge_unitmatch_phase_settings["debug_mode_enabled"]),
 		merge_unitmatch_debug_limit_datasets=merge_unitmatch_phase_settings["debug_limit_datasets"],
 		merge_unitmatch_debug_limit_wells=merge_unitmatch_phase_settings["debug_limit_wells"],
+		merge_unitmatch_debug_limit_wells_per_dataset=merge_unitmatch_phase_settings[
+			"debug_limit_wells_per_dataset"
+		],
 		merge_phase_runtime_overrides=(
 			{
 				str(phase_name): dict(phase_overrides)

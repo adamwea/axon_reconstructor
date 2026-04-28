@@ -24,6 +24,7 @@ def test_parse_preprocess_stage_config_defaults() -> None:
     assert parsed.force_replot is False
     assert parsed.debug_limit_datasets is None
     assert parsed.debug_limit_wells is None
+    assert parsed.debug_limit_wells_per_dataset is None
     assert parsed.debug_limit_segments_per_well is None
     assert parsed.logging_enabled is True
     assert parsed.logging_verbose is True
@@ -99,6 +100,7 @@ def test_parse_preprocess_stage_config_defaults() -> None:
     assert parsed.phases.concat_segments.debug_mode_enabled is False
     assert parsed.phases.concat_segments.debug_limit_datasets is None
     assert parsed.phases.concat_segments.debug_limit_wells is None
+    assert parsed.phases.concat_segments.debug_limit_wells_per_dataset is None
     assert parsed.phases.concat_segments.output_mode == "binary"
     assert parsed.phases.concat_segments.summary_json_relpath == "context/concat_segments_summary.json"
     assert parsed.phases.concat_segments.rel_output_root == "concatenated_recording"
@@ -110,6 +112,7 @@ def test_parse_preprocess_stage_config_defaults() -> None:
     assert parsed.phases.plot_raster_threshold.debug_mode_enabled is False
     assert parsed.phases.plot_raster_threshold.debug_limit_datasets is None
     assert parsed.phases.plot_raster_threshold.debug_limit_wells is None
+    assert parsed.phases.plot_raster_threshold.debug_limit_wells_per_dataset is None
     assert parsed.phases.plot_raster_threshold.report_step_timers is False
     assert parsed.phases.plot_raster_threshold.summary_json_relpath == "context/plot_raster_threshold_summary.json"
     assert parsed.phases.report_preprocessing.enabled is False
@@ -426,6 +429,7 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                                 "enabled": True,
                                 "limit_datasets": 1,
                                 "limit_wells": 3,
+                                "limit_wells_per_dataset": 2,
                                 "report_step_timers": True,
                             },
                             "summary_json_relpath": "context/custom_recording_metadata_summary.json",
@@ -487,6 +491,7 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                                 "enabled": True,
                                 "limit_datasets": 1,
                                 "limit_wells": 2,
+                                "limit_wells_per_dataset": 2,
                             },
                             "output_mode": "lazy",
                             "summary_json_relpath": "context/custom_concat_segments_summary.json",
@@ -519,6 +524,7 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                                 "enabled": True,
                                 "limit_datasets": 1,
                                 "limit_wells": 1,
+                                "limit_wells_per_dataset": 1,
                                 "report_step_timers": True,
                             },
                             "summary_json_relpath": "context/custom_plot_raster_threshold_summary.json",
@@ -551,6 +557,7 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
     assert parsed.phases.save_rec_metadata.debug_mode_enabled is True
     assert parsed.phases.save_rec_metadata.debug_limit_datasets == 1
     assert parsed.phases.save_rec_metadata.debug_limit_wells == 3
+    assert parsed.phases.save_rec_metadata.debug_limit_wells_per_dataset == 2
     assert parsed.phases.save_rec_metadata.report_step_timers is True
     assert parsed.phases.save_rec_metadata.summary_json_relpath == "context/custom_recording_metadata_summary.json"
     assert parsed.phases.save_rec_metadata.segment_epochs_relpath == "meta/segments.json"
@@ -589,6 +596,7 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
     assert parsed.phases.concat_segments.debug_mode_enabled is True
     assert parsed.phases.concat_segments.debug_limit_datasets == 1
     assert parsed.phases.concat_segments.debug_limit_wells == 2
+    assert parsed.phases.concat_segments.debug_limit_wells_per_dataset == 2
     assert parsed.phases.concat_segments.output_mode == "lazy"
     assert parsed.phases.concat_segments.summary_json_relpath == "context/custom_concat_segments_summary.json"
     assert parsed.phases.concat_segments.rel_output_root == "concatenated_recording"
@@ -605,6 +613,7 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
     assert parsed.phases.plot_raster_threshold.debug_mode_enabled is True
     assert parsed.phases.plot_raster_threshold.debug_limit_datasets == 1
     assert parsed.phases.plot_raster_threshold.debug_limit_wells == 1
+    assert parsed.phases.plot_raster_threshold.debug_limit_wells_per_dataset == 1
     assert parsed.phases.plot_raster_threshold.report_step_timers is True
     assert parsed.phases.plot_raster_threshold.summary_json_relpath == "context/custom_plot_raster_threshold_summary.json"
     assert parsed.phases.plot_raster_threshold.rel_output_root == "raster_threshold_outputs"
@@ -669,6 +678,7 @@ def test_parse_preprocess_stage_config_reads_global_debug_mode_alias() -> None:
                     "debug_mode": {
                         "limit_datasets": 1,
                         "limit_wells": 2,
+                        "limit_wells_per_dataset": 2,
                         "limit_segments_per_well": 3,
                     }
                 }
@@ -680,6 +690,7 @@ def test_parse_preprocess_stage_config_reads_global_debug_mode_alias() -> None:
 
     assert parsed.debug_limit_datasets == 1
     assert parsed.debug_limit_wells == 2
+    assert parsed.debug_limit_wells_per_dataset == 2
     assert parsed.debug_limit_segments_per_well == 3
 
 

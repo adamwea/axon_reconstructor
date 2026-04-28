@@ -64,6 +64,7 @@ def run_spikesort_merge_slay_from_runtime(
 		debug_enabled_attr="merge_slay_debug_mode_enabled",
 		debug_limit_datasets_attr="merge_slay_debug_limit_datasets",
 		debug_limit_wells_attr="merge_slay_debug_limit_wells",
+		debug_limit_wells_per_dataset_attr="merge_slay_debug_limit_wells_per_dataset",
 		stage_name=stage_name,
 	)
 

@@ -301,6 +301,37 @@ def test_run_spikesort_from_runtime_applies_global_debug_dataset_and_well_limits
     assert built_targets == [(0, "well001"), (0, "well002")]
 
 
+def test_spikesort_debug_limits_select_first_wells_per_dataset(tmp_path: Path) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    targets = [
+        ExecutionTarget(
+            dataset_index=dataset_index,
+            dataset_id=f"dataset_{dataset_index:03d}:test.h5",
+            h5_path=tmp_path / f"test_{dataset_index}.h5",
+            stream_id=f"well{well_index:03d}",
+            mea_output_root=tmp_path,
+        )
+        for dataset_index in range(3)
+        for well_index in range(1, 4)
+    ]
+
+    limited = pipeline_runner._apply_spikesort_debug_target_limits(
+        stage_name="spikesort",
+        targets=targets,
+        limit_datasets=2,
+        limit_wells=None,
+        limit_wells_per_dataset=2,
+    )
+
+    assert [(int(target.dataset_index), str(target.stream_id)) for target in limited] == [
+        (0, "well001"),
+        (0, "well002"),
+        (1, "well001"),
+        (1, "well002"),
+    ]
+
+
 def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
     monkeypatch,
     tmp_path: Path,

@@ -283,6 +283,7 @@ class PreprocessStageConfig:
 	force_replot: bool
 	debug_limit_datasets: int | None
 	debug_limit_wells: int | None
+	debug_limit_wells_per_dataset: int | None
 	debug_limit_segments_per_well: int | None
 	logging_enabled: bool
 	logging_verbose: bool
@@ -355,6 +356,9 @@ def _parse_save_rec_metadata_phase_config(
 	debug_mode_enabled = _as_bool(debug_cfg.get("enabled", debug_cfg.get("enable", False)), False)
 	debug_limit_datasets = _as_optional_int(debug_cfg.get("limit_datasets", None)) if debug_mode_enabled else None
 	debug_limit_wells = _as_optional_int(debug_cfg.get("limit_wells", None)) if debug_mode_enabled else None
+	debug_limit_wells_per_dataset = (
+		_as_optional_int(debug_cfg.get("limit_wells_per_dataset", None)) if debug_mode_enabled else None
+	)
 	report_step_timers = _as_bool(debug_cfg.get("report_step_timers", False), False) if debug_mode_enabled else False
 	return PreprocessSaveRecMetadataPhaseConfig(
 		enabled=_as_bool(phase_cfg.get("enabled", phase_cfg.get("enable", False)), False),
@@ -363,6 +367,7 @@ def _parse_save_rec_metadata_phase_config(
 		debug_mode_enabled=debug_mode_enabled,
 		debug_limit_datasets=debug_limit_datasets,
 		debug_limit_wells=debug_limit_wells,
+		debug_limit_wells_per_dataset=debug_limit_wells_per_dataset,
 		report_step_timers=report_step_timers,
 		summary_json_relpath=str(
 			phase_cfg.get("summary_json_relpath", "context/recording_metadata_summary.json")
@@ -400,6 +405,9 @@ def _parse_plot_raster_threshold_phase_config(
 	debug_mode_enabled = _as_bool(debug_cfg.get("enabled", debug_cfg.get("enable", False)), False)
 	debug_limit_datasets = _as_optional_int(debug_cfg.get("limit_datasets", None)) if debug_mode_enabled else None
 	debug_limit_wells = _as_optional_int(debug_cfg.get("limit_wells", None)) if debug_mode_enabled else None
+	debug_limit_wells_per_dataset = (
+		_as_optional_int(debug_cfg.get("limit_wells_per_dataset", None)) if debug_mode_enabled else None
+	)
 	report_step_timers = _as_bool(debug_cfg.get("report_step_timers", False), False) if debug_mode_enabled else False
 	return PreprocessPlotRasterThresholdPhaseConfig(
 		enabled=_as_bool(
@@ -409,6 +417,7 @@ def _parse_plot_raster_threshold_phase_config(
 		debug_mode_enabled=debug_mode_enabled,
 		debug_limit_datasets=debug_limit_datasets,
 		debug_limit_wells=debug_limit_wells,
+		debug_limit_wells_per_dataset=debug_limit_wells_per_dataset,
 		report_step_timers=report_step_timers,
 		summary_json_relpath=str(
 			phase_cfg.get(
@@ -957,6 +966,11 @@ def parse_preprocess_stage_config(
 			if concat_debug_mode_enabled
 			else None
 		),
+		debug_limit_wells_per_dataset=(
+			_as_optional_int(concat_debug_cfg.get("limit_wells_per_dataset", None))
+			if concat_debug_mode_enabled
+			else None
+		),
 		output_mode=_normalize_concat_output_mode(
 			concatenate_phase_cfg.get("output_mode", "binary")
 		),
@@ -1138,6 +1152,7 @@ def parse_preprocess_stage_config(
 		force_replot=force_replot,
 		debug_limit_datasets=_as_optional_int(debug_cfg.get("limit_datasets", None)),
 		debug_limit_wells=_as_optional_int(debug_cfg.get("limit_wells", None)),
+		debug_limit_wells_per_dataset=_as_optional_int(debug_cfg.get("limit_wells_per_dataset", None)),
 		debug_limit_segments_per_well=_as_optional_int(debug_cfg.get("limit_segments_per_well", None)),
 		logging_enabled=logging_enabled,
 		logging_verbose=logging_verbose,

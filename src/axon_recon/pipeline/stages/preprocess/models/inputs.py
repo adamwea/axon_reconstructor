@@ -42,6 +42,7 @@ class PreprocessSaveRecMetadataPhaseConfig:
 	debug_mode_enabled: bool = False
 	debug_limit_datasets: int | None = None
 	debug_limit_wells: int | None = None
+	debug_limit_wells_per_dataset: int | None = None
 	report_step_timers: bool = False
 	summary_json_relpath: str = "context/recording_metadata_summary.json"
 	segment_epochs_relpath: str = "segment_epochs.json"
@@ -125,6 +126,7 @@ class PreprocessConcatSegmentsPhaseConfig:
 	debug_mode_enabled: bool = False
 	debug_limit_datasets: int | None = None
 	debug_limit_wells: int | None = None
+	debug_limit_wells_per_dataset: int | None = None
 	output_mode: str = "binary"
 	summary_json_relpath: str = "context/concat_segments_summary.json"
 	rel_output_root: str = "concatenated_recording"
@@ -174,6 +176,7 @@ class PreprocessPlotRasterThresholdPhaseConfig:
 	debug_mode_enabled: bool = False
 	debug_limit_datasets: int | None = None
 	debug_limit_wells: int | None = None
+	debug_limit_wells_per_dataset: int | None = None
 	report_step_timers: bool = False
 	summary_json_relpath: str = "context/plot_raster_threshold_summary.json"
 	rel_output_root: str = "raster_threshold"
@@ -210,6 +213,7 @@ class PreprocessPhasesConfig:
 			debug_mode_enabled=False,
 			debug_limit_datasets=None,
 			debug_limit_wells=None,
+			debug_limit_wells_per_dataset=None,
 			report_step_timers=False,
 			summary_json_relpath="context/recording_metadata_summary.json",
 			segment_epochs_relpath="segment_epochs.json",

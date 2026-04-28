@@ -103,6 +103,7 @@ class _SpikesortRuntimePhase:
 	debug_limit_datasets_attr: str
 	debug_limit_wells_attr: str
 	target_runner: Callable[..., Any]
+	debug_limit_wells_per_dataset_attr: str | None = None
 
 	def __iter__(self):
 		yield self.name
@@ -307,6 +308,7 @@ def _apply_preprocess_debug_target_limits(
 	targets: list[Any],
 	limit_datasets: Any,
 	limit_wells: Any,
+	limit_wells_per_dataset: Any = None,
 ) -> list[Any]:
 	limited_targets = list(targets)
 	if limit_datasets is not None:
@@ -340,6 +342,32 @@ def _apply_preprocess_debug_target_limits(
 				selected_dataset_indices,
 			)
 
+	if limit_wells_per_dataset is not None:
+		well_limit_per_dataset = max(1, int(limit_wells_per_dataset))
+		original_count = len(limited_targets)
+		selected_by_dataset: dict[int, int] = {}
+		per_dataset_limited_targets: list[Any] = []
+		for target in limited_targets:
+			try:
+				dataset_index = int(getattr(target, "dataset_index", -1))
+			except Exception:
+				dataset_index = -1
+			current_count = int(selected_by_dataset.get(dataset_index, 0))
+			if current_count >= well_limit_per_dataset:
+				continue
+			per_dataset_limited_targets.append(target)
+			selected_by_dataset[dataset_index] = current_count + 1
+		limited_targets = per_dataset_limited_targets
+		if len(limited_targets) < original_count:
+			LOGGER.info(
+				"Applying %s debug wells-per-dataset limit: %d -> %d target(s) limit_per_dataset=%d dataset_counts=%s",
+				str(stage_name),
+				original_count,
+				len(limited_targets),
+				well_limit_per_dataset,
+				dict(sorted(selected_by_dataset.items(), key=lambda kv: kv[0])),
+			)
+
 	if limit_wells is not None and len(limited_targets) > int(limit_wells):
 		well_limit = max(1, int(limit_wells))
 		LOGGER.info(
@@ -364,6 +392,7 @@ def _apply_preprocess_stage_debug_limits(
 		targets=list(targets),
 		limit_datasets=getattr(stage_config, "debug_limit_datasets", None),
 		limit_wells=getattr(stage_config, "debug_limit_wells", None),
+		limit_wells_per_dataset=getattr(stage_config, "debug_limit_wells_per_dataset", None),
 	)
 
 
@@ -388,11 +417,13 @@ def _apply_preprocess_substage_phase_debug_limits(
 
 	limit_datasets = getattr(phase_cfg, "debug_limit_datasets", None)
 	limit_wells = getattr(phase_cfg, "debug_limit_wells", None)
+	limit_wells_per_dataset = getattr(phase_cfg, "debug_limit_wells_per_dataset", None)
 	return _apply_preprocess_debug_target_limits(
 		stage_name=stage_name,
 		targets=list(targets),
 		limit_datasets=limit_datasets,
 		limit_wells=limit_wells,
+		limit_wells_per_dataset=limit_wells_per_dataset,
 	)
 
 
@@ -410,6 +441,7 @@ def _apply_spikesort_sort_debug_limits(
 		enabled_attr="sort_debug_mode_enabled",
 		limit_datasets_attr="sort_debug_limit_datasets",
 		limit_wells_attr="sort_debug_limit_wells",
+		limit_wells_per_dataset_attr="sort_debug_limit_wells_per_dataset",
 	)
 
 
@@ -419,6 +451,7 @@ def _apply_spikesort_debug_target_limits(
 	targets: list[Any],
 	limit_datasets: Any,
 	limit_wells: Any,
+	limit_wells_per_dataset: Any = None,
 	phase_label: str | None = None,
 ) -> list[Any]:
 	limited_targets = list(targets)
@@ -457,6 +490,32 @@ def _apply_spikesort_debug_target_limits(
 				selected_dataset_indices,
 			)
 
+	if limit_wells_per_dataset is not None:
+		well_limit_per_dataset = max(1, int(limit_wells_per_dataset))
+		original_count = len(limited_targets)
+		selected_by_dataset: dict[int, int] = {}
+		per_dataset_limited_targets: list[Any] = []
+		for target in limited_targets:
+			try:
+				dataset_index = int(getattr(target, "dataset_index", -1))
+			except Exception:
+				dataset_index = -1
+			current_count = int(selected_by_dataset.get(dataset_index, 0))
+			if current_count >= well_limit_per_dataset:
+				continue
+			per_dataset_limited_targets.append(target)
+			selected_by_dataset[dataset_index] = current_count + 1
+		limited_targets = per_dataset_limited_targets
+		if len(limited_targets) < original_count:
+			LOGGER.info(
+				"Applying %s debug wells-per-dataset limit: %d -> %d target(s) limit_per_dataset=%d dataset_counts=%s",
+				debug_label,
+				original_count,
+				len(limited_targets),
+				well_limit_per_dataset,
+				dict(sorted(selected_by_dataset.items(), key=lambda kv: kv[0])),
+			)
+
 	if limit_wells is not None and len(limited_targets) > int(limit_wells):
 		well_limit = max(1, int(limit_wells))
 		LOGGER.info(
@@ -481,6 +540,7 @@ def _apply_spikesort_stage_debug_limits(
 		targets=list(targets),
 		limit_datasets=getattr(stage_config, "debug_limit_datasets", None),
 		limit_wells=getattr(stage_config, "debug_limit_wells", None),
+		limit_wells_per_dataset=getattr(stage_config, "debug_limit_wells_per_dataset", None),
 	)
 
 
@@ -493,16 +553,23 @@ def _apply_spikesort_phase_debug_limits(
 	enabled_attr: str,
 	limit_datasets_attr: str,
 	limit_wells_attr: str,
+	limit_wells_per_dataset_attr: str | None = None,
 ) -> list[Any]:
 	limited_targets = list(targets)
 	if bool(getattr(stage_config, str(enabled_attr), False)):
 		limit_datasets = getattr(stage_config, str(limit_datasets_attr), None)
 		limit_wells = getattr(stage_config, str(limit_wells_attr), None)
+		limit_wells_per_dataset = (
+			getattr(stage_config, str(limit_wells_per_dataset_attr), None)
+			if limit_wells_per_dataset_attr is not None
+			else None
+		)
 		return _apply_spikesort_debug_target_limits(
 			stage_name=stage_name,
 			targets=limited_targets,
 			limit_datasets=limit_datasets,
 			limit_wells=limit_wells,
+			limit_wells_per_dataset=limit_wells_per_dataset,
 			phase_label=str(phase_label),
 		)
 
@@ -1512,6 +1579,7 @@ def _enabled_spikesort_runtime_phase_plan(
 				debug_limit_datasets_attr="bootstrap_concat_binary_debug_limit_datasets",
 				debug_limit_wells_attr="bootstrap_concat_binary_debug_limit_wells",
 				target_runner=_run_spikesort_bootstrap_concat_binary_target,
+				debug_limit_wells_per_dataset_attr="bootstrap_concat_binary_debug_limit_wells_per_dataset",
 			)
 		)
 	if bool(getattr(stage_config, "sort_enabled", True)):
@@ -1523,6 +1591,7 @@ def _enabled_spikesort_runtime_phase_plan(
 				debug_limit_datasets_attr="sort_debug_limit_datasets",
 				debug_limit_wells_attr="sort_debug_limit_wells",
 				target_runner=_run_spikesort_sort_target,
+				debug_limit_wells_per_dataset_attr="sort_debug_limit_wells_per_dataset",
 			)
 		)
 	if bool(getattr(stage_config, "summarize_sort_enabled", False)):
@@ -1534,6 +1603,7 @@ def _enabled_spikesort_runtime_phase_plan(
 				debug_limit_datasets_attr="summarize_sort_debug_limit_datasets",
 				debug_limit_wells_attr="summarize_sort_debug_limit_wells",
 				target_runner=_run_spikesort_summarize_sort_target,
+				debug_limit_wells_per_dataset_attr="summarize_sort_debug_limit_wells_per_dataset",
 			)
 		)
 	if bool(getattr(stage_config, "bombcell_label_enabled", False)):
@@ -1545,6 +1615,7 @@ def _enabled_spikesort_runtime_phase_plan(
 				debug_limit_datasets_attr="bombcell_label_debug_limit_datasets",
 				debug_limit_wells_attr="bombcell_label_debug_limit_wells",
 				target_runner=_run_spikesort_bombcell_label_target,
+				debug_limit_wells_per_dataset_attr="bombcell_label_debug_limit_wells_per_dataset",
 			)
 		)
 	if bool(getattr(stage_config, "merge_slay_enabled", False)):
@@ -1556,6 +1627,7 @@ def _enabled_spikesort_runtime_phase_plan(
 				debug_limit_datasets_attr="merge_slay_debug_limit_datasets",
 				debug_limit_wells_attr="merge_slay_debug_limit_wells",
 				target_runner=_run_spikesort_merge_slay_target,
+				debug_limit_wells_per_dataset_attr="merge_slay_debug_limit_wells_per_dataset",
 			)
 		)
 	if bool(getattr(stage_config, "merge_si_auto_enabled", False)):
@@ -1567,6 +1639,7 @@ def _enabled_spikesort_runtime_phase_plan(
 				debug_limit_datasets_attr="merge_si_auto_debug_limit_datasets",
 				debug_limit_wells_attr="merge_si_auto_debug_limit_wells",
 				target_runner=_run_spikesort_merge_si_auto_target,
+				debug_limit_wells_per_dataset_attr="merge_si_auto_debug_limit_wells_per_dataset",
 			)
 		)
 	if bool(getattr(stage_config, "merge_unitmatch_enabled", False)):
@@ -1578,6 +1651,7 @@ def _enabled_spikesort_runtime_phase_plan(
 				debug_limit_datasets_attr="merge_unitmatch_debug_limit_datasets",
 				debug_limit_wells_attr="merge_unitmatch_debug_limit_wells",
 				target_runner=_run_spikesort_merge_unitmatch_target,
+				debug_limit_wells_per_dataset_attr="merge_unitmatch_debug_limit_wells_per_dataset",
 			)
 		)
 	if bool(getattr(stage_config, "cleanup_concat_binary_enabled", False)):
@@ -1589,6 +1663,7 @@ def _enabled_spikesort_runtime_phase_plan(
 				debug_limit_datasets_attr="cleanup_concat_binary_debug_limit_datasets",
 				debug_limit_wells_attr="cleanup_concat_binary_debug_limit_wells",
 				target_runner=_run_spikesort_cleanup_concat_binary_target,
+				debug_limit_wells_per_dataset_attr="cleanup_concat_binary_debug_limit_wells_per_dataset",
 			)
 		)
 	configured_sequence = tuple(getattr(stage_config, "phase_sequence", None) or DEFAULT_SPIKESORT_PHASE_SEQUENCE)
@@ -1621,6 +1696,7 @@ def _apply_spikesort_runtime_phase_plan_debug_limits(
 			enabled_attr=phase.debug_enabled_attr,
 			limit_datasets_attr=phase.debug_limit_datasets_attr,
 			limit_wells_attr=phase.debug_limit_wells_attr,
+			limit_wells_per_dataset_attr=phase.debug_limit_wells_per_dataset_attr,
 		)
 	return limited_targets
 
@@ -1756,6 +1832,7 @@ def run_spikesort_summarize_sort_from_runtime(
 		enabled_attr="summarize_sort_debug_mode_enabled",
 		limit_datasets_attr="summarize_sort_debug_limit_datasets",
 		limit_wells_attr="summarize_sort_debug_limit_wells",
+		limit_wells_per_dataset_attr="summarize_sort_debug_limit_wells_per_dataset",
 	)
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,
@@ -1806,6 +1883,7 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 	debug_enabled_attr: str,
 	debug_limit_datasets_attr: str,
 	debug_limit_wells_attr: str,
+	debug_limit_wells_per_dataset_attr: str | None = None,
 	publish_after_run: bool = False,
 ) -> MultiTargetStageResult:
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
@@ -1831,6 +1909,7 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 		enabled_attr=debug_enabled_attr,
 		limit_datasets_attr=debug_limit_datasets_attr,
 		limit_wells_attr=debug_limit_wells_attr,
+		limit_wells_per_dataset_attr=debug_limit_wells_per_dataset_attr,
 	)
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,
@@ -1899,6 +1978,7 @@ def run_spikesort_bootstrap_concat_binary_from_runtime(
 		debug_enabled_attr="bootstrap_concat_binary_debug_mode_enabled",
 		debug_limit_datasets_attr="bootstrap_concat_binary_debug_limit_datasets",
 		debug_limit_wells_attr="bootstrap_concat_binary_debug_limit_wells",
+		debug_limit_wells_per_dataset_attr="bootstrap_concat_binary_debug_limit_wells_per_dataset",
 		publish_after_run=False,
 	)
 
@@ -1919,6 +1999,7 @@ def run_spikesort_cleanup_concat_binary_from_runtime(
 		debug_enabled_attr="cleanup_concat_binary_debug_mode_enabled",
 		debug_limit_datasets_attr="cleanup_concat_binary_debug_limit_datasets",
 		debug_limit_wells_attr="cleanup_concat_binary_debug_limit_wells",
+		debug_limit_wells_per_dataset_attr="cleanup_concat_binary_debug_limit_wells_per_dataset",
 		publish_after_run=True,
 	)
 
@@ -2000,6 +2081,7 @@ def run_spikesort_merge_from_runtime(
 	debug_enabled_attr: str | None = None,
 	debug_limit_datasets_attr: str | None = None,
 	debug_limit_wells_attr: str | None = None,
+	debug_limit_wells_per_dataset_attr: str | None = None,
 	stage_name: str = "spikesort.merge",
 ) -> MultiTargetStageResult:
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
@@ -2112,6 +2194,7 @@ def run_spikesort_merge_from_runtime(
 			enabled_attr=debug_enabled_attr,
 			limit_datasets_attr=debug_limit_datasets_attr,
 			limit_wells_attr=debug_limit_wells_attr,
+			limit_wells_per_dataset_attr=debug_limit_wells_per_dataset_attr,
 		)
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,
@@ -2205,6 +2288,7 @@ def run_spikesort_bombcell_label_from_runtime(
 		enabled_attr="bombcell_label_debug_mode_enabled",
 		limit_datasets_attr="bombcell_label_debug_limit_datasets",
 		limit_wells_attr="bombcell_label_debug_limit_wells",
+		limit_wells_per_dataset_attr="bombcell_label_debug_limit_wells_per_dataset",
 	)
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,

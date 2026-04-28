@@ -28,18 +28,27 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.debug_mode_enabled is False
     assert parsed.debug_limit_datasets is None
     assert parsed.debug_limit_wells is None
+    assert parsed.debug_limit_wells_per_dataset is None
     assert parsed.sort_debug_mode_enabled is False
     assert parsed.sort_debug_limit_datasets is None
     assert parsed.sort_debug_limit_wells is None
+    assert parsed.sort_debug_limit_wells_per_dataset is None
     assert parsed.bootstrap_concat_binary_debug_mode_enabled is False
     assert parsed.bootstrap_concat_binary_debug_limit_datasets is None
     assert parsed.bootstrap_concat_binary_debug_limit_wells is None
+    assert parsed.bootstrap_concat_binary_debug_limit_wells_per_dataset is None
     assert parsed.cleanup_concat_binary_debug_mode_enabled is False
     assert parsed.cleanup_concat_binary_debug_limit_datasets is None
     assert parsed.cleanup_concat_binary_debug_limit_wells is None
+    assert parsed.cleanup_concat_binary_debug_limit_wells_per_dataset is None
     assert parsed.summarize_sort_debug_mode_enabled is False
     assert parsed.summarize_sort_debug_limit_datasets is None
     assert parsed.summarize_sort_debug_limit_wells is None
+    assert parsed.summarize_sort_debug_limit_wells_per_dataset is None
+    assert parsed.bombcell_label_debug_mode_enabled is False
+    assert parsed.bombcell_label_debug_limit_datasets is None
+    assert parsed.bombcell_label_debug_limit_wells is None
+    assert parsed.bombcell_label_debug_limit_wells_per_dataset is None
     assert parsed.sorter == "kilosort4"
     assert parsed.docker_image is None
     assert parsed.recording_num == "rec0000"
@@ -133,18 +142,21 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.merge_slay_debug_mode_enabled is False
     assert parsed.merge_slay_debug_limit_datasets is None
     assert parsed.merge_slay_debug_limit_wells is None
+    assert parsed.merge_slay_debug_limit_wells_per_dataset is None
     assert parsed.merge_si_auto_enabled is False
     assert parsed.merge_si_auto_rel_output_root == "merge_si_auto"
     assert parsed.merge_si_auto_use_canonical_workspace is True
     assert parsed.merge_si_auto_debug_mode_enabled is False
     assert parsed.merge_si_auto_debug_limit_datasets is None
     assert parsed.merge_si_auto_debug_limit_wells is None
+    assert parsed.merge_si_auto_debug_limit_wells_per_dataset is None
     assert parsed.merge_unitmatch_enabled is False
     assert parsed.merge_unitmatch_rel_output_root == "merge_unitmatch"
     assert parsed.merge_unitmatch_use_canonical_workspace is True
     assert parsed.merge_unitmatch_debug_mode_enabled is False
     assert parsed.merge_unitmatch_debug_limit_datasets is None
     assert parsed.merge_unitmatch_debug_limit_wells is None
+    assert parsed.merge_unitmatch_debug_limit_wells_per_dataset is None
     assert parsed.merge_units_enabled is True
     assert parsed.merge_rel_output_root is None
     assert parsed.merge_delete_outputs_on_force_restart is False
@@ -242,6 +254,7 @@ def test_parse_spikesort_stage_config_reads_global_debug_mode() -> None:
                         "enabled": True,
                         "limit_datasets": 1,
                         "limit_wells": 2,
+                        "limit_wells_per_dataset": 2,
                     }
                 }
             }
@@ -253,6 +266,7 @@ def test_parse_spikesort_stage_config_reads_global_debug_mode() -> None:
     assert parsed.debug_mode_enabled is True
     assert parsed.debug_limit_datasets == 1
     assert parsed.debug_limit_wells == 2
+    assert parsed.debug_limit_wells_per_dataset == 2
 
 
 def test_parse_spikesort_stage_config_summarize_sort_phase() -> None:
@@ -359,6 +373,7 @@ def test_parse_spikesort_stage_config_reads_sort_debug_mode() -> None:
                                 "enabled": True,
                                 "limit_datasets": 1,
                                 "limit_wells": 1,
+                                "limit_wells_per_dataset": 2,
                             }
                         }
                     }
@@ -372,6 +387,7 @@ def test_parse_spikesort_stage_config_reads_sort_debug_mode() -> None:
     assert parsed.sort_debug_mode_enabled is True
     assert parsed.sort_debug_limit_datasets == 1
     assert parsed.sort_debug_limit_wells == 1
+    assert parsed.sort_debug_limit_wells_per_dataset == 2
 
 
 def test_parse_spikesort_stage_config_reads_summarize_sort_debug_mode() -> None:
