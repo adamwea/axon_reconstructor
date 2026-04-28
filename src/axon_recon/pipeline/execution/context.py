@@ -27,3 +27,5 @@ class StageParallelism:
     max_stage_workers: int
     well_workers: int
     unit_workers: int
+    max_simultaneous_well_reads_per_dataset: int | None = None
+    divide_stage_workers_by_wells: bool = True

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import logging
 from pathlib import Path
 from typing import Any
@@ -9,6 +9,7 @@ from axon_reconstructor.pipeline.scratch_layout import resolve_optional_path, re
 from axon_reconstructor.runtime_config import RuntimeConfig
 
 from .execution.context import ExecutionTarget, StageParallelism
+from .execution.read_groups import count_target_read_groups
 from .stages.preprocess.core.copy_src_to_scratch import resolve_copy_src_to_scratch_input_path
 
 
@@ -51,6 +52,18 @@ def _as_int(value: Any, default: int) -> int:
 		return int(value)
 	except Exception:
 		return int(default)
+
+
+def _as_optional_positive_int(value: Any) -> int | None:
+	if value is None:
+		return None
+	try:
+		parsed = int(value)
+	except Exception:
+		return None
+	if parsed <= 0:
+		return None
+	return parsed
 
 
 def _as_path_list(value: Any, *, base_dir: Path | None = None) -> list[Path]:
@@ -277,6 +290,13 @@ def resolve_stage_parallelism(
 		runtime_cfg.get(f"stages.{stage_name}.resources.divide_stage_workers_by_wells", True),
 		True,
 	)
+	read_cap_key = f"stages.{stage_name}.resources.max_simultaneous_well_reads_per_dataset"
+	read_cap_raw = (
+		runtime_cfg.get(read_cap_key, None)
+		if runtime_cfg.has(read_cap_key)
+		else runtime_cfg.get("resources.max_simultaneous_well_reads_per_dataset", None)
+	)
+	max_simultaneous_well_reads_per_dataset = _as_optional_positive_int(read_cap_raw)
 	if bool(divide_stage_workers_by_wells) and int(well_workers) > 1:
 		unit_workers = max(1, int(stage_workers // well_workers))
 	else:
@@ -287,4 +307,38 @@ def resolve_stage_parallelism(
 		max_stage_workers=stage_workers,
 		well_workers=well_workers,
 		unit_workers=unit_workers,
+		max_simultaneous_well_reads_per_dataset=max_simultaneous_well_reads_per_dataset,
+		divide_stage_workers_by_wells=bool(divide_stage_workers_by_wells),
+	)
+
+
+def constrain_stage_parallelism_to_read_groups(
+	*,
+	parallelism: StageParallelism,
+	targets: list[Any],
+) -> StageParallelism:
+	read_cap = getattr(parallelism, "max_simultaneous_well_reads_per_dataset", None)
+	if read_cap is None:
+		return parallelism
+	if not targets:
+		return parallelism
+
+	read_group_count = count_target_read_groups(list(targets))
+	if read_group_count <= 0:
+		return parallelism
+
+	max_effective_well_workers = min(len(targets), int(read_group_count) * int(read_cap))
+	effective_well_workers = min(int(parallelism.well_workers), max(1, int(max_effective_well_workers)))
+	if effective_well_workers == int(parallelism.well_workers):
+		return parallelism
+
+	if bool(getattr(parallelism, "divide_stage_workers_by_wells", True)) and int(effective_well_workers) > 1:
+		unit_workers = max(1, int(parallelism.max_stage_workers) // int(effective_well_workers))
+	else:
+		unit_workers = max(1, int(parallelism.max_stage_workers))
+
+	return replace(
+		parallelism,
+		well_workers=int(effective_well_workers),
+		unit_workers=int(unit_workers),
 	)

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from axon_recon.pipeline.config import (
+  constrain_stage_parallelism_to_read_groups,
     load_pipeline_runtime_bundle,
     resolve_stage_parallelism,
     select_execution_targets,
@@ -405,6 +406,60 @@ stages:
     assert p.max_stage_workers == 24
     assert p.well_workers == 2
     assert p.unit_workers == 24
+
+
+def test_stage_parallelism_applies_global_h5_read_cap_to_effective_workers(tmp_path: Path) -> None:
+    data_path = tmp_path / "debug.data.yml"
+    data_path.write_text(
+        """
+output_root: /tmp/out
+datasets:
+  - raw_data_h5_path: /tmp/ds1.h5
+    include_in_runtime: true
+    wells:
+      - well_id: well001
+        include_in_runtime: true
+      - well_id: well002
+        include_in_runtime: true
+  - raw_data_h5_path: /tmp/ds2.h5
+    include_in_runtime: true
+    wells:
+      - well_id: well001
+        include_in_runtime: true
+      - well_id: well002
+        include_in_runtime: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "debug.runtime.yml"
+    runtime_path.write_text(
+        f"""
+data: {data_path}
+resources:
+  max_workers: 24
+  max_simultaneous_well_reads_per_dataset: 1
+stages:
+  preprocess:
+    resources:
+      max_stage_workers: 24
+      well_workers: 3
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = load_pipeline_runtime_bundle(config_path=str(runtime_path))
+    targets = select_execution_targets(bundle=bundle)
+    p = resolve_stage_parallelism(bundle=bundle, stage_name="preprocess", target_count=len(targets))
+    effective = constrain_stage_parallelism_to_read_groups(parallelism=p, targets=targets)
+
+    assert p.max_simultaneous_well_reads_per_dataset == 1
+    assert p.well_workers == 3
+    assert p.unit_workers == 8
+    assert effective.well_workers == 2
+    assert effective.unit_workers == 12
 
 
 def test_select_execution_targets_prefers_scratch_root_for_active_output(tmp_path: Path) -> None:

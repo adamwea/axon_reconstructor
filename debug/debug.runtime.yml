@@ -13,7 +13,7 @@ env:
 
 resources:
   # Global fallbacks when a stage-specific resources block omits a key.
-  max_workers: 24
+  # max_workers: 24
   chunk_duration: 1s
   max_simultaneous_well_reads_per_dataset: 1
 
@@ -361,7 +361,7 @@ stages:
       bombcell_label:
         enabled: true
         debug_mode:
-          enabled: true
+          enabled: false
           limit_datasets: 1
           limit_wells: 2
         # outputs live under <well>/<spikesort_output_root>/<merge_units.rel_output_root>/<relpath>

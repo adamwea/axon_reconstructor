@@ -10,6 +10,7 @@ from axon_reconstructor.pipeline.publish import publish_path_to_final, remap_pat
 
 from .config import (
 	PipelineRuntimeBundle,
+	constrain_stage_parallelism_to_read_groups,
 	load_pipeline_runtime_bundle,
 	resolve_stage_parallelism,
 	select_execution_targets,
@@ -208,9 +209,10 @@ def _resolve_runtime_stage_parallelism(
 	bundle: PipelineRuntimeBundle,
 	stage_name: str,
 	target_count: int,
+	targets: list[Any] | None = None,
 ):
 	try:
-		return resolve_stage_parallelism(
+		parallelism = resolve_stage_parallelism(
 			bundle=bundle,
 			stage_name=stage_name,
 			target_count=int(target_count),
@@ -218,7 +220,31 @@ def _resolve_runtime_stage_parallelism(
 	except TypeError as exc:
 		if "target_count" not in str(exc):
 			raise
-		return resolve_stage_parallelism(bundle=bundle, stage_name=stage_name)
+		parallelism = resolve_stage_parallelism(bundle=bundle, stage_name=stage_name)
+	if targets is None:
+		return parallelism
+	return constrain_stage_parallelism_to_read_groups(
+		parallelism=parallelism,
+		targets=list(targets),
+	)
+
+
+def _distribute_runtime_targets(
+	*,
+	targets: list[Any],
+	parallelism: Any,
+	worker_fn: Callable[[Any], Any],
+) -> list[TargetStageResult]:
+	return distribute_targets(
+		targets=targets,
+		well_workers=int(parallelism.well_workers),
+		worker_fn=worker_fn,
+		max_simultaneous_well_reads_per_dataset=getattr(
+			parallelism,
+			"max_simultaneous_well_reads_per_dataset",
+			None,
+		),
+	)
 
 
 def _stage_config_with_runtime_n_jobs(stage_config: Any, *, unit_workers: int) -> Any:
@@ -1161,6 +1187,7 @@ def run_preprocess_from_runtime(
 		bundle=bundle,
 		stage_name="preprocess",
 		target_count=len(targets),
+		targets=targets,
 	)
 	unit_workers = _resolve_preprocess_runtime_unit_workers(
 		stage_name="preprocess",
@@ -1194,9 +1221,9 @@ def run_preprocess_from_runtime(
 		)
 		return run_preprocess(inputs)
 
-	target_results = distribute_targets(
+	target_results = _distribute_runtime_targets(
 		targets=targets,
-		well_workers=int(parallelism.well_workers),
+		parallelism=parallelism,
 		worker_fn=_worker,
 	)
 	target_results = [_publish_preprocess_target_result(item, policy=publish_policy) for item in target_results]
@@ -1244,6 +1271,7 @@ def _run_preprocess_substage_from_runtime(
 		bundle=bundle,
 		stage_name="preprocess",
 		target_count=len(targets),
+		targets=targets,
 	)
 	unit_workers = _resolve_preprocess_runtime_unit_workers(
 		stage_name=stage_name,
@@ -1277,9 +1305,9 @@ def _run_preprocess_substage_from_runtime(
 		)
 		return runner_fn(inputs)
 
-	target_results = distribute_targets(
+	target_results = _distribute_runtime_targets(
 		targets=targets,
-		well_workers=int(parallelism.well_workers),
+		parallelism=parallelism,
 		worker_fn=_worker,
 	)
 	succeeded = sum(1 for item in target_results if item.status == "ok")
@@ -1492,6 +1520,7 @@ def run_spikesort_from_runtime(
 		bundle=bundle,
 		stage_name="spikesort",
 		target_count=len(targets),
+		targets=targets,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	runtime_stage_config = _stage_config_with_runtime_n_jobs(
@@ -1542,9 +1571,9 @@ def run_spikesort_from_runtime(
 			raise RuntimeError("spikesort phase chain produced no result")
 		return chain_result.result
 
-	target_results = distribute_targets(
+	target_results = _distribute_runtime_targets(
 		targets=targets,
-		well_workers=int(parallelism.well_workers),
+		parallelism=parallelism,
 		worker_fn=_worker,
 	)
 	target_results = [
@@ -1838,6 +1867,7 @@ def run_spikesort_summarize_sort_from_runtime(
 		bundle=bundle,
 		stage_name="spikesort",
 		target_count=len(targets),
+		targets=targets,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
 
@@ -1856,9 +1886,9 @@ def run_spikesort_summarize_sort_from_runtime(
 		)
 		return summarize_spikesort(inputs)
 
-	target_results = distribute_targets(
+	target_results = _distribute_runtime_targets(
 		targets=targets,
-		well_workers=int(parallelism.well_workers),
+		parallelism=parallelism,
 		worker_fn=_worker,
 	)
 	succeeded = sum(1 for item in target_results if item.status == "ok")
@@ -1915,6 +1945,7 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 		bundle=bundle,
 		stage_name="spikesort",
 		target_count=len(targets),
+		targets=targets,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	runtime_stage_config = _stage_config_with_runtime_n_jobs(
@@ -1943,9 +1974,9 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 			force_restart=bool(runtime_stage_config.force_restart or runtime_stage_config.force_replot),
 		)
 
-	target_results = distribute_targets(
+	target_results = _distribute_runtime_targets(
 		targets=targets,
-		well_workers=int(parallelism.well_workers),
+		parallelism=parallelism,
 		worker_fn=_worker,
 	)
 	if publish_after_run:
@@ -2034,6 +2065,7 @@ def _run_spikesort_sort_from_runtime(
 		bundle=bundle,
 		stage_name="spikesort",
 		target_count=len(targets),
+		targets=targets,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
 
@@ -2052,9 +2084,9 @@ def _run_spikesort_sort_from_runtime(
 		)
 		return run_spikesort(inputs)
 
-	target_results = distribute_targets(
+	target_results = _distribute_runtime_targets(
 		targets=targets,
-		well_workers=int(parallelism.well_workers),
+		parallelism=parallelism,
 		worker_fn=_worker,
 	)
 	target_results = [_publish_spikesort_target_result(item, policy=publish_policy) for item in target_results]
@@ -2200,6 +2232,7 @@ def run_spikesort_merge_from_runtime(
 		bundle=bundle,
 		stage_name="spikesort",
 		target_count=len(targets),
+		targets=targets,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	runtime_stage_config = _stage_config_with_runtime_n_jobs(
@@ -2241,9 +2274,9 @@ def run_spikesort_merge_from_runtime(
 			),
 		)
 
-	target_results = distribute_targets(
+	target_results = _distribute_runtime_targets(
 		targets=targets,
-		well_workers=int(parallelism.well_workers),
+		parallelism=parallelism,
 		worker_fn=_worker,
 	)
 	target_results = [_publish_spikesort_merge_target_result(item, policy=publish_policy) for item in target_results]
@@ -2294,6 +2327,7 @@ def run_spikesort_bombcell_label_from_runtime(
 		bundle=bundle,
 		stage_name="spikesort",
 		target_count=len(targets),
+		targets=targets,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	runtime_stage_config = _stage_config_with_runtime_n_jobs(
@@ -2322,9 +2356,9 @@ def run_spikesort_bombcell_label_from_runtime(
 			force_restart=bool(runtime_stage_config.force_restart),
 		)
 
-	target_results = distribute_targets(
+	target_results = _distribute_runtime_targets(
 		targets=targets,
-		well_workers=int(parallelism.well_workers),
+		parallelism=parallelism,
 		worker_fn=_worker,
 	)
 	target_results = [
@@ -2400,6 +2434,7 @@ def _run_reconstruct_substage_from_runtime(
 		bundle=bundle,
 		stage_name="reconstruct",
 		target_count=len(targets),
+		targets=targets,
 	)
 	probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
 	stage_config = parse_reconstruction_stage_config(
@@ -2420,9 +2455,9 @@ def _run_reconstruct_substage_from_runtime(
 		result = runner_fn(inputs)
 		return _raise_reconstruct_unit_failures(stage_name=stage_name, result=result)
 
-	target_results = distribute_targets(
+	target_results = _distribute_runtime_targets(
 		targets=targets,
-		well_workers=int(parallelism.well_workers),
+		parallelism=parallelism,
 		worker_fn=_worker,
 	)
 	if publish_outputs:
@@ -2626,6 +2661,7 @@ def run_analysis_from_runtime(
 		bundle=bundle,
 		stage_name="analysis",
 		target_count=len(targets),
+		targets=targets,
 	)
 	try:
 		probe_pitch_um = float(bundle.data_config.get("Probe.pitch_um", None))
@@ -2652,9 +2688,9 @@ def run_analysis_from_runtime(
 		)
 		return run_analysis(inputs)
 
-	target_results = distribute_targets(
+	target_results = _distribute_runtime_targets(
 		targets=targets,
-		well_workers=int(parallelism.well_workers),
+		parallelism=parallelism,
 		worker_fn=_worker,
 	)
 
@@ -2704,6 +2740,7 @@ def run_templates_from_runtime(
 		bundle=bundle,
 		stage_name="templates",
 		target_count=len(targets),
+		targets=targets,
 	)
 	probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
 	stage_config = parse_templates_stage_config(
@@ -2724,9 +2761,9 @@ def run_templates_from_runtime(
 		)
 		return run_templates(inputs)
 
-	target_results = distribute_targets(
+	target_results = _distribute_runtime_targets(
 		targets=targets,
-		well_workers=int(parallelism.well_workers),
+		parallelism=parallelism,
 		worker_fn=_worker,
 	)
 	target_results = [_publish_templates_target_result(item, policy=publish_policy) for item in target_results]
@@ -2762,6 +2799,7 @@ def _run_templates_substage_from_runtime(
 		bundle=bundle,
 		stage_name="templates",
 		target_count=len(targets),
+		targets=targets,
 	)
 	probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
 	stage_config = parse_templates_stage_config(
@@ -2782,9 +2820,9 @@ def _run_templates_substage_from_runtime(
 		)
 		return runner_fn(inputs)
 
-	target_results = distribute_targets(
+	target_results = _distribute_runtime_targets(
 		targets=targets,
-		well_workers=int(parallelism.well_workers),
+		parallelism=parallelism,
 		worker_fn=_worker,
 	)
 	if publish_outputs:

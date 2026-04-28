@@ -391,7 +391,7 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
 
         return _runner
 
-    def _fake_distribute_targets(*, targets, well_workers: int, worker_fn):
+    def _fake_distribute_targets(*, targets, well_workers: int, worker_fn, **kwargs):
         distribute_calls.append((list(targets), int(well_workers)))
         return [TargetStageResult(target=item, status="ok", result=worker_fn(item)) for item in targets]
 
