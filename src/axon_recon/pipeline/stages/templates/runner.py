@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import concurrent.futures
 from dataclasses import replace
+import gc
 import logging
 from pathlib import Path
 import shutil
@@ -77,6 +78,7 @@ from .io import (
 from .integrations.spikeinterface_extract import (
 	build_unit_source_payload,
 	discover_cached_spikeinterface_analyzer_source_names,
+	iter_spikeinterface_analyzers,
 	load_cached_spikeinterface_analyzers,
 	load_spikeinterface_analyzers,
 )
@@ -1759,6 +1761,58 @@ def _templates_analyzer_policy_for_source(inputs: TemplatesInputs, source_name: 
 	return inputs.phases.analyzers.segments.policy
 
 
+def _iter_templates_phase_analyzers(
+	*,
+	inputs: TemplatesInputs,
+	well_out_dir: Path,
+	alternate_well_out_dirs: list[Path],
+	analyzer_cache_dir: Path | None,
+	source_scope: str | None = None,
+	requested_source_names: list[str] | tuple[str, ...] | set[str] | None = None,
+	load_stats: dict[str, Any] | None = None,
+) -> Any:
+	include_concat = bool(inputs.include_concat) and bool(inputs.phases.analyzers.concat.enabled)
+	include_segments = bool(inputs.include_segments) and bool(inputs.phases.analyzers.segments.enabled)
+	if source_scope == "concat":
+		include_segments = False
+	elif source_scope == "segments":
+		include_concat = False
+	return iter_spikeinterface_analyzers(
+		well_out_dir=well_out_dir,
+		concat_analyzer_relpath=(inputs.phases.analyzers.concat.analyzer_relpath or inputs.concat_analyzer_relpath),
+		concat_sorting_relpath=(inputs.phases.analyzers.concat.sorting_relpath or inputs.concat_sorting_relpath),
+		preprocessed_concat_reldir=(
+			inputs.phases.analyzers.concat.preprocessed_recording_reldir or inputs.preprocessed_concat_reldir
+		),
+		preprocessed_segments_reldir=(
+			inputs.phases.analyzers.segments.preprocessed_sources_reldir or inputs.preprocessed_segments_reldir
+		),
+		preproc_seg_sources_reldir=(
+			inputs.phases.analyzers.segments.preprocessed_sources_reldir or inputs.preproc_seg_sources_reldir
+		),
+		analyzer_cache_dir=analyzer_cache_dir,
+		analyzer_cache_concat_subdir=str(inputs.analyzer_cache.concat_analyzer_subdir or "concat"),
+		analyzer_cache_segments_subdir=str(inputs.analyzer_cache.segment_analyzers_subdir or ""),
+		alternate_well_out_dirs=alternate_well_out_dirs,
+		stream_id=str(inputs.stream_id),
+		include_concat=include_concat,
+		include_segments=include_segments,
+		require_concat=(bool(inputs.require_concat_analyzer) and include_concat),
+		require_segments=(bool(inputs.require_segment_analyzers) and include_segments),
+		waveform_ms_before=inputs.waveform_extraction.ms_before,
+		waveform_ms_after=inputs.waveform_extraction.ms_after,
+		waveform_max_spikes_per_unit=inputs.waveform_extraction.max_spikes_per_unit,
+		concat_policy=inputs.phases.analyzers.concat.policy,
+		segments_policy=inputs.phases.analyzers.segments.policy,
+		concat_use_existing_analyzer=bool(inputs.phases.analyzers.concat.use_existing_analyzer),
+		concat_build_if_missing=bool(inputs.phases.analyzers.concat.build_if_missing),
+		segments_use_existing_analyzer=bool(inputs.phases.analyzers.segments.use_existing_analyzer),
+		segments_build_if_missing=bool(inputs.phases.analyzers.segments.build_if_missing),
+		requested_source_names=requested_source_names,
+		load_stats=load_stats,
+	)
+
+
 def _load_templates_phase_analyzers(
 	*,
 	inputs: TemplatesInputs,
@@ -2085,17 +2139,20 @@ def run_templates_analyzers_phase(inputs: TemplatesInputs, *, source_scope: str 
 	if bool(inputs.force_restart) and analyzer_cache_dir is not None and analyzer_cache_dir.exists():
 		LOGGER.info("templates.analyzers clearing analyzer cache on force_restart: %s", str(analyzer_cache_dir))
 		shutil.rmtree(analyzer_cache_dir)
-	LOGGER.info("templates.analyzers loading analyzer sources")
-	analyzers, load_stats = _load_templates_phase_analyzers(
+	LOGGER.info("templates.analyzers streaming analyzer sources (one at a time)")
+	load_stats: dict[str, Any] = {}
+	sources_summary: dict[str, Any] = {}
+	source_count = 0
+	concat_count = 0
+	segment_count = 0
+	for source_name, analyzer in _iter_templates_phase_analyzers(
 		inputs=inputs,
 		well_out_dir=well_out_dir,
 		alternate_well_out_dirs=alternate_well_out_dirs,
 		analyzer_cache_dir=analyzer_cache_dir,
 		source_scope=source_scope,
-		return_stats=True,
-	)
-	sources_summary: dict[str, Any] = {}
-	for source_name, analyzer in analyzers:
+		load_stats=load_stats,
+	):
 		policy = _templates_analyzer_policy_for_source(inputs, source_name)
 		num_channels: int | None = None
 		get_num_channels = getattr(analyzer, "get_num_channels", None)
@@ -2137,6 +2194,14 @@ def run_templates_analyzers_phase(inputs: TemplatesInputs, *, source_scope: str 
 				"chunk_duration": policy.chunk_duration,
 			},
 		}
+		source_count += 1
+		if str(source_name) == "concat":
+			concat_count += 1
+		else:
+			segment_count += 1
+		# Drop the analyzer reference before advancing so its waveform tensors can be freed.
+		del analyzer
+		gc.collect()
 	summary = {
 		"phase": ("analyzers" if source_scope is None else f"analyzers.{source_scope}"),
 		"stream_id": str(inputs.stream_id),
@@ -2144,7 +2209,7 @@ def run_templates_analyzers_phase(inputs: TemplatesInputs, *, source_scope: str 
 		"templates_out_dir": str(templates_out_dir),
 		"analyzer_cache_dir": (None if analyzer_cache_dir is None else str(analyzer_cache_dir)),
 		"source_scope": source_scope,
-		"source_count": int(len(analyzers)),
+		"source_count": int(source_count),
 		"load_stats": load_stats,
 		"sources": sources_summary,
 	}
@@ -2154,14 +2219,12 @@ def run_templates_analyzers_phase(inputs: TemplatesInputs, *, source_scope: str 
 	write_json(summary_path, summary)
 	summary["summary_json"] = str(summary_path)
 	LOGGER.info("templates.analyzers wrote summary output: %s", str(summary_path))
-	segment_count = int(sum(1 for name, _ in analyzers if str(name) != "concat"))
-	concat_count = int(sum(1 for name, _ in analyzers if str(name) == "concat"))
 	LOGGER.info(
 		"templates.analyzers run stats: duration_seconds=%.3f source_count=%d concat_count=%d segment_count=%d load_stats=%s",
 		float(summary["timing"]["duration_seconds"]),
-		int(len(analyzers)),
-		concat_count,
-		segment_count,
+		int(source_count),
+		int(concat_count),
+		int(segment_count),
 		load_stats,
 	)
 	return summary

@@ -176,13 +176,16 @@ def test_run_templates_analyzers_phase_logs_settings_and_writes_run_stats(tmp_pa
 		"segments": {"recordings_discovered": 1, "recordings_loaded": 1, "built": 1},
 	}
 
-	def _fake_load_templates_phase_analyzers(**kwargs):
-		assert kwargs.get("return_stats") is True
-		return fake_analyzers, fake_load_stats
+	def _fake_iter_templates_phase_analyzers(**kwargs):
+		stats = kwargs.get("load_stats")
+		if isinstance(stats, dict):
+			stats.update(fake_load_stats)
+		for item in fake_analyzers:
+			yield item
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner._load_templates_phase_analyzers",
-		_fake_load_templates_phase_analyzers,
+		"axon_recon.pipeline.stages.templates.runner._iter_templates_phase_analyzers",
+		_fake_iter_templates_phase_analyzers,
 	)
 
 	inputs = TemplatesInputs(

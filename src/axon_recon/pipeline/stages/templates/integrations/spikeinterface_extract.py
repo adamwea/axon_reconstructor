@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 import shutil
 from time import perf_counter
-from typing import Any
+from typing import Any, Iterator
 
 import numpy as np  # type: ignore[import-not-found]
 
@@ -18,6 +18,27 @@ LOGGER = logging.getLogger("axon_recon.templates.spikeinterface")
 def _read_json(path: Path) -> Any:
 	with open(path, "r", encoding="utf-8") as f:
 		return json.load(f)
+
+
+_SEGMENT_SOURCE_SKIP_NAMES = frozenset({"manifest.json"})
+
+
+def _canonical_segment_source_name(path: Path) -> str | None:
+	"""Return the canonical analyzer source name for a preprocessed segment entry.
+
+	Lazy-mode segments are stored as JSON provenance files (e.g. ``000_recname.json``)
+	directly in the segments directory, alongside ``manifest.json``. Binary-mode
+	segments are stored as directories (e.g. ``000_recname/``). The canonical name
+	is the path stem for ``.json`` files and the directory name otherwise; ``None``
+	is returned for entries that should be skipped (e.g. manifest files).
+	"""
+	name = str(path.name)
+	if name in _SEGMENT_SOURCE_SKIP_NAMES:
+		return None
+	if path.suffix.lower() == ".json":
+		stem = path.stem
+		return stem or None
+	return name or None
 
 
 def _parse_segment_index_from_name(name: str) -> int | None:
@@ -1286,9 +1307,9 @@ def discover_spikeinterface_analyzer_source_names(
 	if bool(include_segments):
 		seen_segment_names = set(source_names)
 		if segments_dir.exists() and segments_dir.is_dir():
-			for seg_dir in sorted(path for path in segments_dir.iterdir() if path.is_dir()):
-				seg_name = str(seg_dir.name)
-				if seg_name in seen_segment_names:
+			for entry in sorted(segments_dir.iterdir()):
+				seg_name = _canonical_segment_source_name(entry)
+				if seg_name is None or seg_name in seen_segment_names:
 					continue
 				seen_segment_names.add(seg_name)
 				source_names.append(seg_name)
@@ -2074,18 +2095,23 @@ def load_spikeinterface_analyzers(
 		_ensure_concat_analyzer_loaded(register_requested_source=True)
 
 	if include_segments and segments_dir.exists():
-		seg_dirs = sorted(segments_dir.iterdir())
-		if requested_names is not None:
-			seg_dirs = [p for p in seg_dirs if str(p.name) in requested_names]
-		load_stats["segments"]["recordings_discovered"] = int(len(seg_dirs))
+		seg_entries: list[tuple[str, Path]] = []
+		for entry in sorted(segments_dir.iterdir()):
+			canonical = _canonical_segment_source_name(entry)
+			if canonical is None:
+				continue
+			if requested_names is not None and canonical not in requested_names:
+				continue
+			seg_entries.append((canonical, entry))
+		load_stats["segments"]["recordings_discovered"] = int(len(seg_entries))
 		LOGGER.info(
 			"Discovered preprocessed segment recording sources: count=%d source_dir=%s",
-			int(len(seg_dirs)),
+			int(len(seg_entries)),
 			str(segments_dir),
 		)
-		seg_dir_by_name = {str(p.name): p for p in seg_dirs}
+		seg_dir_by_name = {name: path for name, path in seg_entries}
 		segment_names: list[str] = []
-		for name in list(seg_dir_by_name.keys()) + sorted(k for k in cached_analyzers.keys() if k != "concat"):
+		for name in [name for name, _ in seg_entries] + sorted(k for k in cached_analyzers.keys() if k != "concat"):
 			if requested_names is not None and str(name) not in requested_names:
 				continue
 			if name not in segment_names:
@@ -2238,7 +2264,7 @@ def load_spikeinterface_analyzers(
 
 			built_count = 0
 			for seg_dir in unloadable_seg_dirs:
-				seg_name = str(seg_dir.name)
+				seg_name = _canonical_segment_source_name(seg_dir) or str(seg_dir.name)
 				seg_index = _parse_segment_index_from_name(seg_name)
 				rec_name: str | None = None
 
@@ -2392,3 +2418,282 @@ def load_spikeinterface_analyzers(
 	)
 	LOGGER.info("SpikeInterface analyzer load stats: %s", load_stats)
 	return _finalize_result(analyzers)
+
+
+def _initialize_iter_load_stats(
+	*,
+	well_out_dir: Path,
+	analyzer_cache_dir: Path | None,
+	include_concat: bool,
+	include_segments: bool,
+) -> dict[str, Any]:
+	return {
+		"well_out_dir": str(well_out_dir),
+		"cache_root": (None if analyzer_cache_dir is None else str(Path(analyzer_cache_dir).expanduser())),
+		"concat": {
+			"requested": bool(include_concat),
+			"source": None,
+			"recording_attached": False,
+			"sorting_loaded_for_build": False,
+			"sorting_loaded_for_segment_registration": False,
+			"recording_loaded_for_build": False,
+		},
+		"segments": {
+			"requested": bool(include_segments),
+			"recordings_source_dir": None,
+			"recordings_discovered": 0,
+			"recordings_loaded": 0,
+			"cache_hits": 0,
+			"disk_hits": 0,
+			"queued_for_build": 0,
+			"built": 0,
+			"recordings_attached": 0,
+		},
+		"cache": {
+			"concat_loaded": False,
+			"segments_loaded": 0,
+			"persisted": 0,
+		},
+	}
+
+
+def _merge_iter_load_stats(aggregate: dict[str, Any], per_source: dict[str, Any] | None) -> None:
+	if not isinstance(per_source, dict):
+		return
+	concat_src = per_source.get("concat") or {}
+	concat_dst = aggregate["concat"]
+	if isinstance(concat_src, dict):
+		if concat_src.get("source") is not None and concat_dst.get("source") is None:
+			concat_dst["source"] = concat_src.get("source")
+		for key in ("recording_attached", "sorting_loaded_for_build", "sorting_loaded_for_segment_registration", "recording_loaded_for_build"):
+			if bool(concat_src.get(key)):
+				concat_dst[key] = True
+	segments_src = per_source.get("segments") or {}
+	segments_dst = aggregate["segments"]
+	if isinstance(segments_src, dict):
+		if segments_dst.get("recordings_source_dir") is None and segments_src.get("recordings_source_dir"):
+			segments_dst["recordings_source_dir"] = segments_src.get("recordings_source_dir")
+		for key in ("recordings_loaded", "cache_hits", "disk_hits", "queued_for_build", "built", "recordings_attached"):
+			segments_dst[key] = int(segments_dst.get(key, 0)) + int(segments_src.get(key, 0) or 0)
+		# recordings_discovered is the union over all calls; take max so we report the discovery count, not a sum
+		segments_dst["recordings_discovered"] = max(
+			int(segments_dst.get("recordings_discovered", 0)),
+			int(segments_src.get("recordings_discovered", 0) or 0),
+		)
+	cache_src = per_source.get("cache") or {}
+	cache_dst = aggregate["cache"]
+	if isinstance(cache_src, dict):
+		if bool(cache_src.get("concat_loaded")):
+			cache_dst["concat_loaded"] = True
+		cache_dst["segments_loaded"] = int(cache_dst.get("segments_loaded", 0)) + int(cache_src.get("segments_loaded", 0) or 0)
+		cache_dst["persisted"] = int(cache_dst.get("persisted", 0)) + int(cache_src.get("persisted", 0) or 0)
+
+
+def iter_spikeinterface_analyzers(
+	*,
+	well_out_dir: Path,
+	concat_analyzer_relpath: str | None = None,
+	concat_sorting_relpath: str | None = None,
+	preprocessed_concat_reldir: str | None = None,
+	preprocessed_segments_reldir: str | None = None,
+	preproc_seg_sources_reldir: str | None = None,
+	analyzer_cache_dir: Path | None = None,
+	analyzer_cache_concat_subdir: str = "concat",
+	analyzer_cache_segments_subdir: str = "",
+	alternate_well_out_dirs: list[Path] | tuple[Path, ...] | None = None,
+	stream_id: str | None = None,
+	include_concat: bool,
+	include_segments: bool,
+	require_concat: bool = False,
+	require_segments: bool = False,
+	waveform_ms_before: float | None = None,
+	waveform_ms_after: float | None = None,
+	waveform_max_spikes_per_unit: int | None = None,
+	concat_policy: AnalyzerPreparationPolicyConfig | None = None,
+	segments_policy: AnalyzerPreparationPolicyConfig | None = None,
+	concat_use_existing_analyzer: bool = True,
+	concat_build_if_missing: bool = True,
+	segments_use_existing_analyzer: bool = True,
+	segments_build_if_missing: bool = True,
+	requested_source_names: list[str] | tuple[str, ...] | set[str] | None = None,
+	load_stats: dict[str, Any] | None = None,
+) -> Iterator[tuple[str, Any]]:
+	"""Yield (source_name, analyzer) pairs one at a time without buffering the full set.
+
+	Loading semantics match :func:`load_spikeinterface_analyzers`, but each analyzer
+	is loaded (or built) on demand and yielded individually so the caller can
+	drop the reference before advancing to the next source. The durable cache
+	copy is still written via ``analyzer.save_as`` during loading, so dropped
+	analyzers can be reloaded later via the cache.
+
+	If ``load_stats`` is provided, aggregate stats are merged into it as sources
+	are loaded and finalized on iterator exhaustion.
+	"""
+	started = perf_counter()
+	stats = load_stats if load_stats is not None else _initialize_iter_load_stats(
+		well_out_dir=well_out_dir,
+		analyzer_cache_dir=analyzer_cache_dir,
+		include_concat=include_concat,
+		include_segments=include_segments,
+	)
+	if load_stats is not None:
+		baseline = _initialize_iter_load_stats(
+			well_out_dir=well_out_dir,
+			analyzer_cache_dir=analyzer_cache_dir,
+			include_concat=include_concat,
+			include_segments=include_segments,
+		)
+		for key, value in baseline.items():
+			stats.setdefault(key, value)
+
+	source_names = discover_spikeinterface_analyzer_source_names(
+		well_out_dir=well_out_dir,
+		concat_analyzer_relpath=concat_analyzer_relpath,
+		concat_sorting_relpath=concat_sorting_relpath,
+		preprocessed_concat_reldir=preprocessed_concat_reldir,
+		preprocessed_segments_reldir=preprocessed_segments_reldir,
+		preproc_seg_sources_reldir=preproc_seg_sources_reldir,
+		analyzer_cache_dir=analyzer_cache_dir,
+		analyzer_cache_concat_subdir=analyzer_cache_concat_subdir,
+		analyzer_cache_segments_subdir=analyzer_cache_segments_subdir,
+		include_concat=include_concat,
+		include_segments=include_segments,
+		concat_use_existing_analyzer=concat_use_existing_analyzer,
+		concat_build_if_missing=concat_build_if_missing,
+		segments_use_existing_analyzer=segments_use_existing_analyzer,
+		segments_build_if_missing=segments_build_if_missing,
+		requested_source_names=requested_source_names,
+	)
+	LOGGER.info(
+		"Streaming SpikeInterface analyzers: well_out_dir=%s source_count=%d include_concat=%s include_segments=%s",
+		str(well_out_dir),
+		int(len(source_names)),
+		bool(include_concat),
+		bool(include_segments),
+	)
+
+	yielded = 0
+	has_concat = False
+	has_segments = False
+	for name in source_names:
+		try:
+			result = load_spikeinterface_analyzers(
+				well_out_dir=well_out_dir,
+				concat_analyzer_relpath=concat_analyzer_relpath,
+				concat_sorting_relpath=concat_sorting_relpath,
+				preprocessed_concat_reldir=preprocessed_concat_reldir,
+				preprocessed_segments_reldir=preprocessed_segments_reldir,
+				preproc_seg_sources_reldir=preproc_seg_sources_reldir,
+				analyzer_cache_dir=analyzer_cache_dir,
+				analyzer_cache_concat_subdir=analyzer_cache_concat_subdir,
+				analyzer_cache_segments_subdir=analyzer_cache_segments_subdir,
+				alternate_well_out_dirs=alternate_well_out_dirs,
+				stream_id=stream_id,
+				include_concat=include_concat,
+				include_segments=include_segments,
+				require_concat=False,
+				require_segments=False,
+				waveform_ms_before=waveform_ms_before,
+				waveform_ms_after=waveform_ms_after,
+				waveform_max_spikes_per_unit=waveform_max_spikes_per_unit,
+				concat_policy=concat_policy,
+				segments_policy=segments_policy,
+				concat_use_existing_analyzer=concat_use_existing_analyzer,
+				concat_build_if_missing=concat_build_if_missing,
+				segments_use_existing_analyzer=segments_use_existing_analyzer,
+				segments_build_if_missing=segments_build_if_missing,
+				requested_source_names=[name],
+				return_stats=True,
+			)
+		except FileNotFoundError:
+			LOGGER.warning("Per-source analyzer load failed for source=%s; skipping", str(name))
+			continue
+		if isinstance(result, tuple) and len(result) == 2:
+			per_analyzers, per_stats = result
+		else:
+			per_analyzers, per_stats = result, None
+		_merge_iter_load_stats(stats, per_stats if isinstance(per_stats, dict) else None)
+		for source_name, analyzer in per_analyzers:
+			yield str(source_name), analyzer
+			yielded += 1
+			if str(source_name) == "concat":
+				has_concat = True
+			else:
+				has_segments = True
+		# Drop references held by the per-source result before advancing.
+		del per_analyzers
+		del result
+
+	stats["duration_seconds"] = float(perf_counter() - started)
+	stats["source_count"] = int(yielded)
+	stats["concat_count"] = int(1 if has_concat else 0)
+	stats["segment_count"] = int(yielded - (1 if has_concat else 0))
+
+	requirements_unmet = (
+		(bool(require_concat) and bool(include_concat) and (not has_concat))
+		or (bool(require_segments) and bool(include_segments) and (not has_segments))
+	)
+	if yielded == 0 and (alternate_well_out_dirs or requirements_unmet):
+		seen_fallbacks: set[Path] = set()
+		fallbacks: list[Path] = []
+		for candidate in list(alternate_well_out_dirs or []):
+			try:
+				candidate_path = Path(candidate).expanduser().resolve()
+			except Exception:
+				continue
+			try:
+				if candidate_path == Path(well_out_dir).expanduser().resolve():
+					continue
+			except Exception:
+				pass
+			if candidate_path in seen_fallbacks:
+				continue
+			seen_fallbacks.add(candidate_path)
+			fallbacks.append(candidate_path)
+		for fallback in fallbacks:
+			LOGGER.info(
+				"No streaming analyzers yielded under %s; trying fallback well_out_dir %s",
+				str(well_out_dir),
+				str(fallback),
+			)
+			yielded_from_fallback = False
+			for src_name, analyzer in iter_spikeinterface_analyzers(
+				well_out_dir=fallback,
+				concat_analyzer_relpath=concat_analyzer_relpath,
+				concat_sorting_relpath=concat_sorting_relpath,
+				preprocessed_concat_reldir=preprocessed_concat_reldir,
+				preprocessed_segments_reldir=preprocessed_segments_reldir,
+				preproc_seg_sources_reldir=preproc_seg_sources_reldir,
+				analyzer_cache_dir=analyzer_cache_dir,
+				analyzer_cache_concat_subdir=analyzer_cache_concat_subdir,
+				analyzer_cache_segments_subdir=analyzer_cache_segments_subdir,
+				alternate_well_out_dirs=None,
+				stream_id=stream_id,
+				include_concat=include_concat,
+				include_segments=include_segments,
+				require_concat=require_concat,
+				require_segments=require_segments,
+				waveform_ms_before=waveform_ms_before,
+				waveform_ms_after=waveform_ms_after,
+				waveform_max_spikes_per_unit=waveform_max_spikes_per_unit,
+				concat_policy=concat_policy,
+				segments_policy=segments_policy,
+				concat_use_existing_analyzer=concat_use_existing_analyzer,
+				concat_build_if_missing=concat_build_if_missing,
+				segments_use_existing_analyzer=segments_use_existing_analyzer,
+				segments_build_if_missing=segments_build_if_missing,
+				requested_source_names=requested_source_names,
+				load_stats=stats,
+			):
+				yield src_name, analyzer
+				yielded_from_fallback = True
+			if yielded_from_fallback:
+				return
+	if requirements_unmet:
+		LOGGER.warning(
+			"Streaming analyzer requirements unmet: require_concat=%s require_segments=%s has_concat=%s has_segments=%s",
+			bool(require_concat),
+			bool(require_segments),
+			bool(has_concat),
+			bool(has_segments),
+		)
