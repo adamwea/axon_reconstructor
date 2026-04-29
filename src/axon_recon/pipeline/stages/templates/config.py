@@ -1389,13 +1389,22 @@ def _build_analyzer_preparation_policy_config(
 			policy_cfg.get("min_spikes_per_unit", policy_defaults.min_spikes_per_unit),
 		)
 	)
-	random_spikes_percentage_raw = template_extraction_cfg.get(
-		"random_spikes_percentage",
-		template_extraction_cfg.get(
-			"min_perc_spikes_per_unit",
-			policy_cfg.get("random_spikes_percentage", policy_defaults.random_spikes_percentage),
-		),
+	has_policy_percentage = "random_spikes_percentage" in policy_cfg
+	has_explicit_max_spikes = (
+		"max_spikes_per_unit" in template_extraction_cfg
+		or "max_spikes_per_unit" in waveform_cfg
+		or "max_spikes_per_unit" in policy_cfg
 	)
+	if "random_spikes_percentage" in template_extraction_cfg:
+		random_spikes_percentage_raw = template_extraction_cfg.get("random_spikes_percentage")
+	elif "min_perc_spikes_per_unit" in template_extraction_cfg:
+		random_spikes_percentage_raw = template_extraction_cfg.get("min_perc_spikes_per_unit")
+	elif has_policy_percentage:
+		random_spikes_percentage_raw = policy_cfg.get("random_spikes_percentage")
+	elif default_policy is not None and has_explicit_max_spikes:
+		random_spikes_percentage_raw = None
+	else:
+		random_spikes_percentage_raw = policy_defaults.random_spikes_percentage
 	random_spikes_percentage = _parse_random_spikes_percentage(
 		random_spikes_percentage_raw,
 		field_name="random_spikes_percentage",

@@ -3305,6 +3305,53 @@ def test_load_templates_config_parses_grouped_per_source_analyzer_controls(tmp_p
 	assert segments_policy.chunk_duration == "1s"
 
 
+def test_load_templates_config_source_max_spikes_clears_default_percentage(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    phases:
+			      analyzers:
+			        defaults:
+			          template_extraction:
+			            max_spikes_per_unit: -1
+			            random_spikes_percentage: 25
+			        segments:
+			          template_extraction:
+			            max_spikes_per_unit: 50
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+
+	assert inputs.phases.analyzers.concat.policy.max_spikes_per_unit is None
+	assert inputs.phases.analyzers.concat.policy.random_spikes_percentage == 0.25
+	segments_policy = inputs.phases.analyzers.segments.policy
+	assert segments_policy.max_spikes_per_unit == 50
+	assert segments_policy.random_spikes_method == "uniform"
+	assert segments_policy.random_spikes_percentage is None
+
+
 def test_load_templates_inputs_probe_geometry_defaults_when_probe_missing(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(
