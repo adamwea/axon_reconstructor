@@ -1100,7 +1100,7 @@ stages:
           required: true
           use_existing_analyzer: true
           build_if_missing: true
-          preprocessed_sources_reldir: /preprocess_outputs/per_segment_preprocessed
+          preprocessed_sources_reldir: /preprocess_outputs/preprocessed_segments
           waveforms:
             ms_before: 2
             ms_after: 5

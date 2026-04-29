@@ -46,28 +46,52 @@ def _parse_segment_index_from_name(name: str) -> int | None:
 	return None
 
 
-def _load_concat_epoch_windows(*, preproc_segments_dir: Path, stream_id: str | None) -> list[dict[str, Any]]:
-	parent = Path(preproc_segments_dir).parent
-	candidates: list[Path] = []
-	if stream_id:
-		candidates.append(parent / f"concatenation_stitch_epochs_{stream_id}.json")
-	candidates.extend(
-		[
-			parent / "concatenation_stitch_epochs.json",
-			parent / "concat_epochs.json",
-		]
-	)
+def _load_concat_epoch_windows(*, preproc_segments_dir: Path) -> list[dict[str, Any]]:
+	# Concat-recording frame windows per segment. Spike times in the concat sorting
+	# are in concat-recording space; segments are stitched end-to-end in segment-index
+	# order, so each window is the cumulative sum of n_samples.
+	manifest_path = Path(preproc_segments_dir) / "manifest.json"
+	if not manifest_path.exists():
+		return []
+	try:
+		payload = _read_json(manifest_path)
+	except Exception:
+		return []
+	if not isinstance(payload, dict):
+		return []
+	raw_segments = payload.get("segments")
+	if not isinstance(raw_segments, list):
+		return []
 
-	for path in candidates:
-		if not path.exists():
+	entries: list[tuple[int, str, int]] = []
+	for item in raw_segments:
+		if not isinstance(item, dict):
 			continue
 		try:
-			payload = _read_json(path)
-			if isinstance(payload, list):
-				return [item for item in payload if isinstance(item, dict)]
+			seg_index = int(item.get("segment_index"))
+			rec_name = str(item.get("rec_name", ""))
+			n_samples = int(item.get("n_samples"))
 		except Exception:
 			continue
-	return []
+		if not rec_name or n_samples <= 0:
+			continue
+		entries.append((seg_index, rec_name, n_samples))
+
+	entries.sort(key=lambda e: e[0])
+
+	epochs: list[dict[str, Any]] = []
+	running = 0
+	for seg_index, rec_name, n_samples in entries:
+		epochs.append(
+			{
+				"segment_index": seg_index,
+				"rec_name": rec_name,
+				"start_sample": running,
+				"end_sample": running + n_samples,
+			}
+		)
+		running += n_samples
+	return epochs
 
 
 def _load_segment_manifest(*, preproc_segments_dir: Path) -> dict[tuple[int, str], Path]:
@@ -129,8 +153,8 @@ def _to_numpy_sorting(*, si_core: Any, unit_trains: dict[Any, list[int]], fs_hz:
 	times_arr = times_arr[order]
 	labels_arr = labels_arr[order]
 
-	return NumpySorting.from_times_labels(
-		times_list=[times_arr],
+	return NumpySorting.from_samples_and_labels(
+		samples_list=[times_arr],
 		labels_list=[labels_arr],
 		sampling_frequency=float(fs_hz),
 	)
@@ -1966,7 +1990,10 @@ def load_spikeinterface_analyzers(
 			LOGGER.info("Concat sorting unavailable for segment registration: path missing: %s", str(concat_sorting_dir))
 			return None
 		LOGGER.info("Loading concat sorting for segment registration: %s", str(concat_sorting_dir))
-		concat_sorting_obj = _load_with_methods(concat_sorting_dir, ("load_sorting", "load_extractor", "load"))
+		try:
+			concat_sorting_obj = si.read_sorter_folder(concat_sorting_dir, register_recording=False)
+		except Exception:
+			concat_sorting_obj = None
 		if concat_sorting_obj is None:
 			LOGGER.warning("Failed to load concat sorting for segment registration: %s", str(concat_sorting_dir))
 			return None
@@ -2047,7 +2074,7 @@ def load_spikeinterface_analyzers(
 		_ensure_concat_analyzer_loaded(register_requested_source=True)
 
 	if include_segments and segments_dir.exists():
-		seg_dirs = sorted([p for p in segments_dir.iterdir() if p.is_dir()])
+		seg_dirs = sorted(segments_dir.iterdir())
 		if requested_names is not None:
 			seg_dirs = [p for p in seg_dirs if str(p.name) in requested_names]
 		load_stats["segments"]["recordings_discovered"] = int(len(seg_dirs))
@@ -2193,7 +2220,7 @@ def load_spikeinterface_analyzers(
 				str(segments_dir),
 				_format_policy_for_log(segments_policy_resolved),
 			)
-			epochs = _load_concat_epoch_windows(preproc_segments_dir=segments_dir, stream_id=stream_id)
+			epochs = _load_concat_epoch_windows(preproc_segments_dir=segments_dir)
 			epoch_by_key: dict[tuple[int, str], tuple[int, int]] = {}
 			for ep in epochs:
 				try:
