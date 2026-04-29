@@ -473,10 +473,13 @@ def test_run_templates_build_templates_phase_loads_cached_analyzers_when_payload
 		assert kwargs["payload_materialization_mode"] == "analyzer_cache"
 		assert kwargs["source_names"] == ["concat", "000_recA"]
 		assert kwargs["unit_ids"] == [94]
-		payloads = kwargs["source_payloads_by_unit"]
-		assert list(payloads.keys()) == [94]
-		assert [name for name, _ in payloads[94]] == ["concat", "000_recA"]
-		assert all(len(payload) == 6 for _, payload in payloads[94])
+		assert kwargs.get("source_payloads_by_unit") is None
+		loader = kwargs["payload_loader"]
+		assert callable(loader)
+		loaded = loader(94)
+		assert [name for name, _ in loaded] == ["concat", "000_recA"]
+		# Payloads loaded from disk are 9-tuples (overlay/top/total are None).
+		assert all(len(payload) == 9 for _, payload in loaded)
 		return {
 			"phase": "build_templates",
 			"payload_materialization_mode": "analyzer_cache",

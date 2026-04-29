@@ -3,7 +3,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 import shutil
-from typing import Any
+import gc
+from typing import Any, Callable
 
 import numpy as np  # type: ignore[import-not-found]
 
@@ -376,11 +377,12 @@ def build_templates_phase_from_unit_payloads(
 	inputs: TemplatesInputs,
 	well_out_dir: Path,
 	templates_out_dir: Path,
-	source_payloads_by_unit: dict[Any, list[tuple[str, tuple[Any, ...]]]],
+	source_payloads_by_unit: dict[Any, list[tuple[str, tuple[Any, ...]]]] | None = None,
 	unit_ids: list[Any],
 	source_names: list[str],
 	payload_root: Path | None = None,
 	payload_materialization_mode: str = "disk",
+	payload_loader: Callable[[Any], list[tuple[str, tuple[Any, ...]]]] | None = None,
 ) -> dict[str, Any]:
 	merged_units_dir, full_channels_templates_dir = resolve_materialized_templates_dirs(templates_out_dir=templates_out_dir)
 	if bool(inputs.force_restart):
@@ -402,7 +404,10 @@ def build_templates_phase_from_unit_payloads(
 
 	for unit_id in unit_ids:
 		LOGGER.info("build_templates unit start: unit_id=%s", unit_id)
-		source_payloads = list(source_payloads_by_unit.get(unit_id, []))
+		if payload_loader is not None:
+			source_payloads = list(payload_loader(unit_id))
+		else:
+			source_payloads = list((source_payloads_by_unit or {}).get(unit_id, []))
 		if not source_payloads:
 			skipped_units.append(unit_id)
 			LOGGER.info("build_templates unit skipped: unit_id=%s reason=no_source_payloads", unit_id)
@@ -462,6 +467,14 @@ def build_templates_phase_from_unit_payloads(
 		)
 		built_units.append(unit_id)
 		LOGGER.info("build_templates unit done: unit_id=%s sources=%d", unit_id, len(source_payloads))
+		# Drop per-unit payloads/templates so the next iteration starts clean.
+		del source_payloads
+		del materialized
+		del merged_template
+		del merged_locs
+		del full_template
+		del full_locs
+		gc.collect()
 
 	return {
 		"phase": "build_templates",
@@ -513,28 +526,31 @@ def build_templates_phase_from_payloads(
 	if inputs.unit_limit is not None:
 		unit_ids = unit_ids[: int(inputs.unit_limit)]
 	unit_ids = _apply_unit_label_filter(inputs, unit_ids, well_out_dir)
-	source_payloads_by_unit: dict[Any, list[tuple[str, tuple[Any, ...]]]] = {}
-	for unit_id in unit_ids:
+	output_rel_root = str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root)
+
+	def _payload_loader(unit_id: Any) -> list[tuple[str, tuple[Any, ...]]]:
+		loaded: list[tuple[str, tuple[Any, ...]]] = []
 		for source_dir in source_dirs:
 			payload = load_materialized_source_payload(
 				source_payload_unit_dir=resolve_materialized_source_payload_unit_dir(
 					templates_out_dir=templates_out_dir,
-					output_rel_root=str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root),
+					output_rel_root=output_rel_root,
 					source_name=source_dir.name,
 					unit_id=unit_id,
 				),
 			)
 			if payload is None:
 				continue
-			source_payloads_by_unit.setdefault(unit_id, []).append((str(source_dir.name), payload))
+			loaded.append((str(source_dir.name), payload))
+		return loaded
 
 	return build_templates_phase_from_unit_payloads(
 		inputs=inputs,
 		well_out_dir=well_out_dir,
 		templates_out_dir=templates_out_dir,
-		source_payloads_by_unit=source_payloads_by_unit,
 		unit_ids=unit_ids,
 		source_names=[str(path.name) for path in source_dirs],
 		payload_root=payload_root,
 		payload_materialization_mode="disk",
+		payload_loader=_payload_loader,
 	)

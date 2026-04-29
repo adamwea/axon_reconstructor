@@ -1939,7 +1939,7 @@ def _build_templates_phase_from_cached_analyzers(
 		int(len(source_names)),
 	)
 
-	source_payloads_by_unit: dict[Any, list[tuple[str, tuple[Any, ...]]]] = {}
+	output_rel_root = str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root)
 	streamed_sources_summary: dict[str, Any] = {}
 	unit_ids: list[Any] | None = (None if inputs.unit_ids is None else list(inputs.unit_ids))
 	if unit_ids is not None and inputs.unit_limit is not None:
@@ -1990,45 +1990,67 @@ def _build_templates_phase_from_cached_analyzers(
 			)
 			if payload is None:
 				continue
-			reduced_payload = (
-				payload[0],
-				payload[1],
-				payload[2],
-				payload[3],
-				payload[4],
-				payload[5],
+			# Spool per-unit per-source payload to disk so the build phase can
+			# stream from disk one unit at a time instead of holding every
+			# (unit, source) tensor coresident in memory.
+			write_materialized_source_payload(
+				templates_out_dir=templates_out_dir,
+				output_rel_root=output_rel_root,
+				source_name=str(source_name),
+				unit_id=unit_id,
+				template_c_by_t=payload[0],
+				locations_xy=payload[1],
+				electrode_ids=payload[2],
+				channel_ids=payload[3],
+				waveform_count=payload[4],
+				sampling_rate_hz=payload[5],
+				overlay_waveforms=None,
+				top_electrode_id=None,
+				total_waveforms_at_channel=None,
 			)
-			source_payloads_by_unit.setdefault(unit_id, []).append((str(source_name), reduced_payload))
 			materialized_units.append(unit_id)
-			if not materialized_units:
-				LOGGER.warning(
-					"templates.build_templates cached analyzer produced no payloads without recompute: source=%s",
-					str(source_name),
-				)
+			del payload
 		streamed_sources_summary[str(source_name)] = {
 			"units_materialized": [unit for unit in materialized_units],
 			"unit_count": int(len(materialized_units)),
 		}
 		LOGGER.info(
-				"templates.build_templates materialized cached analyzer payloads: source=%s unit_count=%d",
+			"templates.build_templates materialized cached analyzer payloads: source=%s unit_count=%d",
 			str(source_name),
 			int(len(materialized_units)),
 		)
 		del analyzer
 		del analyzers
+		gc.collect()
 
 	if unit_ids is None:
 		unit_ids = []
+
+	def _payload_loader(unit_id: Any) -> list[tuple[str, tuple[Any, ...]]]:
+		loaded: list[tuple[str, tuple[Any, ...]]] = []
+		for source_name in source_names:
+			payload = load_materialized_source_payload(
+				source_payload_unit_dir=resolve_materialized_source_payload_unit_dir(
+					templates_out_dir=templates_out_dir,
+					output_rel_root=output_rel_root,
+					source_name=str(source_name),
+					unit_id=unit_id,
+				),
+			)
+			if payload is None:
+				continue
+			loaded.append((str(source_name), payload))
+		return loaded
 
 	summary = build_templates_phase_from_unit_payloads(
 		inputs=inputs,
 		well_out_dir=well_out_dir,
 		templates_out_dir=templates_out_dir,
-		source_payloads_by_unit=source_payloads_by_unit,
 		unit_ids=list(unit_ids),
 		source_names=[str(name) for name in source_names],
 		payload_root=payload_root,
 		payload_materialization_mode="analyzer_cache",
+		payload_loader=_payload_loader,
 	)
 	summary["source_payload_well_out_dir"] = str(analyzer_well_out_dir)
 	summary["analyzer_cache_dir"] = str(analyzer_cache_dir)

@@ -1339,7 +1339,7 @@ stages:
         relpath: template_report.pdf
         write_pdf: true
       per_unit_processing:
-        enabled: true
+        enabled: false
         outputs:
           # Base rel dir for all outputs for a given unit. Can be formatted with {unit_id} if desired,
           # but should not include file name or extension components since those are specified separately for each output type below.
@@ -1385,7 +1385,7 @@ stages:
             latency_tie_breaker: channel_index # channel_index (default) sorts equal-latency ties by channel number; stable keeps selected/input order.
             debug: true # emit per-unit canonical/window/anchor/label-range diagnostics in logs.
       reports:
-        enabled: true
+        enabled: false
         summary_json_relpath: context/reports_summary.json
         locations:
           enabled: true
