@@ -2849,6 +2849,7 @@ def test_load_templates_config_plot_templates_canonical_phase_overrides_legacy_p
 			      plot_templates:
 			        enabled: true
 			        summary_json_relpath: context/custom_plot_templates_summary.json
+			        debug_prints: true
 			        outputs:
 			          template:
 			            relpath: canonical/template_plot
@@ -2869,9 +2870,47 @@ def test_load_templates_config_plot_templates_canonical_phase_overrides_legacy_p
 
 	assert inputs.phases.plot_templates.enabled is True
 	assert inputs.phases.plot_templates.summary_json_relpath == "context/custom_plot_templates_summary.json"
+	assert inputs.phases.plot_templates.debug_prints is True
 	assert inputs.phases.per_unit_processing.plots.enabled is True
 	assert inputs.phases.per_unit_processing.plots.summary_json_relpath == "context/custom_plot_templates_summary.json"
+	assert inputs.phases.per_unit_processing.plots.debug_prints is True
 	assert inputs.per_unit_outputs.template.relpath == "canonical/template_plot"
+
+
+def test_load_templates_config_plot_templates_accepts_legacy_debug_plotting_prints_alias(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    phases:
+			      plot_templates:
+			        debug_plotting_prints: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+
+	assert inputs.phases.plot_templates.debug_prints is True
 
 
 def test_load_templates_config_plot_templates_parses_direct_circles_block(tmp_path: Path) -> None:

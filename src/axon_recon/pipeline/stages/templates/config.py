@@ -3852,6 +3852,10 @@ def parse_templates_stage_config(
 		summary_json_relpath=str(
 			effective_plot_phase_cfg.get("summary_json_relpath", "context/plot_templates_summary.json")
 		),
+		debug_prints=_as_bool(
+			effective_plot_phase_cfg.get("debug_prints", effective_plot_phase_cfg.get("debug_plotting_prints", False)),
+			False,
+		),
 		unit_workers=plot_phase_unit_workers,
 		unit_procs=plot_phase_unit_procs,
 		unit_batch_size=plot_phase_unit_batch_size,

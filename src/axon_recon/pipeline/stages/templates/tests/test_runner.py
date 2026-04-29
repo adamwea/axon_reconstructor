@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from pathlib import Path
 import shutil
 import time
@@ -55,6 +56,9 @@ from axon_recon.pipeline.stages.templates.models.inputs import (
 )
 from axon_recon.pipeline.stages.templates.models.results import TemplatesResult, UnitTemplatesResult
 from axon_recon.pipeline.stages.templates.runner import (
+	_quiet_unexpected_plot_logs,
+	_plot_safe_propagation_config,
+	_plot_safe_template_wf_overlay_config,
 	_resolve_plot_templates_execution_plan,
 	_run_templates_plot_batches,
 	run_templates_analyzers_phase,
@@ -3408,7 +3412,7 @@ def test_run_templates_plot_templates_phase_force_restart_rerenders_existing_req
 	assert summary["skipped_units"] == []
 
 
-def test_resolve_plot_templates_execution_plan_prefers_fewer_concurrent_units() -> None:
+def test_resolve_plot_templates_execution_plan_is_sequential() -> None:
 	inputs = TemplatesInputs(
 		h5_path=Path("/tmp/dataset.h5"),
 		stream_id="well000",
@@ -3421,26 +3425,19 @@ def test_resolve_plot_templates_execution_plan_prefers_fewer_concurrent_units() 
 		unit_ids=list(range(12)),
 	)
 
-	assert plot_unit_workers == 6
-	assert unit_procs == 6
-	assert unit_batch_size == 2
-	assert batches == [
-		[0, 1],
-		[2, 3],
-		[4, 5],
-		[6, 7],
-		[8, 9],
-		[10, 11],
-	]
+	assert plot_unit_workers == 1
+	assert unit_procs == 1
+	assert unit_batch_size == 12
+	assert batches == [list(range(12))]
 
 
-def test_resolve_plot_templates_execution_plan_honors_unit_procs_override() -> None:
+def test_resolve_plot_templates_execution_plan_ignores_parallel_resource_overrides() -> None:
 	inputs = TemplatesInputs(
 		h5_path=Path("/tmp/dataset.h5"),
 		stream_id="well000",
 		mea_output_root=Path("/tmp/out"),
 		phases=TemplatesPhasesConfig(
-			plot_templates=TemplatePlotsPhaseConfig(unit_procs=4)
+			plot_templates=TemplatePlotsPhaseConfig(unit_workers=6, unit_procs=4, unit_batch_size=2)
 		),
 		n_jobs=24,
 	)
@@ -3450,15 +3447,61 @@ def test_resolve_plot_templates_execution_plan_honors_unit_procs_override() -> N
 		unit_ids=list(range(12)),
 	)
 
-	assert plot_unit_workers == 6
-	assert unit_procs == 4
-	assert unit_batch_size == 3
-	assert batches == [
-		[0, 1, 2],
-		[3, 4, 5],
-		[6, 7, 8],
-		[9, 10, 11],
-	]
+	assert plot_unit_workers == 1
+	assert unit_procs == 1
+	assert unit_batch_size == 12
+	assert batches == [list(range(12))]
+
+
+def test_plot_safe_debug_configs_require_phase_knob() -> None:
+	base_outputs = PerUnitTemplatesOutputsConfig(
+		template_wf_overlay=TemplateWaveformOverlayConfig(debug_mode=True),
+		propagation_plots=PropagationPlotConfig(debug_max_amps_at_each_channel=True),
+	)
+	quiet_inputs = TemplatesInputs(
+		h5_path=Path("/tmp/dataset.h5"),
+		stream_id="well000",
+		mea_output_root=Path("/tmp/out"),
+		per_unit_outputs=base_outputs,
+	)
+
+	quiet_overlay = _plot_safe_template_wf_overlay_config(quiet_inputs)
+	quiet_prop = _plot_safe_propagation_config(quiet_inputs, quiet_inputs.per_unit_outputs.propagation_plots)
+	assert quiet_overlay.debug_mode is False
+	assert quiet_prop.debug_max_amps_at_each_channel is False
+
+	debug_inputs = replace(
+		quiet_inputs,
+		phases=TemplatesPhasesConfig(plot_templates=TemplatePlotsPhaseConfig(debug_prints=True)),
+	)
+	debug_overlay = _plot_safe_template_wf_overlay_config(debug_inputs)
+	debug_prop = _plot_safe_propagation_config(debug_inputs, debug_inputs.per_unit_outputs.propagation_plots)
+	assert debug_overlay.debug_mode is True
+	assert debug_prop.debug_max_amps_at_each_channel is True
+
+
+def test_quiet_unexpected_plot_logs_suppresses_matplotlib_debug_unless_enabled() -> None:
+	logger = logging.getLogger("matplotlib.font_manager")
+	original_level = logger.level
+	try:
+		logger.setLevel(logging.DEBUG)
+		quiet_inputs = TemplatesInputs(
+			h5_path=Path("/tmp/dataset.h5"),
+			stream_id="well000",
+			mea_output_root=Path("/tmp/out"),
+		)
+		with _quiet_unexpected_plot_logs(quiet_inputs):
+			assert logger.getEffectiveLevel() >= logging.WARNING
+		assert logger.level == logging.DEBUG
+
+		debug_inputs = replace(
+			quiet_inputs,
+			phases=TemplatesPhasesConfig(plot_templates=TemplatePlotsPhaseConfig(debug_prints=True)),
+		)
+		with _quiet_unexpected_plot_logs(debug_inputs):
+			assert logger.getEffectiveLevel() == logging.DEBUG
+	finally:
+		logger.setLevel(original_level)
 
 
 def test_run_templates_plot_templates_phase_uses_batched_plot_runner(tmp_path: Path, monkeypatch) -> None:
@@ -3514,33 +3557,12 @@ def test_run_templates_plot_templates_phase_uses_batched_plot_runner(tmp_path: P
 	assert summary["failed_units"] == []
 
 
-def test_run_templates_plot_batches_logs_unified_progress(tmp_path: Path, monkeypatch, caplog) -> None:
-	class _FakeFuture:
-		def __init__(self, result: TemplatesResult) -> None:
-			self._result = result
+def test_run_templates_plot_batches_runs_units_sequentially(tmp_path: Path, monkeypatch, caplog) -> None:
+	captured_inputs: dict[str, Any] = {}
 
-		def result(self) -> TemplatesResult:
-			return self._result
-
-	class _FakeProcessPoolExecutor:
-		def __init__(self, max_workers: int, **_kwargs: Any) -> None:
-			self.max_workers = int(max_workers)
-
-		def __enter__(self):
-			return self
-
-		def __exit__(self, exc_type, exc, tb) -> bool:
-			return False
-
-		def submit(self, fn, batch_inputs: TemplatesInputs):
-			return _FakeFuture(fn(batch_inputs))
-
-	def _fake_as_completed(futures):
-		return list(futures.keys())
-
-	def _fake_run_templates_plot_batch(batch_inputs: TemplatesInputs) -> TemplatesResult:
-		assert batch_inputs.log_stage_unit_counts is False
-		assert batch_inputs.log_unit_progress is False
+	def _fake_run_templates_stage_monolithic(batch_inputs: TemplatesInputs) -> TemplatesResult:
+		captured_inputs["n_jobs"] = batch_inputs.n_jobs
+		captured_inputs["unit_ids"] = list(batch_inputs.unit_ids or [])
 		return TemplatesResult(
 			well_out_dir=tmp_path / "well",
 			templates_out_dir=tmp_path / "templates",
@@ -3556,16 +3578,8 @@ def test_run_templates_plot_batches_logs_unified_progress(tmp_path: Path, monkey
 		)
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.concurrent.futures.ProcessPoolExecutor",
-		_FakeProcessPoolExecutor,
-	)
-	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.concurrent.futures.as_completed",
-		_fake_as_completed,
-	)
-	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner._run_templates_plot_batch",
-		_fake_run_templates_plot_batch,
+		"axon_recon.pipeline.stages.templates.runner._run_templates_stage_monolithic",
+		_fake_run_templates_stage_monolithic,
 	)
 
 	inputs = TemplatesInputs(
@@ -3587,14 +3601,8 @@ def test_run_templates_plot_batches_logs_unified_progress(tmp_path: Path, monkey
 		)
 
 	messages = [rec.getMessage() for rec in caplog.records]
-	assert any(
-		"templates.plot_templates unified progress: 3/6 units completed (1/2 batches)" in msg
-		for msg in messages
-	)
-	assert any(
-		"templates.plot_templates unified progress: 6/6 units completed (2/2 batches)" in msg
-		for msg in messages
-	)
+	assert captured_inputs == {"n_jobs": 1, "unit_ids": [10, 11, 12, 13, 14, 15]}
+	assert any("templates.plot_templates execution plan:" in msg and "parallel=false" in msg for msg in messages)
 	assert [unit.unit_id for unit in result.units] == [10, 11, 12, 13, 14, 15]
 
 

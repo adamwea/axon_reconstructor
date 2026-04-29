@@ -267,6 +267,7 @@ class TemplateAnalysisPhaseConfig:
 class TemplatePlotsPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/plot_templates_summary.json"
+	debug_prints: bool = False
 	unit_workers: int | None = None
 	unit_procs: int | None = None
 	unit_batch_size: int | None = None

@@ -1219,6 +1219,7 @@ stages:
           max_pairs: 12
       plot_templates:
         enabled: true
+        debug_prints: false # when true, allow raw/unexpected plotting debug output from render helpers and third-party plot libraries.
         summary_json_relpath: context/plot_templates_summary.json
         resources:
           unit_procs: 4

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+from contextlib import contextmanager
 from dataclasses import replace
 import gc
 import logging
@@ -18,7 +19,6 @@ from axon_recon.pipeline.shared.grid_sorting import (
 	grid_sort_key_for_unit,
 	normalize_grid_sort_by,
 )
-from axon_recon.pipeline.execution import install_linux_parent_death_signal
 from axon_recon.pipeline.execution.phase_chain import PhaseDescriptor, run_phase_chain
 from axon_recon.pipeline.execution.progress import add_current_progress_total, advance_current_progress
 
@@ -87,6 +87,14 @@ from .models.results import TemplatesResult, UnitTemplatesResult
 
 
 LOGGER = logging.getLogger("axon_recon.templates")
+
+NOISY_PLOT_LOGGER_NAMES: tuple[str, ...] = (
+	"matplotlib",
+	"matplotlib.font_manager",
+	"PIL",
+	"PIL.PngImagePlugin",
+	"fontTools",
+)
 
 DEFAULT_INTERNAL_TEMPLATES_PHASE_SEQUENCE: tuple[str, ...] = (
 	"resolve_sources",
@@ -2568,21 +2576,6 @@ def run_templates_compute_template_similarity_phase(inputs: TemplatesInputs) -> 
 	return summary
 
 
-def _as_positive_int_or_none(value: Any) -> int | None:
-	try:
-		parsed = int(value)
-	except Exception:
-		return None
-	if parsed <= 0:
-		return None
-	return int(parsed)
-
-
-def _chunk_unit_ids(unit_ids: list[Any], *, batch_size: int) -> list[list[Any]]:
-	resolved_batch_size = max(1, int(batch_size))
-	return [list(unit_ids[idx : idx + resolved_batch_size]) for idx in range(0, len(unit_ids), resolved_batch_size)]
-
-
 def _resolve_plot_templates_execution_plan(
 	*,
 	inputs: TemplatesInputs,
@@ -2591,22 +2584,42 @@ def _resolve_plot_templates_execution_plan(
 	unit_count = len(unit_ids)
 	if unit_count <= 0:
 		return 1, 1, 1, []
-	derived_unit_workers = max(1, int(inputs.n_jobs))
-	phase_cfg = inputs.phases.plot_templates
-	plot_unit_workers = _as_positive_int_or_none(getattr(phase_cfg, "unit_workers", None))
-	if plot_unit_workers is None:
-		plot_unit_workers = min(derived_unit_workers, 6)
-	plot_unit_workers = max(1, min(int(plot_unit_workers), derived_unit_workers, unit_count))
-	plot_unit_procs = _as_positive_int_or_none(getattr(phase_cfg, "unit_procs", None))
-	if plot_unit_procs is None:
-		plot_unit_procs = plot_unit_workers
-	plot_unit_procs = max(1, min(int(plot_unit_procs), plot_unit_workers, unit_count))
-	plot_unit_batch_size = _as_positive_int_or_none(getattr(phase_cfg, "unit_batch_size", None))
-	if plot_unit_batch_size is None:
-		plot_unit_batch_size = max(1, (unit_count + plot_unit_procs - 1) // plot_unit_procs)
-	batches = _chunk_unit_ids(unit_ids, batch_size=plot_unit_batch_size)
-	process_workers = max(1, min(plot_unit_procs, len(batches)))
-	return plot_unit_workers, process_workers, int(plot_unit_batch_size), batches
+	return 1, 1, int(unit_count), [list(unit_ids)]
+
+
+def _debug_prints_enabled(inputs: TemplatesInputs) -> bool:
+	return bool(getattr(inputs.phases.plot_templates, "debug_prints", False))
+
+
+@contextmanager
+def _quiet_unexpected_plot_logs(inputs: TemplatesInputs):
+	if _debug_prints_enabled(inputs):
+		yield
+		return
+	original_levels: dict[str, int] = {}
+	for logger_name in NOISY_PLOT_LOGGER_NAMES:
+		logger = logging.getLogger(logger_name)
+		original_levels[logger_name] = int(logger.level)
+		if int(logger.getEffectiveLevel()) < int(logging.WARNING):
+			logger.setLevel(logging.WARNING)
+	try:
+		yield
+	finally:
+		for logger_name, level in original_levels.items():
+			logging.getLogger(logger_name).setLevel(level)
+
+
+def _plot_safe_template_wf_overlay_config(inputs: TemplatesInputs) -> Any:
+	config = inputs.per_unit_outputs.template_wf_overlay
+	if _debug_prints_enabled(inputs):
+		return config
+	return replace(config, debug_mode=False)
+
+
+def _plot_safe_propagation_config(inputs: TemplatesInputs, config: Any) -> Any:
+	if _debug_prints_enabled(inputs):
+		return config
+	return replace(config, debug_max_amps_at_each_channel=False)
 
 
 def _write_templates_stage_summary(
@@ -2734,18 +2747,6 @@ def _write_templates_stage_summary(
 	return summary_json
 
 
-def _run_templates_plot_batch(batch_inputs: TemplatesInputs) -> TemplatesResult:
-	return _run_templates_stage_monolithic(
-		replace(
-			batch_inputs,
-			n_jobs=1,
-			write_stage_summary=False,
-			log_stage_unit_counts=False,
-			log_unit_progress=False,
-		)
-	)
-
-
 def _run_templates_plot_batches(
 	*,
 	inputs: TemplatesInputs,
@@ -2757,9 +2758,8 @@ def _run_templates_plot_batches(
 		inputs=inputs,
 		unit_ids=unit_ids,
 	)
-	execution_inputs = replace(inputs, n_jobs=plot_unit_workers)
 	LOGGER.info(
-		"templates.plot_templates execution plan: requested_units=%d derived_unit_workers=%d plot_unit_workers=%d unit_procs=%d unit_batch_size=%d unit_batches=%d",
+		"templates.plot_templates execution plan: requested_units=%d derived_unit_workers=%d plot_unit_workers=%d unit_procs=%d unit_batch_size=%d unit_batches=%d parallel=false",
 		len(unit_ids),
 		int(max(1, int(inputs.n_jobs))),
 		int(plot_unit_workers),
@@ -2767,73 +2767,8 @@ def _run_templates_plot_batches(
 		int(unit_batch_size),
 		len(batches),
 	)
-	if len(batches) <= 1 or unit_procs <= 1:
-		return _run_templates_stage_monolithic(replace(execution_inputs, unit_ids=list(unit_ids), n_jobs=1))
-
-	batch_results: list[TemplatesResult] = []
-	batch_inputs_list = [
-		replace(
-			execution_inputs,
-			unit_ids=list(batch_unit_ids),
-			n_jobs=1,
-			write_stage_summary=False,
-			log_stage_unit_counts=False,
-			log_unit_progress=False,
-		)
-		for batch_unit_ids in batches
-	]
-	add_current_progress_total(len(unit_ids))
-	with concurrent.futures.ProcessPoolExecutor(
-		max_workers=unit_procs,
-		initializer=install_linux_parent_death_signal,
-	) as pool:
-		futures = {
-			pool.submit(_run_templates_plot_batch, batch_inputs): list(batch_inputs.unit_ids or [])
-			for batch_inputs in batch_inputs_list
-		}
-		completed = 0
-		completed_units = 0
-		total_batches = len(futures)
-		for fut in concurrent.futures.as_completed(futures):
-			batch_result = fut.result()
-			batch_results.append(batch_result)
-			completed += 1
-			completed_batch_units = len(batch_result.units)
-			completed_units += completed_batch_units
-			advance_current_progress(completed_batch_units)
-			LOGGER.info(
-				"templates.plot_templates unified progress: %d/%d units completed (%d/%d batches)",
-				completed_units,
-				len(unit_ids),
-				completed,
-				total_batches,
-			)
-
-	aggregated_unit_results: list[UnitTemplatesResult] = []
-	aggregated_report_outputs: dict[str, str] = {}
-	for batch_result in batch_results:
-		aggregated_unit_results.extend(batch_result.units)
-		aggregated_report_outputs.update(batch_result.report_outputs)
-	aggregated_unit_results.sort(key=lambda result: str(result.unit_id))
-	summary_json = _write_templates_stage_summary(
-		inputs=execution_inputs,
-		well_out_dir=well_out_dir,
-		templates_out_dir=templates_out_dir,
-		unit_results=aggregated_unit_results,
-		report_outputs=aggregated_report_outputs,
-		analyzer_cache_dir=None,
-		upsampling_decisions_by_unit={},
-		reports_replot_requested=False,
-		report_only_rerun=False,
-		preserve_stage_reports=False,
-	)
-	return TemplatesResult(
-		well_out_dir=well_out_dir,
-		templates_out_dir=templates_out_dir,
-		summary_json=summary_json,
-		units=aggregated_unit_results,
-		report_outputs=aggregated_report_outputs,
-	)
+	with _quiet_unexpected_plot_logs(inputs):
+		return _run_templates_stage_monolithic(replace(inputs, unit_ids=list(unit_ids), n_jobs=1))
 
 
 def run_templates_plot_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
@@ -3165,7 +3100,7 @@ def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 	def _ensure_templates_dirs() -> tuple[Path, Path]:
 		nonlocal merged_units_dir, full_channels_templates_dir, upsampling_decisions_by_unit
 		if merged_units_dir is None or full_channels_templates_dir is None:
-			overlay_debug_mode = bool(getattr(inputs.per_unit_outputs.template_wf_overlay, "debug_mode", False))
+			overlay_debug_mode = _debug_prints_enabled(inputs) and bool(getattr(inputs.per_unit_outputs.template_wf_overlay, "debug_mode", False))
 			prefer_spikeinterface = bool(full_restart)
 			if prefer_spikeinterface:
 				try:
@@ -3377,7 +3312,8 @@ def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 			merged_units_dir_resolved, full_channels_templates_dir_resolved = _ensure_templates_dirs()
 			merged_dir = merged_units_dir_resolved / f"unit_{unit_id}"
 			full_dir = full_channels_templates_dir_resolved / f"unit_{unit_id}"
-			overlay_debug_mode = bool(getattr(inputs.per_unit_outputs.template_wf_overlay, "debug_mode", False))
+			overlay_cfg = _plot_safe_template_wf_overlay_config(inputs)
+			overlay_debug_mode = _debug_prints_enabled(inputs) and bool(getattr(overlay_cfg, "debug_mode", False))
 			LOGGER.info("Templates unit load artifacts: unit_id=%s merged_dir=%s", unit_id, merged_dir)
 
 			merged_template, merged_locs = _load_merged_unit(merged_dir)
@@ -3452,6 +3388,7 @@ def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 						show_multiple_peak_markers=bool(plot_cfg.show_multiple_peak_markers),
 						delay_peak_marker_color=str(plot_cfg.delay_peak_marker_color),
 					)
+					qc_prop_config = _plot_safe_propagation_config(inputs, qc_prop_config)
 					qc_plot_outputs = render_propagation_plot(
 						template=merged_template,
 						locations_xy=merged_locs,
@@ -3666,7 +3603,7 @@ def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 					)
 				overlay_outputs = render_template_wf_overlay(
 					template=template_plot,
-					config=inputs.per_unit_outputs.template_wf_overlay,
+					config=overlay_cfg,
 					time_upsample=overlay_time_upsample,
 					pdf_path=paths["template_wf_overlay_pdf"],
 					png_path=paths["template_wf_overlay_png"],
@@ -3724,7 +3661,7 @@ def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 			unit_summary["outputs"].update(topo_lat_outputs)
 
 			if propagation_outputs_requested(inputs.per_unit_outputs.propagation_plots):
-				prop_cfg = inputs.per_unit_outputs.propagation_plots
+				prop_cfg = _plot_safe_propagation_config(inputs, inputs.per_unit_outputs.propagation_plots)
 				prop_order_payload = compute_propagation_channel_order(
 					template_c_by_t=np.asarray(prop_template),
 					config=prop_cfg,
