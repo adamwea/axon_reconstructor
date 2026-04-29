@@ -981,6 +981,7 @@ stages:
     resources:
       max_stage_workers: 18
       well_workers: 2
+      divide_stage_workers_by_wells: true
 
     phase_sequence:
       - resolve_sources

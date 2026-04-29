@@ -1755,10 +1755,27 @@ def _templates_analyzer_policy_log_fields(policy: Any) -> dict[str, Any]:
 	}
 
 
+def _templates_runtime_n_jobs(inputs: TemplatesInputs) -> int:
+	return max(1, int(getattr(inputs, "n_jobs", 1) or 1))
+
+
+def _resolve_analyzer_policy_runtime_n_jobs(inputs: TemplatesInputs, policy: Any) -> Any:
+	if policy is None:
+		return policy
+	if getattr(policy, "n_jobs", None) is not None:
+		return policy
+	try:
+		return replace(policy, n_jobs=_templates_runtime_n_jobs(inputs))
+	except Exception:
+		return policy
+
+
 def _templates_analyzer_policy_for_source(inputs: TemplatesInputs, source_name: str) -> Any:
 	if str(source_name) == "concat":
-		return inputs.phases.analyzers.concat.policy
-	return inputs.phases.analyzers.segments.policy
+		policy = inputs.phases.analyzers.concat.policy
+	else:
+		policy = inputs.phases.analyzers.segments.policy
+	return _resolve_analyzer_policy_runtime_n_jobs(inputs, policy)
 
 
 def _iter_templates_phase_analyzers(
@@ -1802,8 +1819,8 @@ def _iter_templates_phase_analyzers(
 		waveform_ms_before=inputs.waveform_extraction.ms_before,
 		waveform_ms_after=inputs.waveform_extraction.ms_after,
 		waveform_max_spikes_per_unit=inputs.waveform_extraction.max_spikes_per_unit,
-		concat_policy=inputs.phases.analyzers.concat.policy,
-		segments_policy=inputs.phases.analyzers.segments.policy,
+		concat_policy=_resolve_analyzer_policy_runtime_n_jobs(inputs, inputs.phases.analyzers.concat.policy),
+		segments_policy=_resolve_analyzer_policy_runtime_n_jobs(inputs, inputs.phases.analyzers.segments.policy),
 		concat_use_existing_analyzer=bool(inputs.phases.analyzers.concat.use_existing_analyzer),
 		concat_build_if_missing=bool(inputs.phases.analyzers.concat.build_if_missing),
 		segments_use_existing_analyzer=bool(inputs.phases.analyzers.segments.use_existing_analyzer),
@@ -1854,8 +1871,8 @@ def _load_templates_phase_analyzers(
 		waveform_ms_before=inputs.waveform_extraction.ms_before,
 		waveform_ms_after=inputs.waveform_extraction.ms_after,
 		waveform_max_spikes_per_unit=inputs.waveform_extraction.max_spikes_per_unit,
-		concat_policy=inputs.phases.analyzers.concat.policy,
-		segments_policy=inputs.phases.analyzers.segments.policy,
+		concat_policy=_resolve_analyzer_policy_runtime_n_jobs(inputs, inputs.phases.analyzers.concat.policy),
+		segments_policy=_resolve_analyzer_policy_runtime_n_jobs(inputs, inputs.phases.analyzers.segments.policy),
 		concat_use_existing_analyzer=bool(inputs.phases.analyzers.concat.use_existing_analyzer),
 		concat_build_if_missing=bool(inputs.phases.analyzers.concat.build_if_missing),
 		segments_use_existing_analyzer=bool(inputs.phases.analyzers.segments.use_existing_analyzer),
@@ -2127,14 +2144,14 @@ def run_templates_analyzers_phase(inputs: TemplatesInputs, *, source_scope: str 
 		(inputs.phases.analyzers.concat.analyzer_relpath or inputs.concat_analyzer_relpath),
 		(inputs.phases.analyzers.concat.sorting_relpath or inputs.concat_sorting_relpath),
 		(inputs.phases.analyzers.concat.preprocessed_recording_reldir or inputs.preprocessed_concat_reldir),
-		_format_templates_log_fields(_templates_analyzer_policy_log_fields(inputs.phases.analyzers.concat.policy)),
+		_format_templates_log_fields(_templates_analyzer_policy_log_fields(_resolve_analyzer_policy_runtime_n_jobs(inputs, inputs.phases.analyzers.concat.policy))),
 	)
 	LOGGER.info(
 		"templates.analyzers segments settings: use_existing=%s build_if_missing=%s preprocessed_sources_reldir=%s settings=%s",
 		bool(inputs.phases.analyzers.segments.use_existing_analyzer),
 		bool(inputs.phases.analyzers.segments.build_if_missing),
 		(inputs.phases.analyzers.segments.preprocessed_sources_reldir or inputs.preprocessed_segments_reldir or inputs.preproc_seg_sources_reldir),
-		_format_templates_log_fields(_templates_analyzer_policy_log_fields(inputs.phases.analyzers.segments.policy)),
+		_format_templates_log_fields(_templates_analyzer_policy_log_fields(_resolve_analyzer_policy_runtime_n_jobs(inputs, inputs.phases.analyzers.segments.policy))),
 	)
 	if bool(inputs.force_restart) and analyzer_cache_dir is not None and analyzer_cache_dir.exists():
 		LOGGER.info("templates.analyzers clearing analyzer cache on force_restart: %s", str(analyzer_cache_dir))
@@ -3216,8 +3233,8 @@ def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 					include_segments=bool(inputs.include_segments),
 					require_concat=bool(inputs.require_concat_analyzer),
 					require_segments=bool(inputs.require_segment_analyzers),
-					concat_policy=inputs.phases.analyzers.concat.policy,
-					segments_policy=inputs.phases.analyzers.segments.policy,
+					concat_policy=_resolve_analyzer_policy_runtime_n_jobs(inputs, inputs.phases.analyzers.concat.policy),
+					segments_policy=_resolve_analyzer_policy_runtime_n_jobs(inputs, inputs.phases.analyzers.segments.policy),
 					waveform_ms_before=inputs.waveform_extraction.ms_before,
 					waveform_ms_after=inputs.waveform_extraction.ms_after,
 					waveform_max_spikes_per_unit=inputs.waveform_extraction.max_spikes_per_unit,
