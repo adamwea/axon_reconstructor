@@ -8,6 +8,21 @@ from typing import Any
 from .artifacts import build_stitch_frames_from_segment_manifest, load_segment_manifest, load_segment_recording_from_entry, write_json
 
 
+def _slice_to_common_electrodes(*, recording: Any, common_electrodes: list[int], rec_name: str) -> Any:
+	import numpy as np
+
+	if not common_electrodes:
+		return recording
+	selected = recording.select_channels([int(value) for value in common_electrodes])
+	selected_ch = np.asarray(selected.get_channel_ids(), dtype=int)
+	expected = np.asarray(common_electrodes, dtype=int)
+	if selected_ch.shape != expected.shape or not np.array_equal(selected_ch, expected):
+		raise RuntimeError(
+			f"Selected common-electrode channel ids mismatch for segment {rec_name}; refusing to continue with misaligned channels"
+		)
+	return selected
+
+
 def run_concat_segments_core(
 	*,
 	stream_id: str,
@@ -21,6 +36,7 @@ def run_concat_segments_core(
 	progress_bar: bool,
 	logger: logging.Logger | None,
 	run_save_concatenated_recording_core: Any,
+	common_electrodes: list[int] | None = None,
 ) -> dict[str, object]:
 	import spikeinterface.full as si  # type: ignore[import-not-found]
 
@@ -30,15 +46,28 @@ def run_concat_segments_core(
 		raise RuntimeError(f"No preprocessed segments available to concatenate: {segment_manifest_path}")
 	if logger is not None:
 		logger.info(
-			"Starting concat_segments for well=%s segment_count=%d manifest=%s",
+			"Starting concat_segments for well=%s segment_count=%d manifest=%s common_electrodes=%d",
 			str(stream_id),
 			int(len(segment_entries)),
 			segment_manifest_path,
+			int(0 if common_electrodes is None else len(common_electrodes)),
 		)
+	common_electrode_list = list(common_electrodes) if common_electrodes else []
 	segment_recordings: list[Any] = []
 	for segment_index, item in enumerate(segment_entries, start=1):
 		rec_name = str(item.get("rec_name", f"segment_{segment_index - 1:03d}")).strip() or f"segment_{segment_index - 1:03d}"
-		segment_recordings.append(load_segment_recording_from_entry(dict(item)))
+		loaded = load_segment_recording_from_entry(dict(item))
+		# Each persisted segment is saved with its full native channel set so
+		# downstream segment-template extraction can use every channel. For
+		# concat, all segments must share the same channel set, so slice down
+		# to the precomputed common-electrode subset here.
+		if common_electrode_list:
+			loaded = _slice_to_common_electrodes(
+				recording=loaded,
+				common_electrodes=common_electrode_list,
+				rec_name=rec_name,
+			)
+		segment_recordings.append(loaded)
 		if logger is not None:
 			logger.info(
 				"concat_segments progress well=%s loaded=%d/%d rec_name=%s",

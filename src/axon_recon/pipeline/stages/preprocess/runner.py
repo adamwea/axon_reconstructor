@@ -2860,6 +2860,7 @@ def _run_preprocess_phase_sequence(
 					progress_bar=bool(inputs.phases.concat_segments.outputs.save_progress_bar),
 					logger=phase_logger,
 					run_save_concatenated_recording_core=run_save_concatenated_recording_core,
+					common_electrodes=_load_common_electrodes_or_empty(recording_metadata_paths.common_electrodes_path),
 				)
 			elif phase_name == "plot_concat_traces":
 				payload = run_plot_concat_traces_core(

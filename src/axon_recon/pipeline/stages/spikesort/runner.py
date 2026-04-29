@@ -3287,6 +3287,7 @@ def run_spikesort_bootstrap_concat_binary_stage(
 			outputs={"summary_json": str(summary_json)},
 		)
 
+	from axon_recon.pipeline.stages.preprocess.core.artifacts import load_common_electrodes
 	from axon_recon.pipeline.stages.preprocess.core.concat_segments import run_concat_segments_core
 	from axon_recon.pipeline.stages.preprocess.core.save_concatenated_recording import (
 		run_save_concatenated_recording_core,
@@ -3314,6 +3315,24 @@ def run_spikesort_bootstrap_concat_binary_stage(
 		force_restart=bool(force_restart),
 		overwrite_saved_recording=bool(overwrite_saved_recording),
 	)
+	common_electrodes_path = _resolve_under_well(
+		well_out_dir=well_out_dir,
+		relpath=str(
+			getattr(
+				stage_config,
+				"bootstrap_concat_binary_source_common_electrodes_relpath",
+				"preprocess_outputs/common_electrodes.npy",
+			)
+		),
+	)
+	common_electrodes_for_concat: list[int] = []
+	try:
+		common_electrodes_for_concat = load_common_electrodes(common_electrodes_path)
+	except FileNotFoundError:
+		LOGGER.info(
+			"Spikesort bootstrap_concat_binary: common-electrode artifact not found at %s; concat will use each segment's full channel set",
+			str(common_electrodes_path),
+		)
 	payload = run_concat_segments_core(
 		stream_id=str(stream_id),
 		segment_manifest_path=paths["segment_manifest_path"],
@@ -3326,6 +3345,7 @@ def run_spikesort_bootstrap_concat_binary_stage(
 		progress_bar=bool(getattr(stage_config, "bootstrap_concat_binary_progress_bar", True)),
 		logger=LOGGER,
 		run_save_concatenated_recording_core=run_save_concatenated_recording_core,
+		common_electrodes=common_electrodes_for_concat,
 	)
 	binary_candidates = [
 		path

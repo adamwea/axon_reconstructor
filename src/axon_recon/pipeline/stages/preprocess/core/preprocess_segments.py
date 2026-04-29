@@ -300,11 +300,11 @@ def run_preprocess_segments_core(
 			center_chunk_size=10_000,
 			suppress_h5_plugin_messages=bool(suppress_h5_plugin_messages),
 		)
-		segment_recording = _select_common_electrode_channels(
-			recording=segment_recording,
-			common_electrodes=common_electrodes,
-			rec_name=str(rec_name),
-		)
+		# Preprocess each segment on its full native channel set. The
+		# common-electrode subset is applied at concat time, so persisted
+		# per-segment recordings retain every channel that was recorded —
+		# downstream segment-template extraction can then use the full set
+		# while concat continues to operate on the shared subset.
 		preprocessed = apply_standard_preprocessing(recording=segment_recording, logger=logger)
 		stats_payload = {
 			"rec_name": str(rec_name),

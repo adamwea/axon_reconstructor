@@ -118,10 +118,10 @@ stages:
       # Optional debug overrides for preprocess execution and outputs.
       #limit_wells: null # int or null for no limit
       #limit_segments_per_well: 2 # int or null for no limit
-      enabled: false
+      enabled: true
       limit_segments_per_well: null
-      #limit_datasets: 2
-      #limit_wells: 2
+      limit_datasets: 1
+      limit_wells: 1
       #limit_wells: null
       #limit_wells_per_dataset: 2
     observability:
@@ -986,12 +986,12 @@ stages:
     phase_sequence:
       - resolve_sources
       - analyzers
-      - extract_template_segments
+      #- extract_template_segments
       - build_templates
       #- compute_template_similarity
       - plot_templates
       - report_templates
-      - reports
+      #- reports
 
     debug_mode:
       enabled: true
@@ -1108,8 +1108,10 @@ stages:
             #dtype: float32
           template_extraction:
             #max_spikes_per_unit: -1
+            max_spikes_per_unit: 50
             #random_spikes_method: all
-            random_spikes_percentage: 75
+            #random_spikes_percentage: 75
+            #random_spikes_percentage: 1
             #min_spikes_per_unit: 250
             #margin_size: 0
             random_seed: 0
