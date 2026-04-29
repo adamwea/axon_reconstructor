@@ -22,7 +22,7 @@ from ..io import (
 )
 
 from ..models.inputs import TemplatesInputs
-from .merge import materialize_unit_templates_from_sources_with_meta
+from .merge import materialize_unit_templates_from_sources_with_meta, normalize_overlap_priorities
 from .unit_labels import count_labels, filter_unit_ids_by_labels, load_unit_labels_from_spikesorting
 
 
@@ -185,6 +185,191 @@ def _as_positive_float_or_none(value: Any) -> float | None:
 	return float(parsed)
 
 
+def _jsonish_channel_identity(value: Any) -> str | None:
+	if value is None:
+		return None
+	if isinstance(value, np.generic):
+		value = value.item()
+	try:
+		if isinstance(value, float) and not np.isfinite(value):
+			return None
+	except Exception:
+		pass
+	text = str(value).strip()
+	if not text or text.lower() in {"none", "nan"}:
+		return None
+	return text
+
+
+def _channel_location_key(location_xy: Any, *, location_tolerance_um: float) -> str | None:
+	try:
+		loc = np.asarray(location_xy, dtype=float).reshape(-1)
+	except Exception:
+		return None
+	if int(loc.size) < 2:
+		return None
+	if (not np.isfinite(loc[0])) or (not np.isfinite(loc[1])):
+		return None
+	tolerance = max(1e-6, float(location_tolerance_um))
+	qx = int(np.rint(float(loc[0]) / tolerance))
+	qy = int(np.rint(float(loc[1]) / tolerance))
+	return f"loc:{qx}:{qy}"
+
+
+def _source_payload_channel_candidate_keys(
+	*,
+	electrode_id: Any,
+	channel_id: Any,
+	location_xy: Any,
+	overlap_match_priority: tuple[str, ...],
+	location_tolerance_um: float,
+) -> list[str]:
+	eid = _jsonish_channel_identity(electrode_id)
+	cid = _jsonish_channel_identity(channel_id)
+	loc_key = _channel_location_key(location_xy, location_tolerance_um=location_tolerance_um)
+	keys: list[str] = []
+	for priority in normalize_overlap_priorities(overlap_match_priority):
+		if priority == "electrode_id" and eid is not None:
+			keys.append(f"eid:{eid}")
+		elif priority == "channel_id" and cid is not None:
+			keys.append(f"cid:{cid}")
+		elif priority == "location" and loc_key is not None:
+			keys.append(str(loc_key))
+	return keys
+
+
+def _payload_item(values: Any, index: int) -> Any:
+	if values is None:
+		return None
+	try:
+		if int(index) < len(values):
+			return values[int(index)]
+	except Exception:
+		return None
+	return None
+
+
+def _source_payload_channel_scope_summary(
+	*,
+	unit_id: Any,
+	source_payloads: list[tuple[str, tuple[Any, ...]]],
+	overlap_match_priority: tuple[str, ...],
+	location_tolerance_um: float,
+) -> dict[str, Any]:
+	source_channel_counts: dict[str, int] = {}
+	total_source_channels = 0
+	unique_channel_keys: set[str] = set()
+	for source_index, (source_name_raw, payload) in enumerate(source_payloads):
+		source_name = str(source_name_raw)
+		source_key = source_name if source_name not in source_channel_counts else f"{source_name}#{source_index}"
+		try:
+			template = np.asarray(payload[0], dtype=float)
+		except Exception:
+			template = np.empty((0, 0), dtype=float)
+		channel_count = int(template.shape[0]) if template.ndim >= 1 else 0
+		source_channel_counts[source_key] = int(channel_count)
+		total_source_channels += int(channel_count)
+		try:
+			locations = np.asarray(payload[1], dtype=float)
+		except Exception:
+			locations = np.empty((0, 2), dtype=float)
+		electrode_ids = payload[2] if len(payload) >= 3 else None
+		channel_ids = payload[3] if len(payload) >= 4 else None
+		for channel_index in range(channel_count):
+			location_xy = (
+				locations[channel_index, :2]
+				if locations.ndim == 2 and int(locations.shape[0]) > channel_index and int(locations.shape[1]) >= 2
+				else None
+			)
+			candidate_keys = _source_payload_channel_candidate_keys(
+				electrode_id=_payload_item(electrode_ids, channel_index),
+				channel_id=_payload_item(channel_ids, channel_index),
+				location_xy=location_xy,
+				overlap_match_priority=overlap_match_priority,
+				location_tolerance_um=location_tolerance_um,
+			)
+			canonical_key = candidate_keys[0] if candidate_keys else f"source:{source_name}:channel_index:{int(channel_index)}"
+			for candidate_key in candidate_keys:
+				if candidate_key in unique_channel_keys:
+					canonical_key = candidate_key
+					break
+			unique_channel_keys.add(str(canonical_key))
+	max_source_channels = max(source_channel_counts.values(), default=0)
+	return {
+		"unit_id": unit_id,
+		"source_count": int(len(source_payloads)),
+		"source_channel_counts": source_channel_counts,
+		"total_source_channel_count": int(total_source_channels),
+		"max_source_channel_count": int(max_source_channels),
+		"total_unique_channel_count": int(len(unique_channel_keys)),
+	}
+
+
+def _log_source_channel_scope_if_requested(*, inputs: TemplatesInputs, scope_summary: dict[str, Any]) -> None:
+	if not bool(inputs.phases.analyzers.emit_total_unique_channel_count_per_unit_log):
+		return
+	unique_channels = int(scope_summary.get("total_unique_channel_count", 0))
+	level = logging.WARNING if unique_channels <= 0 else logging.INFO
+	LOGGER.log(
+		level,
+		"templates.build_templates source channel scope: unit_id=%s source_count=%d total_source_channels=%d total_unique_channels=%d max_source_channels=%d per_source=%s",
+		scope_summary.get("unit_id"),
+		int(scope_summary.get("source_count", 0)),
+		int(scope_summary.get("total_source_channel_count", 0)),
+		unique_channels,
+		int(scope_summary.get("max_source_channel_count", 0)),
+		dict(scope_summary.get("source_channel_counts", {})),
+	)
+
+
+def _merged_channel_scope_summary(
+	*,
+	source_scope_summary: dict[str, Any],
+	merged_template: np.ndarray,
+	full_template: np.ndarray,
+) -> dict[str, Any]:
+	summary = dict(source_scope_summary)
+	merged_channel_count = int(np.asarray(merged_template).shape[0])
+	full_channel_count = int(np.asarray(full_template).shape[0])
+	unique_channel_count = int(summary.get("total_unique_channel_count", 0))
+	max_source_channels = int(summary.get("max_source_channel_count", 0))
+	source_count = int(summary.get("source_count", 0))
+	warning_reasons: list[str] = []
+	if merged_channel_count <= 0:
+		warning_reasons.append("merged_template_has_no_channels")
+	if unique_channel_count > 0 and merged_channel_count != unique_channel_count:
+		warning_reasons.append("merged_channel_count_differs_from_unique_source_channel_count")
+	if source_count > 1 and unique_channel_count > max_source_channels and merged_channel_count <= max_source_channels:
+		warning_reasons.append("merged_template_did_not_expand_beyond_largest_source")
+	summary.update(
+		{
+			"merged_channel_count": int(merged_channel_count),
+			"full_channel_count": int(full_channel_count),
+			"warning_reasons": warning_reasons,
+			"ok": not warning_reasons,
+		}
+	)
+	return summary
+
+
+def _log_merged_channel_scope_if_requested(*, inputs: TemplatesInputs, scope_summary: dict[str, Any]) -> None:
+	if not bool(inputs.phases.build_templates.emit_channel_count_per_unit_after_merge_log):
+		return
+	warning_reasons = list(scope_summary.get("warning_reasons", []))
+	level = logging.WARNING if warning_reasons else logging.INFO
+	LOGGER.log(
+		level,
+		"templates.build_templates merged channel scope: unit_id=%s source_unique_channels=%d merged_channels=%d full_channels=%d max_source_channels=%d reasons=%s per_source=%s",
+		scope_summary.get("unit_id"),
+		int(scope_summary.get("total_unique_channel_count", 0)),
+		int(scope_summary.get("merged_channel_count", 0)),
+		int(scope_summary.get("full_channel_count", 0)),
+		int(scope_summary.get("max_source_channel_count", 0)),
+		warning_reasons,
+		dict(scope_summary.get("source_channel_counts", {})),
+	)
+
+
 def _compute_unit_location_from_template(
 	*,
 	unit_id: Any,
@@ -282,6 +467,7 @@ def _write_per_unit_data_outputs(
 	full_template: np.ndarray,
 	full_locs: np.ndarray,
 	decision: dict[str, Any] | None,
+	channel_scope_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
 	paths = resolve_unit_output_paths(
 		templates_out_dir=templates_out_dir,
@@ -367,6 +553,8 @@ def _write_per_unit_data_outputs(
 		),
 		"selected_template_source": "merged_contributing",
 	}
+	if channel_scope_summary is not None:
+		unit_summary["channel_scope"] = dict(channel_scope_summary)
 	write_json(paths["unit_summary_json"], unit_summary)
 	outputs["unit_summary_json"] = str(paths["unit_summary_json"])
 	return unit_summary
@@ -399,6 +587,7 @@ def build_templates_phase_from_unit_payloads(
 	merge_cfg = inputs.phases.build_templates.merge
 	upsampling_cfg = inputs.phases.build_templates.execution_upsampling
 	upsampling_decisions_by_unit: dict[Any, dict[str, Any]] = {}
+	channel_scope_by_unit: dict[str, dict[str, Any]] = {}
 	built_units: list[Any] = []
 	skipped_units: list[Any] = []
 
@@ -412,6 +601,13 @@ def build_templates_phase_from_unit_payloads(
 			skipped_units.append(unit_id)
 			LOGGER.info("build_templates unit skipped: unit_id=%s reason=no_source_payloads", unit_id)
 			continue
+		source_scope_summary = _source_payload_channel_scope_summary(
+			unit_id=unit_id,
+			source_payloads=source_payloads,
+			overlap_match_priority=tuple(merge_cfg.overlap_match_priority),
+			location_tolerance_um=float(merge_cfg.location_tolerance_um),
+		)
+		_log_source_channel_scope_if_requested(inputs=inputs, scope_summary=source_scope_summary)
 
 		materialized, decision = materialize_unit_templates_from_sources_with_meta(
 			source_payloads=source_payloads,
@@ -432,6 +628,13 @@ def build_templates_phase_from_unit_payloads(
 			continue
 
 		merged_template, merged_locs, full_template, full_locs, merged_electrode_ids = materialized
+		channel_scope_summary = _merged_channel_scope_summary(
+			source_scope_summary=source_scope_summary,
+			merged_template=merged_template,
+			full_template=full_template,
+		)
+		_log_merged_channel_scope_if_requested(inputs=inputs, scope_summary=channel_scope_summary)
+		channel_scope_by_unit[str(unit_id)] = dict(channel_scope_summary)
 		write_materialized_unit_templates(
 			merged_units_dir=merged_units_dir,
 			full_channels_templates_dir=full_channels_templates_dir,
@@ -464,6 +667,7 @@ def build_templates_phase_from_unit_payloads(
 			full_template=full_template,
 			full_locs=full_locs,
 			decision=decision,
+			channel_scope_summary=channel_scope_summary,
 		)
 		built_units.append(unit_id)
 		LOGGER.info("build_templates unit done: unit_id=%s sources=%d", unit_id, len(source_payloads))
@@ -490,6 +694,7 @@ def build_templates_phase_from_unit_payloads(
 		"skipped_units": [unit for unit in skipped_units],
 		"unit_count": int(len(built_units)),
 		"upsampling_decisions_by_unit": {str(k): v for k, v in upsampling_decisions_by_unit.items()},
+		"channel_scope_by_unit": channel_scope_by_unit,
 	}
 
 

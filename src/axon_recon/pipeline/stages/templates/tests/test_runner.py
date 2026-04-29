@@ -35,12 +35,14 @@ from axon_recon.pipeline.stages.templates.models.inputs import (
 	QualityChecksConfig,
 	ReportsConfig,
 	TemplateArtifactConfig,
+	TemplateBuildTemplatesPhaseConfig,
 	TemplateCirclesPlotConfig,
 	TemplateComputeSimilarityPhaseConfig,
 	TemplatePlotsPhaseConfig,
 	TemplatePerUnitProcessingPhaseConfig,
 	TemplateSimilarityCandidateSelectionConfig,
 	TemplateSimilarityMethodOptionsConfig,
+	TemplatesAnalyzersPhaseConfig,
 	TemplateWaveformOverlayConfig,
 	TemplatePlotConfig,
 	TimeUpsampleConfig,
@@ -273,7 +275,7 @@ def test_run_templates_analyzers_phase_logs_settings_and_writes_run_stats(tmp_pa
 	assert any("templates.analyzers run stats:" in msg for msg in messages)
 
 
-def test_run_templates_build_templates_phase_materializes_templates_from_payloads(tmp_path: Path, monkeypatch) -> None:
+def test_run_templates_build_templates_phase_materializes_templates_from_payloads(tmp_path: Path, monkeypatch, caplog) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -322,6 +324,10 @@ def test_run_templates_build_templates_phase_materializes_templates_from_payload
 		stream_id="well000",
 		mea_output_root=output_root,
 		output_rel_root="templates_outputs",
+		phases=TemplatesPhasesConfig(
+			analyzers=TemplatesAnalyzersPhaseConfig(emit_total_unique_channel_count_per_unit_log=True),
+			build_templates=TemplateBuildTemplatesPhaseConfig(emit_channel_count_per_unit_after_merge_log=True),
+		),
 		per_unit_outputs=PerUnitTemplatesOutputsConfig(
 			unit_reldir="units/{unit_id:04d}/",
 			merged_template=TemplateArtifactConfig(
@@ -350,12 +356,22 @@ def test_run_templates_build_templates_phase_materializes_templates_from_payload
 		n_jobs=1,
 	)
 
-	summary = run_templates_build_templates_phase(inputs)
+	with caplog.at_level(logging.INFO, logger="axon_recon.templates"):
+		summary = run_templates_build_templates_phase(inputs)
 
 	assert summary["phase"] == "build_templates"
 	assert summary["built_units"] == [94]
 	assert summary["skipped_units"] == []
 	assert summary["unit_count"] == 1
+	assert summary["channel_scope_by_unit"]["94"]["total_source_channel_count"] == 4
+	assert summary["channel_scope_by_unit"]["94"]["total_unique_channel_count"] == 3
+	assert summary["channel_scope_by_unit"]["94"]["merged_channel_count"] == 3
+	assert summary["channel_scope_by_unit"]["94"]["ok"] is True
+	messages = [record.getMessage() for record in caplog.records]
+	assert any("templates.build_templates source channel scope: unit_id=94" in message for message in messages)
+	assert any("total_unique_channels=3" in message for message in messages)
+	assert any("templates.build_templates merged channel scope: unit_id=94" in message for message in messages)
+	assert any("merged_channels=3" in message for message in messages)
 
 	unit_dir = well_out_dir / "templates_outputs" / "units" / "0094"
 	assert (unit_dir / "merged_template.npy").exists()
@@ -372,6 +388,8 @@ def test_run_templates_build_templates_phase_materializes_templates_from_payload
 	assert unit_summary["status"] == "ok"
 	assert unit_summary["outputs"]["merged_template_npy"].endswith("merged_template.npy")
 	assert "grid_sort_metrics" in unit_summary
+	assert unit_summary["channel_scope"]["total_unique_channel_count"] == 3
+	assert unit_summary["channel_scope"]["merged_channel_count"] == 3
 
 	merged_unit_dir = well_out_dir / "templates_outputs" / "templates" / "merged" / "unit_94"
 	full_unit_dir = well_out_dir / "templates_outputs" / "templates" / "full" / "unit_94"
@@ -379,6 +397,89 @@ def test_run_templates_build_templates_phase_materializes_templates_from_payload
 	merged_electrode_ids = json.loads((merged_unit_dir / "merged_contributing_electrode_ids.json").read_text(encoding="utf-8"))
 	assert merged_electrode_ids["electrode_ids"] == ["10", "11", "12"]
 	assert (full_unit_dir / "full_template.npy").exists()
+
+
+def test_run_templates_build_templates_phase_warns_when_merged_scope_shrinks(tmp_path: Path, monkeypatch, caplog) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	templates_out_dir = well_out_dir / "templates_outputs"
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.core.build_templates.read_maxwell_sampling_frequency_hz",
+		lambda *, h5_path, stream_id: 10_000.0,
+	)
+
+	write_materialized_source_payload(
+		templates_out_dir=templates_out_dir,
+		output_rel_root="templates/source_payloads",
+		source_name="concat",
+		unit_id=94,
+		template_c_by_t=np.asarray([[0.0, -2.0, 0.0]], dtype=float),
+		locations_xy=np.asarray([[0.0, 0.0]], dtype=float),
+		electrode_ids=[10],
+		channel_ids=[100],
+		waveform_count=4,
+		sampling_rate_hz=10_000.0,
+		overlay_waveforms=None,
+		top_electrode_id=10,
+		total_waveforms_at_channel=4,
+	)
+	write_materialized_source_payload(
+		templates_out_dir=templates_out_dir,
+		output_rel_root="templates/source_payloads",
+		source_name="000_recA",
+		unit_id=94,
+		template_c_by_t=np.asarray([[0.0, -3.0, 0.0]], dtype=float),
+		locations_xy=np.asarray([[20.0, 0.0]], dtype=float),
+		electrode_ids=[11],
+		channel_ids=[101],
+		waveform_count=6,
+		sampling_rate_hz=10_000.0,
+		overlay_waveforms=None,
+		top_electrode_id=11,
+		total_waveforms_at_channel=6,
+	)
+
+	def _fake_materialize_unit_templates_from_sources_with_meta(**kwargs):
+		_ = kwargs
+		merged_template = np.asarray([[0.0, -2.0, 0.0]], dtype=float)
+		merged_locs = np.asarray([[0.0, 0.0]], dtype=float)
+		return (merged_template, merged_locs, merged_template, merged_locs, [10]), {"applied": False}
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.templates.core.build_templates.materialize_unit_templates_from_sources_with_meta",
+		_fake_materialize_unit_templates_from_sources_with_meta,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		phases=TemplatesPhasesConfig(
+			analyzers=TemplatesAnalyzersPhaseConfig(emit_total_unique_channel_count_per_unit_log=True),
+			build_templates=TemplateBuildTemplatesPhaseConfig(emit_channel_count_per_unit_after_merge_log=True),
+		),
+		unit_ids=[94],
+		unit_label_filter_required=False,
+		n_jobs=1,
+	)
+
+	with caplog.at_level(logging.WARNING, logger="axon_recon.templates"):
+		summary = run_templates_build_templates_phase(inputs)
+
+	channel_scope = summary["channel_scope_by_unit"]["94"]
+	assert channel_scope["total_unique_channel_count"] == 2
+	assert channel_scope["merged_channel_count"] == 1
+	assert channel_scope["ok"] is False
+	assert "merged_channel_count_differs_from_unique_source_channel_count" in channel_scope["warning_reasons"]
+	assert "merged_template_did_not_expand_beyond_largest_source" in channel_scope["warning_reasons"]
+	warning_messages = [record.getMessage() for record in caplog.records]
+	assert any("templates.build_templates merged channel scope: unit_id=94" in message for message in warning_messages)
+	assert any("merged_channels=1" in message for message in warning_messages)
 
 
 def test_run_templates_build_templates_phase_omits_disabled_full_outputs(tmp_path: Path, monkeypatch) -> None:

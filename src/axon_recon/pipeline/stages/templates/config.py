@@ -3672,6 +3672,10 @@ def parse_templates_stage_config(
 	analyzers_phase = TemplatesAnalyzersPhaseConfig(
 		enabled=_as_bool(analyzers_phase_cfg_raw.get("enabled", True), True),
 		summary_json_relpath=str(analyzers_phase_cfg_raw.get("summary_json_relpath", "context/analyzers_summary.json")),
+		emit_total_unique_channel_count_per_unit_log=_as_bool(
+			analyzers_phase_cfg_raw.get("emit_total_unique_channel_count_per_unit_log", False),
+			False,
+		),
 		concat=concat_phase_cfg,
 		segments=segments_phase_cfg,
 	)
@@ -3706,6 +3710,13 @@ def parse_templates_stage_config(
 	build_templates_phase = TemplateBuildTemplatesPhaseConfig(
 		enabled=_as_bool(phase_build_cfg.get("enabled", True), True),
 		summary_json_relpath=str(phase_build_cfg.get("summary_json_relpath", "context/build_templates_summary.json")),
+		emit_channel_count_per_unit_after_merge_log=_as_bool(
+			phase_build_cfg.get(
+				"emit_channel_count_per_unit_after_merge_log",
+				phase_build_cfg.get("emit_channel_count_after_merge_log", False),
+			),
+			False,
+		),
 		merge=merge,
 		execution_upsampling=execution_upsampling,
 	)

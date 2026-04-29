@@ -220,6 +220,7 @@ class AnalyzerSourcePhaseConfig:
 class TemplatesAnalyzersPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/analyzers_summary.json"
+	emit_total_unique_channel_count_per_unit_log: bool = False
 	concat: AnalyzerSourcePhaseConfig = field(default_factory=AnalyzerSourcePhaseConfig)
 	segments: AnalyzerSourcePhaseConfig = field(default_factory=AnalyzerSourcePhaseConfig)
 
@@ -235,6 +236,7 @@ class TemplateExtractTemplateSegmentsPhaseConfig:
 class TemplateBuildTemplatesPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/build_templates_summary.json"
+	emit_channel_count_per_unit_after_merge_log: bool = False
 	merge: "MergeConfig" = field(default_factory=lambda: MergeConfig())
 	execution_upsampling: TimeUpsampleConfig = field(default_factory=TimeUpsampleConfig)
 

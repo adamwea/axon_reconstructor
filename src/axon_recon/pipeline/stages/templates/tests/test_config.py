@@ -2747,6 +2747,7 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 			    phases:
 			      analyzers:
 			        summary_json_relpath: context/custom_analyzers_summary.json
+			        emit_total_unique_channel_count_per_unit_log: true
 			        defaults:
 			          policy:
 			            sparsity_mode: dense
@@ -2767,6 +2768,7 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 			          summary_json_relpath: context/custom_extract_summary.json
 			        build_templates:
 			          summary_json_relpath: context/custom_build_summary.json
+			          emit_channel_count_per_unit_after_merge_log: true
 			          execution_upsampling:
 			            enabled: true
 			            factor: 3
@@ -2793,6 +2795,7 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 	assert inputs.require_segment_analyzers is False
 
 	assert inputs.phases.analyzers.summary_json_relpath == "context/custom_analyzers_summary.json"
+	assert inputs.phases.analyzers.emit_total_unique_channel_count_per_unit_log is True
 	assert inputs.phases.analyzers.concat.analyzer_relpath == "/custom/concat_analyzer"
 	assert inputs.phases.analyzers.concat.policy.sparsity_mode == "dense"
 	assert inputs.phases.analyzers.concat.policy.random_spikes_method == "all"
@@ -2805,9 +2808,11 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 	assert inputs.phases.per_unit_processing.extract_template_segments.output_rel_root == "templates/custom_source_payloads"
 	assert inputs.phases.per_unit_processing.extract_template_segments.summary_json_relpath == "context/custom_extract_summary.json"
 	assert inputs.phases.build_templates.summary_json_relpath == "context/custom_build_summary.json"
+	assert inputs.phases.build_templates.emit_channel_count_per_unit_after_merge_log is True
 	assert inputs.phases.build_templates.execution_upsampling.enabled is True
 	assert inputs.phases.build_templates.execution_upsampling.factor == 3
 	assert inputs.phases.per_unit_processing.build_templates.summary_json_relpath == "context/custom_build_summary.json"
+	assert inputs.phases.per_unit_processing.build_templates.emit_channel_count_per_unit_after_merge_log is True
 	assert inputs.phases.per_unit_processing.build_templates.execution_upsampling.enabled is True
 	assert inputs.phases.per_unit_processing.build_templates.execution_upsampling.factor == 3
 	assert inputs.execution_upsampling.factor == 3
