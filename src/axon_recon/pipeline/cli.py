@@ -5,10 +5,9 @@ import logging
 from pathlib import Path
 from typing import Any, Callable
 
-from axon_reconstructor.runtime_config import RuntimeConfig
-
 from .execution import install_process_lifecycle
 from .execution.logging_context import ensure_pipeline_target_in_format, install_pipeline_log_record_factory
+from .logging import configure_pipeline_logging, finalize_pipeline_logging, log_context
 from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
 from .stages.analysis.cli import _run_from_args as _run_analysis_from_args
 from .stages.preprocess.cli import _run_concat_segments_from_args as _run_preprocess_concat_segments_from_args
@@ -317,14 +316,15 @@ def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 		if handler is None:
 			raise SystemExit(f"No handler registered for stage '{stage_name}'")
 
-		logger.info("stages: starting %s", stage_name)
-		nested_args = argparse.Namespace(**vars(args))
-		nested_args.stage = stage_name
-		rc = int(handler(nested_args))
-		if rc != 0:
-			logger.error("stages: stage %s failed with code %d", stage_name, rc)
-			return rc
-		logger.info("stages: completed %s", stage_name)
+		with log_context(stage=stage_name):
+			logger.info("stages: starting %s", stage_name, extra={"event": "stage_started"})
+			nested_args = argparse.Namespace(**vars(args))
+			nested_args.stage = stage_name
+			rc = int(handler(nested_args))
+			if rc != 0:
+				logger.error("stages: stage %s failed with code %d", stage_name, rc, extra={"event": "stage_failed"})
+				return rc
+			logger.info("stages: completed %s", stage_name, extra={"event": "stage_completed"})
 
 	return 0
 
@@ -348,51 +348,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _configure_runtime_logging_from_args(args: argparse.Namespace) -> None:
-	default_level = logging.INFO
-	install_pipeline_log_record_factory()
-	default_format = "[%(levelname)s] [%(pipeline_target)s] %(message)s"
-	level = default_level
-	fmt = default_format
-
 	config_path = getattr(args, "config", None)
-	if config_path is not None:
-		try:
-			runtime_cfg = RuntimeConfig.load(Path(str(config_path)).expanduser().resolve())
-			logger_block = runtime_cfg.get("global_logger", {})
-			logger_block = logger_block if isinstance(logger_block, dict) else {}
-
-			debug_block = logger_block.get("debug_mode", {})
-			debug_block = debug_block if isinstance(debug_block, dict) else {}
-			debug_enabled = bool(debug_block.get("enable", False))
-
-			level_name: Any
-			format_value: Any
-			if debug_enabled:
-				level_name = debug_block.get("level", logger_block.get("level", "DEBUG"))
-				format_value = debug_block.get("format", logger_block.get("format", default_format))
-			else:
-				level_name = logger_block.get("level", "INFO")
-				format_value = logger_block.get("format", default_format)
-
-			level = getattr(logging, str(level_name).upper(), default_level)
-			fmt = str(format_value or default_format)
-		except Exception:
-			level = default_level
-			fmt = default_format
-
-	fmt = ensure_pipeline_target_in_format(fmt)
-	root = logging.getLogger()
-	if not root.handlers:
-		logging.basicConfig(level=level, format=fmt)
+	if config_path is None:
+		install_pipeline_log_record_factory()
+		fmt = ensure_pipeline_target_in_format("[%(levelname)s] %(message)s")
+		if not logging.getLogger().handlers:
+			logging.basicConfig(level=logging.INFO, format=fmt)
 		return
-
-	root.setLevel(level)
-	for handler in root.handlers:
-		try:
-			handler.setLevel(level)
-			handler.setFormatter(logging.Formatter(fmt))
-		except Exception:
-			continue
+	configure_pipeline_logging(config_path=Path(str(config_path)).expanduser().resolve() if config_path is not None else None)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -405,7 +368,22 @@ def main(argv: list[str] | None = None) -> int:
 	if handler is None:
 		parser.print_help()
 		return 2
-	return int(handler(args))
+	logger = logging.getLogger("axon_recon.pipeline")
+	logger.info("pipeline run started", extra={"event": "run_started"})
+	status = "error"
+	try:
+		rc = int(handler(args))
+		status = "ok" if rc == 0 else "error"
+		if rc == 0:
+			logger.info("pipeline run completed", extra={"event": "run_completed"})
+		else:
+			logger.error("pipeline run failed with code %d", rc, extra={"event": "run_failed"})
+		return rc
+	except Exception:
+		logger.exception("pipeline run failed", extra={"event": "run_failed"})
+		raise
+	finally:
+		finalize_pipeline_logging(status=status)
 
 
 if __name__ == "__main__":

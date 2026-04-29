@@ -1,25 +1,16 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
-import contextvars
 import logging
 from typing import Any, Iterator
 
+from axon_recon.pipeline.logging.context import (
+	apply_log_context_to_record,
+	current_log_context,
+	log_context,
+	log_context_for_target,
+)
 
 _DEFAULT_FIELD = "-"
-
-_dataset_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
-	"axon_recon_pipeline_dataset_id",
-	default=_DEFAULT_FIELD,
-)
-_dataset_index_var: contextvars.ContextVar[str] = contextvars.ContextVar(
-	"axon_recon_pipeline_dataset_index",
-	default=_DEFAULT_FIELD,
-)
-_well_var: contextvars.ContextVar[str] = contextvars.ContextVar(
-	"axon_recon_pipeline_well",
-	default=_DEFAULT_FIELD,
-)
 
 _FACTORY_SENTINEL = "_axon_recon_pipeline_log_context_factory"
 
@@ -42,9 +33,10 @@ def format_pipeline_target(*, dataset_id: Any = None, dataset_index: Any = None,
 
 
 def _current_pipeline_fields() -> dict[str, str]:
-	dataset_id = _coerce_field(_dataset_id_var.get())
-	dataset_index = _coerce_field(_dataset_index_var.get())
-	well = _coerce_field(_well_var.get())
+	context = current_log_context()
+	dataset_id = _coerce_field(context.get("dataset_id"))
+	dataset_index = _coerce_field(context.get("dataset_index"))
+	well = _coerce_field(context.get("well_id"))
 	return {
 		"pipeline_dataset": dataset_id,
 		"pipeline_dataset_id": dataset_id,
@@ -59,6 +51,7 @@ def _current_pipeline_fields() -> dict[str, str]:
 
 
 def apply_pipeline_log_context(record: logging.LogRecord) -> logging.LogRecord:
+	record = apply_log_context_to_record(record)
 	for key, value in _current_pipeline_fields().items():
 		setattr(record, key, value)
 	return record
@@ -66,7 +59,9 @@ def apply_pipeline_log_context(record: logging.LogRecord) -> logging.LogRecord:
 
 def install_pipeline_log_record_factory() -> None:
 	current_factory = logging.getLogRecordFactory()
-	if bool(getattr(current_factory, _FACTORY_SENTINEL, False)):
+	if bool(getattr(current_factory, _FACTORY_SENTINEL, False)) or bool(
+		getattr(current_factory, "_axon_recon_pipeline_factory", False)
+	):
 		return
 
 	def record_factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
@@ -86,22 +81,33 @@ def ensure_pipeline_target_in_format(fmt: str) -> str:
 	return f"{fmt} [%(pipeline_target)s]"
 
 
-@contextmanager
-def pipeline_log_context(*, dataset_id: Any = None, dataset_index: Any = None, well: Any = None) -> Iterator[None]:
-	dataset_token = _dataset_id_var.set(_coerce_field(dataset_id))
-	dataset_index_token = _dataset_index_var.set(_coerce_field(dataset_index))
-	well_token = _well_var.set(_coerce_field(well))
-	try:
-		yield
-	finally:
-		_well_var.reset(well_token)
-		_dataset_index_var.reset(dataset_index_token)
-		_dataset_id_var.reset(dataset_token)
-
-
-def pipeline_log_context_for_target(target: Any) -> Iterator[None]:
-	return pipeline_log_context(
-		dataset_id=getattr(target, "dataset_id", None),
-		dataset_index=getattr(target, "dataset_index", None),
-		well=getattr(target, "stream_id", None),
+def pipeline_log_context(
+	*,
+	dataset_id: Any = None,
+	dataset_index: Any = None,
+	well: Any = None,
+	well_id: Any = None,
+	stage: Any = None,
+	phase: Any = None,
+	recording_id: Any = None,
+	dataset_name: Any = None,
+	chip_id: Any = None,
+	date: Any = None,
+	assay: Any = None,
+) -> Iterator[None]:
+	return log_context(
+		dataset_id=dataset_id,
+		dataset_index=dataset_index,
+		well_id=(well_id if well_id is not None else well),
+		stage=stage,
+		phase=phase,
+		recording_id=recording_id,
+		dataset_name=dataset_name,
+		chip_id=chip_id,
+		date=date,
+		assay=assay,
 	)
+
+
+def pipeline_log_context_for_target(target: Any, *, stage: str | None = None, phase: str | None = None) -> Iterator[None]:
+	return log_context_for_target(target, stage=stage, phase=phase)

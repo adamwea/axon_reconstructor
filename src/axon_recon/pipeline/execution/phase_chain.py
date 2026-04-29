@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import logging
+import time
 from typing import Any, Callable, Sequence
+
+from .logging_context import pipeline_log_context
 
 
 @dataclass(frozen=True)
@@ -44,30 +47,43 @@ def run_phase_chain(
     last_result: Any | None = None
     for phase in phases:
         if not bool(phase.enabled):
-            continue
-        if logger is not None:
-            logger.info(
-                "Phase chain start target=%s phase=%s",
-                str(target_label or "unknown"),
-                str(phase.name),
-            )
-        try:
-            last_result = phase.runner()
-        except Exception as exc:
-            outcome = PhaseOutcome(name=str(phase.name), status="error", error=str(exc))
-            outcomes.append(outcome)
             if logger is not None:
-                logger.exception(
-                    "Phase chain failed target=%s phase=%s",
+                with pipeline_log_context(phase=phase.name):
+                    logger.info(
+                        "Phase chain skipped target=%s phase=%s",
+                        str(target_label or "unknown"),
+                        str(phase.name),
+                        extra={"event": "phase_skipped"},
+                    )
+            continue
+        with pipeline_log_context(phase=phase.name):
+            phase_t0 = time.perf_counter()
+            if logger is not None:
+                logger.info(
+                    "Phase chain start target=%s phase=%s",
                     str(target_label or "unknown"),
                     str(phase.name),
+                    extra={"event": "phase_started"},
                 )
-            raise PhaseChainError(phase_name=str(phase.name), error=exc, outcomes=tuple(outcomes)) from exc
-        outcomes.append(PhaseOutcome(name=str(phase.name), status="ok", result=last_result))
-        if logger is not None:
-            logger.info(
-                "Phase chain complete target=%s phase=%s",
-                str(target_label or "unknown"),
-                str(phase.name),
-            )
+            try:
+                last_result = phase.runner()
+            except Exception as exc:
+                outcome = PhaseOutcome(name=str(phase.name), status="error", error=str(exc))
+                outcomes.append(outcome)
+                if logger is not None:
+                    logger.exception(
+                        "Phase chain failed target=%s phase=%s",
+                        str(target_label or "unknown"),
+                        str(phase.name),
+                        extra={"event": "phase_failed", "elapsed_s": float(max(0.0, time.perf_counter() - phase_t0))},
+                    )
+                raise PhaseChainError(phase_name=str(phase.name), error=exc, outcomes=tuple(outcomes)) from exc
+            outcomes.append(PhaseOutcome(name=str(phase.name), status="ok", result=last_result))
+            if logger is not None:
+                logger.info(
+                    "Phase chain complete target=%s phase=%s",
+                    str(target_label or "unknown"),
+                    str(phase.name),
+                    extra={"event": "phase_completed", "elapsed_s": float(max(0.0, time.perf_counter() - phase_t0))},
+                )
     return PhaseChainResult(result=last_result, outcomes=tuple(outcomes))

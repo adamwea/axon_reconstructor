@@ -22,6 +22,7 @@ from typing import Any
 from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_reconstructor.pipeline.pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
 
+from ...execution.logging_context import pipeline_log_context
 from .constants import PREPROCESS_OUTPUTS_DIRNAME
 from .core.save_rec_metadata import (
 	_print_assay_settings,
@@ -2680,6 +2681,8 @@ def _run_preprocess_phase_sequence(
 		)
 
 	for phase_index, phase_name in enumerate(phases_to_run, start=1):
+		_phase_log_context = pipeline_log_context(phase=phase_name)
+		_phase_log_context.__enter__()
 		phase_t0 = time.perf_counter()
 		phase_plot_cfg = _resolve_effective_plot_config(inputs, selected_phase=phase_name)
 		_log_preprocess_phase_worker_allocation(
@@ -2695,6 +2698,7 @@ def _run_preprocess_phase_sequence(
 				int(len(phases_to_run)),
 				str(inputs.stream_id),
 				str(phase_name),
+				extra={"event": "phase_started"},
 			)
 		if phase_name == "copy_src_to_scratch":
 			_validate_copy_phase_requirements(inputs, selected_phase=selected_phase)
@@ -2939,6 +2943,16 @@ def _run_preprocess_phase_sequence(
 			extra_payload=payload,
 		)
 		outputs[f"{phase_name}_summary_json"] = str(phase_summaries[phase_name]["summary_json"])
+		if phase_logger is not None:
+			phase_logger.info(
+				"Completed preprocess phase %d/%d for well=%s phase=%s",
+				int(phase_index),
+				int(len(phases_to_run)),
+				str(inputs.stream_id),
+				str(phase_name),
+				extra={"event": "phase_completed", "elapsed_s": float(payload.get("phase_elapsed_s", 0.0) or 0.0)},
+			)
+		_phase_log_context.__exit__(None, None, None)
 	common_electrodes = _load_common_electrodes_or_empty(recording_metadata_paths.common_electrodes_path)
 	return outputs, phase_summaries, common_electrodes, scratch_usage_released
 

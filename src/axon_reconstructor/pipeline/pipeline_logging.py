@@ -7,6 +7,7 @@ from typing import Optional
 
 from axon_recon.pipeline.execution.logging_context import install_pipeline_log_record_factory
 from axon_recon.pipeline.execution.progress import PipelineProgressStreamHandler
+from axon_recon.pipeline.logging import pipeline_logging_is_configured
 
 from .checkpointing import parse_mea_style_metadata
 
@@ -93,6 +94,17 @@ def setup_pipeline_logger(
     logger = logging.getLogger(logger_name)
     # Keep logger open to DEBUG and let handlers enforce effective verbosity.
     logger.setLevel(logging.DEBUG)
+
+    if pipeline_logging_is_configured():
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+            try:
+                handler.close()
+            except Exception:
+                pass
+        logger.propagate = True
+        return logger
+
     logger.propagate = False
 
     formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(pipeline_target)s]: %(message)s")
@@ -160,14 +172,14 @@ def _format_stage_fields(*, fields: dict[str, object]) -> str:
 
 def log_stage_start(logger: logging.Logger, *, stage: str, **fields: object) -> None:
     suffix = _format_stage_fields(fields=fields)
-    logger.info("[%s] start%s%s", stage, ": " if suffix else "", suffix)
+    logger.info("[%s] start%s%s", stage, ": " if suffix else "", suffix, extra={"event": "stage_started"})
 
 
 def log_stage_complete(logger: logging.Logger, *, stage: str, **fields: object) -> None:
     suffix = _format_stage_fields(fields=fields)
-    logger.info("[%s] complete%s%s", stage, ": " if suffix else "", suffix)
+    logger.info("[%s] complete%s%s", stage, ": " if suffix else "", suffix, extra={"event": "stage_completed"})
 
 
 def log_stage_failure(logger: logging.Logger, *, stage: str, **fields: object) -> None:
     suffix = _format_stage_fields(fields=fields)
-    logger.error("[%s] failed%s%s", stage, ": " if suffix else "", suffix)
+    logger.error("[%s] failed%s%s", stage, ": " if suffix else "", suffix, extra={"event": "stage_failed"})

@@ -25,6 +25,48 @@ global_logger:
     level: DEBUG
     format: "[%(asctime)s] %(levelname)s - %(message)s (%(pathname)s:%(funcName)s:%(lineno)d)"
 
+logging:
+  enabled: true
+  level: INFO
+  console:
+    enabled: true
+    rich: true
+    level: INFO
+  structured:
+    enabled: true
+    path: logs/pipeline.jsonl
+    level: INFO
+  run_log:
+    enabled: true
+    path: logs/pipeline.log
+    level: INFO
+  error_log:
+    enabled: true
+    path: logs/errors.log
+    level: WARNING
+  dataset_logs:
+    enabled: true
+    level: INFO
+  recording_logs:
+    enabled: true
+    level: INFO
+  well_logs:
+    enabled: true
+    level: INFO
+  phase_logs:
+    enabled: true
+    level: INFO
+  summary:
+    enabled: true
+    path: logs/summary.json
+  include_external_stdout: false
+  include_external_stderr: false
+  capture_warnings: true
+  capture_uncaught_exceptions: true
+  multiprocessing:
+    enabled: true
+    use_queue_listener: false
+
 global_heatmap_defaults:
   # Shared defaults for heatmap-like plots across templates and reconstruct/recon.
   # Stage/output blocks can override any of these values and add plot-specific keys as needed.
@@ -952,7 +994,7 @@ stages:
 
     debug_mode:
       enabled: true
-      limit_datasets: null
+      limit_datasets: 1
       limit_wells: null
       limit_wells_per_dataset: 1
 

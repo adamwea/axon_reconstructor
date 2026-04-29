@@ -5,6 +5,7 @@ import copy
 from dataclasses import dataclass, replace
 import logging
 from pathlib import Path
+import time
 from typing import Any, Callable
 
 from axon_reconstructor.pipeline.publish import publish_path_to_final, remap_path_string_to_final
@@ -238,6 +239,7 @@ def _distribute_runtime_targets(
 	targets: list[Any],
 	parallelism: Any,
 	worker_fn: Callable[[Any], Any],
+	stage_name: str | None = None,
 	progress: PipelineProgress | None = None,
 	advance_progress_on_target_complete: bool = False,
 ) -> list[TargetStageResult]:
@@ -245,8 +247,34 @@ def _distribute_runtime_targets(
 	install_maxwell_hdf5_plugin_message_filter()
 
 	def worker_with_log_context(target: Any) -> Any:
-		with pipeline_log_context_for_target(target), pipeline_progress_context(progress):
-			return worker_fn(target)
+		with pipeline_log_context_for_target(target, stage=stage_name), pipeline_progress_context(progress):
+			started = time.perf_counter()
+			LOGGER.info(
+				"target started dataset=%s well=%s stage=%s",
+				getattr(target, "dataset_id", "unknown"),
+				getattr(target, "stream_id", "unknown"),
+				str(stage_name or "unknown"),
+				extra={"event": "well_started"},
+			)
+			try:
+				result = worker_fn(target)
+			except Exception:
+				LOGGER.exception(
+					"target failed dataset=%s well=%s stage=%s",
+					getattr(target, "dataset_id", "unknown"),
+					getattr(target, "stream_id", "unknown"),
+					str(stage_name or "unknown"),
+					extra={"event": "well_failed", "elapsed_s": float(max(0.0, time.perf_counter() - started))},
+				)
+				raise
+			LOGGER.info(
+				"target completed dataset=%s well=%s stage=%s",
+				getattr(target, "dataset_id", "unknown"),
+				getattr(target, "stream_id", "unknown"),
+				str(stage_name or "unknown"),
+				extra={"event": "well_completed", "elapsed_s": float(max(0.0, time.perf_counter() - started))},
+			)
+			return result
 
 	def _on_target_complete(_result: TargetStageResult) -> None:
 		if progress is not None and bool(advance_progress_on_target_complete):
@@ -1257,6 +1285,7 @@ def run_preprocess_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		stage_name="preprocess",
 		progress=PipelineProgress(ProgressSpec(label="preprocess wells", total=len(targets), unit="well")),
 		advance_progress_on_target_complete=True,
 	)
@@ -1343,6 +1372,7 @@ def _run_preprocess_substage_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		stage_name=stage_name,
 		progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
 		advance_progress_on_target_complete=True,
 	)
@@ -1611,6 +1641,7 @@ def run_spikesort_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		stage_name="spikesort",
 		progress=PipelineProgress(ProgressSpec(label="spikesort wells", total=len(targets), unit="well")),
 		advance_progress_on_target_complete=True,
 	)
@@ -1928,6 +1959,7 @@ def run_spikesort_summarize_sort_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		stage_name="spikesort.summarize_sort",
 		progress=PipelineProgress(ProgressSpec(label="spikesort.summarize_sort wells", total=len(targets), unit="well")),
 		advance_progress_on_target_complete=True,
 	)
@@ -2018,6 +2050,7 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		stage_name=stage_name,
 		progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
 		advance_progress_on_target_complete=True,
 	)
@@ -2130,6 +2163,7 @@ def _run_spikesort_sort_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		stage_name=stage_name,
 		progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
 		advance_progress_on_target_complete=True,
 	)
@@ -2322,6 +2356,7 @@ def run_spikesort_merge_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		stage_name=stage_name,
 		progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
 		advance_progress_on_target_complete=True,
 	)
@@ -2406,6 +2441,7 @@ def run_spikesort_bombcell_label_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		stage_name=stage_name,
 		progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
 		advance_progress_on_target_complete=True,
 	)
@@ -2515,6 +2551,7 @@ def _run_reconstruct_substage_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		stage_name=stage_name,
 		progress=_reconstruct_unit_progress(stage_name),
 	)
 	if publish_outputs:
@@ -2749,6 +2786,7 @@ def run_analysis_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		stage_name="analysis",
 	)
 
 	cross_outputs, cross_warnings = generate_cross_well_artifacts(
@@ -2830,6 +2868,7 @@ def run_templates_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		stage_name="templates",
 		progress=_templates_unit_progress("templates"),
 	)
 	target_results = [_publish_templates_target_result(item, policy=publish_policy) for item in target_results]
@@ -2898,6 +2937,7 @@ def _run_templates_substage_from_runtime(
 		targets=targets,
 		parallelism=parallelism,
 		worker_fn=_worker,
+		stage_name=stage_name,
 		progress=_templates_unit_progress(stage_name),
 	)
 	if publish_outputs:
