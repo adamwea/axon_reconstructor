@@ -887,13 +887,13 @@ def _templates_stage_phase_enabled(inputs: TemplatesInputs, phase_name: str) -> 
 	if phase == "analyzers":
 		return bool(phases.analyzers.enabled)
 	if phase == "extract_template_segments":
-		return bool(phases.per_unit_processing.enabled) and bool(phases.per_unit_processing.extract_template_segments.enabled)
+		return bool(phases.per_unit_processing.extract_template_segments.enabled)
 	if phase == "build_templates":
-		return bool(phases.per_unit_processing.enabled) and bool(phases.per_unit_processing.build_templates.enabled)
+		return bool(phases.build_templates.enabled)
 	if phase == "compute_template_similarity":
 		return bool(phases.compute_template_similarity.enabled)
 	if phase == "plot_templates":
-		return bool(phases.per_unit_processing.enabled) and bool(phases.plot_templates.enabled)
+		return bool(phases.plot_templates.enabled)
 	if phase == "report_templates":
 		return bool(phases.report_templates.enabled)
 	if phase == "reports":

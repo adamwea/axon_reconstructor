@@ -984,7 +984,7 @@ stages:
       divide_stage_workers_by_wells: true
 
     phase_sequence:
-      - resolve_sources
+      #- resolve_sources
       - analyzers
       #- extract_template_segments
       - build_templates
@@ -1202,6 +1202,7 @@ stages:
           max_waveforms_per_source_channel: -1
           overlap_match_priority: [electrode_id, location]
           location_tolerance_um: 1.0
+        emit_channel_count_after_merge_log: true # whether to log the number of channels in the template after merging, which can be a useful sanity check to ensure that the merge is combining templates in a way that increases the spatial footprint as expected, rather than just taking one template or producing an output with fewer channels than the inputs.
       compute_template_similarity:
         enabled: false
         method: hybrid_template_similarity
