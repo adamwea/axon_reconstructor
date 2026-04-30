@@ -1705,7 +1705,7 @@ stages:
               channel_scope: branch_nodes
               zoom_padding_percent: 12 # extra padding around selected node/branch channels used to set circle_recon viewport.
               invert_y_axis: true
-              force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
+              force_center_soma: true # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
               branch_scope: raw # raw or clean; whether to plot all branches in branches_raw or only the cleaned branches in branches.
               show_branch_labels: false # whether to draw branch ID labels on the plot, which can be useful for visually verifying branch correspondences between the plot and the branch data in the JSON outputs.
               show_branch_legend: true # whether to show a legend mapping branch colors to branch IDs, which can be helpful for interpreting the plot when unique_color_per_branch is true and there are multiple branches.
