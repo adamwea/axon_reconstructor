@@ -1701,7 +1701,8 @@ stages:
               # contributing to template, color bar needs to be adjusted so it dynamically
               # adjusts based on values in the xy scope after zooming in on branches and nodes.
               base: template_circles # which template plot to put branch morphology on top of; circles, amplitude_map, or latency_map.
-              channel_scope: selected_channels # use channels that survive axon_velocity filtering, then overlay the chosen branch scope on top.
+              #channel_scope: selected_channels # use channels that survive axon_velocity filtering, then overlay the chosen branch scope on top.
+              channel_scope: branch_nodes
               zoom_padding_percent: 12 # extra padding around selected node/branch channels used to set circle_recon viewport.
               invert_y_axis: true
               force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
@@ -1860,6 +1861,8 @@ stages:
           panel_background_color: black
           color_bar:
             {}
+
+  # deprecating analysis stage, going to completely re-write this later.
   analysis:
     execution:
       debug: false
