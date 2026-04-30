@@ -3873,7 +3873,7 @@ def parse_templates_stage_config(
 		enabled=_as_bool(_phase_block(phases_cfg, "per_unit_processing").get("enabled", True), True),
 		extract_template_segments=TemplateExtractTemplateSegmentsPhaseConfig(
 			enabled=_as_bool(phase_extract_cfg.get("enabled", True), True),
-			output_rel_root=str(phase_extract_cfg.get("output_rel_root", phase_extract_cfg.get("relpath_root", "templates/source_payloads"))),
+			output_rel_root=str(phase_extract_cfg.get("output_rel_root", phase_extract_cfg.get("relpath_root", "cache/source_payloads"))),
 			summary_json_relpath=str(phase_extract_cfg.get("summary_json_relpath", "context/extract_template_segments_summary.json")),
 		),
 		build_templates=build_templates_phase,

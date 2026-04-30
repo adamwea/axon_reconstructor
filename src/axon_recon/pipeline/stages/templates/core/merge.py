@@ -701,10 +701,13 @@ def materialize_templates_from_spikeinterface(
 	max_waveforms_per_source_channel: int | None = 500,
 	overlap_match_priority: tuple[str, ...] = ("electrode_id", "channel_id", "location"),
 	location_tolerance_um: float = 1.0,
+	unit_reldir: str = "units/{unit_id:04d}/",
 	debug_overlay: bool = False,
 ) -> tuple[Path, Path, dict[Any, dict[str, Any]]]:
 	"""Build templates artifacts expected by templates v2 from SpikeInterface analyzers."""
 	from ..io import (
+		MATERIALIZED_TEMPLATES_CACHE_RELPATH,
+		format_unit_reldir,
 		write_json,
 		resolve_materialized_templates_dirs,
 		write_materialized_overlay_waveforms,
@@ -771,7 +774,7 @@ def materialize_templates_from_spikeinterface(
 				concat_locs = np.asarray(concat_locs[:, :2], dtype=float)
 				finite = np.isfinite(concat_locs).all(axis=1)
 				if bool(np.any(finite)):
-					concat_locs_path = templates_out_dir / "templates" / "concat_channel_locations_xy.npy"
+					concat_locs_path = templates_out_dir / MATERIALIZED_TEMPLATES_CACHE_RELPATH / "concat_channel_locations_xy.npy"
 					concat_locs_path.parent.mkdir(parents=True, exist_ok=True)
 					np.save(concat_locs_path, np.asarray(concat_locs[finite, :], dtype=float))
 		except Exception:
@@ -796,7 +799,7 @@ def materialize_templates_from_spikeinterface(
 							continue
 						rows.append({"unit_id": uid, "x_um": x, "y_um": y})
 				if rows:
-					write_json(templates_out_dir / "templates" / "concat_unit_locations.json", rows)
+					write_json(templates_out_dir / "units" / "concat_unit_locations.json", rows)
 		except Exception:
 			LOGGER.debug("Failed writing concat unit locations metadata", exc_info=True)
 
@@ -861,6 +864,7 @@ def materialize_templates_from_spikeinterface(
 
 	for uid, materialized in materialized_by_unit.items():
 		merged_template, merged_locs, full_template, full_locs, merged_electrode_ids = materialized
+		unit_metadata_dir = templates_out_dir / format_unit_reldir(unit_reldir, uid)
 		write_materialized_unit_templates(
 			merged_units_dir=merged_units_dir,
 			full_channels_templates_dir=full_channels_templates_dir,
@@ -875,6 +879,7 @@ def materialize_templates_from_spikeinterface(
 			merged_units_dir=merged_units_dir,
 			unit_id=uid,
 			electrode_ids=merged_electrode_ids,
+			metadata_json_path=unit_metadata_dir / "merged_contributing_electrode_ids.json",
 		)
 
 		# Persist top-electrode waveform snippets for waveform-level overlay rendering.
@@ -931,6 +936,7 @@ def materialize_templates_from_spikeinterface(
 						waveforms_by_t=wf,
 						top_electrode_id=top_electrode_id,
 						total_waveforms_at_channel=total,
+						metadata_json_path=unit_metadata_dir / "overlay_top_channel_meta.json",
 					)
 					if bool(debug_overlay):
 						print(

@@ -20,6 +20,8 @@ def test_write_materialized_unit_templates_writes_expected_files(tmp_path: Path)
 	merged_units_dir, full_channels_templates_dir = resolve_materialized_templates_dirs(
 		templates_out_dir=templates_out_dir
 	)
+	assert merged_units_dir == templates_out_dir / "cache" / "templates" / "merged"
+	assert full_channels_templates_dir == templates_out_dir / "cache" / "templates" / "full"
 
 	merged_template = np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=float)
 	merged_locs = np.asarray([[0.0, 0.0], [17.5, 0.0]], dtype=float)
@@ -90,7 +92,7 @@ def test_materialized_source_payload_round_trip(tmp_path: Path) -> None:
 
 	unit_dir = write_materialized_source_payload(
 		templates_out_dir=templates_out_dir,
-		output_rel_root="templates/source_payloads",
+		output_rel_root="cache/source_payloads",
 		source_name="concat",
 		unit_id=94,
 		template_c_by_t=template,
@@ -106,7 +108,7 @@ def test_materialized_source_payload_round_trip(tmp_path: Path) -> None:
 
 	assert unit_dir == resolve_materialized_source_payload_unit_dir(
 		templates_out_dir=templates_out_dir,
-		output_rel_root="templates/source_payloads",
+		output_rel_root="cache/source_payloads",
 		source_name="concat",
 		unit_id=94,
 	)
@@ -130,7 +132,7 @@ def test_materialized_source_payload_serializes_numpy_scalar_ids(tmp_path: Path)
 	templates_out_dir = tmp_path / "template_outputs"
 	unit_dir = write_materialized_source_payload(
 		templates_out_dir=templates_out_dir,
-		output_rel_root="templates/source_payloads",
+		output_rel_root="cache/source_payloads",
 		source_name="concat",
 		unit_id=np.int64(94),
 		template_c_by_t=np.asarray([[1.0, 2.0]], dtype=float),

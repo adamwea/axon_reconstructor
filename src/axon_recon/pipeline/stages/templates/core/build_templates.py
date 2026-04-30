@@ -457,6 +457,20 @@ def _remove_disabled_output(path: Path | None) -> None:
 		return
 
 
+def _remove_redundant_per_unit_npy_outputs(paths: dict[str, Path | None]) -> None:
+	for key in (
+		"merged_template_npy",
+		"merged_template_channel_locations_npy",
+		"full_template_npy",
+		"full_template_channel_locations_npy",
+		"scan_template_npy",
+		"scan_template_channel_locations_npy",
+		"square_template_npy",
+		"square_template_channel_locations_npy",
+	):
+		_remove_disabled_output(paths.get(key))
+
+
 def _write_per_unit_data_outputs(
 	*,
 	inputs: TemplatesInputs,
@@ -476,60 +490,11 @@ def _write_per_unit_data_outputs(
 	)
 	paths["unit_dir"].mkdir(parents=True, exist_ok=True)
 	outputs: dict[str, str] = {}
-
-	merged_locs_path = paths["merged_template_channel_locations_npy"]
-	if bool(inputs.per_unit_outputs.merged_template.write_npy):
-		paths["merged_template_npy"].parent.mkdir(parents=True, exist_ok=True)
-		np.save(paths["merged_template_npy"], np.asarray(merged_template, dtype=float))
-		outputs["merged_template_npy"] = str(paths["merged_template_npy"])
-		merged_locs_path.parent.mkdir(parents=True, exist_ok=True)
-		np.save(merged_locs_path, np.asarray(merged_locs, dtype=float))
-		outputs["merged_template_channel_locations_npy"] = str(merged_locs_path)
-	else:
-		_remove_disabled_output(paths["merged_template_npy"])
-		_remove_disabled_output(merged_locs_path)
-
-	full_locs_path = paths["full_template_channel_locations_npy"]
-	if bool(inputs.per_unit_outputs.full_template.write_npy):
-		paths["full_template_npy"].parent.mkdir(parents=True, exist_ok=True)
-		np.save(paths["full_template_npy"], np.asarray(full_template, dtype=float))
-		outputs["full_template_npy"] = str(paths["full_template_npy"])
-		full_locs_path.parent.mkdir(parents=True, exist_ok=True)
-		np.save(full_locs_path, np.asarray(full_locs, dtype=float))
-		outputs["full_template_channel_locations_npy"] = str(full_locs_path)
-	else:
-		_remove_disabled_output(paths["full_template_npy"])
-		_remove_disabled_output(full_locs_path)
-
-	scan_locs_path = paths["scan_template_channel_locations_npy"]
-	if bool(inputs.per_unit_outputs.scan_template.write_npy):
-		paths["scan_template_npy"].parent.mkdir(parents=True, exist_ok=True)
-		np.save(paths["scan_template_npy"], np.asarray(full_template, dtype=float))
-		outputs["scan_template_npy"] = str(paths["scan_template_npy"])
-		scan_locs_path.parent.mkdir(parents=True, exist_ok=True)
-		np.save(scan_locs_path, np.asarray(full_locs, dtype=float))
-		outputs["scan_template_channel_locations_npy"] = str(scan_locs_path)
-	else:
-		_remove_disabled_output(paths["scan_template_npy"])
-		_remove_disabled_output(scan_locs_path)
-
-	square_locs_path = paths["square_template_channel_locations_npy"]
-	if bool(inputs.per_unit_outputs.square_template.write_npy):
-		square_template = _build_square_template(
-			merged_template,
-			padding_mode=str(inputs.per_unit_outputs.square_template.padding_value),
-			locations_xy=merged_locs,
-		)
-		square_locations = _build_square_locations(merged_locs, target_channels=int(square_template.shape[0]))
-		paths["square_template_npy"].parent.mkdir(parents=True, exist_ok=True)
-		np.save(paths["square_template_npy"], np.asarray(square_template, dtype=float))
-		outputs["square_template_npy"] = str(paths["square_template_npy"])
-		square_locs_path.parent.mkdir(parents=True, exist_ok=True)
-		np.save(square_locs_path, np.asarray(square_locations, dtype=float))
-		outputs["square_template_channel_locations_npy"] = str(square_locs_path)
-	else:
-		_remove_disabled_output(paths["square_template_npy"])
-		_remove_disabled_output(square_locs_path)
+	_remove_redundant_per_unit_npy_outputs(paths)
+	for key in ("merged_contributing_electrode_ids_json", "overlay_top_channel_meta_json"):
+		metadata_path = paths.get(key)
+		if metadata_path is not None and metadata_path.exists():
+			outputs[key] = str(metadata_path)
 
 	effective_sampling_rate_hz = _effective_sampling_rate_hz(decision=decision, inputs=inputs)
 	unit_summary = {
@@ -645,19 +610,21 @@ def build_templates_phase_from_unit_payloads(
 			full_locations_xy=full_locs,
 			write_full_template=bool(inputs.per_unit_outputs.full_template.write_npy),
 		)
+		unit_paths = resolve_unit_output_paths(
+			templates_out_dir=templates_out_dir,
+			unit_id=unit_id,
+			per_unit_outputs=inputs.per_unit_outputs,
+		)
+		if bool(inputs.force_restart):
+			unit_dir = unit_paths["unit_dir"]
+			if unit_dir.exists():
+				shutil.rmtree(unit_dir)
 		write_materialized_merged_electrode_ids(
 			merged_units_dir=merged_units_dir,
 			unit_id=unit_id,
 			electrode_ids=merged_electrode_ids,
+			metadata_json_path=unit_paths["merged_contributing_electrode_ids_json"],
 		)
-		if bool(inputs.force_restart):
-			unit_dir = resolve_unit_output_paths(
-				templates_out_dir=templates_out_dir,
-				unit_id=unit_id,
-				per_unit_outputs=inputs.per_unit_outputs,
-			)["unit_dir"]
-			if unit_dir.exists():
-				shutil.rmtree(unit_dir)
 		_write_per_unit_data_outputs(
 			inputs=inputs,
 			templates_out_dir=templates_out_dir,

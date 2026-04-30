@@ -118,10 +118,10 @@ stages:
       # Optional debug overrides for preprocess execution and outputs.
       #limit_wells: null # int or null for no limit
       #limit_segments_per_well: 2 # int or null for no limit
-      enabled: true
-      limit_segments_per_well: null
-      limit_datasets: 1
-      limit_wells: 1
+      #enabled: true
+      #limit_segments_per_well: null
+      #limit_datasets: 1
+      #limit_wells: 1
       #limit_wells: null
       #limit_wells_per_dataset: 2
     observability:
@@ -992,11 +992,12 @@ stages:
       - plot_templates
       - report_templates
       #- reports
+      #- wipe_cache
 
     debug_mode:
       enabled: true
       limit_datasets: 1
-      limit_wells: null
+      #limit_wells: null
       limit_wells_per_dataset: 1
 
     execution:
@@ -1108,9 +1109,9 @@ stages:
             #dtype: float32
           template_extraction:
             #max_spikes_per_unit: -1
-            max_spikes_per_unit: 50
+            #max_spikes_per_unit: 50
             #random_spikes_method: all
-            #random_spikes_percentage: 75
+            random_spikes_percentage: 75
             #random_spikes_percentage: 1
             #min_spikes_per_unit: 250
             #margin_size: 0
@@ -1350,11 +1351,11 @@ stages:
           # but should not include file name or extension components since those are specified separately for each output type below.
           unit_reldir: units/{unit_id:04d}/
         extract_template_segments:
-          enabled: true
-          output_rel_root: templates/source_payloads
+          enabled: false
+          output_rel_root: cache/source_payloads
           summary_json_relpath: context/extract_template_segments_summary.json
         quality_checks:
-          enabled: true
+          enabled: false
           config:
             suppress_warnings: true
             multiple_peaks_at_channel_templates:
@@ -1529,7 +1530,8 @@ stages:
                   template: square
                   global_color_scale: true # whether to use a global color scale across all units in the grid, or individual color scales per unit. Global color scale allows for better comparison of amplitude values across units, while individual color scales can enhance visibility of spatial patterns within each unit.
                   subplot_background_color: black # background color for each subplot in the grid; separate from the color map background which is the default background color for the plot area behind the circles, which can be set in global_heatmap_defaults if desired.
-
+      # wipe_cache:
+      #   enabled: false
 
 
     output_rel_root: template_outputs

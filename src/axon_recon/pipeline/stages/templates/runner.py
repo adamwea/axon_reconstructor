@@ -61,6 +61,7 @@ from .core.render import (
 	render_wf_overlay_grid_from_assets,
 )
 from .io import (
+	MATERIALIZED_TEMPLATES_CACHE_RELPATH,
 	load_materialized_source_payload,
 	load_materialized_overlay_waveforms,
 	load_materialized_merged_electrode_ids,
@@ -214,19 +215,52 @@ def _load_templates_unit_location_row(
 						"source": unit_location.get("source", "merged_contributing"),
 					}
 
-	merged_unit_dir = templates_out_dir / "templates" / "merged" / f"unit_{unit_id}"
-	if merged_unit_dir.exists():
-		try:
-			merged_template, merged_locs = _load_merged_unit(merged_unit_dir)
-		except Exception:
-			return None
-		return _compute_unit_location_from_template(
-			unit_id=unit_id,
-			template_c_by_t=merged_template,
-			locations_xy=merged_locs,
-			source="merged_contributing",
-		)
+	for merged_root in _materialized_merged_root_candidates(templates_out_dir):
+		merged_unit_dir = merged_root / f"unit_{unit_id}"
+		if merged_unit_dir.exists():
+			try:
+				merged_template, merged_locs = _load_merged_unit(merged_unit_dir)
+			except Exception:
+				return None
+			return _compute_unit_location_from_template(
+				unit_id=unit_id,
+				template_c_by_t=merged_template,
+				locations_xy=merged_locs,
+				source="merged_contributing",
+			)
 	return None
+
+
+def _materialized_templates_root_candidates(templates_out_dir: Path) -> list[Path]:
+	return [
+		templates_out_dir / MATERIALIZED_TEMPLATES_CACHE_RELPATH,
+		templates_out_dir / "templates",
+	]
+
+
+def _materialized_merged_root_candidates(templates_out_dir: Path) -> list[Path]:
+	return [
+		*[root / "merged" for root in _materialized_templates_root_candidates(templates_out_dir)],
+		templates_out_dir / "merged_units",
+	]
+
+
+def _materialized_full_root_candidates(templates_out_dir: Path) -> list[Path]:
+	return [
+		*[root / "full" for root in _materialized_templates_root_candidates(templates_out_dir)],
+		templates_out_dir / "full_channels_templates",
+	]
+
+
+def _materialized_concat_channel_locations_candidates(templates_out_dir: Path) -> list[Path]:
+	return [root / "concat_channel_locations_xy.npy" for root in _materialized_templates_root_candidates(templates_out_dir)]
+
+
+def _materialized_concat_unit_locations_candidates(templates_out_dir: Path) -> list[Path]:
+	return [
+		templates_out_dir / "units" / "concat_unit_locations.json",
+		templates_out_dir / "templates" / "concat_unit_locations.json",
+	]
 
 
 def _unit_dir_candidates_for_id(root_dir: Path, unit_id: Any) -> list[Path]:
@@ -251,8 +285,11 @@ def _load_templates_concat_channel_locations(
 	templates_out_dir: Path,
 	unit_ids_for_priority: list[Any],
 ) -> np.ndarray | None:
-	global_concat_locs = templates_out_dir / "templates" / "concat_channel_locations_xy.npy"
-	if global_concat_locs.exists():
+	global_concat_locs = next(
+		(path for path in _materialized_concat_channel_locations_candidates(templates_out_dir) if path.exists()),
+		None,
+	)
+	if global_concat_locs is not None:
 		try:
 			locs = np.asarray(np.load(global_concat_locs), dtype=float)
 		except Exception:
@@ -264,7 +301,7 @@ def _load_templates_concat_channel_locations(
 				return np.asarray(locs[finite, :], dtype=float)
 
 	best_locs: np.ndarray | None = None
-	full_roots = [templates_out_dir / "templates" / "full", templates_out_dir / "full_channels_templates"]
+	full_roots = _materialized_full_root_candidates(templates_out_dir)
 	for full_root in full_roots:
 		if not full_root.exists():
 			continue
@@ -432,8 +469,11 @@ def _load_templates_original_unit_locations(
 	*,
 	templates_out_dir: Path,
 ) -> dict[str, dict[str, float]]:
-	original_locations_path = templates_out_dir / "templates" / "concat_unit_locations.json"
-	if not original_locations_path.exists():
+	original_locations_path = next(
+		(path for path in _materialized_concat_unit_locations_candidates(templates_out_dir) if path.exists()),
+		None,
+	)
+	if original_locations_path is None:
 		return {}
 	try:
 		payload = read_json(original_locations_path)
@@ -469,7 +509,7 @@ def _load_templates_channel_locations_by_unit(
 	templates_out_dir: Path,
 	unit_ids: list[Any],
 ) -> dict[str, np.ndarray]:
-	merged_roots = [templates_out_dir / "templates" / "merged", templates_out_dir / "merged_units"]
+	merged_roots = _materialized_merged_root_candidates(templates_out_dir)
 	loaded: dict[str, np.ndarray] = {}
 	for unit_id in list(unit_ids):
 		unit_key = str(unit_id)
@@ -1122,20 +1162,14 @@ def _discover_unit_ids_from_unit_summaries(templates_out_dir: Path) -> list[Any]
 
 
 def _resolve_templates_dirs(*, well_out_dir: Path, templates_out_dir: Path) -> tuple[Path, Path]:
-	templates_dir = templates_out_dir / "templates"
-
-	merged_units_dir = templates_dir / "merged"
-	full_channels_templates_dir = templates_dir / "full"
-
-	if not merged_units_dir.exists():
-		legacy = templates_out_dir / "merged_units"
-		if legacy.exists():
-			merged_units_dir = legacy
-
-	if not full_channels_templates_dir.exists():
-		legacy = templates_out_dir / "full_channels_templates"
-		if legacy.exists():
-			full_channels_templates_dir = legacy
+	merged_units_dir = next(
+		(path for path in _materialized_merged_root_candidates(templates_out_dir) if path.exists()),
+		templates_out_dir / MATERIALIZED_TEMPLATES_CACHE_RELPATH / "merged",
+	)
+	full_channels_templates_dir = next(
+		(path for path in _materialized_full_root_candidates(templates_out_dir) if path.exists()),
+		templates_out_dir / MATERIALIZED_TEMPLATES_CACHE_RELPATH / "full",
+	)
 
 	if not merged_units_dir.exists():
 		raise FileNotFoundError(f"Missing merged templates directory: {merged_units_dir}")
@@ -3143,6 +3177,7 @@ def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 						),
 						overlap_match_priority=tuple(inputs.merge.overlap_match_priority),
 						location_tolerance_um=float(inputs.merge.location_tolerance_um),
+						unit_reldir=str(inputs.per_unit_outputs.unit_reldir),
 						debug_overlay=overlay_debug_mode,
 					)
 					if len(materialize_out) == 3:
@@ -3167,7 +3202,7 @@ def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 				LOGGER.info(
 					"Missing templates artifacts under %s; attempting SpikeInterface materialization "
 					"(include_concat=%s, include_segments=%s)",
-					templates_out_dir / "templates",
+					templates_out_dir / MATERIALIZED_TEMPLATES_CACHE_RELPATH,
 					bool(inputs.include_concat),
 					bool(inputs.include_segments),
 				)
@@ -3206,6 +3241,7 @@ def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 					),
 					overlap_match_priority=tuple(inputs.merge.overlap_match_priority),
 					location_tolerance_um=float(inputs.merge.location_tolerance_um),
+					unit_reldir=str(inputs.per_unit_outputs.unit_reldir),
 					debug_overlay=overlay_debug_mode,
 				)
 				if len(materialize_out) == 3:
@@ -3270,7 +3306,13 @@ def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 			per_unit_outputs=inputs.per_unit_outputs,
 		)
 		if unit_scoped_force_restart and any(str(unit_id) == str(target_id) for target_id in (inputs.unit_ids or [])) and paths["unit_dir"].exists():
-			shutil.rmtree(paths["unit_dir"])
+			_clear_directory_contents_preserving(
+				root_dir=paths["unit_dir"],
+				preserve_paths=[
+					paths["merged_contributing_electrode_ids_json"],
+					paths["overlay_top_channel_meta_json"],
+				],
+			)
 		paths["unit_dir"].mkdir(parents=True, exist_ok=True)
 
 		if (
@@ -3317,7 +3359,7 @@ def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 			LOGGER.info("Templates unit load artifacts: unit_id=%s merged_dir=%s", unit_id, merged_dir)
 
 			merged_template, merged_locs = _load_merged_unit(merged_dir)
-			merged_electrode_ids = load_materialized_merged_electrode_ids(merged_unit_dir=merged_dir)
+			merged_electrode_ids = load_materialized_merged_electrode_ids(merged_unit_dir=merged_dir, metadata_dir=paths["unit_dir"])
 			unit_summary["grid_sort_metrics"] = compute_template_grid_sort_metrics(
 				template_c_by_t=merged_template,
 				locations_xy=merged_locs,
@@ -3412,59 +3454,20 @@ def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 						unit_summary["outputs"]["quality_checks_multiple_negative_peaks_plot_svg"] = str(qc_plot_outputs["propagation_plot_svg"])
 			full_payload = _load_full_unit(full_dir) if full_channels_templates_dir_resolved.exists() else None
 
-			if bool(inputs.per_unit_outputs.merged_template.write_npy):
-				paths["merged_template_npy"].parent.mkdir(parents=True, exist_ok=True)
-				np.save(paths["merged_template_npy"], merged_template)
-				unit_summary["outputs"]["merged_template_npy"] = str(paths["merged_template_npy"])
-				merged_locs_path = paths.get("merged_template_channel_locations_npy")
-				if merged_locs_path is not None:
-					merged_locs_path.parent.mkdir(parents=True, exist_ok=True)
-					np.save(merged_locs_path, merged_locs)
-					unit_summary["outputs"]["merged_template_channel_locations_npy"] = str(merged_locs_path)
-
-			if bool(inputs.per_unit_outputs.full_template.write_npy):
-				if full_payload is None:
-					full_template_to_write = merged_template
-					full_locations_to_write = merged_locs
-				else:
-					full_template_to_write = full_payload[0]
-					full_locations_to_write = full_payload[1]
-				paths["full_template_npy"].parent.mkdir(parents=True, exist_ok=True)
-				np.save(paths["full_template_npy"], full_template_to_write)
-				unit_summary["outputs"]["full_template_npy"] = str(paths["full_template_npy"])
-				full_locs_path = paths.get("full_template_channel_locations_npy")
-				if full_locs_path is not None:
-					full_locs_path.parent.mkdir(parents=True, exist_ok=True)
-					np.save(full_locs_path, full_locations_to_write)
-					unit_summary["outputs"]["full_template_channel_locations_npy"] = str(full_locs_path)
-
-			if bool(inputs.per_unit_outputs.scan_template.write_npy):
-				scan_template_to_write = merged_template if full_payload is None else full_payload[0]
-				scan_locations_to_write = merged_locs if full_payload is None else full_payload[1]
-				paths["scan_template_npy"].parent.mkdir(parents=True, exist_ok=True)
-				np.save(paths["scan_template_npy"], scan_template_to_write)
-				unit_summary["outputs"]["scan_template_npy"] = str(paths["scan_template_npy"])
-				scan_locs_path = paths.get("scan_template_channel_locations_npy")
-				if scan_locs_path is not None:
-					scan_locs_path.parent.mkdir(parents=True, exist_ok=True)
-					np.save(scan_locs_path, scan_locations_to_write)
-					unit_summary["outputs"]["scan_template_channel_locations_npy"] = str(scan_locs_path)
-
-			if bool(inputs.per_unit_outputs.square_template.write_npy):
-				sq = _build_square_template(
-					merged_template,
-					padding_mode=str(inputs.per_unit_outputs.square_template.padding_value),
-					locations_xy=merged_locs,
-				)
-				sq_locs = _build_square_locations(merged_locs, target_channels=int(sq.shape[0]))
-				paths["square_template_npy"].parent.mkdir(parents=True, exist_ok=True)
-				np.save(paths["square_template_npy"], sq)
-				unit_summary["outputs"]["square_template_npy"] = str(paths["square_template_npy"])
-				square_locs_path = paths.get("square_template_channel_locations_npy")
-				if square_locs_path is not None:
-					square_locs_path.parent.mkdir(parents=True, exist_ok=True)
-					np.save(square_locs_path, sq_locs)
-					unit_summary["outputs"]["square_template_channel_locations_npy"] = str(square_locs_path)
+			for stale_npy_key in (
+				"merged_template_npy",
+				"merged_template_channel_locations_npy",
+				"full_template_npy",
+				"full_template_channel_locations_npy",
+				"scan_template_npy",
+				"scan_template_channel_locations_npy",
+				"square_template_npy",
+				"square_template_channel_locations_npy",
+			):
+				stale_path = paths.get(stale_npy_key)
+				if stale_path is not None and stale_path.exists():
+					stale_path.unlink()
+				unit_summary["outputs"].pop(stale_npy_key, None)
 
 			template_plot, locs_plot, source = _select_template_for_scope(
 				merged_template=merged_template,
@@ -3561,7 +3564,7 @@ def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 			)
 			unit_summary["outputs"].update(circles_outputs)
 
-			overlay_payload = load_materialized_overlay_waveforms(merged_unit_dir=merged_dir)
+			overlay_payload = load_materialized_overlay_waveforms(merged_unit_dir=merged_dir, metadata_dir=paths["unit_dir"])
 			if overlay_payload is None:
 				if overlay_debug_mode:
 					print(

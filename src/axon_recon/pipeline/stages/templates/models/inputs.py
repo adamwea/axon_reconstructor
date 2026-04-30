@@ -228,7 +228,7 @@ class TemplatesAnalyzersPhaseConfig:
 @dataclass(frozen=True)
 class TemplateExtractTemplateSegmentsPhaseConfig:
 	enabled: bool = True
-	output_rel_root: str = "templates/source_payloads"
+	output_rel_root: str = "cache/source_payloads"
 	summary_json_relpath: str = "context/extract_template_segments_summary.json"
 
 
@@ -804,7 +804,7 @@ class PerUnitTemplatesOutputsConfig:
 	quality_checks: PerUnitQualityChecksOutputsConfig = field(default_factory=PerUnitQualityChecksOutputsConfig)
 	merged_template: TemplateArtifactConfig = field(
 		default_factory=lambda: TemplateArtifactConfig(
-			write_npy=True,
+			write_npy=False,
 			npy_relpath="merged_template.npy",
 			channel_locations_npy_relpath="merged_channel_locations.npy",
 		)

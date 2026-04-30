@@ -92,10 +92,12 @@ def _make_templates_artifacts(well_out_dir: Path, *, unit_ids: tuple[int, ...] =
 		dtype=float,
 	)
 	for unit_id in unit_ids:
-		merged_unit_dir = well_out_dir / "templates_outputs" / "templates" / "merged" / f"unit_{unit_id}"
-		full_unit_dir = well_out_dir / "templates_outputs" / "templates" / "full" / f"unit_{unit_id}"
+		merged_unit_dir = well_out_dir / "templates_outputs" / "cache" / "templates" / "merged" / f"unit_{unit_id}"
+		full_unit_dir = well_out_dir / "templates_outputs" / "cache" / "templates" / "full" / f"unit_{unit_id}"
+		unit_dir = well_out_dir / "templates_outputs" / "units" / f"{unit_id:04d}"
 		merged_unit_dir.mkdir(parents=True, exist_ok=True)
 		full_unit_dir.mkdir(parents=True, exist_ok=True)
+		unit_dir.mkdir(parents=True, exist_ok=True)
 
 		merged_template = np.asarray(base_merged_template + (0.01 * float(unit_id)), dtype=float)
 		np.save(merged_unit_dir / "merged_contributing_template.npy", merged_template)
@@ -108,7 +110,7 @@ def _make_templates_artifacts(well_out_dir: Path, *, unit_ids: tuple[int, ...] =
 
 		wf = np.tile(np.sin(np.linspace(-1.0, 1.0, 40, dtype=float)), (120, 1))
 		np.save(merged_unit_dir / "overlay_top_channel_waveforms.npy", wf)
-		(merged_unit_dir / "overlay_top_channel_meta.json").write_text(
+		(unit_dir / "overlay_top_channel_meta.json").write_text(
 			json.dumps({"top_electrode_id": 0, "total_waveforms_at_channel": int(wf.shape[0])}),
 			encoding="utf-8",
 		)
@@ -294,7 +296,7 @@ def test_run_templates_build_templates_phase_materializes_templates_from_payload
 
 	write_materialized_source_payload(
 		templates_out_dir=templates_out_dir,
-		output_rel_root="templates/source_payloads",
+		output_rel_root="cache/source_payloads",
 		source_name="concat",
 		unit_id=94,
 		template_c_by_t=np.asarray([[0.0, -2.0, 0.0], [0.0, -1.0, 0.0]], dtype=float),
@@ -309,7 +311,7 @@ def test_run_templates_build_templates_phase_materializes_templates_from_payload
 	)
 	write_materialized_source_payload(
 		templates_out_dir=templates_out_dir,
-		output_rel_root="templates/source_payloads",
+		output_rel_root="cache/source_payloads",
 		source_name="000_recA",
 		unit_id=94,
 		template_c_by_t=np.asarray([[0.0, -3.0, 0.0], [0.0, -0.5, 0.0]], dtype=float),
@@ -334,26 +336,7 @@ def test_run_templates_build_templates_phase_materializes_templates_from_payload
 		),
 		per_unit_outputs=PerUnitTemplatesOutputsConfig(
 			unit_reldir="units/{unit_id:04d}/",
-			merged_template=TemplateArtifactConfig(
-				write_npy=True,
-				npy_relpath="merged_template.npy",
-				channel_locations_npy_relpath="merged_channel_locations.npy",
-			),
-			full_template=TemplateArtifactConfig(
-				write_npy=True,
-				npy_relpath="full_template.npy",
-				channel_locations_npy_relpath="full_channel_locations_xy.npy",
-			),
-			scan_template=TemplateArtifactConfig(
-				write_npy=True,
-				npy_relpath="scan_template.npy",
-				channel_locations_npy_relpath="scan_channel_locations.npy",
-			),
-			square_template=TemplateArtifactConfig(
-				write_npy=True,
-				npy_relpath="square_template.npy",
-				channel_locations_npy_relpath="square_channel_locations.npy",
-			),
+			full_template=TemplateArtifactConfig(write_npy=True),
 		),
 		unit_ids=[94],
 		unit_label_filter_required=False,
@@ -378,27 +361,28 @@ def test_run_templates_build_templates_phase_materializes_templates_from_payload
 	assert any("merged_channels=3" in message for message in messages)
 
 	unit_dir = well_out_dir / "templates_outputs" / "units" / "0094"
-	assert (unit_dir / "merged_template.npy").exists()
-	assert (unit_dir / "merged_channel_locations.npy").exists()
-	assert (unit_dir / "full_template.npy").exists()
-	assert (unit_dir / "full_channel_locations_xy.npy").exists()
-	assert (unit_dir / "scan_template.npy").exists()
-	assert (unit_dir / "scan_channel_locations.npy").exists()
-	assert (unit_dir / "square_template.npy").exists()
-	assert (unit_dir / "square_channel_locations.npy").exists()
+	assert not (unit_dir / "merged_template.npy").exists()
+	assert not (unit_dir / "merged_channel_locations.npy").exists()
+	assert not (unit_dir / "full_template.npy").exists()
+	assert not (unit_dir / "full_channel_locations_xy.npy").exists()
+	assert not (unit_dir / "scan_template.npy").exists()
+	assert not (unit_dir / "scan_channel_locations.npy").exists()
+	assert not (unit_dir / "square_template.npy").exists()
+	assert not (unit_dir / "square_channel_locations.npy").exists()
 
 	unit_summary = json.loads((unit_dir / "unit_templates_summary.json").read_text(encoding="utf-8"))
 	assert unit_summary["selected_template_source"] == "merged_contributing"
 	assert unit_summary["status"] == "ok"
-	assert unit_summary["outputs"]["merged_template_npy"].endswith("merged_template.npy")
+	assert "merged_template_npy" not in unit_summary["outputs"]
+	assert unit_summary["outputs"]["merged_contributing_electrode_ids_json"].endswith("merged_contributing_electrode_ids.json")
 	assert "grid_sort_metrics" in unit_summary
 	assert unit_summary["channel_scope"]["total_unique_channel_count"] == 3
 	assert unit_summary["channel_scope"]["merged_channel_count"] == 3
 
-	merged_unit_dir = well_out_dir / "templates_outputs" / "templates" / "merged" / "unit_94"
-	full_unit_dir = well_out_dir / "templates_outputs" / "templates" / "full" / "unit_94"
+	merged_unit_dir = well_out_dir / "templates_outputs" / "cache" / "templates" / "merged" / "unit_94"
+	full_unit_dir = well_out_dir / "templates_outputs" / "cache" / "templates" / "full" / "unit_94"
 	assert (merged_unit_dir / "merged_contributing_template.npy").exists()
-	merged_electrode_ids = json.loads((merged_unit_dir / "merged_contributing_electrode_ids.json").read_text(encoding="utf-8"))
+	merged_electrode_ids = json.loads((unit_dir / "merged_contributing_electrode_ids.json").read_text(encoding="utf-8"))
 	assert merged_electrode_ids["electrode_ids"] == ["10", "11", "12"]
 	assert (full_unit_dir / "full_template.npy").exists()
 
@@ -418,7 +402,7 @@ def test_run_templates_build_templates_phase_warns_when_merged_scope_shrinks(tmp
 
 	write_materialized_source_payload(
 		templates_out_dir=templates_out_dir,
-		output_rel_root="templates/source_payloads",
+		output_rel_root="cache/source_payloads",
 		source_name="concat",
 		unit_id=94,
 		template_c_by_t=np.asarray([[0.0, -2.0, 0.0]], dtype=float),
@@ -433,7 +417,7 @@ def test_run_templates_build_templates_phase_warns_when_merged_scope_shrinks(tmp
 	)
 	write_materialized_source_payload(
 		templates_out_dir=templates_out_dir,
-		output_rel_root="templates/source_payloads",
+		output_rel_root="cache/source_payloads",
 		source_name="000_recA",
 		unit_id=94,
 		template_c_by_t=np.asarray([[0.0, -3.0, 0.0]], dtype=float),
@@ -501,7 +485,7 @@ def test_run_templates_build_templates_phase_omits_disabled_full_outputs(tmp_pat
 
 	write_materialized_source_payload(
 		templates_out_dir=templates_out_dir,
-		output_rel_root="templates/source_payloads",
+		output_rel_root="cache/source_payloads",
 		source_name="concat",
 		unit_id=94,
 		template_c_by_t=np.asarray([[0.0, -2.0, 0.0], [0.0, -1.0, 0.0]], dtype=float),
@@ -524,7 +508,7 @@ def test_run_templates_build_templates_phase_omits_disabled_full_outputs(tmp_pat
 	np.save(unit_dir / "square_template.npy", np.asarray([[9.0, 9.0]], dtype=float))
 	np.save(unit_dir / "square_channel_locations.npy", np.asarray([[0.0, 0.0]], dtype=float))
 
-	full_unit_dir = templates_out_dir / "templates" / "full" / "unit_94"
+	full_unit_dir = templates_out_dir / "cache" / "templates" / "full" / "unit_94"
 	full_unit_dir.mkdir(parents=True, exist_ok=True)
 	np.save(full_unit_dir / "full_template.npy", np.asarray([[9.0, 9.0]], dtype=float))
 	np.save(full_unit_dir / "full_channel_locations_xy.npy", np.asarray([[0.0, 0.0]], dtype=float))
@@ -565,8 +549,8 @@ def test_run_templates_build_templates_phase_omits_disabled_full_outputs(tmp_pat
 	summary = run_templates_build_templates_phase(inputs)
 
 	assert summary["built_units"] == [94]
-	assert (unit_dir / "merged_template.npy").exists()
-	assert (unit_dir / "merged_channel_locations.npy").exists()
+	assert not (unit_dir / "merged_template.npy").exists()
+	assert not (unit_dir / "merged_channel_locations.npy").exists()
 	assert not (unit_dir / "full_template.npy").exists()
 	assert not (unit_dir / "full_channel_locations_xy.npy").exists()
 	assert not (unit_dir / "scan_template.npy").exists()
@@ -576,6 +560,7 @@ def test_run_templates_build_templates_phase_omits_disabled_full_outputs(tmp_pat
 	assert not full_unit_dir.exists()
 
 	unit_summary = json.loads((unit_dir / "unit_templates_summary.json").read_text(encoding="utf-8"))
+	assert "merged_template_npy" not in unit_summary["outputs"]
 	assert "full_template_npy" not in unit_summary["outputs"]
 	assert "scan_template_npy" not in unit_summary["outputs"]
 	assert "square_template_npy" not in unit_summary["outputs"]
@@ -701,7 +686,7 @@ def test_run_templates_build_templates_phase_loads_cached_analyzers_when_payload
 	assert summary["source_payload_well_out_dir"] == str(well_out_dir)
 	assert summary["analyzer_cache_dir"] == str(analyzer_cache_dir)
 	assert summary["source_payload_sources"]["concat"]["unit_count"] == 1
-	assert build_call["payload_root"] == templates_out_dir / "templates/source_payloads"
+	assert build_call["payload_root"] == templates_out_dir / "cache/source_payloads"
 
 
 def test_run_templates_build_templates_phase_requires_analyzer_cache_when_payloads_missing(tmp_path: Path, monkeypatch) -> None:
@@ -1043,11 +1028,11 @@ def test_run_templates_stage_writes_png(tmp_path: Path) -> None:
 
 	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
 	_make_templates_artifacts(well_out_dir)
-	(well_out_dir / "templates_outputs" / "templates" / "concat_unit_locations.json").write_text(
+	(well_out_dir / "templates_outputs" / "units" / "concat_unit_locations.json").write_text(
 		json.dumps([{"unit_id": 94, "x_um": 12.0, "y_um": 8.0}]),
 		encoding="utf-8",
 	)
-	(well_out_dir / "templates_outputs" / "templates" / "concat_unit_locations.json").write_text(
+	(well_out_dir / "templates_outputs" / "units" / "concat_unit_locations.json").write_text(
 		json.dumps([{"unit_id": 94, "x_um": 12.0, "y_um": 8.0}]),
 		encoding="utf-8",
 	)
@@ -1077,11 +1062,13 @@ def test_run_templates_stage_writes_png(tmp_path: Path) -> None:
 	assert result.units[0].status == "ok"
 
 	unit_png = well_out_dir / "templates_outputs" / "units" / "0094" / "template.png"
-	merged_npy = well_out_dir / "templates_outputs" / "units" / "0094" / "merged_template.npy"
+	unit_merged_npy = well_out_dir / "templates_outputs" / "units" / "0094" / "merged_template.npy"
+	cached_merged_npy = well_out_dir / "templates_outputs" / "cache" / "templates" / "merged" / "unit_94" / "merged_contributing_template.npy"
 	assert unit_png.exists()
-	assert merged_npy.exists()
+	assert cached_merged_npy.exists()
+	assert not unit_merged_npy.exists()
 	assert str(unit_png) == result.units[0].outputs.get("template_png")
-	assert str(merged_npy) == result.units[0].outputs.get("merged_template_npy")
+	assert "merged_template_npy" not in result.units[0].outputs
 
 
 def test_run_templates_stage_writes_template_circles_png(tmp_path: Path) -> None:
@@ -1123,10 +1110,12 @@ def test_run_templates_stage_writes_multiple_negative_peaks_quality_artifacts(tm
 	h5_path.write_text("", encoding="utf-8")
 
 	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
-	merged_unit_dir = well_out_dir / "templates_outputs" / "templates" / "merged" / "unit_94"
-	full_unit_dir = well_out_dir / "templates_outputs" / "templates" / "full" / "unit_94"
+	merged_unit_dir = well_out_dir / "templates_outputs" / "cache" / "templates" / "merged" / "unit_94"
+	full_unit_dir = well_out_dir / "templates_outputs" / "cache" / "templates" / "full" / "unit_94"
+	unit_dir = well_out_dir / "templates_outputs" / "units" / "0094"
 	merged_unit_dir.mkdir(parents=True, exist_ok=True)
 	full_unit_dir.mkdir(parents=True, exist_ok=True)
+	unit_dir.mkdir(parents=True, exist_ok=True)
 
 	merged_template = np.asarray(
 		[
@@ -1142,7 +1131,10 @@ def test_run_templates_stage_writes_multiple_negative_peaks_quality_artifacts(tm
 
 	np.save(merged_unit_dir / "merged_contributing_template.npy", merged_template)
 	np.save(merged_unit_dir / "merged_contributing_channel_locations.npy", merged_locs)
-	np.save(merged_unit_dir / "merged_contributing_electrode_ids.npy", merged_eids)
+	(unit_dir / "merged_contributing_electrode_ids.json").write_text(
+		json.dumps({"electrode_ids": merged_eids.tolist()}),
+		encoding="utf-8",
+	)
 	np.save(full_unit_dir / "full_template.npy", full_template)
 	np.save(full_unit_dir / "full_channel_locations_xy.npy", full_locs)
 
@@ -1215,8 +1207,8 @@ def test_run_templates_stage_quality_check_violation_plot_and_output_knobs(tmp_p
 	h5_path.write_text("", encoding="utf-8")
 
 	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
-	merged_unit_dir = well_out_dir / "templates_outputs" / "templates" / "merged" / "unit_94"
-	full_unit_dir = well_out_dir / "templates_outputs" / "templates" / "full" / "unit_94"
+	merged_unit_dir = well_out_dir / "templates_outputs" / "cache" / "templates" / "merged" / "unit_94"
+	full_unit_dir = well_out_dir / "templates_outputs" / "cache" / "templates" / "full" / "unit_94"
 	merged_unit_dir.mkdir(parents=True, exist_ok=True)
 	full_unit_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1340,8 +1332,8 @@ def test_run_templates_stage_quality_check_warnings_can_be_suppressed(tmp_path: 
 	h5_path.write_text("", encoding="utf-8")
 
 	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
-	merged_unit_dir = well_out_dir / "templates_outputs" / "templates" / "merged" / "unit_94"
-	full_unit_dir = well_out_dir / "templates_outputs" / "templates" / "full" / "unit_94"
+	merged_unit_dir = well_out_dir / "templates_outputs" / "cache" / "templates" / "merged" / "unit_94"
+	full_unit_dir = well_out_dir / "templates_outputs" / "cache" / "templates" / "full" / "unit_94"
 	merged_unit_dir.mkdir(parents=True, exist_ok=True)
 	full_unit_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1682,46 +1674,28 @@ def test_run_templates_stage_writes_channel_locations_for_all_template_artifacts
 	assert result.units[0].status == "ok"
 
 	unit_dir = well_out_dir / "templates_outputs" / "units" / "0094" / "arrays"
-	merged_template = np.load(unit_dir / "merged.npy")
-	square_template = np.load(unit_dir / "square.npy")
-	merged_locs = np.load(unit_dir / "merged_locs.npy")
-	square_locs = np.load(unit_dir / "square_locs.npy")
-	scan_locs = np.load(unit_dir / "scan_locs.npy")
-	full_locs = np.load(unit_dir / "full_locs.npy")
+	assert not (unit_dir / "merged.npy").exists()
+	assert not (unit_dir / "merged_locs.npy").exists()
+	assert not (unit_dir / "square.npy").exists()
+	assert not (unit_dir / "square_locs.npy").exists()
+	assert not (unit_dir / "scan.npy").exists()
+	assert not (unit_dir / "scan_locs.npy").exists()
+	assert not (unit_dir / "full.npy").exists()
+	assert not (unit_dir / "full_locs.npy").exists()
+
+	cache_root = well_out_dir / "templates_outputs" / "cache" / "templates"
+	merged_locs = np.load(cache_root / "merged" / "unit_94" / "merged_contributing_channel_locations.npy")
+	full_locs = np.load(cache_root / "full" / "unit_94" / "full_channel_locations_xy.npy")
 
 	np.testing.assert_allclose(
 		merged_locs,
 		np.asarray([[0.0, 0.0], [20.0, 0.0], [10.0, 18.0]], dtype=float),
 	)
-	assert square_locs.shape == (9, 2)
-	np.testing.assert_allclose(
-		square_locs,
-		np.asarray(
-			[
-				[0.0, 0.0],
-				[10.0, 0.0],
-				[20.0, 0.0],
-				[0.0, 18.0],
-				[10.0, 18.0],
-				[20.0, 18.0],
-				[0.0, 36.0],
-				[10.0, 36.0],
-				[20.0, 36.0],
-			],
-			dtype=float,
-		),
-	)
-	assert square_template.shape == (9, int(merged_template.shape[1]))
-	np.testing.assert_allclose(square_template[0, :], merged_template[0, :])
-	np.testing.assert_allclose(square_template[2, :], merged_template[1, :])
-	np.testing.assert_allclose(square_template[4, :], merged_template[2, :])
-	assert np.allclose(square_template[1, :], 0.0)
-	np.testing.assert_allclose(scan_locs, full_locs)
-
-	assert result.units[0].outputs.get("merged_template_channel_locations_npy", "").endswith("arrays/merged_locs.npy")
-	assert result.units[0].outputs.get("square_template_channel_locations_npy", "").endswith("arrays/square_locs.npy")
-	assert result.units[0].outputs.get("scan_template_channel_locations_npy", "").endswith("arrays/scan_locs.npy")
-	assert result.units[0].outputs.get("full_template_channel_locations_npy", "").endswith("arrays/full_locs.npy")
+	assert full_locs.shape == (6, 2)
+	assert "merged_template_channel_locations_npy" not in result.units[0].outputs
+	assert "square_template_channel_locations_npy" not in result.units[0].outputs
+	assert "scan_template_channel_locations_npy" not in result.units[0].outputs
+	assert "full_template_channel_locations_npy" not in result.units[0].outputs
 
 
 def test_run_templates_stage_writes_overlay_and_grid(tmp_path: Path) -> None:
@@ -1872,8 +1846,8 @@ def test_run_templates_stage_sorts_grid_inputs_by_max_ptp(tmp_path: Path, monkey
 	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
 
 	def _write_unit_artifacts(unit_id: int, *, scale: float) -> None:
-		merged_unit_dir = well_out_dir / "templates_outputs" / "templates" / "merged" / f"unit_{unit_id}"
-		full_unit_dir = well_out_dir / "templates_outputs" / "templates" / "full" / f"unit_{unit_id}"
+		merged_unit_dir = well_out_dir / "templates_outputs" / "cache" / "templates" / "merged" / f"unit_{unit_id}"
+		full_unit_dir = well_out_dir / "templates_outputs" / "cache" / "templates" / "full" / f"unit_{unit_id}"
 		merged_unit_dir.mkdir(parents=True, exist_ok=True)
 		full_unit_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2071,7 +2045,7 @@ def test_run_templates_stage_locations_report_passes_underlay_channel_payloads(t
 
 	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
 	_make_templates_artifacts(well_out_dir)
-	(well_out_dir / "templates_outputs" / "templates" / "concat_unit_locations.json").write_text(
+	(well_out_dir / "templates_outputs" / "units" / "concat_unit_locations.json").write_text(
 		json.dumps([{"unit_id": 94, "x_um": 12.0, "y_um": 8.0}]),
 		encoding="utf-8",
 	)
@@ -2174,7 +2148,7 @@ def test_run_templates_stage_locations_report_prefers_global_concat_locations(tm
 		],
 		dtype=float,
 	)
-	templates_root = well_out_dir / "templates_outputs" / "templates"
+	templates_root = well_out_dir / "templates_outputs" / "cache" / "templates"
 	templates_root.mkdir(parents=True, exist_ok=True)
 	np.save(templates_root / "concat_channel_locations_xy.npy", global_concat_locs)
 
@@ -2403,7 +2377,7 @@ def test_run_templates_stage_reports_replot_from_disk_uses_unit_summaries(tmp_pa
 	assert first_result.units[0].status == "ok"
 
 	# Remove source templates artifacts to prove report replot can proceed from saved per-unit summaries only.
-	shutil.rmtree(well_out_dir / "templates_outputs" / "templates" / "merged")
+	shutil.rmtree(well_out_dir / "templates_outputs" / "cache" / "templates" / "merged")
 
 	second_inputs = TemplatesInputs(
 		h5_path=h5_path,
@@ -2534,8 +2508,8 @@ def test_run_templates_stage_uses_spikeinterface_materialization_fallback(tmp_pa
 		assert "merge_method" in kwargs
 		assert templates_out_dir == (well_out_dir / "templates_outputs")
 
-		merged_dir = templates_out_dir / "templates" / "merged" / "unit_94"
-		full_dir = templates_out_dir / "templates" / "full" / "unit_94"
+		merged_dir = templates_out_dir / "cache" / "templates" / "merged" / "unit_94"
+		full_dir = templates_out_dir / "cache" / "templates" / "full" / "unit_94"
 		merged_dir.mkdir(parents=True, exist_ok=True)
 		full_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2595,8 +2569,8 @@ def test_run_templates_stage_force_restart_prefers_spikeinterface_materializatio
 		assert "merge_method" in kwargs
 		assert templates_out_dir == (well_out_dir / "templates_outputs")
 
-		merged_dir = templates_out_dir / "templates" / "merged" / "unit_94"
-		full_dir = templates_out_dir / "templates" / "full" / "unit_94"
+		merged_dir = templates_out_dir / "cache" / "templates" / "merged" / "unit_94"
+		full_dir = templates_out_dir / "cache" / "templates" / "full" / "unit_94"
 		merged_dir.mkdir(parents=True, exist_ok=True)
 		full_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2659,7 +2633,7 @@ def test_run_templates_stage_unit_force_restart_preserves_reports_when_not_overw
 
 	def _fake_materialize(*, well_out_dir: Path, templates_out_dir: Path, unit_ids, **kwargs):
 		assert unit_ids == [94]
-		return templates_out_dir / "templates" / "merged", templates_out_dir / "templates" / "full"
+		return templates_out_dir / "cache" / "templates" / "merged", templates_out_dir / "cache" / "templates" / "full"
 
 	def _raise_unexpected(*args, **kwargs):
 		raise AssertionError("stage report generation should have been skipped")
@@ -2729,8 +2703,8 @@ def test_run_templates_stage_force_restart_reuses_analyzer_cache_when_enabled(tm
 		)
 		assert unit_ids == [94, 95]
 		for unit_id in unit_ids:
-			merged_dir = templates_out_dir / "templates" / "merged" / f"unit_{unit_id}"
-			full_dir = templates_out_dir / "templates" / "full" / f"unit_{unit_id}"
+			merged_dir = templates_out_dir / "cache" / "templates" / "merged" / f"unit_{unit_id}"
+			full_dir = templates_out_dir / "cache" / "templates" / "full" / f"unit_{unit_id}"
 			merged_dir.mkdir(parents=True, exist_ok=True)
 			full_dir.mkdir(parents=True, exist_ok=True)
 			t = np.vstack([np.sin(np.linspace(-1.0, 1.0, 40)), np.cos(np.linspace(-1.0, 1.0, 40))])
@@ -2739,7 +2713,7 @@ def test_run_templates_stage_force_restart_reuses_analyzer_cache_when_enabled(tm
 			np.save(merged_dir / "merged_contributing_channel_locations.npy", locs)
 			np.save(full_dir / "full_template.npy", t)
 			np.save(full_dir / "full_channel_locations_xy.npy", locs)
-		return templates_out_dir / "templates" / "merged", templates_out_dir / "templates" / "full"
+		return templates_out_dir / "cache" / "templates" / "merged", templates_out_dir / "cache" / "templates" / "full"
 
 	monkeypatch.setattr(
 		"axon_recon.pipeline.stages.templates.runner.materialize_templates_from_spikeinterface",
@@ -2793,8 +2767,8 @@ def test_run_templates_stage_writes_upsampling_decisions_to_summaries(tmp_path: 
 		assert include_concat is True
 		assert include_segments is True
 		assert unit_ids == [94]
-		merged_dir = templates_out_dir / "templates" / "merged" / "unit_94"
-		full_dir = templates_out_dir / "templates" / "full" / "unit_94"
+		merged_dir = templates_out_dir / "cache" / "templates" / "merged" / "unit_94"
+		full_dir = templates_out_dir / "cache" / "templates" / "full" / "unit_94"
 		merged_dir.mkdir(parents=True, exist_ok=True)
 		full_dir.mkdir(parents=True, exist_ok=True)
 		t = np.vstack([np.sin(np.linspace(-1.0, 1.0, 40)), np.cos(np.linspace(-1.0, 1.0, 40))])
@@ -2869,8 +2843,8 @@ def test_run_templates_stage_passes_effective_sampling_rate_to_timing_renderers(
 
 	def _fake_materialize(*, templates_out_dir: Path, **kwargs):
 		_ = kwargs
-		merged_dir = templates_out_dir / "templates" / "merged" / "unit_94"
-		full_dir = templates_out_dir / "templates" / "full" / "unit_94"
+		merged_dir = templates_out_dir / "cache" / "templates" / "merged" / "unit_94"
+		full_dir = templates_out_dir / "cache" / "templates" / "full" / "unit_94"
 		merged_dir.mkdir(parents=True, exist_ok=True)
 		full_dir.mkdir(parents=True, exist_ok=True)
 		t = np.vstack([np.sin(np.linspace(-1.0, 1.0, 40)), np.cos(np.linspace(-1.0, 1.0, 40))])

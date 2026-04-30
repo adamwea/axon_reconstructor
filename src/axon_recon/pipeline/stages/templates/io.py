@@ -10,6 +10,9 @@ import numpy as np
 from .models.inputs import PerUnitTemplatesOutputsConfig
 
 
+MATERIALIZED_TEMPLATES_CACHE_RELPATH = Path("cache/templates")
+
+
 def read_json(path: Path) -> Any:
 	with open(path, "r", encoding="utf-8") as f:
 		return json.load(f)
@@ -150,6 +153,8 @@ def resolve_unit_output_paths(
 	return {
 		"unit_dir": unit_dir,
 		"unit_summary_json": unit_dir / "unit_templates_summary.json",
+		"merged_contributing_electrode_ids_json": unit_dir / "merged_contributing_electrode_ids.json",
+		"overlay_top_channel_meta_json": unit_dir / "overlay_top_channel_meta.json",
 		"merged_template_npy": merged_template_npy,
 		"merged_template_channel_locations_npy": merged_template_channel_locations_npy,
 		"square_template_npy": square_template_npy,
@@ -263,7 +268,7 @@ def resolve_similarity_output_paths(*, templates_out_dir: Path, similarity: Any)
 
 
 def resolve_materialized_templates_dirs(*, templates_out_dir: Path) -> tuple[Path, Path]:
-	templates_root = templates_out_dir / "templates"
+	templates_root = templates_out_dir / MATERIALIZED_TEMPLATES_CACHE_RELPATH
 	merged_units_dir = templates_root / "merged"
 	full_channels_templates_dir = templates_root / "full"
 	merged_units_dir.mkdir(parents=True, exist_ok=True)
@@ -383,14 +388,16 @@ def write_materialized_overlay_waveforms(
 	waveforms_by_t: np.ndarray,
 	top_electrode_id: Any,
 	total_waveforms_at_channel: int,
+	metadata_json_path: Path | None = None,
 ) -> None:
 	if isinstance(top_electrode_id, np.generic):
 		top_electrode_id = top_electrode_id.item()
 	merged_dir = merged_units_dir / f"unit_{unit_id}"
 	merged_dir.mkdir(parents=True, exist_ok=True)
 	np.save(merged_dir / "overlay_top_channel_waveforms.npy", np.asarray(waveforms_by_t, dtype=float))
+	meta_path = metadata_json_path or (merged_dir / "overlay_top_channel_meta.json")
 	write_json(
-		merged_dir / "overlay_top_channel_meta.json",
+		meta_path,
 		{
 			"top_electrode_id": top_electrode_id,
 			"top_channel_id": top_electrode_id,
@@ -404,11 +411,13 @@ def write_materialized_merged_electrode_ids(
 	merged_units_dir: Path,
 	unit_id: Any,
 	electrode_ids: list[Any] | None,
+	metadata_json_path: Path | None = None,
 ) -> None:
 	merged_dir = merged_units_dir / f"unit_{unit_id}"
 	merged_dir.mkdir(parents=True, exist_ok=True)
+	meta_path = metadata_json_path or (merged_dir / "merged_contributing_electrode_ids.json")
 	if electrode_ids is None:
-		write_json(merged_dir / "merged_contributing_electrode_ids.json", {"electrode_ids": None})
+		write_json(meta_path, {"electrode_ids": None})
 		return
 	serialized: list[Any] = []
 	for eid in list(electrode_ids):
@@ -416,12 +425,16 @@ def write_materialized_merged_electrode_ids(
 			serialized.append(eid.item())
 		else:
 			serialized.append(eid)
-	write_json(merged_dir / "merged_contributing_electrode_ids.json", {"electrode_ids": serialized})
+	write_json(meta_path, {"electrode_ids": serialized})
 
 
-def load_materialized_merged_electrode_ids(*, merged_unit_dir: Path) -> list[Any] | None:
-	meta_path = merged_unit_dir / "merged_contributing_electrode_ids.json"
-	if not meta_path.exists():
+def load_materialized_merged_electrode_ids(*, merged_unit_dir: Path, metadata_dir: Path | None = None) -> list[Any] | None:
+	meta_candidates = []
+	if metadata_dir is not None:
+		meta_candidates.append(metadata_dir / "merged_contributing_electrode_ids.json")
+	meta_candidates.append(merged_unit_dir / "merged_contributing_electrode_ids.json")
+	meta_path = next((path for path in meta_candidates if path.exists()), None)
+	if meta_path is None:
 		return None
 	try:
 		meta = read_json(meta_path)
@@ -440,10 +453,15 @@ def load_materialized_merged_electrode_ids(*, merged_unit_dir: Path) -> list[Any
 def load_materialized_overlay_waveforms(
 	*,
 	merged_unit_dir: Path,
+	metadata_dir: Path | None = None,
 ) -> tuple[np.ndarray, Any, int] | None:
 	wf_path = merged_unit_dir / "overlay_top_channel_waveforms.npy"
-	meta_path = merged_unit_dir / "overlay_top_channel_meta.json"
-	if (not wf_path.exists()) or (not meta_path.exists()):
+	meta_candidates = []
+	if metadata_dir is not None:
+		meta_candidates.append(metadata_dir / "overlay_top_channel_meta.json")
+	meta_candidates.append(merged_unit_dir / "overlay_top_channel_meta.json")
+	meta_path = next((path for path in meta_candidates if path.exists()), None)
+	if (not wf_path.exists()) or meta_path is None:
 		return None
 	try:
 		waveforms = np.asarray(np.load(wf_path), dtype=float)
