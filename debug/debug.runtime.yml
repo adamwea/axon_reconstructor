@@ -1554,10 +1554,12 @@ stages:
       - report_summaries
 
     debug_mode:
-      enabled: false
-      limit_datasets: null
+      enabled: true
+      #limit_datasets: null
+      limit_datasets: 1
       limit_wells: null
-      limit_wells_per_dataset: null
+      #limit_wells_per_dataset: null
+      limit_wells_per_dataset: 1
 
     execution:
       force_restart: false
