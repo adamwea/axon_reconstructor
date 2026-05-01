@@ -49,7 +49,7 @@ Dry-run the resolved Docker command:
 tools/axon-recon-container --dry-run --image axon-recon:local stages --help
 ```
 
-The wrapper mounts the repo at the same absolute path and sets writable cache locations under `/tmp/axon-recon-cache`. Add extra writable host mounts for runtime data/output roots with repeated `--mount host_path:container_path[:mode]` flags.
+The wrapper mounts the repo at the same absolute path and sets writable cache locations under `/tmp/axon-recon-cache`. When the forwarded CLI args include `--config`, the wrapper inspects that runtime config and its `data:` YAML with a lightweight scanner, then mounts configured output roots and scratch roots read-write and the common raw H5 root read-only. Disable this with `--no-config-mounts` and add manual mounts with repeated `--mount host_path:container_path[:mode]` flags when needed.
 
 For Shifter-style/root-squash smoke tests and to avoid root-owned host outputs, run Docker as your current UID/GID:
 

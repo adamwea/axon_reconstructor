@@ -80,6 +80,64 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-01 15:38 - pending - ai: auto-mount runtime config paths
+
+Status: accepted
+
+Summary:
+- Added config-derived mount discovery to `tools/axon-recon-container` so normal `--config debug/debug.runtime.yml` invocations automatically mount the runtime config's output root, scratch root, and raw H5 data root.
+- Kept the mount scanner lightweight and PyYAML-free; it follows the runtime `data:` pointer and recognizes scalar YAML keys used by the active pipeline config, including list-item `- raw_data_h5_path:` entries.
+- Added `--no-config-mounts` and `AXON_RECON_CONTAINER_CONFIG_MOUNTS=0` escape hatches so manual `--mount` behavior remains available.
+- Documented the automatic mount behavior in the container README.
+
+Acceptance Criteria:
+- Wrapper dry-run with the active runtime config shows configured output and scratch roots mounted read-write.
+- Wrapper dry-run with the active runtime config shows the common raw H5 root mounted read-only.
+- `--no-config-mounts` suppresses config-derived data/output/scratch mounts.
+- Existing explicit `--mount` and container argument forwarding behavior remains available.
+
+Self-Check:
+- Diff reviewed: yes.
+- Unrelated/user edits excluded from commit: yes; only the host wrapper, container README, and these notes are modified.
+- Instruction files re-read: yes, `debug/pipeline_containerize_instructions.md` and `debug/pipeline_refinement_instructions.md` were re-read before continuing this container wrapper slice.
+- Residual risk: the scanner is deliberately narrow and validates the current YAML shape without a PyYAML dependency; unusual YAML constructs or future schema changes may require extending it.
+
+Expected To Run:
+- `tools/axon-recon-container --image axon-recon:full-probe --current-user --no-tty --dry-run stages preprocess --config debug/debug.runtime.yml` should include the data/output/scratch mounts.
+- `tools/axon-recon-container --image axon-recon:full-probe --current-user --no-config-mounts --no-tty --dry-run stages preprocess --config debug/debug.runtime.yml` should omit config-derived mounts.
+
+Confirmed Not Run:
+- Real data stages, Docker build, Shifter, Slurm, GPU execution, and MPI execution were not run in this slice.
+
+Validation:
+- Pytest: not run; this slice only changes the Bash host wrapper, docs, and notes.
+- Smoke: initial dry-run showed output/scratch mounts but missed raw paths; scanner was corrected to handle list-item `- raw_data_h5_path:` syntax.
+- Smoke: `bash -n tools/axon-recon-container` passed.
+- Smoke: wrapper dry-run with `--config debug/debug.runtime.yml` included `/mnt/ben-shalom_nas/analysis/Media_Density_T5_02182026_AR_axon_analysis_AW:rw`, `/mnt/disk15tb/adamm/scratch:rw`, and the common active raw-data root under `/mnt/ben-shalom_nas/raw_data/.../Media_Density_T5_02182026_AR:ro`.
+- Smoke: wrapper dry-run with `--no-config-mounts` omitted the raw-data config mount.
+- Diff hygiene: `git diff --check` passed.
+
+Container / Shifter Impact:
+- Local Docker behavior: users no longer need to manually specify active runtime data/output/scratch mounts for normal config-based runs.
+- Shifter/NERSC behavior: documents the intended mount set for later Slurm/Shifter volume translation but does not validate Shifter itself.
+- Image size/cache impact: no image changes and no build required.
+
+CLI Impact:
+- Normal CLI: no change to host `axon-reconstructor` behavior.
+- Container CLI: wrapper still forwards all selectors unchanged; it now inspects forwarded `--config` only to construct Docker mounts.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged, but resumed container runs now get the same configured roots mounted by default.
+- Force-restart behavior: unchanged, but force-restart writes now land on auto-mounted scratch/output roots when configured.
+
+Storage / Mount Impact:
+- Created: writable output/scratch roots may be created by the wrapper if absent.
+- Modified: Docker command receives config-derived `-v` mounts before any explicit user mounts.
+- Required mounts: raw H5 common root is mounted read-only; output and scratch roots are mounted read-write.
+
+Rollback Notes:
+- Revert this commit to return to explicit-only `--mount` behavior. Users can also pass `--no-config-mounts` to bypass auto mounts without reverting.
+
 ## 2026-05-01 15:21 - pending - ai: support non-root container runs
 
 Status: accepted
