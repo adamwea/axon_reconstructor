@@ -76,7 +76,66 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-01 02:04 - pending - ai: rename reconstruct template cli handlers
+## 2026-05-01 02:11 - pending - ai: retire direct templates runtime wrappers
+
+Status: accepted
+
+Summary:
+- Removed direct `run_templates*_from_runtime` entry points from `pipeline.runner` now that direct templates CLI dispatch is retired.
+- Deleted the unused `stages/templates/cli.py` module.
+- Deleted pipeline-level tests that only protected direct templates runtime wrapper behavior.
+
+Acceptance Criteria:
+- No direct `run_templates*_from_runtime` or `_run_templates_substage_from_runtime` symbols remain under `src/axon_recon`.
+- No `register_templates_subparser` or `stages.templates.cli` references remain under `src/axon_recon`.
+- Reconstruct embedded template phase wrappers continue to pass focused tests.
+- Pipeline tests collect without stale direct templates wrapper imports.
+
+Expected To Run:
+- Reconstruct-owned template-related phases through `reconstruct.<phase>` selectors/wrappers.
+
+Confirmed Not Run:
+- Direct templates runtime wrappers and direct templates CLI module are removed.
+
+Files/Modules Changed:
+- `src/axon_recon/pipeline/runner.py`
+- `src/axon_recon/pipeline/stages/templates/cli.py`
+- `src/axon_recon/pipeline/tests/test_templates_target_status.py`
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_reconstruct_target_status.py src/axon_recon/pipeline/tests/test_cli_stage_sequence.py -q` passed.
+- Pytest collection: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest --collect-only src/axon_recon/pipeline -q` passed collection.
+- Reference audit: no `run_templates*_from_runtime`, `_run_templates_substage_from_runtime`, `register_templates_subparser`, or `stages.templates.cli` matches remain under `src/axon_recon/**`.
+- Diagnostics: no VS Code/Pylance errors in `pipeline/runner.py` or `pipeline/cli.py`.
+- Smoke (20 min max unless Adam approves longer): not run; this removed retired direct runtime entry points while preserving mocked reconstruct dispatch coverage.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: real-data smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged for active reconstruct path; retired direct templates runtime resume behavior is removed.
+- Force-restart cleanup: unchanged for active reconstruct path; retired direct templates runtime force-restart behavior is removed.
+- Partial-output handling: unchanged for active reconstruct path.
+
+Storage/Cache Impact:
+- Created: none.
+- Cleaned: removed direct templates runtime wrapper code/tests.
+- Persisted: none.
+- Size check: not applicable.
+
+CLI Impact:
+- Direct templates CLI module is deleted; top-level direct templates selectors were already unsupported.
+
+Retired Code/Tests:
+- Retired direct templates runtime wrappers, unused templates CLI module, and direct-wrapper target-status tests.
+
+Risks And Follow-Ups:
+- `stages.templates` core/config/models/tests remain because reconstruct still depends on them; next templates work should migrate those imports into reconstruct before deleting the package.
+
+Rollback Notes:
+- Restore the deleted wrappers, `stages/templates/cli.py`, and `test_templates_target_status.py` if direct templates runtime dispatch must be temporarily recovered.
+
+## 2026-05-01 02:04 - 505f662 - ai: rename reconstruct template cli handlers
 
 Status: accepted
 
