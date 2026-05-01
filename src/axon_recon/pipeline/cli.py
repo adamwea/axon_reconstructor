@@ -53,21 +53,6 @@ from .stages.spikesort.cli import _run_merge_slay_from_args as _run_spikesort_me
 from .stages.spikesort.cli import _run_merge_unitmatch_from_args as _run_spikesort_merge_unitmatch_from_args
 from .stages.spikesort.cli import _run_summarize_sort_from_args as _run_spikesort_summarize_sort_from_args
 from .stages.spikesort.orchestrators import _run_sort_from_args as _run_spikesort_sort_from_args
-from .stages.templates.cli import _run_from_args as _run_templates_from_args
-from .stages.templates.cli import _run_analyzers_concat_from_args as _run_templates_analyzers_concat_from_args
-from .stages.templates.cli import _run_analyzers_from_args as _run_templates_analyzers_from_args
-from .stages.templates.cli import _run_analyzers_segments_from_args as _run_templates_analyzers_segments_from_args
-from .stages.templates.cli import _run_build_templates_from_args as _run_templates_build_templates_from_args
-from .stages.templates.cli import _run_compute_template_similarity_from_args as _run_templates_compute_template_similarity_from_args
-from .stages.templates.cli import _run_extract_template_segments_from_args as _run_templates_extract_template_segments_from_args
-from .stages.templates.cli import _run_per_unit_processing_from_args as _run_templates_per_unit_processing_from_args
-from .stages.templates.cli import _run_plot_templates_from_args as _run_templates_plot_templates_from_args
-from .stages.templates.cli import _run_report_templates_from_args as _run_templates_report_templates_from_args
-from .stages.templates.cli import _run_reports_footprints_from_args as _run_templates_reports_footprints_from_args
-from .stages.templates.cli import _run_reports_from_args as _run_templates_reports_from_args
-from .stages.templates.cli import _run_reports_locations_from_args as _run_templates_reports_locations_from_args
-from .stages.templates.cli import _run_reports_overlays_from_args as _run_templates_reports_overlays_from_args
-from .stages.templates.cli import _run_resolve_sources_from_args as _run_templates_resolve_sources_from_args
 
 
 StageHandler = Callable[[argparse.Namespace], int]
@@ -137,19 +122,6 @@ _STAGE_ALIASES: dict[str, str] = {
 	"spikesort.merge_units.unitmatch": "spikesort.merge_unitmatch",
 	"spike": "spikesort",
 	"spikesorting": "spikesort",
-	"template": "templates",
-	"templates.resolve": "templates.resolve_sources",
-	"template.resolve": "templates.resolve_sources",
-	"templates.analyzer": "templates.analyzers",
-	"template.analyzers": "templates.analyzers",
-	"template.analyzer": "templates.analyzers",
-	"templates.extract_template_segments": "templates.per_unit_processing.extract_template_segments",
-	"templates.per_unit_processing.build_templates": "templates.build_templates",
-	"template.compute_template_similarity": "templates.compute_template_similarity",
-	"templates.per_unit_processing.plot_templates": "templates.plot_templates",
-	"template.report_templates": "templates.report_templates",
-	"template.per_unit_processing": "templates.per_unit_processing",
-	"template.reports": "templates.reports",
 	"recon": "reconstruct",
 	"reconstruction": "reconstruct",
 	"recon.resolve_sources": "reconstruct.resolve_sources",
@@ -235,21 +207,6 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"spikesort.merge_SLAy": _run_spikesort_merge_slay_from_args,
 	"spikesort.merge_si_auto": _run_spikesort_merge_si_auto_from_args,
 	"spikesort.merge_unitmatch": _run_spikesort_merge_unitmatch_from_args,
-	"templates": _run_templates_from_args,
-	"templates.resolve_sources": _run_templates_resolve_sources_from_args,
-	"templates.analyzers": _run_templates_analyzers_from_args,
-	"templates.analyzers.concat": _run_templates_analyzers_concat_from_args,
-	"templates.analyzers.segments": _run_templates_analyzers_segments_from_args,
-	"templates.per_unit_processing.extract_template_segments": _run_templates_extract_template_segments_from_args,
-	"templates.build_templates": _run_templates_build_templates_from_args,
-	"templates.compute_template_similarity": _run_templates_compute_template_similarity_from_args,
-	"templates.plot_templates": _run_templates_plot_templates_from_args,
-	"templates.report_templates": _run_templates_report_templates_from_args,
-	"templates.per_unit_processing": _run_templates_per_unit_processing_from_args,
-	"templates.reports": _run_templates_reports_from_args,
-	"templates.reports.locations": _run_templates_reports_locations_from_args,
-	"templates.reports.footprints": _run_templates_reports_footprints_from_args,
-	"templates.reports.overlays": _run_templates_reports_overlays_from_args,
 	"reconstruct": _run_reconstruct_from_args,
 	"reconstruct.resolve_sources": _run_reconstruct_templates_resolve_sources_from_args,
 	"reconstruct.analyzers": _run_reconstruct_templates_analyzers_from_args,

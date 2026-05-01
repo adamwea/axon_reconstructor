@@ -76,7 +76,65 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-01 01:43 - pending - ai: add reconstruct phase selectors
+## 2026-05-01 01:45 - pending - ai: retire direct templates CLI selectors
+
+Status: accepted
+
+Summary:
+- Removed direct top-level `templates` stage and phase selectors from the stage-sequence CLI.
+- Removed direct imports from `stages.templates.cli` in the top-level CLI.
+- Converted direct templates selector tests into rejection tests now that reconstruct owns the active template phase entry points.
+
+Acceptance Criteria:
+- `templates`, `template`, `templates.*`, and legacy `template.*` selectors fail fast as unsupported top-level stage tokens.
+- Preferred `reconstruct.<phase>` selectors remain available for active template-related reconstruct work.
+- Focused CLI selector tests pass.
+
+Expected To Run:
+- Active selectors under preprocess, spikesort, and reconstruct.
+- Reconstruct template-related selectors via `reconstruct.analyzers`, `reconstruct.build_templates`, and related preferred tokens.
+
+Confirmed Not Run:
+- Direct top-level `templates` selectors are no longer accepted by `axon_recon stages` / `axon_recon stage`.
+
+Files/Modules Changed:
+- `src/axon_recon/pipeline/cli.py`
+- `src/axon_recon/pipeline/tests/test_cli_stage_sequence.py`
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_cli_stage_sequence.py -q` passed.
+- Smoke (20 min max unless Adam approves longer): not run; focused CLI tests covered parser and mocked dispatch behavior.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: real-data CLI smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged.
+- Force-restart cleanup: unchanged.
+- Partial-output handling: unchanged.
+
+Storage/Cache Impact:
+- Created: none.
+- Cleaned: none.
+- Persisted: none.
+- Size check: not applicable.
+
+CLI Impact:
+- Direct `templates` / `template` selectors retired from the top-level stage-sequence CLI.
+- Active template-related work should be invoked through reconstruct selectors.
+
+Retired Code/Tests:
+- Removed direct top-level CLI imports and handlers for `stages.templates.cli`.
+- Removed tests that preserved direct templates CLI dispatch.
+
+Risks And Follow-Ups:
+- The `stages.templates` package and runtime helpers still exist and should be deleted after a broader reference audit confirms reconstruct covers active workflows.
+- The debug runtime still contains a `stages.templates` block; later slices should remove or migrate remaining active config references.
+
+Rollback Notes:
+- Restore `stages.templates.cli` imports, template aliases, and direct `_STAGE_HANDLERS` entries if direct templates selectors are temporarily needed again.
+
+## 2026-05-01 01:43 - 4ff446e - ai: add reconstruct phase selectors
 
 Status: accepted
 

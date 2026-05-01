@@ -35,29 +35,25 @@ def test_parse_stage_list_tokens_rejects_retired_analysis_stage(raw_token: str) 
         pipeline_cli._parse_stage_list_tokens([raw_token])
 
 
-def test_parse_stage_list_tokens_supports_templates_resolve_sources_substage() -> None:
-    parsed = pipeline_cli._parse_stage_list_tokens(["templates.resolve_sources"])
-    assert parsed == ["templates.resolve_sources"]
-
-
-def test_parse_stage_list_tokens_supports_templates_phase_substages() -> None:
-    parsed = pipeline_cli._parse_stage_list_tokens(
-        [
-            "templates.analyzers",
-            "templates.per_unit_processing.extract_template_segments",
-            "templates.reports",
-        ]
-    )
-    assert parsed == [
+@pytest.mark.parametrize(
+    "raw_token",
+    [
+        "templates",
+        "template",
+        "templates.resolve_sources",
         "templates.analyzers",
         "templates.per_unit_processing.extract_template_segments",
+        "templates.build_templates",
+        "templates.compute_template_similarity",
+        "templates.plot_templates",
+        "templates.report_templates",
         "templates.reports",
-    ]
-
-
-def test_parse_stage_list_tokens_supports_templates_phase_aliases() -> None:
-    parsed = pipeline_cli._parse_stage_list_tokens(["template.reports", "templates.build_templates"])
-    assert parsed == ["templates.reports", "templates.build_templates"]
+        "template.reports",
+    ],
+)
+def test_parse_stage_list_tokens_rejects_retired_templates_stage(raw_token: str) -> None:
+    with pytest.raises(SystemExit, match="Unsupported stage token"):
+        pipeline_cli._parse_stage_list_tokens([raw_token])
 
 
 @pytest.mark.parametrize(
@@ -106,24 +102,18 @@ def test_parse_stage_list_tokens_rejects_removed_preprocess_aliases(raw_token: s
         pipeline_cli._parse_stage_list_tokens([raw_token])
 
 
-def test_parse_stage_list_tokens_maps_legacy_templates_build_templates_alias() -> None:
-    parsed = pipeline_cli._parse_stage_list_tokens(["templates.per_unit_processing.build_templates"])
-    assert parsed == ["templates.build_templates"]
-
-
-def test_parse_stage_list_tokens_maps_legacy_templates_plot_templates_alias() -> None:
-    parsed = pipeline_cli._parse_stage_list_tokens(["templates.per_unit_processing.plot_templates"])
-    assert parsed == ["templates.plot_templates"]
-
-
-def test_parse_stage_list_tokens_maps_template_compute_template_similarity_alias() -> None:
-    parsed = pipeline_cli._parse_stage_list_tokens(["template.compute_template_similarity"])
-    assert parsed == ["templates.compute_template_similarity"]
-
-
-def test_parse_stage_list_tokens_maps_legacy_template_report_templates_alias() -> None:
-    parsed = pipeline_cli._parse_stage_list_tokens(["template.report_templates"])
-    assert parsed == ["templates.report_templates"]
+@pytest.mark.parametrize(
+    "raw_token",
+    [
+        "templates.per_unit_processing.build_templates",
+        "templates.per_unit_processing.plot_templates",
+        "template.compute_template_similarity",
+        "template.report_templates",
+    ],
+)
+def test_parse_stage_list_tokens_rejects_legacy_templates_aliases(raw_token: str) -> None:
+    with pytest.raises(SystemExit, match="Unsupported stage token"):
+        pipeline_cli._parse_stage_list_tokens([raw_token])
 
 
 @pytest.mark.parametrize(
@@ -323,124 +313,18 @@ def test_main_stops_after_first_failure(monkeypatch, tmp_path: Path) -> None:
         calls.append("spikesort")
         return 3
 
-    def _templates(args):
-        calls.append("templates")
+    def _reconstruct(args):
+        calls.append("reconstruct")
         return 0
 
     monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "preprocess", _preprocess)
     monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "spikesort", _spikesort)
-    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "templates", _templates)
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "reconstruct", _reconstruct)
 
-    rc = pipeline_cli.main(["stages", "preprocess,spikesort,templates", "--config", str(runtime_cfg)])
+    rc = pipeline_cli.main(["stages", "preprocess,spikesort,reconstruct", "--config", str(runtime_cfg)])
 
     assert rc == 3
     assert calls == ["preprocess", "spikesort"]
-
-
-def test_main_runs_templates_resolve_sources_substage(monkeypatch, tmp_path: Path) -> None:
-    runtime_cfg = tmp_path / "runtime.yml"
-    _write_runtime_cfg(runtime_cfg)
-
-    calls: list[str] = []
-
-    def _resolve_sources(args):
-        calls.append(str(getattr(args, "stage", "")))
-        return 0
-
-    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "templates.resolve_sources", _resolve_sources)
-
-    rc = pipeline_cli.main(["stages", "templates.resolve_sources", "--config", str(runtime_cfg)])
-
-    assert rc == 0
-    assert calls == ["templates.resolve_sources"]
-
-
-def test_main_runs_templates_build_templates_substage(monkeypatch, tmp_path: Path) -> None:
-    runtime_cfg = tmp_path / "runtime.yml"
-    _write_runtime_cfg(runtime_cfg)
-
-    calls: list[str] = []
-
-    def _build_templates(args):
-        calls.append(str(getattr(args, "stage", "")))
-        return 0
-
-    monkeypatch.setitem(
-        pipeline_cli._STAGE_HANDLERS,
-        "templates.build_templates",
-        _build_templates,
-    )
-
-    rc = pipeline_cli.main(
-        [
-            "stages",
-            "templates.build_templates",
-            "--config",
-            str(runtime_cfg),
-            "--force-restart",
-        ]
-    )
-
-    assert rc == 0
-    assert calls == ["templates.build_templates"]
-
-
-def test_main_runs_templates_plot_templates_substage(monkeypatch, tmp_path: Path) -> None:
-    runtime_cfg = tmp_path / "runtime.yml"
-    _write_runtime_cfg(runtime_cfg)
-
-    calls: list[str] = []
-
-    def _plot_templates(args):
-        calls.append(str(getattr(args, "stage", "")))
-        return 0
-
-    monkeypatch.setitem(
-        pipeline_cli._STAGE_HANDLERS,
-        "templates.plot_templates",
-        _plot_templates,
-    )
-
-    rc = pipeline_cli.main(
-        [
-            "stages",
-            "templates.plot_templates",
-            "--config",
-            str(runtime_cfg),
-        ]
-    )
-
-    assert rc == 0
-    assert calls == ["templates.plot_templates"]
-
-
-def test_main_runs_templates_compute_template_similarity_substage(monkeypatch, tmp_path: Path) -> None:
-    runtime_cfg = tmp_path / "runtime.yml"
-    _write_runtime_cfg(runtime_cfg)
-
-    calls: list[str] = []
-
-    def _compute_template_similarity(args):
-        calls.append(str(getattr(args, "stage", "")))
-        return 0
-
-    monkeypatch.setitem(
-        pipeline_cli._STAGE_HANDLERS,
-        "templates.compute_template_similarity",
-        _compute_template_similarity,
-    )
-
-    rc = pipeline_cli.main(
-        [
-            "stages",
-            "templates.compute_template_similarity",
-            "--config",
-            str(runtime_cfg),
-        ]
-    )
-
-    assert rc == 0
-    assert calls == ["templates.compute_template_similarity"]
 
 
 @pytest.mark.parametrize(
@@ -518,65 +402,6 @@ def test_main_runs_reconstruct_phase_substages(
 
     assert rc == 0
     assert calls == [handler_key]
-
-
-def test_main_runs_templates_report_templates_substage(monkeypatch, tmp_path: Path) -> None:
-    runtime_cfg = tmp_path / "runtime.yml"
-    _write_runtime_cfg(runtime_cfg)
-
-    calls: list[str] = []
-
-    def _report_templates(args):
-        calls.append(str(getattr(args, "stage", "")))
-        return 0
-
-    monkeypatch.setitem(
-        pipeline_cli._STAGE_HANDLERS,
-        "templates.report_templates",
-        _report_templates,
-    )
-
-    rc = pipeline_cli.main(
-        [
-            "stages",
-            "templates.report_templates",
-            "--config",
-            str(runtime_cfg),
-        ]
-    )
-
-    assert rc == 0
-    assert calls == ["templates.report_templates"]
-
-
-def test_main_runs_legacy_templates_build_templates_substage_alias(monkeypatch, tmp_path: Path) -> None:
-    runtime_cfg = tmp_path / "runtime.yml"
-    _write_runtime_cfg(runtime_cfg)
-
-    calls: list[str] = []
-
-    def _build_templates(args):
-        calls.append(str(getattr(args, "stage", "")))
-        return 0
-
-    monkeypatch.setitem(
-        pipeline_cli._STAGE_HANDLERS,
-        "templates.build_templates",
-        _build_templates,
-    )
-
-    rc = pipeline_cli.main(
-        [
-            "stages",
-            "templates.per_unit_processing.build_templates",
-            "--config",
-            str(runtime_cfg),
-            "--force-restart",
-        ]
-    )
-
-    assert rc == 0
-    assert calls == ["templates.build_templates"]
 
 
 def test_stage_sequence_parser_accepts_debug_limit_flags(monkeypatch, tmp_path: Path) -> None:
