@@ -141,7 +141,20 @@ stages:
       well_workers: 6 # number of wells to process in parallel; when combined with max_stage_workers, controls the effective n_jobs for preprocess phases that support it; keep at 1 for debugging iterations to simplify resource usage and make logs easier to follow, but can be set higher for faster iterations when well-level parallelism is not a concern.
       divide_stage_workers_by_wells: true # This controls the derived value of n_jobs. when true, stage workers are divided evenly among wells up to the max number of well workers.
     rel_output_root: preprocess_outputs # optional subdir under each well's output directory for all preprocess outputs; relative paths for preprocess phases resolve under this directory in each well's output directory
-    phase_sequence: [copy_src_to_scratch, save_rec_metadata, preprocess_segments, plot_segment_traces, plot_segment_channel_layouts, plot_raster_threshold]
+    #phase_sequence: [copy_src_to_scratch, save_rec_metadata, preprocess_segments, plot_segment_traces, plot_segment_channel_layouts, plot_raster_threshold]
+    phase_sequence:
+    - copy_src_to_scratch
+    - save_rec_metadata
+    - preprocess_segments
+    #- plot_segment_traces
+    #- plot_segment_channel_layouts
+    #- concat_segments
+    #- plot_concat_traces
+    #- plot_concat_channel_layout
+    #- plot_raster_threshold
+    #- report_preprocessing
+    #- cleanup_preprocessing_outputs
+    #- wipe_src_scratch
     phases:
       copy_src_to_scratch:
         enabled: true
@@ -316,6 +329,11 @@ stages:
       #limit_wells: 2
       #limit_wells: null
       limit_wells_per_dataset: 1
+
+      # This option limits segments included in phases for quicker smoke testing.
+      # - limit number of segments cocatenated in bootstrap_concat_binary.
+      limit_segments: null
+
     execution:
       force_restart: false
       force_replot: false
@@ -1568,6 +1586,25 @@ stages:
       limit_wells: null
       #limit_wells_per_dataset: null
       limit_wells_per_dataset: 1
+
+      # this option limits a phases so that they run quickly for smoke testing:
+      # - analyzers prepared for each segment in analyzer phase.
+      # - segments loaded to build templates in build_templates phase
+      limit_segments: null
+
+      # this option limits the number of units to process for faster iterations during debugging; set to null or -1 for no limit.
+      # - number of templates built in build_templates phase.
+      # - number of templates plotted in plot_templates phase.
+      # - number of templates included in report_templates phase.
+      # - number of gtrs generated in generate_gtrs phase.
+      # - number of units included in plot_recons phase.
+      # - number of units included in plot_branch_propagations phase.
+      # - number of units included in plot_branch_velocities phase.
+      # - number of units included in plot_unit_summary phase.
+      # - number of units included in report_recons phase.
+      # - number of units included in report_full_chip_layout phase.
+      # - number of units included in report_summaries phase.
+      unit_limit: null
 
     debug_prints: false # when true, allow raw/unexpected matplotlib/PIL/fontTools debug output during reconstruct plotting and report phases.
 

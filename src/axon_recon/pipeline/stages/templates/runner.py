@@ -1868,6 +1868,7 @@ def _iter_templates_phase_analyzers(
 		segments_use_existing_analyzer=bool(inputs.phases.analyzers.segments.use_existing_analyzer),
 		segments_build_if_missing=bool(inputs.phases.analyzers.segments.build_if_missing),
 		requested_source_names=requested_source_names,
+		limit_segments=inputs.limit_segments,
 		load_stats=load_stats,
 	)
 
@@ -1920,6 +1921,7 @@ def _load_templates_phase_analyzers(
 		segments_use_existing_analyzer=bool(inputs.phases.analyzers.segments.use_existing_analyzer),
 		segments_build_if_missing=bool(inputs.phases.analyzers.segments.build_if_missing),
 		requested_source_names=requested_source_names,
+		limit_segments=inputs.limit_segments,
 		return_stats=return_stats,
 	)
 
@@ -1942,6 +1944,7 @@ def _discover_templates_cached_build_sources(
 			analyzer_cache_segments_subdir=str(inputs.analyzer_cache.segment_analyzers_subdir or ""),
 			include_concat=include_concat,
 			include_segments=include_segments,
+			limit_segments=inputs.limit_segments,
 		)
 		if source_names:
 			if candidate_well_out_dir != well_out_dir:
@@ -2005,6 +2008,7 @@ def _build_templates_phase_from_cached_analyzers(
 			include_concat=bool(inputs.include_concat) and bool(inputs.phases.analyzers.concat.enabled),
 			include_segments=bool(inputs.include_segments) and bool(inputs.phases.analyzers.segments.enabled),
 			requested_source_names=[str(requested_source_name)],
+			limit_segments=inputs.limit_segments,
 		)
 		source_match = next(
 			((name, analyzer) for name, analyzer in analyzers if str(name) == str(requested_source_name)),

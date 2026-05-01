@@ -529,6 +529,36 @@ def test_main_runs_legacy_templates_build_templates_substage_alias(monkeypatch, 
     assert calls == ["templates.build_templates"]
 
 
+def test_stage_sequence_parser_accepts_debug_limit_flags(monkeypatch, tmp_path: Path) -> None:
+    runtime_cfg = tmp_path / "runtime.yml"
+    _write_runtime_cfg(runtime_cfg)
+
+    seen: dict[str, int | None] = {}
+
+    def _reconstruct(args):
+        seen["limit_segments"] = getattr(args, "limit_segments", None)
+        seen["limit_units"] = getattr(args, "limit_units", None)
+        return 0
+
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "reconstruct", _reconstruct)
+
+    rc = pipeline_cli.main(
+        [
+            "stages",
+            "reconstruct",
+            "--config",
+            str(runtime_cfg),
+            "--limit-segments",
+            "2",
+            "--limit-units",
+            "3",
+        ]
+    )
+
+    assert rc == 0
+    assert seen == {"limit_segments": 2, "limit_units": 3}
+
+
 def test_main_runs_spikesort_sort_substage_alias(monkeypatch, tmp_path: Path) -> None:
     runtime_cfg = tmp_path / "runtime.yml"
     _write_runtime_cfg(runtime_cfg)

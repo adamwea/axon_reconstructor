@@ -435,6 +435,7 @@ class ReconstructionInputs:
 
 	unit_ids: list[Any] | None = None
 	unit_limit: int | None = None
+	limit_segments: int | None = None
 	phase_sequence: tuple[str, ...] | None = None
 	phases: ReconstructionPhasesConfig = field(default_factory=ReconstructionPhasesConfig)
 

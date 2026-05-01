@@ -614,6 +614,45 @@ def test_load_spikeinterface_analyzers_filters_requested_source_names(tmp_path, 
 	assert loaded_paths == [str(seg_b)]
 
 
+def test_load_spikeinterface_analyzers_limits_segment_sources(tmp_path, monkeypatch) -> None:
+	well_out_dir = tmp_path / "well001"
+	concat_dir = well_out_dir / "custom_concat"
+	segments_dir = well_out_dir / "custom_segments"
+	seg_a = segments_dir / "segA"
+	seg_b = segments_dir / "segB"
+	seg_c = segments_dir / "segC"
+	concat_dir.mkdir(parents=True, exist_ok=True)
+	seg_a.mkdir(parents=True, exist_ok=True)
+	seg_b.mkdir(parents=True, exist_ok=True)
+	seg_c.mkdir(parents=True, exist_ok=True)
+
+	loaded_paths: list[str] = []
+
+	def _fake_load_sorting_analyzer(path):
+		loaded_paths.append(str(path))
+		return {"path": str(path)}
+
+	fake_full = types.ModuleType("spikeinterface.full")
+	fake_full.load_sorting_analyzer = _fake_load_sorting_analyzer  # type: ignore[attr-defined]
+	fake_root = types.ModuleType("spikeinterface")
+	fake_root.full = fake_full  # type: ignore[attr-defined]
+
+	monkeypatch.setitem(sys.modules, "spikeinterface", fake_root)
+	monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_full)
+
+	analyzers = load_spikeinterface_analyzers(
+		well_out_dir=well_out_dir,
+		concat_analyzer_relpath="/custom_concat",
+		preproc_seg_sources_reldir="/custom_segments",
+		include_concat=True,
+		include_segments=True,
+		limit_segments=1,
+	)
+
+	assert [name for name, _ in analyzers] == ["concat", "segA"]
+	assert loaded_paths == [str(concat_dir), str(seg_a)]
+
+
 def test_load_spikeinterface_analyzers_persists_loaded_analyzers_to_cache(tmp_path, monkeypatch) -> None:
 	well_out_dir = tmp_path / "well001"
 	concat_dir = well_out_dir / "custom_concat"

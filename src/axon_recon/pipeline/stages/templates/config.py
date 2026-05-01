@@ -1113,6 +1113,7 @@ class TemplatesStageConfig:
 	preproc_seg_sources_reldir: str | None
 	unit_ids: list[int] | None
 	unit_limit: int | None
+	limit_segments: int | None
 	force_restart: bool
 	force_replot: bool
 	force_replot_per_unit: bool
@@ -1585,6 +1586,8 @@ def parse_templates_stage_config(
 	probe_geometry: ProbeGeometryConfig | None = None,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> TemplatesStageConfig:
@@ -1751,16 +1754,22 @@ def parse_templates_stage_config(
 		force_replot = False
 		force_replot_per_unit = False
 
-	unit_limit_raw = execution_cfg.get("unit_limit", stage_cfg.get("unit_limit", None))
-	unit_limit: int | None
-	if unit_limit_raw is None:
-		unit_limit = None
-	else:
-		try:
-			parsed = int(unit_limit_raw)
-			unit_limit = parsed if parsed > 0 else None
-		except Exception:
-			unit_limit = None
+	unit_limit_raw = (
+		debug_mode_cfg.get("unit_limit", None)
+		if "unit_limit" in debug_mode_cfg
+		else execution_cfg.get("unit_limit", stage_cfg.get("unit_limit", None))
+	)
+	unit_limit = _as_optional_positive_int(unit_limit_raw)
+	if unit_limit_override is not None:
+		unit_limit = _as_optional_positive_int(unit_limit_override)
+	limit_segments_raw = (
+		debug_mode_cfg.get("limit_segments", None)
+		if "limit_segments" in debug_mode_cfg
+		else execution_cfg.get("limit_segments", stage_cfg.get("limit_segments", None))
+	)
+	limit_segments = _as_optional_positive_int(limit_segments_raw)
+	if limit_segments_override is not None:
+		limit_segments = _as_optional_positive_int(limit_segments_override)
 
 	runtime_unit_ids = _normalize_unit_ids(execution_cfg.get("unit_ids", stage_cfg.get("unit_ids", None)))
 	if unit_ids_override is not None:
@@ -3958,6 +3967,7 @@ def parse_templates_stage_config(
 		preproc_seg_sources_reldir=preproc_seg_sources_reldir,
 		unit_ids=unit_ids,
 		unit_limit=unit_limit,
+		limit_segments=limit_segments,
 		force_restart=force_restart,
 		force_replot=force_replot,
 		force_replot_per_unit=force_replot_per_unit,
@@ -4005,6 +4015,7 @@ def build_templates_inputs_for_target(
 		phases=stage_config.phases,
 		unit_ids=stage_config.unit_ids,
 		unit_limit=stage_config.unit_limit,
+		limit_segments=stage_config.limit_segments,
 		force_restart=stage_config.force_restart,
 		force_replot=stage_config.force_replot,
 		force_replot_per_unit=stage_config.force_replot_per_unit,
@@ -4029,6 +4040,8 @@ def load_templates_inputs_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> TemplatesInputs:
@@ -4081,6 +4094,8 @@ def load_templates_inputs_from_runtime(
 		probe_geometry=parse_probe_geometry_from_data_config(data_config=data_cfg),
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -4106,6 +4121,7 @@ def load_templates_inputs_from_runtime(
 		phases=stage_cfg.phases,
 		unit_ids=stage_cfg.unit_ids,
 		unit_limit=stage_cfg.unit_limit,
+		limit_segments=stage_cfg.limit_segments,
 		force_restart=stage_cfg.force_restart,
 		force_replot=stage_cfg.force_replot,
 		force_replot_per_unit=stage_cfg.force_replot_per_unit,

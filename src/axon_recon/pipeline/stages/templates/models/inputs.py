@@ -914,6 +914,7 @@ class TemplatesInputs:
 
 	unit_ids: list[Any] | None = None
 	unit_limit: int | None = None
+	limit_segments: int | None = None
 
 	force_restart: bool = False
 	force_replot: bool = False

@@ -275,6 +275,16 @@ def _parse_unit_ids_csv(raw: str) -> list[int]:
 	return parsed
 
 
+def _parse_positive_int(raw: str) -> int:
+	try:
+		value = int(str(raw).strip())
+	except Exception as exc:
+		raise argparse.ArgumentTypeError(f"Expected a positive integer, got {raw!r}") from exc
+	if value <= 0:
+		raise argparse.ArgumentTypeError(f"Expected a positive integer, got {value}")
+	return value
+
+
 def _register_stage_sequence_parser(
 	*,
 	subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
@@ -300,6 +310,18 @@ def _register_stage_sequence_parser(
 		type=_parse_unit_ids_csv,
 		default=None,
 		help="Optional comma-separated list of unit ids",
+	)
+	parser.add_argument(
+		"--limit-segments",
+		type=_parse_positive_int,
+		default=None,
+		help="Limit segment analyzer sources for debug runs",
+	)
+	parser.add_argument(
+		"--limit-units",
+		type=_parse_positive_int,
+		default=None,
+		help="Limit units for debug runs",
 	)
 	parser.set_defaults(handler=_run_stage_sequence_from_args)
 

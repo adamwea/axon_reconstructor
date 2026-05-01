@@ -1214,6 +1214,7 @@ def discover_cached_spikeinterface_analyzer_source_names(
 	include_concat: bool,
 	include_segments: bool,
 	requested_source_names: list[str] | tuple[str, ...] | set[str] | None = None,
+	limit_segments: int | None = None,
 ) -> list[str]:
 	requested_names: set[str] | None = None
 	if requested_source_names is not None:
@@ -1236,9 +1237,29 @@ def discover_cached_spikeinterface_analyzer_source_names(
 	if bool(include_segments):
 		for name in sorted(key for key in cached_dirs.keys() if str(key) != "concat"):
 			source_names.append(str(name))
-	if requested_names is None:
-		return source_names
-	return [name for name in source_names if name in requested_names]
+	if requested_names is not None:
+		source_names = [name for name in source_names if name in requested_names]
+	return _apply_segment_source_limit(source_names, limit_segments=limit_segments)
+
+
+def _apply_segment_source_limit(source_names: list[str], *, limit_segments: int | None) -> list[str]:
+	try:
+		limit = int(limit_segments) if limit_segments is not None else None
+	except Exception:
+		limit = None
+	if limit is None or limit <= 0:
+		return list(source_names)
+	limited: list[str] = []
+	segment_count = 0
+	for source_name in source_names:
+		if str(source_name) == "concat":
+			limited.append(str(source_name))
+			continue
+		if segment_count >= limit:
+			continue
+		limited.append(str(source_name))
+		segment_count += 1
+	return limited
 
 
 def load_cached_spikeinterface_analyzers(
@@ -1253,6 +1274,7 @@ def load_cached_spikeinterface_analyzers(
 	include_concat: bool,
 	include_segments: bool,
 	requested_source_names: list[str] | tuple[str, ...] | set[str] | None = None,
+	limit_segments: int | None = None,
 ) -> list[tuple[str, Any]]:
 	import spikeinterface.full as si  # type: ignore[import-not-found]
 
@@ -1331,7 +1353,11 @@ def load_cached_spikeinterface_analyzers(
 		recording = None if preprocessed_concat_dir is None else _load_with_methods(preprocessed_concat_dir, ("load_extractor", "load_recording", "load"))
 		analyzers.append(("concat", _attach_temporary_recording_if_missing(analyzer=loaded["concat"], recording=recording)))
 	if bool(include_segments):
-		for source_name in sorted(name for name in loaded.keys() if str(name) != "concat"):
+		segment_source_names = _apply_segment_source_limit(
+			[str(name) for name in sorted(name for name in loaded.keys() if str(name) != "concat")],
+			limit_segments=limit_segments,
+		)
+		for source_name in segment_source_names:
 			recording = None
 			if segments_dir is not None:
 				seg_dir = segments_dir / str(source_name)
@@ -1359,6 +1385,7 @@ def discover_spikeinterface_analyzer_source_names(
 	segments_use_existing_analyzer: bool = True,
 	segments_build_if_missing: bool = True,
 	requested_source_names: list[str] | tuple[str, ...] | set[str] | None = None,
+	limit_segments: int | None = None,
 ) -> list[str]:
 	requested_names: set[str] | None = None
 	if requested_source_names is not None:
@@ -1432,9 +1459,9 @@ def discover_spikeinterface_analyzer_source_names(
 		elif not bool(segments_build_if_missing):
 			source_names = [name for name in source_names if str(name) == "concat"]
 
-	if requested_names is None:
-		return source_names
-	return [name for name in source_names if name in requested_names]
+	if requested_names is not None:
+		source_names = [name for name in source_names if name in requested_names]
+	return _apply_segment_source_limit(source_names, limit_segments=limit_segments)
 
 
 def _persist_analyzer_to_cache(
@@ -1820,6 +1847,7 @@ def load_spikeinterface_analyzers(
 	segments_use_existing_analyzer: bool = True,
 	segments_build_if_missing: bool = True,
 	requested_source_names: list[str] | tuple[str, ...] | set[str] | None = None,
+	limit_segments: int | None = None,
 	return_stats: bool = False,
 ) -> Any:
 	import spikeinterface.full as si  # type: ignore[import-not-found]
@@ -2227,6 +2255,11 @@ def load_spikeinterface_analyzers(
 			if requested_names is not None and canonical not in requested_names:
 				continue
 			seg_entries.append((canonical, entry))
+		limited_seg_names = set(
+			_apply_segment_source_limit([name for name, _ in seg_entries], limit_segments=limit_segments)
+		)
+		if limited_seg_names:
+			seg_entries = [(name, path) for name, path in seg_entries if name in limited_seg_names]
 		load_stats["segments"]["recordings_discovered"] = int(len(seg_entries))
 		LOGGER.info(
 			"Discovered preprocessed segment recording sources: count=%d source_dir=%s",
@@ -2240,6 +2273,7 @@ def load_spikeinterface_analyzers(
 				continue
 			if name not in segment_names:
 				segment_names.append(name)
+		segment_names = _apply_segment_source_limit(segment_names, limit_segments=limit_segments)
 		unloadable_seg_dirs: list[Path] = []
 		queued_seg_names: set[str] = set()
 		for seg_name in segment_names:
@@ -2517,6 +2551,7 @@ def load_spikeinterface_analyzers(
 					segments_use_existing_analyzer=segments_use_existing_analyzer,
 					segments_build_if_missing=segments_build_if_missing,
 					requested_source_names=(None if requested_names is None else list(requested_names)),
+					limit_segments=limit_segments,
 					return_stats=return_stats,
 				)
 			except FileNotFoundError:
@@ -2640,6 +2675,7 @@ def iter_spikeinterface_analyzers(
 	segments_use_existing_analyzer: bool = True,
 	segments_build_if_missing: bool = True,
 	requested_source_names: list[str] | tuple[str, ...] | set[str] | None = None,
+	limit_segments: int | None = None,
 	load_stats: dict[str, Any] | None = None,
 ) -> Iterator[tuple[str, Any]]:
 	"""Yield (source_name, analyzer) pairs one at a time without buffering the full set.
@@ -2687,6 +2723,7 @@ def iter_spikeinterface_analyzers(
 		segments_use_existing_analyzer=segments_use_existing_analyzer,
 		segments_build_if_missing=segments_build_if_missing,
 		requested_source_names=requested_source_names,
+		limit_segments=limit_segments,
 	)
 	LOGGER.info(
 		"Streaming SpikeInterface analyzers: well_out_dir=%s source_count=%d include_concat=%s include_segments=%s",
@@ -2727,6 +2764,7 @@ def iter_spikeinterface_analyzers(
 				segments_use_existing_analyzer=segments_use_existing_analyzer,
 				segments_build_if_missing=segments_build_if_missing,
 				requested_source_names=[name],
+				limit_segments=limit_segments,
 				return_stats=True,
 			)
 		except FileNotFoundError:
@@ -2807,6 +2845,7 @@ def iter_spikeinterface_analyzers(
 				segments_use_existing_analyzer=segments_use_existing_analyzer,
 				segments_build_if_missing=segments_build_if_missing,
 				requested_source_names=requested_source_names,
+				limit_segments=limit_segments,
 				load_stats=stats,
 			):
 				yield src_name, analyzer

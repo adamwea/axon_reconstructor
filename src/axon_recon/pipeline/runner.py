@@ -2516,6 +2516,8 @@ def _run_reconstruct_substage_from_runtime(
 	runner_fn: Callable[[Any], Any],
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 	publish_outputs: bool = False,
@@ -2530,6 +2532,8 @@ def _run_reconstruct_substage_from_runtime(
 		runtime_config=bundle.runtime_config,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2542,6 +2546,8 @@ def _run_reconstruct_substage_from_runtime(
 			probe_geometry=probe_geometry,
 			unit_id_override=unit_id_override,
 			unit_ids_override=unit_ids_override,
+			unit_limit_override=stage_config.unit_limit,
+			limit_segments_override=stage_config.limit_segments,
 			force_restart_override=force_restart_override,
 			force_replot_override=force_replot_override,
 		)
@@ -2604,6 +2610,8 @@ def run_reconstruct_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2613,6 +2621,8 @@ def run_reconstruct_from_runtime(
 		runner_fn=run_reconstruct,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 		publish_outputs=True,
@@ -2624,6 +2634,8 @@ def run_reconstruct_templates_resolve_sources_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2633,6 +2645,8 @@ def run_reconstruct_templates_resolve_sources_from_runtime(
 		runner_fn=run_reconstruct_templates_resolve_sources,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2643,6 +2657,8 @@ def run_reconstruct_templates_analyzers_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2652,6 +2668,8 @@ def run_reconstruct_templates_analyzers_from_runtime(
 		runner_fn=run_reconstruct_templates_analyzers,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2662,6 +2680,8 @@ def run_reconstruct_templates_extract_template_segments_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2671,6 +2691,8 @@ def run_reconstruct_templates_extract_template_segments_from_runtime(
 		runner_fn=run_reconstruct_templates_extract_template_segments,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2681,6 +2703,8 @@ def run_reconstruct_templates_build_templates_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2690,6 +2714,8 @@ def run_reconstruct_templates_build_templates_from_runtime(
 		runner_fn=run_reconstruct_templates_build_templates,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2700,6 +2726,8 @@ def run_reconstruct_templates_compute_template_similarity_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2709,6 +2737,8 @@ def run_reconstruct_templates_compute_template_similarity_from_runtime(
 		runner_fn=run_reconstruct_templates_compute_template_similarity,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2719,6 +2749,8 @@ def run_reconstruct_templates_plot_templates_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2728,6 +2760,8 @@ def run_reconstruct_templates_plot_templates_from_runtime(
 		runner_fn=run_reconstruct_templates_plot_templates,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2738,6 +2772,8 @@ def run_reconstruct_templates_report_templates_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2747,6 +2783,8 @@ def run_reconstruct_templates_report_templates_from_runtime(
 		runner_fn=run_reconstruct_templates_report_templates,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2757,6 +2795,8 @@ def run_reconstruct_templates_reports_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2766,6 +2806,8 @@ def run_reconstruct_templates_reports_from_runtime(
 		runner_fn=run_reconstruct_templates_reports,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2776,6 +2818,8 @@ def run_reconstruct_generate_gtrs_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2785,6 +2829,8 @@ def run_reconstruct_generate_gtrs_from_runtime(
 		runner_fn=run_reconstruct_generate_gtrs,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2795,6 +2841,8 @@ def run_reconstruct_plot_recons_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2804,6 +2852,8 @@ def run_reconstruct_plot_recons_from_runtime(
 		runner_fn=run_reconstruct_plot_recons,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2814,6 +2864,8 @@ def run_reconstruct_plot_branch_propagations_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2823,6 +2875,8 @@ def run_reconstruct_plot_branch_propagations_from_runtime(
 		runner_fn=run_reconstruct_plot_branch_propagations,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2833,6 +2887,8 @@ def run_reconstruct_plot_branch_velocities_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2842,6 +2898,8 @@ def run_reconstruct_plot_branch_velocities_from_runtime(
 		runner_fn=run_reconstruct_plot_branch_velocities,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2852,6 +2910,8 @@ def run_reconstruct_plot_unit_summary_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2861,6 +2921,8 @@ def run_reconstruct_plot_unit_summary_from_runtime(
 		runner_fn=run_reconstruct_plot_unit_summary,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2871,6 +2933,8 @@ def run_reconstruct_report_recons_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2880,6 +2944,8 @@ def run_reconstruct_report_recons_from_runtime(
 		runner_fn=run_reconstruct_report_recons,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2890,6 +2956,8 @@ def run_reconstruct_report_full_chip_layout_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2899,6 +2967,8 @@ def run_reconstruct_report_full_chip_layout_from_runtime(
 		runner_fn=run_reconstruct_report_full_chip_layout,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2909,6 +2979,8 @@ def run_reconstruct_report_summaries_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2918,6 +2990,8 @@ def run_reconstruct_report_summaries_from_runtime(
 		runner_fn=run_reconstruct_report_summaries,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2928,6 +3002,8 @@ def run_reconstruct_clear_templates_cache_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2937,6 +3013,8 @@ def run_reconstruct_clear_templates_cache_from_runtime(
 		runner_fn=run_reconstruct_clear_templates_cache,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -3026,6 +3104,8 @@ def run_templates_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -3039,6 +3119,8 @@ def run_templates_from_runtime(
 		probe_geometry=probe_geometry,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -3093,6 +3175,8 @@ def _run_templates_substage_from_runtime(
 	runner_fn: Callable[[Any], Any],
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 	publish_outputs: bool = True,
@@ -3108,6 +3192,8 @@ def _run_templates_substage_from_runtime(
 		probe_geometry=probe_geometry,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)

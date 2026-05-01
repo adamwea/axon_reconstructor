@@ -648,6 +648,7 @@ class ReconstructionStageConfig:
 	per_unit_outputs: PerUnitOutputsConfig
 	unit_ids: list[int] | None
 	unit_limit: int | None
+	limit_segments: int | None
 	phases: ReconstructionPhasesConfig
 	use_full_channels_templates: bool
 	require_full_channels_templates: bool
@@ -661,6 +662,8 @@ def parse_reconstruction_stage_config(
 	runtime_config: RuntimeConfig,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> ReconstructionStageConfig:
@@ -947,16 +950,22 @@ def parse_reconstruction_stage_config(
 	if force_replot_override is not None:
 		force_replot = bool(force_replot_override)
 
-	unit_limit_raw = execution_cfg.get("unit_limit", stage_cfg.get("unit_limit", None))
-	unit_limit: int | None
-	if unit_limit_raw is None:
-		unit_limit = None
-	else:
-		try:
-			parsed = int(unit_limit_raw)
-			unit_limit = parsed if parsed > 0 else None
-		except Exception:
-			unit_limit = None
+	unit_limit_raw = (
+		debug_mode_cfg.get("unit_limit", None)
+		if "unit_limit" in debug_mode_cfg
+		else execution_cfg.get("unit_limit", stage_cfg.get("unit_limit", None))
+	)
+	unit_limit = _as_optional_positive_int(unit_limit_raw)
+	if unit_limit_override is not None:
+		unit_limit = _as_optional_positive_int(unit_limit_override)
+	limit_segments_raw = (
+		debug_mode_cfg.get("limit_segments", None)
+		if "limit_segments" in debug_mode_cfg
+		else execution_cfg.get("limit_segments", stage_cfg.get("limit_segments", None))
+	)
+	limit_segments = _as_optional_positive_int(limit_segments_raw)
+	if limit_segments_override is not None:
+		limit_segments = _as_optional_positive_int(limit_segments_override)
 
 	runtime_unit_ids = _normalize_unit_ids(execution_cfg.get("unit_ids", stage_cfg.get("unit_ids", None)))
 	if unit_ids_override is not None:
@@ -1316,6 +1325,7 @@ def parse_reconstruction_stage_config(
 		per_unit_outputs=per_unit,
 		unit_ids=unit_ids,
 		unit_limit=unit_limit,
+		limit_segments=limit_segments,
 		phases=phases,
 		use_full_channels_templates=True,
 		require_full_channels_templates=True,
@@ -1352,6 +1362,7 @@ def build_reconstruction_inputs_for_target(
 		per_unit_outputs=stage_config.per_unit_outputs,
 		unit_ids=stage_config.unit_ids,
 		unit_limit=stage_config.unit_limit,
+		limit_segments=stage_config.limit_segments,
 		phases=stage_config.phases,
 		use_full_channels_templates=stage_config.use_full_channels_templates,
 		require_full_channels_templates=stage_config.require_full_channels_templates,
@@ -1368,6 +1379,8 @@ def load_reconstruction_inputs_from_runtime(
 	config_path: str,
 	unit_id_override: int | None = None,
 	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> ReconstructionInputs:
@@ -1402,6 +1415,8 @@ def load_reconstruction_inputs_from_runtime(
 		runtime_config=runtime_cfg,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -1427,6 +1442,7 @@ def load_reconstruction_inputs_from_runtime(
 		per_unit_outputs=stage_cfg.per_unit_outputs,
 		unit_ids=stage_cfg.unit_ids,
 		unit_limit=stage_cfg.unit_limit,
+		limit_segments=stage_cfg.limit_segments,
 		phases=stage_cfg.phases,
 		use_full_channels_templates=stage_cfg.use_full_channels_templates,
 		require_full_channels_templates=stage_cfg.require_full_channels_templates,
@@ -1444,6 +1460,8 @@ def load_reconstruction_inputs_from_runtime(
 		probe_geometry=probe_geometry,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
+		unit_limit_override=stage_cfg.unit_limit,
+		limit_segments_override=stage_cfg.limit_segments,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)

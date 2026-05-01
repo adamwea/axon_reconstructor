@@ -46,6 +46,16 @@ def _parse_unit_ids_csv(raw: str) -> list[int]:
 	return parsed
 
 
+def _parse_positive_int(raw: str) -> int:
+	try:
+		value = int(str(raw).strip())
+	except Exception as exc:
+		raise argparse.ArgumentTypeError(f"Expected a positive integer, got {raw!r}") from exc
+	if value <= 0:
+		raise argparse.ArgumentTypeError(f"Expected a positive integer, got {value}")
+	return value
+
+
 def register_reconstruct_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
 	parser = subparsers.add_parser("recon", aliases=["reconstruct"], help="Run reconstruct stage")
 	parser.add_argument("--config", type=str, required=True, help="Path to runtime YAML/JSON config")
@@ -59,6 +69,18 @@ def register_reconstruct_subparser(subparsers: argparse._SubParsersAction[argpar
 	)
 	parser.add_argument("--force-restart", action="store_true", help="Recompute even if per-unit outputs exist")
 	parser.add_argument("--force-replot", action="store_true", help="Reserved for parity with legacy CLI")
+	parser.add_argument(
+		"--limit-segments",
+		type=_parse_positive_int,
+		default=None,
+		help="Limit segment analyzer sources for debug runs",
+	)
+	parser.add_argument(
+		"--limit-units",
+		type=_parse_positive_int,
+		default=None,
+		help="Limit units for debug runs",
+	)
 	parser.set_defaults(handler=_run_from_args)
 
 
@@ -68,6 +90,8 @@ def _run_from_args(args: argparse.Namespace) -> int:
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)
@@ -80,6 +104,8 @@ def _run_templates_resolve_sources_from_args(args: argparse.Namespace) -> int:
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)
@@ -92,6 +118,8 @@ def _run_templates_analyzers_from_args(args: argparse.Namespace) -> int:
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)
@@ -104,6 +132,8 @@ def _run_templates_extract_template_segments_from_args(args: argparse.Namespace)
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)
@@ -116,6 +146,8 @@ def _run_templates_build_templates_from_args(args: argparse.Namespace) -> int:
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)
@@ -128,6 +160,8 @@ def _run_templates_compute_template_similarity_from_args(args: argparse.Namespac
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)
@@ -140,6 +174,8 @@ def _run_templates_plot_templates_from_args(args: argparse.Namespace) -> int:
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)
@@ -152,6 +188,8 @@ def _run_templates_report_templates_from_args(args: argparse.Namespace) -> int:
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)
@@ -164,6 +202,8 @@ def _run_templates_reports_from_args(args: argparse.Namespace) -> int:
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)
@@ -176,6 +216,8 @@ def _run_generate_gtrs_from_args(args: argparse.Namespace) -> int:
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)
@@ -188,6 +230,8 @@ def _run_plot_recons_from_args(args: argparse.Namespace) -> int:
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)
@@ -200,6 +244,8 @@ def _run_plot_branch_propagations_from_args(args: argparse.Namespace) -> int:
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)
@@ -212,6 +258,8 @@ def _run_plot_branch_velocities_from_args(args: argparse.Namespace) -> int:
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)
@@ -224,6 +272,8 @@ def _run_plot_unit_summary_from_args(args: argparse.Namespace) -> int:
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)
@@ -236,6 +286,8 @@ def _run_report_recons_from_args(args: argparse.Namespace) -> int:
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)
@@ -248,6 +300,8 @@ def _run_report_full_chip_layout_from_args(args: argparse.Namespace) -> int:
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)
@@ -260,6 +314,8 @@ def _run_report_summaries_from_args(args: argparse.Namespace) -> int:
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)
@@ -272,6 +328,8 @@ def _run_clear_templates_cache_from_args(args: argparse.Namespace) -> int:
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)

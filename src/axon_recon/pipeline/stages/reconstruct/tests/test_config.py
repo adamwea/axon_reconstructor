@@ -272,6 +272,61 @@ def test_load_config_reconstruct_reads_runtime_unit_ids(tmp_path: Path) -> None:
 	assert inputs.unit_ids == [3, 7, 9]
 
 
+def test_load_config_reconstruct_debug_limits_flow_to_templates_inputs(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  templates:
+			    debug_mode:
+			      unit_limit: 9
+			      limit_segments: 8
+			  reconstruct:
+			    unit_limit: 99
+			    debug_mode:
+			      unit_limit: 2
+			      limit_segments: 3
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
+	assert inputs.unit_limit == 2
+	assert inputs.limit_segments == 3
+	assert inputs.templates_inputs is not None
+	assert inputs.templates_inputs.unit_limit == 2
+	assert inputs.templates_inputs.limit_segments == 3
+
+	inputs_override = load_reconstruction_inputs_from_runtime(
+		config_path=str(runtime_path),
+		unit_limit_override=4,
+		limit_segments_override=5,
+	)
+	assert inputs_override.unit_limit == 4
+	assert inputs_override.limit_segments == 5
+	assert inputs_override.templates_inputs is not None
+	assert inputs_override.templates_inputs.unit_limit == 4
+	assert inputs_override.templates_inputs.limit_segments == 5
+
+
 def test_load_config_reconstruct_prefers_unit_ids_override(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(

@@ -416,6 +416,26 @@ def _discover_source_dirs(payload_root: Path) -> list[Path]:
 	)
 
 
+def _apply_source_dir_segment_limit(source_dirs: list[Path], *, limit_segments: int | None) -> list[Path]:
+	try:
+		limit = int(limit_segments) if limit_segments is not None else None
+	except Exception:
+		limit = None
+	if limit is None or limit <= 0:
+		return list(source_dirs)
+	limited: list[Path] = []
+	segment_count = 0
+	for source_dir in source_dirs:
+		if source_dir.name == "concat":
+			limited.append(source_dir)
+			continue
+		if segment_count >= limit:
+			continue
+		limited.append(source_dir)
+		segment_count += 1
+	return limited
+
+
 def _discover_unit_ids_from_payloads(source_dirs: list[Path]) -> list[Any]:
 	unit_tokens: list[Any] = []
 	for source_dir in source_dirs:
@@ -685,7 +705,10 @@ def build_templates_phase_from_payloads(
 			shutil.rmtree(full_channels_templates_dir)
 		merged_units_dir, full_channels_templates_dir = resolve_materialized_templates_dirs(templates_out_dir=templates_out_dir)
 
-	source_dirs = _discover_source_dirs(payload_root)
+	source_dirs = _apply_source_dir_segment_limit(
+		_discover_source_dirs(payload_root),
+		limit_segments=inputs.limit_segments,
+	)
 	if not source_dirs:
 		raise FileNotFoundError(
 			f"No source payload directories found under {payload_root}; run templates.extract_template_segments first"
