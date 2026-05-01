@@ -60,7 +60,11 @@ from .stages.reconstruct.api import (
 	run_reconstruct_templates_reports,
 	run_reconstruct_templates_resolve_sources,
 )
-from .stages.reconstruct.config import build_reconstruction_inputs_for_target, parse_reconstruction_stage_config
+from .stages.reconstruct.config import (
+	build_reconstruct_templates_runtime_config,
+	build_reconstruction_inputs_for_target,
+	parse_reconstruction_stage_config,
+)
 from .stages.reconstruct.models.results import ReconstructionResult, UnitReconstructionResult
 from .stages.spikesort.api import (
 	bootstrap_spikesort_concat_binary,
@@ -2420,11 +2424,10 @@ def _run_reconstruct_substage_from_runtime(
 		force_replot_override=force_replot_override,
 	)
 	templates_stage_config = None
-	get_runtime_value = getattr(bundle.runtime_config, "get", None)
-	templates_stage_block = get_runtime_value("stages.templates", None) if callable(get_runtime_value) else None
-	if isinstance(templates_stage_block, dict):
+	if callable(getattr(bundle.runtime_config, "get", None)):
+		templates_runtime_config = build_reconstruct_templates_runtime_config(bundle.runtime_config)
 		templates_stage_config = parse_templates_stage_config(
-			runtime_config=bundle.runtime_config,
+			runtime_config=templates_runtime_config,
 			probe_geometry=probe_geometry,
 			unit_id_override=unit_id_override,
 			unit_ids_override=unit_ids_override,

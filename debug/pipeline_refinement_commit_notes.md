@@ -34,60 +34,28 @@ Summary:
 Acceptance Criteria:
 -
 
-Expected To Run:
--
-
 Confirmed Not Run:
 -
-
-Files/Modules Changed:
--
-
 Validation:
 - Pytest:
-- Smoke (20 min max unless Adam approves longer):
-- Smoke extension to 1 hour:
 - Logs inspected:
 - Not run:
-
 Resume / Force-Restart Impact:
 - Resume behavior:
-- Force-restart cleanup:
-- Partial-output handling:
-
 Storage/Cache Impact:
 - Created:
-- Cleaned:
-- Persisted:
-- Size check:
-
-CLI Impact:
--
-
-Retired Code/Tests:
--
-
-Risks And Follow-Ups:
 -
 
 Rollback Notes:
 -
-```
-
-## Commit Log
-
 ## 2026-05-01 02:11 - pending - ai: retire direct templates runtime wrappers
 
-Status: accepted
 
 Summary:
-- Removed direct `run_templates*_from_runtime` entry points from `pipeline.runner` now that direct templates CLI dispatch is retired.
 - Deleted the unused `stages/templates/cli.py` module.
 - Deleted pipeline-level tests that only protected direct templates runtime wrapper behavior.
-
 Acceptance Criteria:
 - No direct `run_templates*_from_runtime` or `_run_templates_substage_from_runtime` symbols remain under `src/axon_recon`.
-- No `register_templates_subparser` or `stages.templates.cli` references remain under `src/axon_recon`.
 - Reconstruct embedded template phase wrappers continue to pass focused tests.
 - Pipeline tests collect without stale direct templates wrapper imports.
 

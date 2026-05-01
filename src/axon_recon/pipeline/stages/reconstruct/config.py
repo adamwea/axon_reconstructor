@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -8,8 +9,10 @@ from axon_reconstructor.runtime_config import RuntimeConfig
 from axon_recon.pipeline.shared.grid_sorting import normalize_grid_sort_by
 from axon_recon.pipeline.shared.plotting import build_stage_plot_block
 from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
+from axon_recon.pipeline.stages.templates.config import DEFAULT_TEMPLATES_PHASE_SEQUENCE
 from axon_recon.pipeline.stages.templates.config import _build_footprint_grid_report_config
 from axon_recon.pipeline.stages.templates.config import build_templates_inputs_for_target
+from axon_recon.pipeline.stages.templates.config import normalize_templates_phase_name
 from axon_recon.pipeline.stages.templates.config import parse_probe_geometry_from_data_config
 from axon_recon.pipeline.stages.templates.config import parse_templates_stage_config
 
@@ -60,7 +63,35 @@ DEFAULT_RECONSTRUCTION_PHASE_SEQUENCE: tuple[str, ...] = (
 
 
 def _has_templates_stage(runtime_config: RuntimeConfig) -> bool:
-	return bool(runtime_config.has("stages.templates") and isinstance(runtime_config.get("stages.templates", None), dict))
+	has_config_path = getattr(runtime_config, "has", None)
+	get_config_path = getattr(runtime_config, "get", None)
+	if not callable(has_config_path) or not callable(get_config_path):
+		return False
+	return bool(has_config_path("stages.templates") and isinstance(get_config_path("stages.templates", None), dict))
+
+
+_RECONSTRUCT_TEMPLATE_PHASES: dict[str, str] = {
+	"templates_resolve_sources": "resolve_sources",
+	"templates_analyzers": "analyzers",
+	"templates_extract_template_segments": "extract_template_segments",
+	"templates_build_templates": "build_templates",
+	"templates_compute_template_similarity": "compute_template_similarity",
+	"templates_plot_templates": "plot_templates",
+	"templates_report_templates": "report_templates",
+	"templates_reports": "reports",
+}
+
+_EMBEDDED_TEMPLATE_PHASE_CONFIG_KEYS: tuple[str, ...] = (
+	"resolve_sources",
+	"analyzers",
+	"extract_template_segments",
+	"build_templates",
+	"compute_template_similarity",
+	"plot_templates",
+	"report_templates",
+	"reports",
+	"per_unit_processing",
+)
 
 _RECONSTRUCTION_PHASE_ALIASES: dict[str, str] = {
 	"resolve_sources": "templates_resolve_sources",
@@ -107,6 +138,82 @@ _RECONSTRUCTION_PHASE_ALIASES: dict[str, str] = {
 def normalize_reconstruction_phase_name(raw: Any) -> str:
 	token = str(raw or "").strip().replace("-", "_").replace(" ", "_")
 	return _RECONSTRUCTION_PHASE_ALIASES.get(token, token)
+
+
+def _templates_phase_sequence_from_reconstruct(raw: Any) -> tuple[str, ...]:
+	if raw is None:
+		return DEFAULT_TEMPLATES_PHASE_SEQUENCE
+	if isinstance(raw, str):
+		items = [part.strip() for part in raw.split(",")]
+	elif isinstance(raw, (list, tuple)):
+		items = [str(item).strip() for item in raw]
+	else:
+		return DEFAULT_TEMPLATES_PHASE_SEQUENCE
+
+	sequence: list[str] = []
+	for item in items:
+		phase = normalize_reconstruction_phase_name(item)
+		template_phase = _RECONSTRUCT_TEMPLATE_PHASES.get(phase)
+		if template_phase is None:
+			try:
+				template_phase = normalize_templates_phase_name(item)
+			except Exception:
+				template_phase = ""
+		if template_phase not in DEFAULT_TEMPLATES_PHASE_SEQUENCE:
+			continue
+		if template_phase not in sequence:
+			sequence.append(template_phase)
+	return tuple(sequence) or DEFAULT_TEMPLATES_PHASE_SEQUENCE
+
+
+def _normalize_template_output_root(raw: Any) -> str:
+	if raw is None:
+		return "template_outputs"
+	token = str(raw).strip()
+	return token or "template_outputs"
+
+
+def build_reconstruct_templates_runtime_config(runtime_config: RuntimeConfig) -> RuntimeConfig:
+	if _has_templates_stage(runtime_config):
+		return runtime_config
+
+	payload = deepcopy(getattr(runtime_config, "_payload", {}))
+	if not isinstance(payload, dict):
+		payload = {}
+	stages_cfg = payload.get("stages", {})
+	if not isinstance(stages_cfg, dict):
+		stages_cfg = {}
+		payload["stages"] = stages_cfg
+	reconstruct_cfg = stages_cfg.get("reconstruct", {})
+	if not isinstance(reconstruct_cfg, dict):
+		reconstruct_cfg = {}
+
+	templates_cfg: dict[str, Any] = {}
+	for key in ("resources", "debug_mode", "execution", "spikeinterface", "merge"):
+		block = reconstruct_cfg.get(key, None)
+		if isinstance(block, dict):
+			templates_cfg[key] = deepcopy(block)
+
+	outputs_cfg = reconstruct_cfg.get("outputs", {}) if isinstance(reconstruct_cfg.get("outputs", {}), dict) else {}
+	templates_cfg["output_rel_root"] = _normalize_template_output_root(
+		reconstruct_cfg.get(
+			"template_output_rel_root",
+			reconstruct_cfg.get("templates_output_rel_root", outputs_cfg.get("template_output_rel_root", "template_outputs")),
+		)
+	)
+	templates_cfg["phase_sequence"] = list(_templates_phase_sequence_from_reconstruct(reconstruct_cfg.get("phase_sequence", None)))
+
+	phases_cfg = reconstruct_cfg.get("phases", {}) if isinstance(reconstruct_cfg.get("phases", {}), dict) else {}
+	embedded_phases: dict[str, Any] = {}
+	for key in _EMBEDDED_TEMPLATE_PHASE_CONFIG_KEYS:
+		block = phases_cfg.get(key, None)
+		if isinstance(block, dict):
+			embedded_phases[key] = deepcopy(block)
+	if embedded_phases:
+		templates_cfg["phases"] = embedded_phases
+
+	stages_cfg["templates"] = templates_cfg
+	return RuntimeConfig(payload)
 
 
 def _as_bool(value: Any, default: bool) -> bool:
@@ -669,8 +776,9 @@ def parse_reconstruction_stage_config(
 ) -> ReconstructionStageConfig:
 	stage_cfg = runtime_config.get("stages.reconstruct", {})
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
+	templates_runtime_config = build_reconstruct_templates_runtime_config(runtime_config)
 	try:
-		tpl_stage_cfg = parse_templates_stage_config(runtime_config=runtime_config)
+		tpl_stage_cfg = parse_templates_stage_config(runtime_config=templates_runtime_config)
 		tpl_circles_defaults = tpl_stage_cfg.per_unit_outputs.template_circles
 		tpl_footprint_plots_defaults = getattr(tpl_stage_cfg.per_unit_outputs, "footprint_plots", None)
 		tpl_footprint_amplitude_defaults = getattr(tpl_footprint_plots_defaults, "amplitude_map", None)
@@ -1452,11 +1560,9 @@ def load_reconstruction_inputs_from_runtime(
 		axon_velocity_params=stage_cfg.axon_velocity_params,
 		probe_geometry=probe_geometry,
 	)
-	if not _has_templates_stage(runtime_cfg):
-		return reconstruct_inputs
-
+	templates_runtime_config = build_reconstruct_templates_runtime_config(runtime_cfg)
 	templates_stage_cfg = parse_templates_stage_config(
-		runtime_config=runtime_cfg,
+		runtime_config=templates_runtime_config,
 		probe_geometry=probe_geometry,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
