@@ -20,6 +20,7 @@ from axon_recon.pipeline.stages.spikesort.legacy_runner import (
 	run_spikesorting_stage as run_legacy_spikesorting_stage,
 )
 
+from .core.local_spikeinterface import run_local_spikeinterface_sort_stage
 from .models.inputs import SpikesortInputs
 from .models.results import SpikesortBombcellResult, SpikesortMergeResult, SpikesortResult
 
@@ -10435,15 +10436,6 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 			},
 		)
 
-	if sort_engine == "local_spikeinterface":
-		raise NotImplementedError(
-			"spikesort sort engine local_spikeinterface is parsed but its runner is not implemented yet"
-		)
-	if sort_engine != "mea_analysis":
-		raise ValueError(f"Unsupported spikesort sort engine: {sort_engine!r}")
-	if not bool(getattr(inputs, "mea_analysis_enabled", True)):
-		raise ValueError("spikesort sort engine mea_analysis selected but mea_analysis.enabled is false")
-
 	removed_on_force_restart: list[str] = []
 	if bool(effective_force_restart) and bool(inputs.sort_delete_outputs_on_force_restart):
 		_log_phase_step_start(
@@ -10456,53 +10448,10 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 			um_kwargs=inputs.um_kwargs,
 		)
 
-	legacy_inputs = LegacySpikeSortingInputs(
-		h5_path=inputs.h5_path,
-		stream_id=inputs.stream_id,
-		mea_output_root=inputs.mea_output_root,
-		output_subdir_after_well=(str(inputs.output_rel_root).strip() or "spikesort_outputs"),
-		preprocess_concat_recording_relpath=inputs.preprocess_concat_recording_relpath,
-		sort_original_preprocess_concat_recording_relpath=inputs.sort_original_preprocess_concat_recording_relpath,
-		sort_bootstrapped_concat_recording_relpath=inputs.sort_bootstrapped_concat_recording_relpath,
-		sort_use_bootstrapped_concat_binary=bool(inputs.sort_use_bootstrapped_concat_binary),
-		sort_use_lazy_source=bool(inputs.sort_use_lazy_source),
-		sort_assert_one_source=bool(inputs.sort_assert_one_source),
-		log_enabled=bool(inputs.logging_enabled),
-		log_verbose=bool(inputs.logging_verbose),
-		log_file_override=inputs.logging_file_relpath,
-		sorter=inputs.sorter,
-		docker_image=inputs.docker_image,
-		recording_num=inputs.recording_num,
-		verbose=inputs.verbose,
-		ks_batch_duration_s=inputs.ks_batch_duration_s,
-		ks_batch_size=inputs.ks_batch_size,
-		ks_th_universal=inputs.ks_th_universal,
-		ks_th_learned=inputs.ks_th_learned,
-		ks_th_single_ch=inputs.ks_th_single_ch,
-		ks_cluster_downsampling=inputs.ks_cluster_downsampling,
-		ks_nearest_chans=inputs.ks_nearest_chans,
-		ks_max_channel_distance=inputs.ks_max_channel_distance,
-		n_jobs=inputs.n_jobs,
-		chunk_duration=inputs.chunk_duration,
-		cuda_visible_devices=inputs.cuda_visible_devices,
-		run_analyzer=inputs.run_analyzer,
-		run_reports=inputs.run_reports,
-		plot_mode=inputs.plot_mode,
-		plot_debug=inputs.plot_debug,
-		raster_sort=inputs.raster_sort,
-		fixed_y=inputs.fixed_y,
-		no_curation=inputs.no_curation,
-		export_to_phy=inputs.export_to_phy,
-		force_rerun_analyzer=inputs.force_rerun_analyzer,
-		um_kwargs=(dict(inputs.um_kwargs) if isinstance(inputs.um_kwargs, dict) else None),
-		am_kwargs=(dict(inputs.am_kwargs) if isinstance(inputs.am_kwargs, dict) else None),
-		option_kwargs=(dict(inputs.option_kwargs) if isinstance(inputs.option_kwargs, dict) else None),
-		force_restart=bool(effective_force_restart),
-		resume_from=inputs.resume_from,
-	)
 	_log_phase_step_start(
 		"Spikesort sort phase start",
 		stream_id=str(inputs.stream_id),
+		sort_engine=sort_engine,
 		preprocess_concat_recording_relpath=inputs.preprocess_concat_recording_relpath,
 		use_bootstrapped_concat_binary=bool(inputs.sort_use_bootstrapped_concat_binary),
 		use_lazy_source=bool(inputs.sort_use_lazy_source),
@@ -10512,18 +10461,76 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 		plot_mode=str(inputs.plot_mode),
 		resume_from=inputs.resume_from,
 	)
-	legacy_outputs = run_legacy_spikesorting_stage(inputs=legacy_inputs, logger=LOGGER)
+	if sort_engine == "local_spikeinterface":
+		sort_outputs = run_local_spikeinterface_sort_stage(
+			inputs=inputs,
+			well_out_dir=well_out_dir,
+			stage_output_root_dir=stage_output_root_dir,
+			logger=LOGGER,
+		)
+	else:
+		if sort_engine != "mea_analysis":
+			raise ValueError(f"Unsupported spikesort sort engine: {sort_engine!r}")
+		if not bool(getattr(inputs, "mea_analysis_enabled", True)):
+			raise ValueError("spikesort sort engine mea_analysis selected but mea_analysis.enabled is false")
+		legacy_inputs = LegacySpikeSortingInputs(
+			h5_path=inputs.h5_path,
+			stream_id=inputs.stream_id,
+			mea_output_root=inputs.mea_output_root,
+			output_subdir_after_well=(str(inputs.output_rel_root).strip() or "spikesort_outputs"),
+			preprocess_concat_recording_relpath=inputs.preprocess_concat_recording_relpath,
+			sort_original_preprocess_concat_recording_relpath=inputs.sort_original_preprocess_concat_recording_relpath,
+			sort_bootstrapped_concat_recording_relpath=inputs.sort_bootstrapped_concat_recording_relpath,
+			sort_use_bootstrapped_concat_binary=bool(inputs.sort_use_bootstrapped_concat_binary),
+			sort_use_lazy_source=bool(inputs.sort_use_lazy_source),
+			sort_assert_one_source=bool(inputs.sort_assert_one_source),
+			log_enabled=bool(inputs.logging_enabled),
+			log_verbose=bool(inputs.logging_verbose),
+			log_file_override=inputs.logging_file_relpath,
+			sorter=inputs.sorter,
+			docker_image=inputs.docker_image,
+			recording_num=inputs.recording_num,
+			verbose=inputs.verbose,
+			ks_batch_duration_s=inputs.ks_batch_duration_s,
+			ks_batch_size=inputs.ks_batch_size,
+			ks_th_universal=inputs.ks_th_universal,
+			ks_th_learned=inputs.ks_th_learned,
+			ks_th_single_ch=inputs.ks_th_single_ch,
+			ks_cluster_downsampling=inputs.ks_cluster_downsampling,
+			ks_nearest_chans=inputs.ks_nearest_chans,
+			ks_max_channel_distance=inputs.ks_max_channel_distance,
+			n_jobs=inputs.n_jobs,
+			chunk_duration=inputs.chunk_duration,
+			cuda_visible_devices=inputs.cuda_visible_devices,
+			run_analyzer=inputs.run_analyzer,
+			run_reports=inputs.run_reports,
+			plot_mode=inputs.plot_mode,
+			plot_debug=inputs.plot_debug,
+			raster_sort=inputs.raster_sort,
+			fixed_y=inputs.fixed_y,
+			no_curation=inputs.no_curation,
+			export_to_phy=inputs.export_to_phy,
+			force_rerun_analyzer=inputs.force_rerun_analyzer,
+			um_kwargs=(dict(inputs.um_kwargs) if isinstance(inputs.um_kwargs, dict) else None),
+			am_kwargs=(dict(inputs.am_kwargs) if isinstance(inputs.am_kwargs, dict) else None),
+			option_kwargs=(dict(inputs.option_kwargs) if isinstance(inputs.option_kwargs, dict) else None),
+			force_restart=bool(effective_force_restart),
+			resume_from=inputs.resume_from,
+		)
+		sort_outputs = run_legacy_spikesorting_stage(inputs=legacy_inputs, logger=LOGGER)
 
-	legacy_out_dir = Path(legacy_outputs.output_dir)
-	spikesort_out_dir = legacy_out_dir
+	sort_out_dir = Path(sort_outputs.output_dir)
+	spikesort_out_dir = sort_out_dir
 	summary_json = spikesort_out_dir / "spikesort_summary.json"
 
 	outputs: dict[str, str] = {
-		"legacy.spikesort_out_dir": str(legacy_out_dir),
-		"recording_dir": str(legacy_outputs.recording_dir),
-		"sorter_output_dir": str(legacy_outputs.sorter_output_dir),
-		"analyzer_dir": str(legacy_outputs.analyzer_dir),
+		f"{sort_engine}.spikesort_out_dir": str(sort_out_dir),
+		"recording_dir": str(sort_outputs.recording_dir),
+		"sorter_output_dir": str(sort_outputs.sorter_output_dir),
+		"analyzer_dir": str(sort_outputs.analyzer_dir),
 	}
+	if sort_engine == "mea_analysis":
+		outputs["legacy.spikesort_out_dir"] = str(sort_out_dir)
 	summarize_sort_report: dict[str, Any] = {
 		"status": "skipped",
 		"reason": "summarize_sort_disabled",
@@ -10537,10 +10544,10 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 			generate_artifacts=bool(inputs.summarize_sort_generate_artifacts),
 		)
 		outputs.update(dict(summarize_sort_report.get("outputs", {}) or {}))
-	if legacy_outputs.merged_sorting_dir is not None:
-		outputs["merged_sorting_dir"] = str(legacy_outputs.merged_sorting_dir)
-	if legacy_outputs.merged_sorter_output_dir is not None:
-		outputs["merged_sorter_output_dir"] = str(legacy_outputs.merged_sorter_output_dir)
+	if sort_outputs.merged_sorting_dir is not None:
+		outputs["merged_sorting_dir"] = str(sort_outputs.merged_sorting_dir)
+	if sort_outputs.merged_sorter_output_dir is not None:
+		outputs["merged_sorter_output_dir"] = str(sort_outputs.merged_sorter_output_dir)
 
 	_write_json(
 		summary_json,
@@ -10549,9 +10556,11 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 			"stream_id": str(inputs.stream_id),
 			"well_out_dir": str(well_out_dir),
 			"spikesort_out_dir": str(spikesort_out_dir),
-			"legacy_spikesort_out_dir": str(legacy_out_dir),
+			"sort_engine": sort_engine,
+			"legacy_spikesort_out_dir": str(sort_out_dir) if sort_engine == "mea_analysis" else None,
 			"output_rel_root": str(inputs.output_rel_root),
 			"inputs": {
+				"sort_engine": sort_engine,
 				"preprocess_concat_recording_relpath": inputs.preprocess_concat_recording_relpath,
 				"sort_original_preprocess_concat_recording_relpath": inputs.sort_original_preprocess_concat_recording_relpath,
 				"sort_bootstrapped_concat_recording_relpath": inputs.sort_bootstrapped_concat_recording_relpath,
@@ -10563,6 +10572,9 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 				"logging_file_relpath": inputs.logging_file_relpath,
 				"sorter": str(inputs.sorter),
 				"docker_image": inputs.docker_image,
+				"local_spikeinterface_output_relpath": inputs.local_spikeinterface_output_relpath,
+				"local_spikeinterface_analyzer_output_relpath": inputs.local_spikeinterface_analyzer_output_relpath,
+				"local_spikeinterface_analyzer_enabled": bool(inputs.local_spikeinterface_analyzer_enabled),
 				"recording_num": str(inputs.recording_num),
 				"verbose": bool(inputs.verbose),
 				"n_jobs": inputs.n_jobs,

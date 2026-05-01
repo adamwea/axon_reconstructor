@@ -80,6 +80,63 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-01 14:33 - pending - ai: add local spikeinterface sort backend
+
+Status: accepted
+
+Summary:
+- Added a focused `spikesort.core.local_spikeinterface` backend that runs SpikeInterface `run_sorter` in the current Python environment instead of invoking MEA_Analysis or Docker.
+- Wired `sort_engine: local_spikeinterface` dispatch through `run_spikesort_stage` while preserving the existing `mea_analysis` route for legacy configs.
+- Added tests for Kilosort parameter translation, local sorter/analyzer calls, rejecting container kwargs, and runner dispatch that does not call MEA_Analysis.
+
+Acceptance Criteria:
+- Existing active debug runtime still resolves to `mea_analysis` and remains compatible.
+- Explicit `local_spikeinterface` runner dispatch calls the new local backend and not the legacy MEA_Analysis route.
+- The local backend uses normal installed SpikeInterface imports and `run_sorter` without `docker_image` or other container execution kwargs.
+- Local backend returns the same output shape consumed by summarize, bombcell, merge, and runner summary logic.
+
+Self-Check:
+- Diff reviewed: yes.
+- Unrelated/user edits excluded from commit: yes; only local backend code/tests, runner dispatch, and containerization notes are modified.
+- Instruction files re-read: yes, `debug/pipeline_containerize_instructions.md` and `debug/pipeline_refinement_instructions.md`.
+- Residual risk: tests use fake SpikeInterface modules; real Kilosort4 execution still needs a data smoke and later container/GPU validation.
+
+Expected To Run:
+- Existing `mea_analysis` configs should continue to run through the legacy route.
+- New `local_spikeinterface` configs should run SpikeInterface/Kilosort in-process when dependencies and GPU/runtime inputs are available.
+
+Confirmed Not Run:
+- Real Kilosort4 sorting, Docker/container build, and Shifter validation were not run in this slice.
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/test_local_spikeinterface.py src/axon_recon/pipeline/stages/spikesort/tests/test_runner.py src/axon_recon/pipeline/stages/spikesort/tests/test_spikesort_config.py -q` passed.
+- Smoke: active `debug/debug.runtime.yml` parsed through `parse_spikesort_stage_config`; output confirmed `mea_analysis`, `kilosort4`, current Docker image, `local_spikeinterface_enabled=False`, and local helper importability.
+- Smoke: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m axon_recon.pipeline.cli stages --help` passed.
+- Container build/run: not run; container assets are not implemented yet.
+- Logs inspected: pytest and smoke command output.
+- Not run: full test suite, real data sorting, Docker build, Shifter validation.
+
+Container / Shifter Impact:
+- Local Docker behavior: unchanged for `mea_analysis`; local engine rejects container kwargs so it cannot request nested Docker/Singularity through SpikeInterface.
+- Shifter/NERSC behavior: adds the in-process sort path needed for future Shifter use, but not yet validated on NERSC/GPU.
+- Image size/cache impact: none.
+
+CLI Impact:
+- Normal CLI: existing `mea_analysis` behavior preserved; explicit local engine can now dispatch to the new backend.
+- Container CLI: unchanged; wrapper not implemented yet.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged for legacy `mea_analysis`; local backend has no resume checkpoint beyond output reuse yet.
+- Force-restart behavior: local backend forwards `remove_existing_folder` based on force restart and `local_spikeinterface.remove_existing_on_force_restart`.
+
+Storage / Mount Impact:
+- Created: `src/axon_recon/pipeline/stages/spikesort/core/` and `test_local_spikeinterface.py`.
+- Modified: spikesort runner, runner tests, this notes file.
+- Required mounts: local engine writes sorter/analyzer outputs under the configured spikesort stage output root.
+
+Rollback Notes:
+- Revert this commit to remove the local SpikeInterface backend and return `local_spikeinterface` to the parser-only guard from the previous commit.
+
 ## 2026-05-01 14:27 - pending - ai: parse spikesort sort engines
 
 Status: accepted

@@ -330,10 +330,9 @@ def test_run_spikesort_stage_generates_sort_summary_artifacts(monkeypatch, tmp_p
     assert "Sort summary [stream=well001] units=3" in caplog.text
 
 
-def test_run_spikesort_stage_does_not_fall_through_to_legacy_for_local_engine(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_run_spikesort_stage_dispatches_local_engine_without_legacy(monkeypatch, tmp_path: Path) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+    from axon_recon.pipeline.stages.spikesort.core.local_spikeinterface import LocalSpikeInterfaceSortOutputs
 
     well_out_dir = tmp_path / "well001"
     monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
@@ -343,15 +342,39 @@ def test_run_spikesort_stage_does_not_fall_through_to_legacy_for_local_engine(
 
     monkeypatch.setattr(spikesort_runner, "run_legacy_spikesorting_stage", _fail_legacy_call)
 
+    captured: dict[str, object] = {}
+
+    def _fake_local_run(**kwargs):
+        captured.update(kwargs)
+        stage_output_root_dir = Path(kwargs["stage_output_root_dir"])
+        sorter_output_dir = stage_output_root_dir / "sorter_output"
+        analyzer_dir = stage_output_root_dir / "analyzer_output"
+        sorter_output_dir.mkdir(parents=True, exist_ok=True)
+        analyzer_dir.mkdir(parents=True, exist_ok=True)
+        return LocalSpikeInterfaceSortOutputs(
+            recording_dir=well_out_dir / "preprocess_outputs/preprocessed_recording",
+            sorter_output_dir=sorter_output_dir,
+            output_dir=stage_output_root_dir,
+            analyzer_dir=analyzer_dir,
+        )
+
+    monkeypatch.setattr(spikesort_runner, "run_local_spikeinterface_sort_stage", _fake_local_run)
+
     inputs = SpikesortInputs(
         h5_path=tmp_path / "test.h5",
         stream_id="well001",
         mea_output_root=tmp_path,
         sort_engine="local_spikeinterface",
+        local_spikeinterface_enabled=True,
     )
 
-    with pytest.raises(NotImplementedError, match="local_spikeinterface"):
-        run_spikesort_stage(inputs)
+    result = run_spikesort_stage(inputs)
+
+    assert captured["inputs"] is inputs
+    assert result.outputs["local_spikeinterface.spikesort_out_dir"].endswith("spikesort_outputs")
+    assert "legacy.spikesort_out_dir" not in result.outputs
+    payload = _read_json(result.summary_json)
+    assert payload["sort_engine"] == "local_spikeinterface"
 
 
 def test_run_spikesort_summarize_sort_writes_summary_when_artifacts_disabled(monkeypatch, tmp_path: Path) -> None:
