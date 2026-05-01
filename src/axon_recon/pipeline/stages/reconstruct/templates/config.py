@@ -110,6 +110,25 @@ _TEMPLATES_PHASE_ALIASES: dict[str, str] = {
 	"reports": "reports",
 }
 
+_RECONSTRUCT_ONLY_PHASES: frozenset[str] = frozenset(
+	{
+		"generate_gtrs",
+		"generate",
+		"gtrs",
+		"plot_recons",
+		"plot_reconstructions",
+		"plot_branch_propagations",
+		"plot_branch_velocities",
+		"plot_unit_summary",
+		"report_recons",
+		"report_reconstructions",
+		"report_full_chip_layout",
+		"report_summaries",
+		"clear_cache",
+		"clear_templates_cache",
+	}
+)
+
 
 def normalize_templates_phase_name(raw: Any) -> str:
 	token = str(raw or "").strip().replace("-", "_").replace(" ", "_")
@@ -246,7 +265,7 @@ def _output_paths(*suffixes: str) -> tuple[str, ...]:
 	paths: list[str] = []
 	for suffix in suffixes:
 		s = suffix.strip(".")
-		paths.append(f"stages.templates.outputs.{s}")
+		paths.append(f"stages.reconstruct.outputs.{s}")
 	return tuple(paths)
 
 
@@ -255,15 +274,15 @@ def _phase_plot_output_paths(*suffixes: str) -> tuple[str, ...]:
 	for suffix in suffixes:
 		s = suffix.strip(".")
 		if s:
-			paths.append(f"stages.templates.phases.plot_templates.outputs.{s}")
-			paths.append(f"stages.templates.phases.plot_templates.{s}")
-			paths.append(f"stages.templates.phases.per_unit_processing.plots.outputs.{s}")
-			paths.append(f"stages.templates.phases.per_unit_processing.plots.{s}")
+			paths.append(f"stages.reconstruct.phases.plot_templates.outputs.{s}")
+			paths.append(f"stages.reconstruct.phases.plot_templates.{s}")
+			paths.append(f"stages.reconstruct.phases.per_unit_processing.plots.outputs.{s}")
+			paths.append(f"stages.reconstruct.phases.per_unit_processing.plots.{s}")
 		else:
-			paths.append("stages.templates.phases.plot_templates.outputs")
-			paths.append("stages.templates.phases.plot_templates")
-			paths.append("stages.templates.phases.per_unit_processing.plots.outputs")
-			paths.append("stages.templates.phases.per_unit_processing.plots")
+			paths.append("stages.reconstruct.phases.plot_templates.outputs")
+			paths.append("stages.reconstruct.phases.plot_templates")
+			paths.append("stages.reconstruct.phases.per_unit_processing.plots.outputs")
+			paths.append("stages.reconstruct.phases.per_unit_processing.plots")
 	return tuple(paths)
 
 
@@ -272,15 +291,15 @@ def _phase_build_output_paths(*suffixes: str) -> tuple[str, ...]:
 	for suffix in suffixes:
 		s = suffix.strip(".")
 		if s:
-			paths.append(f"stages.templates.phases.build_templates.outputs.{s}")
-			paths.append(f"stages.templates.phases.build_templates.{s}")
-			paths.append(f"stages.templates.phases.per_unit_processing.build_templates.outputs.{s}")
-			paths.append(f"stages.templates.phases.per_unit_processing.build_templates.{s}")
+			paths.append(f"stages.reconstruct.phases.build_templates.outputs.{s}")
+			paths.append(f"stages.reconstruct.phases.build_templates.{s}")
+			paths.append(f"stages.reconstruct.phases.per_unit_processing.build_templates.outputs.{s}")
+			paths.append(f"stages.reconstruct.phases.per_unit_processing.build_templates.{s}")
 		else:
-			paths.append("stages.templates.phases.build_templates.outputs")
-			paths.append("stages.templates.phases.build_templates")
-			paths.append("stages.templates.phases.per_unit_processing.build_templates.outputs")
-			paths.append("stages.templates.phases.per_unit_processing.build_templates")
+			paths.append("stages.reconstruct.phases.build_templates.outputs")
+			paths.append("stages.reconstruct.phases.build_templates")
+			paths.append("stages.reconstruct.phases.per_unit_processing.build_templates.outputs")
+			paths.append("stages.reconstruct.phases.per_unit_processing.build_templates")
 	return tuple(paths)
 
 
@@ -289,11 +308,11 @@ def _phase_reports_paths(*suffixes: str) -> tuple[str, ...]:
 	for suffix in suffixes:
 		s = suffix.strip(".")
 		if s:
-			paths.append(f"stages.templates.phases.reports.config.{s}")
-			paths.append(f"stages.templates.phases.reports.{s}")
+			paths.append(f"stages.reconstruct.phases.reports.config.{s}")
+			paths.append(f"stages.reconstruct.phases.reports.{s}")
 		else:
-			paths.append("stages.templates.phases.reports.config")
-			paths.append("stages.templates.phases.reports")
+			paths.append("stages.reconstruct.phases.reports.config")
+			paths.append("stages.reconstruct.phases.reports")
 	return tuple(paths)
 
 
@@ -302,13 +321,13 @@ def _phase_quality_paths(*suffixes: str) -> tuple[str, ...]:
 	for suffix in suffixes:
 		s = suffix.strip(".")
 		if s:
-			paths.append(f"stages.templates.phases.per_unit_processing.quality_checks.outputs.{s}")
-			paths.append(f"stages.templates.phases.per_unit_processing.quality_checks.config.{s}")
-			paths.append(f"stages.templates.phases.per_unit_processing.quality_checks.{s}")
+			paths.append(f"stages.reconstruct.phases.per_unit_processing.quality_checks.outputs.{s}")
+			paths.append(f"stages.reconstruct.phases.per_unit_processing.quality_checks.config.{s}")
+			paths.append(f"stages.reconstruct.phases.per_unit_processing.quality_checks.{s}")
 		else:
-			paths.append("stages.templates.phases.per_unit_processing.quality_checks.outputs")
-			paths.append("stages.templates.phases.per_unit_processing.quality_checks.config")
-			paths.append("stages.templates.phases.per_unit_processing.quality_checks")
+			paths.append("stages.reconstruct.phases.per_unit_processing.quality_checks.outputs")
+			paths.append("stages.reconstruct.phases.per_unit_processing.quality_checks.config")
+			paths.append("stages.reconstruct.phases.per_unit_processing.quality_checks")
 	return tuple(paths)
 
 
@@ -317,11 +336,11 @@ def _phase_analyzer_output_paths(*suffixes: str) -> tuple[str, ...]:
 	for suffix in suffixes:
 		s = suffix.strip(".")
 		if s:
-			paths.append(f"stages.templates.phases.analyzers.outputs.{s}")
-			paths.append(f"stages.templates.phases.analyzers.{s}")
+			paths.append(f"stages.reconstruct.phases.analyzers.outputs.{s}")
+			paths.append(f"stages.reconstruct.phases.analyzers.{s}")
 		else:
-			paths.append("stages.templates.phases.analyzers.outputs")
-			paths.append("stages.templates.phases.analyzers")
+			paths.append("stages.reconstruct.phases.analyzers.outputs")
+			paths.append("stages.reconstruct.phases.analyzers")
 	return tuple(paths)
 
 
@@ -330,17 +349,17 @@ def _phase_per_unit_output_paths(*suffixes: str) -> tuple[str, ...]:
 	for suffix in suffixes:
 		s = suffix.strip(".")
 		if s:
-			paths.append(f"stages.templates.phases.build_templates.outputs.{s}")
-			paths.append(f"stages.templates.phases.per_unit_processing.outputs.{s}")
-			paths.append(f"stages.templates.phases.per_unit_processing.plots.outputs.{s}")
-			paths.append(f"stages.templates.phases.per_unit_processing.build_templates.outputs.{s}")
-			paths.append(f"stages.templates.phases.per_unit_processing.quality_checks.outputs.{s}")
+			paths.append(f"stages.reconstruct.phases.build_templates.outputs.{s}")
+			paths.append(f"stages.reconstruct.phases.per_unit_processing.outputs.{s}")
+			paths.append(f"stages.reconstruct.phases.per_unit_processing.plots.outputs.{s}")
+			paths.append(f"stages.reconstruct.phases.per_unit_processing.build_templates.outputs.{s}")
+			paths.append(f"stages.reconstruct.phases.per_unit_processing.quality_checks.outputs.{s}")
 		else:
-			paths.append("stages.templates.phases.build_templates.outputs")
-			paths.append("stages.templates.phases.per_unit_processing.outputs")
-			paths.append("stages.templates.phases.per_unit_processing.plots.outputs")
-			paths.append("stages.templates.phases.per_unit_processing.build_templates.outputs")
-			paths.append("stages.templates.phases.per_unit_processing.quality_checks.outputs")
+			paths.append("stages.reconstruct.phases.build_templates.outputs")
+			paths.append("stages.reconstruct.phases.per_unit_processing.outputs")
+			paths.append("stages.reconstruct.phases.per_unit_processing.plots.outputs")
+			paths.append("stages.reconstruct.phases.per_unit_processing.build_templates.outputs")
+			paths.append("stages.reconstruct.phases.per_unit_processing.quality_checks.outputs")
 	return tuple(paths)
 
 
@@ -569,16 +588,16 @@ def _get_merge_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
 	return _first_dict_block(
 		runtime_config,
 		(
-			"stages.templates.phases.build_templates.merge",
-			"stages.templates.phases.per_unit_processing.build_templates.merge",
-			"stages.templates.merge",
-			"stages.templates.execution.merge",
+			"stages.reconstruct.phases.build_templates.merge",
+			"stages.reconstruct.phases.per_unit_processing.build_templates.merge",
+			"stages.reconstruct.merge",
+			"stages.reconstruct.execution.merge",
 		),
 	)
 
 
 def _get_resolve_sources_phase_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
-	stage_block = runtime_config.get("stages.templates.phases.resolve_sources", {})
+	stage_block = runtime_config.get("stages.reconstruct.phases.resolve_sources", {})
 	if isinstance(stage_block, dict) and stage_block:
 		return dict(stage_block)
 	return {}
@@ -1151,10 +1170,13 @@ def _normalize_phase_sequence(raw: Any, default: tuple[str, ...]) -> tuple[str, 
 		return default
 	sequence: list[str] = []
 	for item in items:
+		token = str(item or "").strip().replace("-", "_").replace(" ", "_")
 		phase = normalize_templates_phase_name(item)
 		if not phase:
 			continue
 		if phase not in _TEMPLATES_PHASE_ALIASES.values():
+			if token in _RECONSTRUCT_ONLY_PHASES:
+				continue
 			raise ValueError(f"Unknown templates phase in phase_sequence: {item!r}")
 		if phase not in sequence:
 			sequence.append(phase)
@@ -1591,7 +1613,7 @@ def parse_templates_stage_config(
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> TemplatesStageConfig:
-	stage_cfg = runtime_config.get("stages.templates", {})
+	stage_cfg = runtime_config.get("stages.reconstruct", {})
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
 	phases_cfg = stage_cfg.get("phases", {}) if isinstance(stage_cfg.get("phases", {}), dict) else {}
 	execution_cfg = stage_cfg.get("execution", {}) if isinstance(stage_cfg.get("execution", {}), dict) else {}
@@ -3948,7 +3970,21 @@ def parse_templates_stage_config(
 	)
 
 	return TemplatesStageConfig(
-		output_rel_root=str(stage_cfg.get("output_rel_root", outputs_cfg.get("output_rel_root", "templates_outputs"))),
+		output_rel_root=str(
+			stage_cfg.get(
+				"template_output_rel_root",
+				stage_cfg.get(
+					"templates_output_rel_root",
+					stage_cfg.get(
+						"output_rel_root",
+						outputs_cfg.get(
+							"template_output_rel_root",
+							outputs_cfg.get("templates_output_rel_root", "template_outputs"),
+						),
+					),
+				),
+			)
+		),
 		phase_sequence=phase_sequence,
 		debug_mode_enabled=debug_mode_enabled,
 		debug_limit_datasets=debug_limit_datasets,

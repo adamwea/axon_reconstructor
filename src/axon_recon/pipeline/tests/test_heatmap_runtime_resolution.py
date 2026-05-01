@@ -77,7 +77,7 @@ def test_reconstruct_amplitude_map_precedence_output_over_stage_over_global(tmp_
     assert heat.show_ticks == (2, 4, "dynamic_high")
 
 
-def test_templates_footprint_precedence_stage_over_global(tmp_path: Path) -> None:
+def test_reconstruct_template_footprint_precedence_stage_over_global(tmp_path: Path) -> None:
     data_path = _write_common_data_config(tmp_path)
     runtime_path = tmp_path / "runtime.yml"
     runtime_path.write_text(
@@ -93,7 +93,7 @@ def test_templates_footprint_precedence_stage_over_global(tmp_path: Path) -> Non
                 amplitude_map:
                   scale: log
             stages:
-              templates:
+              reconstruct:
                 outputs:
                   per_unit_outputs:
                     footprint_plots:

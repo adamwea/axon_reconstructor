@@ -6,7 +6,7 @@ from textwrap import dedent
 from axon_recon.pipeline.stages.reconstruct.templates.config import load_templates_inputs_from_runtime
 
 
-def test_load_templates_config_from_templates_stage_block(tmp_path: Path) -> None:
+def test_load_templates_config_from_reconstruct_stage_block(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(
 		dedent(
@@ -29,9 +29,9 @@ def test_load_templates_config_from_templates_stage_block(tmp_path: Path) -> Non
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
+			    template_output_rel_root: reconstruct_stage_outputs
 			    outputs:
-			      output_rel_root: templates_stage_outputs
 			      per_unit_outputs:
 			        unit_reldir: units/{{unit_id:04d}}/
 			        template:
@@ -47,7 +47,7 @@ def test_load_templates_config_from_templates_stage_block(tmp_path: Path) -> Non
 
 	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path), unit_id_override=94)
 	assert inputs.stream_id == "well003"
-	assert inputs.output_rel_root == "templates_stage_outputs"
+	assert inputs.output_rel_root == "reconstruct_stage_outputs"
 	assert inputs.per_unit_outputs.template.write_png is True
 	assert inputs.per_unit_outputs.template.write_svg is True
 	assert inputs.per_unit_outputs.template.relpath == "panel/template_view"
@@ -76,7 +76,7 @@ def test_load_templates_config_reads_runtime_unit_ids(tmp_path: Path) -> None:
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    phase_sequence: [resolve_sources, analyzers, build_templates]
 			    debug_mode:
 			      enabled: true
@@ -117,7 +117,8 @@ def test_load_templates_config_prefers_unit_ids_override(tmp_path: Path) -> None
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
+			    output_rel_root: template_outputs
 			    execution:
 			      unit_ids: [10, 17, 20]
 			"""
@@ -133,7 +134,7 @@ def test_load_templates_config_prefers_unit_ids_override(tmp_path: Path) -> None
 	assert inputs.unit_ids == [23, 24]
 
 
-def test_load_templates_config_legacy_template_block(tmp_path: Path) -> None:
+def test_load_templates_config_reconstruct_output_block_defaults_template_root(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(
 		dedent(
@@ -171,7 +172,7 @@ def test_load_templates_config_legacy_template_block(tmp_path: Path) -> None:
 
 	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.stream_id == "well000"
-	assert inputs.output_rel_root == "templates_outputs"
+	assert inputs.output_rel_root == "template_outputs"
 	assert inputs.per_unit_outputs.template.write_png is False
 	assert inputs.per_unit_outputs.template.write_svg is True
 	assert inputs.per_unit_outputs.template.relpath == "template_legacy"
@@ -199,7 +200,7 @@ def test_load_templates_config_accepts_template_plot_alias(tmp_path: Path) -> No
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      per_unit_outputs:
 			        template_plot:
@@ -264,7 +265,7 @@ def test_load_templates_config_prefers_canonical_template_key_over_alias(tmp_pat
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      per_unit_outputs:
 			        template:
@@ -305,7 +306,7 @@ def test_load_templates_config_parses_template_plots_waveforms_and_circles(tmp_p
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      per_unit_outputs:
 			        template_plots:
@@ -383,7 +384,7 @@ def test_load_templates_config_parses_template_plots_nested_under_full_template(
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      per_unit_outputs:
 			        full_template:
@@ -436,11 +437,11 @@ def test_load_templates_config_parses_global_outputs_schema(tmp_path: Path) -> N
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
+			    output_rel_root: template_outputs
 			    execution:
 			      force_restart: false
 			    outputs:
-			      output_rel_root: template_outputs
 			      per_unit_outputs:
 			        full_template:
 			          template_plots:
@@ -488,7 +489,7 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      per_unit_outputs:
 			        full_template:
@@ -616,7 +617,7 @@ def test_load_templates_config_parses_scale_circle_style_knobs(tmp_path: Path) -
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      per_unit_outputs:
 			        full_template:
@@ -663,7 +664,7 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    execution:
 			      force_restart: false
 			      force_replot: true
@@ -678,7 +679,6 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			            include_concat: false
 			            include_segments: true
 			    outputs:
-			      output_rel_root: template_outputs
 			      analyzer_cache:
 			        enabled: true
 			        relpath: cache/analyzers
@@ -982,7 +982,7 @@ def test_load_templates_config_accepts_foot_print_grids_alias(tmp_path: Path) ->
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      reports:
 			        foot_print_grids:
@@ -1024,7 +1024,7 @@ def test_load_templates_config_parses_nested_report_grid_blocks(tmp_path: Path) 
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      reports:
 			        grids:
@@ -1120,7 +1120,7 @@ def test_load_templates_config_parses_nested_extremum_wf_overlay_blocks(tmp_path
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      per_unit_outputs:
 			        extremum_ch_wf_overlay:
@@ -1208,7 +1208,7 @@ def test_load_templates_config_parses_nested_template_and_footprint_blocks(tmp_p
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      per_unit_outputs:
 			        template_plots:
@@ -1326,7 +1326,7 @@ def test_load_templates_config_parses_template_scale_bar_under_display(tmp_path:
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      per_unit_outputs:
 			        template_plots:
@@ -1390,7 +1390,7 @@ def test_load_templates_config_parses_footprint_map_knobs(tmp_path: Path) -> Non
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      per_unit_outputs:
 			        footprint_plots:
@@ -1467,7 +1467,7 @@ def test_load_templates_config_applies_global_heatmap_defaults(tmp_path: Path) -
 			        units: us
 			        tick_decimal_places: 2
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      per_unit_outputs:
 			        footprint_plots:
@@ -1520,7 +1520,7 @@ def test_load_templates_config_stage_values_override_global_heatmap_defaults(tmp
 			      units: us
 			      tick_target_count: 7
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      per_unit_outputs:
 			        template_plots:
@@ -1560,7 +1560,7 @@ def test_load_templates_config_time_upsample_defaults_to_sinc(tmp_path: Path) ->
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      reports:
 			        time_upsample:
@@ -1599,7 +1599,7 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      per_unit_outputs:
 			        topographical_footprints:
@@ -1851,7 +1851,7 @@ def test_load_templates_config_parses_nested_propagation_groups(tmp_path: Path) 
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      per_unit_outputs:
 			        propagation_plots:
@@ -1996,7 +1996,7 @@ def test_load_templates_config_parses_nested_split_propagation_output_blocks(tmp
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      per_unit_outputs:
 			        propagation_plots:
@@ -2075,7 +2075,7 @@ def test_load_templates_config_parses_template_circles_propagation_order_labels(
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      per_unit_outputs:
 			        template_plots:
@@ -2122,7 +2122,7 @@ def test_load_templates_config_parses_merge_and_template_artifact_knobs(tmp_path
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    execution:
 			      merge:
 			        enable: true
@@ -2201,7 +2201,7 @@ def test_load_templates_config_parses_execution_upsampling_block(tmp_path: Path)
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    execution:
 			      upsampling:
 			        enable: true
@@ -2244,7 +2244,7 @@ def test_load_templates_config_parses_waveform_extraction_controls(tmp_path: Pat
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    execution:
 			      inputs:
 			        preprocessed_segments_reldir: /preprocess_outputs/per_segment_recordings
@@ -2295,7 +2295,7 @@ def test_load_templates_config_supports_legacy_segment_sources_alias(tmp_path: P
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    execution:
 			      inputs:
 			        preprocessed_segments_reldir: /canonical/segments
@@ -2316,7 +2316,7 @@ def test_load_templates_config_supports_legacy_segment_sources_alias(tmp_path: P
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    execution:
 			      inputs:
 			        preproc_seg_sources_reldir: /legacy/segments
@@ -2352,7 +2352,7 @@ def test_load_templates_config_parses_stage_level_templates_blocks(tmp_path: Pat
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    output_rel_root: stage_level_outputs
 			    inputs:
 			      preprocessed_segments_reldir: /stage/segments
@@ -2458,7 +2458,7 @@ def test_load_templates_config_parses_execution_quality_checks_block(tmp_path: P
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    execution:
 			      quality_checks:
 			        enable: true
@@ -2531,7 +2531,7 @@ def test_load_templates_config_parses_quality_check_warning_suppression_and_anal
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    execution:
 			      quality_checks:
 			        enable: true
@@ -2574,7 +2574,7 @@ def test_load_templates_config_parses_nested_alias_keys_from_debug_runtime(tmp_p
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    execution:
 			      merge:
 			        max_waveforms_per_source_channel: -1
@@ -2658,7 +2658,7 @@ def test_load_templates_inputs_includes_probe_geometry_from_data_config(tmp_path
 			f"""
 			data: {data_path}
 			stages:
-			  templates: {{}}
+			  reconstruct: {{}}
 			"""
 		).strip()
 		+ "\n",
@@ -2699,7 +2699,7 @@ def test_load_templates_inputs_probe_geometry_uses_chip_dimensions_um_alias(tmp_
 			f"""
 			data: {data_path}
 			stages:
-			  templates: {{}}
+			  reconstruct: {{}}
 			"""
 		).strip()
 		+ "\n",
@@ -2733,7 +2733,7 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    spikeinterface:
 			      waveform_extraction:
 			        window:
@@ -2844,7 +2844,7 @@ def test_load_templates_config_plot_templates_canonical_phase_overrides_legacy_p
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    phases:
 			      plot_templates:
 			        enabled: true
@@ -2898,7 +2898,7 @@ def test_load_templates_config_plot_templates_accepts_legacy_debug_plotting_prin
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    phases:
 			      plot_templates:
 			        debug_plotting_prints: true
@@ -2934,7 +2934,7 @@ def test_load_templates_config_plot_templates_parses_direct_circles_block(tmp_pa
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    phases:
 			      plot_templates:
 			        enabled: true
@@ -2995,7 +2995,7 @@ def test_load_templates_config_plot_templates_parses_resources_block(tmp_path: P
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    phases:
 			      plot_templates:
 			        enabled: true
@@ -3037,7 +3037,7 @@ def test_load_templates_config_plot_templates_falls_back_to_legacy_nested_phase_
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    phases:
 			      per_unit_processing:
 			        plots:
@@ -3080,7 +3080,7 @@ def test_load_templates_config_parses_report_templates_phase_block(tmp_path: Pat
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    phases:
 			      report_templates:
 			        enabled: true
@@ -3122,7 +3122,7 @@ def test_load_templates_config_parses_compute_template_similarity_phase_block(tm
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    phases:
 			      compute_template_similarity:
 			        enabled: true
@@ -3213,7 +3213,7 @@ def test_load_templates_config_build_templates_falls_back_to_legacy_nested_phase
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    phases:
 			      per_unit_processing:
 			        build_templates:
@@ -3257,7 +3257,7 @@ def test_load_templates_config_parses_grouped_per_source_analyzer_controls(tmp_p
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    phases:
 			      analyzers:
 			        defaults:
@@ -3370,7 +3370,7 @@ def test_load_templates_config_source_max_spikes_clears_default_percentage(tmp_p
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    phases:
 			      analyzers:
 			        defaults:
@@ -3417,7 +3417,7 @@ def test_load_templates_inputs_probe_geometry_defaults_when_probe_missing(tmp_pa
 			f"""
 			data: {data_path}
 			stages:
-			  templates: {{}}
+			  reconstruct: {{}}
 			"""
 		).strip()
 		+ "\n",
@@ -3454,7 +3454,7 @@ def test_load_templates_config_parses_analyzer_cache_subdirs_and_require_flags(t
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    execution:
 			      spikeinterface:
 			        template_extraction:
@@ -3506,7 +3506,7 @@ def test_load_templates_config_prefers_phase_analyzer_cache_over_flat_outputs(tm
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      analyzer_cache:
 			        enabled: false
@@ -3558,7 +3558,7 @@ def test_load_templates_config_prefers_phase_unit_reldir_over_flat_outputs(tmp_p
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    outputs:
 			      per_unit_outputs:
 			        unit_reldir: legacy_units/{{unit_id:04d}}/
@@ -3604,7 +3604,7 @@ def test_load_templates_config_force_rereport_enforces_reports_only_mode(tmp_pat
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    execution:
 			      force_restart: true
 			      force_replot: true
@@ -3648,7 +3648,7 @@ def test_load_templates_config_parses_resolve_sources_phase_knobs(tmp_path: Path
 			f"""
 			data: {data_path}
 			stages:
-			  templates:
+			  reconstruct:
 			    phases:
 			      resolve_sources:
 			        enabled: true

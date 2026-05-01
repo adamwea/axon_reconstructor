@@ -52,7 +52,68 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-01 03:25 - pending - ai: delete retired v1 package
+## 2026-05-01 03:45 - pending - ai: remove templates stage config path
+
+Status: accepted
+
+Summary:
+- Retired the remaining top-level `stages.templates` config path from reconstruct-owned template parsing.
+- Simplified reconstruct template runtime config handling now that the template parser reads `stages.reconstruct` directly.
+- Updated template config fixtures and heatmap precedence tests to use `stages.reconstruct`.
+- Preserved validation for reconstruct phase sequences by skipping known reconstruct-only phases in the internal template phase parser while still rejecting unknown template typos.
+
+Acceptance Criteria:
+- No active `stages.templates` strings remain under `src/axon_recon/**`.
+- Reconstruct-owned template config parsing reads from `stages.reconstruct`.
+- Reconstruct/template config and runtime tests still pass.
+
+Expected To Run:
+- Embedded template phase config is read from `stages.reconstruct` and its `phases`/`outputs` children.
+
+Confirmed Not Run:
+- Top-level `stages.templates` compatibility config is no longer parsed by active source.
+
+Files/Modules Changed:
+- `src/axon_recon/pipeline/stages/reconstruct/config.py`
+- `src/axon_recon/pipeline/stages/reconstruct/templates/config.py`
+- `src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_config.py`
+- `src/axon_recon/pipeline/tests/test_heatmap_runtime_resolution.py`
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_config.py src/axon_recon/pipeline/stages/reconstruct/tests/test_config.py src/axon_recon/pipeline/tests/test_cli_stage_sequence.py -q` passed.
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/templates/tests src/axon_recon/pipeline/stages/reconstruct/tests src/axon_recon/pipeline/tests/test_heatmap_runtime_resolution.py -q` passed.
+- Pytest collection: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest --collect-only -q` passed.
+- Reference audit: no `stages.templates` matches remain under active `src/axon_recon/**`; only historical notes/instructions mention the retired path.
+- Diagnostics: no VS Code/Pylance errors in modified config/test files.
+- Smoke (20 min max unless Adam approves longer): not run; this is config parser cleanup covered by focused tests.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: real-data smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior: active reconstruct configs continue through `stages.reconstruct`.
+- Force-restart/replot behavior: unchanged.
+- Partial-output handling: unchanged.
+
+Storage/Cache Impact:
+- Created: none.
+- Cleaned: old top-level templates config compatibility path.
+- Persisted: none.
+- Size check: not applicable.
+
+CLI Impact:
+- No selector changes.
+
+Retired Code/Tests:
+- Deleted tests/fixtures that only proved direct `stages.templates` parsing.
+
+Risks And Follow-Ups:
+- Internal reconstruct-owned template functions still use `run_templates_*` names; a later symbol rename can remove that last wording cleanup without changing behavior.
+
+Rollback Notes:
+- Restore the previous parser paths if a legacy config with top-level `stages.templates` must be read temporarily.
+
+## 2026-05-01 03:25 - 630d689 - ai: delete retired v1 package
 
 Status: accepted
 
