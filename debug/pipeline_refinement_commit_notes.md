@@ -76,7 +76,64 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-01 01:53 - pending - ai: delete retired analysis stage
+## 2026-05-01 01:55 - pending - ai: remove retired analysis runtime config
+
+Status: accepted
+
+Summary:
+- Removed the dead top-level `stages.analysis` subtree from `debug/debug.runtime.yml` after deleting the analysis package.
+- Left nested template/reconstruct `analysis:` knobs intact because they are not the retired stage selector.
+- Confirmed the runtime config loads and no longer contains an active `analysis` stage key.
+
+Acceptance Criteria:
+- `debug/debug.runtime.yml` has no top-level `stages.analysis` block.
+- The debug runtime still loads through the project config loader.
+- Retired `analysis` selector remains unsupported.
+
+Expected To Run:
+- Active debug runtime stages remain `preprocess`, `spikesort`, `templates`, and `reconstruct` in config, with CLI `all` still limited to preprocess/spikesort/reconstruct.
+
+Confirmed Not Run:
+- No analysis stage runtime can be selected or configured from the debug runtime.
+
+Files/Modules Changed:
+- `debug/debug.runtime.yml`
+- `debug/pipeline_refinement_commit_notes.md`
+
+Validation:
+- Config load: `RuntimeConfig.load('debug/debug.runtime.yml')` succeeded; `analysis in stages` printed `False` and `templates in stages` printed `True`.
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_config.py src/axon_recon/pipeline/tests/test_cli_stage_sequence.py -q` passed.
+- CLI rejection: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m axon_recon.pipeline.cli stages analysis --config debug/debug.runtime.yml` failed as expected with `Unsupported stage token: analysis`.
+- Smoke (20 min max unless Adam approves longer): not run; this was a retired config-block removal with no active stage execution path.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: real-data smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged for active stages; retired analysis resume config is removed.
+- Force-restart cleanup: unchanged for active stages; retired analysis force-restart config is removed.
+- Partial-output handling: unchanged for active stages.
+
+Storage/Cache Impact:
+- Created: none in the repository.
+- Cleaned: removed dead runtime YAML config only.
+- Persisted: none.
+- Size check: not applicable.
+
+CLI Impact:
+- No new selectors; `analysis` remains unsupported.
+
+Retired Code/Tests:
+- Removed the retired stage's debug runtime config block.
+
+Risks And Follow-Ups:
+- `stages.templates` remains in runtime config because reconstruct still depends on templates config and code; templates retirement needs migration first.
+- Obsolete analysis docs under `docs/ai_slop` still reference old v1/v2 analysis concepts and should be considered during later doc/v1 cleanup.
+
+Rollback Notes:
+- Restore the removed `stages.analysis` YAML block from the prior commit if the deleted analysis runtime is temporarily restored.
+
+## 2026-05-01 01:53 - b953428 - ai: delete retired analysis stage
 
 Status: accepted
 
