@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from .execution import install_process_lifecycle
 from .execution.logging_context import ensure_pipeline_target_in_format, install_pipeline_log_record_factory
-from .logging import configure_pipeline_logging, finalize_pipeline_logging, log_context
+from .logging import configure_pipeline_logging, finalize_pipeline_logging, install_noisy_external_log_filters, log_context
 from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
 from .stages.preprocess.cli import _run_concat_segments_from_args as _run_preprocess_concat_segments_from_args
 from .stages.preprocess.cli import _run_copy_src_to_scratch_from_args as _run_preprocess_copy_src_to_scratch_from_args
@@ -415,6 +415,7 @@ def main(argv: list[str] | None = None) -> int:
 	parser = build_parser()
 	args = parser.parse_args(argv)
 	install_process_lifecycle()
+	install_noisy_external_log_filters()
 	install_maxwell_hdf5_plugin_message_filter()
 	_configure_runtime_logging_from_args(args)
 	handler = getattr(args, "handler", None)

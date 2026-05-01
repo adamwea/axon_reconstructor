@@ -22,6 +22,17 @@ _ORIGINAL_FACTORY: Any | None = None
 _ORIGINAL_EXCEPTHOOK: Any | None = None
 _SUMMARY_HANDLER: PipelineSummaryHandler | None = None
 _CONFIGURED = False
+_NOISY_EXTERNAL_LOGGER_NAMES: tuple[str, ...] = (
+    "numcodecs",
+    "numcodecs.registry",
+)
+
+
+def install_noisy_external_log_filters() -> None:
+    for logger_name in _NOISY_EXTERNAL_LOGGER_NAMES:
+        logger = logging.getLogger(logger_name)
+        if int(logger.getEffectiveLevel()) < int(logging.WARNING):
+            logger.setLevel(logging.WARNING)
 
 
 def _install_record_factory() -> None:
@@ -107,6 +118,7 @@ def configure_pipeline_logging(*, config_path: str | Path | None = None) -> Pipe
 
         logging.captureWarnings(bool(config.enabled and config.capture_warnings))
         root.setLevel(logging.DEBUG)
+        install_noisy_external_log_filters()
 
         if not config.enabled:
             return config

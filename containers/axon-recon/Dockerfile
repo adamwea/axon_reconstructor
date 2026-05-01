@@ -13,10 +13,13 @@ ARG SLAY_SPEC=""
 ARG SLAY_RUNTIME_SPEC="marshmallow"
 ARG SLAY_INSTALL_ARGS="--no-deps"
 ARG MPI4PY_SPEC="mpi4py"
+ARG MAXWELL_HDF5_PLUGIN_URL="https://share.mxwbio.com/d/7f2d1e98a1724a1b8b35/files/?p=%2FLinux%2Flibcompression.so&dl=1"
+ARG MAXWELL_HDF5_PLUGIN_DIR="/usr/local/lib/plugin"
 
 ENV PYTHONUNBUFFERED=1 \
   PIP_NO_CACHE_DIR=1 \
   AXON_RECON_IN_CONTAINER=1 \
+  HDF5_PLUGIN_PATH=${MAXWELL_HDF5_PLUGIN_DIR} \
   AXON_RECON_CACHE_ROOT=/tmp/axon-recon-cache \
   HOME=/tmp/axon-recon-cache/home \
   XDG_CACHE_HOME=/tmp/axon-recon-cache/xdg \
@@ -29,6 +32,7 @@ WORKDIR /opt/axon_reconstructor
 COPY . /opt/axon_reconstructor
 
 RUN rm -rf /tmp/axon-recon-cache \
+  && python containers/axon-recon/install_maxwell_hdf5_plugin.py --url "${MAXWELL_HDF5_PLUGIN_URL}" --plugin-dir "${MAXWELL_HDF5_PLUGIN_DIR}" \
   && python -m pip install --upgrade pip setuptools wheel \
   && if [[ -n "${AXON_RECON_INSTALL_EXTRAS}" ]]; then \
   python -m pip install ".[${AXON_RECON_INSTALL_EXTRAS}]"; \

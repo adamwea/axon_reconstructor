@@ -80,6 +80,25 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-01 16:45 - pending - ai: install MaxWell HDF5 plugin in container
+
+Status: pending validation
+
+Summary:
+- Added a container build helper that downloads `libcompression.so` from the MaxWell Linux plugin URL, validates that the response is an ELF shared object, and fails with a clear "container needs an update" message if the URL is unavailable or returns the wrong content.
+- Installed the plugin into `/usr/local/lib/plugin/libcompression.so`, set `HDF5_PLUGIN_PATH=/usr/local/lib/plugin`, and made the entrypoint fail early if the plugin is missing at runtime.
+- Suppressed noisy `numcodecs`/`numcodecs.registry` codec registration debug logs during pipeline startup.
+- Documented the plugin install behavior in the container README.
+
+Acceptance Criteria:
+- Container builds fail clearly if the MaxWell plugin URL dies or stops serving a Linux shared object.
+- Containerized preprocess can reach MaxWell HDF5 reads without `/usr/local/lib/plugin` missing errors.
+- Console output no longer includes the repeated `Registering codec ...` messages.
+
+Self-Check:
+- Focused tests passed for the installer failure path and codec logger suppression.
+- The plugin URL was tested outside Docker and returned a 64-bit ELF shared object.
+
 ## 2026-05-01 16:00 - pending - ai: add auto-building container wrapper
 
 Status: accepted

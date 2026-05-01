@@ -12,6 +12,7 @@ from .context import (
 from .setup import (
     configure_pipeline_logging,
     finalize_pipeline_logging,
+    install_noisy_external_log_filters,
     pipeline_logging_is_configured,
 )
 
@@ -21,6 +22,7 @@ __all__ = [
     "configure_pipeline_logging",
     "current_log_context",
     "finalize_pipeline_logging",
+    "install_noisy_external_log_filters",
     "log_context",
     "log_context_for_target",
     "log_event",

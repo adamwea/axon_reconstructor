@@ -4,7 +4,12 @@ import json
 import logging
 from pathlib import Path
 
-from axon_recon.pipeline.logging import configure_pipeline_logging, finalize_pipeline_logging, log_context
+from axon_recon.pipeline.logging import (
+    configure_pipeline_logging,
+    finalize_pipeline_logging,
+    install_noisy_external_log_filters,
+    log_context,
+)
 
 
 def _write_runtime(tmp_path: Path, *, phase_logs_enabled: bool = True) -> Path:
@@ -161,6 +166,17 @@ def test_pipeline_logging_setup_is_idempotent(tmp_path):
     logging.getLogger("axon_recon.tests.pipeline_logging.idempotent").info("single line")
     finalize_pipeline_logging(status="ok")
     assert (config.logs_dir / "pipeline.log").read_text(encoding="utf-8").count("single line") == 1
+
+
+def test_pipeline_logging_suppresses_noisy_codec_registration_logger():
+    logger = logging.getLogger("numcodecs.registry")
+    original_level = int(logger.level)
+    try:
+        logger.setLevel(logging.DEBUG)
+        install_noisy_external_log_filters()
+        assert int(logger.level) == logging.WARNING
+    finally:
+        logger.setLevel(original_level)
 
 
 def test_pipeline_logging_resolves_canonical_scratch_output_root(tmp_path):
