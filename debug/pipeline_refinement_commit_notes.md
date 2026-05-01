@@ -52,7 +52,61 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-01 04:05 - pending - ai: rename active runtime labels
+## 2026-05-01 04:12 - pending - ai: delete stale gpt notes
+
+Status: accepted
+
+Summary:
+- Deleted unreferenced GPT brainstorming/debug note transcripts from `debug/notes`.
+- Reduced broad retirement audit noise to the live refinement instructions, commit log, README project name, and pyproject package metadata.
+
+Acceptance Criteria:
+- The tracked `debug/notes/gpt_optimizing_copy.md`, `debug/notes/gpt_shared_utilites.md`, and `debug/notes/refactor_brainstorming_gpt.md` files are removed.
+- No code behavior changes are included in this slice.
+
+Expected To Run:
+- No runtime behavior changes.
+
+Confirmed Not Run:
+- Stale GPT/debug note transcripts are no longer part of the tracked repository.
+
+Files/Modules Changed:
+- deleted `debug/notes/gpt_optimizing_copy.md`
+- deleted `debug/notes/gpt_shared_utilites.md`
+- deleted `debug/notes/refactor_brainstorming_gpt.md`
+
+Validation:
+- Reference audit: repo-wide retired-name grep now reports only `debug/pipeline_refinement_instructions.md`, historical entries in this commit log, README project/package naming, and pyproject package metadata.
+- Pytest: not run; docs-only deletion.
+- Smoke (20 min max unless Adam approves longer): not run; docs-only deletion.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: tests and real-data smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged.
+- Force-restart/replot behavior: unchanged.
+- Partial-output handling: unchanged.
+
+Storage/Cache Impact:
+- Created: none.
+- Cleaned: stale tracked debug notes.
+- Persisted: none.
+- Size check: not applicable.
+
+CLI Impact:
+- No selector changes.
+
+Retired Code/Tests:
+- No code/tests deleted; only stale notes were removed.
+
+Risks And Follow-Ups:
+- None expected; files were unreferenced debug transcripts.
+
+Rollback Notes:
+- Restore the deleted files from the parent commit if their brainstorming content is needed for reference.
+
+## 2026-05-01 04:05 - 7e6077f - ai: rename active runtime labels
 
 Status: accepted
 
