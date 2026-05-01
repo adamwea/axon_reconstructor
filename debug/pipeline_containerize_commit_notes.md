@@ -80,6 +80,66 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-01 14:39 - pending - ai: add container scaffold and wrapper
+
+Status: accepted
+
+Summary:
+- Added the first container scaffold under `containers/axon-recon`: Dockerfile, entrypoint, smoke import/CLI scripts, README, and a local build helper that can copy sibling UnitMatch/SLAy checkouts into a temporary build context.
+- Added `.dockerignore` to keep caches, build outputs, scratch data, and VCS metadata out of Docker contexts.
+- Added `tools/axon-recon-container`, a host wrapper that forwards normal `axon-reconstructor` arguments through Docker without parsing pipeline stage selectors.
+
+Acceptance Criteria:
+- Normal CLI argument shape is preserved inside the image through the entrypoint and wrapper.
+- The wrapper supports dry-run inspection, image override, repo/cache mounts, extra mounts/env vars, and defaults to read-only repo mounts.
+- Sibling packages can be installed as normal packages from copied temporary-context paths rather than imported from workspace paths.
+- Container smoke assets check CLI help and required imports without requiring local host installs for container-only dependencies.
+
+Self-Check:
+- Diff reviewed: yes.
+- Unrelated/user edits excluded from commit: yes; only container scaffold files, wrapper, `.dockerignore`, and these notes are modified.
+- Instruction files re-read: yes, `debug/pipeline_containerize_instructions.md` and `debug/pipeline_refinement_instructions.md` before this slice.
+- Residual risk: the image was not built in this slice; SLAy/UnitMatch dependency resolution and `mpi4py` linkage still need real container and NERSC validation.
+
+Expected To Run:
+- `tools/axon-recon-container --image axon-recon:local stages reconstruct --config debug/debug.runtime.yml` should resolve to a Docker run command that calls the same stage selector inside the image.
+- `containers/axon-recon/build_local_image.sh --image axon-recon:local` should create a temporary context and include sibling UnitMatch/SLAy paths when present.
+
+Confirmed Not Run:
+- Docker build, container runtime smoke, Shifter import, and NERSC jobs were not run in this slice.
+
+Validation:
+- Pytest: not run; this slice only adds shell/container assets and a host-side Python smoke helper.
+- Smoke: `bash -n containers/axon-recon/build_local_image.sh containers/axon-recon/entrypoint.sh containers/axon-recon/smoke_cli.sh tools/axon-recon-container` passed.
+- Smoke: `tools/axon-recon-container --dry-run --no-tty --image axon-recon:local stages reconstruct --config debug/debug.runtime.yml` printed the expected Docker command with repo/cache mounts and forwarded CLI args.
+- Smoke: `containers/axon-recon/build_local_image.sh --dry-run --image axon-recon:local` detected sibling UnitMatch/SLAy paths and added the corresponding build args.
+- Smoke: `/home/adamm/miniconda3/envs/axon_recon/bin/python containers/axon-recon/smoke_imports.py --allow-missing` ran successfully; host environment lacks expected container-only imports for `UnitMatchPy`, `kilosort`, and `mpi4py`.
+- Smoke: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m axon_recon.pipeline.cli --help` and `... stages --help` passed.
+- Container build/run: not run; first actual image build remains pending because dependency resolution/image size should be inspected as its own slice.
+- Logs inspected: shell validation, dry-run output, host import smoke output.
+- Not run: full test suite, Docker build, real pipeline stage execution, Shifter validation.
+
+Container / Shifter Impact:
+- Local Docker behavior: adds a Dockerfile and host wrapper for local container execution; wrapper defaults to the configured `docker` CLI.
+- Shifter/NERSC behavior: README records CPU/GPU job shapes and leaves CUDA-aware `mpi4py` validation as NERSC-deferred.
+- Image size/cache impact: `.dockerignore` and build helper avoid copying VCS metadata, caches, scratch data, and outputs; real image size still unmeasured.
+
+CLI Impact:
+- Normal CLI: unchanged.
+- Container CLI: new `tools/axon-recon-container` wrapper forwards all remaining args to `axon-reconstructor` inside the image; use `--wrapper-help` for wrapper options.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged; wrapper does not inspect or modify runtime config/resume flags.
+- Force-restart behavior: unchanged; forwarded to the normal pipeline CLI when provided.
+
+Storage / Mount Impact:
+- Created: `.dockerignore`, `containers/axon-recon/*`, `tools/axon-recon-container`.
+- Modified: `debug/pipeline_containerize_commit_notes.md`.
+- Required mounts: repo/config path is mounted at the same absolute path; extra data/output roots must be supplied with `--mount` or NERSC volume directives.
+
+Rollback Notes:
+- Revert the scaffold/wrapper files and this notes entry; no runtime pipeline code is changed in this slice.
+
 ## 2026-05-01 14:33 - pending - ai: add local spikeinterface sort backend
 
 Status: accepted

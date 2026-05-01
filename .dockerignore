@@ -1,0 +1,16 @@
+.git
+.pytest_cache
+.ruff_cache
+__pycache__
+*.py[cod]
+*.egg-info
+.mypy_cache
+.ipynb_checkpoints
+build
+dist
+outputs
+scratch
+tmp
+*.log
+debug/*.runtime.yml.bak
+debug/pipeline_refinement_commit_notes.md.tmp

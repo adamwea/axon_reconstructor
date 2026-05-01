@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: axon-recon-container [wrapper-options] <axon-reconstructor-args...>
+
+Wrapper options:
+  --image IMAGE          Container image to run (default: AXON_RECON_CONTAINER_IMAGE or axon-recon:local)
+  --dry-run              Print the resolved docker command without running it
+  --repo-root PATH       Repo root to mount (default: git top-level or this script's parent)
+  --repo-writable        Mount the repo read-write instead of read-only
+  --cache-dir PATH       Host cache directory (default: ~/.cache/axon-recon-container)
+  --mount SPEC           Extra docker -v mount, repeatable (host:container[:mode])
+  --env SPEC             Extra docker -e env var, repeatable (NAME=VALUE)
+  --no-tty               Do not allocate an interactive TTY
+  --wrapper-help         Show this help
+
+All remaining arguments are passed unchanged to axon-reconstructor inside the image.
+EOF
+}
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root=""
+if git rev-parse --show-toplevel >/dev/null 2>&1; then
+  git_prefix="$(git rev-parse --show-prefix)"
+  if [[ -n "$git_prefix" ]]; then
+    repo_root="${PWD%/${git_prefix%/}}"
+  else
+    repo_root="$PWD"
+  fi
+elif git_root="$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null)"; then
+  repo_root="$git_root"
+else
+  repo_root="$(cd "$script_dir/.." && pwd)"
+fi
+
+container_cli="${AXON_RECON_CONTAINER_CLI:-docker}"
+image="${AXON_RECON_CONTAINER_IMAGE:-axon-recon:local}"
+cache_dir="${AXON_RECON_CONTAINER_CACHE:-${HOME}/.cache/axon-recon-container}"
+repo_mode="ro"
+dry_run=0
+tty=1
+extra_mounts=()
+extra_env=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --image)
+      image="${2:?--image requires a value}"
+      shift 2
+      ;;
+    --dry-run)
+      dry_run=1
+      shift
+      ;;
+    --repo-root)
+      repo_root="$(cd "${2:?--repo-root requires a value}" && pwd)"
+      shift 2
+      ;;
+    --repo-writable)
+      repo_mode="rw"
+      shift
+      ;;
+    --cache-dir)
+      cache_dir="$(mkdir -p "${2:?--cache-dir requires a value}" && cd "$2" && pwd)"
+      shift 2
+      ;;
+    --mount)
+      extra_mounts+=("${2:?--mount requires a value}")
+      shift 2
+      ;;
+    --env)
+      extra_env+=("${2:?--env requires a value}")
+      shift 2
+      ;;
+    --no-tty)
+      tty=0
+      shift
+      ;;
+    --wrapper-help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [[ $# -eq 0 ]]; then
+  set -- --help
+fi
+
+mkdir -p "$cache_dir" "$cache_dir/xdg" "$cache_dir/matplotlib" "$cache_dir/numba" "$cache_dir/pycache"
+
+cmd=("$container_cli" run --rm)
+if [[ "$tty" -eq 1 && -t 0 ]]; then
+  cmd+=("-i")
+fi
+if [[ "$tty" -eq 1 && -t 1 ]]; then
+  cmd+=("-t")
+fi
+
+cmd+=(
+  -v "$repo_root:$repo_root:$repo_mode"
+  -w "$repo_root"
+  -v "$cache_dir:/tmp/axon-recon-cache:rw"
+  -e XDG_CACHE_HOME=/tmp/axon-recon-cache/xdg
+  -e MPLCONFIGDIR=/tmp/axon-recon-cache/matplotlib
+  -e NUMBA_CACHE_DIR=/tmp/axon-recon-cache/numba
+  -e PYTHONPYCACHEPREFIX=/tmp/axon-recon-cache/pycache
+)
+
+for mount_spec in "${extra_mounts[@]}"; do
+  cmd+=(-v "$mount_spec")
+done
+for env_spec in "${extra_env[@]}"; do
+  cmd+=(-e "$env_spec")
+done
+
+cmd+=("$image" "$@")
+
+if [[ "$dry_run" -eq 1 ]]; then
+  printf 'Resolved container command:\n'
+  printf '%q ' "${cmd[@]}"
+  printf '\n'
+  exit 0
+fi
+
+exec "${cmd[@]}"
