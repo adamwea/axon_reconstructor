@@ -16,7 +16,7 @@ Full dependency builds should use the helper so sibling checkouts are copied int
 containers/axon-recon/build_local_image.sh --image axon-recon:local
 ```
 
-The default repo-root build installs `axon_reconstructor`, `mpi4py`, and small runtime Python dependencies. It does not bake local data, scratch outputs, credentials, or sibling workspace paths into the image. The helper detects sibling `../UnitMatch/UnitMatchPy` and `../SLAy` checkouts when present, copies them under `external/` in a temporary context, and passes build args so imports are normal installed-package imports.
+The default repo-root build installs `axon_reconstructor`, the active runtime Python dependency set, `spikeinterface==0.103.2`, and `mpi4py`. It does not bake local data, scratch outputs, credentials, or sibling workspace paths into the image. The helper detects sibling `../UnitMatch/UnitMatchPy` and `../SLAy` checkouts when present, copies them under `external/` in a temporary context, and passes build args so imports are normal installed-package imports.
 
 ## Smoke Checks
 

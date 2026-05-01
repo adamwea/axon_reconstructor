@@ -80,6 +80,67 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-01 14:50 - pending - ai: install container runtime deps by default
+
+Status: accepted
+
+Summary:
+- Validated that the initial scaffold Dockerfile can build on top of `spikeinterface/kilosort4-base:4.0.6_cuda-12.0.0`.
+- Added default installation of the active pipeline runtime dependency set and `spikeinterface==0.103.2`; the Kilosort4 base image already provided `kilosort` but did not provide `spikeinterface`.
+- Updated the container README to document the default runtime dependency installation.
+
+Acceptance Criteria:
+- A no-sibling probe image builds successfully from the local Dockerfile.
+- The probe image can run normal CLI help through the container entrypoint.
+- The host wrapper can forward `stages --help` through Docker to the probe image.
+- Container import smoke passes for the dependencies expected in the no-sibling image: `axon_recon`, `kilosort`, `mpi4py`, and `spikeinterface`.
+
+Self-Check:
+- Diff reviewed: yes.
+- Unrelated/user edits excluded from commit: yes; only the Dockerfile, container README, and these notes are modified.
+- Instruction files re-read: yes, `debug/pipeline_containerize_instructions.md` and `debug/pipeline_refinement_instructions.md` before this slice.
+- Residual risk: full sibling UnitMatch/SLAy installation is still pending; SLAy and UnitMatch have dependency and import-shape conflicts that should be handled in their own focused slice.
+
+Expected To Run:
+- `containers/axon-recon/build_local_image.sh --image axon-recon:probe --no-unitmatch --no-slay` should build a runnable image.
+- `docker run --rm axon-recon:probe --help` and `docker run --rm axon-recon:probe stages --help` should work.
+- `tools/axon-recon-container --image axon-recon:probe --no-tty stages --help` should forward to the container CLI.
+
+Confirmed Not Run:
+- Full sibling build with UnitMatch/SLAy, real data pipeline stages, and Shifter validation were not run in this slice.
+
+Validation:
+- Pytest: not run; this slice only changes container dependency installation defaults and docs.
+- Smoke: `bash -n containers/axon-recon/build_local_image.sh containers/axon-recon/entrypoint.sh containers/axon-recon/smoke_cli.sh tools/axon-recon-container` passed.
+- Smoke: `docker --version` reported Docker `29.1.5`.
+- Container build/run: first no-sibling build completed in `239.8s`; rebuilt after the dependency patch in `35.3s` with cached base layers.
+- Container smoke: `docker run --rm axon-recon:probe --help`, `docker run --rm axon-recon:probe stages --help`, and wrapper-forwarded `stages --help` all passed.
+- Container smoke: `python smoke_imports.py --allow-missing` inside `axon-recon:probe` confirmed `axon_recon 0.1.0`, `kilosort 4`, `mpi4py 4.1.1`, and `spikeinterface 0.103.2`; `UnitMatchPy` and `slay` remain missing by design in the no-sibling build.
+- Container size: `docker image inspect axon-recon:probe` reported about `10.01 GB` after runtime deps.
+- Logs inspected: Docker build output, container smoke import JSON, wrapper/CLI smoke commands.
+- Not run: full test suite, full sibling build, real pipeline stage execution, Shifter validation.
+
+Container / Shifter Impact:
+- Local Docker behavior: no-sibling images now include SpikeInterface and the base runtime Python packages needed by the pipeline CLI.
+- Shifter/NERSC behavior: image remains below the documented 20 GB risk threshold in this no-sibling probe; CUDA-aware `mpi4py` remains NERSC-deferred despite import success.
+- Image size/cache impact: no-sibling probe image is about `10.01 GB`; first pull is heavy because the base image contains a 5.91 GB layer, but rebuilds are fast with cached layers.
+
+CLI Impact:
+- Normal CLI: unchanged.
+- Container CLI: `axon-reconstructor` help and wrapper-forwarded `stages --help` work inside the probe image.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged.
+- Force-restart behavior: unchanged.
+
+Storage / Mount Impact:
+- Created: local Docker image tag `axon-recon:probe` during validation.
+- Modified: `containers/axon-recon/Dockerfile`, `containers/axon-recon/README.md`, and `debug/pipeline_containerize_commit_notes.md`.
+- Required mounts: unchanged from the scaffold slice.
+
+Rollback Notes:
+- Revert the Dockerfile runtime dependency defaults and README note if the full sibling dependency strategy needs a different base install model.
+
 ## 2026-05-01 14:39 - pending - ai: add container scaffold and wrapper
 
 Status: accepted

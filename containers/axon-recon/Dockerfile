@@ -4,7 +4,8 @@ FROM spikeinterface/kilosort4-base:4.0.6_cuda-12.0.0
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG AXON_RECON_INSTALL_EXTRAS=""
-ARG SPIKEINTERFACE_SPEC=""
+ARG AXON_RECON_RUNTIME_SPEC="h5py tqdm requests psutil matplotlib pandas openpyxl scipy pyyaml docker pypdf"
+ARG SPIKEINTERFACE_SPEC="spikeinterface==0.103.2"
 ARG UNITMATCH_SPEC=""
 ARG SLAY_SPEC=""
 ARG MPI4PY_SPEC="mpi4py"
@@ -27,10 +28,10 @@ RUN mkdir -p /tmp/axon-recon-cache \
     else \
         python -m pip install .; \
     fi \
+    && if [[ -n "${AXON_RECON_RUNTIME_SPEC}" ]]; then python -m pip install ${AXON_RECON_RUNTIME_SPEC}; fi \
     && if [[ -n "${SPIKEINTERFACE_SPEC}" ]]; then python -m pip install "${SPIKEINTERFACE_SPEC}"; fi \
     && if [[ -n "${UNITMATCH_SPEC}" ]]; then python -m pip install "${UNITMATCH_SPEC}"; fi \
     && if [[ -n "${SLAY_SPEC}" ]]; then python -m pip install "${SLAY_SPEC}"; fi \
-    && python -m pip install pyyaml docker pypdf \
     && if [[ -n "${MPI4PY_SPEC}" ]]; then python -m pip install "${MPI4PY_SPEC}"; fi \
     && chmod +x /opt/axon_reconstructor/containers/axon-recon/entrypoint.sh \
     && chmod +x /opt/axon_reconstructor/containers/axon-recon/smoke_cli.sh \
