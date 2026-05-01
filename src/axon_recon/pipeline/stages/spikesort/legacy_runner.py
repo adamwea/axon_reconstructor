@@ -203,10 +203,6 @@ def _resolve_preprocess_dir(*, well_out_dir: Path) -> Path:
     if legacy_stage_dir.exists():
         return legacy_stage_dir
 
-    legacy_dir = well_out_dir / "axon_reconstructor" / "preprocess"
-    if legacy_dir.exists():
-        return legacy_dir
-
     # Default to new location for error messaging.
     return canonical_dir
 
@@ -322,7 +318,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
 
             logger = setup_pipeline_logger(
                 log_file=log_file,
-                logger_name=f"axon_reconstructor.{log_file.stem}",
+                logger_name=f"axon_recon.{log_file.stem}",
                 verbose=bool(inputs.log_verbose),
             )
         except Exception:
@@ -399,7 +395,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
         extra_fields={
             "spikesorting_out_dir": str(stage_output_dir),
             "recording_profile": str(_recording_profile_from_h5(inputs.h5_path)),
-            "checkpoint_owner": "axon_reconstructor_wrapper",
+            "checkpoint_owner": "axon_recon_spikesort",
             "delegate_checkpoint_owner": "MEA_Analysis",
         },
     )
@@ -640,7 +636,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
                 "merged_sorting_dir": (str(merged_sorting_dir) if merged_sorting_dir is not None else None),
                 "recording_profile": str(recording_profile),
                 "mea_analysis_checkpoint_file": str(getattr(pipeline, "checkpoint_file", "")),
-                "checkpoint_owner": "axon_reconstructor_wrapper",
+                "checkpoint_owner": "axon_recon_spikesort",
                 "delegate_checkpoint_owner": "MEA_Analysis",
             },
         )
@@ -684,7 +680,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
             extra_fields={
                 "spikesorting_out_dir": str(stage_output_dir),
                 "recording_profile": str(_recording_profile_from_h5(inputs.h5_path)),
-                "checkpoint_owner": "axon_reconstructor_wrapper",
+                "checkpoint_owner": "axon_recon_spikesort",
                 "delegate_checkpoint_owner": "MEA_Analysis",
             },
         )

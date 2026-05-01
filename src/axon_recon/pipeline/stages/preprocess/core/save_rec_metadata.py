@@ -18,7 +18,7 @@ from .artifacts import write_json
 _STDOUT_TEE_LOCK = threading.Lock()
 
 
-def _ensure_maxwell_hdf5_plugin_path(*, prefix: str = "[axon_reconstructor]", suppress_messages: bool = False) -> None:
+def _ensure_maxwell_hdf5_plugin_path(*, prefix: str = "[axon_recon]", suppress_messages: bool = False) -> None:
 	env = os.environ.get("HDF5_PLUGIN_PATH")
 	if env:
 		try:
@@ -53,7 +53,7 @@ def _collect_assay_settings_lines_from_h5(*, h5: Any) -> list[str]:
 def _print_assay_settings(
 	*,
 	h5_path: Path,
-	prefix: str = "[axon_reconstructor]",
+	prefix: str = "[axon_recon]",
 	precomputed_lines: list[str] | None = None,
 ) -> None:
 	if precomputed_lines is not None:
@@ -195,7 +195,7 @@ def _print_data_store_start_stop_durations(
 	*,
 	h5_path: Path,
 	target_stream_id: Optional[str] = None,
-	prefix: str = "[axon_reconstructor]",
+	prefix: str = "[axon_recon]",
 	precomputed_lines: list[str] | None = None,
 ) -> None:
 	if precomputed_lines is not None:
@@ -1081,11 +1081,11 @@ def run_save_rec_metadata_core(
 	try:
 		with _tee_stdout_to_file(assay_stats_path) as written_path:
 			print(
-				f"[axon_reconstructor][DEBUG] assay_stats file: {written_path} (generated {dt.datetime.now(dt.timezone.utc).isoformat()})",
+				f"[axon_recon][DEBUG] assay_stats file: {written_path} (generated {dt.datetime.now(dt.timezone.utc).isoformat()})",
 				flush=True,
 			)
 			print(
-				f"[axon_reconstructor][DEBUG] assay_stats context: h5={resolved_h5_path} stream={stream_id}",
+				f"[axon_recon][DEBUG] assay_stats context: h5={resolved_h5_path} stream={stream_id}",
 				flush=True,
 			)
 			_print_assay_settings(h5_path=resolved_h5_path, precomputed_lines=assay_lines or None)

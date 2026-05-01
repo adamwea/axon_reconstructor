@@ -147,7 +147,7 @@ def build_stage_logger(
     data_file: Path,
     stream_id: str,
     stage_name: str,
-    logger_name_prefix: str = "axon_reconstructor",
+    logger_name_prefix: str = "axon_recon",
     verbose: bool = True,
 ) -> logging.Logger:
     log_file = compute_pipeline_log_file(well_out_dir=well_out_dir, data_file=data_file, stream_id=stream_id)

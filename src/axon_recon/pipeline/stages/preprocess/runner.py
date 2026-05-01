@@ -543,7 +543,7 @@ def _prepare_phase_logger(inputs: PreprocessInputs, paths: _PreprocessPathSet) -
 	try:
 		return setup_pipeline_logger(
 			log_file=paths.stage_log_source,
-			logger_name=f"axon_reconstructor.{paths.stage_log_source.stem}",
+			logger_name=f"axon_recon.{paths.stage_log_source.stem}",
 			verbose=bool(inputs.logging_verbose),
 		)
 	except Exception:
@@ -1723,12 +1723,12 @@ def _build_recording_metadata_phase_payload(inputs: PreprocessInputs) -> dict[st
 	try:
 		with _tee_stdout_to_file(assay_stats_path) as written_path:
 			print(
-				f"[axon_reconstructor][DEBUG] assay_stats file: {written_path} "
+				f"[axon_recon][DEBUG] assay_stats file: {written_path} "
 				f"(generated {dt.datetime.now(dt.timezone.utc).isoformat()})",
 				flush=True,
 			)
 			print(
-				f"[axon_reconstructor][DEBUG] assay_stats context: h5={resolved_h5_path} stream={inputs.stream_id}",
+				f"[axon_recon][DEBUG] assay_stats context: h5={resolved_h5_path} stream={inputs.stream_id}",
 				flush=True,
 			)
 			_print_assay_settings(h5_path=resolved_h5_path)

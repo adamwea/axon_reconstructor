@@ -18,7 +18,7 @@ from .artifacts import (
 )
 
 
-def _ensure_maxwell_hdf5_plugin_path(*, prefix: str = "[axon_reconstructor]", suppress_messages: bool = False) -> None:
+def _ensure_maxwell_hdf5_plugin_path(*, prefix: str = "[axon_recon]", suppress_messages: bool = False) -> None:
 	env = os.environ.get("HDF5_PLUGIN_PATH")
 	if env:
 		try:

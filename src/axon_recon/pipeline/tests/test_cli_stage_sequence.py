@@ -30,7 +30,7 @@ def test_canonical_all_selector_excludes_retired_stages() -> None:
 
 
 @pytest.mark.parametrize("raw_token", ["analysis", "analyse", "analyze"])
-def test_parse_stage_list_tokens_rejects_retired_analysis_stage(raw_token: str) -> None:
+def test_parse_stage_list_tokens_rejects_retired_analysis_selector(raw_token: str) -> None:
     with pytest.raises(SystemExit, match="Unsupported stage token"):
         pipeline_cli._parse_stage_list_tokens([raw_token])
 

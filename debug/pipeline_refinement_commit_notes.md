@@ -52,7 +52,71 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-01 03:55 - pending - ai: rename reconstruct template internals
+## 2026-05-01 04:05 - pending - ai: rename active runtime labels
+
+Status: accepted
+
+Summary:
+- Renamed active runtime log prefixes from `axon_reconstructor` to `axon_recon` in preprocess, spikesort, and shared pipeline logging code.
+- Renamed spikesort legacy checkpoint owner metadata from `axon_reconstructor_wrapper` to `axon_recon_spikesort`.
+- Removed the old package-named preprocess fallback path under `well_out_dir/axon_reconstructor/preprocess`, while preserving the explicit `stg1_preprocess_outputs` fallback.
+- Renamed the final active test identifier that mentioned the retired analysis stage selector.
+
+Acceptance Criteria:
+- No active `axon_reconstructor`, `stages.analysis`, `run_analysis`, or `analysis_stage` strings remain under `src/axon_recon/pipeline/**` Python sources.
+- Focused preprocess, spikesort, pipeline logging, and CLI stage-sequence tests pass.
+- Diagnostics remain clean for touched runtime files.
+
+Expected To Run:
+- New loggers and debug prints use `axon_recon` runtime labels.
+- Spikesort checkpoint metadata records `axon_recon_spikesort` for new wrapper checkpoint writes.
+
+Confirmed Not Run:
+- The old `well_out_dir/axon_reconstructor/preprocess` compatibility fallback is removed from active spikesort preprocessing lookup.
+- Retired analysis selector wording remains absent from active source.
+
+Files/Modules Changed:
+- `src/axon_recon/pipeline/pipeline_logging.py`
+- `src/axon_recon/pipeline/stages/preprocess/core/preprocess_segments.py`
+- `src/axon_recon/pipeline/stages/preprocess/core/save_rec_metadata.py`
+- `src/axon_recon/pipeline/stages/preprocess/runner.py`
+- `src/axon_recon/pipeline/stages/spikesort/legacy_runner.py`
+- `src/axon_recon/pipeline/tests/test_cli_stage_sequence.py`
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/preprocess/tests src/axon_recon/pipeline/stages/spikesort/tests src/axon_recon/pipeline/tests/test_pipeline_logging.py src/axon_recon/pipeline/tests/test_cli_stage_sequence.py -q` passed.
+- Reference audit: no active Python source matches remain under `src/axon_recon/pipeline/**` for `axon_reconstructor`, `stages.analysis`, `run_analysis`, or `analysis_stage`.
+- Diagnostics: no VS Code/Pylance errors in modified preprocess/spikesort/logging files.
+- Smoke (20 min max unless Adam approves longer): not run; this is label and obsolete fallback cleanup covered by focused tests.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: full pytest after this narrow slice; real-data smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior: existing canonical `preprocess_outputs` and `stg1_preprocess_outputs` preprocessing paths still resolve; the older package-named fallback no longer resolves.
+- Force-restart/replot behavior: unchanged.
+- Partial-output handling: checkpoint metadata owner label changes for new writes only.
+
+Storage/Cache Impact:
+- Created: none.
+- Cleaned: old package-named runtime labels and obsolete fallback branch.
+- Persisted: none.
+- Size check: not applicable.
+
+CLI Impact:
+- No selector changes.
+
+Retired Code/Tests:
+- Removed an obsolete v1-style preprocess path fallback from the active spikesort adapter.
+- Renamed a test identifier that referred to the retired analysis selector.
+
+Risks And Follow-Ups:
+- If an old partial run only has preprocessing outputs under `well_out_dir/axon_reconstructor/preprocess`, spikesort now expects rerunning preprocess or moving outputs into a supported layout.
+
+Rollback Notes:
+- Restore the removed fallback branch in `_resolve_preprocess_dir` if a legacy output tree must be consumed temporarily.
+
+## 2026-05-01 03:55 - 10bb444 - ai: rename reconstruct template internals
 
 Status: accepted
 
