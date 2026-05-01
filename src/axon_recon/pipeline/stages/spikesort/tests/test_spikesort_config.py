@@ -5,7 +5,7 @@ from textwrap import dedent
 
 import pytest
 
-from axon_reconstructor.runtime_config import RuntimeConfig
+from axon_recon.runtime_config import RuntimeConfig
 from axon_recon.pipeline.stages.spikesort.config import (
     DEFAULT_SPIKESORT_PHASE_SEQUENCE,
     load_spikesort_inputs_from_runtime,

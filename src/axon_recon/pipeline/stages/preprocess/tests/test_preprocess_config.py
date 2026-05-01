@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
-from axon_reconstructor.runtime_config import RuntimeConfig
+from axon_recon.runtime_config import RuntimeConfig
 from axon_recon.pipeline.execution.context import ExecutionTarget
 from axon_recon.pipeline.stages.preprocess.models.inputs import DEFAULT_PREPROCESS_PHASE_SEQUENCE
 from axon_recon.pipeline.stages.preprocess.config import (

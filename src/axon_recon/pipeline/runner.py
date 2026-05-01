@@ -9,7 +9,7 @@ import threading
 import time
 from typing import Any, Callable
 
-from axon_reconstructor.pipeline.publish import publish_path_to_final, remap_path_string_to_final
+from axon_recon.pipeline.publish import publish_path_to_final, remap_path_string_to_final
 
 from .config import (
 	PipelineRuntimeBundle,

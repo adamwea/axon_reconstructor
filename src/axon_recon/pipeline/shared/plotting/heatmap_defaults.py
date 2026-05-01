@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from axon_reconstructor.runtime_config import RuntimeConfig
+from axon_recon.runtime_config import RuntimeConfig
 
 
 def _deep_merge_dict(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

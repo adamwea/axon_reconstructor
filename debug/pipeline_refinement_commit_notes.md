@@ -52,7 +52,65 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-01 02:40 - pending - ai: move templates package under reconstruct
+## 2026-05-01 02:50 - pending - ai: move shared helpers into axon_recon
+
+Status: accepted
+
+Summary:
+- Copied `RuntimeConfig` into `axon_recon.runtime_config`.
+- Copied publish/remap helpers into `axon_recon.pipeline.publish`.
+- Rewrote active v2 imports/tests away from `axon_reconstructor.runtime_config` and `axon_reconstructor.pipeline.publish`.
+
+Acceptance Criteria:
+- No `axon_reconstructor.runtime_config` or `axon_reconstructor.pipeline.publish` imports remain under `src/axon_recon/**`.
+- Active v2 config and publish tests pass against the new module paths.
+- Pipeline tests still collect.
+
+Expected To Run:
+- Active v2 pipeline code imports `RuntimeConfig` and publish helpers from `axon_recon`.
+
+Confirmed Not Run:
+- v1 package deletion is not part of this slice; old modules remain temporarily for rollback/legacy tests.
+
+Files/Modules Changed:
+- `src/axon_recon/runtime_config.py`
+- `src/axon_recon/pipeline/publish.py`
+- v2 config/runner/tests importing runtime config or publish helpers.
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_config.py src/axon_recon/pipeline/tests/test_publish_policy.py src/axon_recon/pipeline/stages/preprocess/tests/test_preprocess_config.py src/axon_recon/pipeline/stages/spikesort/tests/test_spikesort_config.py src/axon_recon/pipeline/stages/reconstruct/tests/test_config.py -q` passed.
+- Pytest collection: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest --collect-only src/axon_recon/pipeline -q` passed collection.
+- Reference audit: no v2 imports remain for `axon_reconstructor.runtime_config` or `axon_reconstructor.pipeline.publish`.
+- Diagnostics: no VS Code/Pylance errors in new helper modules or active v2 config/runner files.
+- Smoke (20 min max unless Adam approves longer): not run; this is a module ownership move covered by focused tests.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: real-data smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged; config parsing implementation is copied unchanged.
+- Force-restart/replot behavior: unchanged.
+- Partial-output handling: unchanged.
+
+Storage/Cache Impact:
+- Created: new v2-owned helper modules.
+- Cleaned: none yet; v1 copies remain for the next retirement slice.
+- Persisted: none.
+- Size check: not applicable.
+
+CLI Impact:
+- No selector changes.
+
+Retired Code/Tests:
+- No deletion yet; this removes active v2 dependency on two v1 helper modules.
+
+Risks And Follow-Ups:
+- Next slice should update package scripts/tests and delete `src/axon_reconstructor` plus v1 tests/docs that only target retired code.
+
+Rollback Notes:
+- Repoint v2 imports back to `axon_reconstructor.runtime_config` and `axon_reconstructor.pipeline.publish` if needed before v1 deletion.
+
+## 2026-05-01 02:40 - 5a17e0b - ai: move templates package under reconstruct
 
 Status: accepted
 

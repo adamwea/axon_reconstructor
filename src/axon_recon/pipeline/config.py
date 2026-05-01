@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from axon_reconstructor.pipeline.scratch_layout import resolve_optional_path, resolve_scratch_layout
-from axon_reconstructor.runtime_config import RuntimeConfig
+from axon_recon.runtime_config import RuntimeConfig
 
 from .execution.context import ExecutionTarget, StageParallelism
 from .execution.read_groups import count_target_read_groups

@@ -8,8 +8,8 @@ import axon_recon.pipeline.runner as pipeline_runner
 from axon_recon.pipeline.execution.context import ExecutionTarget
 from axon_recon.pipeline.execution.results import TargetStageResult
 from axon_recon.pipeline.stages.preprocess.models.results import PreprocessResult
-from axon_reconstructor.pipeline.publish import remap_path_string_to_final
-from axon_reconstructor.runtime_config import RuntimeConfig
+from axon_recon.pipeline.publish import remap_path_string_to_final
+from axon_recon.runtime_config import RuntimeConfig
 
 
 def _build_target(tmp_path: Path) -> ExecutionTarget:

@@ -6,7 +6,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-from axon_reconstructor.runtime_config import RuntimeConfig
+from axon_recon.runtime_config import RuntimeConfig
 
 from ...execution.context import ExecutionTarget
 from .models.inputs import SpikesortInputs
