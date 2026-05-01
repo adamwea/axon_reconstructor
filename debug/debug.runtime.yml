@@ -1626,6 +1626,26 @@ stages:
       force_restart: false
       force_replot: true
       #unit_ids: [1, 3, 7, 10, 17, 20, 22, 23, 24, 28]
+
+      unit_label_filter:
+        allowed_labels: [good, non_soma_good]
+        required: true
+
+      # limit number of unit templates to build for debugging purposes. Set to -1 or null for no limit.
+      unit_limit: -1
+      #unit_limit: 1
+
+      # Optional explicit unit subset for fast, deterministic reruns.
+      #unit_ids: [1, 3, 7, 10, 17, 20, 22, 23, 24, 28]
+
+      # required if clearing concat recording binary at the end of spikesort stage:
+      # only_use_segments: true # since preprocessed segment recordings have the full provenance required to be valid to register spikes from concat spikesorting.
+      # exclude_shared_concat_channels_from_segments: false # when true, this saves a little time by excluding channels shared between segments from the per-segment preprocessed recordings,
+      #   but this also means those channels won't be available for template extraction from segments. If concat binary is cleared, and this is set to true, those share channels wont be included at all.
+      #   therefore this setting must be set to false if only_use_segments is true to ensure that all channels are included in the segment recordings used for template extraction.
+      only_use_segments: true
+      exclude_shared_concat_channels_from_segments: false
+
     unit_limit: 1000
 
     branch_colors:
