@@ -862,7 +862,7 @@ def collect_templates_result_from_outputs(inputs: TemplatesInputs) -> TemplatesR
 		if unit_result is not None:
 			unit_results.append(unit_result)
 	report_outputs = _collect_existing_templates_report_outputs(templates_out_dir=templates_out_dir, inputs=inputs)
-	summary_json = _write_templates_stage_summary(
+	summary_json = _write_reconstruct_templates_summary(
 		inputs=inputs,
 		well_out_dir=well_out_dir,
 		templates_out_dir=templates_out_dir,
@@ -883,20 +883,20 @@ def collect_templates_result_from_outputs(inputs: TemplatesInputs) -> TemplatesR
 	)
 
 
-def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
+def run_reconstruct_templates_pipeline(inputs: TemplatesInputs) -> TemplatesResult:
 	if inputs.phase_sequence is None:
-		return _run_templates_stage_monolithic(inputs)
+		return _run_reconstruct_templates_pipeline_monolithic(inputs)
 	phase_sequence = tuple(
-		_normalize_templates_stage_phase_name(phase)
+		_normalize_reconstruct_templates_phase_name(phase)
 		for phase in inputs.phase_sequence
 	)
-	phase_plan = [phase for phase in phase_sequence if _templates_stage_phase_enabled(inputs, phase)]
+	phase_plan = [phase for phase in phase_sequence if _reconstruct_templates_phase_enabled(inputs, phase)]
 	if not phase_plan:
 		return collect_templates_result_from_outputs(inputs)
 
 	def _descriptor_for_phase(phase_name: str) -> PhaseDescriptor:
 		def _run_phase(phase_name: str = phase_name):
-			return _templates_stage_phase_runner(phase_name)(inputs)
+			return _reconstruct_templates_phase_runner(phase_name)(inputs)
 
 		return PhaseDescriptor(name=str(phase_name), runner=_run_phase)
 
@@ -908,7 +908,7 @@ def run_templates_stage(inputs: TemplatesInputs) -> TemplatesResult:
 	return collect_templates_result_from_outputs(inputs)
 
 
-def _normalize_templates_stage_phase_name(raw: Any) -> str:
+def _normalize_reconstruct_templates_phase_name(raw: Any) -> str:
 	token = str(raw or "").strip().replace("-", "_").replace(" ", "_")
 	aliases = {
 		"resolve": "resolve_sources",
@@ -927,8 +927,8 @@ def _normalize_templates_stage_phase_name(raw: Any) -> str:
 	return aliases.get(token, token)
 
 
-def _templates_stage_phase_enabled(inputs: TemplatesInputs, phase_name: str) -> bool:
-	phase = _normalize_templates_stage_phase_name(phase_name)
+def _reconstruct_templates_phase_enabled(inputs: TemplatesInputs, phase_name: str) -> bool:
+	phase = _normalize_reconstruct_templates_phase_name(phase_name)
 	phases = inputs.phases
 	if phase == "resolve_sources":
 		return bool(inputs.resolve_sources_phase.enabled)
@@ -951,26 +951,26 @@ def _templates_stage_phase_enabled(inputs: TemplatesInputs, phase_name: str) -> 
 	return False
 
 
-def _templates_stage_phase_runner(phase_name: str) -> Callable[[TemplatesInputs], Any]:
-	phase = _normalize_templates_stage_phase_name(phase_name)
+def _reconstruct_templates_phase_runner(phase_name: str) -> Callable[[TemplatesInputs], Any]:
+	phase = _normalize_reconstruct_templates_phase_name(phase_name)
 	if phase == "resolve_sources":
-		return run_templates_resolve_sources_phase
+		return run_reconstruct_templates_resolve_sources_phase
 	if phase == "analyzers":
-		return run_templates_analyzers_phase
+		return run_reconstruct_templates_analyzers_phase
 	if phase == "extract_template_segments":
-		return run_templates_extract_template_segments_phase
+		return run_reconstruct_templates_extract_template_segments_phase
 	if phase == "build_templates":
-		return run_templates_build_templates_phase
+		return run_reconstruct_templates_build_templates_phase
 	if phase == "compute_template_similarity":
-		return run_templates_compute_template_similarity_phase
+		return run_reconstruct_templates_compute_template_similarity_phase
 	if phase == "plot_templates":
-		return run_templates_plot_templates_phase
+		return run_reconstruct_templates_plot_templates_phase
 	if phase == "report_templates":
-		return run_templates_report_templates_phase
+		return run_reconstruct_templates_report_templates_phase
 	if phase == "reports":
-		return run_templates_reports_phase
+		return run_reconstruct_templates_reports_phase
 	if phase == "per_unit_processing":
-		return run_templates_per_unit_processing_phase
+		return run_reconstruct_templates_per_unit_processing_phase
 	raise ValueError(f"Unknown templates phase: {phase_name!r}")
 
 
@@ -1522,7 +1522,7 @@ def _summarize_source_candidates(
 	}
 
 
-def run_templates_resolve_sources_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+def run_reconstruct_templates_resolve_sources_phase(inputs: TemplatesInputs) -> dict[str, Any]:
 	phase_cfg = inputs.resolve_sources_phase
 	well_out_dir = compute_mea_analysis_output_dir(
 		output_root=inputs.mea_output_root,
@@ -2180,7 +2180,7 @@ def _disable_reports_config(reports: Any) -> Any:
 	return _report_scope_config(reports, "none")
 
 
-def run_templates_analyzers_phase(inputs: TemplatesInputs, *, source_scope: str | None = None) -> dict[str, Any]:
+def run_reconstruct_templates_analyzers_phase(inputs: TemplatesInputs, *, source_scope: str | None = None) -> dict[str, Any]:
 	phase_started = perf_counter()
 	well_out_dir, alternate_well_out_dirs, templates_out_dir, analyzer_cache_dir = _resolve_templates_phase_environment(inputs)
 	include_concat = bool(inputs.include_concat) and bool(inputs.phases.analyzers.concat.enabled)
@@ -2315,7 +2315,7 @@ def run_templates_analyzers_phase(inputs: TemplatesInputs, *, source_scope: str 
 	return summary
 
 
-def run_templates_extract_template_segments_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+def run_reconstruct_templates_extract_template_segments_phase(inputs: TemplatesInputs) -> dict[str, Any]:
 	well_out_dir, alternate_well_out_dirs, templates_out_dir, analyzer_cache_dir = _resolve_templates_phase_environment(inputs)
 	payload_root = templates_out_dir / Path(str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root)).expanduser()
 	if bool(inputs.force_restart) and payload_root.exists():
@@ -2397,7 +2397,7 @@ def _templates_payload_root_status(payload_root: Path) -> str:
 	return "empty"
 
 
-def run_templates_build_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+def run_reconstruct_templates_build_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
 	phase_started = perf_counter()
 	well_out_dir, _, templates_out_dir, analyzer_cache_dir = _resolve_templates_phase_environment(inputs)
 	alternate_well_out_dirs = _resolve_alternate_well_out_dirs(inputs=inputs, primary_well_out_dir=well_out_dir)
@@ -2471,7 +2471,7 @@ def run_templates_build_templates_phase(inputs: TemplatesInputs) -> dict[str, An
 	return summary
 
 
-def run_templates_compute_template_similarity_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+def run_reconstruct_templates_compute_template_similarity_phase(inputs: TemplatesInputs) -> dict[str, Any]:
 	phase_started = perf_counter()
 	well_out_dir, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
 	try:
@@ -2660,7 +2660,7 @@ def _plot_safe_propagation_config(inputs: TemplatesInputs, config: Any) -> Any:
 	return replace(config, debug_max_amps_at_each_channel=False)
 
 
-def _write_templates_stage_summary(
+def _write_reconstruct_templates_summary(
 	*,
 	inputs: TemplatesInputs,
 	well_out_dir: Path,
@@ -2785,7 +2785,7 @@ def _write_templates_stage_summary(
 	return summary_json
 
 
-def _run_templates_plot_batches(
+def _run_reconstruct_templates_plot_batches(
 	*,
 	inputs: TemplatesInputs,
 	well_out_dir: Path,
@@ -2806,10 +2806,10 @@ def _run_templates_plot_batches(
 		len(batches),
 	)
 	with _quiet_unexpected_plot_logs(inputs):
-		return _run_templates_stage_monolithic(replace(inputs, unit_ids=list(unit_ids), n_jobs=1))
+		return _run_reconstruct_templates_pipeline_monolithic(replace(inputs, unit_ids=list(unit_ids), n_jobs=1))
 
 
-def run_templates_plot_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+def run_reconstruct_templates_plot_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
 	phase_started = perf_counter()
 	well_out_dir, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
 	try:
@@ -2874,7 +2874,7 @@ def run_templates_plot_templates_phase(inputs: TemplatesInputs) -> dict[str, Any
 		units=[],
 	)
 	if units_to_render:
-		result = _run_templates_plot_batches(
+		result = _run_reconstruct_templates_plot_batches(
 			inputs=phase_inputs,
 			well_out_dir=well_out_dir,
 			templates_out_dir=templates_out_dir,
@@ -2901,10 +2901,10 @@ def run_templates_plot_templates_phase(inputs: TemplatesInputs) -> dict[str, Any
 	return summary
 
 
-def run_templates_per_unit_processing_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+def run_reconstruct_templates_per_unit_processing_phase(inputs: TemplatesInputs) -> dict[str, Any]:
 	_, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
-	run_templates_extract_template_segments_phase(inputs)
-	run_templates_build_templates_phase(inputs)
+	run_reconstruct_templates_extract_template_segments_phase(inputs)
+	run_reconstruct_templates_build_templates_phase(inputs)
 	try:
 		_resolve_templates_dirs(
 			well_out_dir=compute_mea_analysis_output_dir(
@@ -2924,7 +2924,7 @@ def run_templates_per_unit_processing_phase(inputs: TemplatesInputs) -> dict[str
 		force_rereport=False,
 		reports=_disable_reports_config(inputs.reports),
 	)
-	_run_templates_stage_monolithic(unit_inputs)
+	_run_reconstruct_templates_pipeline_monolithic(unit_inputs)
 	summary_json = templates_out_dir / "templates_summary.json"
 	if summary_json.exists():
 		summary = read_json(summary_json)
@@ -2934,7 +2934,7 @@ def run_templates_per_unit_processing_phase(inputs: TemplatesInputs) -> dict[str
 	return {"phase": "per_unit_processing", "templates_out_dir": str(templates_out_dir)}
 
 
-def run_templates_reports_phase(inputs: TemplatesInputs, *, report_scope: str | None = None) -> dict[str, Any]:
+def run_reconstruct_templates_reports_phase(inputs: TemplatesInputs, *, report_scope: str | None = None) -> dict[str, Any]:
 	_, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
 	unit_ids = list(inputs.unit_ids) if inputs.unit_ids is not None else _discover_unit_ids_from_unit_summaries(templates_out_dir)
 	if not unit_ids:
@@ -2963,7 +2963,7 @@ def run_templates_reports_phase(inputs: TemplatesInputs, *, report_scope: str | 
 		force_rereport=True,
 		reports=_report_scope_config(inputs.reports, report_scope),
 	)
-	_run_templates_stage_monolithic(report_inputs)
+	_run_reconstruct_templates_pipeline_monolithic(report_inputs)
 	summary_json = templates_out_dir / "templates_summary.json"
 	if summary_json.exists():
 		summary = read_json(summary_json)
@@ -2976,7 +2976,7 @@ def run_templates_reports_phase(inputs: TemplatesInputs, *, report_scope: str | 
 	}
 
 
-def run_templates_report_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+def run_reconstruct_templates_report_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
 	phase_started = perf_counter()
 	well_out_dir, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
 	unit_ids = list(inputs.unit_ids) if inputs.unit_ids is not None else _discover_unit_ids_from_unit_summaries(templates_out_dir)
@@ -3045,7 +3045,7 @@ def run_templates_report_templates_phase(inputs: TemplatesInputs) -> dict[str, A
 	return summary
 
 
-def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
+def _run_reconstruct_templates_pipeline_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 	reports_replot_requested = _reports_replot_requested(inputs)
 	report_only_rerun = bool(inputs.force_rereport)
 	LOGGER.info(
@@ -3288,7 +3288,7 @@ def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 		)
 	elif bool(inputs.phases.compute_template_similarity.enabled):
 		try:
-			similarity_summary = run_templates_compute_template_similarity_phase(inputs)
+			similarity_summary = run_reconstruct_templates_compute_template_similarity_phase(inputs)
 			if isinstance(similarity_summary, dict):
 				summary_outputs = similarity_summary.get("outputs", {})
 				if isinstance(summary_outputs, dict):
@@ -4144,7 +4144,7 @@ def _run_templates_stage_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
 
 	summary_json = templates_out_dir / "templates_summary.json"
 	if bool(inputs.write_stage_summary):
-		summary_json = _write_templates_stage_summary(
+		summary_json = _write_reconstruct_templates_summary(
 			inputs=inputs,
 			well_out_dir=well_out_dir,
 			templates_out_dir=templates_out_dir,

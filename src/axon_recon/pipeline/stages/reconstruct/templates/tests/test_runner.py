@@ -60,13 +60,13 @@ from axon_recon.pipeline.stages.reconstruct.templates.runner import (
 	_plot_safe_propagation_config,
 	_plot_safe_template_wf_overlay_config,
 	_resolve_plot_templates_execution_plan,
-	_run_templates_plot_batches,
-	run_templates_analyzers_phase,
-	run_templates_build_templates_phase,
-	run_templates_compute_template_similarity_phase,
-	run_templates_plot_templates_phase,
-	run_templates_report_templates_phase,
-	run_templates_stage,
+	_run_reconstruct_templates_plot_batches,
+	run_reconstruct_templates_analyzers_phase,
+	run_reconstruct_templates_build_templates_phase,
+	run_reconstruct_templates_compute_template_similarity_phase,
+	run_reconstruct_templates_plot_templates_phase,
+	run_reconstruct_templates_report_templates_phase,
+	run_reconstruct_templates_pipeline,
 )
 
 
@@ -116,7 +116,7 @@ def _make_templates_artifacts(well_out_dir: Path, *, unit_ids: tuple[int, ...] =
 		)
 
 
-def test_run_templates_stage_honors_phase_sequence_order(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_pipeline_honors_phase_sequence_order(tmp_path: Path, monkeypatch) -> None:
 	calls: list[str] = []
 
 	def _phase(name: str):
@@ -133,11 +133,11 @@ def test_run_templates_stage_honors_phase_sequence_order(tmp_path: Path, monkeyp
 		units=[],
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_templates_plot_templates_phase",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_reconstruct_templates_plot_templates_phase",
 		_phase("plot_templates"),
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_templates_resolve_sources_phase",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_reconstruct_templates_resolve_sources_phase",
 		_phase("resolve_sources"),
 	)
 	monkeypatch.setattr(
@@ -154,12 +154,12 @@ def test_run_templates_stage_honors_phase_sequence_order(tmp_path: Path, monkeyp
 		unit_label_filter_required=False,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert result is expected_result
 	assert calls == ["plot_templates", "resolve_sources"]
 
 
-def test_run_templates_stage_explicit_top_level_phases_ignore_disabled_per_unit_parent(
+def test_run_reconstruct_templates_pipeline_explicit_top_level_phases_ignore_disabled_per_unit_parent(
 	tmp_path: Path,
 	monkeypatch,
 ) -> None:
@@ -179,19 +179,19 @@ def test_run_templates_stage_explicit_top_level_phases_ignore_disabled_per_unit_
 		units=[],
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_templates_analyzers_phase",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_reconstruct_templates_analyzers_phase",
 		_phase("analyzers"),
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_templates_build_templates_phase",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_reconstruct_templates_build_templates_phase",
 		_phase("build_templates"),
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_templates_plot_templates_phase",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_reconstruct_templates_plot_templates_phase",
 		_phase("plot_templates"),
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_templates_report_templates_phase",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_reconstruct_templates_report_templates_phase",
 		_phase("report_templates"),
 	)
 	monkeypatch.setattr(
@@ -211,12 +211,12 @@ def test_run_templates_stage_explicit_top_level_phases_ignore_disabled_per_unit_
 		unit_label_filter_required=False,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert result is expected_result
 	assert calls == ["analyzers", "build_templates", "plot_templates", "report_templates"]
 
 
-def test_run_templates_analyzers_phase_logs_settings_and_writes_run_stats(tmp_path: Path, monkeypatch, caplog) -> None:
+def test_run_reconstruct_templates_analyzers_phase_logs_settings_and_writes_run_stats(tmp_path: Path, monkeypatch, caplog) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -265,7 +265,7 @@ def test_run_templates_analyzers_phase_logs_settings_and_writes_run_stats(tmp_pa
 	)
 
 	with caplog.at_level(logging.INFO, logger="axon_recon.templates"):
-		summary = run_templates_analyzers_phase(inputs)
+		summary = run_reconstruct_templates_analyzers_phase(inputs)
 
 	summary_path = Path(str(summary["summary_json"]))
 	assert summary_path.exists()
@@ -281,7 +281,7 @@ def test_run_templates_analyzers_phase_logs_settings_and_writes_run_stats(tmp_pa
 	assert any("templates.analyzers run stats:" in msg for msg in messages)
 
 
-def test_run_templates_build_templates_phase_materializes_templates_from_payloads(tmp_path: Path, monkeypatch, caplog) -> None:
+def test_run_reconstruct_templates_build_templates_phase_materializes_templates_from_payloads(tmp_path: Path, monkeypatch, caplog) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -344,7 +344,7 @@ def test_run_templates_build_templates_phase_materializes_templates_from_payload
 	)
 
 	with caplog.at_level(logging.INFO, logger="axon_recon.templates"):
-		summary = run_templates_build_templates_phase(inputs)
+		summary = run_reconstruct_templates_build_templates_phase(inputs)
 
 	assert summary["phase"] == "build_templates"
 	assert summary["built_units"] == [94]
@@ -387,7 +387,7 @@ def test_run_templates_build_templates_phase_materializes_templates_from_payload
 	assert (full_unit_dir / "full_template.npy").exists()
 
 
-def test_run_templates_build_templates_phase_warns_when_merged_scope_shrinks(tmp_path: Path, monkeypatch, caplog) -> None:
+def test_run_reconstruct_templates_build_templates_phase_warns_when_merged_scope_shrinks(tmp_path: Path, monkeypatch, caplog) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -457,7 +457,7 @@ def test_run_templates_build_templates_phase_warns_when_merged_scope_shrinks(tmp
 	)
 
 	with caplog.at_level(logging.WARNING, logger="axon_recon.templates"):
-		summary = run_templates_build_templates_phase(inputs)
+		summary = run_reconstruct_templates_build_templates_phase(inputs)
 
 	channel_scope = summary["channel_scope_by_unit"]["94"]
 	assert channel_scope["total_unique_channel_count"] == 2
@@ -470,7 +470,7 @@ def test_run_templates_build_templates_phase_warns_when_merged_scope_shrinks(tmp
 	assert any("merged_channels=1" in message for message in warning_messages)
 
 
-def test_run_templates_build_templates_phase_omits_disabled_full_outputs(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_build_templates_phase_omits_disabled_full_outputs(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -546,7 +546,7 @@ def test_run_templates_build_templates_phase_omits_disabled_full_outputs(tmp_pat
 		n_jobs=1,
 	)
 
-	summary = run_templates_build_templates_phase(inputs)
+	summary = run_reconstruct_templates_build_templates_phase(inputs)
 
 	assert summary["built_units"] == [94]
 	assert not (unit_dir / "merged_template.npy").exists()
@@ -566,7 +566,7 @@ def test_run_templates_build_templates_phase_omits_disabled_full_outputs(tmp_pat
 	assert "square_template_npy" not in unit_summary["outputs"]
 
 
-def test_run_templates_build_templates_phase_loads_cached_analyzers_when_payloads_missing(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_build_templates_phase_loads_cached_analyzers_when_payloads_missing(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -638,7 +638,7 @@ def test_run_templates_build_templates_phase_loads_cached_analyzers_when_payload
 		}
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_templates_extract_template_segments_phase",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_reconstruct_templates_extract_template_segments_phase",
 		_fake_extract_phase,
 	)
 	monkeypatch.setattr(
@@ -677,7 +677,7 @@ def test_run_templates_build_templates_phase_loads_cached_analyzers_when_payload
 		n_jobs=1,
 	)
 
-	summary = run_templates_build_templates_phase(inputs)
+	summary = run_reconstruct_templates_build_templates_phase(inputs)
 
 	assert requested_source_batches == [["concat"], ["000_recA"]]
 	assert summary["phase"] == "build_templates"
@@ -689,7 +689,7 @@ def test_run_templates_build_templates_phase_loads_cached_analyzers_when_payload
 	assert build_call["payload_root"] == templates_out_dir / "cache/source_payloads"
 
 
-def test_run_templates_build_templates_phase_requires_analyzer_cache_when_payloads_missing(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_build_templates_phase_requires_analyzer_cache_when_payloads_missing(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -715,10 +715,10 @@ def test_run_templates_build_templates_phase_requires_analyzer_cache_when_payloa
 	)
 
 	with pytest.raises(FileNotFoundError, match=r"run templates\.analyzers before templates\.build_templates"):
-		run_templates_build_templates_phase(inputs)
+		run_reconstruct_templates_build_templates_phase(inputs)
 
 
-def test_run_templates_compute_template_similarity_phase_requires_built_artifacts(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_compute_template_similarity_phase_requires_built_artifacts(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -734,10 +734,10 @@ def test_run_templates_compute_template_similarity_phase_requires_built_artifact
 	)
 
 	with pytest.raises(FileNotFoundError, match="run templates.build_templates first"):
-		run_templates_compute_template_similarity_phase(inputs)
+		run_reconstruct_templates_compute_template_similarity_phase(inputs)
 
 
-def test_run_templates_compute_template_similarity_phase_writes_matrix_and_candidates(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_compute_template_similarity_phase_writes_matrix_and_candidates(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -754,7 +754,7 @@ def test_run_templates_compute_template_similarity_phase_writes_matrix_and_candi
 		n_jobs=1,
 	)
 
-	summary = run_templates_compute_template_similarity_phase(inputs)
+	summary = run_reconstruct_templates_compute_template_similarity_phase(inputs)
 
 	assert summary["phase"] == "compute_template_similarity"
 	assert summary["unit_count"] == 3
@@ -822,7 +822,7 @@ def test_compute_template_similarity_pairwise_lagged_methods_reward_shifted_temp
 	assert abs(int(slay_with_lag.metrics["slay_mean_similarity_lag_samples"])) == 1
 
 
-def test_run_templates_compute_template_similarity_phase_writes_lagged_method_outputs(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_compute_template_similarity_phase_writes_lagged_method_outputs(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -856,7 +856,7 @@ def test_run_templates_compute_template_similarity_phase_writes_lagged_method_ou
 		),
 	)
 
-	summary = run_templates_compute_template_similarity_phase(inputs)
+	summary = run_reconstruct_templates_compute_template_similarity_phase(inputs)
 	outputs = dict(summary["outputs"])
 	scores_payload = json.loads(Path(outputs["template_similarity_scores_json"]).read_text(encoding="utf-8"))
 	candidate_payload = json.loads(Path(outputs["template_similarity_candidate_pairs_json"]).read_text(encoding="utf-8"))
@@ -877,7 +877,7 @@ def test_run_templates_compute_template_similarity_phase_writes_lagged_method_ou
 	assert "hybrid_template_similarity" in first_metrics
 
 
-def test_run_templates_compute_template_similarity_phase_reuses_existing_template_circles_png(
+def test_run_reconstruct_templates_compute_template_similarity_phase_reuses_existing_template_circles_png(
 	tmp_path: Path,
 	monkeypatch,
 ) -> None:
@@ -940,14 +940,14 @@ def test_run_templates_compute_template_similarity_phase_reuses_existing_templat
 		_unexpected_render,
 	)
 
-	summary = run_templates_compute_template_similarity_phase(inputs)
+	summary = run_reconstruct_templates_compute_template_similarity_phase(inputs)
 
 	assert summary["candidate_pair_count"] == 1
 	candidate_payload = json.loads(Path(summary["outputs"]["template_similarity_candidate_pairs_json"]).read_text(encoding="utf-8"))
 	assert Path(str(candidate_payload["candidates"][0]["pair_plot_png"])).exists()
 
 
-def test_run_templates_compute_template_similarity_phase_falls_back_to_template_circles_renderer(
+def test_run_reconstruct_templates_compute_template_similarity_phase_falls_back_to_template_circles_renderer(
 	tmp_path: Path,
 	monkeypatch,
 ) -> None:
@@ -1010,7 +1010,7 @@ def test_run_templates_compute_template_similarity_phase_falls_back_to_template_
 		),
 	)
 
-	summary = run_templates_compute_template_similarity_phase(inputs)
+	summary = run_reconstruct_templates_compute_template_similarity_phase(inputs)
 
 	assert summary["candidate_pair_count"] == 1
 	assert len(render_calls) == 2
@@ -1021,7 +1021,7 @@ def test_run_templates_compute_template_similarity_phase_falls_back_to_template_
 	assert all(Path(str(call["png_path"])).exists() for call in render_calls)
 
 
-def test_run_templates_stage_writes_png(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_pipeline_writes_png(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -1057,7 +1057,7 @@ def test_run_templates_stage_writes_png(tmp_path: Path) -> None:
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 
@@ -1071,7 +1071,7 @@ def test_run_templates_stage_writes_png(tmp_path: Path) -> None:
 	assert "merged_template_npy" not in result.units[0].outputs
 
 
-def test_run_templates_stage_writes_template_circles_png(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_pipeline_writes_template_circles_png(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -1095,7 +1095,7 @@ def test_run_templates_stage_writes_template_circles_png(tmp_path: Path) -> None
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 
@@ -1104,7 +1104,7 @@ def test_run_templates_stage_writes_template_circles_png(tmp_path: Path) -> None
 	assert str(circles_png) == result.units[0].outputs.get("template_circles_png")
 
 
-def test_run_templates_stage_writes_multiple_negative_peaks_quality_artifacts(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_pipeline_writes_multiple_negative_peaks_quality_artifacts(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -1182,7 +1182,7 @@ def test_run_templates_stage_writes_multiple_negative_peaks_quality_artifacts(tm
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 
@@ -1201,7 +1201,7 @@ def test_run_templates_stage_writes_multiple_negative_peaks_quality_artifacts(tm
 	assert agg_payload["total_violations"] == 1
 
 
-def test_run_templates_stage_quality_check_violation_plot_and_output_knobs(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_pipeline_quality_check_violation_plot_and_output_knobs(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -1303,7 +1303,7 @@ def test_run_templates_stage_quality_check_violation_plot_and_output_knobs(tmp_p
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 
@@ -1326,7 +1326,7 @@ def test_run_templates_stage_quality_check_violation_plot_and_output_knobs(tmp_p
 	assert not (well_out_dir / "templates_outputs" / "qc" / "run_level_quality.json").exists()
 
 
-def test_run_templates_stage_quality_check_warnings_can_be_suppressed(tmp_path: Path, monkeypatch, caplog) -> None:
+def test_run_reconstruct_templates_pipeline_quality_check_warnings_can_be_suppressed(tmp_path: Path, monkeypatch, caplog) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -1399,13 +1399,13 @@ def test_run_templates_stage_quality_check_warnings_can_be_suppressed(tmp_path: 
 	)
 
 	with caplog.at_level(logging.WARNING, logger="axon_recon.templates"):
-		result = run_templates_stage(inputs)
+		result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 	assert not any("quality_check multiple_negative_peaks" in rec.getMessage() for rec in caplog.records)
 
 
-def test_run_templates_stage_propagation_ordering_debug_logs_are_debug_level(tmp_path: Path, monkeypatch, caplog) -> None:
+def test_run_reconstruct_templates_pipeline_propagation_ordering_debug_logs_are_debug_level(tmp_path: Path, monkeypatch, caplog) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -1455,14 +1455,14 @@ def test_run_templates_stage_propagation_ordering_debug_logs_are_debug_level(tmp
 	)
 
 	with caplog.at_level(logging.INFO, logger="axon_recon.templates"):
-		result_info = run_templates_stage(inputs)
+		result_info = run_reconstruct_templates_pipeline(inputs)
 	assert len(result_info.units) == 1
 	assert result_info.units[0].status == "ok"
 	assert not any("Propagation ordering debug:" in rec.getMessage() for rec in caplog.records)
 
 	caplog.clear()
 	with caplog.at_level(logging.DEBUG, logger="axon_recon.templates"):
-		result_debug = run_templates_stage(inputs)
+		result_debug = run_reconstruct_templates_pipeline(inputs)
 	assert len(result_debug.units) == 1
 	assert result_debug.units[0].status == "ok"
 	debug_records = [rec for rec in caplog.records if "Propagation ordering debug:" in rec.getMessage()]
@@ -1470,7 +1470,7 @@ def test_run_templates_stage_propagation_ordering_debug_logs_are_debug_level(tmp
 	assert all(rec.levelno == logging.DEBUG for rec in debug_records)
 
 
-def test_run_templates_stage_propagation_right_panel_composes_svg(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_pipeline_propagation_right_panel_composes_svg(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -1592,7 +1592,7 @@ def test_run_templates_stage_propagation_right_panel_composes_svg(tmp_path: Path
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 	assert len(compose_calls) == 1
@@ -1621,7 +1621,7 @@ def test_run_templates_stage_propagation_right_panel_composes_svg(tmp_path: Path
 	assert result.units[0].outputs["propagation_2panel_png"].endswith("units/0094/propagation_2panel.png")
 
 
-def test_run_templates_stage_writes_channel_locations_for_all_template_artifacts(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_pipeline_writes_channel_locations_for_all_template_artifacts(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -1669,7 +1669,7 @@ def test_run_templates_stage_writes_channel_locations_for_all_template_artifacts
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 
@@ -1698,7 +1698,7 @@ def test_run_templates_stage_writes_channel_locations_for_all_template_artifacts
 	assert "full_template_channel_locations_npy" not in result.units[0].outputs
 
 
-def test_run_templates_stage_writes_overlay_and_grid(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_pipeline_writes_overlay_and_grid(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -1744,7 +1744,7 @@ def test_run_templates_stage_writes_overlay_and_grid(tmp_path: Path) -> None:
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 
@@ -1770,7 +1770,7 @@ def test_run_templates_stage_writes_overlay_and_grid(tmp_path: Path) -> None:
 	assert '"factor": 2' in summary_payload
 
 
-def test_run_templates_stage_prefers_composition_asset_apis_when_assets_exist(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_pipeline_prefers_composition_asset_apis_when_assets_exist(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -1831,14 +1831,14 @@ def test_run_templates_stage_prefers_composition_asset_apis_when_assets_exist(tm
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 	assert asset_calls["wf"] == 1
 	assert asset_calls["foot"] == 3
 
 
-def test_run_templates_stage_sorts_grid_inputs_by_max_ptp(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_pipeline_sorts_grid_inputs_by_max_ptp(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -1964,7 +1964,7 @@ def test_run_templates_stage_sorts_grid_inputs_by_max_ptp(tmp_path: Path, monkey
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 2
 	assert all(unit.status == "ok" for unit in result.units)
 	assert captured_order["wf_overlay"] == ["0002", "0001"]
@@ -1973,7 +1973,7 @@ def test_run_templates_stage_sorts_grid_inputs_by_max_ptp(tmp_path: Path, monkey
 	assert captured_order["footprint_latency_map_grid_png"] == ["0002", "0001"]
 
 
-def test_run_templates_stage_writes_unit_locations_report_json(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_pipeline_writes_unit_locations_report_json(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -2024,7 +2024,7 @@ def test_run_templates_stage_writes_unit_locations_report_json(tmp_path: Path, m
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 
@@ -2038,7 +2038,7 @@ def test_run_templates_stage_writes_unit_locations_report_json(tmp_path: Path, m
 	assert result.report_outputs["unit_locations_json"] == str(locations_json)
 
 
-def test_run_templates_stage_locations_report_passes_underlay_channel_payloads(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_pipeline_locations_report_passes_underlay_channel_payloads(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -2113,7 +2113,7 @@ def test_run_templates_stage_locations_report_passes_underlay_channel_payloads(t
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 
@@ -2131,7 +2131,7 @@ def test_run_templates_stage_locations_report_passes_underlay_channel_payloads(t
 	assert isinstance(captured.get("probe_geometry"), ProbeGeometryConfig)
 
 
-def test_run_templates_stage_locations_report_prefers_global_concat_locations(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_pipeline_locations_report_prefers_global_concat_locations(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -2210,7 +2210,7 @@ def test_run_templates_stage_locations_report_prefers_global_concat_locations(tm
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 
@@ -2219,7 +2219,7 @@ def test_run_templates_stage_locations_report_prefers_global_concat_locations(tm
 	np.testing.assert_allclose(concat_payload, global_concat_locs)
 
 
-def test_run_templates_stage_writes_footprint_maps(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_pipeline_writes_footprint_maps(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -2291,7 +2291,7 @@ def test_run_templates_stage_writes_footprint_maps(tmp_path: Path) -> None:
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 
@@ -2343,7 +2343,7 @@ def test_run_templates_stage_writes_footprint_maps(tmp_path: Path) -> None:
 	assert result.report_outputs.get("footprint_latency_map_grid_temp_svg") is None
 
 
-def test_run_templates_stage_reports_replot_from_disk_uses_unit_summaries(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_pipeline_reports_replot_from_disk_uses_unit_summaries(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -2372,7 +2372,7 @@ def test_run_templates_stage_reports_replot_from_disk_uses_unit_summaries(tmp_pa
 		force_restart=True,
 		n_jobs=1,
 	)
-	first_result = run_templates_stage(first_inputs)
+	first_result = run_reconstruct_templates_pipeline(first_inputs)
 	assert len(first_result.units) == 1
 	assert first_result.units[0].status == "ok"
 
@@ -2404,7 +2404,7 @@ def test_run_templates_stage_reports_replot_from_disk_uses_unit_summaries(tmp_pa
 		force_restart=False,
 		n_jobs=1,
 	)
-	second_result = run_templates_stage(second_inputs)
+	second_result = run_reconstruct_templates_pipeline(second_inputs)
 	assert len(second_result.units) == 1
 	assert second_result.units[0].status == "ok"
 
@@ -2416,7 +2416,7 @@ def test_run_templates_stage_reports_replot_from_disk_uses_unit_summaries(tmp_pa
 	assert str(replot_multi_pdf) == second_result.report_outputs.get("multi_source_pdf")
 
 
-def test_run_templates_stage_force_rereport_skips_missing_unit_summaries(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_pipeline_force_rereport_skips_missing_unit_summaries(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -2446,7 +2446,7 @@ def test_run_templates_stage_force_rereport_skips_missing_unit_summaries(tmp_pat
 		force_rereport=True,
 		n_jobs=1,
 	)
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 
 	assert len(result.units) == 0
 	assert not (well_out_dir / "templates_outputs" / "units" / "0095" / "unit_templates_summary.json").exists()
@@ -2456,7 +2456,7 @@ def test_run_templates_stage_force_rereport_skips_missing_unit_summaries(tmp_pat
 	assert summary_payload["reports_replot_from_disk"] is True
 
 
-def test_run_templates_stage_time_upsample_nearest_method(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_pipeline_time_upsample_nearest_method(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -2486,13 +2486,13 @@ def test_run_templates_stage_time_upsample_nearest_method(tmp_path: Path) -> Non
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 	assert "template_wf_overlay_png" in result.units[0].outputs
 
 
-def test_run_templates_stage_uses_spikeinterface_materialization_fallback(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_pipeline_uses_spikeinterface_materialization_fallback(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -2546,13 +2546,13 @@ def test_run_templates_stage_uses_spikeinterface_materialization_fallback(tmp_pa
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert called["value"] is True
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 
 
-def test_run_templates_stage_force_restart_prefers_spikeinterface_materialization(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_pipeline_force_restart_prefers_spikeinterface_materialization(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -2607,13 +2607,13 @@ def test_run_templates_stage_force_restart_prefers_spikeinterface_materializatio
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert called["value"] is True
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 
 
-def test_run_templates_stage_unit_force_restart_preserves_reports_when_not_overwriting(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_pipeline_unit_force_restart_preserves_reports_when_not_overwriting(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -2666,7 +2666,7 @@ def test_run_templates_stage_unit_force_restart_preserves_reports_when_not_overw
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 	assert report_png.read_bytes() == b"existing-grid"
@@ -2678,7 +2678,7 @@ def test_run_templates_stage_unit_force_restart_preserves_reports_when_not_overw
 	assert summary_payload["reports"]["wf_overlay_grid_png"] == str(report_png)
 
 
-def test_run_templates_stage_force_restart_reuses_analyzer_cache_when_enabled(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_pipeline_force_restart_reuses_analyzer_cache_when_enabled(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -2745,7 +2745,7 @@ def test_run_templates_stage_force_restart_reuses_analyzer_cache_when_enabled(tm
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 2
 	assert all(unit.status == "ok" for unit in result.units)
 	assert materialize_calls == [{"analyzer_cache_dir": str(cache_dir), "cache_exists": True}]
@@ -2756,7 +2756,7 @@ def test_run_templates_stage_force_restart_reuses_analyzer_cache_when_enabled(tm
 	assert summary_payload["analyzer_cache"]["resolved_dir"] == str(cache_dir)
 
 
-def test_run_templates_stage_writes_upsampling_decisions_to_summaries(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_pipeline_writes_upsampling_decisions_to_summaries(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -2818,7 +2818,7 @@ def test_run_templates_stage_writes_upsampling_decisions_to_summaries(tmp_path: 
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 
@@ -2834,7 +2834,7 @@ def test_run_templates_stage_writes_upsampling_decisions_to_summaries(tmp_path: 
 	assert '"execution_upsampling"' in templates_summary_payload
 
 
-def test_run_templates_stage_passes_effective_sampling_rate_to_timing_renderers(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_pipeline_passes_effective_sampling_rate_to_timing_renderers(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -2947,7 +2947,7 @@ def test_run_templates_stage_passes_effective_sampling_rate_to_timing_renderers(
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 
@@ -3052,7 +3052,7 @@ def test_force_replot_reuses_persisted_sampling_metadata_for_timing_renderers(tm
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 	assert received["prop"] == 100_000.0
@@ -3133,13 +3133,13 @@ def test_force_replot_infers_sampling_rate_from_execution_when_metadata_missing(
 		n_jobs=1,
 	)
 
-	result = run_templates_stage(inputs)
+	result = run_reconstruct_templates_pipeline(inputs)
 	assert len(result.units) == 1
 	assert result.units[0].status == "ok"
 	assert received["prop"] == 100_000.0
 
 
-def test_run_templates_stage_force_replot_rerenders_visual_outputs(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_pipeline_force_replot_rerenders_visual_outputs(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -3168,7 +3168,7 @@ def test_run_templates_stage_force_replot_rerenders_visual_outputs(tmp_path: Pat
 		force_restart=True,
 		n_jobs=1,
 	)
-	first_result = run_templates_stage(first_inputs)
+	first_result = run_reconstruct_templates_pipeline(first_inputs)
 	assert len(first_result.units) == 1
 	assert first_result.units[0].status == "ok"
 
@@ -3200,7 +3200,7 @@ def test_run_templates_stage_force_replot_rerenders_visual_outputs(tmp_path: Pat
 		force_replot=True,
 		n_jobs=1,
 	)
-	second_result = run_templates_stage(second_inputs)
+	second_result = run_reconstruct_templates_pipeline(second_inputs)
 	assert len(second_result.units) == 1
 	assert second_result.units[0].status == "ok"
 
@@ -3208,7 +3208,7 @@ def test_run_templates_stage_force_replot_rerenders_visual_outputs(tmp_path: Pat
 	assert mtime_after > mtime_before
 
 
-def test_run_templates_plot_templates_phase_requires_built_artifacts(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_plot_templates_phase_requires_built_artifacts(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -3223,10 +3223,10 @@ def test_run_templates_plot_templates_phase_requires_built_artifacts(tmp_path: P
 	)
 
 	with pytest.raises(FileNotFoundError, match="run templates.build_templates first"):
-		run_templates_plot_templates_phase(inputs)
+		run_reconstruct_templates_plot_templates_phase(inputs)
 
 
-def test_run_templates_plot_templates_phase_writes_circle_plots_only_and_cleans_stale_artifacts(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_plot_templates_phase_writes_circle_plots_only_and_cleans_stale_artifacts(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -3281,7 +3281,7 @@ def test_run_templates_plot_templates_phase_writes_circle_plots_only_and_cleans_
 		n_jobs=1,
 	)
 
-	summary = run_templates_plot_templates_phase(inputs)
+	summary = run_reconstruct_templates_plot_templates_phase(inputs)
 
 	assert summary["phase"] == "plot_templates"
 	assert summary["propagation_outputs_enabled"] is False
@@ -3301,7 +3301,7 @@ def test_run_templates_plot_templates_phase_writes_circle_plots_only_and_cleans_
 	assert not (well_out_dir / "templates_outputs" / "units" / "0094" / "propagation_plot.svg").exists()
 
 
-def test_run_templates_plot_templates_phase_skips_existing_requested_outputs(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_plot_templates_phase_skips_existing_requested_outputs(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -3321,7 +3321,7 @@ def test_run_templates_plot_templates_phase_skips_existing_requested_outputs(tmp
 		n_jobs=1,
 	)
 
-	first_summary = run_templates_plot_templates_phase(inputs)
+	first_summary = run_reconstruct_templates_plot_templates_phase(inputs)
 	assert first_summary["rendered_units"] == [94]
 
 	circles_png = well_out_dir / "templates_outputs" / "units" / "0094" / "template_circles.png"
@@ -3330,7 +3330,7 @@ def test_run_templates_plot_templates_phase_skips_existing_requested_outputs(tmp
 
 	time.sleep(0.02)
 
-	second_summary = run_templates_plot_templates_phase(inputs)
+	second_summary = run_reconstruct_templates_plot_templates_phase(inputs)
 
 	assert circles_png.stat().st_mtime_ns == mtime_before
 	assert second_summary["rendered_units"] == []
@@ -3338,7 +3338,7 @@ def test_run_templates_plot_templates_phase_skips_existing_requested_outputs(tmp
 	assert second_summary["failed_units"] == []
 
 
-def test_run_templates_plot_templates_phase_force_restart_rerenders_existing_requested_outputs(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_plot_templates_phase_force_restart_rerenders_existing_requested_outputs(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -3357,7 +3357,7 @@ def test_run_templates_plot_templates_phase_force_restart_rerenders_existing_req
 		unit_ids=[94],
 		n_jobs=1,
 	)
-	run_templates_plot_templates_phase(base_inputs)
+	run_reconstruct_templates_plot_templates_phase(base_inputs)
 
 	circles_png = well_out_dir / "templates_outputs" / "units" / "0094" / "template_circles.png"
 	assert circles_png.exists()
@@ -3379,7 +3379,7 @@ def test_run_templates_plot_templates_phase_force_restart_rerenders_existing_req
 		n_jobs=1,
 	)
 
-	summary = run_templates_plot_templates_phase(force_restart_inputs)
+	summary = run_reconstruct_templates_plot_templates_phase(force_restart_inputs)
 
 	assert circles_png.stat().st_mtime_ns > mtime_before
 	assert summary["rendered_units"] == [94]
@@ -3478,7 +3478,7 @@ def test_quiet_unexpected_plot_logs_suppresses_matplotlib_debug_unless_enabled()
 		logger.setLevel(original_level)
 
 
-def test_run_templates_plot_templates_phase_uses_batched_plot_runner(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_plot_templates_phase_uses_batched_plot_runner(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -3487,7 +3487,7 @@ def test_run_templates_plot_templates_phase_uses_batched_plot_runner(tmp_path: P
 
 	captured: dict[str, Any] = {}
 
-	def _fake_run_templates_plot_batches(*, inputs: TemplatesInputs, well_out_dir: Path, templates_out_dir: Path, unit_ids: list[Any]) -> TemplatesResult:
+	def _fake_run_reconstruct_templates_plot_batches(*, inputs: TemplatesInputs, well_out_dir: Path, templates_out_dir: Path, unit_ids: list[Any]) -> TemplatesResult:
 		captured["n_jobs"] = inputs.n_jobs
 		captured["unit_ids"] = list(unit_ids)
 		return TemplatesResult(
@@ -3505,8 +3505,8 @@ def test_run_templates_plot_templates_phase_uses_batched_plot_runner(tmp_path: P
 		)
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner._run_templates_plot_batches",
-		_fake_run_templates_plot_batches,
+		"axon_recon.pipeline.stages.reconstruct.templates.runner._run_reconstruct_templates_plot_batches",
+		_fake_run_reconstruct_templates_plot_batches,
 	)
 
 	inputs = TemplatesInputs(
@@ -3522,7 +3522,7 @@ def test_run_templates_plot_templates_phase_uses_batched_plot_runner(tmp_path: P
 		n_jobs=24,
 	)
 
-	summary = run_templates_plot_templates_phase(inputs)
+	summary = run_reconstruct_templates_plot_templates_phase(inputs)
 
 	assert captured["n_jobs"] == 24
 	assert captured["unit_ids"] == [91, 92, 93, 94]
@@ -3531,10 +3531,10 @@ def test_run_templates_plot_templates_phase_uses_batched_plot_runner(tmp_path: P
 	assert summary["failed_units"] == []
 
 
-def test_run_templates_plot_batches_runs_units_sequentially(tmp_path: Path, monkeypatch, caplog) -> None:
+def test_run_reconstruct_templates_plot_batches_runs_units_sequentially(tmp_path: Path, monkeypatch, caplog) -> None:
 	captured_inputs: dict[str, Any] = {}
 
-	def _fake_run_templates_stage_monolithic(batch_inputs: TemplatesInputs) -> TemplatesResult:
+	def _fake_run_reconstruct_templates_pipeline_monolithic(batch_inputs: TemplatesInputs) -> TemplatesResult:
 		captured_inputs["n_jobs"] = batch_inputs.n_jobs
 		captured_inputs["unit_ids"] = list(batch_inputs.unit_ids or [])
 		return TemplatesResult(
@@ -3552,8 +3552,8 @@ def test_run_templates_plot_batches_runs_units_sequentially(tmp_path: Path, monk
 		)
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner._run_templates_stage_monolithic",
-		_fake_run_templates_stage_monolithic,
+		"axon_recon.pipeline.stages.reconstruct.templates.runner._run_reconstruct_templates_pipeline_monolithic",
+		_fake_run_reconstruct_templates_pipeline_monolithic,
 	)
 
 	inputs = TemplatesInputs(
@@ -3567,7 +3567,7 @@ def test_run_templates_plot_batches_runs_units_sequentially(tmp_path: Path, monk
 	)
 
 	with caplog.at_level(logging.INFO, logger="axon_recon.templates"):
-		result = _run_templates_plot_batches(
+		result = _run_reconstruct_templates_plot_batches(
 			inputs=inputs,
 			well_out_dir=tmp_path / "well",
 			templates_out_dir=tmp_path / "templates",
@@ -3580,7 +3580,7 @@ def test_run_templates_plot_batches_runs_units_sequentially(tmp_path: Path, monk
 	assert [unit.unit_id for unit in result.units] == [10, 11, 12, 13, 14, 15]
 
 
-def test_run_templates_report_templates_phase_requires_circle_plot_assets(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_report_templates_phase_requires_circle_plot_assets(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -3603,10 +3603,10 @@ def test_run_templates_report_templates_phase_requires_circle_plot_assets(tmp_pa
 	)
 
 	with pytest.raises(FileNotFoundError, match="run templates.plot_templates first"):
-		run_templates_report_templates_phase(inputs)
+		run_reconstruct_templates_report_templates_phase(inputs)
 
 
-def test_run_templates_report_templates_phase_writes_pdf_from_circle_assets(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_report_templates_phase_writes_pdf_from_circle_assets(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -3625,7 +3625,7 @@ def test_run_templates_report_templates_phase_writes_pdf_from_circle_assets(tmp_
 		unit_ids=[94],
 		n_jobs=1,
 	)
-	run_templates_plot_templates_phase(plot_inputs)
+	run_reconstruct_templates_plot_templates_phase(plot_inputs)
 
 	report_inputs = TemplatesInputs(
 		h5_path=h5_path,
@@ -3637,7 +3637,7 @@ def test_run_templates_report_templates_phase_writes_pdf_from_circle_assets(tmp_
 		n_jobs=1,
 	)
 
-	summary = run_templates_report_templates_phase(report_inputs)
+	summary = run_reconstruct_templates_report_templates_phase(report_inputs)
 
 	report_pdf = well_out_dir / "templates_outputs" / "template_report.pdf"
 	assert summary["phase"] == "report_templates"

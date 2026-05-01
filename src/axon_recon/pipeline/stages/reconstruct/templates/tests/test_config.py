@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
-from axon_recon.pipeline.stages.reconstruct.templates.config import load_templates_inputs_from_runtime
+from axon_recon.pipeline.stages.reconstruct.templates.config import load_reconstruct_templates_inputs_from_runtime
 
 
 def test_load_templates_config_from_reconstruct_stage_block(tmp_path: Path) -> None:
@@ -45,7 +45,7 @@ def test_load_templates_config_from_reconstruct_stage_block(tmp_path: Path) -> N
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path), unit_id_override=94)
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path), unit_id_override=94)
 	assert inputs.stream_id == "well003"
 	assert inputs.output_rel_root == "reconstruct_stage_outputs"
 	assert inputs.per_unit_outputs.template.write_png is True
@@ -91,7 +91,7 @@ def test_load_templates_config_reads_runtime_unit_ids(tmp_path: Path) -> None:
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.phase_sequence == ("resolve_sources", "analyzers", "build_templates")
 	assert inputs.unit_ids == [10, 17, 20]
 
@@ -127,7 +127,7 @@ def test_load_templates_config_prefers_unit_ids_override(tmp_path: Path) -> None
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(
+	inputs = load_reconstruct_templates_inputs_from_runtime(
 		config_path=str(runtime_path),
 		unit_ids_override=[23, 24, 23],
 	)
@@ -170,7 +170,7 @@ def test_load_templates_config_reconstruct_output_block_defaults_template_root(t
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.stream_id == "well000"
 	assert inputs.output_rel_root == "template_outputs"
 	assert inputs.per_unit_outputs.template.write_png is False
@@ -225,7 +225,7 @@ def test_load_templates_config_accepts_template_plot_alias(tmp_path: Path) -> No
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	tpl = inputs.per_unit_outputs.template
 	assert tpl.write_png is False
 	assert tpl.write_svg is True
@@ -280,7 +280,7 @@ def test_load_templates_config_prefers_canonical_template_key_over_alias(tmp_pat
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.per_unit_outputs.template.relpath == "canonical/path"
 	assert inputs.per_unit_outputs.template.write_png is True
 
@@ -343,7 +343,7 @@ def test_load_templates_config_parses_template_plots_waveforms_and_circles(tmp_p
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.per_unit_outputs.template.show_axes is False
 	assert inputs.per_unit_outputs.template.unit_id_label.show is True
 	assert inputs.per_unit_outputs.template.unit_id_label.fontsize == 14
@@ -406,7 +406,7 @@ def test_load_templates_config_parses_template_plots_nested_under_full_template(
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.per_unit_outputs.template.relpath == "nested/template_waveforms"
 	assert inputs.per_unit_outputs.template.channel_scope == "all_channels"
 	assert inputs.per_unit_outputs.template_circles.write_png is True
@@ -459,7 +459,7 @@ def test_load_templates_config_parses_global_outputs_schema(tmp_path: Path) -> N
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.output_rel_root == "template_outputs"
 	assert inputs.per_unit_outputs.template.relpath == "global/template_waveforms"
 	assert inputs.per_unit_outputs.template_circles.write_png is True
@@ -551,7 +551,7 @@ def test_load_templates_config_parses_template_circles_color_bar_units(tmp_path:
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.per_unit_outputs.template_circles.color_bar_units == "ms"
 	assert inputs.per_unit_outputs.template_circles.color_bar_title == "Latency (ms)"
 	assert inputs.per_unit_outputs.template_circles.color_bar_show_axes_title is False
@@ -635,7 +635,7 @@ def test_load_templates_config_parses_scale_circle_style_knobs(tmp_path: Path) -
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	scale_circle = inputs.per_unit_outputs.template_circles.scale_circle
 	assert inputs.per_unit_outputs.template_circles.show_scale_circle is True
 	assert scale_circle.linestyle is None
@@ -821,7 +821,7 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.force_replot is True
 	assert inputs.force_replot_per_unit is True
 	assert inputs.unit_label_filter_labels == ("good", "non_soma_good")
@@ -997,7 +997,7 @@ def test_load_templates_config_accepts_foot_print_grids_alias(tmp_path: Path) ->
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.reports.footprint_grids.amplitude_map_grid.write_pdf is True
 	assert inputs.reports.footprint_grids.amplitude_map_grid.pdf_relpath == "old_alias_amp.pdf"
 	assert inputs.reports.footprint_grids.amplitude_map_grid.write_png is False
@@ -1068,7 +1068,7 @@ def test_load_templates_config_parses_nested_report_grid_blocks(tmp_path: Path) 
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
 	wf_grid = inputs.reports.wf_overlay_grid
 	assert wf_grid.write_png is True
@@ -1158,7 +1158,7 @@ def test_load_templates_config_parses_nested_extremum_wf_overlay_blocks(tmp_path
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	overlay = inputs.per_unit_outputs.template_wf_overlay
 
 	assert overlay.write_pdf is True
@@ -1267,7 +1267,7 @@ def test_load_templates_config_parses_nested_template_and_footprint_blocks(tmp_p
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
 	wf = inputs.per_unit_outputs.template
 	assert wf.relpath == "nested/template_waveforms"
@@ -1352,7 +1352,7 @@ def test_load_templates_config_parses_template_scale_bar_under_display(tmp_path:
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
 	wf = inputs.per_unit_outputs.template
 	assert wf.scale_bar_text_offset_frac == 0.031
@@ -1412,7 +1412,7 @@ def test_load_templates_config_parses_footprint_map_knobs(tmp_path: Path) -> Non
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	amp = inputs.per_unit_outputs.footprint_plots.amplitude_map
 	assert amp.write_png is True
 	assert amp.write_svg is True
@@ -1479,7 +1479,7 @@ def test_load_templates_config_applies_global_heatmap_defaults(tmp_path: Path) -
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	amp = inputs.per_unit_outputs.footprint_plots.amplitude_map
 	assert amp.background == "white"
 	assert amp.relpath == "global/amp"
@@ -1533,7 +1533,7 @@ def test_load_templates_config_stage_values_override_global_heatmap_defaults(tmp
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	circles = inputs.per_unit_outputs.template_circles
 	assert circles.color_bar_units == "ms"
 	assert circles.color_bar_tick_target_count == 7
@@ -1572,7 +1572,7 @@ def test_load_templates_config_time_upsample_defaults_to_sinc(tmp_path: Path) ->
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.reports.time_upsample.enabled is True
 	assert inputs.reports.time_upsample.factor == 2
 	assert inputs.reports.time_upsample.method == "sinc"
@@ -1719,7 +1719,7 @@ def test_load_templates_config_parses_topographical_and_propagation_blocks(tmp_p
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
 	topo_amp = inputs.per_unit_outputs.topographical_footprints.amplitude
 	assert topo_amp.write_png is True
@@ -1918,7 +1918,7 @@ def test_load_templates_config_parses_nested_propagation_groups(tmp_path: Path) 
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	prop = inputs.per_unit_outputs.propagation_plots
 
 	assert prop.write_pdf is True
@@ -2030,7 +2030,7 @@ def test_load_templates_config_parses_nested_split_propagation_output_blocks(tmp
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	prop = inputs.per_unit_outputs.propagation_plots
 
 	assert prop.write_pdf is True
@@ -2093,7 +2093,7 @@ def test_load_templates_config_parses_template_circles_propagation_order_labels(
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	circles = inputs.per_unit_outputs.template_circles
 	assert circles.show_propagation_order_labels is True
 	assert circles.propagation_order_label_fontsize == 7
@@ -2157,7 +2157,7 @@ def test_load_templates_config_parses_merge_and_template_artifact_knobs(tmp_path
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
 	assert inputs.merge.enable is True
 	assert inputs.merge.method == "weighted_average"
@@ -2215,7 +2215,7 @@ def test_load_templates_config_parses_execution_upsampling_block(tmp_path: Path)
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.execution_upsampling.enabled is True
 	assert inputs.execution_upsampling.factor == 10
 	assert inputs.execution_upsampling.method == "sinc"
@@ -2263,7 +2263,7 @@ def test_load_templates_config_parses_waveform_extraction_controls(tmp_path: Pat
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.waveform_extraction.ms_before == 1.5
 	assert inputs.waveform_extraction.ms_after == 2.5
 	assert inputs.waveform_extraction.max_spikes_per_unit is None
@@ -2306,7 +2306,7 @@ def test_load_templates_config_supports_legacy_segment_sources_alias(tmp_path: P
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.preprocessed_segments_reldir == "/canonical/segments"
 	assert inputs.preproc_seg_sources_reldir == "/canonical/segments"
 
@@ -2326,7 +2326,7 @@ def test_load_templates_config_supports_legacy_segment_sources_alias(tmp_path: P
 		encoding="utf-8",
 	)
 
-	inputs_legacy_only = load_templates_inputs_from_runtime(config_path=str(runtime_legacy_only_path))
+	inputs_legacy_only = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_legacy_only_path))
 	assert inputs_legacy_only.preprocessed_segments_reldir == "/legacy/segments"
 	assert inputs_legacy_only.preproc_seg_sources_reldir == "/legacy/segments"
 
@@ -2405,7 +2405,7 @@ def test_load_templates_config_parses_stage_level_templates_blocks(tmp_path: Pat
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
 	assert inputs.output_rel_root == "stage_level_outputs"
 	assert inputs.preprocessed_segments_reldir == "/stage/segments"
@@ -2487,7 +2487,7 @@ def test_load_templates_config_parses_execution_quality_checks_block(tmp_path: P
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	qc = inputs.quality_checks
 	assert qc.enable is True
 	assert qc.suppress_warnings is False
@@ -2547,7 +2547,7 @@ def test_load_templates_config_parses_quality_check_warning_suppression_and_anal
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.quality_checks.suppress_warnings is True
 	assert inputs.per_unit_outputs.propagation_plots.ordering_latency_mode == "negative_peak"
 	assert inputs.per_unit_outputs.propagation_plots.debug_ordering is True
@@ -2608,7 +2608,7 @@ def test_load_templates_config_parses_nested_alias_keys_from_debug_runtime(tmp_p
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
 	assert inputs.merge.max_waveforms_per_source_channel is None
 
@@ -2665,7 +2665,7 @@ def test_load_templates_inputs_includes_probe_geometry_from_data_config(tmp_path
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.probe_geometry is not None
 	assert inputs.probe_geometry.pitch_um == 17.5
 	assert inputs.probe_geometry.electrode_size_um_x == 12.0
@@ -2706,7 +2706,7 @@ def test_load_templates_inputs_probe_geometry_uses_chip_dimensions_um_alias(tmp_
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.probe_geometry is not None
 	assert inputs.probe_geometry.active_area_um_x == 4100.0
 	assert inputs.probe_geometry.active_area_um_y == 2300.0
@@ -2787,7 +2787,7 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
 	assert inputs.include_concat is True
 	assert inputs.include_segments is False
@@ -2866,7 +2866,7 @@ def test_load_templates_config_plot_templates_canonical_phase_overrides_legacy_p
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
 	assert inputs.phases.plot_templates.enabled is True
 	assert inputs.phases.plot_templates.summary_json_relpath == "context/custom_plot_templates_summary.json"
@@ -2908,7 +2908,7 @@ def test_load_templates_config_plot_templates_accepts_legacy_debug_plotting_prin
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
 	assert inputs.phases.plot_templates.debug_prints is True
 
@@ -2959,7 +2959,7 @@ def test_load_templates_config_plot_templates_parses_direct_circles_block(tmp_pa
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
 	circles = inputs.per_unit_outputs.template_circles
 	assert circles.write_png is True
@@ -3009,7 +3009,7 @@ def test_load_templates_config_plot_templates_parses_resources_block(tmp_path: P
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
 	assert inputs.phases.plot_templates.unit_workers == 6
 	assert inputs.phases.plot_templates.unit_procs == 4
@@ -3052,7 +3052,7 @@ def test_load_templates_config_plot_templates_falls_back_to_legacy_nested_phase_
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
 	assert inputs.phases.plot_templates.enabled is False
 	assert inputs.phases.plot_templates.summary_json_relpath == "context/legacy_plot_templates_summary.json"
@@ -3093,7 +3093,7 @@ def test_load_templates_config_parses_report_templates_phase_block(tmp_path: Pat
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
 	assert inputs.phases.report_templates.enabled is True
 	assert inputs.phases.report_templates.summary_json_relpath == "context/custom_report_templates_summary.json"
@@ -3162,7 +3162,7 @@ def test_load_templates_config_parses_compute_template_similarity_phase_block(tm
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	phase = inputs.phases.compute_template_similarity
 	assert phase.enabled is True
 	assert phase.summary_json_relpath == "context/custom_compute_similarity_summary.json"
@@ -3227,7 +3227,7 @@ def test_load_templates_config_build_templates_falls_back_to_legacy_nested_phase
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
 	assert inputs.phases.build_templates.summary_json_relpath == "context/legacy_build_summary.json"
 	assert inputs.phases.build_templates.execution_upsampling.enabled is True
@@ -3308,7 +3308,7 @@ def test_load_templates_config_parses_grouped_per_source_analyzer_controls(tmp_p
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
 	concat_policy = inputs.phases.analyzers.concat.policy
 	assert inputs.phases.analyzers.concat.analyzer_relpath == "/custom/concat_analyzer"
@@ -3386,7 +3386,7 @@ def test_load_templates_config_source_max_spikes_clears_default_percentage(tmp_p
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
 	assert inputs.phases.analyzers.concat.policy.max_spikes_per_unit is None
 	assert inputs.phases.analyzers.concat.policy.random_spikes_percentage == 0.25
@@ -3424,7 +3424,7 @@ def test_load_templates_inputs_probe_geometry_defaults_when_probe_missing(tmp_pa
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.probe_geometry is not None
 	assert inputs.probe_geometry.pitch_um == 17.5
 	assert inputs.probe_geometry.electrode_size_um_x == 12.0
@@ -3475,7 +3475,7 @@ def test_load_templates_config_parses_analyzer_cache_subdirs_and_require_flags(t
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.analyzer_cache.enabled is True
 	assert inputs.analyzer_cache.relpath == "cache/analyzers"
 	assert inputs.analyzer_cache.relpath_root == "cache/analyzers"
@@ -3528,7 +3528,7 @@ def test_load_templates_config_prefers_phase_analyzer_cache_over_flat_outputs(tm
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.analyzer_cache.enabled is True
 	assert inputs.analyzer_cache.relpath == "cache/canonical_analyzers"
 	assert inputs.analyzer_cache.relpath_root == "cache/canonical_analyzers"
@@ -3578,7 +3578,7 @@ def test_load_templates_config_prefers_phase_unit_reldir_over_flat_outputs(tmp_p
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.per_unit_outputs.unit_reldir == "canonical_units/{unit_id:04d}/"
 	assert inputs.per_unit_outputs.template.relpath == "canonical/template"
 
@@ -3619,7 +3619,7 @@ def test_load_templates_config_force_rereport_enforces_reports_only_mode(tmp_pat
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.force_rereport is True
 	assert inputs.force_restart is False
 	assert inputs.force_replot is False
@@ -3667,7 +3667,7 @@ def test_load_templates_config_parses_resolve_sources_phase_knobs(tmp_path: Path
 		encoding="utf-8",
 	)
 
-	inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	cfg = inputs.resolve_sources_phase
 	assert cfg.enabled is True
 	assert cfg.show_header is False

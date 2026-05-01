@@ -11,7 +11,7 @@ from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
 from axon_recon.pipeline.stages.reconstruct.templates.config import _build_footprint_grid_report_config
 from axon_recon.pipeline.stages.reconstruct.templates.config import build_templates_inputs_for_target
 from axon_recon.pipeline.stages.reconstruct.templates.config import parse_probe_geometry_from_data_config
-from axon_recon.pipeline.stages.reconstruct.templates.config import parse_templates_stage_config
+from axon_recon.pipeline.stages.reconstruct.templates.config import parse_reconstruct_templates_config
 
 from ...execution.context import ExecutionTarget
 from .models.inputs import (
@@ -672,9 +672,9 @@ def parse_reconstruction_stage_config(
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
 	templates_runtime_config = build_reconstruct_templates_runtime_config(runtime_config)
 	try:
-		tpl_stage_cfg = parse_templates_stage_config(runtime_config=templates_runtime_config)
-		tpl_circles_defaults = tpl_stage_cfg.per_unit_outputs.template_circles
-		tpl_footprint_plots_defaults = getattr(tpl_stage_cfg.per_unit_outputs, "footprint_plots", None)
+		template_defaults_cfg = parse_reconstruct_templates_config(runtime_config=templates_runtime_config)
+		tpl_circles_defaults = template_defaults_cfg.per_unit_outputs.template_circles
+		tpl_footprint_plots_defaults = getattr(template_defaults_cfg.per_unit_outputs, "footprint_plots", None)
 		tpl_footprint_amplitude_defaults = getattr(tpl_footprint_plots_defaults, "amplitude_map", None)
 		tpl_footprint_latency_defaults = getattr(tpl_footprint_plots_defaults, "latency_map", None)
 	except Exception:
@@ -1455,7 +1455,7 @@ def load_reconstruction_inputs_from_runtime(
 		probe_geometry=probe_geometry,
 	)
 	templates_runtime_config = build_reconstruct_templates_runtime_config(runtime_cfg)
-	templates_stage_cfg = parse_templates_stage_config(
+	reconstruct_templates_cfg = parse_reconstruct_templates_config(
 		runtime_config=templates_runtime_config,
 		probe_geometry=probe_geometry,
 		unit_id_override=unit_id_override,
@@ -1475,7 +1475,7 @@ def load_reconstruction_inputs_from_runtime(
 	)
 	templates_inputs = build_templates_inputs_for_target(
 		target=target,
-		stage_config=templates_stage_cfg,
+		stage_config=reconstruct_templates_cfg,
 		unit_workers=1,
 		probe_geometry=probe_geometry,
 	)

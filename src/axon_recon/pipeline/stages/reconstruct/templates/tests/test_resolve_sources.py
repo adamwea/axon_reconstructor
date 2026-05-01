@@ -5,7 +5,7 @@ from pathlib import Path
 
 from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import ResolveSourcesPhaseConfig, TemplatesInputs
-from axon_recon.pipeline.stages.reconstruct.templates.runner import run_templates_resolve_sources_phase
+from axon_recon.pipeline.stages.reconstruct.templates.runner import run_reconstruct_templates_resolve_sources_phase
 
 
 def _prepare_source_dirs(*, well_out_dir: Path) -> dict[str, Path]:
@@ -27,7 +27,7 @@ def _prepare_source_dirs(*, well_out_dir: Path) -> dict[str, Path]:
 	}
 
 
-def test_run_templates_resolve_sources_phase_resolves_expected_sources(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_resolve_sources_phase_resolves_expected_sources(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -50,7 +50,7 @@ def test_run_templates_resolve_sources_phase_resolves_expected_sources(tmp_path:
 		),
 	)
 
-	summary = run_templates_resolve_sources_phase(inputs)
+	summary = run_reconstruct_templates_resolve_sources_phase(inputs)
 	sources = summary["sources"]
 
 	assert sources["concat_analyzer"]["first_existing"] == str(resolved["concat_analyzer"])
@@ -61,7 +61,7 @@ def test_run_templates_resolve_sources_phase_resolves_expected_sources(tmp_path:
 	assert summary["unit_scope"]["unit_label_filter"]["available"] is False
 
 
-def test_run_templates_resolve_sources_phase_writes_summary_json_when_enabled(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_resolve_sources_phase_writes_summary_json_when_enabled(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -84,7 +84,7 @@ def test_run_templates_resolve_sources_phase_writes_summary_json_when_enabled(tm
 		),
 	)
 
-	summary = run_templates_resolve_sources_phase(inputs)
+	summary = run_reconstruct_templates_resolve_sources_phase(inputs)
 	summary_json = Path(str(summary["summary_json"]))
 	assert summary_json.exists()
 
@@ -93,7 +93,7 @@ def test_run_templates_resolve_sources_phase_writes_summary_json_when_enabled(tm
 	assert payload["stream_id"] == "well000"
 
 
-def test_run_templates_resolve_sources_phase_logs_header_when_enabled(tmp_path: Path, caplog) -> None:
+def test_run_reconstruct_templates_resolve_sources_phase_logs_header_when_enabled(tmp_path: Path, caplog) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -117,6 +117,6 @@ def test_run_templates_resolve_sources_phase_logs_header_when_enabled(tmp_path: 
 	)
 
 	with caplog.at_level("INFO"):
-		run_templates_resolve_sources_phase(inputs)
+		run_reconstruct_templates_resolve_sources_phase(inputs)
 
 	assert "templates.resolve_sources [well000]" in caplog.text

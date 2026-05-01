@@ -52,7 +52,72 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-01 03:45 - pending - ai: remove templates stage config path
+## 2026-05-01 03:55 - pending - ai: rename reconstruct template internals
+
+Status: accepted
+
+Summary:
+- Renamed reconstruct-owned embedded template runner/API symbols away from `run_templates_*` and old template-stage-looking names.
+- Renamed the internal reconstruct template config parser/type and runtime input loader to reconstruct-branded names.
+- Updated reconstruct runner wrappers, API exports, imports, monkeypatch paths, and tests to the new internal symbol names.
+
+Acceptance Criteria:
+- No active `run_templates`, `_run_templates`, `templates_stage`, `parse_templates_stage_config`, `TemplatesStageConfig`, or `load_templates_inputs_from_runtime` references remain under `src/axon_recon/**`.
+- Reconstruct-owned embedded template phase behavior is unchanged.
+- Focused reconstruct/template tests, collection, and the full active suite pass.
+
+Expected To Run:
+- Embedded reconstruct template phases run through reconstruct-branded internal helpers and API wrappers.
+- Runtime template input loading remains available as a reconstruct-owned helper.
+
+Confirmed Not Run:
+- Retired direct templates stage/runtime surfaces remain unaddressable through active CLI selectors.
+
+Files/Modules Changed:
+- `src/axon_recon/pipeline/runner.py`
+- `src/axon_recon/pipeline/stages/reconstruct/config.py`
+- `src/axon_recon/pipeline/stages/reconstruct/runner.py`
+- `src/axon_recon/pipeline/stages/reconstruct/templates/__init__.py`
+- `src/axon_recon/pipeline/stages/reconstruct/templates/api.py`
+- `src/axon_recon/pipeline/stages/reconstruct/templates/config.py`
+- `src/axon_recon/pipeline/stages/reconstruct/templates/runner.py`
+- reconstruct template/config/CLI tests
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/templates/tests src/axon_recon/pipeline/stages/reconstruct/tests src/axon_recon/pipeline/tests/test_cli_stage_sequence.py src/axon_recon/pipeline/tests/test_heatmap_runtime_resolution.py -q` passed.
+- Pytest collection: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest --collect-only -q` passed.
+- Pytest full active suite: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest -q` passed.
+- Reference audit: repo-wide grep for retired template/v1 strings only returned historical commit notes/instructions after the final CLI test rename.
+- Diagnostics: no VS Code/Pylance errors in modified runner/config files.
+- Smoke (20 min max unless Adam approves longer): not run; this is an internal symbol/API rename covered by tests.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: real-data smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged; phase names and config keys remain reconstruct-owned runtime values.
+- Force-restart/replot behavior: unchanged.
+- Partial-output handling: unchanged.
+
+Storage/Cache Impact:
+- Created: none.
+- Cleaned: retired-looking internal symbol names only.
+- Persisted: none.
+- Size check: not applicable.
+
+CLI Impact:
+- No selector changes.
+
+Retired Code/Tests:
+- No code deletion; tests were updated to the reconstruct-branded internal names.
+
+Risks And Follow-Ups:
+- External imports of the old internal `run_templates_*` helpers would break, but those helpers were part of the retired direct-template surface and are not active CLI/API selectors.
+
+Rollback Notes:
+- Revert this commit to restore the previous internal template helper names if a downstream script unexpectedly imports them directly.
+
+## 2026-05-01 03:45 - 71ad835 - ai: remove templates stage config path
 
 Status: accepted
 

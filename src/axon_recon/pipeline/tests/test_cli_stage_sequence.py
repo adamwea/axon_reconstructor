@@ -51,7 +51,7 @@ def test_parse_stage_list_tokens_rejects_retired_analysis_stage(raw_token: str) 
         "template.reports",
     ],
 )
-def test_parse_stage_list_tokens_rejects_retired_templates_stage(raw_token: str) -> None:
+def test_parse_stage_list_tokens_rejects_retired_templates_selector(raw_token: str) -> None:
     with pytest.raises(SystemExit, match="Unsupported stage token"):
         pipeline_cli._parse_stage_list_tokens([raw_token])
 

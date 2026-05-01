@@ -91,7 +91,7 @@ from .stages.spikesort.orchestrators.merge_unitmatch import run_spikesort_merge_
 from .stages.reconstruct.templates.config import (
 	build_templates_inputs_for_target,
 	parse_probe_geometry_from_data_config,
-	parse_templates_stage_config,
+	parse_reconstruct_templates_config,
 )
 
 
@@ -2423,10 +2423,10 @@ def _run_reconstruct_substage_from_runtime(
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
-	templates_stage_config = None
+	reconstruct_templates_config = None
 	if callable(getattr(bundle.runtime_config, "get", None)):
 		templates_runtime_config = build_reconstruct_templates_runtime_config(bundle.runtime_config)
-		templates_stage_config = parse_templates_stage_config(
+		reconstruct_templates_config = parse_reconstruct_templates_config(
 			runtime_config=templates_runtime_config,
 			probe_geometry=probe_geometry,
 			unit_id_override=unit_id_override,
@@ -2458,10 +2458,10 @@ def _run_reconstruct_substage_from_runtime(
 			unit_workers=int(parallelism.unit_workers),
 			probe_geometry=probe_geometry,
 		)
-		if templates_stage_config is not None:
+		if reconstruct_templates_config is not None:
 			templates_inputs = build_templates_inputs_for_target(
 				target=target,
-				stage_config=templates_stage_config,
+				stage_config=reconstruct_templates_config,
 				unit_workers=int(parallelism.unit_workers),
 				probe_geometry=probe_geometry,
 			)

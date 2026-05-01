@@ -4,7 +4,7 @@ from pathlib import Path
 from textwrap import dedent
 
 from axon_recon.pipeline.stages.reconstruct.config import load_reconstruction_inputs_from_runtime
-from axon_recon.pipeline.stages.reconstruct.templates.config import load_templates_inputs_from_runtime
+from axon_recon.pipeline.stages.reconstruct.templates.config import load_reconstruct_templates_inputs_from_runtime
 
 
 def _write_common_data_config(tmp_path: Path) -> Path:
@@ -107,7 +107,7 @@ def test_reconstruct_template_footprint_precedence_stage_over_global(tmp_path: P
         encoding="utf-8",
     )
 
-    inputs = load_templates_inputs_from_runtime(config_path=str(runtime_path))
+    inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
     amp = inputs.per_unit_outputs.footprint_plots.amplitude_map
 
     assert amp.background == "white"

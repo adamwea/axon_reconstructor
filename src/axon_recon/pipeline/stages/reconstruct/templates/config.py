@@ -1112,7 +1112,7 @@ def _get_unit_reldir(runtime_config: RuntimeConfig) -> str:
 
 
 @dataclass(frozen=True)
-class TemplatesStageConfig:
+class ReconstructTemplatesConfig:
 	output_rel_root: str
 	phase_sequence: tuple[str, ...]
 	debug_mode_enabled: bool
@@ -1602,7 +1602,7 @@ def _build_analyzer_source_phase_config(
 	)
 
 
-def parse_templates_stage_config(
+def parse_reconstruct_templates_config(
 	*,
 	runtime_config: RuntimeConfig,
 	probe_geometry: ProbeGeometryConfig | None = None,
@@ -1612,7 +1612,7 @@ def parse_templates_stage_config(
 	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
-) -> TemplatesStageConfig:
+) -> ReconstructTemplatesConfig:
 	stage_cfg = runtime_config.get("stages.reconstruct", {})
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
 	phases_cfg = stage_cfg.get("phases", {}) if isinstance(stage_cfg.get("phases", {}), dict) else {}
@@ -3969,7 +3969,7 @@ def parse_templates_stage_config(
 		reports=reports_phase,
 	)
 
-	return TemplatesStageConfig(
+	return ReconstructTemplatesConfig(
 		output_rel_root=str(
 			stage_cfg.get(
 				"template_output_rel_root",
@@ -4025,7 +4025,7 @@ def parse_templates_stage_config(
 def build_templates_inputs_for_target(
 	*,
 	target: ExecutionTarget,
-	stage_config: TemplatesStageConfig,
+	stage_config: ReconstructTemplatesConfig,
 	unit_workers: int,
 	probe_geometry: ProbeGeometryConfig | None = None,
 ) -> TemplatesInputs:
@@ -4071,7 +4071,7 @@ def build_templates_inputs_for_target(
 	)
 
 
-def load_templates_inputs_from_runtime(
+def load_reconstruct_templates_inputs_from_runtime(
 	*,
 	config_path: str,
 	unit_id_override: int | None = None,
@@ -4125,7 +4125,7 @@ def load_templates_inputs_from_runtime(
 	if isinstance(wells, list) and wells and isinstance(wells[0], dict) and wells[0].get("well_id"):
 		stream_id = str(wells[0].get("well_id"))
 
-	stage_cfg = parse_templates_stage_config(
+	stage_cfg = parse_reconstruct_templates_config(
 		runtime_config=runtime_cfg,
 		probe_geometry=parse_probe_geometry_from_data_config(data_config=data_cfg),
 		unit_id_override=unit_id_override,

@@ -1002,67 +1002,67 @@ def _run_reconstruct_report_summaries_phase_impl(
 
 
 def run_reconstruct_templates_resolve_sources_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_templates_resolve_sources_phase
+	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_reconstruct_templates_resolve_sources_phase
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_resolve_sources requires templates_inputs to be populated on ReconstructionInputs")
-	return run_templates_resolve_sources_phase(inputs.templates_inputs)
+	return run_reconstruct_templates_resolve_sources_phase(inputs.templates_inputs)
 
 
 def run_reconstruct_templates_analyzers_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_templates_analyzers_phase
+	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_reconstruct_templates_analyzers_phase
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_analyzers requires templates_inputs to be populated on ReconstructionInputs")
-	return run_templates_analyzers_phase(inputs.templates_inputs)
+	return run_reconstruct_templates_analyzers_phase(inputs.templates_inputs)
 
 
 def run_reconstruct_templates_extract_template_segments_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_templates_extract_template_segments_phase
+	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_reconstruct_templates_extract_template_segments_phase
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_extract_template_segments requires templates_inputs to be populated on ReconstructionInputs")
-	return run_templates_extract_template_segments_phase(inputs.templates_inputs)
+	return run_reconstruct_templates_extract_template_segments_phase(inputs.templates_inputs)
 
 
 def run_reconstruct_templates_build_templates_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_templates_build_templates_phase
+	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_reconstruct_templates_build_templates_phase
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_build_templates requires templates_inputs to be populated on ReconstructionInputs")
-	return run_templates_build_templates_phase(inputs.templates_inputs)
+	return run_reconstruct_templates_build_templates_phase(inputs.templates_inputs)
 
 
 def run_reconstruct_templates_compute_template_similarity_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_templates_compute_template_similarity_phase
+	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_reconstruct_templates_compute_template_similarity_phase
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_compute_template_similarity requires templates_inputs to be populated on ReconstructionInputs")
-	return run_templates_compute_template_similarity_phase(inputs.templates_inputs)
+	return run_reconstruct_templates_compute_template_similarity_phase(inputs.templates_inputs)
 
 
 def run_reconstruct_templates_plot_templates_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_templates_plot_templates_phase
+	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_reconstruct_templates_plot_templates_phase
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_plot_templates requires templates_inputs to be populated on ReconstructionInputs")
-	return run_templates_plot_templates_phase(inputs.templates_inputs)
+	return run_reconstruct_templates_plot_templates_phase(inputs.templates_inputs)
 
 
 def run_reconstruct_templates_report_templates_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_templates_report_templates_phase
+	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_reconstruct_templates_report_templates_phase
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_report_templates requires templates_inputs to be populated on ReconstructionInputs")
-	return run_templates_report_templates_phase(inputs.templates_inputs)
+	return run_reconstruct_templates_report_templates_phase(inputs.templates_inputs)
 
 
 def run_reconstruct_templates_reports_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_templates_reports_phase
+	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_reconstruct_templates_reports_phase
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_reports requires templates_inputs to be populated on ReconstructionInputs")
-	return run_templates_reports_phase(inputs.templates_inputs)
+	return run_reconstruct_templates_reports_phase(inputs.templates_inputs)
 
 
 def run_reconstruct_clear_templates_cache_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
