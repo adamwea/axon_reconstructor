@@ -59,6 +59,8 @@ tools/axon-recon-container --image axon-recon:local --current-user stages --help
 
 The equivalent generic option is `--user UID:GID`, or `AXON_RECON_CONTAINER_USER=UID:GID`.
 
+Inside this image, `spikesort.phases.sort.engine: mea_analysis` is blocked by default because the legacy MEA_Analysis path can launch a nested Docker container. Use `engine: local_spikeinterface` for container and HPC runs. For intentional local debugging of nested container behavior, set `AXON_RECON_ALLOW_CONTAINER_MEA_ANALYSIS=1`.
+
 ## Shifter Shape
 
 Later at NERSC, import the pushed image with:

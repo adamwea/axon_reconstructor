@@ -80,6 +80,68 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-01 15:55 - pending - ai: guard MEA sort inside container
+
+Status: accepted
+
+Summary:
+- Marked axon_recon images with `AXON_RECON_IN_CONTAINER=1`.
+- Added a spikesort runner guard that blocks `sort.engine: mea_analysis` inside the axon_recon container because the legacy MEA_Analysis path can launch nested Docker.
+- Kept the host/local MEA_Analysis route available and added `AXON_RECON_ALLOW_CONTAINER_MEA_ANALYSIS=1` as an explicit override for intentional nested-container debugging.
+- Documented that container/HPC runs should use `engine: local_spikeinterface`.
+
+Acceptance Criteria:
+- Host behavior remains backward-compatible when `AXON_RECON_IN_CONTAINER` is unset.
+- In-container MEA_Analysis sorting fails before calling the legacy runner unless the explicit override is set.
+- Local SpikeInterface dispatch remains unaffected.
+- Container smoke still passes after the image marker is added.
+
+Self-Check:
+- Diff reviewed: yes.
+- Unrelated/user edits excluded from commit: yes; only the Dockerfile, spikesort runner/test, container README, and these notes are modified.
+- Instruction files re-read: yes, `debug/pipeline_containerize_instructions.md` and `debug/pipeline_refinement_instructions.md` before this slice.
+- Residual risk: the active debug runtime still defaults to `mea_analysis` for local compatibility, so containerized data runs using that config must switch the sort engine to `local_spikeinterface` or set the explicit override.
+
+Expected To Run:
+- Host `mea_analysis` dispatch remains available when not in the container.
+- Container `mea_analysis` dispatch raises a clear error before legacy MEA_Analysis can launch nested Docker.
+- Container `local_spikeinterface` dispatch remains the intended HPC path.
+
+Confirmed Not Run:
+- Real data sorting, native CUDA/GPU Kilosort execution, Shifter, Slurm, and MPI execution were not run in this slice.
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/test_runner.py -q -k 'local_engine or rejects_mea_analysis_inside_container or summarize_sort_writes_summary'` passed.
+- Runtime parse smoke: active `debug/debug.runtime.yml` still resolves `sort_engine=mea_analysis` for local compatibility.
+- Smoke: `bash -n containers/axon-recon/build_local_image.sh containers/axon-recon/entrypoint.sh containers/axon-recon/smoke_cli.sh tools/axon-recon-container` passed.
+- Container build/run: rebuilt full sibling image as `axon-recon:full-probe` in `40.3s`.
+- Container smoke: `docker run --rm axon-recon:full-probe axon-recon-smoke-cli` passed.
+- Container smoke: `docker run --rm --entrypoint python axon-recon:full-probe -c '...'` confirmed `AXON_RECON_IN_CONTAINER=1` and `_mea_analysis_allowed_in_container()` is `False` by default.
+- Container smoke: setting `AXON_RECON_ALLOW_CONTAINER_MEA_ANALYSIS=1` made `_mea_analysis_allowed_in_container()` return `True`.
+- Container size: `docker image inspect axon-recon:full-probe` reported about `9.94 GB`.
+- Diff hygiene: `git diff --check` passed.
+
+Container / Shifter Impact:
+- Local Docker behavior: legacy MEA_Analysis sorting is now blocked inside the image by default to prevent nested Docker surprises.
+- Shifter/NERSC behavior: prevents a known Shifter-incompatible sort path and points users toward the in-process SpikeInterface engine.
+- Image size/cache impact: no meaningful size change; full probe image remained about `9.94 GB`.
+
+CLI Impact:
+- Normal CLI: unchanged outside the container.
+- Container CLI: `mea_analysis` sort engine now requires explicit `AXON_RECON_ALLOW_CONTAINER_MEA_ANALYSIS=1`; `local_spikeinterface` remains the intended container sort engine.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged for allowed engines.
+- Force-restart behavior: unchanged for allowed engines.
+
+Storage / Mount Impact:
+- Created: none.
+- Modified: no runtime storage layout changes.
+- Required mounts: unchanged.
+
+Rollback Notes:
+- Revert this commit to allow the container image to run the legacy MEA_Analysis route without an explicit override, with the known risk of nested Docker attempts inside Shifter/container mode.
+
 ## 2026-05-01 15:38 - pending - ai: auto-mount runtime config paths
 
 Status: accepted

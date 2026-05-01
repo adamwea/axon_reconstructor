@@ -8,6 +8,7 @@ import itertools
 import json
 import logging
 import math
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -26,6 +27,15 @@ from .models.results import SpikesortBombcellResult, SpikesortMergeResult, Spike
 
 
 LOGGER = logging.getLogger("axon_recon.spikesort")
+
+
+def _env_flag(name: str) -> bool:
+	value = os.environ.get(name, "")
+	return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _mea_analysis_allowed_in_container() -> bool:
+	return (not _env_flag("AXON_RECON_IN_CONTAINER")) or _env_flag("AXON_RECON_ALLOW_CONTAINER_MEA_ANALYSIS")
 
 
 def _log_phase_step_start(
@@ -10473,6 +10483,13 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 			raise ValueError(f"Unsupported spikesort sort engine: {sort_engine!r}")
 		if not bool(getattr(inputs, "mea_analysis_enabled", True)):
 			raise ValueError("spikesort sort engine mea_analysis selected but mea_analysis.enabled is false")
+		if not _mea_analysis_allowed_in_container():
+			raise RuntimeError(
+				"spikesort sort engine 'mea_analysis' is disabled inside the axon_recon container "
+				"because it can launch nested Docker; set stages.spikesort.phases.sort.engine "
+				"to 'local_spikeinterface' for container/HPC runs, or set "
+				"AXON_RECON_ALLOW_CONTAINER_MEA_ANALYSIS=1 if nested container execution is intentional."
+			)
 		legacy_inputs = LegacySpikeSortingInputs(
 			h5_path=inputs.h5_path,
 			stream_id=inputs.stream_id,

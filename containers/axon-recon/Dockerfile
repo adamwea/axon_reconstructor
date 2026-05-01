@@ -16,6 +16,7 @@ ARG MPI4PY_SPEC="mpi4py"
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    AXON_RECON_IN_CONTAINER=1 \
     AXON_RECON_CACHE_ROOT=/tmp/axon-recon-cache \
     HOME=/tmp/axon-recon-cache/home \
     XDG_CACHE_HOME=/tmp/axon-recon-cache/xdg \

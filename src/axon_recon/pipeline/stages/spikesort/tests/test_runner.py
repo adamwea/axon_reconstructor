@@ -377,6 +377,30 @@ def test_run_spikesort_stage_dispatches_local_engine_without_legacy(monkeypatch,
     assert payload["sort_engine"] == "local_spikeinterface"
 
 
+def test_run_spikesort_stage_rejects_mea_analysis_inside_container(monkeypatch, tmp_path: Path) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    well_out_dir = tmp_path / "well001"
+    monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
+    monkeypatch.setenv("AXON_RECON_IN_CONTAINER", "1")
+    monkeypatch.delenv("AXON_RECON_ALLOW_CONTAINER_MEA_ANALYSIS", raising=False)
+
+    def _fail_legacy_call(**kwargs):
+        raise AssertionError("legacy MEA_Analysis route should be blocked inside the container")
+
+    monkeypatch.setattr(spikesort_runner, "run_legacy_spikesorting_stage", _fail_legacy_call)
+
+    inputs = SpikesortInputs(
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        sort_engine="mea_analysis",
+    )
+
+    with pytest.raises(RuntimeError, match="local_spikeinterface"):
+        run_spikesort_stage(inputs)
+
+
 def test_run_spikesort_summarize_sort_writes_summary_when_artifacts_disabled(monkeypatch, tmp_path: Path) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
