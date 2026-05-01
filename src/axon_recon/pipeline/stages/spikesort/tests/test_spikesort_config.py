@@ -56,6 +56,7 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.n_jobs is None
     assert parsed.chunk_duration is None
     assert parsed.cuda_visible_devices is None
+    assert parsed.force_single_well_sort is False
     assert parsed.run_analyzer is True
     assert parsed.run_reports is True
     assert parsed.sort_enabled is True
@@ -360,6 +361,24 @@ def test_parse_spikesort_stage_config_summarize_sort_phase() -> None:
     assert parsed.post_merge_metadata_log_summary_details is False
     assert parsed.force_restart is False
     assert parsed.force_replot is False
+
+
+def test_parse_spikesort_stage_config_reads_force_single_well_sort_resource() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "resources": {
+                        "force_single_well_sort": True,
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.force_single_well_sort is True
 
 
 def test_parse_spikesort_stage_config_reads_sort_debug_mode() -> None:

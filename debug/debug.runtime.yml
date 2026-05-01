@@ -316,9 +316,16 @@ stages:
   spikesort:
     resources:
       max_stage_workers: 18
-      well_workers: 2
+      well_workers: 3
       divide_stage_workers_by_wells: true # This controls the derived value of n_jobs. when true, stage workers are divided evenly among wells up to the max number of well workers.
       chunk_duration: 1s
+
+      # when true, forces the sort phase to process one well at a time regardless of the number of stage workers or well workers.
+      # GPU probably more efficient doing one sorting at a time w/ KS4
+      # basically allow well parallelism during bootstrap_concat_binary, bombcell_label, and cleanup phases but not sort phase.
+      # sort phase has no well parallelism but will have n_jobs sent to spikeinterface for parallel processing within each well's sorting job
+      # when supported by the sorter and stage-level resources.
+      force_single_well_sort: true
     logging:
       enabled: true
       verbose: true
@@ -350,7 +357,14 @@ stages:
       # Relative paths resolve under the per-well output directory.
       preprocess_concat_recording_relpath: preprocess_outputs/concatenated_recording
     #phase_sequence: [bootstrap_concat_binary, sort, bombcell_label, merge_SLAy, cleanup_concat_binary]
-    phase_sequence: [bootstrap_concat_binary, sort, summarize_sort, bombcell_label, cleanup_concat_binary]
+    #phase_sequence: [bootstrap_concat_binary, sort, summarize_sort, bombcell_label, cleanup_concat_binary]
+    phase_sequence:
+    - bootstrap_concat_binary
+    - sort
+    #- summarize_sort
+    - bombcell_label
+    #- merge_SLAy
+    - cleanup_concat_binary
     phases:
       #resolve_sources:
       bootstrap_concat_binary:

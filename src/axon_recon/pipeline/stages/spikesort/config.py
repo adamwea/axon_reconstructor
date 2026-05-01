@@ -390,6 +390,7 @@ class SpikesortStageConfig:
 	n_jobs: int | None
 	chunk_duration: str | None
 	cuda_visible_devices: str | None
+	force_single_well_sort: bool
 
 	run_analyzer: bool
 	run_reports: bool
@@ -3409,6 +3410,14 @@ def parse_spikesort_stage_config(
 			)
 		),
 		cuda_visible_devices=_as_optional_str(_get_with_fallback(execution_cfg, stage_cfg, "cuda_visible_devices", None)),
+		force_single_well_sort=_as_bool(
+			_coalesce(
+				resources_cfg.get("force_single_well_sort", None),
+				_get_with_fallback(execution_cfg, stage_cfg, "force_single_well_sort", None),
+				False,
+			),
+			False,
+		),
 		run_analyzer=_as_bool(_get_with_fallback(execution_cfg, stage_cfg, "run_analyzer", True), True),
 		run_reports=run_reports,
 		sort_enabled=bool(sort_enabled),

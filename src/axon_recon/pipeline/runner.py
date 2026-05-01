@@ -5,6 +5,7 @@ import copy
 from dataclasses import dataclass, replace
 import logging
 from pathlib import Path
+import threading
 import time
 from typing import Any, Callable
 
@@ -382,6 +383,27 @@ def _log_spikesort_phase_worker_allocation(
 		max(1, int(n_jobs)),
 		str(n_jobs_source),
 	)
+
+
+def _run_spikesort_phase_with_optional_sort_gate(
+	*,
+	phase_label: str,
+	target: Any,
+	runner: Callable[[], Any],
+	sort_phase_gate: Any | None,
+) -> Any:
+	if str(phase_label) != "sort" or sort_phase_gate is None:
+		return runner()
+
+	target_label = _target_log_label(target)
+	LOGGER.info("spikesort.sort: waiting for single-well sort gate target=%s", target_label)
+	sort_phase_gate.acquire()
+	LOGGER.info("spikesort.sort: acquired single-well sort gate target=%s", target_label)
+	try:
+		return runner()
+	finally:
+		sort_phase_gate.release()
+		LOGGER.info("spikesort.sort: released single-well sort gate target=%s", target_label)
 
 
 def _coerce_bool_or_none(value: Any) -> bool | None:
@@ -1615,6 +1637,13 @@ def run_spikesort_from_runtime(
 		int(runtime_n_jobs),
 		str(n_jobs_source),
 	)
+	sort_phase_gate = threading.Lock() if bool(getattr(stage_config, "force_single_well_sort", False)) else None
+	if sort_phase_gate is not None and any(str(phase.phase_label) == "sort" for phase in phase_plan):
+		LOGGER.info(
+			"spikesort: force_single_well_sort enabled; sort phase will run one well at a time targets=%d well_workers=%d",
+			len(targets),
+			int(parallelism.well_workers),
+		)
 
 	def _worker(target):
 		def _descriptor_for_phase(phase: _SpikesortRuntimePhase) -> PhaseDescriptor:
@@ -1626,10 +1655,19 @@ def run_spikesort_from_runtime(
 					n_jobs=int(runtime_n_jobs),
 					n_jobs_source=str(n_jobs_source),
 				)
-				return phase.target_runner(
+
+				def _run_target_phase() -> Any:
+					return phase.target_runner(
+						target=target,
+						stage_config=runtime_stage_config,
+						unit_workers=int(runtime_n_jobs),
+					)
+
+				return _run_spikesort_phase_with_optional_sort_gate(
+					phase_label=str(phase.phase_label),
 					target=target,
-					stage_config=runtime_stage_config,
-					unit_workers=int(runtime_n_jobs),
+					runner=_run_target_phase,
+					sort_phase_gate=sort_phase_gate,
 				)
 
 			return PhaseDescriptor(
@@ -2152,6 +2190,14 @@ def _run_spikesort_sort_from_runtime(
 		targets=targets,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
+	sort_phase_gate = threading.Lock() if bool(getattr(stage_config, "force_single_well_sort", False)) else None
+	if sort_phase_gate is not None:
+		LOGGER.info(
+			"%s: force_single_well_sort enabled; sort phase will run one well at a time targets=%d well_workers=%d",
+			stage_name,
+			len(targets),
+			int(parallelism.well_workers),
+		)
 
 	def _worker(target):
 		inputs = build_spikesort_inputs_for_target(
@@ -2166,7 +2212,16 @@ def _run_spikesort_sort_from_runtime(
 			n_jobs=_runtime_n_jobs_from_stage_config(stage_config, fallback_n_jobs=int(parallelism.unit_workers)),
 			n_jobs_source=str(n_jobs_source),
 		)
-		return run_spikesort(inputs)
+
+		def _run_sort() -> SpikesortResult:
+			return run_spikesort(inputs)
+
+		return _run_spikesort_phase_with_optional_sort_gate(
+			phase_label="sort",
+			target=target,
+			runner=_run_sort,
+			sort_phase_gate=sort_phase_gate,
+		)
 
 	target_results = _distribute_runtime_targets(
 		targets=targets,

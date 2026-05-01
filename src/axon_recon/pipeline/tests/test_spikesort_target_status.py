@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import logging
 from pathlib import Path
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -451,6 +454,114 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
     assert agg.total_targets == 1
     assert agg.succeeded_targets == 1
     assert agg.failed_targets == 0
+
+
+def test_run_spikesort_from_runtime_gates_only_sort_phase_across_wells(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    targets = [
+        ExecutionTarget(
+            dataset_index=0,
+            dataset_id="dataset_000:test_a.h5",
+            h5_path=tmp_path / "test_a.h5",
+            stream_id="well001",
+            mea_output_root=tmp_path,
+        ),
+        ExecutionTarget(
+            dataset_index=0,
+            dataset_id="dataset_000:test_b.h5",
+            h5_path=tmp_path / "test_b.h5",
+            stream_id="well002",
+            mea_output_root=tmp_path,
+        ),
+    ]
+
+    class _DummyBundle:
+        runtime_config = object()
+        data_config = object()
+
+    active_counts = {"bootstrap_concat_binary": 0, "sort": 0}
+    max_active_counts = {"bootstrap_concat_binary": 0, "sort": 0}
+    active_lock = threading.Lock()
+
+    def _fake_load_pipeline_runtime_bundle(*, config_path: str):
+        return _DummyBundle()
+
+    def _fake_select_execution_targets(*, bundle):
+        return targets
+
+    def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
+        return StageParallelism(max_workers=4, max_stage_workers=4, well_workers=2, unit_workers=2)
+
+    def _fake_parse_spikesort_stage_config(**kwargs):
+        return SimpleNamespace(
+            debug_limit_wells=None,
+            output_rel_root="spikesort_outputs",
+            force_single_well_sort=True,
+            phase_sequence=("bootstrap_concat_binary", "sort"),
+            bootstrap_concat_binary_enabled=True,
+            sort_enabled=True,
+            summarize_sort_enabled=False,
+            bombcell_label_enabled=False,
+            merge_slay_enabled=False,
+            merge_si_auto_enabled=False,
+            merge_unitmatch_enabled=False,
+            cleanup_concat_binary_enabled=False,
+        )
+
+    def _fake_phase_runner(phase_name: str):
+        def _runner(**kwargs):
+            with active_lock:
+                active_counts[phase_name] += 1
+                max_active_counts[phase_name] = max(max_active_counts[phase_name], active_counts[phase_name])
+            time.sleep(0.05)
+            with active_lock:
+                active_counts[phase_name] -= 1
+            return SpikesortResult(
+                well_out_dir=tmp_path / str(kwargs["target"].stream_id),
+                spikesort_out_dir=tmp_path / str(kwargs["target"].stream_id) / "spikesort_outputs",
+                summary_json=tmp_path / f"{phase_name}_{kwargs['target'].stream_id}.json",
+                outputs={},
+            )
+
+        return _runner
+
+    def _fake_distribute_targets(*, targets, well_workers: int, worker_fn, **kwargs):
+        target_list = list(targets)
+        start_barrier = threading.Barrier(len(target_list))
+
+        def _run_target(item: ExecutionTarget) -> TargetStageResult:
+            start_barrier.wait(timeout=1.0)
+            try:
+                return TargetStageResult(target=item, status="ok", result=worker_fn(item))
+            except Exception as exc:
+                return TargetStageResult(target=item, status="error", error=str(exc))
+
+        with ThreadPoolExecutor(max_workers=int(well_workers)) as executor:
+            return list(executor.map(_run_target, target_list))
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", _fake_load_pipeline_runtime_bundle)
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", _fake_select_execution_targets)
+    monkeypatch.setattr(pipeline_runner, "resolve_stage_parallelism", _fake_resolve_stage_parallelism)
+    monkeypatch.setattr(pipeline_runner, "parse_spikesort_stage_config", _fake_parse_spikesort_stage_config)
+    monkeypatch.setattr(
+        pipeline_runner,
+        "_run_spikesort_bootstrap_concat_binary_target",
+        _fake_phase_runner("bootstrap_concat_binary"),
+    )
+    monkeypatch.setattr(pipeline_runner, "_run_spikesort_sort_target", _fake_phase_runner("sort"))
+    monkeypatch.setattr(pipeline_runner, "distribute_targets", _fake_distribute_targets)
+
+    agg = run_spikesort_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+
+    assert agg.total_targets == 2
+    assert agg.succeeded_targets == 2
+    assert agg.failed_targets == 0
+    assert max_active_counts["bootstrap_concat_binary"] == 2
+    assert max_active_counts["sort"] == 1
 
 
 def test_enabled_spikesort_runtime_phase_plan_uses_configured_sequence_and_skips_disabled() -> None:
