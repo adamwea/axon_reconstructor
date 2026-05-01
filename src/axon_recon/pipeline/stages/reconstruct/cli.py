@@ -98,7 +98,7 @@ def _run_from_args(args: argparse.Namespace) -> int:
 	)
 
 
-def _run_templates_resolve_sources_from_args(args: argparse.Namespace) -> int:
+def _run_reconstruct_resolve_sources_from_args(args: argparse.Namespace) -> int:
 	return _print_reconstruct_aggregate(
 		run_reconstruct_templates_resolve_sources_from_runtime(
 			config_path=str(args.config),
@@ -112,7 +112,7 @@ def _run_templates_resolve_sources_from_args(args: argparse.Namespace) -> int:
 	)
 
 
-def _run_templates_analyzers_from_args(args: argparse.Namespace) -> int:
+def _run_reconstruct_analyzers_from_args(args: argparse.Namespace) -> int:
 	return _print_reconstruct_aggregate(
 		run_reconstruct_templates_analyzers_from_runtime(
 			config_path=str(args.config),
@@ -126,7 +126,7 @@ def _run_templates_analyzers_from_args(args: argparse.Namespace) -> int:
 	)
 
 
-def _run_templates_extract_template_segments_from_args(args: argparse.Namespace) -> int:
+def _run_reconstruct_extract_template_segments_from_args(args: argparse.Namespace) -> int:
 	return _print_reconstruct_aggregate(
 		run_reconstruct_templates_extract_template_segments_from_runtime(
 			config_path=str(args.config),
@@ -140,7 +140,7 @@ def _run_templates_extract_template_segments_from_args(args: argparse.Namespace)
 	)
 
 
-def _run_templates_build_templates_from_args(args: argparse.Namespace) -> int:
+def _run_reconstruct_build_templates_from_args(args: argparse.Namespace) -> int:
 	return _print_reconstruct_aggregate(
 		run_reconstruct_templates_build_templates_from_runtime(
 			config_path=str(args.config),
@@ -154,7 +154,7 @@ def _run_templates_build_templates_from_args(args: argparse.Namespace) -> int:
 	)
 
 
-def _run_templates_compute_template_similarity_from_args(args: argparse.Namespace) -> int:
+def _run_reconstruct_compute_template_similarity_from_args(args: argparse.Namespace) -> int:
 	return _print_reconstruct_aggregate(
 		run_reconstruct_templates_compute_template_similarity_from_runtime(
 			config_path=str(args.config),
@@ -168,7 +168,7 @@ def _run_templates_compute_template_similarity_from_args(args: argparse.Namespac
 	)
 
 
-def _run_templates_plot_templates_from_args(args: argparse.Namespace) -> int:
+def _run_reconstruct_plot_templates_from_args(args: argparse.Namespace) -> int:
 	return _print_reconstruct_aggregate(
 		run_reconstruct_templates_plot_templates_from_runtime(
 			config_path=str(args.config),
@@ -182,7 +182,7 @@ def _run_templates_plot_templates_from_args(args: argparse.Namespace) -> int:
 	)
 
 
-def _run_templates_report_templates_from_args(args: argparse.Namespace) -> int:
+def _run_reconstruct_report_templates_from_args(args: argparse.Namespace) -> int:
 	return _print_reconstruct_aggregate(
 		run_reconstruct_templates_report_templates_from_runtime(
 			config_path=str(args.config),
@@ -196,7 +196,7 @@ def _run_templates_report_templates_from_args(args: argparse.Namespace) -> int:
 	)
 
 
-def _run_templates_reports_from_args(args: argparse.Namespace) -> int:
+def _run_reconstruct_reports_from_args(args: argparse.Namespace) -> int:
 	return _print_reconstruct_aggregate(
 		run_reconstruct_templates_reports_from_runtime(
 			config_path=str(args.config),

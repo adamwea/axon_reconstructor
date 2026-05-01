@@ -31,18 +31,18 @@ from .stages.reconstruct.cli import _run_plot_recons_from_args as _run_reconstru
 from .stages.reconstruct.cli import _run_report_full_chip_layout_from_args as _run_reconstruct_report_full_chip_layout_from_args
 from .stages.reconstruct.cli import _run_report_recons_from_args as _run_reconstruct_report_recons_from_args
 from .stages.reconstruct.cli import _run_report_summaries_from_args as _run_reconstruct_report_summaries_from_args
-from .stages.reconstruct.cli import _run_templates_analyzers_from_args as _run_reconstruct_templates_analyzers_from_args
-from .stages.reconstruct.cli import _run_templates_build_templates_from_args as _run_reconstruct_templates_build_templates_from_args
+from .stages.reconstruct.cli import _run_reconstruct_analyzers_from_args
+from .stages.reconstruct.cli import _run_reconstruct_build_templates_from_args
 from .stages.reconstruct.cli import (
-	_run_templates_compute_template_similarity_from_args as _run_reconstruct_templates_compute_template_similarity_from_args,
+	_run_reconstruct_compute_template_similarity_from_args,
 )
 from .stages.reconstruct.cli import (
-	_run_templates_extract_template_segments_from_args as _run_reconstruct_templates_extract_template_segments_from_args,
+	_run_reconstruct_extract_template_segments_from_args,
 )
-from .stages.reconstruct.cli import _run_templates_plot_templates_from_args as _run_reconstruct_templates_plot_templates_from_args
-from .stages.reconstruct.cli import _run_templates_report_templates_from_args as _run_reconstruct_templates_report_templates_from_args
-from .stages.reconstruct.cli import _run_templates_reports_from_args as _run_reconstruct_templates_reports_from_args
-from .stages.reconstruct.cli import _run_templates_resolve_sources_from_args as _run_reconstruct_templates_resolve_sources_from_args
+from .stages.reconstruct.cli import _run_reconstruct_plot_templates_from_args
+from .stages.reconstruct.cli import _run_reconstruct_report_templates_from_args
+from .stages.reconstruct.cli import _run_reconstruct_reports_from_args
+from .stages.reconstruct.cli import _run_reconstruct_resolve_sources_from_args
 from .stages.spikesort.cli import _run_from_args as _run_spikesort_from_args
 from .stages.spikesort.cli import _run_bombcell_from_args as _run_spikesort_bombcell_from_args
 from .stages.spikesort.cli import _run_bootstrap_concat_binary_from_args as _run_spikesort_bootstrap_concat_binary_from_args
@@ -208,14 +208,14 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"spikesort.merge_si_auto": _run_spikesort_merge_si_auto_from_args,
 	"spikesort.merge_unitmatch": _run_spikesort_merge_unitmatch_from_args,
 	"reconstruct": _run_reconstruct_from_args,
-	"reconstruct.resolve_sources": _run_reconstruct_templates_resolve_sources_from_args,
-	"reconstruct.analyzers": _run_reconstruct_templates_analyzers_from_args,
-	"reconstruct.extract_template_segments": _run_reconstruct_templates_extract_template_segments_from_args,
-	"reconstruct.build_templates": _run_reconstruct_templates_build_templates_from_args,
-	"reconstruct.compute_template_similarity": _run_reconstruct_templates_compute_template_similarity_from_args,
-	"reconstruct.plot_templates": _run_reconstruct_templates_plot_templates_from_args,
-	"reconstruct.report_templates": _run_reconstruct_templates_report_templates_from_args,
-	"reconstruct.reports": _run_reconstruct_templates_reports_from_args,
+	"reconstruct.resolve_sources": _run_reconstruct_resolve_sources_from_args,
+	"reconstruct.analyzers": _run_reconstruct_analyzers_from_args,
+	"reconstruct.extract_template_segments": _run_reconstruct_extract_template_segments_from_args,
+	"reconstruct.build_templates": _run_reconstruct_build_templates_from_args,
+	"reconstruct.compute_template_similarity": _run_reconstruct_compute_template_similarity_from_args,
+	"reconstruct.plot_templates": _run_reconstruct_plot_templates_from_args,
+	"reconstruct.report_templates": _run_reconstruct_report_templates_from_args,
+	"reconstruct.reports": _run_reconstruct_reports_from_args,
 	"reconstruct.generate_gtrs": _run_reconstruct_generate_gtrs_from_args,
 	"reconstruct.plot_recons": _run_reconstruct_plot_recons_from_args,
 	"reconstruct.plot_branch_propagations": _run_reconstruct_plot_branch_propagations_from_args,

@@ -76,7 +76,63 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-01 02:01 - pending - ai: align reconstruct template phase names
+## 2026-05-01 02:04 - pending - ai: rename reconstruct template cli handlers
+
+Status: accepted
+
+Summary:
+- Renamed reconstruct CLI handler functions for embedded template phases from `_run_templates_*_from_args` to reconstruct-owned `_run_reconstruct_*_from_args` names.
+- Updated the top-level CLI imports and handler registry to use the reconstruct-owned handler names directly.
+- Kept accepted CLI selectors unchanged.
+
+Acceptance Criteria:
+- `src/axon_recon/pipeline/stages/reconstruct/cli.py` no longer exposes `_run_templates_*_from_args` handlers.
+- `src/axon_recon/pipeline/cli.py` no longer imports `_run_reconstruct_templates_*` aliases for preferred reconstruct phase selectors.
+- Existing CLI selector tests still pass.
+
+Expected To Run:
+- Preferred reconstruct phase selectors such as `reconstruct.analyzers`, `reconstruct.build_templates`, and `reconstruct.reports`.
+
+Confirmed Not Run:
+- No direct templates CLI selector support was reintroduced.
+
+Files/Modules Changed:
+- `src/axon_recon/pipeline/cli.py`
+- `src/axon_recon/pipeline/stages/reconstruct/cli.py`
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_cli_stage_sequence.py -q` passed.
+- Diagnostics: no VS Code/Pylance errors in changed files.
+- Reference audit: no `_run_templates_` matches remain in `stages/reconstruct/cli.py`; no `_run_reconstruct_templates_` aliases remain in `pipeline/cli.py`.
+- Smoke (20 min max unless Adam approves longer): not run; this was a CLI handler rename with mocked selector coverage.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: real-data smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged.
+- Force-restart cleanup: unchanged.
+- Partial-output handling: unchanged.
+
+Storage/Cache Impact:
+- Created: none.
+- Cleaned: none.
+- Persisted: none.
+- Size check: not applicable.
+
+CLI Impact:
+- Accepted selector contract is unchanged; internal handler names now match reconstruct ownership.
+
+Retired Code/Tests:
+- Retired legacy reconstruct CLI handler names that implied direct templates ownership.
+
+Risks And Follow-Ups:
+- Runtime wrapper/function names still include `templates` while the underlying templates package remains to be migrated.
+
+Rollback Notes:
+- Restore the old handler function names and import aliases if an external import unexpectedly relied on private CLI helpers.
+
+## 2026-05-01 02:01 - 43151f3 - ai: align reconstruct template phase names
 
 Status: accepted
 
