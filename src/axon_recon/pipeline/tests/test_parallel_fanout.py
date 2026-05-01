@@ -279,6 +279,52 @@ stages:
     assert p.max_stage_workers == 8
     assert p.well_workers == 2
     assert p.unit_workers == 4
+    assert p.unit_workers_source == "derived"
+
+
+def test_stage_parallelism_uses_explicit_unit_workers_override(tmp_path: Path) -> None:
+    data_path = tmp_path / "debug.data.yml"
+    data_path.write_text(
+        """
+output_root: /tmp/out
+datasets:
+  - raw_data_h5_path: /tmp/ds1.h5
+    include_in_runtime: true
+    wells:
+      - well_id: well001
+        include_in_runtime: true
+      - well_id: well002
+        include_in_runtime: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "debug.runtime.yml"
+    runtime_path.write_text(
+        f"""
+data: {data_path}
+resources:
+  max_workers: 24
+stages:
+  reconstruct:
+    resources:
+      max_stage_workers: 18
+      well_workers: 2
+      unit_workers: 4
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = load_pipeline_runtime_bundle(config_path=str(runtime_path))
+    p = resolve_stage_parallelism(bundle=bundle, stage_name="reconstruct", target_count=2)
+
+    assert p.max_workers == 24
+    assert p.max_stage_workers == 18
+    assert p.well_workers == 2
+    assert p.unit_workers == 4
+    assert p.unit_workers_source == "resources.unit_workers"
 
 
 def test_stage_parallelism_uses_selected_target_count_when_provided(tmp_path: Path) -> None:
@@ -460,6 +506,63 @@ stages:
     assert p.unit_workers == 8
     assert effective.well_workers == 2
     assert effective.unit_workers == 12
+
+
+def test_stage_parallelism_preserves_explicit_unit_workers_through_read_cap(tmp_path: Path) -> None:
+    data_path = tmp_path / "debug.data.yml"
+    data_path.write_text(
+        """
+output_root: /tmp/out
+datasets:
+  - raw_data_h5_path: /tmp/ds1.h5
+    include_in_runtime: true
+    wells:
+      - well_id: well001
+        include_in_runtime: true
+      - well_id: well002
+        include_in_runtime: true
+  - raw_data_h5_path: /tmp/ds2.h5
+    include_in_runtime: true
+    wells:
+      - well_id: well001
+        include_in_runtime: true
+      - well_id: well002
+        include_in_runtime: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "debug.runtime.yml"
+    runtime_path.write_text(
+        f"""
+data: {data_path}
+resources:
+  max_workers: 24
+  max_simultaneous_well_reads_per_dataset: 1
+stages:
+  reconstruct:
+    resources:
+      max_stage_workers: 24
+      well_workers: 3
+      unit_workers: 4
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = load_pipeline_runtime_bundle(config_path=str(runtime_path))
+    targets = select_execution_targets(bundle=bundle)
+    p = resolve_stage_parallelism(bundle=bundle, stage_name="reconstruct", target_count=len(targets))
+    effective = constrain_stage_parallelism_to_read_groups(parallelism=p, targets=targets)
+
+    assert p.max_simultaneous_well_reads_per_dataset == 1
+    assert p.well_workers == 3
+    assert p.unit_workers == 4
+    assert p.unit_workers_source == "resources.unit_workers"
+    assert effective.well_workers == 2
+    assert effective.unit_workers == 4
+    assert effective.unit_workers_source == "resources.unit_workers"
 
 
 def test_select_execution_targets_prefers_scratch_root_for_active_output(tmp_path: Path) -> None:

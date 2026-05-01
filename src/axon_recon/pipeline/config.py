@@ -298,15 +298,25 @@ def resolve_stage_parallelism(
 	)
 	max_simultaneous_well_reads_per_dataset = _as_optional_positive_int(read_cap_raw)
 	if bool(divide_stage_workers_by_wells) and int(well_workers) > 1:
-		unit_workers = max(1, int(stage_workers // well_workers))
+		derived_unit_workers = max(1, int(stage_workers // well_workers))
 	else:
-		unit_workers = max(1, int(stage_workers))
+		derived_unit_workers = max(1, int(stage_workers))
+
+	unit_workers_key = f"stages.{stage_name}.resources.unit_workers"
+	unit_workers_raw = runtime_cfg.get(unit_workers_key, None) if runtime_cfg.has(unit_workers_key) else None
+	if unit_workers_raw is None:
+		unit_workers = int(derived_unit_workers)
+		unit_workers_source = "derived"
+	else:
+		unit_workers = max(1, _as_int(unit_workers_raw, int(derived_unit_workers)))
+		unit_workers_source = "resources.unit_workers"
 
 	return StageParallelism(
 		max_workers=max_workers,
 		max_stage_workers=stage_workers,
 		well_workers=well_workers,
 		unit_workers=unit_workers,
+		unit_workers_source=unit_workers_source,
 		max_simultaneous_well_reads_per_dataset=max_simultaneous_well_reads_per_dataset,
 		divide_stage_workers_by_wells=bool(divide_stage_workers_by_wells),
 	)
@@ -332,7 +342,9 @@ def constrain_stage_parallelism_to_read_groups(
 	if effective_well_workers == int(parallelism.well_workers):
 		return parallelism
 
-	if bool(getattr(parallelism, "divide_stage_workers_by_wells", True)) and int(effective_well_workers) > 1:
+	if str(getattr(parallelism, "unit_workers_source", "derived")) != "derived":
+		unit_workers = max(1, int(parallelism.unit_workers))
+	elif bool(getattr(parallelism, "divide_stage_workers_by_wells", True)) and int(effective_well_workers) > 1:
 		unit_workers = max(1, int(parallelism.max_stage_workers) // int(effective_well_workers))
 	else:
 		unit_workers = max(1, int(parallelism.max_stage_workers))

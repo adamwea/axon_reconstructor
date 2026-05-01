@@ -52,6 +52,49 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-01 11:04 - pending - ai: honor explicit unit workers
+
+Status: accepted
+
+Summary:
+- Added `resources.unit_workers` as an explicit stage parallelism override so unit-processing runtime `n_jobs` no longer has to be derived from `max_stage_workers / well_workers`.
+- Preserved explicit unit worker counts when read-concurrency caps reduce effective well fanout.
+- Added regression coverage for derived behavior, explicit override behavior, and read-cap preservation.
+
+Acceptance Criteria:
+- `stages.<stage>.resources.unit_workers` overrides derived unit workers when present.
+- Existing derived behavior remains unchanged when `unit_workers` is absent.
+- Reconstruct runtime config with `max_stage_workers: 18`, `well_workers: 2`, and `unit_workers: 4` resolves unit workers to 4.
+
+Expected To Run:
+- Reconstruct and template unit-processing phases receive the resolved `StageParallelism.unit_workers` through their existing `inputs.n_jobs` path.
+
+Confirmed Not Run:
+- No pipeline smoke run was started.
+- User-edited `debug/debug.runtime.yml` was not changed by this commit.
+
+Files/Modules Changed:
+- `src/axon_recon/pipeline/config.py`
+- `src/axon_recon/pipeline/execution/context.py`
+- `src/axon_recon/pipeline/tests/test_parallel_fanout.py`
+
+Validation:
+- Pytest: `python -m pytest src/axon_recon/pipeline/tests/test_parallel_fanout.py -q`
+- Pytest: `python -m pytest src/axon_recon/pipeline/tests/test_reconstruct_target_status.py src/axon_recon/pipeline/tests/test_spikesort_target_status.py src/axon_recon/pipeline/tests/test_preprocess_target_status.py -q`
+- Pytest: `python -m pytest src/axon_recon/pipeline/stages/reconstruct/tests/test_runner.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py -q`
+- Runtime config check: `debug/debug.runtime.yml` reconstruct parallelism resolves `unit_workers=4` with source `resources.unit_workers`.
+- Logs inspected: none.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged; this only adjusts worker counts used by active runtime phases.
+
+Storage/Cache Impact:
+- Created: none.
+- Modified: none outside source/tests/commit notes.
+
+Rollback Notes:
+- Revert the commit to return to purely derived unit worker counts.
+
 ## 2026-05-01 04:18 - pending - ai: remove stale v1 todo
 
 Status: accepted
