@@ -2,13 +2,22 @@
 
 `axon_reconstructor` is actively under development for multi-stage axon reconstruction and longitudinal HD-MEA analysis workflows.
 
-This project is not currently user-friendly and should be treated as work-in-progress. Documentation is currently messy and overly verbose.
+The active runtime package is `axon_recon`. The older `axon_reconstructor` Python package has been retired during the v2 pipeline cleanup.
 
-For now, the most relevant references are:
+The active stages are:
 
-- Development roadmap: [DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md)
+- `preprocess`
+- `spikesort`
+- `reconstruct`
+
+The installed command is still named `axon-reconstructor`, but it now dispatches to `axon_recon.pipeline.cli`.
+
+Useful development references:
+
 - Environment spec: [environment.yml](environment.yml)
-- Debug harness docs: [docs/debugging/README.md](docs/debugging/README.md)
+- Runtime config: [debug/debug.runtime.yml](debug/debug.runtime.yml)
+- Data config: [debug/debug.data.yml](debug/debug.data.yml)
+- Refinement notes: [debug/pipeline_refinement_commit_notes.md](debug/pipeline_refinement_commit_notes.md)
 
 ## Environment setup
 
@@ -19,19 +28,17 @@ conda env create -f environment.yml
 conda activate axon_recon
 ```
 
-Then bootstrap the sibling editable dependencies that live in adjacent Git checkouts:
-
-```bash
-bash tools/bootstrap_editable_deps.sh --python "${CONDA_PREFIX}/bin/python"
-```
-
-The bootstrap script clones missing repos into the parent directory of this checkout using HTTPS GitHub remotes and installs them editable with `--no-deps` from the branches currently used in `pkgs/`:
+Sibling editable dependencies usually live next to this checkout and are installed separately:
 
 - `axon_velocity` from `adamwea/axon_velocity` on `main`
 - `UnitMatch` from `adamwea/UnitMatch` on `enable_hdmea`
 - `SLAy` from `adamwea/SLAy` on `main`
 - `MEA_Analysis` from `roybens/MEA_Analysis` on `aw_dev`
 
-Use `bash tools/bootstrap_editable_deps.sh --dry-run` to inspect the planned git and pip commands before making changes.
+Run tests with:
+
+```bash
+python -m pytest
+```
 
 AI coding agents have been used during development, mostly GPT-5.2-Codex and GPT-5.3-Codex.

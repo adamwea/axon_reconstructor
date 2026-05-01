@@ -22,7 +22,7 @@ dev = [
 ]
 
 [project.scripts]
-axon-reconstructor = "axon_reconstructor.cli:main"
+axon-reconstructor = "axon_recon.pipeline.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -32,7 +32,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-testpaths = ["tests"]
+testpaths = ["src/axon_recon/pipeline"]
 addopts = ["-q"]
 
 [tool.ruff]

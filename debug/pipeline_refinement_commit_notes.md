@@ -52,7 +52,75 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-01 03:05 - pending - ai: rehome v1 path and sort helpers
+## 2026-05-01 03:25 - pending - ai: delete retired v1 package
+
+Status: accepted
+
+Summary:
+- Deleted the retired `src/axon_reconstructor` package after moving active dependencies into `axon_recon`.
+- Deleted root v1 tests, stale `docs/ai_slop` documentation, archived debug scripts/configs, and archived tool scripts that referred to retired v1/templates/analysis surfaces.
+- Repointed the package console script to `axon_recon.pipeline.cli:main` and pytest discovery to the active v2 pipeline test tree.
+- Refreshed the README to describe `axon_recon` as the active runtime package and remove links to deleted docs/tools.
+
+Acceptance Criteria:
+- `src/axon_reconstructor/**` no longer exists.
+- Root `tests/**` no longer exists; pytest collection comes from `src/axon_recon/pipeline`.
+- `pyproject.toml` no longer points the `axon-reconstructor` script at `axon_reconstructor.cli`.
+- Filesystem-scoped import audit finds no remaining v1 import/module CLI references outside historical commit notes.
+
+Expected To Run:
+- `axon-reconstructor` entry point dispatches through `axon_recon.pipeline.cli:main` after reinstall/editable metadata refresh.
+- Active pytest discovery covers the v2 pipeline tests under `src/axon_recon/pipeline`.
+
+Confirmed Not Run:
+- Retired v1 package, root v1 tests, stale ai_slop docs, and archived retired debug/tool scripts are removed.
+
+Files/Modules Changed:
+- `pyproject.toml`
+- `README.md`
+- deleted `src/axon_reconstructor/**`
+- deleted root `tests/**`
+- deleted `docs/ai_slop/**`
+- deleted `debug/archived_for_reference/**`
+- deleted `tools/archive/**`
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_cli_stage_sequence.py src/axon_recon/pipeline/tests/test_config.py src/axon_recon/pipeline/stages/spikesort/tests/test_runner.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py -q` passed.
+- Pytest collection: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest --collect-only -q` passed collection from the new pyproject test root.
+- Pytest full active suite: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest -q` passed.
+- CLI smoke: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m axon_recon.pipeline.cli --help` passed and showed the active `stages`/`stage` commands.
+- Reference audit: filesystem-scoped search for `from axon_reconstructor`, `import axon_reconstructor`, `axon_reconstructor.pipeline`, `axon_reconstructor.runtime_config`, `axon_reconstructor.cli`, and `python -m axon_reconstructor` only returned historical notes in this commit log.
+- Smoke (20 min max unless Adam approves longer): CLI help smoke only; no real-data smoke run for this deletion slice.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: real-data smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior: active v2 behavior unchanged; deleted files were retired-only surfaces.
+- Force-restart/replot behavior: active v2 behavior unchanged.
+- Partial-output handling: unchanged.
+
+Storage/Cache Impact:
+- Created: none.
+- Cleaned: retired package/tests/docs/archive scripts.
+- Persisted: none.
+- Size check: not applicable.
+
+CLI Impact:
+- Installed `axon-reconstructor` now targets `axon_recon.pipeline.cli:main`.
+- Direct v1 module CLI path `python -m axon_reconstructor.cli` is removed.
+
+Retired Code/Tests:
+- Deleted the v1 package and the root v1-only tests/docs/archive surfaces.
+
+Risks And Follow-Ups:
+- Existing editable installs may need refresh for the console script metadata to pick up the new entry point.
+- Internal reconstruct-owned template helpers still use `run_templates_*` names; this is not a v1 dependency, but a later naming cleanup can make those internals fully reconstruct-branded.
+
+Rollback Notes:
+- Restore `src/axon_reconstructor/**`, root `tests/**`, old docs/archives, and the previous `pyproject.toml` script/testpaths from the parent commit if v1 needs temporary recovery.
+
+## 2026-05-01 03:05 - 930f2a3 - ai: rehome v1 path and sort helpers
 
 Status: accepted
 

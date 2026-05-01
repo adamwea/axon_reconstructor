@@ -1,9 +1,0 @@
-{
-  "force_restart": false,
-  "resume_from": "merge",
-  "force_merge_on_resume": true,
-  "unitmatch_merge_units": true,
-  "unitmatch_dry_run": true,
-  "unitmatch_scored_dry_run": true,
-  "auto_merge_units": false
-}
