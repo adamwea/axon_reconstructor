@@ -105,6 +105,40 @@ def _get_nested_value(raw: dict[str, Any], path: tuple[str, ...]) -> Any:
 	return cursor
 
 
+def _normalize_sort_engine(raw: Any) -> str:
+	token = str(raw or "mea_analysis").strip().lower().replace("-", "_")
+	if token in {"mea_analysis", "mea", "legacy", "legacy_mea_analysis"}:
+		return "mea_analysis"
+	if token in {"local_spikeinterface", "local", "spikeinterface", "si", "in_process", "inprocess"}:
+		return "local_spikeinterface"
+	raise ValueError(
+		"Unsupported spikesort sort engine "
+		f"{raw!r}; expected 'local_spikeinterface' or 'mea_analysis'"
+	)
+
+
+def _get_sorter_name_from_section(section: dict[str, Any]) -> Any:
+	raw = section.get("sorter", None)
+	if isinstance(raw, dict):
+		return raw.get("name", None)
+	return raw
+
+
+def _get_sorter_kilosort_section(section: dict[str, Any]) -> dict[str, Any]:
+	raw = section.get("sorter", None)
+	if isinstance(raw, dict):
+		return _as_section(raw.get("kilosort", {}))
+	return {}
+
+
+def _overlay_section(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+	if not override:
+		return dict(base)
+	merged = dict(base)
+	merged.update(override)
+	return merged
+
+
 def _normalize_optional_relpath(raw: Any) -> str | None:
 	text = _as_optional_str(raw)
 	if text is None:
@@ -373,8 +407,17 @@ class SpikesortStageConfig:
 	bombcell_label_debug_limit_datasets: int | None
 	bombcell_label_debug_limit_wells: int | None
 	bombcell_label_debug_limit_wells_per_dataset: int | None
+	sort_engine: str
 	sorter: str
 	docker_image: str | None
+	mea_analysis_enabled: bool
+	mea_analysis_docker_image: str | None
+	local_spikeinterface_enabled: bool
+	local_spikeinterface_output_relpath: str
+	local_spikeinterface_remove_existing_on_force_restart: bool
+	local_spikeinterface_run_sorter_kwargs: dict[str, Any] | None
+	local_spikeinterface_analyzer_enabled: bool
+	local_spikeinterface_analyzer_output_relpath: str
 	recording_num: str
 	verbose: bool
 
@@ -776,29 +819,48 @@ def parse_spikesort_stage_config(
 	execution_inputs_cfg = _as_section(execution_cfg.get("inputs", {}))
 	resolved_inputs_cfg = dict(execution_inputs_cfg)
 	resolved_inputs_cfg.update(inputs_cfg)
+	sort_phase_mea_analysis_cfg = _as_section(sort_phase_cfg.get("mea_analysis", {}))
+	sort_phase_local_spikeinterface_cfg = _as_section(sort_phase_cfg.get("local_spikeinterface", {}))
+	sort_phase_local_spikeinterface_analyzer_cfg = _as_section(
+		sort_phase_local_spikeinterface_cfg.get("analyzer", {})
+	)
 	plot_cfg = _as_section(stage_cfg.get("plot", {}))
 	execution_plot_cfg = _as_section(execution_cfg.get("plot", {}))
 	sort_phase_plot_cfg = _as_section(sort_phase_cfg.get("plot", {}))
+	sort_phase_mea_analysis_plot_cfg = _as_section(sort_phase_mea_analysis_cfg.get("plot", {}))
 	if execution_plot_cfg:
 		plot_cfg = dict(plot_cfg)
 		plot_cfg.update(execution_plot_cfg)
 	if sort_phase_plot_cfg:
 		plot_cfg = dict(plot_cfg)
 		plot_cfg.update(sort_phase_plot_cfg)
+	if sort_phase_mea_analysis_plot_cfg:
+		plot_cfg = dict(plot_cfg)
+		plot_cfg.update(sort_phase_mea_analysis_plot_cfg)
 	report_cfg = _as_section(stage_cfg.get("report", {}))
 	execution_report_cfg = _as_section(execution_cfg.get("report", {}))
 	sort_phase_report_cfg = _as_section(sort_phase_cfg.get("report", {}))
+	sort_phase_mea_analysis_report_cfg = _as_section(sort_phase_mea_analysis_cfg.get("report", {}))
 	if execution_report_cfg:
 		report_cfg = dict(report_cfg)
 		report_cfg.update(execution_report_cfg)
 	if sort_phase_report_cfg:
 		report_cfg = dict(report_cfg)
 		report_cfg.update(sort_phase_report_cfg)
+	if sort_phase_mea_analysis_report_cfg:
+		report_cfg = dict(report_cfg)
+		report_cfg.update(sort_phase_mea_analysis_report_cfg)
 	outputs_cfg = _as_section(stage_cfg.get("outputs", {}))
 
 	stage_kilosort_cfg = _as_section(stage_cfg.get("kilosort", {}))
 	execution_kilosort_cfg = _as_section(execution_cfg.get("kilosort", {}))
 	sort_phase_kilosort_cfg = _as_section(sort_phase_cfg.get("kilosort", {}))
+	stage_kilosort_cfg = _overlay_section(stage_kilosort_cfg, _get_sorter_kilosort_section(stage_cfg))
+	execution_kilosort_cfg = _overlay_section(execution_kilosort_cfg, _get_sorter_kilosort_section(execution_cfg))
+	sort_phase_kilosort_cfg = _overlay_section(
+		sort_phase_kilosort_cfg,
+		_get_sorter_kilosort_section(sort_phase_cfg),
+	)
 
 	stage_unitmatch_cfg = _as_section(stage_cfg.get("unitmatch", {}))
 	execution_unitmatch_cfg = _as_section(execution_cfg.get("unitmatch", {}))
@@ -880,6 +942,75 @@ def parse_spikesort_stage_config(
 		force_restart = bool(force_restart_override)
 	if force_replot_override is not None:
 		force_replot = bool(force_replot_override)
+
+	sort_engine = _normalize_sort_engine(
+		_coalesce(
+			sort_phase_cfg.get("engine", None),
+			execution_cfg.get("sort_engine", None),
+			stage_cfg.get("sort_engine", None),
+			"mea_analysis",
+		)
+	)
+	sorter_name = str(
+		_coalesce(
+			_get_sorter_name_from_section(sort_phase_cfg),
+			_get_sorter_name_from_section(execution_cfg),
+			_get_sorter_name_from_section(stage_cfg),
+			"kilosort4",
+		)
+		or "kilosort4"
+	)
+	mea_analysis_enabled = _as_bool(
+		_coalesce(
+			sort_phase_mea_analysis_cfg.get("enabled", None),
+			bool(sort_engine == "mea_analysis"),
+		),
+		bool(sort_engine == "mea_analysis"),
+	)
+	mea_analysis_docker_image = _as_optional_str(
+		_coalesce(
+			sort_phase_mea_analysis_cfg.get("docker_image", None),
+			sort_phase_cfg.get("docker_image", None),
+			execution_cfg.get("docker_image", None),
+			stage_cfg.get("docker_image", None),
+		)
+	)
+	local_spikeinterface_enabled = _as_bool(
+		_coalesce(
+			sort_phase_local_spikeinterface_cfg.get("enabled", None),
+			bool(sort_engine == "local_spikeinterface"),
+		),
+		bool(sort_engine == "local_spikeinterface"),
+	)
+	local_spikeinterface_output_relpath = _normalize_optional_relpath(
+		_coalesce(
+			sort_phase_local_spikeinterface_cfg.get("output_relpath", None),
+			"sorter_output",
+		)
+	) or "sorter_output"
+	local_spikeinterface_remove_existing_on_force_restart = _as_bool(
+		_coalesce(
+			sort_phase_local_spikeinterface_cfg.get("remove_existing_on_force_restart", None),
+			True,
+		),
+		True,
+	)
+	local_spikeinterface_run_sorter_kwargs = (
+		_as_optional_dict(sort_phase_local_spikeinterface_cfg.get("run_sorter_kwargs", None)) or {}
+	)
+	local_spikeinterface_analyzer_enabled = _as_bool(
+		_coalesce(
+			sort_phase_local_spikeinterface_analyzer_cfg.get("enabled", None),
+			True,
+		),
+		True,
+	)
+	local_spikeinterface_analyzer_output_relpath = _normalize_optional_relpath(
+		_coalesce(
+			sort_phase_local_spikeinterface_analyzer_cfg.get("output_relpath", None),
+			"analyzer_output",
+		)
+	) or "analyzer_output"
 
 	legacy_debug_default = _as_bool(execution_cfg.get("debug", False), False)
 	logging_enabled = _as_bool(logging_cfg.get("enabled", True), True)
@@ -3315,22 +3446,23 @@ def parse_spikesort_stage_config(
 		bombcell_label_debug_limit_datasets=bombcell_label_debug_limit_datasets,
 		bombcell_label_debug_limit_wells=bombcell_label_debug_limit_wells,
 		bombcell_label_debug_limit_wells_per_dataset=bombcell_label_debug_limit_wells_per_dataset,
-		sorter=str(
-			_coalesce(
-				sort_phase_cfg.get("sorter", None),
-				execution_cfg.get("sorter", None),
-				stage_cfg.get("sorter", None),
-				"kilosort4",
-			)
-			or "kilosort4"
+		sort_engine=sort_engine,
+		sorter=sorter_name,
+		docker_image=mea_analysis_docker_image,
+		mea_analysis_enabled=bool(mea_analysis_enabled),
+		mea_analysis_docker_image=mea_analysis_docker_image,
+		local_spikeinterface_enabled=bool(local_spikeinterface_enabled),
+		local_spikeinterface_output_relpath=str(local_spikeinterface_output_relpath),
+		local_spikeinterface_remove_existing_on_force_restart=bool(
+			local_spikeinterface_remove_existing_on_force_restart
 		),
-		docker_image=_as_optional_str(
-			_coalesce(
-				sort_phase_cfg.get("docker_image", None),
-				execution_cfg.get("docker_image", None),
-				stage_cfg.get("docker_image", None),
-			)
+		local_spikeinterface_run_sorter_kwargs=(
+			dict(local_spikeinterface_run_sorter_kwargs)
+			if isinstance(local_spikeinterface_run_sorter_kwargs, dict)
+			else None
 		),
+		local_spikeinterface_analyzer_enabled=bool(local_spikeinterface_analyzer_enabled),
+		local_spikeinterface_analyzer_output_relpath=str(local_spikeinterface_analyzer_output_relpath),
 		recording_num=str(_get_with_fallback(execution_cfg, stage_cfg, "recording_num", "rec0000") or "rec0000"),
 		verbose=_as_bool(_get_with_fallback(execution_cfg, stage_cfg, "verbose", False), False),
 		ks_batch_duration_s=_as_optional_float(
@@ -3894,7 +4026,12 @@ def parse_spikesort_stage_config(
 		post_merge_metadata_log_summary_details=bool(post_merge_metadata_log_summary_details),
 		force_restart=force_restart,
 		force_replot=force_replot,
-		resume_from=_as_optional_str(_get_with_fallback(execution_cfg, stage_cfg, "resume_from", None)),
+		resume_from=_as_optional_str(
+			_coalesce(
+				sort_phase_mea_analysis_cfg.get("resume_from", None),
+				_get_with_fallback(execution_cfg, stage_cfg, "resume_from", None),
+			)
+		),
 	)
 
 
@@ -3919,8 +4056,19 @@ def build_spikesort_inputs_for_target(
 		logging_enabled=stage_config.logging_enabled,
 		logging_verbose=stage_config.logging_verbose,
 		logging_file_relpath=stage_config.logging_file_relpath,
+		sort_engine=stage_config.sort_engine,
 		sorter=stage_config.sorter,
 		docker_image=stage_config.docker_image,
+		mea_analysis_enabled=stage_config.mea_analysis_enabled,
+		mea_analysis_docker_image=stage_config.mea_analysis_docker_image,
+		local_spikeinterface_enabled=stage_config.local_spikeinterface_enabled,
+		local_spikeinterface_output_relpath=stage_config.local_spikeinterface_output_relpath,
+		local_spikeinterface_remove_existing_on_force_restart=(
+			stage_config.local_spikeinterface_remove_existing_on_force_restart
+		),
+		local_spikeinterface_run_sorter_kwargs=stage_config.local_spikeinterface_run_sorter_kwargs,
+		local_spikeinterface_analyzer_enabled=stage_config.local_spikeinterface_analyzer_enabled,
+		local_spikeinterface_analyzer_output_relpath=stage_config.local_spikeinterface_analyzer_output_relpath,
 		recording_num=stage_config.recording_num,
 		verbose=stage_config.verbose,
 		ks_batch_duration_s=stage_config.ks_batch_duration_s,
@@ -4034,8 +4182,19 @@ def load_spikesort_inputs_from_runtime(
 		logging_enabled=stage_cfg.logging_enabled,
 		logging_verbose=stage_cfg.logging_verbose,
 		logging_file_relpath=stage_cfg.logging_file_relpath,
+		sort_engine=stage_cfg.sort_engine,
 		sorter=stage_cfg.sorter,
 		docker_image=stage_cfg.docker_image,
+		mea_analysis_enabled=stage_cfg.mea_analysis_enabled,
+		mea_analysis_docker_image=stage_cfg.mea_analysis_docker_image,
+		local_spikeinterface_enabled=stage_cfg.local_spikeinterface_enabled,
+		local_spikeinterface_output_relpath=stage_cfg.local_spikeinterface_output_relpath,
+		local_spikeinterface_remove_existing_on_force_restart=(
+			stage_cfg.local_spikeinterface_remove_existing_on_force_restart
+		),
+		local_spikeinterface_run_sorter_kwargs=stage_cfg.local_spikeinterface_run_sorter_kwargs,
+		local_spikeinterface_analyzer_enabled=stage_cfg.local_spikeinterface_analyzer_enabled,
+		local_spikeinterface_analyzer_output_relpath=stage_cfg.local_spikeinterface_analyzer_output_relpath,
 		recording_num=stage_cfg.recording_num,
 		verbose=stage_cfg.verbose,
 		ks_batch_duration_s=stage_cfg.ks_batch_duration_s,

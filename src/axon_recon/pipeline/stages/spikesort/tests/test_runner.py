@@ -330,6 +330,30 @@ def test_run_spikesort_stage_generates_sort_summary_artifacts(monkeypatch, tmp_p
     assert "Sort summary [stream=well001] units=3" in caplog.text
 
 
+def test_run_spikesort_stage_does_not_fall_through_to_legacy_for_local_engine(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    well_out_dir = tmp_path / "well001"
+    monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
+
+    def _fail_legacy_call(**kwargs):
+        raise AssertionError("legacy MEA_Analysis route should not run for local_spikeinterface")
+
+    monkeypatch.setattr(spikesort_runner, "run_legacy_spikesorting_stage", _fail_legacy_call)
+
+    inputs = SpikesortInputs(
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        sort_engine="local_spikeinterface",
+    )
+
+    with pytest.raises(NotImplementedError, match="local_spikeinterface"):
+        run_spikesort_stage(inputs)
+
+
 def test_run_spikesort_summarize_sort_writes_summary_when_artifacts_disabled(monkeypatch, tmp_path: Path) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 

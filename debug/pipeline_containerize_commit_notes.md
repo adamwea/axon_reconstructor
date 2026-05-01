@@ -80,6 +80,64 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-01 14:27 - pending - ai: parse spikesort sort engines
+
+Status: accepted
+
+Summary:
+- Added typed spikesort sort-engine parsing for `mea_analysis` and `local_spikeinterface`.
+- Parsed the target sectioned sort layout: `source`, `sorter.name`, `sorter.kilosort`, `local_spikeinterface`, and `mea_analysis`.
+- Preserved legacy flat sort config behavior by defaulting missing `engine` to `mea_analysis` and keeping existing Docker/MEA_Analysis fields effective.
+- Added a runner guard so explicit `local_spikeinterface` does not silently fall through to the legacy MEA_Analysis/Docker route before the local backend is implemented.
+
+Acceptance Criteria:
+- Existing flat `stages.spikesort.phases.sort` YAML keeps resolving to `mea_analysis` with the current sorter, Docker image, and source flags.
+- The new sectioned YAML shape parses local SpikeInterface settings and nested Kilosort params.
+- Unknown sort engines fail clearly during config parsing.
+- Explicit `local_spikeinterface` dispatch does not call the legacy MEA_Analysis route.
+
+Self-Check:
+- Diff reviewed: yes.
+- Unrelated/user edits excluded from commit: yes; only parser/model/runner tests and containerization notes are modified.
+- Instruction files re-read: yes, `debug/pipeline_containerize_instructions.md` and `debug/pipeline_refinement_instructions.md`.
+- Residual risk: local SpikeInterface execution is intentionally not implemented in this slice; explicit local engine raises until the next backend slice.
+
+Expected To Run:
+- Existing `mea_analysis` spikesort sort configs should run as before.
+- New `local_spikeinterface` configs should parse but fail before running legacy sort until the local backend exists.
+
+Confirmed Not Run:
+- Real sorting, Docker/container build, and Shifter validation were not run for this parser/dispatch seam.
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/test_spikesort_config.py src/axon_recon/pipeline/stages/spikesort/tests/test_runner.py -q` passed.
+- Smoke: active `debug/debug.runtime.yml` parsed through `parse_spikesort_stage_config`; output confirmed `mea_analysis`, `kilosort4`, current Docker image, and source flags `True False False`.
+- Smoke: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m axon_recon.pipeline.cli stages --help` passed.
+- Container build/run: not run; no container files exist yet.
+- Logs inspected: pytest and smoke command output.
+- Not run: full test suite, real data sorting, Docker build, Shifter validation.
+
+Container / Shifter Impact:
+- Local Docker behavior: unchanged for existing `mea_analysis` engine configs.
+- Shifter/NERSC behavior: explicit `local_spikeinterface` is now a recognized config value but guarded until implemented, preventing accidental nested legacy Docker use.
+- Image size/cache impact: none.
+
+CLI Impact:
+- Normal CLI: existing config remains compatible; help smoke still works.
+- Container CLI: unchanged; wrapper not implemented yet.
+
+Resume / Force-Restart Impact:
+- Resume behavior: `mea_analysis.resume_from` can now feed the legacy resume field when using the sectioned layout.
+- Force-restart behavior: unchanged for existing legacy route; local backend cleanup knobs parse but are not executed yet.
+
+Storage / Mount Impact:
+- Created: none.
+- Modified: spikesort config parser, input model, runner guard, parser/runner tests, this notes file.
+- Required mounts: none.
+
+Rollback Notes:
+- Revert this commit to remove the sort-engine config seam and local-engine guard.
+
 ## 2026-05-01 14:18 - pending - ai: add nersc handoff resource notes
 
 Status: accepted

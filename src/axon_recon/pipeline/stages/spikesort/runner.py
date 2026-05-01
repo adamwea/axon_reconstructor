@@ -10396,11 +10396,13 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 	_log_phase_step_start(
 		"Spikesort stage start",
 		stream_id=str(inputs.stream_id),
+		sort_engine=str(getattr(inputs, "sort_engine", "mea_analysis") or "mea_analysis"),
 		sorter=str(inputs.sorter),
 		force_restart=bool(inputs.force_restart),
 		force_replot=bool(inputs.force_replot),
 		output_root=str(inputs.output_rel_root),
 	)
+	sort_engine = str(getattr(inputs, "sort_engine", "mea_analysis") or "mea_analysis")
 
 	if not bool(inputs.sort_enabled):
 		_write_json(
@@ -10432,6 +10434,15 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 				"summary_json": str(summary_json),
 			},
 		)
+
+	if sort_engine == "local_spikeinterface":
+		raise NotImplementedError(
+			"spikesort sort engine local_spikeinterface is parsed but its runner is not implemented yet"
+		)
+	if sort_engine != "mea_analysis":
+		raise ValueError(f"Unsupported spikesort sort engine: {sort_engine!r}")
+	if not bool(getattr(inputs, "mea_analysis_enabled", True)):
+		raise ValueError("spikesort sort engine mea_analysis selected but mea_analysis.enabled is false")
 
 	removed_on_force_restart: list[str] = []
 	if bool(effective_force_restart) and bool(inputs.sort_delete_outputs_on_force_restart):

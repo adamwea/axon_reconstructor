@@ -49,8 +49,17 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.bombcell_label_debug_limit_datasets is None
     assert parsed.bombcell_label_debug_limit_wells is None
     assert parsed.bombcell_label_debug_limit_wells_per_dataset is None
+    assert parsed.sort_engine == "mea_analysis"
     assert parsed.sorter == "kilosort4"
     assert parsed.docker_image is None
+    assert parsed.mea_analysis_enabled is True
+    assert parsed.mea_analysis_docker_image is None
+    assert parsed.local_spikeinterface_enabled is False
+    assert parsed.local_spikeinterface_output_relpath == "sorter_output"
+    assert parsed.local_spikeinterface_remove_existing_on_force_restart is True
+    assert parsed.local_spikeinterface_run_sorter_kwargs == {}
+    assert parsed.local_spikeinterface_analyzer_enabled is True
+    assert parsed.local_spikeinterface_analyzer_output_relpath == "analyzer_output"
     assert parsed.recording_num == "rec0000"
     assert parsed.verbose is False
     assert parsed.n_jobs is None
@@ -556,6 +565,126 @@ def test_parse_spikesort_stage_config_sort_source_controls_can_keep_original_sou
 
     assert parsed.sort_use_bootstrapped_concat_binary is False
     assert parsed.preprocess_concat_recording_relpath == "preprocess_outputs/concatenated_recording"
+
+
+def test_parse_spikesort_stage_config_reads_sectioned_sort_engine_layout() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "output_root": "spikesort_outputs_v2",
+                    "inputs": {
+                        "preprocess_concat_recording_relpath": "preprocess_outputs/concatenated_recording",
+                    },
+                    "phases": {
+                        "bootstrap_concat_binary": {
+                            "recording_relpath": "cache/local_concat/recording",
+                        },
+                        "sort": {
+                            "engine": "local_spikeinterface",
+                            "source": {
+                                "use_bootstrapped_concat_binary": True,
+                                "use_lazy_source": False,
+                                "assert_one_source": True,
+                            },
+                            "sorter": {
+                                "name": "kilosort4",
+                                "kilosort": {
+                                    "batch_duration_s": 0.25,
+                                    "thresholds": {
+                                        "universal": 9,
+                                        "learned": 8,
+                                        "single_ch": 6,
+                                    },
+                                    "clustering": {
+                                        "downsampling": 13,
+                                    },
+                                    "channels": {
+                                        "nearest": 11,
+                                        "max_distance": 37,
+                                    },
+                                },
+                            },
+                            "local_spikeinterface": {
+                                "enabled": True,
+                                "output_relpath": "local_sorter",
+                                "remove_existing_on_force_restart": False,
+                                "run_sorter_kwargs": {
+                                    "delete_output_folder": True,
+                                },
+                                "analyzer": {
+                                    "enabled": False,
+                                    "output_relpath": "local_analyzer",
+                                },
+                            },
+                            "mea_analysis": {
+                                "enabled": True,
+                                "docker_image": "legacy/image:kept",
+                                "resume_from": "sort",
+                                "plot": {
+                                    "mode": "merged",
+                                    "plot_debug": True,
+                                },
+                                "report": {
+                                    "no_curation": True,
+                                    "export_to_phy": True,
+                                },
+                            },
+                        },
+                    },
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.sort_engine == "local_spikeinterface"
+    assert parsed.sorter == "kilosort4"
+    assert parsed.sort_use_bootstrapped_concat_binary is True
+    assert parsed.sort_use_lazy_source is False
+    assert parsed.sort_assert_one_source is True
+    assert parsed.preprocess_concat_recording_relpath == "spikesort_outputs_v2/cache/local_concat/recording"
+    assert parsed.ks_batch_duration_s == 0.25
+    assert parsed.ks_th_universal == 9.0
+    assert parsed.ks_th_learned == 8.0
+    assert parsed.ks_th_single_ch == 6.0
+    assert parsed.ks_cluster_downsampling == 13
+    assert parsed.ks_nearest_chans == 11
+    assert parsed.ks_max_channel_distance == 37.0
+    assert parsed.local_spikeinterface_enabled is True
+    assert parsed.local_spikeinterface_output_relpath == "local_sorter"
+    assert parsed.local_spikeinterface_remove_existing_on_force_restart is False
+    assert parsed.local_spikeinterface_run_sorter_kwargs == {"delete_output_folder": True}
+    assert parsed.local_spikeinterface_analyzer_enabled is False
+    assert parsed.local_spikeinterface_analyzer_output_relpath == "local_analyzer"
+    assert parsed.mea_analysis_enabled is True
+    assert parsed.mea_analysis_docker_image == "legacy/image:kept"
+    assert parsed.docker_image == "legacy/image:kept"
+    assert parsed.resume_from == "sort"
+    assert parsed.plot_mode == "merged"
+    assert parsed.plot_debug is True
+    assert parsed.no_curation is True
+    assert parsed.export_to_phy is True
+
+
+def test_parse_spikesort_stage_config_rejects_unknown_sort_engine() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "sort": {
+                            "engine": "external_container",
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    with pytest.raises(ValueError, match="Unsupported spikesort sort engine"):
+        parse_spikesort_stage_config(runtime_config=cfg)
 
 
 def test_parse_spikesort_stage_config_reads_clear_concat_binary_alias() -> None:

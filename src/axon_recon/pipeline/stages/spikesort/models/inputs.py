@@ -19,8 +19,17 @@ class SpikesortInputs:
 	logging_enabled: bool = True
 	logging_verbose: bool = False
 	logging_file_relpath: str | None = None
+	sort_engine: str = "mea_analysis"
 	sorter: str = "kilosort4"
 	docker_image: str | None = None
+	mea_analysis_enabled: bool = True
+	mea_analysis_docker_image: str | None = None
+	local_spikeinterface_enabled: bool = False
+	local_spikeinterface_output_relpath: str = "sorter_output"
+	local_spikeinterface_remove_existing_on_force_restart: bool = True
+	local_spikeinterface_run_sorter_kwargs: dict[str, Any] | None = field(default=None)
+	local_spikeinterface_analyzer_enabled: bool = True
+	local_spikeinterface_analyzer_output_relpath: str = "analyzer_output"
 	recording_num: str = "rec0000"
 	verbose: bool = False
 
