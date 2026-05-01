@@ -76,7 +76,64 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-01 01:41 - pending - ai: disconnect analysis CLI selector
+## 2026-05-01 01:43 - pending - ai: add reconstruct phase selectors
+
+Status: accepted
+
+Summary:
+- Added preferred `reconstruct.<phase>` CLI selectors for embedded template phases that already appear in the reconstruct runtime phase sequence.
+- Mapped older `reconstruct.templates_*`, `recon.templates_*`, and `reconstruction.templates_*` forms to the preferred selectors.
+- Added mixed selector coverage for `axon_recon stages spikesort reconstruct.analyzers`.
+
+Acceptance Criteria:
+- Preferred reconstruct phase tokens such as `reconstruct.analyzers`, `reconstruct.build_templates`, and `reconstruct.plot_templates` parse and dispatch.
+- Legacy reconstruct template-prefixed tokens still map to the same behavior for now.
+- A mixed full-stage plus reconstruct-phase selector runs in the requested order.
+
+Expected To Run:
+- `spikesort` followed by `reconstruct.analyzers` in the mixed selector test.
+- Preferred reconstruct phase handlers for existing embedded template operations.
+
+Confirmed Not Run:
+- Full `reconstruct` does not run when only `reconstruct.analyzers` is selected.
+- Retired `analysis` selector remains unsupported.
+
+Files/Modules Changed:
+- `src/axon_recon/pipeline/cli.py`
+- `src/axon_recon/pipeline/tests/test_cli_stage_sequence.py`
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_cli_stage_sequence.py -q` passed.
+- Smoke (20 min max unless Adam approves longer): not run; focused CLI tests covered parser and mocked dispatch behavior.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: real-data CLI smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged.
+- Force-restart cleanup: unchanged.
+- Partial-output handling: unchanged.
+
+Storage/Cache Impact:
+- Created: none.
+- Cleaned: none.
+- Persisted: none.
+- Size check: not applicable.
+
+CLI Impact:
+- Preferred reconstruct phase selectors now match runtime phase names for embedded template phases.
+- Older reconstruct template-prefixed selectors remain as aliases until the direct templates stage is fully retired.
+
+Retired Code/Tests:
+- None; this is an additive selector-alignment slice.
+
+Risks And Follow-Ups:
+- Direct top-level `templates.*` selectors still exist and should be retired after confirming reconstruct selectors cover active workflows.
+
+Rollback Notes:
+- Remove the new `reconstruct.<phase>` handler entries and restore old reconstruct template-prefixed handler keys if needed.
+
+## 2026-05-01 01:41 - faffe4e - ai: disconnect analysis CLI selector
 
 Status: accepted
 

@@ -136,8 +136,18 @@ def test_parse_stage_list_tokens_maps_legacy_template_report_templates_alias() -
         ("reconstruct.plot_unit_summary", "reconstruct.plot_unit_summary"),
         ("reconstruct.report_recons", "reconstruct.report_recons"),
         ("reconstruct.report_full_chip_layout", "reconstruct.report_full_chip_layout"),
+        ("reconstruct.analyzers", "reconstruct.analyzers"),
+        ("reconstruct.build_templates", "reconstruct.build_templates"),
+        ("reconstruct.compute_template_similarity", "reconstruct.compute_template_similarity"),
+        ("reconstruct.plot_templates", "reconstruct.plot_templates"),
+        ("reconstruct.report_templates", "reconstruct.report_templates"),
         ("recon.generate_gtrs", "reconstruct.generate_gtrs"),
+        ("recon.analyzers", "reconstruct.analyzers"),
+        ("recon.templates_analyzers", "reconstruct.analyzers"),
+        ("reconstruct.templates_build_templates", "reconstruct.build_templates"),
         ("reconstruction.plot_recons", "reconstruct.plot_recons"),
+        ("reconstruction.build_templates", "reconstruct.build_templates"),
+        ("reconstruction.templates_plot_templates", "reconstruct.plot_templates"),
         ("recon.plot_branch_propagations", "reconstruct.plot_branch_propagations"),
         ("reconstruction.plot_branch_velocities", "reconstruct.plot_branch_velocities"),
         ("reconstruction.plot_unit_summary", "reconstruct.plot_unit_summary"),
@@ -252,6 +262,32 @@ def test_main_runs_selected_stages_in_order(monkeypatch, tmp_path: Path) -> None
         ("preprocess", "preprocess", True),
         ("spikesort", "spikesort", True),
     ]
+
+
+def test_main_runs_mixed_stage_and_reconstruct_phase_selector(monkeypatch, tmp_path: Path) -> None:
+    runtime_cfg = tmp_path / "runtime.yml"
+    _write_runtime_cfg(runtime_cfg)
+
+    calls: list[str] = []
+
+    def _mk_handler(stage_name: str):
+        def _handler(args):
+            calls.append(str(getattr(args, "stage", stage_name)))
+            return 0
+
+        return _handler
+
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "spikesort", _mk_handler("spikesort"))
+    monkeypatch.setitem(
+        pipeline_cli._STAGE_HANDLERS,
+        "reconstruct.analyzers",
+        _mk_handler("reconstruct.analyzers"),
+    )
+
+    rc = pipeline_cli.main(["stages", "spikesort", "reconstruct.analyzers", "--config", str(runtime_cfg)])
+
+    assert rc == 0
+    assert calls == ["spikesort", "reconstruct.analyzers"]
 
 
 def test_main_stage_alias_supports_all(monkeypatch, tmp_path: Path) -> None:
