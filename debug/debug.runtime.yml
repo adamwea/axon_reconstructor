@@ -339,7 +339,7 @@ stages:
 
       # This option limits segments included in phases for quicker smoke testing.
       # - limit number of segments cocatenated in bootstrap_concat_binary.
-      limit_segments: null
+      #limit_segments: null
 
     execution:
       force_restart: false
@@ -1013,8 +1013,9 @@ stages:
 
   reconstruct:
     resources:
-      max_stage_workers: 4
+      max_stage_workers: 8
       well_workers: 1
+      #unit_workers: 4
 
     phase_sequence:
       #- resolve_sources
@@ -1035,7 +1036,7 @@ stages:
     debug_mode:
       enabled: true
       #limit_datasets: null
-      limit_datasets: 1
+      #limit_datasets: 1
       limit_wells: null
       #limit_wells_per_dataset: null
       limit_wells_per_dataset: 1
@@ -1841,8 +1842,8 @@ stages:
         write_pdf: true
         pdf_relpath: reports/reconstruct_summary_deck.pdf
       clear_templates_cache:
-        enabled: false  # set to true after verifying recon outputs are correct
-        keep_merged_per_unit_outputs: true
+        enabled: true  # set to true after verifying recon outputs are correct
+        keep_merged_per_unit_outputs: false
         keep_full_channels_templates: false
     outputs:
       output_rel_root: recon_outputs
