@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM spikeinterface/kilosort4-base:4.0.6_cuda-12.0.0
+FROM spikeinterface/kilosort4-base:4.0.38_cuda-12.0.0
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
