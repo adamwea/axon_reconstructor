@@ -2,6 +2,26 @@
 
 This image is intended to run the same `axon-reconstructor` CLI as the host environment, with all pipeline stage selectors passed through unchanged.
 
+## Simple Wrapper UX
+
+After installing this package, or from this repo with `tools/axon-recon-container`, use the container wrapper with the same arguments you would pass to `axon-reconstructor`:
+
+```bash
+axon-recon-container stages reconstruct --config debug/debug.runtime.yml
+```
+
+With the default `axon-recon:local` image, the wrapper builds the image if it is missing and rebuilds it when the source fingerprint no longer matches the image label. Use `--no-build` to skip that check, `--rebuild` to force a rebuild, or `--build` when you intentionally want to build/update a non-default `--image` tag.
+
+Real-data smoke commands for the active debug runtime:
+
+```bash
+axon-recon-container stages preprocess --config debug/debug.runtime.yml --limit-segments 2 --limit-datasets 2 --limit-wells-per-dataset 1
+axon-recon-container stages spikesort --config debug/debug.runtime.yml --limit-segments 2 --limit-datasets 2 --limit-wells-per-dataset 1
+axon-recon-container stages reconstruct --config debug/debug.runtime.yml --limit-segments 2 --limit-datasets 2 --limit-wells-per-dataset 1 --limit-units 5
+```
+
+Those `--limit-*` flags are normal pipeline CLI flags. The wrapper does not interpret stage names or limits; it only handles image build/update, mounts, cache paths, and Docker execution.
+
 ## Local Build
 
 Basic image build from the repo root:
@@ -19,6 +39,17 @@ containers/axon-recon/build_local_image.sh --image axon-recon:local
 The default repo-root build installs `axon_reconstructor`, the active runtime Python dependency set, `spikeinterface==0.103.2`, and `mpi4py`. It does not bake local data, scratch outputs, credentials, or sibling workspace paths into the image. The helper detects sibling `../UnitMatch/UnitMatchPy` and `../SLAy` checkouts when present, copies them under `external/` in a temporary context, and passes build args so imports are normal installed-package imports.
 
 Sibling package installs intentionally use package builds with `--no-deps` plus small compatibility runtime specs. UnitMatch and SLAy currently declare conflicting NumPy/Pandas/Torch dependency ranges, while the pipeline only needs them importable through the code paths it calls. Revisit those dependency pins after real merge-stage data smokes.
+
+The Kilosort base image already includes conda at `/home/miniconda3`, and this image uses that single base environment. The live host `axon_recon` conda environment is not copied verbatim into the image because doing so would duplicate a large environment, may bake host-specific paths, and can disturb the Kilosort4 CUDA base stack. Instead, the image mirrors the repo `environment.yml` runtime intent plus container-only additions such as Kilosort4, UnitMatchPy, SLAy, and `mpi4py`; intentional version deviations are kept in the Dockerfile specs.
+
+Current DockerHub tags pushed from this branch:
+
+```text
+adammwea/axon-recon:pipeline-v2
+adammwea/axon-recon:20260501-pipeline-v2
+```
+
+If this repo has moved beyond the digest behind those tags, rebuild and push a fresh tag before relying on newer in-image CLI behavior in Shifter/NERSC.
 
 ## Smoke Checks
 
@@ -40,13 +71,13 @@ python containers/axon-recon/smoke_imports.py --allow-missing
 From the repo root, the host wrapper mirrors the normal CLI shape:
 
 ```bash
-tools/axon-recon-container --image axon-recon:local stages reconstruct --config debug/debug.runtime.yml
+tools/axon-recon-container stages reconstruct --config debug/debug.runtime.yml
 ```
 
-Dry-run the resolved Docker command:
+Dry-run the resolved build and Docker commands:
 
 ```bash
-tools/axon-recon-container --dry-run --image axon-recon:local stages --help
+tools/axon-recon-container --dry-run stages --help
 ```
 
 The wrapper mounts the repo at the same absolute path and sets writable cache locations under `/tmp/axon-recon-cache`. When the forwarded CLI args include `--config`, the wrapper inspects that runtime config and its `data:` YAML with a lightweight scanner, then mounts configured output roots and scratch roots read-write and the common raw H5 root read-only. Disable this with `--no-config-mounts` and add manual mounts with repeated `--mount host_path:container_path[:mode]` flags when needed.
@@ -54,7 +85,7 @@ The wrapper mounts the repo at the same absolute path and sets writable cache lo
 For Shifter-style/root-squash smoke tests and to avoid root-owned host outputs, run Docker as your current UID/GID:
 
 ```bash
-tools/axon-recon-container --image axon-recon:local --current-user stages --help
+tools/axon-recon-container --current-user stages --help
 ```
 
 The equivalent generic option is `--user UID:GID`, or `AXON_RECON_CONTAINER_USER=UID:GID`.

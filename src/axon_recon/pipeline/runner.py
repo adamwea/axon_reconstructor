@@ -400,6 +400,43 @@ def _coerce_bool_or_none(value: Any) -> bool | None:
 	return None
 
 
+def _with_debug_limit_overrides(
+	stage_config: Any,
+	*,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+) -> Any:
+	replace_kwargs: dict[str, Any] = {}
+	field_names = set(getattr(stage_config, "__dataclass_fields__", {}) or {})
+	target_limit_replaced = False
+	if limit_segments_override is not None:
+		if not field_names or "debug_limit_segments_per_well" in field_names:
+			replace_kwargs["debug_limit_segments_per_well"] = int(limit_segments_override)
+		elif "limit_segments" in field_names:
+			replace_kwargs["limit_segments"] = int(limit_segments_override)
+	if limit_datasets_override is not None and (
+		not field_names or "debug_limit_datasets" in field_names
+	):
+		replace_kwargs["debug_limit_datasets"] = int(limit_datasets_override)
+		target_limit_replaced = True
+	if limit_wells_per_dataset_override is not None and (
+		not field_names or "debug_limit_wells_per_dataset" in field_names
+	):
+		replace_kwargs["debug_limit_wells_per_dataset"] = int(limit_wells_per_dataset_override)
+		target_limit_replaced = True
+	if target_limit_replaced and "debug_mode_enabled" in field_names:
+		replace_kwargs["debug_mode_enabled"] = True
+	if not replace_kwargs:
+		return stage_config
+	if field_names:
+		return replace(stage_config, **replace_kwargs)
+	updated = copy.copy(stage_config)
+	for field_name, value in replace_kwargs.items():
+		setattr(updated, field_name, value)
+	return updated
+
+
 def _apply_preprocess_debug_target_limits(
 	*,
 	stage_name: str,
@@ -1085,6 +1122,9 @@ def _publish_reconstruct_target_result(item: TargetStageResult, *, policy: Publi
 def run_preprocess_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -1095,6 +1135,12 @@ def run_preprocess_from_runtime(
 		runtime_config=bundle.runtime_config,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+	)
+	stage_config = _with_debug_limit_overrides(
+		stage_config,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 	)
 	targets = select_execution_targets(
 		bundle=bundle,
@@ -1169,6 +1215,9 @@ def _run_preprocess_substage_from_runtime(
 	config_path: str,
 	stage_name: str,
 	runner_fn: Callable[[Any], Any],
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -1177,6 +1226,12 @@ def _run_preprocess_substage_from_runtime(
 		runtime_config=bundle.runtime_config,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+	)
+	stage_config = _with_debug_limit_overrides(
+		stage_config,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 	)
 	targets = select_execution_targets(
 		bundle=bundle,
@@ -1417,6 +1472,8 @@ def run_preprocess_plot_raster_threshold_from_runtime(
 def run_spikesort_from_runtime(
 	*,
 	config_path: str,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -1427,6 +1484,12 @@ def run_spikesort_from_runtime(
 		runtime_config=bundle.runtime_config,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+	)
+	stage_config = _with_debug_limit_overrides(
+		stage_config,
+		limit_segments_override=None,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 	)
 	phase_plan = _enabled_spikesort_runtime_phase_plan(stage_config)
 	if not phase_plan:
@@ -2404,6 +2467,8 @@ def _run_reconstruct_substage_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 	publish_outputs: bool = False,
@@ -2422,6 +2487,12 @@ def _run_reconstruct_substage_from_runtime(
 		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+	)
+	stage_config = _with_debug_limit_overrides(
+		stage_config,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 	)
 	reconstruct_templates_config = None
 	if callable(getattr(bundle.runtime_config, "get", None)):
@@ -2497,6 +2568,8 @@ def run_reconstruct_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2508,6 +2581,8 @@ def run_reconstruct_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 		publish_outputs=True,

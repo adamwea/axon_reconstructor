@@ -260,6 +260,33 @@ def _parse_positive_int(raw: str) -> int:
 	return value
 
 
+def _register_debug_limit_arguments(parser: argparse.ArgumentParser) -> None:
+	parser.add_argument(
+		"--limit-segments",
+		type=_parse_positive_int,
+		default=None,
+		help="Limit stage segment work for debug smoke runs where supported",
+	)
+	parser.add_argument(
+		"--limit-datasets",
+		type=_parse_positive_int,
+		default=None,
+		help="Limit datasets for debug smoke runs",
+	)
+	parser.add_argument(
+		"--limit-wells-per-dataset",
+		type=_parse_positive_int,
+		default=None,
+		help="Limit wells selected per dataset for debug smoke runs",
+	)
+	parser.add_argument(
+		"--limit-units",
+		type=_parse_positive_int,
+		default=None,
+		help="Limit units for debug runs",
+	)
+
+
 def _register_stage_sequence_parser(
 	*,
 	subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
@@ -286,18 +313,7 @@ def _register_stage_sequence_parser(
 		default=None,
 		help="Optional comma-separated list of unit ids",
 	)
-	parser.add_argument(
-		"--limit-segments",
-		type=_parse_positive_int,
-		default=None,
-		help="Limit segment analyzer sources for debug runs",
-	)
-	parser.add_argument(
-		"--limit-units",
-		type=_parse_positive_int,
-		default=None,
-		help="Limit units for debug runs",
-	)
+	_register_debug_limit_arguments(parser)
 	parser.set_defaults(handler=_run_stage_sequence_from_args)
 
 

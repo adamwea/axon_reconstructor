@@ -23,6 +23,7 @@ dev = [
 
 [project.scripts]
 axon-reconstructor = "axon_recon.pipeline.cli:main"
+axon-recon-container = "axon_recon.pipeline.container_cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

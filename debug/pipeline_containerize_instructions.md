@@ -33,13 +33,26 @@ Current high-level state:
 - Repository: `axon_reconstructor`, branch `pipeline_v2`.
 - Active package/import namespace: `axon_recon`.
 - Existing console script: `axon-reconstructor` points to `axon_recon.pipeline.cli:main`.
-- Planned host wrapper: `axon-recon-container`, which should forward to the installed pipeline CLI inside the container.
+- Host wrapper: `axon-recon-container`, exposed as a package console script and mirrored by `tools/axon-recon-container`, forwards to the installed pipeline CLI inside the container.
 - Active stages to preserve: `preprocess`, `spikesort`, and `reconstruct`.
 - Container goal: one installable full-pipeline image whose behavior matches the normal CLI; job resource requests may differ by stage.
 - First blocker: the current MEA_Analysis sorting path can launch Docker, which cannot be the only path when the pipeline itself runs inside Shifter/container mode.
 - Key instruction files: this file, `debug/pipeline_refinement_instructions.md`, `debug/pipeline_containerize_commit_notes.md`, and `debug/pipeline_refinement_commit_notes.md`.
 
 Future agents should keep this document updated with verified facts, unresolved NERSC checks, image tags, build commands, mount assumptions, and smoke commands. Do not assume the next agent can inspect the previous conversation.
+
+Verified local/DockerHub image tags from this pass:
+
+- `adammwea/axon-recon:pipeline-v2`
+- `adammwea/axon-recon:20260501-pipeline-v2`
+
+The preferred local user command is now the simple wrapper form:
+
+```bash
+axon-recon-container stages reconstruct --config debug/debug.runtime.yml
+```
+
+The default local image tag is `axon-recon:local`; the wrapper builds or updates that image when the source fingerprint label is missing or stale. Use `--no-build` to skip auto-build, `--rebuild` to force it, and `--build` when intentionally managing a non-default `--image` tag.
 
 ## Non-Goals For This First Pass
 
@@ -225,6 +238,7 @@ Container build rules:
 - Keep the image `linux/amd64` compatible for Perlmutter/Shifter.
 - Install the active `axon_reconstructor` package into the image as an installable package, not by relying on runtime bind-mounted source imports.
 - Install dependencies from `environment.yml` or an explicit container lock/spec derived from it. Record any intentional deviations in the container README.
+- The Kilosort4 base image already provides conda. The current strategy is to use the base `/home/miniconda3` environment and install the repo/runtime specs into it, not to copy Adam's live host conda environment verbatim. A verbatim copy risks a much larger image, host-path leakage, and accidental breakage of the Kilosort4 CUDA base stack. If a future pass chooses a verbatim conda-pack style environment, document the size/compatibility tradeoff and re-run all Kilosort/SLAy/UnitMatch smokes.
 - Use one Python environment in the image and make it active by `PATH`/entrypoint so users do not need to `conda activate` manually.
 - Install patched UnitMatch from the edited workspace package at build time, but make it importable as a normal installed package at runtime. Do not rely on `/home/adamm/dev/pkgs/UnitMatch` being mounted.
 - Install SLAy normally with pip as package `slay` unless Adam asks to use the sibling checkout.
@@ -249,8 +263,10 @@ The wrapper should make containerized execution feel like the normal CLI.
 Required behavior:
 
 - `axon-recon-container stages reconstruct --config debug/debug.runtime.yml` forwards arguments unchanged to the pipeline CLI inside the image.
+- With the default image tag, the wrapper builds or updates `axon-recon:local` before running when the image is missing or the recorded source fingerprint is stale.
 - `axon-recon-container stages all --config debug/debug.runtime.yml`, `axon-recon-container stages preprocess spikesort --config debug/debug.runtime.yml`, and stage-phase selectors forward through the same path.
 - The same wrapper supports every stage and phase selector accepted by the normal CLI. New selectors added to the normal CLI should work through the wrapper without wrapper code changes.
+- Real-data smoke-limit flags must remain normal CLI flags and pass through the wrapper: `--limit-segments`, `--limit-datasets`, `--limit-wells-per-dataset`, and `--limit-units`.
 - The wrapper mounts the repo/config path read-only by default unless a development mode intentionally mounts source writable.
 - The wrapper mounts data roots, scratch roots, and output roots writable based on runtime config or explicit flags.
 - The wrapper sets a writable cache/temp location. Do not let Kilosort, Matplotlib, SpikeInterface, or Python caches try to write inside the read-only image.
@@ -259,6 +275,14 @@ Required behavior:
 - The wrapper has a dry-run/debug mode that prints the resolved container command and mounts without running the pipeline.
 
 Do not make the wrapper parse stage/phase semantics itself. It should only resolve container execution details and pass the remaining args to the installed pipeline CLI.
+
+Real-data smoke command shapes to keep working:
+
+```bash
+axon-recon-container stages preprocess --config debug/debug.runtime.yml --limit-segments 2 --limit-datasets 2 --limit-wells-per-dataset 1
+axon-recon-container stages spikesort --config debug/debug.runtime.yml --limit-segments 2 --limit-datasets 2 --limit-wells-per-dataset 1
+axon-recon-container stages reconstruct --config debug/debug.runtime.yml --limit-segments 2 --limit-datasets 2 --limit-wells-per-dataset 1 --limit-units 5
+```
 
 ## Shifter Preparation
 
@@ -341,6 +365,7 @@ Minimum local validation before Adam reviews a containerization code slice:
 - Container CLI help works.
 - `axon-recon-container stages --help` or equivalent forwards to the pipeline CLI.
 - A dry-run or minimal no-heavy-data command works with mounted `debug/debug.runtime.yml`.
+- Wrapper dry-runs for the preprocess, spikesort, and reconstruct real-data smoke command shapes accept all requested `--limit-*` flags and show config-derived mounts.
 - A CPU-only container selector can be dry-run or smoke-tested without GPU flags.
 - If local sorting is touched, run tests proving it does not invoke Docker/MEA_Analysis when `engine: local_spikeinterface` is selected.
 

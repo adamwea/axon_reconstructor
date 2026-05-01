@@ -80,6 +80,71 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-01 16:00 - pending - ai: add auto-building container wrapper
+
+Status: accepted
+
+Summary:
+- Replaced the large Bash-only host wrapper with an installable `axon-recon-container` console script backed by `axon_recon.pipeline.container_cli`.
+- Kept `tools/axon-recon-container` as a thin source-tree launcher into the same Python implementation so installed and repo-local wrapper behavior cannot drift.
+- Made the wrapper build/update the default `axon-recon:local` image when it is missing or its source fingerprint label is stale; added `--build`, `--no-build`, and `--rebuild` controls.
+- Preserved wrapper pass-through semantics for all pipeline commands and selectors; the wrapper handles only image, mount, cache, user, and Docker execution concerns.
+- Added shared stage parser flags for `--limit-segments`, `--limit-datasets`, `--limit-wells-per-dataset`, and `--limit-units` so the requested real-data smoke command shapes parse consistently.
+- Applied dataset and wells-per-dataset overrides at runtime target selection for preprocess, spikesort, and reconstruct; mapped preprocess `--limit-segments` to the existing per-well segment throttle and left reconstruct `--limit-segments` on the established analyzer/template segment limit path.
+- Documented the simple wrapper UX, real-data smoke commands, DockerHub tags, and the environment strategy.
+- Compared Adam's live host `axon_recon` conda env with the built container: the container uses the base image's existing `/home/miniconda3` conda stack plus explicit repo/runtime specs rather than copying the host env verbatim.
+
+Acceptance Criteria:
+- `axon-recon-container stages reconstruct --config debug/debug.runtime.yml` is the expected user-facing shape.
+- Container wrapper behavior remains command-agnostic and does not whitelist only the smoke examples.
+- Requested smoke flags parse through the shared stage parser and affect runtime target/unit/segment limits where the stage has those concepts.
+- Active debug runtime defaults to `local_spikeinterface` sorting for container compatibility.
+- Docs/instructions explain the wrapper contract, smoke commands, DockerHub tags, and conda environment decision for future NERSC handoff.
+
+Self-Check:
+- Diff reviewed: yes.
+- Unrelated/user edits excluded from commit: Dockerfile formatting churn was removed from the diff before validation.
+- Instruction files re-read: yes, `debug/pipeline_containerize_instructions.md` and the container README were re-read/updated during this slice.
+- Residual risk: `--limit-segments` has no current spikesort-local segment limiter because the active spikesort config model does not expose one; the flag is accepted and passed through for command parity, while target limiting works via `--limit-datasets` and `--limit-wells-per-dataset`.
+
+Expected To Run:
+- Installed package command `axon-recon-container ...` should behave the same as `tools/axon-recon-container ...`.
+- Any pipeline CLI selector accepted by `axon-reconstructor` should pass through the wrapper unchanged when it appears after wrapper options.
+- Default local image builds/updates through `containers/axon-recon/build_local_image.sh` with an image source-fingerprint label.
+
+Confirmed Not Run:
+- Real data preprocess/spikesort/reconstruct, local Docker image rebuild from this exact source, DockerHub push, Shifter, Slurm, GPU Kilosort execution, and MPI execution were not run in this slice.
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_cli_stage_sequence.py src/axon_recon/pipeline/tests/test_container_cli.py -q` passed.
+- Syntax: Pylance syntax checks passed for `container_cli.py`, `cli.py`, `runner.py`, and `test_container_cli.py`.
+- Runtime parse smoke: active `debug/debug.runtime.yml` resolves `sort_engine=local_spikeinterface`, `local_spikeinterface_enabled=True`, and `mea_analysis_enabled=False`.
+- Smoke: `bash -n tools/axon-recon-container containers/axon-recon/build_local_image.sh containers/axon-recon/entrypoint.sh containers/axon-recon/smoke_cli.sh` passed.
+- Wrapper dry-run: preprocess, spikesort, and reconstruct real-data smoke command shapes resolved to Docker commands with config-derived output/scratch/raw-data mounts.
+- Wrapper dry-run: arbitrary pass-through form `axon-recon-container axon-reconstructor stages all --config debug/debug.runtime.yml` resolved without wrapper stage parsing.
+- Diff hygiene: `git diff --check` passed after the wrapper/path changes.
+
+Container / Shifter Impact:
+- Local Docker behavior: default local image now self-updates from the source tree when the source fingerprint label is missing or stale; `--no-build` preserves no-build dry-run/manual image behavior.
+- Shifter/NERSC behavior: no Shifter runtime change, but docs now identify the DockerHub tags and the local wrapper contract future NERSC jobs should mirror with `srun shifter axon-reconstructor ...`.
+- Image size/cache impact: no image rebuild in this slice; source fingerprint labels are added only when the wrapper invokes the build helper.
+
+CLI Impact:
+- Normal CLI: shared `stages`/`stage` parser now accepts `--limit-datasets` and `--limit-wells-per-dataset` in addition to existing segment/unit limits.
+- Container CLI: `axon-recon-container` is an installed console script and the repo-local tool is a thin launcher; all forwarded args remain unchanged after wrapper options.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged except smoke-size target selection can now be reduced from CLI flags.
+- Force-restart behavior: unchanged.
+
+Storage / Mount Impact:
+- Created: no new runtime storage paths beyond the existing wrapper cache directory behavior.
+- Modified: wrapper still mounts the repo read-only by default and auto-mounts config-derived raw/data/scratch roots.
+- Required mounts: unchanged for normal config-based runs.
+
+Rollback Notes:
+- Revert the console script/module plus `tools/axon-recon-container` launcher changes to return to the previous Bash-only wrapper. Keep the CLI limit flag changes independently if smoke-size runs remain desired outside the container.
+
 ## 2026-05-01 15:55 - pending - ai: guard MEA sort inside container
 
 Status: accepted

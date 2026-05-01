@@ -412,6 +412,8 @@ def test_stage_sequence_parser_accepts_debug_limit_flags(monkeypatch, tmp_path: 
 
     def _reconstruct(args):
         seen["limit_segments"] = getattr(args, "limit_segments", None)
+        seen["limit_datasets"] = getattr(args, "limit_datasets", None)
+        seen["limit_wells_per_dataset"] = getattr(args, "limit_wells_per_dataset", None)
         seen["limit_units"] = getattr(args, "limit_units", None)
         return 0
 
@@ -425,13 +427,22 @@ def test_stage_sequence_parser_accepts_debug_limit_flags(monkeypatch, tmp_path: 
             str(runtime_cfg),
             "--limit-segments",
             "2",
+            "--limit-datasets",
+            "4",
+            "--limit-wells-per-dataset",
+            "1",
             "--limit-units",
             "3",
         ]
     )
 
     assert rc == 0
-    assert seen == {"limit_segments": 2, "limit_units": 3}
+    assert seen == {
+        "limit_segments": 2,
+        "limit_datasets": 4,
+        "limit_wells_per_dataset": 1,
+        "limit_units": 3,
+    }
 
 
 def test_main_runs_spikesort_sort_substage_alias(monkeypatch, tmp_path: Path) -> None:

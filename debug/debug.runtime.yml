@@ -388,42 +388,57 @@ stages:
 
       sort:
         enabled: true
+        engine: local_spikeinterface # local_spikeinterface works both on the host and inside the axon_recon container; mea_analysis remains available below for explicit local legacy runs.
         debug_mode:
           enabled: false
           limit_datasets: 1
           limit_wells: 2
 
-        # source
-        use_bootstrapped_concat_binary: true # when true, uses the output of the bootstrap_concat_binary phase as the source recording for sorting; when false, uses the original concatenated recording from preprocess outputs instead. Keep true by default to test the full pipeline from bootstrapped binary during debugging iterations, but can be set to false to skip the bootstrapped binary and use the original concatenated recording when the focus of debugging iterations is not on the bootstrapping phase.
-        use_lazy_source: false # when true, uses the lazy loading mechanism for the source recording during sorting; when false, loads the source recording directly into memory for sorting. Keep false by default to avoid potential complications with lazy loading during debugging iterations, but can be set to true to test lazy loading during sorting when that is the focus of debugging iterations.
-        assert_one_source: false # when true, asserts that there is exactly one valid source recording available for sorting; when false, allows multiple source recordings and relies on other logic to select the appropriate one. Keep true by default to enforce a clear source for sorting during debugging iterations, but can be set to false to allow more flexible source handling when the focus of debugging iterations is not on source selection.
+        source:
+          use_bootstrapped_concat_binary: true # when true, uses the output of the bootstrap_concat_binary phase as the source recording for sorting; when false, uses the original concatenated recording from preprocess outputs instead.
+          use_lazy_source: false # when true, uses the lazy loading mechanism for the source recording during sorting; when false, loads the source recording directly into memory for sorting.
+          assert_one_source: false # when true, asserts that there is exactly one valid source recording available for sorting; when false, allows multiple source recordings and relies on other logic to select the appropriate one.
 
-        # Sorter Options
-        sorter: kilosort4
-        docker_image: adammwea/benshalomlab_spikesorter_pythonpatch:v3
-        kilosort:
-          batch_duration_s: 0.75
-          thresholds:
-            universal: 8
-            learned: 7
-            single_ch: 5
-          clustering:
-            downsampling: 15
-          channels:
-            nearest: 12
-            max_distance: 40
-        # Controls MEA_Analysis plotting behavior.
-        plot:
+        sorter:
+          name: kilosort4
+          kilosort:
+            batch_duration_s: 0.75
+            thresholds:
+              universal: 8
+              learned: 7
+              single_ch: 5
+            clustering:
+              downsampling: 15
+            channels:
+              nearest: 12
+              max_distance: 40
+
+        # Two engine options for Kilosort-backed SpikeInterface sorting:
+        # local_spikeinterface - runs in the current Python/container environment. Use this for container and HPC runs.
+        # mea_analysis - runs a MEA_Analysis-style local legacy sort using its configured Docker image. This is tested on the lab server.
+        # Do not enable both at the same time; the sorter configuration options below apply to local_spikeinterface and are ignored when using mea_analysis engine.
+        local_spikeinterface:
           enabled: true
-          mode: separate # separate|merged
-          plot_debug: false
-          raster_sort: null # e.g. unit_id|firing_rate or null
-          fixed_y: false
-        # Controls report/curation export behavior.
-        report:
-          enabled: true
-          no_curation: true
-          export_to_phy: false
+          output_relpath: sorter_output
+          remove_existing_on_force_restart: true
+          run_sorter_kwargs: {}
+          analyzer:
+            enabled: true
+            output_relpath: analyzer_output
+
+        mea_analysis:
+          enabled: false
+          docker_image: adammwea/benshalomlab_spikesorter_pythonpatch:v3
+          plot:
+            enabled: true
+            mode: separate # separate|merged
+            plot_debug: false
+            raster_sort: null # e.g. unit_id|firing_rate or null
+            fixed_y: false
+          report:
+            enabled: true
+            no_curation: true
+            export_to_phy: false
 
       summarize_sort:
         enabled: false
