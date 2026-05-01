@@ -52,7 +52,58 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-01 04:12 - pending - ai: delete stale gpt notes
+## 2026-05-01 04:18 - pending - ai: remove stale v1 todo
+
+Status: accepted
+
+Summary:
+- Removed a stale inline TODO claiming `compute_mea_analysis_output_dir` was still imported from v1 after that helper was rehomed under `axon_recon.pipeline`.
+
+Acceptance Criteria:
+- No stale v1 TODO remains on the reconstruct template runner import.
+- No behavior changes are made.
+
+Expected To Run:
+- Reconstruct template runner continues importing `compute_mea_analysis_output_dir` from the v2-owned `axon_recon.pipeline.output_paths` module.
+
+Confirmed Not Run:
+- No retired v1 helper import remains implied by that comment.
+
+Files/Modules Changed:
+- `src/axon_recon/pipeline/stages/reconstruct/templates/runner.py`
+
+Validation:
+- Reference audit: `grep` for the stale `dont import this from v1` comment returned no active matches.
+- Pytest: not run; comment-only cleanup.
+- Smoke (20 min max unless Adam approves longer): not run; comment-only cleanup.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: tests and real-data smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged.
+- Force-restart/replot behavior: unchanged.
+- Partial-output handling: unchanged.
+
+Storage/Cache Impact:
+- Created: none.
+- Cleaned: stale TODO comment.
+- Persisted: none.
+- Size check: not applicable.
+
+CLI Impact:
+- No selector changes.
+
+Retired Code/Tests:
+- No code/tests deleted.
+
+Risks And Follow-Ups:
+- None expected.
+
+Rollback Notes:
+- Restore the comment from the parent commit if the note is unexpectedly useful.
+
+## 2026-05-01 04:12 - 8cec122 - ai: delete stale gpt notes
 
 Status: accepted
 
