@@ -51,6 +51,14 @@ tools/axon-recon-container --dry-run --image axon-recon:local stages --help
 
 The wrapper mounts the repo at the same absolute path and sets writable cache locations under `/tmp/axon-recon-cache`. Add extra writable host mounts for runtime data/output roots with repeated `--mount host_path:container_path[:mode]` flags.
 
+For Shifter-style/root-squash smoke tests and to avoid root-owned host outputs, run Docker as your current UID/GID:
+
+```bash
+tools/axon-recon-container --image axon-recon:local --current-user stages --help
+```
+
+The equivalent generic option is `--user UID:GID`, or `AXON_RECON_CONTAINER_USER=UID:GID`.
+
 ## Shifter Shape
 
 Later at NERSC, import the pushed image with:

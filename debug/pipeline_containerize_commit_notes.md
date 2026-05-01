@@ -80,6 +80,70 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-01 15:21 - pending - ai: support non-root container runs
+
+Status: accepted
+
+Summary:
+- Fixed a Shifter-style/root-squash readiness bug where the image preserved a root-owned `/tmp/axon-recon-cache` directory from build time, causing non-root container runs to fail before the CLI started.
+- Added entrypoint checks that create and verify writable cache/HOME directories before forwarding to either helper commands or `axon-reconstructor`.
+- Added wrapper support for `--current-user`, `--user UID:GID`, and `AXON_RECON_CONTAINER_USER` so local Docker smoke tests can run with the same UID/GID that will own host outputs.
+- Documented current-user wrapper usage in the container README.
+
+Acceptance Criteria:
+- Direct Docker execution with `--user $(id -u):$(id -g)` can run the full container smoke helper.
+- Wrapper execution with `--current-user` can forward normal CLI selectors through the container.
+- Default/root container smoke remains working.
+- Runtime cache paths resolve to writable mounted storage rather than relying on image-owned directories.
+
+Self-Check:
+- Diff reviewed: yes.
+- Unrelated/user edits excluded from commit: yes; only container runtime/cache/wrapper docs and these notes are modified.
+- Instruction files re-read: yes, `debug/pipeline_containerize_instructions.md`, `debug/pipeline_refinement_instructions.md`, current container notes, current refinement notes, and the active spikesort runtime block before this slice.
+- Residual risk: this validates local Docker non-root behavior, not NERSC Shifter root squashing itself. Real Shifter runtime still needs NERSC-side validation.
+
+Expected To Run:
+- `docker run --rm --user "$(id -u):$(id -g)" axon-recon:full-probe axon-recon-smoke-cli` should pass.
+- `tools/axon-recon-container --image axon-recon:full-probe --current-user --no-tty stages --help` should pass.
+- Default `docker run --rm axon-recon:full-probe axon-recon-smoke-cli` should still pass.
+
+Confirmed Not Run:
+- Real data stages, Shifter, Slurm, GPU execution, and MPI execution were not run in this slice.
+
+Validation:
+- Pytest: not run; this slice only changes container entrypoint/cache behavior, wrapper options, docs, and notes.
+- Smoke: precheck `docker run --rm --user "$(id -u):$(id -g)" axon-recon:full-probe axon-recon-smoke-cli` failed before the fix with permission denied creating `/tmp/axon-recon-cache/*`, confirming the root-owned cache bug.
+- Smoke: `bash -n containers/axon-recon/build_local_image.sh containers/axon-recon/entrypoint.sh containers/axon-recon/smoke_cli.sh tools/axon-recon-container` passed.
+- Smoke: wrapper dry-run with `--current-user` showed Docker `--user 1010:1010`, a writable cache mount at `/tmp/axon-recon-cache`, and HOME/cache env vars pointing inside that mount.
+- Container build/run: rebuilt full sibling image as `axon-recon:full-probe` in `38.3s` after the cache fix.
+- Container smoke: direct non-root `axon-recon-smoke-cli` passed and confirmed `axon_recon 0.1.0`, `kilosort 4`, `mpi4py 4.1.1`, `spikeinterface 0.103.2`, UnitMatchPy distribution `3.3.0`, and SLAy distribution `0.1.0` via the pipeline import path.
+- Container smoke: `tools/axon-recon-container --image axon-recon:full-probe --current-user --no-tty stages --help` passed.
+- Container smoke: default/root `docker run --rm axon-recon:full-probe axon-recon-smoke-cli` passed.
+- Container size: `docker image inspect axon-recon:full-probe` reported about `9.94 GB`.
+- Logs inspected: failing non-root precheck, rebuilt Docker output, direct non-root smoke JSON, wrapper smoke output, default smoke output, image size output.
+- Diff hygiene: `git diff --check` passed.
+
+Container / Shifter Impact:
+- Local Docker behavior: wrapper can now opt into non-root UID/GID execution and defaults HOME/cache paths to the writable cache mount.
+- Shifter/NERSC behavior: improves readiness for read-only/root-squashed image execution by avoiding baked writable cache assumptions.
+- Image size/cache impact: removing the build-time cache root from the final image reduced the full probe image to about `9.94 GB`.
+
+CLI Impact:
+- Normal CLI: no change to host CLI behavior.
+- Container CLI: no selector changes; wrapper gains `--current-user`, `--user`, and `AXON_RECON_CONTAINER_USER` controls.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged.
+- Force-restart behavior: unchanged.
+
+Storage / Mount Impact:
+- Created: wrapper creates `home`, `xdg`, `matplotlib`, `numba`, and `pycache` subdirectories under the configured host cache dir.
+- Modified: runtime HOME/cache env vars now explicitly point into `/tmp/axon-recon-cache`.
+- Required mounts: unchanged for pipeline data; non-root wrapper runs require the cache mount to be writable by the selected UID/GID.
+
+Rollback Notes:
+- Revert this commit to remove non-root wrapper controls and return to image-default cache directory behavior. Non-root Docker smoke will again fail if `/tmp/axon-recon-cache` is root-owned inside the image.
+
 ## 2026-05-01 15:05 - pending - ai: install sibling packages in container
 
 Status: accepted

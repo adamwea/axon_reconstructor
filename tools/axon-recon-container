@@ -11,6 +11,8 @@ Wrapper options:
   --repo-root PATH       Repo root to mount (default: git top-level or this script's parent)
   --repo-writable        Mount the repo read-write instead of read-only
   --cache-dir PATH       Host cache directory (default: ~/.cache/axon-recon-container)
+  --user SPEC            Run the container as a Docker user spec (for example UID:GID)
+  --current-user         Run the container as the current host UID:GID
   --mount SPEC           Extra docker -v mount, repeatable (host:container[:mode])
   --env SPEC             Extra docker -e env var, repeatable (NAME=VALUE)
   --no-tty               Do not allocate an interactive TTY
@@ -38,6 +40,7 @@ fi
 container_cli="${AXON_RECON_CONTAINER_CLI:-docker}"
 image="${AXON_RECON_CONTAINER_IMAGE:-axon-recon:local}"
 cache_dir="${AXON_RECON_CONTAINER_CACHE:-${HOME}/.cache/axon-recon-container}"
+container_user="${AXON_RECON_CONTAINER_USER:-}"
 repo_mode="ro"
 dry_run=0
 tty=1
@@ -65,6 +68,14 @@ while [[ $# -gt 0 ]]; do
     --cache-dir)
       cache_dir="$(mkdir -p "${2:?--cache-dir requires a value}" && cd "$2" && pwd)"
       shift 2
+      ;;
+    --user)
+      container_user="${2:?--user requires a value}"
+      shift 2
+      ;;
+    --current-user)
+      container_user="$(id -u):$(id -g)"
+      shift
       ;;
     --mount)
       extra_mounts+=("${2:?--mount requires a value}")
@@ -96,7 +107,7 @@ if [[ $# -eq 0 ]]; then
   set -- --help
 fi
 
-mkdir -p "$cache_dir" "$cache_dir/xdg" "$cache_dir/matplotlib" "$cache_dir/numba" "$cache_dir/pycache"
+mkdir -p "$cache_dir" "$cache_dir/home" "$cache_dir/xdg" "$cache_dir/matplotlib" "$cache_dir/numba" "$cache_dir/pycache"
 
 cmd=("$container_cli" run --rm)
 if [[ "$tty" -eq 1 && -t 0 ]]; then
@@ -110,11 +121,17 @@ cmd+=(
   -v "$repo_root:$repo_root:$repo_mode"
   -w "$repo_root"
   -v "$cache_dir:/tmp/axon-recon-cache:rw"
+  -e AXON_RECON_CACHE_ROOT=/tmp/axon-recon-cache
+  -e HOME=/tmp/axon-recon-cache/home
   -e XDG_CACHE_HOME=/tmp/axon-recon-cache/xdg
   -e MPLCONFIGDIR=/tmp/axon-recon-cache/matplotlib
   -e NUMBA_CACHE_DIR=/tmp/axon-recon-cache/numba
   -e PYTHONPYCACHEPREFIX=/tmp/axon-recon-cache/pycache
 )
+
+if [[ -n "$container_user" ]]; then
+  cmd+=(--user "$container_user")
+fi
 
 for mount_spec in "${extra_mounts[@]}"; do
   cmd+=(-v "$mount_spec")
