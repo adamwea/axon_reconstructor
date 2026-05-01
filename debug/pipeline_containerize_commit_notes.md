@@ -80,6 +80,61 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-01 14:18 - pending - ai: add nersc handoff resource notes
+
+Status: accepted
+
+Summary:
+- Added explicit handoff context for a future AI agent that may continue the work inside NERSC without access to this chat.
+- Clarified that GPU resources are expected only for Kilosort-backed spikesort work; CPU-capable stages should remain runnable on CPU nodes, with high-memory CPU tuning deferred to profiling.
+- Split Shifter examples into CPU-stage and GPU-spikesort shapes and warned that `stages all` should request GPU only because it includes spikesort.
+
+Acceptance Criteria:
+- Containerization instructions preserve full-pipeline parity while distinguishing image contents from per-stage NERSC resource requests.
+- Future agents are told which repo/branch/package/CLI/instruction files matter.
+- NERSC guidance states CPU-only selectors should not require GPU module flags.
+- NERSC guidance states Kilosort-backed spikesort selectors should request GPU resources.
+
+Self-Check:
+- Diff reviewed: yes.
+- Unrelated/user edits excluded from commit: yes; keep `debug/debug.runtime.yml` unstaged.
+- Instruction files re-read: yes, `debug/pipeline_containerize_instructions.md` and `debug/pipeline_refinement_instructions.md`.
+- Residual risk: docs-only change; actual CPU/GPU scheduling behavior still needs implementation and NERSC validation.
+
+Expected To Run:
+- Future agents use the new handoff/resource notes when implementing wrappers, Shifter scripts, and validation plans.
+
+Confirmed Not Run:
+- No pipeline code, Docker build, or smoke execution is expected from this docs-only change.
+
+Validation:
+- Pytest: not run; docs-only change.
+- Smoke: not run; docs-only change.
+- Container build/run: not run; docs-only change.
+- Logs inspected: none.
+- Not run: runtime tests, container build, Shifter validation.
+
+Container / Shifter Impact:
+- Local Docker behavior: unchanged.
+- Shifter/NERSC behavior: documented CPU/GPU resource expectations only; no scripts changed.
+- Image size/cache impact: none.
+
+CLI Impact:
+- Normal CLI: unchanged.
+- Container CLI: unchanged.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged.
+- Force-restart behavior: unchanged.
+
+Storage / Mount Impact:
+- Created: none.
+- Modified: `debug/pipeline_containerize_instructions.md`, `debug/pipeline_containerize_commit_notes.md`.
+- Required mounts: none.
+
+Rollback Notes:
+- Revert the docs commit to remove these NERSC handoff and CPU/GPU resource notes.
+
 ## 2026-05-01 14:14 - pending - ai: document containerization operating loop
 
 Status: accepted

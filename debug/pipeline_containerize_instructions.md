@@ -24,6 +24,23 @@ The wrapper must pass through the same stage and phase selectors supported by th
 
 Containerized and non-containerized runs should be behaviorally equivalent for every supported selector, including `stages all`, `preprocess`, `spikesort`, `reconstruct`, multiple stages, and stage-phase selectors such as `reconstruct.analyzers`.
 
+## Handoff Context For Future AI Agents
+
+Adam may move this work into the NERSC environment with a different AI agent. Leave enough context in this repo for that agent to continue without relying on this chat transcript.
+
+Current high-level state:
+
+- Repository: `axon_reconstructor`, branch `pipeline_v2`.
+- Active package/import namespace: `axon_recon`.
+- Existing console script: `axon-reconstructor` points to `axon_recon.pipeline.cli:main`.
+- Planned host wrapper: `axon-recon-container`, which should forward to the installed pipeline CLI inside the container.
+- Active stages to preserve: `preprocess`, `spikesort`, and `reconstruct`.
+- Container goal: one installable full-pipeline image whose behavior matches the normal CLI; job resource requests may differ by stage.
+- First blocker: the current MEA_Analysis sorting path can launch Docker, which cannot be the only path when the pipeline itself runs inside Shifter/container mode.
+- Key instruction files: this file, `debug/pipeline_refinement_instructions.md`, `debug/pipeline_containerize_commit_notes.md`, and `debug/pipeline_refinement_commit_notes.md`.
+
+Future agents should keep this document updated with verified facts, unresolved NERSC checks, image tags, build commands, mount assumptions, and smoke commands. Do not assume the next agent can inspect the previous conversation.
+
 ## Non-Goals For This First Pass
 
 - Do not require NERSC access to complete the local container work.
@@ -42,6 +59,21 @@ Containerized and non-containerized runs should be behaviorally equivalent for e
 - GPU Shifter jobs need the Shifter `gpu` module; CUDA-aware MPI needs `cuda-mpich` plus `MPICH_GPU_SUPPORT_ENABLED=1`.
 - NERSC recommends GPU-aware Cray MPICH for `mpi4py` on Perlmutter GPU nodes. Their non-container examples build `mpi4py` from source with `MPICC="cc -shared"`; Shifter examples instead build MPICH in the image so Shifter can swap in Cray MPICH at runtime.
 - NERSC warns that `fork()`/subprocess use inside MPI processes can produce undefined MPI behavior. Treat nested subprocess/container launches as incompatible with future MPI rank execution unless proven otherwise.
+
+## NERSC Resource Model
+
+GPU support is only expected to be required for the spikesort stage, specifically the Kilosort-backed `spikesort.sort` phase. Other active stages and phases should remain runnable on CPU nodes unless future profiling proves otherwise.
+
+Rules:
+
+- Use the same container image for CPU and GPU jobs when practical, but do not require GPU resources to launch CPU-only selectors.
+- `preprocess`, `reconstruct`, reconstruct template/analyzer/report/plot phases, and non-Kilosort bookkeeping phases should be treated as CPU-capable.
+- Some CPU stages may eventually need high-memory CPU nodes or adjusted worker counts. Record those needs after NERSC profiling; do not assume GPU just because a stage is heavy.
+- If a selector includes Kilosort-backed `spikesort.sort`, the NERSC job should request GPU resources and the Shifter `gpu` module.
+- If a selector excludes Kilosort-backed sorting, the NERSC job should be able to run without GPU module flags.
+- `stages all` in a single NERSC job will include spikesort and therefore may need GPU resources for the whole job. Prefer splitting production workflows into CPU preprocess, GPU spikesort, and CPU reconstruct jobs once checkpoint/artifact boundaries are validated.
+- The wrapper should fail clearly if a GPU-required selector is launched without visible GPU support, but it should not reject CPU-only selectors on CPU nodes.
+- MPI/GPU-aware MPI work should not make CPU-only stages require CUDA-aware MPI.
 
 ## Operating Loop
 
@@ -240,16 +272,27 @@ shifterimg -v pull docker:<registry>/<image>:<tag>
 
 and batch-script shape:
 
+CPU-stage example shape:
+
+```bash
+#SBATCH --image=docker:<registry>/<image>:<tag>
+#SBATCH --constraint=cpu
+
+srun shifter axon-reconstructor stages preprocess reconstruct --config /mounted/path/debug.runtime.yml
+```
+
+GPU spikesort example shape:
+
 ```bash
 #SBATCH --image=docker:<registry>/<image>:<tag>
 #SBATCH --constraint=gpu
 #SBATCH --module=gpu,cuda-mpich
 
 export MPICH_GPU_SUPPORT_ENABLED=1
-srun shifter axon-reconstructor stages all --config /mounted/path/debug.runtime.yml
+srun shifter axon-reconstructor stages spikesort --config /mounted/path/debug.runtime.yml
 ```
 
-Use `stages all` only as the example shape. The same Shifter invocation should accept any selector that the normal CLI accepts.
+Use these only as example shapes. The same Shifter invocation should accept any selector that the normal CLI accepts. If `stages all` is used as one job, request GPU resources because it includes spikesort; for efficient production runs, prefer stage-split jobs once resume/artifact boundaries are proven.
 
 Guardrails:
 
@@ -298,6 +341,7 @@ Minimum local validation before Adam reviews a containerization code slice:
 - Container CLI help works.
 - `axon-recon-container stages --help` or equivalent forwards to the pipeline CLI.
 - A dry-run or minimal no-heavy-data command works with mounted `debug/debug.runtime.yml`.
+- A CPU-only container selector can be dry-run or smoke-tested without GPU flags.
 - If local sorting is touched, run tests proving it does not invoke Docker/MEA_Analysis when `engine: local_spikeinterface` is selected.
 
 Validation that can be documented but not completed before NERSC:
@@ -305,6 +349,8 @@ Validation that can be documented but not completed before NERSC:
 - `shifterimg pull` of the final pushed image.
 - `srun shifter ...` on Perlmutter.
 - CUDA-aware `mpi4py` with Cray MPICH.
+- CPU-node execution for CPU-only selectors.
+- GPU-node execution for Kilosort-backed spikesort selectors.
 - Multi-node/multi-GPU execution for any active stage or phase that supports distributed execution.
 
 ## Risk Register
@@ -316,6 +362,7 @@ Validation that can be documented but not completed before NERSC:
 - `mpi4py` compatibility cannot be fully proven off NERSC. Keep the implementation explicit about what is locally validated versus NERSC-deferred.
 - Shifter images are read-only and root-squashed. Hidden writes to package directories, home directories, `/tmp`, or matplotlib/cache dirs will fail unless redirected.
 - MPI plus Python subprocess/fork behavior is risky on Perlmutter. Favor rank-level target partitioning over process spawning inside ranks.
+- Do not over-request GPUs for CPU-only stages by default; GPU allocation should follow selector requirements, not image contents.
 
 ## Stop Conditions
 
