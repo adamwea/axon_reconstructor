@@ -9,7 +9,6 @@ from .execution import install_process_lifecycle
 from .execution.logging_context import ensure_pipeline_target_in_format, install_pipeline_log_record_factory
 from .logging import configure_pipeline_logging, finalize_pipeline_logging, log_context
 from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
-from .stages.analysis.cli import _run_from_args as _run_analysis_from_args
 from .stages.preprocess.cli import _run_concat_segments_from_args as _run_preprocess_concat_segments_from_args
 from .stages.preprocess.cli import _run_copy_src_to_scratch_from_args as _run_preprocess_copy_src_to_scratch_from_args
 from .stages.preprocess.cli import _run_from_args as _run_preprocess_from_args
@@ -187,8 +186,6 @@ _STAGE_ALIASES: dict[str, str] = {
 	"reconstruction.report_full_chip_layout": "reconstruct.report_full_chip_layout",
 	"reconstruction.report_summaries": "reconstruct.report_summaries",
 	"reconstruction.clear_templates_cache": "reconstruct.clear_templates_cache",
-	"analyse": "analysis",
-	"analyze": "analysis",
 }
 
 _STAGE_HANDLERS: dict[str, StageHandler] = {
@@ -247,7 +244,6 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"reconstruct.report_full_chip_layout": _run_reconstruct_report_full_chip_layout_from_args,
 	"reconstruct.report_summaries": _run_reconstruct_report_summaries_from_args,
 	"reconstruct.clear_templates_cache": _run_reconstruct_clear_templates_cache_from_args,
-	"analysis": _run_analysis_from_args,
 }
 
 

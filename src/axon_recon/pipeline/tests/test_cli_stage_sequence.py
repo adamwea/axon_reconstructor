@@ -29,6 +29,12 @@ def test_canonical_all_selector_excludes_retired_stages() -> None:
     assert "analysis" not in pipeline_cli._CANONICAL_STAGE_ORDER
 
 
+@pytest.mark.parametrize("raw_token", ["analysis", "analyse", "analyze"])
+def test_parse_stage_list_tokens_rejects_retired_analysis_stage(raw_token: str) -> None:
+    with pytest.raises(SystemExit, match="Unsupported stage token"):
+        pipeline_cli._parse_stage_list_tokens([raw_token])
+
+
 def test_parse_stage_list_tokens_supports_templates_resolve_sources_substage() -> None:
     parsed = pipeline_cli._parse_stage_list_tokens(["templates.resolve_sources"])
     assert parsed == ["templates.resolve_sources"]
