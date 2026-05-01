@@ -76,4 +76,55 @@ Rollback Notes:
 
 ## Commit Log
 
-No refinement commits logged yet.
+## 2026-05-01 01:39 - pending - ai: limit all selector to active stages
+
+Status: accepted
+
+Summary:
+- Updated the CLI `all` selector so it expands only to active v2 stages: preprocess, spikesort, reconstruct.
+- Added an explicit regression test that `templates` and `analysis` are excluded from the canonical `all` order.
+
+Acceptance Criteria:
+- `axon_recon stages all` dispatch order is preprocess, spikesort, reconstruct.
+- Direct legacy templates/analysis selectors are not removed in this slice and remain a separate retirement follow-up.
+- Focused CLI selector tests pass.
+
+Expected To Run:
+- `preprocess`, `spikesort`, and `reconstruct` for the `all` selector.
+
+Confirmed Not Run:
+- `templates` and `analysis` are no longer included by `all`.
+
+Files/Modules Changed:
+- `src/axon_recon/pipeline/cli.py`
+- `src/axon_recon/pipeline/tests/test_cli_stage_sequence.py`
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_cli_stage_sequence.py -q` passed.
+- Smoke (20 min max unless Adam approves longer): not run; parser/dispatch contract change was covered by focused mocked CLI tests.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: real-data CLI smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged.
+- Force-restart cleanup: unchanged.
+- Partial-output handling: unchanged.
+
+Storage/Cache Impact:
+- Created: none.
+- Cleaned: none.
+- Persisted: none.
+- Size check: not applicable.
+
+CLI Impact:
+- `all` is now the active-stage pipeline only; direct templates/analysis selectors still exist until later retirement slices.
+
+Retired Code/Tests:
+- None; this only removes retired stages from canonical `all` dispatch.
+
+Risks And Follow-Ups:
+- Direct `templates.*` and `analysis` CLI handlers remain wired and should be removed in later retirement slices after auditing callers.
+
+Rollback Notes:
+- Restore `templates` and `analysis` in `_CANONICAL_STAGE_ORDER` if `all` must temporarily include retired stages again.

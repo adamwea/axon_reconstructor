@@ -76,9 +76,7 @@ StageHandler = Callable[[argparse.Namespace], int]
 _CANONICAL_STAGE_ORDER: list[str] = [
 	"preprocess",
 	"spikesort",
-	"templates",
 	"reconstruct",
-	"analysis",
 ]
 
 _STAGE_ALIASES: dict[str, str] = {

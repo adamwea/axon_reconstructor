@@ -6,6 +6,8 @@ import pytest
 
 import axon_recon.pipeline.cli as pipeline_cli
 
+ACTIVE_STAGE_ORDER = ["preprocess", "spikesort", "reconstruct"]
+
 
 def _write_runtime_cfg(path: Path) -> None:
     path.write_text("global_logger: {}\n", encoding="utf-8")
@@ -18,7 +20,13 @@ def test_parse_stage_list_tokens_supports_aliases_and_comma_spacing() -> None:
 
 def test_parse_stage_list_tokens_supports_all_keyword() -> None:
     parsed = pipeline_cli._parse_stage_list_tokens(["all"])
-    assert parsed == list(pipeline_cli._CANONICAL_STAGE_ORDER)
+    assert parsed == ACTIVE_STAGE_ORDER
+
+
+def test_canonical_all_selector_excludes_retired_stages() -> None:
+    assert list(pipeline_cli._CANONICAL_STAGE_ORDER) == ACTIVE_STAGE_ORDER
+    assert "templates" not in pipeline_cli._CANONICAL_STAGE_ORDER
+    assert "analysis" not in pipeline_cli._CANONICAL_STAGE_ORDER
 
 
 def test_parse_stage_list_tokens_supports_templates_resolve_sources_substage() -> None:
@@ -256,7 +264,7 @@ def test_main_stage_alias_supports_all(monkeypatch, tmp_path: Path) -> None:
     rc = pipeline_cli.main(["stage", "all", "--config", str(runtime_cfg), "--force-restart"])
 
     assert rc == 0
-    assert calls == list(pipeline_cli._CANONICAL_STAGE_ORDER)
+    assert calls == ACTIVE_STAGE_ORDER
 
 
 def test_main_stops_after_first_failure(monkeypatch, tmp_path: Path) -> None:
