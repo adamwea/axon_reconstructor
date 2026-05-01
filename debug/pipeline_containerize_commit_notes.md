@@ -80,6 +80,69 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-01 15:05 - pending - ai: install sibling packages in container
+
+Status: accepted
+
+Summary:
+- Added explicit compatibility install knobs for sibling UnitMatchPy and SLAy package builds inside the container.
+- Kept sibling installs as normal package installs from the temporary build context, but used `--no-deps` so UnitMatch and SLAy metadata conflicts do not replace the Kilosort4 base image runtime stack.
+- Pinned the default runtime dependency set under NumPy 2/Pandas 3 where needed for UnitMatch compatibility, and added the small runtime extras used by the current import paths: `mat73`, `mtscomp`, `joblib`, and `marshmallow`.
+- Updated import smoke so UnitMatchPy is validated as an installed distribution/module spec rather than by importing its GUI-heavy top-level package, and SLAy is validated through the pipeline's `slay.run` import path with NumPy fallback for missing `cupy`.
+- Updated the container entrypoint so explicit helper commands such as `axon-recon-smoke-cli` run directly while normal stage arguments still forward through `axon-reconstructor`.
+
+Acceptance Criteria:
+- Full local probe image builds with sibling UnitMatchPy and SLAy copied into the temporary build context and installed as packages.
+- Container import smoke passes for `axon_recon`, `spikeinterface`, `kilosort`, `mpi4py`, UnitMatchPy package discovery, and the SLAy pipeline import path.
+- Normal container CLI and wrapper-forwarded CLI still behave like the host CLI.
+
+Self-Check:
+- Diff reviewed: yes.
+- Unrelated/user edits excluded from commit: yes; only container install/smoke/entrypoint/docs files and these notes are modified.
+- Instruction files re-read: yes, `debug/pipeline_containerize_instructions.md` and `debug/pipeline_refinement_instructions.md` before this slice.
+- Residual risk: top-level `import UnitMatchPy` still pulls GUI/Tk and fails in this headless image with missing `libX11.so.6`; the smoke validates installed package discovery instead. Top-level `import slay` still fails without `cupy`; the pipeline import path succeeds via the existing NumPy fallback. Real merge-stage data smokes are still needed.
+
+Expected To Run:
+- `containers/axon-recon/build_local_image.sh --image axon-recon:full-probe` should build with copied sibling package sources when the sibling checkouts are present.
+- `docker run --rm axon-recon:full-probe axon-recon-smoke-cli` should run the container smoke helper directly through the entrypoint.
+- `docker run --rm axon-recon:full-probe --help`, `docker run --rm axon-recon:full-probe stages --help`, and wrapper-forwarded `stages --help` should work.
+
+Confirmed Not Run:
+- Real data pipeline stages, top-level UnitMatch GUI import, native CUDA/GPU Kilosort execution, and Shifter validation were not run in this slice.
+
+Validation:
+- Pytest: not run; this slice only changes container dependency installation, smoke scripts, entrypoint behavior, docs, and notes.
+- Smoke: `bash -n containers/axon-recon/build_local_image.sh containers/axon-recon/entrypoint.sh containers/axon-recon/smoke_cli.sh tools/axon-recon-container` passed.
+- Smoke: host `containers/axon-recon/smoke_imports.py --allow-missing` passed with expected host-only misses for packages not installed in the host env.
+- Container build/run: full sibling build completed successfully as `axon-recon:full-probe`; first patched build completed in `45.1s`, rebuild after entrypoint adjustment completed in `37.4s`.
+- Container smoke: `docker run --rm axon-recon:full-probe axon-recon-smoke-cli` passed.
+- Container smoke: `docker run --rm axon-recon:full-probe --help`, `docker run --rm axon-recon:full-probe stages --help`, and `tools/axon-recon-container --image axon-recon:full-probe --no-tty stages --help` passed.
+- Container smoke: strict import JSON confirmed `axon_recon 0.1.0`, `kilosort 4`, `mpi4py 4.1.1`, `spikeinterface 0.103.2`, UnitMatchPy distribution `3.3.0`, and SLAy distribution `0.1.0` via the pipeline import path.
+- Container size: `docker image inspect axon-recon:full-probe` reported about `10.04 GB`.
+- Logs inspected: Docker build output, `axon-recon-smoke-cli` output, import smoke JSON, wrapper/CLI smoke output, image size output.
+- Diff hygiene: `git diff --check` passed.
+
+Container / Shifter Impact:
+- Local Docker behavior: full builds now include sibling packages from copied build context sources without runtime sibling mounts.
+- Shifter/NERSC behavior: still uses normal installed Python packages and writable cache env vars; no new NERSC-only runtime assumptions added.
+- Image size/cache impact: full sibling image measured about `10.04 GB`, only slightly above the no-sibling runtime-deps image and still below the practical 20 GB concern noted in the instructions.
+
+CLI Impact:
+- Normal CLI: no change to host CLI behavior.
+- Container CLI: normal arguments still forward through `axon-reconstructor`; explicit commands already on `PATH` can now be run directly through the entrypoint.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged.
+- Force-restart behavior: unchanged.
+
+Storage / Mount Impact:
+- Created: no runtime storage paths.
+- Modified: container image Python environment at build time only.
+- Required mounts: unchanged; data/config/output/cache mounts are still caller responsibility through the wrapper or Shifter job.
+
+Rollback Notes:
+- Revert this commit to return sibling installs to naive `pip install` behavior. The previous no-sibling image path remains available with `--no-unitmatch --no-slay` if a sibling package conflict blocks future work.
+
 ## 2026-05-01 14:50 - pending - ai: install container runtime deps by default
 
 Status: accepted

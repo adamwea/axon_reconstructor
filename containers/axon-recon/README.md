@@ -18,6 +18,8 @@ containers/axon-recon/build_local_image.sh --image axon-recon:local
 
 The default repo-root build installs `axon_reconstructor`, the active runtime Python dependency set, `spikeinterface==0.103.2`, and `mpi4py`. It does not bake local data, scratch outputs, credentials, or sibling workspace paths into the image. The helper detects sibling `../UnitMatch/UnitMatchPy` and `../SLAy` checkouts when present, copies them under `external/` in a temporary context, and passes build args so imports are normal installed-package imports.
 
+Sibling package installs intentionally use package builds with `--no-deps` plus small compatibility runtime specs. UnitMatch and SLAy currently declare conflicting NumPy/Pandas/Torch dependency ranges, while the pipeline only needs them importable through the code paths it calls. Revisit those dependency pins after real merge-stage data smokes.
+
 ## Smoke Checks
 
 Inside a built image:

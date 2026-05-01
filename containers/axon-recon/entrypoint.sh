@@ -10,5 +10,8 @@ mkdir -p "$XDG_CACHE_HOME" "$MPLCONFIGDIR" "$NUMBA_CACHE_DIR" "$PYTHONPYCACHEPRE
 if [[ $# -gt 0 && "${1}" == "axon-reconstructor" ]]; then
   exec "$@"
 fi
+if [[ $# -gt 0 && "${1}" != -* ]] && command -v "${1}" >/dev/null 2>&1; then
+  exec "$@"
+fi
 
 exec axon-reconstructor "$@"

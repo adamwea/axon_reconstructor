@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
+import importlib.util
 import json
 import sys
 from typing import Any
@@ -10,8 +12,6 @@ IMPORTS: tuple[tuple[str, str], ...] = (
     ("axon_recon", "axon_recon"),
     ("spikeinterface", "spikeinterface"),
     ("kilosort", "kilosort"),
-    ("UnitMatchPy", "UnitMatchPy"),
-    ("slay", "slay"),
     ("mpi4py", "mpi4py"),
 )
 
@@ -23,6 +23,53 @@ def _module_version(module: Any) -> str | None:
     return str(value)
 
 
+def _distribution_version(name: str) -> str | None:
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def _check_module_import(module_name: str) -> dict[str, str | bool | None]:
+    module = importlib.import_module(module_name)
+    return {
+        "ok": True,
+        "module": module_name,
+        "check": "import",
+        "error": None,
+        "version": _module_version(module),
+    }
+
+
+def _check_unitmatch_package() -> dict[str, str | bool | None]:
+    module_name = "UnitMatchPy"
+    spec = importlib.util.find_spec(module_name)
+    if spec is None:
+        raise ModuleNotFoundError(f"No module named {module_name!r}", name=module_name)
+    return {
+        "ok": True,
+        "module": module_name,
+        "check": "find_spec",
+        "error": None,
+        "version": _distribution_version("UnitMatchPy"),
+    }
+
+
+def _check_slay_pipeline_import() -> dict[str, str | bool | None]:
+    runner = importlib.import_module("axon_recon.pipeline.stages.spikesort.runner")
+    import_run_slay = getattr(runner, "_import_slay_run_function")
+    run_slay = import_run_slay(allow_numpy_fallback=True)
+    if not callable(run_slay):
+        raise RuntimeError("SLAy import succeeded but run_slay is not callable")
+    return {
+        "ok": True,
+        "module": "slay.run",
+        "check": "pipeline_import_with_numpy_cupy_fallback",
+        "error": None,
+        "version": _distribution_version("slay"),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(argv if argv is not None else sys.argv[1:])
     allow_missing = "--allow-missing" in args
@@ -30,22 +77,32 @@ def main(argv: list[str] | None = None) -> int:
     failures: list[str] = []
     for label, module_name in IMPORTS:
         try:
-            module = importlib.import_module(module_name)
+            results[label] = _check_module_import(module_name)
         except Exception as exc:
             results[label] = {
                 "ok": False,
                 "module": module_name,
+                "check": "import",
                 "error": f"{type(exc).__name__}: {exc}",
                 "version": None,
             }
             failures.append(label)
-            continue
-        results[label] = {
-            "ok": True,
-            "module": module_name,
-            "error": None,
-            "version": _module_version(module),
-        }
+    special_checks = (
+        ("UnitMatchPy", _check_unitmatch_package),
+        ("slay", _check_slay_pipeline_import),
+    )
+    for label, check in special_checks:
+        try:
+            results[label] = check()
+        except Exception as exc:
+            results[label] = {
+                "ok": False,
+                "module": label,
+                "check": getattr(check, "__name__", "special_check"),
+                "error": f"{type(exc).__name__}: {exc}",
+                "version": None,
+            }
+            failures.append(label)
     print(json.dumps(results, indent=2, sort_keys=True))
     if failures and not allow_missing:
         print(f"missing imports: {', '.join(failures)}", file=sys.stderr)
