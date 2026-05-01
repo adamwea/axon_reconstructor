@@ -193,6 +193,8 @@ def test_run_spikesort_bootstrap_concat_binary_stage_materializes_binary(monkeyp
         bootstrap_concat_binary_manifest_relpath="cache/bootstrap_concat_binary/concat_segments_manifest.json",
         bootstrap_concat_binary_summary_json_relpath="cache/bootstrap_concat_binary/bootstrap_concat_binary_summary.json",
         bootstrap_concat_binary_source_segment_manifest_relpath="preprocess_outputs/preprocessed_segments/manifest.json",
+        bootstrap_concat_binary_debug_limit_segments_per_well=2,
+        debug_limit_segments_per_well=None,
         bootstrap_concat_binary_overwrite_existing=False,
         bootstrap_concat_binary_overwrite_on_force_restart=True,
         bootstrap_concat_binary_n_jobs=2,
@@ -215,9 +217,11 @@ def test_run_spikesort_bootstrap_concat_binary_stage_materializes_binary(monkeyp
     assert captured["output_mode"] == "binary"
     assert captured["overwrite_saved_recording"] is True
     assert captured["n_jobs"] == 2
+    assert captured["limit_segments_per_well"] == 2
     assert result.summary_json.exists()
     payload = _read_json(result.summary_json)
     assert payload["status"] == "ok"
+    assert payload["limit_segments_per_well"] == 2
     assert payload["recording_dir"].endswith("spikesort_outputs/cache/bootstrap_concat_binary/recording")
 
 

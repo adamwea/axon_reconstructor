@@ -267,6 +267,7 @@ Required behavior:
 - `axon-recon-container stages all --config debug/debug.runtime.yml`, `axon-recon-container stages preprocess spikesort --config debug/debug.runtime.yml`, and stage-phase selectors forward through the same path.
 - The same wrapper supports every stage and phase selector accepted by the normal CLI. New selectors added to the normal CLI should work through the wrapper without wrapper code changes.
 - Real-data smoke-limit flags must remain normal CLI flags and pass through the wrapper: `--limit-segments`, `--limit-datasets`, `--limit-wells-per-dataset`, and `--limit-units`.
+- For spikesort, `--limit-segments` must limit the segments consumed by `spikesort.bootstrap_concat_binary` before the bootstrapped concatenated binary recording is built; downstream phases, including `spikesort.sort`, should then operate on that smaller recording.
 - The wrapper mounts the repo/config path read-only by default unless a development mode intentionally mounts source writable.
 - The wrapper mounts data roots, scratch roots, and output roots writable based on runtime config or explicit flags.
 - The wrapper sets a writable cache/temp location. Do not let Kilosort, Matplotlib, SpikeInterface, or Python caches try to write inside the read-only image.

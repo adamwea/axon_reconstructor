@@ -3256,6 +3256,25 @@ def _resolve_bootstrap_concat_binary_paths(
 	}
 
 
+def _positive_int_or_none(value: Any) -> int | None:
+	if value is None:
+		return None
+	try:
+		parsed = int(value)
+	except (TypeError, ValueError):
+		return None
+	return parsed if parsed > 0 else None
+
+
+def _bootstrap_concat_binary_limit_segments_per_well(stage_config: Any) -> int | None:
+	phase_limit = _positive_int_or_none(
+		getattr(stage_config, "bootstrap_concat_binary_debug_limit_segments_per_well", None)
+	)
+	if phase_limit is not None:
+		return phase_limit
+	return _positive_int_or_none(getattr(stage_config, "debug_limit_segments_per_well", None))
+
+
 def run_spikesort_bootstrap_concat_binary_stage(
 	*,
 	h5_path: Path,
@@ -3312,6 +3331,7 @@ def run_spikesort_bootstrap_concat_binary_stage(
 		n_jobs = getattr(stage_config, "n_jobs", None)
 	if n_jobs is None:
 		n_jobs = 1
+	limit_segments_per_well = _bootstrap_concat_binary_limit_segments_per_well(stage_config)
 	chunk_duration = (
 		getattr(stage_config, "bootstrap_concat_binary_chunk_duration", None)
 		or getattr(stage_config, "chunk_duration", None)
@@ -3325,6 +3345,7 @@ def run_spikesort_bootstrap_concat_binary_stage(
 		recording_dir=paths["recording_dir"],
 		force_restart=bool(force_restart),
 		overwrite_saved_recording=bool(overwrite_saved_recording),
+		limit_segments_per_well=limit_segments_per_well,
 	)
 	common_electrodes_path = _resolve_under_well(
 		well_out_dir=well_out_dir,
@@ -3357,6 +3378,7 @@ def run_spikesort_bootstrap_concat_binary_stage(
 		logger=LOGGER,
 		run_save_concatenated_recording_core=run_save_concatenated_recording_core,
 		common_electrodes=common_electrodes_for_concat,
+		limit_segments_per_well=limit_segments_per_well,
 	)
 	binary_candidates = [
 		path
@@ -3391,6 +3413,9 @@ def run_spikesort_bootstrap_concat_binary_stage(
 			"force_restart": bool(force_restart),
 			"overwrite_saved_recording": bool(overwrite_saved_recording),
 			"output_mode": str(payload.get("output_mode", "binary")),
+			"limit_segments_per_well": (
+				int(limit_segments_per_well) if limit_segments_per_well is not None else None
+			),
 			"materialized_recording": bool(payload.get("materialized_recording", True)),
 			"saved": bool(payload.get("saved", False)),
 			"reused_existing": bool(payload.get("reused_existing", False)),

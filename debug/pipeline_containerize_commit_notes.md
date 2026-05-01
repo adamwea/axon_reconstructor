@@ -90,14 +90,14 @@ Summary:
 - Made the wrapper build/update the default `axon-recon:local` image when it is missing or its source fingerprint label is stale; added `--build`, `--no-build`, and `--rebuild` controls.
 - Preserved wrapper pass-through semantics for all pipeline commands and selectors; the wrapper handles only image, mount, cache, user, and Docker execution concerns.
 - Added shared stage parser flags for `--limit-segments`, `--limit-datasets`, `--limit-wells-per-dataset`, and `--limit-units` so the requested real-data smoke command shapes parse consistently.
-- Applied dataset and wells-per-dataset overrides at runtime target selection for preprocess, spikesort, and reconstruct; mapped preprocess `--limit-segments` to the existing per-well segment throttle and left reconstruct `--limit-segments` on the established analyzer/template segment limit path.
+- Applied dataset and wells-per-dataset overrides at runtime target selection for preprocess, spikesort, and reconstruct; mapped preprocess `--limit-segments` to the existing per-well segment throttle, spikesort `--limit-segments` to the `bootstrap_concat_binary` source segment manifest before binary materialization, and reconstruct `--limit-segments` to the established analyzer/template segment limit path.
 - Documented the simple wrapper UX, real-data smoke commands, DockerHub tags, and the environment strategy.
 - Compared Adam's live host `axon_recon` conda env with the built container: the container uses the base image's existing `/home/miniconda3` conda stack plus explicit repo/runtime specs rather than copying the host env verbatim.
 
 Acceptance Criteria:
 - `axon-recon-container stages reconstruct --config debug/debug.runtime.yml` is the expected user-facing shape.
 - Container wrapper behavior remains command-agnostic and does not whitelist only the smoke examples.
-- Requested smoke flags parse through the shared stage parser and affect runtime target/unit/segment limits where the stage has those concepts.
+- Requested smoke flags parse through the shared stage parser and affect runtime target/unit/segment limits where the stage has those concepts; spikesort segment limiting happens before bootstrap concat writes the binary used by downstream sort phases.
 - Active debug runtime defaults to `local_spikeinterface` sorting for container compatibility.
 - Docs/instructions explain the wrapper contract, smoke commands, DockerHub tags, and conda environment decision for future NERSC handoff.
 
@@ -105,7 +105,7 @@ Self-Check:
 - Diff reviewed: yes.
 - Unrelated/user edits excluded from commit: Dockerfile formatting churn was removed from the diff before validation.
 - Instruction files re-read: yes, `debug/pipeline_containerize_instructions.md` and the container README were re-read/updated during this slice.
-- Residual risk: `--limit-segments` has no current spikesort-local segment limiter because the active spikesort config model does not expose one; the flag is accepted and passed through for command parity, while target limiting works via `--limit-datasets` and `--limit-wells-per-dataset`.
+- Segment-limit follow-up: `--limit-segments` now applies to spikesort by limiting `spikesort.bootstrap_concat_binary` before the bootstrapped concatenated binary is materialized.
 
 Expected To Run:
 - Installed package command `axon-recon-container ...` should behave the same as `tools/axon-recon-container ...`.

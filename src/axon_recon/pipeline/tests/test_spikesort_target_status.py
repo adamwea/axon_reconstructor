@@ -11,6 +11,7 @@ import pytest
 
 from axon_recon.pipeline.execution.context import ExecutionTarget, StageParallelism
 from axon_recon.pipeline.execution.results import MultiTargetStageResult, TargetStageResult
+from axon_recon.runtime_config import RuntimeConfig
 from axon_recon.pipeline.runner import (
     run_spikesort_bombcell_label_from_runtime,
     run_spikesort_from_runtime,
@@ -142,6 +143,79 @@ def test_run_spikesort_from_runtime_marks_target_error(monkeypatch, tmp_path: Pa
     assert agg.failed_targets == 1
     assert agg.target_results[0].status == "error"
     assert "spikesort failed" in str(agg.target_results[0].error)
+
+
+def test_run_spikesort_from_runtime_applies_segment_limit_to_bootstrap_phase(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    target = ExecutionTarget(
+        dataset_index=0,
+        dataset_id="dataset_000:test.h5",
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+    )
+
+    class _DummyBundle:
+        runtime_config = RuntimeConfig(
+            {
+                "stages": {
+                    "spikesort": {
+                        "phases": {
+                            "bootstrap_concat_binary": {"enabled": True},
+                            "sort": {"enabled": False},
+                            "cleanup_concat_binary": {"enabled": False},
+                        }
+                    }
+                }
+            }
+        )
+        data_config = object()
+
+    seen: dict[str, object] = {}
+
+    def _fake_load_pipeline_runtime_bundle(*, config_path: str):
+        return _DummyBundle()
+
+    def _fake_select_execution_targets(*, bundle):
+        return [target]
+
+    def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
+        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+
+    def _fake_distribute_targets(*, targets, well_workers: int, worker_fn, **kwargs):
+        return [TargetStageResult(target=item, status="ok", result=worker_fn(item)) for item in targets]
+
+    def _fake_bootstrap_target(*, target, stage_config, unit_workers: int):
+        seen["debug_limit_segments_per_well"] = getattr(stage_config, "debug_limit_segments_per_well", None)
+        seen["bootstrap_concat_binary_debug_limit_segments_per_well"] = getattr(
+            stage_config,
+            "bootstrap_concat_binary_debug_limit_segments_per_well",
+            None,
+        )
+        return SpikesortResult(
+            well_out_dir=tmp_path / "well_out",
+            spikesort_out_dir=tmp_path / "well_out" / "spikesort_outputs",
+            summary_json=tmp_path / "bootstrap.json",
+            outputs={},
+        )
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", _fake_load_pipeline_runtime_bundle)
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", _fake_select_execution_targets)
+    monkeypatch.setattr(pipeline_runner, "resolve_stage_parallelism", _fake_resolve_stage_parallelism)
+    monkeypatch.setattr(pipeline_runner, "distribute_targets", _fake_distribute_targets)
+    monkeypatch.setattr(pipeline_runner, "_run_spikesort_bootstrap_concat_binary_target", _fake_bootstrap_target)
+
+    agg = run_spikesort_from_runtime(config_path=str(tmp_path / "runtime.yml"), limit_segments_override=2)
+
+    assert agg.total_targets == 1
+    assert seen == {
+        "debug_limit_segments_per_well": 2,
+        "bootstrap_concat_binary_debug_limit_segments_per_well": 2,
+    }
 
 
 def test_run_spikesort_from_runtime_applies_debug_well_limit(monkeypatch, tmp_path: Path) -> None:

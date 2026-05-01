@@ -411,10 +411,19 @@ def _with_debug_limit_overrides(
 	field_names = set(getattr(stage_config, "__dataclass_fields__", {}) or {})
 	target_limit_replaced = False
 	if limit_segments_override is not None:
-		if not field_names or "debug_limit_segments_per_well" in field_names:
-			replace_kwargs["debug_limit_segments_per_well"] = int(limit_segments_override)
-		elif "limit_segments" in field_names:
-			replace_kwargs["limit_segments"] = int(limit_segments_override)
+		segment_limit = int(limit_segments_override)
+		if not field_names:
+			replace_kwargs["debug_limit_segments_per_well"] = segment_limit
+		else:
+			segment_limit_replaced = False
+			if "debug_limit_segments_per_well" in field_names:
+				replace_kwargs["debug_limit_segments_per_well"] = segment_limit
+				segment_limit_replaced = True
+			if "bootstrap_concat_binary_debug_limit_segments_per_well" in field_names:
+				replace_kwargs["bootstrap_concat_binary_debug_limit_segments_per_well"] = segment_limit
+				segment_limit_replaced = True
+			if not segment_limit_replaced and "limit_segments" in field_names:
+				replace_kwargs["limit_segments"] = segment_limit
 	if limit_datasets_override is not None and (
 		not field_names or "debug_limit_datasets" in field_names
 	):
@@ -1472,6 +1481,7 @@ def run_preprocess_plot_raster_threshold_from_runtime(
 def run_spikesort_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
 	limit_datasets_override: int | None = None,
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
@@ -1487,7 +1497,7 @@ def run_spikesort_from_runtime(
 	)
 	stage_config = _with_debug_limit_overrides(
 		stage_config,
-		limit_segments_override=None,
+		limit_segments_override=limit_segments_override,
 		limit_datasets_override=limit_datasets_override,
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 	)
@@ -1920,6 +1930,9 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 	config_path: str,
 	stage_name: str,
 	runner_fn: Callable[..., SpikesortResult],
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 	debug_phase_label: str,
@@ -1937,6 +1950,12 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 		runtime_config=bundle.runtime_config,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+	)
+	stage_config = _with_debug_limit_overrides(
+		stage_config,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 	)
 	targets = select_execution_targets(bundle=bundle)
 	targets = _apply_spikesort_stage_debug_limits(
@@ -2012,6 +2031,9 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 def run_spikesort_bootstrap_concat_binary_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2019,6 +2041,9 @@ def run_spikesort_bootstrap_concat_binary_from_runtime(
 		config_path=config_path,
 		stage_name="spikesort.bootstrap_concat_binary",
 		runner_fn=bootstrap_spikesort_concat_binary,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 		debug_phase_label="bootstrap_concat_binary",

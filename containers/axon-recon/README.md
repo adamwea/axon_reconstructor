@@ -20,7 +20,7 @@ axon-recon-container stages spikesort --config debug/debug.runtime.yml --limit-s
 axon-recon-container stages reconstruct --config debug/debug.runtime.yml --limit-segments 2 --limit-datasets 2 --limit-wells-per-dataset 1 --limit-units 5
 ```
 
-Those `--limit-*` flags are normal pipeline CLI flags. The wrapper does not interpret stage names or limits; it only handles image build/update, mounts, cache paths, and Docker execution.
+Those `--limit-*` flags are normal pipeline CLI flags. The wrapper does not interpret stage names or limits; it only handles image build/update, mounts, cache paths, and Docker execution. For spikesort, `--limit-segments` limits the preprocessed segment manifest consumed by `spikesort.bootstrap_concat_binary` before the bootstrapped binary recording is materialized, so downstream sort phases read the smaller concatenated recording.
 
 ## Local Build
 

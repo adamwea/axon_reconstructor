@@ -29,6 +29,7 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.debug_limit_datasets is None
     assert parsed.debug_limit_wells is None
     assert parsed.debug_limit_wells_per_dataset is None
+    assert parsed.debug_limit_segments_per_well is None
     assert parsed.sort_debug_mode_enabled is False
     assert parsed.sort_debug_limit_datasets is None
     assert parsed.sort_debug_limit_wells is None
@@ -37,6 +38,7 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.bootstrap_concat_binary_debug_limit_datasets is None
     assert parsed.bootstrap_concat_binary_debug_limit_wells is None
     assert parsed.bootstrap_concat_binary_debug_limit_wells_per_dataset is None
+    assert parsed.bootstrap_concat_binary_debug_limit_segments_per_well is None
     assert parsed.cleanup_concat_binary_debug_mode_enabled is False
     assert parsed.cleanup_concat_binary_debug_limit_datasets is None
     assert parsed.cleanup_concat_binary_debug_limit_wells is None
@@ -472,6 +474,7 @@ def test_parse_spikesort_stage_config_reads_bootstrap_concat_binary_phase() -> N
                                 "enabled": True,
                                 "limit_datasets": 1,
                                 "limit_wells": 2,
+                                "limit_segments_per_well": 3,
                             },
                         }
                     },
@@ -496,6 +499,7 @@ def test_parse_spikesort_stage_config_reads_bootstrap_concat_binary_phase() -> N
     assert parsed.bootstrap_concat_binary_debug_mode_enabled is True
     assert parsed.bootstrap_concat_binary_debug_limit_datasets == 1
     assert parsed.bootstrap_concat_binary_debug_limit_wells == 2
+    assert parsed.bootstrap_concat_binary_debug_limit_segments_per_well == 3
     assert parsed.sort_use_bootstrapped_concat_binary is True
     assert parsed.sort_use_lazy_source is True
     assert parsed.sort_assert_one_source is False

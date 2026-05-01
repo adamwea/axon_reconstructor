@@ -37,6 +37,7 @@ def run_concat_segments_core(
 	logger: logging.Logger | None,
 	run_save_concatenated_recording_core: Any,
 	common_electrodes: list[int] | None = None,
+	limit_segments_per_well: int | None = None,
 ) -> dict[str, object]:
 	import spikeinterface.full as si  # type: ignore[import-not-found]
 
@@ -44,11 +45,19 @@ def run_concat_segments_core(
 	segment_entries = load_segment_manifest(segment_manifest_path)
 	if not segment_entries:
 		raise RuntimeError(f"No preprocessed segments available to concatenate: {segment_manifest_path}")
+	source_segment_count = int(len(segment_entries))
+	segment_limit = None
+	if limit_segments_per_well is not None:
+		segment_limit = max(0, int(limit_segments_per_well))
+		if segment_limit > 0 and source_segment_count > segment_limit:
+			segment_entries = list(segment_entries[:segment_limit])
 	if logger is not None:
 		logger.info(
-			"Starting concat_segments for well=%s segment_count=%d manifest=%s common_electrodes=%d",
+			"Starting concat_segments for well=%s segment_count=%d source_segment_count=%d limit_segments_per_well=%s manifest=%s common_electrodes=%d",
 			str(stream_id),
 			int(len(segment_entries)),
+			int(source_segment_count),
+			str(segment_limit if segment_limit else None),
 			segment_manifest_path,
 			int(0 if common_electrodes is None else len(common_electrodes)),
 		)
@@ -106,6 +115,8 @@ def run_concat_segments_core(
 		"version": 1,
 		"output_mode": str(save_result.get("output_mode", requested_output_mode)),
 		"segment_count": int(len(segment_entries)),
+		"source_segment_count": int(source_segment_count),
+		"limit_segments_per_well": (int(segment_limit) if segment_limit else None),
 		"segment_source": "preprocessed",
 		"segment_entries": [dict(item) for item in segment_entries],
 		"stitch_frames": [int(value) for value in stitch_frames],
@@ -123,7 +134,8 @@ def run_concat_segments_core(
 		"output_mode": str(save_result.get("output_mode", requested_output_mode)),
 		"segment_count": int(len(segment_entries)),
 		"segment_source": "preprocessed",
-		"source_segment_count": int(len(segment_entries)),
+		"source_segment_count": int(source_segment_count),
+		"limit_segments_per_well": (int(segment_limit) if segment_limit else None),
 		"concat_manifest_path": str(concat_manifest_path),
 		"stitch_frame_count": int(len(stitch_frames)),
 		"phase_timing_s": {

@@ -387,6 +387,7 @@ class SpikesortStageConfig:
 	debug_limit_datasets: int | None
 	debug_limit_wells: int | None
 	debug_limit_wells_per_dataset: int | None
+	debug_limit_segments_per_well: int | None
 	sort_debug_mode_enabled: bool
 	sort_debug_limit_datasets: int | None
 	sort_debug_limit_wells: int | None
@@ -395,6 +396,7 @@ class SpikesortStageConfig:
 	bootstrap_concat_binary_debug_limit_datasets: int | None
 	bootstrap_concat_binary_debug_limit_wells: int | None
 	bootstrap_concat_binary_debug_limit_wells_per_dataset: int | None
+	bootstrap_concat_binary_debug_limit_segments_per_well: int | None
 	cleanup_concat_binary_debug_mode_enabled: bool
 	cleanup_concat_binary_debug_limit_datasets: int | None
 	cleanup_concat_binary_debug_limit_wells: int | None
@@ -1042,6 +1044,14 @@ def parse_spikesort_stage_config(
 			debug_cfg.get("limit_wells_per_dataset", None),
 		)
 	)
+	debug_limit_segments_per_well = _as_optional_positive_int(
+		_coalesce(
+			execution_cfg.get("limit_segments_per_well", None),
+			execution_cfg.get("limit_segments", None),
+			debug_cfg.get("limit_segments_per_well", None),
+			debug_cfg.get("limit_segments", None),
+		)
+	)
 	sort_debug_cfg = _as_section(sort_phase_cfg.get("debug_mode", {}))
 	sort_debug_mode_enabled = _as_bool(sort_debug_cfg.get("enabled", False), False)
 	sort_debug_limit_datasets = _as_optional_positive_int(sort_debug_cfg.get("limit_datasets", None))
@@ -1062,6 +1072,14 @@ def parse_spikesort_stage_config(
 	)
 	bootstrap_concat_binary_debug_limit_wells_per_dataset = _as_optional_positive_int(
 		bootstrap_concat_binary_debug_cfg.get("limit_wells_per_dataset", None)
+	)
+	bootstrap_concat_binary_debug_limit_segments_per_well = _as_optional_positive_int(
+		_coalesce(
+			bootstrap_concat_binary_phase_cfg.get("limit_segments_per_well", None),
+			bootstrap_concat_binary_phase_cfg.get("limit_segments", None),
+			bootstrap_concat_binary_debug_cfg.get("limit_segments_per_well", None),
+			bootstrap_concat_binary_debug_cfg.get("limit_segments", None),
+		)
 	)
 	cleanup_concat_binary_debug_cfg = _as_section(cleanup_concat_binary_phase_cfg.get("debug_mode", {}))
 	cleanup_concat_binary_debug_mode_enabled = _as_bool(
@@ -3422,6 +3440,7 @@ def parse_spikesort_stage_config(
 		debug_limit_datasets=debug_limit_datasets,
 		debug_limit_wells=debug_limit_wells,
 		debug_limit_wells_per_dataset=debug_limit_wells_per_dataset,
+		debug_limit_segments_per_well=debug_limit_segments_per_well,
 		sort_debug_mode_enabled=bool(sort_debug_mode_enabled),
 		sort_debug_limit_datasets=sort_debug_limit_datasets,
 		sort_debug_limit_wells=sort_debug_limit_wells,
@@ -3431,6 +3450,9 @@ def parse_spikesort_stage_config(
 		bootstrap_concat_binary_debug_limit_wells=bootstrap_concat_binary_debug_limit_wells,
 		bootstrap_concat_binary_debug_limit_wells_per_dataset=(
 			bootstrap_concat_binary_debug_limit_wells_per_dataset
+		),
+		bootstrap_concat_binary_debug_limit_segments_per_well=(
+			bootstrap_concat_binary_debug_limit_segments_per_well
 		),
 		cleanup_concat_binary_debug_mode_enabled=bool(cleanup_concat_binary_debug_mode_enabled),
 		cleanup_concat_binary_debug_limit_datasets=cleanup_concat_binary_debug_limit_datasets,

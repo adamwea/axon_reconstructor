@@ -1235,6 +1235,86 @@ def test_run_concat_segments_core_records_lazy_output_mode(monkeypatch, tmp_path
     assert written_manifests[0][1]["output_mode"] == "lazy"
 
 
+def test_run_concat_segments_core_limits_segments_before_concatenating(monkeypatch, tmp_path: Path) -> None:
+    from axon_recon.pipeline.stages.preprocess.core import concat_segments as concat_segments_core
+
+    class _FakeRecording:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    fake_spikeinterface = types.ModuleType("spikeinterface")
+    fake_spikeinterface_full = types.ModuleType("spikeinterface.full")
+
+    def _fake_concatenate(recordings):
+        return {"concatenated": [recording.name for recording in recordings]}
+
+    fake_spikeinterface_full.concatenate_recordings = _fake_concatenate
+    fake_spikeinterface.full = fake_spikeinterface_full
+    monkeypatch.setitem(sys.modules, "spikeinterface", fake_spikeinterface)
+    monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_spikeinterface_full)
+
+    manifest_entries = [
+        {"segment_index": 0, "rec_name": "seg000", "provenance_path": str(tmp_path / "seg000.json"), "n_samples": 100},
+        {"segment_index": 1, "rec_name": "seg001", "provenance_path": str(tmp_path / "seg001.json"), "n_samples": 120},
+        {"segment_index": 2, "rec_name": "seg002", "provenance_path": str(tmp_path / "seg002.json"), "n_samples": 140},
+    ]
+    monkeypatch.setattr(concat_segments_core, "load_segment_manifest", lambda _path: list(manifest_entries))
+    monkeypatch.setattr(
+        concat_segments_core,
+        "load_segment_recording_from_entry",
+        lambda entry: _FakeRecording(str(entry["rec_name"])),
+    )
+
+    stitch_inputs: list[list[str]] = []
+
+    def _fake_stitch_frames(entries):
+        stitch_inputs.append([str(item["rec_name"]) for item in entries])
+        return [100, 220]
+
+    monkeypatch.setattr(concat_segments_core, "build_stitch_frames_from_segment_manifest", _fake_stitch_frames)
+    written_manifests: list[tuple[Path, dict[str, object]]] = []
+    monkeypatch.setattr(
+        concat_segments_core,
+        "write_json",
+        lambda path, payload: written_manifests.append((Path(path), dict(payload))),
+    )
+
+    saved_payloads: list[dict[str, object]] = []
+
+    def _fake_save(**kwargs):
+        saved_payloads.append(dict(kwargs))
+        return {
+            "recording_dir": str(kwargs["recording_dir"]),
+            "output_mode": str(kwargs["output_mode"]),
+            "materialized_recording": True,
+            "saved": True,
+        }
+
+    payload = concat_segments_core.run_concat_segments_core(
+        stream_id="well001",
+        segment_manifest_path=tmp_path / "segments_manifest.json",
+        recording_dir=tmp_path / "concatenated_recording",
+        concat_manifest_path=tmp_path / "concat_manifest.json",
+        overwrite_saved_recording=True,
+        output_mode="binary",
+        n_jobs=1,
+        chunk_duration="1s",
+        progress_bar=False,
+        logger=None,
+        run_save_concatenated_recording_core=_fake_save,
+        limit_segments_per_well=2,
+    )
+
+    assert payload["segment_count"] == 2
+    assert payload["source_segment_count"] == 3
+    assert payload["limit_segments_per_well"] == 2
+    assert stitch_inputs == [["seg000", "seg001"]]
+    assert saved_payloads[0]["multirecording"] == {"concatenated": ["seg000", "seg001"]}
+    assert written_manifests[0][1]["segment_count"] == 2
+    assert written_manifests[0][1]["source_segment_count"] == 3
+    assert [item["rec_name"] for item in written_manifests[0][1]["segment_entries"]] == ["seg000", "seg001"]
+
+
 def test_run_preprocess_stage_uses_lazy_output_mode_for_preprocess_segments_when_no_downstream_consumers_enabled(
     tmp_path: Path,
     monkeypatch,
