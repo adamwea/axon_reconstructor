@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from axon_recon.pipeline.stages.templates.core.merge import (
+from axon_recon.pipeline.stages.reconstruct.templates.core.merge import (
 	materialize_unit_templates_by_unit,
 	merge_sources_per_channel,
 	normalize_merge_method,

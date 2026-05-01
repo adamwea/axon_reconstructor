@@ -7,13 +7,13 @@ import types
 import numpy as np
 import pytest
 
-from axon_recon.pipeline.stages.templates.integrations.spikeinterface_extract import (
+from axon_recon.pipeline.stages.reconstruct.templates.integrations.spikeinterface_extract import (
 	_try_recompute_waveforms_extension,
 	build_unit_source_payload,
 	discover_cached_spikeinterface_analyzer_source_names,
 	load_spikeinterface_analyzers,
 )
-from axon_recon.pipeline.stages.templates.models.inputs import AnalyzerPreparationPolicyConfig
+from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import AnalyzerPreparationPolicyConfig
 
 
 class _MockTemplatesExtension:

@@ -25,7 +25,7 @@ from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionP
 from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionPlotBranchVelocitiesPhaseConfig
 from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionUnitSummaryDisplayConfig
 from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionUnitSummaryOutputConfig
-from axon_recon.pipeline.stages.templates.models.inputs import ProbeGeometryConfig
+from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import ProbeGeometryConfig
 
 from axon_recon.pipeline.stages.reconstruct.integrations.axon_velocity import _filter_kwargs_for_callable
 
@@ -397,7 +397,7 @@ def test_write_unit_summary_plot_rerenders_into_shared_figure(tmp_path: Path, mo
 		return orig_savefig(self, *args, **kwargs)
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.render.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot",
 		_spy_render_template_circles_plot,
 	)
 	monkeypatch.setattr(av_plotting, "plot_template_propagation", _spy_plot_template_propagation)
@@ -546,7 +546,7 @@ def test_write_unit_summary_plot_inherits_velocity_legend_from_standalone_config
 		return orig_savefig(self, *args, **kwargs)
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.render.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot",
 		_spy_render_template_circles_plot,
 	)
 	monkeypatch.setattr(av_plotting, "plot_template_propagation", _spy_plot_template_propagation)

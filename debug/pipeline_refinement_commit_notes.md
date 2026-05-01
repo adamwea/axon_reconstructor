@@ -48,10 +48,139 @@ Storage/Cache Impact:
 
 Rollback Notes:
 -
-## 2026-05-01 02:11 - pending - ai: retire direct templates runtime wrappers
+```
+
+## Commit Log
+
+## 2026-05-01 02:40 - pending - ai: move templates package under reconstruct
+
+Status: accepted
+
+Summary:
+- Moved the internal templates implementation package from `pipeline/stages/templates` to `pipeline/stages/reconstruct/templates`.
+- Updated source, tests, and archived debug imports away from the retired `axon_recon.pipeline.stages.templates` package path.
+- Fixed analyzer recompute fallback behavior so rich grouped options are attempted before compatibility stripping, while simple log-count-only recomputes still use compatibility-safe params.
+
+Acceptance Criteria:
+- No files remain under `src/axon_recon/pipeline/stages/templates`.
+- No `axon_recon.pipeline.stages.templates` imports remain under `src/axon_recon/**`.
+- Reconstruct and moved templates tests collect under the reconstruct-owned package path.
+- Moved template extraction tests pass with the recompute compatibility behavior.
+
+Expected To Run:
+- Reconstruct embedded template phases via `axon_recon.pipeline.stages.reconstruct.templates` internals.
+
+Confirmed Not Run:
+- Retired top-level templates stage package path is gone.
+
+Files/Modules Changed:
+- `src/axon_recon/pipeline/stages/reconstruct/templates/**`
+- `src/axon_recon/pipeline/stages/reconstruct/**`
+- `src/axon_recon/pipeline/runner.py`
+- `src/axon_recon/pipeline/tests/test_heatmap_runtime_resolution.py`
+- `debug/archived_for_reference/debug_reconstruct_current_square_from_merged.py`
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/templates/tests src/axon_recon/pipeline/stages/reconstruct/tests/test_config.py src/axon_recon/pipeline/tests/test_reconstruct_target_status.py src/axon_recon/pipeline/tests/test_cli_stage_sequence.py -q` passed.
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_spikeinterface_extract.py -q` passed after the recompute fallback fix.
+- Pytest collection: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest --collect-only src/axon_recon/pipeline -q` passed collection.
+- Reference audit: no old templates package imports remain under `src/axon_recon/**`; no files remain under `src/axon_recon/pipeline/stages/templates/**`.
+- Diagnostics: no VS Code/Pylance errors in modified runner/config files.
+- Smoke (20 min max unless Adam approves longer): not run; this is a package ownership move plus focused behavior fix covered by moved tests.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: real-data smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged; embedded templates state paths are unchanged.
+- Force-restart/replot behavior: unchanged aside from imports resolving through reconstruct-owned modules.
+- Partial-output handling: unchanged.
+
+Storage/Cache Impact:
+- Created: none.
+- Cleaned: removed the retired stage package path from source tree.
+- Persisted: none.
+- Size check: not applicable.
+
+CLI Impact:
+- No selector changes; direct templates CLI remains retired.
+
+Retired Code/Tests:
+- Retired the top-level `pipeline/stages/templates` package path by moving implementation/tests under reconstruct ownership.
+
+Risks And Follow-Ups:
+- Internal function/type names still use `Templates*` and `run_templates_*`; a later cleanup can rename symbols once the path migration is settled.
+
+Rollback Notes:
+- Move `pipeline/stages/reconstruct/templates` back to `pipeline/stages/templates` and restore old import paths if package consumers require the retired path.
+
+## 2026-05-01 02:25 - c7a8bca - ai: move templates config under reconstruct
+
+Status: accepted
+
+Summary:
+- Removed the retired top-level `stages.templates` block from the active debug runtime config.
+- Added reconstruct-owned synthesis of the internal templates stage config from `stages.reconstruct` when old configs no longer define `stages.templates`.
+- Kept compatibility for older configs that still have `stages.templates`.
+
+Acceptance Criteria:
+- `RuntimeConfig.load("debug/debug.runtime.yml")` reports only active stage keys: `preprocess`, `spikesort`, and `reconstruct`.
+- `load_reconstruction_inputs_from_runtime("debug/debug.runtime.yml")` still populates `templates_inputs`.
+- Embedded template phase sequence is filtered from reconstruct phase order, so `templates_inputs.phase_sequence` contains only template phases.
+- Direct top-level templates runtime config is no longer advertised in active debug config.
+
+Expected To Run:
+- Reconstruct embedded template phases configured under `stages.reconstruct.phases`.
+- Older configs with `stages.templates` still parse through the compatibility path.
+
+Confirmed Not Run:
+- Direct top-level `templates` CLI/runtime stage remains retired and absent from active debug config.
+
+Files/Modules Changed:
+- `debug/debug.runtime.yml`
+- `src/axon_recon/pipeline/stages/reconstruct/config.py`
+- `src/axon_recon/pipeline/runner.py`
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/tests/test_config.py src/axon_recon/pipeline/tests/test_reconstruct_target_status.py src/axon_recon/pipeline/tests/test_cli_stage_sequence.py -q` passed.
+- Pytest collection: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest --collect-only src/axon_recon/pipeline -q` passed collection.
+- Runtime load sanity: active runtime stage keys are `['preprocess', 'reconstruct', 'spikesort']`; reconstruct inputs populate `templates_inputs=True`; template output root remains `template_outputs`; embedded template phase sequence is `('analyzers', 'build_templates', 'plot_templates', 'report_templates')`.
+- Diagnostics: no VS Code/Pylance errors in modified code/config files.
+- Smoke (20 min max unless Adam approves longer): not run; this is config ownership and parser plumbing covered by focused tests and runtime load sanity.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: real-data smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior now derives embedded template runtime settings from `stages.reconstruct` when `stages.templates` is absent.
+- Force-restart/replot overrides continue to flow through reconstruct runtime wrappers into embedded templates config.
+- Partial-output handling unchanged.
+
+Storage/Cache Impact:
+- Created: none.
+- Cleaned: removed top-level templates config block from active debug runtime.
+- Persisted: none.
+- Size check: active runtime config is smaller by the retired templates block.
+
+CLI Impact:
+- No new CLI selectors; active stage list remains `preprocess`, `spikesort`, `reconstruct`.
+
+Retired Code/Tests:
+- Retired active `stages.templates` runtime configuration from debug config; templates implementation package remains because reconstruct still imports it internally.
+
+Risks And Follow-Ups:
+- Remaining work is to migrate `stages/templates` config/models/core imports into reconstruct-owned modules before deleting the package.
+
+Rollback Notes:
+- Restore the deleted `stages.templates` YAML block if a legacy direct templates runtime scenario needs temporary recovery.
+
+## 2026-05-01 02:11 - 7929266 - ai: retire direct templates runtime wrappers
+
+Status: accepted
 
 
 Summary:
+- Removed direct `run_templates*_from_runtime` entry points from `pipeline.runner` now that direct templates CLI dispatch is retired.
 - Deleted the unused `stages/templates/cli.py` module.
 - Deleted pipeline-level tests that only protected direct templates runtime wrapper behavior.
 Acceptance Criteria:

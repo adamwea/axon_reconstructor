@@ -873,18 +873,24 @@ def _try_recompute_waveforms_extension(
 	}
 	if compute_chunk_duration not in {None, ""}:
 		compute_kwargs["chunk_duration"] = str(compute_chunk_duration)
-	extension_params, unsupported_extension_keys = _strip_unsupported_extension_params(
-		extension_params=extension_params,
+	first_extension_params = extension_params
+	first_compute_kwargs = compute_kwargs
+	method_requires_requested_attempt = bool(
+		method == "percentage"
+		or requested_min_spikes_per_unit is not None
+		or requested_margin_size is not None
+		or _normalize_requested_waveform_dtype(requested_dtype) is not None
+		or compute_chunk_duration not in {None, ""}
 	)
-	if unsupported_extension_keys:
-		LOGGER.debug(
-			"Dropped unsupported analyzer extension params before compute: dropped=%s",
-			", ".join(str(key) for key in unsupported_extension_keys),
-		)
-
+	if _normalize_requested_log_counts(requested_log_before_after_spike_counts) and not method_requires_requested_attempt:
+		first_extension_params, _ = _build_compatibility_extension_params(extension_params=extension_params)
 	compat_extension_params, stripped_extension_keys = _build_compatibility_extension_params(
 		extension_params=extension_params,
 	)
+	compat_extension_params, unsupported_extension_keys = _strip_unsupported_extension_params(
+		extension_params=compat_extension_params,
+	)
+	stripped_extension_keys = stripped_extension_keys + unsupported_extension_keys
 	compat_compute_kwargs, stripped_compute_keys = _build_compatibility_compute_kwargs(
 		compute_kwargs=compute_kwargs,
 	)
@@ -892,9 +898,7 @@ def _try_recompute_waveforms_extension(
 	compat_attempt = bool(compat_stripped_keys) and (
 		compat_extension_params != extension_params or compat_compute_kwargs != compute_kwargs
 	)
-	attempts: list[tuple[dict[str, Any], dict[str, Any], tuple[str, ...]]] = [
-		(extension_params, compute_kwargs, ()),
-	]
+	attempts: list[tuple[dict[str, Any], dict[str, Any], tuple[str, ...]]] = [(first_extension_params, first_compute_kwargs, ())]
 	if compat_attempt:
 		attempts.append((compat_extension_params, compat_compute_kwargs, compat_stripped_keys))
 

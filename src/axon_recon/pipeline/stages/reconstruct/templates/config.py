@@ -10,7 +10,7 @@ from axon_reconstructor.runtime_config import RuntimeConfig
 from axon_recon.pipeline.shared.grid_sorting import normalize_grid_sort_by
 from axon_recon.pipeline.shared.plotting import build_stage_plot_block
 
-from ...execution.context import ExecutionTarget
+from axon_recon.pipeline.execution.context import ExecutionTarget
 from .core.unit_labels import DEFAULT_UNIT_LABEL_FILTER
 from .models.inputs import (
 	AnalyzerPreparationPolicyConfig,

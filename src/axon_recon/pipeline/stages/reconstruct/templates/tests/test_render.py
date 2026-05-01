@@ -7,26 +7,26 @@ import numpy as np  # type: ignore[import-not-found]
 import matplotlib.pyplot as plt  # type: ignore[import-not-found]
 import matplotlib.collections  # type: ignore[import-not-found]
 
-from axon_recon.pipeline.stages.templates.core.render import render_propagation_plot
-from axon_recon.pipeline.stages.templates.core.render import render_footprint_amplitude_map
-from axon_recon.pipeline.stages.templates.core.render import render_footprint_map_grid_from_assets
-from axon_recon.pipeline.stages.templates.core.render import render_template_wf_overlay
-from axon_recon.pipeline.stages.templates.core.render import render_wf_overlay_grid_from_assets
-from axon_recon.pipeline.stages.templates.core.render import render_topographical_amplitude_footprint
-from axon_recon.pipeline.stages.templates.core.render import _expand_limits_for_glyph_half_size
-from axon_recon.pipeline.stages.templates.core.render import _make_square_limits
-from axon_recon.pipeline.stages.templates.core.render import _probe_electrode_dims_um
-from axon_recon.pipeline.stages.templates.core.render import _limits_for_template_shape
-from axon_recon.pipeline.stages.templates.core.render import _maybe_reversed_colormap
-from axon_recon.pipeline.stages.templates.core.render import _add_propagation_scale_bars
-from axon_recon.pipeline.stages.templates.core.render import _compute_max_non_overlapping_circle_areas
-from axon_recon.pipeline.stages.templates.core.render import _convert_latency_samples_to_units
-from axon_recon.pipeline.stages.templates.core.render import _ticks_ending_in_0_or_5_with_max
-from axon_recon.pipeline.stages.templates.core.render import render_template_circles_plot
-from axon_recon.pipeline.stages.templates.core.render import render_template_plot
-from axon_recon.pipeline.stages.templates.core.render import compute_propagation_channel_order
-from axon_recon.pipeline.stages.templates.core.render import render_image_grid
-from axon_recon.pipeline.stages.templates.models.inputs import (
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_propagation_plot
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_footprint_amplitude_map
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_footprint_map_grid_from_assets
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_template_wf_overlay
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_wf_overlay_grid_from_assets
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_topographical_amplitude_footprint
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import _expand_limits_for_glyph_half_size
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import _make_square_limits
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import _probe_electrode_dims_um
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import _limits_for_template_shape
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import _maybe_reversed_colormap
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import _add_propagation_scale_bars
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import _compute_max_non_overlapping_circle_areas
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import _convert_latency_samples_to_units
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import _ticks_ending_in_0_or_5_with_max
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_template_circles_plot
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_template_plot
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import compute_propagation_channel_order
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_image_grid
+from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import (
 	CenterMostChannelCoordsConfig,
 	FootprintMapConfig,
 	ProbeGeometryConfig,

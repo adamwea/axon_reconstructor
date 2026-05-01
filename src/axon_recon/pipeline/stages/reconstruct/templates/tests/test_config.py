@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
-from axon_recon.pipeline.stages.templates.config import load_templates_inputs_from_runtime
+from axon_recon.pipeline.stages.reconstruct.templates.config import load_templates_inputs_from_runtime
 
 
 def test_load_templates_config_from_templates_stage_block(tmp_path: Path) -> None:

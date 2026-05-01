@@ -12,12 +12,12 @@ import numpy as np  # type: ignore[import-not-found]
 import pytest
 
 from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
-from axon_recon.pipeline.stages.templates.io import resolve_unit_output_paths, write_materialized_source_payload
-from axon_recon.pipeline.stages.templates.core.template_similarity_methods import (
+from axon_recon.pipeline.stages.reconstruct.templates.io import resolve_unit_output_paths, write_materialized_source_payload
+from axon_recon.pipeline.stages.reconstruct.templates.core.template_similarity_methods import (
 	build_template_similarity_features,
 	compute_pairwise_template_similarity,
 )
-from axon_recon.pipeline.stages.templates.models.inputs import (
+from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import (
 	AnalyzerCacheConfig,
 	DataQualityChecksOutputsConfig,
 	FootprintGridsReportConfig,
@@ -54,8 +54,8 @@ from axon_recon.pipeline.stages.templates.models.inputs import (
 	UnitLocationsReportConfig,
 	WfOverlayGridReportConfig,
 )
-from axon_recon.pipeline.stages.templates.models.results import TemplatesResult, UnitTemplatesResult
-from axon_recon.pipeline.stages.templates.runner import (
+from axon_recon.pipeline.stages.reconstruct.templates.models.results import TemplatesResult, UnitTemplatesResult
+from axon_recon.pipeline.stages.reconstruct.templates.runner import (
 	_quiet_unexpected_plot_logs,
 	_plot_safe_propagation_config,
 	_plot_safe_template_wf_overlay_config,
@@ -133,15 +133,15 @@ def test_run_templates_stage_honors_phase_sequence_order(tmp_path: Path, monkeyp
 		units=[],
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.run_templates_plot_templates_phase",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_templates_plot_templates_phase",
 		_phase("plot_templates"),
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.run_templates_resolve_sources_phase",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_templates_resolve_sources_phase",
 		_phase("resolve_sources"),
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.collect_templates_result_from_outputs",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.collect_templates_result_from_outputs",
 		lambda _inputs: expected_result,
 	)
 
@@ -179,23 +179,23 @@ def test_run_templates_stage_explicit_top_level_phases_ignore_disabled_per_unit_
 		units=[],
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.run_templates_analyzers_phase",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_templates_analyzers_phase",
 		_phase("analyzers"),
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.run_templates_build_templates_phase",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_templates_build_templates_phase",
 		_phase("build_templates"),
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.run_templates_plot_templates_phase",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_templates_plot_templates_phase",
 		_phase("plot_templates"),
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.run_templates_report_templates_phase",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_templates_report_templates_phase",
 		_phase("report_templates"),
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.collect_templates_result_from_outputs",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.collect_templates_result_from_outputs",
 		lambda _inputs: expected_result,
 	)
 
@@ -250,7 +250,7 @@ def test_run_templates_analyzers_phase_logs_settings_and_writes_run_stats(tmp_pa
 			yield item
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner._iter_templates_phase_analyzers",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner._iter_templates_phase_analyzers",
 		_fake_iter_templates_phase_analyzers,
 	)
 
@@ -290,7 +290,7 @@ def test_run_templates_build_templates_phase_materializes_templates_from_payload
 	templates_out_dir = well_out_dir / "templates_outputs"
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.build_templates.read_maxwell_sampling_frequency_hz",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.build_templates.read_maxwell_sampling_frequency_hz",
 		lambda *, h5_path, stream_id: 10_000.0,
 	)
 
@@ -396,7 +396,7 @@ def test_run_templates_build_templates_phase_warns_when_merged_scope_shrinks(tmp
 	templates_out_dir = well_out_dir / "templates_outputs"
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.build_templates.read_maxwell_sampling_frequency_hz",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.build_templates.read_maxwell_sampling_frequency_hz",
 		lambda *, h5_path, stream_id: 10_000.0,
 	)
 
@@ -438,7 +438,7 @@ def test_run_templates_build_templates_phase_warns_when_merged_scope_shrinks(tmp
 		return (merged_template, merged_locs, merged_template, merged_locs, [10]), {"applied": False}
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.build_templates.materialize_unit_templates_from_sources_with_meta",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.build_templates.materialize_unit_templates_from_sources_with_meta",
 		_fake_materialize_unit_templates_from_sources_with_meta,
 	)
 
@@ -479,7 +479,7 @@ def test_run_templates_build_templates_phase_omits_disabled_full_outputs(tmp_pat
 	templates_out_dir = well_out_dir / "templates_outputs"
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.build_templates.read_maxwell_sampling_frequency_hz",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.build_templates.read_maxwell_sampling_frequency_hz",
 		lambda *, h5_path, stream_id: 10_000.0,
 	)
 
@@ -638,23 +638,23 @@ def test_run_templates_build_templates_phase_loads_cached_analyzers_when_payload
 		}
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.run_templates_extract_template_segments_phase",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_templates_extract_template_segments_phase",
 		_fake_extract_phase,
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.discover_cached_spikeinterface_analyzer_source_names",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.discover_cached_spikeinterface_analyzer_source_names",
 		_fake_discover_cached_source_names,
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.load_cached_spikeinterface_analyzers",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.load_cached_spikeinterface_analyzers",
 		_fake_load_cached_spikeinterface_analyzers,
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.build_unit_source_payload",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.build_unit_source_payload",
 		_fake_build_unit_source_payload,
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.build_templates_phase_from_unit_payloads",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.build_templates_phase_from_unit_payloads",
 		_fake_build_templates_phase_from_unit_payloads,
 	)
 
@@ -699,7 +699,7 @@ def test_run_templates_build_templates_phase_requires_analyzer_cache_when_payloa
 		return []
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.discover_cached_spikeinterface_analyzer_source_names",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.discover_cached_spikeinterface_analyzer_source_names",
 		_fake_discover_cached_source_names,
 	)
 
@@ -936,7 +936,7 @@ def test_run_templates_compute_template_similarity_phase_reuses_existing_templat
 		raise AssertionError("render_template_circles_plot should not be called when canonical template_circles PNGs exist")
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.compute_template_similarity.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.compute_template_similarity.render_template_circles_plot",
 		_unexpected_render,
 	)
 
@@ -987,7 +987,7 @@ def test_run_templates_compute_template_similarity_phase_falls_back_to_template_
 		return {}
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.compute_template_similarity.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.compute_template_similarity.render_template_circles_plot",
 		_fake_render_template_circles_plot,
 	)
 
@@ -1138,14 +1138,14 @@ def test_run_templates_stage_writes_multiple_negative_peaks_quality_artifacts(tm
 	np.save(full_unit_dir / "full_template.npy", full_template)
 	np.save(full_unit_dir / "full_channel_locations_xy.npy", full_locs)
 
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_circles_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_propagation_plot", lambda **kwargs: {})
 
 	inputs = TemplatesInputs(
 		h5_path=h5_path,
@@ -1228,13 +1228,13 @@ def test_run_templates_stage_quality_check_violation_plot_and_output_knobs(tmp_p
 	np.save(full_unit_dir / "full_template.npy", full_template)
 	np.save(full_unit_dir / "full_channel_locations_xy.npy", full_locs)
 
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_circles_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
 
 	prop_calls: list[dict[str, Any]] = []
 
@@ -1247,7 +1247,7 @@ def test_run_templates_stage_quality_check_violation_plot_and_output_knobs(tmp_p
 			out["propagation_plot_svg"] = str(kwargs["svg_path"])
 		return out
 
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", _fake_propagation)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_propagation_plot", _fake_propagation)
 
 	inputs = TemplatesInputs(
 		h5_path=h5_path,
@@ -1353,14 +1353,14 @@ def test_run_templates_stage_quality_check_warnings_can_be_suppressed(tmp_path: 
 	np.save(full_unit_dir / "full_template.npy", full_template)
 	np.save(full_unit_dir / "full_channel_locations_xy.npy", full_locs)
 
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_circles_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_propagation_plot", lambda **kwargs: {})
 
 	inputs = TemplatesInputs(
 		h5_path=h5_path,
@@ -1413,14 +1413,14 @@ def test_run_templates_stage_propagation_ordering_debug_logs_are_debug_level(tmp
 	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
 	_make_templates_artifacts(well_out_dir)
 
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_circles_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_propagation_plot", lambda **kwargs: {})
 
 	inputs = TemplatesInputs(
 		h5_path=h5_path,
@@ -1478,12 +1478,12 @@ def test_run_templates_stage_propagation_right_panel_composes_svg(tmp_path: Path
 	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
 	_make_templates_artifacts(well_out_dir)
 
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
 
 	circles_calls: list[dict[str, Any]] = []
 
@@ -1518,10 +1518,10 @@ def test_run_templates_stage_propagation_right_panel_composes_svg(tmp_path: Path
 		Path(str(kwargs["output_png_path"])).write_bytes(b"\x89PNG\r\n\x1a\n")
 		return kwargs["output_png_path"]
 
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", _fake_circles)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", _fake_prop)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.compose_svg_side_by_side", _fake_compose)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.compose_png_side_by_side", _fake_compose_png)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_circles_plot", _fake_circles)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_propagation_plot", _fake_prop)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.compose_svg_side_by_side", _fake_compose)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.compose_png_side_by_side", _fake_compose_png)
 	def _fake_compute_propagation_channel_order(**kwargs):
 		channel_indices = kwargs.get("channel_indices", None)
 		if channel_indices is not None:
@@ -1547,7 +1547,7 @@ def test_run_templates_stage_propagation_right_panel_composes_svg(tmp_path: Path
 		}
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.compute_propagation_channel_order",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.compute_propagation_channel_order",
 		_fake_compute_propagation_channel_order,
 	)
 
@@ -1798,8 +1798,8 @@ def test_run_templates_stage_prefers_composition_asset_apis_when_assets_exist(tm
 			out[str(kwargs.get("svg_output_key", "footprint_map_grid_svg"))] = str(kwargs["svg_path"])
 		return out
 
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_wf_overlay_grid_from_assets", _fake_wf_from_assets)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_map_grid_from_assets", _fake_foot_from_assets)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_wf_overlay_grid_from_assets", _fake_wf_from_assets)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_map_grid_from_assets", _fake_foot_from_assets)
 
 	inputs = TemplatesInputs(
 		h5_path=h5_path,
@@ -1883,29 +1883,29 @@ def test_run_templates_stage_sorts_grid_inputs_by_max_ptp(tmp_path: Path, monkey
 	_write_unit_artifacts(2, scale=2.0)
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.load_materialized_overlay_waveforms",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.load_materialized_overlay_waveforms",
 		lambda **kwargs: (np.zeros((8, 40), dtype=float), 1, 8),
 	)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_plot", lambda **kwargs: {})
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_circles_plot",
 		lambda **kwargs: {"template_circles_png": str(kwargs["png_path"])} if kwargs.get("png_path") is not None else {},
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_wf_overlay",
 		lambda **kwargs: {"template_wf_overlay_png": str(kwargs["png_path"])} if kwargs.get("png_path") is not None else {},
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_amplitude_map",
 		lambda **kwargs: {"footprint_amplitude_map_png": str(kwargs["png_path"])} if kwargs.get("png_path") is not None else {},
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_latency_map",
 		lambda **kwargs: {"footprint_latency_map_png": str(kwargs["png_path"])} if kwargs.get("png_path") is not None else {},
 	)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_propagation_plot", lambda **kwargs: {})
 
 	captured_order: dict[str, list[str]] = {}
 
@@ -1918,8 +1918,8 @@ def test_run_templates_stage_sorts_grid_inputs_by_max_ptp(tmp_path: Path, monkey
 		captured_order[key] = [Path(path).parent.name for path in kwargs.get("image_paths", [])]
 		return {}
 
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_wf_overlay_grid_from_assets", _capture_wf_grid)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_map_grid_from_assets", _capture_foot_grid)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_wf_overlay_grid_from_assets", _capture_wf_grid)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_map_grid_from_assets", _capture_foot_grid)
 
 	inputs = TemplatesInputs(
 		h5_path=h5_path,
@@ -1981,14 +1981,14 @@ def test_run_templates_stage_writes_unit_locations_report_json(tmp_path: Path, m
 	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
 	_make_templates_artifacts(well_out_dir)
 
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_circles_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_propagation_plot", lambda **kwargs: {})
 
 	inputs = TemplatesInputs(
 		h5_path=h5_path,
@@ -2050,14 +2050,14 @@ def test_run_templates_stage_locations_report_passes_underlay_channel_payloads(t
 		encoding="utf-8",
 	)
 
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_circles_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_propagation_plot", lambda **kwargs: {})
 
 	captured: dict[str, Any] = {}
 
@@ -2068,7 +2068,7 @@ def test_run_templates_stage_locations_report_passes_underlay_channel_payloads(t
 		captured["original_by_unit"] = kwargs.get("original_unit_locations_by_unit")
 		return {"unit_locations_json": str(kwargs["json_path"])}
 
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_unit_locations_report", _capture_locations_report)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_unit_locations_report", _capture_locations_report)
 
 	inputs = TemplatesInputs(
 		h5_path=h5_path,
@@ -2152,14 +2152,14 @@ def test_run_templates_stage_locations_report_prefers_global_concat_locations(tm
 	templates_root.mkdir(parents=True, exist_ok=True)
 	np.save(templates_root / "concat_channel_locations_xy.npy", global_concat_locs)
 
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_circles_plot", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_wf_overlay", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_amplitude_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_latency_map", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_amplitude_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_latency_footprint", lambda **kwargs: {})
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_propagation_plot", lambda **kwargs: {})
 
 	captured: dict[str, Any] = {}
 
@@ -2167,7 +2167,7 @@ def test_run_templates_stage_locations_report_prefers_global_concat_locations(tm
 		captured["concat"] = kwargs.get("concat_channel_locations_xy")
 		return {"unit_locations_json": str(kwargs["json_path"])}
 
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_unit_locations_report", _capture_locations_report)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_unit_locations_report", _capture_locations_report)
 
 	inputs = TemplatesInputs(
 		h5_path=h5_path,
@@ -2523,7 +2523,7 @@ def test_run_templates_stage_uses_spikeinterface_materialization_fallback(tmp_pa
 		return merged_dir.parent, full_dir.parent
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.materialize_templates_from_spikeinterface",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.materialize_templates_from_spikeinterface",
 		_fake_materialize,
 	)
 
@@ -2584,7 +2584,7 @@ def test_run_templates_stage_force_restart_prefers_spikeinterface_materializatio
 		return merged_dir.parent, full_dir.parent
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.materialize_templates_from_spikeinterface",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.materialize_templates_from_spikeinterface",
 		_fake_materialize,
 	)
 
@@ -2639,12 +2639,12 @@ def test_run_templates_stage_unit_force_restart_preserves_reports_when_not_overw
 		raise AssertionError("stage report generation should have been skipped")
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.materialize_templates_from_spikeinterface",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.materialize_templates_from_spikeinterface",
 		_fake_materialize,
 	)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_wf_overlay_grid_from_assets", _raise_unexpected)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_map_grid_from_assets", _raise_unexpected)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_multi_source_pdf", _raise_unexpected)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_wf_overlay_grid_from_assets", _raise_unexpected)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_map_grid_from_assets", _raise_unexpected)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_multi_source_pdf", _raise_unexpected)
 
 	inputs = TemplatesInputs(
 		h5_path=h5_path,
@@ -2716,7 +2716,7 @@ def test_run_templates_stage_force_restart_reuses_analyzer_cache_when_enabled(tm
 		return templates_out_dir / "cache" / "templates" / "merged", templates_out_dir / "cache" / "templates" / "full"
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.materialize_templates_from_spikeinterface",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.materialize_templates_from_spikeinterface",
 		_fake_materialize,
 	)
 
@@ -2795,7 +2795,7 @@ def test_run_templates_stage_writes_upsampling_decisions_to_summaries(tmp_path: 
 		)
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.materialize_templates_from_spikeinterface",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.materialize_templates_from_spikeinterface",
 		_fake_materialize,
 	)
 
@@ -2914,17 +2914,17 @@ def test_run_templates_stage_passes_effective_sampling_rate_to_timing_renderers(
 		return {}
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner.materialize_templates_from_spikeinterface",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner.materialize_templates_from_spikeinterface",
 		_fake_materialize,
 	)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", _fake_template_plot)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", _fake_template_circles_plot)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", _fake_overlay)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", _fake_amp_map)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", _fake_latency_map)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", _fake_topo_amp)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", _fake_topo_latency)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", _fake_propagation)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_plot", _fake_template_plot)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_circles_plot", _fake_template_circles_plot)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_wf_overlay", _fake_overlay)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_amplitude_map", _fake_amp_map)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_latency_map", _fake_latency_map)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_amplitude_footprint", _fake_topo_amp)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_latency_footprint", _fake_topo_latency)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_propagation_plot", _fake_propagation)
 
 	inputs = TemplatesInputs(
 		h5_path=h5_path,
@@ -3021,14 +3021,14 @@ def test_force_replot_reuses_persisted_sampling_metadata_for_timing_renderers(tm
 		received["prop"] = None if probe_geometry is None else probe_geometry.sampling_rate_hz
 		return {}
 
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", _fake_template_plot)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", _fake_template_circles_plot)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", _fake_overlay)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", _fake_amp_map)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", _fake_latency_map)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", _fake_topo_amp)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", _fake_topo_latency)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", _fake_propagation)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_plot", _fake_template_plot)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_circles_plot", _fake_template_circles_plot)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_wf_overlay", _fake_overlay)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_amplitude_map", _fake_amp_map)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_latency_map", _fake_latency_map)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_amplitude_footprint", _fake_topo_amp)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_latency_footprint", _fake_topo_latency)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_propagation_plot", _fake_propagation)
 
 	inputs = TemplatesInputs(
 		h5_path=h5_path,
@@ -3101,14 +3101,14 @@ def test_force_replot_infers_sampling_rate_from_execution_when_metadata_missing(
 		received["prop"] = None if probe_geometry is None else probe_geometry.sampling_rate_hz
 		return {}
 
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_plot", _fake_template_plot)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_circles_plot", _fake_template_circles_plot)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_template_wf_overlay", _fake_overlay)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_amplitude_map", _fake_amp_map)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_footprint_latency_map", _fake_latency_map)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_amplitude_footprint", _fake_topo_amp)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_topographical_latency_footprint", _fake_topo_latency)
-	monkeypatch.setattr("axon_recon.pipeline.stages.templates.runner.render_propagation_plot", _fake_propagation)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_plot", _fake_template_plot)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_circles_plot", _fake_template_circles_plot)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_template_wf_overlay", _fake_overlay)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_amplitude_map", _fake_amp_map)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_footprint_latency_map", _fake_latency_map)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_amplitude_footprint", _fake_topo_amp)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_topographical_latency_footprint", _fake_topo_latency)
+	monkeypatch.setattr("axon_recon.pipeline.stages.reconstruct.templates.runner.render_propagation_plot", _fake_propagation)
 
 	inputs = TemplatesInputs(
 		h5_path=h5_path,
@@ -3505,7 +3505,7 @@ def test_run_templates_plot_templates_phase_uses_batched_plot_runner(tmp_path: P
 		)
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner._run_templates_plot_batches",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner._run_templates_plot_batches",
 		_fake_run_templates_plot_batches,
 	)
 
@@ -3552,7 +3552,7 @@ def test_run_templates_plot_batches_runs_units_sequentially(tmp_path: Path, monk
 		)
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.runner._run_templates_stage_monolithic",
+		"axon_recon.pipeline.stages.reconstruct.templates.runner._run_templates_stage_monolithic",
 		_fake_run_templates_stage_monolithic,
 	)
 

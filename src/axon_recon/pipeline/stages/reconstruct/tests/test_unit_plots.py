@@ -229,7 +229,7 @@ def test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps(mo
 		return {"template_circles_png": "noop.png"}
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.render.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot",
 		_fake_render_template_circles_plot,
 	)
 
@@ -330,7 +330,7 @@ def test_write_unit_circle_recon_plot_nodes_only_scope_uses_clean_payload(monkey
 		return {"template_circles_png": "noop.png"}
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.render.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot",
 		_fake_render_template_circles_plot,
 	)
 
@@ -418,7 +418,7 @@ def test_write_unit_circle_recon_plot_selected_channels_scope_uses_filtered_chan
 		return {"template_circles_png": "noop.png"}
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.render.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot",
 		_fake_render_template_circles_plot,
 	)
 
@@ -497,7 +497,7 @@ def test_write_unit_circle_recon_plot_clean_scope_falls_back_to_paths_clean(monk
 		return {"template_circles_png": "noop.png"}
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.render.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot",
 		_fake_render_template_circles_plot,
 	)
 
@@ -571,15 +571,15 @@ def test_write_unit_circle_recon_plot_base_amplitude_map_dispatches(monkeypatch)
 		raise AssertionError("unexpected renderer called")
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.render.render_footprint_amplitude_map",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_footprint_amplitude_map",
 		_fake_render_footprint_amplitude_map,
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.render.render_footprint_latency_map",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_footprint_latency_map",
 		_should_not_call,
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.render.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot",
 		_should_not_call,
 	)
 
@@ -675,15 +675,15 @@ def test_write_unit_circle_recon_plot_base_latency_map_dispatches(monkeypatch) -
 		raise AssertionError("unexpected renderer called")
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.render.render_footprint_latency_map",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_footprint_latency_map",
 		_fake_render_footprint_latency_map,
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.render.render_footprint_amplitude_map",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_footprint_amplitude_map",
 		_should_not_call,
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.templates.core.render.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot",
 		_should_not_call,
 	)
 

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
-from axon_recon.pipeline.stages.templates.models.inputs import FootprintMapGridReportConfig, TemplatesInputs
+from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import FootprintMapGridReportConfig, TemplatesInputs
 
 
 @dataclass(frozen=True)

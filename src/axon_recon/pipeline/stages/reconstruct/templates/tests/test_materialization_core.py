@@ -4,10 +4,10 @@ import logging
 
 import numpy as np
 
-from axon_recon.pipeline.stages.templates.core.materialization import (
+from axon_recon.pipeline.stages.reconstruct.templates.core.materialization import (
 	materialize_unit_templates_from_sources,
 )
-from axon_recon.pipeline.stages.templates.models.inputs import TimeUpsampleConfig
+from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import TimeUpsampleConfig
 
 
 def _payload(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from axon_recon.pipeline.stages.templates.core.quality_checks import detect_multiple_negative_peaks
+from axon_recon.pipeline.stages.reconstruct.templates.core.quality_checks import detect_multiple_negative_peaks
 
 
 def test_detect_multiple_negative_peaks_flags_two_significant_minima() -> None:

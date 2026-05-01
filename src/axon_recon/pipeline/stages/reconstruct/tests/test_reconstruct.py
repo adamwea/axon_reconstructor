@@ -13,7 +13,7 @@ from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionG
 from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionInputs
 from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionReportsConfig
 from axon_recon.pipeline.stages.reconstruct.runner import run_reconstruct_stage
-from axon_recon.pipeline.stages.templates.models.inputs import FootprintMapGridReportConfig
+from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import FootprintMapGridReportConfig
 
 
 def test_run_reconstruct_stage_emits_summary_and_report_outputs(tmp_path: Path, monkeypatch) -> None:

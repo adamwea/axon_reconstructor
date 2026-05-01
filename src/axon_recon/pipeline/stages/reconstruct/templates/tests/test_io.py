@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from axon_recon.pipeline.stages.templates.io import (
+from axon_recon.pipeline.stages.reconstruct.templates.io import (
 	load_materialized_source_payload,
 	resolve_materialized_source_payload_unit_dir,
 	resolve_materialized_templates_dirs,

@@ -80,8 +80,8 @@ def _shift_axes(ax: Any, *, x_offset_frac: float, y_offset_frac: float) -> None:
 
 
 def _build_summary_circle_config(*, circle_config: Any, display_config: Any) -> Any:
-	from axon_recon.pipeline.stages.templates.models.inputs import FootprintMapConfig
-	from axon_recon.pipeline.stages.templates.models.inputs import TemplateCirclesPlotConfig
+	from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import FootprintMapConfig
+	from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import TemplateCirclesPlotConfig
 
 	summary_display = getattr(circle_config, "display", None)
 	recon_show_branch_legend = getattr(display_config, "recon_show_branch_legend", None)

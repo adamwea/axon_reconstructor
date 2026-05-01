@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from axon_recon.pipeline.stages.templates.core.source_payloads import normalize_source_payload
+from axon_recon.pipeline.stages.reconstruct.templates.core.source_payloads import normalize_source_payload
 
 
 def test_normalize_source_payload_applies_sparse_subset_and_orientation() -> None:

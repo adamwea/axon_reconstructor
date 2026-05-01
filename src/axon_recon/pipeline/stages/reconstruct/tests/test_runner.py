@@ -62,7 +62,7 @@ from axon_recon.pipeline.stages.reconstruct.runner import (
 	run_reconstruct_templates_reports_phase,
 	run_reconstruct_templates_resolve_sources_phase,
 )
-from axon_recon.pipeline.stages.templates.models.inputs import ProbeGeometryConfig, TemplatesInputs
+from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import ProbeGeometryConfig, TemplatesInputs
 
 
 def test_format_unit_reldir() -> None:

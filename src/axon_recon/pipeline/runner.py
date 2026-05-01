@@ -88,7 +88,7 @@ from .stages.spikesort.models.results import (
 from .stages.spikesort.orchestrators.merge_si_auto import run_spikesort_merge_si_auto
 from .stages.spikesort.orchestrators.merge_slay import run_spikesort_merge_slay
 from .stages.spikesort.orchestrators.merge_unitmatch import run_spikesort_merge_unitmatch
-from .stages.templates.config import (
+from .stages.reconstruct.templates.config import (
 	build_templates_inputs_for_target,
 	parse_probe_geometry_from_data_config,
 	parse_templates_stage_config,

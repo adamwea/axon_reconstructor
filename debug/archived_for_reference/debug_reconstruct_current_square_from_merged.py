@@ -21,8 +21,8 @@ from axon_recon.pipeline.config import load_pipeline_runtime_bundle
 from axon_recon.pipeline.stages.reconstruct.config import parse_reconstruction_stage_config
 from axon_recon.pipeline.stages.reconstruct.integrations.axon_velocity import compute_graph_tracking
 from axon_recon.pipeline.stages.reconstruct.integrations.axon_velocity import import_axon_velocity
-from axon_recon.pipeline.stages.templates.runner import _build_square_locations
-from axon_recon.pipeline.stages.templates.runner import _build_square_template
+from axon_recon.pipeline.stages.reconstruct.templates.runner import _build_square_locations
+from axon_recon.pipeline.stages.reconstruct.templates.runner import _build_square_template
 
 
 DEFAULT_MERGED_TEMPLATE = Path(

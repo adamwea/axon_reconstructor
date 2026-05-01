@@ -17,8 +17,8 @@ def load_templates_for_unit(
 	probe_geometry: Any | None = None,
 ) -> tuple[Any, Any, Any, Any, float, str]:
 	import numpy as np  # type: ignore[import-not-found]
-	from axon_recon.pipeline.stages.templates.runner import _build_square_locations
-	from axon_recon.pipeline.stages.templates.runner import _build_square_template
+	from axon_recon.pipeline.stages.reconstruct.templates.runner import _build_square_locations
+	from axon_recon.pipeline.stages.reconstruct.templates.runner import _build_square_template
 
 	def _project_template_to_target_locations(
 		template_c_by_t: np.ndarray,

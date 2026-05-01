@@ -330,12 +330,12 @@ def write_unit_circle_recon_plot(
 ) -> dict[str, str]:
 	import numpy as np  # type: ignore[import-not-found]
 
-	from axon_recon.pipeline.stages.templates.core.render import render_footprint_amplitude_map
-	from axon_recon.pipeline.stages.templates.core.render import render_footprint_latency_map
-	from axon_recon.pipeline.stages.templates.core.render import render_template_circles_plot
-	from axon_recon.pipeline.stages.templates.models.inputs import FootprintMapConfig
-	from axon_recon.pipeline.stages.templates.models.inputs import TemplateCirclesBranchMorphologyConfig
-	from axon_recon.pipeline.stages.templates.models.inputs import TemplateCirclesPlotConfig
+	from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_footprint_amplitude_map
+	from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_footprint_latency_map
+	from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_template_circles_plot
+	from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import FootprintMapConfig
+	from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import TemplateCirclesBranchMorphologyConfig
+	from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import TemplateCirclesPlotConfig
 
 	# Step 1: keep reconstruct circle_recon as a thin wrapper around templates-stage circles rendering.
 

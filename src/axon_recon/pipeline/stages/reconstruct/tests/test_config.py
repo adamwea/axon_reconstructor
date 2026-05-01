@@ -4,7 +4,7 @@ from pathlib import Path
 from textwrap import dedent
 
 from axon_recon.pipeline.stages.reconstruct.config import load_reconstruction_inputs_from_runtime
-from axon_recon.pipeline.stages.templates.models.inputs import TemplatesInputs
+from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import TemplatesInputs
 
 
 def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:

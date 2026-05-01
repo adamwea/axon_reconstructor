@@ -9,12 +9,12 @@ from axon_reconstructor.runtime_config import RuntimeConfig
 from axon_recon.pipeline.shared.grid_sorting import normalize_grid_sort_by
 from axon_recon.pipeline.shared.plotting import build_stage_plot_block
 from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
-from axon_recon.pipeline.stages.templates.config import DEFAULT_TEMPLATES_PHASE_SEQUENCE
-from axon_recon.pipeline.stages.templates.config import _build_footprint_grid_report_config
-from axon_recon.pipeline.stages.templates.config import build_templates_inputs_for_target
-from axon_recon.pipeline.stages.templates.config import normalize_templates_phase_name
-from axon_recon.pipeline.stages.templates.config import parse_probe_geometry_from_data_config
-from axon_recon.pipeline.stages.templates.config import parse_templates_stage_config
+from axon_recon.pipeline.stages.reconstruct.templates.config import DEFAULT_TEMPLATES_PHASE_SEQUENCE
+from axon_recon.pipeline.stages.reconstruct.templates.config import _build_footprint_grid_report_config
+from axon_recon.pipeline.stages.reconstruct.templates.config import build_templates_inputs_for_target
+from axon_recon.pipeline.stages.reconstruct.templates.config import normalize_templates_phase_name
+from axon_recon.pipeline.stages.reconstruct.templates.config import parse_probe_geometry_from_data_config
+from axon_recon.pipeline.stages.reconstruct.templates.config import parse_templates_stage_config
 
 from ...execution.context import ExecutionTarget
 from .models.inputs import (
