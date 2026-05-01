@@ -52,7 +52,67 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-01 02:50 - pending - ai: move shared helpers into axon_recon
+## 2026-05-01 03:05 - pending - ai: rehome v1 path and sort helpers
+
+Status: accepted
+
+Summary:
+- Copied remaining active v2 support helpers into `axon_recon.pipeline`: checkpointing, path layout, output path, and pipeline logging.
+- Rehomed the old in-process spikesort adapter as `axon_recon.pipeline.stages.spikesort.legacy_runner`.
+- Rewrote active v2 imports/tests away from `axon_reconstructor.pipeline.*` paths.
+
+Acceptance Criteria:
+- No `from axon_reconstructor`, `import axon_reconstructor`, `axon_reconstructor.pipeline`, `axon_reconstructor.runtime_config`, or `axon_reconstructor.cli` imports remain under `src/axon_recon/**`.
+- Active config, preprocess, spikesort, and reconstruct-template tests pass against the new v2 module paths.
+- Pipeline tests still collect.
+
+Expected To Run:
+- Active v2 stages use `axon_recon`-owned path/log/checkpoint helpers and spikesort adapter.
+
+Confirmed Not Run:
+- v1 package deletion is not part of this slice; old package files remain for the following deletion slice.
+
+Files/Modules Changed:
+- `src/axon_recon/pipeline/checkpointing.py`
+- `src/axon_recon/pipeline/output_paths.py`
+- `src/axon_recon/pipeline/pipeline_logging.py`
+- `src/axon_recon/pipeline/scratch_layout.py`
+- `src/axon_recon/pipeline/stages/spikesort/legacy_runner.py`
+- active v2 stage/tests importing those helpers.
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_config.py src/axon_recon/pipeline/tests/test_parallel_fanout.py src/axon_recon/pipeline/stages/preprocess/tests/test_runner.py src/axon_recon/pipeline/stages/spikesort/tests/test_runner.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py -q` passed.
+- Pytest collection: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest --collect-only src/axon_recon/pipeline -q` passed collection.
+- Reference audit: no v1 package imports remain under `src/axon_recon/**`.
+- Smoke (20 min max unless Adam approves longer): not run; this is a module ownership move covered by focused tests.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: real-data smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged; copied checkpoint/path behavior is unchanged.
+- Force-restart/replot behavior: unchanged; spikesort still delegates through the same adapter behavior under a v2-owned module path.
+- Partial-output handling: unchanged.
+
+Storage/Cache Impact:
+- Created: v2-owned helper modules and spikesort legacy adapter module.
+- Cleaned: none yet; v1 package removal follows after script/test/doc references are handled.
+- Persisted: none.
+- Size check: not applicable.
+
+CLI Impact:
+- No selector changes.
+
+Retired Code/Tests:
+- No deletion yet; this removes active v2 dependency on remaining v1 helper/sort modules.
+
+Risks And Follow-Ups:
+- Next slice should update the package script/testpaths and delete `src/axon_reconstructor`, root v1 tests, and stale docs/archive references that only target retired code.
+
+Rollback Notes:
+- Repoint v2 imports back to `axon_reconstructor.pipeline.*` modules if needed before v1 deletion.
+
+## 2026-05-01 02:50 - b91c232 - ai: move shared helpers into axon_recon
 
 Status: accepted
 

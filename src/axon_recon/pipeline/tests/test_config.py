@@ -10,7 +10,7 @@ from axon_recon.pipeline.stages.preprocess.core.copy_src_to_scratch import (
     _materialize_dataset_input_in_scratch,
     resolve_copy_src_to_scratch_input_path,
 )
-from axon_reconstructor.pipeline.scratch_layout import resolve_scratch_layout
+from axon_recon.pipeline.scratch_layout import resolve_scratch_layout
 
 
 def _set_mtime(path: Path, when_ns: int) -> None:

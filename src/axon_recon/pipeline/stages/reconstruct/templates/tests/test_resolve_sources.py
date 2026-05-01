@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import ResolveSourcesPhaseConfig, TemplatesInputs
 from axon_recon.pipeline.stages.reconstruct.templates.runner import run_templates_resolve_sources_phase
 

@@ -14,8 +14,8 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any, Callable
 
-from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
-from axon_reconstructor.pipeline.stg2_spikesorting.runner import (
+from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
+from axon_recon.pipeline.stages.spikesort.legacy_runner import (
 	SpikeSortingInputs as LegacySpikeSortingInputs,
 	run_spikesorting_stage as run_legacy_spikesorting_stage,
 )

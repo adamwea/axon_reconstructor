@@ -12,7 +12,7 @@ from typing import Any, Callable
 
 import numpy as np  # type: ignore[import-not-found]
 
-from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir #TODO: dont import this from v1
+from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir #TODO: dont import this from v1
 from axon_recon.pipeline.shared.grid_sorting import (
 	coerce_grid_sort_metrics,
 	compute_template_grid_sort_metrics,

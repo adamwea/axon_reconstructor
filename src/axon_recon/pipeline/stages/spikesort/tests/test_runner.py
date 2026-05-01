@@ -3954,7 +3954,7 @@ def test_run_spikesort_stage_skips_when_sort_disabled(tmp_path: Path, monkeypatc
 
 
 def test_run_spikesort_merge_stage_writes_recommended_candidate_outputs(tmp_path: Path, monkeypatch) -> None:
-    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+    from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
@@ -4066,7 +4066,7 @@ def test_run_spikesort_merge_stage_writes_recommended_candidate_outputs(tmp_path
 def test_run_spikesort_merge_stage_working_cache_is_sorter_only_and_lazy_analyzer(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+    from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
@@ -4364,7 +4364,7 @@ def test_run_spikesort_merge_stage_fails_fast_when_slay_binary_input_is_missing(
 
 
 def test_run_spikesort_merge_stage_reports_plot_generation_note_when_auto_accept_enabled(tmp_path: Path, monkeypatch) -> None:
-    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+    from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
@@ -4441,7 +4441,7 @@ def test_run_spikesort_merge_stage_reports_plot_generation_note_when_auto_accept
 
 
 def test_run_spikesort_merge_stage_releases_pre_merge_analyzer_before_slay(tmp_path: Path, monkeypatch) -> None:
-    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+    from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
@@ -4913,7 +4913,7 @@ def test_run_spikesort_merge_stage_skips_entire_phase_when_merge_units_disabled(
 
 
 def test_run_spikesort_merge_stage_caches_sorting_outputs_before_merge_when_enabled(tmp_path: Path) -> None:
-    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+    from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
     h5_path.parent.mkdir(parents=True, exist_ok=True)
@@ -4970,7 +4970,7 @@ def test_run_spikesort_merge_stage_caches_sorting_outputs_before_merge_when_enab
 
 
 def test_run_spikesort_merge_stage_caches_outputs_under_merge_rel_output_root(tmp_path: Path) -> None:
-    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+    from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
     h5_path.parent.mkdir(parents=True, exist_ok=True)
@@ -5026,7 +5026,7 @@ def test_run_spikesort_merge_stage_caches_outputs_under_merge_rel_output_root(tm
 
 
 def test_run_spikesort_merge_stage_uses_existing_cache_on_force_restart_when_enabled(tmp_path: Path) -> None:
-    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+    from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
     h5_path.parent.mkdir(parents=True, exist_ok=True)
@@ -5089,7 +5089,7 @@ def test_run_spikesort_merge_stage_uses_existing_cache_on_force_restart_when_ena
 
 def test_run_spikesort_merge_stage_cleans_up_cache_on_success_when_enabled(tmp_path: Path, monkeypatch) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
-    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+    from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
     h5_path.parent.mkdir(parents=True, exist_ok=True)
@@ -5167,7 +5167,7 @@ def test_run_spikesort_merge_stage_cleans_up_cache_on_success_when_enabled(tmp_p
 def test_run_spikesort_merge_stage_runs_methods_in_working_cache_without_publish(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+    from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
@@ -5258,7 +5258,7 @@ def test_run_spikesort_merge_stage_runs_methods_in_working_cache_without_publish
 def test_run_spikesort_merge_stage_asserts_slay_uses_working_cache_by_default(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+    from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
@@ -5331,7 +5331,7 @@ def test_run_spikesort_merge_stage_asserts_slay_uses_working_cache_by_default(
 def test_run_spikesort_merge_stage_asserts_auto_merge_uses_working_cache_by_default(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+    from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
@@ -5410,7 +5410,7 @@ def test_run_spikesort_merge_stage_asserts_auto_merge_uses_working_cache_by_defa
 def test_run_spikesort_merge_stage_publishes_working_cache_when_enabled(
      tmp_path: Path, monkeypatch, caplog
 ) -> None:
-    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+    from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
@@ -5502,7 +5502,7 @@ def test_run_spikesort_merge_stage_publishes_working_cache_when_enabled(
 def test_run_spikesort_merge_stage_logs_working_cache_publish_skip_when_disabled(
     tmp_path: Path, monkeypatch, caplog
 ) -> None:
-    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+    from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
@@ -5584,7 +5584,7 @@ def test_run_spikesort_merge_stage_logs_working_cache_publish_skip_when_disabled
 
 
 def test_run_spikesort_merge_stage_preserves_existing_outputs_when_delete_disabled(tmp_path: Path, monkeypatch) -> None:
-    from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+    from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"

@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from axon_reconstructor.pipeline.stg2_spikesorting.runner import (
+from axon_recon.pipeline.stages.spikesort.legacy_runner import (
 	LEGACY_SPIKESORTING_OUTPUTS_DIRNAME,
 	SPIKESORTING_OUTPUTS_DIRNAME,
 )

@@ -8,7 +8,7 @@ from pathlib import Path
 import shutil
 from typing import Any
 
-from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_recon.pipeline.shared.grid_sorting import (
 	coerce_grid_sort_metrics,
 	grid_sort_key_for_unit,

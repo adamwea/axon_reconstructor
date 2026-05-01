@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np  # type: ignore[import-not-found]
 import pytest
 
-from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
+from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_recon.pipeline.stages.reconstruct.templates.io import resolve_unit_output_paths, write_materialized_source_payload
 from axon_recon.pipeline.stages.reconstruct.templates.core.template_similarity_methods import (
 	build_template_similarity_features,

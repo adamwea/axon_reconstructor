@@ -19,8 +19,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from axon_reconstructor.pipeline.output_paths import compute_mea_analysis_output_dir
-from axon_reconstructor.pipeline.pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
+from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
+from axon_recon.pipeline.pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
 
 from ...execution.logging_context import pipeline_log_context
 from .constants import PREPROCESS_OUTPUTS_DIRNAME

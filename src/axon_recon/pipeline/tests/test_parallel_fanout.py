@@ -10,7 +10,7 @@ from axon_recon.pipeline.config import (
     resolve_stage_parallelism,
     select_execution_targets,
 )
-from axon_reconstructor.pipeline.scratch_layout import resolve_scratch_layout
+from axon_recon.pipeline.scratch_layout import resolve_scratch_layout
 
 
 def test_select_execution_targets_uses_all_include_in_runtime(tmp_path: Path) -> None:
