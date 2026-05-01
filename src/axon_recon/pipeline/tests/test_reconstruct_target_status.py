@@ -7,6 +7,14 @@ import pytest
 from axon_recon.pipeline.execution.context import ExecutionTarget, StageParallelism
 from axon_recon.pipeline.runner import (
     run_reconstruct_clear_templates_cache_from_runtime,
+    run_reconstruct_templates_analyzers_from_runtime,
+    run_reconstruct_templates_build_templates_from_runtime,
+    run_reconstruct_templates_compute_template_similarity_from_runtime,
+    run_reconstruct_templates_extract_template_segments_from_runtime,
+    run_reconstruct_templates_plot_templates_from_runtime,
+    run_reconstruct_templates_report_templates_from_runtime,
+    run_reconstruct_templates_reports_from_runtime,
+    run_reconstruct_templates_resolve_sources_from_runtime,
     run_reconstruct_from_runtime,
     run_reconstruct_generate_gtrs_from_runtime,
     run_reconstruct_plot_branch_propagations_from_runtime,
@@ -194,6 +202,54 @@ def test_run_reconstruct_from_runtime_marks_target_error_when_no_units_succeed(m
             "report_full_chip_layout",
         ),
         (run_reconstruct_report_recons_from_runtime, "run_reconstruct_report_recons", "reconstruct.report_recons", "report_recons"),
+        (
+            run_reconstruct_templates_resolve_sources_from_runtime,
+            "run_reconstruct_templates_resolve_sources",
+            "reconstruct.resolve_sources",
+            "resolve_sources",
+        ),
+        (
+            run_reconstruct_templates_analyzers_from_runtime,
+            "run_reconstruct_templates_analyzers",
+            "reconstruct.analyzers",
+            "analyzers",
+        ),
+        (
+            run_reconstruct_templates_extract_template_segments_from_runtime,
+            "run_reconstruct_templates_extract_template_segments",
+            "reconstruct.extract_template_segments",
+            "extract_template_segments",
+        ),
+        (
+            run_reconstruct_templates_build_templates_from_runtime,
+            "run_reconstruct_templates_build_templates",
+            "reconstruct.build_templates",
+            "build_templates",
+        ),
+        (
+            run_reconstruct_templates_compute_template_similarity_from_runtime,
+            "run_reconstruct_templates_compute_template_similarity",
+            "reconstruct.compute_template_similarity",
+            "compute_template_similarity",
+        ),
+        (
+            run_reconstruct_templates_plot_templates_from_runtime,
+            "run_reconstruct_templates_plot_templates",
+            "reconstruct.plot_templates",
+            "plot_templates",
+        ),
+        (
+            run_reconstruct_templates_report_templates_from_runtime,
+            "run_reconstruct_templates_report_templates",
+            "reconstruct.report_templates",
+            "report_templates",
+        ),
+        (
+            run_reconstruct_templates_reports_from_runtime,
+            "run_reconstruct_templates_reports",
+            "reconstruct.reports",
+            "reports",
+        ),
     ],
 )
 def test_run_reconstruct_phase_from_runtime_marks_target_ok(

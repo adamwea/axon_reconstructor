@@ -76,7 +76,64 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-01 01:55 - pending - ai: remove retired analysis runtime config
+## 2026-05-01 02:01 - pending - ai: align reconstruct template phase names
+
+Status: accepted
+
+Summary:
+- Changed reconstruct embedded-template runtime wrappers to report preferred `reconstruct.<phase>` stage names instead of legacy `reconstruct.templates_*` names.
+- Added target-status coverage for the embedded template wrappers so result/progress stage names match the CLI selectors.
+- Left direct templates runtime wrappers untouched for now because templates migration/deletion is not complete.
+
+Acceptance Criteria:
+- `run_reconstruct_templates_*_from_runtime` wrappers return aggregate stages such as `reconstruct.analyzers`, `reconstruct.build_templates`, and `reconstruct.reports`.
+- `pipeline.runner` no longer contains `reconstruct.templates_` stage-name strings.
+- Existing preferred CLI selector tests still pass.
+
+Expected To Run:
+- Preferred reconstruct template-related phase selectors and runtime wrappers.
+
+Confirmed Not Run:
+- Legacy `reconstruct.templates_*` stage names are no longer emitted by reconstruct runtime wrappers.
+
+Files/Modules Changed:
+- `src/axon_recon/pipeline/runner.py`
+- `src/axon_recon/pipeline/tests/test_reconstruct_target_status.py`
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_reconstruct_target_status.py src/axon_recon/pipeline/tests/test_cli_stage_sequence.py -q` passed.
+- Diagnostics: no VS Code/Pylance errors in changed files.
+- Reference audit: no `reconstruct.templates_` matches remain in `src/axon_recon/pipeline/runner.py`.
+- Smoke (20 min max unless Adam approves longer): not run; this was a mocked runtime stage-name alignment slice.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: real-data smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged.
+- Force-restart cleanup: unchanged.
+- Partial-output handling: unchanged.
+
+Storage/Cache Impact:
+- Created: none.
+- Cleaned: none.
+- Persisted: none.
+- Size check: not applicable.
+
+CLI Impact:
+- Runtime aggregate names now match preferred reconstruct CLI selectors for embedded template phases.
+
+Retired Code/Tests:
+- Retired legacy `reconstruct.templates_*` emitted stage names from reconstruct runtime wrappers.
+
+Risks And Follow-Ups:
+- Function names still include `templates` because the underlying templates package has not been migrated into reconstruct yet.
+- Direct `run_templates_*_from_runtime` wrappers and tests remain until templates retirement is complete.
+
+Rollback Notes:
+- Restore the previous `reconstruct.templates_*` stage-name strings if downstream log parsing temporarily depends on them.
+
+## 2026-05-01 01:55 - d3f41e3 - ai: remove retired analysis runtime config
 
 Status: accepted
 

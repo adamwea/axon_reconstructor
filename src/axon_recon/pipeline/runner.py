@@ -2580,7 +2580,7 @@ def run_reconstruct_templates_resolve_sources_from_runtime(
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
-		stage_name="reconstruct.templates_resolve_sources",
+		stage_name="reconstruct.resolve_sources",
 		runner_fn=run_reconstruct_templates_resolve_sources,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
@@ -2603,7 +2603,7 @@ def run_reconstruct_templates_analyzers_from_runtime(
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
-		stage_name="reconstruct.templates_analyzers",
+		stage_name="reconstruct.analyzers",
 		runner_fn=run_reconstruct_templates_analyzers,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
@@ -2626,7 +2626,7 @@ def run_reconstruct_templates_extract_template_segments_from_runtime(
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
-		stage_name="reconstruct.templates_extract_template_segments",
+		stage_name="reconstruct.extract_template_segments",
 		runner_fn=run_reconstruct_templates_extract_template_segments,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
@@ -2649,7 +2649,7 @@ def run_reconstruct_templates_build_templates_from_runtime(
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
-		stage_name="reconstruct.templates_build_templates",
+		stage_name="reconstruct.build_templates",
 		runner_fn=run_reconstruct_templates_build_templates,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
@@ -2672,7 +2672,7 @@ def run_reconstruct_templates_compute_template_similarity_from_runtime(
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
-		stage_name="reconstruct.templates_compute_template_similarity",
+		stage_name="reconstruct.compute_template_similarity",
 		runner_fn=run_reconstruct_templates_compute_template_similarity,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
@@ -2695,7 +2695,7 @@ def run_reconstruct_templates_plot_templates_from_runtime(
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
-		stage_name="reconstruct.templates_plot_templates",
+		stage_name="reconstruct.plot_templates",
 		runner_fn=run_reconstruct_templates_plot_templates,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
@@ -2718,7 +2718,7 @@ def run_reconstruct_templates_report_templates_from_runtime(
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
-		stage_name="reconstruct.templates_report_templates",
+		stage_name="reconstruct.report_templates",
 		runner_fn=run_reconstruct_templates_report_templates,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
@@ -2741,7 +2741,7 @@ def run_reconstruct_templates_reports_from_runtime(
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
-		stage_name="reconstruct.templates_reports",
+		stage_name="reconstruct.reports",
 		runner_fn=run_reconstruct_templates_reports,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
