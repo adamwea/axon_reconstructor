@@ -39,6 +39,7 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			      scale: log
 			stages:
 			  reconstruct:
+			    debug_prints: true
 			    phase_sequence: [generate_gtrs, plot_recons, report_summaries]
 			    debug_mode:
 			      enabled: true
@@ -139,6 +140,7 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 
 	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path), unit_id_override=94)
 	assert inputs.stream_id == "well001"
+	assert inputs.debug_prints is True
 	assert inputs.phase_sequence == ("generate_gtrs", "plot_recons", "report_summaries")
 	assert inputs.output_rel_root == "recon_outputs"
 	assert inputs.write_summary_png is True
@@ -219,6 +221,21 @@ def test_load_config_reconstruct_populates_templates_inputs_from_debug_runtime()
 	inputs = load_reconstruction_inputs_from_runtime(config_path=str(repo_root / "debug" / "debug.runtime.yml"))
 	assert inputs.templates_inputs is not None
 	assert isinstance(inputs.templates_inputs, TemplatesInputs)
+	assert inputs.debug_prints is False
+	assert inputs.phase_sequence == (
+		"templates_analyzers",
+		"templates_build_templates",
+		"templates_plot_templates",
+		"templates_report_templates",
+		"generate_gtrs",
+		"plot_recons",
+		"plot_branch_propagations",
+		"plot_branch_velocities",
+		"plot_unit_summary",
+		"report_recons",
+		"report_full_chip_layout",
+		"report_summaries",
+	)
 
 
 def test_load_config_reconstruct_reads_runtime_unit_ids(tmp_path: Path) -> None:

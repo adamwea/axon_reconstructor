@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from pathlib import Path
@@ -729,6 +730,57 @@ def _build_compatibility_compute_kwargs(
 	return compat_kwargs, tuple(stripped)
 
 
+def _supported_extension_param_names(extension_name: str) -> tuple[str, ...] | None:
+	class_names = {
+		"random_spikes": "ComputeRandomSpikes",
+		"waveforms": "ComputeWaveforms",
+		"templates": "ComputeTemplates",
+	}
+	class_name = class_names.get(str(extension_name))
+	if class_name is None:
+		return None
+	try:
+		from spikeinterface.core import analyzer_extension_core  # type: ignore[import-not-found]
+
+		cls = getattr(analyzer_extension_core, class_name)
+		signature = inspect.signature(getattr(cls, "_set_params"))
+	except Exception:
+		return None
+	if any(param.kind is inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values()):
+		return None
+	supported: list[str] = []
+	for name, param in signature.parameters.items():
+		if name == "self":
+			continue
+		if param.kind in {inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY}:
+			supported.append(str(name))
+	return tuple(supported)
+
+
+def _strip_unsupported_extension_params(
+	*,
+	extension_params: dict[str, Any],
+) -> tuple[dict[str, Any], tuple[str, ...]]:
+	filtered_params: dict[str, Any] = {}
+	stripped: list[str] = []
+	for name, raw_params in extension_params.items():
+		if not isinstance(raw_params, dict):
+			filtered_params[name] = raw_params
+			continue
+		supported = _supported_extension_param_names(str(name))
+		if supported is None:
+			filtered_params[name] = dict(raw_params)
+			continue
+		supported_set = set(supported)
+		params = dict(raw_params)
+		for key in tuple(params):
+			if str(key) not in supported_set:
+				params.pop(key, None)
+				stripped.append(f"{name}.{key}")
+		filtered_params[name] = params
+	return filtered_params, tuple(stripped)
+
+
 def _try_recompute_waveforms_extension(
 	*,
 	analyzer: Any,
@@ -821,6 +873,14 @@ def _try_recompute_waveforms_extension(
 	}
 	if compute_chunk_duration not in {None, ""}:
 		compute_kwargs["chunk_duration"] = str(compute_chunk_duration)
+	extension_params, unsupported_extension_keys = _strip_unsupported_extension_params(
+		extension_params=extension_params,
+	)
+	if unsupported_extension_keys:
+		LOGGER.debug(
+			"Dropped unsupported analyzer extension params before compute: dropped=%s",
+			", ".join(str(key) for key in unsupported_extension_keys),
+		)
 
 	compat_extension_params, stripped_extension_keys = _build_compatibility_extension_params(
 		extension_params=extension_params,

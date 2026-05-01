@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import logging
 from pathlib import Path
@@ -40,6 +41,7 @@ from axon_recon.pipeline.stages.reconstruct.models.inputs import (
 	ReconstructionUnitSummaryOutputConfig,
 )
 from axon_recon.pipeline.stages.reconstruct.runner import (
+	_quiet_unexpected_plot_logs,
 	_resolve_templates_dirs,
 	_normalize_reconstruct_stage_phase_name,
 	_reconstruct_stage_phase_runner,
@@ -101,6 +103,42 @@ def test_resolve_templates_dirs_supports_cached_templates_layout(tmp_path: Path)
 	assert templates_out_dir == well_out_dir / "template_outputs"
 	assert resolved_merged_units_dir == merged_units_dir
 	assert resolved_full_channels_templates_dir == full_channels_templates_dir
+
+
+def test_quiet_unexpected_plot_logs_suppresses_debuggy_third_party_logs_unless_enabled() -> None:
+	loggers = [
+		logging.getLogger("matplotlib.font_manager"),
+		logging.getLogger("numcodecs.registry"),
+		logging.getLogger("h5py._conv"),
+		logging.getLogger("numba.core.byteflow"),
+	]
+	project_logger = logging.getLogger("axon_recon.templates.spikeinterface")
+	original_levels = {logger.name: logger.level for logger in [*loggers, project_logger]}
+	try:
+		for logger in loggers:
+			logger.setLevel(logging.DEBUG)
+		project_logger.setLevel(logging.DEBUG)
+		quiet_inputs = ReconstructionInputs(
+			h5_path=Path("/tmp/dataset.h5"),
+			stream_id="well000",
+			mea_output_root=Path("/tmp/out"),
+		)
+		with _quiet_unexpected_plot_logs(quiet_inputs):
+			for logger in loggers:
+				assert logger.getEffectiveLevel() >= logging.WARNING
+			assert project_logger.getEffectiveLevel() == logging.INFO
+		for logger in loggers:
+			assert logger.level == logging.DEBUG
+		assert project_logger.level == logging.DEBUG
+
+		debug_inputs = replace(quiet_inputs, debug_prints=True)
+		with _quiet_unexpected_plot_logs(debug_inputs):
+			for logger in loggers:
+				assert logger.getEffectiveLevel() == logging.DEBUG
+			assert project_logger.getEffectiveLevel() == logging.DEBUG
+	finally:
+		for logger in [*loggers, project_logger]:
+			logger.setLevel(original_levels[logger.name])
 
 
 def test_reconstruct_phase_resolver_handles_templates_phases() -> None:
@@ -300,6 +338,116 @@ def test_reconstruct_combined_phase_sequence_skips_clear_templates_cache_when_di
 	]
 	assert result is collected_result
 	assert "clear_templates_cache" not in order_list
+	assert order_list == expected_order + ["collect"]
+
+
+def test_reconstruct_configured_copied_template_phase_sequence_runs_requested_order(
+	monkeypatch,
+	tmp_path: Path,
+) -> None:
+	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
+
+	order_list: list[str] = []
+	collected_result = SimpleNamespace(summary_json=tmp_path / "summary.json")
+	expected_order = [
+		"templates_analyzers",
+		"templates_build_templates",
+		"templates_plot_templates",
+		"templates_report_templates",
+		"generate_gtrs",
+		"plot_recons",
+		"plot_branch_propagations",
+		"plot_branch_velocities",
+		"plot_unit_summary",
+		"report_recons",
+		"report_full_chip_layout",
+		"report_summaries",
+	]
+
+	def _record_phase(phase_name: str):
+		def _run_phase(inputs: ReconstructionInputs) -> dict[str, str]:
+			assert inputs is reconstruct_inputs
+			order_list.append(phase_name)
+			return {"phase": phase_name, "summary_json": "/tmp/x"}
+
+		return _run_phase
+
+	phase_runner_attrs = {
+		"templates_analyzers": "run_reconstruct_templates_analyzers_phase",
+		"templates_build_templates": "run_reconstruct_templates_build_templates_phase",
+		"templates_plot_templates": "run_reconstruct_templates_plot_templates_phase",
+		"templates_report_templates": "run_reconstruct_templates_report_templates_phase",
+		"generate_gtrs": "run_reconstruct_generate_gtrs_phase",
+		"plot_recons": "run_reconstruct_plot_recons_phase",
+		"plot_branch_propagations": "run_reconstruct_plot_branch_propagations_phase",
+		"plot_branch_velocities": "run_reconstruct_plot_branch_velocities_phase",
+		"plot_unit_summary": "run_reconstruct_plot_unit_summary_phase",
+		"report_recons": "run_reconstruct_report_recons_phase",
+		"report_full_chip_layout": "run_reconstruct_report_full_chip_layout_phase",
+		"report_summaries": "run_reconstruct_report_summaries_phase",
+	}
+	for phase_name, attr_name in phase_runner_attrs.items():
+		monkeypatch.setattr(reconstruct_runner, attr_name, _record_phase(phase_name))
+
+	def _collect_result(inputs: ReconstructionInputs):
+		assert inputs is reconstruct_inputs
+		order_list.append("collect")
+		return collected_result
+
+	monkeypatch.setattr(reconstruct_runner, "collect_reconstruct_result_from_outputs", _collect_result)
+
+	templates_inputs = cast(
+		TemplatesInputs,
+		SimpleNamespace(
+			resolve_sources_phase=SimpleNamespace(enabled=True),
+			phases=SimpleNamespace(
+				analyzers=SimpleNamespace(enabled=True),
+				per_unit_processing=SimpleNamespace(
+					extract_template_segments=SimpleNamespace(enabled=True),
+				),
+				build_templates=SimpleNamespace(enabled=True),
+				compute_template_similarity=SimpleNamespace(enabled=True),
+				plot_templates=SimpleNamespace(enabled=True),
+				report_templates=SimpleNamespace(enabled=True),
+				reports=SimpleNamespace(enabled=True),
+			),
+		),
+	)
+	reconstruct_inputs = ReconstructionInputs(
+		h5_path=tmp_path / "input.raw.h5",
+		stream_id="well000",
+		mea_output_root=tmp_path,
+		phase_sequence=(
+			"analyzers",
+			"build_templates",
+			"plot_templates",
+			"report_templates",
+			"generate_gtrs",
+			"plot_recons",
+			"plot_branch_propagations",
+			"plot_branch_velocities",
+			"plot_unit_summary",
+			"report_recons",
+			"report_full_chip_layout",
+			"report_summaries",
+		),
+		templates_inputs=templates_inputs,
+		phases=ReconstructionPhasesConfig(
+			clear_templates_cache=ReconstructionClearTemplatesCachePhaseConfig(enabled=True),
+			generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(enabled=True),
+			plot_recons=ReconstructionPlotReconsPhaseConfig(enabled=True),
+			plot_branch_propagations=ReconstructionPlotBranchPropagationsPhaseConfig(enabled=True),
+			plot_branch_velocities=ReconstructionPlotBranchVelocitiesPhaseConfig(enabled=True),
+			plot_unit_summary=ReconstructionPlotUnitSummaryPhaseConfig(enabled=True),
+			report_recons=ReconstructionReportReconsPhaseConfig(enabled=True),
+			report_full_chip_layout=ReconstructionReportFullChipLayoutPhaseConfig(enabled=True),
+			report_summaries=ReconstructionReportSummariesPhaseConfig(enabled=True),
+		),
+	)
+
+	result = reconstruct_runner.run_reconstruct_stage(reconstruct_inputs)
+
+	assert result is collected_result
 	assert order_list == expected_order + ["collect"]
 
 

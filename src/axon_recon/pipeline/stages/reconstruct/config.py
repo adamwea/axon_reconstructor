@@ -63,6 +63,30 @@ def _has_templates_stage(runtime_config: RuntimeConfig) -> bool:
 	return bool(runtime_config.has("stages.templates") and isinstance(runtime_config.get("stages.templates", None), dict))
 
 _RECONSTRUCTION_PHASE_ALIASES: dict[str, str] = {
+	"resolve_sources": "templates_resolve_sources",
+	"templates.resolve_sources": "templates_resolve_sources",
+	"templates_resolve_sources": "templates_resolve_sources",
+	"analyzers": "templates_analyzers",
+	"templates.analyzers": "templates_analyzers",
+	"templates_analyzers": "templates_analyzers",
+	"extract_template_segments": "templates_extract_template_segments",
+	"templates.extract_template_segments": "templates_extract_template_segments",
+	"templates_extract_template_segments": "templates_extract_template_segments",
+	"build_templates": "templates_build_templates",
+	"templates.build_templates": "templates_build_templates",
+	"templates_build_templates": "templates_build_templates",
+	"compute_template_similarity": "templates_compute_template_similarity",
+	"templates.compute_template_similarity": "templates_compute_template_similarity",
+	"templates_compute_template_similarity": "templates_compute_template_similarity",
+	"plot_templates": "templates_plot_templates",
+	"templates.plot_templates": "templates_plot_templates",
+	"templates_plot_templates": "templates_plot_templates",
+	"report_templates": "templates_report_templates",
+	"templates.report_templates": "templates_report_templates",
+	"templates_report_templates": "templates_report_templates",
+	"reports": "templates_reports",
+	"templates.reports": "templates_reports",
+	"templates_reports": "templates_reports",
 	"generate_gtrs": "generate_gtrs",
 	"generate": "generate_gtrs",
 	"gtrs": "generate_gtrs",
@@ -75,6 +99,8 @@ _RECONSTRUCTION_PHASE_ALIASES: dict[str, str] = {
 	"report_reconstructions": "report_recons",
 	"report_full_chip_layout": "report_full_chip_layout",
 	"report_summaries": "report_summaries",
+	"clear_cache": "clear_templates_cache",
+	"clear_templates_cache": "clear_templates_cache",
 }
 
 
@@ -605,6 +631,7 @@ def _get_reconstruct_amplitude_map_block(runtime_config: RuntimeConfig) -> dict[
 class ReconstructionStageConfig:
 	output_rel_root: str
 	phase_sequence: tuple[str, ...]
+	debug_prints: bool
 	debug_mode_enabled: bool
 	debug_limit_datasets: int | None
 	debug_limit_wells: int | None
@@ -657,6 +684,7 @@ def parse_reconstruction_stage_config(
 	)
 	execution_cfg = stage_cfg.get("execution", {}) if isinstance(stage_cfg.get("execution", {}), dict) else {}
 	debug_mode_cfg = stage_cfg.get("debug_mode", {}) if isinstance(stage_cfg.get("debug_mode", {}), dict) else {}
+	debug_prints = _as_bool(stage_cfg.get("debug_prints", stage_cfg.get("debug_plotting_prints", False)), False)
 	inputs_cfg = stage_cfg.get("inputs", {}) if isinstance(stage_cfg.get("inputs", {}), dict) else {}
 	outputs_cfg = stage_cfg.get("outputs", {}) if isinstance(stage_cfg.get("outputs", {}), dict) else {}
 	branch_colors_cfg = stage_cfg.get("branch_colors", {}) if isinstance(stage_cfg.get("branch_colors", {}), dict) else {}
@@ -1271,6 +1299,7 @@ def parse_reconstruction_stage_config(
 	return ReconstructionStageConfig(
 		output_rel_root=str(outputs_cfg.get("output_rel_root", "recon_outputs")),
 		phase_sequence=phase_sequence,
+		debug_prints=debug_prints,
 		debug_mode_enabled=debug_mode_enabled,
 		debug_limit_datasets=debug_limit_datasets,
 		debug_limit_wells=debug_limit_wells,
@@ -1308,6 +1337,7 @@ def build_reconstruction_inputs_for_target(
 		stream_id=target.stream_id,
 		mea_output_root=target.mea_output_root,
 		final_output_root=(target.final_output_root or target.mea_output_root),
+		debug_prints=stage_config.debug_prints,
 		output_rel_root=stage_config.output_rel_root,
 		phase_sequence=stage_config.phase_sequence,
 		reports=stage_config.reports,
@@ -1382,6 +1412,7 @@ def load_reconstruction_inputs_from_runtime(
 		stream_id=stream_id,
 		mea_output_root=output_root,
 		final_output_root=output_root,
+		debug_prints=stage_cfg.debug_prints,
 		output_rel_root=stage_cfg.output_rel_root,
 		phase_sequence=stage_cfg.phase_sequence,
 		reports=stage_cfg.reports,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 import logging
 from pathlib import Path
@@ -66,6 +67,31 @@ from ..templates.core.render import finalize_grid_svg_output, render_footprint_m
 
 LOGGER = logging.getLogger("axon_recon.reconstruct")
 
+NOISY_PLOT_LOGGER_NAMES: tuple[str, ...] = (
+	"matplotlib",
+	"matplotlib.font_manager",
+	"matplotlib.backends.backend_pdf",
+	"PIL",
+	"PIL.PngImagePlugin",
+	"fontTools",
+	"fontTools.subset",
+	"h5py",
+	"h5py._conv",
+	"numcodecs",
+	"numcodecs.registry",
+	"zarr",
+	"numba",
+	"numba.core",
+	"numba.core.byteflow",
+	"numba.core.interpreter",
+	"numba.core.ssa",
+)
+
+DEBUGGY_PROJECT_LOGGER_NAMES: tuple[str, ...] = (
+	"axon_recon.templates",
+	"axon_recon.templates.spikeinterface",
+)
+
 DEFAULT_INTERNAL_RECONSTRUCTION_PHASE_SEQUENCE: tuple[str, ...] = (
 	"templates_resolve_sources",
 	"templates_analyzers",
@@ -85,6 +111,33 @@ DEFAULT_INTERNAL_RECONSTRUCTION_PHASE_SEQUENCE: tuple[str, ...] = (
 	"report_summaries",
 	"clear_templates_cache",
 )
+
+
+def _debug_prints_enabled(inputs: ReconstructionInputs) -> bool:
+	return bool(getattr(inputs, "debug_prints", False))
+
+
+@contextmanager
+def _quiet_unexpected_plot_logs(inputs: ReconstructionInputs):
+	if _debug_prints_enabled(inputs):
+		yield
+		return
+	original_levels: dict[str, int] = {}
+	for logger_name in NOISY_PLOT_LOGGER_NAMES:
+		logger = logging.getLogger(logger_name)
+		original_levels[logger_name] = int(logger.level)
+		if int(logger.getEffectiveLevel()) < int(logging.WARNING):
+			logger.setLevel(logging.WARNING)
+	for logger_name in DEBUGGY_PROJECT_LOGGER_NAMES:
+		logger = logging.getLogger(logger_name)
+		original_levels[logger_name] = int(logger.level)
+		if int(logger.getEffectiveLevel()) < int(logging.INFO):
+			logger.setLevel(logging.INFO)
+	try:
+		yield
+	finally:
+		for logger_name, level in original_levels.items():
+			logging.getLogger(logger_name).setLevel(level)
 
 
 def _is_empty_signal_selection_error(exc: Exception) -> bool:
@@ -1233,13 +1286,21 @@ def _normalize_reconstruct_stage_phase_name(raw: Any) -> str:
 	aliases = {
 		"generate": "generate_gtrs",
 		"gtrs": "generate_gtrs",
+		"resolve_sources": "templates_resolve_sources",
 		"templates.resolve_sources": "templates_resolve_sources",
+		"analyzers": "templates_analyzers",
 		"templates.analyzers": "templates_analyzers",
+		"extract_template_segments": "templates_extract_template_segments",
 		"templates.extract_template_segments": "templates_extract_template_segments",
+		"build_templates": "templates_build_templates",
 		"templates.build_templates": "templates_build_templates",
+		"compute_template_similarity": "templates_compute_template_similarity",
 		"templates.compute_template_similarity": "templates_compute_template_similarity",
+		"plot_templates": "templates_plot_templates",
 		"templates.plot_templates": "templates_plot_templates",
+		"report_templates": "templates_report_templates",
 		"templates.report_templates": "templates_report_templates",
+		"reports": "templates_reports",
 		"templates.reports": "templates_reports",
 		"clear_cache": "clear_templates_cache",
 		"plot_reconstructions": "plot_recons",

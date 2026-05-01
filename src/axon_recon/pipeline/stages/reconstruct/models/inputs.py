@@ -419,6 +419,7 @@ class ReconstructionInputs:
 	mea_output_root: Path
 	final_output_root: Path | None = None
 	templates_inputs: TemplatesInputs | None = None
+	debug_prints: bool = False
 
 	output_rel_root: str = "recon_outputs"
 	reports: ReconstructionReportsConfig = field(default_factory=ReconstructionReportsConfig)

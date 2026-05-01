@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from axon_recon.pipeline.stages.templates.integrations.spikeinterface_extract import (
+	_try_recompute_waveforms_extension,
 	build_unit_source_payload,
 	discover_cached_spikeinterface_analyzer_source_names,
 	load_spikeinterface_analyzers,
@@ -267,6 +268,37 @@ def test_build_unit_source_payload_honors_positive_waveform_cap() -> None:
 	assert top_wf is not None
 	assert int(top_wf.shape[0]) == 2
 	assert top_count == 2
+
+
+def test_recompute_waveforms_strips_unsupported_random_spikes_kwargs_before_compute() -> None:
+	analyzer = _MockAnalyzer(
+		templates_ext=_MockTemplatesExtension(np.zeros((2, 2), dtype=float)),
+		has_templates=False,
+		full_waveforms=np.arange(6 * 4 * 2, dtype=float).reshape(6, 4, 2),
+	)
+
+	assert _try_recompute_waveforms_extension(
+		analyzer=analyzer,
+		requested_max_spikes_per_unit=3,
+		requested_min_spikes_per_unit=None,
+		requested_ms_before=2,
+		requested_ms_after=5,
+		requested_dtype=None,
+		requested_random_spikes_method="uniform",
+		requested_random_spikes_percentage=1,
+		requested_random_seed=0,
+		requested_log_before_after_spike_counts=True,
+		requested_margin_size=None,
+		compute_n_jobs=4,
+		compute_chunk_duration=None,
+	) is True
+
+	assert analyzer.compute_call_count == 1
+	assert analyzer.last_compute_extension_params is not None
+	random_spikes_params = analyzer.last_compute_extension_params["random_spikes"]
+	assert "log_before_after_spike_counts" not in random_spikes_params
+	assert random_spikes_params["method"] == "uniform"
+	assert random_spikes_params["max_spikes_per_unit"] == 3
 
 
 def test_build_unit_source_payload_forwards_waveform_window_on_recompute() -> None:
