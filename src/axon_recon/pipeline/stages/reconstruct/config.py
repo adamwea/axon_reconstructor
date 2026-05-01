@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +9,9 @@ from axon_recon.pipeline.shared.grid_sorting import normalize_grid_sort_by
 from axon_recon.pipeline.shared.plotting import build_stage_plot_block
 from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
 from axon_recon.pipeline.stages.templates.config import _build_footprint_grid_report_config
+from axon_recon.pipeline.stages.templates.config import build_templates_inputs_for_target
 from axon_recon.pipeline.stages.templates.config import parse_probe_geometry_from_data_config
+from axon_recon.pipeline.stages.templates.config import parse_templates_stage_config
 
 from ...execution.context import ExecutionTarget
 from .models.inputs import (
@@ -55,6 +57,10 @@ DEFAULT_RECONSTRUCTION_PHASE_SEQUENCE: tuple[str, ...] = (
 	"report_full_chip_layout",
 	"report_summaries",
 )
+
+
+def _has_templates_stage(runtime_config: RuntimeConfig) -> bool:
+	return bool(runtime_config.has("stages.templates") and isinstance(runtime_config.get("stages.templates", None), dict))
 
 _RECONSTRUCTION_PHASE_ALIASES: dict[str, str] = {
 	"generate_gtrs": "generate_gtrs",
@@ -634,8 +640,6 @@ def parse_reconstruction_stage_config(
 	stage_cfg = runtime_config.get("stages.reconstruct", {})
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
 	try:
-		from axon_recon.pipeline.stages.templates.config import parse_templates_stage_config
-
 		tpl_stage_cfg = parse_templates_stage_config(runtime_config=runtime_config)
 		tpl_circles_defaults = tpl_stage_cfg.per_unit_outputs.template_circles
 		tpl_footprint_plots_defaults = getattr(tpl_stage_cfg.per_unit_outputs, "footprint_plots", None)
@@ -1373,7 +1377,7 @@ def load_reconstruction_inputs_from_runtime(
 	)
 	probe_geometry = parse_probe_geometry_from_data_config(data_config=data_cfg)
 
-	return ReconstructionInputs(
+	reconstruct_inputs = ReconstructionInputs(
 		h5_path=h5_path,
 		stream_id=stream_id,
 		mea_output_root=output_root,
@@ -1401,3 +1405,29 @@ def load_reconstruction_inputs_from_runtime(
 		axon_velocity_params=stage_cfg.axon_velocity_params,
 		probe_geometry=probe_geometry,
 	)
+	if not _has_templates_stage(runtime_cfg):
+		return reconstruct_inputs
+
+	templates_stage_cfg = parse_templates_stage_config(
+		runtime_config=runtime_cfg,
+		probe_geometry=probe_geometry,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+	target = ExecutionTarget(
+		dataset_index=0,
+		dataset_id="dataset_000",
+		h5_path=h5_path,
+		stream_id=stream_id,
+		mea_output_root=output_root,
+		final_output_root=output_root,
+	)
+	templates_inputs = build_templates_inputs_for_target(
+		target=target,
+		stage_config=templates_stage_cfg,
+		unit_workers=1,
+		probe_geometry=probe_geometry,
+	)
+	return replace(reconstruct_inputs, templates_inputs=templates_inputs)

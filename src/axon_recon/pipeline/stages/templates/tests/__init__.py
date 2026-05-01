@@ -1,0 +1,1 @@
+"""Templates stage tests."""

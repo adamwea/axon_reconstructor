@@ -6,6 +6,7 @@ import pytest
 
 from axon_recon.pipeline.execution.context import ExecutionTarget, StageParallelism
 from axon_recon.pipeline.runner import (
+    run_reconstruct_clear_templates_cache_from_runtime,
     run_reconstruct_from_runtime,
     run_reconstruct_generate_gtrs_from_runtime,
     run_reconstruct_plot_branch_propagations_from_runtime,
@@ -337,3 +338,79 @@ def test_run_reconstruct_plot_recons_from_runtime_marks_target_error_when_no_uni
     assert agg.failed_targets == 1
     assert agg.target_results[0].status == "error"
     assert "No branches found" in str(agg.target_results[0].error)
+
+
+def test_run_reconstruct_clear_templates_cache_from_runtime_marks_target_ok_when_skipped(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    target = ExecutionTarget(
+        dataset_index=0,
+        dataset_id="dataset_000:test.h5",
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+    )
+
+    dummy_inputs = ReconstructionInputs(
+        h5_path=target.h5_path,
+        stream_id=target.stream_id,
+        mea_output_root=target.mea_output_root,
+    )
+
+    class _DummyBundle:
+        runtime_config = object()
+        data_config = object()
+
+    def _fake_load_pipeline_runtime_bundle(*, config_path: str):
+        return _DummyBundle()
+
+    def _fake_select_execution_targets(*, bundle):
+        return [target]
+
+    def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
+        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+
+    def _fake_parse_reconstruction_stage_config(**kwargs):
+        return object()
+
+    def _fake_build_reconstruction_inputs_for_target(*, target, stage_config, unit_workers: int, probe_geometry):
+        _ = probe_geometry
+        return dummy_inputs
+
+    def _fake_run_reconstruct_clear_templates_cache(inputs: ReconstructionInputs):
+        assert inputs is dummy_inputs
+        return {
+            "phase": "clear_templates_cache",
+            "summary_json": str(tmp_path / "clear_templates_cache_summary.json"),
+            "skipped": True,
+            "reason": "disabled",
+        }
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", _fake_load_pipeline_runtime_bundle)
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", _fake_select_execution_targets)
+    monkeypatch.setattr(pipeline_runner, "resolve_stage_parallelism", _fake_resolve_stage_parallelism)
+    monkeypatch.setattr(pipeline_runner, "parse_probe_geometry_from_data_config", lambda *, data_config: None)
+    monkeypatch.setattr(pipeline_runner, "parse_reconstruction_stage_config", _fake_parse_reconstruction_stage_config)
+    monkeypatch.setattr(pipeline_runner, "build_reconstruction_inputs_for_target", _fake_build_reconstruction_inputs_for_target)
+    monkeypatch.setattr(
+        pipeline_runner,
+        "run_reconstruct_clear_templates_cache",
+        _fake_run_reconstruct_clear_templates_cache,
+    )
+
+    agg = run_reconstruct_clear_templates_cache_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+
+    assert agg.stage == "reconstruct.clear_templates_cache"
+    assert agg.total_targets == 1
+    assert agg.succeeded_targets == 1
+    assert agg.failed_targets == 0
+    assert agg.target_results[0].status == "ok"
+    assert agg.target_results[0].result == {
+        "phase": "clear_templates_cache",
+        "summary_json": str(tmp_path / "clear_templates_cache_summary.json"),
+        "skipped": True,
+        "reason": "disabled",
+    }

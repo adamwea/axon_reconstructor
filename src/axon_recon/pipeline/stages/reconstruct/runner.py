@@ -67,6 +67,14 @@ from ..templates.core.render import finalize_grid_svg_output, render_footprint_m
 LOGGER = logging.getLogger("axon_recon.reconstruct")
 
 DEFAULT_INTERNAL_RECONSTRUCTION_PHASE_SEQUENCE: tuple[str, ...] = (
+	"templates_resolve_sources",
+	"templates_analyzers",
+	"templates_extract_template_segments",
+	"templates_build_templates",
+	"templates_compute_template_similarity",
+	"templates_plot_templates",
+	"templates_report_templates",
+	"templates_reports",
 	"generate_gtrs",
 	"plot_recons",
 	"plot_branch_propagations",
@@ -75,6 +83,7 @@ DEFAULT_INTERNAL_RECONSTRUCTION_PHASE_SEQUENCE: tuple[str, ...] = (
 	"report_recons",
 	"report_full_chip_layout",
 	"report_summaries",
+	"clear_templates_cache",
 )
 
 
@@ -136,20 +145,19 @@ def _resolve_templates_dirs(well_out_dir: Path) -> tuple[Path, Path, Path]:
 		well_out_dir / "templates_outputs",
 		well_out_dir / "stg4_templates_outputs",
 	):
-		templates_dir = templates_out_dir / "templates"
-		merged_units_dir = templates_dir / "merged"
-		full_channels_templates_dir = templates_dir / "full"
-		if not merged_units_dir.exists():
-			legacy = templates_out_dir / "merged_units"
-			if legacy.exists():
-				merged_units_dir = legacy
-		if not full_channels_templates_dir.exists():
-			legacy = templates_out_dir / "full_channels_templates"
-			if legacy.exists():
-				full_channels_templates_dir = legacy
-		if merged_units_dir.exists():
-			return templates_out_dir, merged_units_dir, full_channels_templates_dir
-		last_merged_units_dir = merged_units_dir
+		for templates_dir in (
+			templates_out_dir / "templates",
+			templates_out_dir / "cache" / "templates",
+		):
+			merged_units_dir = templates_dir / "merged"
+			full_channels_templates_dir = templates_dir / "full"
+			if merged_units_dir.exists():
+				return templates_out_dir, merged_units_dir, full_channels_templates_dir
+			last_merged_units_dir = merged_units_dir
+		legacy_merged_units_dir = templates_out_dir / "merged_units"
+		legacy_full_channels_templates_dir = templates_out_dir / "full_channels_templates"
+		if legacy_merged_units_dir.exists():
+			return templates_out_dir, legacy_merged_units_dir, legacy_full_channels_templates_dir
 	raise FileNotFoundError(f"Missing merged templates directory: {last_merged_units_dir}")
 
 
@@ -940,6 +948,93 @@ def _run_reconstruct_report_summaries_phase_impl(
 	)
 
 
+def run_reconstruct_templates_resolve_sources_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	from axon_recon.pipeline.stages.templates.runner import run_templates_resolve_sources_phase
+
+	if inputs.templates_inputs is None:
+		raise ValueError("reconstruct.templates_resolve_sources requires templates_inputs to be populated on ReconstructionInputs")
+	return run_templates_resolve_sources_phase(inputs.templates_inputs)
+
+
+def run_reconstruct_templates_analyzers_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	from axon_recon.pipeline.stages.templates.runner import run_templates_analyzers_phase
+
+	if inputs.templates_inputs is None:
+		raise ValueError("reconstruct.templates_analyzers requires templates_inputs to be populated on ReconstructionInputs")
+	return run_templates_analyzers_phase(inputs.templates_inputs)
+
+
+def run_reconstruct_templates_extract_template_segments_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	from axon_recon.pipeline.stages.templates.runner import run_templates_extract_template_segments_phase
+
+	if inputs.templates_inputs is None:
+		raise ValueError("reconstruct.templates_extract_template_segments requires templates_inputs to be populated on ReconstructionInputs")
+	return run_templates_extract_template_segments_phase(inputs.templates_inputs)
+
+
+def run_reconstruct_templates_build_templates_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	from axon_recon.pipeline.stages.templates.runner import run_templates_build_templates_phase
+
+	if inputs.templates_inputs is None:
+		raise ValueError("reconstruct.templates_build_templates requires templates_inputs to be populated on ReconstructionInputs")
+	return run_templates_build_templates_phase(inputs.templates_inputs)
+
+
+def run_reconstruct_templates_compute_template_similarity_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	from axon_recon.pipeline.stages.templates.runner import run_templates_compute_template_similarity_phase
+
+	if inputs.templates_inputs is None:
+		raise ValueError("reconstruct.templates_compute_template_similarity requires templates_inputs to be populated on ReconstructionInputs")
+	return run_templates_compute_template_similarity_phase(inputs.templates_inputs)
+
+
+def run_reconstruct_templates_plot_templates_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	from axon_recon.pipeline.stages.templates.runner import run_templates_plot_templates_phase
+
+	if inputs.templates_inputs is None:
+		raise ValueError("reconstruct.templates_plot_templates requires templates_inputs to be populated on ReconstructionInputs")
+	return run_templates_plot_templates_phase(inputs.templates_inputs)
+
+
+def run_reconstruct_templates_report_templates_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	from axon_recon.pipeline.stages.templates.runner import run_templates_report_templates_phase
+
+	if inputs.templates_inputs is None:
+		raise ValueError("reconstruct.templates_report_templates requires templates_inputs to be populated on ReconstructionInputs")
+	return run_templates_report_templates_phase(inputs.templates_inputs)
+
+
+def run_reconstruct_templates_reports_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	from axon_recon.pipeline.stages.templates.runner import run_templates_reports_phase
+
+	if inputs.templates_inputs is None:
+		raise ValueError("reconstruct.templates_reports requires templates_inputs to be populated on ReconstructionInputs")
+	return run_templates_reports_phase(inputs.templates_inputs)
+
+
+def run_reconstruct_clear_templates_cache_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	from .core.clear_templates_cache import run_clear_templates_cache_phase
+
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=inputs.mea_output_root,
+		data_file=inputs.h5_path,
+		well=inputs.stream_id,
+	)
+	cfg = inputs.phases.clear_templates_cache
+	summary = run_clear_templates_cache_phase(
+		well_out_dir=well_out_dir,
+		enabled=bool(cfg.enabled),
+		keep_merged_per_unit_outputs=bool(cfg.keep_merged_per_unit_outputs),
+		keep_full_channels_templates=bool(cfg.keep_full_channels_templates),
+		logger=LOGGER,
+	)
+	summary_json = well_out_dir / str(inputs.output_rel_root) / Path(str(cfg.summary_json_relpath)).expanduser()
+	summary_json.parent.mkdir(parents=True, exist_ok=True)
+	write_json(summary_json, summary)
+	summary["summary_json"] = str(summary_json)
+	return summary
+
+
 def run_reconstruct_generate_gtrs_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
 	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=True)
 	LOGGER.info(
@@ -1138,6 +1233,15 @@ def _normalize_reconstruct_stage_phase_name(raw: Any) -> str:
 	aliases = {
 		"generate": "generate_gtrs",
 		"gtrs": "generate_gtrs",
+		"templates.resolve_sources": "templates_resolve_sources",
+		"templates.analyzers": "templates_analyzers",
+		"templates.extract_template_segments": "templates_extract_template_segments",
+		"templates.build_templates": "templates_build_templates",
+		"templates.compute_template_similarity": "templates_compute_template_similarity",
+		"templates.plot_templates": "templates_plot_templates",
+		"templates.report_templates": "templates_report_templates",
+		"templates.reports": "templates_reports",
+		"clear_cache": "clear_templates_cache",
 		"plot_reconstructions": "plot_recons",
 		"report_reconstructions": "report_recons",
 	}
@@ -1146,6 +1250,25 @@ def _normalize_reconstruct_stage_phase_name(raw: Any) -> str:
 
 def _reconstruct_stage_phase_enabled(inputs: ReconstructionInputs, phase_name: str) -> bool:
 	phase = _normalize_reconstruct_stage_phase_name(phase_name)
+	if phase == "templates_resolve_sources":
+		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.resolve_sources_phase.enabled)
+	if phase == "templates_analyzers":
+		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.analyzers.enabled)
+	if phase == "templates_extract_template_segments":
+		return bool(
+			inputs.templates_inputs is not None
+			and inputs.templates_inputs.phases.per_unit_processing.extract_template_segments.enabled
+		)
+	if phase == "templates_build_templates":
+		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.build_templates.enabled)
+	if phase == "templates_compute_template_similarity":
+		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.compute_template_similarity.enabled)
+	if phase == "templates_plot_templates":
+		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.plot_templates.enabled)
+	if phase == "templates_report_templates":
+		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.report_templates.enabled)
+	if phase == "templates_reports":
+		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.reports.enabled)
 	if phase == "generate_gtrs":
 		return bool(inputs.phases.generate_gtrs.enabled)
 	if phase == "plot_recons":
@@ -1162,6 +1285,8 @@ def _reconstruct_stage_phase_enabled(inputs: ReconstructionInputs, phase_name: s
 		return bool(inputs.phases.report_full_chip_layout.enabled)
 	if phase == "report_summaries":
 		return bool(inputs.phases.report_summaries.enabled)
+	if phase == "clear_templates_cache":
+		return bool(inputs.phases.clear_templates_cache.enabled)
 	return False
 
 
@@ -1172,6 +1297,22 @@ def _reconstruct_phase_selected(inputs: ReconstructionInputs, phase_name: str) -
 
 def _reconstruct_stage_phase_runner(phase_name: str):
 	phase = _normalize_reconstruct_stage_phase_name(phase_name)
+	if phase == "templates_resolve_sources":
+		return run_reconstruct_templates_resolve_sources_phase
+	if phase == "templates_analyzers":
+		return run_reconstruct_templates_analyzers_phase
+	if phase == "templates_extract_template_segments":
+		return run_reconstruct_templates_extract_template_segments_phase
+	if phase == "templates_build_templates":
+		return run_reconstruct_templates_build_templates_phase
+	if phase == "templates_compute_template_similarity":
+		return run_reconstruct_templates_compute_template_similarity_phase
+	if phase == "templates_plot_templates":
+		return run_reconstruct_templates_plot_templates_phase
+	if phase == "templates_report_templates":
+		return run_reconstruct_templates_report_templates_phase
+	if phase == "templates_reports":
+		return run_reconstruct_templates_reports_phase
 	if phase == "generate_gtrs":
 		return run_reconstruct_generate_gtrs_phase
 	if phase == "plot_recons":
@@ -1188,6 +1329,8 @@ def _reconstruct_stage_phase_runner(phase_name: str):
 		return run_reconstruct_report_full_chip_layout_phase
 	if phase == "report_summaries":
 		return run_reconstruct_report_summaries_phase
+	if phase == "clear_templates_cache":
+		return run_reconstruct_clear_templates_cache_phase
 	raise ValueError(f"Unknown reconstruct phase: {phase_name!r}")
 
 

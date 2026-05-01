@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
-from axon_recon.pipeline.stages.templates.models.inputs import FootprintMapGridReportConfig
+from axon_recon.pipeline.stages.templates.models.inputs import FootprintMapGridReportConfig, TemplatesInputs
 
 
 @dataclass(frozen=True)
@@ -380,7 +380,18 @@ class ReconstructionReportSummariesPhaseConfig:
 
 
 @dataclass(frozen=True)
+class ReconstructionClearTemplatesCachePhaseConfig:
+	enabled: bool = False
+	summary_json_relpath: str = "reports/clear_templates_cache_summary.json"
+	keep_merged_per_unit_outputs: bool = True
+	keep_full_channels_templates: bool = False
+
+
+@dataclass(frozen=True)
 class ReconstructionPhasesConfig:
+	clear_templates_cache: ReconstructionClearTemplatesCachePhaseConfig = field(
+		default_factory=ReconstructionClearTemplatesCachePhaseConfig
+	)
 	generate_gtrs: ReconstructionGenerateGtrsPhaseConfig = field(default_factory=ReconstructionGenerateGtrsPhaseConfig)
 	plot_recons: ReconstructionPlotReconsPhaseConfig = field(default_factory=ReconstructionPlotReconsPhaseConfig)
 	plot_branch_propagations: ReconstructionPlotBranchPropagationsPhaseConfig = field(
@@ -407,6 +418,7 @@ class ReconstructionInputs:
 	stream_id: str
 	mea_output_root: Path
 	final_output_root: Path | None = None
+	templates_inputs: TemplatesInputs | None = None
 
 	output_rel_root: str = "recon_outputs"
 	reports: ReconstructionReportsConfig = field(default_factory=ReconstructionReportsConfig)

@@ -23,6 +23,7 @@ from .stages.preprocess.cli import _run_preprocess_segments_from_args as _run_pr
 from .stages.preprocess.cli import _run_save_rec_metadata_from_args as _run_preprocess_save_rec_metadata_from_args
 from .stages.preprocess.cli import _run_wipe_src_scratch_from_args as _run_preprocess_wipe_src_scratch_from_args
 from .stages.reconstruct.cli import _run_from_args as _run_reconstruct_from_args
+from .stages.reconstruct.cli import _run_clear_templates_cache_from_args as _run_reconstruct_clear_templates_cache_from_args
 from .stages.reconstruct.cli import _run_generate_gtrs_from_args as _run_reconstruct_generate_gtrs_from_args
 from .stages.reconstruct.cli import _run_plot_branch_propagations_from_args as _run_reconstruct_plot_branch_propagations_from_args
 from .stages.reconstruct.cli import _run_plot_branch_velocities_from_args as _run_reconstruct_plot_branch_velocities_from_args
@@ -31,6 +32,18 @@ from .stages.reconstruct.cli import _run_plot_recons_from_args as _run_reconstru
 from .stages.reconstruct.cli import _run_report_full_chip_layout_from_args as _run_reconstruct_report_full_chip_layout_from_args
 from .stages.reconstruct.cli import _run_report_recons_from_args as _run_reconstruct_report_recons_from_args
 from .stages.reconstruct.cli import _run_report_summaries_from_args as _run_reconstruct_report_summaries_from_args
+from .stages.reconstruct.cli import _run_templates_analyzers_from_args as _run_reconstruct_templates_analyzers_from_args
+from .stages.reconstruct.cli import _run_templates_build_templates_from_args as _run_reconstruct_templates_build_templates_from_args
+from .stages.reconstruct.cli import (
+	_run_templates_compute_template_similarity_from_args as _run_reconstruct_templates_compute_template_similarity_from_args,
+)
+from .stages.reconstruct.cli import (
+	_run_templates_extract_template_segments_from_args as _run_reconstruct_templates_extract_template_segments_from_args,
+)
+from .stages.reconstruct.cli import _run_templates_plot_templates_from_args as _run_reconstruct_templates_plot_templates_from_args
+from .stages.reconstruct.cli import _run_templates_report_templates_from_args as _run_reconstruct_templates_report_templates_from_args
+from .stages.reconstruct.cli import _run_templates_reports_from_args as _run_reconstruct_templates_reports_from_args
+from .stages.reconstruct.cli import _run_templates_resolve_sources_from_args as _run_reconstruct_templates_resolve_sources_from_args
 from .stages.spikesort.cli import _run_from_args as _run_spikesort_from_args
 from .stages.spikesort.cli import _run_bombcell_from_args as _run_spikesort_bombcell_from_args
 from .stages.spikesort.cli import _run_bootstrap_concat_binary_from_args as _run_spikesort_bootstrap_concat_binary_from_args
@@ -142,6 +155,14 @@ _STAGE_ALIASES: dict[str, str] = {
 	"template.reports": "templates.reports",
 	"recon": "reconstruct",
 	"reconstruction": "reconstruct",
+	"recon.templates_resolve_sources": "reconstruct.templates_resolve_sources",
+	"recon.templates_analyzers": "reconstruct.templates_analyzers",
+	"recon.templates_extract_template_segments": "reconstruct.templates_extract_template_segments",
+	"recon.templates_build_templates": "reconstruct.templates_build_templates",
+	"recon.templates_compute_template_similarity": "reconstruct.templates_compute_template_similarity",
+	"recon.templates_plot_templates": "reconstruct.templates_plot_templates",
+	"recon.templates_report_templates": "reconstruct.templates_report_templates",
+	"recon.templates_reports": "reconstruct.templates_reports",
 	"recon.generate_gtrs": "reconstruct.generate_gtrs",
 	"recon.plot_recons": "reconstruct.plot_recons",
 	"recon.plot_branch_propagations": "reconstruct.plot_branch_propagations",
@@ -150,6 +171,15 @@ _STAGE_ALIASES: dict[str, str] = {
 	"recon.report_recons": "reconstruct.report_recons",
 	"recon.report_full_chip_layout": "reconstruct.report_full_chip_layout",
 	"recon.report_summaries": "reconstruct.report_summaries",
+	"recon.clear_templates_cache": "reconstruct.clear_templates_cache",
+	"reconstruction.templates_resolve_sources": "reconstruct.templates_resolve_sources",
+	"reconstruction.templates_analyzers": "reconstruct.templates_analyzers",
+	"reconstruction.templates_extract_template_segments": "reconstruct.templates_extract_template_segments",
+	"reconstruction.templates_build_templates": "reconstruct.templates_build_templates",
+	"reconstruction.templates_compute_template_similarity": "reconstruct.templates_compute_template_similarity",
+	"reconstruction.templates_plot_templates": "reconstruct.templates_plot_templates",
+	"reconstruction.templates_report_templates": "reconstruct.templates_report_templates",
+	"reconstruction.templates_reports": "reconstruct.templates_reports",
 	"reconstruction.generate_gtrs": "reconstruct.generate_gtrs",
 	"reconstruction.plot_recons": "reconstruct.plot_recons",
 	"reconstruction.plot_branch_propagations": "reconstruct.plot_branch_propagations",
@@ -158,6 +188,7 @@ _STAGE_ALIASES: dict[str, str] = {
 	"reconstruction.report_recons": "reconstruct.report_recons",
 	"reconstruction.report_full_chip_layout": "reconstruct.report_full_chip_layout",
 	"reconstruction.report_summaries": "reconstruct.report_summaries",
+	"reconstruction.clear_templates_cache": "reconstruct.clear_templates_cache",
 	"analyse": "analysis",
 	"analyze": "analysis",
 }
@@ -201,6 +232,14 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"templates.reports.footprints": _run_templates_reports_footprints_from_args,
 	"templates.reports.overlays": _run_templates_reports_overlays_from_args,
 	"reconstruct": _run_reconstruct_from_args,
+	"reconstruct.templates_resolve_sources": _run_reconstruct_templates_resolve_sources_from_args,
+	"reconstruct.templates_analyzers": _run_reconstruct_templates_analyzers_from_args,
+	"reconstruct.templates_extract_template_segments": _run_reconstruct_templates_extract_template_segments_from_args,
+	"reconstruct.templates_build_templates": _run_reconstruct_templates_build_templates_from_args,
+	"reconstruct.templates_compute_template_similarity": _run_reconstruct_templates_compute_template_similarity_from_args,
+	"reconstruct.templates_plot_templates": _run_reconstruct_templates_plot_templates_from_args,
+	"reconstruct.templates_report_templates": _run_reconstruct_templates_report_templates_from_args,
+	"reconstruct.templates_reports": _run_reconstruct_templates_reports_from_args,
 	"reconstruct.generate_gtrs": _run_reconstruct_generate_gtrs_from_args,
 	"reconstruct.plot_recons": _run_reconstruct_plot_recons_from_args,
 	"reconstruct.plot_branch_propagations": _run_reconstruct_plot_branch_propagations_from_args,
@@ -209,6 +248,7 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"reconstruct.report_recons": _run_reconstruct_report_recons_from_args,
 	"reconstruct.report_full_chip_layout": _run_reconstruct_report_full_chip_layout_from_args,
 	"reconstruct.report_summaries": _run_reconstruct_report_summaries_from_args,
+	"reconstruct.clear_templates_cache": _run_reconstruct_clear_templates_cache_from_args,
 	"analysis": _run_analysis_from_args,
 }
 

@@ -72,31 +72,71 @@ def _load_concat_epoch_windows(*, preproc_segments_dir: Path) -> list[dict[str, 
 	# are in concat-recording space; segments are stitched end-to-end in segment-index
 	# order, so each window is the cumulative sum of n_samples.
 	manifest_path = Path(preproc_segments_dir) / "manifest.json"
-	if not manifest_path.exists():
-		return []
-	try:
-		payload = _read_json(manifest_path)
-	except Exception:
-		return []
-	if not isinstance(payload, dict):
-		return []
-	raw_segments = payload.get("segments")
-	if not isinstance(raw_segments, list):
-		return []
+	raw_segments = None
+	if manifest_path.exists():
+		try:
+			payload = _read_json(manifest_path)
+		except Exception:
+			payload = None
+		if isinstance(payload, dict):
+			raw_segments = payload.get("segments")
 
 	entries: list[tuple[int, str, int]] = []
-	for item in raw_segments:
-		if not isinstance(item, dict):
-			continue
-		try:
-			seg_index = int(item.get("segment_index"))
-			rec_name = str(item.get("rec_name", ""))
-			n_samples = int(item.get("n_samples"))
-		except Exception:
-			continue
-		if not rec_name or n_samples <= 0:
-			continue
-		entries.append((seg_index, rec_name, n_samples))
+	if isinstance(raw_segments, list):
+		for item in raw_segments:
+			if not isinstance(item, dict):
+				continue
+			try:
+				seg_index = int(item.get("segment_index"))
+				rec_name = str(item.get("rec_name", ""))
+				n_samples = int(item.get("n_samples"))
+			except Exception:
+				continue
+			if not rec_name or n_samples <= 0:
+				continue
+			entries.append((seg_index, rec_name, n_samples))
+	if not entries:
+		well_out_dir = Path(preproc_segments_dir).parent
+		legacy_candidates = [
+			well_out_dir / f"concatenation_stitch_epochs_{well_out_dir.name}.json",
+			well_out_dir / "concatenation_stitch_epochs.json",
+		]
+		seen_paths: set[Path] = set()
+		for candidate in list(legacy_candidates) + sorted(well_out_dir.glob("concatenation_stitch_epochs*.json")):
+			candidate = candidate.resolve()
+			if candidate in seen_paths or not candidate.exists():
+				continue
+			seen_paths.add(candidate)
+			try:
+				payload = _read_json(candidate)
+			except Exception:
+				continue
+			if not isinstance(payload, list):
+				continue
+			epochs: list[dict[str, Any]] = []
+			for item in payload:
+				if not isinstance(item, dict):
+					continue
+				try:
+					seg_index = int(item.get("segment_index"))
+					rec_name = str(item.get("rec_name", ""))
+					start_sample = int(item.get("start_sample"))
+					end_sample = int(item.get("end_sample"))
+				except Exception:
+					continue
+				if not rec_name or end_sample <= start_sample:
+					continue
+				epochs.append(
+					{
+						"segment_index": int(seg_index),
+						"rec_name": rec_name,
+						"start_sample": int(start_sample),
+						"end_sample": int(end_sample),
+					}
+				)
+			if epochs:
+				return sorted(epochs, key=lambda item: int(item.get("segment_index", 0)))
+		return []
 
 	entries.sort(key=lambda e: e[0])
 
@@ -174,11 +214,21 @@ def _to_numpy_sorting(*, si_core: Any, unit_trains: dict[Any, list[int]], fs_hz:
 	times_arr = times_arr[order]
 	labels_arr = labels_arr[order]
 
-	return NumpySorting.from_samples_and_labels(
-		samples_list=[times_arr],
-		labels_list=[labels_arr],
-		sampling_frequency=float(fs_hz),
-	)
+	from_samples_and_labels = getattr(NumpySorting, "from_samples_and_labels", None)
+	if callable(from_samples_and_labels):
+		return from_samples_and_labels(
+			samples_list=[times_arr],
+			labels_list=[labels_arr],
+			sampling_frequency=float(fs_hz),
+		)
+	from_times_labels = getattr(NumpySorting, "from_times_labels", None)
+	if callable(from_times_labels):
+		return from_times_labels(
+			times_list=[times_arr],
+			labels_list=[labels_arr],
+			sampling_frequency=float(fs_hz),
+		)
+	raise AttributeError("NumpySorting is missing from_samples_and_labels/from_times_labels constructors")
 
 
 def _sorting_analyzer_create_kwargs_from_policy(*, policy: AnalyzerPreparationPolicyConfig) -> dict[str, Any]:
@@ -2011,10 +2061,24 @@ def load_spikeinterface_analyzers(
 			LOGGER.info("Concat sorting unavailable for segment registration: path missing: %s", str(concat_sorting_dir))
 			return None
 		LOGGER.info("Loading concat sorting for segment registration: %s", str(concat_sorting_dir))
-		try:
-			concat_sorting_obj = si.read_sorter_folder(concat_sorting_dir, register_recording=False)
-		except Exception:
-			concat_sorting_obj = None
+		read_sorter_folder = getattr(si, "read_sorter_folder", None)
+		if callable(read_sorter_folder):
+			try:
+				concat_sorting_obj = read_sorter_folder(concat_sorting_dir, register_recording=False)
+			except TypeError:
+				try:
+					concat_sorting_obj = read_sorter_folder(concat_sorting_dir)
+				except Exception:
+					concat_sorting_obj = None
+			except Exception:
+				concat_sorting_obj = None
+		if concat_sorting_obj is None:
+			load_sorting = getattr(si, "load_sorting", None)
+			if callable(load_sorting):
+				try:
+					concat_sorting_obj = load_sorting(concat_sorting_dir)
+				except Exception:
+					concat_sorting_obj = None
 		if concat_sorting_obj is None:
 			LOGGER.warning("Failed to load concat sorting for segment registration: %s", str(concat_sorting_dir))
 			return None

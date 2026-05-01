@@ -560,7 +560,6 @@ def _add_scale_bar(ax: Any, *, config: TemplatePlotConfig) -> None:
 	span_x = max(1.0, float(abs(x1 - x0)))
 	span_y = max(1.0, float(abs(y1 - y0)))
 	x_dir = 1.0 if float(x1) >= float(x0) else -1.0
-	y_dir = 1.0 if float(y1) >= float(y0) else -1.0
 
 	if config.scale_bar_length_um is None:
 		bar = 100.0 if span_x >= 180.0 else 50.0
@@ -646,18 +645,21 @@ def _add_scale_bar(ax: Any, *, config: TemplatePlotConfig) -> None:
 		x_left -= delta
 		x_right -= delta
 
-	y_margin = float(max(0.0, float(config.scale_bar_y_offset_frac))) * span_y
+	from matplotlib.transforms import blended_transform_factory  # type: ignore[import-not-found]
+
+	y_margin_frac = float(min(1.0, max(0.0, float(config.scale_bar_y_offset_frac))))
+	text_offset_frac = float(min(1.0, max(0.0, float(config.scale_bar_text_offset_frac))))
 	if v_align == "top":
-		y_bar = float(y1) - (y_dir * y_margin)
-		label_y = y_bar - (y_dir * float(config.scale_bar_text_offset_frac) * span_y)
+		y_bar = 1.0 - y_margin_frac
+		label_y = max(0.0, y_bar - text_offset_frac)
 		label_va = "top"
 	elif v_align == "center":
-		y_bar = 0.5 * (float(y0) + float(y1))
-		label_y = y_bar + (y_dir * float(config.scale_bar_text_offset_frac) * span_y)
+		y_bar = 0.5
+		label_y = min(1.0, y_bar + text_offset_frac)
 		label_va = "bottom"
 	else:
-		y_bar = float(y0) + (y_dir * y_margin)
-		label_y = y_bar + (y_dir * float(config.scale_bar_text_offset_frac) * span_y)
+		y_bar = y_margin_frac
+		label_y = min(1.0, y_bar + text_offset_frac)
 		label_va = "bottom"
 
 	if min(float(x_left), float(x_right)) <= x_min:
@@ -668,12 +670,21 @@ def _add_scale_bar(ax: Any, *, config: TemplatePlotConfig) -> None:
 		x_right = float(x1) - (x_dir * 1.0)
 		x_left = x_right - (x_dir * bar)
 
-	(line,) = ax.plot([x_left, x_right], [y_bar, y_bar], color=str(config.scale_bar_color), lw=float(config.scale_bar_linewidth), solid_capstyle="butt")
+	transform = blended_transform_factory(ax.transData, ax.transAxes)
+	(line,) = ax.plot(
+		[x_left, x_right],
+		[y_bar, y_bar],
+		color=str(config.scale_bar_color),
+		lw=float(config.scale_bar_linewidth),
+		solid_capstyle="butt",
+		transform=transform,
+	)
 	line.set_gid("template_scale_bar_line")
 	text = ax.text(
 		(x_left + x_right) / 2.0,
 		label_y,
 		label,
+		transform=transform,
 		color=str(config.scale_bar_color),
 		horizontalalignment="center",
 		verticalalignment=label_va,

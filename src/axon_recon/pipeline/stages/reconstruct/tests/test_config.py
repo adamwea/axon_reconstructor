@@ -4,6 +4,7 @@ from pathlib import Path
 from textwrap import dedent
 
 from axon_recon.pipeline.stages.reconstruct.config import load_reconstruction_inputs_from_runtime
+from axon_recon.pipeline.stages.templates.models.inputs import TemplatesInputs
 
 
 def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
@@ -211,6 +212,13 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert inputs.reports.grids.circle_recon_grid.dpi == 420.0
 	assert inputs.reports.grids.sort_by == "template_density"
 	assert inputs.unit_ids == [94]
+
+
+def test_load_config_reconstruct_populates_templates_inputs_from_debug_runtime() -> None:
+	repo_root = next(parent for parent in Path(__file__).resolve().parents if (parent / "debug" / "debug.runtime.yml").exists())
+	inputs = load_reconstruction_inputs_from_runtime(config_path=str(repo_root / "debug" / "debug.runtime.yml"))
+	assert inputs.templates_inputs is not None
+	assert isinstance(inputs.templates_inputs, TemplatesInputs)
 
 
 def test_load_config_reconstruct_reads_runtime_unit_ids(tmp_path: Path) -> None:

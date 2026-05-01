@@ -45,6 +45,7 @@ from .stages.preprocess.config import build_preprocess_inputs_for_target, parse_
 from .stages.preprocess.models.results import PreprocessResult
 from .stages.reconstruct.api import (
 	run_reconstruct,
+	run_reconstruct_clear_templates_cache,
 	run_reconstruct_generate_gtrs,
 	run_reconstruct_plot_branch_propagations,
 	run_reconstruct_plot_branch_velocities,
@@ -53,6 +54,14 @@ from .stages.reconstruct.api import (
 	run_reconstruct_report_full_chip_layout,
 	run_reconstruct_report_recons,
 	run_reconstruct_report_summaries,
+	run_reconstruct_templates_analyzers,
+	run_reconstruct_templates_build_templates,
+	run_reconstruct_templates_compute_template_similarity,
+	run_reconstruct_templates_extract_template_segments,
+	run_reconstruct_templates_plot_templates,
+	run_reconstruct_templates_report_templates,
+	run_reconstruct_templates_reports,
+	run_reconstruct_templates_resolve_sources,
 )
 from .stages.reconstruct.config import build_reconstruction_inputs_for_target, parse_reconstruction_stage_config
 from .stages.reconstruct.models.results import ReconstructionResult, UnitReconstructionResult
@@ -2479,6 +2488,8 @@ def _raise_reconstruct_unit_failures(*, stage_name: str, result: object) -> obje
 		raise RuntimeError(f"{stage_name} produced no successful units")
 
 	if isinstance(result, dict):
+		if bool(result.get("skipped", False)):
+			return result
 		units_ok = int(result.get("units_ok", 0) or 0)
 		units_error = int(result.get("units_error", 0) or 0)
 		if units_ok > 0:
@@ -2522,6 +2533,18 @@ def _run_reconstruct_substage_from_runtime(
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
+	templates_stage_config = None
+	get_runtime_value = getattr(bundle.runtime_config, "get", None)
+	templates_stage_block = get_runtime_value("stages.templates", None) if callable(get_runtime_value) else None
+	if isinstance(templates_stage_block, dict):
+		templates_stage_config = parse_templates_stage_config(
+			runtime_config=bundle.runtime_config,
+			probe_geometry=probe_geometry,
+			unit_id_override=unit_id_override,
+			unit_ids_override=unit_ids_override,
+			force_restart_override=force_restart_override,
+			force_replot_override=force_replot_override,
+		)
 	if bool(getattr(stage_config, "debug_mode_enabled", False)):
 		targets = _apply_spikesort_debug_target_limits(
 			stage_name=stage_name,
@@ -2544,6 +2567,14 @@ def _run_reconstruct_substage_from_runtime(
 			unit_workers=int(parallelism.unit_workers),
 			probe_geometry=probe_geometry,
 		)
+		if templates_stage_config is not None:
+			templates_inputs = build_templates_inputs_for_target(
+				target=target,
+				stage_config=templates_stage_config,
+				unit_workers=int(parallelism.unit_workers),
+				probe_geometry=probe_geometry,
+			)
+			inputs = replace(inputs, templates_inputs=templates_inputs)
 		result = runner_fn(inputs)
 		return _raise_reconstruct_unit_failures(stage_name=stage_name, result=result)
 
@@ -2585,6 +2616,158 @@ def run_reconstruct_from_runtime(
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 		publish_outputs=True,
+	)
+
+
+def run_reconstruct_templates_resolve_sources_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.templates_resolve_sources",
+		runner_fn=run_reconstruct_templates_resolve_sources,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_reconstruct_templates_analyzers_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.templates_analyzers",
+		runner_fn=run_reconstruct_templates_analyzers,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_reconstruct_templates_extract_template_segments_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.templates_extract_template_segments",
+		runner_fn=run_reconstruct_templates_extract_template_segments,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_reconstruct_templates_build_templates_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.templates_build_templates",
+		runner_fn=run_reconstruct_templates_build_templates,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_reconstruct_templates_compute_template_similarity_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.templates_compute_template_similarity",
+		runner_fn=run_reconstruct_templates_compute_template_similarity,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_reconstruct_templates_plot_templates_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.templates_plot_templates",
+		runner_fn=run_reconstruct_templates_plot_templates,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_reconstruct_templates_report_templates_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.templates_report_templates",
+		runner_fn=run_reconstruct_templates_report_templates,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_reconstruct_templates_reports_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.templates_reports",
+		runner_fn=run_reconstruct_templates_reports,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
 	)
 
 
@@ -2733,6 +2916,25 @@ def run_reconstruct_report_summaries_from_runtime(
 		config_path=config_path,
 		stage_name="reconstruct.report_summaries",
 		runner_fn=run_reconstruct_report_summaries,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_reconstruct_clear_templates_cache_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.clear_templates_cache",
+		runner_fn=run_reconstruct_clear_templates_cache,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
 		force_restart_override=force_restart_override,

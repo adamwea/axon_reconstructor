@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 
 from ...runner import (
+	run_reconstruct_clear_templates_cache_from_runtime,
 	run_reconstruct_from_runtime,
 	run_reconstruct_generate_gtrs_from_runtime,
 	run_reconstruct_plot_branch_propagations_from_runtime,
@@ -12,6 +13,14 @@ from ...runner import (
 	run_reconstruct_report_full_chip_layout_from_runtime,
 	run_reconstruct_report_recons_from_runtime,
 	run_reconstruct_report_summaries_from_runtime,
+	run_reconstruct_templates_analyzers_from_runtime,
+	run_reconstruct_templates_build_templates_from_runtime,
+	run_reconstruct_templates_compute_template_similarity_from_runtime,
+	run_reconstruct_templates_extract_template_segments_from_runtime,
+	run_reconstruct_templates_plot_templates_from_runtime,
+	run_reconstruct_templates_report_templates_from_runtime,
+	run_reconstruct_templates_reports_from_runtime,
+	run_reconstruct_templates_resolve_sources_from_runtime,
 )
 
 
@@ -56,6 +65,102 @@ def register_reconstruct_subparser(subparsers: argparse._SubParsersAction[argpar
 def _run_from_args(args: argparse.Namespace) -> int:
 	return _print_reconstruct_aggregate(
 		run_reconstruct_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_templates_resolve_sources_from_args(args: argparse.Namespace) -> int:
+	return _print_reconstruct_aggregate(
+		run_reconstruct_templates_resolve_sources_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_templates_analyzers_from_args(args: argparse.Namespace) -> int:
+	return _print_reconstruct_aggregate(
+		run_reconstruct_templates_analyzers_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_templates_extract_template_segments_from_args(args: argparse.Namespace) -> int:
+	return _print_reconstruct_aggregate(
+		run_reconstruct_templates_extract_template_segments_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_templates_build_templates_from_args(args: argparse.Namespace) -> int:
+	return _print_reconstruct_aggregate(
+		run_reconstruct_templates_build_templates_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_templates_compute_template_similarity_from_args(args: argparse.Namespace) -> int:
+	return _print_reconstruct_aggregate(
+		run_reconstruct_templates_compute_template_similarity_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_templates_plot_templates_from_args(args: argparse.Namespace) -> int:
+	return _print_reconstruct_aggregate(
+		run_reconstruct_templates_plot_templates_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_templates_report_templates_from_args(args: argparse.Namespace) -> int:
+	return _print_reconstruct_aggregate(
+		run_reconstruct_templates_report_templates_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_templates_reports_from_args(args: argparse.Namespace) -> int:
+	return _print_reconstruct_aggregate(
+		run_reconstruct_templates_reports_from_runtime(
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),
@@ -152,6 +257,18 @@ def _run_report_full_chip_layout_from_args(args: argparse.Namespace) -> int:
 def _run_report_summaries_from_args(args: argparse.Namespace) -> int:
 	return _print_reconstruct_aggregate(
 		run_reconstruct_report_summaries_from_runtime(
+			config_path=str(args.config),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+	)
+
+
+def _run_clear_templates_cache_from_args(args: argparse.Namespace) -> int:
+	return _print_reconstruct_aggregate(
+		run_reconstruct_clear_templates_cache_from_runtime(
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),
 			unit_ids_override=getattr(args, "unit_ids", None),

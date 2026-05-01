@@ -4,6 +4,7 @@ import json
 import logging
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 import pickle
 
 import numpy as np
@@ -20,6 +21,7 @@ from axon_recon.pipeline.stages.reconstruct.models.inputs import (
 	ReconstructionBranchVelocityDisplayConfig,
 	PerUnitOutputsConfig,
 	ReconstructionAvReconsConfig,
+	ReconstructionClearTemplatesCachePhaseConfig,
 	ReconstructionDiagnosticFigureConfig,
 	ReconstructionFullChipLayoutColorConfig,
 	ReconstructionFullChipLayoutDisplayConfig,
@@ -29,6 +31,7 @@ from axon_recon.pipeline.stages.reconstruct.models.inputs import (
 	ReconstructionPhasesConfig,
 	ReconstructionPlotBranchPropagationsPhaseConfig,
 	ReconstructionPlotBranchVelocitiesPhaseConfig,
+	ReconstructionPlotReconsPhaseConfig,
 	ReconstructionPlotUnitSummaryPhaseConfig,
 	ReconstructionReportFullChipLayoutPhaseConfig,
 	ReconstructionReportReconsPhaseConfig,
@@ -37,6 +40,10 @@ from axon_recon.pipeline.stages.reconstruct.models.inputs import (
 	ReconstructionUnitSummaryOutputConfig,
 )
 from axon_recon.pipeline.stages.reconstruct.runner import (
+	_resolve_templates_dirs,
+	_normalize_reconstruct_stage_phase_name,
+	_reconstruct_stage_phase_runner,
+	run_reconstruct_clear_templates_cache_phase,
 	run_reconstruct_generate_gtrs_phase,
 	run_reconstruct_plot_branch_propagations_phase,
 	run_reconstruct_plot_branch_velocities_phase,
@@ -44,8 +51,16 @@ from axon_recon.pipeline.stages.reconstruct.runner import (
 	run_reconstruct_report_full_chip_layout_phase,
 	run_reconstruct_report_recons_phase,
 	run_reconstruct_report_summaries_phase,
+	run_reconstruct_templates_analyzers_phase,
+	run_reconstruct_templates_build_templates_phase,
+	run_reconstruct_templates_compute_template_similarity_phase,
+	run_reconstruct_templates_extract_template_segments_phase,
+	run_reconstruct_templates_plot_templates_phase,
+	run_reconstruct_templates_report_templates_phase,
+	run_reconstruct_templates_reports_phase,
+	run_reconstruct_templates_resolve_sources_phase,
 )
-from axon_recon.pipeline.stages.templates.models.inputs import ProbeGeometryConfig
+from axon_recon.pipeline.stages.templates.models.inputs import ProbeGeometryConfig, TemplatesInputs
 
 
 def test_format_unit_reldir() -> None:
@@ -72,6 +87,220 @@ def test_resolve_unit_output_paths_includes_amplitude_map() -> None:
 	assert paths["axon_reconstruction_figure_svg"] == Path("/tmp/recon") / "units/0001" / "diagnostic_figs/axon_reconstruction.svg"
 	assert paths["circle_recon_png"] == Path("/tmp/recon") / "units/0001" / "circle_recon.png"
 	assert paths["circle_recon_svg"] == Path("/tmp/recon") / "units/0001" / "circle_recon.svg"
+
+
+def test_resolve_templates_dirs_supports_cached_templates_layout(tmp_path: Path) -> None:
+	well_out_dir = tmp_path / "well000"
+	merged_units_dir = well_out_dir / "template_outputs" / "cache" / "templates" / "merged"
+	full_channels_templates_dir = well_out_dir / "template_outputs" / "cache" / "templates" / "full"
+	merged_units_dir.mkdir(parents=True, exist_ok=True)
+	full_channels_templates_dir.mkdir(parents=True, exist_ok=True)
+
+	templates_out_dir, resolved_merged_units_dir, resolved_full_channels_templates_dir = _resolve_templates_dirs(well_out_dir)
+
+	assert templates_out_dir == well_out_dir / "template_outputs"
+	assert resolved_merged_units_dir == merged_units_dir
+	assert resolved_full_channels_templates_dir == full_channels_templates_dir
+
+
+def test_reconstruct_phase_resolver_handles_templates_phases() -> None:
+	assert _normalize_reconstruct_stage_phase_name("templates.analyzers") == "templates_analyzers"
+	assert _reconstruct_stage_phase_runner("templates_resolve_sources") is run_reconstruct_templates_resolve_sources_phase
+	assert _reconstruct_stage_phase_runner("templates_analyzers") is run_reconstruct_templates_analyzers_phase
+	assert (
+		_reconstruct_stage_phase_runner("templates_extract_template_segments")
+		is run_reconstruct_templates_extract_template_segments_phase
+	)
+	assert _reconstruct_stage_phase_runner("templates_build_templates") is run_reconstruct_templates_build_templates_phase
+	assert (
+		_reconstruct_stage_phase_runner("templates_compute_template_similarity")
+		is run_reconstruct_templates_compute_template_similarity_phase
+	)
+	assert _reconstruct_stage_phase_runner("templates_plot_templates") is run_reconstruct_templates_plot_templates_phase
+	assert _reconstruct_stage_phase_runner("templates_report_templates") is run_reconstruct_templates_report_templates_phase
+	assert _reconstruct_stage_phase_runner("templates_reports") is run_reconstruct_templates_reports_phase
+	assert _reconstruct_stage_phase_runner("clear_templates_cache") is run_reconstruct_clear_templates_cache_phase
+
+
+def test_reconstruct_combined_phase_sequence_runs_in_order(monkeypatch, tmp_path: Path) -> None:
+	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
+
+	order_list: list[str] = []
+	collected_result = SimpleNamespace(summary_json=tmp_path / "summary.json")
+
+	def _record_phase(phase_name: str):
+		def _run_phase(inputs: ReconstructionInputs) -> dict[str, str]:
+			assert inputs is reconstruct_inputs
+			order_list.append(phase_name)
+			return {"phase": phase_name, "summary_json": "/tmp/x"}
+
+		return _run_phase
+
+	phase_runner_attrs = {
+		"templates_resolve_sources": "run_reconstruct_templates_resolve_sources_phase",
+		"templates_analyzers": "run_reconstruct_templates_analyzers_phase",
+		"templates_extract_template_segments": "run_reconstruct_templates_extract_template_segments_phase",
+		"templates_build_templates": "run_reconstruct_templates_build_templates_phase",
+		"templates_compute_template_similarity": "run_reconstruct_templates_compute_template_similarity_phase",
+		"templates_plot_templates": "run_reconstruct_templates_plot_templates_phase",
+		"templates_report_templates": "run_reconstruct_templates_report_templates_phase",
+		"templates_reports": "run_reconstruct_templates_reports_phase",
+		"generate_gtrs": "run_reconstruct_generate_gtrs_phase",
+		"plot_recons": "run_reconstruct_plot_recons_phase",
+		"plot_branch_propagations": "run_reconstruct_plot_branch_propagations_phase",
+		"plot_branch_velocities": "run_reconstruct_plot_branch_velocities_phase",
+		"plot_unit_summary": "run_reconstruct_plot_unit_summary_phase",
+		"report_recons": "run_reconstruct_report_recons_phase",
+		"report_full_chip_layout": "run_reconstruct_report_full_chip_layout_phase",
+		"report_summaries": "run_reconstruct_report_summaries_phase",
+		"clear_templates_cache": "run_reconstruct_clear_templates_cache_phase",
+	}
+	assert tuple(phase_runner_attrs) == reconstruct_runner.DEFAULT_INTERNAL_RECONSTRUCTION_PHASE_SEQUENCE
+	for phase_name, attr_name in phase_runner_attrs.items():
+		monkeypatch.setattr(reconstruct_runner, attr_name, _record_phase(phase_name))
+
+	def _collect_result(inputs: ReconstructionInputs):
+		assert inputs is reconstruct_inputs
+		order_list.append("collect")
+		return collected_result
+
+	monkeypatch.setattr(reconstruct_runner, "collect_reconstruct_result_from_outputs", _collect_result)
+
+	templates_inputs = cast(
+		TemplatesInputs,
+		SimpleNamespace(
+			resolve_sources_phase=SimpleNamespace(enabled=True),
+			phases=SimpleNamespace(
+				analyzers=SimpleNamespace(enabled=True),
+				per_unit_processing=SimpleNamespace(
+					extract_template_segments=SimpleNamespace(enabled=True),
+				),
+				build_templates=SimpleNamespace(enabled=True),
+				compute_template_similarity=SimpleNamespace(enabled=True),
+				plot_templates=SimpleNamespace(enabled=True),
+				report_templates=SimpleNamespace(enabled=True),
+				reports=SimpleNamespace(enabled=True),
+			),
+		),
+	)
+	reconstruct_inputs = ReconstructionInputs(
+		h5_path=tmp_path / "input.raw.h5",
+		stream_id="well000",
+		mea_output_root=tmp_path,
+		phase_sequence=None,
+		templates_inputs=templates_inputs,
+		phases=ReconstructionPhasesConfig(
+			clear_templates_cache=ReconstructionClearTemplatesCachePhaseConfig(enabled=True),
+			generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(enabled=True),
+			plot_recons=ReconstructionPlotReconsPhaseConfig(enabled=True),
+			plot_branch_propagations=ReconstructionPlotBranchPropagationsPhaseConfig(enabled=True),
+			plot_branch_velocities=ReconstructionPlotBranchVelocitiesPhaseConfig(enabled=True),
+			plot_unit_summary=ReconstructionPlotUnitSummaryPhaseConfig(enabled=True),
+			report_recons=ReconstructionReportReconsPhaseConfig(enabled=True),
+			report_full_chip_layout=ReconstructionReportFullChipLayoutPhaseConfig(enabled=True),
+			report_summaries=ReconstructionReportSummariesPhaseConfig(enabled=True),
+		),
+	)
+
+	result = reconstruct_runner.run_reconstruct_stage(reconstruct_inputs)
+
+	assert result is collected_result
+	assert order_list == list(reconstruct_runner.DEFAULT_INTERNAL_RECONSTRUCTION_PHASE_SEQUENCE) + ["collect"]
+
+
+def test_reconstruct_combined_phase_sequence_skips_clear_templates_cache_when_disabled(
+	monkeypatch,
+	tmp_path: Path,
+) -> None:
+	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
+
+	order_list: list[str] = []
+	collected_result = SimpleNamespace(summary_json=tmp_path / "summary.json")
+
+	def _record_phase(phase_name: str):
+		def _run_phase(inputs: ReconstructionInputs) -> dict[str, str]:
+			assert inputs is reconstruct_inputs
+			order_list.append(phase_name)
+			return {"phase": phase_name, "summary_json": "/tmp/x"}
+
+		return _run_phase
+
+	phase_runner_attrs = {
+		"templates_resolve_sources": "run_reconstruct_templates_resolve_sources_phase",
+		"templates_analyzers": "run_reconstruct_templates_analyzers_phase",
+		"templates_extract_template_segments": "run_reconstruct_templates_extract_template_segments_phase",
+		"templates_build_templates": "run_reconstruct_templates_build_templates_phase",
+		"templates_compute_template_similarity": "run_reconstruct_templates_compute_template_similarity_phase",
+		"templates_plot_templates": "run_reconstruct_templates_plot_templates_phase",
+		"templates_report_templates": "run_reconstruct_templates_report_templates_phase",
+		"templates_reports": "run_reconstruct_templates_reports_phase",
+		"generate_gtrs": "run_reconstruct_generate_gtrs_phase",
+		"plot_recons": "run_reconstruct_plot_recons_phase",
+		"plot_branch_propagations": "run_reconstruct_plot_branch_propagations_phase",
+		"plot_branch_velocities": "run_reconstruct_plot_branch_velocities_phase",
+		"plot_unit_summary": "run_reconstruct_plot_unit_summary_phase",
+		"report_recons": "run_reconstruct_report_recons_phase",
+		"report_full_chip_layout": "run_reconstruct_report_full_chip_layout_phase",
+		"report_summaries": "run_reconstruct_report_summaries_phase",
+		"clear_templates_cache": "run_reconstruct_clear_templates_cache_phase",
+	}
+	assert tuple(phase_runner_attrs) == reconstruct_runner.DEFAULT_INTERNAL_RECONSTRUCTION_PHASE_SEQUENCE
+	for phase_name, attr_name in phase_runner_attrs.items():
+		monkeypatch.setattr(reconstruct_runner, attr_name, _record_phase(phase_name))
+
+	def _collect_result(inputs: ReconstructionInputs):
+		assert inputs is reconstruct_inputs
+		order_list.append("collect")
+		return collected_result
+
+	monkeypatch.setattr(reconstruct_runner, "collect_reconstruct_result_from_outputs", _collect_result)
+
+	templates_inputs = cast(
+		TemplatesInputs,
+		SimpleNamespace(
+			resolve_sources_phase=SimpleNamespace(enabled=True),
+			phases=SimpleNamespace(
+				analyzers=SimpleNamespace(enabled=True),
+				per_unit_processing=SimpleNamespace(
+					extract_template_segments=SimpleNamespace(enabled=True),
+				),
+				build_templates=SimpleNamespace(enabled=True),
+				compute_template_similarity=SimpleNamespace(enabled=True),
+				plot_templates=SimpleNamespace(enabled=True),
+				report_templates=SimpleNamespace(enabled=True),
+				reports=SimpleNamespace(enabled=True),
+			),
+		),
+	)
+	reconstruct_inputs = ReconstructionInputs(
+		h5_path=tmp_path / "input.raw.h5",
+		stream_id="well000",
+		mea_output_root=tmp_path,
+		phase_sequence=None,
+		templates_inputs=templates_inputs,
+		phases=ReconstructionPhasesConfig(
+			clear_templates_cache=ReconstructionClearTemplatesCachePhaseConfig(enabled=False),
+			generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(enabled=True),
+			plot_recons=ReconstructionPlotReconsPhaseConfig(enabled=True),
+			plot_branch_propagations=ReconstructionPlotBranchPropagationsPhaseConfig(enabled=True),
+			plot_branch_velocities=ReconstructionPlotBranchVelocitiesPhaseConfig(enabled=True),
+			plot_unit_summary=ReconstructionPlotUnitSummaryPhaseConfig(enabled=True),
+			report_recons=ReconstructionReportReconsPhaseConfig(enabled=True),
+			report_full_chip_layout=ReconstructionReportFullChipLayoutPhaseConfig(enabled=True),
+			report_summaries=ReconstructionReportSummariesPhaseConfig(enabled=True),
+		),
+	)
+
+	result = reconstruct_runner.run_reconstruct_stage(reconstruct_inputs)
+
+	expected_order = [
+		phase
+		for phase in reconstruct_runner.DEFAULT_INTERNAL_RECONSTRUCTION_PHASE_SEQUENCE
+		if phase != "clear_templates_cache"
+	]
+	assert result is collected_result
+	assert "clear_templates_cache" not in order_list
+	assert order_list == expected_order + ["collect"]
 
 
 def test_run_reconstruct_generate_gtrs_phase_writes_summary(monkeypatch, tmp_path: Path) -> None:

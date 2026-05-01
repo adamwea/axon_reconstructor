@@ -101,6 +101,7 @@ global_heatmap_defaults:
       show_ticks: [1, 10, dynamic_high]
 
 stages:
+
   preprocess:
     execution:
       force_restart: false
@@ -298,6 +299,7 @@ stages:
         dry_run: true # when true, logs the paths that would be deleted without actually deleting them; keep true by default for safety during debugging iterations, but can be set to false to enable actual deletion of scratch outputs when publish_outputs is false and you want to clean up scratch space during debug runs.
         requires_use_scratch_root: true
         summary_json_relpath: context/wipe_src_scratch_summary.json
+
   spikesort:
     resources:
       max_stage_workers: 18
@@ -1818,6 +1820,10 @@ stages:
         enable: true
         write_pdf: true
         pdf_relpath: reports/reconstruct_summary_deck.pdf
+      clear_templates_cache:
+        enabled: false  # set to true after verifying recon outputs are correct
+        keep_merged_per_unit_outputs: true
+        keep_full_channels_templates: false
     outputs:
       output_rel_root: recon_outputs
       reports:
