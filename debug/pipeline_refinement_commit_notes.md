@@ -76,7 +76,67 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-01 01:45 - pending - ai: retire direct templates CLI selectors
+## 2026-05-01 01:53 - pending - ai: delete retired analysis stage
+
+Status: accepted
+
+Summary:
+- Deleted the retired `stages.analysis` package, its stage-local tests, and the pipeline-level analysis target status tests.
+- Removed analysis runtime wiring from `pipeline.runner`, including `run_analysis_from_runtime`, analysis publish helpers, and cross-well result attachment helpers.
+- Confirmed active CLI dispatch still rejects `analysis` and continues to expose only preprocess, spikesort, and reconstruct selectors.
+
+Acceptance Criteria:
+- No analysis-stage imports, runtime entry points, or result models remain under `src/axon_recon`.
+- Retired `analysis` is rejected as a stage selector.
+- Pipeline tests collect without stale analysis import failures.
+
+Expected To Run:
+- Active preprocess, spikesort, and reconstruct stage/phase selectors.
+
+Confirmed Not Run:
+- Analysis stage runtime and direct analysis CLI dispatch are removed.
+
+Files/Modules Changed:
+- `src/axon_recon/pipeline/runner.py`
+- `src/axon_recon/pipeline/stages/analysis/`
+- `src/axon_recon/pipeline/tests/test_analysis_target_status.py`
+
+Validation:
+- Pytest: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_cli_stage_sequence.py -q` passed.
+- Pytest collection: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest --collect-only src/axon_recon/pipeline -q` passed collection.
+- CLI rejection: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m axon_recon.pipeline.cli stages analysis --config debug/debug.runtime.yml` failed as expected with `Unsupported stage token: analysis`.
+- Reference audit: no matches for `stages.analysis`, `run_analysis_from_runtime`, `run_analysis(`, `AnalysisInputs`, `AnalysisResult`, `parse_analysis`, or `generate_cross_well` under `src/axon_recon/**`.
+- Smoke (20 min max unless Adam approves longer): not run; this was a deletion/import-surface slice with no real-data execution path left for analysis.
+- Smoke extension to 1 hour: not needed.
+- Logs inspected: none.
+- Not run: real-data smoke.
+
+Resume / Force-Restart Impact:
+- Resume behavior: unchanged for active stages; retired analysis resume behavior is removed.
+- Force-restart cleanup: unchanged for active stages; retired analysis force-restart behavior is removed.
+- Partial-output handling: unchanged for active stages.
+
+Storage/Cache Impact:
+- Created: none in the repository.
+- Cleaned: removed retired analysis code/tests only.
+- Persisted: none.
+- Size check: not applicable.
+
+CLI Impact:
+- `analysis` remains unsupported in `axon_recon stages` / `axon_recon stage` and now has no backing runtime package.
+
+Retired Code/Tests:
+- Deleted analysis API/config/core/cross-well/runner/models package files.
+- Deleted analysis stage tests and pipeline analysis target-status tests.
+
+Risks And Follow-Ups:
+- `debug/debug.runtime.yml` still contains a `stages.analysis` block and should be cleaned in a later config slice.
+- Any future analysis rewrite should be introduced as a new active design rather than reviving the deleted v2 analysis package.
+
+Rollback Notes:
+- Restore the deleted `stages.analysis` package, runner imports/helpers, and analysis target-status tests if the old analysis runtime must be temporarily recovered.
+
+## 2026-05-01 01:45 - ac8251e - ai: retire direct templates CLI selectors
 
 Status: accepted
 
