@@ -16,7 +16,7 @@ Real-data smoke commands for the active debug runtime:
 
 ```bash
 axon-recon-container stages preprocess --config debug/debug.runtime.yml --limit-segments 2 --limit-datasets 2 --limit-wells-per-dataset 1
-axon-recon-container stages spikesort --config debug/debug.runtime.yml --limit-segments 2 --limit-datasets 2 --limit-wells-per-dataset 1
+axon-recon-container --gpus all stages spikesort --config debug/debug.runtime.yml --limit-segments 2 --limit-datasets 2 --limit-wells-per-dataset 1
 axon-recon-container stages reconstruct --config debug/debug.runtime.yml --limit-segments 2 --limit-datasets 2 --limit-wells-per-dataset 1 --limit-units 5
 ```
 
@@ -83,6 +83,8 @@ tools/axon-recon-container --dry-run stages --help
 ```
 
 The wrapper mounts the repo at the same absolute path and sets writable cache locations under `/tmp/axon-recon-cache`. When the forwarded CLI args include `--config`, the wrapper inspects that runtime config and its `data:` YAML with a lightweight scanner, then mounts configured output roots and scratch roots read-write and the common raw H5 root read-only. Disable this with `--no-config-mounts` and add manual mounts with repeated `--mount host_path:container_path[:mode]` flags when needed.
+
+For CUDA-backed spikesort runs under Docker, request GPU passthrough explicitly with `--gpus all` or set `AXON_RECON_CONTAINER_GPUS=all`. Without Docker GPU passthrough, PyTorch inside the container cannot see a CUDA device and Kilosort will log `GPU usage: N/A` and `GPU memory: N/A`. This image also installs the NVML Python binding (`nvidia-ml-py`, imported by Kilosort as `pynvml`) so that, once CUDA is visible, Kilosort can report GPU utilization percentage in addition to GPU memory.
 
 For Shifter-style/root-squash smoke tests and to avoid root-owned host outputs, run Docker as your current UID/GID:
 

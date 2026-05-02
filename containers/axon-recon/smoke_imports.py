@@ -77,6 +77,17 @@ def _check_kilosort_version_floor() -> dict[str, str | bool | None]:
     }
 
 
+def _check_pynvml_available() -> dict[str, str | bool | None]:
+    importlib.import_module("pynvml")
+    return {
+        "ok": True,
+        "module": "pynvml",
+        "check": "import",
+        "error": None,
+        "version": _distribution_version("nvidia-ml-py") or _distribution_version("pynvml"),
+    }
+
+
 def _check_slay_pipeline_import() -> dict[str, str | bool | None]:
     runner = importlib.import_module("axon_recon.pipeline.stages.spikesort.runner")
     import_run_slay = getattr(runner, "_import_slay_run_function")
@@ -121,6 +132,17 @@ def main(argv: list[str] | None = None) -> int:
                 "version": results["kilosort"].get("version"),
             }
             failures.append("kilosort_version_floor")
+        try:
+            results["pynvml"] = _check_pynvml_available()
+        except Exception as exc:
+            results["pynvml"] = {
+                "ok": False,
+                "module": "pynvml",
+                "check": "import",
+                "error": f"{type(exc).__name__}: {exc}",
+                "version": _distribution_version("nvidia-ml-py") or _distribution_version("pynvml"),
+            }
+            failures.append("pynvml")
     special_checks = (
         ("UnitMatchPy", _check_unitmatch_package),
         ("slay", _check_slay_pipeline_import),

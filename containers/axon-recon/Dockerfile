@@ -4,7 +4,7 @@ FROM spikeinterface/kilosort4-base:4.0.38_cuda-12.0.0
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG AXON_RECON_INSTALL_EXTRAS=""
-ARG AXON_RECON_RUNTIME_SPEC="numpy<2.0 h5py<4 tqdm<5 requests<3 psutil matplotlib<4 pandas<3.0 openpyxl scipy<2.0 pyyaml docker pypdf scikit-learn<2.0"
+ARG AXON_RECON_RUNTIME_SPEC="numpy<2.0 h5py<4 tqdm<5 requests<3 psutil matplotlib<4 pandas<3.0 openpyxl scipy<2.0 pyyaml docker pypdf scikit-learn<2.0 nvidia-ml-py"
 ARG SPIKEINTERFACE_SPEC="spikeinterface==0.103.2"
 ARG UNITMATCH_SPEC=""
 ARG UNITMATCH_RUNTIME_SPEC="joblib mat73 mtscomp"

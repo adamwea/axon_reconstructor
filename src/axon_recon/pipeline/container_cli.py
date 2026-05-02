@@ -31,6 +31,7 @@ FINGERPRINT_EXCLUDED_DIRS = {
 class WrapperOptions:
 	image: str = DEFAULT_IMAGE
 	container_cli: str = "docker"
+	gpu_request: str | None = None
 	repo_root: Path | None = None
 	repo_mode: str = "ro"
 	cache_dir: Path = field(default_factory=lambda: Path.home() / ".cache" / "axon-recon-container")
@@ -55,6 +56,8 @@ Wrapper options:
   --no-build             Do not build/update the image before running
   --rebuild              Force a rebuild before running
   --dry-run              Print the resolved build/run commands without running them
+	--gpus SPEC            Pass Docker --gpus SPEC (default: AXON_RECON_CONTAINER_GPUS when set)
+	--no-gpus              Do not request container GPU access
   --repo-root PATH       Repo root to mount (default: git top-level or installed source root)
   --repo-writable        Mount the repo read-write instead of read-only
   --cache-dir PATH       Host cache directory (default: ~/.cache/axon-recon-container)
@@ -127,6 +130,7 @@ def _parse_options(argv: list[str]) -> WrapperOptions:
 	options = WrapperOptions(
 		image=os.environ.get("AXON_RECON_CONTAINER_IMAGE", DEFAULT_IMAGE),
 		container_cli=os.environ.get("AXON_RECON_CONTAINER_CLI", "docker"),
+		gpu_request=(os.environ.get("AXON_RECON_CONTAINER_GPUS") or None),
 		cache_dir=Path(os.environ.get("AXON_RECON_CONTAINER_CACHE", Path.home() / ".cache" / "axon-recon-container")),
 		container_user=os.environ.get("AXON_RECON_CONTAINER_USER") or None,
 		config_mounts=_env_bool("AXON_RECON_CONTAINER_CONFIG_MOUNTS", True),
@@ -160,6 +164,20 @@ def _parse_options(argv: list[str]) -> WrapperOptions:
 			continue
 		if arg == "--dry-run":
 			options.dry_run = True
+			idx += 1
+			continue
+		if arg == "--gpus":
+			idx += 1
+			if idx >= len(argv):
+				raise SystemExit("axon-recon-container: --gpus requires a value")
+			gpu_request = argv[idx].strip()
+			if not gpu_request:
+				raise SystemExit("axon-recon-container: --gpus requires a non-empty value")
+			options.gpu_request = gpu_request
+			idx += 1
+			continue
+		if arg == "--no-gpus":
+			options.gpu_request = None
 			idx += 1
 			continue
 		if arg == "--repo-root":
@@ -464,6 +482,8 @@ def _build_docker_run_command(*, repo_root: Path, options: WrapperOptions) -> li
 		cmd.append("-i")
 	if options.tty and sys.stdout.isatty():
 		cmd.append("-t")
+	if options.gpu_request:
+		cmd.extend(["--gpus", str(options.gpu_request)])
 
 	cmd.extend(
 		[
