@@ -2170,6 +2170,7 @@ def test_parse_spikesort_stage_config_reads_logging_debug_plot_report_blocks() -
                         "verbose": True,
                         "file_relpath": "logs/custom_spikesort.log",
                     },
+                    "debug_outputs": True,
                     "debug": {
                         "limit_wells": 2,
                     },
@@ -2195,6 +2196,7 @@ def test_parse_spikesort_stage_config_reads_logging_debug_plot_report_blocks() -
     assert parsed.logging_enabled is False
     assert parsed.logging_verbose is True
     assert parsed.logging_file_relpath == "logs/custom_spikesort.log"
+    assert parsed.debug_outputs is True
     assert parsed.debug_limit_wells == 2
     assert parsed.run_reports is True
     assert parsed.plot_enabled is True

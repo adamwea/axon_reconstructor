@@ -3322,6 +3322,9 @@ def run_spikesort_bootstrap_concat_binary_stage(
 	from axon_recon.pipeline.stages.preprocess.core.save_concatenated_recording import (
 		run_save_concatenated_recording_core,
 	)
+	from axon_recon.pipeline.stages.spikesort.core.debug_outputs import (
+		suppress_spikesort_external_debug_output,
+	)
 
 	overwrite_saved_recording = bool(getattr(stage_config, "bootstrap_concat_binary_overwrite_existing", False))
 	if bool(force_restart) and bool(getattr(stage_config, "bootstrap_concat_binary_overwrite_on_force_restart", True)):
@@ -3365,21 +3368,25 @@ def run_spikesort_bootstrap_concat_binary_stage(
 			"Spikesort bootstrap_concat_binary: common-electrode artifact not found at %s; concat will use each segment's full channel set",
 			str(common_electrodes_path),
 		)
-	payload = run_concat_segments_core(
-		stream_id=str(stream_id),
-		segment_manifest_path=paths["segment_manifest_path"],
-		recording_dir=paths["recording_dir"],
-		concat_manifest_path=paths["concat_manifest_path"],
-		overwrite_saved_recording=bool(overwrite_saved_recording),
-		output_mode="binary",
-		n_jobs=max(1, int(n_jobs)),
-		chunk_duration=str(chunk_duration),
-		progress_bar=bool(getattr(stage_config, "bootstrap_concat_binary_progress_bar", True)),
-		logger=LOGGER,
-		run_save_concatenated_recording_core=run_save_concatenated_recording_core,
-		common_electrodes=common_electrodes_for_concat,
-		limit_segments_per_well=limit_segments_per_well,
-	)
+	with suppress_spikesort_external_debug_output(enabled=bool(getattr(stage_config, "debug_outputs", False))):
+		payload = run_concat_segments_core(
+			stream_id=str(stream_id),
+			segment_manifest_path=paths["segment_manifest_path"],
+			recording_dir=paths["recording_dir"],
+			concat_manifest_path=paths["concat_manifest_path"],
+			overwrite_saved_recording=bool(overwrite_saved_recording),
+			output_mode="binary",
+			n_jobs=max(1, int(n_jobs)),
+			chunk_duration=str(chunk_duration),
+			progress_bar=bool(
+				getattr(stage_config, "bootstrap_concat_binary_progress_bar", True)
+				and getattr(stage_config, "debug_outputs", False)
+			),
+			logger=LOGGER,
+			run_save_concatenated_recording_core=run_save_concatenated_recording_core,
+			common_electrodes=common_electrodes_for_concat,
+			limit_segments_per_well=limit_segments_per_well,
+		)
 	binary_candidates = [
 		path
 		for pattern in ("traces_cached_seg*.raw", "*.raw", "recording.dat")
@@ -10612,6 +10619,7 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 				"logging_enabled": bool(inputs.logging_enabled),
 				"logging_verbose": bool(inputs.logging_verbose),
 				"logging_file_relpath": inputs.logging_file_relpath,
+				"debug_outputs": bool(inputs.debug_outputs),
 				"sorter": str(inputs.sorter),
 				"docker_image": inputs.docker_image,
 				"local_spikeinterface_output_relpath": inputs.local_spikeinterface_output_relpath,

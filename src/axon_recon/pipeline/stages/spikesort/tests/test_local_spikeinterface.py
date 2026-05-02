@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import io
 import logging
 from pathlib import Path
+import sys
 
 import pytest
 
+from axon_recon.pipeline.stages.spikesort.core.debug_outputs import (
+    suppress_spikesort_external_debug_output,
+)
 from axon_recon.pipeline.stages.spikesort.core.local_spikeinterface import (
     build_local_kilosort_kwargs,
     run_local_spikeinterface_sort_stage,
@@ -41,8 +46,44 @@ class _FakeSorters:
 
     def run_sorter(self, **kwargs):
         self.run_sorter_kwargs.update(kwargs)
-        Path(kwargs["output_folder"]).mkdir(parents=True, exist_ok=True)
+        Path(kwargs["folder"]).mkdir(parents=True, exist_ok=True)
         return object()
+
+
+def test_suppress_spikesort_external_debug_output_keeps_file_handlers(tmp_path: Path, capsys) -> None:
+    logger = logging.getLogger("kilosort")
+    original_handlers = list(logger.handlers)
+    original_level = logger.level
+    original_propagate = logger.propagate
+
+    raw_stream = io.StringIO()
+    raw_handler = logging.StreamHandler(raw_stream)
+    file_path = tmp_path / "kilosort4.log"
+    file_handler = logging.FileHandler(file_path)
+    logger.handlers = [raw_handler, file_handler]
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    try:
+        with suppress_spikesort_external_debug_output(enabled=False):
+            print("stdout noise")
+            print("stderr noise", file=sys.stderr)
+            assert any(type(handler) == logging.StreamHandler for handler in logger.handlers)
+            logger.info("kilosort file line")
+        captured = capsys.readouterr()
+        assert "stdout noise" not in captured.out
+        assert "stderr noise" not in captured.err
+        assert raw_stream.getvalue() == ""
+        assert "kilosort file line" in file_path.read_text(encoding="utf-8")
+    finally:
+        for handler in logger.handlers:
+            try:
+                handler.close()
+            except Exception:
+                pass
+        logger.handlers = original_handlers
+        logger.setLevel(original_level)
+        logger.propagate = original_propagate
 
 
 def test_build_local_kilosort_kwargs_translates_shared_sorter_params() -> None:
@@ -93,6 +134,7 @@ def test_run_local_spikeinterface_sort_stage_uses_in_process_sorter(tmp_path: Pa
         n_jobs=2,
         chunk_duration="1s",
         verbose=True,
+        debug_outputs=True,
         force_restart=True,
         local_spikeinterface_remove_existing_on_force_restart=True,
         local_spikeinterface_run_sorter_kwargs={"delete_output_folder": False},
@@ -114,12 +156,13 @@ def test_run_local_spikeinterface_sort_stage_uses_in_process_sorter(tmp_path: Pa
     assert fake_si.global_job_kwargs == {"n_jobs": 2, "chunk_duration": "1s", "progress_bar": True}
     assert fake_sorters.run_sorter_kwargs["sorter_name"] == "kilosort4"
     assert fake_sorters.run_sorter_kwargs["recording"].__class__ is _FakeRecording
-    assert fake_sorters.run_sorter_kwargs["output_folder"] == outputs.sorter_output_dir
+    assert fake_sorters.run_sorter_kwargs["folder"] == outputs.sorter_output_dir
     assert fake_sorters.run_sorter_kwargs["batch_size"] == 4096
     assert fake_sorters.run_sorter_kwargs["Th_universal"] == 8.0
     assert fake_sorters.run_sorter_kwargs["remove_existing_folder"] is True
     assert fake_sorters.run_sorter_kwargs["delete_output_folder"] is False
     assert "docker_image" not in fake_sorters.run_sorter_kwargs
+    assert "output_folder" not in fake_sorters.run_sorter_kwargs
     assert fake_si.analyzer_kwargs["folder"] == outputs.analyzer_dir
 
 

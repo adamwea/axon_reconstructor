@@ -19,6 +19,7 @@ class SpikesortInputs:
 	logging_enabled: bool = True
 	logging_verbose: bool = False
 	logging_file_relpath: str | None = None
+	debug_outputs: bool = False
 	sort_engine: str = "mea_analysis"
 	sorter: str = "kilosort4"
 	docker_image: str | None = None

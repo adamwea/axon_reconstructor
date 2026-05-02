@@ -3897,6 +3897,7 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
         logging_enabled=False,
         logging_verbose=True,
         logging_file_relpath="logs/custom_spikesort.log",
+        debug_outputs=True,
         run_reports=False,
         plot_mode="merged",
         plot_debug=True,
@@ -3930,6 +3931,7 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
     assert summary.get("inputs", {}).get("logging_enabled") is False
     assert summary.get("inputs", {}).get("logging_verbose") is True
     assert summary.get("inputs", {}).get("logging_file_relpath") == "logs/custom_spikesort.log"
+    assert summary.get("inputs", {}).get("debug_outputs") is True
     assert summary.get("inputs", {}).get("preprocess_concat_recording_relpath") == "preprocess_outputs/preprocessed_recording"
     assert summary.get("inputs", {}).get("sort_original_preprocess_concat_recording_relpath") == "preprocess_outputs/concatenated_recording"
     assert summary.get("inputs", {}).get("sort_bootstrapped_concat_recording_relpath") == "spikesort_outputs_v2/cache/bootstrap_concat_binary/recording"

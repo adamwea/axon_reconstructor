@@ -7,6 +7,8 @@ import json
 import sys
 from typing import Any
 
+from packaging import version as packaging_version
+
 
 IMPORTS: tuple[tuple[str, str], ...] = (
     ("axon_recon", "axon_recon"),
@@ -55,6 +57,26 @@ def _check_unitmatch_package() -> dict[str, str | bool | None]:
     }
 
 
+def _check_kilosort_version_floor() -> dict[str, str | bool | None]:
+    minimum_version = "4.0.16"
+    module = importlib.import_module("kilosort")
+    resolved_version = _distribution_version("kilosort") or _module_version(module)
+    if resolved_version is None:
+        raise RuntimeError("kilosort version could not be resolved")
+    if packaging_version.parse(resolved_version) < packaging_version.parse(minimum_version):
+        raise RuntimeError(
+            "kilosort version floor check failed: "
+            f"found {resolved_version}, need >= {minimum_version}"
+        )
+    return {
+        "ok": True,
+        "module": "kilosort",
+        "check": "version_floor",
+        "error": None,
+        "version": resolved_version,
+    }
+
+
 def _check_slay_pipeline_import() -> dict[str, str | bool | None]:
     runner = importlib.import_module("axon_recon.pipeline.stages.spikesort.runner")
     import_run_slay = getattr(runner, "_import_slay_run_function")
@@ -87,6 +109,18 @@ def main(argv: list[str] | None = None) -> int:
                 "version": None,
             }
             failures.append(label)
+    if bool(results.get("kilosort", {}).get("ok")):
+        try:
+            results["kilosort_version_floor"] = _check_kilosort_version_floor()
+        except Exception as exc:
+            results["kilosort_version_floor"] = {
+                "ok": False,
+                "module": "kilosort",
+                "check": "version_floor",
+                "error": f"{type(exc).__name__}: {exc}",
+                "version": results["kilosort"].get("version"),
+            }
+            failures.append("kilosort_version_floor")
     special_checks = (
         ("UnitMatchPy", _check_unitmatch_package),
         ("slay", _check_slay_pipeline_import),

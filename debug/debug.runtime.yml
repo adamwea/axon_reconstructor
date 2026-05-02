@@ -365,6 +365,7 @@ stages:
     - bombcell_label
     #- merge_SLAy
     - cleanup_concat_binary
+    debug_outputs: false
     phases:
       #resolve_sources:
       bootstrap_concat_binary:

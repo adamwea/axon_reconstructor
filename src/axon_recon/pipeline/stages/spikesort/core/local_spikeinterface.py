@@ -11,6 +11,7 @@ from axon_recon.pipeline.stages.preprocess.constants import (
 	LEGACY_PREPROCESS_OUTPUTS_DIRNAME,
 	PREPROCESS_OUTPUTS_DIRNAME,
 )
+from .debug_outputs import suppress_spikesort_external_debug_output
 
 from ..models.inputs import SpikesortInputs
 
@@ -156,7 +157,7 @@ def _set_global_job_kwargs(*, si_module: Any, inputs: SpikesortInputs, logger: l
 		job_kwargs["n_jobs"] = int(inputs.n_jobs)
 	if inputs.chunk_duration is not None:
 		job_kwargs["chunk_duration"] = str(inputs.chunk_duration)
-	job_kwargs["progress_bar"] = bool(inputs.verbose)
+	job_kwargs["progress_bar"] = bool(inputs.verbose and inputs.debug_outputs)
 	if not job_kwargs:
 		return
 	set_global_job_kwargs = getattr(si_module, "set_global_job_kwargs", None)
@@ -229,7 +230,7 @@ def _run_sorter(
 		return run_sorter(
 			sorter_name=str(inputs.sorter),
 			recording=recording,
-			output_folder=sorter_output_dir,
+			folder=sorter_output_dir,
 			**call_kwargs,
 		)
 	except TypeError:
@@ -334,31 +335,32 @@ def run_local_spikeinterface_sort_stage(
 		inputs.n_jobs,
 		sorter_kwargs,
 	)
-	sorting = _run_sorter(
-		sorters_module=sorters_module,
-		si_module=si_module,
-		inputs=inputs,
-		recording=recording,
-		sorter_output_dir=sorter_output_dir,
-		sorter_kwargs=sorter_kwargs,
-	)
-	if sorting is None:
-		sorting = _read_sorting_from_output(
-			si_module=si_module,
+	with suppress_spikesort_external_debug_output(enabled=bool(inputs.debug_outputs)):
+		sorting = _run_sorter(
 			sorters_module=sorters_module,
-			sorter_output_dir=sorter_output_dir,
-			sorter_name=str(inputs.sorter),
-		)
-	if sorting is None and bool(inputs.local_spikeinterface_analyzer_enabled and inputs.run_analyzer):
-		raise RuntimeError("Local SpikeInterface sorter did not return a sorting and it could not be reloaded")
-
-	if bool(inputs.local_spikeinterface_analyzer_enabled and inputs.run_analyzer):
-		_create_sorting_analyzer(
 			si_module=si_module,
+			inputs=inputs,
 			recording=recording,
-			sorting=sorting,
-			analyzer_dir=analyzer_dir,
+			sorter_output_dir=sorter_output_dir,
+			sorter_kwargs=sorter_kwargs,
 		)
+		if sorting is None:
+			sorting = _read_sorting_from_output(
+				si_module=si_module,
+				sorters_module=sorters_module,
+				sorter_output_dir=sorter_output_dir,
+				sorter_name=str(inputs.sorter),
+			)
+		if sorting is None and bool(inputs.local_spikeinterface_analyzer_enabled and inputs.run_analyzer):
+			raise RuntimeError("Local SpikeInterface sorter did not return a sorting and it could not be reloaded")
+
+		if bool(inputs.local_spikeinterface_analyzer_enabled and inputs.run_analyzer):
+			_create_sorting_analyzer(
+				si_module=si_module,
+				recording=recording,
+				sorting=sorting,
+				analyzer_dir=analyzer_dir,
+			)
 
 	return LocalSpikeInterfaceSortOutputs(
 		recording_dir=recording_dir,

@@ -1593,7 +1593,14 @@ def run_spikesort_from_runtime(
 		parallelism=parallelism,
 		worker_fn=_worker,
 		stage_name="spikesort",
-		progress=PipelineProgress(ProgressSpec(label="spikesort wells", total=len(targets), unit="well")),
+		progress=PipelineProgress(
+			ProgressSpec(
+				label="spikesort wells",
+				total=len(targets),
+				unit="well",
+				enabled=bool(getattr(stage_config, "debug_outputs", False)),
+			)
+		),
 		advance_progress_on_target_complete=True,
 	)
 	target_results = [

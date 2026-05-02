@@ -383,6 +383,7 @@ class SpikesortStageConfig:
 	logging_enabled: bool
 	logging_verbose: bool
 	logging_file_relpath: str | None
+	debug_outputs: bool
 	debug_mode_enabled: bool
 	debug_limit_datasets: int | None
 	debug_limit_wells: int | None
@@ -1018,6 +1019,17 @@ def parse_spikesort_stage_config(
 	logging_enabled = _as_bool(logging_cfg.get("enabled", True), True)
 	logging_verbose = _as_bool(logging_cfg.get("verbose", legacy_debug_default), legacy_debug_default)
 	logging_file_relpath = _as_optional_str(logging_cfg.get("file_relpath", None))
+	debug_outputs = _as_bool(
+		_coalesce(
+			sort_phase_cfg.get("debug_outputs", None),
+			sort_phase_local_spikeinterface_cfg.get("debug_outputs", None),
+			execution_cfg.get("debug_outputs", None),
+			stage_cfg.get("debug_outputs", None),
+			logging_cfg.get("debug_outputs", None),
+			False,
+		),
+		False,
+	)
 	preprocess_concat_recording_relpath = _normalize_optional_relpath(
 		_coalesce(
 			resolved_inputs_cfg.get("preprocess_concat_recording_relpath", None),
@@ -3436,6 +3448,7 @@ def parse_spikesort_stage_config(
 		logging_enabled=logging_enabled,
 		logging_verbose=logging_verbose,
 		logging_file_relpath=logging_file_relpath,
+		debug_outputs=bool(debug_outputs),
 		debug_mode_enabled=bool(debug_mode_enabled),
 		debug_limit_datasets=debug_limit_datasets,
 		debug_limit_wells=debug_limit_wells,
@@ -4078,6 +4091,7 @@ def build_spikesort_inputs_for_target(
 		logging_enabled=stage_config.logging_enabled,
 		logging_verbose=stage_config.logging_verbose,
 		logging_file_relpath=stage_config.logging_file_relpath,
+		debug_outputs=stage_config.debug_outputs,
 		sort_engine=stage_config.sort_engine,
 		sorter=stage_config.sorter,
 		docker_image=stage_config.docker_image,
@@ -4204,6 +4218,7 @@ def load_spikesort_inputs_from_runtime(
 		logging_enabled=stage_cfg.logging_enabled,
 		logging_verbose=stage_cfg.logging_verbose,
 		logging_file_relpath=stage_cfg.logging_file_relpath,
+		debug_outputs=stage_cfg.debug_outputs,
 		sort_engine=stage_cfg.sort_engine,
 		sorter=stage_cfg.sorter,
 		docker_image=stage_cfg.docker_image,
