@@ -3,17 +3,28 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+import sys
+import types
 
 from axon_recon.pipeline.logging import (
     configure_pipeline_logging,
     finalize_pipeline_logging,
     install_noisy_external_log_filters,
     log_context,
+    parse_pipeline_logging_config,
 )
 from axon_recon.pipeline.logging.multiprocessing import append_text_line
+from axon_recon.pipeline.logging.setup import _make_console_handler
+from axon_recon.runtime_config import RuntimeConfig
 
 
-def _write_runtime(tmp_path: Path, *, phase_logs_enabled: bool = True) -> Path:
+def _write_runtime(
+    tmp_path: Path,
+    *,
+    phase_logs_enabled: bool = True,
+    console_enabled: bool = False,
+    console_rich: bool = True,
+) -> Path:
     data_path = tmp_path / "data.yml"
     output_root = tmp_path / "outputs"
     data_path.write_text(
@@ -30,7 +41,8 @@ def _write_runtime(tmp_path: Path, *, phase_logs_enabled: bool = True) -> Path:
         "  run_id: test-run\n"
         "  level: INFO\n"
         "  console:\n"
-        "    enabled: false\n"
+        f"    enabled: {'true' if console_enabled else 'false'}\n"
+        f"    rich: {'true' if console_rich else 'false'}\n"
         "  structured:\n"
         "    enabled: true\n"
         "    path: logs/pipeline.jsonl\n"
@@ -192,6 +204,55 @@ def test_append_text_line_recovers_from_stale_unwritable_log(tmp_path, monkeypat
 
     assert log_path.with_name("phase.log.stale").read_text(encoding="utf-8") == "old line\n"
     assert log_path.read_text(encoding="utf-8") == "new line\n"
+
+
+def test_make_console_handler_disables_rich_level_prefix(tmp_path, monkeypatch):
+    from axon_recon.pipeline.logging.formatters import PipelineHumanFormatter
+
+    runtime_path = _write_runtime(tmp_path, console_enabled=True, console_rich=True)
+    rich_module = types.ModuleType("rich")
+    rich_logging_module = types.ModuleType("rich.logging")
+    created: dict[str, object] = {}
+
+    class FakeRichHandler(logging.Handler):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+            created["kwargs"] = kwargs
+
+    rich_module.logging = rich_logging_module  # type: ignore[attr-defined]
+    rich_logging_module.RichHandler = FakeRichHandler  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "rich", rich_module)
+    monkeypatch.setitem(sys.modules, "rich.logging", rich_logging_module)
+
+    runtime_config = RuntimeConfig.load(runtime_path)
+    config = parse_pipeline_logging_config(runtime_config=runtime_config, config_path=runtime_path)
+
+    handler = _make_console_handler(config)
+    record = logging.makeLogRecord(
+        {
+            "name": "axon_recon.tests.pipeline_logging.console",
+            "levelno": logging.INFO,
+            "levelname": "INFO",
+            "msg": "hello console",
+            "args": (),
+            "run_id": "test-run",
+            "pid": 123,
+        }
+    )
+    rendered = handler.formatter.format(record)
+
+    assert isinstance(handler, FakeRichHandler)
+    assert created["kwargs"] == {
+        "show_path": False,
+        "show_time": False,
+        "show_level": True,
+        "rich_tracebacks": True,
+        "markup": False,
+    }
+    assert isinstance(handler.formatter, PipelineHumanFormatter)
+    assert handler.formatter.include_level is False
+    assert "INFO" not in rendered
+    assert rendered.endswith("pid=123\nhello console")
 
 
 def test_pipeline_logging_suppresses_noisy_codec_registration_logger():

@@ -61,6 +61,7 @@ def _remove_pipeline_handlers(root: logging.Logger) -> None:
 
 
 def _make_console_handler(config: PipelineLoggingConfig) -> logging.Handler:
+    rich_console_handler = False
     if config.console.rich:
         try:
             from rich.logging import RichHandler  # type: ignore[import-not-found]
@@ -68,15 +69,17 @@ def _make_console_handler(config: PipelineLoggingConfig) -> logging.Handler:
             handler: logging.Handler = RichHandler(
                 show_path=False,
                 show_time=False,
+                show_level=True,
                 rich_tracebacks=True,
                 markup=False,
             )
+            rich_console_handler = True
         except Exception:
             handler = PipelineProgressStreamHandler()
     else:
         handler = PipelineProgressStreamHandler()
     handler.setLevel(config.console.level)
-    handler.setFormatter(PipelineHumanFormatter())
+    handler.setFormatter(PipelineHumanFormatter(include_level=not rich_console_handler))
     handler._axon_recon_pipeline_handler = True  # type: ignore[attr-defined]
     return handler
 

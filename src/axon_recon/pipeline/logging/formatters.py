@@ -67,6 +67,10 @@ class PipelineJsonFormatter(logging.Formatter):
 
 
 class PipelineHumanFormatter(logging.Formatter):
+    def __init__(self, *, include_level: bool = True) -> None:
+        super().__init__()
+        self.include_level = bool(include_level)
+
     def format(self, record: logging.LogRecord) -> str:
         timestamp = datetime.fromtimestamp(float(record.created)).isoformat(timespec="seconds")
         context_parts: list[str] = []
@@ -87,7 +91,11 @@ class PipelineHumanFormatter(logging.Formatter):
         context_parts.append(f"pid={int(getattr(record, 'pid', record.process))}")
         context = " ".join(context_parts)
         message = record.getMessage()
-        line = f"{timestamp} | {record.levelname:<8} | {context} | {message}"
+        segments = [timestamp]
+        if self.include_level:
+            segments.append(f"{record.levelname:<8}")
+        segments.append(context)
+        line = f"{' | '.join(segments)}\n{message}"
         if record.exc_info:
             line = f"{line}\n{self.formatException(record.exc_info)}"
         if record.stack_info:
