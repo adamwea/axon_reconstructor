@@ -165,6 +165,7 @@ class PhaseResourceUsage:
 	cpu_time_user_s: float | None = None
 	cpu_time_system_s: float | None = None
 	max_threads: int | None = None
+	observed_process_max_threads: int | None = None
 	child_process_count_max: int | None = None
 	gpu_peak_memory_gb: float | None = None
 	gpu_utilization_max_pct: float | None = None
@@ -180,6 +181,7 @@ class PhaseResourceUsage:
 			"cpu_time_user_s": self.cpu_time_user_s,
 			"cpu_time_system_s": self.cpu_time_system_s,
 			"max_threads": self.max_threads,
+			"observed_process_max_threads": self.observed_process_max_threads,
 			"child_process_count_max": self.child_process_count_max,
 			"gpu_peak_memory_gb": self.gpu_peak_memory_gb,
 			"gpu_utilization_max_pct": self.gpu_utilization_max_pct,
@@ -196,11 +198,19 @@ class PhaseResourceMonitor:
 		sample_interval_s: float = 0.5,
 		include_gpu: bool = True,
 		include_disk_io: bool = False,
+		pipeline_thread_count: int | None = None,
 	) -> None:
 		self.include_children = bool(include_children)
 		self.sample_interval_s = max(0.05, float(sample_interval_s))
 		self.include_gpu = bool(include_gpu)
 		self.include_disk_io = bool(include_disk_io)
+		try:
+			normalized_pipeline_thread_count = (
+				int(pipeline_thread_count) if pipeline_thread_count is not None else 1
+			)
+		except Exception:
+			normalized_pipeline_thread_count = 1
+		self._pipeline_thread_count = max(1, int(normalized_pipeline_thread_count))
 		self._process = None if psutil is None else psutil.Process(os.getpid())
 		self._start_perf = time.perf_counter()
 		self._start_cpu: dict[int, tuple[float, float]] = {}
@@ -208,7 +218,7 @@ class PhaseResourceMonitor:
 		self._peak_process_rss_bytes = 0
 		self._peak_child_rss_bytes = 0
 		self._peak_total_rss_bytes = 0
-		self._max_threads = 0
+		self._observed_process_max_threads = 0
 		self._child_process_count_max = 0
 		self._gpu_peak_bytes: int | None = None
 		self._gpu_utilization_max_pct: float | None = None
@@ -273,7 +283,10 @@ class PhaseResourceMonitor:
 				self._peak_total_rss_bytes,
 				max(0, int(parent_rss or 0)) + max(0, int(child_rss_total)),
 			)
-			self._max_threads = max(self._max_threads, max(0, int(total_threads)))
+			self._observed_process_max_threads = max(
+				self._observed_process_max_threads,
+				max(0, int(total_threads)),
+			)
 
 			if self.include_disk_io:
 				for index, proc in enumerate(procs):
@@ -361,7 +374,8 @@ class PhaseResourceMonitor:
 			),
 			cpu_time_user_s=_coerce_nonnegative(cpu_user_s),
 			cpu_time_system_s=_coerce_nonnegative(cpu_system_s),
-			max_threads=_coerce_nonnegative_int(self._max_threads),
+			max_threads=_coerce_nonnegative_int(self._pipeline_thread_count),
+			observed_process_max_threads=_coerce_nonnegative_int(self._observed_process_max_threads),
 			child_process_count_max=(
 				_coerce_nonnegative_int(self._child_process_count_max) if self.include_children else None
 			),
@@ -374,7 +388,11 @@ class PhaseResourceMonitor:
 		)
 
 
-def start_phase_resource_monitor(resource_usage_config: Any | None) -> PhaseResourceMonitor | None:
+def start_phase_resource_monitor(
+	resource_usage_config: Any | None,
+	*,
+	pipeline_thread_count: int | None = None,
+) -> PhaseResourceMonitor | None:
 	if resource_usage_config is None or not bool(getattr(resource_usage_config, "enabled", False)):
 		return None
 	monitor = PhaseResourceMonitor(
@@ -382,6 +400,7 @@ def start_phase_resource_monitor(resource_usage_config: Any | None) -> PhaseReso
 		sample_interval_s=float(getattr(resource_usage_config, "sample_interval_s", 0.5) or 0.5),
 		include_gpu=bool(getattr(resource_usage_config, "include_gpu", True)),
 		include_disk_io=bool(getattr(resource_usage_config, "include_disk_io", False)),
+		pipeline_thread_count=pipeline_thread_count,
 	)
 	monitor.start()
 	return monitor
@@ -640,16 +659,16 @@ def log_phase_resource_observation_warnings(
 			_RESOURCE_UNDERUSE_OBSERVATIONS.pop(ram_key, None)
 
 	estimated_cpu_cores = max(0, int(getattr(phase_config, "cpu_cores", 0) or 0))
-	observed_max_threads = resource_usage.max_threads
-	if estimated_cpu_cores > 0 and observed_max_threads is not None:
-		thread_ratio = float(observed_max_threads) / float(estimated_cpu_cores)
+	pipeline_max_threads = resource_usage.max_threads
+	if estimated_cpu_cores > 0 and pipeline_max_threads is not None:
+		thread_ratio = float(pipeline_max_threads) / float(estimated_cpu_cores)
 		if thread_ratio >= float(thread_warn_fraction):
 			logger.log(
 				level,
-				"Phase resource usage warning: %s resource_class=%s observed_max_threads=%d estimated_cpu_cores=%d ratio=%.2fx",
+				"Phase resource usage warning: %s resource_class=%s pipeline_max_threads=%d estimated_cpu_cores=%d ratio=%.2fx",
 				qualified_phase_name,
 				str(resource_class),
-				int(observed_max_threads),
+				int(pipeline_max_threads),
 				int(estimated_cpu_cores),
 				float(thread_ratio),
 				extra={"event": "phase_resource_usage_warning"},

@@ -1739,6 +1739,7 @@ def run_spikesort_from_runtime(
 				name=phase.name,
 				runner=_run_phase,
 				resource_class=phase.resource_class,
+				pipeline_thread_count=int(runtime_n_jobs),
 			)
 
 		chain_result = run_phase_chain(

@@ -194,7 +194,31 @@ def test_pipeline_logging_setup_is_idempotent(tmp_path):
 
 def test_phase_chain_logs_resource_class_and_writes_resource_usage(tmp_path, monkeypatch):
     import axon_recon.pipeline.logging.setup as logging_setup
+    import axon_recon.pipeline.resource_usage as resource_usage
     from axon_recon.pipeline.execution import PhaseDescriptor, run_phase_chain
+
+    class _FakeProcess:
+        def __init__(self, pid: int) -> None:
+            self.pid = int(pid)
+
+        def children(self, recursive: bool = True):
+            _ = recursive
+            return []
+
+        def memory_info(self):
+            return types.SimpleNamespace(rss=1024)
+
+        def num_threads(self) -> int:
+            return 99
+
+        def cpu_times(self):
+            return types.SimpleNamespace(user=0.0, system=0.0)
+
+    monkeypatch.setattr(
+        resource_usage,
+        "psutil",
+        types.SimpleNamespace(Process=lambda pid: _FakeProcess(int(pid))),
+    )
 
     runtime_path = _write_runtime(
         tmp_path,
@@ -223,6 +247,7 @@ def test_phase_chain_logs_resource_class_and_writes_resource_usage(tmp_path, mon
                         name="sort",
                         runner=lambda: types.SimpleNamespace(summary_json=summary_json),
                         resource_class="cpu_heavy",
+                        pipeline_thread_count=3,
                     )
                 ],
                 logger=logging.getLogger("axon_recon.tests.pipeline_logging.phase_chain"),
@@ -250,12 +275,16 @@ def test_phase_chain_logs_resource_class_and_writes_resource_usage(tmp_path, mon
     assert usage["status"] == "success"
     assert usage["resource_usage"]["wall_time_s"] is not None
     assert usage["resource_usage"]["total_peak_rss_gb"] is not None
+    assert usage["resource_usage"]["max_threads"] == 3
+    assert usage["resource_usage"]["observed_process_max_threads"] == 99
     assert blank_line_calls == ["blank"]
 
     summary_payload = json.loads(summary_json.read_text(encoding="utf-8"))
     assert summary_payload["resource_class"] == "cpu_heavy"
     assert summary_payload["resource_usage"]["wall_time_s"] is not None
     assert summary_payload["resource_usage"]["total_peak_rss_gb"] is not None
+    assert summary_payload["resource_usage"]["max_threads"] == 3
+    assert summary_payload["resource_usage"]["observed_process_max_threads"] == 99
 
 
 def test_append_text_line_recovers_from_stale_unwritable_log(tmp_path, monkeypatch):

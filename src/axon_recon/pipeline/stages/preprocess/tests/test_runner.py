@@ -769,7 +769,31 @@ def test_run_preprocess_stage_logs_phase_resource_usage_and_resource_class(
     from dataclasses import replace
 
     from axon_recon.pipeline.logging import configure_pipeline_logging, finalize_pipeline_logging
+    import axon_recon.pipeline.resource_usage as resource_usage
     from axon_recon.pipeline.stages.preprocess import runner as preprocess_runner
+
+    class _FakeProcess:
+        def __init__(self, pid: int) -> None:
+            self.pid = int(pid)
+
+        def children(self, recursive: bool = True):
+            _ = recursive
+            return []
+
+        def memory_info(self):
+            return types.SimpleNamespace(rss=1024)
+
+        def num_threads(self) -> int:
+            return 53
+
+        def cpu_times(self):
+            return types.SimpleNamespace(user=0.0, system=0.0)
+
+    monkeypatch.setattr(
+        resource_usage,
+        "psutil",
+        types.SimpleNamespace(Process=lambda pid: _FakeProcess(int(pid))),
+    )
 
     _install_success_fakes(monkeypatch, tmp_path)
 
@@ -842,9 +866,13 @@ def test_run_preprocess_stage_logs_phase_resource_usage_and_resource_class(
     assert phase_summary["resource_class"] == "metadata_io"
     assert phase_summary["resource_usage"]["wall_time_s"] is not None
     assert phase_summary["resource_usage"]["total_peak_rss_gb"] is not None
+    assert phase_summary["resource_usage"]["max_threads"] == 1
+    assert phase_summary["resource_usage"]["observed_process_max_threads"] == 53
     assert started_record.getMessage().startswith("Starting phase: preprocess.save_rec_metadata")
     assert usage_record.getMessage().startswith("Phase resource usage: preprocess.save_rec_metadata")
     assert getattr(usage_record, "status", None) == "success"
+    assert getattr(usage_record, "resource_usage", None)["max_threads"] == 1
+    assert getattr(usage_record, "resource_usage", None)["observed_process_max_threads"] == 53
     assert blank_line_calls == ["blank"]
 
 

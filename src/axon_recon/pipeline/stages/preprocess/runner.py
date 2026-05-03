@@ -2764,8 +2764,15 @@ def _run_preprocess_phase_sequence(
 		try:
 			with phase_budget_context:
 				phase_t0 = time.perf_counter()
-				resource_monitor = start_phase_resource_monitor(resource_usage_config)
 				phase_plot_cfg = _resolve_effective_plot_config(inputs, selected_phase=phase_name)
+				resource_monitor = start_phase_resource_monitor(
+					resource_usage_config,
+					pipeline_thread_count=_resolve_preprocess_phase_n_jobs(
+						inputs=inputs,
+						phase_name=str(phase_name),
+						phase_plot_cfg=phase_plot_cfg,
+					),
+				)
 				_log_preprocess_phase_worker_allocation(
 					phase_logger=phase_logger,
 					inputs=inputs,

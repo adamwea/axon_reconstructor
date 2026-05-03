@@ -24,6 +24,7 @@ class PhaseDescriptor:
     runner: Callable[[], Any]
     enabled: bool = True
     resource_class: str | None = None
+    pipeline_thread_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -109,7 +110,10 @@ def run_phase_chain(
             )
             with phase_budget_context:
                 phase_t0 = time.perf_counter()
-                resource_monitor = start_phase_resource_monitor(resource_usage_config)
+                resource_monitor = start_phase_resource_monitor(
+                    resource_usage_config,
+                    pipeline_thread_count=phase.pipeline_thread_count,
+                )
                 if logger is not None:
                     logger.info(
                         format_phase_message(

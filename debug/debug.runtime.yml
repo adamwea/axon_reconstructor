@@ -18,10 +18,10 @@ resources:
       cpu_cores: 36 # 48 total cores, but leaving some free for system processes and other users; adjust as needed based on typical server load and desired balance between performance and resource availability for others.
       ram_gb: 50 # 62 GB total RAM, but leaving some free for system processes and other users; adjust as needed based on typical server load and desired balance between performance and availability for others.
       gpu_sort_slots: 1
-      h5_read_slots: 1
-      disk_heavy_slots: 1
-      plot_slots: 1
-      analyzer_slots: 1
+      h5_read_slots: 2
+      disk_heavy_slots: 2
+      plot_slots: 2
+      analyzer_slots: 2
       #default_chunk_duration: 1s
   keyed_resource_limits:
     source_h5_path:
@@ -31,6 +31,8 @@ resources:
         - h5_metadata
         - h5_to_binary
         - preprocess_segments
+        - bootstrap_concat_binary
+        - spikeinterface_analyzer_segment
     # desktop_aggressive:
     #   cpu_cores: 24
     #   ram_gb: 128
@@ -73,6 +75,8 @@ resources:
       cpu_cores: 6
       ram_gb: 24
       disk_heavy_slots: 1
+      keyed_resources:
+        source_h5_path: 1
     kilosort4:
       description: GPU-backed Kilosort4 sorting through SpikeInterface.
       bottleneck: gpu_and_disk_io
@@ -80,13 +84,22 @@ resources:
       ram_gb: 32
       gpu_sort_slots: 1
       disk_heavy_slots: 1
-    spikeinterface_analyzer:
+    spikeinterface_analyzer_concat:
       description: SpikeInterface analyzer, waveform, template, sparsity, or curation work.
       bottleneck: ram_cpu_disk_io
       cpu_cores: 8
       ram_gb: 48
       analyzer_slots: 1
       disk_heavy_slots: 1
+    spikeinterface_analyzer_segment:
+      description: SpikeInterface analyzer work that can be done at the segment level before concatenation, such as per-segment quality metrics or representative channel scoring.
+      bottleneck: ram_cpu_disk_io
+      cpu_cores: 4
+      ram_gb: 24
+      analyzer_slots: 1
+      disk_heavy_slots: 1
+      keyed_resources:
+        source_h5_path: 1
     template_build:
       description: Template merge/build or lightweight unit-level compute.
       bottleneck: cpu_memory_light
@@ -1169,7 +1182,7 @@ stages:
         json_relpath: context/resolve_sources_summary.json
       analyzers:
         enabled: true
-        resource_class: spikeinterface_analyzer
+        resource_class: spikeinterface_analyzer_segement
         summary_json_relpath: context/analyzers_summary.json
         defaults:
           # Job controls applied when templates needs to recompute analyzer extensions locally.
