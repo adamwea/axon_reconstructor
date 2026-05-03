@@ -5,6 +5,7 @@ import threading
 
 from axon_recon.pipeline.execution.context import ExecutionTarget
 from axon_recon.pipeline.execution.distributor import distribute_targets
+from axon_recon.pipeline.execution.read_groups import target_read_group_key
 
 
 def _target(i: int) -> ExecutionTarget:
@@ -33,19 +34,20 @@ def _blocked_distribution_snapshot(
     well_workers: int,
     read_cap: int,
     expected_initial_starts: int,
-) -> tuple[list[tuple[int, str]], dict[Path, int], list[str]]:
+) -> tuple[list[tuple[int, str]], dict[object, int], list[str]]:
     condition = threading.Condition()
     release_workers = threading.Event()
-    active_counts: dict[Path, int] = {}
-    max_counts: dict[Path, int] = {}
+    active_counts: dict[object, int] = {}
+    max_counts: dict[object, int] = {}
     started: list[tuple[int, str]] = []
     results: list[str] = []
     errors: list[BaseException] = []
 
     def worker(target: ExecutionTarget) -> str:
+        group_key = target_read_group_key(target)
         with condition:
-            active_counts[target.h5_path] = active_counts.get(target.h5_path, 0) + 1
-            max_counts[target.h5_path] = max(max_counts.get(target.h5_path, 0), active_counts[target.h5_path])
+            active_counts[group_key] = active_counts.get(group_key, 0) + 1
+            max_counts[group_key] = max(max_counts.get(group_key, 0), active_counts[group_key])
             started.append((target.dataset_index, target.stream_id))
             condition.notify_all()
         try:
@@ -53,7 +55,7 @@ def _blocked_distribution_snapshot(
             return f"ok-{target.dataset_index}-{target.stream_id}"
         finally:
             with condition:
-                active_counts[target.h5_path] = max(0, active_counts.get(target.h5_path, 0) - 1)
+                active_counts[group_key] = max(0, active_counts.get(group_key, 0) - 1)
                 condition.notify_all()
 
     def run_distribution() -> None:
@@ -164,4 +166,37 @@ def test_distributor_read_cap_limits_single_h5_concurrency() -> None:
 
     assert len(started) == 2
     assert max(max_counts.values()) == 2
+    assert len(results) == len(targets)
+
+
+def test_distributor_read_cap_groups_by_source_h5_path() -> None:
+    shared_source = Path("/tmp/shared_source.raw.h5")
+    targets = [
+        ExecutionTarget(
+            dataset_index=0,
+            dataset_id="dataset_0",
+            h5_path=Path("/tmp/scratch/dataset_0.raw.h5"),
+            source_h5_path=shared_source,
+            stream_id="well000",
+            mea_output_root=Path("/tmp/out"),
+        ),
+        ExecutionTarget(
+            dataset_index=1,
+            dataset_id="dataset_1",
+            h5_path=Path("/tmp/scratch/dataset_1.raw.h5"),
+            source_h5_path=shared_source,
+            stream_id="well001",
+            mea_output_root=Path("/tmp/out"),
+        ),
+    ]
+
+    started, max_counts, results = _blocked_distribution_snapshot(
+        targets=targets,
+        well_workers=2,
+        read_cap=1,
+        expected_initial_starts=1,
+    )
+
+    assert len(started) == 1
+    assert max(max_counts.values()) == 1
     assert len(results) == len(targets)

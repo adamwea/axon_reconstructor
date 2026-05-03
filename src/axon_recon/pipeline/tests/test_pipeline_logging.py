@@ -24,6 +24,8 @@ def _write_runtime(
     phase_logs_enabled: bool = True,
     console_enabled: bool = False,
     console_rich: bool = True,
+    blank_line_after_phase: bool = False,
+    resource_usage_enabled: bool = False,
 ) -> Path:
     data_path = tmp_path / "data.yml"
     output_root = tmp_path / "outputs"
@@ -43,6 +45,7 @@ def _write_runtime(
         "  console:\n"
         f"    enabled: {'true' if console_enabled else 'false'}\n"
         f"    rich: {'true' if console_rich else 'false'}\n"
+        f"    blank_line_after_phase: {'true' if blank_line_after_phase else 'false'}\n"
         "  structured:\n"
         "    enabled: true\n"
         "    path: logs/pipeline.jsonl\n"
@@ -60,6 +63,14 @@ def _write_runtime(
         "    enabled: true\n"
         "  phase_logs:\n"
         f"    enabled: {'true' if phase_logs_enabled else 'false'}\n"
+        "  resource_usage:\n"
+        f"    enabled: {'true' if resource_usage_enabled else 'false'}\n"
+        "    level: INFO\n"
+        "    include_children: true\n"
+        "    sample_interval_s: 0.05\n"
+        "    include_gpu: false\n"
+        "    include_disk_io: false\n"
+        "    write_to_phase_summary: true\n"
         "  summary:\n"
         "    enabled: true\n"
         "    path: logs/summary.json\n",
@@ -179,6 +190,72 @@ def test_pipeline_logging_setup_is_idempotent(tmp_path):
     logging.getLogger("axon_recon.tests.pipeline_logging.idempotent").info("single line")
     finalize_pipeline_logging(status="ok")
     assert (config.logs_dir / "pipeline.log").read_text(encoding="utf-8").count("single line") == 1
+
+
+def test_phase_chain_logs_resource_class_and_writes_resource_usage(tmp_path, monkeypatch):
+    import axon_recon.pipeline.logging.setup as logging_setup
+    from axon_recon.pipeline.execution import PhaseDescriptor, run_phase_chain
+
+    runtime_path = _write_runtime(
+        tmp_path,
+        console_enabled=False,
+        blank_line_after_phase=True,
+        resource_usage_enabled=True,
+    )
+    config = configure_pipeline_logging(config_path=runtime_path)
+    blank_line_calls: list[str] = []
+    monkeypatch.setattr(logging_setup, "emit_pipeline_console_blank_line", lambda: blank_line_calls.append("blank"))
+
+    summary_json = config.run_root / "artifacts" / "phase_summary.json"
+    summary_json.parent.mkdir(parents=True, exist_ok=True)
+    summary_json.write_text(json.dumps({"status": "ok"}) + "\n", encoding="utf-8")
+
+    try:
+        with log_context(
+            dataset_id="dataset-a",
+            recording_id="000123",
+            well_id="well001",
+            stage="spikesort",
+        ):
+            result = run_phase_chain(
+                phases=[
+                    PhaseDescriptor(
+                        name="sort",
+                        runner=lambda: types.SimpleNamespace(summary_json=summary_json),
+                        resource_class="cpu_heavy",
+                    )
+                ],
+                logger=logging.getLogger("axon_recon.tests.pipeline_logging.phase_chain"),
+                target_label="dataset-a:well001",
+            )
+            assert result.result is not None
+    finally:
+        finalize_pipeline_logging(status="ok")
+
+    assert config.console.blank_line_after_phase is True
+    assert config.resource_usage.enabled is True
+
+    records = [json.loads(line) for line in (config.logs_dir / "pipeline.jsonl").read_text(encoding="utf-8").splitlines()]
+    phase_records = [record for record in records if record.get("phase") == "sort"]
+    started = next(record for record in phase_records if record.get("event") == "phase_started")
+    completed = next(record for record in phase_records if record.get("event") == "phase_completed")
+    usage = next(record for record in phase_records if record.get("event") == "phase_resource_usage")
+
+    assert started["resource_class"] == "cpu_heavy"
+    assert completed["resource_class"] == "cpu_heavy"
+    assert usage["resource_class"] == "cpu_heavy"
+    assert started["message"].startswith("Starting phase: spikesort.sort")
+    assert completed["message"].startswith("Finished phase: spikesort.sort")
+    assert usage["message"].startswith("Phase resource usage: spikesort.sort")
+    assert usage["status"] == "success"
+    assert usage["resource_usage"]["wall_time_s"] is not None
+    assert usage["resource_usage"]["total_peak_rss_gb"] is not None
+    assert blank_line_calls == ["blank"]
+
+    summary_payload = json.loads(summary_json.read_text(encoding="utf-8"))
+    assert summary_payload["resource_class"] == "cpu_heavy"
+    assert summary_payload["resource_usage"]["wall_time_s"] is not None
+    assert summary_payload["resource_usage"]["total_peak_rss_gb"] is not None
 
 
 def test_append_text_line_recovers_from_stale_unwritable_log(tmp_path, monkeypatch):

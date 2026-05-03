@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from axon_recon.runtime_config import RuntimeConfig
+from axon_recon.pipeline.resources import parse_resources_config, validate_phase_resource_class
 from axon_recon.pipeline.shared.grid_sorting import normalize_grid_sort_by
 from axon_recon.pipeline.shared.plotting import build_stage_plot_block
 
@@ -1586,6 +1587,16 @@ def parse_reconstruct_templates_config(
 ) -> ReconstructTemplatesConfig:
 	stage_cfg = runtime_config.get("stages.reconstruct", {})
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
+	resources_config = parse_resources_config(runtime_config=runtime_config, logger=LOGGER)
+
+	def _phase_resource_class(raw_cfg: dict[str, Any] | None, phase_name: str) -> str | None:
+		phase_cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
+		return validate_phase_resource_class(
+			resource_class=phase_cfg.get("resource_class", None),
+			resources=resources_config,
+			phase_name=f"reconstruct.templates.{phase_name}",
+		)
+
 	phases_cfg = stage_cfg.get("phases", {}) if isinstance(stage_cfg.get("phases", {}), dict) else {}
 	execution_cfg = stage_cfg.get("execution", {}) if isinstance(stage_cfg.get("execution", {}), dict) else {}
 	debug_mode_cfg = stage_cfg.get("debug_mode", {}) if isinstance(stage_cfg.get("debug_mode", {}), dict) else {}
@@ -1596,6 +1607,7 @@ def parse_reconstruct_templates_config(
 	debug_limit_datasets = _as_optional_positive_int(debug_mode_cfg.get("limit_datasets", None))
 	debug_limit_wells = _as_optional_positive_int(debug_mode_cfg.get("limit_wells", None))
 	debug_limit_wells_per_dataset = _as_optional_positive_int(debug_mode_cfg.get("limit_wells_per_dataset", None))
+	per_unit_processing_cfg = _phase_block(phases_cfg, "per_unit_processing")
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
 	force_replot = _as_bool(execution_cfg.get("force_replot", False), False)
@@ -3669,11 +3681,13 @@ def parse_reconstruct_templates_config(
 		),
 		write_json=_as_bool(resolve_sources_phase_cfg.get("write_json", False), False),
 		json_relpath=str(resolve_sources_phase_cfg.get("json_relpath", "context/resolve_sources_summary.json")),
+		resource_class=_phase_resource_class(resolve_sources_phase_cfg, "resolve_sources"),
 	)
 
 	analyzers_phase = TemplatesAnalyzersPhaseConfig(
 		enabled=_as_bool(analyzers_phase_cfg_raw.get("enabled", True), True),
 		summary_json_relpath=str(analyzers_phase_cfg_raw.get("summary_json_relpath", "context/analyzers_summary.json")),
+		resource_class=_phase_resource_class(analyzers_phase_cfg_raw, "analyzers"),
 		emit_total_unique_channel_count_per_unit_log=_as_bool(
 			analyzers_phase_cfg_raw.get("emit_total_unique_channel_count_per_unit_log", False),
 			False,
@@ -3712,6 +3726,7 @@ def parse_reconstruct_templates_config(
 	build_templates_phase = TemplateBuildTemplatesPhaseConfig(
 		enabled=_as_bool(phase_build_cfg.get("enabled", True), True),
 		summary_json_relpath=str(phase_build_cfg.get("summary_json_relpath", "context/build_templates_summary.json")),
+		resource_class=_phase_resource_class(phase_build_cfg, "build_templates"),
 		emit_channel_count_per_unit_after_merge_log=_as_bool(
 			phase_build_cfg.get(
 				"emit_channel_count_per_unit_after_merge_log",
@@ -3729,6 +3744,10 @@ def parse_reconstruct_templates_config(
 				"summary_json_relpath",
 				"context/compute_template_similarity_summary.json",
 			)
+		),
+		resource_class=_phase_resource_class(
+			phase_compute_similarity_cfg,
+			"compute_template_similarity",
 		),
 		method=str(phase_compute_similarity_cfg.get("method", "ptp_cosine")),
 		method_options=TemplateSimilarityMethodOptionsConfig(
@@ -3854,6 +3873,7 @@ def parse_reconstruct_templates_config(
 		summary_json_relpath=str(
 			effective_plot_phase_cfg.get("summary_json_relpath", "context/plot_templates_summary.json")
 		),
+		resource_class=_phase_resource_class(effective_plot_phase_cfg, "plot_templates"),
 		debug_prints=_as_bool(
 			effective_plot_phase_cfg.get("debug_prints", effective_plot_phase_cfg.get("debug_plotting_prints", False)),
 			False,
@@ -3868,15 +3888,18 @@ def parse_reconstruct_templates_config(
 		summary_json_relpath=str(
 			phase_report_templates_cfg.get("summary_json_relpath", "context/report_templates_summary.json")
 		),
+		resource_class=_phase_resource_class(phase_report_templates_cfg, "report_templates"),
 		relpath=str(phase_report_templates_cfg.get("relpath", "template_report.pdf")),
 		write_pdf=_as_bool(phase_report_templates_cfg.get("write_pdf", True), True),
 	)
 	per_unit_processing_phase = TemplatePerUnitProcessingPhaseConfig(
-		enabled=_as_bool(_phase_block(phases_cfg, "per_unit_processing").get("enabled", True), True),
+		enabled=_as_bool(per_unit_processing_cfg.get("enabled", True), True),
+		resource_class=_phase_resource_class(per_unit_processing_cfg, "per_unit_processing"),
 		extract_template_segments=TemplateExtractTemplateSegmentsPhaseConfig(
 			enabled=_as_bool(phase_extract_cfg.get("enabled", True), True),
 			output_rel_root=str(phase_extract_cfg.get("output_rel_root", phase_extract_cfg.get("relpath_root", "cache/source_payloads"))),
 			summary_json_relpath=str(phase_extract_cfg.get("summary_json_relpath", "context/extract_template_segments_summary.json")),
+			resource_class=_phase_resource_class(phase_extract_cfg, "extract_template_segments"),
 		),
 		build_templates=build_templates_phase,
 		quality_checks=TemplateQualityChecksPhaseConfig(
@@ -3897,6 +3920,7 @@ def parse_reconstruct_templates_config(
 	reports_phase = TemplateReportsPhaseConfig(
 		enabled=_as_bool(phase_reports_cfg.get("enabled", True), True),
 		summary_json_relpath=str(phase_reports_cfg.get("summary_json_relpath", "context/reports_summary.json")),
+		resource_class=_phase_resource_class(phase_reports_cfg, "reports"),
 		config=reports,
 		locations=TemplateLeafPhaseConfig(
 			enabled=_as_bool(

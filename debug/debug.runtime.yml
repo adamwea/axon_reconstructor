@@ -12,10 +12,111 @@ env:
     conda_env_name: axon_recon
 
 resources:
-  # Global fallbacks when a stage-specific resources block omits a key.
-  # max_workers: 24
-  chunk_duration: 1s
-  max_simultaneous_well_reads_per_dataset: 1
+  active_profile: lab_server_safe
+  profiles:
+    lab_server_safe:
+      cpu_cores: 36 # 48 total cores, but leaving some free for system processes and other users; adjust as needed based on typical server load and desired balance between performance and resource availability for others.
+      ram_gb: 50 # 62 GB total RAM, but leaving some free for system processes and other users; adjust as needed based on typical server load and desired balance between performance and availability for others.
+      gpu_sort_slots: 1
+      h5_read_slots: 1
+      disk_heavy_slots: 1
+      plot_slots: 1
+      analyzer_slots: 1
+      #default_chunk_duration: 1s
+  keyed_resource_limits:
+    source_h5_path:
+      description: Limit concurrent well-workers touching the same source H5 file.
+      max_concurrent: 1
+      applies_to:
+        - h5_metadata
+        - h5_to_binary
+        - preprocess_segments
+    # desktop_aggressive:
+    #   cpu_cores: 24
+    #   ram_gb: 128
+    #   gpu_sort_slots: 1
+    #   h5_read_slots: 2
+    #   disk_heavy_slots: 2
+    #   plot_slots: 1
+    #   analyzer_slots: 2
+    #   default_chunk_duration: 1s
+  phase_resource_classes:
+    h5_metadata:
+      description: Light HDF5 metadata and small file reads.
+      bottleneck: h5_read
+      cpu_cores: 1
+      ram_gb: 4
+      h5_read_slots: 1
+      keyed_resources:
+        source_h5_path: 1
+    h5_to_binary:
+      description: HDF5/source read plus large binary write.
+      bottleneck: h5_read_and_disk_write
+      cpu_cores: 4
+      ram_gb: 16
+      h5_read_slots: 1
+      disk_heavy_slots: 1
+      keyed_resources:
+        source_h5_path: 1
+    preprocess_segments:
+      description: Segment-level preprocessing with HDF5/source reads and disk output.
+      bottleneck: h5_read_and_disk_io
+      cpu_cores: 6
+      ram_gb: 24
+      h5_read_slots: 1
+      disk_heavy_slots: 1
+      keyed_resources:
+        source_h5_path: 1
+    bootstrap_concat_binary:
+      description: Concatenated binary/cache creation from preprocessed segment recordings.
+      bottleneck: disk_io
+      cpu_cores: 6
+      ram_gb: 24
+      disk_heavy_slots: 1
+    kilosort4:
+      description: GPU-backed Kilosort4 sorting through SpikeInterface.
+      bottleneck: gpu_and_disk_io
+      cpu_cores: 8
+      ram_gb: 32
+      gpu_sort_slots: 1
+      disk_heavy_slots: 1
+    spikeinterface_analyzer:
+      description: SpikeInterface analyzer, waveform, template, sparsity, or curation work.
+      bottleneck: ram_cpu_disk_io
+      cpu_cores: 8
+      ram_gb: 48
+      analyzer_slots: 1
+      disk_heavy_slots: 1
+    template_build:
+      description: Template merge/build or lightweight unit-level compute.
+      bottleneck: cpu_memory_light
+      cpu_cores: 2
+      ram_gb: 8
+    axon_reconstruction:
+      description: Axon reconstruction, GTR generation, branch extraction, or unit-level reconstruction math.
+      bottleneck: cpu_memory_light
+      cpu_cores: 2
+      ram_gb: 8
+    plot_unit:
+      description: Per-unit plotting or matplotlib-heavy rendering.
+      bottleneck: plotting_memory
+      cpu_cores: 2
+      ram_gb: 24
+      plot_slots: 1
+    plot_report_grid:
+      description: Large report, grid, PDF, summary, or full-chip plotting.
+      bottleneck: plotting_memory_heavy
+      cpu_cores: 4
+      ram_gb: 48
+      plot_slots: 1
+    disk_cleanup:
+      description: Cleanup/deletion of generated intermediate files.
+      bottleneck: disk_metadata_io
+      cpu_cores: 1
+      ram_gb: 4
+      disk_heavy_slots: 1
+  defaults:
+    chunk_duration: 1s
 
 logging:
   enabled: true
@@ -24,6 +125,7 @@ logging:
     enabled: true
     rich: true
     level: INFO
+    blank_line_after_phase: true
   structured:
     enabled: true
     path: logs/pipeline.jsonl
@@ -48,6 +150,22 @@ logging:
   phase_logs:
     enabled: true
     level: INFO
+  resource_usage:
+    enabled: true
+    level: INFO
+    include_children: true
+    sample_interval_s: 0.25
+    include_gpu: true
+    include_disk_io: true
+    write_to_phase_summary: true
+    warnings:
+      enabled: true
+      level: WARNING
+      plan_fraction_threshold: 0.8
+      observed_ram_warn_fraction: 1.25
+      observed_thread_warn_fraction: 1.5
+      underuse_fraction: 0.25
+      underuse_observation_count: 5
   summary:
     enabled: true
     path: logs/summary.json
@@ -95,10 +213,7 @@ stages:
       save_stage_log: true
       stage_log_relpath: logs/preprocess_pipeline.log
     resources:
-      #max_stage_workers: 24 # desktop
-      max_stage_workers: 18 # lab server
-      well_workers: 6 # number of wells to process in parallel; when combined with max_stage_workers, controls the effective n_jobs for preprocess phases that support it; keep at 1 for debugging iterations to simplify resource usage and make logs easier to follow, but can be set higher for faster iterations when well-level parallelism is not a concern.
-      divide_stage_workers_by_wells: true # This controls the derived value of n_jobs. when true, stage workers are divided evenly among wells up to the max number of well workers.
+      # Stage parallelism now derives from the active machine profile and the enabled phase resource_class envelopes.
     rel_output_root: preprocess_outputs # optional subdir under each well's output directory for all preprocess outputs; relative paths for preprocess phases resolve under this directory in each well's output directory
     #phase_sequence: [copy_src_to_scratch, save_rec_metadata, preprocess_segments, plot_segment_traces, plot_segment_channel_layouts, plot_raster_threshold]
     phase_sequence:
@@ -117,18 +232,14 @@ stages:
     phases:
       copy_src_to_scratch:
         enabled: true
+        resource_class: h5_to_binary
         requires_use_scratch_root: true
         summary_json_relpath: context/copy_src_to_scratch_summary.json
 
       save_rec_metadata:
         enabled: true
+        resource_class: h5_metadata
         verbose: true
-        debug_mode:
-          #enabled: true
-          enabled: false
-          limit_datasets: 1
-          limit_wells: 3
-          report_step_timers: true
         #metadata_source: source_h5
         metadata_source: scratch_h5 # use scratch H5 metadata as the source of truth for recording metadata during debugging iterations to validate the integrity of copied recordings and their metadata in scratch space; can be set to source_h5 to use source H5 metadata instead, which is faster to access and can be used when copy_src_to_scratch is false or not the focus of debugging iterations.
         summary_json_relpath: context/recording_metadata_summary.json
@@ -140,6 +251,7 @@ stages:
 
       prepare_raw_binaries:
         enabled: false
+        resource_class: h5_to_binary
         summary_json_relpath: context/prepare_raw_binaries_summary.json
         rel_output_root: raw_binary_recording
         manifest_relpath: context/raw_binary_manifest.json
@@ -151,6 +263,7 @@ stages:
 
       preprocess_segments:
         enabled: true
+        resource_class: preprocess_segments
         output_mode: lazy # lazy | binary; lazy mode saves per-segment preprocessed outputs in a way that supports lazy loading for downstream phases, while binary mode saves concatenated preprocessed outputs directly as memory-mapped binaries without intermediate per-segment files; keep lazy by default for debugging iterations to allow more granular inspection of per-segment preprocessing outputs, but can be set to binary to skip intermediate file saving and speed up iterations when segment-level inspection is not the focus.
         #lazy_source: src # src | scratch
         lazy_source: scratch # use scratch as the default lazy source for preprocess_segments to test lazy loading from scratch outputs during debugging iterations; can be set to src to test lazy loading directly from source recordings instead.
@@ -164,6 +277,7 @@ stages:
 
       plot_segment_traces:
         enabled: false
+        resource_class: plot_unit
         summary_json_relpath: context/plot_segment_traces_summary.json
         plot:
           # Master preprocess PNG diagnostics override.
@@ -188,7 +302,6 @@ stages:
           # Parallel workers for diagnostic plotting/scoring (segment trace rendering + representative scoring).
           #n_jobs: null # inherit preprocess n_jobs by default; can set an explicit number here for more control.
           n_jobs: 1 # force one job at a time, probably better for read/write contention
-          #well_workers: 1 # force one well at a time for the same reason
 
           # Downsample plotting density for concat/segment trace figures.
           # Example math (10 kHz source, 30 min recording):
@@ -205,6 +318,7 @@ stages:
 
       plot_segment_channel_layouts:
         enabled: false
+        resource_class: plot_unit
         summary_json_relpath: context/plot_segment_channel_layouts_summary.json
         plot:
           layouts: true
@@ -212,11 +326,8 @@ stages:
 
       concat_segments:
         enabled: false
+        resource_class: bootstrap_concat_binary
         concatenate_preprocessed_recordings: true # when true, concatenate the preprocessed segment recordings; when false, concatenate raw segment recordings instead while keeping the rest of the concat phase wiring the same.
-        debug_mode:
-          enabled: false
-          limit_datasets: 1
-          limit_wells: 1
         output_mode: lazy
         summary_json_relpath: context/concat_segments_summary.json
         rel_output_root: concatenated_recording
@@ -229,6 +340,7 @@ stages:
 
       plot_concat_traces:
         enabled: false
+        resource_class: plot_unit
         summary_json_relpath: context/plot_concat_traces_summary.json
         plot:
           # Representative controls for concatenated trace diagnostics.
@@ -240,6 +352,7 @@ stages:
 
       plot_concat_channel_layout:
         enabled: false
+        resource_class: plot_unit
         summary_json_relpath: context/plot_concat_channel_layout_summary.json
         plot:
           layouts: true
@@ -247,44 +360,32 @@ stages:
 
       plot_raster_threshold:
         enabled: false
-        debug_mode:
-          enabled: false
-          #enabled: false
-          limit_datasets: 1
-          limit_wells: 1
-          report_step_timers: false
+        resource_class: plot_unit
         summary_json_relpath: context/plot_raster_threshold_summary.json
         rel_output_root: raster_threshold
 
       report_preprocessing:
         enabled: false
+        resource_class: plot_report_grid
         summary_json_relpath: context/report_preprocessing_summary.json
         report_relpath: report/preprocessing_report.md
         json_summary_relpath: report/preprocessing_report.json
 
       cleanup_preprocessing_outputs:
         enabled: false
+        resource_class: disk_cleanup
         summary_json_relpath: context/cleanup_preprocessing_outputs_summary.json
 
       wipe_src_scratch:
         enabled: false
+        resource_class: disk_cleanup
         dry_run: true # when true, logs the paths that would be deleted without actually deleting them; keep true by default for safety during debugging iterations, but can be set to false to enable actual deletion of scratch outputs when publish_outputs is false and you want to clean up scratch space during debug runs.
         requires_use_scratch_root: true
         summary_json_relpath: context/wipe_src_scratch_summary.json
 
   spikesort:
     resources:
-      max_stage_workers: 18
-      well_workers: 3
-      divide_stage_workers_by_wells: true # This controls the derived value of n_jobs. when true, stage workers are divided evenly among wells up to the max number of well workers.
       chunk_duration: 1s
-
-      # when true, forces the sort phase to process one well at a time regardless of the number of stage workers or well workers.
-      # GPU probably more efficient doing one sorting at a time w/ KS4
-      # basically allow well parallelism during bootstrap_concat_binary, bombcell_label, and cleanup phases but not sort phase.
-      # sort phase has no well parallelism but will have n_jobs sent to spikeinterface for parallel processing within each well's sorting job
-      # when supported by the sorter and stage-level resources.
-      force_single_well_sort: true
     logging:
       enabled: true
       verbose: true
@@ -329,10 +430,7 @@ stages:
       #resolve_sources:
       bootstrap_concat_binary:
         enabled: true
-        debug_mode:
-          enabled: false
-          limit_datasets: 1
-          limit_wells: 2
+        resource_class: bootstrap_concat_binary
         # Source manifest is produced by preprocess.preprocess_segments; the binary cache is local to spikesort_outputs.
         source_segment_manifest_relpath: preprocess_outputs/preprocessed_segments/manifest.json
         cache_relpath: cache/bootstrap_concat_binary
@@ -348,11 +446,8 @@ stages:
 
       sort:
         enabled: true
+        resource_class: kilosort4
         engine: local_spikeinterface # local_spikeinterface works both on the host and inside the axon_recon container; mea_analysis remains available below for explicit local legacy runs.
-        debug_mode:
-          enabled: false
-          limit_datasets: 1
-          limit_wells: 2
 
         source:
           use_bootstrapped_concat_binary: true # when true, uses the output of the bootstrap_concat_binary phase as the source recording for sorting; when false, uses the original concatenated recording from preprocess outputs instead.
@@ -402,19 +497,13 @@ stages:
 
       summarize_sort:
         enabled: false
-        debug_mode:
-          enabled: true
-          limit_datasets: 1
-          limit_wells: 2
+        resource_class: template_build
         emit_logs: true
         generate_artifacts: false
 
       bombcell_label:
         enabled: true
-        debug_mode:
-          enabled: false
-          limit_datasets: 1
-          limit_wells: 2
+        resource_class: spikeinterface_analyzer
         # outputs live under <well>/<spikesort_output_root>/<merge_units.rel_output_root>/<relpath>
         relpath: bombcell_label_outputs
         delete_outputs_on_force_restart: true
@@ -500,15 +589,11 @@ stages:
       merge_SLAy:
 
         enabled: false
+        resource_class: spikeinterface_analyzer
         rel_output_root: merge_SLAy
         delete_outputs_on_force_restart: true
         force_restart: false
         force_replot: false
-
-        debug_mode:
-          enabled: true
-          limit_datasets: 1
-          limit_wells: 1
 
         # Work on a sorter-output copy so the stage's canonical sorter output is only
         # replaced after SLAy completes successfully. Analyzer outputs are not copied.
@@ -689,6 +774,7 @@ stages:
       merge_si_auto:
 
         enabled: false
+        resource_class: spikeinterface_analyzer
         rel_output_root: merge_si_auto
         delete_outputs_on_force_restart: true
         force_restart: false
@@ -832,6 +918,7 @@ stages:
       merge_unitmatch:
 
         enabled: false
+        resource_class: spikeinterface_analyzer
         rel_output_root: merge_unitmatch
         delete_outputs_on_force_restart: true
         force_restart: false
@@ -979,20 +1066,11 @@ stages:
 
       cleanup_concat_binary:
         enabled: true
-        debug_mode:
-          enabled: false
-          limit_datasets: 1
-          limit_wells: 1
+        resource_class: disk_cleanup
         relpath: cache/bootstrap_concat_binary
         summary_json_relpath: cache/bootstrap_concat_binary_cleanup_summary.json
 
   reconstruct:
-    resources:
-      max_stage_workers: 8
-      well_workers: 1
-      #unit_workers: 4
-      max_plotting_concurrency: 1
-
     phase_sequence:
       #- resolve_sources
       - analyzers
@@ -1079,6 +1157,7 @@ stages:
     phases:
       resolve_sources:
         enabled: false
+        resource_class: h5_metadata
         show_header: true # whether to show a header for this phase in the logs, which can help visually separate it from other phases and identify it quickly when scanning logs.
         log_candidates: false # Log each candidate path considered per source category.
         check_path_exists: true # Include existence checks in logs and summaries for candidate paths.
@@ -1090,6 +1169,7 @@ stages:
         json_relpath: context/resolve_sources_summary.json
       analyzers:
         enabled: true
+        resource_class: spikeinterface_analyzer
         summary_json_relpath: context/analyzers_summary.json
         defaults:
           # Job controls applied when templates needs to recompute analyzer extensions locally.
@@ -1184,6 +1264,7 @@ stages:
             cleanup_on_success: false
       build_templates:
         enabled: true
+        resource_class: template_build
         summary_json_relpath: context/build_templates_summary.json
         outputs:
           # merged_template: the final merged template waveform for the unit, typically averaged across all segments and/or concatenated segments.
@@ -1257,6 +1338,7 @@ stages:
         emit_channel_count_per_unit_after_merge_log: true # whether to log the number of channels in the template after merging, which can be a useful sanity check to ensure that the merge is combining templates in a way that increases the spatial footprint as expected, rather than just taking one template or producing an output with fewer channels than the inputs.
       compute_template_similarity:
         enabled: false
+        resource_class: template_build
         method: hybrid_template_similarity
         method_options:
           support: intersection
@@ -1270,6 +1352,7 @@ stages:
           max_pairs: 12
       plot_templates:
         enabled: true
+        resource_class: plot_unit
         debug_prints: false # when true, allow raw/unexpected plotting debug output from render helpers and third-party plot libraries.
         summary_json_relpath: context/plot_templates_summary.json
         resources:
@@ -1390,12 +1473,14 @@ stages:
               scalecircle_channel_overlap_detect: true # whether to check for overlaps between scale circle and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
       report_templates:
         enabled: true
+        resource_class: plot_report_grid
         summary_json_relpath: context/report_templates_summary.json
         # write pdf slide deck of all circle style template plots for all units.
         relpath: template_report.pdf
         write_pdf: true
       per_unit_processing:
         enabled: false
+        resource_class: template_build
         outputs:
           # Base rel dir for all outputs for a given unit. Can be formatted with {unit_id} if desired,
           # but should not include file name or extension components since those are specified separately for each output type below.
@@ -1442,6 +1527,7 @@ stages:
             debug: true # emit per-unit canonical/window/anchor/label-range diagnostics in logs.
       reports:
         enabled: false
+        resource_class: plot_report_grid
         summary_json_relpath: context/reports_summary.json
         locations:
           enabled: true
@@ -1582,6 +1668,7 @@ stages:
                   subplot_background_color: black # background color for each subplot in the grid; separate from the underlying map plot background configured on the corresponding plot output block.
       generate_gtrs:
         enable: true
+        resource_class: axon_reconstruction
         #reconstruct_with_axon_velocity: true
         outputs:
           # JSON artifacts emitted by the generate_gtrs phase.
@@ -1702,6 +1789,7 @@ stages:
             theilsen_maxiter: 8000
       plot_recons:
         enable: true
+        resource_class: plot_unit
         outputs:
           amplitude_map:
             write_png: true
@@ -1738,6 +1826,7 @@ stages:
               dpi: 300
       plot_branch_propagations:
         enable: true
+        resource_class: plot_unit
         branch_scope: raw
         display:
           figsize: [2.75, 6.0] # baseline per-branch column size [width, height] before any total-width modulation is applied.
@@ -1753,6 +1842,7 @@ stages:
           dpi: 300
       plot_branch_velocities:
         enable: true
+        resource_class: plot_unit
         branch_scope: raw
         display:
           figsize: [4.5, 6.5] # single combined branch-velocity plot size [width, height]; portrait so the plot area is taller than it is wide.
@@ -1771,6 +1861,7 @@ stages:
           dpi: 300
       plot_unit_summary:
         enable: true
+        resource_class: plot_unit
         display:
           show_title: false
           show_summary_unit_label: true
@@ -1796,6 +1887,7 @@ stages:
           propagation_y_offset_frac: 0.0
       report_recons:
         enable: true
+        resource_class: plot_report_grid
         # Emit report-stage artifacts from persisted reconstruct plot outputs.
         av_recons:
           write_pdf: true
@@ -1808,6 +1900,7 @@ stages:
           relpath: report.md
       report_recon_grid:
         enable: true
+        resource_class: plot_report_grid
         output:
           write_pdf: false
           pdf_relpath: reports/circle_recon_grid.pdf
@@ -1823,6 +1916,7 @@ stages:
           dpi: 420
       report_full_chip_layout:
         enable: true
+        resource_class: plot_report_grid
         # Aggregate all successfully reconstructed unit branches onto a single chip-level layout.
         # raw|clean
         branch_scope: raw
@@ -1852,9 +1946,11 @@ stages:
           dpi: 300
       report_summaries:
         enable: true
+        resource_class: template_build
         write_pdf: true
         pdf_relpath: reports/reconstruct_summary_deck.pdf
       clear_templates_cache:
         enabled: true  # set to true after verifying recon outputs are correct
+        resource_class: disk_cleanup
         keep_merged_per_unit_outputs: false
         keep_full_channels_templates: false

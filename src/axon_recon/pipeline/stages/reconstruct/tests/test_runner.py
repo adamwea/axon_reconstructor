@@ -801,7 +801,7 @@ def test_run_reconstruct_generate_gtrs_phase_writes_diagnostic_figures(monkeypat
 	assert "axon_reconstruction_figure_svg" not in unit_outputs
 
 
-def test_run_reconstruct_generate_gtrs_phase_limits_plotting_concurrency(monkeypatch, tmp_path: Path) -> None:
+def test_run_reconstruct_generate_gtrs_phase_ignores_max_plotting_concurrency(monkeypatch, tmp_path: Path) -> None:
 	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
 
 	well_out_dir = tmp_path / "well001"
@@ -906,7 +906,7 @@ def test_run_reconstruct_generate_gtrs_phase_limits_plotting_concurrency(monkeyp
 
 	summary = run_reconstruct_generate_gtrs_phase(inputs)
 	assert summary["units_ok"] == 4
-	assert max_active_plots == 1
+	assert max_active_plots == 4
 
 
 def test_resolve_generate_gtrs_execution_plan_prefers_fewer_processes() -> None:

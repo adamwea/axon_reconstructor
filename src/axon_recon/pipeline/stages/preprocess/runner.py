@@ -22,7 +22,16 @@ from typing import Any
 from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_recon.pipeline.pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
 
-from ...execution.logging_context import pipeline_log_context
+from ...execution.logging_context import current_log_context, pipeline_log_context
+from ...logging.setup import current_pipeline_logging_config, emit_pipeline_console_blank_line
+from ...resource_budget import current_stage_resource_budget_manager
+from ...resource_usage import (
+	format_phase_message,
+	format_phase_resource_usage_message,
+	log_phase_resource_observation_warnings,
+	log_phase_resource_plan_warnings,
+	start_phase_resource_monitor,
+)
 from .constants import PREPROCESS_OUTPUTS_DIRNAME
 from .core.save_rec_metadata import (
 	_print_assay_settings,
@@ -1940,6 +1949,36 @@ def _summary_relpath_for_phase(inputs: PreprocessInputs, phase_name: str) -> str
 	return "context/preprocess_phase_summary.json"
 
 
+def _resource_class_for_phase(inputs: PreprocessInputs, phase_name: str) -> str | None:
+	if phase_name == "copy_src_to_scratch":
+		return inputs.phases.copy_src_to_scratch.resource_class
+	if phase_name == "save_rec_metadata":
+		return inputs.phases.save_rec_metadata.resource_class
+	if phase_name == "prepare_raw_binaries":
+		return inputs.phases.prepare_raw_binaries.resource_class
+	if phase_name == "preprocess_segments":
+		return inputs.phases.preprocess_segments.resource_class
+	if phase_name == "plot_segment_traces":
+		return inputs.phases.plot_segment_traces.resource_class
+	if phase_name == "plot_segment_channel_layouts":
+		return inputs.phases.plot_segment_channel_layouts.resource_class
+	if phase_name == "concat_segments":
+		return inputs.phases.concat_segments.resource_class
+	if phase_name == "plot_concat_traces":
+		return inputs.phases.plot_concat_traces.resource_class
+	if phase_name == "plot_concat_channel_layout":
+		return inputs.phases.plot_concat_channel_layout.resource_class
+	if phase_name == "plot_raster_threshold":
+		return inputs.phases.plot_raster_threshold.resource_class
+	if phase_name == "report_preprocessing":
+		return inputs.phases.report_preprocessing.resource_class
+	if phase_name == "cleanup_preprocessing_outputs":
+		return inputs.phases.cleanup_preprocessing_outputs.resource_class
+	if phase_name == "wipe_src_scratch":
+		return inputs.phases.wipe_src_scratch.resource_class
+	return None
+
+
 def _summary_outputs_for_phase(
 	*,
 	phase_name: str,
@@ -2668,6 +2707,14 @@ def _run_preprocess_phase_sequence(
 		outputs["epoch_markers_output_dir"] = str(paths.epoch_markers_output_dir)
 	phase_logger = _prepare_phase_logger(inputs, paths)
 	phase_summaries: dict[str, dict[str, Any]] = {}
+	pipeline_logging_config = current_pipeline_logging_config()
+	resource_budget_manager = current_stage_resource_budget_manager()
+	resources_config = None if resource_budget_manager is None else resource_budget_manager.resources
+	resource_usage_config = None if pipeline_logging_config is None else pipeline_logging_config.resource_usage
+	resource_usage_log_level = logging.INFO if resource_usage_config is None else int(resource_usage_config.level)
+	blank_line_after_phase = bool(
+		pipeline_logging_config is not None and bool(pipeline_logging_config.console.blank_line_after_phase)
+	)
 	scratch_usage_released = False
 	phases_to_run = [canonical_selected_phase] if canonical_selected_phase is not None else [
 		phase_name for phase_name in _configured_preprocess_phase_sequence(inputs) if _phase_enabled(inputs, phase_name)
@@ -2681,279 +2728,411 @@ def _run_preprocess_phase_sequence(
 		)
 
 	for phase_index, phase_name in enumerate(phases_to_run, start=1):
-		_phase_log_context = pipeline_log_context(phase=phase_name)
+		phase_resource_class = _resource_class_for_phase(inputs, phase_name)
+		_phase_log_context = pipeline_log_context(phase=phase_name, resource_class=phase_resource_class)
 		_phase_log_context.__enter__()
-		phase_t0 = time.perf_counter()
-		phase_plot_cfg = _resolve_effective_plot_config(inputs, selected_phase=phase_name)
-		_log_preprocess_phase_worker_allocation(
-			phase_logger=phase_logger,
-			inputs=inputs,
-			phase_name=str(phase_name),
-			phase_plot_cfg=phase_plot_cfg,
-		)
-		if phase_logger is not None:
-			phase_logger.info(
-				"Starting preprocess phase %d/%d for well=%s phase=%s",
-				int(phase_index),
-				int(len(phases_to_run)),
-				str(inputs.stream_id),
-				str(phase_name),
-				extra={"event": "phase_started"},
-			)
-		if phase_name == "copy_src_to_scratch":
-			_validate_copy_phase_requirements(inputs, selected_phase=selected_phase)
-		elif phase_name == "wipe_src_scratch":
-			_validate_wipe_phase_requirements(inputs, selected_phase=selected_phase)
-
-		payload = _resume_phase_payload_if_complete(
+		context = current_log_context()
+		stage_name = str(context.get("stage", None) or "preprocess")
+		dataset_id = context.get("dataset_id", None)
+		recording_id = context.get("recording_id", None)
+		well_id = context.get("well_id", None) or inputs.stream_id
+		log_phase_resource_plan_warnings(
+			logger=phase_logger,
+			resource_usage_config=resource_usage_config,
+			resources=resources_config,
+			stage_name=stage_name,
 			phase_name=phase_name,
-			inputs=inputs,
-			paths=paths,
-			recording_metadata_paths=recording_metadata_paths,
-			phase_plot_cfg=phase_plot_cfg,
+			resource_class=phase_resource_class,
+			well_workers=(1 if resource_budget_manager is None else int(resource_budget_manager.well_workers)),
+			planned_target_count=(
+				0 if resource_budget_manager is None else int(resource_budget_manager.planned_target_count)
+			),
 		)
-		if payload is not None and phase_logger is not None:
-			resume_artifacts = _resume_artifact_log_details(payload)
-			phase_logger.info(
-				"Resuming preprocess phase for well=%s phase=%s; found existing complete artifacts%s%s",
-				str(inputs.stream_id),
-				str(phase_name),
-				(": " if resume_artifacts else ""),
-				str(resume_artifacts),
+		phase_budget_context = (
+			contextlib.nullcontext()
+			if resource_budget_manager is None
+			else resource_budget_manager.phase_budget(
+				resource_class=phase_resource_class,
+				logger=phase_logger,
+				phase_name=str(phase_name),
+				target_label=str(inputs.stream_id),
+				resource_key_context=inputs,
 			)
-		if payload is None:
-			if phase_name == "copy_src_to_scratch":
-				payload = run_copy_src_to_scratch_core(
-					h5_path=inputs.h5_path,
-					source_h5_path=(inputs.source_h5_path or inputs.h5_path),
-					stream_id=str(inputs.stream_id),
-					copied_to_scratch=bool(inputs.copied_to_scratch),
-					requires_use_scratch_root=bool(inputs.phases.copy_src_to_scratch.requires_use_scratch_root),
+		)
+		phase_t0 = time.perf_counter()
+		resource_monitor = None
+		try:
+			with phase_budget_context:
+				phase_t0 = time.perf_counter()
+				resource_monitor = start_phase_resource_monitor(resource_usage_config)
+				phase_plot_cfg = _resolve_effective_plot_config(inputs, selected_phase=phase_name)
+				_log_preprocess_phase_worker_allocation(
+					phase_logger=phase_logger,
+					inputs=inputs,
+					phase_name=str(phase_name),
+					phase_plot_cfg=phase_plot_cfg,
 				)
-			elif phase_name == "save_rec_metadata":
-				metadata_h5_path, source_h5_path, requested_metadata_source, metadata_source = _resolve_metadata_source_selection(inputs)
-				if (
-					requested_metadata_source == "scratch_copy"
-					and metadata_source != "scratch_copy"
-					and phase_logger is not None
-				):
-					phase_logger.info(
-						"save_rec_metadata requested scratch_copy for well=%s but scratch copy was unavailable; falling back to source_h5",
-						str(inputs.stream_id),
-					)
-				payload = run_save_rec_metadata_core(
-					h5_path=metadata_h5_path,
-					source_h5_path=source_h5_path,
-					requested_metadata_source=requested_metadata_source,
-					metadata_source=metadata_source,
-					stream_id=str(inputs.stream_id),
-					segment_epochs_path=recording_metadata_paths.segment_epochs_path,
-					contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
-					sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
-					assay_stats_path=recording_metadata_paths.assay_stats_path,
-					common_electrodes_path=recording_metadata_paths.common_electrodes_path,
-					verbose=bool(inputs.phases.save_rec_metadata.verbose),
-					suppress_h5_plugin_messages=bool(inputs.logging_suppress_h5_plugin_messages),
-					logger=phase_logger,
-					report_step_timers=bool(inputs.phases.save_rec_metadata.report_step_timers),
-				)
-			elif phase_name == "prepare_raw_binaries":
-				payload = run_prepare_raw_binaries_core(
-					h5_path=inputs.h5_path,
-					source_h5_path=(inputs.source_h5_path or inputs.h5_path),
-					stream_id=str(inputs.stream_id),
-					recording_dir=paths.raw_binary_dir,
-					manifest_path=paths.raw_binary_manifest_path,
-					overwrite_saved_recording=bool(inputs.overwrite_saved_recording),
-					n_jobs=max(1, int(inputs.phases.prepare_raw_binaries.outputs.segment_save_n_jobs or inputs.n_jobs)),
-					chunk_duration=str(inputs.phases.prepare_raw_binaries.outputs.save_chunk_duration),
-					progress_bar=bool(inputs.phases.prepare_raw_binaries.outputs.save_progress_bar),
-					suppress_h5_plugin_messages=bool(inputs.logging_suppress_h5_plugin_messages),
-					logger=phase_logger,
-				)
-				payload.setdefault("raw_binary_recording_dir", str(paths.raw_binary_dir))
-				payload.setdefault("raw_binary_manifest_path", str(paths.raw_binary_manifest_path))
-			elif phase_name == "preprocess_segments":
-				selected_segment_h5_path, selected_source_h5_path, selected_lazy_source = _resolve_preprocess_segments_source_selection(inputs)
-				effective_segment_output_mode = _resolve_preprocess_segments_output_mode(inputs)
 				if phase_logger is not None:
 					phase_logger.info(
-						"preprocess_segments using lazy_source=%s output_mode=%s h5=%s source_h5=%s",
-						str(selected_lazy_source),
-						str(effective_segment_output_mode),
-						selected_segment_h5_path,
-						selected_source_h5_path,
+						format_phase_message(
+							action="Starting",
+							stage_name=stage_name,
+							phase_name=phase_name,
+							dataset_id=dataset_id,
+							recording_id=recording_id,
+							well_id=well_id,
+							resource_class=phase_resource_class,
+						),
+						extra={"event": "phase_started"},
 					)
-				payload = run_preprocess_segments_core(
-					h5_path=selected_segment_h5_path,
-					source_h5_path=selected_source_h5_path,
-					stream_id=str(inputs.stream_id),
-					output_mode=str(effective_segment_output_mode),
-					lazy_source=str(selected_lazy_source),
-					n_jobs=max(1, int(inputs.n_jobs)),
-					segment_epochs_path=recording_metadata_paths.segment_epochs_path,
-					contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
-					sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
-					common_electrodes_path=recording_metadata_paths.common_electrodes_path,
-					output_dir=paths.per_segment_preprocessed_dir,
-					manifest_path=paths.per_segment_manifest_path,
-					overwrite_saved_recording=bool(inputs.overwrite_saved_recording),
-					save_n_jobs=max(1, int(inputs.phases.preprocess_segments.outputs.segment_save_n_jobs or inputs.n_jobs)),
-					chunk_duration=str(inputs.phases.preprocess_segments.outputs.save_chunk_duration),
-					progress_bar=bool(inputs.phases.preprocess_segments.outputs.save_progress_bar),
-					limit_segments_per_well=inputs.debug_limit_segments_per_well,
-					suppress_h5_plugin_messages=bool(inputs.logging_suppress_h5_plugin_messages),
-					logger=phase_logger,
-					run_save_segment_recordings_core=run_save_segment_recordings_core,
-				)
-				payload.setdefault("output_mode", str(effective_segment_output_mode))
-				payload.setdefault("source_h5_path", str(selected_source_h5_path))
-				payload.setdefault("resolved_h5_path", str(selected_segment_h5_path))
-				payload.setdefault("lazy_source", str(selected_lazy_source))
-			elif phase_name == "plot_segment_traces":
-				payload = run_plot_segment_traces_core(
-					stream_id=str(inputs.stream_id),
-					segment_manifest_path=paths.per_segment_manifest_path,
-					segment_epochs_path=recording_metadata_paths.segment_epochs_path,
-					contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
-					sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
-					plot_output_dir=(paths.plot_output_dir or paths.preprocess_out_dir),
-					channel_layouts_subdir=phase_plot_cfg.channel_layouts_subdir,
-					segment_traces_subdir=phase_plot_cfg.segment_traces_subdir,
-					plot_layouts=bool(phase_plot_cfg.layouts),
-					plot_segment_traces=bool(phase_plot_cfg.segment_traces),
-					segment_trace_n_reps=int(phase_plot_cfg.segment_trace_n_reps),
-					plot_n_jobs=max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs)),
-					trace_downsample_hz=phase_plot_cfg.trace_downsample_hz,
-					trace_max_points=_normalize_trace_max_points(phase_plot_cfg.trace_max_points),
-					logger=phase_logger,
-				)
-			elif phase_name == "plot_segment_channel_layouts":
-				payload = run_plot_segment_traces_core(
-					stream_id=str(inputs.stream_id),
-					segment_manifest_path=paths.per_segment_manifest_path,
-					segment_epochs_path=recording_metadata_paths.segment_epochs_path,
-					contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
-					sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
-					plot_output_dir=(paths.plot_output_dir or paths.preprocess_out_dir),
-					channel_layouts_subdir=phase_plot_cfg.channel_layouts_subdir,
-					segment_traces_subdir=phase_plot_cfg.segment_traces_subdir,
-					plot_layouts=bool(phase_plot_cfg.layouts),
-					plot_segment_traces=False,
-					segment_trace_n_reps=int(phase_plot_cfg.segment_trace_n_reps),
-					plot_n_jobs=max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs)),
-					trace_downsample_hz=phase_plot_cfg.trace_downsample_hz,
-					trace_max_points=_normalize_trace_max_points(phase_plot_cfg.trace_max_points),
-					logger=phase_logger,
-				)
-				payload["phase"] = "plot_segment_channel_layouts"
-			elif phase_name == "concat_segments":
-				payload = run_concat_segments_core(
-					stream_id=str(inputs.stream_id),
-					segment_manifest_path=paths.per_segment_manifest_path,
-					recording_dir=paths.recording_dir,
-					concat_manifest_path=paths.concat_manifest_path,
-					overwrite_saved_recording=bool(inputs.overwrite_saved_recording),
-					output_mode=str(inputs.phases.concat_segments.output_mode),
-					n_jobs=max(1, int(inputs.phases.concat_segments.outputs.concat_save_n_jobs or inputs.n_jobs)),
-					chunk_duration=str(inputs.phases.concat_segments.outputs.save_chunk_duration),
-					progress_bar=bool(inputs.phases.concat_segments.outputs.save_progress_bar),
-					logger=phase_logger,
-					run_save_concatenated_recording_core=run_save_concatenated_recording_core,
-					common_electrodes=_load_common_electrodes_or_empty(recording_metadata_paths.common_electrodes_path),
-				)
-			elif phase_name == "plot_concat_traces":
-				payload = run_plot_concat_traces_core(
-					stream_id=str(inputs.stream_id),
-					recording_dir=paths.recording_dir,
-					concat_manifest_path=paths.concat_manifest_path,
-					segment_epochs_path=recording_metadata_paths.segment_epochs_path,
-					contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
-					sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
-					plot_output_dir=(paths.plot_output_dir or paths.preprocess_out_dir),
-					concat_trace_relpath=phase_plot_cfg.concat_trace_relpath,
-					plot_concat_trace=bool(phase_plot_cfg.concat_trace),
-					concat_trace_n_reps=int(phase_plot_cfg.concat_trace_n_reps),
-					plot_n_jobs=max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs)),
-					trace_downsample_hz=phase_plot_cfg.trace_downsample_hz,
-					trace_max_points=_normalize_trace_max_points(phase_plot_cfg.trace_max_points),
-					logger=phase_logger,
-				)
-			elif phase_name == "plot_concat_channel_layout":
-				payload = run_plot_concat_channel_layout_core(
-					stream_id=str(inputs.stream_id),
-					recording_dir=paths.recording_dir,
-					plot_output_dir=(paths.plot_output_dir or paths.preprocess_out_dir),
-					channel_layouts_subdir=phase_plot_cfg.channel_layouts_subdir,
-					n_representative_channels=int(phase_plot_cfg.n_representative_channels),
-					plot_n_jobs=max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs)),
-					logger=phase_logger,
-				)
-			elif phase_name == "plot_raster_threshold":
-				payload = run_plot_raster_threshold_core(
-					stream_id=str(inputs.stream_id),
-					segment_manifest_path=paths.per_segment_manifest_path,
-					segment_epochs_path=recording_metadata_paths.segment_epochs_path,
-					contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
-					sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
-					raster_output_dir=paths.raster_threshold_output_dir,
-					report_step_timers=bool(inputs.phases.plot_raster_threshold.report_step_timers),
-					logger=phase_logger,
-				)
-			elif phase_name == "wipe_src_scratch":
-				active_shared_users_remaining = _release_scratch_input_usage(scratch_usage_key)
-				scratch_usage_released = True
-				payload = run_wipe_src_scratch_core(
-					h5_path=inputs.h5_path,
-					source_h5_path=(inputs.source_h5_path or inputs.h5_path),
-					copied_to_scratch=bool(inputs.copied_to_scratch),
-					dry_run=bool(inputs.phases.wipe_src_scratch.dry_run),
-					requires_use_scratch_root=bool(inputs.phases.wipe_src_scratch.requires_use_scratch_root),
-					active_shared_users_remaining=int(active_shared_users_remaining),
-				)
-			else:
-				raise RuntimeError(f"Unsupported preprocess phase: {phase_name}")
+				if phase_name == "copy_src_to_scratch":
+					_validate_copy_phase_requirements(inputs, selected_phase=selected_phase)
+				elif phase_name == "wipe_src_scratch":
+					_validate_wipe_phase_requirements(inputs, selected_phase=selected_phase)
 
-		payload = dict(payload)
-		payload.setdefault("phase_elapsed_s", float(max(0.0, time.perf_counter() - phase_t0)))
-		if event_records is not None:
-			event_records.append(
-				{
-					"event": f"phase_complete:{phase_name}",
-					"utc": _utc_now_iso(),
-					"details": {
-						"elapsed_s": float(payload.get("phase_elapsed_s", 0.0) or 0.0),
-						"reused_existing_artifacts": bool(payload.get("reused_existing_artifacts", False)),
+				payload = _resume_phase_payload_if_complete(
+					phase_name=phase_name,
+					inputs=inputs,
+					paths=paths,
+					recording_metadata_paths=recording_metadata_paths,
+					phase_plot_cfg=phase_plot_cfg,
+				)
+				if payload is not None and phase_logger is not None:
+					resume_artifacts = _resume_artifact_log_details(payload)
+					phase_logger.info(
+						"Resuming preprocess phase for well=%s phase=%s; found existing complete artifacts%s%s",
+						str(inputs.stream_id),
+						str(phase_name),
+						(": " if resume_artifacts else ""),
+						str(resume_artifacts),
+					)
+				if payload is None and phase_name == "copy_src_to_scratch":
+					payload = run_copy_src_to_scratch_core(
+						h5_path=inputs.h5_path,
+						source_h5_path=(inputs.source_h5_path or inputs.h5_path),
+						stream_id=str(inputs.stream_id),
+						copied_to_scratch=bool(inputs.copied_to_scratch),
+						requires_use_scratch_root=bool(inputs.phases.copy_src_to_scratch.requires_use_scratch_root),
+					)
+				elif phase_name == "save_rec_metadata":
+					metadata_h5_path, source_h5_path, requested_metadata_source, metadata_source = _resolve_metadata_source_selection(inputs)
+					if (
+						requested_metadata_source == "scratch_copy"
+						and metadata_source != "scratch_copy"
+						and phase_logger is not None
+					):
+						phase_logger.info(
+							"save_rec_metadata requested scratch_copy for well=%s but scratch copy was unavailable; falling back to source_h5",
+							str(inputs.stream_id),
+						)
+					payload = run_save_rec_metadata_core(
+						h5_path=metadata_h5_path,
+						source_h5_path=source_h5_path,
+						requested_metadata_source=requested_metadata_source,
+						metadata_source=metadata_source,
+						stream_id=str(inputs.stream_id),
+						segment_epochs_path=recording_metadata_paths.segment_epochs_path,
+						contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
+						sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
+						assay_stats_path=recording_metadata_paths.assay_stats_path,
+						common_electrodes_path=recording_metadata_paths.common_electrodes_path,
+						verbose=bool(inputs.phases.save_rec_metadata.verbose),
+						suppress_h5_plugin_messages=bool(inputs.logging_suppress_h5_plugin_messages),
+						logger=phase_logger,
+						report_step_timers=bool(inputs.phases.save_rec_metadata.report_step_timers),
+					)
+				elif phase_name == "prepare_raw_binaries":
+					payload = run_prepare_raw_binaries_core(
+						h5_path=inputs.h5_path,
+						source_h5_path=(inputs.source_h5_path or inputs.h5_path),
+						stream_id=str(inputs.stream_id),
+						recording_dir=paths.raw_binary_dir,
+						manifest_path=paths.raw_binary_manifest_path,
+						overwrite_saved_recording=bool(inputs.overwrite_saved_recording),
+						n_jobs=max(1, int(inputs.phases.prepare_raw_binaries.outputs.segment_save_n_jobs or inputs.n_jobs)),
+						chunk_duration=str(inputs.phases.prepare_raw_binaries.outputs.save_chunk_duration),
+						progress_bar=bool(inputs.phases.prepare_raw_binaries.outputs.save_progress_bar),
+						suppress_h5_plugin_messages=bool(inputs.logging_suppress_h5_plugin_messages),
+						logger=phase_logger,
+					)
+					payload.setdefault("raw_binary_recording_dir", str(paths.raw_binary_dir))
+					payload.setdefault("raw_binary_manifest_path", str(paths.raw_binary_manifest_path))
+				elif phase_name == "preprocess_segments":
+					selected_segment_h5_path, selected_source_h5_path, selected_lazy_source = _resolve_preprocess_segments_source_selection(inputs)
+					effective_segment_output_mode = _resolve_preprocess_segments_output_mode(inputs)
+					if phase_logger is not None:
+						phase_logger.info(
+							"preprocess_segments using lazy_source=%s output_mode=%s h5=%s source_h5=%s",
+							str(selected_lazy_source),
+							str(effective_segment_output_mode),
+							selected_segment_h5_path,
+							selected_source_h5_path,
+						)
+					payload = run_preprocess_segments_core(
+						h5_path=selected_segment_h5_path,
+						source_h5_path=selected_source_h5_path,
+						stream_id=str(inputs.stream_id),
+						output_mode=str(effective_segment_output_mode),
+						lazy_source=str(selected_lazy_source),
+						n_jobs=max(1, int(inputs.n_jobs)),
+						segment_epochs_path=recording_metadata_paths.segment_epochs_path,
+						contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
+						sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
+						common_electrodes_path=recording_metadata_paths.common_electrodes_path,
+						output_dir=paths.per_segment_preprocessed_dir,
+						manifest_path=paths.per_segment_manifest_path,
+						overwrite_saved_recording=bool(inputs.overwrite_saved_recording),
+						save_n_jobs=max(1, int(inputs.phases.preprocess_segments.outputs.segment_save_n_jobs or inputs.n_jobs)),
+						chunk_duration=str(inputs.phases.preprocess_segments.outputs.save_chunk_duration),
+						progress_bar=bool(inputs.phases.preprocess_segments.outputs.save_progress_bar),
+						limit_segments_per_well=inputs.debug_limit_segments_per_well,
+						suppress_h5_plugin_messages=bool(inputs.logging_suppress_h5_plugin_messages),
+						logger=phase_logger,
+						run_save_segment_recordings_core=run_save_segment_recordings_core,
+					)
+					payload.setdefault("output_mode", str(effective_segment_output_mode))
+					payload.setdefault("source_h5_path", str(selected_source_h5_path))
+					payload.setdefault("resolved_h5_path", str(selected_segment_h5_path))
+					payload.setdefault("lazy_source", str(selected_lazy_source))
+				elif phase_name == "plot_segment_traces":
+					payload = run_plot_segment_traces_core(
+						stream_id=str(inputs.stream_id),
+						segment_manifest_path=paths.per_segment_manifest_path,
+						segment_epochs_path=recording_metadata_paths.segment_epochs_path,
+						contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
+						sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
+						plot_output_dir=(paths.plot_output_dir or paths.preprocess_out_dir),
+						channel_layouts_subdir=phase_plot_cfg.channel_layouts_subdir,
+						segment_traces_subdir=phase_plot_cfg.segment_traces_subdir,
+						plot_layouts=bool(phase_plot_cfg.layouts),
+						plot_segment_traces=bool(phase_plot_cfg.segment_traces),
+						segment_trace_n_reps=int(phase_plot_cfg.segment_trace_n_reps),
+						plot_n_jobs=max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs)),
+						trace_downsample_hz=phase_plot_cfg.trace_downsample_hz,
+						trace_max_points=_normalize_trace_max_points(phase_plot_cfg.trace_max_points),
+						logger=phase_logger,
+					)
+				elif phase_name == "plot_segment_channel_layouts":
+					payload = run_plot_segment_traces_core(
+						stream_id=str(inputs.stream_id),
+						segment_manifest_path=paths.per_segment_manifest_path,
+						segment_epochs_path=recording_metadata_paths.segment_epochs_path,
+						contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
+						sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
+						plot_output_dir=(paths.plot_output_dir or paths.preprocess_out_dir),
+						channel_layouts_subdir=phase_plot_cfg.channel_layouts_subdir,
+						segment_traces_subdir=phase_plot_cfg.segment_traces_subdir,
+						plot_layouts=bool(phase_plot_cfg.layouts),
+						plot_segment_traces=False,
+						segment_trace_n_reps=int(phase_plot_cfg.segment_trace_n_reps),
+						plot_n_jobs=max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs)),
+						trace_downsample_hz=phase_plot_cfg.trace_downsample_hz,
+						trace_max_points=_normalize_trace_max_points(phase_plot_cfg.trace_max_points),
+						logger=phase_logger,
+					)
+					payload["phase"] = "plot_segment_channel_layouts"
+				elif phase_name == "concat_segments":
+					payload = run_concat_segments_core(
+						stream_id=str(inputs.stream_id),
+						segment_manifest_path=paths.per_segment_manifest_path,
+						recording_dir=paths.recording_dir,
+						concat_manifest_path=paths.concat_manifest_path,
+						overwrite_saved_recording=bool(inputs.overwrite_saved_recording),
+						output_mode=str(inputs.phases.concat_segments.output_mode),
+						n_jobs=max(1, int(inputs.phases.concat_segments.outputs.concat_save_n_jobs or inputs.n_jobs)),
+						chunk_duration=str(inputs.phases.concat_segments.outputs.save_chunk_duration),
+						progress_bar=bool(inputs.phases.concat_segments.outputs.save_progress_bar),
+						logger=phase_logger,
+						run_save_concatenated_recording_core=run_save_concatenated_recording_core,
+						common_electrodes=_load_common_electrodes_or_empty(recording_metadata_paths.common_electrodes_path),
+					)
+				elif phase_name == "plot_concat_traces":
+					payload = run_plot_concat_traces_core(
+						stream_id=str(inputs.stream_id),
+						recording_dir=paths.recording_dir,
+						concat_manifest_path=paths.concat_manifest_path,
+						segment_epochs_path=recording_metadata_paths.segment_epochs_path,
+						contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
+						sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
+						plot_output_dir=(paths.plot_output_dir or paths.preprocess_out_dir),
+						concat_trace_relpath=phase_plot_cfg.concat_trace_relpath,
+						plot_concat_trace=bool(phase_plot_cfg.concat_trace),
+						concat_trace_n_reps=int(phase_plot_cfg.concat_trace_n_reps),
+						plot_n_jobs=max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs)),
+						trace_downsample_hz=phase_plot_cfg.trace_downsample_hz,
+						trace_max_points=_normalize_trace_max_points(phase_plot_cfg.trace_max_points),
+						logger=phase_logger,
+					)
+				elif phase_name == "plot_concat_channel_layout":
+					payload = run_plot_concat_channel_layout_core(
+						stream_id=str(inputs.stream_id),
+						recording_dir=paths.recording_dir,
+						plot_output_dir=(paths.plot_output_dir or paths.preprocess_out_dir),
+						channel_layouts_subdir=phase_plot_cfg.channel_layouts_subdir,
+						n_representative_channels=int(phase_plot_cfg.n_representative_channels),
+						plot_n_jobs=max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs)),
+						logger=phase_logger,
+					)
+				elif phase_name == "plot_raster_threshold":
+					payload = run_plot_raster_threshold_core(
+						stream_id=str(inputs.stream_id),
+						segment_manifest_path=paths.per_segment_manifest_path,
+						segment_epochs_path=recording_metadata_paths.segment_epochs_path,
+						contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
+						sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
+						raster_output_dir=paths.raster_threshold_output_dir,
+						report_step_timers=bool(inputs.phases.plot_raster_threshold.report_step_timers),
+						logger=phase_logger,
+					)
+				elif phase_name == "wipe_src_scratch":
+					active_shared_users_remaining = _release_scratch_input_usage(scratch_usage_key)
+					scratch_usage_released = True
+					payload = run_wipe_src_scratch_core(
+						h5_path=inputs.h5_path,
+						source_h5_path=(inputs.source_h5_path or inputs.h5_path),
+						copied_to_scratch=bool(inputs.copied_to_scratch),
+						dry_run=bool(inputs.phases.wipe_src_scratch.dry_run),
+						requires_use_scratch_root=bool(inputs.phases.wipe_src_scratch.requires_use_scratch_root),
+						active_shared_users_remaining=int(active_shared_users_remaining),
+					)
+				else:
+					raise RuntimeError(f"Unsupported preprocess phase: {phase_name}")
+
+				payload = dict(payload)
+				payload.setdefault("phase_elapsed_s", float(max(0.0, time.perf_counter() - phase_t0)))
+				if phase_resource_class is not None:
+					payload.setdefault("resource_class", str(phase_resource_class))
+				resource_usage = None if resource_monitor is None else resource_monitor.stop()
+				resource_monitor = None
+				if resource_usage is not None and bool(getattr(resource_usage_config, "write_to_phase_summary", True)):
+					payload["resource_usage"] = resource_usage.to_dict()
+				if event_records is not None:
+					event_records.append(
+						{
+							"event": f"phase_complete:{phase_name}",
+							"utc": _utc_now_iso(),
+							"details": {
+								"elapsed_s": float(payload.get("phase_elapsed_s", 0.0) or 0.0),
+								"reused_existing_artifacts": bool(payload.get("reused_existing_artifacts", False)),
+							},
+						}
+					)
+				summary_outputs = _summary_outputs_for_phase(
+					phase_name=phase_name,
+					paths=paths,
+					recording_metadata_paths=recording_metadata_paths,
+					payload=payload,
+					outputs=outputs,
+				)
+				outputs.update({str(key): str(value) for key, value in summary_outputs.items()})
+				phase_summaries[phase_name] = _write_phase_summary(
+					inputs=inputs,
+					paths=paths,
+					phase_name=phase_name,
+					summary_json_relpath=_summary_relpath_for_phase(inputs, phase_name),
+					outputs=summary_outputs,
+					extra_payload=payload,
+				)
+				outputs[f"{phase_name}_summary_json"] = str(phase_summaries[phase_name]["summary_json"])
+				if phase_logger is not None:
+					phase_logger.info(
+						format_phase_message(
+							action="Finished",
+							stage_name=stage_name,
+							phase_name=phase_name,
+							dataset_id=dataset_id,
+							recording_id=recording_id,
+							well_id=well_id,
+							resource_class=phase_resource_class,
+						),
+						extra={"event": "phase_completed", "elapsed_s": float(payload.get("phase_elapsed_s", 0.0) or 0.0)},
+					)
+					if resource_usage is not None:
+						phase_logger.log(
+							resource_usage_log_level,
+							format_phase_resource_usage_message(
+								stage_name=stage_name,
+								phase_name=phase_name,
+								dataset_id=dataset_id,
+								recording_id=recording_id,
+								well_id=well_id,
+								resource_class=phase_resource_class,
+								status="success",
+								resource_usage=resource_usage,
+							),
+							extra={
+								"event": "phase_resource_usage",
+								"status": "success",
+								"resource_usage": resource_usage.to_dict(),
+							},
+						)
+						log_phase_resource_observation_warnings(
+							logger=phase_logger,
+							resource_usage_config=resource_usage_config,
+							resources=resources_config,
+							stage_name=stage_name,
+							phase_name=phase_name,
+							resource_class=phase_resource_class,
+							resource_usage=resource_usage,
+						)
+				if blank_line_after_phase:
+					emit_pipeline_console_blank_line()
+		except Exception as exc:
+			resource_usage = None if resource_monitor is None else resource_monitor.stop()
+			resource_monitor = None
+			if phase_logger is not None:
+				phase_logger.exception(
+					format_phase_message(
+						action="Failed",
+						stage_name=stage_name,
+						phase_name=phase_name,
+						dataset_id=dataset_id,
+						recording_id=recording_id,
+						well_id=well_id,
+						resource_class=phase_resource_class,
+						exception_type=type(exc).__name__,
+					),
+					extra={
+						"event": "phase_failed",
+						"elapsed_s": float(max(0.0, time.perf_counter() - phase_t0)),
+						"exception_type": type(exc).__name__,
 					},
-				}
-			)
-		summary_outputs = _summary_outputs_for_phase(
-			phase_name=phase_name,
-			paths=paths,
-			recording_metadata_paths=recording_metadata_paths,
-			payload=payload,
-			outputs=outputs,
-		)
-		outputs.update({str(key): str(value) for key, value in summary_outputs.items()})
-		phase_summaries[phase_name] = _write_phase_summary(
-			inputs=inputs,
-			paths=paths,
-			phase_name=phase_name,
-			summary_json_relpath=_summary_relpath_for_phase(inputs, phase_name),
-			outputs=summary_outputs,
-			extra_payload=payload,
-		)
-		outputs[f"{phase_name}_summary_json"] = str(phase_summaries[phase_name]["summary_json"])
-		if phase_logger is not None:
-			phase_logger.info(
-				"Completed preprocess phase %d/%d for well=%s phase=%s",
-				int(phase_index),
-				int(len(phases_to_run)),
-				str(inputs.stream_id),
-				str(phase_name),
-				extra={"event": "phase_completed", "elapsed_s": float(payload.get("phase_elapsed_s", 0.0) or 0.0)},
-			)
-		_phase_log_context.__exit__(None, None, None)
+				)
+				if resource_usage is not None:
+					phase_logger.log(
+						resource_usage_log_level,
+						format_phase_resource_usage_message(
+							stage_name=stage_name,
+							phase_name=phase_name,
+							dataset_id=dataset_id,
+							recording_id=recording_id,
+							well_id=well_id,
+							resource_class=phase_resource_class,
+							status="failed",
+							resource_usage=resource_usage,
+							exception_type=type(exc).__name__,
+						),
+						extra={
+							"event": "phase_resource_usage",
+							"status": "failed",
+							"exception_type": type(exc).__name__,
+							"resource_usage": resource_usage.to_dict(),
+						},
+					)
+					log_phase_resource_observation_warnings(
+						logger=phase_logger,
+						resource_usage_config=resource_usage_config,
+						resources=resources_config,
+						stage_name=stage_name,
+						phase_name=phase_name,
+						resource_class=phase_resource_class,
+						resource_usage=resource_usage,
+					)
+			if blank_line_after_phase:
+				emit_pipeline_console_blank_line()
+			raise
+		finally:
+			_phase_log_context.__exit__(None, None, None)
 	common_electrodes = _load_common_electrodes_or_empty(recording_metadata_paths.common_electrodes_path)
 	return outputs, phase_summaries, common_electrodes, scratch_usage_released
 

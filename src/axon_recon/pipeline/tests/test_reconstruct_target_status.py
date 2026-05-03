@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -103,6 +104,62 @@ def test_run_reconstruct_from_runtime_marks_target_ok_when_any_unit_succeeds(mon
     assert agg.failed_targets == 0
     assert agg.target_results[0].status == "ok"
     assert agg.target_results[0].result is not None
+
+
+def test_run_reconstruct_from_runtime_logs_stage_topology(monkeypatch, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    target = ExecutionTarget(
+        dataset_index=0,
+        dataset_id="dataset_000:test.h5",
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+    )
+
+    dummy_inputs = ReconstructionInputs(
+        h5_path=target.h5_path,
+        stream_id=target.stream_id,
+        mea_output_root=target.mea_output_root,
+    )
+
+    class _DummyBundle:
+        runtime_config = object()
+        data_config = object()
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", lambda *, config_path: _DummyBundle())
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", lambda *, bundle: [target])
+    monkeypatch.setattr(
+        pipeline_runner,
+        "resolve_stage_parallelism",
+        lambda *, bundle, stage_name: StageParallelism(max_workers=6, max_stage_workers=6, well_workers=2, unit_workers=3),
+    )
+    monkeypatch.setattr(pipeline_runner, "parse_probe_geometry_from_data_config", lambda *, data_config: None)
+    monkeypatch.setattr(pipeline_runner, "parse_reconstruction_stage_config", lambda **kwargs: object())
+    monkeypatch.setattr(
+        pipeline_runner,
+        "build_reconstruction_inputs_for_target",
+        lambda *, target, stage_config, unit_workers, probe_geometry: dummy_inputs,
+    )
+    monkeypatch.setattr(
+        pipeline_runner,
+        "run_reconstruct",
+        lambda inputs: ReconstructionResult(
+            well_out_dir=tmp_path / "well_out",
+            reconstruction_out_dir=tmp_path / "recon_out",
+            summary_json=tmp_path / "summary.json",
+            units=[UnitReconstructionResult(unit_id=93, status="ok", outputs={}, error=None)],
+        ),
+    )
+
+    with caplog.at_level(logging.INFO):
+        run_reconstruct_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert "Starting stage: reconstruct" in messages
+    assert "Execution topology: stage_global_order=true, well_local_phase_sequence=true" in messages
+    assert "Selected wells: 1" in messages
+    assert "well_workers=2 max_stage_workers=6" in messages
 
 
 def test_run_reconstruct_from_runtime_marks_target_error_when_no_units_succeed(monkeypatch, tmp_path: Path) -> None:

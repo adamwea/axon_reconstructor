@@ -54,7 +54,21 @@ class PipelineJsonFormatter(logging.Formatter):
         event = _record_event(record)
         if event is not None:
             payload["event"] = event
-        for field in ("elapsed_s", "status", "output_path", "unit_id", "target_count", "phase_count"):
+        for field in (
+            "elapsed_s",
+            "status",
+            "output_path",
+            "unit_id",
+            "target_count",
+            "phase_count",
+            "resource_usage",
+            "exception_type",
+            "selected_wells",
+            "well_workers",
+            "max_stage_workers",
+            "stage_global_order",
+            "well_local_phase_sequence",
+        ):
             if hasattr(record, field):
                 value = getattr(record, field, None)
                 if value is not None:
@@ -81,6 +95,7 @@ class PipelineHumanFormatter(logging.Formatter):
             ("well_id", "well"),
             ("stage", "stage"),
             ("phase", "phase"),
+            ("resource_class", "resource_class"),
         ):
             value = getattr(record, field, None)
             if value is not None and str(value).strip():

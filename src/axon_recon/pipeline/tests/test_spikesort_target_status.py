@@ -90,6 +90,61 @@ def test_run_spikesort_from_runtime_marks_target_ok(monkeypatch, tmp_path: Path)
     assert agg.target_results[0].result is not None
 
 
+def test_run_spikesort_from_runtime_logs_stage_topology(monkeypatch, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    target = ExecutionTarget(
+        dataset_index=0,
+        dataset_id="dataset_000:test.h5",
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+    )
+
+    dummy_inputs = SpikesortInputs(
+        h5_path=target.h5_path,
+        stream_id=target.stream_id,
+        mea_output_root=target.mea_output_root,
+    )
+
+    class _DummyBundle:
+        runtime_config = object()
+        data_config = object()
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", lambda *, config_path: _DummyBundle())
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", lambda *, bundle: [target])
+    monkeypatch.setattr(
+        pipeline_runner,
+        "resolve_stage_parallelism",
+        lambda *, bundle, stage_name: StageParallelism(max_workers=8, max_stage_workers=8, well_workers=2, unit_workers=4),
+    )
+    monkeypatch.setattr(pipeline_runner, "parse_spikesort_stage_config", lambda **kwargs: SimpleNamespace(debug_limit_wells=None))
+    monkeypatch.setattr(
+        pipeline_runner,
+        "build_spikesort_inputs_for_target",
+        lambda *, target, stage_config, unit_workers: dummy_inputs,
+    )
+    monkeypatch.setattr(
+        pipeline_runner,
+        "run_spikesort",
+        lambda inputs: SpikesortResult(
+            well_out_dir=tmp_path / "well_out",
+            spikesort_out_dir=tmp_path / "spikesort_out",
+            summary_json=tmp_path / "spikesort_summary.json",
+            outputs={},
+        ),
+    )
+
+    with caplog.at_level(logging.INFO):
+        run_spikesort_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert "Starting stage: spikesort" in messages
+    assert "Execution topology: stage_global_order=true, well_local_phase_sequence=true" in messages
+    assert "Selected wells: 1" in messages
+    assert "well_workers=2 max_stage_workers=8" in messages
+
+
 def test_run_spikesort_from_runtime_marks_target_error(monkeypatch, tmp_path: Path) -> None:
     import axon_recon.pipeline.runner as pipeline_runner
 
@@ -530,7 +585,7 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
     assert agg.failed_targets == 0
 
 
-def test_run_spikesort_from_runtime_gates_only_sort_phase_across_wells(
+def test_run_spikesort_from_runtime_gates_only_sort_phase_across_wells_via_resource_budget(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -554,7 +609,31 @@ def test_run_spikesort_from_runtime_gates_only_sort_phase_across_wells(
     ]
 
     class _DummyBundle:
-        runtime_config = object()
+        runtime_config = RuntimeConfig(
+            {
+                "resources": {
+                    "active_profile": "test_profile",
+                    "profiles": {
+                        "test_profile": {
+                            "cpu_cores": 4,
+                            "ram_gb": 16,
+                            "gpu_sort_slots": 1,
+                        }
+                    },
+                    "phase_resource_classes": {
+                        "bootstrap_concat_binary": {
+                            "cpu_cores": 1,
+                            "ram_gb": 1,
+                        },
+                        "kilosort4": {
+                            "cpu_cores": 1,
+                            "ram_gb": 1,
+                            "gpu_sort_slots": 1,
+                        },
+                    },
+                }
+            }
+        )
         data_config = object()
 
     active_counts = {"bootstrap_concat_binary": 0, "sort": 0}
@@ -574,10 +653,12 @@ def test_run_spikesort_from_runtime_gates_only_sort_phase_across_wells(
         return SimpleNamespace(
             debug_limit_wells=None,
             output_rel_root="spikesort_outputs",
-            force_single_well_sort=True,
+            force_single_well_sort=False,
             phase_sequence=("bootstrap_concat_binary", "sort"),
             bootstrap_concat_binary_enabled=True,
+            bootstrap_concat_binary_resource_class="bootstrap_concat_binary",
             sort_enabled=True,
+            sort_resource_class="kilosort4",
             summarize_sort_enabled=False,
             bombcell_label_enabled=False,
             merge_slay_enabled=False,
@@ -664,7 +745,7 @@ def test_enabled_spikesort_runtime_phase_plan_uses_configured_sequence_and_skips
     ]
 
 
-def test_run_spikesort_sort_from_runtime_applies_phase_debug_limits(monkeypatch, tmp_path: Path) -> None:
+def test_run_spikesort_sort_from_runtime_ignores_phase_debug_limits(monkeypatch, tmp_path: Path) -> None:
     import axon_recon.pipeline.runner as pipeline_runner
 
     target_a = ExecutionTarget(
@@ -735,11 +816,13 @@ def test_run_spikesort_sort_from_runtime_applies_phase_debug_limits(monkeypatch,
     agg = run_spikesort_sort_from_runtime(config_path=str(tmp_path / "runtime.yml"))
 
     assert agg.stage == "spikesort.sort"
-    assert agg.total_targets == 1
-    assert agg.succeeded_targets == 1
+    assert agg.total_targets == 3
+    assert agg.succeeded_targets == 3
     assert agg.failed_targets == 0
     assert agg.target_results[0].target.dataset_index == 0
     assert agg.target_results[0].target.stream_id == "well001"
+    assert agg.target_results[-1].target.dataset_index == 1
+    assert agg.target_results[-1].target.stream_id == "well003"
 
 
 def test_run_spikesort_sort_from_runtime_applies_global_debug_dataset_and_well_limits(
@@ -897,7 +980,7 @@ def test_run_spikesort_summarize_sort_from_runtime_marks_target_ok(monkeypatch, 
     assert agg.target_results[0].status == "ok"
 
 
-def test_run_spikesort_summarize_sort_from_runtime_applies_phase_debug_limits(monkeypatch, tmp_path: Path) -> None:
+def test_run_spikesort_summarize_sort_from_runtime_ignores_phase_debug_limits(monkeypatch, tmp_path: Path) -> None:
     import axon_recon.pipeline.runner as pipeline_runner
 
     target_a = ExecutionTarget(
@@ -969,11 +1052,13 @@ def test_run_spikesort_summarize_sort_from_runtime_applies_phase_debug_limits(mo
     agg = run_spikesort_summarize_sort_from_runtime(config_path=str(tmp_path / "runtime.yml"))
 
     assert agg.stage == "spikesort.summarize_sort"
-    assert agg.total_targets == 1
-    assert agg.succeeded_targets == 1
+    assert agg.total_targets == 3
+    assert agg.succeeded_targets == 3
     assert agg.failed_targets == 0
     assert agg.target_results[0].target.dataset_index == 0
     assert agg.target_results[0].target.stream_id == "well001"
+    assert agg.target_results[-1].target.dataset_index == 1
+    assert agg.target_results[-1].target.stream_id == "well003"
 
 
 def test_run_spikesort_bombcell_label_from_runtime_marks_target_ok(monkeypatch, tmp_path: Path) -> None:
@@ -1033,7 +1118,7 @@ def test_run_spikesort_bombcell_label_from_runtime_marks_target_ok(monkeypatch, 
     assert agg.target_results[0].status == "ok"
 
 
-def test_run_spikesort_bombcell_label_from_runtime_applies_phase_debug_limits(monkeypatch, tmp_path: Path) -> None:
+def test_run_spikesort_bombcell_label_from_runtime_ignores_phase_debug_limits(monkeypatch, tmp_path: Path) -> None:
     import axon_recon.pipeline.runner as pipeline_runner
 
     target_a = ExecutionTarget(
@@ -1099,11 +1184,13 @@ def test_run_spikesort_bombcell_label_from_runtime_applies_phase_debug_limits(mo
     agg = run_spikesort_bombcell_label_from_runtime(config_path=str(tmp_path / "runtime.yml"))
 
     assert agg.stage == "spikesort.bombcell_label"
-    assert agg.total_targets == 1
-    assert agg.succeeded_targets == 1
+    assert agg.total_targets == 3
+    assert agg.succeeded_targets == 3
     assert agg.failed_targets == 0
     assert agg.target_results[0].target.dataset_index == 0
     assert agg.target_results[0].target.stream_id == "well001"
+    assert agg.target_results[-1].target.dataset_index == 1
+    assert agg.target_results[-1].target.stream_id == "well003"
 
 
 def test_run_spikesort_merge_from_runtime_inherits_template_heatmap_probe_dimensions(
@@ -1314,7 +1401,7 @@ def test_run_spikesort_merge_slay_from_runtime_applies_phase_workspace_config(
     assert mapped_stage_config.pre_merge_metadata_enabled is False
 
 
-def test_run_spikesort_merge_slay_from_runtime_applies_phase_debug_limits(
+def test_run_spikesort_merge_slay_from_runtime_ignores_phase_debug_limits(
     monkeypatch, tmp_path: Path
 ) -> None:
     import axon_recon.pipeline.runner as pipeline_runner
@@ -1411,8 +1498,10 @@ def test_run_spikesort_merge_slay_from_runtime_applies_phase_debug_limits(
 
     agg = run_spikesort_merge_slay_from_runtime(config_path=str(tmp_path / "runtime.yml"))
 
-    assert agg.total_targets == 1
-    assert agg.succeeded_targets == 1
+    assert agg.total_targets == 3
+    assert agg.succeeded_targets == 3
     assert agg.failed_targets == 0
     assert agg.target_results[0].target.dataset_index == 0
     assert agg.target_results[0].target.stream_id == "well001"
+    assert agg.target_results[-1].target.dataset_index == 1
+    assert agg.target_results[-1].target.stream_id == "well003"

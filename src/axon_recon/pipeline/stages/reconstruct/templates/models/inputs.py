@@ -220,6 +220,7 @@ class AnalyzerSourcePhaseConfig:
 class TemplatesAnalyzersPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/analyzers_summary.json"
+	resource_class: str | None = None
 	emit_total_unique_channel_count_per_unit_log: bool = False
 	concat: AnalyzerSourcePhaseConfig = field(default_factory=AnalyzerSourcePhaseConfig)
 	segments: AnalyzerSourcePhaseConfig = field(default_factory=AnalyzerSourcePhaseConfig)
@@ -230,12 +231,14 @@ class TemplateExtractTemplateSegmentsPhaseConfig:
 	enabled: bool = True
 	output_rel_root: str = "cache/source_payloads"
 	summary_json_relpath: str = "context/extract_template_segments_summary.json"
+	resource_class: str | None = None
 
 
 @dataclass(frozen=True)
 class TemplateBuildTemplatesPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/build_templates_summary.json"
+	resource_class: str | None = None
 	emit_channel_count_per_unit_after_merge_log: bool = False
 	merge: "MergeConfig" = field(default_factory=lambda: MergeConfig())
 	execution_upsampling: TimeUpsampleConfig = field(default_factory=TimeUpsampleConfig)
@@ -267,6 +270,7 @@ class TemplateAnalysisPhaseConfig:
 class TemplatePlotsPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/plot_templates_summary.json"
+	resource_class: str | None = None
 	debug_prints: bool = False
 	unit_workers: int | None = None
 	unit_procs: int | None = None
@@ -278,6 +282,7 @@ class TemplatePlotsPhaseConfig:
 class TemplateReportTemplatesPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/report_templates_summary.json"
+	resource_class: str | None = None
 	relpath: str = "template_report.pdf"
 	write_pdf: bool = True
 
@@ -323,6 +328,7 @@ class TemplateSimilarityMethodOptionsConfig:
 class TemplateComputeSimilarityPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/compute_template_similarity_summary.json"
+	resource_class: str | None = None
 	method: str = "ptp_cosine"
 	method_options: TemplateSimilarityMethodOptionsConfig = field(default_factory=TemplateSimilarityMethodOptionsConfig)
 	scores_json_relpath: str = "template_similarity/similarity_scores.json"
@@ -337,6 +343,7 @@ class TemplateComputeSimilarityPhaseConfig:
 @dataclass(frozen=True)
 class TemplatePerUnitProcessingPhaseConfig:
 	enabled: bool = True
+	resource_class: str | None = None
 	extract_template_segments: TemplateExtractTemplateSegmentsPhaseConfig = field(
 		default_factory=TemplateExtractTemplateSegmentsPhaseConfig
 	)
@@ -355,6 +362,7 @@ class TemplateLeafPhaseConfig:
 class TemplateReportsPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/reports_summary.json"
+	resource_class: str | None = None
 	config: "ReportsConfig" = field(default_factory=lambda: ReportsConfig())
 	locations: TemplateLeafPhaseConfig = field(default_factory=TemplateLeafPhaseConfig)
 	wf_overlay_grid: TemplateLeafPhaseConfig = field(default_factory=TemplateLeafPhaseConfig)
@@ -873,6 +881,7 @@ class ResolveSourcesPhaseConfig:
 	fail_if_required_sources_missing: bool = False
 	write_json: bool = False
 	json_relpath: str = "context/resolve_sources_summary.json"
+	resource_class: str | None = None
 
 
 @dataclass(frozen=True)

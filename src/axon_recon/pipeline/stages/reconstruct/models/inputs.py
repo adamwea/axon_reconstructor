@@ -200,6 +200,7 @@ class ReconstructionGenerateGtrsOutputsConfig:
 class ReconstructionGenerateGtrsPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/generate_gtrs_summary.json"
+	resource_class: str | None = None
 	unit_procs: int | None = None
 	unit_batch_size: int | None = None
 	outputs: ReconstructionGenerateGtrsOutputsConfig = field(default_factory=ReconstructionGenerateGtrsOutputsConfig)
@@ -286,6 +287,7 @@ def _default_branch_velocities_output_config() -> ReconstructionBranchPlotOutput
 class ReconstructionPlotReconsPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/plot_recons_summary.json"
+	resource_class: str | None = None
 	outputs: ReconstructionPlotReconsOutputsConfig = field(default_factory=ReconstructionPlotReconsOutputsConfig)
 
 
@@ -293,6 +295,7 @@ class ReconstructionPlotReconsPhaseConfig:
 class ReconstructionPlotBranchPropagationsPhaseConfig:
 	enabled: bool = False
 	summary_json_relpath: str = "context/plot_branch_propagations_summary.json"
+	resource_class: str | None = None
 	branch_scope: str = "raw"
 	display: ReconstructionBranchPropagationDisplayConfig = field(
 		default_factory=ReconstructionBranchPropagationDisplayConfig
@@ -304,6 +307,7 @@ class ReconstructionPlotBranchPropagationsPhaseConfig:
 class ReconstructionPlotBranchVelocitiesPhaseConfig:
 	enabled: bool = False
 	summary_json_relpath: str = "context/plot_branch_velocities_summary.json"
+	resource_class: str | None = None
 	branch_scope: str = "raw"
 	display: ReconstructionBranchVelocityDisplayConfig = field(
 		default_factory=ReconstructionBranchVelocityDisplayConfig
@@ -350,6 +354,7 @@ class ReconstructionUnitSummaryOutputConfig:
 class ReconstructionPlotUnitSummaryPhaseConfig:
 	enabled: bool = False
 	summary_json_relpath: str = "context/plot_unit_summary_summary.json"
+	resource_class: str | None = None
 	display: ReconstructionUnitSummaryDisplayConfig = field(
 		default_factory=ReconstructionUnitSummaryDisplayConfig
 	)
@@ -381,6 +386,7 @@ class ReconstructionReportMarkdownConfig:
 class ReconstructionReportReconsPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/report_recons_summary.json"
+	resource_class: str | None = None
 	av_recons: ReconstructionAvReconsConfig = field(default_factory=ReconstructionAvReconsConfig)
 	summary_png: ReconstructionSummaryPngConfig = field(default_factory=ReconstructionSummaryPngConfig)
 	report_md: ReconstructionReportMarkdownConfig = field(default_factory=ReconstructionReportMarkdownConfig)
@@ -390,6 +396,7 @@ class ReconstructionReportReconsPhaseConfig:
 class ReconstructionReportReconGridPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/report_recon_grid_summary.json"
+	resource_class: str | None = None
 	output: ReconstructionReconGridOutputConfig = field(default_factory=ReconstructionReconGridOutputConfig)
 	display: ReconstructionReconGridDisplayConfig = field(default_factory=ReconstructionReconGridDisplayConfig)
 	render: ReconstructionReconGridRenderConfig = field(default_factory=ReconstructionReconGridRenderConfig)
@@ -399,6 +406,7 @@ class ReconstructionReportReconGridPhaseConfig:
 class ReconstructionReportFullChipLayoutPhaseConfig:
 	enabled: bool = False
 	summary_json_relpath: str = "context/report_full_chip_layout_summary.json"
+	resource_class: str | None = None
 	branch_scope: str = "raw"
 	unit_colors: ReconstructionFullChipLayoutColorConfig = field(
 		default_factory=ReconstructionFullChipLayoutColorConfig
@@ -415,6 +423,7 @@ class ReconstructionReportFullChipLayoutPhaseConfig:
 class ReconstructionReportSummariesPhaseConfig:
 	enabled: bool = False
 	summary_json_relpath: str = "context/report_summaries_summary.json"
+	resource_class: str | None = None
 	write_pdf: bool = True
 	pdf_relpath: str = "reports/reconstruct_summary_deck.pdf"
 
@@ -423,6 +432,7 @@ class ReconstructionReportSummariesPhaseConfig:
 class ReconstructionClearTemplatesCachePhaseConfig:
 	enabled: bool = False
 	summary_json_relpath: str = "reports/clear_templates_cache_summary.json"
+	resource_class: str | None = None
 	keep_merged_per_unit_outputs: bool = True
 	keep_full_channels_templates: bool = False
 

@@ -9,6 +9,7 @@ from typing import Any
 from axon_recon.runtime_config import RuntimeConfig
 
 from ...execution.context import ExecutionTarget
+from ...resources import get_resource_default, parse_resources_config, validate_phase_resource_class
 from .models.inputs import SpikesortInputs
 
 
@@ -402,6 +403,14 @@ class SpikesortStageConfig:
 	cleanup_concat_binary_debug_limit_datasets: int | None
 	cleanup_concat_binary_debug_limit_wells: int | None
 	cleanup_concat_binary_debug_limit_wells_per_dataset: int | None
+	bootstrap_concat_binary_resource_class: str | None
+	sort_resource_class: str | None
+	summarize_sort_resource_class: str | None
+	bombcell_label_resource_class: str | None
+	merge_slay_resource_class: str | None
+	merge_si_auto_resource_class: str | None
+	merge_unitmatch_resource_class: str | None
+	cleanup_concat_binary_resource_class: str | None
 	summarize_sort_debug_mode_enabled: bool
 	summarize_sort_debug_limit_datasets: int | None
 	summarize_sort_debug_limit_wells: int | None
@@ -808,6 +817,29 @@ def parse_spikesort_stage_config(
 	bombcell_reports_cfg = _as_section(bombcell_phase_cfg.get("reports", {}))
 	bombcell_reports_summary_json_cfg = _as_section(bombcell_reports_cfg.get("summary_json", {}))
 	resources_cfg = _as_section(stage_cfg.get("resources", {}))
+	resources_config = parse_resources_config(runtime_config=runtime_config, logger=LOGGER)
+
+	def _phase_resource_class(phase_cfg: dict[str, Any], phase_name: str) -> str | None:
+		return validate_phase_resource_class(
+			resource_class=phase_cfg.get("resource_class", None),
+			resources=resources_config,
+			phase_name=f"spikesort.{phase_name}",
+		)
+
+	bootstrap_concat_binary_resource_class = _phase_resource_class(
+		bootstrap_concat_binary_phase_cfg,
+		"bootstrap_concat_binary",
+	)
+	sort_resource_class = _phase_resource_class(sort_phase_cfg, "sort")
+	summarize_sort_resource_class = _phase_resource_class(summarize_sort_phase_cfg, "summarize_sort")
+	bombcell_label_resource_class = _phase_resource_class(bombcell_phase_cfg, "bombcell_label")
+	merge_slay_resource_class = _phase_resource_class(merge_slay_phase_cfg, "merge_SLAy")
+	merge_si_auto_resource_class = _phase_resource_class(merge_si_auto_phase_cfg, "merge_si_auto")
+	merge_unitmatch_resource_class = _phase_resource_class(merge_unitmatch_phase_cfg, "merge_unitmatch")
+	cleanup_concat_binary_resource_class = _phase_resource_class(
+		cleanup_concat_binary_phase_cfg,
+		"cleanup_concat_binary",
+	)
 	logging_cfg = _as_section(stage_cfg.get("logging", {}))
 	legacy_debug_cfg = _as_section(stage_cfg.get("debug", {}))
 	debug_mode_cfg = _as_section(stage_cfg.get("debug_mode", {}))
@@ -3437,6 +3469,14 @@ def parse_spikesort_stage_config(
 	effective_preprocess_concat_recording_relpath = preprocess_concat_recording_relpath
 	if bool(sort_use_bootstrapped_concat_binary):
 		effective_preprocess_concat_recording_relpath = sort_bootstrapped_concat_recording_relpath
+	ignored_force_single_well_sort = _coalesce(
+		resources_cfg.get("force_single_well_sort", None),
+		_get_with_fallback(execution_cfg, stage_cfg, "force_single_well_sort", None),
+	)
+	if ignored_force_single_well_sort is not None:
+		LOGGER.warning(
+			"Ignoring deprecated spikesort force_single_well_sort setting. Use resource profiles and phase resource_class envelopes instead."
+		)
 
 	return SpikesortStageConfig(
 		output_rel_root=output_rel_root,
@@ -3473,6 +3513,14 @@ def parse_spikesort_stage_config(
 		cleanup_concat_binary_debug_limit_wells_per_dataset=(
 			cleanup_concat_binary_debug_limit_wells_per_dataset
 		),
+		bootstrap_concat_binary_resource_class=bootstrap_concat_binary_resource_class,
+		sort_resource_class=sort_resource_class,
+		summarize_sort_resource_class=summarize_sort_resource_class,
+		bombcell_label_resource_class=bombcell_label_resource_class,
+		merge_slay_resource_class=merge_slay_resource_class,
+		merge_si_auto_resource_class=merge_si_auto_resource_class,
+		merge_unitmatch_resource_class=merge_unitmatch_resource_class,
+		cleanup_concat_binary_resource_class=cleanup_concat_binary_resource_class,
 		summarize_sort_debug_mode_enabled=bool(summarize_sort_debug_mode_enabled),
 		summarize_sort_debug_limit_datasets=summarize_sort_debug_limit_datasets,
 		summarize_sort_debug_limit_wells=summarize_sort_debug_limit_wells,
@@ -3574,17 +3622,16 @@ def parse_spikesort_stage_config(
 			_coalesce(
 				resources_cfg.get("chunk_duration", None),
 				_get_with_fallback(execution_cfg, stage_cfg, "chunk_duration", None),
+				get_resource_default(
+					runtime_config=runtime_config,
+					key="chunk_duration",
+					default=None,
+					logger=LOGGER,
+				),
 			)
 		),
 		cuda_visible_devices=_as_optional_str(_get_with_fallback(execution_cfg, stage_cfg, "cuda_visible_devices", None)),
-		force_single_well_sort=_as_bool(
-			_coalesce(
-				resources_cfg.get("force_single_well_sort", None),
-				_get_with_fallback(execution_cfg, stage_cfg, "force_single_well_sort", None),
-				False,
-			),
-			False,
-		),
+		force_single_well_sort=False,
 		run_analyzer=_as_bool(_get_with_fallback(execution_cfg, stage_cfg, "run_analyzer", True), True),
 		run_reports=run_reports,
 		sort_enabled=bool(sort_enabled),

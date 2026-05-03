@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from .constants import (
 )
 
 from ...execution.context import ExecutionTarget
+from ...resources import get_resource_default, parse_resources_config, validate_phase_resource_class
 from .models.inputs import (
 	DEFAULT_PREPROCESS_PHASE_SEQUENCE,
 	PreprocessConcatSegmentsPhaseConfig,
@@ -37,6 +39,9 @@ from .models.inputs import (
 
 
 _DEFAULT_OUTPUT_REL_ROOT = PREPROCESS_OUTPUTS_DIRNAME
+
+
+LOGGER = logging.getLogger("axon_recon.preprocess.config")
 
 
 _PREPROCESS_PHASE_ALIASES: dict[str, str] = {
@@ -336,6 +341,7 @@ def _parse_simple_phase_config(
 	raw_cfg: dict[str, Any] | None,
 	default_enabled: bool,
 	default_summary_json_relpath: str,
+	resource_class: str | None = None,
 ) -> PreprocessPhaseConfig:
 	phase_cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
 	return PreprocessPhaseConfig(
@@ -344,12 +350,14 @@ def _parse_simple_phase_config(
 			phase_cfg.get("summary_json_relpath", default_summary_json_relpath)
 			or default_summary_json_relpath
 		),
+		resource_class=resource_class,
 	)
 
 
 def _parse_save_rec_metadata_phase_config(
 	*,
 	raw_cfg: dict[str, Any] | None,
+	resource_class: str | None = None,
 ) -> PreprocessSaveRecMetadataPhaseConfig:
 	phase_cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
 	debug_cfg = phase_cfg.get("debug_mode", {}) if isinstance(phase_cfg.get("debug_mode", {}), dict) else {}
@@ -393,12 +401,14 @@ def _parse_save_rec_metadata_phase_config(
 			phase_cfg.get("common_electrodes_summary_json_relpath", "context/save_common_electrodes_summary.json")
 			or "context/save_common_electrodes_summary.json"
 		),
+		resource_class=resource_class,
 	)
 
 
 def _parse_plot_raster_threshold_phase_config(
 	*,
 	raw_cfg: dict[str, Any] | None,
+	resource_class: str | None = None,
 ) -> PreprocessPlotRasterThresholdPhaseConfig:
 	phase_cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
 	debug_cfg = phase_cfg.get("debug_mode", {}) if isinstance(phase_cfg.get("debug_mode", {}), dict) else {}
@@ -430,6 +440,7 @@ def _parse_plot_raster_threshold_phase_config(
 			phase_cfg.get("rel_output_root", "raster_threshold")
 			or "raster_threshold"
 		),
+		resource_class=resource_class,
 	)
 
 
@@ -437,6 +448,7 @@ def _parse_prepare_raw_binaries_phase_config(
 	*,
 	raw_cfg: dict[str, Any] | None,
 	defaults: PreprocessPhaseOutputsConfig,
+	resource_class: str | None = None,
 ) -> PreprocessPrepareRawBinariesPhaseConfig:
 	phase_cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
 	return PreprocessPrepareRawBinariesPhaseConfig(
@@ -445,6 +457,7 @@ def _parse_prepare_raw_binaries_phase_config(
 			phase_cfg.get("summary_json_relpath", "context/prepare_raw_binaries_summary.json")
 			or "context/prepare_raw_binaries_summary.json"
 		),
+		resource_class=resource_class,
 		rel_output_root=str(
 			phase_cfg.get("rel_output_root", "raw_binary_recording")
 			or "raw_binary_recording"
@@ -602,6 +615,15 @@ def parse_preprocess_stage_config(
 		)
 	)
 	using_new_phase_schema = not using_legacy_phase_schema
+	resources_config = parse_resources_config(runtime_config=runtime_config, logger=LOGGER)
+
+	def _phase_resource_class(raw_cfg: dict[str, Any] | None, phase_name: str) -> str | None:
+		phase_cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
+		return validate_phase_resource_class(
+			resource_class=phase_cfg.get("resource_class", None),
+			resources=resources_config,
+			phase_name=f"preprocess.{phase_name}",
+		)
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
 	force_replot = _as_bool(execution_cfg.get("force_replot", False), False)
@@ -717,7 +739,18 @@ def parse_preprocess_stage_config(
 	save_recording = _as_bool(execution_cfg.get("save_recording", True), True)
 	save_concat_recording = _as_bool(outputs_cfg.get("save_concat_recording", save_recording), save_recording)
 	save_segment_recordings = _as_bool(outputs_cfg.get("save_segment_recordings", save_recording), save_recording)
-	save_chunk_duration = _as_optional_str(outputs_cfg.get("save_chunk_duration", "1s")) or "1s"
+	default_chunk_duration = (
+		_as_optional_str(
+			get_resource_default(
+				runtime_config=runtime_config,
+				key="chunk_duration",
+				default="1s",
+				logger=LOGGER,
+			)
+		)
+		or "1s"
+	)
+	save_chunk_duration = _as_optional_str(outputs_cfg.get("save_chunk_duration", default_chunk_duration)) or default_chunk_duration
 	save_progress_bar = _as_bool(outputs_cfg.get("save_progress_bar", False), False)
 	concat_save_n_jobs = _as_optional_int(outputs_cfg.get("concat_save_n_jobs", None))
 	segment_save_n_jobs = _as_optional_int(outputs_cfg.get("segment_save_n_jobs", None))
@@ -730,16 +763,19 @@ def parse_preprocess_stage_config(
 		raw_cfg=legacy_segment_phase_cfg,
 		default_enabled=save_segment_recordings,
 		default_summary_json_relpath="context/segment_recordings_summary.json",
+		resource_class=_phase_resource_class(legacy_segment_phase_cfg, "preprocess_segments"),
 	)
 	legacy_concat_phase = _parse_simple_phase_config(
 		raw_cfg=legacy_concat_phase_cfg,
 		default_enabled=save_concat_recording,
 		default_summary_json_relpath="context/concat_segments_summary.json",
+		resource_class=_phase_resource_class(legacy_concat_phase_cfg, "concat_segments"),
 	)
 	legacy_common_phase = _parse_simple_phase_config(
 		raw_cfg=legacy_common_phase_cfg,
 		default_enabled=save_recording or save_concat_recording or save_segment_recordings,
 		default_summary_json_relpath="context/save_common_electrodes_summary.json",
+		resource_class=None,
 	)
 
 	copy_phase_cfg = phases_cfg.get("copy_src_to_scratch", {}) if isinstance(phases_cfg.get("copy_src_to_scratch", {}), dict) else {}
@@ -797,6 +833,7 @@ def parse_preprocess_stage_config(
 	prepare_raw_binaries_phase = _parse_prepare_raw_binaries_phase_config(
 		raw_cfg=prepare_raw_binaries_phase_cfg,
 		defaults=segment_outputs_defaults,
+		resource_class=_phase_resource_class(prepare_raw_binaries_phase_cfg, "prepare_raw_binaries"),
 	)
 
 	preprocess_segments_phase = PreprocessSegmentsPhaseConfig(
@@ -823,6 +860,10 @@ def parse_preprocess_stage_config(
 			)
 			or legacy_segment_phase.summary_json_relpath
 		),
+		resource_class=_phase_resource_class(
+			preprocess_segments_phase_cfg if preprocess_segments_phase_cfg else legacy_segment_phase_cfg,
+			"preprocess_segments",
+		),
 		rel_output_root=str(
 			preprocess_segments_phase_cfg.get("rel_output_root", "preprocessed_segments")
 			or "preprocessed_segments"
@@ -847,6 +888,7 @@ def parse_preprocess_stage_config(
 			plot_segment_traces_phase_raw.get("summary_json_relpath", "context/plot_segment_traces_summary.json")
 			or "context/plot_segment_traces_summary.json"
 		),
+		resource_class=_phase_resource_class(plot_segment_traces_phase_raw, "plot_segment_traces"),
 		plot=_parse_plot_phase_config(
 			raw_cfg=plot_segment_traces_phase_raw.get("plot", {}),
 			defaults=segment_plot_defaults,
@@ -887,6 +929,10 @@ def parse_preprocess_stage_config(
 				"context/plot_segment_channel_layouts_summary.json",
 			)
 			or "context/plot_segment_channel_layouts_summary.json"
+		),
+		resource_class=_phase_resource_class(
+			plot_segment_channel_layouts_phase_raw,
+			"plot_segment_channel_layouts",
 		),
 		plot=_parse_plot_phase_config(
 			raw_cfg=plot_segment_channel_layouts_phase_raw.get("plot", {}),
@@ -981,6 +1027,10 @@ def parse_preprocess_stage_config(
 			)
 			or legacy_concat_phase.summary_json_relpath
 		),
+		resource_class=_phase_resource_class(
+			concatenate_phase_cfg if concatenate_phase_cfg else legacy_concat_phase_cfg,
+			"concat_segments",
+		),
 		rel_output_root=str(
 			concatenate_phase_cfg.get("rel_output_root", "concatenated_recording")
 			or "concatenated_recording"
@@ -1009,6 +1059,7 @@ def parse_preprocess_stage_config(
 			plot_concat_traces_phase_raw.get("summary_json_relpath", "context/plot_concat_traces_summary.json")
 			or "context/plot_concat_traces_summary.json"
 		),
+		resource_class=_phase_resource_class(plot_concat_traces_phase_raw, "plot_concat_traces"),
 		plot=_parse_plot_phase_config(
 			raw_cfg=plot_concat_traces_phase_raw.get("plot", {}),
 			defaults=concat_plot_defaults,
@@ -1050,6 +1101,10 @@ def parse_preprocess_stage_config(
 			)
 			or "context/plot_concat_channel_layout_summary.json"
 		),
+		resource_class=_phase_resource_class(
+			plot_concat_channel_layout_phase_raw,
+			"plot_concat_channel_layout",
+		),
 		plot=_parse_plot_phase_config(
 			raw_cfg=plot_concat_channel_layout_phase_raw.get("plot", {}),
 			defaults=PreprocessPlotConfig(
@@ -1074,6 +1129,7 @@ def parse_preprocess_stage_config(
 	)
 	plot_raster_threshold_phase = _parse_plot_raster_threshold_phase_config(
 		raw_cfg=plot_raster_threshold_phase_cfg,
+		resource_class=_phase_resource_class(plot_raster_threshold_phase_cfg, "plot_raster_threshold"),
 	)
 	report_preprocessing_phase = PreprocessReportPreprocessingPhaseConfig(
 		enabled=_as_bool(
@@ -1087,6 +1143,7 @@ def parse_preprocess_stage_config(
 			)
 			or "context/report_preprocessing_summary.json"
 		),
+		resource_class=_phase_resource_class(report_preprocessing_phase_cfg, "report_preprocessing"),
 		report_relpath=str(
 			report_preprocessing_phase_cfg.get("report_relpath", "report/preprocessing_report.md")
 			or "report/preprocessing_report.md"
@@ -1111,6 +1168,10 @@ def parse_preprocess_stage_config(
 			)
 			or "context/cleanup_preprocessing_outputs_summary.json"
 		),
+		resource_class=_phase_resource_class(
+			cleanup_preprocessing_outputs_phase_cfg,
+			"cleanup_preprocessing_outputs",
+		),
 	)
 	copy_src_to_scratch_phase = PreprocessCopySrcToScratchPhaseConfig(
 		enabled=_as_bool(copy_phase_cfg.get("enabled", copy_phase_cfg.get("enable", False)), False),
@@ -1122,9 +1183,11 @@ def parse_preprocess_stage_config(
 			copy_phase_cfg.get("summary_json_relpath", "context/copy_src_to_scratch_summary.json")
 			or "context/copy_src_to_scratch_summary.json"
 		),
+		resource_class=_phase_resource_class(copy_phase_cfg, "copy_src_to_scratch"),
 	)
 	save_rec_metadata_phase = _parse_save_rec_metadata_phase_config(
 		raw_cfg=save_rec_metadata_phase_cfg,
+		resource_class=_phase_resource_class(save_rec_metadata_phase_cfg, "save_rec_metadata"),
 	)
 	wipe_src_scratch_phase = PreprocessWipeSrcScratchPhaseConfig(
 		enabled=_as_bool(wipe_src_scratch_phase_cfg.get("enabled", wipe_src_scratch_phase_cfg.get("enable", False)), False),
@@ -1137,6 +1200,7 @@ def parse_preprocess_stage_config(
 			wipe_src_scratch_phase_cfg.get("summary_json_relpath", "context/wipe_src_scratch_summary.json")
 			or "context/wipe_src_scratch_summary.json"
 		),
+		resource_class=_phase_resource_class(wipe_src_scratch_phase_cfg, "wipe_src_scratch"),
 	)
 
 	return PreprocessStageConfig(

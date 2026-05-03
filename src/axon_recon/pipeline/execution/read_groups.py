@@ -12,6 +12,10 @@ def _path_key(value: Any) -> str:
 
 
 def target_read_group_key(target: Any) -> Hashable:
+    source_h5_path = getattr(target, "source_h5_path", None)
+    if source_h5_path is not None and str(source_h5_path).strip() != "":
+        return ("source_h5_path", _path_key(source_h5_path))
+
     h5_path = getattr(target, "h5_path", None)
     if h5_path is not None and str(h5_path).strip() != "":
         return ("h5_path", _path_key(h5_path))

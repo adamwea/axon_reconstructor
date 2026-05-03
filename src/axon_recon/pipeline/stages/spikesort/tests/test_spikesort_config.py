@@ -374,7 +374,7 @@ def test_parse_spikesort_stage_config_summarize_sort_phase() -> None:
     assert parsed.force_replot is False
 
 
-def test_parse_spikesort_stage_config_reads_force_single_well_sort_resource() -> None:
+def test_parse_spikesort_stage_config_ignores_force_single_well_sort_resource() -> None:
     cfg = RuntimeConfig(
         {
             "stages": {
@@ -389,7 +389,7 @@ def test_parse_spikesort_stage_config_reads_force_single_well_sort_resource() ->
 
     parsed = parse_spikesort_stage_config(runtime_config=cfg)
 
-    assert parsed.force_single_well_sort is True
+    assert parsed.force_single_well_sort is False
 
 
 def test_parse_spikesort_stage_config_reads_sort_debug_mode() -> None:

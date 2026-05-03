@@ -23,6 +23,8 @@ from .execution.logging_context import install_pipeline_log_record_factory, pipe
 from .execution.phase_chain import PhaseDescriptor, run_phase_chain
 from .execution.progress import PipelineProgress, ProgressSpec, pipeline_progress_context
 from .execution.results import MultiTargetStageResult, TargetStageResult
+from .resource_budget import ResourceBudgetManager, stage_resource_budget_context
+from .resources import parse_resources_config
 from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
 from .stages.preprocess.api import (
 	run_preprocess_concat_segments,
@@ -97,6 +99,7 @@ from .stages.reconstruct.templates.config import (
 
 
 LOGGER = logging.getLogger("axon_recon.pipeline.runner")
+_WARNED_IGNORED_PHASE_DEBUG_LIMITS: set[tuple[str, str]] = set()
 
 
 @dataclass(frozen=True)
@@ -108,6 +111,7 @@ class _SpikesortRuntimePhase:
 	debug_limit_wells_attr: str
 	target_runner: Callable[..., Any]
 	debug_limit_wells_per_dataset_attr: str | None = None
+	resource_class: str | None = None
 
 	def __iter__(self):
 		yield self.name
@@ -121,6 +125,18 @@ class PublishPolicy:
 
 	def publish_mode(self) -> str:
 		return "move" if bool(self.wipe_scratch_roots) else "copy"
+
+
+def _warn_ignored_phase_debug_limits(*, stage_name: str, phase_label: str) -> None:
+	token = (str(stage_name), str(phase_label))
+	if token in _WARNED_IGNORED_PHASE_DEBUG_LIMITS:
+		return
+	_WARNED_IGNORED_PHASE_DEBUG_LIMITS.add(token)
+	LOGGER.warning(
+		"Ignoring deprecated phase-level debug_mode limits for %s (%s). Use stage-wide debug_mode or CLI --limit overrides instead.",
+		str(stage_name),
+		str(phase_label),
+	)
 
 
 def _preprocess_copy_phase_enabled(stage_config: Any) -> bool:
@@ -213,22 +229,154 @@ def _resolve_runtime_stage_parallelism(
 	stage_name: str,
 	target_count: int,
 	targets: list[Any] | None = None,
+	phase_resource_classes: list[str] | tuple[str, ...] | None = None,
 ):
 	try:
 		parallelism = resolve_stage_parallelism(
 			bundle=bundle,
 			stage_name=stage_name,
 			target_count=int(target_count),
+			phase_resource_classes=list(phase_resource_classes or ()),
 		)
 	except TypeError as exc:
-		if "target_count" not in str(exc):
+		if "phase_resource_classes" not in str(exc) and "target_count" not in str(exc):
 			raise
-		parallelism = resolve_stage_parallelism(bundle=bundle, stage_name=stage_name)
+		try:
+			parallelism = resolve_stage_parallelism(
+				bundle=bundle,
+				stage_name=stage_name,
+				target_count=int(target_count),
+			)
+		except TypeError as inner_exc:
+			if "target_count" not in str(inner_exc):
+				raise
+			parallelism = resolve_stage_parallelism(bundle=bundle, stage_name=stage_name)
 	if targets is None:
 		return parallelism
 	return constrain_stage_parallelism_to_read_groups(
 		parallelism=parallelism,
 		targets=list(targets),
+	)
+
+
+def _unique_resource_classes(resource_classes: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+	seen: set[str] = set()
+	ordered: list[str] = []
+	for resource_class in resource_classes:
+		resolved = str(resource_class).strip()
+		if not resolved or resolved in seen:
+			continue
+		seen.add(resolved)
+		ordered.append(resolved)
+	return tuple(ordered)
+
+
+def _enabled_phase_names_from_config(stage_config: Any) -> tuple[str, ...]:
+	phase_sequence = tuple(str(item) for item in (getattr(stage_config, "phase_sequence", None) or ()) if str(item).strip())
+	if phase_sequence:
+		return phase_sequence
+	phases = getattr(stage_config, "phases", None)
+	if phases is None:
+		return ()
+	return tuple(
+		str(name)
+		for name, value in vars(phases).items()
+		if bool(getattr(value, "enabled", False))
+	)
+
+
+def _phase_resource_classes_for_names(stage_config: Any, phase_names: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+	phases = getattr(stage_config, "phases", None)
+	if phases is None:
+		return ()
+	resource_classes: list[str] = []
+	for phase_name in phase_names:
+		phase_cfg = getattr(phases, str(phase_name), None)
+		if phase_cfg is None or not bool(getattr(phase_cfg, "enabled", True)):
+			continue
+		resource_class = getattr(phase_cfg, "resource_class", None)
+		if resource_class is not None and str(resource_class).strip():
+			resource_classes.append(str(resource_class).strip())
+	return _unique_resource_classes(tuple(resource_classes))
+
+
+def _preprocess_runtime_phase_resource_classes(stage_config: Any, stage_name: str) -> tuple[str, ...]:
+	canonical_stage_name = str(stage_name).strip()
+	if canonical_stage_name != "preprocess" and canonical_stage_name.startswith("preprocess."):
+		return _phase_resource_classes_for_names(stage_config, (canonical_stage_name.split(".", 1)[1],))
+	return _phase_resource_classes_for_names(stage_config, _enabled_phase_names_from_config(stage_config))
+
+
+def _spikesort_runtime_phase_resource_classes(phase_plan: list[_SpikesortRuntimePhase]) -> tuple[str, ...]:
+	return _unique_resource_classes(
+		tuple(
+			str(phase.resource_class).strip()
+			for phase in phase_plan
+			if getattr(phase, "resource_class", None) is not None and str(phase.resource_class).strip()
+		)
+	)
+
+
+def _spikesort_phase_resource_classes_from_labels(
+	stage_config: Any,
+	phase_labels: list[str] | tuple[str, ...],
+) -> tuple[str, ...]:
+	resource_attr_by_phase_label = {
+		"bootstrap_concat_binary": "bootstrap_concat_binary_resource_class",
+		"sort": "sort_resource_class",
+		"summarize_sort": "summarize_sort_resource_class",
+		"bombcell_label": "bombcell_label_resource_class",
+		"merge_slay": "merge_slay_resource_class",
+		"merge_si_auto": "merge_si_auto_resource_class",
+		"merge_unitmatch": "merge_unitmatch_resource_class",
+		"cleanup_concat_binary": "cleanup_concat_binary_resource_class",
+	}
+	resource_classes: list[str] = []
+	for phase_label in phase_labels:
+		canonical_label = str(phase_label).strip().replace("SLAy", "slay")
+		resource_attr = resource_attr_by_phase_label.get(canonical_label, None)
+		if resource_attr is None:
+			continue
+		resource_class = getattr(stage_config, resource_attr, None)
+		if resource_class is not None and str(resource_class).strip():
+			resource_classes.append(str(resource_class).strip())
+	return _unique_resource_classes(tuple(resource_classes))
+
+
+def _reconstruct_runtime_phase_resource_classes(
+	stage_config: Any,
+	reconstruct_templates_config: Any | None,
+) -> tuple[str, ...]:
+	resource_classes: list[str] = list(
+		_phase_resource_classes_for_names(stage_config, _enabled_phase_names_from_config(stage_config))
+	)
+	if reconstruct_templates_config is not None:
+		resource_classes.extend(
+			_phase_resource_classes_for_names(
+				reconstruct_templates_config,
+				_enabled_phase_names_from_config(reconstruct_templates_config),
+			)
+		)
+	return _unique_resource_classes(tuple(resource_classes))
+
+
+def _build_stage_resource_budget_manager(
+	*,
+	bundle: PipelineRuntimeBundle,
+	parallelism: Any,
+	phase_resource_classes: list[str] | tuple[str, ...],
+	target_count: int,
+) -> ResourceBudgetManager | None:
+	resolved_phase_resource_classes = _unique_resource_classes(tuple(phase_resource_classes))
+	if not resolved_phase_resource_classes:
+		return None
+	resources_config = parse_resources_config(runtime_config=bundle.runtime_config, logger=LOGGER)
+	if resources_config.active_profile is None:
+		return None
+	return ResourceBudgetManager(
+		resources=resources_config,
+		planned_target_count=max(0, int(target_count)),
+		well_workers=max(1, int(getattr(parallelism, "well_workers", 1))),
 	)
 
 
@@ -348,6 +496,36 @@ def _target_log_label(target: Any) -> str:
 	return f"{getattr(target, 'dataset_index', 'unknown')}:{getattr(target, 'stream_id', 'unknown')}"
 
 
+def _log_runtime_stage_topology(*, stage_name: str, targets: list[Any], parallelism: Any) -> None:
+	LOGGER.info("Starting stage: %s", str(stage_name), extra={"event": "stage_started"})
+	LOGGER.info(
+		"Execution topology: stage_global_order=true, well_local_phase_sequence=true",
+		extra={
+			"event": "stage_topology",
+			"stage_global_order": True,
+			"well_local_phase_sequence": True,
+		},
+	)
+	LOGGER.info(
+		"Selected wells: %d",
+		len(targets),
+		extra={
+			"event": "stage_topology",
+			"selected_wells": int(len(targets)),
+		},
+	)
+	LOGGER.info(
+		"well_workers=%d max_stage_workers=%d",
+		int(parallelism.well_workers),
+		int(parallelism.max_stage_workers),
+		extra={
+			"event": "stage_topology",
+			"well_workers": int(parallelism.well_workers),
+			"max_stage_workers": int(parallelism.max_stage_workers),
+		},
+	)
+
+
 def _log_spikesort_phase_worker_allocation(
 	*,
 	phase_name: str,
@@ -374,18 +552,8 @@ def _run_spikesort_phase_with_optional_sort_gate(
 	runner: Callable[[], Any],
 	sort_phase_gate: Any | None,
 ) -> Any:
-	if str(phase_label) != "sort" or sort_phase_gate is None:
-		return runner()
-
-	target_label = _target_log_label(target)
-	LOGGER.info("spikesort.sort: waiting for single-well sort gate target=%s", target_label)
-	sort_phase_gate.acquire()
-	LOGGER.info("spikesort.sort: acquired single-well sort gate target=%s", target_label)
-	try:
-		return runner()
-	finally:
-		sort_phase_gate.release()
-		LOGGER.info("spikesort.sort: released single-well sort gate target=%s", target_label)
+	_ = (phase_label, target, sort_phase_gate)
+	return runner()
 
 
 def _coerce_bool_or_none(value: Any) -> bool | None:
@@ -553,23 +721,10 @@ def _apply_preprocess_substage_phase_debug_limits(
 		"preprocess.plot_raster_threshold": "plot_raster_threshold",
 	}
 	phase_attr = phase_attr_by_stage_name.get(str(stage_name).strip())
-	if phase_attr is None:
-		return list(targets)
-
-	phase_cfg = getattr(getattr(stage_config, "phases", None), str(phase_attr), None)
-	if phase_cfg is None or not bool(getattr(phase_cfg, "debug_mode_enabled", False)):
-		return list(targets)
-
-	limit_datasets = getattr(phase_cfg, "debug_limit_datasets", None)
-	limit_wells = getattr(phase_cfg, "debug_limit_wells", None)
-	limit_wells_per_dataset = getattr(phase_cfg, "debug_limit_wells_per_dataset", None)
-	return _apply_preprocess_debug_target_limits(
-		stage_name=stage_name,
-		targets=list(targets),
-		limit_datasets=limit_datasets,
-		limit_wells=limit_wells,
-		limit_wells_per_dataset=limit_wells_per_dataset,
-	)
+	phase_cfg = None if phase_attr is None else getattr(getattr(stage_config, "phases", None), str(phase_attr), None)
+	if phase_cfg is not None and bool(getattr(phase_cfg, "debug_mode_enabled", False)):
+		_warn_ignored_phase_debug_limits(stage_name=stage_name, phase_label=str(phase_attr))
+	return list(targets)
 
 
 def _apply_spikesort_sort_debug_limits(
@@ -578,16 +733,9 @@ def _apply_spikesort_sort_debug_limits(
 	stage_config: Any,
 	targets: list[Any],
 ) -> list[Any]:
-	return _apply_spikesort_phase_debug_limits(
-		stage_name=stage_name,
-		stage_config=stage_config,
-		targets=targets,
-		phase_label="sort",
-		enabled_attr="sort_debug_mode_enabled",
-		limit_datasets_attr="sort_debug_limit_datasets",
-		limit_wells_attr="sort_debug_limit_wells",
-		limit_wells_per_dataset_attr="sort_debug_limit_wells_per_dataset",
-	)
+	if bool(getattr(stage_config, "sort_debug_mode_enabled", False)):
+		_warn_ignored_phase_debug_limits(stage_name=stage_name, phase_label="sort")
+	return list(targets)
 
 
 def _apply_spikesort_debug_target_limits(
@@ -700,25 +848,16 @@ def _apply_spikesort_phase_debug_limits(
 	limit_wells_attr: str,
 	limit_wells_per_dataset_attr: str | None = None,
 ) -> list[Any]:
-	limited_targets = list(targets)
+	_ = (
+		stage_name,
+		phase_label,
+		limit_datasets_attr,
+		limit_wells_attr,
+		limit_wells_per_dataset_attr,
+	)
 	if bool(getattr(stage_config, str(enabled_attr), False)):
-		limit_datasets = getattr(stage_config, str(limit_datasets_attr), None)
-		limit_wells = getattr(stage_config, str(limit_wells_attr), None)
-		limit_wells_per_dataset = (
-			getattr(stage_config, str(limit_wells_per_dataset_attr), None)
-			if limit_wells_per_dataset_attr is not None
-			else None
-		)
-		return _apply_spikesort_debug_target_limits(
-			stage_name=stage_name,
-			targets=limited_targets,
-			limit_datasets=limit_datasets,
-			limit_wells=limit_wells,
-			limit_wells_per_dataset=limit_wells_per_dataset,
-			phase_label=str(phase_label),
-		)
-
-	return limited_targets
+		_warn_ignored_phase_debug_limits(stage_name=stage_name, phase_label=str(phase_label))
+	return list(targets)
 
 
 def _read_bool_setting(config: Any, *, path: str) -> bool | None:
@@ -1161,11 +1300,20 @@ def run_preprocess_from_runtime(
 		stage_config=stage_config,
 		targets=list(targets),
 	)
+	phase_resource_classes = _preprocess_runtime_phase_resource_classes(stage_config, "preprocess")
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,
 		stage_name="preprocess",
 		target_count=len(targets),
 		targets=targets,
+		phase_resource_classes=phase_resource_classes,
+	)
+	_log_runtime_stage_topology(stage_name="preprocess", targets=list(targets), parallelism=parallelism)
+	resource_budget_manager = _build_stage_resource_budget_manager(
+		bundle=bundle,
+		parallelism=parallelism,
+		phase_resource_classes=phase_resource_classes,
+		target_count=len(targets),
 	)
 	unit_workers = _resolve_preprocess_runtime_unit_workers(
 		stage_name="preprocess",
@@ -1199,14 +1347,15 @@ def run_preprocess_from_runtime(
 		)
 		return run_preprocess(inputs)
 
-	target_results = _distribute_runtime_targets(
-		targets=targets,
-		parallelism=parallelism,
-		worker_fn=_worker,
-		stage_name="preprocess",
-		progress=PipelineProgress(ProgressSpec(label="preprocess wells", total=len(targets), unit="well")),
-		advance_progress_on_target_complete=True,
-	)
+	with stage_resource_budget_context(resource_budget_manager):
+		target_results = _distribute_runtime_targets(
+			targets=targets,
+			parallelism=parallelism,
+			worker_fn=_worker,
+			stage_name="preprocess",
+			progress=PipelineProgress(ProgressSpec(label="preprocess wells", total=len(targets), unit="well")),
+			advance_progress_on_target_complete=True,
+		)
 	target_results = [_publish_preprocess_target_result(item, policy=publish_policy) for item in target_results]
 
 	succeeded = sum(1 for item in target_results if item.status == "ok")
@@ -1257,11 +1406,19 @@ def _run_preprocess_substage_from_runtime(
 		stage_config=stage_config,
 		targets=list(targets),
 	)
+	phase_resource_classes = _preprocess_runtime_phase_resource_classes(stage_config, stage_name)
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,
 		stage_name="preprocess",
 		target_count=len(targets),
 		targets=targets,
+		phase_resource_classes=phase_resource_classes,
+	)
+	resource_budget_manager = _build_stage_resource_budget_manager(
+		bundle=bundle,
+		parallelism=parallelism,
+		phase_resource_classes=phase_resource_classes,
+		target_count=len(targets),
 	)
 	unit_workers = _resolve_preprocess_runtime_unit_workers(
 		stage_name=stage_name,
@@ -1295,14 +1452,15 @@ def _run_preprocess_substage_from_runtime(
 		)
 		return runner_fn(inputs)
 
-	target_results = _distribute_runtime_targets(
-		targets=targets,
-		parallelism=parallelism,
-		worker_fn=_worker,
-		stage_name=stage_name,
-		progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
-		advance_progress_on_target_complete=True,
-	)
+	with stage_resource_budget_context(resource_budget_manager):
+		target_results = _distribute_runtime_targets(
+			targets=targets,
+			parallelism=parallelism,
+			worker_fn=_worker,
+			stage_name=stage_name,
+			progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
+			advance_progress_on_target_complete=True,
+		)
 	succeeded = sum(1 for item in target_results if item.status == "ok")
 	failed = sum(1 for item in target_results if item.status != "ok")
 	return MultiTargetStageResult(
@@ -1518,11 +1676,13 @@ def run_spikesort_from_runtime(
 		targets=list(targets),
 		phase_plan=phase_plan,
 	)
+	phase_resource_classes = _spikesort_runtime_phase_resource_classes(phase_plan)
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,
 		stage_name="spikesort",
 		target_count=len(targets),
 		targets=targets,
+		phase_resource_classes=phase_resource_classes,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	runtime_stage_config = _stage_config_with_runtime_n_jobs(
@@ -1533,6 +1693,7 @@ def run_spikesort_from_runtime(
 		runtime_stage_config,
 		fallback_n_jobs=int(parallelism.unit_workers),
 	)
+	_log_runtime_stage_topology(stage_name="spikesort", targets=list(targets), parallelism=parallelism)
 	LOGGER.info(
 		"spikesort: starting target-local phase chains targets=%d phases=%s stage_workers=%d well_workers=%d n_jobs=%d n_jobs_source=%s",
 		len(targets),
@@ -1542,13 +1703,12 @@ def run_spikesort_from_runtime(
 		int(runtime_n_jobs),
 		str(n_jobs_source),
 	)
-	sort_phase_gate = threading.Lock() if bool(getattr(stage_config, "force_single_well_sort", False)) else None
-	if sort_phase_gate is not None and any(str(phase.phase_label) == "sort" for phase in phase_plan):
-		LOGGER.info(
-			"spikesort: force_single_well_sort enabled; sort phase will run one well at a time targets=%d well_workers=%d",
-			len(targets),
-			int(parallelism.well_workers),
-		)
+	resource_budget_manager = _build_stage_resource_budget_manager(
+		bundle=bundle,
+		parallelism=parallelism,
+		phase_resource_classes=phase_resource_classes,
+		target_count=len(targets),
+	)
 
 	def _worker(target):
 		def _descriptor_for_phase(phase: _SpikesortRuntimePhase) -> PhaseDescriptor:
@@ -1572,38 +1732,41 @@ def run_spikesort_from_runtime(
 					phase_label=str(phase.phase_label),
 					target=target,
 					runner=_run_target_phase,
-					sort_phase_gate=sort_phase_gate,
+					sort_phase_gate=None,
 				)
 
 			return PhaseDescriptor(
 				name=phase.name,
 				runner=_run_phase,
+				resource_class=phase.resource_class,
 			)
 
 		chain_result = run_phase_chain(
 			phases=[_descriptor_for_phase(phase) for phase in phase_plan],
 			logger=LOGGER,
 			target_label=f"{getattr(target, 'dataset_index', 'unknown')}:{getattr(target, 'stream_id', 'unknown')}",
+			resource_key_context=target,
 		)
 		if chain_result.result is None:
 			raise RuntimeError("spikesort phase chain produced no result")
 		return chain_result.result
 
-	target_results = _distribute_runtime_targets(
-		targets=targets,
-		parallelism=parallelism,
-		worker_fn=_worker,
-		stage_name="spikesort",
-		progress=PipelineProgress(
-			ProgressSpec(
-				label="spikesort wells",
-				total=len(targets),
-				unit="well",
-				enabled=True,
-			)
-		),
-		advance_progress_on_target_complete=True,
-	)
+	with stage_resource_budget_context(resource_budget_manager):
+		target_results = _distribute_runtime_targets(
+			targets=targets,
+			parallelism=parallelism,
+			worker_fn=_worker,
+			stage_name="spikesort",
+			progress=PipelineProgress(
+				ProgressSpec(
+					label="spikesort wells",
+					total=len(targets),
+					unit="well",
+					enabled=True,
+				)
+			),
+			advance_progress_on_target_complete=True,
+		)
 	target_results = [
 		_publish_spikesort_chain_target_result(
 			item,
@@ -1637,6 +1800,7 @@ def _enabled_spikesort_runtime_phase_plan(
 				debug_limit_wells_attr="bootstrap_concat_binary_debug_limit_wells",
 				target_runner=_run_spikesort_bootstrap_concat_binary_target,
 				debug_limit_wells_per_dataset_attr="bootstrap_concat_binary_debug_limit_wells_per_dataset",
+				resource_class=getattr(stage_config, "bootstrap_concat_binary_resource_class", None),
 			)
 		)
 	if bool(getattr(stage_config, "sort_enabled", True)):
@@ -1649,6 +1813,7 @@ def _enabled_spikesort_runtime_phase_plan(
 				debug_limit_wells_attr="sort_debug_limit_wells",
 				target_runner=_run_spikesort_sort_target,
 				debug_limit_wells_per_dataset_attr="sort_debug_limit_wells_per_dataset",
+				resource_class=getattr(stage_config, "sort_resource_class", None),
 			)
 		)
 	if bool(getattr(stage_config, "summarize_sort_enabled", False)):
@@ -1661,6 +1826,7 @@ def _enabled_spikesort_runtime_phase_plan(
 				debug_limit_wells_attr="summarize_sort_debug_limit_wells",
 				target_runner=_run_spikesort_summarize_sort_target,
 				debug_limit_wells_per_dataset_attr="summarize_sort_debug_limit_wells_per_dataset",
+				resource_class=getattr(stage_config, "summarize_sort_resource_class", None),
 			)
 		)
 	if bool(getattr(stage_config, "bombcell_label_enabled", False)):
@@ -1673,6 +1839,7 @@ def _enabled_spikesort_runtime_phase_plan(
 				debug_limit_wells_attr="bombcell_label_debug_limit_wells",
 				target_runner=_run_spikesort_bombcell_label_target,
 				debug_limit_wells_per_dataset_attr="bombcell_label_debug_limit_wells_per_dataset",
+				resource_class=getattr(stage_config, "bombcell_label_resource_class", None),
 			)
 		)
 	if bool(getattr(stage_config, "merge_slay_enabled", False)):
@@ -1685,6 +1852,7 @@ def _enabled_spikesort_runtime_phase_plan(
 				debug_limit_wells_attr="merge_slay_debug_limit_wells",
 				target_runner=_run_spikesort_merge_slay_target,
 				debug_limit_wells_per_dataset_attr="merge_slay_debug_limit_wells_per_dataset",
+				resource_class=getattr(stage_config, "merge_slay_resource_class", None),
 			)
 		)
 	if bool(getattr(stage_config, "merge_si_auto_enabled", False)):
@@ -1697,6 +1865,7 @@ def _enabled_spikesort_runtime_phase_plan(
 				debug_limit_wells_attr="merge_si_auto_debug_limit_wells",
 				target_runner=_run_spikesort_merge_si_auto_target,
 				debug_limit_wells_per_dataset_attr="merge_si_auto_debug_limit_wells_per_dataset",
+				resource_class=getattr(stage_config, "merge_si_auto_resource_class", None),
 			)
 		)
 	if bool(getattr(stage_config, "merge_unitmatch_enabled", False)):
@@ -1709,6 +1878,7 @@ def _enabled_spikesort_runtime_phase_plan(
 				debug_limit_wells_attr="merge_unitmatch_debug_limit_wells",
 				target_runner=_run_spikesort_merge_unitmatch_target,
 				debug_limit_wells_per_dataset_attr="merge_unitmatch_debug_limit_wells_per_dataset",
+				resource_class=getattr(stage_config, "merge_unitmatch_resource_class", None),
 			)
 		)
 	if bool(getattr(stage_config, "cleanup_concat_binary_enabled", False)):
@@ -1721,6 +1891,7 @@ def _enabled_spikesort_runtime_phase_plan(
 				debug_limit_wells_attr="cleanup_concat_binary_debug_limit_wells",
 				target_runner=_run_spikesort_cleanup_concat_binary_target,
 				debug_limit_wells_per_dataset_attr="cleanup_concat_binary_debug_limit_wells_per_dataset",
+				resource_class=getattr(stage_config, "cleanup_concat_binary_resource_class", None),
 			)
 		)
 	configured_sequence = tuple(getattr(stage_config, "phase_sequence", None) or DEFAULT_SPIKESORT_PHASE_SEQUENCE)
@@ -1739,23 +1910,12 @@ def _apply_spikesort_runtime_phase_plan_debug_limits(
 	targets: list[Any],
 	phase_plan: list[_SpikesortRuntimePhase],
 ) -> list[Any]:
-	limited_targets = _apply_spikesort_stage_debug_limits(
+	_ = phase_plan
+	return _apply_spikesort_stage_debug_limits(
 		stage_name="spikesort",
 		stage_config=stage_config,
 		targets=list(targets),
 	)
-	for phase in phase_plan:
-		limited_targets = _apply_spikesort_phase_debug_limits(
-			stage_name=phase.name,
-			stage_config=stage_config,
-			targets=limited_targets,
-			phase_label=phase.phase_label,
-			enabled_attr=phase.debug_enabled_attr,
-			limit_datasets_attr=phase.debug_limit_datasets_attr,
-			limit_wells_attr=phase.debug_limit_wells_attr,
-			limit_wells_per_dataset_attr=phase.debug_limit_wells_per_dataset_attr,
-		)
-	return limited_targets
 
 
 def _spikesort_output_rel_root(stage_config: Any) -> str:
@@ -1891,13 +2051,21 @@ def run_spikesort_summarize_sort_from_runtime(
 		limit_wells_attr="summarize_sort_debug_limit_wells",
 		limit_wells_per_dataset_attr="summarize_sort_debug_limit_wells_per_dataset",
 	)
+	phase_resource_classes = _spikesort_phase_resource_classes_from_labels(stage_config, ("summarize_sort",))
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,
 		stage_name="spikesort",
 		target_count=len(targets),
 		targets=targets,
+		phase_resource_classes=phase_resource_classes,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
+	resource_budget_manager = _build_stage_resource_budget_manager(
+		bundle=bundle,
+		parallelism=parallelism,
+		phase_resource_classes=phase_resource_classes,
+		target_count=len(targets),
+	)
 
 	def _worker(target):
 		inputs = build_spikesort_inputs_for_target(
@@ -1914,14 +2082,15 @@ def run_spikesort_summarize_sort_from_runtime(
 		)
 		return summarize_spikesort(inputs)
 
-	target_results = _distribute_runtime_targets(
-		targets=targets,
-		parallelism=parallelism,
-		worker_fn=_worker,
-		stage_name="spikesort.summarize_sort",
-		progress=PipelineProgress(ProgressSpec(label="spikesort.summarize_sort wells", total=len(targets), unit="well")),
-		advance_progress_on_target_complete=True,
-	)
+	with stage_resource_budget_context(resource_budget_manager):
+		target_results = _distribute_runtime_targets(
+			targets=targets,
+			parallelism=parallelism,
+			worker_fn=_worker,
+			stage_name="spikesort.summarize_sort",
+			progress=PipelineProgress(ProgressSpec(label="spikesort.summarize_sort wells", total=len(targets), unit="well")),
+			advance_progress_on_target_complete=True,
+		)
 	succeeded = sum(1 for item in target_results if item.status == "ok")
 	failed = sum(1 for item in target_results if item.status != "ok")
 	return MultiTargetStageResult(
@@ -2110,21 +2279,21 @@ def _run_spikesort_sort_from_runtime(
 		stage_config=stage_config,
 		targets=list(targets),
 	)
+	phase_resource_classes = _spikesort_phase_resource_classes_from_labels(stage_config, ("sort",))
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,
 		stage_name="spikesort",
 		target_count=len(targets),
 		targets=targets,
+		phase_resource_classes=phase_resource_classes,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
-	sort_phase_gate = threading.Lock() if bool(getattr(stage_config, "force_single_well_sort", False)) else None
-	if sort_phase_gate is not None:
-		LOGGER.info(
-			"%s: force_single_well_sort enabled; sort phase will run one well at a time targets=%d well_workers=%d",
-			stage_name,
-			len(targets),
-			int(parallelism.well_workers),
-		)
+	resource_budget_manager = _build_stage_resource_budget_manager(
+		bundle=bundle,
+		parallelism=parallelism,
+		phase_resource_classes=phase_resource_classes,
+		target_count=len(targets),
+	)
 
 	def _worker(target):
 		inputs = build_spikesort_inputs_for_target(
@@ -2147,17 +2316,18 @@ def _run_spikesort_sort_from_runtime(
 			phase_label="sort",
 			target=target,
 			runner=_run_sort,
-			sort_phase_gate=sort_phase_gate,
+			sort_phase_gate=None,
 		)
 
-	target_results = _distribute_runtime_targets(
-		targets=targets,
-		parallelism=parallelism,
-		worker_fn=_worker,
-		stage_name=stage_name,
-		progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
-		advance_progress_on_target_complete=True,
-	)
+	with stage_resource_budget_context(resource_budget_manager):
+		target_results = _distribute_runtime_targets(
+			targets=targets,
+			parallelism=parallelism,
+			worker_fn=_worker,
+			stage_name=stage_name,
+			progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
+			advance_progress_on_target_complete=True,
+		)
 	target_results = [_publish_spikesort_target_result(item, policy=publish_policy) for item in target_results]
 
 	succeeded = sum(1 for item in target_results if item.status == "ok")
@@ -2297,11 +2467,13 @@ def run_spikesort_merge_from_runtime(
 			limit_wells_attr=debug_limit_wells_attr,
 			limit_wells_per_dataset_attr=debug_limit_wells_per_dataset_attr,
 		)
+	phase_resource_classes = _spikesort_phase_resource_classes_from_labels(stage_config, (str(debug_phase_label),))
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,
 		stage_name="spikesort",
 		target_count=len(targets),
 		targets=targets,
+		phase_resource_classes=phase_resource_classes,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	runtime_stage_config = _stage_config_with_runtime_n_jobs(
@@ -2311,6 +2483,12 @@ def run_spikesort_merge_from_runtime(
 	runtime_n_jobs = _runtime_n_jobs_from_stage_config(
 		runtime_stage_config,
 		fallback_n_jobs=int(parallelism.unit_workers),
+	)
+	resource_budget_manager = _build_stage_resource_budget_manager(
+		bundle=bundle,
+		parallelism=parallelism,
+		phase_resource_classes=phase_resource_classes,
+		target_count=len(targets),
 	)
 
 	def _worker(target):
@@ -2343,14 +2521,15 @@ def run_spikesort_merge_from_runtime(
 			),
 		)
 
-	target_results = _distribute_runtime_targets(
-		targets=targets,
-		parallelism=parallelism,
-		worker_fn=_worker,
-		stage_name=stage_name,
-		progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
-		advance_progress_on_target_complete=True,
-	)
+	with stage_resource_budget_context(resource_budget_manager):
+		target_results = _distribute_runtime_targets(
+			targets=targets,
+			parallelism=parallelism,
+			worker_fn=_worker,
+			stage_name=stage_name,
+			progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
+			advance_progress_on_target_complete=True,
+		)
 	target_results = [_publish_spikesort_merge_target_result(item, policy=publish_policy) for item in target_results]
 
 	succeeded = sum(1 for item in target_results if item.status == "ok")
@@ -2395,11 +2574,13 @@ def run_spikesort_bombcell_label_from_runtime(
 		limit_wells_attr="bombcell_label_debug_limit_wells",
 		limit_wells_per_dataset_attr="bombcell_label_debug_limit_wells_per_dataset",
 	)
+	phase_resource_classes = _spikesort_phase_resource_classes_from_labels(stage_config, ("bombcell_label",))
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,
 		stage_name="spikesort",
 		target_count=len(targets),
 		targets=targets,
+		phase_resource_classes=phase_resource_classes,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	runtime_stage_config = _stage_config_with_runtime_n_jobs(
@@ -2409,6 +2590,12 @@ def run_spikesort_bombcell_label_from_runtime(
 	runtime_n_jobs = _runtime_n_jobs_from_stage_config(
 		runtime_stage_config,
 		fallback_n_jobs=int(parallelism.unit_workers),
+	)
+	resource_budget_manager = _build_stage_resource_budget_manager(
+		bundle=bundle,
+		parallelism=parallelism,
+		phase_resource_classes=phase_resource_classes,
+		target_count=len(targets),
 	)
 
 	def _worker(target):
@@ -2428,14 +2615,15 @@ def run_spikesort_bombcell_label_from_runtime(
 			force_restart=bool(runtime_stage_config.force_restart),
 		)
 
-	target_results = _distribute_runtime_targets(
-		targets=targets,
-		parallelism=parallelism,
-		worker_fn=_worker,
-		stage_name=stage_name,
-		progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
-		advance_progress_on_target_complete=True,
-	)
+	with stage_resource_budget_context(resource_budget_manager):
+		target_results = _distribute_runtime_targets(
+			targets=targets,
+			parallelism=parallelism,
+			worker_fn=_worker,
+			stage_name=stage_name,
+			progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
+			advance_progress_on_target_complete=True,
+		)
 	target_results = [
 		_publish_spikesort_bombcell_target_result(item, policy=publish_policy)
 		for item in target_results
@@ -2548,11 +2736,21 @@ def _run_reconstruct_substage_from_runtime(
 			limit_wells=getattr(stage_config, "debug_limit_wells", None),
 			limit_wells_per_dataset=getattr(stage_config, "debug_limit_wells_per_dataset", None),
 		)
+	phase_resource_classes = _reconstruct_runtime_phase_resource_classes(stage_config, reconstruct_templates_config)
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,
 		stage_name="reconstruct",
 		target_count=len(targets),
 		targets=targets,
+		phase_resource_classes=phase_resource_classes,
+	)
+	if str(stage_name).strip() == "reconstruct":
+		_log_runtime_stage_topology(stage_name="reconstruct", targets=list(targets), parallelism=parallelism)
+	resource_budget_manager = _build_stage_resource_budget_manager(
+		bundle=bundle,
+		parallelism=parallelism,
+		phase_resource_classes=phase_resource_classes,
+		target_count=len(targets),
 	)
 
 	def _worker(target):
@@ -2573,13 +2771,14 @@ def _run_reconstruct_substage_from_runtime(
 		result = runner_fn(inputs)
 		return _raise_reconstruct_unit_failures(stage_name=stage_name, result=result)
 
-	target_results = _distribute_runtime_targets(
-		targets=targets,
-		parallelism=parallelism,
-		worker_fn=_worker,
-		stage_name=stage_name,
-		progress=_reconstruct_unit_progress(stage_name),
-	)
+	with stage_resource_budget_context(resource_budget_manager):
+		target_results = _distribute_runtime_targets(
+			targets=targets,
+			parallelism=parallelism,
+			worker_fn=_worker,
+			stage_name=stage_name,
+			progress=_reconstruct_unit_progress(stage_name),
+		)
 	if publish_outputs:
 		target_results = [_publish_reconstruct_target_result(item, policy=publish_policy) for item in target_results]
 

@@ -894,16 +894,46 @@ def run_reconstruct_templates_pipeline(inputs: TemplatesInputs) -> TemplatesResu
 	if not phase_plan:
 		return collect_templates_result_from_outputs(inputs)
 
+	def _templates_phase_resource_class(phase_name: str) -> str | None:
+		def _resource_class(value: Any) -> str | None:
+			return getattr(value, "resource_class", None)
+
+		phase = _normalize_reconstruct_templates_phase_name(phase_name)
+		if phase == "resolve_sources":
+			return _resource_class(inputs.resolve_sources_phase)
+		if phase == "analyzers":
+			return _resource_class(inputs.phases.analyzers)
+		if phase == "extract_template_segments":
+			return _resource_class(inputs.phases.per_unit_processing.extract_template_segments)
+		if phase == "build_templates":
+			return _resource_class(inputs.phases.build_templates)
+		if phase == "compute_template_similarity":
+			return _resource_class(inputs.phases.compute_template_similarity)
+		if phase == "plot_templates":
+			return _resource_class(inputs.phases.plot_templates)
+		if phase == "report_templates":
+			return _resource_class(inputs.phases.report_templates)
+		if phase == "reports":
+			return _resource_class(inputs.phases.reports)
+		if phase == "per_unit_processing":
+			return _resource_class(inputs.phases.per_unit_processing)
+		return None
+
 	def _descriptor_for_phase(phase_name: str) -> PhaseDescriptor:
 		def _run_phase(phase_name: str = phase_name):
 			return _reconstruct_templates_phase_runner(phase_name)(inputs)
 
-		return PhaseDescriptor(name=str(phase_name), runner=_run_phase)
+		return PhaseDescriptor(
+			name=str(phase_name),
+			runner=_run_phase,
+			resource_class=_templates_phase_resource_class(phase_name),
+		)
 
 	run_phase_chain(
 		phases=[_descriptor_for_phase(phase) for phase in phase_plan],
 		logger=LOGGER,
 		target_label=str(inputs.stream_id),
+		resource_key_context=inputs,
 	)
 	return collect_templates_result_from_outputs(inputs)
 

@@ -25,6 +25,7 @@ DEFAULT_PREPROCESS_PHASE_SEQUENCE: tuple[str, ...] = (
 class PreprocessPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/preprocess_phase_summary.json"
+	resource_class: str | None = None
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class PreprocessCopySrcToScratchPhaseConfig:
 	enabled: bool = False
 	requires_use_scratch_root: bool = False
 	summary_json_relpath: str = "context/copy_src_to_scratch_summary.json"
+	resource_class: str | None = None
 
 
 @dataclass(frozen=True)
@@ -50,12 +52,14 @@ class PreprocessSaveRecMetadataPhaseConfig:
 	sampling_metadata_relpath: str = "sampling_rate_metadata.json"
 	common_electrodes_relpath: str = "common_electrodes.npy"
 	common_electrodes_summary_json_relpath: str = "context/save_common_electrodes_summary.json"
+	resource_class: str | None = None
 
 
 @dataclass(frozen=True)
 class PreprocessPrepareRawBinariesPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/prepare_raw_binaries_summary.json"
+	resource_class: str | None = None
 	rel_output_root: str = "raw_binary_recording"
 	manifest_relpath: str = "context/raw_binary_manifest.json"
 	outputs: PreprocessPhaseOutputsConfig = field(default_factory=lambda: PreprocessPhaseOutputsConfig())
@@ -67,6 +71,7 @@ class PreprocessWipeSrcScratchPhaseConfig:
 	dry_run: bool = False
 	requires_use_scratch_root: bool = False
 	summary_json_relpath: str = "context/wipe_src_scratch_summary.json"
+	resource_class: str | None = None
 
 
 @dataclass(frozen=True)
@@ -104,6 +109,7 @@ class PreprocessSegmentsPhaseConfig:
 	output_mode: str = "lazy"
 	lazy_source: str = "scratch"
 	summary_json_relpath: str = "context/segment_recordings_summary.json"
+	resource_class: str | None = None
 	rel_output_root: str = "preprocessed_segments"
 	outputs: PreprocessPhaseOutputsConfig = field(default_factory=PreprocessPhaseOutputsConfig)
 
@@ -112,6 +118,7 @@ class PreprocessSegmentsPhaseConfig:
 class PreprocessPlotSegmentTracesPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/plot_segment_traces_summary.json"
+	resource_class: str | None = None
 	plot: PreprocessPlotConfig = field(
 		default_factory=lambda: PreprocessPlotConfig(
 			concat_trace=False,
@@ -129,6 +136,7 @@ class PreprocessConcatSegmentsPhaseConfig:
 	debug_limit_wells_per_dataset: int | None = None
 	output_mode: str = "binary"
 	summary_json_relpath: str = "context/concat_segments_summary.json"
+	resource_class: str | None = None
 	rel_output_root: str = "concatenated_recording"
 	manifest_relpath: str = "context/concat_segments_manifest.json"
 	outputs: PreprocessPhaseOutputsConfig = field(default_factory=PreprocessPhaseOutputsConfig)
@@ -138,6 +146,7 @@ class PreprocessConcatSegmentsPhaseConfig:
 class PreprocessPlotConcatTracesPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/plot_concat_traces_summary.json"
+	resource_class: str | None = None
 	plot: PreprocessPlotConfig = field(
 		default_factory=lambda: PreprocessPlotConfig(
 			layouts=False,
@@ -150,6 +159,7 @@ class PreprocessPlotConcatTracesPhaseConfig:
 class PreprocessPlotSegmentChannelLayoutsPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/plot_segment_channel_layouts_summary.json"
+	resource_class: str | None = None
 	plot: PreprocessPlotConfig = field(
 		default_factory=lambda: PreprocessPlotConfig(
 			concat_trace=False,
@@ -162,6 +172,7 @@ class PreprocessPlotSegmentChannelLayoutsPhaseConfig:
 class PreprocessPlotConcatChannelLayoutPhaseConfig:
 	enabled: bool = False
 	summary_json_relpath: str = "context/plot_concat_channel_layout_summary.json"
+	resource_class: str | None = None
 	plot: PreprocessPlotConfig = field(
 		default_factory=lambda: PreprocessPlotConfig(
 			segment_traces=False,
@@ -179,6 +190,7 @@ class PreprocessPlotRasterThresholdPhaseConfig:
 	debug_limit_wells_per_dataset: int | None = None
 	report_step_timers: bool = False
 	summary_json_relpath: str = "context/plot_raster_threshold_summary.json"
+	resource_class: str | None = None
 	rel_output_root: str = "raster_threshold"
 
 
@@ -186,6 +198,7 @@ class PreprocessPlotRasterThresholdPhaseConfig:
 class PreprocessReportPreprocessingPhaseConfig:
 	enabled: bool = False
 	summary_json_relpath: str = "context/report_preprocessing_summary.json"
+	resource_class: str | None = None
 	report_relpath: str = "report/preprocessing_report.md"
 	json_summary_relpath: str = "report/preprocessing_report.json"
 
@@ -194,6 +207,7 @@ class PreprocessReportPreprocessingPhaseConfig:
 class PreprocessCleanupOutputsPhaseConfig:
 	enabled: bool = False
 	summary_json_relpath: str = "context/cleanup_preprocessing_outputs_summary.json"
+	resource_class: str | None = None
 
 
 PreprocessConcatenateRecordingsPhaseConfig = PreprocessConcatSegmentsPhaseConfig

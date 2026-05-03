@@ -1419,6 +1419,73 @@ def _reconstruct_phase_selected(inputs: ReconstructionInputs, phase_name: str) -
 	return (not sequence) or _normalize_reconstruct_stage_phase_name(phase_name) in sequence
 
 
+def _reconstruct_stage_phase_resource_class(inputs: ReconstructionInputs, phase_name: str) -> str | None:
+	def _resource_class(value: Any) -> str | None:
+		return getattr(value, "resource_class", None)
+
+	phase = _normalize_reconstruct_stage_phase_name(phase_name)
+	if phase == "templates_resolve_sources":
+		return None if inputs.templates_inputs is None else _resource_class(inputs.templates_inputs.resolve_sources_phase)
+	if phase == "templates_analyzers":
+		return None if inputs.templates_inputs is None else _resource_class(inputs.templates_inputs.phases.analyzers)
+	if phase == "templates_extract_template_segments":
+		return (
+			None
+			if inputs.templates_inputs is None
+			else _resource_class(inputs.templates_inputs.phases.per_unit_processing.extract_template_segments)
+		)
+	if phase == "templates_build_templates":
+		return None if inputs.templates_inputs is None else _resource_class(inputs.templates_inputs.phases.build_templates)
+	if phase == "templates_compute_template_similarity":
+		return (
+			None
+			if inputs.templates_inputs is None
+			else _resource_class(inputs.templates_inputs.phases.compute_template_similarity)
+		)
+	if phase == "templates_plot_templates":
+		return None if inputs.templates_inputs is None else _resource_class(inputs.templates_inputs.phases.plot_templates)
+	if phase == "templates_report_templates":
+		return None if inputs.templates_inputs is None else _resource_class(inputs.templates_inputs.phases.report_templates)
+	if phase == "templates_reports":
+		return None if inputs.templates_inputs is None else _resource_class(inputs.templates_inputs.phases.reports)
+	if phase == "generate_gtrs":
+		return _resource_class(inputs.phases.generate_gtrs)
+	if phase == "plot_recons":
+		return _resource_class(inputs.phases.plot_recons)
+	if phase == "plot_branch_propagations":
+		return _resource_class(inputs.phases.plot_branch_propagations)
+	if phase == "plot_branch_velocities":
+		return _resource_class(inputs.phases.plot_branch_velocities)
+	if phase == "plot_unit_summary":
+		return _resource_class(inputs.phases.plot_unit_summary)
+	if phase == "report_recons":
+		return _resource_class(inputs.phases.report_recons)
+	if phase == "report_recon_grid":
+		return _resource_class(inputs.phases.report_recon_grid)
+	if phase == "report_full_chip_layout":
+		return _resource_class(inputs.phases.report_full_chip_layout)
+	if phase == "report_summaries":
+		return _resource_class(inputs.phases.report_summaries)
+	if phase == "clear_templates_cache":
+		return _resource_class(inputs.phases.clear_templates_cache)
+	return None
+
+
+def _display_reconstruct_stage_phase_name(phase_name: str) -> str:
+	phase = _normalize_reconstruct_stage_phase_name(phase_name)
+	aliases = {
+		"templates_resolve_sources": "resolve_sources",
+		"templates_analyzers": "analyzers",
+		"templates_extract_template_segments": "extract_template_segments",
+		"templates_build_templates": "build_templates",
+		"templates_compute_template_similarity": "compute_template_similarity",
+		"templates_plot_templates": "plot_templates",
+		"templates_report_templates": "report_templates",
+		"templates_reports": "reports",
+	}
+	return str(aliases.get(phase, phase))
+
+
 def _reconstruct_stage_phase_runner(phase_name: str):
 	phase = _normalize_reconstruct_stage_phase_name(phase_name)
 	if phase == "templates_resolve_sources":
@@ -1518,12 +1585,17 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 		def _run_phase(phase_name: str = phase_name):
 			return _reconstruct_stage_phase_runner(phase_name)(inputs)
 
-		return PhaseDescriptor(name=str(phase_name), runner=_run_phase)
+		return PhaseDescriptor(
+			name=_display_reconstruct_stage_phase_name(phase_name),
+			runner=_run_phase,
+			resource_class=_reconstruct_stage_phase_resource_class(inputs, phase_name),
+		)
 
 	run_phase_chain(
 		phases=[_descriptor_for_phase(phase) for phase in phase_plan],
 		logger=LOGGER,
 		target_label=str(inputs.stream_id),
+		resource_key_context=inputs,
 	)
 	return collect_reconstruct_result_from_outputs(inputs)
 

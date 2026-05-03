@@ -14,6 +14,7 @@ class ConsoleLoggingConfig:
     enabled: bool = True
     rich: bool = True
     level: int = logging.INFO
+    blank_line_after_phase: bool = False
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,29 @@ class FileLoggingConfig:
 class HierarchyLoggingConfig:
     enabled: bool = True
     level: int = logging.INFO
+
+
+@dataclass(frozen=True)
+class ResourceUsageLoggingConfig:
+    enabled: bool = False
+    level: int = logging.INFO
+    include_children: bool = True
+    sample_interval_s: float = 0.5
+    include_gpu: bool = True
+    include_disk_io: bool = False
+    write_to_phase_summary: bool = True
+    warnings: "ResourceUsageWarningConfig" | None = None
+
+
+@dataclass(frozen=True)
+class ResourceUsageWarningConfig:
+    enabled: bool = True
+    level: int = logging.WARNING
+    plan_fraction_threshold: float = 0.8
+    observed_ram_warn_fraction: float = 1.25
+    observed_thread_warn_fraction: float = 1.5
+    underuse_fraction: float = 0.25
+    underuse_observation_count: int = 5
 
 
 @dataclass(frozen=True)
@@ -45,6 +69,7 @@ class PipelineLoggingConfig:
     well_logs: HierarchyLoggingConfig
     phase_logs: HierarchyLoggingConfig
     summary: FileLoggingConfig
+    resource_usage: ResourceUsageLoggingConfig
     include_external_stdout: bool = False
     include_external_stderr: bool = False
     capture_warnings: bool = True
@@ -79,6 +104,24 @@ def _level(value: Any, default: int) -> int:
     if name.isdigit():
         return int(name)
     return int(getattr(logging, name, default))
+
+
+def _as_float(value: Any, default: float) -> float:
+    if value is None:
+        return float(default)
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _as_int(value: Any, default: int) -> int:
+    if value is None:
+        return int(default)
+    try:
+        return int(value)
+    except Exception:
+        return int(default)
 
 
 def _safe_run_id(config_path: str | Path | None) -> str:
@@ -194,6 +237,8 @@ def parse_pipeline_logging_config(
     run_log_block = _as_mapping(logging_block.get("run_log", {}))
     error_block = _as_mapping(logging_block.get("error_log", {}))
     summary_block = _as_mapping(logging_block.get("summary", {}))
+    resource_usage_block = _as_mapping(logging_block.get("resource_usage", {}))
+    resource_warning_block = _as_mapping(resource_usage_block.get("warnings", {}))
 
     run_log = _file_config(
         block=run_log_block,
@@ -237,6 +282,7 @@ def parse_pipeline_logging_config(
             enabled=_as_bool(console_block.get("enabled", True), True),
             rich=_as_bool(console_block.get("rich", True), True),
             level=_level(console_block.get("level", None), top_level),
+            blank_line_after_phase=_as_bool(console_block.get("blank_line_after_phase", False), False),
         ),
         structured=structured,
         run_log=run_log,
@@ -262,6 +308,39 @@ def parse_pipeline_logging_config(
             default_enabled=bool(logging_block_defined),
         ),
         summary=summary,
+        resource_usage=ResourceUsageLoggingConfig(
+            enabled=_as_bool(resource_usage_block.get("enabled", False), False),
+            level=_level(resource_usage_block.get("level", None), top_level),
+            include_children=_as_bool(resource_usage_block.get("include_children", True), True),
+            sample_interval_s=max(0.05, _as_float(resource_usage_block.get("sample_interval_s", 0.5), 0.5)),
+            include_gpu=_as_bool(resource_usage_block.get("include_gpu", True), True),
+            include_disk_io=_as_bool(resource_usage_block.get("include_disk_io", False), False),
+            write_to_phase_summary=_as_bool(resource_usage_block.get("write_to_phase_summary", True), True),
+            warnings=ResourceUsageWarningConfig(
+                enabled=_as_bool(resource_warning_block.get("enabled", True), True),
+                level=_level(resource_warning_block.get("level", None), logging.WARNING),
+                plan_fraction_threshold=max(
+                    0.0,
+                    min(1.0, _as_float(resource_warning_block.get("plan_fraction_threshold", 0.8), 0.8)),
+                ),
+                observed_ram_warn_fraction=max(
+                    1.0,
+                    _as_float(resource_warning_block.get("observed_ram_warn_fraction", 1.25), 1.25),
+                ),
+                observed_thread_warn_fraction=max(
+                    1.0,
+                    _as_float(resource_warning_block.get("observed_thread_warn_fraction", 1.5), 1.5),
+                ),
+                underuse_fraction=max(
+                    0.0,
+                    min(1.0, _as_float(resource_warning_block.get("underuse_fraction", 0.25), 0.25)),
+                ),
+                underuse_observation_count=max(
+                    1,
+                    _as_int(resource_warning_block.get("underuse_observation_count", 5), 5),
+                ),
+            ),
+        ),
         include_external_stdout=_as_bool(logging_block.get("include_external_stdout", False), False),
         include_external_stderr=_as_bool(logging_block.get("include_external_stderr", False), False),
         capture_warnings=_as_bool(logging_block.get("capture_warnings", True), True),

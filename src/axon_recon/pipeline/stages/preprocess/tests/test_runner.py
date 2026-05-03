@@ -761,6 +761,93 @@ def test_run_preprocess_stage_logs_phase_start_per_well(tmp_path: Path, monkeypa
     assert not any("unit_workers" in message for message in messages if "worker allocation" in message)
 
 
+def test_run_preprocess_stage_logs_phase_resource_usage_and_resource_class(
+    tmp_path: Path,
+    monkeypatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from dataclasses import replace
+
+    from axon_recon.pipeline.logging import configure_pipeline_logging, finalize_pipeline_logging
+    from axon_recon.pipeline.stages.preprocess import runner as preprocess_runner
+
+    _install_success_fakes(monkeypatch, tmp_path)
+
+    data_path = tmp_path / "data.yml"
+    data_path.write_text(
+        f"output_root: {tmp_path / 'outputs'}\n"
+        "use_scratch_root: false\n"
+        "datasets: []\n",
+        encoding="utf-8",
+    )
+    runtime_path = tmp_path / "runtime.yml"
+    runtime_path.write_text(
+        f"data: {data_path}\n"
+        "logging:\n"
+        "  enabled: true\n"
+        "  level: INFO\n"
+        "  console:\n"
+        "    enabled: false\n"
+        "    blank_line_after_phase: true\n"
+        "  structured:\n"
+        "    enabled: false\n"
+        "  run_log:\n"
+        "    enabled: false\n"
+        "  error_log:\n"
+        "    enabled: false\n"
+        "  summary:\n"
+        "    enabled: false\n"
+        "  resource_usage:\n"
+        "    enabled: true\n"
+        "    level: INFO\n"
+        "    include_children: true\n"
+        "    sample_interval_s: 0.05\n"
+        "    include_gpu: false\n"
+        "    include_disk_io: false\n"
+        "    write_to_phase_summary: true\n",
+        encoding="utf-8",
+    )
+    configure_pipeline_logging(config_path=runtime_path)
+    blank_line_calls: list[str] = []
+    monkeypatch.setattr(preprocess_runner, "emit_pipeline_console_blank_line", lambda: blank_line_calls.append("blank"))
+
+    phases = _full_stage_phases()
+    phases = replace(
+        phases,
+        save_rec_metadata=replace(phases.save_rec_metadata, resource_class="metadata_io"),
+    )
+    inputs = PreprocessInputs(
+        h5_path=tmp_path / "input.raw.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        logging_enabled=True,
+        logging_verbose=True,
+        phase_sequence=("save_rec_metadata",),
+        phases=phases,
+    )
+
+    try:
+        with caplog.at_level(logging.INFO):
+            result = run_preprocess_stage(inputs)
+    finally:
+        finalize_pipeline_logging(status="ok")
+
+    stage_summary = _read_json(result.summary_json)
+    phase_summary = _read_json(Path(str(stage_summary["phase_summaries"]["save_rec_metadata"])))
+    started_record = next(record for record in caplog.records if getattr(record, "event", None) == "phase_started")
+    usage_record = next(record for record in caplog.records if getattr(record, "event", None) == "phase_resource_usage")
+
+    assert getattr(started_record, "resource_class", None) == "metadata_io"
+    assert getattr(usage_record, "resource_class", None) == "metadata_io"
+    assert phase_summary["resource_class"] == "metadata_io"
+    assert phase_summary["resource_usage"]["wall_time_s"] is not None
+    assert phase_summary["resource_usage"]["total_peak_rss_gb"] is not None
+    assert started_record.getMessage().startswith("Starting phase: preprocess.save_rec_metadata")
+    assert usage_record.getMessage().startswith("Phase resource usage: preprocess.save_rec_metadata")
+    assert getattr(usage_record, "status", None) == "success"
+    assert blank_line_calls == ["blank"]
+
+
 def test_run_preprocess_stage_resumes_complete_phase_artifacts_without_force_restart(
     tmp_path: Path,
     monkeypatch,

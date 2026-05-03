@@ -21,6 +21,7 @@ _INSTALL_LOCK = threading.RLock()
 _ORIGINAL_FACTORY: Any | None = None
 _ORIGINAL_EXCEPTHOOK: Any | None = None
 _SUMMARY_HANDLER: PipelineSummaryHandler | None = None
+_CURRENT_CONFIG: PipelineLoggingConfig | None = None
 _CONFIGURED = False
 _NOISY_EXTERNAL_LOGGER_NAMES: tuple[str, ...] = (
     "numcodecs",
@@ -81,7 +82,33 @@ def _make_console_handler(config: PipelineLoggingConfig) -> logging.Handler:
     handler.setLevel(config.console.level)
     handler.setFormatter(PipelineHumanFormatter(include_level=not rich_console_handler))
     handler._axon_recon_pipeline_handler = True  # type: ignore[attr-defined]
+    handler._axon_recon_pipeline_console_handler = True  # type: ignore[attr-defined]
     return handler
+
+
+def current_pipeline_logging_config() -> PipelineLoggingConfig | None:
+    return _CURRENT_CONFIG
+
+
+def emit_pipeline_console_blank_line() -> None:
+    for handler in logging.getLogger().handlers:
+        if not getattr(handler, "_axon_recon_pipeline_console_handler", False):
+            continue
+        try:
+            emit_blank_line = getattr(handler, "emit_blank_line", None)
+            if callable(emit_blank_line):
+                emit_blank_line()
+                continue
+            console = getattr(handler, "console", None)
+            if console is not None and hasattr(console, "print"):
+                console.print("")
+                continue
+            stream = getattr(handler, "stream", None)
+            if stream is not None:
+                stream.write("\n")
+                stream.flush()
+        except Exception:
+            continue
 
 
 def _install_uncaught_exception_hook(config: PipelineLoggingConfig) -> None:
@@ -107,10 +134,11 @@ def _install_uncaught_exception_hook(config: PipelineLoggingConfig) -> None:
 
 
 def configure_pipeline_logging(*, config_path: str | Path | None = None) -> PipelineLoggingConfig:
-    global _SUMMARY_HANDLER, _CONFIGURED
+    global _CURRENT_CONFIG, _SUMMARY_HANDLER, _CONFIGURED
     with _INSTALL_LOCK:
         runtime_config = RuntimeConfig.load(config_path) if config_path is not None else RuntimeConfig({})
         config = parse_pipeline_logging_config(runtime_config=runtime_config, config_path=config_path)
+        _CURRENT_CONFIG = config
         _install_record_factory()
         set_base_log_context(run_id=config.run_id)
 

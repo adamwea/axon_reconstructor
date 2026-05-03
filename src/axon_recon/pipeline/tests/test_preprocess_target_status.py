@@ -93,6 +93,65 @@ def test_run_preprocess_from_runtime_marks_target_ok(monkeypatch, tmp_path: Path
     assert divider_stdout_calls == [False]
 
 
+def test_run_preprocess_from_runtime_logs_stage_topology(monkeypatch, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    target = ExecutionTarget(
+        dataset_index=0,
+        dataset_id="dataset_000:test.h5",
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+    )
+
+    dummy_inputs = PreprocessInputs(
+        h5_path=target.h5_path,
+        stream_id=target.stream_id,
+        mea_output_root=target.mea_output_root,
+    )
+
+    class _DummyBundle:
+        runtime_config = object()
+        data_config = object()
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", lambda *, config_path: _DummyBundle())
+    monkeypatch.setattr(
+        pipeline_runner,
+        "select_execution_targets",
+        lambda *, bundle, materialize_scratch_inputs=False: [target],
+    )
+    monkeypatch.setattr(
+        pipeline_runner,
+        "resolve_stage_parallelism",
+        lambda *, bundle, stage_name: StageParallelism(max_workers=24, max_stage_workers=24, well_workers=2, unit_workers=12),
+    )
+    monkeypatch.setattr(pipeline_runner, "parse_preprocess_stage_config", lambda **kwargs: SimpleNamespace(debug_limit_wells=None))
+    monkeypatch.setattr(
+        pipeline_runner,
+        "build_preprocess_inputs_for_target",
+        lambda *, target, stage_config, unit_workers: dummy_inputs,
+    )
+    monkeypatch.setattr(
+        pipeline_runner,
+        "run_preprocess",
+        lambda inputs: PreprocessResult(
+            well_out_dir=tmp_path / "well_out",
+            preprocess_out_dir=tmp_path / "preprocess_out",
+            summary_json=tmp_path / "preprocess_summary.json",
+            outputs={},
+        ),
+    )
+
+    with caplog.at_level(logging.INFO):
+        run_preprocess_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert "Starting stage: preprocess" in messages
+    assert "Execution topology: stage_global_order=true, well_local_phase_sequence=true" in messages
+    assert "Selected wells: 1" in messages
+    assert "well_workers=2 max_stage_workers=24" in messages
+
+
 def test_run_preprocess_from_runtime_applies_force_restart_override_to_stage_inputs(
     monkeypatch,
     tmp_path: Path,
@@ -829,7 +888,7 @@ def test_run_preprocess_from_runtime_uses_phase_sequence_for_scratch_and_worker_
     assert divider_stdout_calls == [True]
 
 
-def test_run_preprocess_save_rec_metadata_from_runtime_applies_phase_debug_dataset_and_well_limits(
+def test_run_preprocess_save_rec_metadata_from_runtime_ignores_phase_debug_dataset_and_well_limits(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -930,13 +989,19 @@ def test_run_preprocess_save_rec_metadata_from_runtime_applies_phase_debug_datas
 
     agg = run_preprocess_save_rec_metadata_from_runtime(config_path=str(tmp_path / "runtime.yml"))
 
-    assert agg.total_targets == 3
-    assert agg.succeeded_targets == 3
+    assert agg.total_targets == 5
+    assert agg.succeeded_targets == 5
     assert agg.failed_targets == 0
-    assert built_targets == [(0, "well001"), (0, "well002"), (0, "well003")]
+    assert built_targets == [
+        (0, "well001"),
+        (0, "well002"),
+        (0, "well003"),
+        (0, "well004"),
+        (1, "well001"),
+    ]
 
 
-def test_run_preprocess_plot_raster_threshold_from_runtime_applies_phase_debug_dataset_and_well_limits(
+def test_run_preprocess_plot_raster_threshold_from_runtime_ignores_phase_debug_dataset_and_well_limits(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -1023,13 +1088,13 @@ def test_run_preprocess_plot_raster_threshold_from_runtime_applies_phase_debug_d
 
     agg = run_preprocess_plot_raster_threshold_from_runtime(config_path=str(tmp_path / "runtime.yml"))
 
-    assert agg.total_targets == 2
-    assert agg.succeeded_targets == 2
+    assert agg.total_targets == 3
+    assert agg.succeeded_targets == 3
     assert agg.failed_targets == 0
-    assert built_targets == [(0, "well001"), (0, "well002")]
+    assert built_targets == [(0, "well001"), (0, "well002"), (1, "well001")]
 
 
-def test_run_preprocess_concat_segments_from_runtime_applies_phase_debug_dataset_and_well_limits(
+def test_run_preprocess_concat_segments_from_runtime_ignores_phase_debug_dataset_and_well_limits(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -1122,7 +1187,7 @@ def test_run_preprocess_concat_segments_from_runtime_applies_phase_debug_dataset
 
     agg = run_preprocess_concat_segments_from_runtime(config_path=str(tmp_path / "runtime.yml"))
 
-    assert agg.total_targets == 2
-    assert agg.succeeded_targets == 2
+    assert agg.total_targets == 4
+    assert agg.succeeded_targets == 4
     assert agg.failed_targets == 0
-    assert built_targets == [(0, "well001"), (0, "well002")]
+    assert built_targets == [(0, "well001"), (0, "well002"), (0, "well003"), (1, "well001")]

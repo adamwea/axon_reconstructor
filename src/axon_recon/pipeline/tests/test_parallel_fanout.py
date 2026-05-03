@@ -485,7 +485,9 @@ datasets:
 data: {data_path}
 resources:
   max_workers: 24
-  max_simultaneous_well_reads_per_dataset: 1
+  keyed_resource_limits:
+    source_h5_path:
+      max_concurrent: 1
 stages:
   preprocess:
     resources:
@@ -539,7 +541,9 @@ datasets:
 data: {data_path}
 resources:
   max_workers: 24
-  max_simultaneous_well_reads_per_dataset: 1
+  keyed_resource_limits:
+    source_h5_path:
+      max_concurrent: 1
 stages:
   reconstruct:
     resources:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from axon_recon.pipeline.stages.reconstruct.templates.config import parse_probe_
 from axon_recon.pipeline.stages.reconstruct.templates.config import parse_reconstruct_templates_config
 
 from ...execution.context import ExecutionTarget
+from ...resources import parse_resources_config, validate_phase_resource_class
 from .models.inputs import (
 	ReconstructionBranchColorsConfig,
 	ReconstructionBranchPlotOutputConfig,
@@ -38,6 +40,7 @@ from .models.inputs import (
 	ReconstructionPlotReconsOutputsConfig,
 	ReconstructionPlotUnitSummaryPhaseConfig,
 	ReconstructionPlotReconsPhaseConfig,
+	ReconstructionClearTemplatesCachePhaseConfig,
 	ReconstructionReconGridDisplayConfig,
 	ReconstructionReconGridOutputConfig,
 	ReconstructionReconGridRenderConfig,
@@ -50,6 +53,9 @@ from .models.inputs import (
 	ReconstructionUnitSummaryDisplayConfig,
 	ReconstructionUnitSummaryOutputConfig,
 )
+
+
+LOGGER = logging.getLogger("axon_recon.reconstruct.config")
 
 
 DEFAULT_RECONSTRUCTION_PHASE_SEQUENCE: tuple[str, ...] = (
@@ -667,6 +673,16 @@ def parse_reconstruction_stage_config(
 ) -> ReconstructionStageConfig:
 	stage_cfg = runtime_config.get("stages.reconstruct", {})
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
+	resources_config = parse_resources_config(runtime_config=runtime_config, logger=LOGGER)
+
+	def _phase_resource_class(raw_cfg: dict[str, Any] | None, phase_name: str) -> str | None:
+		phase_cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
+		return validate_phase_resource_class(
+			resource_class=phase_cfg.get("resource_class", None),
+			resources=resources_config,
+			phase_name=f"reconstruct.{phase_name}",
+		)
+
 	templates_runtime_config = build_reconstruct_templates_runtime_config(runtime_config)
 	try:
 		template_defaults_cfg = parse_reconstruct_templates_config(runtime_config=templates_runtime_config)
@@ -723,6 +739,11 @@ def parse_reconstruction_stage_config(
 	report_summaries_cfg = (
 		phases_cfg.get("report_summaries", {})
 		if isinstance(phases_cfg.get("report_summaries", {}), dict)
+		else {}
+	)
+	clear_templates_cache_cfg = (
+		phases_cfg.get("clear_templates_cache", {})
+		if isinstance(phases_cfg.get("clear_templates_cache", {}), dict)
 		else {}
 	)
 	report_full_chip_layout_cfg = (
@@ -859,12 +880,14 @@ def parse_reconstruction_stage_config(
 	generate_gtrs_unit_batch_size = _parse_optional_positive_int(
 		generate_gtrs_resources_cfg.get("unit_batch_size", generate_gtrs_cfg.get("unit_batch_size", None))
 	)
-	max_plotting_concurrency = _parse_optional_positive_int(
-		generate_gtrs_resources_cfg.get(
-			"max_plotting_concurrency",
-			stage_resources_cfg.get("max_plotting_concurrency", None),
+	ignored_max_plotting_concurrency = generate_gtrs_resources_cfg.get("max_plotting_concurrency", None)
+	if ignored_max_plotting_concurrency is None:
+		ignored_max_plotting_concurrency = stage_resources_cfg.get("max_plotting_concurrency", None)
+	if ignored_max_plotting_concurrency is not None:
+		LOGGER.warning(
+			"Ignoring deprecated reconstruct max_plotting_concurrency setting. Plotting concurrency now follows the phase worker budget."
 		)
-	)
+	max_plotting_concurrency = None
 	amplitude_map_cfg = _get_reconstruct_amplitude_map_block(runtime_config)
 	phase_amplitude_map_cfg = (
 		phase_plot_outputs_cfg.get("amplitude_map", {})
@@ -1267,11 +1290,31 @@ def parse_reconstruction_stage_config(
 	except Exception:
 		report_recon_grid_dpi = 300.0
 	phases = ReconstructionPhasesConfig(
+		clear_templates_cache=ReconstructionClearTemplatesCachePhaseConfig(
+			enabled=_phase_enabled(clear_templates_cache_cfg, False),
+			summary_json_relpath=str(
+				clear_templates_cache_cfg.get(
+					"summary_json_relpath",
+					"reports/clear_templates_cache_summary.json",
+				)
+				or "reports/clear_templates_cache_summary.json"
+			),
+			resource_class=_phase_resource_class(clear_templates_cache_cfg, "clear_templates_cache"),
+			keep_merged_per_unit_outputs=_as_bool(
+				clear_templates_cache_cfg.get("keep_merged_per_unit_outputs", True),
+				True,
+			),
+			keep_full_channels_templates=_as_bool(
+				clear_templates_cache_cfg.get("keep_full_channels_templates", False),
+				False,
+			),
+		),
 		generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(
 			enabled=_phase_enabled(generate_gtrs_cfg, True),
 			summary_json_relpath=str(
 				generate_gtrs_cfg.get("summary_json_relpath", "context/generate_gtrs_summary.json")
 			),
+			resource_class=_phase_resource_class(generate_gtrs_cfg, "generate_gtrs"),
 			unit_procs=generate_gtrs_unit_procs,
 			unit_batch_size=generate_gtrs_unit_batch_size,
 			outputs=generate_gtrs_outputs,
@@ -1283,6 +1326,7 @@ def parse_reconstruction_stage_config(
 		plot_recons=ReconstructionPlotReconsPhaseConfig(
 			enabled=_phase_enabled(plot_recons_cfg, True),
 			summary_json_relpath=str(plot_recons_cfg.get("summary_json_relpath", "context/plot_recons_summary.json")),
+			resource_class=_phase_resource_class(plot_recons_cfg, "plot_recons"),
 			outputs=plot_recons_outputs,
 		),
 		plot_branch_propagations=ReconstructionPlotBranchPropagationsPhaseConfig(
@@ -1292,6 +1336,10 @@ def parse_reconstruction_stage_config(
 					"summary_json_relpath",
 					"context/plot_branch_propagations_summary.json",
 				)
+			),
+			resource_class=_phase_resource_class(
+				plot_branch_propagations_cfg,
+				"plot_branch_propagations",
 			),
 			branch_scope=_normalize_branch_scope(
 				plot_branch_propagations_cfg.get("branch_scope", "raw"),
@@ -1312,6 +1360,10 @@ def parse_reconstruction_stage_config(
 					"context/plot_branch_velocities_summary.json",
 				)
 			),
+			resource_class=_phase_resource_class(
+				plot_branch_velocities_cfg,
+				"plot_branch_velocities",
+			),
 			branch_scope=_normalize_branch_scope(
 				plot_branch_velocities_cfg.get("branch_scope", "raw"),
 				default="raw",
@@ -1331,6 +1383,7 @@ def parse_reconstruction_stage_config(
 					"context/plot_unit_summary_summary.json",
 				)
 			),
+			resource_class=_phase_resource_class(plot_unit_summary_cfg, "plot_unit_summary"),
 			display=_build_unit_summary_display_config(plot_unit_summary_display_cfg),
 			output=_build_unit_summary_output_config(
 				plot_unit_summary_output_cfg,
@@ -1342,6 +1395,7 @@ def parse_reconstruction_stage_config(
 			summary_json_relpath=str(
 				report_recons_cfg.get("summary_json_relpath", "context/report_recons_summary.json")
 			),
+			resource_class=_phase_resource_class(report_recons_cfg, "report_recons"),
 			av_recons=ReconstructionAvReconsConfig(
 				write_pdf=_as_bool(report_av_recons_cfg.get("write_pdf", False), False),
 				pdf_relpath=str(report_av_recons_cfg.get("pdf_relpath", "av_recons.pdf")),
@@ -1361,6 +1415,7 @@ def parse_reconstruction_stage_config(
 			summary_json_relpath=str(
 				report_recon_grid_cfg.get("summary_json_relpath", "context/report_recon_grid_summary.json")
 			),
+			resource_class=_phase_resource_class(report_recon_grid_cfg, "report_recon_grid"),
 			output=ReconstructionReconGridOutputConfig(
 				write_pdf=_as_bool(report_recon_grid_output_source_cfg.get("write_pdf", False), False),
 				pdf_relpath=str(
@@ -1397,6 +1452,10 @@ def parse_reconstruction_stage_config(
 					"context/report_full_chip_layout_summary.json",
 				)
 			),
+			resource_class=_phase_resource_class(
+				report_full_chip_layout_cfg,
+				"report_full_chip_layout",
+			),
 			branch_scope=_normalize_branch_scope(
 				report_full_chip_layout_cfg.get("branch_scope", "raw"),
 				default="raw",
@@ -1417,6 +1476,7 @@ def parse_reconstruction_stage_config(
 					"context/report_summaries_summary.json",
 				)
 			),
+			resource_class=_phase_resource_class(report_summaries_cfg, "report_summaries"),
 			write_pdf=_as_bool(report_summaries_cfg.get("write_pdf", True), True),
 			pdf_relpath=str(
 				report_summaries_cfg.get("pdf_relpath", "reports/reconstruct_summary_deck.pdf")

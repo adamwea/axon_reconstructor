@@ -94,6 +94,7 @@ def pipeline_log_context(
 	chip_id: Any = None,
 	date: Any = None,
 	assay: Any = None,
+	resource_class: Any = None,
 ) -> Iterator[None]:
 	return log_context(
 		dataset_id=dataset_id,
@@ -106,6 +107,7 @@ def pipeline_log_context(
 		chip_id=chip_id,
 		date=date,
 		assay=assay,
+		resource_class=resource_class,
 	)
 
 

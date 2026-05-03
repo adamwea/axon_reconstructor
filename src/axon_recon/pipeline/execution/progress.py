@@ -153,6 +153,21 @@ class PipelineProgressStreamHandler(logging.StreamHandler):
 		except Exception:
 			self.handleError(record)
 
+	def emit_blank_line(self) -> None:
+		progress = current_pipeline_progress()
+		if _tqdm is None or progress is None or not progress.is_owner_process():
+			try:
+				self.stream.write("\n")
+				self.flush()
+			except Exception:
+				return
+			return
+		try:
+			_tqdm.write("", file=self.stream)
+			self.flush()
+		except Exception:
+			return
+
 
 def add_current_progress_total(amount: int) -> None:
 	progress = current_pipeline_progress()

@@ -26,6 +26,7 @@ CONTEXT_FIELDS: tuple[str, ...] = (
     "well_id",
     "stage",
     "phase",
+    "resource_class",
     "output_path",
 )
 
