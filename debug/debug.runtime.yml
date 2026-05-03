@@ -1201,7 +1201,8 @@ stages:
             #max_spikes_per_unit: 50
             #random_spikes_method: all # TODO: this also defaults to 25 % for some reason...
             #random_spikes_percentage: 75
-            random_spikes_percentage: 100
+            #random_spikes_percentage: 100
+            random_spikes_percentage: 10
             #random_spikes_percentage: 1
             #min_spikes_per_unit: 250
             #margin_size: 0

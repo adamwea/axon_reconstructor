@@ -49,6 +49,7 @@ from .stages.reconstruct.api import (
 	run_reconstruct_plot_unit_summary,
 	run_reconstruct_plot_recons,
 	run_reconstruct_report_full_chip_layout,
+	run_reconstruct_report_recon_grid,
 	run_reconstruct_report_recons,
 	run_reconstruct_report_summaries,
 	run_reconstruct_templates_analyzers,
@@ -2628,6 +2629,8 @@ def run_reconstruct_templates_resolve_sources_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2639,9 +2642,12 @@ def run_reconstruct_templates_resolve_sources_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
+
 
 def run_reconstruct_templates_analyzers_from_runtime(
 	*,
@@ -2650,6 +2656,8 @@ def run_reconstruct_templates_analyzers_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2661,6 +2669,8 @@ def run_reconstruct_templates_analyzers_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2673,6 +2683,8 @@ def run_reconstruct_templates_extract_template_segments_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2684,6 +2696,8 @@ def run_reconstruct_templates_extract_template_segments_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2696,6 +2710,8 @@ def run_reconstruct_templates_build_templates_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2707,6 +2723,8 @@ def run_reconstruct_templates_build_templates_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2719,6 +2737,8 @@ def run_reconstruct_templates_compute_template_similarity_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2730,6 +2750,8 @@ def run_reconstruct_templates_compute_template_similarity_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2742,6 +2764,8 @@ def run_reconstruct_templates_plot_templates_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2753,6 +2777,8 @@ def run_reconstruct_templates_plot_templates_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2765,6 +2791,8 @@ def run_reconstruct_templates_report_templates_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2776,6 +2804,8 @@ def run_reconstruct_templates_report_templates_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2788,6 +2818,8 @@ def run_reconstruct_templates_reports_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2799,6 +2831,8 @@ def run_reconstruct_templates_reports_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2811,6 +2845,8 @@ def run_reconstruct_generate_gtrs_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2822,6 +2858,8 @@ def run_reconstruct_generate_gtrs_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2834,6 +2872,8 @@ def run_reconstruct_plot_recons_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2845,6 +2885,8 @@ def run_reconstruct_plot_recons_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2857,6 +2899,8 @@ def run_reconstruct_plot_branch_propagations_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2868,6 +2912,8 @@ def run_reconstruct_plot_branch_propagations_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2880,6 +2926,8 @@ def run_reconstruct_plot_branch_velocities_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2891,6 +2939,8 @@ def run_reconstruct_plot_branch_velocities_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2903,6 +2953,8 @@ def run_reconstruct_plot_unit_summary_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2914,6 +2966,8 @@ def run_reconstruct_plot_unit_summary_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2926,6 +2980,8 @@ def run_reconstruct_report_recons_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2937,6 +2993,35 @@ def run_reconstruct_report_recons_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def run_reconstruct_report_recon_grid_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> MultiTargetStageResult:
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.report_recon_grid",
+		runner_fn=run_reconstruct_report_recon_grid,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2949,6 +3034,8 @@ def run_reconstruct_report_full_chip_layout_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2960,6 +3047,8 @@ def run_reconstruct_report_full_chip_layout_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2972,6 +3061,8 @@ def run_reconstruct_report_summaries_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2983,6 +3074,8 @@ def run_reconstruct_report_summaries_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2995,6 +3088,8 @@ def run_reconstruct_clear_templates_cache_from_runtime(
 	unit_ids_override: list[int] | None = None,
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -3006,6 +3101,8 @@ def run_reconstruct_clear_templates_cache_from_runtime(
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)

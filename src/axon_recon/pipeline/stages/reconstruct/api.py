@@ -13,6 +13,7 @@ from .runner import (
 	run_reconstruct_plot_unit_summary_phase,
 	run_reconstruct_plot_recons_phase,
 	run_reconstruct_report_full_chip_layout_phase,
+	run_reconstruct_report_recon_grid_phase,
 	run_reconstruct_report_recons_phase,
 	run_reconstruct_report_summaries_phase,
 	run_reconstruct_stage,
@@ -93,6 +94,10 @@ def run_reconstruct_plot_unit_summary(inputs: ReconstructionInputs) -> dict[str,
 
 def run_reconstruct_report_recons(inputs: ReconstructionInputs) -> dict[str, object]:
 	return _run_with_quiet_unexpected_plot_logs(inputs, run_reconstruct_report_recons_phase)
+
+
+def run_reconstruct_report_recon_grid(inputs: ReconstructionInputs) -> dict[str, object]:
+	return _run_with_quiet_unexpected_plot_logs(inputs, run_reconstruct_report_recon_grid_phase)
 
 
 def run_reconstruct_report_full_chip_layout(inputs: ReconstructionInputs) -> dict[str, object]:

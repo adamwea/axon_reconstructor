@@ -29,6 +29,7 @@ from .stages.reconstruct.cli import _run_plot_branch_velocities_from_args as _ru
 from .stages.reconstruct.cli import _run_plot_unit_summary_from_args as _run_reconstruct_plot_unit_summary_from_args
 from .stages.reconstruct.cli import _run_plot_recons_from_args as _run_reconstruct_plot_recons_from_args
 from .stages.reconstruct.cli import _run_report_full_chip_layout_from_args as _run_reconstruct_report_full_chip_layout_from_args
+from .stages.reconstruct.cli import _run_report_recon_grid_from_args as _run_reconstruct_report_recon_grid_from_args
 from .stages.reconstruct.cli import _run_report_recons_from_args as _run_reconstruct_report_recons_from_args
 from .stages.reconstruct.cli import _run_report_summaries_from_args as _run_reconstruct_report_summaries_from_args
 from .stages.reconstruct.cli import _run_reconstruct_analyzers_from_args
@@ -146,6 +147,7 @@ _STAGE_ALIASES: dict[str, str] = {
 	"recon.plot_branch_velocities": "reconstruct.plot_branch_velocities",
 	"recon.plot_unit_summary": "reconstruct.plot_unit_summary",
 	"recon.report_recons": "reconstruct.report_recons",
+	"recon.report_recon_grid": "reconstruct.report_recon_grid",
 	"recon.report_full_chip_layout": "reconstruct.report_full_chip_layout",
 	"recon.report_summaries": "reconstruct.report_summaries",
 	"recon.clear_templates_cache": "reconstruct.clear_templates_cache",
@@ -179,6 +181,7 @@ _STAGE_ALIASES: dict[str, str] = {
 	"reconstruction.plot_branch_velocities": "reconstruct.plot_branch_velocities",
 	"reconstruction.plot_unit_summary": "reconstruct.plot_unit_summary",
 	"reconstruction.report_recons": "reconstruct.report_recons",
+	"reconstruction.report_recon_grid": "reconstruct.report_recon_grid",
 	"reconstruction.report_full_chip_layout": "reconstruct.report_full_chip_layout",
 	"reconstruction.report_summaries": "reconstruct.report_summaries",
 	"reconstruction.clear_templates_cache": "reconstruct.clear_templates_cache",
@@ -222,6 +225,7 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"reconstruct.plot_branch_velocities": _run_reconstruct_plot_branch_velocities_from_args,
 	"reconstruct.plot_unit_summary": _run_reconstruct_plot_unit_summary_from_args,
 	"reconstruct.report_recons": _run_reconstruct_report_recons_from_args,
+	"reconstruct.report_recon_grid": _run_reconstruct_report_recon_grid_from_args,
 	"reconstruct.report_full_chip_layout": _run_reconstruct_report_full_chip_layout_from_args,
 	"reconstruct.report_summaries": _run_reconstruct_report_summaries_from_args,
 	"reconstruct.clear_templates_cache": _run_reconstruct_clear_templates_cache_from_args,

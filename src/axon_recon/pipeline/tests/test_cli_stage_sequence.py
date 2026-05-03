@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import pytest
@@ -125,6 +126,7 @@ def test_parse_stage_list_tokens_rejects_legacy_templates_aliases(raw_token: str
         ("reconstruct.plot_branch_velocities", "reconstruct.plot_branch_velocities"),
         ("reconstruct.plot_unit_summary", "reconstruct.plot_unit_summary"),
         ("reconstruct.report_recons", "reconstruct.report_recons"),
+        ("reconstruct.report_recon_grid", "reconstruct.report_recon_grid"),
         ("reconstruct.report_full_chip_layout", "reconstruct.report_full_chip_layout"),
         ("reconstruct.analyzers", "reconstruct.analyzers"),
         ("reconstruct.build_templates", "reconstruct.build_templates"),
@@ -142,6 +144,8 @@ def test_parse_stage_list_tokens_rejects_legacy_templates_aliases(raw_token: str
         ("reconstruction.plot_branch_velocities", "reconstruct.plot_branch_velocities"),
         ("reconstruction.plot_unit_summary", "reconstruct.plot_unit_summary"),
         ("reconstruction.report_recons", "reconstruct.report_recons"),
+        ("recon.report_recon_grid", "reconstruct.report_recon_grid"),
+        ("reconstruction.report_recon_grid", "reconstruct.report_recon_grid"),
     ],
 )
 def test_parse_stage_list_tokens_supports_reconstruct_phase_tokens(raw_token: str, expected: str) -> None:
@@ -218,6 +222,57 @@ def test_build_parser_supports_stage_command_alias() -> None:
     assert args.command == "stage"
     assert args.stages == ["preproc,", "sort"]
     assert args.force_restart is True
+
+
+def test_build_parser_supports_reconstruct_subparser_dataset_limit_flags() -> None:
+    from axon_recon.pipeline.stages.reconstruct import cli as reconstruct_cli
+
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    reconstruct_cli.register_reconstruct_subparser(subparsers)
+    args = parser.parse_args(
+        [
+            "reconstruct",
+            "--config",
+            "/tmp/runtime.yml",
+            "--limit-segments",
+            "2",
+            "--limit-datasets",
+            "1",
+            "--limit-wells-per-dataset",
+            "1",
+            "--limit-units",
+            "3",
+        ]
+    )
+
+    assert args.limit_segments == 2
+    assert args.limit_datasets == 1
+    assert args.limit_wells_per_dataset == 1
+    assert args.limit_units == 3
+
+
+def test_reconstruct_cli_runtime_kwargs_include_dataset_and_well_limits() -> None:
+    from axon_recon.pipeline.stages.reconstruct import cli as reconstruct_cli
+
+    args = argparse.Namespace(
+        config="/tmp/runtime.yml",
+        unit_id=None,
+        unit_ids=None,
+        limit_units=5,
+        limit_segments=2,
+        limit_datasets=1,
+        limit_wells_per_dataset=1,
+        force_restart=False,
+        force_replot=False,
+    )
+
+    kwargs = reconstruct_cli._reconstruct_runtime_kwargs(args)
+
+    assert kwargs["limit_segments_override"] == 2
+    assert kwargs["limit_datasets_override"] == 1
+    assert kwargs["limit_wells_per_dataset_override"] == 1
+    assert kwargs["unit_limit_override"] == 5
 
 
 def test_main_runs_selected_stages_in_order(monkeypatch, tmp_path: Path) -> None:
@@ -378,6 +433,7 @@ def test_main_runs_preprocess_phase_substages(
         ("reconstruct.plot_branch_velocities", "reconstruct.plot_branch_velocities"),
         ("reconstruct.plot_unit_summary", "reconstruct.plot_unit_summary"),
         ("reconstruct.report_recons", "reconstruct.report_recons"),
+        ("reconstruct.report_recon_grid", "reconstruct.report_recon_grid"),
         ("reconstruct.report_full_chip_layout", "reconstruct.report_full_chip_layout"),
     ],
 )

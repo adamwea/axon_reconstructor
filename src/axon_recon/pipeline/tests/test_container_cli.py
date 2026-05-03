@@ -5,6 +5,23 @@ from pathlib import Path
 from axon_recon.pipeline import container_cli
 
 
+def test_container_wrapper_defaults_to_current_user_on_posix(monkeypatch) -> None:
+    monkeypatch.delenv("AXON_RECON_CONTAINER_USER", raising=False)
+    monkeypatch.setattr(container_cli, "_host_uid_gid_user_spec", lambda: "1010:2020")
+
+    options = container_cli._parse_options(["stages", "reconstruct"])
+
+    assert options.container_user == "1010:2020"
+
+
+def test_container_wrapper_explicit_user_overrides_default_current_user(monkeypatch) -> None:
+    monkeypatch.setattr(container_cli, "_host_uid_gid_user_spec", lambda: "1010:2020")
+
+    options = container_cli._parse_options(["--user", "3030:4040", "stages", "reconstruct"])
+
+    assert options.container_user == "3030:4040"
+
+
 def test_container_wrapper_forwards_pipeline_args_without_stage_whitelist(tmp_path: Path) -> None:
     forwarded = [
         "stages",

@@ -64,8 +64,8 @@ Wrapper options:
   --repo-root PATH       Repo root to mount (default: git top-level or installed source root)
   --repo-writable        Mount the repo read-write instead of read-only
   --cache-dir PATH       Host cache directory (default: ~/.cache/axon-recon-container)
-  --user SPEC            Run the container as a Docker user spec (for example UID:GID)
-  --current-user         Run the container as the current host UID:GID
+	--user SPEC            Run the container as a Docker user spec (default: current host UID:GID on POSIX)
+	--current-user         Explicitly run the container as the current host UID:GID
   --no-config-mounts     Do not inspect --config to add data/output/scratch mounts
   --mount SPEC           Extra docker -v mount, repeatable (host:container[:mode])
   --env SPEC             Extra docker -e env var, repeatable (NAME=VALUE)
@@ -106,6 +106,17 @@ def _logical_cwd() -> Path:
 	return Path.cwd()
 
 
+def _host_uid_gid_user_spec() -> str | None:
+	getuid = getattr(os, "getuid", None)
+	getgid = getattr(os, "getgid", None)
+	if not callable(getuid) or not callable(getgid):
+		return None
+	try:
+		return f"{int(getuid())}:{int(getgid())}"
+	except OSError:
+		return None
+
+
 def _detect_repo_root() -> Path:
 	cwd = _logical_cwd()
 	git_prefix = _run_capture(["git", "rev-parse", "--show-prefix"], cwd=cwd)
@@ -136,7 +147,7 @@ def _parse_options(argv: list[str]) -> WrapperOptions:
 		gpu_request=(os.environ.get("AXON_RECON_CONTAINER_GPUS") or None),
 		shm_size=(os.environ.get("AXON_RECON_CONTAINER_SHM_SIZE") or "8g"),
 		cache_dir=Path(os.environ.get("AXON_RECON_CONTAINER_CACHE", Path.home() / ".cache" / "axon-recon-container")),
-		container_user=os.environ.get("AXON_RECON_CONTAINER_USER") or None,
+		container_user=(os.environ.get("AXON_RECON_CONTAINER_USER") or _host_uid_gid_user_spec()),
 		config_mounts=_env_bool("AXON_RECON_CONTAINER_CONFIG_MOUNTS", True),
 		auto_build=_env_bool("AXON_RECON_CONTAINER_AUTO_BUILD", True),
 	)
@@ -227,7 +238,10 @@ def _parse_options(argv: list[str]) -> WrapperOptions:
 			idx += 1
 			continue
 		if arg == "--current-user":
-			options.container_user = f"{os.getuid()}:{os.getgid()}"
+			container_user = _host_uid_gid_user_spec()
+			if container_user is None:
+				raise SystemExit("axon-recon-container: --current-user is not supported on this platform")
+			options.container_user = container_user
 			idx += 1
 			continue
 		if arg == "--no-config-mounts":

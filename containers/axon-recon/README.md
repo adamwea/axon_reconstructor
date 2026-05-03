@@ -86,13 +86,13 @@ The wrapper mounts the repo at the same absolute path and sets writable cache lo
 
 For CUDA-backed spikesort runs under Docker, request GPU passthrough explicitly with `--gpus all` or set `AXON_RECON_CONTAINER_GPUS=all`. Without Docker GPU passthrough, PyTorch inside the container cannot see a CUDA device and Kilosort will log `GPU usage: N/A` and `GPU memory: N/A`. This image also installs the NVML Python binding (`nvidia-ml-py`, imported by Kilosort as `pynvml`) so that, once CUDA is visible, Kilosort can report GPU utilization percentage in addition to GPU memory.
 
-For Shifter-style/root-squash smoke tests and to avoid root-owned host outputs, run Docker as your current UID/GID:
+On POSIX hosts, the wrapper now defaults to your current UID:GID so files written through mounted output directories stay owned by the invoking user. Use `--current-user` to make that explicit, `--user UID:GID` to override it, or `--user 0:0` if you intentionally want root inside the container:
 
 ```bash
 tools/axon-recon-container --current-user stages --help
 ```
 
-The equivalent generic option is `--user UID:GID`, or `AXON_RECON_CONTAINER_USER=UID:GID`.
+The equivalent generic override is `--user UID:GID`, or `AXON_RECON_CONTAINER_USER=UID:GID`.
 
 Inside this image, `spikesort.phases.sort.engine: mea_analysis` is blocked by default because the legacy MEA_Analysis path can launch a nested Docker container. Use `engine: local_spikeinterface` for container and HPC runs. For intentional local debugging of nested container behavior, set `AXON_RECON_ALLOW_CONTAINER_MEA_ANALYSIS=1`.
 

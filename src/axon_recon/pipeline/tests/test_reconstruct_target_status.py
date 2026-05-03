@@ -22,7 +22,9 @@ from axon_recon.pipeline.runner import (
     run_reconstruct_plot_unit_summary_from_runtime,
     run_reconstruct_plot_recons_from_runtime,
     run_reconstruct_report_full_chip_layout_from_runtime,
+    run_reconstruct_report_recon_grid_from_runtime,
     run_reconstruct_report_recons_from_runtime,
+    run_reconstruct_report_summaries_from_runtime,
 )
 from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionInputs
 from axon_recon.pipeline.stages.reconstruct.models.results import ReconstructionResult, UnitReconstructionResult
@@ -203,6 +205,24 @@ def test_run_reconstruct_from_runtime_marks_target_error_when_no_units_succeed(m
         ),
         (run_reconstruct_report_recons_from_runtime, "run_reconstruct_report_recons", "reconstruct.report_recons", "report_recons"),
         (
+            run_reconstruct_report_recon_grid_from_runtime,
+            "run_reconstruct_report_recon_grid",
+            "reconstruct.report_recon_grid",
+            "report_recon_grid",
+        ),
+        (
+            run_reconstruct_report_summaries_from_runtime,
+            "run_reconstruct_report_summaries",
+            "reconstruct.report_summaries",
+            "report_summaries",
+        ),
+        (
+            run_reconstruct_clear_templates_cache_from_runtime,
+            "run_reconstruct_clear_templates_cache",
+            "reconstruct.clear_templates_cache",
+            "clear_templates_cache",
+        ),
+        (
             run_reconstruct_templates_resolve_sources_from_runtime,
             "run_reconstruct_templates_resolve_sources",
             "reconstruct.resolve_sources",
@@ -330,6 +350,60 @@ def test_run_reconstruct_phase_from_runtime_marks_target_ok(
         "units_error": 0,
         "units": [{"unit_id": 94, "status": "ok", "outputs": {}, "error": None}],
     }
+
+
+@pytest.mark.parametrize(
+    ("wrapper", "expected_stage"),
+    [
+        (run_reconstruct_templates_resolve_sources_from_runtime, "reconstruct.resolve_sources"),
+        (run_reconstruct_templates_analyzers_from_runtime, "reconstruct.analyzers"),
+        (run_reconstruct_templates_extract_template_segments_from_runtime, "reconstruct.extract_template_segments"),
+        (run_reconstruct_templates_build_templates_from_runtime, "reconstruct.build_templates"),
+        (run_reconstruct_templates_compute_template_similarity_from_runtime, "reconstruct.compute_template_similarity"),
+        (run_reconstruct_templates_plot_templates_from_runtime, "reconstruct.plot_templates"),
+        (run_reconstruct_templates_report_templates_from_runtime, "reconstruct.report_templates"),
+        (run_reconstruct_templates_reports_from_runtime, "reconstruct.reports"),
+        (run_reconstruct_generate_gtrs_from_runtime, "reconstruct.generate_gtrs"),
+        (run_reconstruct_plot_recons_from_runtime, "reconstruct.plot_recons"),
+        (run_reconstruct_plot_branch_propagations_from_runtime, "reconstruct.plot_branch_propagations"),
+        (run_reconstruct_plot_branch_velocities_from_runtime, "reconstruct.plot_branch_velocities"),
+        (run_reconstruct_plot_unit_summary_from_runtime, "reconstruct.plot_unit_summary"),
+        (run_reconstruct_report_recons_from_runtime, "reconstruct.report_recons"),
+        (run_reconstruct_report_recon_grid_from_runtime, "reconstruct.report_recon_grid"),
+        (run_reconstruct_report_full_chip_layout_from_runtime, "reconstruct.report_full_chip_layout"),
+        (run_reconstruct_report_summaries_from_runtime, "reconstruct.report_summaries"),
+        (run_reconstruct_clear_templates_cache_from_runtime, "reconstruct.clear_templates_cache"),
+    ],
+)
+def test_reconstruct_phase_wrappers_forward_dataset_and_well_limits(
+    monkeypatch,
+    tmp_path: Path,
+    wrapper,
+    expected_stage: str,
+) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    seen: dict[str, object] = {}
+    sentinel = object()
+
+    def _fake_substage(**kwargs):
+        seen.update(kwargs)
+        return sentinel
+
+    monkeypatch.setattr(pipeline_runner, "_run_reconstruct_substage_from_runtime", _fake_substage)
+
+    result = wrapper(
+        config_path=str(tmp_path / "runtime.yml"),
+        limit_segments_override=2,
+        limit_datasets_override=3,
+        limit_wells_per_dataset_override=1,
+    )
+
+    assert result is sentinel
+    assert seen["stage_name"] == expected_stage
+    assert seen["limit_segments_override"] == 2
+    assert seen["limit_datasets_override"] == 3
+    assert seen["limit_wells_per_dataset_override"] == 1
 
 
 def test_run_reconstruct_plot_recons_from_runtime_marks_target_error_when_no_units_succeed(monkeypatch, tmp_path: Path) -> None:
