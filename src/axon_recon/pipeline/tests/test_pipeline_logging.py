@@ -10,6 +10,7 @@ from axon_recon.pipeline.logging import (
     install_noisy_external_log_filters,
     log_context,
 )
+from axon_recon.pipeline.logging.multiprocessing import append_text_line
 
 
 def _write_runtime(tmp_path: Path, *, phase_logs_enabled: bool = True) -> Path:
@@ -166,6 +167,31 @@ def test_pipeline_logging_setup_is_idempotent(tmp_path):
     logging.getLogger("axon_recon.tests.pipeline_logging.idempotent").info("single line")
     finalize_pipeline_logging(status="ok")
     assert (config.logs_dir / "pipeline.log").read_text(encoding="utf-8").count("single line") == 1
+
+
+def test_append_text_line_recovers_from_stale_unwritable_log(tmp_path, monkeypatch):
+    log_path = tmp_path / "logs" / "phase.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("old line\n", encoding="utf-8")
+
+    original_open = Path.open
+    state = {"raised": False}
+
+    def _patched_open(self: Path, *args, **kwargs):
+        mode = kwargs.get("mode")
+        if mode is None and args:
+            mode = args[0]
+        if self == log_path and mode == "a" and not state["raised"]:
+            state["raised"] = True
+            raise PermissionError("stale unwritable log")
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", _patched_open)
+
+    append_text_line(log_path, "new line")
+
+    assert log_path.with_name("phase.log.stale").read_text(encoding="utf-8") == "old line\n"
+    assert log_path.read_text(encoding="utf-8") == "new line\n"
 
 
 def test_pipeline_logging_suppresses_noisy_codec_registration_logger():
