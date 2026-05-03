@@ -39,7 +39,7 @@ def test_maxwell_plugin_message_filter_suppresses_only_known_status_line(monkeyp
 def test_pipeline_cli_installs_maxwell_plugin_message_filter(monkeypatch, tmp_path) -> None:
 	_install_fake_neo(monkeypatch)
 	runtime_cfg = tmp_path / "runtime.yml"
-	runtime_cfg.write_text("global_logger: {}\n", encoding="utf-8")
+	runtime_cfg.write_text("{}\n", encoding="utf-8")
 	calls: list[str] = []
 
 	def _handler(_args):

@@ -182,13 +182,7 @@ def parse_pipeline_logging_config(
     logging_raw = runtime_config.get("logging", None)
     logging_block_defined = isinstance(logging_raw, dict)
     logging_block = _as_mapping(logging_raw)
-    legacy_block = _as_mapping(runtime_config.get("global_logger", {}))
-    legacy_debug = _as_mapping(legacy_block.get("debug_mode", {}))
-
-    default_level = _level(legacy_block.get("level", None), logging.INFO)
-    if _as_bool(legacy_debug.get("enable", False), False):
-        default_level = _level(legacy_debug.get("level", None), logging.DEBUG)
-    top_level = _level(logging_block.get("level", None), default_level)
+    top_level = _level(logging_block.get("level", None), logging.INFO)
     enabled = _as_bool(logging_block.get("enabled", True), True)
     run_root = _resolve_run_root(runtime_config=runtime_config, config_path=config_path)
 

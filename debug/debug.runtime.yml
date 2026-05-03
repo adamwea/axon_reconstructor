@@ -17,14 +17,6 @@ resources:
   chunk_duration: 1s
   max_simultaneous_well_reads_per_dataset: 1
 
-global_logger:
-  level: INFO
-  format: "[%(asctime)s] %(levelname)s - %(message)s"
-  debug_mode:
-    enable: false
-    level: DEBUG
-    format: "[%(asctime)s] %(levelname)s - %(message)s (%(pathname)s:%(funcName)s:%(lineno)d)"
-
 logging:
   enabled: true
   level: INFO

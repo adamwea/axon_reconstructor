@@ -11,7 +11,7 @@ ACTIVE_STAGE_ORDER = ["preprocess", "spikesort", "reconstruct"]
 
 
 def _write_runtime_cfg(path: Path) -> None:
-    path.write_text("global_logger: {}\n", encoding="utf-8")
+    path.write_text("{}\n", encoding="utf-8")
 
 
 def test_parse_stage_list_tokens_supports_aliases_and_comma_spacing() -> None:
