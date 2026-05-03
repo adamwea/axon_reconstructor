@@ -620,14 +620,6 @@ def _get_reconstruct_amplitude_map_block(runtime_config: RuntimeConfig) -> dict[
 		stage_paths=(
 			"stages.reconstruct.outputs.amplitude_map",
 		),
-		global_paths=(
-			"default",
-			"reconstruct",
-			"reconstruct.amplitude_map",
-			"footprint",
-			"footprint_plots.default",
-			"footprint_plots.amplitude_map",
-		),
 	)
 	per_unit_block = runtime_config.get("stages.reconstruct.outputs.per_unit_outputs.amplitude_map", {})
 	if isinstance(per_unit_block, dict) and per_unit_block:

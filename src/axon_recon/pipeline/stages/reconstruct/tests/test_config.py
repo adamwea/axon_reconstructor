@@ -29,14 +29,6 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 		dedent(
 			f"""
 			data: {data_path}
-			global_heatmap_defaults:
-			  default:
-			    color_bar:
-			      show_ticks: [1, 5, dynamic_high]
-			      low_color: navy
-			      mid_color: ivory
-			      high_color: crimson
-			      scale: log
 			stages:
 			  reconstruct:
 			    output_rel_root: recon_outputs
@@ -81,6 +73,10 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			            invert_y_axis: false
 			            panel_background_color: black
 			            color_bar:
+			              low_color: navy
+			              mid_color: ivory
+			              high_color: crimson
+			              scale: log
 			              location: bottomleft
 			              show_ticks: [2, 4, dynamic_high]
 			              linear_cap_rounding_step: 5

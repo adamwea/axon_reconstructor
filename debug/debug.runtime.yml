@@ -59,39 +59,6 @@ logging:
     enabled: true
     use_queue_listener: false
 
-global_heatmap_defaults:
-  # Shared defaults for heatmap-like plots across templates and reconstruct/recon.
-  # Stage/output blocks can override any of these values and add plot-specific keys as needed.
-  default:
-    background: black
-    color_map: viridis
-    color_bar:
-      show: true
-      location: topright
-      fontsize: 6
-      fontcolor: white
-      low_color: blue
-      mid_color: white
-      high_color: red
-      length_fraction: 0.3
-      pad_fraction: 0.02
-      force_low_value: 0
-      force_high_value: null
-      scale: linear
-      percentile_low: 5.0
-      percentile_high_linear: 99.0
-      percentile_high_log: 99.5
-      knot_anchor_values: [1.0, 10.0]
-      knot_y1_min: 0.02
-      knot_y1_max: 0.90
-      knot_y2_min: 0.07
-      knot_y2_max: 0.98
-      knot_min_gap: 0.05
-      linear_cap_rounding_mode: ceil_step
-      linear_cap_rounding_step: 10.0
-      linear_cap_min_vmax: 11.0
-      show_ticks: [1, 10, dynamic_high]
-
 stages:
 
   preprocess:
@@ -1574,7 +1541,7 @@ stages:
                   dpi: 420
                   template: square
                   global_color_scale: true # whether to use a global color scale across all units in the grid, or individual color scales per unit. Global color scale allows for better comparison of amplitude values across units, while individual color scales can enhance visibility of spatial patterns within each unit.
-                  subplot_background_color: black # background color for each subplot in the grid; separate from the color map background which is the default background color for the plot area behind the circles, which can be set in global_heatmap_defaults if desired.
+                  subplot_background_color: black # background color for each subplot in the grid; separate from the underlying map plot background configured on the corresponding plot output block.
 
               amplitude_map_grid:
                 output:
@@ -1593,7 +1560,7 @@ stages:
                   dpi: 420
                   template: square
                   global_color_scale: true # whether to use a global color scale across all units in the grid, or individual color scales per unit. Global color scale allows for better comparison of amplitude values across units, while individual color scales can enhance visibility of spatial patterns within each unit.
-                  subplot_background_color: black # background color for each subplot in the grid; separate from the color map background which is the default background color for the plot area behind the circles, which can be set in global_heatmap_defaults if desired.
+                  subplot_background_color: black # background color for each subplot in the grid; separate from the underlying map plot background configured on the corresponding plot output block.
 
               latency_map_grid:
                 output:
@@ -1612,7 +1579,7 @@ stages:
                   dpi: 420
                   template: square
                   global_color_scale: true # whether to use a global color scale across all units in the grid, or individual color scales per unit. Global color scale allows for better comparison of amplitude values across units, while individual color scales can enhance visibility of spatial patterns within each unit.
-                  subplot_background_color: black # background color for each subplot in the grid; separate from the color map background which is the default background color for the plot area behind the circles, which can be set in global_heatmap_defaults if desired.
+                  subplot_background_color: black # background color for each subplot in the grid; separate from the underlying map plot background configured on the corresponding plot output block.
       generate_gtrs:
         enable: true
         #reconstruct_with_axon_velocity: true
@@ -1742,7 +1709,7 @@ stages:
             invert_y_axis: true
             panel_background_color: black
             color_bar:
-              {}
+              low_color: blue
           circle_recon:
             display:
               # TODO: Since we typically focus in on branches here instead of the channels
