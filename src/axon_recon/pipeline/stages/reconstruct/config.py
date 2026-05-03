@@ -655,6 +655,7 @@ class ReconstructionStageConfig:
 	require_full_channels_templates: bool
 	force_restart: bool
 	force_replot: bool
+	max_plotting_concurrency: int | None
 	axon_velocity_params: dict[str, Any]
 
 
@@ -692,6 +693,7 @@ def parse_reconstruction_stage_config(
 	debug_prints = _as_bool(stage_cfg.get("debug_prints", stage_cfg.get("debug_plotting_prints", False)), False)
 	inputs_cfg = stage_cfg.get("inputs", {}) if isinstance(stage_cfg.get("inputs", {}), dict) else {}
 	outputs_cfg = stage_cfg.get("outputs", {}) if isinstance(stage_cfg.get("outputs", {}), dict) else {}
+	stage_resources_cfg = stage_cfg.get("resources", {}) if isinstance(stage_cfg.get("resources", {}), dict) else {}
 	branch_colors_cfg = stage_cfg.get("branch_colors", {}) if isinstance(stage_cfg.get("branch_colors", {}), dict) else {}
 	phases_cfg = stage_cfg.get("phases", {}) if isinstance(stage_cfg.get("phases", {}), dict) else {}
 	phase_sequence = _normalize_phase_sequence(stage_cfg.get("phase_sequence", None), DEFAULT_RECONSTRUCTION_PHASE_SEQUENCE)
@@ -819,6 +821,12 @@ def parse_reconstruction_stage_config(
 	)
 	generate_gtrs_unit_batch_size = _parse_optional_positive_int(
 		generate_gtrs_resources_cfg.get("unit_batch_size", generate_gtrs_cfg.get("unit_batch_size", None))
+	)
+	max_plotting_concurrency = _parse_optional_positive_int(
+		generate_gtrs_resources_cfg.get(
+			"max_plotting_concurrency",
+			stage_resources_cfg.get("max_plotting_concurrency", None),
+		)
 	)
 	amplitude_map_cfg = _get_reconstruct_amplitude_map_block(runtime_config)
 	phase_amplitude_map_cfg = (
@@ -1333,6 +1341,7 @@ def parse_reconstruction_stage_config(
 		require_full_channels_templates=True,
 		force_restart=force_restart,
 		force_replot=force_replot,
+		max_plotting_concurrency=max_plotting_concurrency,
 		axon_velocity_params=dict(av_cfg),
 	)
 
@@ -1371,6 +1380,7 @@ def build_reconstruction_inputs_for_target(
 		force_restart=stage_config.force_restart,
 		force_replot=stage_config.force_replot,
 		n_jobs=max(1, int(unit_workers)),
+		max_plotting_concurrency=stage_config.max_plotting_concurrency,
 		axon_velocity_params=dict(stage_config.axon_velocity_params),
 		probe_geometry=probe_geometry,
 	)
@@ -1451,6 +1461,7 @@ def load_reconstruction_inputs_from_runtime(
 		force_restart=stage_cfg.force_restart,
 		force_replot=stage_cfg.force_replot,
 		n_jobs=1,
+		max_plotting_concurrency=stage_cfg.max_plotting_concurrency,
 		axon_velocity_params=stage_cfg.axon_velocity_params,
 		probe_geometry=probe_geometry,
 	)

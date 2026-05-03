@@ -445,6 +445,7 @@ class ReconstructionInputs:
 	force_restart: bool = False
 	force_replot: bool = False
 	n_jobs: int = 1
+	max_plotting_concurrency: int | None = None
 
 	axon_velocity_params: dict[str, Any] = field(default_factory=dict)
 	axon_velocity_repo_root: Path | None = None

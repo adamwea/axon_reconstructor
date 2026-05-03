@@ -4,6 +4,7 @@ import concurrent.futures
 import logging
 from pathlib import Path
 import pickle
+import threading
 from typing import Any, Callable
 
 from axon_recon.pipeline.execution.progress import add_current_progress_total, advance_current_progress
@@ -94,6 +95,18 @@ def _generate_outputs_ready(*, inputs: ReconstructionInputs, paths: dict[str, Pa
 	return all(checks) if checks else True
 
 
+def _resolve_plotting_worker_count(*, inputs: ReconstructionInputs) -> int:
+	worker_count = int(max(1, int(inputs.n_jobs)))
+	configured = getattr(inputs, "max_plotting_concurrency", None)
+	if configured is None:
+		return max(1, min(worker_count, 2))
+	try:
+		configured_count = int(configured)
+	except Exception:
+		return max(1, min(worker_count, 2))
+	return max(1, min(worker_count, configured_count))
+
+
 def run_generate_gtrs_phase(
 	*,
 	inputs: ReconstructionInputs,
@@ -127,14 +140,18 @@ def run_generate_gtrs_phase(
 	active_logger = logger or logging.getLogger("axon_recon.reconstruct.generate_gtrs")
 	phase_cfg = inputs.phases.generate_gtrs
 	phase_outputs = _resolve_generate_gtrs_outputs(inputs)
+	worker_count = int(max(1, int(inputs.n_jobs)))
+	plotting_worker_count = _resolve_plotting_worker_count(inputs=inputs)
+	plotting_limiter = threading.BoundedSemaphore(plotting_worker_count)
 	if not bool(phase_cfg.axon_velocity.enabled):
 		raise RuntimeError("reconstruct.generate_gtrs currently requires phases.generate_gtrs.axon_velocity.enabled=true")
 	active_logger.info(
-		"reconstruct.generate_gtrs start: reconstruction_out_dir=%s units=%d force_restart=%s n_jobs=%d template_source=%s gtr_relpath=%s",
+		"reconstruct.generate_gtrs start: reconstruction_out_dir=%s units=%d force_restart=%s n_jobs=%d plotting_workers=%d template_source=%s gtr_relpath=%s",
 		str(reconstruction_out_dir),
 		len(unit_ids),
 		bool(inputs.force_restart),
-		int(max(1, int(inputs.n_jobs))),
+		worker_count,
+		plotting_worker_count,
 		str(phase_outputs.template_source),
 		str(phase_outputs.gtr_pkl_relpath),
 	)
@@ -303,34 +320,42 @@ def run_generate_gtrs_phase(
 				write_json_fn(paths["gtr_json"], payload)
 				unit_summary["outputs"]["gtr_json"] = str(paths["gtr_json"])
 
-			if bool(phase_outputs.channel_selection_figure.write_png) or bool(phase_outputs.channel_selection_figure.write_svg):
-				write_unit_channel_selection_diagnostic_figure_fn(
-					av=av,
-					output_png=(paths["channel_selection_figure_png"] if bool(phase_outputs.channel_selection_figure.write_png) else None),
-					output_svg=(paths["channel_selection_figure_svg"] if bool(phase_outputs.channel_selection_figure.write_svg) else None),
-					template_ch_by_t=gtr_template_ch_by_t,
-					locs_xy=gtr_locs_xy,
-					gtr=gtr,
-					dpi=float(phase_outputs.channel_selection_figure.dpi),
-					invert_y_axis=bool(phase_outputs.channel_selection_figure.invert_y_axis),
-				)
-				if bool(phase_outputs.channel_selection_figure.write_png):
-					unit_summary["outputs"]["channel_selection_figure_png"] = str(paths["channel_selection_figure_png"])
-				if bool(phase_outputs.channel_selection_figure.write_svg):
-					unit_summary["outputs"]["channel_selection_figure_svg"] = str(paths["channel_selection_figure_svg"])
+			channel_selection_requested = bool(phase_outputs.channel_selection_figure.write_png) or bool(
+				phase_outputs.channel_selection_figure.write_svg
+			)
+			axon_reconstruction_requested = bool(phase_outputs.axon_reconstruction_figure.write_png) or bool(
+				phase_outputs.axon_reconstruction_figure.write_svg
+			)
+			if channel_selection_requested or axon_reconstruction_requested:
+				with plotting_limiter:
+					if channel_selection_requested:
+						write_unit_channel_selection_diagnostic_figure_fn(
+							av=av,
+							output_png=(paths["channel_selection_figure_png"] if bool(phase_outputs.channel_selection_figure.write_png) else None),
+							output_svg=(paths["channel_selection_figure_svg"] if bool(phase_outputs.channel_selection_figure.write_svg) else None),
+							template_ch_by_t=gtr_template_ch_by_t,
+							locs_xy=gtr_locs_xy,
+							gtr=gtr,
+							dpi=float(phase_outputs.channel_selection_figure.dpi),
+							invert_y_axis=bool(phase_outputs.channel_selection_figure.invert_y_axis),
+						)
+						if bool(phase_outputs.channel_selection_figure.write_png):
+							unit_summary["outputs"]["channel_selection_figure_png"] = str(paths["channel_selection_figure_png"])
+						if bool(phase_outputs.channel_selection_figure.write_svg):
+							unit_summary["outputs"]["channel_selection_figure_svg"] = str(paths["channel_selection_figure_svg"])
 
-			if bool(phase_outputs.axon_reconstruction_figure.write_png) or bool(phase_outputs.axon_reconstruction_figure.write_svg):
-				write_unit_axon_reconstruction_diagnostic_figure_fn(
-					output_png=(paths["axon_reconstruction_figure_png"] if bool(phase_outputs.axon_reconstruction_figure.write_png) else None),
-					output_svg=(paths["axon_reconstruction_figure_svg"] if bool(phase_outputs.axon_reconstruction_figure.write_svg) else None),
-					gtr=gtr,
-					dpi=float(phase_outputs.axon_reconstruction_figure.dpi),
-					invert_y_axis=bool(phase_outputs.axon_reconstruction_figure.invert_y_axis),
-				)
-				if bool(phase_outputs.axon_reconstruction_figure.write_png):
-					unit_summary["outputs"]["axon_reconstruction_figure_png"] = str(paths["axon_reconstruction_figure_png"])
-				if bool(phase_outputs.axon_reconstruction_figure.write_svg):
-					unit_summary["outputs"]["axon_reconstruction_figure_svg"] = str(paths["axon_reconstruction_figure_svg"])
+					if axon_reconstruction_requested:
+						write_unit_axon_reconstruction_diagnostic_figure_fn(
+							output_png=(paths["axon_reconstruction_figure_png"] if bool(phase_outputs.axon_reconstruction_figure.write_png) else None),
+							output_svg=(paths["axon_reconstruction_figure_svg"] if bool(phase_outputs.axon_reconstruction_figure.write_svg) else None),
+							gtr=gtr,
+							dpi=float(phase_outputs.axon_reconstruction_figure.dpi),
+							invert_y_axis=bool(phase_outputs.axon_reconstruction_figure.invert_y_axis),
+						)
+						if bool(phase_outputs.axon_reconstruction_figure.write_png):
+							unit_summary["outputs"]["axon_reconstruction_figure_png"] = str(paths["axon_reconstruction_figure_png"])
+						if bool(phase_outputs.axon_reconstruction_figure.write_svg):
+							unit_summary["outputs"]["axon_reconstruction_figure_svg"] = str(paths["axon_reconstruction_figure_svg"])
 
 			active_logger.info(
 				"reconstruct.generate_gtrs unit %s complete: status=%s outputs=%s",
@@ -355,7 +380,6 @@ def run_generate_gtrs_phase(
 		)
 		return _unit_result_from_summary(unit_id=unit_id, payload=unit_summary)
 
-	worker_count = int(max(1, int(inputs.n_jobs)))
 	unit_results: list[UnitReconstructionResult] = []
 	if worker_count <= 1 or len(unit_ids) <= 1:
 		for unit_id in unit_ids:
