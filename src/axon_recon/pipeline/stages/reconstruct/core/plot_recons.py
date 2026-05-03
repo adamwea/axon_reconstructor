@@ -38,12 +38,14 @@ def run_plot_recons_phase(
 ) -> list[UnitReconstructionResult]:
 	active_logger = logger or logging.getLogger("axon_recon.reconstruct.plot_recons")
 	force_replot = bool(inputs.force_restart) or bool(inputs.force_replot)
+	phase_outputs = inputs.phases.plot_recons.outputs
 
 	def _process_unit(unit_id: Any) -> UnitReconstructionResult:
 		paths = resolve_unit_output_paths_fn(
 			reconstruction_out_dir=reconstruction_out_dir,
 			unit_id=unit_id,
 			per_unit_outputs=inputs.per_unit_outputs,
+			unit_reldir=inputs.unit_reldir,
 		)
 		unit_summary_json = paths["unit_summary_json"]
 		if not unit_summary_json.exists():
@@ -86,19 +88,19 @@ def run_plot_recons_phase(
 			with open(gtr_path, "rb") as handle:
 				gtr = pickle.load(handle)
 
-			if bool(inputs.per_unit_outputs.write_amplitude_map_png):
+			if bool(phase_outputs.amplitude_map.write_png):
 				amplitude_map_path = paths["amplitude_map_png"]
 				if force_replot or (not amplitude_map_path.exists()):
 					write_unit_amplitude_map_png_fn(
 						output_png=amplitude_map_path,
 						template_ch_by_t=plot_template_ch_by_t,
 						locs_xy=plot_locs_xy,
-						heatmap_config=inputs.per_unit_outputs.amplitude_map_heatmap,
+						heatmap_config=phase_outputs.amplitude_map.heatmap,
 					)
 				if amplitude_map_path.exists():
 					unit_summary["outputs"]["amplitude_map_png"] = str(amplitude_map_path)
 
-			circle_output_cfg = inputs.per_unit_outputs.circle_recon.output
+			circle_output_cfg = phase_outputs.circle_recon.output
 			write_circle_recon = bool(circle_output_cfg.write_png) or bool(circle_output_cfg.write_svg)
 			if write_circle_recon:
 				circle_png_path = paths["circle_recon_png"]
@@ -116,7 +118,7 @@ def run_plot_recons_phase(
 						template_ch_by_t=gtr_template_ch_by_t,
 						locs_xy=gtr_locs_xy,
 						gtr=gtr,
-						circle_config=inputs.per_unit_outputs.circle_recon,
+						circle_config=phase_outputs.circle_recon,
 						unit_id=unit_id,
 					)
 				if bool(circle_output_cfg.write_png) and circle_png_path.exists():

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
-from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import FootprintMapGridReportConfig, TemplatesInputs
+from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import TemplatesInputs
 
 
 @dataclass(frozen=True)
@@ -46,6 +46,13 @@ class CircleReconConfig:
 
 
 @dataclass(frozen=True)
+class ReconstructionAmplitudeMapOutputConfig:
+	write_png: bool = False
+	png_relpath: str = "amplitude_map.png"
+	heatmap: SharedHeatmapConfig = field(default_factory=SharedHeatmapConfig)
+
+
+@dataclass(frozen=True)
 class ReconstructionDiagnosticFigureConfig:
 	write_png: bool = False
 	write_svg: bool = False
@@ -60,6 +67,14 @@ def _default_channel_selection_figure_config() -> ReconstructionDiagnosticFigure
 
 def _default_axon_reconstruction_figure_config() -> ReconstructionDiagnosticFigureConfig:
 	return ReconstructionDiagnosticFigureConfig(relpath="diagnostic_figs/axon_reconstruction")
+
+
+@dataclass(frozen=True)
+class ReconstructionPlotReconsOutputsConfig:
+	amplitude_map: ReconstructionAmplitudeMapOutputConfig = field(
+		default_factory=ReconstructionAmplitudeMapOutputConfig
+	)
+	circle_recon: CircleReconConfig = field(default_factory=CircleReconConfig)
 
 
 @dataclass(frozen=True)
@@ -103,30 +118,30 @@ class PerUnitOutputsConfig:
 		default_factory=_default_axon_reconstruction_figure_config
 	)
 
-	write_amplitude_map_png: bool = False
 	amplitude_map_png_relpath: str = "amplitude_map.png"
-	amplitude_map_heatmap: SharedHeatmapConfig = field(default_factory=SharedHeatmapConfig)
 	circle_recon: CircleReconConfig = field(default_factory=CircleReconConfig)
 
 
 @dataclass(frozen=True)
-class ReconstructionGridReportsConfig:
-	sort_by: str = "unit_id"
-	circle_recon_grid: FootprintMapGridReportConfig = field(
-		default_factory=lambda: FootprintMapGridReportConfig(
-			write_png=False,
-			pdf_relpath="reports/circle_recon_grid.pdf",
-			png_relpath="reports/circle_recon_grid.png",
-			svg_relpath="reports/circle_recon_grid.svg",
-			temp_svg_relpath="reports/circle_recon_grid__temp.svg",
-		)
-	)
+class ReconstructionReconGridOutputConfig:
+	write_pdf: bool = False
+	pdf_relpath: str = "reports/circle_recon_grid.pdf"
+	write_png: bool = False
+	png_relpath: str = "reports/circle_recon_grid.png"
+	write_svg: bool = False
+	svg_relpath: str = "reports/circle_recon_grid.svg"
+	keep_temp_svg: bool = False
+	temp_svg_relpath: str = "reports/circle_recon_grid__temp.svg"
 
 
 @dataclass(frozen=True)
-class ReconstructionReportsConfig:
-	grids: ReconstructionGridReportsConfig = field(default_factory=ReconstructionGridReportsConfig)
-	overwrite_on_unit_rerun: bool = False
+class ReconstructionReconGridDisplayConfig:
+	show_title: bool = True
+
+
+@dataclass(frozen=True)
+class ReconstructionReconGridRenderConfig:
+	dpi: float = 300.0
 
 
 @dataclass(frozen=True)
@@ -271,6 +286,7 @@ def _default_branch_velocities_output_config() -> ReconstructionBranchPlotOutput
 class ReconstructionPlotReconsPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/plot_recons_summary.json"
+	outputs: ReconstructionPlotReconsOutputsConfig = field(default_factory=ReconstructionPlotReconsOutputsConfig)
 
 
 @dataclass(frozen=True)
@@ -349,10 +365,34 @@ class ReconstructionAvReconsConfig:
 
 
 @dataclass(frozen=True)
+class ReconstructionSummaryPngConfig:
+	write: bool = False
+	relpath: str = "summary.png"
+	grid_ncols: int = 5
+
+
+@dataclass(frozen=True)
+class ReconstructionReportMarkdownConfig:
+	write: bool = False
+	relpath: str = "report.md"
+
+
+@dataclass(frozen=True)
 class ReconstructionReportReconsPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/report_recons_summary.json"
 	av_recons: ReconstructionAvReconsConfig = field(default_factory=ReconstructionAvReconsConfig)
+	summary_png: ReconstructionSummaryPngConfig = field(default_factory=ReconstructionSummaryPngConfig)
+	report_md: ReconstructionReportMarkdownConfig = field(default_factory=ReconstructionReportMarkdownConfig)
+
+
+@dataclass(frozen=True)
+class ReconstructionReportReconGridPhaseConfig:
+	enabled: bool = True
+	summary_json_relpath: str = "context/report_recon_grid_summary.json"
+	output: ReconstructionReconGridOutputConfig = field(default_factory=ReconstructionReconGridOutputConfig)
+	display: ReconstructionReconGridDisplayConfig = field(default_factory=ReconstructionReconGridDisplayConfig)
+	render: ReconstructionReconGridRenderConfig = field(default_factory=ReconstructionReconGridRenderConfig)
 
 
 @dataclass(frozen=True)
@@ -404,6 +444,9 @@ class ReconstructionPhasesConfig:
 		default_factory=ReconstructionPlotUnitSummaryPhaseConfig
 	)
 	report_recons: ReconstructionReportReconsPhaseConfig = field(default_factory=ReconstructionReportReconsPhaseConfig)
+	report_recon_grid: ReconstructionReportReconGridPhaseConfig = field(
+		default_factory=ReconstructionReportReconGridPhaseConfig
+	)
 	report_full_chip_layout: ReconstructionReportFullChipLayoutPhaseConfig = field(
 		default_factory=ReconstructionReportFullChipLayoutPhaseConfig
 	)
@@ -422,13 +465,10 @@ class ReconstructionInputs:
 	debug_prints: bool = False
 
 	output_rel_root: str = "recon_outputs"
-	reports: ReconstructionReportsConfig = field(default_factory=ReconstructionReportsConfig)
+	unit_reldir: str = "units/{unit_id:04d}/"
+	report_sort_by: str = "unit_id"
+	overwrite_report_outputs_on_unit_rerun: bool = False
 	branch_colors: ReconstructionBranchColorsConfig = field(default_factory=ReconstructionBranchColorsConfig)
-	write_summary_png: bool = False
-	summary_png_relpath: str = "summary.png"
-	summary_grid_ncols: int = 5
-	write_report_md: bool = False
-	report_md_relpath: str = "report.md"
 	cleanup_failed_unit_outputs: bool = False
 	failed_units_summary_relpath: str = "failed_units_summary.json"
 	per_unit_outputs: PerUnitOutputsConfig = field(default_factory=PerUnitOutputsConfig)

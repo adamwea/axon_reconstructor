@@ -1047,6 +1047,7 @@ stages:
       - plot_branch_velocities
       - plot_unit_summary
       - report_recons
+      - report_recon_grid
       - report_full_chip_layout
       - report_summaries
       - clear_templates_cache
@@ -1105,6 +1106,12 @@ stages:
       exclude_shared_concat_channels_from_segments: false
 
     unit_limit: 1000
+    output_rel_root: recon_outputs
+    unit_reldir: units/{unit_id:04d}/
+    report_sort_by: unit_id
+    overwrite_report_outputs_on_unit_rerun: false
+    cleanup_failed_unit_outputs: false
+    failed_units_summary_relpath: failed_units_summary.json
 
     branch_colors:
       unique_color_per_branch: true
@@ -1736,6 +1743,13 @@ stages:
       plot_recons:
         enable: true
         outputs:
+          amplitude_map:
+            write_png: true
+            relpath: maps/amplitude_map
+            invert_y_axis: true
+            panel_background_color: black
+            color_bar:
+              {}
           circle_recon:
             display:
               # TODO: Since we typically focus in on branches here instead of the channels
@@ -1826,6 +1840,27 @@ stages:
         av_recons:
           write_pdf: true
           pdf_relpath: av_recons.pdf
+        summary_png:
+          write: false
+          relpath: summary.png
+        report_md:
+          write: false
+          relpath: report.md
+      report_recon_grid:
+        enable: true
+        output:
+          write_pdf: false
+          pdf_relpath: reports/circle_recon_grid.pdf
+          write_png: true
+          png_relpath: reports/circle_recon_grid.png
+          write_svg: true
+          svg_relpath: reports/circle_recon_grid.svg
+          keep_temp_svg: false
+          temp_svg_relpath: reports/circle_recon_grid__temp.svg
+        display:
+          show_title: false
+        render:
+          dpi: 420
       report_full_chip_layout:
         enable: true
         # Aggregate all successfully reconstructed unit branches onto a single chip-level layout.
@@ -1863,46 +1898,3 @@ stages:
         enabled: true  # set to true after verifying recon outputs are correct
         keep_merged_per_unit_outputs: false
         keep_full_channels_templates: false
-    outputs:
-      output_rel_root: recon_outputs
-      reports:
-        grids:
-          sort_by: unit_id # unit_id, max_amplitude, max_ptp, or max_negative_peak, max_delay, template density
-          circle_recon_grid:
-            output:
-              write_pdf: false
-              pdf_relpath: reports/circle_recon_grid.pdf
-              write_png: true
-              png_relpath: reports/circle_recon_grid.png
-              write_svg: true
-              svg_relpath: reports/circle_recon_grid.svg
-              keep_temp_svg: false
-              temp_svg_relpath: reports/circle_recon_grid__temp.svg
-            display:
-              show_title: false
-            render:
-              mode: direct_replot
-              dpi: 420
-              subplot_background_color: black
-              figure_background_color: black
-
-      write_summary: false
-      summary_relpath: summary.png
-      write_report_md: false
-      report_md_relpath: report.md
-
-      per_unit_outputs:
-
-        # Base rel dir for all outputs for a given unit. Can be formatted with {unit_id} if desired,
-        # but should not include file name or extension components since those are specified separately for each output type below.
-        unit_reldir: units/{unit_id:04d}/
-
-        # Per-unit amplitude map (v2 shared heatmap path)
-        write_amplitude_map_png: true
-        amplitude_map_png_relpath: maps/amplitude_map.png
-        amplitude_map:
-          relpath: maps/amplitude_map
-          invert_y_axis: true
-          panel_background_color: black
-          color_bar:
-            {}

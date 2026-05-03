@@ -9,11 +9,68 @@ from axon_recon.pipeline.stages.reconstruct.models.inputs import CircleReconConf
 from axon_recon.pipeline.stages.reconstruct.models.inputs import CircleReconDisplayConfig
 from axon_recon.pipeline.stages.reconstruct.models.inputs import CircleReconOutputConfig
 from axon_recon.pipeline.stages.reconstruct.models.inputs import PerUnitOutputsConfig
-from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionGridReportsConfig
+from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionAmplitudeMapOutputConfig
 from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionInputs
-from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionReportsConfig
+from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionPhasesConfig
+from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionPlotReconsOutputsConfig
+from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionPlotReconsPhaseConfig
+from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionReconGridOutputConfig
+from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionReportMarkdownConfig
+from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionReportReconGridPhaseConfig
+from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionReportReconsPhaseConfig
+from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionSummaryPngConfig
 from axon_recon.pipeline.stages.reconstruct.runner import run_reconstruct_stage
-from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import FootprintMapGridReportConfig
+
+
+def _build_test_phases(
+	*,
+	circle_recon: CircleReconConfig | None = None,
+	amplitude_map_write_png: bool = False,
+	amplitude_map_png_relpath: str = "maps/amplitude_map.png",
+	summary_png_write: bool = False,
+	summary_png_relpath: str = "reports/summary.png",
+	summary_grid_ncols: int = 5,
+	report_md_write: bool = False,
+	report_md_relpath: str = "reports/report.md",
+	report_grid_write_png: bool = False,
+	report_grid_write_svg: bool = False,
+	report_grid_png_relpath: str = "reports/circle_recon_grid.png",
+	report_grid_svg_relpath: str = "reports/circle_recon_grid.svg",
+	report_grid_temp_svg_relpath: str = "reports/circle_recon_grid__temp.svg",
+	report_grid_keep_temp_svg: bool = False,
+) -> ReconstructionPhasesConfig:
+	return ReconstructionPhasesConfig(
+		plot_recons=ReconstructionPlotReconsPhaseConfig(
+			outputs=ReconstructionPlotReconsOutputsConfig(
+				amplitude_map=ReconstructionAmplitudeMapOutputConfig(
+					write_png=amplitude_map_write_png,
+					png_relpath=amplitude_map_png_relpath,
+				),
+				circle_recon=circle_recon or CircleReconConfig(),
+			),
+		),
+		report_recons=ReconstructionReportReconsPhaseConfig(
+			summary_png=ReconstructionSummaryPngConfig(
+				write=summary_png_write,
+				relpath=summary_png_relpath,
+				grid_ncols=summary_grid_ncols,
+			),
+			report_md=ReconstructionReportMarkdownConfig(
+				write=report_md_write,
+				relpath=report_md_relpath,
+			),
+		),
+		report_recon_grid=ReconstructionReportReconGridPhaseConfig(
+			output=ReconstructionReconGridOutputConfig(
+				write_png=report_grid_write_png,
+				write_svg=report_grid_write_svg,
+				png_relpath=report_grid_png_relpath,
+				svg_relpath=report_grid_svg_relpath,
+				temp_svg_relpath=report_grid_temp_svg_relpath,
+				keep_temp_svg=report_grid_keep_temp_svg,
+			),
+		),
+	)
 
 
 def test_run_reconstruct_stage_emits_summary_and_report_outputs(tmp_path: Path, monkeypatch) -> None:
@@ -101,47 +158,46 @@ def test_run_reconstruct_stage_emits_summary_and_report_outputs(tmp_path: Path, 
 	monkeypatch.setattr(reconstruct_runner, "write_amplitude_map_summary_png", _fake_write_amplitude_map_summary_png)
 	monkeypatch.setattr(reconstruct_runner, "render_footprint_map_grid_from_assets", _fake_render_footprint_map_grid_from_assets)
 	monkeypatch.setattr(reconstruct_runner, "finalize_grid_svg_output", _fake_finalize_grid_svg_output)
+	circle_recon = CircleReconConfig(
+		display=CircleReconDisplayConfig(),
+		output=CircleReconOutputConfig(
+			write_png=True,
+			write_svg=True,
+			relpath="maps/circle_recon",
+			dpi=300.0,
+		),
+	)
 
 	inputs = ReconstructionInputs(
 		h5_path=tmp_path / "input.raw.h5",
 		stream_id="well001",
 		mea_output_root=tmp_path,
 		output_rel_root="recon_outputs",
-		reports=ReconstructionReportsConfig(
-			grids=ReconstructionGridReportsConfig(
-				circle_recon_grid=FootprintMapGridReportConfig(
-					write_png=True,
-					write_svg=True,
-					png_relpath="reports/circle_recon_grid.png",
-					svg_relpath="reports/circle_recon_grid.svg",
-					temp_svg_relpath="reports/circle_recon_grid__temp.svg",
-				)
-			)
-		),
-		write_summary_png=True,
-		summary_png_relpath="reports/summary.png",
-		summary_grid_ncols=2,
-		write_report_md=True,
-		report_md_relpath="reports/report.md",
 		unit_ids=[1, 2],
 		n_jobs=1,
+		phases=_build_test_phases(
+			circle_recon=circle_recon,
+			amplitude_map_write_png=True,
+			amplitude_map_png_relpath="maps/amplitude_map.png",
+			summary_png_write=True,
+			summary_png_relpath="reports/summary.png",
+			summary_grid_ncols=2,
+			report_md_write=True,
+			report_md_relpath="reports/report.md",
+			report_grid_write_png=True,
+			report_grid_write_svg=True,
+			report_grid_png_relpath="reports/circle_recon_grid.png",
+			report_grid_svg_relpath="reports/circle_recon_grid.svg",
+			report_grid_temp_svg_relpath="reports/circle_recon_grid__temp.svg",
+		),
 		per_unit_outputs=PerUnitOutputsConfig(
 			write_branches_raw_json=False,
 			write_branches_json=False,
 			write_heuristics_json=False,
 			write_gtr_pkl=False,
 			write_gtr_json=False,
-			write_amplitude_map_png=True,
 			amplitude_map_png_relpath="maps/amplitude_map.png",
-			circle_recon=CircleReconConfig(
-				display=CircleReconDisplayConfig(),
-				output=CircleReconOutputConfig(
-					write_png=True,
-					write_svg=True,
-					relpath="maps/circle_recon",
-					dpi=300.0,
-				),
-			),
+			circle_recon=circle_recon,
 		),
 	)
 
@@ -240,37 +296,31 @@ def test_run_reconstruct_stage_sorts_circle_grid_inputs_by_max_ptp(tmp_path: Pat
 	monkeypatch.setattr(reconstruct_runner, "write_unit_circle_recon_plot", _fake_write_unit_circle_recon_plot)
 	monkeypatch.setattr(reconstruct_runner, "render_footprint_map_grid_from_assets", _fake_render_footprint_map_grid_from_assets)
 	monkeypatch.setattr(reconstruct_runner, "finalize_grid_svg_output", lambda **kwargs: dict(kwargs["raw_outputs"]))
+	circle_recon = CircleReconConfig(
+		display=CircleReconDisplayConfig(),
+		output=CircleReconOutputConfig(write_png=True, write_svg=False, relpath="maps/circle_recon", dpi=300.0),
+	)
 
 	inputs = ReconstructionInputs(
 		h5_path=tmp_path / "input.raw.h5",
 		stream_id="well001",
 		mea_output_root=tmp_path,
 		output_rel_root="recon_outputs",
-		reports=ReconstructionReportsConfig(
-			grids=ReconstructionGridReportsConfig(
-				sort_by="max_ptp",
-				circle_recon_grid=FootprintMapGridReportConfig(
-					write_png=True,
-					write_svg=False,
-					png_relpath="reports/circle_recon_grid.png",
-				),
-			),
-		),
-		write_summary_png=False,
-		write_report_md=False,
+		report_sort_by="max_ptp",
 		unit_ids=[1, 2],
 		n_jobs=1,
+		phases=_build_test_phases(
+			circle_recon=circle_recon,
+			report_grid_write_png=True,
+			report_grid_png_relpath="reports/circle_recon_grid.png",
+		),
 		per_unit_outputs=PerUnitOutputsConfig(
 			write_branches_raw_json=False,
 			write_branches_json=False,
 			write_heuristics_json=False,
 			write_gtr_pkl=False,
 			write_gtr_json=False,
-			write_amplitude_map_png=False,
-			circle_recon=CircleReconConfig(
-				display=CircleReconDisplayConfig(),
-				output=CircleReconOutputConfig(write_png=True, write_svg=False, relpath="maps/circle_recon", dpi=300.0),
-			),
+			circle_recon=circle_recon,
 		),
 	)
 
@@ -278,7 +328,7 @@ def test_run_reconstruct_stage_sorts_circle_grid_inputs_by_max_ptp(tmp_path: Pat
 	assert result.summary_json.exists()
 	assert captured_circle_order == ["0002", "0001"]
 	payload = json.loads(result.summary_json.read_text(encoding="utf-8"))
-	assert payload.get("reports_grid_sort_by") == "max_ptp"
+	assert payload.get("report_sort_by") == "max_ptp"
 
 
 def test_run_reconstruct_stage_force_restart_clears_output_root(tmp_path: Path, monkeypatch) -> None:
@@ -324,6 +374,10 @@ def test_run_reconstruct_stage_force_restart_clears_output_root(tmp_path: Path, 
 	monkeypatch.setattr(reconstruct_runner, "load_templates_for_unit", _fake_load_templates_for_unit)
 	monkeypatch.setattr(reconstruct_runner, "compute_graph_tracking", _fake_compute_graph_tracking)
 	monkeypatch.setattr(reconstruct_runner, "write_unit_circle_recon_plot", _fake_write_unit_circle_recon_plot)
+	circle_recon = CircleReconConfig(
+		display=CircleReconDisplayConfig(),
+		output=CircleReconOutputConfig(write_png=True, write_svg=False, relpath="maps/circle_recon", dpi=300.0),
+	)
 
 	inputs = ReconstructionInputs(
 		h5_path=tmp_path / "input.raw.h5",
@@ -333,17 +387,14 @@ def test_run_reconstruct_stage_force_restart_clears_output_root(tmp_path: Path, 
 		unit_ids=[1, 2],
 		force_restart=True,
 		n_jobs=1,
+		phases=_build_test_phases(circle_recon=circle_recon),
 		per_unit_outputs=PerUnitOutputsConfig(
 			write_branches_raw_json=False,
 			write_branches_json=False,
 			write_heuristics_json=False,
 			write_gtr_pkl=False,
 			write_gtr_json=False,
-			write_amplitude_map_png=False,
-			circle_recon=CircleReconConfig(
-				display=CircleReconDisplayConfig(),
-				output=CircleReconOutputConfig(write_png=True, write_svg=False, relpath="maps/circle_recon", dpi=300.0),
-			),
+			circle_recon=circle_recon,
 		),
 	)
 
@@ -413,36 +464,36 @@ def test_run_reconstruct_stage_unit_force_restart_preserves_stage_reports_when_n
 	monkeypatch.setattr(reconstruct_runner, "render_footprint_map_grid_from_assets", _raise_unexpected)
 	monkeypatch.setattr(reconstruct_runner, "write_amplitude_map_summary_png", _raise_unexpected)
 	monkeypatch.setattr(reconstruct_runner, "write_reconstruct_report_markdown", _raise_unexpected)
+	circle_recon = CircleReconConfig(
+		display=CircleReconDisplayConfig(),
+		output=CircleReconOutputConfig(write_png=True, write_svg=False, relpath="maps/circle_recon", dpi=300.0),
+	)
 
 	inputs = ReconstructionInputs(
 		h5_path=tmp_path / "input.raw.h5",
 		stream_id="well001",
 		mea_output_root=tmp_path,
 		output_rel_root="recon_outputs",
-		reports=ReconstructionReportsConfig(
-			overwrite_on_unit_rerun=False,
-			grids=ReconstructionGridReportsConfig(
-				circle_recon_grid=FootprintMapGridReportConfig(write_png=True, write_svg=False, png_relpath="reports/circle_recon_grid.png")
-			),
-		),
-		write_summary_png=True,
-		summary_png_relpath="reports/summary.png",
-		write_report_md=True,
-		report_md_relpath="reports/report.md",
+		overwrite_report_outputs_on_unit_rerun=False,
 		unit_ids=[1],
 		force_restart=True,
 		n_jobs=1,
+		phases=_build_test_phases(
+			circle_recon=circle_recon,
+			summary_png_write=True,
+			summary_png_relpath="reports/summary.png",
+			report_md_write=True,
+			report_md_relpath="reports/report.md",
+			report_grid_write_png=True,
+			report_grid_png_relpath="reports/circle_recon_grid.png",
+		),
 		per_unit_outputs=PerUnitOutputsConfig(
 			write_branches_raw_json=False,
 			write_branches_json=False,
 			write_heuristics_json=False,
 			write_gtr_pkl=False,
 			write_gtr_json=False,
-			write_amplitude_map_png=False,
-			circle_recon=CircleReconConfig(
-				display=CircleReconDisplayConfig(),
-				output=CircleReconOutputConfig(write_png=True, write_svg=False, relpath="maps/circle_recon", dpi=300.0),
-			),
+			circle_recon=circle_recon,
 		),
 	)
 
@@ -502,6 +553,10 @@ def test_run_reconstruct_stage_cleans_failed_unit_outputs_and_writes_failed_unit
 	monkeypatch.setattr(reconstruct_runner, "load_templates_for_unit", _fake_load_templates_for_unit)
 	monkeypatch.setattr(reconstruct_runner, "compute_graph_tracking", _fake_compute_graph_tracking)
 	monkeypatch.setattr(reconstruct_runner, "write_unit_circle_recon_plot", _fake_write_unit_circle_recon_plot)
+	circle_recon = CircleReconConfig(
+		display=CircleReconDisplayConfig(),
+		output=CircleReconOutputConfig(write_png=True, write_svg=False, relpath="maps/circle_recon", dpi=300.0),
+	)
 
 	inputs = ReconstructionInputs(
 		h5_path=tmp_path / "input.raw.h5",
@@ -510,21 +565,16 @@ def test_run_reconstruct_stage_cleans_failed_unit_outputs_and_writes_failed_unit
 		output_rel_root="recon_outputs",
 		cleanup_failed_unit_outputs=True,
 		failed_units_summary_relpath="reports/failed_units.json",
-		write_summary_png=False,
-		write_report_md=False,
 		unit_ids=[1, 2],
 		n_jobs=1,
+		phases=_build_test_phases(circle_recon=circle_recon),
 		per_unit_outputs=PerUnitOutputsConfig(
 			write_branches_raw_json=False,
 			write_branches_json=False,
 			write_heuristics_json=False,
 			write_gtr_pkl=False,
 			write_gtr_json=False,
-			write_amplitude_map_png=False,
-			circle_recon=CircleReconConfig(
-				display=CircleReconDisplayConfig(),
-				output=CircleReconOutputConfig(write_png=True, write_svg=False, relpath="maps/circle_recon", dpi=300.0),
-			),
+			circle_recon=circle_recon,
 		),
 	)
 
@@ -613,33 +663,36 @@ def test_run_reconstruct_stage_errors_when_requested_source_fails_and_fallback_i
 	monkeypatch.setattr(reconstruct_runner, "write_unit_amplitude_map_png", _fake_write_unit_amplitude_map_png)
 	monkeypatch.setattr(reconstruct_runner, "write_unit_circle_recon_plot", _fake_write_unit_circle_recon_plot)
 	caplog.set_level("WARNING", logger="axon_recon.reconstruct")
+	circle_recon = CircleReconConfig(
+		display=CircleReconDisplayConfig(),
+		output=CircleReconOutputConfig(
+			write_png=True,
+			write_svg=True,
+			relpath="maps/circle_recon",
+			dpi=300.0,
+		),
+	)
 
 	inputs = ReconstructionInputs(
 		h5_path=tmp_path / "input.raw.h5",
 		stream_id="well001",
 		mea_output_root=tmp_path,
 		output_rel_root="recon_outputs",
-		write_summary_png=False,
-		write_report_md=False,
 		unit_ids=[94],
 		n_jobs=1,
+		phases=_build_test_phases(
+			circle_recon=circle_recon,
+			amplitude_map_write_png=True,
+			amplitude_map_png_relpath="maps/amplitude_map.png",
+		),
 		per_unit_outputs=PerUnitOutputsConfig(
 			write_branches_raw_json=False,
 			write_branches_json=False,
 			write_heuristics_json=False,
 			write_gtr_pkl=False,
 			write_gtr_json=False,
-			write_amplitude_map_png=True,
 			amplitude_map_png_relpath="maps/amplitude_map.png",
-			circle_recon=CircleReconConfig(
-				display=CircleReconDisplayConfig(),
-				output=CircleReconOutputConfig(
-					write_png=True,
-					write_svg=True,
-					relpath="maps/circle_recon",
-					dpi=300.0,
-				),
-			),
+			circle_recon=circle_recon,
 		),
 	)
 
@@ -713,32 +766,31 @@ def test_run_reconstruct_stage_circle_recon_uses_gtr_template_space(tmp_path: Pa
 	monkeypatch.setattr(reconstruct_runner, "load_templates_for_unit", _fake_load_templates_for_unit)
 	monkeypatch.setattr(reconstruct_runner, "compute_graph_tracking", _fake_compute_graph_tracking)
 	monkeypatch.setattr(reconstruct_runner, "write_unit_circle_recon_plot", _fake_write_unit_circle_recon_plot)
+	circle_recon = CircleReconConfig(
+		display=CircleReconDisplayConfig(),
+		output=CircleReconOutputConfig(
+			write_png=True,
+			write_svg=False,
+			relpath="maps/circle_recon",
+			dpi=300.0,
+		),
+	)
 
 	inputs = ReconstructionInputs(
 		h5_path=tmp_path / "input.raw.h5",
 		stream_id="well001",
 		mea_output_root=tmp_path,
 		output_rel_root="recon_outputs",
-		write_summary_png=False,
-		write_report_md=False,
 		unit_ids=[7],
 		n_jobs=1,
+		phases=_build_test_phases(circle_recon=circle_recon),
 		per_unit_outputs=PerUnitOutputsConfig(
 			write_branches_raw_json=False,
 			write_branches_json=False,
 			write_heuristics_json=False,
 			write_gtr_pkl=False,
 			write_gtr_json=False,
-			write_amplitude_map_png=False,
-			circle_recon=CircleReconConfig(
-				display=CircleReconDisplayConfig(),
-				output=CircleReconOutputConfig(
-					write_png=True,
-					write_svg=False,
-					relpath="maps/circle_recon",
-					dpi=300.0,
-				),
-			),
+			circle_recon=circle_recon,
 		),
 	)
 
@@ -829,16 +881,24 @@ def test_run_reconstruct_stage_json_payloads_use_gtr_location_space(tmp_path: Pa
 	monkeypatch.setattr(reconstruct_runner, "compute_all_filters_payload", _fake_compute_all_filters_payload)
 	monkeypatch.setattr(reconstruct_runner, "compute_heuristics_payload", _fake_compute_heuristics_payload)
 	monkeypatch.setattr(reconstruct_runner, "compute_gtr_json_payload", _fake_compute_gtr_json_payload)
+	circle_recon = CircleReconConfig(
+		display=CircleReconDisplayConfig(),
+		output=CircleReconOutputConfig(
+			write_png=False,
+			write_svg=False,
+			relpath="maps/circle_recon",
+			dpi=300.0,
+		),
+	)
 
 	inputs = ReconstructionInputs(
 		h5_path=tmp_path / "input.raw.h5",
 		stream_id="well001",
 		mea_output_root=tmp_path,
 		output_rel_root="recon_outputs",
-		write_summary_png=False,
-		write_report_md=False,
 		unit_ids=[7],
 		n_jobs=1,
+		phases=_build_test_phases(circle_recon=circle_recon),
 		per_unit_outputs=PerUnitOutputsConfig(
 			write_branches_raw_json=False,
 			write_branches_json=True,
@@ -850,16 +910,7 @@ def test_run_reconstruct_stage_json_payloads_use_gtr_location_space(tmp_path: Pa
 			write_heuristics_json=True,
 			write_gtr_pkl=False,
 			write_gtr_json=True,
-			write_amplitude_map_png=False,
-			circle_recon=CircleReconConfig(
-				display=CircleReconDisplayConfig(),
-				output=CircleReconOutputConfig(
-					write_png=False,
-					write_svg=False,
-					relpath="maps/circle_recon",
-					dpi=300.0,
-				),
-			),
+			circle_recon=circle_recon,
 		),
 	)
 

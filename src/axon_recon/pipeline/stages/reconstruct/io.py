@@ -95,8 +95,9 @@ def resolve_unit_output_paths(
 	reconstruction_out_dir: Path,
 	unit_id: Any,
 	per_unit_outputs: PerUnitOutputsConfig,
+	unit_reldir: str | None = None,
 ) -> dict[str, Path]:
-	unit_rel = format_unit_reldir(per_unit_outputs.unit_reldir, unit_id)
+	unit_rel = format_unit_reldir(unit_reldir or per_unit_outputs.unit_reldir, unit_id)
 	unit_dir = reconstruction_out_dir / unit_rel
 	circle_png_rel, circle_svg_rel = _resolve_png_svg_relpaths(per_unit_outputs.circle_recon.output.relpath)
 	channel_selection_png_rel, channel_selection_svg_rel = _resolve_png_svg_relpaths(
@@ -153,8 +154,9 @@ def resolve_branch_phase_output_paths(
 	per_unit_outputs: PerUnitOutputsConfig,
 	phase_output: Any,
 	branch_scope: Any,
+	unit_reldir: str | None = None,
 ) -> dict[str, Path]:
-	unit_rel = format_unit_reldir(per_unit_outputs.unit_reldir, unit_id)
+	unit_rel = format_unit_reldir(unit_reldir or per_unit_outputs.unit_reldir, unit_id)
 	unit_dir = reconstruction_out_dir / unit_rel
 	phase_root_dir = unit_dir / Path(str(getattr(phase_output, "relpath", "branch_plots") or "branch_plots")).expanduser()
 	scope_token = _normalize_branch_scope_token(branch_scope)
@@ -175,6 +177,7 @@ def resolve_branch_phase_branch_output_paths(
 	phase_output: Any,
 	branch_scope: Any,
 	branch_id: Any,
+	unit_reldir: str | None = None,
 ) -> dict[str, Path]:
 	paths = resolve_branch_phase_output_paths(
 		reconstruction_out_dir=reconstruction_out_dir,
@@ -182,6 +185,7 @@ def resolve_branch_phase_branch_output_paths(
 		per_unit_outputs=per_unit_outputs,
 		phase_output=phase_output,
 		branch_scope=branch_scope,
+		unit_reldir=unit_reldir,
 	)
 	stem = _branch_file_stem(branch_id)
 	return {
@@ -197,8 +201,9 @@ def resolve_unit_summary_phase_output_paths(
 	unit_id: Any,
 	per_unit_outputs: PerUnitOutputsConfig,
 	phase_output: Any,
+	unit_reldir: str | None = None,
 ) -> dict[str, Path]:
-	unit_rel = format_unit_reldir(per_unit_outputs.unit_reldir, unit_id)
+	unit_rel = format_unit_reldir(unit_reldir or per_unit_outputs.unit_reldir, unit_id)
 	unit_dir = reconstruction_out_dir / unit_rel
 	png_rel, svg_rel = _resolve_png_svg_relpaths(getattr(phase_output, "relpath", "reports/unit_summary"))
 	return {
@@ -224,21 +229,26 @@ def resolve_full_chip_layout_output_paths(*, reconstruction_out_dir: Path, phase
 def resolve_report_output_paths(
 	*,
 	reconstruction_out_dir: Path,
-	reports: Any,
 	report_recons_phase: Any | None = None,
+	report_recon_grid_phase: Any | None = None,
 	report_full_chip_layout_phase: Any | None = None,
 	report_summaries_phase: Any | None = None,
 ) -> dict[str, Path]:
-	circle_grid = reports.grids.circle_recon_grid
+	circle_grid = getattr(report_recon_grid_phase, "output", None)
 	av_recons = getattr(report_recons_phase, "av_recons", None)
 	av_recons_relpath = str(getattr(av_recons, "pdf_relpath", "av_recons.pdf") or "av_recons.pdf")
 	paths = {
 		"av_recons_pdf": reconstruction_out_dir / Path(av_recons_relpath).expanduser(),
-		"circle_recon_grid_pdf": reconstruction_out_dir / Path(str(circle_grid.pdf_relpath)).expanduser(),
-		"circle_recon_grid_png": reconstruction_out_dir / Path(str(circle_grid.png_relpath)).expanduser(),
-		"circle_recon_grid_svg": reconstruction_out_dir / Path(str(circle_grid.svg_relpath)).expanduser(),
-		"circle_recon_grid_temp_svg": reconstruction_out_dir / Path(str(circle_grid.temp_svg_relpath)).expanduser(),
 	}
+	if circle_grid is not None:
+		paths.update(
+			{
+				"circle_recon_grid_pdf": reconstruction_out_dir / Path(str(circle_grid.pdf_relpath)).expanduser(),
+				"circle_recon_grid_png": reconstruction_out_dir / Path(str(circle_grid.png_relpath)).expanduser(),
+				"circle_recon_grid_svg": reconstruction_out_dir / Path(str(circle_grid.svg_relpath)).expanduser(),
+				"circle_recon_grid_temp_svg": reconstruction_out_dir / Path(str(circle_grid.temp_svg_relpath)).expanduser(),
+			}
+		)
 	if report_summaries_phase is not None:
 		report_summaries_relpath = str(
 			getattr(report_summaries_phase, "pdf_relpath", "reports/reconstruct_summary_deck.pdf")

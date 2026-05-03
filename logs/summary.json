@@ -1,0 +1,50 @@
+{
+  "completed_at": "2026-05-03T02:34:27+00:00",
+  "counts": {
+    "errors": 2,
+    "events": {
+      "run_failed": 2,
+      "run_started": 1,
+      "stage_started": 1
+    },
+    "warnings": 2
+  },
+  "datasets": {},
+  "errors": [
+    {
+      "dataset_id": null,
+      "level": "ERROR",
+      "logger": "axon_recon.pipeline",
+      "message": "pipeline run failed",
+      "phase": null,
+      "recording_id": null,
+      "stage": null,
+      "timestamp": "2026-05-03T02:34:26+00:00",
+      "well_id": null
+    },
+    {
+      "dataset_id": null,
+      "level": "CRITICAL",
+      "logger": "axon_recon.pipeline.uncaught",
+      "message": "uncaught exception",
+      "phase": null,
+      "recording_id": null,
+      "stage": null,
+      "timestamp": "2026-05-03T02:34:26+00:00",
+      "well_id": null
+    }
+  ],
+  "logs_dir": "/mnt/disk15tb/adamm/dev/pkgs/axon_reconstructor/logs",
+  "run_id": "reconstruct-smoke-Ldvo-20260503T023425Z",
+  "run_root": "/mnt/disk15tb/adamm/dev/pkgs/axon_reconstructor",
+  "stages": {
+    "reconstruct": {
+      "phases": {},
+      "status": "running",
+      "updated_at": "2026-05-03T02:34:25+00:00"
+    }
+  },
+  "started_at": "2026-05-03T02:34:25+00:00",
+  "status": "error",
+  "updated_at": "2026-05-03T02:34:27+00:00"
+}

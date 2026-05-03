@@ -122,6 +122,7 @@ _RECONSTRUCT_ONLY_PHASES: frozenset[str] = frozenset(
 		"plot_unit_summary",
 		"report_recons",
 		"report_reconstructions",
+		"report_recon_grid",
 		"report_full_chip_layout",
 		"report_summaries",
 		"clear_cache",

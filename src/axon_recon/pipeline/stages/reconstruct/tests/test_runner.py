@@ -37,6 +37,7 @@ from axon_recon.pipeline.stages.reconstruct.models.inputs import (
 	ReconstructionPlotReconsPhaseConfig,
 	ReconstructionPlotUnitSummaryPhaseConfig,
 	ReconstructionReportFullChipLayoutPhaseConfig,
+	ReconstructionReportReconGridPhaseConfig,
 	ReconstructionReportReconsPhaseConfig,
 	ReconstructionReportSummariesPhaseConfig,
 	ReconstructionUnitSummaryDisplayConfig,
@@ -53,6 +54,7 @@ from axon_recon.pipeline.stages.reconstruct.runner import (
 	run_reconstruct_plot_branch_velocities_phase,
 	run_reconstruct_plot_unit_summary_phase,
 	run_reconstruct_report_full_chip_layout_phase,
+	run_reconstruct_report_recon_grid_phase,
 	run_reconstruct_report_recons_phase,
 	run_reconstruct_report_summaries_phase,
 	run_reconstruct_templates_analyzers_phase,
@@ -77,7 +79,6 @@ def test_resolve_unit_output_paths_includes_amplitude_map() -> None:
 		reconstruction_out_dir=Path("/tmp/recon"),
 		unit_id=1,
 		per_unit_outputs=PerUnitOutputsConfig(
-			write_amplitude_map_png=True,
 			amplitude_map_png_relpath="maps/amplitude_map.png",
 			write_detection_filter_json=True,
 			detection_filter_relpath="filters/detection.json",
@@ -159,6 +160,7 @@ def test_reconstruct_phase_resolver_handles_templates_phases() -> None:
 	assert _reconstruct_stage_phase_runner("templates_plot_templates") is run_reconstruct_templates_plot_templates_phase
 	assert _reconstruct_stage_phase_runner("templates_report_templates") is run_reconstruct_templates_report_templates_phase
 	assert _reconstruct_stage_phase_runner("templates_reports") is run_reconstruct_templates_reports_phase
+	assert _reconstruct_stage_phase_runner("report_recon_grid") is run_reconstruct_report_recon_grid_phase
 	assert _reconstruct_stage_phase_runner("clear_templates_cache") is run_reconstruct_clear_templates_cache_phase
 
 
@@ -191,6 +193,7 @@ def test_reconstruct_combined_phase_sequence_runs_in_order(monkeypatch, tmp_path
 		"plot_branch_velocities": "run_reconstruct_plot_branch_velocities_phase",
 		"plot_unit_summary": "run_reconstruct_plot_unit_summary_phase",
 		"report_recons": "run_reconstruct_report_recons_phase",
+		"report_recon_grid": "run_reconstruct_report_recon_grid_phase",
 		"report_full_chip_layout": "run_reconstruct_report_full_chip_layout_phase",
 		"report_summaries": "run_reconstruct_report_summaries_phase",
 		"clear_templates_cache": "run_reconstruct_clear_templates_cache_phase",
@@ -237,6 +240,7 @@ def test_reconstruct_combined_phase_sequence_runs_in_order(monkeypatch, tmp_path
 			plot_branch_velocities=ReconstructionPlotBranchVelocitiesPhaseConfig(enabled=True),
 			plot_unit_summary=ReconstructionPlotUnitSummaryPhaseConfig(enabled=True),
 			report_recons=ReconstructionReportReconsPhaseConfig(enabled=True),
+			report_recon_grid=ReconstructionReportReconGridPhaseConfig(enabled=True),
 			report_full_chip_layout=ReconstructionReportFullChipLayoutPhaseConfig(enabled=True),
 			report_summaries=ReconstructionReportSummariesPhaseConfig(enabled=True),
 		),
@@ -280,6 +284,7 @@ def test_reconstruct_combined_phase_sequence_skips_clear_templates_cache_when_di
 		"plot_branch_velocities": "run_reconstruct_plot_branch_velocities_phase",
 		"plot_unit_summary": "run_reconstruct_plot_unit_summary_phase",
 		"report_recons": "run_reconstruct_report_recons_phase",
+		"report_recon_grid": "run_reconstruct_report_recon_grid_phase",
 		"report_full_chip_layout": "run_reconstruct_report_full_chip_layout_phase",
 		"report_summaries": "run_reconstruct_report_summaries_phase",
 		"clear_templates_cache": "run_reconstruct_clear_templates_cache_phase",
@@ -326,6 +331,7 @@ def test_reconstruct_combined_phase_sequence_skips_clear_templates_cache_when_di
 			plot_branch_velocities=ReconstructionPlotBranchVelocitiesPhaseConfig(enabled=True),
 			plot_unit_summary=ReconstructionPlotUnitSummaryPhaseConfig(enabled=True),
 			report_recons=ReconstructionReportReconsPhaseConfig(enabled=True),
+			report_recon_grid=ReconstructionReportReconGridPhaseConfig(enabled=True),
 			report_full_chip_layout=ReconstructionReportFullChipLayoutPhaseConfig(enabled=True),
 			report_summaries=ReconstructionReportSummariesPhaseConfig(enabled=True),
 		),
@@ -362,6 +368,7 @@ def test_reconstruct_configured_copied_template_phase_sequence_runs_requested_or
 		"plot_branch_velocities",
 		"plot_unit_summary",
 		"report_recons",
+			"report_recon_grid",
 		"report_full_chip_layout",
 		"report_summaries",
 	]
@@ -385,6 +392,7 @@ def test_reconstruct_configured_copied_template_phase_sequence_runs_requested_or
 		"plot_branch_velocities": "run_reconstruct_plot_branch_velocities_phase",
 		"plot_unit_summary": "run_reconstruct_plot_unit_summary_phase",
 		"report_recons": "run_reconstruct_report_recons_phase",
+		"report_recon_grid": "run_reconstruct_report_recon_grid_phase",
 		"report_full_chip_layout": "run_reconstruct_report_full_chip_layout_phase",
 		"report_summaries": "run_reconstruct_report_summaries_phase",
 	}
@@ -430,6 +438,7 @@ def test_reconstruct_configured_copied_template_phase_sequence_runs_requested_or
 			"plot_branch_velocities",
 			"plot_unit_summary",
 			"report_recons",
+			"report_recon_grid",
 			"report_full_chip_layout",
 			"report_summaries",
 		),
@@ -442,6 +451,7 @@ def test_reconstruct_configured_copied_template_phase_sequence_runs_requested_or
 			plot_branch_velocities=ReconstructionPlotBranchVelocitiesPhaseConfig(enabled=True),
 			plot_unit_summary=ReconstructionPlotUnitSummaryPhaseConfig(enabled=True),
 			report_recons=ReconstructionReportReconsPhaseConfig(enabled=True),
+			report_recon_grid=ReconstructionReportReconGridPhaseConfig(enabled=True),
 			report_full_chip_layout=ReconstructionReportFullChipLayoutPhaseConfig(enabled=True),
 			report_summaries=ReconstructionReportSummariesPhaseConfig(enabled=True),
 		),
@@ -503,7 +513,6 @@ def test_run_reconstruct_generate_gtrs_phase_writes_summary(monkeypatch, tmp_pat
 			write_heuristics_json=False,
 			write_gtr_pkl=True,
 			write_gtr_json=False,
-			write_amplitude_map_png=False,
 		),
 	)
 
@@ -574,7 +583,6 @@ def test_run_reconstruct_generate_gtrs_phase_logs_gtr_persistence_even_when_lega
 			write_heuristics_json=False,
 			write_gtr_pkl=False,
 			write_gtr_json=False,
-			write_amplitude_map_png=False,
 		),
 	)
 
@@ -669,7 +677,6 @@ def test_run_reconstruct_generate_gtrs_phase_writes_filter_selection_jsons(monke
 			write_heuristics_json=False,
 			write_gtr_pkl=True,
 			write_gtr_json=False,
-			write_amplitude_map_png=False,
 		),
 	)
 
@@ -771,7 +778,6 @@ def test_run_reconstruct_generate_gtrs_phase_writes_diagnostic_figures(monkeypat
 			write_heuristics_json=False,
 			write_gtr_pkl=True,
 			write_gtr_json=False,
-			write_amplitude_map_png=False,
 			channel_selection_figure=ReconstructionDiagnosticFigureConfig(
 				write_png=True,
 				write_svg=True,
@@ -883,7 +889,6 @@ def test_run_reconstruct_generate_gtrs_phase_limits_plotting_concurrency(monkeyp
 			write_heuristics_json=False,
 			write_gtr_pkl=True,
 			write_gtr_json=False,
-			write_amplitude_map_png=False,
 			channel_selection_figure=ReconstructionDiagnosticFigureConfig(
 				write_png=True,
 				write_svg=False,

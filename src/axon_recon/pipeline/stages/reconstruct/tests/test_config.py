@@ -39,10 +39,15 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			      scale: log
 			stages:
 			  reconstruct:
+			    output_rel_root: recon_outputs
+			    cleanup_failed_unit_outputs: true
+			    failed_units_summary_relpath: reports/failed_units.json
+			    report_sort_by: template density
+			    overwrite_report_outputs_on_unit_rerun: true
 			    resources:
 			      max_plotting_concurrency: 2
 			    debug_prints: true
-			    phase_sequence: [generate_gtrs, plot_recons, report_summaries]
+			    phase_sequence: [generate_gtrs, plot_recons, report_recons, report_recon_grid, report_summaries]
 			    debug_mode:
 			      enabled: true
 			      limit_datasets: 2
@@ -70,6 +75,15 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			              relpath: figures/axon_reconstruction
 			      plot_recons:
 			        outputs:
+			          amplitude_map:
+			            write_png: true
+			            relpath: maps/from_stage_block
+			            invert_y_axis: false
+			            panel_background_color: black
+			            color_bar:
+			              location: bottomleft
+			              show_ticks: [2, 4, dynamic_high]
+			              linear_cap_rounding_step: 5
 			          circle_recon:
 			            display:
 			              base: template_circles
@@ -93,47 +107,28 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			              write_svg: true
 			              relpath: maps/circle_recon
 			              dpi: 420
-			    outputs:
-			      output_rel_root: recon_outputs
-			      cleanup_failed_unit_outputs: true
-			      failed_units_summary_relpath: reports/failed_units.json
-			      reports:
-			        overwrite_on_unit_rerun: true
-			        grids:
-			          sort_by: template density
-			          circle_recon_grid:
-			            output:
-			              write_pdf: false
-			              pdf_relpath: reports/circle_recon_grid.pdf
-			              write_png: true
-			              png_relpath: reports/circle_recon_grid.png
-			              write_svg: true
-			              svg_relpath: reports/circle_recon_grid.svg
-			              keep_temp_svg: true
-			              temp_svg_relpath: reports/circle_recon_grid__temp.svg
-			            display:
-			              show_title: false
-			            render:
-			              mode: direct_replot
-			              dpi: 420
-			              subplot_background_color: black
-			              figure_background_color: black
-			      write_summary: true
-			      summary_relpath: reports/reconstruction_summary
-			      summary_grid_ncols: 3
-			      write_report_md: true
-			      report_md_relpath: reports/reconstruction_report.md
-			      amplitude_map:
-			        write_png: true
-			        relpath: maps/from_stage_block
-			        invert_y_axis: false
-			        panel_background_color: black
-			        color_bar:
-			          location: bottomleft
-			          show_ticks: [2, 4, dynamic_high]
-			          linear_cap_rounding_step: 5
-			      per_unit_outputs:
-			        amplitude_map_png_relpath: maps/amplitude_map.png
+			      report_recons:
+			        summary_png:
+			          write: true
+			          relpath: reports/reconstruction_summary
+			          grid_ncols: 3
+			        report_md:
+			          write: true
+			          relpath: reports/reconstruction_report.md
+			      report_recon_grid:
+			        output:
+			          write_pdf: false
+			          pdf_relpath: reports/circle_recon_grid.pdf
+			          write_png: true
+			          png_relpath: reports/circle_recon_grid.png
+			          write_svg: true
+			          svg_relpath: reports/circle_recon_grid.svg
+			          keep_temp_svg: true
+			          temp_svg_relpath: reports/circle_recon_grid__temp.svg
+			        display:
+			          show_title: false
+			        render:
+			          dpi: 420
 			"""
 		).strip()
 		+ "\n",
@@ -144,13 +139,15 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert inputs.stream_id == "well001"
 	assert inputs.debug_prints is True
 	assert inputs.max_plotting_concurrency == 2
-	assert inputs.phase_sequence == ("generate_gtrs", "plot_recons", "report_summaries")
+	assert inputs.phase_sequence == ("generate_gtrs", "plot_recons", "report_recons", "report_recon_grid", "report_summaries")
 	assert inputs.output_rel_root == "recon_outputs"
-	assert inputs.write_summary_png is True
-	assert inputs.summary_png_relpath == "reports/reconstruction_summary.png"
-	assert inputs.summary_grid_ncols == 3
-	assert inputs.write_report_md is True
-	assert inputs.report_md_relpath == "reports/reconstruction_report.md"
+	assert inputs.report_sort_by == "template_density"
+	assert inputs.overwrite_report_outputs_on_unit_rerun is True
+	assert inputs.phases.report_recons.summary_png.write is True
+	assert inputs.phases.report_recons.summary_png.relpath == "reports/reconstruction_summary.png"
+	assert inputs.phases.report_recons.summary_png.grid_ncols == 3
+	assert inputs.phases.report_recons.report_md.write is True
+	assert inputs.phases.report_recons.report_md.relpath == "reports/reconstruction_report.md"
 	assert inputs.cleanup_failed_unit_outputs is True
 	assert inputs.failed_units_summary_relpath == "reports/failed_units.json"
 	assert inputs.phases.generate_gtrs.outputs.template_source == "merged"
@@ -177,15 +174,16 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert inputs.per_unit_outputs.axon_reconstruction_figure.write_svg is True
 	assert inputs.per_unit_outputs.axon_reconstruction_figure.invert_y_axis is False
 	assert inputs.per_unit_outputs.axon_reconstruction_figure.relpath == "figures/axon_reconstruction"
-	assert inputs.per_unit_outputs.write_amplitude_map_png is True
-	assert inputs.per_unit_outputs.amplitude_map_png_relpath == "maps/amplitude_map.png"
-	assert inputs.per_unit_outputs.amplitude_map_heatmap.colorbar_location == "bottomleft"
-	assert inputs.per_unit_outputs.amplitude_map_heatmap.invert_y_axis is False
-	assert inputs.per_unit_outputs.amplitude_map_heatmap.show_ticks == (2, 4, "dynamic_high")
-	assert inputs.per_unit_outputs.amplitude_map_heatmap.low_color == "navy"
-	assert inputs.per_unit_outputs.amplitude_map_heatmap.scale == "log"
-	assert inputs.per_unit_outputs.amplitude_map_heatmap.linear_cap_rounding_step == 5.0
-	circle = inputs.per_unit_outputs.circle_recon
+	assert inputs.phases.plot_recons.outputs.amplitude_map.write_png is True
+	assert inputs.phases.plot_recons.outputs.amplitude_map.png_relpath == "maps/from_stage_block.png"
+	assert inputs.phases.plot_recons.outputs.amplitude_map.heatmap.colorbar_location == "bottomleft"
+	assert inputs.phases.plot_recons.outputs.amplitude_map.heatmap.invert_y_axis is False
+	assert inputs.phases.plot_recons.outputs.amplitude_map.heatmap.show_ticks == (2, 4, "dynamic_high")
+	assert inputs.phases.plot_recons.outputs.amplitude_map.heatmap.low_color == "navy"
+	assert inputs.phases.plot_recons.outputs.amplitude_map.heatmap.scale == "log"
+	assert inputs.phases.plot_recons.outputs.amplitude_map.heatmap.linear_cap_rounding_step == 5.0
+	assert inputs.per_unit_outputs.amplitude_map_png_relpath == "maps/from_stage_block.png"
+	circle = inputs.phases.plot_recons.outputs.circle_recon
 	assert circle.display.base == "template_circles"
 	assert circle.display.channel_scope == "nodes_and_branches"
 	assert circle.display.zoom_padding_percent == 12.0
@@ -206,16 +204,13 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert circle.output.write_svg is True
 	assert circle.output.relpath == "maps/circle_recon"
 	assert circle.output.dpi == 420.0
-	assert inputs.reports.grids.circle_recon_grid.write_png is True
-	assert inputs.reports.grids.circle_recon_grid.write_svg is True
-	assert inputs.reports.overwrite_on_unit_rerun is True
-	assert inputs.reports.grids.circle_recon_grid.png_relpath == "reports/circle_recon_grid.png"
-	assert inputs.reports.grids.circle_recon_grid.svg_relpath == "reports/circle_recon_grid.svg"
-	assert inputs.reports.grids.circle_recon_grid.keep_temp_svg is True
-	assert inputs.reports.grids.circle_recon_grid.show_title is False
-	assert inputs.reports.grids.circle_recon_grid.render_mode == "direct_replot"
-	assert inputs.reports.grids.circle_recon_grid.dpi == 420.0
-	assert inputs.reports.grids.sort_by == "template_density"
+	assert inputs.phases.report_recon_grid.output.write_png is True
+	assert inputs.phases.report_recon_grid.output.write_svg is True
+	assert inputs.phases.report_recon_grid.output.png_relpath == "reports/circle_recon_grid.png"
+	assert inputs.phases.report_recon_grid.output.svg_relpath == "reports/circle_recon_grid.svg"
+	assert inputs.phases.report_recon_grid.output.keep_temp_svg is True
+	assert inputs.phases.report_recon_grid.display.show_title is False
+	assert inputs.phases.report_recon_grid.render.dpi == 420.0
 	assert inputs.unit_ids == [94]
 
 
@@ -236,8 +231,10 @@ def test_load_config_reconstruct_populates_templates_inputs_from_debug_runtime()
 		"plot_branch_velocities",
 		"plot_unit_summary",
 		"report_recons",
+		"report_recon_grid",
 		"report_full_chip_layout",
 		"report_summaries",
+		"clear_templates_cache",
 	)
 
 
@@ -632,9 +629,10 @@ def test_load_config_reconstruct_legacy_stage_block_without_global_defaults(tmp_
 	)
 
 	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
-	assert inputs.per_unit_outputs.write_amplitude_map_png is True
+	assert inputs.phases.plot_recons.outputs.amplitude_map.write_png is True
+	assert inputs.phases.plot_recons.outputs.amplitude_map.png_relpath == "maps/legacy_stage_amp.png"
 	assert inputs.per_unit_outputs.amplitude_map_png_relpath == "maps/legacy_stage_amp.png"
-	heat = inputs.per_unit_outputs.amplitude_map_heatmap
+	heat = inputs.phases.plot_recons.outputs.amplitude_map.heatmap
 	assert heat.background == "white"
 	assert heat.low_color == "teal"
 	assert heat.show_ticks == (1, 3, "dynamic_high")
@@ -788,6 +786,16 @@ def test_load_config_reads_reconstruct_phase_blocks_and_overrides_stage_defaults
 			        av_recons:
 			          write_pdf: true
 			          pdf_relpath: reports/av_recons.pdf
+			      report_recon_grid:
+			        enabled: true
+			        summary_json_relpath: context/report_recon_grid_phase.json
+			        output:
+			          write_png: true
+			          png_relpath: reports/circle_recon_grid.png
+			        display:
+			          show_title: false
+			        render:
+			          dpi: 420
 			      report_summaries:
 			        enable: true
 			        summary_json_relpath: context/report_summaries_phase.json
@@ -821,6 +829,12 @@ def test_load_config_reads_reconstruct_phase_blocks_and_overrides_stage_defaults
 	assert inputs.phases.report_recons.summary_json_relpath == "context/report_phase.json"
 	assert inputs.phases.report_recons.av_recons.write_pdf is True
 	assert inputs.phases.report_recons.av_recons.pdf_relpath == "reports/av_recons.pdf"
+	assert inputs.phases.report_recon_grid.enabled is True
+	assert inputs.phases.report_recon_grid.summary_json_relpath == "context/report_recon_grid_phase.json"
+	assert inputs.phases.report_recon_grid.output.write_png is True
+	assert inputs.phases.report_recon_grid.output.png_relpath == "reports/circle_recon_grid.png"
+	assert inputs.phases.report_recon_grid.display.show_title is False
+	assert inputs.phases.report_recon_grid.render.dpi == 420.0
 	assert inputs.phases.report_summaries.enabled is True
 	assert inputs.phases.report_summaries.summary_json_relpath == "context/report_summaries_phase.json"
 	assert inputs.phases.report_summaries.write_pdf is True

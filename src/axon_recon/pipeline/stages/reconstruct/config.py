@@ -8,7 +8,6 @@ from axon_recon.runtime_config import RuntimeConfig
 from axon_recon.pipeline.shared.grid_sorting import normalize_grid_sort_by
 from axon_recon.pipeline.shared.plotting import build_stage_plot_block
 from axon_recon.pipeline.shared.plotting import SharedHeatmapConfig
-from axon_recon.pipeline.stages.reconstruct.templates.config import _build_footprint_grid_report_config
 from axon_recon.pipeline.stages.reconstruct.templates.config import build_templates_inputs_for_target
 from axon_recon.pipeline.stages.reconstruct.templates.config import parse_probe_geometry_from_data_config
 from axon_recon.pipeline.stages.reconstruct.templates.config import parse_reconstruct_templates_config
@@ -19,6 +18,7 @@ from .models.inputs import (
 	ReconstructionBranchPlotOutputConfig,
 	ReconstructionBranchPropagationDisplayConfig,
 	ReconstructionBranchVelocityDisplayConfig,
+	ReconstructionAmplitudeMapOutputConfig,
 	ReconstructionFullChipLayoutColorConfig,
 	ReconstructionFullChipLayoutDisplayConfig,
 	ReconstructionFullChipLayoutOutputConfig,
@@ -31,17 +31,22 @@ from .models.inputs import (
 	ReconstructionDiagnosticFigureConfig,
 	ReconstructionGenerateGtrsOutputsConfig,
 	ReconstructionGenerateGtrsPhaseConfig,
-	ReconstructionGridReportsConfig,
 	ReconstructionInputs,
 	ReconstructionPhasesConfig,
 	ReconstructionPlotBranchPropagationsPhaseConfig,
 	ReconstructionPlotBranchVelocitiesPhaseConfig,
+	ReconstructionPlotReconsOutputsConfig,
 	ReconstructionPlotUnitSummaryPhaseConfig,
 	ReconstructionPlotReconsPhaseConfig,
+	ReconstructionReconGridDisplayConfig,
+	ReconstructionReconGridOutputConfig,
+	ReconstructionReconGridRenderConfig,
 	ReconstructionReportFullChipLayoutPhaseConfig,
+	ReconstructionReportMarkdownConfig,
+	ReconstructionReportReconGridPhaseConfig,
 	ReconstructionReportReconsPhaseConfig,
 	ReconstructionReportSummariesPhaseConfig,
-	ReconstructionReportsConfig,
+	ReconstructionSummaryPngConfig,
 	ReconstructionUnitSummaryDisplayConfig,
 	ReconstructionUnitSummaryOutputConfig,
 )
@@ -54,6 +59,7 @@ DEFAULT_RECONSTRUCTION_PHASE_SEQUENCE: tuple[str, ...] = (
 	"plot_branch_velocities",
 	"plot_unit_summary",
 	"report_recons",
+	"report_recon_grid",
 	"report_full_chip_layout",
 	"report_summaries",
 )
@@ -94,6 +100,7 @@ _RECONSTRUCTION_PHASE_ALIASES: dict[str, str] = {
 	"plot_unit_summary": "plot_unit_summary",
 	"report_recons": "report_recons",
 	"report_reconstructions": "report_recons",
+	"report_recon_grid": "report_recon_grid",
 	"report_full_chip_layout": "report_full_chip_layout",
 	"report_summaries": "report_summaries",
 	"clear_cache": "clear_templates_cache",
@@ -631,19 +638,16 @@ def _get_reconstruct_amplitude_map_block(runtime_config: RuntimeConfig) -> dict[
 @dataclass(frozen=True)
 class ReconstructionStageConfig:
 	output_rel_root: str
+	unit_reldir: str
+	report_sort_by: str
+	overwrite_report_outputs_on_unit_rerun: bool
 	phase_sequence: tuple[str, ...]
 	debug_prints: bool
 	debug_mode_enabled: bool
 	debug_limit_datasets: int | None
 	debug_limit_wells: int | None
 	debug_limit_wells_per_dataset: int | None
-	reports: ReconstructionReportsConfig
 	branch_colors: ReconstructionBranchColorsConfig
-	write_summary_png: bool
-	summary_png_relpath: str
-	summary_grid_ncols: int
-	write_report_md: bool
-	report_md_relpath: str
 	cleanup_failed_unit_outputs: bool
 	failed_units_summary_relpath: str
 	per_unit_outputs: PerUnitOutputsConfig
@@ -719,6 +723,11 @@ def parse_reconstruction_stage_config(
 		else {}
 	)
 	report_recons_cfg = phases_cfg.get("report_recons", {}) if isinstance(phases_cfg.get("report_recons", {}), dict) else {}
+	report_recon_grid_cfg = (
+		phases_cfg.get("report_recon_grid", {})
+		if isinstance(phases_cfg.get("report_recon_grid", {}), dict)
+		else {}
+	)
 	report_summaries_cfg = (
 		phases_cfg.get("report_summaries", {})
 		if isinstance(phases_cfg.get("report_summaries", {}), dict)
@@ -773,6 +782,21 @@ def parse_reconstruction_stage_config(
 		if isinstance(plot_unit_summary_cfg.get("display", {}), dict)
 		else {}
 	)
+	report_recon_grid_output_cfg = (
+		report_recon_grid_cfg.get("output", {})
+		if isinstance(report_recon_grid_cfg.get("output", {}), dict)
+		else {}
+	)
+	report_recon_grid_display_cfg = (
+		report_recon_grid_cfg.get("display", {})
+		if isinstance(report_recon_grid_cfg.get("display", {}), dict)
+		else {}
+	)
+	report_recon_grid_render_cfg = (
+		report_recon_grid_cfg.get("render", {})
+		if isinstance(report_recon_grid_cfg.get("render", {}), dict)
+		else {}
+	)
 	report_full_chip_layout_output_cfg = (
 		report_full_chip_layout_cfg.get("output", {})
 		if isinstance(report_full_chip_layout_cfg.get("output", {}), dict)
@@ -790,8 +814,29 @@ def parse_reconstruction_stage_config(
 	)
 	reports_cfg = outputs_cfg.get("reports", {}) if isinstance(outputs_cfg.get("reports", {}), dict) else {}
 	grids_cfg = reports_cfg.get("grids", {}) if isinstance(reports_cfg.get("grids", {}), dict) else {}
-	circle_recon_grid_cfg = grids_cfg.get("circle_recon_grid", {}) if isinstance(grids_cfg.get("circle_recon_grid", {}), dict) else {}
+	legacy_circle_recon_grid_cfg = (
+		grids_cfg.get("circle_recon_grid", {}) if isinstance(grids_cfg.get("circle_recon_grid", {}), dict) else {}
+	)
 	per_unit_cfg = outputs_cfg.get("per_unit_outputs", {}) if isinstance(outputs_cfg.get("per_unit_outputs", {}), dict) else {}
+	report_sort_by = normalize_grid_sort_by(
+		stage_cfg.get("report_sort_by", grids_cfg.get("sort_by", reports_cfg.get("sort_by", "unit_id"))),
+		default="unit_id",
+	)
+	overwrite_report_outputs_on_unit_rerun = _as_bool(
+		stage_cfg.get(
+			"overwrite_report_outputs_on_unit_rerun",
+			reports_cfg.get("overwrite_on_unit_rerun", False),
+		),
+		False,
+	)
+	unit_reldir = str(
+		stage_cfg.get(
+			"unit_reldir",
+			phase_plot_outputs_cfg.get("unit_reldir", per_unit_cfg.get("unit_reldir", "units/{unit_id:04d}/")),
+		)
+	)
+	if not unit_reldir.strip():
+		unit_reldir = "units/{unit_id:04d}/"
 	phase_channel_selection_fig_cfg = (
 		phase_generate_diagnostic_figs_cfg.get("channel_selection", {})
 		if isinstance(phase_generate_diagnostic_figs_cfg.get("channel_selection", {}), dict)
@@ -985,23 +1030,63 @@ def parse_reconstruction_stage_config(
 	else:
 		unit_ids = runtime_unit_ids
 
-	write_summary_png = _as_bool(outputs_cfg.get("write_summary", False), False)
-	summary_png_relpath = _normalize_png_relpath(outputs_cfg.get("summary_relpath", "summary.png"), "summary.png")
-	write_report_md = _as_bool(outputs_cfg.get("write_report_md", False), False)
-	report_md_relpath = str(outputs_cfg.get("report_md_relpath", "report.md"))
-	cleanup_failed_unit_outputs = _as_bool(outputs_cfg.get("cleanup_failed_unit_outputs", False), False)
-	failed_units_summary_relpath = str(outputs_cfg.get("failed_units_summary_relpath", "failed_units_summary.json"))
+	output_rel_root = str(stage_cfg.get("output_rel_root", outputs_cfg.get("output_rel_root", "recon_outputs"))).strip()
+	if not output_rel_root:
+		output_rel_root = "recon_outputs"
+	cleanup_failed_unit_outputs = _as_bool(
+		stage_cfg.get("cleanup_failed_unit_outputs", outputs_cfg.get("cleanup_failed_unit_outputs", False)),
+		False,
+	)
+	failed_units_summary_relpath = str(
+		stage_cfg.get(
+			"failed_units_summary_relpath",
+			outputs_cfg.get("failed_units_summary_relpath", "failed_units_summary.json"),
+		)
+	)
+	if not failed_units_summary_relpath.strip():
+		failed_units_summary_relpath = "failed_units_summary.json"
+
+	report_recons_summary_png_cfg = (
+		report_recons_cfg.get("summary_png", {})
+		if isinstance(report_recons_cfg.get("summary_png", {}), dict)
+		else {}
+	)
+	report_recons_report_md_cfg = (
+		report_recons_cfg.get("report_md", {})
+		if isinstance(report_recons_cfg.get("report_md", {}), dict)
+		else {}
+	)
+	write_summary_png = _as_bool(
+		report_recons_summary_png_cfg.get("write", outputs_cfg.get("write_summary", False)),
+		False,
+	)
+	summary_png_relpath = _normalize_png_relpath(
+		report_recons_summary_png_cfg.get("relpath", outputs_cfg.get("summary_relpath", "summary.png")),
+		"summary.png",
+	)
 	try:
-		summary_grid_ncols = max(1, int(outputs_cfg.get("summary_grid_ncols", 5)))
+		summary_grid_ncols = max(
+			1,
+			int(report_recons_summary_png_cfg.get("grid_ncols", outputs_cfg.get("summary_grid_ncols", 5))),
+		)
 	except Exception:
 		summary_grid_ncols = 5
+	write_report_md = _as_bool(
+		report_recons_report_md_cfg.get("write", outputs_cfg.get("write_report_md", False)),
+		False,
+	)
+	report_md_relpath = str(
+		report_recons_report_md_cfg.get("relpath", outputs_cfg.get("report_md_relpath", "report.md"))
+	)
+	if not report_md_relpath.strip():
+		report_md_relpath = "report.md"
 
 	if "write_png" in phase_amplitude_map_cfg:
-		write_amplitude_map_png = _as_bool(phase_amplitude_map_cfg.get("write_png", False), False)
+		amplitude_map_write_png = _as_bool(phase_amplitude_map_cfg.get("write_png", False), False)
 	elif "write_amplitude_map_png" in per_unit_cfg:
-		write_amplitude_map_png = _as_bool(per_unit_cfg.get("write_amplitude_map_png", False), False)
+		amplitude_map_write_png = _as_bool(per_unit_cfg.get("write_amplitude_map_png", False), False)
 	else:
-		write_amplitude_map_png = _as_bool(amplitude_map_cfg.get("write_png", False), False)
+		amplitude_map_write_png = _as_bool(amplitude_map_cfg.get("write_png", False), False)
 
 	if "relpath" in phase_amplitude_map_cfg:
 		amplitude_map_png_relpath = _normalize_png_relpath(
@@ -1150,9 +1235,45 @@ def parse_reconstruction_stage_config(
 		base_footprint_amplitude=tpl_footprint_amplitude_defaults,
 		base_footprint_latency=tpl_footprint_latency_defaults,
 	)
+	plot_recons_outputs = ReconstructionPlotReconsOutputsConfig(
+		amplitude_map=ReconstructionAmplitudeMapOutputConfig(
+			write_png=amplitude_map_write_png,
+			png_relpath=amplitude_map_png_relpath,
+			heatmap=SharedHeatmapConfig.from_block(amplitude_map_cfg),
+		),
+		circle_recon=circle_recon,
+	)
 	report_av_recons_cfg = (
 		report_recons_cfg.get("av_recons", {}) if isinstance(report_recons_cfg.get("av_recons", {}), dict) else {}
 	)
+	legacy_report_recon_grid_output_cfg = (
+		legacy_circle_recon_grid_cfg.get("output", {})
+		if isinstance(legacy_circle_recon_grid_cfg.get("output", {}), dict)
+		else {}
+	)
+	legacy_report_recon_grid_display_cfg = (
+		legacy_circle_recon_grid_cfg.get("display", {})
+		if isinstance(legacy_circle_recon_grid_cfg.get("display", {}), dict)
+		else {}
+	)
+	legacy_report_recon_grid_render_cfg = (
+		legacy_circle_recon_grid_cfg.get("render", {})
+		if isinstance(legacy_circle_recon_grid_cfg.get("render", {}), dict)
+		else {}
+	)
+	report_recon_grid_output_source_cfg = (
+		report_recon_grid_output_cfg if report_recon_grid_output_cfg else legacy_report_recon_grid_output_cfg
+	)
+	report_recon_grid_display_source_cfg = (
+		report_recon_grid_display_cfg if report_recon_grid_display_cfg else legacy_report_recon_grid_display_cfg
+	)
+	report_recon_grid_render_source_cfg = (
+		report_recon_grid_render_cfg if report_recon_grid_render_cfg else legacy_report_recon_grid_render_cfg
+	)
+	try:
+		report_recon_grid_dpi = float(report_recon_grid_render_source_cfg.get("dpi", 300.0) or 300.0)
+	except Exception:
+		report_recon_grid_dpi = 300.0
 	phases = ReconstructionPhasesConfig(
 		generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(
 			enabled=_phase_enabled(generate_gtrs_cfg, True),
@@ -1170,6 +1291,7 @@ def parse_reconstruction_stage_config(
 		plot_recons=ReconstructionPlotReconsPhaseConfig(
 			enabled=_phase_enabled(plot_recons_cfg, True),
 			summary_json_relpath=str(plot_recons_cfg.get("summary_json_relpath", "context/plot_recons_summary.json")),
+			outputs=plot_recons_outputs,
 		),
 		plot_branch_propagations=ReconstructionPlotBranchPropagationsPhaseConfig(
 			enabled=_phase_enabled(plot_branch_propagations_cfg, False),
@@ -1232,6 +1354,48 @@ def parse_reconstruction_stage_config(
 				write_pdf=_as_bool(report_av_recons_cfg.get("write_pdf", False), False),
 				pdf_relpath=str(report_av_recons_cfg.get("pdf_relpath", "av_recons.pdf")),
 			),
+			summary_png=ReconstructionSummaryPngConfig(
+				write=write_summary_png,
+				relpath=summary_png_relpath,
+				grid_ncols=int(summary_grid_ncols),
+			),
+			report_md=ReconstructionReportMarkdownConfig(
+				write=write_report_md,
+				relpath=report_md_relpath,
+			),
+		),
+		report_recon_grid=ReconstructionReportReconGridPhaseConfig(
+			enabled=_phase_enabled(report_recon_grid_cfg, True),
+			summary_json_relpath=str(
+				report_recon_grid_cfg.get("summary_json_relpath", "context/report_recon_grid_summary.json")
+			),
+			output=ReconstructionReconGridOutputConfig(
+				write_pdf=_as_bool(report_recon_grid_output_source_cfg.get("write_pdf", False), False),
+				pdf_relpath=str(
+					report_recon_grid_output_source_cfg.get("pdf_relpath", "reports/circle_recon_grid.pdf")
+				),
+				write_png=_as_bool(report_recon_grid_output_source_cfg.get("write_png", False), False),
+				png_relpath=str(
+					report_recon_grid_output_source_cfg.get("png_relpath", "reports/circle_recon_grid.png")
+				),
+				write_svg=_as_bool(report_recon_grid_output_source_cfg.get("write_svg", False), False),
+				svg_relpath=str(
+					report_recon_grid_output_source_cfg.get("svg_relpath", "reports/circle_recon_grid.svg")
+				),
+				keep_temp_svg=_as_bool(report_recon_grid_output_source_cfg.get("keep_temp_svg", False), False),
+				temp_svg_relpath=str(
+					report_recon_grid_output_source_cfg.get(
+						"temp_svg_relpath",
+						"reports/circle_recon_grid__temp.svg",
+					)
+				),
+			),
+			display=ReconstructionReconGridDisplayConfig(
+				show_title=_as_bool(report_recon_grid_display_source_cfg.get("show_title", True), True),
+			),
+			render=ReconstructionReconGridRenderConfig(
+				dpi=float(max(72.0, report_recon_grid_dpi)),
+			),
 		),
 		report_full_chip_layout=ReconstructionReportFullChipLayoutPhaseConfig(
 			enabled=_phase_enabled(report_full_chip_layout_cfg, False),
@@ -1269,7 +1433,7 @@ def parse_reconstruction_stage_config(
 	)
 
 	per_unit = PerUnitOutputsConfig(
-		unit_reldir=str(phase_plot_outputs_cfg.get("unit_reldir", per_unit_cfg.get("unit_reldir", "units/{unit_id:04d}/"))),
+		unit_reldir=unit_reldir,
 		write_branches_raw_json=bool(generate_gtrs_outputs.write_branches_raw_json),
 		branches_raw_relpath=str(generate_gtrs_outputs.branches_raw_relpath),
 		write_branches_json=bool(generate_gtrs_outputs.write_branches_json),
@@ -1293,43 +1457,22 @@ def parse_reconstruction_stage_config(
 		gtr_json_relpath=str(generate_gtrs_outputs.gtr_json_relpath),
 		channel_selection_figure=generate_gtrs_outputs.channel_selection_figure,
 		axon_reconstruction_figure=generate_gtrs_outputs.axon_reconstruction_figure,
-		write_amplitude_map_png=write_amplitude_map_png,
-		amplitude_map_png_relpath=amplitude_map_png_relpath,
-		amplitude_map_heatmap=SharedHeatmapConfig.from_block(amplitude_map_cfg),
-		circle_recon=circle_recon,
-	)
-	reports = ReconstructionReportsConfig(
-		grids=ReconstructionGridReportsConfig(
-			sort_by=normalize_grid_sort_by(
-				grids_cfg.get("sort_by", reports_cfg.get("sort_by", "unit_id")),
-				default="unit_id",
-			),
-			circle_recon_grid=_build_footprint_grid_report_config(
-				circle_recon_grid_cfg,
-				pdf_relpath_default="reports/circle_recon_grid.pdf",
-				png_relpath_default="reports/circle_recon_grid.png",
-				svg_relpath_default="reports/circle_recon_grid.svg",
-				temp_svg_relpath_default="reports/circle_recon_grid__temp.svg",
-			),
-		),
-		overwrite_on_unit_rerun=_as_bool(reports_cfg.get("overwrite_on_unit_rerun", False), False),
+		amplitude_map_png_relpath=plot_recons_outputs.amplitude_map.png_relpath,
+		circle_recon=plot_recons_outputs.circle_recon,
 	)
 
 	return ReconstructionStageConfig(
-		output_rel_root=str(outputs_cfg.get("output_rel_root", "recon_outputs")),
+		output_rel_root=output_rel_root,
+		unit_reldir=unit_reldir,
+		report_sort_by=report_sort_by,
+		overwrite_report_outputs_on_unit_rerun=overwrite_report_outputs_on_unit_rerun,
 		phase_sequence=phase_sequence,
 		debug_prints=debug_prints,
 		debug_mode_enabled=debug_mode_enabled,
 		debug_limit_datasets=debug_limit_datasets,
 		debug_limit_wells=debug_limit_wells,
 		debug_limit_wells_per_dataset=debug_limit_wells_per_dataset,
-		reports=reports,
 		branch_colors=branch_colors,
-		write_summary_png=write_summary_png,
-		summary_png_relpath=summary_png_relpath,
-		summary_grid_ncols=summary_grid_ncols,
-		write_report_md=write_report_md,
-		report_md_relpath=report_md_relpath,
 		cleanup_failed_unit_outputs=cleanup_failed_unit_outputs,
 		failed_units_summary_relpath=failed_units_summary_relpath,
 		per_unit_outputs=per_unit,
@@ -1360,14 +1503,11 @@ def build_reconstruction_inputs_for_target(
 		final_output_root=(target.final_output_root or target.mea_output_root),
 		debug_prints=stage_config.debug_prints,
 		output_rel_root=stage_config.output_rel_root,
+		unit_reldir=stage_config.unit_reldir,
+		report_sort_by=stage_config.report_sort_by,
+		overwrite_report_outputs_on_unit_rerun=stage_config.overwrite_report_outputs_on_unit_rerun,
 		phase_sequence=stage_config.phase_sequence,
-		reports=stage_config.reports,
 		branch_colors=stage_config.branch_colors,
-		write_summary_png=stage_config.write_summary_png,
-		summary_png_relpath=stage_config.summary_png_relpath,
-		summary_grid_ncols=stage_config.summary_grid_ncols,
-		write_report_md=stage_config.write_report_md,
-		report_md_relpath=stage_config.report_md_relpath,
 		cleanup_failed_unit_outputs=stage_config.cleanup_failed_unit_outputs,
 		failed_units_summary_relpath=stage_config.failed_units_summary_relpath,
 		per_unit_outputs=stage_config.per_unit_outputs,
@@ -1441,14 +1581,11 @@ def load_reconstruction_inputs_from_runtime(
 		final_output_root=output_root,
 		debug_prints=stage_cfg.debug_prints,
 		output_rel_root=stage_cfg.output_rel_root,
+		unit_reldir=stage_cfg.unit_reldir,
+		report_sort_by=stage_cfg.report_sort_by,
+		overwrite_report_outputs_on_unit_rerun=stage_cfg.overwrite_report_outputs_on_unit_rerun,
 		phase_sequence=stage_cfg.phase_sequence,
-		reports=stage_cfg.reports,
 		branch_colors=stage_cfg.branch_colors,
-		write_summary_png=stage_cfg.write_summary_png,
-		summary_png_relpath=stage_cfg.summary_png_relpath,
-		summary_grid_ncols=stage_cfg.summary_grid_ncols,
-		write_report_md=stage_cfg.write_report_md,
-		report_md_relpath=stage_cfg.report_md_relpath,
 		cleanup_failed_unit_outputs=stage_cfg.cleanup_failed_unit_outputs,
 		failed_units_summary_relpath=stage_cfg.failed_units_summary_relpath,
 		per_unit_outputs=stage_cfg.per_unit_outputs,

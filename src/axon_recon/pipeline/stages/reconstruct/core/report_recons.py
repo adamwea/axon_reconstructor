@@ -18,8 +18,6 @@ def run_report_recons_phase(
 	existing_stage_outputs: dict[str, str],
 	resolve_report_output_paths_fn: Callable[..., dict[str, Path]],
 	write_amplitude_map_summary_png_fn: Callable[..., bool],
-	render_footprint_map_grid_from_assets_fn: Callable[..., dict[str, str]],
-	finalize_grid_svg_output_fn: Callable[..., dict[str, str]],
 	render_template_report_pdf_fn: Callable[..., dict[str, str]],
 	write_reconstruct_report_markdown_fn: Callable[..., Path],
 	logger: logging.Logger | None = None,
@@ -31,7 +29,6 @@ def run_report_recons_phase(
 	if bool(phase_cfg.av_recons.write_pdf) and not preserve_stage_reports:
 		report_paths = resolve_report_output_paths_fn(
 			reconstruction_out_dir=reconstruction_out_dir,
-			reports=inputs.reports,
 			report_recons_phase=phase_cfg,
 		)
 		render_units: list[dict[str, Any]] = []
@@ -64,47 +61,8 @@ def run_report_recons_phase(
 			)
 		)
 
-	circle_grid_cfg = inputs.reports.grids.circle_recon_grid
-	write_circle_grid = bool(circle_grid_cfg.write_png) or bool(circle_grid_cfg.write_pdf) or bool(circle_grid_cfg.write_svg)
-	if write_circle_grid and not preserve_stage_reports:
-		report_paths = resolve_report_output_paths_fn(
-			reconstruction_out_dir=reconstruction_out_dir,
-			reports=inputs.reports,
-			report_recons_phase=phase_cfg,
-		)
-		circle_entries = [
-			Path(item.outputs["circle_recon_png"])
-			for item in unit_results_for_reports
-			if isinstance(item.outputs, dict) and "circle_recon_png" in item.outputs
-		]
-		active_logger.info("Reconstruct reports circle_recon_grid inputs=%d", len(circle_entries))
-		circle_grid_outputs = render_footprint_map_grid_from_assets_fn(
-			image_paths=circle_entries,
-			config=circle_grid_cfg,
-			pdf_path=report_paths["circle_recon_grid_pdf"],
-			png_path=report_paths["circle_recon_grid_png"],
-			write_svg=bool(circle_grid_cfg.write_svg),
-			svg_path=report_paths["circle_recon_grid_temp_svg"],
-			svg_output_key="circle_recon_grid_temp_svg",
-			pdf_output_key="circle_recon_grid_pdf",
-			png_output_key="circle_recon_grid_png",
-			title="Reconstruct circle recon grid",
-		)
-		circle_grid_outputs = finalize_grid_svg_output_fn(
-			raw_outputs=circle_grid_outputs,
-			write_svg=bool(circle_grid_cfg.write_svg),
-			keep_temp_svg=bool(circle_grid_cfg.keep_temp_svg),
-			temp_svg_output_key="circle_recon_grid_temp_svg",
-			final_svg_output_key="circle_recon_grid_svg",
-			temp_svg_path=report_paths["circle_recon_grid_temp_svg"],
-			final_svg_path=report_paths["circle_recon_grid_svg"],
-			report_name="circle_recon_grid",
-			logger=active_logger,
-		)
-		stage_outputs.update(circle_grid_outputs)
-
-	if bool(inputs.write_summary_png) and not preserve_stage_reports:
-		summary_png = reconstruction_out_dir / Path(str(inputs.summary_png_relpath)).expanduser()
+	if bool(phase_cfg.summary_png.write) and not preserve_stage_reports:
+		summary_png = reconstruction_out_dir / Path(str(phase_cfg.summary_png.relpath)).expanduser()
 		entries: list[tuple[Any, Path]] = []
 		for item in unit_results:
 			path_like = item.outputs.get("amplitude_map_png") if isinstance(item.outputs, dict) else None
@@ -114,13 +72,13 @@ def run_report_recons_phase(
 			wrote = write_amplitude_map_summary_png_fn(
 				entries=entries,
 				output_png=summary_png,
-				ncols=int(max(1, int(inputs.summary_grid_ncols))),
+				ncols=int(max(1, int(phase_cfg.summary_png.grid_ncols))),
 			)
 			if wrote and summary_png.exists():
 				stage_outputs["summary_png"] = str(summary_png)
 
-	if bool(inputs.write_report_md) and not preserve_stage_reports:
-		report_md = reconstruction_out_dir / Path(str(inputs.report_md_relpath)).expanduser()
+	if bool(phase_cfg.report_md.write) and not preserve_stage_reports:
+		report_md = reconstruction_out_dir / Path(str(phase_cfg.report_md.relpath)).expanduser()
 		unit_rows = [
 			{
 				"unit_id": item.unit_id,

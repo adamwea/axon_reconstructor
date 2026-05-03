@@ -95,8 +95,8 @@ def run_report_summaries_phase(
 
 	report_paths = resolve_report_output_paths_fn(
 		reconstruction_out_dir=reconstruction_out_dir,
-		reports=inputs.reports,
 		report_recons_phase=inputs.phases.report_recons,
+		report_recon_grid_phase=inputs.phases.report_recon_grid,
 		report_full_chip_layout_phase=inputs.phases.report_full_chip_layout,
 		report_summaries_phase=phase_cfg,
 	)
