@@ -18,10 +18,10 @@ resources:
       cpu_cores: 36 # 48 total cores, but leaving some free for system processes and other users; adjust as needed based on typical server load and desired balance between performance and resource availability for others.
       ram_gb: 50 # 62 GB total RAM, but leaving some free for system processes and other users; adjust as needed based on typical server load and desired balance between performance and availability for others.
       gpu_sort_slots: 1
-      h5_read_slots: 2
-      disk_heavy_slots: 2
-      plot_slots: 2
-      analyzer_slots: 2
+      h5_read_slots: 3
+      disk_heavy_slots: 3
+      plot_slots: 3
+      analyzer_slots: 3
       #default_chunk_duration: 1s
   keyed_resource_limits:
     source_h5_path:

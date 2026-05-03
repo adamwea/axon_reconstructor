@@ -5,6 +5,7 @@ import io
 import logging
 import os
 import shutil
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -57,10 +58,13 @@ def _load_centered_segment_with_electrode_channel_ids(
 	except Exception as exc:  # pragma: no cover
 		raise RuntimeError("raw preprocessing requires `numpy` and `spikeinterface` installed") from exc
 
-	_ensure_maxwell_hdf5_plugin_path(suppress_messages=bool(suppress_h5_plugin_messages))
+	suppress_plugin_messages = bool(suppress_h5_plugin_messages)
+	redirect_plugin_stdio = suppress_plugin_messages and threading.current_thread() is threading.main_thread()
+
+	_ensure_maxwell_hdf5_plugin_path(suppress_messages=suppress_plugin_messages)
 
 	with contextlib.ExitStack() as stack:
-		if bool(suppress_h5_plugin_messages):
+		if redirect_plugin_stdio:
 			suppressed_stream = io.StringIO()
 			stack.enter_context(contextlib.redirect_stdout(suppressed_stream))
 			stack.enter_context(contextlib.redirect_stderr(suppressed_stream))
@@ -70,7 +74,7 @@ def _load_centered_segment_with_electrode_channel_ids(
 					file_path=str(h5_path),
 					stream_id=stream_id,
 					rec_name=rec_name,
-					install_maxwell_plugin=(not bool(suppress_h5_plugin_messages)),
+					install_maxwell_plugin=(not suppress_plugin_messages),
 				)
 			except TypeError:
 				recording = se.read_maxwell(file_path=str(h5_path), stream_id=stream_id, rec_name=rec_name)
@@ -80,7 +84,7 @@ def _load_centered_segment_with_electrode_channel_ids(
 					str(h5_path),
 					stream_id=stream_id,
 					rec_name=rec_name,
-					install_maxwell_plugin=(not bool(suppress_h5_plugin_messages)),
+					install_maxwell_plugin=(not suppress_plugin_messages),
 				)
 			except TypeError:
 				recording = se.MaxwellRecordingExtractor(str(h5_path), stream_id=stream_id, rec_name=rec_name)

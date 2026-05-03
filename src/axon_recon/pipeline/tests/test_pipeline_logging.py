@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import logging
 from pathlib import Path
@@ -359,6 +360,83 @@ def test_make_console_handler_disables_rich_level_prefix(tmp_path, monkeypatch):
     assert handler.formatter.include_level is False
     assert "INFO" not in rendered
     assert rendered.endswith("pid=123\nhello console")
+
+
+def test_make_console_handler_uses_progress_external_write_mode_for_rich_handler(tmp_path, monkeypatch):
+    import axon_recon.pipeline.execution.progress as progress_module
+    from axon_recon.pipeline.execution.progress import PipelineProgress, ProgressSpec, pipeline_progress_context
+
+    runtime_path = _write_runtime(tmp_path, console_enabled=True, console_rich=True)
+    rich_module = types.ModuleType("rich")
+    rich_logging_module = types.ModuleType("rich.logging")
+    created: dict[str, object] = {}
+    emitted: list[str] = []
+    redirect_entered: list[str] = []
+    external_write_files: list[object | None] = []
+
+    class FakeRichHandler(logging.Handler):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+            created["kwargs"] = kwargs
+            self.console = types.SimpleNamespace(file=object(), print=lambda *args, **kwargs: None)
+            created["console_file"] = self.console.file
+
+        def emit(self, record: logging.LogRecord) -> None:
+            emitted.append(record.getMessage())
+
+    class _Bar:
+        fp = object()
+
+        def update(self, amount: int) -> None:
+            _ = amount
+
+        def close(self) -> None:
+            return None
+
+    class _FakeTqdm:
+        def __call__(self, *args: object, **kwargs: object) -> _Bar:
+            _ = args, kwargs
+            return _Bar()
+
+        def write(self, message: str, file: object | None = None) -> None:
+            _ = message, file
+
+        @contextmanager
+        def external_write_mode(self, file: object | None = None):
+            external_write_files.append(file)
+            yield
+
+    @contextmanager
+    def _fake_redirect():
+        redirect_entered.append("redirect")
+        yield
+
+    rich_module.logging = rich_logging_module  # type: ignore[attr-defined]
+    rich_logging_module.RichHandler = FakeRichHandler  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "rich", rich_module)
+    monkeypatch.setitem(sys.modules, "rich.logging", rich_logging_module)
+    monkeypatch.setattr(progress_module, "_tqdm", _FakeTqdm())
+    monkeypatch.setattr(progress_module, "_logging_redirect_tqdm", _fake_redirect)
+
+    runtime_config = RuntimeConfig.load(runtime_path)
+    config = parse_pipeline_logging_config(runtime_config=runtime_config, config_path=runtime_path)
+    handler = _make_console_handler(config)
+    progress = PipelineProgress(ProgressSpec(label="test wells", total=1, unit="well", enabled=True))
+    record = logging.makeLogRecord({"levelno": logging.INFO, "levelname": "INFO", "msg": "hello progress"})
+    root = logging.getLogger()
+    original_handlers = list(root.handlers)
+    root.handlers = [handler]
+
+    try:
+        with progress, pipeline_progress_context(progress):
+            handler.emit(record)
+    finally:
+        root.handlers = original_handlers
+
+    assert getattr(handler, "_axon_recon_pipeline_rich_console_handler", False) is True
+    assert redirect_entered == []
+    assert external_write_files == [created["console_file"]]
+    assert emitted == ["hello progress"]
 
 
 def test_pipeline_logging_suppresses_noisy_codec_registration_logger():

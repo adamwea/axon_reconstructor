@@ -8,7 +8,7 @@ from typing import Any
 
 from axon_recon.runtime_config import RuntimeConfig
 
-from axon_recon.pipeline.execution.progress import PipelineProgressStreamHandler
+from axon_recon.pipeline.execution.progress import PipelineProgressStreamHandler, progress_external_write_context
 
 from .config import PipelineLoggingConfig, parse_pipeline_logging_config
 from .context import apply_log_context_to_record, set_base_log_context
@@ -67,7 +67,22 @@ def _make_console_handler(config: PipelineLoggingConfig) -> logging.Handler:
         try:
             from rich.logging import RichHandler  # type: ignore[import-not-found]
 
-            handler: logging.Handler = RichHandler(
+            class PipelineProgressRichHandler(RichHandler):
+                def emit(self, record: logging.LogRecord) -> None:
+                    console = getattr(self, "console", None)
+                    file = getattr(console, "file", None)
+                    with progress_external_write_context(file=file):
+                        super().emit(record)
+
+                def emit_blank_line(self) -> None:
+                    console = getattr(self, "console", None)
+                    if console is None or not hasattr(console, "print"):
+                        return
+                    file = getattr(console, "file", None)
+                    with progress_external_write_context(file=file):
+                        console.print("")
+
+            handler: logging.Handler = PipelineProgressRichHandler(
                 show_path=False,
                 show_time=False,
                 show_level=True,
@@ -83,6 +98,8 @@ def _make_console_handler(config: PipelineLoggingConfig) -> logging.Handler:
     handler.setFormatter(PipelineHumanFormatter(include_level=not rich_console_handler))
     handler._axon_recon_pipeline_handler = True  # type: ignore[attr-defined]
     handler._axon_recon_pipeline_console_handler = True  # type: ignore[attr-defined]
+    if rich_console_handler:
+        handler._axon_recon_pipeline_rich_console_handler = True  # type: ignore[attr-defined]
     return handler
 
 

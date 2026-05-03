@@ -19,6 +19,8 @@ except Exception:  # pragma: no cover - keep progress optional for minimal insta
 
 def _root_uses_rich_handler() -> bool:
 	for handler in logging.getLogger().handlers:
+		if bool(getattr(handler, "_axon_recon_pipeline_rich_console_handler", False)):
+			return True
 		module_name = str(getattr(handler.__class__, "__module__", "") or "")
 		class_name = str(getattr(handler.__class__, "__name__", "") or "")
 		if class_name == "RichHandler" or module_name.startswith("rich."):
@@ -139,6 +141,20 @@ def pipeline_progress_context(progress: PipelineProgress | None) -> Iterator[Non
 
 def current_pipeline_progress() -> PipelineProgress | None:
 	return _current_progress.get()
+
+
+@contextmanager
+def progress_external_write_context(file: Any | None = None) -> Iterator[None]:
+	progress = current_pipeline_progress()
+	if _tqdm is None or progress is None or not progress.is_owner_process():
+		yield
+		return
+	external_write_mode = getattr(_tqdm, "external_write_mode", None)
+	if not callable(external_write_mode):
+		yield
+		return
+	with external_write_mode(file=file):
+		yield
 
 
 class PipelineProgressStreamHandler(logging.StreamHandler):
