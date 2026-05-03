@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 
 from ...runner import (
 	run_reconstruct_clear_templates_cache_from_runtime,
@@ -22,6 +23,52 @@ from ...runner import (
 	run_reconstruct_templates_reports_from_runtime,
 	run_reconstruct_templates_resolve_sources_from_runtime,
 )
+
+
+LOGGER = logging.getLogger("axon_recon.reconstruct.cli")
+
+
+def _emit_reconstruct_aggregate(agg: object) -> int:
+	LOGGER.info("stage: %s", agg.stage)
+	LOGGER.info("targets_total: %s", agg.total_targets)
+	LOGGER.info("targets_succeeded: %s", agg.succeeded_targets)
+	LOGGER.info("targets_failed: %s", agg.failed_targets)
+	for item in agg.target_results:
+		target = item.target
+		if item.status != "ok" or item.result is None:
+			LOGGER.info(
+				"target[%s:%s] status=error error=%s",
+				target.dataset_index,
+				target.stream_id,
+				item.error or "unknown",
+			)
+			continue
+		result = item.result
+		if isinstance(result, dict):
+			phase = result.get("phase", agg.stage)
+			LOGGER.info(
+				"target[%s:%s] status=ok phase=%s reconstruction_out_dir=%s summary=%s units_ok=%s units_error=%s",
+				target.dataset_index,
+				target.stream_id,
+				phase,
+				result.get("reconstruction_out_dir", None),
+				result.get("summary_json", None),
+				result.get("units_ok", 0),
+				result.get("units_error", 0),
+			)
+			continue
+		units_ok = sum(1 for unit in result.units if str(getattr(unit, "status", "ok")).strip().lower() == "ok")
+		units_error = sum(1 for unit in result.units if str(getattr(unit, "status", "ok")).strip().lower() != "ok")
+		LOGGER.info(
+			"target[%s:%s] status=ok reconstruct_out_dir=%s units_processed=%s units_ok=%s units_error=%s",
+			target.dataset_index,
+			target.stream_id,
+			result.reconstruction_out_dir,
+			len(result.units),
+			units_ok,
+			units_error,
+		)
+	return 0
 
 
 def _parse_unit_ids_csv(raw: str) -> list[int]:
@@ -85,7 +132,7 @@ def register_reconstruct_subparser(subparsers: argparse._SubParsersAction[argpar
 
 
 def _run_from_args(args: argparse.Namespace) -> int:
-	return _print_reconstruct_aggregate(
+	return _emit_reconstruct_aggregate(
 		run_reconstruct_from_runtime(
 			config_path=str(args.config),
 			unit_id_override=getattr(args, "unit_id", None),

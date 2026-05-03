@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import io
 import logging
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Iterator
 
 import axon_recon.pipeline.execution.progress as progress_module
 from axon_recon.pipeline.execution.context import ExecutionTarget, StageParallelism
@@ -60,6 +62,53 @@ def test_progress_stream_handler_writes_through_tqdm(monkeypatch) -> None:
 
     assert messages == ["INFO: hello"]
     assert stream.getvalue() == ""
+
+
+def test_pipeline_progress_skips_tqdm_logging_redirect_for_rich_handler(monkeypatch) -> None:
+    entered: list[str] = []
+    writes: list[tuple[str, object | None]] = []
+
+    class RichHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            return None
+
+    class _Bar:
+		fp = object()
+
+        def update(self, amount: int) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+	class _FakeTqdm:
+		def __call__(self, *args: object, **kwargs: object) -> _Bar:
+			return _Bar()
+
+		def write(self, message: str, file: object | None = None) -> None:
+			writes.append((message, file))
+
+    @contextmanager
+    def _fake_redirect() -> Iterator[None]:
+        entered.append("redirect")
+        yield
+
+    root = logging.getLogger()
+    original_handlers = list(root.handlers)
+    root.handlers = [RichHandler()]
+	bar_tqdm = _FakeTqdm()
+    monkeypatch.setattr(progress_module, "_tqdm", bar_tqdm)
+    monkeypatch.setattr(progress_module, "_logging_redirect_tqdm", _fake_redirect)
+    progress = PipelineProgress(ProgressSpec(label="test", total=1, unit="item", enabled=True))
+
+    try:
+        with progress:
+            pass
+    finally:
+        root.handlers = original_handlers
+
+    assert entered == []
+    assert writes == [("", progress._bar.fp)]
 
 
 def test_runtime_distribution_advances_target_progress() -> None:

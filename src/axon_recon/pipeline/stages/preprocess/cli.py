@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 
 from ...runner import run_preprocess_from_runtime
 from .orchestrators import (
@@ -19,6 +20,45 @@ from .orchestrators import (
 from .orchestrators._shared import print_preprocess_aggregate
 
 
+LOGGER = logging.getLogger("axon_recon.preprocess.cli")
+
+
+def _emit_preprocess_aggregate(agg: object) -> int:
+	LOGGER.info("stage: %s", agg.stage)
+	LOGGER.info("targets_total: %s", agg.total_targets)
+	LOGGER.info("targets_succeeded: %s", agg.succeeded_targets)
+	LOGGER.info("targets_failed: %s", agg.failed_targets)
+	for item in agg.target_results:
+		target = item.target
+		if item.status != "ok" or item.result is None:
+			LOGGER.info(
+				"target[%s:%s] status=error error=%s",
+				target.dataset_index,
+				target.stream_id,
+				item.error or "unknown",
+			)
+			continue
+		result = item.result
+		if isinstance(result, dict):
+			LOGGER.info(
+				"target[%s:%s] status=ok phase=%s preprocess_out_dir=%s summary=%s",
+				target.dataset_index,
+				target.stream_id,
+				result.get("phase", agg.stage),
+				result.get("preprocess_out_dir", None),
+				result.get("summary_json", None),
+			)
+			continue
+		LOGGER.info(
+			"target[%s:%s] status=ok preprocess_out_dir=%s outputs=%s",
+			target.dataset_index,
+			target.stream_id,
+			result.preprocess_out_dir,
+			len(result.outputs),
+		)
+	return 0
+
+
 def register_preprocess_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
 	parser = subparsers.add_parser("preprocess", help="Run preprocess stage")
 	parser.add_argument("--config", type=str, required=True, help="Path to runtime YAML/JSON config")
@@ -28,7 +68,7 @@ def register_preprocess_subparser(subparsers: argparse._SubParsersAction[argpars
 
 
 def _run_from_args(args: argparse.Namespace) -> int:
-	return print_preprocess_aggregate(
+	return _emit_preprocess_aggregate(
 		run_preprocess_from_runtime(
 			config_path=str(args.config),
 			limit_segments_override=getattr(args, "limit_segments", None),

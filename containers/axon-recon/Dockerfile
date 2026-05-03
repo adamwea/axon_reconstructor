@@ -5,6 +5,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG AXON_RECON_INSTALL_EXTRAS=""
 ARG AXON_RECON_RUNTIME_SPEC="numpy<2.0 h5py<4 tqdm<5 requests<3 psutil matplotlib<4 pandas<3.0 openpyxl scipy<2.0 pyyaml docker pypdf scikit-learn<2.0 nvidia-ml-py"
+ARG AXON_VELOCITY_SPEC="axon_velocity==0.1.2"
 ARG SPIKEINTERFACE_SPEC="spikeinterface==0.103.2"
 ARG UNITMATCH_SPEC=""
 ARG UNITMATCH_RUNTIME_SPEC="joblib mat73 mtscomp"
@@ -18,6 +19,7 @@ ARG MAXWELL_HDF5_PLUGIN_DIR="/usr/local/lib/plugin"
 
 ENV PYTHONUNBUFFERED=1 \
   PIP_NO_CACHE_DIR=1 \
+  SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
   AXON_RECON_IN_CONTAINER=1 \
   HDF5_PLUGIN_PATH=${MAXWELL_HDF5_PLUGIN_DIR} \
   AXON_RECON_CACHE_ROOT=/tmp/axon-recon-cache \
@@ -40,6 +42,7 @@ RUN rm -rf /tmp/axon-recon-cache \
   python -m pip install .; \
   fi \
   && if [[ -n "${AXON_RECON_RUNTIME_SPEC}" ]]; then python -m pip install ${AXON_RECON_RUNTIME_SPEC}; fi \
+  && if [[ -n "${AXON_VELOCITY_SPEC}" ]]; then python -m pip install "${AXON_VELOCITY_SPEC}"; fi \
   && if [[ -n "${SPIKEINTERFACE_SPEC}" ]]; then python -m pip install "${SPIKEINTERFACE_SPEC}"; fi \
   && if [[ -n "${UNITMATCH_SPEC}" ]]; then \
   if [[ -n "${UNITMATCH_RUNTIME_SPEC}" ]]; then python -m pip install ${UNITMATCH_RUNTIME_SPEC}; fi; \

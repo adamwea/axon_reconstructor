@@ -12,6 +12,7 @@ from packaging import version as packaging_version
 
 IMPORTS: tuple[tuple[str, str], ...] = (
     ("axon_recon", "axon_recon"),
+    ("axon_velocity", "axon_velocity"),
     ("spikeinterface", "spikeinterface"),
     ("kilosort", "kilosort"),
     ("mpi4py", "mpi4py"),

@@ -17,6 +17,15 @@ except Exception:  # pragma: no cover - keep progress optional for minimal insta
 	_logging_redirect_tqdm = None
 
 
+def _root_uses_rich_handler() -> bool:
+	for handler in logging.getLogger().handlers:
+		module_name = str(getattr(handler.__class__, "__module__", "") or "")
+		class_name = str(getattr(handler.__class__, "__name__", "") or "")
+		if class_name == "RichHandler" or module_name.startswith("rich."):
+			return True
+	return False
+
+
 @dataclass(frozen=True)
 class ProgressSpec:
 	label: str
@@ -54,7 +63,8 @@ class PipelineProgress:
 		with self._lock:
 			if self._bar is not None:
 				return self
-			self._redirect_cm = _logging_redirect_tqdm() if _logging_redirect_tqdm is not None else nullcontext()
+			should_redirect_logging = _logging_redirect_tqdm is not None and not _root_uses_rich_handler()
+			self._redirect_cm = _logging_redirect_tqdm() if should_redirect_logging else nullcontext()
 			self._redirect_cm.__enter__()
 			self._bar = _tqdm(
 				total=int(self._total),
@@ -64,6 +74,11 @@ class PipelineProgress:
 				leave=True,
 				disable=None,
 			)
+			if _root_uses_rich_handler():
+				try:
+					_tqdm.write("", file=getattr(self._bar, "fp", None))
+				except Exception:
+					pass
 			if self._completed:
 				self._bar.update(int(self._completed))
 		return self

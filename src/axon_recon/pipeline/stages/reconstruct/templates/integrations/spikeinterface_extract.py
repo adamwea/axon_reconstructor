@@ -476,6 +476,7 @@ def _build_segment_analyzer_from_preprocessed_recording(
 		compute_kwargs: dict[str, Any] = {
 			"verbose": False,
 			"n_jobs": (1 if policy.n_jobs is None else int(policy.n_jobs)),
+			"progress_bar": False,
 		}
 		if str(policy.chunk_duration or "").strip() != "":
 			compute_kwargs["chunk_duration"] = str(policy.chunk_duration)
@@ -511,7 +512,7 @@ def _extract_unit_template(analyzer: Any, unit_id: Any) -> np.ndarray | None:
 
 	if not has_templates:
 		try:
-			analyzer.compute(["templates"], verbose=False, n_jobs=1)
+			analyzer.compute(["templates"], verbose=False, n_jobs=1, progress_bar=False)
 			has_templates = bool(analyzer.has_extension("templates"))
 		except Exception:
 			has_templates = False
@@ -870,6 +871,7 @@ def _try_recompute_waveforms_extension(
 		"extension_params": extension_params,
 		"verbose": False,
 		"n_jobs": (1 if compute_n_jobs is None else int(compute_n_jobs)),
+		"progress_bar": False,
 	}
 	if compute_chunk_duration not in {None, ""}:
 		compute_kwargs["chunk_duration"] = str(compute_chunk_duration)

@@ -332,18 +332,20 @@ def _read_well_rec_frame_nos_and_trigger_settings(*, h5_path: Path, stream_id: s
 
 
 @contextlib.contextmanager
-def _tee_stdout_to_file(out_path: Path):
+def _tee_stdout_to_file(out_path: Path, *, mirror_to_stdout: bool = True):
 	out_path = Path(out_path)
 	out_path.parent.mkdir(parents=True, exist_ok=True)
 	with _STDOUT_TEE_LOCK, open(out_path, "w", encoding="utf-8") as file_handle:
 
 		class _Tee(io.TextIOBase):
-			def __init__(self, terminal: Any, file_stream: Any):
+			def __init__(self, terminal: Any, file_stream: Any, *, mirror_to_stdout: bool):
 				self._terminal = terminal
 				self._file_stream = file_stream
+				self._mirror_to_stdout = bool(mirror_to_stdout)
 
 			def write(self, text: str) -> int:
-				self._terminal.write(text)
+				if self._mirror_to_stdout:
+					self._terminal.write(text)
 				try:
 					self._file_stream.write(text)
 				except Exception:
@@ -352,14 +354,15 @@ def _tee_stdout_to_file(out_path: Path):
 
 			def flush(self) -> None:
 				try:
-					self._terminal.flush()
+					if self._mirror_to_stdout:
+						self._terminal.flush()
 				finally:
 					try:
 						self._file_stream.flush()
 					except Exception:
 						pass
 
-		tee = _Tee(sys.stdout, file_handle)
+		tee = _Tee(sys.stdout, file_handle, mirror_to_stdout=mirror_to_stdout)
 		with contextlib.redirect_stdout(tee):
 			yield out_path
 
@@ -1079,7 +1082,7 @@ def run_save_rec_metadata_core(
 	_record_step_timer("write_sampling_metadata_json", write_sampling_metadata_timer_start, segment_count=int(len(sampling_segments)))
 	write_assay_stats_timer_start = time.perf_counter()
 	try:
-		with _tee_stdout_to_file(assay_stats_path) as written_path:
+		with _tee_stdout_to_file(assay_stats_path, mirror_to_stdout=False) as written_path:
 			print(
 				f"[axon_recon][DEBUG] assay_stats file: {written_path} (generated {dt.datetime.now(dt.timezone.utc).isoformat()})",
 				flush=True,

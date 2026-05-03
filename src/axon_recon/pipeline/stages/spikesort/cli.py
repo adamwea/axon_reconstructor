@@ -25,17 +25,20 @@ def register_spikesort_subparser(subparsers: argparse._SubParsersAction[argparse
 
 def _run_from_args(args: argparse.Namespace) -> int:
 	from ...runner import run_spikesort_from_runtime
-	from .orchestrators.sort import _print_spikesort_aggregate
+	from .orchestrators.sort import _debug_outputs_enabled_for_config, _emit_spikesort_aggregate
 
-	return _print_spikesort_aggregate(
+	config_path = str(args.config)
+
+	return _emit_spikesort_aggregate(
 		run_spikesort_from_runtime(
-			config_path=str(args.config),
+			config_path=config_path,
 				limit_segments_override=getattr(args, "limit_segments", None),
 			limit_datasets_override=getattr(args, "limit_datasets", None),
 			limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
-		)
+		),
+		debug_outputs=_debug_outputs_enabled_for_config(config_path),
 	)
 
 

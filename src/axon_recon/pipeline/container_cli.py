@@ -32,6 +32,7 @@ class WrapperOptions:
 	image: str = DEFAULT_IMAGE
 	container_cli: str = "docker"
 	gpu_request: str | None = None
+	shm_size: str | None = "8g"
 	repo_root: Path | None = None
 	repo_mode: str = "ro"
 	cache_dir: Path = field(default_factory=lambda: Path.home() / ".cache" / "axon-recon-container")
@@ -57,6 +58,8 @@ Wrapper options:
   --rebuild              Force a rebuild before running
   --dry-run              Print the resolved build/run commands without running them
 	--gpus SPEC            Pass Docker --gpus SPEC (default: AXON_RECON_CONTAINER_GPUS when set)
+	--shm-size SIZE        Pass Docker --shm-size SIZE (default: AXON_RECON_CONTAINER_SHM_SIZE or 8g)
+	--no-shm-size          Do not override Docker shared memory size
 	--no-gpus              Do not request container GPU access
   --repo-root PATH       Repo root to mount (default: git top-level or installed source root)
   --repo-writable        Mount the repo read-write instead of read-only
@@ -131,6 +134,7 @@ def _parse_options(argv: list[str]) -> WrapperOptions:
 		image=os.environ.get("AXON_RECON_CONTAINER_IMAGE", DEFAULT_IMAGE),
 		container_cli=os.environ.get("AXON_RECON_CONTAINER_CLI", "docker"),
 		gpu_request=(os.environ.get("AXON_RECON_CONTAINER_GPUS") or None),
+		shm_size=(os.environ.get("AXON_RECON_CONTAINER_SHM_SIZE") or "8g"),
 		cache_dir=Path(os.environ.get("AXON_RECON_CONTAINER_CACHE", Path.home() / ".cache" / "axon-recon-container")),
 		container_user=os.environ.get("AXON_RECON_CONTAINER_USER") or None,
 		config_mounts=_env_bool("AXON_RECON_CONTAINER_CONFIG_MOUNTS", True),
@@ -178,6 +182,20 @@ def _parse_options(argv: list[str]) -> WrapperOptions:
 			continue
 		if arg == "--no-gpus":
 			options.gpu_request = None
+			idx += 1
+			continue
+		if arg == "--shm-size":
+			idx += 1
+			if idx >= len(argv):
+				raise SystemExit("axon-recon-container: --shm-size requires a value")
+			shm_size = argv[idx].strip()
+			if not shm_size:
+				raise SystemExit("axon-recon-container: --shm-size requires a non-empty value")
+			options.shm_size = shm_size
+			idx += 1
+			continue
+		if arg == "--no-shm-size":
+			options.shm_size = None
 			idx += 1
 			continue
 		if arg == "--repo-root":
@@ -484,6 +502,8 @@ def _build_docker_run_command(*, repo_root: Path, options: WrapperOptions) -> li
 		cmd.append("-t")
 	if options.gpu_request:
 		cmd.extend(["--gpus", str(options.gpu_request)])
+	if options.shm_size:
+		cmd.extend(["--shm-size", str(options.shm_size)])
 
 	cmd.extend(
 		[

@@ -157,7 +157,7 @@ def _set_global_job_kwargs(*, si_module: Any, inputs: SpikesortInputs, logger: l
 		job_kwargs["n_jobs"] = int(inputs.n_jobs)
 	if inputs.chunk_duration is not None:
 		job_kwargs["chunk_duration"] = str(inputs.chunk_duration)
-	job_kwargs["progress_bar"] = bool(inputs.verbose and inputs.debug_outputs)
+	job_kwargs["progress_bar"] = bool(inputs.verbose)
 	if not job_kwargs:
 		return
 	set_global_job_kwargs = getattr(si_module, "set_global_job_kwargs", None)

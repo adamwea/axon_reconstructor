@@ -1598,7 +1598,7 @@ def run_spikesort_from_runtime(
 				label="spikesort wells",
 				total=len(targets),
 				unit="well",
-				enabled=bool(getattr(stage_config, "debug_outputs", False)),
+				enabled=True,
 			)
 		),
 		advance_progress_on_target_complete=True,

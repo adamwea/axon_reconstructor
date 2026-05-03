@@ -86,6 +86,56 @@ def test_suppress_spikesort_external_debug_output_keeps_file_handlers(tmp_path: 
         logger.propagate = original_propagate
 
 
+def test_suppress_spikesort_external_debug_output_preserves_rich_root_logs(tmp_path: Path) -> None:
+    logger = logging.getLogger("kilosort")
+    root = logging.getLogger()
+    original_handlers = list(logger.handlers)
+    original_level = logger.level
+    original_propagate = logger.propagate
+    original_root_handlers = list(root.handlers)
+    original_root_level = root.level
+    messages: list[str] = []
+
+    class RichHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            messages.append(self.format(record))
+
+    raw_stream = io.StringIO()
+    raw_handler = logging.StreamHandler(raw_stream)
+    file_path = tmp_path / "kilosort4.log"
+    file_handler = logging.FileHandler(file_path)
+    rich_handler = RichHandler()
+    rich_handler.setFormatter(logging.Formatter("%(message)s"))
+    root.handlers = [rich_handler]
+    root.setLevel(logging.INFO)
+    logger.handlers = [raw_handler, file_handler]
+    logger.setLevel(logging.INFO)
+    logger.propagate = True
+
+    try:
+        with suppress_spikesort_external_debug_output(enabled=False):
+            logger.info("kilosort rich line")
+        assert raw_stream.getvalue() == ""
+        assert messages == ["kilosort rich line"]
+        assert "kilosort rich line" in file_path.read_text(encoding="utf-8")
+    finally:
+        for handler in logger.handlers:
+            try:
+                handler.close()
+            except Exception:
+                pass
+        for handler in root.handlers:
+            try:
+                handler.close()
+            except Exception:
+                pass
+        logger.handlers = original_handlers
+        logger.setLevel(original_level)
+        logger.propagate = original_propagate
+        root.handlers = original_root_handlers
+        root.setLevel(original_root_level)
+
+
 def test_build_local_kilosort_kwargs_translates_shared_sorter_params() -> None:
     inputs = SpikesortInputs(
         h5_path=Path("test.h5"),

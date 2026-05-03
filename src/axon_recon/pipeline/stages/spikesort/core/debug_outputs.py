@@ -22,6 +22,15 @@ _CONSOLE_SUPPRESSED_LOGGER_NAMES: tuple[str, ...] = (
 )
 
 
+def _root_uses_rich_handler() -> bool:
+	for handler in logging.getLogger().handlers:
+		module_name = str(getattr(handler.__class__, "__module__", "") or "")
+		class_name = str(getattr(handler.__class__, "__name__", "") or "")
+		if class_name == "RichHandler" or module_name.startswith("rich."):
+			return True
+	return False
+
+
 def _logger_name_matches(*, logger_name: str, patterns: tuple[str, ...] | list[str] | set[str]) -> bool:
 	for pattern in patterns:
 		token = str(pattern).strip()
@@ -108,8 +117,9 @@ def suppress_spikesort_external_debug_output(*, enabled: bool) -> Iterator[None]
 		return
 	with contextlib.ExitStack() as stack:
 		suppressed_stream = io.StringIO()
-		stack.enter_context(contextlib.redirect_stdout(suppressed_stream))
-		stack.enter_context(contextlib.redirect_stderr(suppressed_stream))
+		if not _root_uses_rich_handler():
+			stack.enter_context(contextlib.redirect_stdout(suppressed_stream))
+			stack.enter_context(contextlib.redirect_stderr(suppressed_stream))
 		stack.enter_context(_temporarily_raise_logger_levels(_NOISY_DEBUG_LOGGER_LEVELS))
 		stack.enter_context(
 			_redirect_console_stream_handlers(

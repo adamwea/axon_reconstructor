@@ -1721,7 +1721,7 @@ def _build_recording_metadata_phase_payload(inputs: PreprocessInputs) -> dict[st
 	_write_json(contiguous_epochs_path, _json_ready(contiguous_epochs_payload))
 	_write_json(sampling_metadata_path, _json_ready(sampling_metadata_payload))
 	try:
-		with _tee_stdout_to_file(assay_stats_path) as written_path:
+		with _tee_stdout_to_file(assay_stats_path, mirror_to_stdout=False) as written_path:
 			print(
 				f"[axon_recon][DEBUG] assay_stats file: {written_path} "
 				f"(generated {dt.datetime.now(dt.timezone.utc).isoformat()})",

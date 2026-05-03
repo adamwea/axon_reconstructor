@@ -2950,59 +2950,60 @@ def _run_bombcell_label_phase(
 		payload["cached_sorter_output_dir"] = str(cached_sorter_output_dir)
 
 	try:
-		_log_phase_step_start(
-			"Bombcell label analyzer metrics step start",
-			well_out_dir=well_out_dir,
-			ks_dir=ks_dir,
-			canonical_ks_dir=(canonical_ks_dir if ks_dir != canonical_ks_dir else None),
-		)
-		si_module = _import_spikeinterface_full_module()
-		analyzer, loaded_analyzer_dir, analyzer_rebuilt, analyzer_regen_reason = _load_or_recompute_bombcell_sorting_analyzer(
-			si_module=si_module,
-			well_out_dir=well_out_dir,
-			bombcell_out_dir=bombcell_out_dir,
-			sorter_output_dir=effective_sorter_output_dir,
-			stage_config=stage_config,
-		)
-		payload["analyzer_dir"] = str(loaded_analyzer_dir)
-		payload["analyzer_rebuilt"] = bool(analyzer_rebuilt)
-		if analyzer_regen_reason is not None:
-			payload["analyzer_regen_reason"] = str(analyzer_regen_reason)
+		with suppress_spikesort_external_debug_output(enabled=bool(getattr(stage_config, "debug_outputs", False))):
+			_log_phase_step_start(
+				"Bombcell label analyzer metrics step start",
+				well_out_dir=well_out_dir,
+				ks_dir=ks_dir,
+				canonical_ks_dir=(canonical_ks_dir if ks_dir != canonical_ks_dir else None),
+			)
+			si_module = _import_spikeinterface_full_module()
+			analyzer, loaded_analyzer_dir, analyzer_rebuilt, analyzer_regen_reason = _load_or_recompute_bombcell_sorting_analyzer(
+				si_module=si_module,
+				well_out_dir=well_out_dir,
+				bombcell_out_dir=bombcell_out_dir,
+				sorter_output_dir=effective_sorter_output_dir,
+				stage_config=stage_config,
+			)
+			payload["analyzer_dir"] = str(loaded_analyzer_dir)
+			payload["analyzer_rebuilt"] = bool(analyzer_rebuilt)
+			if analyzer_regen_reason is not None:
+				payload["analyzer_regen_reason"] = str(analyzer_regen_reason)
 
-		computed_extensions = _ensure_bombcell_metric_extensions(
-			analyzer=analyzer,
-			stage_config=stage_config,
-		)
-		if computed_extensions:
-			payload["computed_extensions"] = list(computed_extensions)
+			computed_extensions = _ensure_bombcell_metric_extensions(
+				analyzer=analyzer,
+				stage_config=stage_config,
+			)
+			if computed_extensions:
+				payload["computed_extensions"] = list(computed_extensions)
 
-		curation_module = importlib.import_module("spikeinterface.curation")
-		bombcell_label_units = getattr(curation_module, "bombcell_label_units", None)
-		if not callable(bombcell_label_units):
-			raise RuntimeError("spikeinterface.curation.bombcell_label_units_unavailable")
+			curation_module = importlib.import_module("spikeinterface.curation")
+			bombcell_label_units = getattr(curation_module, "bombcell_label_units", None)
+			if not callable(bombcell_label_units):
+				raise RuntimeError("spikeinterface.curation.bombcell_label_units_unavailable")
 
-		thresholds_arg: Any = None
-		thresholds_dict = getattr(stage_config, "bombcell_label_thresholds", None)
-		thresholds_path_raw = getattr(stage_config, "bombcell_label_thresholds_path", None)
-		if isinstance(thresholds_dict, dict):
-			thresholds_arg = dict(thresholds_dict)
-		elif thresholds_path_raw is not None:
-			thresholds_path = Path(str(thresholds_path_raw)).expanduser()
-			if thresholds_path.is_absolute():
-				thresholds_arg = str(thresholds_path)
-			else:
-				candidate = (bombcell_out_dir / thresholds_path).resolve()
-				thresholds_arg = str(candidate if candidate.exists() else thresholds_path)
+			thresholds_arg: Any = None
+			thresholds_dict = getattr(stage_config, "bombcell_label_thresholds", None)
+			thresholds_path_raw = getattr(stage_config, "bombcell_label_thresholds_path", None)
+			if isinstance(thresholds_dict, dict):
+				thresholds_arg = dict(thresholds_dict)
+			elif thresholds_path_raw is not None:
+				thresholds_path = Path(str(thresholds_path_raw)).expanduser()
+				if thresholds_path.is_absolute():
+					thresholds_arg = str(thresholds_path)
+				else:
+					candidate = (bombcell_out_dir / thresholds_path).resolve()
+					thresholds_arg = str(candidate if candidate.exists() else thresholds_path)
 
-		labels_obj = bombcell_label_units(
-			sorting_analyzer=analyzer,
-			thresholds=thresholds_arg,
-			label_non_somatic=bool(getattr(stage_config, "bombcell_label_label_non_somatic", True)),
-			split_non_somatic_good_mua=bool(
-				getattr(stage_config, "bombcell_label_split_non_somatic_good_mua", True)
-			),
-			external_metrics=None,
-		)
+			labels_obj = bombcell_label_units(
+				sorting_analyzer=analyzer,
+				thresholds=thresholds_arg,
+				label_non_somatic=bool(getattr(stage_config, "bombcell_label_label_non_somatic", True)),
+				split_non_somatic_good_mua=bool(
+					getattr(stage_config, "bombcell_label_split_non_somatic_good_mua", True)
+				),
+				external_metrics=None,
+			)
 		labels_by_unit = _extract_bombcell_label_mapping(labels_obj)
 		if not labels_by_unit:
 			raise RuntimeError("bombcell_labels_empty")
@@ -3368,25 +3369,21 @@ def run_spikesort_bootstrap_concat_binary_stage(
 			"Spikesort bootstrap_concat_binary: common-electrode artifact not found at %s; concat will use each segment's full channel set",
 			str(common_electrodes_path),
 		)
-	with suppress_spikesort_external_debug_output(enabled=bool(getattr(stage_config, "debug_outputs", False))):
-		payload = run_concat_segments_core(
-			stream_id=str(stream_id),
-			segment_manifest_path=paths["segment_manifest_path"],
-			recording_dir=paths["recording_dir"],
-			concat_manifest_path=paths["concat_manifest_path"],
-			overwrite_saved_recording=bool(overwrite_saved_recording),
-			output_mode="binary",
-			n_jobs=max(1, int(n_jobs)),
-			chunk_duration=str(chunk_duration),
-			progress_bar=bool(
-				getattr(stage_config, "bootstrap_concat_binary_progress_bar", True)
-				and getattr(stage_config, "debug_outputs", False)
-			),
-			logger=LOGGER,
-			run_save_concatenated_recording_core=run_save_concatenated_recording_core,
-			common_electrodes=common_electrodes_for_concat,
-			limit_segments_per_well=limit_segments_per_well,
-		)
+	payload = run_concat_segments_core(
+		stream_id=str(stream_id),
+		segment_manifest_path=paths["segment_manifest_path"],
+		recording_dir=paths["recording_dir"],
+		concat_manifest_path=paths["concat_manifest_path"],
+		overwrite_saved_recording=bool(overwrite_saved_recording),
+		output_mode="binary",
+		n_jobs=max(1, int(n_jobs)),
+		chunk_duration=str(chunk_duration),
+		progress_bar=bool(getattr(stage_config, "bootstrap_concat_binary_progress_bar", True)),
+		logger=LOGGER,
+		run_save_concatenated_recording_core=run_save_concatenated_recording_core,
+		common_electrodes=common_electrodes_for_concat,
+		limit_segments_per_well=limit_segments_per_well,
+	)
 	binary_candidates = [
 		path
 		for pattern in ("traces_cached_seg*.raw", "*.raw", "recording.dat")
