@@ -91,6 +91,78 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-04 - pending - ai: tune profile io by bandwidth
+
+Status: accepted
+
+Summary:
+- Changed active profile IO slot recommendations from overlap-only sizing to bandwidth-utilization-aware sizing.
+- Added safe advisory disk bandwidth sampling during `--phase-tune`: temporary read/write sampling under the tuning output directory and source-H5 read sampling when source files are available.
+- Compared observed aggregate phase read/write rates against measured capacity and used that utilization to recommend profile slot increases for underuse or decreases for saturation.
+- Preserved slot-overlap metrics as diagnostics so recommendations still show observed concurrent demand.
+- Added disk bandwidth measurement and utilization sections to the tuning report and summary JSON.
+
+Guardrails Consulted:
+- `debug/parallelism_agent_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+
+Acceptance Criteria:
+- `--phase-tune` measures relevant disk capacity without mutating runtime YAML.
+- Profile `h5_read_slots` / `disk_heavy_slots` recommendations are based on observed bandwidth utilization when measurements are available.
+- Underused disk bandwidth can recommend increasing slots only when the selected run had more concurrent slot demand than the current profile allowed.
+- Saturated disk bandwidth can recommend decreasing slots when observed concurrent demand is reducible.
+- Slot-overlap metrics remain visible but are not the sole profile recommendation driver.
+
+Expected To Run:
+- Focused phase tuning unit tests for underused-bandwidth increase and saturated-bandwidth decrease cases.
+- Containerized focused and broad pipeline tests.
+- Limited real-data `preprocess.preprocess_segments --phase-tune` smoke.
+
+Confirmed Not Run:
+- Full dataset/well scope.
+- Runtime YAML mutation.
+- Destructive disk benchmarking outside the tuning artifact directory.
+- Push to remote.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_phase_tuning.py` passed with `5 passed`.
+- Container focused tests: `docker run --rm -w /opt/axon_reconstructor axon-recon:test python -m pytest src/axon_recon/pipeline/tests/test_phase_tuning.py` passed with `5 passed` after rebuilding the container from this source.
+- Container broad tests: `docker run --rm -w /opt/axon_reconstructor axon-recon:test python -m pytest src/axon_recon/pipeline/tests --ignore=src/axon_recon/pipeline/tests/test_progress.py` passed with `324 passed`.
+- Real-data smoke: `/home/adamm/miniconda3/envs/axon_recon/bin/axon-recon-container stages preprocess.preprocess_segments --config debug/debug.runtime.yml --phase-tune --limit-datasets 1 --limit-wells-per-dataset 1 --limit-segments 2 --force-restart` passed.
+- Logs inspected: latest smoke emitted `phase_tuning_profile_recommendation` with bandwidth utilization fields for run `debug.runtime-20260504T050354Z`.
+- Artifacts inspected: `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/resource_tuning/resource_tuning_report.md` includes `Disk Bandwidth Measurements` and `Disk Bandwidth Utilization`; summary JSON includes `disk_bandwidth_measurements` and bandwidth utilization values.
+- Diagnostics: VS Code diagnostics reported no errors for modified tuning source/test files.
+
+CLI / Debug Flag Impact:
+- No new CLI flags were added.
+- Existing `--phase-tune` now performs advisory disk bandwidth sampling by default; it remains configurable through `resources.tuning` keys.
+
+Logging / Parallelism Impact:
+- Profile recommendation logs now include `h5_read_utilization` and `disk_heavy_utilization`.
+- Runtime resource gates are unchanged; this is advisory tuning only.
+
+Storage / Cache Impact:
+- Creates and removes a temporary benchmark file under `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/resource_tuning` during tuning.
+- Reads a bounded sample from source H5 files when available.
+- Updated tuning artifacts under `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/resource_tuning`.
+
+Container / NERSC / MPI Impact:
+- Rebuilt local `axon-recon:local` from this source and refreshed disposable `axon-recon:test` for container tests.
+- No NERSC/MPI-specific behavior was changed.
+
+Resume / Force-Restart Impact:
+- No force-restart semantics were changed.
+
+Residual Risk And Follow-Ups:
+- Disk capacity sampling is a bounded benchmark and can be affected by OS cache, current storage load, NAS behavior, and sample size.
+- The smoke run observed very low process-level disk read counters for `preprocess_segments`, so H5 read utilization remained near zero despite source-H5 read capacity being measured.
+- Representative multi-target tuning is still needed before accepting profile slot changes for large runs.
+
+Rollback Notes:
+- Revert the disk benchmark helpers, bandwidth pressure calculation, profile recommendation changes, report additions, and focused tests from this slice to restore overlap-only profile IO advice.
+
 ## 2026-05-04 - pending - ai: recommend profile io slots
 
 Status: accepted

@@ -5,7 +5,9 @@ from datetime import datetime, timezone
 import json
 import logging
 import math
+import os
 from pathlib import Path
+import time
 from typing import Any, Iterable
 
 from axon_recon.runtime_config import RuntimeConfig
@@ -29,6 +31,12 @@ class PhaseTuningConfig:
 	ram_safety_factor: float = 1.5
 	cpu_safety_factor: float = 1.25
 	min_observations_for_underuse: int = 5
+	disk_benchmark_enabled: bool = True
+	disk_benchmark_size_mb: int = 64
+	disk_benchmark_chunk_mb: int = 4
+	disk_underuse_fraction: float = 0.50
+	disk_overuse_fraction: float = 0.90
+	disk_target_fraction: float = 0.75
 	require_limits_unless_confirmed: bool = True
 	write_recommendations: bool = True
 	update_runtime_yml: bool = False
@@ -70,6 +78,18 @@ def parse_phase_tuning_config(runtime_config: RuntimeConfig) -> PhaseTuningConfi
 	resources_block = _as_mapping(runtime_config.get("resources", None))
 	if not block:
 		block = _as_mapping(resources_block.get("tuning", None))
+	disk_underuse_fraction = max(
+		0.01,
+		min(0.95, _as_float(block.get("disk_underuse_fraction", 0.50), 0.50)),
+	)
+	disk_overuse_fraction = max(
+		disk_underuse_fraction,
+		min(2.0, _as_float(block.get("disk_overuse_fraction", 0.90), 0.90)),
+	)
+	disk_target_fraction = max(
+		disk_underuse_fraction,
+		min(disk_overuse_fraction, _as_float(block.get("disk_target_fraction", 0.75), 0.75)),
+	)
 	return PhaseTuningConfig(
 		output_relpath=str(block.get("output_relpath", "resource_tuning") or "resource_tuning"),
 		ram_safety_factor=max(1.0, _as_float(block.get("ram_safety_factor", 1.5), 1.5)),
@@ -78,6 +98,12 @@ def parse_phase_tuning_config(runtime_config: RuntimeConfig) -> PhaseTuningConfi
 			1,
 			_as_int(block.get("min_observations_for_underuse", 5), 5),
 		),
+		disk_benchmark_enabled=_as_bool(block.get("disk_benchmark_enabled", True), True),
+		disk_benchmark_size_mb=max(1, _as_int(block.get("disk_benchmark_size_mb", 64), 64)),
+		disk_benchmark_chunk_mb=max(1, _as_int(block.get("disk_benchmark_chunk_mb", 4), 4)),
+		disk_underuse_fraction=disk_underuse_fraction,
+		disk_overuse_fraction=disk_overuse_fraction,
+		disk_target_fraction=disk_target_fraction,
 		require_limits_unless_confirmed=_as_bool(block.get("require_limits_unless_confirmed", True), True),
 		write_recommendations=_as_bool(block.get("write_recommendations", True), True),
 		update_runtime_yml=_as_bool(block.get("update_runtime_yml", False), False),
@@ -268,6 +294,264 @@ def _max_overlapping_slot_demand(
 	return int(max_demand), interval_count
 
 
+def _nearest_existing_path(path: str | Path | None) -> Path | None:
+	if path is None:
+		return None
+	candidate = Path(path).expanduser()
+	for item in (candidate, *candidate.parents):
+		try:
+			if item.exists():
+				return item
+		except Exception:
+			continue
+	return None
+
+
+def _device_id_for_path(path: str | Path | None) -> str | None:
+	existing = _nearest_existing_path(path)
+	if existing is None:
+		return None
+	try:
+		return str(existing.stat().st_dev)
+	except Exception:
+		return None
+
+
+def _gb_per_s(byte_count: int, elapsed_s: float) -> float | None:
+	if byte_count <= 0 or elapsed_s <= 0:
+		return None
+	return float(byte_count) / float(elapsed_s) / float(1024**3)
+
+
+def _benchmark_file_read(path: Path, *, byte_count: int, chunk_bytes: int) -> tuple[float | None, int, str | None]:
+	try:
+		file_size = max(0, int(path.stat().st_size))
+	except Exception as exc:
+		return None, 0, f"read benchmark stat failed: {type(exc).__name__}: {exc}"
+	bytes_to_read = min(int(byte_count), int(file_size))
+	if bytes_to_read <= 0:
+		return None, 0, "read benchmark skipped because file is empty"
+	read_bytes = 0
+	started = time.perf_counter()
+	try:
+		with path.open("rb", buffering=0) as handle:
+			while read_bytes < bytes_to_read:
+				chunk = handle.read(min(int(chunk_bytes), int(bytes_to_read - read_bytes)))
+				if not chunk:
+					break
+				read_bytes += len(chunk)
+	except Exception as exc:
+		return None, int(read_bytes), f"read benchmark failed: {type(exc).__name__}: {exc}"
+	return _gb_per_s(read_bytes, max(0.0, time.perf_counter() - started)), int(read_bytes), None
+
+
+def _benchmark_directory_read_write(
+	directory: Path,
+	*,
+	byte_count: int,
+	chunk_bytes: int,
+) -> tuple[float | None, float | None, int, list[str], list[str]]:
+	notes: list[str] = []
+	warnings: list[str] = []
+	directory.mkdir(parents=True, exist_ok=True)
+	path = directory / f".axon_recon_phase_tune_io_{os.getpid()}.tmp"
+	chunk = b"\0" * int(chunk_bytes)
+	written_bytes = 0
+	write_started = time.perf_counter()
+	try:
+		with path.open("wb", buffering=0) as handle:
+			while written_bytes < int(byte_count):
+				to_write = min(int(chunk_bytes), int(byte_count) - int(written_bytes))
+				handle.write(chunk[:to_write])
+				written_bytes += int(to_write)
+			os.fsync(handle.fileno())
+	except Exception as exc:
+		warnings.append(f"write benchmark failed: {type(exc).__name__}: {exc}")
+		try:
+			path.unlink(missing_ok=True)
+		except Exception:
+			pass
+		return None, None, int(written_bytes), notes, warnings
+	write_gb_per_s = _gb_per_s(written_bytes, max(0.0, time.perf_counter() - write_started))
+	read_gb_per_s, read_bytes, read_warning = _benchmark_file_read(
+		path,
+		byte_count=min(int(byte_count), int(written_bytes)),
+		chunk_bytes=int(chunk_bytes),
+	)
+	if read_warning is not None:
+		warnings.append(read_warning)
+	elif read_bytes > 0:
+		notes.append("temporary-file read benchmark may be influenced by OS cache")
+	try:
+		path.unlink(missing_ok=True)
+	except Exception as exc:
+		warnings.append(f"temporary benchmark file cleanup failed: {type(exc).__name__}: {exc}")
+	return write_gb_per_s, read_gb_per_s, int(written_bytes), notes, warnings
+
+
+def collect_disk_bandwidth_measurements(
+	*,
+	run_root: str | Path,
+	tuning_config: PhaseTuningConfig,
+	observations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+	if not bool(tuning_config.disk_benchmark_enabled):
+		return []
+	benchmark_bytes = int(tuning_config.disk_benchmark_size_mb) * 1024 * 1024
+	chunk_bytes = int(tuning_config.disk_benchmark_chunk_mb) * 1024 * 1024
+	output_dir = (Path(run_root).expanduser() / tuning_config.output_relpath).resolve()
+	measurements: list[dict[str, Any]] = []
+	write_gb_per_s, read_gb_per_s, byte_count, notes, warnings = _benchmark_directory_read_write(
+		output_dir,
+		byte_count=benchmark_bytes,
+		chunk_bytes=chunk_bytes,
+	)
+	measurements.append(
+		{
+			"path": str(output_dir),
+			"path_kind": "run_output",
+			"device_id": _device_id_for_path(output_dir),
+			"read_capacity_gb_per_s": read_gb_per_s,
+			"write_capacity_gb_per_s": write_gb_per_s,
+			"benchmark_bytes": byte_count,
+			"notes": notes,
+			"warnings": warnings,
+		}
+	)
+	seen_source_devices = {str(measurements[0].get("device_id"))} if measurements[0].get("device_id") is not None else set()
+	for observation in observations:
+		source_path = observation.get("source_h5_path", None)
+		if source_path is None:
+			continue
+		existing = _nearest_existing_path(source_path)
+		if existing is None or not existing.is_file():
+			continue
+		device_id = _device_id_for_path(existing)
+		if device_id is not None and str(device_id) in seen_source_devices:
+			continue
+		read_capacity, read_bytes, read_warning = _benchmark_file_read(
+			existing,
+			byte_count=benchmark_bytes,
+			chunk_bytes=chunk_bytes,
+		)
+		measurement_notes: list[str] = []
+		measurement_warnings: list[str] = []
+		if read_warning is not None:
+			measurement_warnings.append(read_warning)
+		measurements.append(
+			{
+				"path": str(existing),
+				"path_kind": "source_h5",
+				"device_id": device_id,
+				"read_capacity_gb_per_s": read_capacity,
+				"write_capacity_gb_per_s": None,
+				"benchmark_bytes": read_bytes,
+				"notes": measurement_notes,
+				"warnings": measurement_warnings,
+			}
+		)
+		if device_id is not None:
+			seen_source_devices.add(str(device_id))
+	return measurements
+
+
+def _measurement_for_path(path: str | Path | None, measurements: list[dict[str, Any]]) -> dict[str, Any] | None:
+	if path is None:
+		return None
+	path_text = str(Path(path).expanduser())
+	for measurement in measurements:
+		if str(measurement.get("path", "")) == path_text:
+			return measurement
+	device_id = _device_id_for_path(path)
+	if device_id is not None:
+		for measurement in measurements:
+			if str(measurement.get("device_id", "")) == str(device_id):
+				return measurement
+	return None
+
+
+def _observation_interval(observation: dict[str, Any]) -> tuple[float, float] | None:
+	wall_time_s = _metric(observation.get("wall_time_s", None))
+	end_s = _timestamp_to_epoch_s(observation.get("timestamp", None))
+	if wall_time_s is None or wall_time_s <= 0 or end_s is None:
+		return None
+	return max(0.0, float(end_s) - float(wall_time_s)), float(end_s)
+
+
+def _disk_bandwidth_pressure_by_path(
+	*,
+	observations: list[dict[str, Any]],
+	run_root: str | Path | None,
+	disk_measurements: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+	if not disk_measurements:
+		return []
+	write_path = None if run_root is None else str(Path(run_root).expanduser())
+	events_by_path: dict[str, list[tuple[float, float, float]]] = {}
+	measurement_by_key: dict[str, dict[str, Any]] = {}
+	observation_counts: dict[str, int] = {}
+	for observation in observations:
+		interval = _observation_interval(observation)
+		if interval is None:
+			continue
+		start_s, end_s = interval
+		read_rate = _metric(observation.get("disk_read_gb_per_s", None)) or 0.0
+		write_rate = _metric(observation.get("disk_write_gb_per_s", None)) or 0.0
+		read_path = observation.get("source_h5_path", None) or write_path
+		for path, rate, is_read in ((read_path, read_rate, True), (write_path, write_rate, False)):
+			if path is None or rate <= 0:
+				continue
+			measurement = _measurement_for_path(path, disk_measurements)
+			if measurement is None:
+				continue
+			key = str(measurement.get("path") or path)
+			measurement_by_key[key] = measurement
+			observation_counts[key] = int(observation_counts.get(key, 0)) + 1
+			read_delta = float(rate) if is_read else 0.0
+			write_delta = 0.0 if is_read else float(rate)
+			events_by_path.setdefault(key, []).append((start_s, read_delta, write_delta))
+			events_by_path.setdefault(key, []).append((end_s, -read_delta, -write_delta))
+	pressure: list[dict[str, Any]] = []
+	for key, events in sorted(events_by_path.items()):
+		events.sort(key=lambda item: (float(item[0]), 0 if float(item[1] + item[2]) < 0 else 1))
+		active_read = 0.0
+		active_write = 0.0
+		max_read = 0.0
+		max_write = 0.0
+		max_combined_utilization: float | None = None
+		measurement = measurement_by_key[key]
+		read_capacity = _metric(measurement.get("read_capacity_gb_per_s", None))
+		write_capacity = _metric(measurement.get("write_capacity_gb_per_s", None))
+		for _event_time, read_delta, write_delta in events:
+			active_read = max(0.0, float(active_read) + float(read_delta))
+			active_write = max(0.0, float(active_write) + float(write_delta))
+			max_read = max(float(max_read), float(active_read))
+			max_write = max(float(max_write), float(active_write))
+			read_util = None if read_capacity is None or read_capacity <= 0 else float(active_read) / float(read_capacity)
+			write_util = None if write_capacity is None or write_capacity <= 0 else float(active_write) / float(write_capacity)
+			combined = sum(value for value in (read_util, write_util) if value is not None)
+			if read_util is not None or write_util is not None:
+				max_combined_utilization = max(float(max_combined_utilization or 0.0), float(combined))
+		max_read_utilization = None if read_capacity is None or read_capacity <= 0 else float(max_read) / float(read_capacity)
+		max_write_utilization = None if write_capacity is None or write_capacity <= 0 else float(max_write) / float(write_capacity)
+		pressure.append(
+			{
+				"path": key,
+				"path_kind": measurement.get("path_kind", None),
+				"device_id": measurement.get("device_id", None),
+				"read_capacity_gb_per_s": read_capacity,
+				"write_capacity_gb_per_s": write_capacity,
+				"max_observed_read_gb_per_s": max_read,
+				"max_observed_write_gb_per_s": max_write,
+				"max_read_utilization": max_read_utilization,
+				"max_write_utilization": max_write_utilization,
+				"max_combined_utilization": max_combined_utilization,
+				"observation_count": int(observation_counts.get(key, 0)),
+			}
+		)
+	return pressure
+
+
 def _recommend_for_group(
 	*,
 	resources: ResourcesConfig,
@@ -401,6 +685,8 @@ def _profile_io_slot_recommendation(
 	tuning_config: PhaseTuningConfig,
 	observations: list[dict[str, Any]],
 	recommendations: list[dict[str, Any]],
+	run_root: str | Path | None,
+	disk_measurements: list[dict[str, Any]],
 ) -> dict[str, Any]:
 	profile = get_active_resource_profile(resources)
 	profile_name = resources.active_profile
@@ -442,49 +728,94 @@ def _profile_io_slot_recommendation(
 		recommendations_by_group=recommendations_by_group,
 		demand_key="recommended_disk_heavy_slots",
 	)
+	disk_bandwidth_pressure = _disk_bandwidth_pressure_by_path(
+		observations=observations,
+		run_root=run_root,
+		disk_measurements=disk_measurements,
+	)
+	h5_read_utilization_values = [
+		float(item["max_read_utilization"])
+		for item in disk_bandwidth_pressure
+		if item.get("max_read_utilization", None) is not None
+	]
+	disk_heavy_utilization_values = [
+		float(item["max_combined_utilization"])
+		for item in disk_bandwidth_pressure
+		if item.get("max_combined_utilization", None) is not None
+	]
+	max_h5_read_bandwidth_utilization = max(h5_read_utilization_values, default=None)
+	max_disk_heavy_bandwidth_utilization = max(disk_heavy_utilization_values, default=None)
 
 	def _recommend_profile_slots(
 		*,
 		dimension: str,
 		current_slots: int,
 		observed_recommended_demand: int | None,
-		interval_count: int,
+		bandwidth_utilization: float | None,
 	) -> int:
 		if observed_recommended_demand is None or observed_recommended_demand <= 0:
 			notes.append(f"{dimension}: selected observations did not show slot-consuming demand")
 			return int(current_slots)
-		if int(observed_recommended_demand) > int(current_slots):
-			warnings.append(
-				f"{dimension}: observed concurrent phase demand would exceed the active profile after class recommendations"
-			)
-			return int(observed_recommended_demand)
-		if int(observed_recommended_demand) < int(current_slots):
-			if int(interval_count) >= int(tuning_config.min_observations_for_underuse):
+		if bandwidth_utilization is None:
+			notes.append(f"{dimension}: disk bandwidth capacity was unavailable; keeping current profile slots")
+			if int(observed_recommended_demand) > int(current_slots):
 				notes.append(
-					f"{dimension}: active profile may be overprovisioned for this representative tuning scope"
+					f"{dimension}: slot overlap demand exceeded profile capacity, but bandwidth utilization is needed before recommending a profile change"
 				)
-				return int(observed_recommended_demand)
-			notes.append(
-				f"{dimension}: observed demand was lower than the active profile, but observation count is too small for a lowering recommendation"
-			)
 			return int(current_slots)
-		notes.append(f"{dimension}: active profile matches observed concurrent phase demand for this tuning scope")
+		if float(bandwidth_utilization) < float(tuning_config.disk_underuse_fraction):
+			if int(observed_recommended_demand) <= int(current_slots):
+				notes.append(
+					f"{dimension}: disk bandwidth was underused, but profile slots already cover observed concurrent demand"
+				)
+				return int(current_slots)
+			scaled_candidate = int(
+				math.ceil(
+					max(1.0, float(current_slots or 1))
+					* float(tuning_config.disk_target_fraction)
+					/ max(0.01, float(bandwidth_utilization))
+				)
+			)
+			recommended = max(int(current_slots) + 1, min(int(observed_recommended_demand), int(scaled_candidate)))
+			notes.append(
+				f"{dimension}: disk bandwidth was underused; increasing slots may allow more concurrent IO work"
+			)
+			return int(recommended)
+		if float(bandwidth_utilization) > float(tuning_config.disk_overuse_fraction):
+			if int(current_slots) <= 1 or int(observed_recommended_demand) <= 1:
+				warnings.append(
+					f"{dimension}: disk bandwidth looked saturated, but current observed demand cannot be reduced below one slot"
+				)
+				return int(current_slots)
+			scaled_candidate = int(
+				math.floor(
+					float(current_slots)
+					* float(tuning_config.disk_target_fraction)
+					/ max(0.01, float(bandwidth_utilization))
+				)
+			)
+			recommended = max(1, min(int(current_slots) - 1, int(scaled_candidate)))
+			warnings.append(
+				f"{dimension}: disk bandwidth looked saturated; decreasing slots may reduce IO contention"
+			)
+			return int(recommended)
+		notes.append(f"{dimension}: observed disk bandwidth utilization is within the target range")
 		return int(current_slots)
 
 	recommended_profile_h5_read_slots = _recommend_profile_slots(
 		dimension="h5_read_slots",
 		current_slots=current_h5_read_slots,
 		observed_recommended_demand=recommended_h5_demand,
-		interval_count=recommended_h5_interval_count,
+		bandwidth_utilization=max_h5_read_bandwidth_utilization,
 	)
 	recommended_profile_disk_heavy_slots = _recommend_profile_slots(
 		dimension="disk_heavy_slots",
 		current_slots=current_disk_heavy_slots,
 		observed_recommended_demand=recommended_disk_demand,
-		interval_count=recommended_disk_interval_count,
+		bandwidth_utilization=max_disk_heavy_bandwidth_utilization,
 	)
 	if observations:
-		notes.append("profile slot recommendations use observed phase overlap in the selected tuning scope")
+		notes.append("profile slot recommendations compare observed phase IO rates with measured disk bandwidth")
 	return {
 		"profile": profile_name,
 		"current_h5_read_slots": current_h5_read_slots,
@@ -499,6 +830,9 @@ def _profile_io_slot_recommendation(
 		"max_recommended_disk_heavy_slot_demand": recommended_disk_demand,
 		"disk_heavy_interval_observations": disk_interval_count,
 		"recommended_disk_heavy_interval_observations": recommended_disk_interval_count,
+		"max_h5_read_bandwidth_utilization": max_h5_read_bandwidth_utilization,
+		"max_disk_heavy_bandwidth_utilization": max_disk_heavy_bandwidth_utilization,
+		"disk_bandwidth_pressure": disk_bandwidth_pressure,
 		"notes": notes,
 		"warnings": warnings,
 	}
@@ -511,6 +845,8 @@ def build_phase_tuning_summary(
 	observations: list[dict[str, Any]],
 	selected_stages: Iterable[str],
 	run_id: str | None,
+	run_root: str | Path | None = None,
+	disk_measurements: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
 	groups: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
 	for observation in observations:
@@ -535,6 +871,8 @@ def build_phase_tuning_summary(
 		tuning_config=tuning_config,
 		observations=observations,
 		recommendations=recommendations,
+		run_root=run_root,
+		disk_measurements=list(disk_measurements or []),
 	)
 	return {
 		"run_id": run_id,
@@ -542,6 +880,7 @@ def build_phase_tuning_summary(
 		"active_profile": resources.active_profile,
 		"active_profile_capacity": None if profile is None else profile.__dict__,
 		"active_profile_recommendation": active_profile_recommendation,
+		"disk_bandwidth_measurements": list(disk_measurements or []),
 		"observation_count": len(observations),
 		"recommendation_count": len(recommendations),
 		"update_runtime_yml": False,
@@ -574,12 +913,57 @@ def format_phase_tuning_report(summary: dict[str, Any]) -> str:
 				f"- max_current_disk_heavy_slot_demand: {profile_recommendation.get('max_current_disk_heavy_slot_demand')}",
 				f"- max_recommended_disk_heavy_slot_demand: {profile_recommendation.get('max_recommended_disk_heavy_slot_demand')}",
 				f"- disk_heavy_interval_observations: {profile_recommendation.get('recommended_disk_heavy_interval_observations')}",
+				f"- max_h5_read_bandwidth_utilization: {profile_recommendation.get('max_h5_read_bandwidth_utilization')}",
+				f"- max_disk_heavy_bandwidth_utilization: {profile_recommendation.get('max_disk_heavy_bandwidth_utilization')}",
 			]
 		)
 		for warning in profile_recommendation.get("warnings", []) or []:
 			lines.append(f"- warning: {warning}")
 		for note in profile_recommendation.get("notes", []) or []:
 			lines.append(f"- note: {note}")
+	lines.extend(["", "## Disk Bandwidth Measurements"])
+	measurements = summary.get("disk_bandwidth_measurements", []) or []
+	if not measurements:
+		lines.append("- none")
+	else:
+		for measurement in measurements:
+			if not isinstance(measurement, dict):
+				continue
+			lines.extend(
+				[
+					f"- path: {measurement.get('path')}",
+					f"  kind: {measurement.get('path_kind')}",
+					f"  read_capacity_gb_per_s: {measurement.get('read_capacity_gb_per_s')}",
+					f"  write_capacity_gb_per_s: {measurement.get('write_capacity_gb_per_s')}",
+					f"  benchmark_bytes: {measurement.get('benchmark_bytes')}",
+				]
+			)
+			for warning in measurement.get("warnings", []) or []:
+				lines.append(f"  warning: {warning}")
+			for note in measurement.get("notes", []) or []:
+				lines.append(f"  note: {note}")
+	lines.extend(["", "## Disk Bandwidth Utilization"])
+	pressure_items = []
+	if isinstance(profile_recommendation, dict):
+		pressure_items = list(profile_recommendation.get("disk_bandwidth_pressure", []) or [])
+	if not pressure_items:
+		lines.append("- none")
+	else:
+		for item in pressure_items:
+			if not isinstance(item, dict):
+				continue
+			lines.extend(
+				[
+					f"- path: {item.get('path')}",
+					f"  kind: {item.get('path_kind')}",
+					f"  max_observed_read_gb_per_s: {item.get('max_observed_read_gb_per_s')}",
+					f"  max_observed_write_gb_per_s: {item.get('max_observed_write_gb_per_s')}",
+					f"  max_read_utilization: {item.get('max_read_utilization')}",
+					f"  max_write_utilization: {item.get('max_write_utilization')}",
+					f"  max_combined_utilization: {item.get('max_combined_utilization')}",
+					f"  observation_count: {item.get('observation_count')}",
+				]
+			)
 	lines.extend(
 		[
 			"",
@@ -661,12 +1045,19 @@ def emit_phase_tuning_recommendations(
 			run_id=logging_config.run_id,
 			selected_stages=selected_stages,
 		)
+	disk_measurements = collect_disk_bandwidth_measurements(
+		run_root=logging_config.run_root,
+		tuning_config=tuning_config,
+		observations=observations,
+	)
 	summary = build_phase_tuning_summary(
 		resources=resources,
 		tuning_config=tuning_config,
 		observations=observations,
 		selected_stages=selected_stages,
 		run_id=logging_config.run_id,
+		run_root=logging_config.run_root,
+		disk_measurements=disk_measurements,
 	)
 	paths = write_phase_tuning_artifacts(
 		run_root=logging_config.run_root,
@@ -694,12 +1085,14 @@ def emit_phase_tuning_recommendations(
 	profile_recommendation = summary.get("active_profile_recommendation", {})
 	if isinstance(profile_recommendation, dict):
 		LOGGER.info(
-			"Resource profile tuning recommendation: profile=%s h5_read_slots=%s->%s disk_heavy_slots=%s->%s",
+			"Resource profile tuning recommendation: profile=%s h5_read_slots=%s->%s disk_heavy_slots=%s->%s h5_read_utilization=%s disk_heavy_utilization=%s",
 			profile_recommendation.get("profile") or "none",
 			profile_recommendation.get("current_h5_read_slots"),
 			profile_recommendation.get("recommended_h5_read_slots"),
 			profile_recommendation.get("current_disk_heavy_slots"),
 			profile_recommendation.get("recommended_disk_heavy_slots"),
+			profile_recommendation.get("max_h5_read_bandwidth_utilization"),
+			profile_recommendation.get("max_disk_heavy_bandwidth_utilization"),
 			extra={"event": "phase_tuning_profile_recommendation"},
 		)
 	LOGGER.info(
