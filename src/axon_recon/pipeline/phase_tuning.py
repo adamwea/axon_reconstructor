@@ -262,6 +262,13 @@ def _timestamp_to_epoch_s(value: Any) -> float | None:
 	return float(parsed.timestamp())
 
 
+def _fmt_float(value: Any, *, digits: int = 3) -> str:
+	parsed = _metric(value)
+	if parsed is None:
+		return "unavailable"
+	return f"{float(parsed):.{int(digits)}f}"
+
+
 def _max_overlapping_slot_demand(
 	*,
 	observations: list[dict[str, Any]],
@@ -754,19 +761,23 @@ def _profile_io_slot_recommendation(
 		bandwidth_utilization: float | None,
 	) -> int:
 		if observed_recommended_demand is None or observed_recommended_demand <= 0:
-			notes.append(f"{dimension}: selected observations did not show slot-consuming demand")
+			notes.append(
+				f"{dimension}: selected observations did not show slot-consuming demand; keeping current profile slots ({current_slots})"
+			)
 			return int(current_slots)
 		if bandwidth_utilization is None:
-			notes.append(f"{dimension}: disk bandwidth capacity was unavailable; keeping current profile slots")
+			notes.append(
+				f"{dimension}: disk bandwidth capacity was unavailable; keeping current profile slots ({current_slots})"
+			)
 			if int(observed_recommended_demand) > int(current_slots):
 				notes.append(
-					f"{dimension}: slot overlap demand exceeded profile capacity, but bandwidth utilization is needed before recommending a profile change"
+					f"{dimension}: peak recommended slot demand ({observed_recommended_demand}) exceeded current profile slots ({current_slots}), but bandwidth utilization is needed before recommending a profile change"
 				)
 			return int(current_slots)
 		if float(bandwidth_utilization) < float(tuning_config.disk_underuse_fraction):
 			if int(observed_recommended_demand) <= int(current_slots):
 				notes.append(
-					f"{dimension}: disk bandwidth was underused, but profile slots already cover observed concurrent demand"
+					f"{dimension}: disk bandwidth was underused (utilization={_fmt_float(bandwidth_utilization)} below underuse_threshold={_fmt_float(tuning_config.disk_underuse_fraction)}), but peak recommended slot demand ({observed_recommended_demand}) did not exceed current profile slots ({current_slots}); increasing {dimension} would not change this run. Increase selected target concurrency or inspect other limits if you expected more IO pressure."
 				)
 				return int(current_slots)
 			scaled_candidate = int(
@@ -778,13 +789,13 @@ def _profile_io_slot_recommendation(
 			)
 			recommended = max(int(current_slots) + 1, min(int(observed_recommended_demand), int(scaled_candidate)))
 			notes.append(
-				f"{dimension}: disk bandwidth was underused; increasing slots may allow more concurrent IO work"
+				f"{dimension}: disk bandwidth was underused (utilization={_fmt_float(bandwidth_utilization)} below underuse_threshold={_fmt_float(tuning_config.disk_underuse_fraction)}) and peak recommended slot demand ({observed_recommended_demand}) exceeded current profile slots ({current_slots}); recommend increasing to {recommended} so more IO work can run concurrently."
 			)
 			return int(recommended)
 		if float(bandwidth_utilization) > float(tuning_config.disk_overuse_fraction):
 			if int(current_slots) <= 1 or int(observed_recommended_demand) <= 1:
 				warnings.append(
-					f"{dimension}: disk bandwidth looked saturated, but current observed demand cannot be reduced below one slot"
+					f"{dimension}: disk bandwidth looked saturated (utilization={_fmt_float(bandwidth_utilization)} above overuse_threshold={_fmt_float(tuning_config.disk_overuse_fraction)}), but current observed demand cannot be reduced below one slot"
 				)
 				return int(current_slots)
 			scaled_candidate = int(
@@ -796,10 +807,12 @@ def _profile_io_slot_recommendation(
 			)
 			recommended = max(1, min(int(current_slots) - 1, int(scaled_candidate)))
 			warnings.append(
-				f"{dimension}: disk bandwidth looked saturated; decreasing slots may reduce IO contention"
+				f"{dimension}: disk bandwidth looked saturated (utilization={_fmt_float(bandwidth_utilization)} above overuse_threshold={_fmt_float(tuning_config.disk_overuse_fraction)}); recommend decreasing to {recommended} to reduce IO contention"
 			)
 			return int(recommended)
-		notes.append(f"{dimension}: observed disk bandwidth utilization is within the target range")
+		notes.append(
+			f"{dimension}: observed disk bandwidth utilization ({_fmt_float(bandwidth_utilization)}) is within the target range"
+		)
 		return int(current_slots)
 
 	recommended_profile_h5_read_slots = _recommend_profile_slots(
@@ -1095,6 +1108,46 @@ def emit_phase_tuning_recommendations(
 			profile_recommendation.get("max_disk_heavy_bandwidth_utilization"),
 			extra={"event": "phase_tuning_profile_recommendation"},
 		)
+		for item in profile_recommendation.get("disk_bandwidth_pressure", []) or []:
+			if not isinstance(item, dict):
+				continue
+			LOGGER.info(
+				"Resource profile disk bandwidth utilization: path=%s kind=%s read_gb_per_s=%s read_capacity_gb_per_s=%s read_utilization=%s write_gb_per_s=%s write_capacity_gb_per_s=%s write_utilization=%s combined_utilization=%s observations=%s",
+				item.get("path"),
+				item.get("path_kind"),
+				item.get("max_observed_read_gb_per_s"),
+				item.get("read_capacity_gb_per_s"),
+				item.get("max_read_utilization"),
+				item.get("max_observed_write_gb_per_s"),
+				item.get("write_capacity_gb_per_s"),
+				item.get("max_write_utilization"),
+				item.get("max_combined_utilization"),
+				item.get("observation_count"),
+				extra={
+					"event": "phase_tuning_disk_bandwidth_utilization",
+					"disk_bandwidth_pressure": item,
+				},
+			)
+		for warning in profile_recommendation.get("warnings", []) or []:
+			LOGGER.warning(
+				"Resource profile tuning warning: %s",
+				warning,
+				extra={
+					"event": "phase_tuning_profile_recommendation_warning",
+					"profile": profile_recommendation.get("profile"),
+					"recommendation_message": warning,
+				},
+			)
+		for note in profile_recommendation.get("notes", []) or []:
+			LOGGER.info(
+				"Resource profile tuning note: %s",
+				note,
+				extra={
+					"event": "phase_tuning_profile_recommendation_note",
+					"profile": profile_recommendation.get("profile"),
+					"recommendation_message": note,
+				},
+			)
 	LOGGER.info(
 		"Finished resource tuning run observations_written=%d summary_path=%s recommendations_path=%s",
 		len(observations),

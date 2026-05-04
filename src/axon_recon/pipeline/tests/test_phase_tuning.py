@@ -221,6 +221,75 @@ def test_build_phase_tuning_summary_recommends_active_profile_io_slot_increase_f
     assert "- disk_heavy_slots: 1 -> 3" in report
 
 
+def test_build_phase_tuning_summary_explains_flat_io_slots_when_bandwidth_underused_but_demand_covered() -> None:
+    runtime_config = RuntimeConfig(
+        {
+            "resources": {
+                "active_profile": "test_profile",
+                "profiles": {"test_profile": {"cpu_cores": 16, "ram_gb": 64, "h5_read_slots": 3, "disk_heavy_slots": 3}},
+                "phase_resource_classes": {
+                    "preprocess_segments": {"cpu_cores": 1, "ram_gb": 2, "h5_read_slots": 1, "disk_heavy_slots": 1}
+                },
+            }
+        }
+    )
+    resources = parse_resources_config(runtime_config=runtime_config)
+    observations = [
+        {
+            "timestamp": f"2026-05-04T00:00:1{index}+00:00",
+            "stage": "preprocess",
+            "phase": "preprocess_segments",
+            "resource_class": "preprocess_segments",
+            "source_h5_path": "/src/data.raw.h5",
+            "wall_time_s": 10.0,
+            "total_peak_rss_gb": 0.5,
+            "cpu_time_user_s": 1.0,
+            "cpu_time_system_s": 0.1,
+            "max_threads": 1,
+            "disk_read_gb": 0.2,
+            "disk_read_gb_per_s": 0.02,
+            "disk_write_gb": 0.2,
+            "disk_write_gb_per_s": 0.02,
+        }
+        for index in range(2)
+    ]
+
+    summary = build_phase_tuning_summary(
+        resources=resources,
+        tuning_config=PhaseTuningConfig(),
+        observations=observations,
+        selected_stages=["preprocess.preprocess_segments"],
+        run_id="run-a",
+        run_root="/out",
+        disk_measurements=[
+            {
+                "path": "/src/data.raw.h5",
+                "path_kind": "source_h5",
+                "device_id": "src",
+                "read_capacity_gb_per_s": 0.1,
+                "write_capacity_gb_per_s": None,
+            },
+            {
+                "path": "/out",
+                "path_kind": "run_output",
+                "device_id": "out",
+                "read_capacity_gb_per_s": 1.0,
+                "write_capacity_gb_per_s": 0.1,
+            },
+        ],
+    )
+    profile_recommendation = summary["active_profile_recommendation"]
+    notes = "\n".join(profile_recommendation["notes"])
+
+    assert profile_recommendation["max_recommended_h5_read_slot_demand"] == 2
+    assert profile_recommendation["max_recommended_disk_heavy_slot_demand"] == 2
+    assert profile_recommendation["recommended_h5_read_slots"] == 3
+    assert profile_recommendation["recommended_disk_heavy_slots"] == 3
+    assert "peak recommended slot demand (2) did not exceed current profile slots (3)" in notes
+    assert "increasing h5_read_slots would not change this run" in notes
+    assert "increasing disk_heavy_slots would not change this run" in notes
+
+
 def test_build_phase_tuning_summary_recommends_active_profile_io_slot_decrease_from_bandwidth_saturation() -> None:
     runtime_config = RuntimeConfig(
         {

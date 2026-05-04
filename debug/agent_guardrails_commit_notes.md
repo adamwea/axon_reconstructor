@@ -91,6 +91,69 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-04 - pending - ai: log profile io tuning reasons
+
+Status: accepted
+
+Summary:
+- Expanded active profile IO tuning notes so flat recommendations explain the limiting reason, including utilization thresholds, peak recommended slot demand, current profile slots, and why increasing slots would not change the observed run.
+- Emitted profile tuning notes and warnings as structured log events instead of only writing them to the report.
+- Emitted per-path disk bandwidth utilization records to logs so measured capacity and observed read/write utilization are visible in `pipeline.log` and `pipeline.jsonl`.
+
+Guardrails Consulted:
+- `debug/logging_agent_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+- `debug/cli_debug_flags_agent_guardrails.md`
+
+Acceptance Criteria:
+- The report explains why underused bandwidth can still produce flat profile slot recommendations.
+- `pipeline.jsonl` includes structured events for profile recommendation notes/warnings and disk bandwidth utilization.
+- `pipeline.log` includes the same human-readable notes for terminal/file auditability.
+- No runtime gating behavior or YAML mutation is changed.
+
+Expected To Run:
+- Focused phase tuning unit tests.
+- Container focused and broad pipeline tests.
+- Limited real-data `preprocess.preprocess_segments --phase-tune` smoke matching the confusing report shape.
+
+Confirmed Not Run:
+- Full dataset/well scope.
+- Runtime YAML mutation.
+- Push to remote.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_phase_tuning.py -q` passed with six focused tests.
+- Container focused tests: `docker run --rm -w /opt/axon_reconstructor axon-recon:test python -m pytest src/axon_recon/pipeline/tests/test_phase_tuning.py` passed with `6 passed`.
+- Container broad tests: `docker run --rm -w /opt/axon_reconstructor axon-recon:test python -m pytest src/axon_recon/pipeline/tests --ignore=src/axon_recon/pipeline/tests/test_progress.py` passed with `325 passed`.
+- Real-data smoke: `/home/adamm/miniconda3/envs/axon_recon/bin/axon-recon-container --gpus all stages preprocess.preprocess_segments --config debug/debug.runtime.yml --limit-segments 2 --limit-datasets 6 --limit-wells-per-dataset 1 --limit-units 15 --force-restart --phase-tune` passed.
+- Logs inspected: `pipeline.jsonl` has `phase_tuning_disk_bandwidth_utilization` and `phase_tuning_profile_recommendation_note` events for run `debug.runtime-20260504T052146Z`; `pipeline.log` includes the same note text.
+- Artifacts inspected: `resource_tuning_report.md` now includes the explicit note that peak demand `2` did not exceed current profile slots `3`, so increasing slots would not change the run.
+- Diagnostics: VS Code diagnostics reported no errors for modified tuning source/test files.
+
+CLI / Debug Flag Impact:
+- No CLI flag changes.
+
+Logging / Parallelism Impact:
+- Added `phase_tuning_disk_bandwidth_utilization`, `phase_tuning_profile_recommendation_note`, and `phase_tuning_profile_recommendation_warning` structured events.
+- Runtime resource gates and worker allocation behavior are unchanged.
+
+Storage / Cache Impact:
+- Updated tuning artifacts under `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/resource_tuning` during the smoke.
+- No cache deletion or runtime YAML mutation was performed.
+
+Container / NERSC / MPI Impact:
+- Rebuilt local `axon-recon:local` and refreshed disposable `axon-recon:test`.
+- No NERSC/MPI-specific behavior was changed.
+
+Resume / Force-Restart Impact:
+- No force-restart semantics were changed.
+
+Residual Risk And Follow-Ups:
+- The profile recommendation still correctly stays flat when observed slot demand does not exceed current profile slots; this entry only improves explanation/log visibility.
+
+Rollback Notes:
+- Revert the profile-note wording, added log events, and focused test from this slice to restore the previous shorter profile recommendation logs.
+
 ## 2026-05-04 - pending - ai: tune profile io by bandwidth
 
 Status: accepted
