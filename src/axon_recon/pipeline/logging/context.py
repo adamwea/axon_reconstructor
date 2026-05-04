@@ -27,6 +27,7 @@ CONTEXT_FIELDS: tuple[str, ...] = (
     "stage",
     "phase",
     "resource_class",
+    "source_h5_path",
     "output_path",
 )
 
@@ -104,6 +105,7 @@ def log_context_for_target(target: Any, *, stage: str | None = None, phase: str 
             "well_id": getattr(target, "stream_id", None),
             "stage": stage,
             "phase": phase,
+            "source_h5_path": source_path,
         }
     )
     if fields.get("dataset_name") is None and dataset_id is not None:

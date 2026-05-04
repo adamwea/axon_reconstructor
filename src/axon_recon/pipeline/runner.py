@@ -69,6 +69,10 @@ from .stages.reconstruct.config import (
 	parse_reconstruction_stage_config,
 )
 from .stages.reconstruct.models.results import ReconstructionResult, UnitReconstructionResult
+from .stages.reconstruct.runner import (
+	_display_reconstruct_stage_phase_name,
+	_reconstruct_stage_phase_resource_class,
+)
 from .stages.spikesort.api import (
 	bootstrap_spikesort_concat_binary,
 	cleanup_spikesort_concat_binary,
@@ -363,6 +367,41 @@ def _spikesort_phase_resource_classes_from_labels(
 		if resource_class is not None and str(resource_class).strip():
 			resource_classes.append(str(resource_class).strip())
 	return _unique_resource_classes(tuple(resource_classes))
+
+
+def _first_resource_class(resource_classes: list[str] | tuple[str, ...]) -> str | None:
+	classes = _unique_resource_classes(tuple(resource_classes))
+	return classes[0] if classes else None
+
+
+def _direct_target_label(target: Any) -> str:
+	return f"{getattr(target, 'dataset_index', 'unknown')}:{getattr(target, 'stream_id', 'unknown')}"
+
+
+def _run_direct_phase_with_resource_tracking(
+	*,
+	phase_name: str,
+	runner: Callable[[], Any],
+	resource_class: str | None,
+	pipeline_thread_count: int | None,
+	target: Any,
+) -> Any:
+	chain_result = run_phase_chain(
+		phases=[
+			PhaseDescriptor(
+				name=str(phase_name),
+				runner=runner,
+				resource_class=resource_class,
+				pipeline_thread_count=pipeline_thread_count,
+			)
+		],
+		logger=LOGGER,
+		target_label=_direct_target_label(target),
+		resource_key_context=target,
+	)
+	if chain_result.result is None:
+		raise RuntimeError(f"{phase_name} phase chain produced no result")
+	return chain_result.result
 
 
 def _reconstruct_runtime_phase_resource_classes(
@@ -2221,7 +2260,16 @@ def run_spikesort_summarize_sort_from_runtime(
 			n_jobs=_runtime_n_jobs_from_stage_config(stage_config, fallback_n_jobs=int(parallelism.unit_workers)),
 			n_jobs_source=str(n_jobs_source),
 		)
-		return summarize_spikesort(inputs)
+		return _run_direct_phase_with_resource_tracking(
+			phase_name="summarize_sort",
+			runner=lambda: summarize_spikesort(inputs),
+			resource_class=_first_resource_class(phase_resource_classes),
+			pipeline_thread_count=_runtime_n_jobs_from_stage_config(
+				stage_config,
+				fallback_n_jobs=int(parallelism.unit_workers),
+			),
+			target=target,
+		)
 
 	with stage_resource_budget_context(resource_budget_manager):
 		target_results = _distribute_runtime_targets(
@@ -2295,11 +2343,13 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 		limit_wells_attr=debug_limit_wells_attr,
 		limit_wells_per_dataset_attr=debug_limit_wells_per_dataset_attr,
 	)
+	phase_resource_classes = _spikesort_phase_resource_classes_from_labels(stage_config, (str(debug_phase_label),))
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,
 		stage_name="spikesort",
 		target_count=len(targets),
 		targets=targets,
+		phase_resource_classes=phase_resource_classes,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	runtime_stage_config = _stage_config_with_runtime_n_jobs(
@@ -2310,6 +2360,12 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 		runtime_stage_config,
 		fallback_n_jobs=int(parallelism.unit_workers),
 	)
+	resource_budget_manager = _build_stage_resource_budget_manager(
+		bundle=bundle,
+		parallelism=parallelism,
+		phase_resource_classes=phase_resource_classes,
+		target_count=len(targets),
+	)
 
 	def _worker(target):
 		_log_spikesort_phase_worker_allocation(
@@ -2319,23 +2375,30 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 			n_jobs=int(runtime_n_jobs),
 			n_jobs_source=str(n_jobs_source),
 		)
-		return runner_fn(
-			h5_path=target.h5_path,
-			stream_id=target.stream_id,
-			mea_output_root=target.mea_output_root,
-			output_rel_root=runtime_stage_config.output_rel_root,
-			stage_config=runtime_stage_config,
-			force_restart=bool(runtime_stage_config.force_restart or runtime_stage_config.force_replot),
+		return _run_direct_phase_with_resource_tracking(
+			phase_name=str(debug_phase_label),
+			runner=lambda: runner_fn(
+				h5_path=target.h5_path,
+				stream_id=target.stream_id,
+				mea_output_root=target.mea_output_root,
+				output_rel_root=runtime_stage_config.output_rel_root,
+				stage_config=runtime_stage_config,
+				force_restart=bool(runtime_stage_config.force_restart or runtime_stage_config.force_replot),
+			),
+			resource_class=_first_resource_class(phase_resource_classes),
+			pipeline_thread_count=int(runtime_n_jobs),
+			target=target,
 		)
 
-	target_results = _distribute_runtime_targets(
-		targets=targets,
-		parallelism=parallelism,
-		worker_fn=_worker,
-		stage_name=stage_name,
-		progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
-		advance_progress_on_target_complete=True,
-	)
+	with stage_resource_budget_context(resource_budget_manager):
+		target_results = _distribute_runtime_targets(
+			targets=targets,
+			parallelism=parallelism,
+			worker_fn=_worker,
+			stage_name=stage_name,
+			progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
+			advance_progress_on_target_complete=True,
+		)
 	if publish_after_run:
 		target_results = [_publish_spikesort_target_result(item, policy=publish_policy) for item in target_results]
 
@@ -2474,7 +2537,13 @@ def _run_spikesort_sort_from_runtime(
 		)
 
 		def _run_sort() -> SpikesortResult:
-			return run_spikesort(inputs)
+			return _run_direct_phase_with_resource_tracking(
+				phase_name="sort",
+				runner=lambda: run_spikesort(inputs),
+				resource_class=_first_resource_class(phase_resource_classes),
+				pipeline_thread_count=int(_runtime_n_jobs_from_stage_config(stage_config, fallback_n_jobs=int(parallelism.unit_workers))),
+				target=target,
+			)
 
 		return _run_spikesort_phase_with_optional_sort_gate(
 			phase_label="sort",
@@ -2676,26 +2745,32 @@ def run_spikesort_merge_from_runtime(
 			n_jobs=int(runtime_n_jobs),
 			n_jobs_source=str(n_jobs_source),
 		)
-		return run_spikesort_merge(
-			h5_path=target.h5_path,
-			stream_id=target.stream_id,
-			mea_output_root=target.mea_output_root,
-			output_rel_root=runtime_stage_config.output_rel_root,
-			stage_config=runtime_stage_config,
-			force_restart=bool(
-				getattr(
-					runtime_stage_config,
-					"merge_force_restart",
-					bool(runtime_stage_config.force_restart),
+		return _run_direct_phase_with_resource_tracking(
+			phase_name=str(debug_phase_label or "merge"),
+			runner=lambda: run_spikesort_merge(
+				h5_path=target.h5_path,
+				stream_id=target.stream_id,
+				mea_output_root=target.mea_output_root,
+				output_rel_root=runtime_stage_config.output_rel_root,
+				stage_config=runtime_stage_config,
+				force_restart=bool(
+					getattr(
+						runtime_stage_config,
+						"merge_force_restart",
+						bool(runtime_stage_config.force_restart),
+					)
+				),
+				force_replot=bool(
+					getattr(
+						runtime_stage_config,
+						"merge_force_replot",
+						bool(runtime_stage_config.force_replot),
+					)
 				)
 			),
-			force_replot=bool(
-				getattr(
-					runtime_stage_config,
-					"merge_force_replot",
-					bool(runtime_stage_config.force_replot),
-				)
-			),
+			resource_class=_first_resource_class(phase_resource_classes),
+			pipeline_thread_count=int(runtime_n_jobs),
+			target=target,
 		)
 
 	with stage_resource_budget_context(resource_budget_manager):
@@ -2796,13 +2871,19 @@ def run_spikesort_bombcell_label_from_runtime(
 			n_jobs=int(runtime_n_jobs),
 			n_jobs_source=str(n_jobs_source),
 		)
-		return run_spikesort_bombcell(
-			h5_path=target.h5_path,
-			stream_id=target.stream_id,
-			mea_output_root=target.mea_output_root,
-			output_rel_root=runtime_stage_config.output_rel_root,
-			stage_config=runtime_stage_config,
-			force_restart=bool(runtime_stage_config.force_restart),
+		return _run_direct_phase_with_resource_tracking(
+			phase_name="bombcell_label",
+			runner=lambda: run_spikesort_bombcell(
+				h5_path=target.h5_path,
+				stream_id=target.stream_id,
+				mea_output_root=target.mea_output_root,
+				output_rel_root=runtime_stage_config.output_rel_root,
+				stage_config=runtime_stage_config,
+				force_restart=bool(runtime_stage_config.force_restart),
+			),
+			resource_class=_first_resource_class(phase_resource_classes),
+			pipeline_thread_count=int(runtime_n_jobs),
+			target=target,
 		)
 
 	with stage_resource_budget_context(resource_budget_manager):
@@ -2971,7 +3052,17 @@ def _run_reconstruct_substage_from_runtime(
 				probe_geometry=probe_geometry,
 			)
 			inputs = replace(inputs, templates_inputs=templates_inputs)
-		result = runner_fn(inputs)
+		if str(stage_name).strip() == "reconstruct":
+			result = runner_fn(inputs)
+		else:
+			direct_phase_name = str(stage_name).split(".", 1)[1] if "." in str(stage_name) else str(stage_name)
+			result = _run_direct_phase_with_resource_tracking(
+				phase_name=_display_reconstruct_stage_phase_name(direct_phase_name),
+				runner=lambda: runner_fn(inputs),
+				resource_class=_reconstruct_stage_phase_resource_class(inputs, direct_phase_name),
+				pipeline_thread_count=int(parallelism.unit_workers),
+				target=target,
+			)
 		return _raise_reconstruct_unit_failures(stage_name=stage_name, result=result)
 
 	with stage_resource_budget_context(resource_budget_manager):

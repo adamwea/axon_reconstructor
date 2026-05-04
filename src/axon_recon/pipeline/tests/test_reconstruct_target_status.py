@@ -32,6 +32,65 @@ from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionI
 from axon_recon.pipeline.stages.reconstruct.models.results import ReconstructionResult, UnitReconstructionResult
 
 
+def test_run_reconstruct_direct_phase_wraps_resource_chain(monkeypatch, tmp_path: Path) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    target = ExecutionTarget(
+        dataset_index=0,
+        dataset_id="dataset_000:test.h5",
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+    )
+    dummy_inputs = ReconstructionInputs(
+        h5_path=target.h5_path,
+        stream_id=target.stream_id,
+        mea_output_root=target.mea_output_root,
+    )
+    seen_descriptors: list[object] = []
+
+    class _DummyBundle:
+        runtime_config = object()
+        data_config = object()
+
+    def _fake_run_phase_chain(*, phases, logger, target_label, resource_key_context):
+        _ = logger, target_label, resource_key_context
+        descriptor = list(phases)[0]
+        seen_descriptors.append(descriptor)
+        return SimpleNamespace(result=descriptor.runner(), outcomes=())
+
+    def _fake_generate_gtrs(inputs: ReconstructionInputs):
+        assert inputs is dummy_inputs
+        return {
+            "phase": "generate_gtrs",
+            "summary_json": str(tmp_path / "generate_gtrs_summary.json"),
+            "units_ok": 1,
+            "units_error": 0,
+            "units": [{"unit_id": 94, "status": "ok", "outputs": {}, "error": None}],
+        }
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", lambda *, config_path: _DummyBundle())
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", lambda *, bundle, **kwargs: [target])
+    monkeypatch.setattr(
+        pipeline_runner,
+        "resolve_stage_parallelism",
+        lambda **kwargs: StageParallelism(max_workers=3, max_stage_workers=3, well_workers=1, unit_workers=3),
+    )
+    monkeypatch.setattr(pipeline_runner, "parse_probe_geometry_from_data_config", lambda *, data_config: None)
+    monkeypatch.setattr(pipeline_runner, "parse_reconstruction_stage_config", lambda **kwargs: object())
+    monkeypatch.setattr(pipeline_runner, "build_reconstruction_inputs_for_target", lambda **kwargs: dummy_inputs)
+    monkeypatch.setattr(pipeline_runner, "run_reconstruct_generate_gtrs", _fake_generate_gtrs)
+    monkeypatch.setattr(pipeline_runner, "run_phase_chain", _fake_run_phase_chain)
+
+    agg = run_reconstruct_generate_gtrs_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+
+    assert agg.succeeded_targets == 1
+    assert seen_descriptors
+    descriptor = seen_descriptors[0]
+    assert descriptor.name == "generate_gtrs"
+    assert descriptor.pipeline_thread_count == 3
+
+
 def test_run_reconstruct_from_runtime_marks_target_ok_when_any_unit_succeeds(monkeypatch, tmp_path: Path) -> None:
     import axon_recon.pipeline.runner as pipeline_runner
 

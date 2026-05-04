@@ -224,6 +224,23 @@ def test_build_parser_supports_stage_command_alias() -> None:
     assert args.force_restart is True
 
 
+def test_build_parser_supports_phase_tune_flags() -> None:
+    parser = pipeline_cli.build_parser()
+    args = parser.parse_args(
+        [
+            "stages",
+            "reconstruct.plot_templates",
+            "--config",
+            "/tmp/runtime.yml",
+            "--phase-tune",
+            "--confirm-full-scope",
+        ]
+    )
+
+    assert args.phase_tune is True
+    assert args.confirm_full_scope is True
+
+
 def test_build_parser_supports_reconstruct_subparser_dataset_limit_flags() -> None:
     from axon_recon.pipeline.stages.reconstruct import cli as reconstruct_cli
 
@@ -307,6 +324,59 @@ def test_main_runs_selected_stages_in_order(monkeypatch, tmp_path: Path) -> None
         ("preprocess", "preprocess", True),
         ("spikesort", "spikesort", True),
     ]
+
+
+def test_phase_tune_rejects_unlimited_scope_before_running_stage(monkeypatch, tmp_path: Path) -> None:
+    runtime_cfg = tmp_path / "runtime.yml"
+    _write_runtime_cfg(runtime_cfg)
+    calls: list[str] = []
+
+    def _handler(args):
+        calls.append(str(getattr(args, "stage", "")))
+        return 0
+
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "preprocess", _handler)
+
+    rc = pipeline_cli.main(["stages", "preprocess", "--config", str(runtime_cfg), "--phase-tune"])
+
+    assert rc == 2
+    assert calls == []
+
+
+def test_phase_tune_runs_stage_then_emits_recommendations(monkeypatch, tmp_path: Path) -> None:
+    from axon_recon.pipeline import phase_tuning
+
+    runtime_cfg = tmp_path / "runtime.yml"
+    _write_runtime_cfg(runtime_cfg)
+    calls: list[str] = []
+    emitted: list[tuple[str, tuple[str, ...]]] = []
+
+    def _handler(args):
+        calls.append(str(getattr(args, "stage", "")))
+        return 0
+
+    def _fake_emit_phase_tuning_recommendations(*, config_path: str, selected_stages):
+        emitted.append((str(config_path), tuple(selected_stages)))
+        return {"summary": {}, "paths": {}}
+
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "preprocess", _handler)
+    monkeypatch.setattr(phase_tuning, "emit_phase_tuning_recommendations", _fake_emit_phase_tuning_recommendations)
+
+    rc = pipeline_cli.main(
+        [
+            "stages",
+            "preprocess",
+            "--config",
+            str(runtime_cfg),
+            "--phase-tune",
+            "--limit-datasets",
+            "1",
+        ]
+    )
+
+    assert rc == 0
+    assert calls == ["preprocess"]
+    assert emitted == [(str(runtime_cfg), ("preprocess",))]
 
 
 def test_main_runs_mixed_stage_and_reconstruct_phase_selector(monkeypatch, tmp_path: Path) -> None:

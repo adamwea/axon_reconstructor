@@ -326,6 +326,16 @@ def _register_stage_sequence_parser(
 		help="Optional comma-separated list of unit ids",
 	)
 	_register_debug_limit_arguments(parser)
+	parser.add_argument(
+		"--phase-tune",
+		action="store_true",
+		help="Run selected stages/phases normally, then write advisory resource-class tuning recommendations from phase resource logs",
+	)
+	parser.add_argument(
+		"--confirm-full-scope",
+		action="store_true",
+		help="Allow --phase-tune without debug limit flags",
+	)
 	parser.set_defaults(handler=_run_stage_sequence_from_args)
 
 
@@ -372,9 +382,41 @@ def _parse_stage_list_tokens(raw_tokens: list[str]) -> list[str]:
 	return dedup
 
 
+def _phase_tune_has_scope_limits(args: argparse.Namespace) -> bool:
+	if getattr(args, "limit_segments", None) is not None:
+		return True
+	if getattr(args, "limit_datasets", None) is not None:
+		return True
+	if getattr(args, "limit_wells_per_dataset", None) is not None:
+		return True
+	if getattr(args, "limit_units", None) is not None:
+		return True
+	if getattr(args, "unit_id", None) is not None:
+		return True
+	if getattr(args, "unit_ids", None) is not None:
+		return True
+	return False
+
+
 def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 	stage_list = _parse_stage_list_tokens(list(getattr(args, "stages", []) or []))
 	logger = logging.getLogger("axon_recon.pipeline.stages")
+	if bool(getattr(args, "phase_tune", False)):
+		if not _phase_tune_has_scope_limits(args) and not bool(getattr(args, "confirm_full_scope", False)):
+			logger.error(
+				"--phase-tune requires at least one limit flag unless --confirm-full-scope is provided",
+				extra={"event": "phase_tuning_scope_rejected"},
+			)
+			return 2
+		logger.info(
+			"Starting resource tuning run stages=%s limits={datasets:%s,wells_per_dataset:%s,segments:%s,units:%s}",
+			stage_list,
+			getattr(args, "limit_datasets", None),
+			getattr(args, "limit_wells_per_dataset", None),
+			getattr(args, "limit_segments", None),
+			getattr(args, "limit_units", None),
+			extra={"event": "phase_tuning_started"},
+		)
 
 	for stage_name in stage_list:
 		handler = _STAGE_HANDLERS.get(stage_name)
@@ -390,6 +432,14 @@ def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 				logger.error("stages: stage %s failed with code %d", stage_name, rc, extra={"event": "stage_failed"})
 				return rc
 			logger.info("stages: completed %s", stage_name, extra={"event": "stage_completed"})
+
+	if bool(getattr(args, "phase_tune", False)):
+		from .phase_tuning import emit_phase_tuning_recommendations
+
+		emit_phase_tuning_recommendations(
+			config_path=str(getattr(args, "config")),
+			selected_stages=stage_list,
+		)
 
 	return 0
 

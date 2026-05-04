@@ -91,6 +91,84 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-04 - pending - ai: add phase resource tuning
+
+Status: accepted
+
+Summary:
+- Added `--phase-tune` and `--confirm-full-scope` to stage-sequence CLI runs so selected phases can emit advisory resource-class tuning outputs after a successful limited run.
+- Added advisory phase tuning artifacts from actual `phase_resource_usage` records, including RAM, planned CPU, observed native thread diagnostics, and observed read/write throughput.
+- Added `source_h5_path` to structured log context for source-keyed tuning analysis.
+- Wrapped direct spikesort and reconstruct phase selectors in the shared one-phase resource chain so direct enabled phases emit standardized resource telemetry like full-stage phases.
+- Kept tuning advisory-only; runtime YAML is not modified automatically.
+
+Guardrails Consulted:
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+- `debug/optimization_simplificaiton_guardrails.md`
+- `debug/first_version_pipeline_guardrails.md`
+
+Acceptance Criteria:
+- Enabled phase selectors across preprocess, spikesort, and reconstruct emit resource usage logs when run directly or as part of a stage chain.
+- `--phase-tune` runs the selected limited scope first, then bases recommendations on actual current-run resource telemetry.
+- Full-scope phase tuning is refused unless `--confirm-full-scope` is provided.
+- CPU/RAM recommendations are conservative and do not raise CPU for small measurement jitter around an already-covered one-core phase.
+- Disk recommendations use observed phase read/write throughput and clearly avoid destructive benchmarking.
+
+Expected To Run:
+- Direct phase resource telemetry wrappers for direct spikesort phase selectors and direct reconstruct phase selectors.
+- Advisory artifact generation for selected stages/phases with emitted `phase_resource_usage` records.
+- Container tests and a limited real-data phase-tune smoke.
+
+Confirmed Not Run:
+- Full dataset/well scope without explicit confirmation.
+- Automatic runtime YAML mutation.
+- Destructive disk benchmarking.
+- Push to remote.
+
+Validation:
+- Focused tests: `docker run --rm -w /opt/axon_reconstructor axon-recon:test python -m pytest src/axon_recon/pipeline/tests/test_phase_tuning.py src/axon_recon/pipeline/tests/test_cli_stage_sequence.py src/axon_recon/pipeline/tests/test_spikesort_target_status.py::test_run_spikesort_sort_from_runtime_wraps_direct_phase_in_resource_chain src/axon_recon/pipeline/tests/test_reconstruct_target_status.py::test_run_reconstruct_direct_phase_wraps_resource_chain` passed with `132 passed`.
+- Broad tests: `docker run --rm -w /opt/axon_reconstructor axon-recon:test python -m pytest src/axon_recon/pipeline/tests --ignore=src/axon_recon/pipeline/tests/test_progress.py` passed with `322 passed`.
+- Real-data smoke: `/home/adamm/miniconda3/envs/axon_recon/bin/axon-recon-container stages preprocess.save_rec_metadata --config debug/debug.runtime.yml --phase-tune --limit-datasets 1 --limit-wells-per-dataset 1 --limit-segments 2` passed.
+- Logs inspected: latest structured log recorded `phase_resource_usage` for `preprocess.save_rec_metadata.save_rec_metadata` and `phase_tuning_recommendation` with `cpu_cores=1->1`.
+- Artifacts inspected: `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/resource_tuning/resource_usage_observations.jsonl`, `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/resource_tuning/resource_tuning_summary.json`, and `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/resource_tuning/resource_tuning_report.md` for run `debug.runtime-20260504T035459Z`.
+- Diagnostics: VS Code diagnostics reported no errors for modified source/test files.
+- Not run: full pipeline real-data phase tuning; earlier host all-stage smoke was intentionally not treated as validation because host Kilosort dependencies were missing and the run was interrupted.
+
+CLI / Debug Flag Impact:
+- Stage sequence parsers now accept `--phase-tune` and `--confirm-full-scope`.
+- `--phase-tune` requires an explicit scope limit or full-scope confirmation before stages run.
+- Existing debug limit flags continue to define the phase-tuning observation scope.
+
+Logging / Parallelism Impact:
+- Direct spikesort/reconstruct phase selectors now pass through `run_phase_chain` with phase resource classes and pipeline thread counts.
+- Phase tuning consumes structured `phase_resource_usage` records and writes `phase_tuning_started`, `phase_tuning_recommendation`, and `phase_tuning_completed` log events.
+- Source H5 path is now part of log context for keyed IO/resource analysis.
+
+Storage / Cache Impact:
+- Created/updated tuning artifacts under `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/resource_tuning`.
+- Updated structured pipeline logs under `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/logs`.
+- No cache deletion or runtime YAML mutation was performed.
+
+Container / NERSC / MPI Impact:
+- Rebuilt local `axon-recon:local` from this source.
+- Recreated disposable `axon-recon:test` by installing pytest on top of the rebuilt local image for containerized tests.
+- No NERSC/MPI-specific behavior was changed.
+
+Resume / Force-Restart Impact:
+- No force-restart semantics were intentionally changed.
+- Phase tuning observes the completed selected run and can be repeated; artifacts are overwritten with the latest tuning summary/report.
+
+Residual Risk And Follow-Ups:
+- Full-suite collection still has an unrelated existing `src/axon_recon/pipeline/tests/test_progress.py` `TabError`, so broad pipeline tests were run with that file ignored.
+- Preprocess direct phase console messages still display the stage-qualified phase name as `preprocess.save_rec_metadata.save_rec_metadata`; the tuning report de-duplicates that heading.
+- Current disk IO guidance is based on process-level read/write counters, not a standalone disk capability benchmark.
+
+Rollback Notes:
+- Revert the phase tuning module, CLI flags, logging context field, direct resource-chain wrappers, and associated tests from this slice to restore previous telemetry/tuning behavior.
+
 ## 2026-05-04 - pending - ai: honor spikesort and reconstruct debug limits
 
 Status: accepted

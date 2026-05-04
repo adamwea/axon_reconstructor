@@ -34,6 +34,81 @@ from axon_recon.pipeline.stages.spikesort.models.results import (
 )
 
 
+def test_run_spikesort_sort_from_runtime_wraps_direct_phase_in_resource_chain(monkeypatch, tmp_path: Path) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    target = ExecutionTarget(
+        dataset_index=0,
+        dataset_id="dataset_000:test.h5",
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+    )
+    result = SpikesortResult(
+        well_out_dir=tmp_path / "well_out",
+        spikesort_out_dir=tmp_path / "well_out" / "spikesort_outputs",
+        summary_json=tmp_path / "sort_summary.json",
+        outputs={},
+    )
+    seen_descriptors: list[object] = []
+
+    class _DummyBundle:
+        runtime_config = RuntimeConfig(
+            {
+                "resources": {
+                    "active_profile": "test_profile",
+                    "profiles": {"test_profile": {"cpu_cores": 8, "ram_gb": 32}},
+                    "phase_resource_classes": {"sort_class": {"cpu_cores": 4, "ram_gb": 12}},
+                }
+            }
+        )
+        data_config = RuntimeConfig({"publish_outputs": False})
+
+    def _fake_run_phase_chain(*, phases, logger, target_label, resource_key_context):
+        _ = logger, target_label, resource_key_context
+        descriptor = list(phases)[0]
+        seen_descriptors.append(descriptor)
+        return SimpleNamespace(result=descriptor.runner(), outcomes=())
+
+    def _fake_distribute_targets(*, targets, worker_fn, **kwargs):
+        return [TargetStageResult(target=item, status="ok", result=worker_fn(item)) for item in targets]
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", lambda *, config_path: _DummyBundle())
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", lambda *, bundle, **kwargs: [target])
+    monkeypatch.setattr(
+        pipeline_runner,
+        "resolve_stage_parallelism",
+        lambda **kwargs: StageParallelism(max_workers=4, max_stage_workers=4, well_workers=1, unit_workers=4),
+    )
+    monkeypatch.setattr(
+        pipeline_runner,
+        "parse_spikesort_stage_config",
+        lambda **kwargs: SimpleNamespace(
+            debug_limit_datasets=None,
+            debug_limit_wells=None,
+            debug_limit_wells_per_dataset=None,
+            sort_debug_mode_enabled=False,
+            sort_resource_class="sort_class",
+            output_rel_root="spikesort_outputs",
+            force_restart=False,
+            force_replot=False,
+        ),
+    )
+    monkeypatch.setattr(pipeline_runner, "build_spikesort_inputs_for_target", lambda **kwargs: SimpleNamespace())
+    monkeypatch.setattr(pipeline_runner, "run_spikesort", lambda inputs: result)
+    monkeypatch.setattr(pipeline_runner, "run_phase_chain", _fake_run_phase_chain)
+    monkeypatch.setattr(pipeline_runner, "distribute_targets", _fake_distribute_targets)
+
+    agg = run_spikesort_sort_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+
+    assert agg.succeeded_targets == 1
+    assert seen_descriptors
+    descriptor = seen_descriptors[0]
+    assert descriptor.name == "sort"
+    assert descriptor.resource_class == "sort_class"
+    assert descriptor.pipeline_thread_count == 4
+
+
 @pytest.mark.parametrize(
     ("orchestrator", "entry_name", "runtime_name"),
     [
