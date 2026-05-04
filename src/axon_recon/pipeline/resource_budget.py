@@ -192,29 +192,52 @@ class ResourceBudgetManager:
 						],
 					}
 				if logger is not None and not wait_logged:
+					available_slot_budget = {
+						str(dimension): int(self._available_slot_budget.get(str(dimension), 0))
+						for dimension in sorted(slot_demands)
+					}
+					keyed_request_payload = {
+						str(resource_name): {"key": str(key_value), "demand": int(demand)}
+						for resource_name, (key_value, demand) in sorted(keyed_requests.items())
+					}
+					keyed_active_payload = {
+						str(resource_name): int(
+							self._active_keyed_resource_counts.get(str(resource_name), {}).get(str(key_value), 0)
+						)
+						for resource_name, (key_value, _demand) in sorted(keyed_requests.items())
+					}
+					keyed_limit_wait_payload = {
+						str(resource_name): int(self._keyed_resource_limits.get(str(resource_name), 0))
+						for resource_name in sorted(keyed_requests)
+					}
+					wait_payload = {
+						"waited": True,
+						"wait_s": 0.0,
+						"slot_demands": dict(slot_demands),
+						"slot_budget_total": dict(self._total_slot_budget),
+						"slot_available_at_wait": available_slot_budget,
+						"keyed_requests": keyed_request_payload,
+						"keyed_limits": keyed_limit_wait_payload,
+						"keyed_active_at_wait": keyed_active_payload,
+						"first_wait_snapshot": first_wait_snapshot,
+					}
 					logger.warning(
-						"Phase resource gate waiting: phase=%s target=%s resource_class=%s slot_demands=%s available=%s keyed_requests=%s keyed_active=%s keyed_limits=%s",
+						"Phase resource gate waiting for slots: phase=%s target=%s resource_class=%s well_workers=%d planned_targets=%d slot_demands=%s available=%s keyed_requests=%s keyed_active=%s keyed_limits=%s",
 						str(phase_name or "unknown"),
 						str(target_label or "unknown"),
 						str(resource_class or "null"),
+						int(self.well_workers),
+						int(self.planned_target_count),
 						slot_demands,
-						{
-							str(dimension): int(self._available_slot_budget.get(str(dimension), 0))
-							for dimension in sorted(slot_demands)
-						},
-						{
-							str(resource_name): {"key": str(key_value), "demand": int(demand)}
-							for resource_name, (key_value, demand) in sorted(keyed_requests.items())
-						},
-						{
-							str(resource_name): int(
-								self._active_keyed_resource_counts.get(str(resource_name), {}).get(str(key_value), 0)
-							)
-							for resource_name, (key_value, _demand) in sorted(keyed_requests.items())
-						},
-						{
-							str(resource_name): int(self._keyed_resource_limits.get(str(resource_name), 0))
-							for resource_name in sorted(keyed_requests)
+						available_slot_budget,
+						keyed_request_payload,
+						keyed_active_payload,
+						keyed_limit_wait_payload,
+						extra={
+							"event": "phase_resource_gate_waiting",
+							"resource_gate": wait_payload,
+							"well_workers": int(self.well_workers),
+							"target_count": int(self.planned_target_count),
 						},
 					)
 					wait_logged = True

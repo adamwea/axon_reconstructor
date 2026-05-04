@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 import threading
 
@@ -90,3 +91,86 @@ def test_phase_budget_limits_same_source_h5_path_but_allows_other_files() -> Non
 	assert all(item[1]["slot_demands"] == {"h5_read_slots": 1} for item in leases)
 	assert all(item[1]["keyed_requests"]["source_h5_path"]["demand"] == 1 for item in leases)
 	assert any(bool(item[1]["waited"]) and float(item[1]["wait_s"]) > 0.0 for item in leases)
+
+
+def test_phase_budget_logs_structured_wait_warning_for_queued_worker() -> None:
+	resources = parse_resources_config(runtime_config=RuntimeConfig(_resource_budget_payload(h5_read_slots=1)))
+	manager = ResourceBudgetManager(resources=resources, planned_target_count=2, well_workers=2)
+	logger = logging.getLogger("axon_recon.tests.resource_budget.waiting")
+	logger.setLevel(logging.INFO)
+	logger.propagate = False
+	condition = threading.Condition()
+	records: list[logging.LogRecord] = []
+
+	class _CaptureHandler(logging.Handler):
+		def emit(self, record: logging.LogRecord) -> None:
+			with condition:
+				records.append(record)
+				condition.notify_all()
+
+	handler = _CaptureHandler()
+	logger.addHandler(handler)
+	holder_entered = threading.Event()
+	release_holder = threading.Event()
+	errors: list[BaseException] = []
+
+	def holder() -> None:
+		try:
+			with manager.phase_budget(
+				resource_class="preprocess_segments",
+				logger=logger,
+				phase_name="save_rec_metadata",
+				target_label="well000",
+				resource_key_context={"source_h5_path": Path("/tmp/source.raw.h5")},
+			):
+				holder_entered.set()
+				assert release_holder.wait(timeout=5)
+		except BaseException as exc:
+			errors.append(exc)
+
+	def waiter() -> None:
+		try:
+			with manager.phase_budget(
+				resource_class="preprocess_segments",
+				logger=logger,
+				phase_name="preprocess_segments",
+				target_label="well001",
+				resource_key_context={"source_h5_path": Path("/tmp/other.raw.h5")},
+			):
+				pass
+		except BaseException as exc:
+			errors.append(exc)
+
+	try:
+		holder_thread = threading.Thread(target=holder)
+		waiter_thread = threading.Thread(target=waiter)
+		holder_thread.start()
+		assert holder_entered.wait(timeout=5)
+		waiter_thread.start()
+		with condition:
+			assert condition.wait_for(
+				lambda: any(getattr(record, "event", None) == "phase_resource_gate_waiting" for record in records),
+				timeout=5,
+			)
+		release_holder.set()
+		holder_thread.join(timeout=5)
+		waiter_thread.join(timeout=5)
+		assert not holder_thread.is_alive()
+		assert not waiter_thread.is_alive()
+	finally:
+		release_holder.set()
+		logger.removeHandler(handler)
+
+	assert not errors
+	wait_records = [record for record in records if getattr(record, "event", None) == "phase_resource_gate_waiting"]
+	assert len(wait_records) == 1
+	wait_record = wait_records[0]
+	assert wait_record.levelno == logging.WARNING
+	assert "waiting for slots" in wait_record.getMessage()
+	assert wait_record.well_workers == 2
+	assert wait_record.target_count == 2
+	resource_gate = wait_record.resource_gate
+	assert resource_gate["waited"] is True
+	assert resource_gate["slot_demands"] == {"h5_read_slots": 1}
+	assert resource_gate["slot_available_at_wait"] == {"h5_read_slots": 0}
+	assert resource_gate["first_wait_snapshot"]["blocked_slot_dimensions"] == ["h5_read_slots"]

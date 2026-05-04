@@ -91,6 +91,72 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-04 - pending - ai: log resource gate waits everywhere
+
+Status: accepted
+
+Summary:
+- Promoted resource gate wait warnings to structured `phase_resource_gate_waiting` events emitted from `ResourceBudgetManager.phase_budget()`.
+- Added wait payload details to the warning record, including slot demand, available slots at first wait, keyed resource demand/limits, first wait snapshot, `well_workers`, and planned target count.
+- Kept the warning at the shared resource gate layer so preprocess direct phases, spikesort/reconstruct phase chains, and reconstruct template phase chains all get the same wait signal when workers queue for slots.
+- Added focused tests for the low-level budget manager warning and for JSONL emission through the shared phase-chain path.
+
+Guardrails Consulted:
+- `debug/logging_agent_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+
+Acceptance Criteria:
+- Any resource-gated phase that has to wait for a slot emits a warning log.
+- The warning is structured with event `phase_resource_gate_waiting` for JSONL filtering.
+- The human log still includes a readable wait warning with phase, target, resource class, worker count, slot demand, available slots, and keyed-resource state.
+- Existing `phase_resource_gate` acquisition and `phase_resource_usage` logs remain unchanged after acquisition.
+
+Expected To Run:
+- Focused resource budget and pipeline logging tests.
+- Containerized focused and broader pipeline tests.
+- Limited real-data `preprocess.save_rec_metadata --phase-tune` smoke with enough datasets to force h5 read slot waits.
+
+Confirmed Not Run:
+- Full dataset/well scope.
+- Runtime YAML mutation.
+- Push to remote.
+
+Validation:
+- Diagnostics: VS Code diagnostics reported no errors for modified source/test files.
+- Focused host tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_resource_budget.py src/axon_recon/pipeline/tests/test_pipeline_logging.py -q` passed with 13 tests.
+- Container focused tests: `docker run --rm -v /home/adamm/dev/pkgs/axon_reconstructor:/workspace -w /workspace --entrypoint python axon-recon:test -m pytest src/axon_recon/pipeline/tests/test_resource_budget.py src/axon_recon/pipeline/tests/test_pipeline_logging.py -q` passed with 13 tests after one transient terminal SIGINT rerun.
+- Container broad tests: `docker run --rm -v /home/adamm/dev/pkgs/axon_reconstructor:/workspace -w /workspace --entrypoint python axon-recon:test -m pytest src/axon_recon/pipeline/tests --ignore=src/axon_recon/pipeline/tests/test_progress.py -q` passed.
+- Real-data smoke: `/home/adamm/miniconda3/envs/axon_recon/bin/axon-recon-container --gpus all stages preprocess.save_rec_metadata --config debug/debug.runtime.yml --limit-segments 2 --limit-datasets 12 --limit-wells-per-dataset 1 --limit-units 15 --force-restart --phase-tune` passed for run `debug.runtime-20260504T071712Z`.
+- Logs inspected: `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/logs/pipeline.jsonl` contains six `phase_resource_gate_waiting` warning events with `well_workers=12`, `target_count=12`, blocked `h5_read_slots`, and scratch input H5 keyed requests.
+- Logs inspected: `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/logs/pipeline.log` contains matching human-readable `Phase resource gate waiting for slots` warning lines.
+
+CLI / Debug Flag Impact:
+- No CLI flag changes.
+
+Logging / Parallelism Impact:
+- Added structured wait-warning events for workers blocked before resource acquisition.
+- Runtime gate behavior and slot accounting are unchanged.
+
+Storage / Cache Impact:
+- Updated tuning/log artifacts under `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs` during smoke validation.
+- Rebuilt local `axon-recon:local` and dev-flavored `axon-recon:test` images.
+
+Container / NERSC / MPI Impact:
+- Container validation used rebuilt local images.
+- No NERSC/MPI-specific behavior was changed.
+
+Resume / Force-Restart Impact:
+- No resume semantics were changed.
+- The smoke used `--force-restart` to regenerate metadata and wait observations for the limited scope.
+
+Residual Risk And Follow-Ups:
+- The real-data smoke directly exercised preprocess `save_rec_metadata`; shared phase-chain coverage is synthetic but uses the same `ResourceBudgetManager` path used by spikesort/reconstruct/template phases.
+
+Rollback Notes:
+- Revert the structured warning payload/event changes in `resource_budget.py` and the focused tests from this slice to return to plain warning-only wait logs.
+
 ## 2026-05-04 - pending - ai: tune scratch h5 read paths
 
 Status: accepted

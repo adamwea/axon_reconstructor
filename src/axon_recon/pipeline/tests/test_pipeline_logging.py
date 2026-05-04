@@ -5,6 +5,7 @@ import json
 import logging
 from pathlib import Path
 import sys
+import threading
 import types
 
 from axon_recon.pipeline.logging import (
@@ -286,6 +287,107 @@ def test_phase_chain_logs_resource_class_and_writes_resource_usage(tmp_path, mon
     assert summary_payload["resource_usage"]["total_peak_rss_gb"] is not None
     assert summary_payload["resource_usage"]["max_threads"] == 3
     assert summary_payload["resource_usage"]["observed_process_max_threads"] == 99
+
+
+def test_phase_chain_logs_resource_gate_waiting_event_for_queued_worker(tmp_path):
+    from axon_recon.pipeline.execution import PhaseDescriptor, run_phase_chain
+    from axon_recon.pipeline.resource_budget import ResourceBudgetManager, stage_resource_budget_context
+    from axon_recon.pipeline.resources import parse_resources_config
+
+    runtime_path = _write_runtime(
+        tmp_path,
+        console_enabled=False,
+        resource_usage_enabled=False,
+    )
+    config = configure_pipeline_logging(config_path=runtime_path)
+    resources = parse_resources_config(
+        runtime_config=RuntimeConfig(
+            {
+                "resources": {
+                    "active_profile": "test_profile",
+                    "profiles": {"test_profile": {"h5_read_slots": 1}},
+                    "phase_resource_classes": {"h5_reader": {"h5_read_slots": 1}},
+                }
+            }
+        )
+    )
+    manager = ResourceBudgetManager(resources=resources, planned_target_count=2, well_workers=2)
+    holder_entered = threading.Event()
+    release_holder = threading.Event()
+    wait_warning_seen = threading.Event()
+    errors: list[BaseException] = []
+    logger = logging.getLogger("axon_recon.tests.pipeline_logging.phase_chain_wait")
+
+    class _WaitWarningHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            if getattr(record, "event", None) == "phase_resource_gate_waiting":
+                wait_warning_seen.set()
+
+    handler = _WaitWarningHandler()
+    logger.addHandler(handler)
+
+    def _run_worker(label: str, *, hold_gate: bool = False) -> None:
+        def _runner() -> dict[str, str]:
+            if hold_gate:
+                holder_entered.set()
+                assert release_holder.wait(timeout=5)
+            return {"status": "ok"}
+
+        try:
+            with log_context(
+                dataset_id="dataset-a",
+                recording_id="000123",
+                well_id=label,
+                stage="spikesort",
+            ):
+                run_phase_chain(
+                    phases=[
+                        PhaseDescriptor(
+                            name="sort",
+                            runner=_runner,
+                            resource_class="h5_reader",
+                            pipeline_thread_count=1,
+                        )
+                    ],
+                    logger=logger,
+                    target_label=label,
+                )
+        except BaseException as exc:
+            errors.append(exc)
+
+    holder_thread = threading.Thread(target=_run_worker, args=("well000",), kwargs={"hold_gate": True})
+    waiter_thread = threading.Thread(target=_run_worker, args=("well001",))
+    try:
+        with stage_resource_budget_context(manager):
+            holder_thread.start()
+            assert holder_entered.wait(timeout=5)
+            waiter_thread.start()
+            assert wait_warning_seen.wait(timeout=5)
+            release_holder.set()
+            holder_thread.join(timeout=5)
+            waiter_thread.join(timeout=5)
+            assert not holder_thread.is_alive()
+            assert not waiter_thread.is_alive()
+    finally:
+        release_holder.set()
+        logger.removeHandler(handler)
+        finalize_pipeline_logging(status="ok" if not errors else "failed")
+
+    assert not errors
+    records = [json.loads(line) for line in (config.logs_dir / "pipeline.jsonl").read_text(encoding="utf-8").splitlines()]
+    wait_records = [record for record in records if record.get("event") == "phase_resource_gate_waiting"]
+
+    assert len(wait_records) == 1
+    wait_record = wait_records[0]
+    assert wait_record["level"] == "WARNING"
+    assert wait_record["stage"] == "spikesort"
+    assert wait_record["phase"] == "sort"
+    assert wait_record["resource_class"] == "h5_reader"
+    assert wait_record["well_workers"] == 2
+    assert wait_record["target_count"] == 2
+    assert wait_record["resource_gate"]["waited"] is True
+    assert wait_record["resource_gate"]["slot_demands"] == {"h5_read_slots": 1}
+    assert wait_record["resource_gate"]["slot_available_at_wait"] == {"h5_read_slots": 0}
 
 
 def test_append_text_line_recovers_from_stale_unwritable_log(tmp_path, monkeypatch):
