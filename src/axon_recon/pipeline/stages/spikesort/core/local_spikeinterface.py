@@ -157,7 +157,7 @@ def _set_global_job_kwargs(*, si_module: Any, inputs: SpikesortInputs, logger: l
 		job_kwargs["n_jobs"] = int(inputs.n_jobs)
 	if inputs.chunk_duration is not None:
 		job_kwargs["chunk_duration"] = str(inputs.chunk_duration)
-	job_kwargs["progress_bar"] = bool(inputs.verbose)
+	job_kwargs["progress_bar"] = bool(inputs.progress_bar)
 	if not job_kwargs:
 		return
 	set_global_job_kwargs = getattr(si_module, "set_global_job_kwargs", None)
@@ -328,11 +328,12 @@ def run_local_spikeinterface_sort_stage(
 
 	sorter_kwargs = build_local_kilosort_kwargs(inputs=inputs, recording=recording)
 	logger.info(
-		"Starting local SpikeInterface sort: sorter=%s sorter_output_dir=%s analyzer_dir=%s n_jobs=%s sorter_kwargs=%s",
+		"Starting local SpikeInterface sort: sorter=%s sorter_output_dir=%s analyzer_dir=%s n_jobs=%s progress_bar=%s sorter_kwargs=%s",
 		str(inputs.sorter),
 		sorter_output_dir,
 		analyzer_dir,
 		inputs.n_jobs,
+		bool(inputs.progress_bar),
 		sorter_kwargs,
 	)
 	with suppress_spikesort_external_debug_output(enabled=bool(inputs.debug_outputs)):

@@ -117,9 +117,6 @@ def suppress_spikesort_external_debug_output(*, enabled: bool) -> Iterator[None]
 		return
 	with contextlib.ExitStack() as stack:
 		suppressed_stream = io.StringIO()
-		if not _root_uses_rich_handler():
-			stack.enter_context(contextlib.redirect_stdout(suppressed_stream))
-			stack.enter_context(contextlib.redirect_stderr(suppressed_stream))
 		stack.enter_context(_temporarily_raise_logger_levels(_NOISY_DEBUG_LOGGER_LEVELS))
 		stack.enter_context(
 			_redirect_console_stream_handlers(

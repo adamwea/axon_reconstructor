@@ -38,6 +38,7 @@ class SpikesortInputs:
 	local_spikeinterface_analyzer_output_relpath: str = "analyzer_output"
 	recording_num: str = "rec0000"
 	verbose: bool = False
+	progress_bar: bool = True
 
 	ks_batch_duration_s: float | None = None
 	ks_batch_size: int | None = None

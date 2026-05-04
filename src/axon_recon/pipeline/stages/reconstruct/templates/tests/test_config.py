@@ -3171,6 +3171,7 @@ def test_load_templates_config_parses_grouped_per_source_analyzer_controls(tmp_p
 			          enabled: true
 			          required: true
 			          analyzer_relpath: /custom/concat_analyzer
+			          progress_bar: false
 			          n_jobs: 2
 			          waveforms:
 			            ms_before: 3.0
@@ -3218,6 +3219,7 @@ def test_load_templates_config_parses_grouped_per_source_analyzer_controls(tmp_p
 	assert concat_policy.sparsity_num_spikes_for_sparsity == 222
 	assert concat_policy.n_jobs == 2
 	assert concat_policy.chunk_duration == "1s"
+	assert concat_policy.progress_bar is False
 
 	segments_policy = inputs.phases.analyzers.segments.policy
 	assert inputs.phases.analyzers.segments.preprocessed_sources_reldir == "/custom/segments"
@@ -3235,6 +3237,7 @@ def test_load_templates_config_parses_grouped_per_source_analyzer_controls(tmp_p
 	assert segments_policy.sparsity_num_channels == 12
 	assert segments_policy.n_jobs == 4
 	assert segments_policy.chunk_duration == "1s"
+	assert segments_policy.progress_bar is True
 
 
 def test_load_templates_config_source_max_spikes_clears_default_percentage(tmp_path: Path) -> None:

@@ -91,6 +91,77 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-04 - pending - ai: show spikeinterface progress bars
+
+Status: accepted
+
+Summary:
+- Removed spikesort process-wide stdout/stderr redirection from the external-debug-output suppression path so SpikeInterface/tqdm bars can reach the terminal while logger-level noise suppression remains in place.
+- Added explicit `progress_bar` controls for local SpikeInterface sorting and reconstruct template analyzer policies, defaulting to visible progress and propagating into SpikeInterface global job kwargs and analyzer `compute()` calls.
+- Kept `verbose` separate from progress bars: `verbose` still controls sorter chatter, while `progress_bar` controls tqdm visibility.
+- Updated focused tests to assert terminal streams remain live and progress kwargs are passed even when verbose logging is false.
+
+Guardrails Consulted:
+- `debug/logging_agent_guardrails.md`
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+
+Acceptance Criteria:
+- SpikeInterface progress bars are not swallowed by pipeline logging/debug-output suppression.
+- Local SpikeInterface sort/analyzer paths use an explicit progress-bar knob instead of coupling progress to verbose logging.
+- Reconstruct template analyzer computes can show SpikeInterface progress bars through analyzer policy config.
+- Phase lifecycle/resource logs remain visible around active progress bars.
+- No process-global stdout/stderr redirection is used in the spikesort SI sort/debug suppression path.
+
+Expected To Run:
+- Focused host tests for spikesort local SI/config and reconstruct template config/SI extraction.
+- Focused container tests for the same paths plus pipeline logging and preprocess progress-adjacent tests.
+- Real-data TTY smokes for a SpikeInterface binary-save path and the local SpikeInterface sort path.
+
+Confirmed Not Run:
+- Full dataset/well scope.
+- Full repository test suite.
+- Remote push.
+
+Validation:
+- Diagnostics: VS Code diagnostics reported no errors for modified source/test files.
+- Host focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/test_local_spikeinterface.py src/axon_recon/pipeline/stages/spikesort/tests/test_spikesort_config.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_config.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_spikeinterface_extract.py -q` passed.
+- Environment API check: Pylance snippet confirmed SpikeInterface `0.103.3`, `set_global_job_kwargs(**job_kwargs)`, and `SortingAnalyzer.compute(..., **kwargs)` support the propagated progress kwargs.
+- Container focused tests: `docker run --rm -v "$PWD":/work -w /work axon-recon:test python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/test_local_spikeinterface.py src/axon_recon/pipeline/stages/spikesort/tests/test_spikesort_config.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_config.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_spikeinterface_extract.py -q` passed.
+- Container logging/preprocess tests: `docker run --rm -v "$PWD":/work -w /work axon-recon:test python -m pytest src/axon_recon/pipeline/tests/test_pipeline_logging.py src/axon_recon/pipeline/stages/preprocess/tests/test_prepare_raw_binaries_core.py src/axon_recon/pipeline/stages/preprocess/tests/test_runner.py -q` passed.
+- Real-data TTY smoke: `script -qefc '/home/adamm/miniconda3/envs/axon_recon/bin/axon-recon-container --gpus all stages spikesort.bootstrap_concat_binary --config debug/debug.runtime.yml --limit-datasets 1 --limit-wells 1 --limit-segments 1 --limit-units 15 --force-restart --phase-tune' /tmp/axon-recon-si-bootstrap-progress-smoke.txt` passed and showed `write_binary_recording (workers: 6 processes): 100%|...| 127/127`.
+- Real-data TTY smoke: `script -qefc '/home/adamm/miniconda3/envs/axon_recon/bin/axon-recon-container --gpus all stages spikesort.sort --config debug/debug.runtime.yml --limit-datasets 1 --limit-wells 1 --limit-segments 1 --limit-units 15 --force-restart --phase-tune' /tmp/axon-recon-si-sort-progress-smoke.txt` passed and showed `SpikeInterface global job kwargs: {'n_jobs': 8, 'chunk_duration': '1s', 'progress_bar': True}`, Kilosort/tqdm progress, and `estimate_sparsity (workers: 8 processes): 100%|...| 127/127`.
+- Real-data TTY smoke: `script -qefc '/home/adamm/miniconda3/envs/axon_recon/bin/axon-recon-container --gpus all stages preprocess.preprocess_segments --config debug/debug.runtime.yml --limit-datasets 1 --limit-wells 1 --limit-segments 1 --limit-units 15 --force-restart --phase-tune' /tmp/axon-recon-si-progress-smoke.txt` passed for the lazy preprocess path and preserved pipeline progress/lifecycle/resource logs.
+- Logs inspected: TTY transcripts in `/tmp/axon-recon-si-bootstrap-progress-smoke.txt`, `/tmp/axon-recon-si-sort-progress-smoke.txt`, and `/tmp/axon-recon-si-progress-smoke.txt`.
+
+CLI / Debug Flag Impact:
+- No new CLI flags.
+- Added config-level `progress_bar` control for spikesort local SpikeInterface sorting and reconstruct template analyzer policies.
+- Existing `debug_outputs=false` no longer hides terminal stdout/stderr in spikesort sort paths; it still suppresses configured noisy logger stream handlers.
+
+Logging / Parallelism Impact:
+- Progress bars and logs now coexist in real TTY validation.
+- Local SI sort global job kwargs now include `progress_bar=True` by default, independent of `verbose`.
+- Merge/bombcell analyzer extension job kwargs inherit the same progress setting through `_merge_analyzer_compute_job_kwargs()`.
+
+Storage / Cache Impact:
+- Created/updated limited-scope smoke outputs under `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs`.
+- `--phase-tune` temporarily wrote a resource recommendation into `debug/debug.runtime.yml`; that validation noise was restored before commit.
+
+Container / NERSC / MPI Impact:
+- Container validation used the existing `axon-recon:test` image.
+- No NERSC/MPI-specific behavior was changed.
+
+Resume / Force-Restart Impact:
+- No resume semantics changed.
+- Real-data smokes used `--force-restart` to force progress-producing work in a one-dataset/one-well/one-segment scope.
+
+Residual Risk And Follow-Ups:
+- Full production-scope Kilosort/template analyzer progress behavior was not run; the limited TTY smokes and focused tests cover the progress/logging mechanics.
+
+Rollback Notes:
+- Revert the `progress_bar` config/input propagation and restore spikesort debug-output stdout/stderr redirection if the operator wants the prior no-terminal-output behavior.
+
 ## 2026-05-04 - pending - ai: log resource gate waits everywhere
 
 Status: accepted

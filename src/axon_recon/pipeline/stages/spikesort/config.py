@@ -432,6 +432,7 @@ class SpikesortStageConfig:
 	local_spikeinterface_analyzer_output_relpath: str
 	recording_num: str
 	verbose: bool
+	progress_bar: bool
 
 	ks_batch_duration_s: float | None
 	ks_batch_size: int | None
@@ -1046,6 +1047,16 @@ def parse_spikesort_stage_config(
 			"analyzer_output",
 		)
 	) or "analyzer_output"
+	progress_bar = _as_bool(
+		_coalesce(
+			sort_phase_local_spikeinterface_cfg.get("progress_bar", None),
+			sort_phase_cfg.get("progress_bar", None),
+			execution_cfg.get("progress_bar", None),
+			stage_cfg.get("progress_bar", None),
+			True,
+		),
+		True,
+	)
 
 	legacy_debug_default = _as_bool(execution_cfg.get("debug", False), False)
 	logging_enabled = _as_bool(logging_cfg.get("enabled", True), True)
@@ -3548,6 +3559,7 @@ def parse_spikesort_stage_config(
 		local_spikeinterface_analyzer_output_relpath=str(local_spikeinterface_analyzer_output_relpath),
 		recording_num=str(_get_with_fallback(execution_cfg, stage_cfg, "recording_num", "rec0000") or "rec0000"),
 		verbose=_as_bool(_get_with_fallback(execution_cfg, stage_cfg, "verbose", False), False),
+		progress_bar=bool(progress_bar),
 		ks_batch_duration_s=_as_optional_float(
 			_coalesce(
 				sort_phase_kilosort_cfg.get("batch_duration_s", None),
@@ -4159,6 +4171,7 @@ def build_spikesort_inputs_for_target(
 		local_spikeinterface_analyzer_output_relpath=stage_config.local_spikeinterface_analyzer_output_relpath,
 		recording_num=stage_config.recording_num,
 		verbose=stage_config.verbose,
+		progress_bar=stage_config.progress_bar,
 		ks_batch_duration_s=stage_config.ks_batch_duration_s,
 		ks_batch_size=stage_config.ks_batch_size,
 		ks_th_universal=stage_config.ks_th_universal,
@@ -4291,6 +4304,7 @@ def load_spikesort_inputs_from_runtime(
 		local_spikeinterface_analyzer_output_relpath=stage_cfg.local_spikeinterface_analyzer_output_relpath,
 		recording_num=stage_cfg.recording_num,
 		verbose=stage_cfg.verbose,
+		progress_bar=stage_cfg.progress_bar,
 		ks_batch_duration_s=stage_cfg.ks_batch_duration_s,
 		ks_batch_size=stage_cfg.ks_batch_size,
 		ks_th_universal=stage_cfg.ks_th_universal,

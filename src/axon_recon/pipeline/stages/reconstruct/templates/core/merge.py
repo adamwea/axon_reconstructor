@@ -837,6 +837,7 @@ def materialize_templates_from_spikeinterface(
 			"margin_size": policy.margin_size,
 			"compute_n_jobs": policy.n_jobs,
 			"compute_chunk_duration": policy.chunk_duration,
+			"compute_progress_bar": policy.progress_bar,
 		}
 
 	materialized_by_unit, upsampling_decisions_by_unit = materialize_unit_templates_by_unit_with_meta(

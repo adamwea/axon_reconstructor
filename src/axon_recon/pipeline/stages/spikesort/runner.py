@@ -476,6 +476,7 @@ def _merge_analyzer_compute_job_kwargs(stage_config: Any) -> dict[str, Any]:
 	chunk_duration_raw = getattr(stage_config, "merge_analyzer_chunk_duration", None)
 	if chunk_duration_raw is None:
 		chunk_duration_raw = getattr(stage_config, "chunk_duration", None)
+	progress_bar = bool(getattr(stage_config, "progress_bar", True))
 
 	job_kwargs: dict[str, Any] = {}
 	try:
@@ -487,6 +488,7 @@ def _merge_analyzer_compute_job_kwargs(stage_config: Any) -> dict[str, Any]:
 		chunk_duration = str(chunk_duration_raw).strip()
 		if chunk_duration:
 			job_kwargs["chunk_duration"] = chunk_duration
+	job_kwargs["progress_bar"] = progress_bar
 	return job_kwargs
 
 
@@ -10597,6 +10599,7 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 			docker_image=inputs.docker_image,
 			recording_num=inputs.recording_num,
 			verbose=inputs.verbose,
+				progress_bar=inputs.progress_bar,
 			ks_batch_duration_s=inputs.ks_batch_duration_s,
 			ks_batch_size=inputs.ks_batch_size,
 			ks_th_universal=inputs.ks_th_universal,

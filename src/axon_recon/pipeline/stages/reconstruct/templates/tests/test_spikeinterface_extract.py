@@ -425,7 +425,7 @@ def test_build_unit_source_payload_forwards_grouped_analyzer_controls_on_recompu
 	assert params.get("waveforms", {}).get("ms_before") == 1.25
 	assert params.get("waveforms", {}).get("ms_after") == 2.75
 	assert params.get("waveforms", {}).get("dtype") == "float32"
-	assert analyzer.last_compute_kwargs == {"chunk_duration": "1s"}
+	assert analyzer.last_compute_kwargs == {"chunk_duration": "1s", "progress_bar": True}
 
 
 def test_build_unit_source_payload_retries_without_compat_only_kwargs() -> None:
@@ -493,14 +493,14 @@ def test_build_unit_source_payload_retries_without_compat_only_kwargs() -> None:
 	assert first_params["random_spikes"].get("log_before_after_spike_counts") is True
 	assert first_params["random_spikes"].get("margin_size") == 7
 	assert first_params.get("waveforms", {}).get("dtype") == "float32"
-	assert first_kwargs == {"chunk_duration": "1s"}
+	assert first_kwargs == {"chunk_duration": "1s", "progress_bar": True}
 
 	second_params, second_kwargs = analyzer.compute_attempts[1]
 	assert second_params is not None
 	assert "log_before_after_spike_counts" not in second_params["random_spikes"]
 	assert "margin_size" not in second_params["random_spikes"]
 	assert "dtype" not in second_params.get("waveforms", {})
-	assert second_kwargs == {}
+	assert second_kwargs == {"progress_bar": True}
 
 
 def test_build_unit_source_payload_skips_recompute_when_waveforms_are_prepared() -> None:

@@ -135,6 +135,7 @@ class SpikeSortingInputs:
     docker_image: Optional[str] = None
     recording_num: str = "rec0000"
     verbose: bool = False
+    progress_bar: bool = True
 
     # Optional Kilosort tuning (applied via MEA_Analysis sorter_kwargs override).
     # - If both are provided, `ks_batch_size` wins.
@@ -361,7 +362,7 @@ def run_spikesorting_stage(*, inputs: SpikeSortingInputs, logger: logging.Logger
             job_kwargs["n_jobs"] = int(inputs.n_jobs)
         if inputs.chunk_duration is not None:
             job_kwargs["chunk_duration"] = str(inputs.chunk_duration)
-        job_kwargs["progress_bar"] = bool(inputs.verbose)
+        job_kwargs["progress_bar"] = bool(inputs.progress_bar)
 
         if job_kwargs and hasattr(si, "set_global_job_kwargs"):
             si.set_global_job_kwargs(**job_kwargs)

@@ -1517,6 +1517,10 @@ def _build_analyzer_preparation_policy_config(
 		random_seed=random_seed,
 		n_jobs=_parse_optional_positive_int(raw_cfg.get("n_jobs", policy_defaults.n_jobs)),
 		chunk_duration=_parse_optional_text(raw_cfg.get("chunk_duration", policy_defaults.chunk_duration)),
+		progress_bar=_as_bool(
+			raw_cfg.get("progress_bar", policy_cfg.get("progress_bar", policy_defaults.progress_bar)),
+			policy_defaults.progress_bar,
+		),
 	)
 
 

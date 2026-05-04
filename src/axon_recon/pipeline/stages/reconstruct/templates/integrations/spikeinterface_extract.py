@@ -315,6 +315,7 @@ def _policy_log_fields(policy: AnalyzerPreparationPolicyConfig) -> dict[str, Any
 		"sparsity_num_spikes_for_sparsity": policy.sparsity_num_spikes_for_sparsity,
 		"n_jobs": policy.n_jobs,
 		"chunk_duration": policy.chunk_duration,
+		"progress_bar": bool(policy.progress_bar),
 	}
 
 
@@ -476,7 +477,7 @@ def _build_segment_analyzer_from_preprocessed_recording(
 		compute_kwargs: dict[str, Any] = {
 			"verbose": False,
 			"n_jobs": (1 if policy.n_jobs is None else int(policy.n_jobs)),
-			"progress_bar": False,
+			"progress_bar": bool(policy.progress_bar),
 		}
 		if str(policy.chunk_duration or "").strip() != "":
 			compute_kwargs["chunk_duration"] = str(policy.chunk_duration)
@@ -504,7 +505,7 @@ def _unit_key(value: Any) -> str:
 		return str(value)
 
 
-def _extract_unit_template(analyzer: Any, unit_id: Any) -> np.ndarray | None:
+def _extract_unit_template(analyzer: Any, unit_id: Any, *, progress_bar: bool = True) -> np.ndarray | None:
 	try:
 		has_templates = bool(analyzer.has_extension("templates"))
 	except Exception:
@@ -512,7 +513,7 @@ def _extract_unit_template(analyzer: Any, unit_id: Any) -> np.ndarray | None:
 
 	if not has_templates:
 		try:
-			analyzer.compute(["templates"], verbose=False, n_jobs=1, progress_bar=False)
+			analyzer.compute(["templates"], verbose=False, n_jobs=1, progress_bar=bool(progress_bar))
 			has_templates = bool(analyzer.has_extension("templates"))
 		except Exception:
 			has_templates = False
@@ -797,6 +798,7 @@ def _try_recompute_waveforms_extension(
 	requested_margin_size: int | None = None,
 	compute_n_jobs: int | None = None,
 	compute_chunk_duration: str | None = None,
+	compute_progress_bar: bool = True,
 ) -> bool:
 	"""Best-effort recompute of random_spikes+waveforms+templates with requested semantics.
 
@@ -871,7 +873,7 @@ def _try_recompute_waveforms_extension(
 		"extension_params": extension_params,
 		"verbose": False,
 		"n_jobs": (1 if compute_n_jobs is None else int(compute_n_jobs)),
-		"progress_bar": False,
+		"progress_bar": bool(compute_progress_bar),
 	}
 	if compute_chunk_duration not in {None, ""}:
 		compute_kwargs["chunk_duration"] = str(compute_chunk_duration)
@@ -1067,6 +1069,7 @@ def _prepare_analyzer_for_payload_extraction(
 	requested_margin_size: int | None = None,
 	compute_n_jobs: int | None = None,
 	compute_chunk_duration: str | None = None,
+	compute_progress_bar: bool = True,
 	log_context: str | None = None,
 ) -> Any:
 	if not hasattr(analyzer, "has_extension") or not hasattr(analyzer, "compute"):
@@ -1128,6 +1131,7 @@ def _prepare_analyzer_for_payload_extraction(
 						"margin_size": requested_margin_size,
 						"compute_n_jobs": compute_n_jobs,
 						"chunk_duration": compute_chunk_duration,
+						"progress_bar": bool(compute_progress_bar),
 					},
 				),
 			)
@@ -1145,6 +1149,7 @@ def _prepare_analyzer_for_payload_extraction(
 			requested_margin_size=requested_margin_size,
 			compute_n_jobs=compute_n_jobs,
 			compute_chunk_duration=compute_chunk_duration,
+			compute_progress_bar=bool(compute_progress_bar),
 		)
 		if log_context is not None:
 			if recomputed:
@@ -1552,6 +1557,7 @@ def _prepare_loaded_analyzer_with_policy(
 		requested_margin_size=policy.margin_size,
 		compute_n_jobs=policy.n_jobs,
 		compute_chunk_duration=policy.chunk_duration,
+		compute_progress_bar=policy.progress_bar,
 		log_context=str(source_name),
 	)
 	dense_requested = (not bool(policy.compute_sparsity)) or str(policy.sparsity_mode).strip().lower() == "dense"
@@ -1580,6 +1586,7 @@ def build_unit_source_payload(
 	margin_size: int | None = None,
 	compute_n_jobs: int | None = None,
 	compute_chunk_duration: str | None = None,
+	compute_progress_bar: bool = True,
 	include_overlay_waveforms: bool = True,
 	allow_prepare: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, list[Any] | None, list[Any] | None, int, float | None, np.ndarray | None, Any, int | None] | None:
@@ -1612,9 +1619,10 @@ def build_unit_source_payload(
 			requested_margin_size=margin_size,
 			compute_n_jobs=compute_n_jobs,
 			compute_chunk_duration=compute_chunk_duration,
+			compute_progress_bar=bool(compute_progress_bar),
 		)
 
-	t = _extract_unit_template(analyzer, unit_id)
+	t = _extract_unit_template(analyzer, unit_id, progress_bar=bool(compute_progress_bar))
 	if t is None:
 		return None
 
@@ -1682,6 +1690,7 @@ def build_unit_source_payload(
 							requested_margin_size=margin_size,
 							compute_n_jobs=compute_n_jobs,
 							compute_chunk_duration=compute_chunk_duration,
+							compute_progress_bar=bool(compute_progress_bar),
 						):
 							_mark_analyzer_waveforms_prepared(
 								analyzer=analyzer,
@@ -1713,6 +1722,7 @@ def build_unit_source_payload(
 						requested_margin_size=margin_size,
 						compute_n_jobs=compute_n_jobs,
 						compute_chunk_duration=compute_chunk_duration,
+						compute_progress_bar=bool(compute_progress_bar),
 					):
 						_mark_analyzer_waveforms_prepared(
 							analyzer=analyzer,

@@ -201,6 +201,7 @@ class AnalyzerPreparationPolicyConfig:
 	random_seed: int | None = 0
 	n_jobs: int | None = None
 	chunk_duration: str | None = None
+	progress_bar: bool = True
 
 
 @dataclass(frozen=True)

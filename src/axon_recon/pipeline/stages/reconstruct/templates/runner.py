@@ -2407,6 +2407,7 @@ def run_reconstruct_templates_extract_template_segments_phase(inputs: TemplatesI
 				margin_size=policy.margin_size,
 				compute_n_jobs=policy.n_jobs,
 				compute_chunk_duration=policy.chunk_duration,
+				compute_progress_bar=policy.progress_bar,
 			)
 			if payload is None:
 				continue

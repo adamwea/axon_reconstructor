@@ -64,6 +64,7 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.local_spikeinterface_analyzer_output_relpath == "analyzer_output"
     assert parsed.recording_num == "rec0000"
     assert parsed.verbose is False
+    assert parsed.progress_bar is True
     assert parsed.n_jobs is None
     assert parsed.chunk_duration is None
     assert parsed.cuda_visible_devices is None
@@ -611,6 +612,7 @@ def test_parse_spikesort_stage_config_reads_sectioned_sort_engine_layout() -> No
                             },
                             "local_spikeinterface": {
                                 "enabled": True,
+                                "progress_bar": False,
                                 "output_relpath": "local_sorter",
                                 "remove_existing_on_force_restart": False,
                                 "run_sorter_kwargs": {
@@ -662,6 +664,7 @@ def test_parse_spikesort_stage_config_reads_sectioned_sort_engine_layout() -> No
     assert parsed.local_spikeinterface_run_sorter_kwargs == {"delete_output_folder": True}
     assert parsed.local_spikeinterface_analyzer_enabled is False
     assert parsed.local_spikeinterface_analyzer_output_relpath == "local_analyzer"
+    assert parsed.progress_bar is False
     assert parsed.mea_analysis_enabled is True
     assert parsed.mea_analysis_docker_image == "legacy/image:kept"
     assert parsed.docker_image == "legacy/image:kept"
