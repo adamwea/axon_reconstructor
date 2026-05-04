@@ -1,0 +1,177 @@
+# Parallelism Agent Guardrails
+
+Status: guardrail document. Once agentic development begins, treat this file as locked. Do not edit it unless Adam explicitly asks for guardrail changes.
+
+This document defines the expected behavior for well, dataset, segment, unit, resource-slot, and future MPI parallelism in the active `axon_recon` pipeline.
+
+## Operating Contract
+
+- Commit frequently after each coherent accepted slice, using an `ai:` prefix in the commit subject.
+- Update `debug/agent_guardrails_commit_notes.md` after every AI commit.
+- Run focused tests plus real-data smoke tests when touching parallelism, resource budgeting, keyed resources, worker allocation, logging, progress, subprocess behavior, or stage dispatch.
+- Start with 1 dataset, 1 well, 2 segments, and a few units when validating ordinary behavior.
+- Use at least 2 wells when validating well-worker concurrency.
+- Use up to 2 datasets with 2 wells per dataset when dataset/well interaction, keyed H5 limits, or log interleaving matters.
+- Do not run full-scope tests unless Adam explicitly requests them.
+
+## Core Parallelism Model
+
+- Stages run in the selected order.
+- Within a stage, independent wells may run concurrently when resources allow.
+- Phase resource classes describe expected CPU, RAM, GPU, disk, analyzer, plot, and H5 demand.
+- The active machine profile describes available capacity.
+- The runtime derives safe stage fanout from resource class demand and active capacity.
+- Discrete resources must be gated during phase execution, not just estimated during planning.
+- Unit and segment workers must be resolved explicitly and logged clearly.
+
+Parallelism must be understandable from logs. Every phase that launches work should make effective worker counts, resource class, and any active keyed resources visible in logs or phase summaries.
+
+## Resource And Slot Guardrails
+
+Expected resource concepts:
+
+- CPU cores
+- RAM GB
+- GPU sort slots
+- H5 read slots
+- disk-heavy slots
+- plot slots
+- analyzer slots
+- keyed resources such as `source_h5_path`
+
+Rules:
+
+- Do not globally serialize a stage to solve one phase's resource problem.
+- Gate only the phase/resource that needs gating.
+- `spikesort.sort` may be single-well gated when GPU/Kilosort resources require it.
+- Other spikesort phases should retain well parallelism when their resources allow it.
+- Per-source H5 contention must use keyed resource limits such as `source_h5_path`, not broad dataset-wide guesses.
+- Read/write/disk-heavy phases must respect disk and H5 slots.
+- Plot/report phases must respect plot slots and memory-heavy resource classes.
+- Analyzer phases must respect analyzer slots and inner `n_jobs` settings.
+
+## Thread And Process Telemetry
+
+Use precise language in logs and summaries:
+
+- `max_threads` is pipeline-declared current-process concurrency.
+- `observed_process_max_threads` is raw process/native-library observation.
+- Child process counts and child memory must be included when configured.
+- Native library thread pools should not be mistaken for pipeline-owned workers.
+- Warnings should compare pipeline-owned concurrency against planned resources and report raw observations as diagnostic context.
+
+## Shared-State Guardrails
+
+- Avoid shared mutable state across well workers.
+- Do not mutate global stdout/stderr, logging handlers, environment variables, process working directory, or global library settings from worker threads.
+- If a global mutation is unavoidable, scope it to startup or the main thread and document the reason.
+- Use locks, keyed gates, or central queue/listener patterns for shared files and logging sinks.
+- Only one owner should write global summaries unless writes are explicitly partitioned and merged.
+
+## MPI Preparation Guardrails
+
+Future MPI work should partition independent targets by rank before local fanout.
+
+Rules:
+
+- MPI mode must be optional.
+- Non-MPI behavior must remain the default and must not require `mpi4py` at runtime unless the selected mode uses it.
+- Rank metadata must appear in logs and summaries when MPI mode is active.
+- Rank 0 should own global summaries unless the implementation provides safe rank-scoped summaries plus a merge step.
+- Avoid nested `ProcessPoolExecutor`, broad subprocess spawning, and nested container launches inside MPI ranks unless tested on the target HPC system.
+- Add fake-MPI adapter tests before requiring real `srun` or `mpirun` validation.
+
+## Resource Tuning Mode
+
+The pipeline should support an advisory resource tuning/calibration mode for estimating realistic `phase_resource_class` values before large runs.
+
+Calibration should measure representative limited executions and recommend CPU/RAM/slot estimates with safety margins. It must not silently rewrite runtime YAML.
+
+Required calibration behavior:
+
+- Can run a whole stage with limits.
+- Can run a single phase when upstream artifacts already exist.
+- Refuses full-scope calibration unless explicitly confirmed.
+- Records stage, phase, resource class, dataset, recording, well, source H5 path, applied limits, wall time, memory, child process usage, raw thread observations, pipeline thread counts, disk I/O, GPU metrics when available, status, and exception type when failed.
+- Writes machine-readable observations and a human-readable recommendation report.
+- Reports recommendations as advisory, not automatic enforcement.
+- Includes inner parallelism settings in the report so recommendations are not treated as universal.
+
+## Required Tests And Acceptance Criteria
+
+### Worker allocation unit tests
+
+Acceptance criteria:
+
+- Resource-derived stage fanout matches the active profile and enabled phase resource classes.
+- Explicit worker overrides are honored where supported.
+- Keyed resources reduce only the matching contended work.
+- Pipeline-declared thread counts and raw observed thread counts are reported separately.
+
+### Minimal real-data smoke
+
+Example:
+
+```bash
+axon-recon-container stages preprocess \
+  --config debug/debug.runtime.yml \
+  --limit-datasets 1 \
+  --limit-wells 1 \
+  --limit-segments 2 \
+  --force-restart
+```
+
+Acceptance criteria:
+
+- Effective worker counts are logged.
+- Phase resource classes and resource-usage summaries are logged.
+- No unselected target work starts.
+- Phase summaries contain resource usage.
+
+### Well-worker concurrency smoke
+
+Example:
+
+```bash
+axon-recon-container stages preprocess \
+  --config debug/debug.runtime.yml \
+  --limit-datasets 1 \
+  --limit-wells 2 \
+  --limit-segments 2 \
+  --force-restart
+```
+
+Acceptance criteria:
+
+- Two wells can make progress concurrently when resource gates allow it.
+- Completion logs appear for both wells.
+- Resource gates do not globally serialize unrelated phases.
+- File logs and JSONL events preserve correct well context.
+
+### Keyed H5 contention smoke
+
+Use 2 wells from the same source H5 when validating H5 contention.
+
+Acceptance criteria:
+
+- At most the configured number of workers enter same-file H5 gated phases concurrently.
+- Other non-H5 phases continue when resources allow.
+- Logs identify the active `source_h5_path` key.
+- There are no HDF5 contention failures.
+
+### Sort-gate smoke
+
+Acceptance criteria:
+
+- `spikesort.sort` respects GPU/sort-slot gating.
+- Non-sort phases do not inherit unnecessary global serialization.
+- Logs show when a worker waits for the sort slot and when it acquires/releases it.
+
+### Resource tuning smoke
+
+Acceptance criteria:
+
+- A limited stage calibration records observations for every phase executed.
+- A direct phase calibration fails clearly if required upstream artifacts are missing.
+- Recommendations include observations, safety factors, current class values, proposed values, and caveats.
+- Runtime YAML is not mutated by default.
