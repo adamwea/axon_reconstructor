@@ -411,6 +411,7 @@ def update_phase_summary_metadata(
 	summary_source: Any,
 	resource_class: str | None = None,
 	resource_usage: PhaseResourceUsage | None = None,
+	resource_gate: dict[str, Any] | None = None,
 ) -> bool:
 	summary_json = _resolve_summary_json_path(summary_source)
 	if summary_json is None or not summary_json.exists():
@@ -425,6 +426,8 @@ def update_phase_summary_metadata(
 		payload["resource_class"] = str(resource_class)
 	if resource_usage is not None:
 		payload["resource_usage"] = resource_usage.to_dict()
+	if resource_gate is not None:
+		payload["resource_gate"] = dict(resource_gate)
 	summary_json.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 	return True
 

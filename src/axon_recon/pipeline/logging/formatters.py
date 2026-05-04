@@ -62,6 +62,7 @@ class PipelineJsonFormatter(logging.Formatter):
             "target_count",
             "phase_count",
             "resource_usage",
+            "resource_gate",
             "exception_type",
             "selected_wells",
             "well_workers",

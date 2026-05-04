@@ -96,7 +96,7 @@ class ResourceBudgetManager:
 		phase_name: str | None = None,
 		target_label: str | None = None,
 		resource_key_context: Any | None = None,
-	) -> Iterator[float]:
+	) -> Iterator[dict[str, Any]]:
 		slot_demands = {
 			str(dimension): max(0, int(demand))
 			for dimension, demand in self.slot_demands(resource_class).items()
@@ -131,12 +131,27 @@ class ResourceBudgetManager:
 				str(resource_class or "null"),
 				", ".join(sorted(set(missing_keyed_resources))),
 			)
+		keyed_request_payload = {
+			str(resource_name): {"key": str(key_value), "demand": int(demand)}
+			for resource_name, (key_value, demand) in sorted(keyed_requests.items())
+		}
+		keyed_limit_payload = {
+			str(resource_name): int(self._keyed_resource_limits.get(str(resource_name), 0))
+			for resource_name in sorted(keyed_requests)
+		}
 		if not slot_demands and not keyed_requests:
-			yield 0.0
+			yield {
+				"wait_s": 0.0,
+				"waited": False,
+				"slot_demands": {},
+				"keyed_requests": {},
+				"keyed_limits": {},
+			}
 			return
 
 		wait_started = time.perf_counter()
 		wait_logged = False
+		first_wait_snapshot: dict[str, Any] | None = None
 		with self._condition:
 			while True:
 				has_slot_budget = all(
@@ -151,6 +166,31 @@ class ResourceBudgetManager:
 				)
 				if has_slot_budget and has_keyed_budget:
 					break
+				if first_wait_snapshot is None:
+					first_wait_snapshot = {
+						"available_slot_budget": {
+							str(dimension): int(self._available_slot_budget.get(str(dimension), 0))
+							for dimension in sorted(slot_demands)
+						},
+						"blocked_slot_dimensions": [
+							str(dimension)
+							for dimension, demand in sorted(slot_demands.items())
+							if int(self._available_slot_budget.get(str(dimension), 0)) < int(demand)
+						],
+						"keyed_active": {
+							str(resource_name): int(
+								self._active_keyed_resource_counts.get(str(resource_name), {}).get(str(key_value), 0)
+							)
+							for resource_name, (key_value, _demand) in sorted(keyed_requests.items())
+						},
+						"blocked_keyed_resources": [
+							str(resource_name)
+							for resource_name, (key_value, demand) in sorted(keyed_requests.items())
+							if int(self._active_keyed_resource_counts.get(str(resource_name), {}).get(str(key_value), 0))
+							+ int(demand)
+							> int(self._keyed_resource_limits.get(str(resource_name), 0))
+						],
+					}
 				if logger is not None and not wait_logged:
 					logger.warning(
 						"Phase resource gate waiting: phase=%s target=%s resource_class=%s slot_demands=%s available=%s keyed_requests=%s keyed_active=%s keyed_limits=%s",
@@ -179,6 +219,16 @@ class ResourceBudgetManager:
 					)
 					wait_logged = True
 				self._condition.wait(timeout=0.25)
+			slot_available_at_acquire = {
+				str(dimension): int(self._available_slot_budget.get(str(dimension), 0))
+				for dimension in sorted(slot_demands)
+			}
+			keyed_active_at_acquire = {
+				str(resource_name): int(
+					self._active_keyed_resource_counts.get(str(resource_name), {}).get(str(key_value), 0)
+				)
+				for resource_name, (key_value, _demand) in sorted(keyed_requests.items())
+			}
 			for dimension, demand in slot_demands.items():
 				self._available_slot_budget[str(dimension)] = max(
 					0,
@@ -187,9 +237,20 @@ class ResourceBudgetManager:
 			for resource_name, (key_value, demand) in keyed_requests.items():
 				active_counts = self._active_keyed_resource_counts.setdefault(str(resource_name), {})
 				active_counts[str(key_value)] = int(active_counts.get(str(key_value), 0)) + int(demand)
-		wait_s = max(0.0, float(time.perf_counter() - wait_started))
+		wait_s = max(0.0, float(time.perf_counter() - wait_started)) if first_wait_snapshot is not None else 0.0
+		acquisition = {
+			"wait_s": wait_s,
+			"waited": bool(first_wait_snapshot is not None),
+			"slot_demands": dict(slot_demands),
+			"slot_budget_total": dict(self._total_slot_budget),
+			"slot_available_at_acquire": slot_available_at_acquire,
+			"keyed_requests": keyed_request_payload,
+			"keyed_limits": keyed_limit_payload,
+			"keyed_active_at_acquire": keyed_active_at_acquire,
+			"first_wait_snapshot": first_wait_snapshot,
+		}
 		try:
-			yield wait_s
+			yield acquisition
 		finally:
 			with self._condition:
 				for dimension, demand in slot_demands.items():

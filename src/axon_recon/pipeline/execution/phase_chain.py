@@ -49,6 +49,12 @@ class PhaseChainError(RuntimeError):
         super().__init__(f"{self.phase_name} failed: {error}")
 
 
+def _resource_gate_payload(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    return {"wait_s": 0.0, "waited": False, "slot_demands": {}, "keyed_requests": {}}
+
+
 def run_phase_chain(
     *,
     phases: Sequence[PhaseDescriptor],
@@ -108,12 +114,25 @@ def run_phase_chain(
                     resource_key_context=resource_key_context,
                 )
             )
-            with phase_budget_context:
+            resource_gate = _resource_gate_payload(None)
+            with phase_budget_context as resource_gate_acquisition:
+                resource_gate = _resource_gate_payload(resource_gate_acquisition)
                 phase_t0 = time.perf_counter()
                 resource_monitor = start_phase_resource_monitor(
                     resource_usage_config,
                     pipeline_thread_count=phase.pipeline_thread_count,
                 )
+                if logger is not None and resource_budget_manager is not None:
+                    logger.info(
+                        "Phase resource gate acquired: phase=%s target=%s resource_class=%s wait_s=%.6f slot_demands=%s keyed_requests=%s",
+                        str(phase.name),
+                        str(target_label or "unknown"),
+                        str(phase.resource_class or "none"),
+                        float(resource_gate.get("wait_s", 0.0) or 0.0),
+                        resource_gate.get("slot_demands", {}),
+                        resource_gate.get("keyed_requests", {}),
+                        extra={"event": "phase_resource_gate", "resource_gate": resource_gate},
+                    )
                 if logger is not None:
                     logger.info(
                         format_phase_message(
@@ -170,6 +189,7 @@ def run_phase_chain(
                                     "event": "phase_resource_usage",
 								"status": "failed",
 								"exception_type": exception_type,
+                                    "resource_gate": resource_gate,
                                     "resource_usage": resource_usage.to_dict(),
                                 },
                             )
@@ -191,6 +211,7 @@ def run_phase_chain(
                     summary_source=last_result,
                     resource_class=phase.resource_class,
                     resource_usage=(resource_usage if bool(getattr(resource_usage_config, "write_to_phase_summary", True)) else None),
+                    resource_gate=resource_gate,
                 )
                 if logger is not None:
                     logger.info(
@@ -221,6 +242,7 @@ def run_phase_chain(
                             extra={
                                 "event": "phase_resource_usage",
                                 "status": "success",
+                                "resource_gate": resource_gate,
                                 "resource_usage": resource_usage.to_dict(),
                             },
                         )

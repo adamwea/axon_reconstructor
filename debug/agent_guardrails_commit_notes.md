@@ -91,6 +91,70 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-04 - pending - ai: include queued resource demand in tuning
+
+Status: accepted
+
+Summary:
+- Added structured resource gate acquisition metadata from `ResourceBudgetManager.phase_budget()`, including slot demands, keyed requests, keyed limits, acquisition availability, and actual wait time when a worker blocks.
+- Attached resource gate metadata to shared phase-chain and preprocess `phase_resource_usage` records and added `phase_resource_gate` log events.
+- Updated `--phase-tune` to compute requested slot demand from `gate wait + active phase` intervals, while preserving active-only demand as a diagnostic.
+- Updated reports/logs so active profile IO recommendations now call out requested demand including queued workers and resource gate wait totals.
+
+Guardrails Consulted:
+- `debug/logging_agent_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+
+Acceptance Criteria:
+- Waiting workers are represented in tuning observations through resource gate wait metadata.
+- Peak profile IO demand used for recommendations includes queued/requested intervals, not only active post-acquisition intervals.
+- Reports expose both requested and active slot demand so queueing effects can be distinguished from actual disk throughput.
+- Existing resource gates continue to enforce the same profile and keyed limits.
+
+Expected To Run:
+- Focused resource budget and phase tuning tests.
+- Containerized focused and broad pipeline tests.
+- Limited real-data `preprocess.preprocess_segments --phase-tune` smoke.
+
+Confirmed Not Run:
+- Full dataset/well scope.
+- Runtime YAML mutation.
+- Push to remote.
+
+Validation:
+- Focused container tests: `docker run --rm -v /home/adamm/dev/pkgs/axon_reconstructor:/workspace -w /workspace axon-recon:test python -m pytest src/axon_recon/pipeline/tests/test_resource_budget.py src/axon_recon/pipeline/tests/test_phase_tuning.py -q` passed.
+- Container broad tests: `docker run --rm -v /home/adamm/dev/pkgs/axon_reconstructor:/workspace -w /workspace axon-recon:test python -m pytest src/axon_recon/pipeline/tests --ignore=src/axon_recon/pipeline/tests/test_progress.py -q` passed.
+- Real-data smoke: `/home/adamm/miniconda3/envs/axon_recon/bin/axon-recon-container --gpus all stages preprocess.preprocess_segments --config debug/debug.runtime.yml --limit-segments 2 --limit-datasets 6 --limit-wells-per-dataset 1 --limit-units 15 --force-restart --phase-tune` passed for run `debug.runtime-20260504T054709Z`.
+- Logs inspected: `pipeline.jsonl` includes `phase_resource_gate` events and `resource_gate` payloads on `phase_resource_usage` events; `phase_tuning_profile_recommendation` logs requested demand and gate wait stats.
+- Artifacts inspected: `resource_tuning_report.md` includes `max_requested_*_slot_demand`, `max_active_*_slot_demand`, and resource gate wait counts/totals.
+- Diagnostics: VS Code diagnostics reported no errors for modified source/test files.
+
+CLI / Debug Flag Impact:
+- No CLI flag changes.
+
+Logging / Parallelism Impact:
+- Added `phase_resource_gate` events and `resource_gate` payloads to phase resource usage logs.
+- Runtime concurrency behavior is unchanged; the tuning calculation now includes queued/requested demand when gate waits occur.
+
+Storage / Cache Impact:
+- Updated tuning artifacts under `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/resource_tuning` during the smoke.
+- Rebuilt container images as part of validation.
+
+Container / NERSC / MPI Impact:
+- Rebuilt local `axon-recon:local` and refreshed disposable `axon-recon:test` for container validation.
+- No NERSC/MPI-specific behavior was changed.
+
+Resume / Force-Restart Impact:
+- No resume or force-restart semantics were changed.
+
+Residual Risk And Follow-Ups:
+- The limited smoke did not observe an actual gate wait with the current profile and target shape; synthetic tests cover queued demand where active-only demand stays lower than requested demand.
+
+Rollback Notes:
+- Revert the resource gate metadata payloads, phase log attachments, requested-demand overlap calculation, report/log field additions, and focused tests from this slice to return to active-only demand accounting.
+
 ## 2026-05-04 - pending - ai: log profile io tuning reasons
 
 Status: accepted

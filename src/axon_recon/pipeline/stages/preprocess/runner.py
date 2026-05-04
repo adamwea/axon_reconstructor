@@ -62,6 +62,7 @@ from .core import (
 	run_save_segment_recordings_core,
 	run_wipe_src_scratch_core,
 )
+
 from .models.inputs import (
 	DEFAULT_PREPROCESS_PHASE_SEQUENCE,
 	PreprocessConcatSegmentsPhaseConfig,
@@ -74,6 +75,12 @@ from .models.inputs import (
 	PreprocessSegmentsPhaseConfig,
 )
 from .models.results import PreprocessResult
+
+
+def _resource_gate_payload(value: Any) -> dict[str, Any]:
+	if isinstance(value, dict):
+		return dict(value)
+	return {"wait_s": 0.0, "waited": False, "slot_demands": {}, "keyed_requests": {}}
 
 
 LOGGER = logging.getLogger("axon_recon.preprocess")
@@ -2879,8 +2886,10 @@ def _run_preprocess_phase_sequence(
 		)
 		phase_t0 = time.perf_counter()
 		resource_monitor = None
+		resource_gate = _resource_gate_payload(None)
 		try:
-			with phase_budget_context:
+			with phase_budget_context as resource_gate_acquisition:
+				resource_gate = _resource_gate_payload(resource_gate_acquisition)
 				phase_t0 = time.perf_counter()
 				phase_plot_cfg = _resolve_effective_plot_config(inputs, selected_phase=phase_name)
 				resource_monitor = start_phase_resource_monitor(
@@ -2897,6 +2906,17 @@ def _run_preprocess_phase_sequence(
 					phase_name=str(phase_name),
 					phase_plot_cfg=phase_plot_cfg,
 				)
+				if phase_logger is not None and resource_budget_manager is not None:
+					phase_logger.info(
+						"Phase resource gate acquired: phase=%s target=%s resource_class=%s wait_s=%.6f slot_demands=%s keyed_requests=%s",
+						str(phase_name),
+						str(inputs.stream_id),
+						str(phase_resource_class or "none"),
+						float(resource_gate.get("wait_s", 0.0) or 0.0),
+						resource_gate.get("slot_demands", {}),
+						resource_gate.get("keyed_requests", {}),
+						extra={"event": "phase_resource_gate", "resource_gate": resource_gate},
+					)
 				if phase_logger is not None:
 					phase_logger.info(
 						"Starting preprocess phase %d/%d for well=%s phase=%s",
@@ -3135,6 +3155,7 @@ def _run_preprocess_phase_sequence(
 				payload = dict(payload)
 				payload.setdefault("status", "success")
 				payload.setdefault("phase_elapsed_s", float(max(0.0, time.perf_counter() - phase_t0)))
+				payload.setdefault("resource_gate", resource_gate)
 				if phase_resource_class is not None:
 					payload.setdefault("resource_class", str(phase_resource_class))
 				resource_usage = None if resource_monitor is None else resource_monitor.stop()
@@ -3198,6 +3219,7 @@ def _run_preprocess_phase_sequence(
 							extra={
 								"event": "phase_resource_usage",
 								"status": "success",
+								"resource_gate": resource_gate,
 								"resource_usage": resource_usage.to_dict(),
 							},
 						)
@@ -3251,6 +3273,7 @@ def _run_preprocess_phase_sequence(
 							"event": "phase_resource_usage",
 							"status": "failed",
 							"exception_type": type(exc).__name__,
+							"resource_gate": resource_gate,
 							"resource_usage": resource_usage.to_dict(),
 						},
 					)

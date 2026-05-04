@@ -41,6 +41,7 @@ def test_phase_budget_limits_same_source_h5_path_but_allows_other_files() -> Non
 	release_workers = threading.Event()
 	started: list[str] = []
 	completed: list[str] = []
+	leases: list[tuple[str, dict[str, object]]] = []
 	errors: list[BaseException] = []
 
 	def worker(label: str, source_h5_path: Path) -> None:
@@ -50,8 +51,9 @@ def test_phase_budget_limits_same_source_h5_path_but_allows_other_files() -> Non
 				phase_name="preprocess_segments",
 				target_label=label,
 				resource_key_context={"source_h5_path": source_h5_path},
-			):
+			) as lease:
 				with condition:
+					leases.append((label, lease))
 					started.append(label)
 					condition.notify_all()
 				assert release_workers.wait(timeout=5)
@@ -84,3 +86,7 @@ def test_phase_budget_limits_same_source_h5_path_but_allows_other_files() -> Non
 
 	assert not errors
 	assert sorted(completed) == ["other", "same-a", "same-b"]
+	assert len(leases) == 3
+	assert all(item[1]["slot_demands"] == {"h5_read_slots": 1} for item in leases)
+	assert all(item[1]["keyed_requests"]["source_h5_path"]["demand"] == 1 for item in leases)
+	assert any(bool(item[1]["waited"]) and float(item[1]["wait_s"]) > 0.0 for item in leases)

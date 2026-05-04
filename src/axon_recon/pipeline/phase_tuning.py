@@ -173,6 +173,11 @@ def collect_phase_resource_observations_from_jsonl(
 				read_gb_per_s = max(0.0, float(disk_read_gb) / float(wall_time_s))
 			if disk_write_gb is not None:
 				write_gb_per_s = max(0.0, float(disk_write_gb) / float(wall_time_s))
+		resource_gate = _as_mapping(record.get("resource_gate", None))
+		resource_gate_wait_s = _metric(resource_gate.get("wait_s", None))
+		if resource_gate_wait_s is None:
+			resource_gate_wait_s = _metric(record.get("resource_gate_wait_s", None))
+		resource_gate_wait_s = max(0.0, float(resource_gate_wait_s or 0.0))
 		observations.append(
 			{
 				"run_id": record.get("run_id", None),
@@ -201,6 +206,11 @@ def collect_phase_resource_observations_from_jsonl(
 				"disk_write_gb_per_s": write_gb_per_s,
 				"gpu_peak_memory_gb": _metric(usage.get("gpu_peak_memory_gb", None)),
 				"gpu_utilization_max_pct": _metric(usage.get("gpu_utilization_max_pct", None)),
+				"resource_gate": resource_gate,
+				"resource_gate_wait_s": resource_gate_wait_s,
+				"resource_gate_waited": bool(resource_gate.get("waited", bool(resource_gate_wait_s > 0.0))),
+				"resource_gate_slot_demands": _as_mapping(resource_gate.get("slot_demands", None)),
+				"resource_gate_keyed_requests": _as_mapping(resource_gate.get("keyed_requests", None)),
 			}
 		)
 	return observations
@@ -274,6 +284,7 @@ def _max_overlapping_slot_demand(
 	observations: list[dict[str, Any]],
 	recommendations_by_group: dict[tuple[str, str, str], dict[str, Any]],
 	demand_key: str,
+	include_gate_wait: bool = False,
 ) -> tuple[int | None, int]:
 	events: list[tuple[float, int]] = []
 	interval_count = 0
@@ -286,7 +297,8 @@ def _max_overlapping_slot_demand(
 		demand = _int_metric(recommendation.get(demand_key, None))
 		if demand is None or demand <= 0:
 			continue
-		start_s = max(0.0, float(end_s) - float(wall_time_s))
+		gate_wait_s = _metric(observation.get("resource_gate_wait_s", None)) if include_gate_wait else 0.0
+		start_s = max(0.0, float(end_s) - float(wall_time_s) - float(gate_wait_s or 0.0))
 		events.append((start_s, int(demand)))
 		events.append((float(end_s), -int(demand)))
 		interval_count += 1
@@ -715,26 +727,52 @@ def _profile_io_slot_recommendation(
 	warnings: list[str] = []
 	current_h5_read_slots = max(0, int(profile.h5_read_slots))
 	current_disk_heavy_slots = max(0, int(profile.disk_heavy_slots))
+	current_h5_active_demand, h5_active_interval_count = _max_overlapping_slot_demand(
+		observations=observations,
+		recommendations_by_group=recommendations_by_group,
+		demand_key="current_h5_read_slots",
+	)
+	recommended_h5_active_demand, recommended_h5_active_interval_count = _max_overlapping_slot_demand(
+		observations=observations,
+		recommendations_by_group=recommendations_by_group,
+		demand_key="recommended_h5_read_slots",
+	)
+	current_disk_active_demand, disk_active_interval_count = _max_overlapping_slot_demand(
+		observations=observations,
+		recommendations_by_group=recommendations_by_group,
+		demand_key="current_disk_heavy_slots",
+	)
+	recommended_disk_active_demand, recommended_disk_active_interval_count = _max_overlapping_slot_demand(
+		observations=observations,
+		recommendations_by_group=recommendations_by_group,
+		demand_key="recommended_disk_heavy_slots",
+	)
 	current_h5_demand, h5_interval_count = _max_overlapping_slot_demand(
 		observations=observations,
 		recommendations_by_group=recommendations_by_group,
 		demand_key="current_h5_read_slots",
+		include_gate_wait=True,
 	)
 	recommended_h5_demand, recommended_h5_interval_count = _max_overlapping_slot_demand(
 		observations=observations,
 		recommendations_by_group=recommendations_by_group,
 		demand_key="recommended_h5_read_slots",
+		include_gate_wait=True,
 	)
 	current_disk_demand, disk_interval_count = _max_overlapping_slot_demand(
 		observations=observations,
 		recommendations_by_group=recommendations_by_group,
 		demand_key="current_disk_heavy_slots",
+		include_gate_wait=True,
 	)
 	recommended_disk_demand, recommended_disk_interval_count = _max_overlapping_slot_demand(
 		observations=observations,
 		recommendations_by_group=recommendations_by_group,
 		demand_key="recommended_disk_heavy_slots",
+		include_gate_wait=True,
 	)
+	gate_wait_values = _nonnull_float_values(item.get("resource_gate_wait_s", None) for item in observations)
+	positive_gate_wait_values = [value for value in gate_wait_values if float(value) > 0.0]
 	disk_bandwidth_pressure = _disk_bandwidth_pressure_by_path(
 		observations=observations,
 		run_root=run_root,
@@ -771,13 +809,13 @@ def _profile_io_slot_recommendation(
 			)
 			if int(observed_recommended_demand) > int(current_slots):
 				notes.append(
-					f"{dimension}: peak recommended slot demand ({observed_recommended_demand}) exceeded current profile slots ({current_slots}), but bandwidth utilization is needed before recommending a profile change"
+					f"{dimension}: peak requested recommended slot demand including gate waits ({observed_recommended_demand}) exceeded current profile slots ({current_slots}), but bandwidth utilization is needed before recommending a profile change"
 				)
 			return int(current_slots)
 		if float(bandwidth_utilization) < float(tuning_config.disk_underuse_fraction):
 			if int(observed_recommended_demand) <= int(current_slots):
 				notes.append(
-					f"{dimension}: disk bandwidth was underused (utilization={_fmt_float(bandwidth_utilization)} below underuse_threshold={_fmt_float(tuning_config.disk_underuse_fraction)}), but peak recommended slot demand ({observed_recommended_demand}) did not exceed current profile slots ({current_slots}); increasing {dimension} would not change this run. Increase selected target concurrency or inspect other limits if you expected more IO pressure."
+					f"{dimension}: disk bandwidth was underused (utilization={_fmt_float(bandwidth_utilization)} below underuse_threshold={_fmt_float(tuning_config.disk_underuse_fraction)}), but peak requested recommended slot demand including gate waits ({observed_recommended_demand}) did not exceed current profile slots ({current_slots}); increasing {dimension} would not change this run. Increase selected target concurrency or inspect other limits if you expected more IO pressure."
 				)
 				return int(current_slots)
 			scaled_candidate = int(
@@ -789,7 +827,7 @@ def _profile_io_slot_recommendation(
 			)
 			recommended = max(int(current_slots) + 1, min(int(observed_recommended_demand), int(scaled_candidate)))
 			notes.append(
-				f"{dimension}: disk bandwidth was underused (utilization={_fmt_float(bandwidth_utilization)} below underuse_threshold={_fmt_float(tuning_config.disk_underuse_fraction)}) and peak recommended slot demand ({observed_recommended_demand}) exceeded current profile slots ({current_slots}); recommend increasing to {recommended} so more IO work can run concurrently."
+				f"{dimension}: disk bandwidth was underused (utilization={_fmt_float(bandwidth_utilization)} below underuse_threshold={_fmt_float(tuning_config.disk_underuse_fraction)}) and peak requested recommended slot demand including gate waits ({observed_recommended_demand}) exceeded current profile slots ({current_slots}); recommend increasing to {recommended} so more IO work can run concurrently."
 			)
 			return int(recommended)
 		if float(bandwidth_utilization) > float(tuning_config.disk_overuse_fraction):
@@ -829,6 +867,8 @@ def _profile_io_slot_recommendation(
 	)
 	if observations:
 		notes.append("profile slot recommendations compare observed phase IO rates with measured disk bandwidth")
+	if positive_gate_wait_values:
+		notes.append("resource gate waits were observed; peak requested demand includes queued phases before acquisition")
 	return {
 		"profile": profile_name,
 		"current_h5_read_slots": current_h5_read_slots,
@@ -837,12 +877,27 @@ def _profile_io_slot_recommendation(
 		"recommended_disk_heavy_slots": recommended_profile_disk_heavy_slots,
 		"max_current_h5_read_slot_demand": current_h5_demand,
 		"max_recommended_h5_read_slot_demand": recommended_h5_demand,
+		"max_active_current_h5_read_slot_demand": current_h5_active_demand,
+		"max_active_recommended_h5_read_slot_demand": recommended_h5_active_demand,
+		"max_requested_current_h5_read_slot_demand": current_h5_demand,
+		"max_requested_recommended_h5_read_slot_demand": recommended_h5_demand,
 		"h5_read_interval_observations": h5_interval_count,
 		"recommended_h5_read_interval_observations": recommended_h5_interval_count,
+		"h5_read_active_interval_observations": h5_active_interval_count,
+		"recommended_h5_read_active_interval_observations": recommended_h5_active_interval_count,
 		"max_current_disk_heavy_slot_demand": current_disk_demand,
 		"max_recommended_disk_heavy_slot_demand": recommended_disk_demand,
+		"max_active_current_disk_heavy_slot_demand": current_disk_active_demand,
+		"max_active_recommended_disk_heavy_slot_demand": recommended_disk_active_demand,
+		"max_requested_current_disk_heavy_slot_demand": current_disk_demand,
+		"max_requested_recommended_disk_heavy_slot_demand": recommended_disk_demand,
 		"disk_heavy_interval_observations": disk_interval_count,
 		"recommended_disk_heavy_interval_observations": recommended_disk_interval_count,
+		"disk_heavy_active_interval_observations": disk_active_interval_count,
+		"recommended_disk_heavy_active_interval_observations": recommended_disk_active_interval_count,
+		"resource_gate_wait_observations": len(positive_gate_wait_values),
+		"max_resource_gate_wait_s": max(positive_gate_wait_values, default=0.0),
+		"total_resource_gate_wait_s": sum(positive_gate_wait_values),
 		"max_h5_read_bandwidth_utilization": max_h5_read_bandwidth_utilization,
 		"max_disk_heavy_bandwidth_utilization": max_disk_heavy_bandwidth_utilization,
 		"disk_bandwidth_pressure": disk_bandwidth_pressure,
@@ -920,12 +975,17 @@ def format_phase_tuning_report(summary: dict[str, Any]) -> str:
 				f"- profile: {profile_recommendation.get('profile') or 'none'}",
 				f"- h5_read_slots: {profile_recommendation.get('current_h5_read_slots')} -> {profile_recommendation.get('recommended_h5_read_slots')}",
 				f"- disk_heavy_slots: {profile_recommendation.get('current_disk_heavy_slots')} -> {profile_recommendation.get('recommended_disk_heavy_slots')}",
-				f"- max_current_h5_read_slot_demand: {profile_recommendation.get('max_current_h5_read_slot_demand')}",
-				f"- max_recommended_h5_read_slot_demand: {profile_recommendation.get('max_recommended_h5_read_slot_demand')}",
-				f"- h5_read_interval_observations: {profile_recommendation.get('recommended_h5_read_interval_observations')}",
-				f"- max_current_disk_heavy_slot_demand: {profile_recommendation.get('max_current_disk_heavy_slot_demand')}",
-				f"- max_recommended_disk_heavy_slot_demand: {profile_recommendation.get('max_recommended_disk_heavy_slot_demand')}",
-				f"- disk_heavy_interval_observations: {profile_recommendation.get('recommended_disk_heavy_interval_observations')}",
+				f"- max_requested_current_h5_read_slot_demand: {profile_recommendation.get('max_requested_current_h5_read_slot_demand')}",
+				f"- max_requested_recommended_h5_read_slot_demand: {profile_recommendation.get('max_requested_recommended_h5_read_slot_demand')}",
+				f"- max_active_recommended_h5_read_slot_demand: {profile_recommendation.get('max_active_recommended_h5_read_slot_demand')}",
+				f"- h5_read_requested_interval_observations: {profile_recommendation.get('recommended_h5_read_interval_observations')}",
+				f"- max_requested_current_disk_heavy_slot_demand: {profile_recommendation.get('max_requested_current_disk_heavy_slot_demand')}",
+				f"- max_requested_recommended_disk_heavy_slot_demand: {profile_recommendation.get('max_requested_recommended_disk_heavy_slot_demand')}",
+				f"- max_active_recommended_disk_heavy_slot_demand: {profile_recommendation.get('max_active_recommended_disk_heavy_slot_demand')}",
+				f"- disk_heavy_requested_interval_observations: {profile_recommendation.get('recommended_disk_heavy_interval_observations')}",
+				f"- resource_gate_wait_observations: {profile_recommendation.get('resource_gate_wait_observations')}",
+				f"- max_resource_gate_wait_s: {profile_recommendation.get('max_resource_gate_wait_s')}",
+				f"- total_resource_gate_wait_s: {profile_recommendation.get('total_resource_gate_wait_s')}",
 				f"- max_h5_read_bandwidth_utilization: {profile_recommendation.get('max_h5_read_bandwidth_utilization')}",
 				f"- max_disk_heavy_bandwidth_utilization: {profile_recommendation.get('max_disk_heavy_bandwidth_utilization')}",
 			]
@@ -1098,12 +1158,15 @@ def emit_phase_tuning_recommendations(
 	profile_recommendation = summary.get("active_profile_recommendation", {})
 	if isinstance(profile_recommendation, dict):
 		LOGGER.info(
-			"Resource profile tuning recommendation: profile=%s h5_read_slots=%s->%s disk_heavy_slots=%s->%s h5_read_utilization=%s disk_heavy_utilization=%s",
+			"Resource profile tuning recommendation: profile=%s h5_read_slots=%s->%s disk_heavy_slots=%s->%s h5_requested_demand=%s disk_requested_demand=%s gate_wait_max_s=%s h5_read_utilization=%s disk_heavy_utilization=%s",
 			profile_recommendation.get("profile") or "none",
 			profile_recommendation.get("current_h5_read_slots"),
 			profile_recommendation.get("recommended_h5_read_slots"),
 			profile_recommendation.get("current_disk_heavy_slots"),
 			profile_recommendation.get("recommended_disk_heavy_slots"),
+			profile_recommendation.get("max_requested_recommended_h5_read_slot_demand"),
+			profile_recommendation.get("max_requested_recommended_disk_heavy_slot_demand"),
+			profile_recommendation.get("max_resource_gate_wait_s"),
 			profile_recommendation.get("max_h5_read_bandwidth_utilization"),
 			profile_recommendation.get("max_disk_heavy_bandwidth_utilization"),
 			extra={"event": "phase_tuning_profile_recommendation"},
