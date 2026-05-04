@@ -168,6 +168,9 @@ def select_execution_targets(
 	*,
 	bundle: PipelineRuntimeBundle,
 	materialize_scratch_inputs: bool = False,
+	limit_datasets: int | None = None,
+	limit_wells: int | None = None,
+	limit_wells_per_dataset: int | None = None,
 ) -> list[ExecutionTarget]:
 	datasets = bundle.data_config.get("datasets", [])
 	if not isinstance(datasets, list) or not datasets:
@@ -185,6 +188,17 @@ def select_execution_targets(
 			"No datasets enabled for runtime execution. Set datasets[*].include_in_runtime=true "
 			"for each recording you want to include."
 		)
+	if limit_datasets is not None:
+		dataset_limit = max(1, int(limit_datasets))
+		if len(enabled) > dataset_limit:
+			LOGGER.info(
+				"Applying execution target dataset limit before scratch materialization: %d -> %d dataset(s)",
+				len(enabled),
+				dataset_limit,
+			)
+			enabled = enabled[:dataset_limit]
+	global_well_limit = max(1, int(limit_wells)) if limit_wells is not None else None
+	well_limit_per_dataset = max(1, int(limit_wells_per_dataset)) if limit_wells_per_dataset is not None else None
 
 	output_root_raw = bundle.data_config.get("output_root", None)
 	if not output_root_raw:
@@ -212,6 +226,8 @@ def select_execution_targets(
 
 	targets: list[ExecutionTarget] = []
 	for idx, item in enabled:
+		if global_well_limit is not None and len(targets) >= int(global_well_limit):
+			break
 		h5_raw = item.get("raw_data_h5_path", None)
 		if not h5_raw:
 			continue
@@ -243,12 +259,6 @@ def select_execution_targets(
 			else:
 				dataset_scratch_input_root = None
 
-		target_h5_path = resolve_copy_src_to_scratch_input_path(
-			source_h5_path=h5_path,
-			scratch_input_root=dataset_scratch_input_root,
-			dataset_id=str(dataset_id),
-			materialize_scratch_inputs=bool(materialize_scratch_inputs),
-		)
 		active_root = dataset_scratch_output_root if dataset_scratch_output_root is not None else output_root
 		artifact_lookup_roots: list[Path] = []
 		for candidate_root in _as_path_list(
@@ -265,7 +275,12 @@ def select_execution_targets(
 		if not isinstance(wells, list) or not wells:
 			wells = [{"well_id": "well000"}]
 
+		selected_stream_ids: list[str] = []
 		for well_item in wells:
+			if well_limit_per_dataset is not None and len(selected_stream_ids) >= int(well_limit_per_dataset):
+				break
+			if global_well_limit is not None and (len(targets) + len(selected_stream_ids)) >= int(global_well_limit):
+				break
 			stream_id = "well000"
 			well_enabled = False
 			if isinstance(well_item, dict):
@@ -274,7 +289,19 @@ def select_execution_targets(
 					stream_id = str(well_item.get("well_id"))
 			if not well_enabled:
 				continue
+			selected_stream_ids.append(str(stream_id))
 
+		if not selected_stream_ids:
+			continue
+
+		target_h5_path = resolve_copy_src_to_scratch_input_path(
+			source_h5_path=h5_path,
+			scratch_input_root=dataset_scratch_input_root,
+			dataset_id=str(dataset_id),
+			materialize_scratch_inputs=bool(materialize_scratch_inputs),
+		)
+
+		for stream_id in selected_stream_ids:
 			targets.append(
 				ExecutionTarget(
 					dataset_index=int(idx),

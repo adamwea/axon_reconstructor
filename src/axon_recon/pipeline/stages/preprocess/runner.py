@@ -164,6 +164,23 @@ def _write_json(path: Path, payload: dict) -> None:
 	path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _safe_runtime_user() -> str:
+	try:
+		user = str(getpass.getuser()).strip()
+		if user:
+			return user
+	except Exception:
+		pass
+	for env_name in ("USER", "LOGNAME", "USERNAME"):
+		user = str(os.environ.get(env_name, "")).strip()
+		if user:
+			return user
+	try:
+		return f"uid:{int(os.getuid())}"
+	except Exception:
+		return "unknown"
+
+
 def _as_positive_float_or_none(value: Any) -> float | None:
 	try:
 		out = float(value)
@@ -447,7 +464,7 @@ def _write_observability_artifacts(
 		environment_payload = {
 			"generated_utc": _utc_now_iso(),
 			"hostname": socket.gethostname(),
-			"user": getpass.getuser(),
+			"user": _safe_runtime_user(),
 			"pid": int(os.getpid()),
 			"cwd": os.getcwd(),
 			"python_version": platform.python_version(),
@@ -1032,13 +1049,23 @@ def _log_preprocess_phase_worker_allocation(
 	)
 
 
-def _configured_preprocess_phase_sequence(inputs: PreprocessInputs) -> tuple[str, ...]:
-	sequence = tuple(str(item) for item in (getattr(inputs, "phase_sequence", None) or DEFAULT_PREPROCESS_PHASE_SEQUENCE))
+def _canonical_preprocess_phase_name(value: Any, *, context: str) -> str:
+	text = str(value or "").strip()
+	if not text:
+		raise ValueError(f"preprocess {context} contains an empty phase name")
+	if text.startswith("preprocess."):
+		text = text.split(".", 1)[1]
+	token = text.strip().replace("-", "_").replace(" ", "_").lower()
 	allowed = set(DEFAULT_PREPROCESS_PHASE_SEQUENCE)
-	unknown = [item for item in sequence if item not in allowed]
-	if unknown:
-		raise ValueError(f"Unknown preprocess phase_sequence entries: {unknown}")
-	return sequence
+	if token not in allowed:
+		supported = ", ".join(DEFAULT_PREPROCESS_PHASE_SEQUENCE)
+		raise ValueError(f"Unknown preprocess {context}: {value!r}. Supported phases: {supported}")
+	return token
+
+
+def _configured_preprocess_phase_sequence(inputs: PreprocessInputs) -> tuple[str, ...]:
+	sequence = tuple(getattr(inputs, "phase_sequence", None) or DEFAULT_PREPROCESS_PHASE_SEQUENCE)
+	return tuple(_canonical_preprocess_phase_name(item, context="phase_sequence entry") for item in sequence)
 
 
 def _phase_in_configured_sequence(inputs: PreprocessInputs, phase_name: str) -> bool:
@@ -1894,7 +1921,9 @@ def _write_phase_summary(
 
 
 def _normalize_requested_preprocess_phase(selected_phase: str | None) -> str | None:
-	return str(selected_phase) if selected_phase is not None else None
+	if selected_phase is None:
+		return None
+	return _canonical_preprocess_phase_name(selected_phase, context="selected phase")
 
 
 def _phase_enabled(inputs: PreprocessInputs, phase_name: str) -> bool:
@@ -1921,6 +1950,14 @@ def _phase_enabled(inputs: PreprocessInputs, phase_name: str) -> bool:
 	if phase_name == "wipe_src_scratch":
 		return bool(inputs.phases.wipe_src_scratch.enabled)
 	return False
+
+
+def _disabled_phase_skip_reason(inputs: PreprocessInputs, phase_name: str) -> str:
+	if phase_name == "preprocess_segments" and not bool(inputs.save_segment_recordings):
+		return "preprocess_segments disabled because save_segment_recordings is false"
+	if phase_name == "concat_segments" and not bool(inputs.save_concat_recording):
+		return "concat_segments disabled because save_concat_recording is false"
+	return "phase disabled in preprocess config"
 
 
 def _summary_relpath_for_phase(inputs: PreprocessInputs, phase_name: str) -> str:
@@ -2716,19 +2753,86 @@ def _run_preprocess_phase_sequence(
 		pipeline_logging_config is not None and bool(pipeline_logging_config.console.blank_line_after_phase)
 	)
 	scratch_usage_released = False
-	phases_to_run = [canonical_selected_phase] if canonical_selected_phase is not None else [
-		phase_name for phase_name in _configured_preprocess_phase_sequence(inputs) if _phase_enabled(inputs, phase_name)
-	]
-	if phase_logger is not None and phases_to_run:
+	phases_to_visit = [canonical_selected_phase] if canonical_selected_phase is not None else list(_configured_preprocess_phase_sequence(inputs))
+	active_phase_count = (
+		len(phases_to_visit)
+		if canonical_selected_phase is not None
+		else sum(1 for phase_name in phases_to_visit if _phase_enabled(inputs, phase_name))
+	)
+	if phase_logger is not None and phases_to_visit:
 		phase_logger.info(
 			"Starting preprocess work for well=%s phase_count=%d selected_phase=%s",
 			str(inputs.stream_id),
-			int(len(phases_to_run)),
+			int(active_phase_count),
 			(str(canonical_selected_phase) if canonical_selected_phase is not None else "all"),
 		)
 
-	for phase_index, phase_name in enumerate(phases_to_run, start=1):
+	active_phase_index = 0
+	for sequence_index, phase_name in enumerate(phases_to_visit, start=1):
 		phase_resource_class = _resource_class_for_phase(inputs, phase_name)
+		if canonical_selected_phase is None and not _phase_enabled(inputs, phase_name):
+			skip_reason = _disabled_phase_skip_reason(inputs, phase_name)
+			payload = {
+				"phase": str(phase_name),
+				"status": "skipped",
+				"skip_reason": str(skip_reason),
+				"enabled": False,
+				"selected_phase": "all",
+				"phase_sequence_index": int(sequence_index),
+				"phase_sequence_count": int(len(phases_to_visit)),
+				"phase_elapsed_s": 0.0,
+			}
+			if phase_resource_class is not None:
+				payload["resource_class"] = str(phase_resource_class)
+			summary_outputs: dict[str, str] = {}
+			phase_summaries[phase_name] = _write_phase_summary(
+				inputs=inputs,
+				paths=paths,
+				phase_name=phase_name,
+				summary_json_relpath=_summary_relpath_for_phase(inputs, phase_name),
+				outputs=summary_outputs,
+				extra_payload=payload,
+			)
+			outputs[f"{phase_name}_summary_json"] = str(phase_summaries[phase_name]["summary_json"])
+			if event_records is not None:
+				event_records.append(
+					{
+						"event": f"phase_skip:{phase_name}",
+						"utc": _utc_now_iso(),
+						"details": {
+							"reason": str(skip_reason),
+							"sequence_index": int(sequence_index),
+							"sequence_count": int(len(phases_to_visit)),
+						},
+					}
+				)
+			if phase_logger is not None:
+				with pipeline_log_context(phase=phase_name, resource_class=phase_resource_class):
+					context = current_log_context()
+					stage_name = str(context.get("stage", None) or "preprocess")
+					dataset_id = context.get("dataset_id", None)
+					recording_id = context.get("recording_id", None)
+					well_id = context.get("well_id", None) or inputs.stream_id
+					phase_logger.info(
+						format_phase_message(
+							action="Skipped",
+							stage_name=stage_name,
+							phase_name=phase_name,
+							dataset_id=dataset_id,
+							recording_id=recording_id,
+							well_id=well_id,
+							resource_class=phase_resource_class,
+						),
+						extra={
+							"event": "phase_skipped",
+							"skip_reason": str(skip_reason),
+							"sequence_index": int(sequence_index),
+							"sequence_count": int(len(phases_to_visit)),
+						},
+					)
+			continue
+
+		active_phase_index += 1
 		_phase_log_context = pipeline_log_context(phase=phase_name, resource_class=phase_resource_class)
 		_phase_log_context.__enter__()
 		context = current_log_context()
@@ -2781,6 +2885,13 @@ def _run_preprocess_phase_sequence(
 				)
 				if phase_logger is not None:
 					phase_logger.info(
+						"Starting preprocess phase %d/%d for well=%s phase=%s",
+						int(active_phase_index),
+						int(active_phase_count),
+						str(inputs.stream_id),
+						str(phase_name),
+					)
+					phase_logger.info(
 						format_phase_message(
 							action="Starting",
 							stage_name=stage_name,
@@ -2793,9 +2904,9 @@ def _run_preprocess_phase_sequence(
 						extra={"event": "phase_started"},
 					)
 				if phase_name == "copy_src_to_scratch":
-					_validate_copy_phase_requirements(inputs, selected_phase=selected_phase)
+					_validate_copy_phase_requirements(inputs, selected_phase=canonical_selected_phase)
 				elif phase_name == "wipe_src_scratch":
-					_validate_wipe_phase_requirements(inputs, selected_phase=selected_phase)
+					_validate_wipe_phase_requirements(inputs, selected_phase=canonical_selected_phase)
 
 				payload = _resume_phase_payload_if_complete(
 					phase_name=phase_name,
@@ -2821,7 +2932,7 @@ def _run_preprocess_phase_sequence(
 						copied_to_scratch=bool(inputs.copied_to_scratch),
 						requires_use_scratch_root=bool(inputs.phases.copy_src_to_scratch.requires_use_scratch_root),
 					)
-				elif phase_name == "save_rec_metadata":
+				elif payload is None and phase_name == "save_rec_metadata":
 					metadata_h5_path, source_h5_path, requested_metadata_source, metadata_source = _resolve_metadata_source_selection(inputs)
 					if (
 						requested_metadata_source == "scratch_copy"
@@ -2848,7 +2959,7 @@ def _run_preprocess_phase_sequence(
 						logger=phase_logger,
 						report_step_timers=bool(inputs.phases.save_rec_metadata.report_step_timers),
 					)
-				elif phase_name == "prepare_raw_binaries":
+				elif payload is None and phase_name == "prepare_raw_binaries":
 					payload = run_prepare_raw_binaries_core(
 						h5_path=inputs.h5_path,
 						source_h5_path=(inputs.source_h5_path or inputs.h5_path),
@@ -2864,7 +2975,7 @@ def _run_preprocess_phase_sequence(
 					)
 					payload.setdefault("raw_binary_recording_dir", str(paths.raw_binary_dir))
 					payload.setdefault("raw_binary_manifest_path", str(paths.raw_binary_manifest_path))
-				elif phase_name == "preprocess_segments":
+				elif payload is None and phase_name == "preprocess_segments":
 					selected_segment_h5_path, selected_source_h5_path, selected_lazy_source = _resolve_preprocess_segments_source_selection(inputs)
 					effective_segment_output_mode = _resolve_preprocess_segments_output_mode(inputs)
 					if phase_logger is not None:
@@ -2901,7 +3012,7 @@ def _run_preprocess_phase_sequence(
 					payload.setdefault("source_h5_path", str(selected_source_h5_path))
 					payload.setdefault("resolved_h5_path", str(selected_segment_h5_path))
 					payload.setdefault("lazy_source", str(selected_lazy_source))
-				elif phase_name == "plot_segment_traces":
+				elif payload is None and phase_name == "plot_segment_traces":
 					payload = run_plot_segment_traces_core(
 						stream_id=str(inputs.stream_id),
 						segment_manifest_path=paths.per_segment_manifest_path,
@@ -2919,7 +3030,7 @@ def _run_preprocess_phase_sequence(
 						trace_max_points=_normalize_trace_max_points(phase_plot_cfg.trace_max_points),
 						logger=phase_logger,
 					)
-				elif phase_name == "plot_segment_channel_layouts":
+				elif payload is None and phase_name == "plot_segment_channel_layouts":
 					payload = run_plot_segment_traces_core(
 						stream_id=str(inputs.stream_id),
 						segment_manifest_path=paths.per_segment_manifest_path,
@@ -2938,7 +3049,7 @@ def _run_preprocess_phase_sequence(
 						logger=phase_logger,
 					)
 					payload["phase"] = "plot_segment_channel_layouts"
-				elif phase_name == "concat_segments":
+				elif payload is None and phase_name == "concat_segments":
 					payload = run_concat_segments_core(
 						stream_id=str(inputs.stream_id),
 						segment_manifest_path=paths.per_segment_manifest_path,
@@ -2953,7 +3064,7 @@ def _run_preprocess_phase_sequence(
 						run_save_concatenated_recording_core=run_save_concatenated_recording_core,
 						common_electrodes=_load_common_electrodes_or_empty(recording_metadata_paths.common_electrodes_path),
 					)
-				elif phase_name == "plot_concat_traces":
+				elif payload is None and phase_name == "plot_concat_traces":
 					payload = run_plot_concat_traces_core(
 						stream_id=str(inputs.stream_id),
 						recording_dir=paths.recording_dir,
@@ -2970,7 +3081,7 @@ def _run_preprocess_phase_sequence(
 						trace_max_points=_normalize_trace_max_points(phase_plot_cfg.trace_max_points),
 						logger=phase_logger,
 					)
-				elif phase_name == "plot_concat_channel_layout":
+				elif payload is None and phase_name == "plot_concat_channel_layout":
 					payload = run_plot_concat_channel_layout_core(
 						stream_id=str(inputs.stream_id),
 						recording_dir=paths.recording_dir,
@@ -2980,7 +3091,7 @@ def _run_preprocess_phase_sequence(
 						plot_n_jobs=max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs)),
 						logger=phase_logger,
 					)
-				elif phase_name == "plot_raster_threshold":
+				elif payload is None and phase_name == "plot_raster_threshold":
 					payload = run_plot_raster_threshold_core(
 						stream_id=str(inputs.stream_id),
 						segment_manifest_path=paths.per_segment_manifest_path,
@@ -2991,7 +3102,7 @@ def _run_preprocess_phase_sequence(
 						report_step_timers=bool(inputs.phases.plot_raster_threshold.report_step_timers),
 						logger=phase_logger,
 					)
-				elif phase_name == "wipe_src_scratch":
+				elif payload is None and phase_name == "wipe_src_scratch":
 					active_shared_users_remaining = _release_scratch_input_usage(scratch_usage_key)
 					scratch_usage_released = True
 					payload = run_wipe_src_scratch_core(
@@ -3002,10 +3113,13 @@ def _run_preprocess_phase_sequence(
 						requires_use_scratch_root=bool(inputs.phases.wipe_src_scratch.requires_use_scratch_root),
 						active_shared_users_remaining=int(active_shared_users_remaining),
 					)
+				elif payload is not None:
+					pass
 				else:
 					raise RuntimeError(f"Unsupported preprocess phase: {phase_name}")
 
 				payload = dict(payload)
+				payload.setdefault("status", "success")
 				payload.setdefault("phase_elapsed_s", float(max(0.0, time.perf_counter() - phase_t0)))
 				if phase_resource_class is not None:
 					payload.setdefault("resource_class", str(phase_resource_class))
@@ -3280,6 +3394,10 @@ def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
 		str(name): float(payload.get("phase_elapsed_s", 0.0) or 0.0)
 		for name, payload in phase_summaries.items()
 	}
+	phase_statuses = {
+		str(name): str(payload.get("status", "unknown") or "unknown")
+		for name, payload in phase_summaries.items()
+	}
 	event_records.append(
 		{
 			"event": "stage_complete",
@@ -3364,6 +3482,7 @@ def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
 			"phases": _json_ready(asdict(inputs.phases)),
 		},
 		"phase_timing_s": phase_timing_s,
+		"phase_statuses": phase_statuses,
 		"phase_summaries": {name: str(payload["summary_json"]) for name, payload in phase_summaries.items()},
 		"outputs": outputs,
 	}
@@ -3412,7 +3531,7 @@ def _run_preprocess_selected_phase(inputs: PreprocessInputs, *, selected_phase: 
 	paths = _resolve_preprocess_paths(inputs, plot_cfg=build_plot_cfg)
 	paths.preprocess_out_dir.mkdir(parents=True, exist_ok=True)
 	_clear_self_referential_symlink(paths.stage_log_source)
-	scratch_usage_key = _acquire_scratch_input_usage(inputs, selected_phase=selected_phase)
+	scratch_usage_key = _acquire_scratch_input_usage(inputs, selected_phase=canonical_selected_phase)
 	scratch_usage_released = False
 	recording_metadata_paths = _resolve_recording_metadata_paths(inputs=inputs, preprocess_out_dir=paths.preprocess_out_dir)
 	try:
@@ -3420,15 +3539,15 @@ def _run_preprocess_selected_phase(inputs: PreprocessInputs, *, selected_phase: 
 			inputs=inputs,
 			paths=paths,
 			recording_metadata_paths=recording_metadata_paths,
-			selected_phase=selected_phase,
+			selected_phase=canonical_selected_phase,
 			scratch_usage_key=scratch_usage_key,
 		)
 	finally:
 		if scratch_usage_key is not None and not bool(scratch_usage_released):
 			_release_scratch_input_usage(scratch_usage_key)
-	payload = dict(phase_summaries.get(selected_phase, {}))
+	payload = dict(phase_summaries.get(canonical_selected_phase, {}))
 	if not payload:
-		raise RuntimeError(f"No preprocess phase summary was written for phase '{selected_phase}'")
+		raise RuntimeError(f"No preprocess phase summary was written for phase '{canonical_selected_phase}'")
 	payload.setdefault("preprocess_out_dir", str(paths.preprocess_out_dir))
 	payload.setdefault("well_out_dir", str(paths.well_out_dir))
 	return payload

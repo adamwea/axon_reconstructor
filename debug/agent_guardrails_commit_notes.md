@@ -91,6 +91,76 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-04 - pending - ai: tighten preprocess phase semantics and smoke limits
+
+Status: accepted
+
+Summary:
+- Made preprocess phase names canonical for configured sequences and direct selected phases, including `preprocess.<phase>` selectors.
+- Full-stage preprocess now records explicit skipped summaries, logs, and timeline events for disabled phases listed in `phase_sequence` instead of silently filtering them out.
+- Fixed resume behavior so a complete phase payload returned from disk does not fall through and rerun the phase core.
+- Added `phase_statuses` to preprocess summaries.
+- Moved preprocess dataset/well debug limits ahead of scratch input materialization when copy-to-scratch is active.
+- Made observability environment capture robust when container UIDs do not have passwd entries.
+
+Guardrails Consulted:
+- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/first_version_pipeline_guardrails.md`
+
+Acceptance Criteria:
+- Disabled phases in `phase_sequence` are visible as skipped, not silently ignored.
+- Omitted phases still do not run just because config blocks exist.
+- Direct phase selectors canonicalize consistently and reject invalid phase names.
+- Resume-complete phase artifacts prevent rerun of the corresponding core.
+- CLI dataset/well debug limits constrain scratch input materialization before heavy filesystem work.
+- Observability artifacts are written successfully inside containers where `getpass.getuser()` cannot resolve the UID.
+
+Expected To Run:
+- `copy_src_to_scratch`, `save_rec_metadata`, and `preprocess_segments` for one dataset, one well, and two segments in the real-data smoke.
+
+Confirmed Not Run:
+- Disabled plotting, concat, report, cleanup, and wipe phases in the active runtime config.
+- Scratch materialization for datasets beyond the single limited target.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_parallel_fanout.py src/axon_recon/pipeline/tests/test_preprocess_target_status.py src/axon_recon/pipeline/stages/preprocess/tests/test_preprocess_config.py src/axon_recon/pipeline/stages/preprocess/tests/test_runner.py -q` passed.
+- Real-data smoke: `axon-recon-container --gpus all stages preprocess --config debug/debug.runtime.yml --limit-datasets 1 --limit-wells-per-dataset 1 --limit-segments 2 --force-restart` passed with `targets_total: 1`, `targets_succeeded: 1`, `targets_failed: 0`.
+- Logs inspected: final smoke showed `Applying execution target dataset limit before scratch materialization: 13 -> 1 dataset(s)`, `Selected wells: 1`, and `Starting preprocess_segments ... segment_count=2`.
+- Artifacts inspected: `preprocess_summary.json` has `phase_statuses` for the three active phases as `success`; `preprocessed_segments/manifest.json` has `segment_count: 2`; `run_metadata/environment.json` was written with fallback user `uid:1010`.
+- Not run: full dataset/well scope and downstream spikesort/reconstruct stages.
+
+CLI / Debug Flag Impact:
+- Existing preprocess debug limit flags now apply before scratch input materialization when preprocessing uses scratch input copies.
+- No new CLI flags added in this slice.
+
+Logging / Parallelism Impact:
+- Added explicit phase start/completion/skipped semantics and `phase_statuses` summary reporting.
+- Preserved declared `max_threads` versus observed raw thread telemetry semantics.
+
+Storage / Cache Impact:
+- Created/updated limited real-data scratch/output artifacts for `Media_Density_T5_02182026_AR/260224/M08073/AxonTracking/000031/well000` under `/mnt/disk15tb/adamm/scratch/axon_recon_scratch`.
+- No full-scope scratch materialization was performed.
+
+Container / NERSC / MPI Impact:
+- Container smoke rebuilt the local image from the modified source.
+- No MPI changes were made.
+- Observability no longer depends on passwd user lookup inside the container.
+
+Resume / Force-Restart Impact:
+- Resume-complete phase payloads now prevent phase-core reruns.
+- Real-data smoke used `--force-restart`, which cleared only the limited target preprocess output directory.
+
+Residual Risk And Follow-Ups:
+- Broader YAML knob/legacy alias cleanup remains separate first-version work and was not started in this slice.
+- Full-scope behavior intentionally not exercised under the smoke guardrail.
+
+Rollback Notes:
+- Revert the preprocess runner/config/runner/test edits from this slice to restore previous phase filtering, target-selection, and observability user behavior.
+
 ## 2026-05-03 - pending - ai: add agent guardrail documents
 
 Status: accepted

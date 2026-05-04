@@ -156,6 +156,29 @@ def _preprocess_stage_phase_in_sequence(stage_config: Any, phase_name: str) -> b
 	return str(phase_name) in {str(item) for item in sequence}
 
 
+def _select_preprocess_execution_targets(
+	*,
+	bundle: PipelineRuntimeBundle,
+	stage_config: Any,
+	materialize_scratch_inputs: bool,
+) -> list[Any]:
+	kwargs: dict[str, Any] = {
+		"bundle": bundle,
+		"materialize_scratch_inputs": bool(materialize_scratch_inputs),
+	}
+	if bool(materialize_scratch_inputs):
+		limit_datasets = getattr(stage_config, "debug_limit_datasets", None)
+		limit_wells = getattr(stage_config, "debug_limit_wells", None)
+		limit_wells_per_dataset = getattr(stage_config, "debug_limit_wells_per_dataset", None)
+		if limit_datasets is not None:
+			kwargs["limit_datasets"] = int(limit_datasets)
+		if limit_wells is not None:
+			kwargs["limit_wells"] = int(limit_wells)
+		if limit_wells_per_dataset is not None:
+			kwargs["limit_wells_per_dataset"] = int(limit_wells_per_dataset)
+	return select_execution_targets(**kwargs)
+
+
 def _preprocess_stage_uses_nested_workers(stage_config: Any) -> bool:
 	try:
 		phases = stage_config.phases
@@ -1291,8 +1314,9 @@ def run_preprocess_from_runtime(
 		limit_datasets_override=limit_datasets_override,
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 	)
-	targets = select_execution_targets(
+	targets = _select_preprocess_execution_targets(
 		bundle=bundle,
+		stage_config=stage_config,
 		materialize_scratch_inputs=_preprocess_copy_phase_enabled(stage_config),
 	)
 	targets = _apply_preprocess_stage_debug_limits(
@@ -1392,8 +1416,9 @@ def _run_preprocess_substage_from_runtime(
 		limit_datasets_override=limit_datasets_override,
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 	)
-	targets = select_execution_targets(
+	targets = _select_preprocess_execution_targets(
 		bundle=bundle,
+		stage_config=stage_config,
 		materialize_scratch_inputs=(str(stage_name).strip() == "preprocess.copy_src_to_scratch"),
 	)
 	targets = _apply_preprocess_stage_debug_limits(

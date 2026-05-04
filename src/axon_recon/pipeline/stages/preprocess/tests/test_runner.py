@@ -25,6 +25,7 @@ from axon_recon.pipeline.stages.preprocess.models.inputs import (
     PreprocessWipeSrcScratchPhaseConfig,
 )
 from axon_recon.pipeline.stages.preprocess.runner import (
+    _run_preprocess_selected_phase,
     run_preprocess_concat_segments_phase,
     run_preprocess_plot_raster_threshold_phase,
     run_preprocess_plot_segment_channel_layouts_phase,
@@ -343,8 +344,16 @@ def _install_success_fakes(
 
 
 def test_run_preprocess_stage_writes_observability_artifacts(tmp_path: Path, monkeypatch) -> None:
+    from axon_recon.pipeline.stages.preprocess import runner as preprocess_runner
+
     well_out_dir, fake_log = _install_success_fakes(monkeypatch, tmp_path)
     canonical_out_dir = well_out_dir / "preprocess_outputs"
+    monkeypatch.setattr(
+        preprocess_runner.getpass,
+        "getuser",
+        lambda: (_ for _ in ()).throw(KeyError("missing uid")),
+    )
+    monkeypatch.setenv("USER", "container-user")
 
     inputs = PreprocessInputs(
         h5_path=tmp_path / "input.raw.h5",
@@ -385,6 +394,9 @@ def test_run_preprocess_stage_writes_observability_artifacts(tmp_path: Path, mon
     assert run_manifest["status"] == "ok"
     assert run_manifest["mode"] == "detailed"
     assert run_manifest["common_electrodes"]["count"] == 3
+
+    environment = _read_json(Path(outputs["observability.environment_json"]))
+    assert environment["user"] == "container-user"
 
     event_timeline = Path(outputs["observability.event_timeline_jsonl"])
     assert event_timeline.exists()
@@ -706,9 +718,10 @@ def test_run_preprocess_stage_force_restart_clears_outputs_and_reruns_enabled_ph
     assert Path(outputs["pipeline_log"]).exists()
 
 
-def test_run_preprocess_stage_uses_configured_phase_sequence_and_skips_disabled_phases(
+def test_run_preprocess_stage_uses_configured_phase_sequence_and_summarizes_disabled_phases_as_skipped(
     tmp_path: Path,
     monkeypatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     phase_call_order: list[str] = []
     _install_success_fakes(
@@ -725,11 +738,49 @@ def test_run_preprocess_stage_uses_configured_phase_sequence_and_skips_disabled_
         phase_sequence=("save_rec_metadata", "plot_raster_threshold", "preprocess_segments"),
     )
 
-    result = run_preprocess_stage(inputs)
+    with caplog.at_level(logging.INFO):
+        result = run_preprocess_stage(inputs)
     summary = _read_json(result.summary_json)
+    phase_summary_paths = {str(name): Path(str(path)) for name, path in dict(summary.get("phase_summaries", {})).items()}
+    skipped_summary = _read_json(phase_summary_paths["plot_raster_threshold"])
 
     assert phase_call_order == ["save_rec_metadata", "preprocess_segments"]
-    assert set(summary.get("phase_summaries", {})) == {"save_rec_metadata", "preprocess_segments"}
+    assert set(phase_summary_paths) == {"save_rec_metadata", "plot_raster_threshold", "preprocess_segments"}
+    assert summary.get("phase_statuses", {}) == {
+        "save_rec_metadata": "success",
+        "plot_raster_threshold": "skipped",
+        "preprocess_segments": "success",
+    }
+    assert skipped_summary["phase"] == "plot_raster_threshold"
+    assert skipped_summary["status"] == "skipped"
+    assert skipped_summary["enabled"] is False
+    assert skipped_summary["skip_reason"] == "phase disabled in preprocess config"
+    assert any(getattr(record, "event", None) == "phase_skipped" for record in caplog.records)
+
+
+def test_run_preprocess_selected_phase_accepts_stage_qualified_phase_name(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    phase_call_order: list[str] = []
+    _install_success_fakes(
+        monkeypatch,
+        tmp_path,
+        phase_call_order=phase_call_order,
+    )
+
+    inputs = PreprocessInputs(
+        h5_path=tmp_path / "input.raw.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        phases=_full_stage_phases(),
+    )
+
+    payload = _run_preprocess_selected_phase(inputs, selected_phase="preprocess.save_rec_metadata")
+
+    assert phase_call_order == ["save_rec_metadata"]
+    assert payload["phase"] == "save_rec_metadata"
+    assert payload["status"] == "success"
 
 
 def test_run_preprocess_stage_logs_phase_start_per_well(tmp_path: Path, monkeypatch, caplog: pytest.LogCaptureFixture) -> None:

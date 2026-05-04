@@ -60,6 +60,76 @@ stages:
     assert targets[1].h5_path.name == "ds2.h5"
 
 
+def test_select_execution_targets_applies_limits_before_scratch_materialization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import axon_recon.pipeline.config as pipeline_config
+
+    data_path = tmp_path / "debug.data.yml"
+    data_path.write_text(
+        f"""
+output_root: {tmp_path / "outputs"}
+scratch_root: {tmp_path / "scratch"}
+use_scratch_root: true
+datasets:
+  - raw_data_h5_path: {tmp_path / "ds0.h5"}
+    include_in_runtime: true
+    wells:
+      - well_id: well001
+        include_in_runtime: true
+      - well_id: well002
+        include_in_runtime: true
+  - raw_data_h5_path: {tmp_path / "ds1.h5"}
+    include_in_runtime: true
+    wells:
+      - well_id: well001
+        include_in_runtime: true
+  - raw_data_h5_path: {tmp_path / "ds2.h5"}
+    include_in_runtime: true
+    wells:
+      - well_id: well001
+        include_in_runtime: true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_path = tmp_path / "debug.runtime.yml"
+    runtime_path.write_text(f"data: {data_path}\n", encoding="utf-8")
+
+    materialized_dataset_ids: list[str] = []
+
+    def _fake_resolve_copy_src_to_scratch_input_path(
+        *,
+        source_h5_path: Path,
+        scratch_input_root: Path | None,
+        dataset_id: str,
+        materialize_scratch_inputs: bool,
+    ) -> Path:
+        assert scratch_input_root is not None
+        if materialize_scratch_inputs:
+            materialized_dataset_ids.append(str(dataset_id))
+        return scratch_input_root / Path(source_h5_path).name
+
+    monkeypatch.setattr(
+        pipeline_config,
+        "resolve_copy_src_to_scratch_input_path",
+        _fake_resolve_copy_src_to_scratch_input_path,
+    )
+
+    bundle = load_pipeline_runtime_bundle(config_path=str(runtime_path))
+    targets = select_execution_targets(
+        bundle=bundle,
+        materialize_scratch_inputs=True,
+        limit_datasets=1,
+        limit_wells_per_dataset=1,
+    )
+
+    assert materialized_dataset_ids == ["dataset_000:ds0.h5"]
+    assert [(target.dataset_index, target.stream_id) for target in targets] == [(0, "well001")]
+
+
 def test_select_execution_targets_requires_dataset_and_well_runtime_flags(tmp_path: Path) -> None:
     data_path = tmp_path / "debug.data.yml"
     data_path.write_text(
