@@ -1912,6 +1912,20 @@ def _write_phase_summary(
 		"stream_id": str(inputs.stream_id),
 		"well_out_dir": str(paths.well_out_dir),
 		"preprocess_out_dir": str(paths.preprocess_out_dir),
+		"applied_debug_limits": {
+			"limit_datasets": int(inputs.debug_limit_datasets) if inputs.debug_limit_datasets is not None else None,
+			"limit_wells": int(inputs.debug_limit_wells) if inputs.debug_limit_wells is not None else None,
+			"limit_wells_per_dataset": (
+				int(inputs.debug_limit_wells_per_dataset)
+				if inputs.debug_limit_wells_per_dataset is not None
+				else None
+			),
+			"limit_segments_per_well": (
+				int(inputs.debug_limit_segments_per_well)
+				if inputs.debug_limit_segments_per_well is not None
+				else None
+			),
+		},
 		"outputs": dict(outputs),
 	}
 	payload.update(extra_payload)

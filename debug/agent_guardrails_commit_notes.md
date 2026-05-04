@@ -91,6 +91,76 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-04 - pending - ai: honor preprocess direct phase debug flags
+
+Status: accepted
+
+Summary:
+- Added canonical `--limit-wells` as an alias to the existing per-dataset well limit behavior.
+- Propagated preprocess CLI debug limits through direct `stages preprocess.<phase>` argument handlers, phase orchestrators, and public runtime wrappers.
+- Applied preprocess target limits during target selection for all preprocess phases, not only copy-to-scratch materialization, so non-copy phases no longer inspect every configured scratch input before limiting.
+- Carried target debug limits into `PreprocessInputs` and wrote `applied_debug_limits` into every preprocess phase summary.
+- Added wrapper coverage for every current direct preprocess phase module.
+
+Guardrails Consulted:
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+- `/memories/repo/pipeline-debug-limits.md`
+
+Acceptance Criteria:
+- Full preprocess and direct preprocess phase selectors receive the same `--limit-segments`, `--limit-datasets`, and well-limit values.
+- `--limit-wells` and `--limit-wells-per-dataset` resolve to the same per-dataset well limiting behavior.
+- Direct preprocess phases apply dataset/well limits before scratch input inspection or materialization.
+- `preprocess.preprocess_segments` receives `--limit-segments` before segment work and writes only the limited segment manifest.
+- Phase summaries record applied debug limits for auditability.
+
+Expected To Run:
+- Unit coverage for all current direct preprocess phase wrappers: `copy_src_to_scratch`, `save_rec_metadata`, `prepare_raw_binaries`, `wipe_src_scratch`, `preprocess_segments`, `plot_segment_traces`, `plot_segment_channel_layouts`, `concat_segments`, `plot_concat_traces`, `plot_concat_channel_layout`, and `plot_raster_threshold`.
+- Real-data direct smokes for active heavy phases: `copy_src_to_scratch`, `save_rec_metadata`, and `preprocess_segments` on one dataset, one well, and two segments.
+
+Confirmed Not Run:
+- Full dataset/well scope.
+- Optional disabled plotting, concat, report, cleanup, and wipe runtime phases in real data.
+- Downstream spikesort/reconstruct stages.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_cli_stage_sequence.py src/axon_recon/pipeline/tests/test_parallel_fanout.py src/axon_recon/pipeline/tests/test_preprocess_target_status.py src/axon_recon/pipeline/stages/preprocess/tests/test_preprocess_config.py src/axon_recon/pipeline/stages/preprocess/tests/test_runner.py -q` passed.
+- Real-data smoke: `axon-recon-container --gpus all stages preprocess.copy_src_to_scratch --config debug/debug.runtime.yml --limit-datasets 1 --limit-wells 1 --limit-segments 2 --limit-units 15 --force-restart` passed.
+- Real-data smoke: `axon-recon-container --gpus all stages preprocess.save_rec_metadata --config debug/debug.runtime.yml --limit-datasets 1 --limit-wells 1 --limit-segments 2 --limit-units 15 --force-restart` passed.
+- Real-data smoke: `axon-recon-container --gpus all stages preprocess.preprocess_segments --config debug/debug.runtime.yml --limit-datasets 1 --limit-wells 1 --limit-segments 2 --limit-units 15 --force-restart` passed.
+- Logs inspected: copy/materialization and non-copy direct phases now log `Applying execution target dataset limit before scratch materialization: 13 -> 1 dataset(s)` before touching only `dataset_000:data.raw.h5`; segment phase logs `segment_count=2`.
+- Artifacts inspected: `context/copy_src_to_scratch_summary.json`, `context/recording_metadata_summary.json`, and `context/segment_recordings_summary.json` all include `applied_debug_limits` with dataset 1, wells-per-dataset 1, and segments 2; `preprocessed_segments/manifest.json` has `segment_count: 2`.
+- Not run: real-data smokes for disabled optional direct phases; wrapper tests cover their debug-limit propagation.
+
+CLI / Debug Flag Impact:
+- Direct preprocess phase selectors now honor `--limit-segments`, `--limit-datasets`, `--limit-wells`, and `--limit-wells-per-dataset` through the same runtime override path as full preprocess.
+- `--limit-units` remains parsed by the shared CLI but is not used by preprocess phases because preprocess has no unit scope.
+
+Logging / Parallelism Impact:
+- Target-limit logs now appear before non-copy direct phases inspect existing scratch inputs.
+- Phase summaries now expose applied debug limits.
+- No changes to worker-count or resource telemetry semantics.
+
+Storage / Cache Impact:
+- Created/updated limited real-data scratch/output artifacts for `Media_Density_T5_02182026_AR/260224/M08073/AxonTracking/000031/well000` under `/mnt/disk15tb/adamm/scratch/axon_recon_scratch`.
+- No full-scope scratch materialization was performed.
+
+Container / NERSC / MPI Impact:
+- Container smokes rebuilt the local `axon-recon:local` image from this source.
+- No MPI/NERSC-specific changes were made.
+
+Resume / Force-Restart Impact:
+- Direct phase smokes used `--force-restart`; direct-phase force restart remained phase-scoped and did not delete source H5 data.
+
+Residual Risk And Follow-Ups:
+- Direct real-data smokes were limited to the active preprocess phases. Optional disabled phases were validated at wrapper/dispatch level but not run against real data in this slice.
+- Direct phase terminal labels still show duplicated stage/phase text such as `preprocess.preprocess_segments.preprocess_segments`; this is cosmetic logging debt, not a debug-limit blocker.
+
+Rollback Notes:
+- Revert the CLI, preprocess orchestrator, runner, input-model, config, runner-summary, and focused-test edits from this slice to restore previous direct phase debug-limit behavior.
+
 ## 2026-05-04 - pending - ai: tighten preprocess phase semantics and smoke limits
 
 Status: accepted

@@ -278,9 +278,17 @@ def _register_debug_limit_arguments(parser: argparse.ArgumentParser) -> None:
 		help="Limit datasets for debug smoke runs",
 	)
 	parser.add_argument(
+		"--limit-wells",
+		type=_parse_positive_int,
+		default=None,
+		dest="limit_wells_per_dataset",
+		help="Limit wells selected per dataset for debug smoke runs",
+	)
+	parser.add_argument(
 		"--limit-wells-per-dataset",
 		type=_parse_positive_int,
 		default=None,
+		dest="limit_wells_per_dataset",
 		help="Limit wells selected per dataset for debug smoke runs",
 	)
 	parser.add_argument(

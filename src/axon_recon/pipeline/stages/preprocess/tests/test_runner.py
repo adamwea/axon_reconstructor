@@ -472,8 +472,10 @@ def test_run_preprocess_stage_passes_plot_and_segment_controls_to_phase_cores(tm
 
     result = run_preprocess_stage(inputs)
     summary = _read_json(result.summary_json)
+    preprocess_phase_summary = _read_json(Path(str(summary["phase_summaries"]["preprocess_segments"])))
 
     assert captured_phase_kwargs["preprocess_segments"]["limit_segments_per_well"] == 2
+    assert preprocess_phase_summary["applied_debug_limits"]["limit_segments_per_well"] == 2
     assert captured_phase_kwargs["preprocess_segments"]["logger_is_none"] is True
     assert captured_phase_kwargs["preprocess_segments"]["suppress_h5_plugin_messages"] is True
     assert Path(str(captured_phase_kwargs["save_rec_metadata"]["segment_epochs_path"])) == canonical_out_dir / "segment_epochs.json"

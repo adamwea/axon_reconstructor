@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import logging
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,11 +10,13 @@ import pytest
 from axon_recon.pipeline.execution.context import ExecutionTarget, StageParallelism
 from axon_recon.pipeline.runner import (
     run_preprocess_concat_segments_from_runtime,
+    run_preprocess_plot_concat_channel_layout_from_runtime,
     run_preprocess_copy_src_to_scratch_from_runtime,
     run_preprocess_from_runtime,
     run_preprocess_prepare_raw_binaries_from_runtime,
     run_preprocess_plot_concat_traces_from_runtime,
     run_preprocess_plot_raster_threshold_from_runtime,
+    run_preprocess_plot_segment_channel_layouts_from_runtime,
     run_preprocess_plot_segment_traces_from_runtime,
     run_preprocess_preprocess_segments_from_runtime,
     run_preprocess_save_rec_metadata_from_runtime,
@@ -313,11 +316,14 @@ def test_run_preprocess_from_runtime_applies_debug_well_limit(monkeypatch, tmp_p
         data_config = object()
 
     select_calls: list[bool] = []
+    select_kwargs: list[dict[str, object]] = []
 
     def _fake_load_pipeline_runtime_bundle(*, config_path: str):
         return _DummyBundle()
 
-    def _fake_select_execution_targets(*, bundle, materialize_scratch_inputs: bool = False):
+    def _fake_select_execution_targets(**kwargs):
+        select_kwargs.append(dict(kwargs))
+        materialize_scratch_inputs = bool(kwargs.get("materialize_scratch_inputs", False))
         select_calls.append(bool(materialize_scratch_inputs))
         return [target_a, target_b]
 
@@ -359,6 +365,7 @@ def test_run_preprocess_from_runtime_applies_debug_well_limit(monkeypatch, tmp_p
     assert agg.failed_targets == 0
     assert agg.target_results[0].target.stream_id == "well001"
     assert select_calls == [False]
+    assert select_kwargs[0]["limit_wells"] == 1
 
 
 def test_run_preprocess_from_runtime_applies_global_debug_dataset_and_well_limits(
@@ -403,12 +410,13 @@ def test_run_preprocess_from_runtime_applies_global_debug_dataset_and_well_limit
         data_config = object()
 
     built_targets: list[tuple[int, str]] = []
+    select_kwargs: list[dict[str, object]] = []
 
     def _fake_load_pipeline_runtime_bundle(*, config_path: str):
         return _DummyBundle()
 
-    def _fake_select_execution_targets(*, bundle, materialize_scratch_inputs: bool = False):
-        _ = bundle, materialize_scratch_inputs
+    def _fake_select_execution_targets(**kwargs):
+        select_kwargs.append(dict(kwargs))
         return list(targets)
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
@@ -453,6 +461,8 @@ def test_run_preprocess_from_runtime_applies_global_debug_dataset_and_well_limit
     assert agg.succeeded_targets == 2
     assert agg.failed_targets == 0
     assert built_targets == [(0, "well001"), (0, "well002")]
+    assert select_kwargs[0]["limit_datasets"] == 1
+    assert select_kwargs[0]["limit_wells"] == 2
 
 
 def test_preprocess_debug_limits_select_first_wells_per_dataset(tmp_path: Path) -> None:
@@ -552,6 +562,15 @@ def test_preprocess_debug_limits_select_first_wells_per_dataset(tmp_path: Path) 
             True,
         ),
         (
+            run_preprocess_plot_segment_channel_layouts_from_runtime,
+            "run_preprocess_plot_segment_channel_layouts_from_runtime",
+            "run_preprocess_plot_segment_channel_layouts",
+            "preprocess.plot_segment_channel_layouts",
+            "plot_segment_channel_layouts",
+            1,
+            True,
+        ),
+        (
             run_preprocess_concat_segments_from_runtime,
             "run_preprocess_concat_segments_from_runtime",
             "run_preprocess_concat_segments",
@@ -566,6 +585,24 @@ def test_preprocess_debug_limits_select_first_wells_per_dataset(tmp_path: Path) 
             "run_preprocess_plot_concat_traces",
             "preprocess.plot_concat_traces",
             "plot_concat_traces",
+            1,
+            True,
+        ),
+        (
+            run_preprocess_plot_concat_channel_layout_from_runtime,
+            "run_preprocess_plot_concat_channel_layout_from_runtime",
+            "run_preprocess_plot_concat_channel_layout",
+            "preprocess.plot_concat_channel_layout",
+            "plot_concat_channel_layout",
+            1,
+            True,
+        ),
+        (
+            run_preprocess_plot_raster_threshold_from_runtime,
+            "run_preprocess_plot_raster_threshold_from_runtime",
+            "run_preprocess_plot_raster_threshold",
+            "preprocess.plot_raster_threshold",
+            "plot_raster_threshold",
             1,
             True,
         ),
@@ -603,13 +640,17 @@ def test_run_preprocess_substage_from_runtime_marks_target_ok(
         data_config = object()
 
     select_calls: list[bool] = []
+    select_kwargs: list[dict[str, object]] = []
+    stage_configs_seen: list[object] = []
     unit_worker_calls: list[int] = []
     divider_stdout_calls: list[bool] = []
 
     def _fake_load_pipeline_runtime_bundle(*, config_path: str):
         return _DummyBundle()
 
-    def _fake_select_execution_targets(*, bundle, materialize_scratch_inputs: bool = False):
+    def _fake_select_execution_targets(**kwargs):
+        select_kwargs.append(dict(kwargs))
+        materialize_scratch_inputs = bool(kwargs.get("materialize_scratch_inputs", False))
         select_calls.append(bool(materialize_scratch_inputs))
         return [target]
 
@@ -620,6 +661,7 @@ def test_run_preprocess_substage_from_runtime_marks_target_ok(
         return SimpleNamespace(debug_limit_wells=None)
 
     def _fake_build_preprocess_inputs_for_target(*, target, stage_config, unit_workers: int):
+        stage_configs_seen.append(stage_config)
         unit_worker_calls.append(int(unit_workers))
         return dummy_inputs
 
@@ -639,7 +681,12 @@ def test_run_preprocess_substage_from_runtime_marks_target_ok(
     monkeypatch.setattr(pipeline_runner, "build_preprocess_inputs_for_target", _fake_build_preprocess_inputs_for_target)
     monkeypatch.setattr(pipeline_runner, api_symbol, _fake_run_substage)
 
-    agg = runner_fn(config_path=str(tmp_path / "runtime.yml"))
+    agg = runner_fn(
+        config_path=str(tmp_path / "runtime.yml"),
+        limit_segments_override=2,
+        limit_datasets_override=1,
+        limit_wells_per_dataset_override=1,
+    )
 
     assert agg.stage == stage_name
     assert agg.total_targets == 1
@@ -654,8 +701,113 @@ def test_run_preprocess_substage_from_runtime_marks_target_ok(
     }
     expected_materialize = (stage_name == "preprocess.copy_src_to_scratch")
     assert select_calls == [expected_materialize]
+    assert stage_configs_seen
+    assert getattr(stage_configs_seen[0], "debug_limit_segments_per_well") == 2
+    assert getattr(stage_configs_seen[0], "debug_limit_datasets") == 1
+    assert getattr(stage_configs_seen[0], "debug_limit_wells_per_dataset") == 1
+    assert select_kwargs[0]["limit_datasets"] == 1
+    assert select_kwargs[0]["limit_wells_per_dataset"] == 1
     assert unit_worker_calls == [expected_unit_workers]
     assert divider_stdout_calls == [expected_divider_stdout]
+
+
+def test_preprocess_phase_from_args_forwards_debug_limits(monkeypatch, tmp_path: Path) -> None:
+    from axon_recon.pipeline.stages.preprocess.orchestrators import _shared as preprocess_shared
+
+    runtime_cfg = tmp_path / "runtime.yml"
+    runtime_cfg.write_text("{}\n", encoding="utf-8")
+    seen: dict[str, object] = {}
+
+    def _fake_print_preprocess_aggregate(agg: object) -> int:
+        seen["aggregate"] = agg
+        return 0
+
+    def _fake_runtime_runner(**kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(
+            stage="preprocess.preprocess_segments",
+            total_targets=0,
+            succeeded_targets=0,
+            failed_targets=0,
+            target_results=[],
+        )
+
+    monkeypatch.setattr(preprocess_shared, "print_preprocess_aggregate", _fake_print_preprocess_aggregate)
+
+    rc = preprocess_shared.run_preprocess_phase_from_args(
+        SimpleNamespace(
+            config=str(runtime_cfg),
+            limit_segments=2,
+            limit_datasets=1,
+            limit_wells_per_dataset=1,
+            force_restart=True,
+            force_replot=False,
+        ),
+        runtime_runner=_fake_runtime_runner,
+    )
+
+    assert rc == 0
+    assert seen["config_path"] == str(runtime_cfg)
+    assert seen["limit_segments_override"] == 2
+    assert seen["limit_datasets_override"] == 1
+    assert seen["limit_wells_per_dataset_override"] == 1
+    assert seen["force_restart_override"] is True
+
+
+@pytest.mark.parametrize(
+    ("module_name", "runner_symbol", "phase_name"),
+    [
+        ("copy_src_to_scratch", "run_preprocess_copy_src_to_scratch_from_runtime", "copy_src_to_scratch"),
+        ("save_rec_metadata", "run_preprocess_save_rec_metadata_from_runtime", "save_rec_metadata"),
+        ("prepare_raw_binaries", "run_preprocess_prepare_raw_binaries_from_runtime", "prepare_raw_binaries"),
+        ("wipe_src_scratch", "run_preprocess_wipe_src_scratch_from_runtime", "wipe_src_scratch"),
+        ("preprocess_segments", "run_preprocess_preprocess_segments_from_runtime", "preprocess_segments"),
+        ("plot_segment_traces", "run_preprocess_plot_segment_traces_from_runtime", "plot_segment_traces"),
+        (
+            "plot_segment_channel_layouts",
+            "run_preprocess_plot_segment_channel_layouts_from_runtime",
+            "plot_segment_channel_layouts",
+        ),
+        ("concat_segments", "run_preprocess_concat_segments_from_runtime", "concat_segments"),
+        ("plot_concat_traces", "run_preprocess_plot_concat_traces_from_runtime", "plot_concat_traces"),
+        (
+            "plot_concat_channel_layout",
+            "run_preprocess_plot_concat_channel_layout_from_runtime",
+            "plot_concat_channel_layout",
+        ),
+        ("plot_raster_threshold", "run_preprocess_plot_raster_threshold_from_runtime", "plot_raster_threshold"),
+    ],
+)
+def test_preprocess_phase_runtime_wrappers_forward_debug_limits(
+    monkeypatch,
+    module_name: str,
+    runner_symbol: str,
+    phase_name: str,
+) -> None:
+    module = importlib.import_module(f"axon_recon.pipeline.stages.preprocess.orchestrators.{module_name}")
+    seen: dict[str, object] = {}
+
+    def _fake_run_preprocess_phase_from_runtime(**kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(stage=f"preprocess.{phase_name}")
+
+    monkeypatch.setattr(module, "run_preprocess_phase_from_runtime", _fake_run_preprocess_phase_from_runtime)
+
+    aggregate = getattr(module, runner_symbol)(
+        config_path="runtime.yml",
+        limit_segments_override=2,
+        limit_datasets_override=1,
+        limit_wells_per_dataset_override=1,
+        force_restart_override=True,
+    )
+
+    assert aggregate.stage == f"preprocess.{phase_name}"
+    assert seen["phase_name"] == phase_name
+    assert seen["config_path"] == "runtime.yml"
+    assert seen["limit_segments_override"] == 2
+    assert seen["limit_datasets_override"] == 1
+    assert seen["limit_wells_per_dataset_override"] == 1
+    assert seen["force_restart_override"] is True
 
 
 def test_run_preprocess_from_runtime_materializes_inputs_when_copy_phase_enabled(monkeypatch, tmp_path: Path) -> None:

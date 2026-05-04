@@ -501,6 +501,33 @@ def test_stage_sequence_parser_accepts_debug_limit_flags(monkeypatch, tmp_path: 
     }
 
 
+def test_stage_sequence_parser_accepts_limit_wells_alias(monkeypatch, tmp_path: Path) -> None:
+    runtime_cfg = tmp_path / "runtime.yml"
+    _write_runtime_cfg(runtime_cfg)
+
+    seen: dict[str, int | None] = {}
+
+    def _preprocess_phase(args):
+        seen["limit_wells_per_dataset"] = getattr(args, "limit_wells_per_dataset", None)
+        return 0
+
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "preprocess.preprocess_segments", _preprocess_phase)
+
+    rc = pipeline_cli.main(
+        [
+            "stages",
+            "preprocess.preprocess_segments",
+            "--config",
+            str(runtime_cfg),
+            "--limit-wells",
+            "2",
+        ]
+    )
+
+    assert rc == 0
+    assert seen == {"limit_wells_per_dataset": 2}
+
+
 def test_main_runs_spikesort_sort_substage_alias(monkeypatch, tmp_path: Path) -> None:
     runtime_cfg = tmp_path / "runtime.yml"
     _write_runtime_cfg(runtime_cfg)

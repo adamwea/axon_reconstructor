@@ -166,16 +166,15 @@ def _select_preprocess_execution_targets(
 		"bundle": bundle,
 		"materialize_scratch_inputs": bool(materialize_scratch_inputs),
 	}
-	if bool(materialize_scratch_inputs):
-		limit_datasets = getattr(stage_config, "debug_limit_datasets", None)
-		limit_wells = getattr(stage_config, "debug_limit_wells", None)
-		limit_wells_per_dataset = getattr(stage_config, "debug_limit_wells_per_dataset", None)
-		if limit_datasets is not None:
-			kwargs["limit_datasets"] = int(limit_datasets)
-		if limit_wells is not None:
-			kwargs["limit_wells"] = int(limit_wells)
-		if limit_wells_per_dataset is not None:
-			kwargs["limit_wells_per_dataset"] = int(limit_wells_per_dataset)
+	limit_datasets = getattr(stage_config, "debug_limit_datasets", None)
+	limit_wells = getattr(stage_config, "debug_limit_wells", None)
+	limit_wells_per_dataset = getattr(stage_config, "debug_limit_wells_per_dataset", None)
+	if limit_datasets is not None:
+		kwargs["limit_datasets"] = int(limit_datasets)
+	if limit_wells is not None:
+		kwargs["limit_wells"] = int(limit_wells)
+	if limit_wells_per_dataset is not None:
+		kwargs["limit_wells_per_dataset"] = int(limit_wells_per_dataset)
 	return select_execution_targets(**kwargs)
 
 
@@ -1500,6 +1499,9 @@ def _run_preprocess_substage_from_runtime(
 def run_preprocess_copy_src_to_scratch_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -1507,6 +1509,9 @@ def run_preprocess_copy_src_to_scratch_from_runtime(
 		config_path=config_path,
 		stage_name="preprocess.copy_src_to_scratch",
 		runner_fn=run_preprocess_copy_src_to_scratch,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -1515,6 +1520,9 @@ def run_preprocess_copy_src_to_scratch_from_runtime(
 def run_preprocess_save_rec_metadata_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -1522,6 +1530,9 @@ def run_preprocess_save_rec_metadata_from_runtime(
 		config_path=config_path,
 		stage_name="preprocess.save_rec_metadata",
 		runner_fn=run_preprocess_save_rec_metadata,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -1530,6 +1541,9 @@ def run_preprocess_save_rec_metadata_from_runtime(
 def run_preprocess_prepare_raw_binaries_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -1537,6 +1551,9 @@ def run_preprocess_prepare_raw_binaries_from_runtime(
 		config_path=config_path,
 		stage_name="preprocess.prepare_raw_binaries",
 		runner_fn=run_preprocess_prepare_raw_binaries,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -1545,6 +1562,9 @@ def run_preprocess_prepare_raw_binaries_from_runtime(
 def run_preprocess_plot_segment_channel_layouts_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -1552,6 +1572,9 @@ def run_preprocess_plot_segment_channel_layouts_from_runtime(
 		config_path=config_path,
 		stage_name="preprocess.plot_segment_channel_layouts",
 		runner_fn=run_preprocess_plot_segment_channel_layouts,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -1560,6 +1583,9 @@ def run_preprocess_plot_segment_channel_layouts_from_runtime(
 def run_preprocess_wipe_src_scratch_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -1567,6 +1593,9 @@ def run_preprocess_wipe_src_scratch_from_runtime(
 		config_path=config_path,
 		stage_name="preprocess.wipe_src_scratch",
 		runner_fn=run_preprocess_wipe_src_scratch,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -1575,6 +1604,9 @@ def run_preprocess_wipe_src_scratch_from_runtime(
 def run_preprocess_preprocess_segments_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -1582,6 +1614,9 @@ def run_preprocess_preprocess_segments_from_runtime(
 		config_path=config_path,
 		stage_name="preprocess.preprocess_segments",
 		runner_fn=run_preprocess_preprocess_segments,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -1590,6 +1625,9 @@ def run_preprocess_preprocess_segments_from_runtime(
 def run_preprocess_plot_segment_traces_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -1597,6 +1635,9 @@ def run_preprocess_plot_segment_traces_from_runtime(
 		config_path=config_path,
 		stage_name="preprocess.plot_segment_traces",
 		runner_fn=run_preprocess_plot_segment_traces,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -1605,6 +1646,9 @@ def run_preprocess_plot_segment_traces_from_runtime(
 def run_preprocess_concat_segments_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -1612,6 +1656,9 @@ def run_preprocess_concat_segments_from_runtime(
 		config_path=config_path,
 		stage_name="preprocess.concat_segments",
 		runner_fn=run_preprocess_concat_segments,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -1620,6 +1667,9 @@ def run_preprocess_concat_segments_from_runtime(
 def run_preprocess_plot_concat_traces_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -1627,6 +1677,9 @@ def run_preprocess_plot_concat_traces_from_runtime(
 		config_path=config_path,
 		stage_name="preprocess.plot_concat_traces",
 		runner_fn=run_preprocess_plot_concat_traces,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -1635,6 +1688,9 @@ def run_preprocess_plot_concat_traces_from_runtime(
 def run_preprocess_plot_concat_channel_layout_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -1642,6 +1698,9 @@ def run_preprocess_plot_concat_channel_layout_from_runtime(
 		config_path=config_path,
 		stage_name="preprocess.plot_concat_channel_layout",
 		runner_fn=run_preprocess_plot_concat_channel_layout,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -1650,6 +1709,9 @@ def run_preprocess_plot_concat_channel_layout_from_runtime(
 def run_preprocess_plot_raster_threshold_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -1657,6 +1719,9 @@ def run_preprocess_plot_raster_threshold_from_runtime(
 		config_path=config_path,
 		stage_name="preprocess.plot_raster_threshold",
 		runner_fn=run_preprocess_plot_raster_threshold,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)

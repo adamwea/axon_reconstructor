@@ -17,6 +17,9 @@ def run_preprocess_plot_segment_traces(inputs: PreprocessInputs) -> dict[str, ob
 def run_preprocess_plot_segment_traces_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -24,6 +27,9 @@ def run_preprocess_plot_segment_traces_from_runtime(
 		phase_name=_PHASE_NAME,
 		runner_fn=run_preprocess_plot_segment_traces,
 		config_path=config_path,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
