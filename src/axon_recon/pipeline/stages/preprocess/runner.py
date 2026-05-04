@@ -1481,17 +1481,30 @@ def _resolve_metadata_source_selection(
 ) -> tuple[Path, Path, str, str]:
 	source_h5_path = Path(inputs.source_h5_path or inputs.h5_path).expanduser().resolve()
 	resolved_h5_path = Path(inputs.h5_path).expanduser().resolve()
-	requested_metadata_source = str(inputs.phases.save_rec_metadata.metadata_source or "source_h5")
+	requested_metadata_source = _normalize_metadata_source_token(inputs.phases.save_rec_metadata.metadata_source)
 	metadata_source = "source_h5"
 	metadata_h5_path = source_h5_path
 	if (
-		requested_metadata_source == "scratch_copy"
+		_metadata_source_requests_scratch(requested_metadata_source)
 		and _safe_path_exists(resolved_h5_path)
 		and not _paths_equal_no_resolve(left=resolved_h5_path, right=source_h5_path)
 	):
 		metadata_h5_path = resolved_h5_path
-		metadata_source = "scratch_copy"
+		metadata_source = str(requested_metadata_source)
 	return metadata_h5_path, source_h5_path, requested_metadata_source, metadata_source
+
+
+def _normalize_metadata_source_token(value: Any) -> str:
+	token = str(value or "source_h5").strip().lower().replace("-", "_")
+	return token or "source_h5"
+
+
+def _metadata_source_requests_scratch(value: Any) -> bool:
+	return _normalize_metadata_source_token(value) in {"scratch", "scratch_h5", "scratch_copy", "scratch_input"}
+
+
+def _metadata_source_is_scratch(value: Any) -> bool:
+	return _metadata_source_requests_scratch(value)
 
 
 def _resolve_preprocess_segments_source_selection(
@@ -1502,6 +1515,28 @@ def _resolve_preprocess_segments_source_selection(
 	lazy_source = str(inputs.phases.preprocess_segments.lazy_source or "scratch")
 	selected_h5_path = source_h5_path if lazy_source == "src" else resolved_h5_path
 	return selected_h5_path, source_h5_path, lazy_source
+
+
+def _resolve_preprocess_phase_read_h5_path(inputs: PreprocessInputs, *, phase_name: str) -> Path | None:
+	phase = str(phase_name)
+	if phase == "copy_src_to_scratch":
+		return Path(inputs.source_h5_path or inputs.h5_path).expanduser().resolve()
+	if phase == "save_rec_metadata":
+		metadata_h5_path, _source_h5_path, _requested_metadata_source, _metadata_source = _resolve_metadata_source_selection(inputs)
+		return metadata_h5_path
+	if phase == "prepare_raw_binaries":
+		return Path(inputs.h5_path).expanduser().resolve()
+	if phase == "preprocess_segments":
+		selected_h5_path, _source_h5_path, _lazy_source = _resolve_preprocess_segments_source_selection(inputs)
+		return selected_h5_path
+	return None
+
+
+def _preprocess_phase_resource_key_context(inputs: PreprocessInputs, *, phase_name: str) -> Any:
+	read_h5_path = _resolve_preprocess_phase_read_h5_path(inputs, phase_name=phase_name)
+	if read_h5_path is None:
+		return inputs
+	return {"source_h5_path": read_h5_path, "h5_path": read_h5_path}
 
 
 def _resolve_preprocess_segments_output_mode(
@@ -2873,6 +2908,8 @@ def _run_preprocess_phase_sequence(
 				0 if resource_budget_manager is None else int(resource_budget_manager.planned_target_count)
 			),
 		)
+		phase_read_h5_path = _resolve_preprocess_phase_read_h5_path(inputs, phase_name=phase_name)
+		phase_resource_key_context = _preprocess_phase_resource_key_context(inputs, phase_name=phase_name)
 		phase_budget_context = (
 			contextlib.nullcontext()
 			if resource_budget_manager is None
@@ -2881,7 +2918,7 @@ def _run_preprocess_phase_sequence(
 				logger=phase_logger,
 				phase_name=str(phase_name),
 				target_label=str(inputs.stream_id),
-				resource_key_context=inputs,
+				resource_key_context=phase_resource_key_context,
 			)
 		)
 		phase_t0 = time.perf_counter()
@@ -2890,6 +2927,8 @@ def _run_preprocess_phase_sequence(
 		try:
 			with phase_budget_context as resource_gate_acquisition:
 				resource_gate = _resource_gate_payload(resource_gate_acquisition)
+				if phase_read_h5_path is not None:
+					resource_gate.setdefault("phase_read_h5_path", str(phase_read_h5_path))
 				phase_t0 = time.perf_counter()
 				phase_plot_cfg = _resolve_effective_plot_config(inputs, selected_phase=phase_name)
 				resource_monitor = start_phase_resource_monitor(
@@ -2915,7 +2954,11 @@ def _run_preprocess_phase_sequence(
 						float(resource_gate.get("wait_s", 0.0) or 0.0),
 						resource_gate.get("slot_demands", {}),
 						resource_gate.get("keyed_requests", {}),
-						extra={"event": "phase_resource_gate", "resource_gate": resource_gate},
+						extra={
+							"event": "phase_resource_gate",
+							"phase_read_h5_path": (None if phase_read_h5_path is None else str(phase_read_h5_path)),
+							"resource_gate": resource_gate,
+						},
 					)
 				if phase_logger is not None:
 					phase_logger.info(
@@ -2969,12 +3012,13 @@ def _run_preprocess_phase_sequence(
 				elif payload is None and phase_name == "save_rec_metadata":
 					metadata_h5_path, source_h5_path, requested_metadata_source, metadata_source = _resolve_metadata_source_selection(inputs)
 					if (
-						requested_metadata_source == "scratch_copy"
-						and metadata_source != "scratch_copy"
+						_metadata_source_requests_scratch(requested_metadata_source)
+						and not _metadata_source_is_scratch(metadata_source)
 						and phase_logger is not None
 					):
 						phase_logger.info(
-							"save_rec_metadata requested scratch_copy for well=%s but scratch copy was unavailable; falling back to source_h5",
+							"save_rec_metadata requested %s for well=%s but scratch input was unavailable; falling back to source_h5",
+							str(requested_metadata_source),
 							str(inputs.stream_id),
 						)
 					payload = run_save_rec_metadata_core(
@@ -3156,6 +3200,8 @@ def _run_preprocess_phase_sequence(
 				payload.setdefault("status", "success")
 				payload.setdefault("phase_elapsed_s", float(max(0.0, time.perf_counter() - phase_t0)))
 				payload.setdefault("resource_gate", resource_gate)
+				if phase_read_h5_path is not None:
+					payload.setdefault("phase_read_h5_path", str(phase_read_h5_path))
 				if phase_resource_class is not None:
 					payload.setdefault("resource_class", str(phase_resource_class))
 				resource_usage = None if resource_monitor is None else resource_monitor.stop()
@@ -3219,6 +3265,7 @@ def _run_preprocess_phase_sequence(
 							extra={
 								"event": "phase_resource_usage",
 								"status": "success",
+								"phase_read_h5_path": (None if phase_read_h5_path is None else str(phase_read_h5_path)),
 								"resource_gate": resource_gate,
 								"resource_usage": resource_usage.to_dict(),
 							},
@@ -3273,6 +3320,7 @@ def _run_preprocess_phase_sequence(
 							"event": "phase_resource_usage",
 							"status": "failed",
 							"exception_type": type(exc).__name__,
+							"phase_read_h5_path": (None if phase_read_h5_path is None else str(phase_read_h5_path)),
 							"resource_gate": resource_gate,
 							"resource_usage": resource_usage.to_dict(),
 						},

@@ -91,6 +91,74 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-04 - pending - ai: tune scratch h5 read paths
+
+Status: accepted
+
+Summary:
+- Treated `save_rec_metadata.metadata_source: scratch_h5` as a scratch-input request, alongside the older scratch aliases, while preserving `source_h5_path` as the original source provenance path.
+- Added phase-specific H5 read path resolution for preprocess phases so resource gates and resource usage logs use the file each phase actually reads.
+- Added `phase_read_h5_path` to phase resource JSONL payloads and tuning observations.
+- Updated phase tuning disk measurement and utilization logic to prefer `phase_read_h5_path` over original `source_h5_path`; scratch read rows remain visible even when scratch inputs share the output device benchmark.
+
+Guardrails Consulted:
+- `debug/logging_agent_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+
+Acceptance Criteria:
+- With `metadata_source: scratch_h5` and existing scratch inputs, `save_rec_metadata` reads the scratch H5 while the original source path remains recorded as provenance.
+- Preprocess H5 read resource keys point at the actual phase read path, not always the original source path.
+- `--phase-tune` observations, disk measurements, and bandwidth pressure use scratch input paths when scratch inputs are selected and available.
+- Reports no longer surface NAS source H5 measurements for scratch-selected metadata reads.
+
+Expected To Run:
+- Focused phase tuning and preprocess runner tests.
+- Containerized focused and broader pipeline tests.
+- Limited real-data `preprocess.save_rec_metadata --phase-tune` smoke using `debug/debug.runtime.yml`.
+
+Confirmed Not Run:
+- Full dataset/well scope.
+- Runtime YAML mutation.
+- Push to remote.
+
+Validation:
+- Diagnostics: VS Code diagnostics reported no errors for modified source/test files.
+- Focused host tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_phase_tuning.py src/axon_recon/pipeline/stages/preprocess/tests/test_runner.py -q` passed with 48 tests.
+- Container focused tests: `docker run --rm -v /home/adamm/dev/pkgs/axon_reconstructor:/workspace -w /workspace --entrypoint python axon-recon:test -m pytest src/axon_recon/pipeline/tests/test_phase_tuning.py -q` passed with 9 tests.
+- Container focused tests: `docker run --rm -v /home/adamm/dev/pkgs/axon_reconstructor:/workspace -w /workspace --entrypoint python axon-recon:test -m pytest src/axon_recon/pipeline/stages/preprocess/tests/test_runner.py -q` passed with 39 tests.
+- Container broad tests: `docker run --rm -v /home/adamm/dev/pkgs/axon_reconstructor:/workspace -w /workspace --entrypoint python axon-recon:test -m pytest src/axon_recon/pipeline/tests --ignore=src/axon_recon/pipeline/tests/test_progress.py -q` passed.
+- Real-data smoke: `/home/adamm/miniconda3/envs/axon_recon/bin/axon-recon-container --gpus all stages preprocess.save_rec_metadata --config debug/debug.runtime.yml --limit-segments 2 --limit-datasets 2 --limit-wells-per-dataset 1 --limit-units 15 --force-restart --phase-tune` passed for run `debug.runtime-20260504T062937Z`.
+- Logs inspected: `resource_usage_observations.jsonl` contains original NAS `source_h5_path`, scratch `phase_read_h5_path`, and scratch keyed `source_h5_path` resource requests for `save_rec_metadata`.
+- Artifacts inspected: `resource_tuning_report.md` includes a `phase_read_h5` disk measurement and `phase_read_h5` disk utilization row under `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/inputs/...`.
+
+CLI / Debug Flag Impact:
+- No CLI flag changes.
+
+Logging / Parallelism Impact:
+- Added `phase_read_h5_path` to phase resource gate/usage payloads.
+- Resource gate concurrency behavior is unchanged; keyed H5 accounting now targets the actual read file for preprocess phases.
+
+Storage / Cache Impact:
+- Updated tuning artifacts under `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/resource_tuning` during smoke validation.
+- Rebuilt local `axon-recon:local` and dev-flavored `axon-recon:test` images.
+
+Container / NERSC / MPI Impact:
+- Container validation used the rebuilt local images.
+- No NERSC/MPI-specific behavior was changed.
+
+Resume / Force-Restart Impact:
+- No resume semantics were changed.
+- The smoke used `--force-restart` to regenerate metadata and tuning observations for the selected limited scope.
+
+Residual Risk And Follow-Ups:
+- The scratch H5 disk measurement row may reuse the run-output device benchmark when scratch inputs and outputs share the same disk; the report calls this out in the measurement note.
+- A combined focused container pytest command was intermittently interrupted by SIGINT from the terminal session; the same test files passed when rerun separately in the container.
+
+Rollback Notes:
+- Revert the metadata source alias handling, preprocess phase read-path resource context, `phase_read_h5_path` log field, phase tuning read-path preference, and focused tests from this slice to restore source-path-only tuning behavior.
+
 ## 2026-05-04 - pending - ai: include queued resource demand in tuning
 
 Status: accepted

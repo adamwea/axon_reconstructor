@@ -8,6 +8,7 @@ import pytest
 from axon_recon.pipeline.phase_tuning import (
     PhaseTuningConfig,
     build_phase_tuning_summary,
+    collect_disk_bandwidth_measurements,
     collect_phase_resource_observations_from_jsonl,
     format_phase_tuning_report,
 )
@@ -42,7 +43,7 @@ def test_collect_phase_resource_observations_filters_run_and_stage(tmp_path: Pat
                 "wait_s": 1.25,
                 "waited": True,
                 "slot_demands": {"h5_read_slots": 1},
-                "keyed_requests": {"source_h5_path": {"key": str(tmp_path / "source.h5"), "demand": 1}},
+                "keyed_requests": {"source_h5_path": {"key": str(tmp_path / "scratch.h5"), "demand": 1}},
             },
         },
         {
@@ -66,6 +67,8 @@ def test_collect_phase_resource_observations_filters_run_and_stage(tmp_path: Pat
     assert observations[0]["phase"] == "save_rec_metadata"
     assert observations[0]["disk_read_gb_per_s"] == 0.5
     assert observations[0]["disk_write_gb_per_s"] == 0.25
+    assert observations[0]["source_h5_path"] == str(tmp_path / "source.h5")
+    assert observations[0]["phase_read_h5_path"] == str(tmp_path / "scratch.h5")
     assert observations[0]["resource_gate_wait_s"] == 1.25
     assert observations[0]["resource_gate_slot_demands"] == {"h5_read_slots": 1}
 
@@ -296,6 +299,147 @@ def test_build_phase_tuning_summary_explains_flat_io_slots_when_bandwidth_underu
     assert "peak requested recommended slot demand including gate waits (2) did not exceed current profile slots (3)" in notes
     assert "increasing h5_read_slots would not change this run" in notes
     assert "increasing disk_heavy_slots would not change this run" in notes
+
+
+def test_build_phase_tuning_summary_uses_phase_read_h5_path_for_bandwidth_pressure() -> None:
+    runtime_config = RuntimeConfig(
+        {
+            "resources": {
+                "active_profile": "test_profile",
+                "profiles": {"test_profile": {"cpu_cores": 16, "ram_gb": 64, "h5_read_slots": 1, "disk_heavy_slots": 1}},
+                "phase_resource_classes": {
+                    "h5_metadata": {"cpu_cores": 1, "ram_gb": 2, "h5_read_slots": 1, "disk_heavy_slots": 0}
+                },
+            }
+        }
+    )
+    resources = parse_resources_config(runtime_config=runtime_config)
+
+    summary = build_phase_tuning_summary(
+        resources=resources,
+        tuning_config=PhaseTuningConfig(),
+        observations=[
+            {
+                "timestamp": "2026-05-04T00:00:10+00:00",
+                "stage": "preprocess",
+                "phase": "save_rec_metadata",
+                "resource_class": "h5_metadata",
+                "source_h5_path": "/src/data.raw.h5",
+                "phase_read_h5_path": "/scratch/data.raw.h5",
+                "wall_time_s": 10.0,
+                "total_peak_rss_gb": 0.5,
+                "cpu_time_user_s": 1.0,
+                "cpu_time_system_s": 0.1,
+                "max_threads": 1,
+                "disk_read_gb": 1.0,
+                "disk_read_gb_per_s": 0.1,
+                "disk_write_gb": 0.0,
+                "disk_write_gb_per_s": 0.0,
+            }
+        ],
+        selected_stages=["preprocess.save_rec_metadata"],
+        run_id="run-a",
+        run_root="/out",
+        disk_measurements=[
+            {
+                "path": "/src/data.raw.h5",
+                "path_kind": "source_h5",
+                "device_id": "src",
+                "read_capacity_gb_per_s": 0.1,
+                "write_capacity_gb_per_s": None,
+            },
+            {
+                "path": "/scratch/data.raw.h5",
+                "path_kind": "phase_read_h5",
+                "device_id": "scratch",
+                "read_capacity_gb_per_s": 0.4,
+                "write_capacity_gb_per_s": None,
+            },
+            {
+                "path": "/out",
+                "path_kind": "run_output",
+                "device_id": "out",
+                "read_capacity_gb_per_s": 1.0,
+                "write_capacity_gb_per_s": 1.0,
+            },
+        ],
+    )
+    profile_recommendation = summary["active_profile_recommendation"]
+    pressure = profile_recommendation["disk_bandwidth_pressure"]
+
+    assert profile_recommendation["max_h5_read_bandwidth_utilization"] == pytest.approx(0.25)
+    assert any(item["path"] == "/scratch/data.raw.h5" for item in pressure)
+    assert not any(item["path"] == "/src/data.raw.h5" for item in pressure)
+
+
+def test_collect_disk_bandwidth_measurements_includes_phase_read_h5_on_output_device(tmp_path: Path) -> None:
+    run_root = tmp_path / "outputs"
+    run_root.mkdir()
+    scratch_h5_path = tmp_path / "inputs" / "data.raw.h5"
+    scratch_h5_path.parent.mkdir(parents=True)
+    scratch_h5_path.write_bytes(b"x" * 1024 * 1024)
+    second_scratch_h5_path = tmp_path / "inputs" / "second.raw.h5"
+    second_scratch_h5_path.write_bytes(b"y" * 1024 * 1024)
+
+    measurements = collect_disk_bandwidth_measurements(
+        run_root=run_root,
+        tuning_config=PhaseTuningConfig(disk_benchmark_size_mb=1, disk_benchmark_chunk_mb=1),
+        observations=[
+            {
+                "source_h5_path": "/nas/data.raw.h5",
+                "phase_read_h5_path": str(scratch_h5_path),
+            }
+        ],
+    )
+
+    phase_read_measurements = [item for item in measurements if item.get("path_kind") == "phase_read_h5"]
+    assert len(phase_read_measurements) == 1
+    assert phase_read_measurements[0]["path"] == str(scratch_h5_path)
+    assert phase_read_measurements[0]["read_capacity_gb_per_s"] is not None
+    assert any("reused device benchmark" in note for note in phase_read_measurements[0]["notes"])
+
+    runtime_config = RuntimeConfig(
+        {
+            "resources": {
+                "active_profile": "test_profile",
+                "profiles": {"test_profile": {"cpu_cores": 16, "ram_gb": 64, "h5_read_slots": 1, "disk_heavy_slots": 1}},
+                "phase_resource_classes": {
+                    "h5_metadata": {"cpu_cores": 1, "ram_gb": 2, "h5_read_slots": 1, "disk_heavy_slots": 0}
+                },
+            }
+        }
+    )
+    summary = build_phase_tuning_summary(
+        resources=parse_resources_config(runtime_config=runtime_config),
+        tuning_config=PhaseTuningConfig(disk_benchmark_size_mb=1, disk_benchmark_chunk_mb=1),
+        observations=[
+            {
+                "timestamp": "2026-05-04T00:00:10+00:00",
+                "stage": "preprocess",
+                "phase": "save_rec_metadata",
+                "resource_class": "h5_metadata",
+                "source_h5_path": "/nas/data.raw.h5",
+                "phase_read_h5_path": str(second_scratch_h5_path),
+                "wall_time_s": 1.0,
+                "total_peak_rss_gb": 0.5,
+                "cpu_time_user_s": 0.1,
+                "cpu_time_system_s": 0.1,
+                "max_threads": 1,
+                "disk_read_gb": 0.1,
+                "disk_read_gb_per_s": 0.1,
+                "disk_write_gb": 0.0,
+                "disk_write_gb_per_s": 0.0,
+            }
+        ],
+        selected_stages=["preprocess.save_rec_metadata"],
+        run_id="run-a",
+        run_root=str(run_root),
+        disk_measurements=measurements,
+    )
+
+    pressure = summary["active_profile_recommendation"]["disk_bandwidth_pressure"]
+    assert any(item["path"] == str(scratch_h5_path) for item in pressure)
+    assert not any(item["path"] == str(run_root / "resource_tuning") for item in pressure)
 
 
 def test_build_phase_tuning_summary_includes_gate_wait_in_requested_slot_demand() -> None:

@@ -143,6 +143,30 @@ def _int_metric(value: Any) -> int | None:
 		return None
 
 
+def _resource_gate_key_path(resource_gate: dict[str, Any], resource_name: str) -> str | None:
+	keyed_requests = _as_mapping(resource_gate.get("keyed_requests", None))
+	request = _as_mapping(keyed_requests.get(str(resource_name), None))
+	value = request.get("key", None)
+	if value is None:
+		return None
+	text = str(value).strip()
+	return text or None
+
+
+def _phase_read_h5_path_from_record(record: dict[str, Any], resource_gate: dict[str, Any]) -> str | None:
+	for value in (
+		record.get("phase_read_h5_path", None),
+		_resource_gate_key_path(resource_gate, "source_h5_path"),
+		record.get("source_h5_path", None),
+	):
+		if value is None:
+			continue
+		text = str(value).strip()
+		if text:
+			return text
+	return None
+
+
 def collect_phase_resource_observations_from_jsonl(
 	path: str | Path,
 	*,
@@ -178,6 +202,7 @@ def collect_phase_resource_observations_from_jsonl(
 		if resource_gate_wait_s is None:
 			resource_gate_wait_s = _metric(record.get("resource_gate_wait_s", None))
 		resource_gate_wait_s = max(0.0, float(resource_gate_wait_s or 0.0))
+		phase_read_h5_path = _phase_read_h5_path_from_record(record, resource_gate)
 		observations.append(
 			{
 				"run_id": record.get("run_id", None),
@@ -189,6 +214,7 @@ def collect_phase_resource_observations_from_jsonl(
 				"recording": record.get("recording_id", None),
 				"well": record.get("well_id", None),
 				"source_h5_path": record.get("source_h5_path", None),
+				"phase_read_h5_path": phase_read_h5_path,
 				"status": record.get("status", None),
 				"exception_type": record.get("exception_type", None),
 				"wall_time_s": wall_time_s,
@@ -437,44 +463,59 @@ def collect_disk_bandwidth_measurements(
 			"warnings": warnings,
 		}
 	)
-	seen_source_devices = {str(measurements[0].get("device_id"))} if measurements[0].get("device_id") is not None else set()
+	device_measurements: dict[str, dict[str, Any]] = {}
+	if measurements[0].get("device_id") is not None:
+		device_measurements[str(measurements[0].get("device_id"))] = measurements[0]
+	seen_phase_read_devices: set[str] = set()
 	for observation in observations:
-		source_path = observation.get("source_h5_path", None)
+		source_path = observation.get("phase_read_h5_path", None) or observation.get("source_h5_path", None)
 		if source_path is None:
 			continue
 		existing = _nearest_existing_path(source_path)
 		if existing is None or not existing.is_file():
 			continue
 		device_id = _device_id_for_path(existing)
-		if device_id is not None and str(device_id) in seen_source_devices:
+		device_key = None if device_id is None else str(device_id)
+		if device_key is not None and device_key in seen_phase_read_devices:
 			continue
-		read_capacity, read_bytes, read_warning = _benchmark_file_read(
-			existing,
-			byte_count=benchmark_bytes,
-			chunk_bytes=chunk_bytes,
-		)
 		measurement_notes: list[str] = []
 		measurement_warnings: list[str] = []
-		if read_warning is not None:
-			measurement_warnings.append(read_warning)
-		measurements.append(
-			{
-				"path": str(existing),
-				"path_kind": "source_h5",
-				"device_id": device_id,
-				"read_capacity_gb_per_s": read_capacity,
-				"write_capacity_gb_per_s": None,
-				"benchmark_bytes": read_bytes,
-				"notes": measurement_notes,
-				"warnings": measurement_warnings,
-			}
-		)
-		if device_id is not None:
-			seen_source_devices.add(str(device_id))
+		if device_key is not None and device_key in device_measurements:
+			device_measurement = device_measurements[device_key]
+			read_capacity = device_measurement.get("read_capacity_gb_per_s", None)
+			read_bytes = 0
+			measurement_notes.append(f"reused device benchmark from {device_measurement.get('path')}")
+		else:
+			read_capacity, read_bytes, read_warning = _benchmark_file_read(
+				existing,
+				byte_count=benchmark_bytes,
+				chunk_bytes=chunk_bytes,
+			)
+			if read_warning is not None:
+				measurement_warnings.append(read_warning)
+		measurement = {
+			"path": str(existing),
+			"path_kind": "phase_read_h5",
+			"device_id": device_id,
+			"read_capacity_gb_per_s": read_capacity,
+			"write_capacity_gb_per_s": None,
+			"benchmark_bytes": read_bytes,
+			"notes": measurement_notes,
+			"warnings": measurement_warnings,
+		}
+		measurements.append(measurement)
+		if device_key is not None:
+			device_measurements.setdefault(device_key, measurement)
+			seen_phase_read_devices.add(device_key)
 	return measurements
 
 
-def _measurement_for_path(path: str | Path | None, measurements: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _measurement_for_path(
+	path: str | Path | None,
+	measurements: list[dict[str, Any]],
+	*,
+	preferred_path_kind: str | None = None,
+) -> dict[str, Any] | None:
 	if path is None:
 		return None
 	path_text = str(Path(path).expanduser())
@@ -483,6 +524,12 @@ def _measurement_for_path(path: str | Path | None, measurements: list[dict[str, 
 			return measurement
 	device_id = _device_id_for_path(path)
 	if device_id is not None:
+		if preferred_path_kind is not None:
+			for measurement in measurements:
+				if str(measurement.get("path_kind", "")) != str(preferred_path_kind):
+					continue
+				if str(measurement.get("device_id", "")) == str(device_id):
+					return measurement
 		for measurement in measurements:
 			if str(measurement.get("device_id", "")) == str(device_id):
 				return measurement
@@ -516,11 +563,15 @@ def _disk_bandwidth_pressure_by_path(
 		start_s, end_s = interval
 		read_rate = _metric(observation.get("disk_read_gb_per_s", None)) or 0.0
 		write_rate = _metric(observation.get("disk_write_gb_per_s", None)) or 0.0
-		read_path = observation.get("source_h5_path", None) or write_path
+		read_path = observation.get("phase_read_h5_path", None) or observation.get("source_h5_path", None) or write_path
 		for path, rate, is_read in ((read_path, read_rate, True), (write_path, write_rate, False)):
 			if path is None or rate <= 0:
 				continue
-			measurement = _measurement_for_path(path, disk_measurements)
+			measurement = _measurement_for_path(
+				path,
+				disk_measurements,
+				preferred_path_kind="phase_read_h5" if is_read else "run_output",
+			)
 			if measurement is None:
 				continue
 			key = str(measurement.get("path") or path)

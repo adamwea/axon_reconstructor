@@ -598,7 +598,7 @@ def test_run_preprocess_save_rec_metadata_phase_prefers_requested_metadata_sourc
         phases=PreprocessPhasesConfig(
             save_rec_metadata=PreprocessSaveRecMetadataPhaseConfig(
                 enabled=True,
-                metadata_source="scratch_copy",
+                metadata_source="scratch_h5",
             )
         ),
     )
@@ -608,8 +608,42 @@ def test_run_preprocess_save_rec_metadata_phase_prefers_requested_metadata_sourc
     assert payload["phase"] == "save_rec_metadata"
     assert Path(str(captured_phase_kwargs["save_rec_metadata"]["h5_path"])) == scratch_h5_path
     assert Path(str(captured_phase_kwargs["save_rec_metadata"]["source_h5_path"])) == source_h5_path
-    assert captured_phase_kwargs["save_rec_metadata"]["requested_metadata_source"] == "scratch_copy"
-    assert captured_phase_kwargs["save_rec_metadata"]["metadata_source"] == "scratch_copy"
+    assert captured_phase_kwargs["save_rec_metadata"]["requested_metadata_source"] == "scratch_h5"
+    assert captured_phase_kwargs["save_rec_metadata"]["metadata_source"] == "scratch_h5"
+
+
+def test_preprocess_phase_resource_key_context_uses_selected_scratch_h5_when_configured(tmp_path: Path) -> None:
+    from axon_recon.pipeline.stages.preprocess import runner as preprocess_runner
+
+    source_h5_path = tmp_path / "source" / "input.raw.h5"
+    source_h5_path.parent.mkdir(parents=True, exist_ok=True)
+    source_h5_path.write_text("source\n", encoding="utf-8")
+    scratch_h5_path = tmp_path / "scratch" / "input.raw.h5"
+    scratch_h5_path.parent.mkdir(parents=True, exist_ok=True)
+    scratch_h5_path.write_text("scratch\n", encoding="utf-8")
+    inputs = PreprocessInputs(
+        h5_path=scratch_h5_path,
+        source_h5_path=source_h5_path,
+        copied_to_scratch=True,
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        phases=PreprocessPhasesConfig(
+            save_rec_metadata=PreprocessSaveRecMetadataPhaseConfig(enabled=True, metadata_source="scratch_h5"),
+            preprocess_segments=PreprocessSegmentsPhaseConfig(enabled=True, lazy_source="scratch"),
+        ),
+    )
+
+    metadata_context = preprocess_runner._preprocess_phase_resource_key_context(
+        inputs,
+        phase_name="save_rec_metadata",
+    )
+    segments_context = preprocess_runner._preprocess_phase_resource_key_context(
+        inputs,
+        phase_name="preprocess_segments",
+    )
+
+    assert Path(str(metadata_context["source_h5_path"])) == scratch_h5_path.resolve()
+    assert Path(str(segments_context["source_h5_path"])) == scratch_h5_path.resolve()
 
 
 def test_run_preprocess_save_rec_metadata_phase_passes_step_timer_flag(
