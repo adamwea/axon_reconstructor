@@ -1027,7 +1027,7 @@ def test_run_reconstruct_templates_pipeline_writes_png(tmp_path: Path) -> None:
 	h5_path.write_text("", encoding="utf-8")
 
 	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
-	_make_templates_artifacts(well_out_dir)
+	_make_templates_artifacts(well_out_dir, unit_ids=(94, 95))
 	(well_out_dir / "templates_outputs" / "units" / "concat_unit_locations.json").write_text(
 		json.dumps([{"unit_id": 94, "x_um": 12.0, "y_um": 8.0}]),
 		encoding="utf-8",
@@ -3622,7 +3622,7 @@ def test_run_reconstruct_templates_report_templates_phase_writes_pdf_from_circle
 			template_circles=TemplateCirclesPlotConfig(write_png=True, write_svg=False),
 		),
 		unit_label_filter_required=False,
-		unit_ids=[94],
+		unit_ids=[94, 95],
 		n_jobs=1,
 	)
 	run_reconstruct_templates_plot_templates_phase(plot_inputs)
@@ -3633,7 +3633,8 @@ def test_run_reconstruct_templates_report_templates_phase_writes_pdf_from_circle
 		mea_output_root=output_root,
 		output_rel_root="templates_outputs",
 		unit_label_filter_required=False,
-		unit_ids=[94],
+		unit_ids=[94, 95],
+		unit_limit=1,
 		n_jobs=1,
 	)
 

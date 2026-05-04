@@ -21,6 +21,7 @@ from axon_recon.pipeline.stages.spikesort.legacy_runner import (
 	run_spikesorting_stage as run_legacy_spikesorting_stage,
 )
 
+from .core.debug_outputs import suppress_spikesort_external_debug_output
 from .core.local_spikeinterface import run_local_spikeinterface_sort_stage
 from .models.inputs import SpikesortInputs
 from .models.results import SpikesortBombcellResult, SpikesortMergeResult, SpikesortResult
@@ -2583,6 +2584,7 @@ def _run_summarize_sort_phase(
 	sorter_name: str,
 	emit_logs: bool,
 	generate_artifacts: bool,
+	applied_debug_limits: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
 	sorter_output_dir = _resolve_existing_sorter_output_dir(stage_output_root_dir=stage_output_root_dir)
 	payload = _build_sort_summary_payload(
@@ -2591,6 +2593,8 @@ def _run_summarize_sort_phase(
 		sorter_output_dir=sorter_output_dir,
 		sorter_name=sorter_name,
 	)
+	if applied_debug_limits is not None:
+		payload["applied_debug_limits"] = dict(applied_debug_limits)
 	payload["emit_logs"] = bool(emit_logs)
 	payload["generate_artifacts"] = bool(generate_artifacts)
 	artifacts: dict[str, str] = {}
@@ -2860,6 +2864,7 @@ def _run_bombcell_label_phase(
 			"well_out_dir": str(well_out_dir),
 			"stage_output_root_dir": str(stage_output_root_dir),
 			"bombcell_out_dir": str(bombcell_out_dir),
+			"applied_debug_limits": _spikesort_applied_debug_limits_from_stage_config(stage_config),
 			"force_restart": bool(force_restart),
 			"delete_outputs_on_force_restart": bool(delete_on_force_restart),
 			"removed_on_force_restart": list(removed_on_force_restart),
@@ -2884,6 +2889,7 @@ def _run_bombcell_label_phase(
 		well_out_dir=well_out_dir,
 		force_restart=bool(force_restart),
 		out_dir=bombcell_out_dir,
+		applied_debug_limits=_spikesort_applied_debug_limits_from_stage_config(stage_config),
 	)
 
 	resolved_sorter_output_dir = (
@@ -2916,6 +2922,7 @@ def _run_bombcell_label_phase(
 		"well_out_dir": str(well_out_dir),
 		"stage_output_root_dir": str(stage_output_root_dir),
 		"bombcell_out_dir": str(bombcell_out_dir),
+		"applied_debug_limits": _spikesort_applied_debug_limits_from_stage_config(stage_config),
 		"force_restart": bool(force_restart),
 		"delete_outputs_on_force_restart": bool(delete_on_force_restart),
 		"removed_on_force_restart": list(removed_on_force_restart),
@@ -3267,6 +3274,47 @@ def _positive_int_or_none(value: Any) -> int | None:
 	return parsed if parsed > 0 else None
 
 
+def _spikesort_applied_debug_limits_from_stage_config(
+	stage_config: Any,
+	*,
+	limit_segments_per_well: int | None = None,
+) -> dict[str, Any]:
+	segment_limit = limit_segments_per_well
+	if segment_limit is None:
+		segment_limit = _positive_int_or_none(getattr(stage_config, "debug_limit_segments_per_well", None))
+	limits = {
+		"limit_datasets": _positive_int_or_none(getattr(stage_config, "debug_limit_datasets", None)),
+		"limit_wells": _positive_int_or_none(getattr(stage_config, "debug_limit_wells", None)),
+		"limit_wells_per_dataset": _positive_int_or_none(
+			getattr(stage_config, "debug_limit_wells_per_dataset", None)
+		),
+		"limit_segments_per_well": _positive_int_or_none(segment_limit),
+	}
+	return {
+		"debug_mode_enabled": bool(getattr(stage_config, "debug_mode_enabled", False))
+		or any(value is not None for value in limits.values()),
+		**limits,
+	}
+
+
+def _spikesort_applied_debug_limits_from_inputs(inputs: SpikesortInputs) -> dict[str, Any]:
+	limits = {
+		"limit_datasets": _positive_int_or_none(getattr(inputs, "debug_limit_datasets", None)),
+		"limit_wells": _positive_int_or_none(getattr(inputs, "debug_limit_wells", None)),
+		"limit_wells_per_dataset": _positive_int_or_none(
+			getattr(inputs, "debug_limit_wells_per_dataset", None)
+		),
+		"limit_segments_per_well": _positive_int_or_none(
+			getattr(inputs, "debug_limit_segments_per_well", None)
+		),
+	}
+	return {
+		"debug_mode_enabled": bool(getattr(inputs, "debug_mode_enabled", False))
+		or any(value is not None for value in limits.values()),
+		**limits,
+	}
+
+
 def _bootstrap_concat_binary_limit_segments_per_well(stage_config: Any) -> int | None:
 	phase_limit = _positive_int_or_none(
 		getattr(stage_config, "bootstrap_concat_binary_debug_limit_segments_per_well", None)
@@ -3308,6 +3356,7 @@ def run_spikesort_bootstrap_concat_binary_stage(
 			"reason": "bootstrap_concat_binary_disabled",
 			"well_out_dir": str(well_out_dir),
 			"stage_output_root_dir": str(stage_output_root_dir),
+			"applied_debug_limits": _spikesort_applied_debug_limits_from_stage_config(stage_config),
 			"outputs": {"summary_json": str(summary_json)},
 		}
 		_write_json(summary_json, payload)
@@ -3336,6 +3385,10 @@ def run_spikesort_bootstrap_concat_binary_stage(
 	if n_jobs is None:
 		n_jobs = 1
 	limit_segments_per_well = _bootstrap_concat_binary_limit_segments_per_well(stage_config)
+	applied_debug_limits = _spikesort_applied_debug_limits_from_stage_config(
+		stage_config,
+		limit_segments_per_well=limit_segments_per_well,
+	)
 	chunk_duration = (
 		getattr(stage_config, "bootstrap_concat_binary_chunk_duration", None)
 		or getattr(stage_config, "chunk_duration", None)
@@ -3350,6 +3403,7 @@ def run_spikesort_bootstrap_concat_binary_stage(
 		force_restart=bool(force_restart),
 		overwrite_saved_recording=bool(overwrite_saved_recording),
 		limit_segments_per_well=limit_segments_per_well,
+		applied_debug_limits=applied_debug_limits,
 	)
 	common_electrodes_path = _resolve_under_well(
 		well_out_dir=well_out_dir,
@@ -3415,6 +3469,7 @@ def run_spikesort_bootstrap_concat_binary_stage(
 			"segment_manifest_path": str(paths["segment_manifest_path"]),
 			"concat_manifest_path": str(paths["concat_manifest_path"]),
 			"force_restart": bool(force_restart),
+			"applied_debug_limits": applied_debug_limits,
 			"overwrite_saved_recording": bool(overwrite_saved_recording),
 			"output_mode": str(payload.get("output_mode", "binary")),
 			"limit_segments_per_well": (
@@ -3481,6 +3536,7 @@ def run_spikesort_cleanup_concat_binary_stage(
 			"well_out_dir": str(well_out_dir),
 			"stage_output_root_dir": str(stage_output_root_dir),
 			"target_dir": str(target_dir),
+			"applied_debug_limits": _spikesort_applied_debug_limits_from_stage_config(stage_config),
 			"removed_paths": removed_paths,
 			"force_restart": bool(force_restart),
 			"outputs": outputs,
@@ -10433,6 +10489,7 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 	stage_output_root_dir.mkdir(parents=True, exist_ok=True)
 	summary_json = stage_output_root_dir / "spikesort_summary.json"
 	effective_force_restart = bool(inputs.force_restart or inputs.force_replot)
+	applied_debug_limits = _spikesort_applied_debug_limits_from_inputs(inputs)
 	_log_phase_step_start(
 		"Spikesort stage start",
 		stream_id=str(inputs.stream_id),
@@ -10441,6 +10498,7 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 		force_restart=bool(inputs.force_restart),
 		force_replot=bool(inputs.force_replot),
 		output_root=str(inputs.output_rel_root),
+		applied_debug_limits=applied_debug_limits,
 	)
 	sort_engine = str(getattr(inputs, "sort_engine", "mea_analysis") or "mea_analysis")
 
@@ -10455,6 +10513,7 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 				"well_out_dir": str(well_out_dir),
 				"spikesort_out_dir": str(stage_output_root_dir),
 				"output_rel_root": str(inputs.output_rel_root),
+				"applied_debug_limits": applied_debug_limits,
 				"inputs": {
 					"sort_enabled": bool(inputs.sort_enabled),
 					"sort_delete_outputs_on_force_restart": bool(inputs.sort_delete_outputs_on_force_restart),
@@ -10523,6 +10582,7 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 			h5_path=inputs.h5_path,
 			stream_id=inputs.stream_id,
 			mea_output_root=inputs.mea_output_root,
+			limit_segments_per_well=_positive_int_or_none(inputs.debug_limit_segments_per_well),
 			output_subdir_after_well=(str(inputs.output_rel_root).strip() or "spikesort_outputs"),
 			preprocess_concat_recording_relpath=inputs.preprocess_concat_recording_relpath,
 			sort_original_preprocess_concat_recording_relpath=inputs.sort_original_preprocess_concat_recording_relpath,
@@ -10588,6 +10648,7 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 			sorter_name=str(inputs.sorter),
 			emit_logs=bool(inputs.summarize_sort_emit_logs),
 			generate_artifacts=bool(inputs.summarize_sort_generate_artifacts),
+			applied_debug_limits=applied_debug_limits,
 		)
 		outputs.update(dict(summarize_sort_report.get("outputs", {}) or {}))
 	if sort_outputs.merged_sorting_dir is not None:
@@ -10605,6 +10666,7 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 			"sort_engine": sort_engine,
 			"legacy_spikesort_out_dir": str(sort_out_dir) if sort_engine == "mea_analysis" else None,
 			"output_rel_root": str(inputs.output_rel_root),
+			"applied_debug_limits": applied_debug_limits,
 			"inputs": {
 				"sort_engine": sort_engine,
 				"preprocess_concat_recording_relpath": inputs.preprocess_concat_recording_relpath,
@@ -10701,6 +10763,7 @@ def run_spikesort_summarize_sort(inputs: SpikesortInputs) -> SpikesortResult:
 		sorter_name=str(inputs.sorter),
 		emit_logs=bool(inputs.summarize_sort_emit_logs),
 		generate_artifacts=bool(inputs.summarize_sort_generate_artifacts),
+		applied_debug_limits=_spikesort_applied_debug_limits_from_inputs(inputs),
 	)
 	outputs = dict(payload.get("outputs", {}) or {})
 	if not bool(inputs.summarize_sort_generate_artifacts):

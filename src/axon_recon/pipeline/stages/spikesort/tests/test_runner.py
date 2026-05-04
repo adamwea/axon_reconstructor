@@ -3876,6 +3876,7 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
                 "run_reports": bool(getattr(inputs, "run_reports")),
                 "no_curation": bool(getattr(inputs, "no_curation")),
                 "export_to_phy": bool(getattr(inputs, "export_to_phy")),
+                "limit_segments_per_well": getattr(inputs, "limit_segments_per_well"),
             }
         )
         return _LegacyOutputs(str(getattr(inputs, "output_subdir_after_well")))
@@ -3905,6 +3906,7 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
         fixed_y=True,
         no_curation=True,
         export_to_phy=True,
+        debug_limit_segments_per_well=2,
     )
 
     result = run_spikesort_stage(inputs)
@@ -3927,6 +3929,7 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
     assert captured_legacy_inputs.get("run_reports") is False
     assert captured_legacy_inputs.get("no_curation") is True
     assert captured_legacy_inputs.get("export_to_phy") is True
+    assert captured_legacy_inputs.get("limit_segments_per_well") == 2
 
     assert summary.get("inputs", {}).get("logging_enabled") is False
     assert summary.get("inputs", {}).get("logging_verbose") is True
@@ -3947,6 +3950,7 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
     assert summary.get("inputs", {}).get("export_to_phy") is True
     assert summary.get("inputs", {}).get("sort_enabled") is True
     assert summary.get("inputs", {}).get("sort_delete_outputs_on_force_restart") is False
+    assert summary["applied_debug_limits"]["limit_segments_per_well"] == 2
     assert result.spikesort_out_dir == well_out_dir / "spikesort_outputs_v2"
 
 

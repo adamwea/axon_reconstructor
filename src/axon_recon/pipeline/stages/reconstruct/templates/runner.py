@@ -119,6 +119,33 @@ def _as_positive_float_or_none(value: Any) -> float | None:
 	return float(parsed)
 
 
+def _positive_int_or_none(value: Any) -> int | None:
+	if value is None:
+		return None
+	try:
+		parsed = int(value)
+	except (TypeError, ValueError):
+		return None
+	return parsed if parsed > 0 else None
+
+
+def _templates_applied_debug_limits(inputs: TemplatesInputs) -> dict[str, Any]:
+	limits = {
+		"limit_datasets": _positive_int_or_none(getattr(inputs, "debug_limit_datasets", None)),
+		"limit_wells": _positive_int_or_none(getattr(inputs, "debug_limit_wells", None)),
+		"limit_wells_per_dataset": _positive_int_or_none(
+			getattr(inputs, "debug_limit_wells_per_dataset", None)
+		),
+		"limit_units": _positive_int_or_none(getattr(inputs, "unit_limit", None)),
+		"limit_segments": _positive_int_or_none(getattr(inputs, "limit_segments", None)),
+	}
+	return {
+		"debug_mode_enabled": bool(getattr(inputs, "debug_mode_enabled", False))
+		or any(value is not None for value in limits.values()),
+		**limits,
+	}
+
+
 def _compute_unit_location_from_template(
 	*,
 	unit_id: Any,
@@ -1678,6 +1705,7 @@ def run_reconstruct_templates_resolve_sources_phase(inputs: TemplatesInputs) -> 
 			"force_replot_per_unit": bool(inputs.force_replot_per_unit),
 			"force_rereport": bool(inputs.force_rereport),
 		},
+		"applied_debug_limits": _templates_applied_debug_limits(inputs),
 		"unit_scope": {
 			"unit_ids": (None if inputs.unit_ids is None else list(inputs.unit_ids)),
 			"unit_limit": inputs.unit_limit,
@@ -2322,6 +2350,7 @@ def run_reconstruct_templates_analyzers_phase(inputs: TemplatesInputs, *, source
 		"stream_id": str(inputs.stream_id),
 		"well_out_dir": str(well_out_dir),
 		"templates_out_dir": str(templates_out_dir),
+		"applied_debug_limits": _templates_applied_debug_limits(inputs),
 		"analyzer_cache_dir": (None if analyzer_cache_dir is None else str(analyzer_cache_dir)),
 		"source_scope": source_scope,
 		"source_count": int(source_count),
@@ -2407,6 +2436,7 @@ def run_reconstruct_templates_extract_template_segments_phase(inputs: TemplatesI
 		"well_out_dir": str(well_out_dir),
 		"templates_out_dir": str(templates_out_dir),
 		"payload_root": str(payload_root),
+		"applied_debug_limits": _templates_applied_debug_limits(inputs),
 		"unit_ids": [unit for unit in unit_ids],
 		"sources": sources_summary,
 	}
@@ -2486,6 +2516,7 @@ def run_reconstruct_templates_build_templates_phase(inputs: TemplatesInputs) -> 
 			templates_out_dir=templates_out_dir,
 		)
 	summary["timing"] = {"duration_seconds": float(perf_counter() - phase_started)}
+	summary["applied_debug_limits"] = _templates_applied_debug_limits(inputs)
 	summary_path = templates_out_dir / str(inputs.phases.build_templates.summary_json_relpath)
 	LOGGER.info("templates.build_templates generating outputs: summary_json=%s", str(summary_path))
 	write_json(summary_path, summary)
@@ -2628,6 +2659,7 @@ def run_reconstruct_templates_compute_template_similarity_phase(inputs: Template
 	)
 	summary["stream_id"] = str(inputs.stream_id)
 	summary["well_out_dir"] = str(well_out_dir)
+	summary["applied_debug_limits"] = _templates_applied_debug_limits(inputs)
 	summary["duration_seconds"] = float(perf_counter() - phase_started)
 	summary_path = templates_out_dir / str(phase_cfg.summary_json_relpath)
 	write_json(summary_path, summary)
@@ -2715,6 +2747,7 @@ def _write_reconstruct_templates_summary(
 		"n_jobs": int(max(1, int(inputs.n_jobs))),
 		"well_out_dir": str(well_out_dir),
 		"templates_out_dir": str(templates_out_dir),
+		"applied_debug_limits": _templates_applied_debug_limits(inputs),
 		"analyzer_cache": {
 			"enabled": bool(inputs.analyzer_cache.enabled),
 			"relpath": str(inputs.analyzer_cache.relpath),
@@ -2916,6 +2949,7 @@ def run_reconstruct_templates_plot_templates_phase(inputs: TemplatesInputs) -> d
 		skipped_units=skipped_units,
 		duration_seconds=float(perf_counter() - phase_started),
 	)
+	summary["applied_debug_limits"] = _templates_applied_debug_limits(phase_inputs)
 	summary_path = templates_out_dir / str(inputs.phases.plot_templates.summary_json_relpath)
 	write_json(summary_path, summary)
 	summary["summary_json"] = str(summary_path)
@@ -3011,6 +3045,8 @@ def run_reconstruct_templates_report_templates_phase(inputs: TemplatesInputs) ->
 	well_out_dir, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
 	unit_ids = list(inputs.unit_ids) if inputs.unit_ids is not None else _discover_unit_ids_from_unit_summaries(templates_out_dir)
 	unit_ids = _apply_unit_label_filter(inputs, unit_ids, well_out_dir, context="report_templates")
+	if inputs.unit_limit is not None:
+		unit_ids = unit_ids[: int(inputs.unit_limit)]
 	if not unit_ids:
 		raise FileNotFoundError(
 			f"No unit summaries found under {templates_out_dir}; run templates.plot_templates first"
@@ -3061,6 +3097,7 @@ def run_reconstruct_templates_report_templates_phase(inputs: TemplatesInputs) ->
 		report_outputs=report_outputs,
 		duration_seconds=float(perf_counter() - phase_started),
 	)
+	summary["applied_debug_limits"] = _templates_applied_debug_limits(inputs)
 	summary_path = templates_out_dir / str(inputs.phases.report_templates.summary_json_relpath)
 	write_json(summary_path, summary)
 	summary["summary_json"] = str(summary_path)

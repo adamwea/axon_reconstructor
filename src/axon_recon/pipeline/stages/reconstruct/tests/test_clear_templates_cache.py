@@ -10,8 +10,8 @@ def _write_dummy(path: Path, payload: bytes = b"dummy") -> None:
 	path.write_bytes(payload)
 
 
-def _make_templates_cache(well_out_dir: Path) -> dict[str, Path]:
-	cache_dir = well_out_dir / "template_outputs" / "cache"
+def _make_templates_cache(well_out_dir: Path, output_rel_root: str = "template_outputs") -> dict[str, Path]:
+	cache_dir = well_out_dir / output_rel_root / "cache"
 	paths = {
 		"concat": cache_dir / "analyzers" / "concat" / "dummy.bin",
 		"segments": cache_dir / "analyzers" / "segments" / "dummy.bin",
@@ -45,6 +45,27 @@ def test_run_clear_templates_cache_phase_preserves_merged_when_requested(tmp_pat
 	assert not (cache_dir / "source_payloads").exists()
 	assert not (cache_dir / "templates" / "full").exists()
 	assert paths["merged_template"].exists()
+
+
+def test_run_clear_templates_cache_phase_prefers_configured_output_root(tmp_path: Path) -> None:
+	well_out_dir = tmp_path / "well000"
+	legacy_paths = _make_templates_cache(well_out_dir, "template_outputs")
+	configured_paths = _make_templates_cache(well_out_dir, "recon_outputs")
+	configured_cache_dir = well_out_dir / "recon_outputs" / "cache"
+
+	summary = run_clear_templates_cache_phase(
+		well_out_dir=well_out_dir,
+		enabled=True,
+		keep_merged_per_unit_outputs=True,
+		keep_full_channels_templates=False,
+		templates_output_rel_root="recon_outputs",
+	)
+
+	assert summary["templates_out_dir"] == str(well_out_dir / "recon_outputs")
+	assert not (configured_cache_dir / "analyzers").exists()
+	assert not (configured_cache_dir / "source_payloads").exists()
+	assert configured_paths["merged_template"].exists()
+	assert legacy_paths["source_payload"].exists()
 
 
 def test_run_clear_templates_cache_phase_disabled_deletes_nothing(tmp_path: Path) -> None:

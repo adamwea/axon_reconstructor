@@ -193,13 +193,29 @@ def _discover_unit_ids(merged_units_dir: Path) -> list[Any]:
 	return unit_ids
 
 
-def _resolve_templates_dirs(well_out_dir: Path) -> tuple[Path, Path, Path]:
+def _resolve_templates_dirs(
+	well_out_dir: Path,
+	*,
+	templates_inputs: TemplatesInputs | None = None,
+) -> tuple[Path, Path, Path]:
 	last_merged_units_dir = well_out_dir / "templates_outputs" / "templates" / "merged"
-	for templates_out_dir in (
+	templates_out_dirs: list[Path] = []
+	if templates_inputs is not None:
+		configured_rel_root = str(getattr(templates_inputs, "output_rel_root", "") or "").strip()
+		if configured_rel_root:
+			configured_path = Path(configured_rel_root).expanduser()
+			if configured_path.is_absolute():
+				templates_out_dirs.append(configured_path)
+			else:
+				templates_out_dirs.append(well_out_dir / configured_path)
+	for legacy_out_dir in (
 		well_out_dir / "template_outputs",
 		well_out_dir / "templates_outputs",
 		well_out_dir / "stg4_templates_outputs",
 	):
+		if legacy_out_dir not in templates_out_dirs:
+			templates_out_dirs.append(legacy_out_dir)
+	for templates_out_dir in templates_out_dirs:
 		for templates_dir in (
 			templates_out_dir / "templates",
 			templates_out_dir / "cache" / "templates",
@@ -234,6 +250,33 @@ def _should_preserve_reconstruct_reports(inputs: ReconstructionInputs) -> bool:
 	if not (bool(inputs.force_restart) or bool(inputs.force_replot)):
 		return False
 	return not bool(inputs.overwrite_report_outputs_on_unit_rerun)
+
+
+def _positive_int_or_none(value: Any) -> int | None:
+	if value is None:
+		return None
+	try:
+		parsed = int(value)
+	except (TypeError, ValueError):
+		return None
+	return parsed if parsed > 0 else None
+
+
+def _reconstruct_applied_debug_limits(inputs: ReconstructionInputs) -> dict[str, Any]:
+	limits = {
+		"limit_datasets": _positive_int_or_none(getattr(inputs, "debug_limit_datasets", None)),
+		"limit_wells": _positive_int_or_none(getattr(inputs, "debug_limit_wells", None)),
+		"limit_wells_per_dataset": _positive_int_or_none(
+			getattr(inputs, "debug_limit_wells_per_dataset", None)
+		),
+		"limit_units": _positive_int_or_none(getattr(inputs, "unit_limit", None)),
+		"limit_segments": _positive_int_or_none(getattr(inputs, "limit_segments", None)),
+	}
+	return {
+		"debug_mode_enabled": bool(getattr(inputs, "debug_mode_enabled", False))
+		or any(value is not None for value in limits.values()),
+		**limits,
+	}
 
 
 def _collect_existing_reconstruct_stage_outputs(
@@ -517,6 +560,7 @@ def _write_reconstruct_phase_summary(
 		"n_jobs": int(max(1, int(inputs.n_jobs))),
 		"well_out_dir": str(well_out_dir),
 		"reconstruction_out_dir": str(reconstruction_out_dir),
+		"applied_debug_limits": _reconstruct_applied_debug_limits(inputs),
 		"unit_count": len(unit_results),
 		"units_ok": units_ok,
 		"units_error": units_error,
@@ -561,9 +605,24 @@ def _prepare_reconstruct_phase_environment(
 				list(inputs.unit_ids or []),
 			)
 		else:
+			preserved_templates_cache: Path | None = None
+			templates_cache_dir = reconstruction_out_dir / "cache" / "templates"
+			if templates_cache_dir.exists():
+				preserved_templates_cache = reconstruction_out_dir.parent / f".{reconstruction_out_dir.name}_templates_cache_preserved"
+				if preserved_templates_cache.exists():
+					shutil.rmtree(preserved_templates_cache)
+				shutil.move(str(templates_cache_dir), str(preserved_templates_cache))
 			LOGGER.info("Reconstruct full restart: clearing output root %s", reconstruction_out_dir)
 			shutil.rmtree(reconstruction_out_dir)
 	reconstruction_out_dir.mkdir(parents=True, exist_ok=True)
+	if clear_output_root and full_restart and not preserve_stage_reports:
+		preserved_templates_cache = reconstruction_out_dir.parent / f".{reconstruction_out_dir.name}_templates_cache_preserved"
+		if preserved_templates_cache.exists():
+			restored_templates_cache = reconstruction_out_dir / "cache" / "templates"
+			restored_templates_cache.parent.mkdir(parents=True, exist_ok=True)
+			if restored_templates_cache.exists():
+				shutil.rmtree(restored_templates_cache)
+			shutil.move(str(preserved_templates_cache), str(restored_templates_cache))
 	if clear_output_root and preserve_stage_reports and full_restart:
 		for unit_id in inputs.unit_ids or []:
 			unit_dir = resolve_unit_output_paths(
@@ -574,7 +633,15 @@ def _prepare_reconstruct_phase_environment(
 			if unit_dir.exists():
 				shutil.rmtree(unit_dir)
 
-	_, merged_units_dir, full_channels_templates_dir = _resolve_templates_dirs(well_out_dir)
+	try:
+		_, merged_units_dir, full_channels_templates_dir = _resolve_templates_dirs(
+			well_out_dir,
+			templates_inputs=inputs.templates_inputs,
+		)
+	except TypeError as exc:
+		if "templates_inputs" not in str(exc):
+			raise
+		_, merged_units_dir, full_channels_templates_dir = _resolve_templates_dirs(well_out_dir)
 	unit_ids = _build_unit_ids(inputs, merged_units_dir)
 	return _ReconstructPhaseEnvironment(
 		well_out_dir=well_out_dir,
@@ -1106,8 +1173,12 @@ def run_reconstruct_clear_templates_cache_phase(inputs: ReconstructionInputs) ->
 		enabled=bool(cfg.enabled),
 		keep_merged_per_unit_outputs=bool(cfg.keep_merged_per_unit_outputs),
 		keep_full_channels_templates=bool(cfg.keep_full_channels_templates),
+		templates_output_rel_root=(
+			str(inputs.templates_inputs.output_rel_root) if inputs.templates_inputs is not None else None
+		),
 		logger=LOGGER,
 	)
+	summary["applied_debug_limits"] = _reconstruct_applied_debug_limits(inputs)
 	summary_json = well_out_dir / str(inputs.output_rel_root) / Path(str(cfg.summary_json_relpath)).expanduser()
 	summary_json.parent.mkdir(parents=True, exist_ok=True)
 	write_json(summary_json, summary)
@@ -1118,10 +1189,11 @@ def run_reconstruct_clear_templates_cache_phase(inputs: ReconstructionInputs) ->
 def run_reconstruct_generate_gtrs_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
 	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=True)
 	LOGGER.info(
-		"reconstruct.generate_gtrs phase start: well_out_dir=%s reconstruction_out_dir=%s units=%d",
+		"reconstruct.generate_gtrs phase start: well_out_dir=%s reconstruction_out_dir=%s units=%d applied_debug_limits=%s",
 		str(env.well_out_dir),
 		str(env.reconstruction_out_dir),
 		len(env.unit_ids),
+		_reconstruct_applied_debug_limits(inputs),
 	)
 	unit_results, failed_units_summary_json = _run_reconstruct_generate_gtrs_phase_impl(inputs=inputs, env=env)
 	summary_json = env.reconstruction_out_dir / Path(str(inputs.phases.generate_gtrs.summary_json_relpath)).expanduser()
@@ -1554,6 +1626,7 @@ def collect_reconstruct_result_from_outputs(inputs: ReconstructionInputs) -> Rec
 			"phase_sequence": list(inputs.phase_sequence or []),
 			"well_out_dir": str(env.well_out_dir),
 			"reconstruction_out_dir": str(env.reconstruction_out_dir),
+			"applied_debug_limits": _reconstruct_applied_debug_limits(inputs),
 			"units_ok": units_ok,
 			"units_error": units_error,
 			"outputs": stage_outputs,
@@ -1580,6 +1653,12 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 	phase_plan = [phase for phase in phase_sequence if _reconstruct_stage_phase_enabled(inputs, phase)]
 	if not phase_plan:
 		return collect_reconstruct_result_from_outputs(inputs)
+	LOGGER.info(
+		"reconstruct stage start: stream_id=%s phases=%s applied_debug_limits=%s",
+		str(inputs.stream_id),
+		[_display_reconstruct_stage_phase_name(phase) for phase in phase_plan],
+		_reconstruct_applied_debug_limits(inputs),
+	)
 
 	def _descriptor_for_phase(phase_name: str) -> PhaseDescriptor:
 		def _run_phase(phase_name: str = phase_name):
@@ -1806,6 +1885,7 @@ def _run_reconstruct_stage_default_order(inputs: ReconstructionInputs) -> Recons
 		"phase_sequence": list(inputs.phase_sequence or []),
 		"well_out_dir": str(env.well_out_dir),
 		"reconstruction_out_dir": str(env.reconstruction_out_dir),
+		"applied_debug_limits": _reconstruct_applied_debug_limits(inputs),
 		"units_ok": units_ok,
 		"units_error": units_error,
 		"outputs": stage_outputs,

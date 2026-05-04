@@ -6,16 +6,26 @@ from pathlib import Path
 from typing import Any
 
 
-def _templates_out_candidates(well_out_dir: Path) -> tuple[Path, ...]:
-	return (
+def _templates_out_candidates(
+	well_out_dir: Path,
+	templates_output_rel_root: str | None = None,
+) -> tuple[Path, ...]:
+	candidates: list[Path] = []
+	if templates_output_rel_root:
+		configured = well_out_dir / Path(str(templates_output_rel_root)).expanduser()
+		candidates.append(configured)
+	for candidate in (
 		well_out_dir / "template_outputs",
 		well_out_dir / "templates_outputs",
 		well_out_dir / "stg4_templates_outputs",
-	)
+	):
+		if candidate not in candidates:
+			candidates.append(candidate)
+	return tuple(candidates)
 
 
-def _resolve_templates_out_dir(well_out_dir: Path) -> Path:
-	candidates = _templates_out_candidates(well_out_dir)
+def _resolve_templates_out_dir(well_out_dir: Path, templates_output_rel_root: str | None = None) -> Path:
+	candidates = _templates_out_candidates(well_out_dir, templates_output_rel_root)
 	for candidate in candidates:
 		if (candidate / "cache").exists():
 			return candidate
@@ -69,13 +79,14 @@ def run_clear_templates_cache_phase(
 	enabled: bool,
 	keep_merged_per_unit_outputs: bool,
 	keep_full_channels_templates: bool,
+	templates_output_rel_root: str | None = None,
 	logger: logging.Logger | None = None,
 ) -> dict[str, Any]:
 	if not bool(enabled):
 		return {"phase": "clear_templates_cache", "skipped": True, "reason": "disabled"}
 
 	active_logger = logger or logging.getLogger("axon_recon.reconstruct.clear_templates_cache")
-	templates_out_dir = _resolve_templates_out_dir(Path(well_out_dir))
+	templates_out_dir = _resolve_templates_out_dir(Path(well_out_dir), templates_output_rel_root)
 	cache_dir = templates_out_dir / "cache"
 	preserve_dirs: list[Path] = []
 	if bool(keep_merged_per_unit_outputs):

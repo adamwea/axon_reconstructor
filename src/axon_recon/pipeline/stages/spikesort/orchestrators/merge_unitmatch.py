@@ -41,6 +41,9 @@ def run_spikesort_merge_unitmatch(
 def run_spikesort_merge_unitmatch_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 	stage_name: str = "spikesort.merge_unitmatch",
@@ -49,6 +52,9 @@ def run_spikesort_merge_unitmatch_from_runtime(
 
 	return run_spikesort_merge_runtime(
 		config_path=str(config_path),
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 		stage_config_transformer=lambda stage_config: _with_standalone_merge_phase_stage_config(
@@ -69,6 +75,9 @@ def _run_merge_unitmatch_from_args(args: argparse.Namespace) -> int:
 	return _print_spikesort_merge_aggregate(
 		run_spikesort_merge_unitmatch_from_runtime(
 			config_path=str(args.config),
+			limit_segments_override=getattr(args, "limit_segments", None),
+			limit_datasets_override=getattr(args, "limit_datasets", None),
+			limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 		)

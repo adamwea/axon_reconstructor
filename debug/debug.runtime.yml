@@ -516,7 +516,7 @@ stages:
 
       bombcell_label:
         enabled: true
-        resource_class: spikeinterface_analyzer
+        resource_class: spikeinterface_analyzer_concat
         # outputs live under <well>/<spikesort_output_root>/<merge_units.rel_output_root>/<relpath>
         relpath: bombcell_label_outputs
         delete_outputs_on_force_restart: true
@@ -602,7 +602,7 @@ stages:
       merge_SLAy:
 
         enabled: false
-        resource_class: spikeinterface_analyzer
+        resource_class: spikeinterface_analyzer_concat
         rel_output_root: merge_SLAy
         delete_outputs_on_force_restart: true
         force_restart: false
@@ -787,7 +787,7 @@ stages:
       merge_si_auto:
 
         enabled: false
-        resource_class: spikeinterface_analyzer
+        resource_class: spikeinterface_analyzer_concat
         rel_output_root: merge_si_auto
         delete_outputs_on_force_restart: true
         force_restart: false
@@ -931,7 +931,7 @@ stages:
       merge_unitmatch:
 
         enabled: false
-        resource_class: spikeinterface_analyzer
+        resource_class: spikeinterface_analyzer_concat
         rel_output_root: merge_unitmatch
         delete_outputs_on_force_restart: true
         force_restart: false
@@ -1182,7 +1182,7 @@ stages:
         json_relpath: context/resolve_sources_summary.json
       analyzers:
         enabled: true
-        resource_class: spikeinterface_analyzer_segement
+        resource_class: spikeinterface_analyzer_segment
         summary_json_relpath: context/analyzers_summary.json
         defaults:
           # Job controls applied when templates needs to recompute analyzer extensions locally.

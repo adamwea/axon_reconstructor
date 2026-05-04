@@ -637,6 +637,33 @@ def _with_debug_limit_overrides(
 	return updated
 
 
+def _debug_target_limit_kwargs(stage_config: Any) -> dict[str, int | None]:
+	return {
+		"limit_datasets": getattr(stage_config, "debug_limit_datasets", None),
+		"limit_wells": getattr(stage_config, "debug_limit_wells", None),
+		"limit_wells_per_dataset": getattr(stage_config, "debug_limit_wells_per_dataset", None),
+	}
+
+
+def _select_execution_targets_with_debug_limits(
+	*,
+	bundle: PipelineRuntimeBundle,
+	stage_name: str,
+	stage_config: Any,
+) -> list[Any]:
+	limit_kwargs = _debug_target_limit_kwargs(stage_config)
+	if any(value is not None for value in limit_kwargs.values()):
+		LOGGER.info(
+			"%s: applying target debug limits before scratch materialization datasets=%s wells=%s wells_per_dataset=%s",
+			str(stage_name),
+			limit_kwargs.get("limit_datasets", None),
+			limit_kwargs.get("limit_wells", None),
+			limit_kwargs.get("limit_wells_per_dataset", None),
+		)
+	select_kwargs = {key: value for key, value in limit_kwargs.items() if value is not None}
+	return select_execution_targets(bundle=bundle, **select_kwargs)
+
+
 def _apply_preprocess_debug_target_limits(
 	*,
 	stage_name: str,
@@ -1760,7 +1787,11 @@ def run_spikesort_from_runtime(
 			failed_targets=0,
 			target_results=[],
 		)
-	targets = select_execution_targets(bundle=bundle)
+	targets = _select_execution_targets_with_debug_limits(
+		bundle=bundle,
+		stage_name="spikesort",
+		stage_config=stage_config,
+	)
 	targets = _apply_spikesort_runtime_phase_plan_debug_limits(
 		stage_config=stage_config,
 		targets=list(targets),
@@ -2103,12 +2134,18 @@ def _run_spikesort_merge_unitmatch_target(*, target: Any, stage_config: Any, uni
 def run_spikesort_sort_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
 	return _run_spikesort_sort_from_runtime(
 		config_path=config_path,
 		stage_name="spikesort.sort",
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -2117,6 +2154,9 @@ def run_spikesort_sort_from_runtime(
 def run_spikesort_summarize_sort_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2126,7 +2166,17 @@ def run_spikesort_summarize_sort_from_runtime(
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
-	targets = select_execution_targets(bundle=bundle)
+	stage_config = _with_debug_limit_overrides(
+		stage_config,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+	)
+	targets = _select_execution_targets_with_debug_limits(
+		bundle=bundle,
+		stage_name="spikesort.summarize_sort",
+		stage_config=stage_config,
+	)
 	targets = _apply_spikesort_stage_debug_limits(
 		stage_name="spikesort",
 		stage_config=stage_config,
@@ -2225,7 +2275,11 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 		limit_datasets_override=limit_datasets_override,
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 	)
-	targets = select_execution_targets(bundle=bundle)
+	targets = _select_execution_targets_with_debug_limits(
+		bundle=bundle,
+		stage_name=stage_name,
+		stage_config=stage_config,
+	)
 	targets = _apply_spikesort_stage_debug_limits(
 		stage_name="spikesort",
 		stage_config=stage_config,
@@ -2326,6 +2380,9 @@ def run_spikesort_bootstrap_concat_binary_from_runtime(
 def run_spikesort_cleanup_concat_binary_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2333,6 +2390,9 @@ def run_spikesort_cleanup_concat_binary_from_runtime(
 		config_path=config_path,
 		stage_name="spikesort.cleanup_concat_binary",
 		runner_fn=cleanup_spikesort_concat_binary,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 		debug_phase_label="cleanup_concat_binary",
@@ -2348,6 +2408,9 @@ def _run_spikesort_sort_from_runtime(
 	*,
 	config_path: str,
 	stage_name: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -2359,7 +2422,17 @@ def _run_spikesort_sort_from_runtime(
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
-	targets = select_execution_targets(bundle=bundle)
+	stage_config = _with_debug_limit_overrides(
+		stage_config,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+	)
+	targets = _select_execution_targets_with_debug_limits(
+		bundle=bundle,
+		stage_name=stage_name,
+		stage_config=stage_config,
+	)
 	targets = _apply_spikesort_stage_debug_limits(
 		stage_name="spikesort",
 		stage_config=stage_config,
@@ -2435,6 +2508,9 @@ def _run_spikesort_sort_from_runtime(
 def run_spikesort_merge_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 	merge_sequence_override: tuple[str, ...] | list[str] | None = None,
@@ -2460,6 +2536,12 @@ def run_spikesort_merge_from_runtime(
 			stage_config = replace(stage_config, merge_sequence=normalized_override)
 	if stage_config_transformer is not None:
 		stage_config = stage_config_transformer(stage_config)
+	stage_config = _with_debug_limit_overrides(
+		stage_config,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+	)
 
 	inherit_2panel_probe_dimensions = bool(
 		getattr(stage_config, "merge_reports_2panel_inherit_probe_dimensions", False)
@@ -2536,7 +2618,11 @@ def run_spikesort_merge_from_runtime(
 				else:
 					for field_name, field_value in replace_kwargs.items():
 						setattr(stage_config, field_name, field_value)
-	targets = select_execution_targets(bundle=bundle)
+	targets = _select_execution_targets_with_debug_limits(
+		bundle=bundle,
+		stage_name=stage_name,
+		stage_config=stage_config,
+	)
 	targets = _apply_spikesort_stage_debug_limits(
 		stage_name="spikesort",
 		stage_config=stage_config,
@@ -2637,6 +2723,9 @@ def run_spikesort_merge_from_runtime(
 def run_spikesort_bombcell_label_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 	stage_name: str = "spikesort.bombcell_label",
@@ -2649,7 +2738,17 @@ def run_spikesort_bombcell_label_from_runtime(
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
-	targets = select_execution_targets(bundle=bundle)
+	stage_config = _with_debug_limit_overrides(
+		stage_config,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+	)
+	targets = _select_execution_targets_with_debug_limits(
+		bundle=bundle,
+		stage_name=stage_name,
+		stage_config=stage_config,
+	)
 	targets = _apply_spikesort_stage_debug_limits(
 		stage_name="spikesort",
 		stage_config=stage_config,
@@ -2751,6 +2850,9 @@ def _raise_reconstruct_unit_failures(*, stage_name: str, result: object) -> obje
 	if isinstance(result, dict):
 		if bool(result.get("skipped", False)):
 			return result
+		has_unit_fields = any(key in result for key in ("units_ok", "units_error", "units"))
+		if not has_unit_fields:
+			return result
 		units_ok = int(result.get("units_ok", 0) or 0)
 		units_error = int(result.get("units_error", 0) or 0)
 		if units_ok > 0:
@@ -2789,7 +2891,6 @@ def _run_reconstruct_substage_from_runtime(
 	publish_policy = _resolve_publish_policy(runtime_config=bundle.runtime_config, data_config=bundle.data_config)
 	if publish_outputs:
 		_log_publish_policy(stage_name=stage_name, policy=publish_policy)
-	targets = select_execution_targets(bundle=bundle)
 	probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
 	stage_config = parse_reconstruction_stage_config(
 		runtime_config=bundle.runtime_config,
@@ -2806,6 +2907,11 @@ def _run_reconstruct_substage_from_runtime(
 		limit_datasets_override=limit_datasets_override,
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 	)
+	targets = _select_execution_targets_with_debug_limits(
+		bundle=bundle,
+		stage_name=stage_name,
+		stage_config=stage_config,
+	)
 	reconstruct_templates_config = None
 	if callable(getattr(bundle.runtime_config, "get", None)):
 		templates_runtime_config = build_reconstruct_templates_runtime_config(bundle.runtime_config)
@@ -2818,6 +2924,12 @@ def _run_reconstruct_substage_from_runtime(
 			limit_segments_override=stage_config.limit_segments,
 			force_restart_override=force_restart_override,
 			force_replot_override=force_replot_override,
+		)
+		reconstruct_templates_config = _with_debug_limit_overrides(
+			reconstruct_templates_config,
+			limit_segments_override=limit_segments_override,
+			limit_datasets_override=limit_datasets_override,
+			limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		)
 	if bool(getattr(stage_config, "debug_mode_enabled", False)):
 		targets = _apply_spikesort_debug_target_limits(

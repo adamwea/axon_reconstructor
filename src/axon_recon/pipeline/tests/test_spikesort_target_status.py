@@ -14,6 +14,7 @@ from axon_recon.pipeline.execution.results import MultiTargetStageResult, Target
 from axon_recon.runtime_config import RuntimeConfig
 from axon_recon.pipeline.runner import (
     run_spikesort_bombcell_label_from_runtime,
+    run_spikesort_cleanup_concat_binary_from_runtime,
     run_spikesort_from_runtime,
     run_spikesort_merge_from_runtime,
     run_spikesort_sort_from_runtime,
@@ -23,11 +24,61 @@ from axon_recon.pipeline.stages.spikesort.models.inputs import SpikesortInputs
 from axon_recon.pipeline.stages.spikesort.orchestrators.merge_slay import (
     run_spikesort_merge_slay_from_runtime,
 )
+from axon_recon.pipeline.stages.spikesort.orchestrators import bombcell_label as bombcell_label_orchestrator
+from axon_recon.pipeline.stages.spikesort.orchestrators import cleanup_concat_binary as cleanup_concat_binary_orchestrator
+from axon_recon.pipeline.stages.spikesort.orchestrators import sort as sort_orchestrator
 from axon_recon.pipeline.stages.spikesort.models.results import (
     SpikesortBombcellResult,
     SpikesortMergeResult,
     SpikesortResult,
 )
+
+
+@pytest.mark.parametrize(
+    ("orchestrator", "entry_name", "runtime_name"),
+    [
+        (sort_orchestrator, "_run_sort_from_args", "run_spikesort_sort_from_runtime"),
+        (bombcell_label_orchestrator, "_run_bombcell_label_from_args", "run_spikesort_bombcell_label_from_runtime"),
+        (
+            cleanup_concat_binary_orchestrator,
+            "_run_cleanup_concat_binary_from_args",
+            "run_spikesort_cleanup_concat_binary_from_runtime",
+        ),
+    ],
+)
+def test_spikesort_direct_phase_from_args_forwards_debug_limits(
+    monkeypatch,
+    tmp_path: Path,
+    orchestrator,
+    entry_name: str,
+    runtime_name: str,
+) -> None:
+    seen: dict[str, object] = {}
+
+    def _fake_runtime(**kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(stage="spikesort.test", total_targets=0, succeeded_targets=0, failed_targets=0, target_results=[])
+
+    monkeypatch.setattr(orchestrator, runtime_name, _fake_runtime)
+    if orchestrator is sort_orchestrator:
+        monkeypatch.setattr(orchestrator, "_debug_outputs_enabled_for_config", lambda config_path: False)
+
+    rc = getattr(orchestrator, entry_name)(
+        SimpleNamespace(
+            config=str(tmp_path / "runtime.yml"),
+            limit_segments=2,
+            limit_datasets=3,
+            limit_wells_per_dataset=1,
+            force_restart=True,
+            force_replot=False,
+        )
+    )
+
+    assert rc == 0
+    assert seen["limit_segments_override"] == 2
+    assert seen["limit_datasets_override"] == 3
+    assert seen["limit_wells_per_dataset_override"] == 1
+    assert seen["force_restart_override"] is True
 
 
 def test_run_spikesort_from_runtime_marks_target_ok(monkeypatch, tmp_path: Path) -> None:
@@ -298,7 +349,7 @@ def test_run_spikesort_from_runtime_applies_debug_well_limit(monkeypatch, tmp_pa
     def _fake_load_pipeline_runtime_bundle(*, config_path: str):
         return _DummyBundle()
 
-    def _fake_select_execution_targets(*, bundle):
+    def _fake_select_execution_targets(**kwargs):
         return [target_a, target_b]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
@@ -379,11 +430,13 @@ def test_run_spikesort_from_runtime_applies_global_debug_dataset_and_well_limits
         data_config = object()
 
     built_targets: list[tuple[int, str]] = []
+    select_kwargs: dict[str, object] = {}
 
     def _fake_load_pipeline_runtime_bundle(*, config_path: str):
         return _DummyBundle()
 
-    def _fake_select_execution_targets(*, bundle):
+    def _fake_select_execution_targets(**kwargs):
+        select_kwargs.update(kwargs)
         return list(targets)
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str, target_count: int | None = None):
@@ -431,6 +484,8 @@ def test_run_spikesort_from_runtime_applies_global_debug_dataset_and_well_limits
     assert agg.succeeded_targets == 2
     assert agg.failed_targets == 0
     assert built_targets == [(0, "well001"), (0, "well002")]
+    assert select_kwargs["limit_datasets"] == 1
+    assert select_kwargs["limit_wells"] == 2
 
 
 def test_spikesort_debug_limits_select_first_wells_per_dataset(tmp_path: Path) -> None:
@@ -867,11 +922,13 @@ def test_run_spikesort_sort_from_runtime_applies_global_debug_dataset_and_well_l
         data_config = object()
 
     built_targets: list[tuple[int, str]] = []
+    select_kwargs: dict[str, object] = {}
 
     def _fake_load_pipeline_runtime_bundle(*, config_path: str):
         return _DummyBundle()
 
-    def _fake_select_execution_targets(*, bundle):
+    def _fake_select_execution_targets(**kwargs):
+        select_kwargs.update(kwargs)
         return list(targets)
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str, target_count: int | None = None):
@@ -917,6 +974,8 @@ def test_run_spikesort_sort_from_runtime_applies_global_debug_dataset_and_well_l
     assert agg.succeeded_targets == 2
     assert agg.failed_targets == 0
     assert built_targets == [(0, "well001"), (0, "well002")]
+    assert select_kwargs["limit_datasets"] == 1
+    assert select_kwargs["limit_wells"] == 2
 
 
 def test_run_spikesort_summarize_sort_from_runtime_marks_target_ok(monkeypatch, tmp_path: Path) -> None:

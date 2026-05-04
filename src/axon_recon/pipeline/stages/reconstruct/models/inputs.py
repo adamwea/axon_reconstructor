@@ -477,6 +477,10 @@ class ReconstructionInputs:
 	output_rel_root: str = "recon_outputs"
 	unit_reldir: str = "units/{unit_id:04d}/"
 	report_sort_by: str = "unit_id"
+	debug_mode_enabled: bool = False
+	debug_limit_datasets: int | None = None
+	debug_limit_wells: int | None = None
+	debug_limit_wells_per_dataset: int | None = None
 	overwrite_report_outputs_on_unit_rerun: bool = False
 	branch_colors: ReconstructionBranchColorsConfig = field(default_factory=ReconstructionBranchColorsConfig)
 	cleanup_failed_unit_outputs: bool = False

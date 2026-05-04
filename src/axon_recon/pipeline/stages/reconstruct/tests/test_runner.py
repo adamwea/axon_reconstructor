@@ -108,6 +108,30 @@ def test_resolve_templates_dirs_supports_cached_templates_layout(tmp_path: Path)
 	assert resolved_full_channels_templates_dir == full_channels_templates_dir
 
 
+def test_resolve_templates_dirs_prefers_configured_templates_output_root(tmp_path: Path) -> None:
+	well_out_dir = tmp_path / "well000"
+	legacy_merged_units_dir = well_out_dir / "templates_outputs" / "cache" / "templates" / "merged"
+	configured_merged_units_dir = well_out_dir / "recon_outputs" / "cache" / "templates" / "merged"
+	configured_full_channels_templates_dir = well_out_dir / "recon_outputs" / "cache" / "templates" / "full"
+	legacy_merged_units_dir.mkdir(parents=True, exist_ok=True)
+	configured_merged_units_dir.mkdir(parents=True, exist_ok=True)
+	configured_full_channels_templates_dir.mkdir(parents=True, exist_ok=True)
+
+	templates_out_dir, resolved_merged_units_dir, resolved_full_channels_templates_dir = _resolve_templates_dirs(
+		well_out_dir,
+		templates_inputs=TemplatesInputs(
+			h5_path=tmp_path / "input.raw.h5",
+			stream_id="well000",
+			mea_output_root=tmp_path,
+			output_rel_root="recon_outputs",
+		),
+	)
+
+	assert templates_out_dir == well_out_dir / "recon_outputs"
+	assert resolved_merged_units_dir == configured_merged_units_dir
+	assert resolved_full_channels_templates_dir == configured_full_channels_templates_dir
+
+
 def test_quiet_unexpected_plot_logs_suppresses_debuggy_third_party_logs_unless_enabled() -> None:
 	loggers = [
 		logging.getLogger("matplotlib.font_manager"),
@@ -162,6 +186,38 @@ def test_reconstruct_phase_resolver_handles_templates_phases() -> None:
 	assert _reconstruct_stage_phase_runner("templates_reports") is run_reconstruct_templates_reports_phase
 	assert _reconstruct_stage_phase_runner("report_recon_grid") is run_reconstruct_report_recon_grid_phase
 	assert _reconstruct_stage_phase_runner("clear_templates_cache") is run_reconstruct_clear_templates_cache_phase
+
+
+def test_reconstruct_clear_templates_cache_phase_uses_templates_output_root(monkeypatch, tmp_path: Path) -> None:
+	from axon_recon.pipeline.stages.reconstruct.core import clear_templates_cache
+
+	captured: dict[str, object] = {}
+
+	def _fake_clear_templates_cache_phase(**kwargs: object) -> dict[str, object]:
+		captured.update(kwargs)
+		return {"phase": "clear_templates_cache", "skipped": False}
+
+	monkeypatch.setattr(clear_templates_cache, "run_clear_templates_cache_phase", _fake_clear_templates_cache_phase)
+	inputs = ReconstructionInputs(
+		h5_path=tmp_path / "data.raw.h5",
+		stream_id="well000",
+		mea_output_root=tmp_path / "outputs",
+		output_rel_root="recon_outputs",
+		templates_inputs=TemplatesInputs(
+			h5_path=tmp_path / "data.raw.h5",
+			stream_id="well000",
+			mea_output_root=tmp_path / "outputs",
+			output_rel_root="recon_outputs",
+		),
+		phases=ReconstructionPhasesConfig(
+			clear_templates_cache=ReconstructionClearTemplatesCachePhaseConfig(enabled=True),
+		),
+	)
+
+	summary = run_reconstruct_clear_templates_cache_phase(inputs)
+
+	assert summary["phase"] == "clear_templates_cache"
+	assert captured["templates_output_rel_root"] == "recon_outputs"
 
 
 def test_reconstruct_combined_phase_sequence_runs_in_order(monkeypatch, tmp_path: Path) -> None:

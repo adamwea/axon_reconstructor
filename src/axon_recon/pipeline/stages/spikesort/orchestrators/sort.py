@@ -22,6 +22,9 @@ def run_spikesort_sort(inputs: SpikesortInputs) -> SpikesortResult:
 def run_spikesort_sort_from_runtime(
 	*,
 	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
@@ -29,6 +32,9 @@ def run_spikesort_sort_from_runtime(
 
 	return run_spikesort_sort_runtime(
 		config_path=str(config_path),
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
@@ -80,6 +86,9 @@ def _run_sort_from_args(args: argparse.Namespace) -> int:
 	config_path = str(args.config)
 	agg = run_spikesort_sort_from_runtime(
 		config_path=config_path,
+		limit_segments_override=getattr(args, "limit_segments", None),
+		limit_datasets_override=getattr(args, "limit_datasets", None),
+		limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
 		force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 		force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 	)

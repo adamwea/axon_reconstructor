@@ -917,6 +917,10 @@ class TemplatesInputs:
 	preproc_seg_sources_reldir: str | None = None
 
 	output_rel_root: str = "templates_outputs"
+	debug_mode_enabled: bool = False
+	debug_limit_datasets: int | None = None
+	debug_limit_wells: int | None = None
+	debug_limit_wells_per_dataset: int | None = None
 	analyzer_cache: AnalyzerCacheConfig = field(default_factory=AnalyzerCacheConfig)
 	per_unit_outputs: PerUnitTemplatesOutputsConfig = field(default_factory=PerUnitTemplatesOutputsConfig)
 	reports: ReportsConfig = field(default_factory=ReportsConfig)

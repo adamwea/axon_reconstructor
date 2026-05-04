@@ -91,6 +91,81 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-04 - pending - ai: honor spikesort and reconstruct debug limits
+
+Status: accepted
+
+Summary:
+- Propagated shared CLI debug limit overrides through direct spikesort phase wrappers and runtime selectors.
+- Moved spikesort and reconstruct dataset/well debug target limiting ahead of scratch input materialization.
+- Carried applied debug-limit metadata into spikesort, reconstruct, and reconstruct-template phase summaries/log starts.
+- Fixed direct spikesort sort segment limiting in the legacy sorter path.
+- Fixed active debug runtime resource class names that blocked direct phase smokes during config validation.
+- Fixed reconstruct non-unit phase result handling, template report unit limiting, configured template-root lookup, shared-root force-restart template-cache preservation, and clear-template-cache output-root selection.
+
+Guardrails Consulted:
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+- `/memories/repo/pipeline-debug-limits.md`
+- `/memories/repo/templates-artifact-layout.md`
+
+Acceptance Criteria:
+- Direct `stages spikesort.<phase>` and `stages reconstruct.<phase>` selectors receive the same dataset, well, segment, and unit debug limits as full stages.
+- Dataset/well target limits are applied before scratch input materialization or inspection.
+- Enabled active phases write summaries/logs that expose the applied debug limits.
+- Direct selected phases run only the requested phase while respecting existing force-restart/resume boundaries.
+
+Expected To Run:
+- Active spikesort phases: `bootstrap_concat_binary`, `sort`, `bombcell_label`, `cleanup_concat_binary`.
+- Active reconstruct phases: `analyzers`, `build_templates`, `plot_templates`, `report_templates`, `generate_gtrs`, all downstream report/plot phases, and `clear_templates_cache`.
+
+Confirmed Not Run:
+- Full dataset/well scope.
+- Disabled merge/template optional phases in the active runtime config.
+- Push to remote.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_cli_stage_sequence.py src/axon_recon/pipeline/tests/test_spikesort_target_status.py src/axon_recon/pipeline/tests/test_reconstruct_target_status.py` passed with `189 passed`.
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/test_runner.py src/axon_recon/pipeline/stages/spikesort/tests/test_spikesort_config.py src/axon_recon/pipeline/stages/reconstruct/tests/test_runner.py src/axon_recon/pipeline/stages/reconstruct/tests/test_clear_templates_cache.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py` passed with `247 passed`.
+- Real-data smoke: active spikesort phases passed under `--limit-datasets 1 --limit-wells 1 --limit-segments 2 --force-restart`.
+- Real-data smoke: `reconstruct.analyzers`, `reconstruct.build_templates`, `reconstruct.plot_templates`, and `reconstruct.report_templates` passed under one dataset, one well, two segments, and small unit scopes.
+- Real-data smoke: `reconstruct.generate_gtrs` passed with candidate units `0,2,3,4,5,6,7,8,9,10`; unit 8 succeeded and nine units failed with data-level axon_velocity branch/channel errors.
+- Real-data smoke: downstream phases `plot_recons`, `plot_branch_propagations`, `plot_branch_velocities`, `plot_unit_summary`, `report_recons`, `report_recon_grid`, `report_full_chip_layout`, and `report_summaries` passed using unit 8.
+- Real-data smoke: `reconstruct.clear_templates_cache` first exposed the wrong template root, then passed after the fix and cleared `recon_outputs/cache`.
+- Diagnostics: VS Code diagnostics reported no errors for `debug/debug.runtime.yml` and this notes file; focused pytest covered modified source/test files.
+
+CLI / Debug Flag Impact:
+- Direct spikesort wrappers now forward `--limit-segments`, `--limit-datasets`, and `--limit-wells-per-dataset` to runtime selection.
+- Direct reconstruct wrappers now forward unit/segment/dataset/well limits into both reconstruction and template input construction.
+- Spikesort and reconstruct target limits now run through early target selection before scratch materialization.
+
+Logging / Parallelism Impact:
+- Stage/phase logs now include applied debug-limit context for the active spikesort/reconstruct/template phases.
+- No resource-profile or worker-count semantics were intentionally changed.
+- `generate_gtrs` still emits a process-pool parent-death-signal initializer warning in the container and falls back to in-process execution; this did not block the smoke.
+
+Storage / Cache Impact:
+- Created/updated limited real-data scratch/output artifacts for `Media_Density_T5_02182026_AR/260224/M08073/AxonTracking/000031/well000` under `/mnt/disk15tb/adamm/scratch/axon_recon_scratch`.
+- `reconstruct.generate_gtrs --force-restart` now preserves shared `recon_outputs/cache/templates` when templates and reconstruction share the output root.
+- `reconstruct.clear_templates_cache` now clears the configured templates cache under `recon_outputs/cache` instead of legacy `template_outputs/cache`.
+
+Container / NERSC / MPI Impact:
+- Container smokes rebuilt the local `axon-recon:local` image from this source.
+- No MPI/NERSC-specific changes were made.
+
+Resume / Force-Restart Impact:
+- Reconstruct force restart no longer deletes required shared-root template cache before `generate_gtrs` reads it.
+- Unit-scoped downstream reconstruct phases reused the successful unit 8 GTR without clearing upstream artifacts.
+
+Residual Risk And Follow-Ups:
+- Several candidate units failed graph tracking due to data-level axon_velocity errors such as `No branches found`, `No branches left after cleaning`, and `Not enough channels selected to compute velocity`; unit 8 verified the downstream success path.
+- Full dataset/well scope intentionally remains untested under the smoke guardrail.
+
+Rollback Notes:
+- Revert the runtime selector, direct wrapper, input-model/config, summary/log metadata, reconstruct template-root/cache, runtime YAML, and focused-test edits from this slice to restore previous spikesort/reconstruct direct phase behavior.
+
 ## 2026-05-04 - pending - ai: honor preprocess direct phase debug flags
 
 Status: accepted

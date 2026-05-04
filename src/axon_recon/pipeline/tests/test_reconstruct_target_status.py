@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -409,6 +410,67 @@ def test_run_reconstruct_phase_from_runtime_marks_target_ok(
     }
 
 
+def test_run_reconstruct_analyzers_from_runtime_accepts_non_unit_phase_result(monkeypatch, tmp_path: Path) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    target = ExecutionTarget(
+        dataset_index=0,
+        dataset_id="dataset_000:test.h5",
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+    )
+    dummy_inputs = ReconstructionInputs(
+        h5_path=target.h5_path,
+        stream_id=target.stream_id,
+        mea_output_root=target.mea_output_root,
+    )
+
+    class _DummyBundle:
+        runtime_config = object()
+        data_config = object()
+
+    def _fake_build_reconstruction_inputs_for_target(*, target, stage_config, unit_workers: int, probe_geometry):
+        _ = target, stage_config, unit_workers, probe_geometry
+        return dummy_inputs
+
+    def _fake_analyzers(inputs: ReconstructionInputs):
+        assert inputs is dummy_inputs
+        return {
+            "phase": "analyzers",
+            "source_count": 2,
+            "summary_json": str(tmp_path / "analyzers_summary.json"),
+        }
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", lambda *, config_path: _DummyBundle())
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", lambda *, bundle: [target])
+    monkeypatch.setattr(
+        pipeline_runner,
+        "resolve_stage_parallelism",
+        lambda *, bundle, stage_name: StageParallelism(
+            max_workers=1,
+            max_stage_workers=1,
+            well_workers=1,
+            unit_workers=1,
+        ),
+    )
+    monkeypatch.setattr(pipeline_runner, "parse_probe_geometry_from_data_config", lambda *, data_config: None)
+    monkeypatch.setattr(pipeline_runner, "parse_reconstruction_stage_config", lambda **kwargs: object())
+    monkeypatch.setattr(
+        pipeline_runner,
+        "build_reconstruction_inputs_for_target",
+        _fake_build_reconstruction_inputs_for_target,
+    )
+    monkeypatch.setattr(pipeline_runner, "run_reconstruct_templates_analyzers", _fake_analyzers)
+
+    agg = run_reconstruct_templates_analyzers_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+
+    assert agg.stage == "reconstruct.analyzers"
+    assert agg.succeeded_targets == 1
+    assert agg.failed_targets == 0
+    assert agg.target_results[0].status == "ok"
+
+
 @pytest.mark.parametrize(
     ("wrapper", "expected_stage"),
     [
@@ -451,6 +513,7 @@ def test_reconstruct_phase_wrappers_forward_dataset_and_well_limits(
 
     result = wrapper(
         config_path=str(tmp_path / "runtime.yml"),
+        unit_limit_override=4,
         limit_segments_override=2,
         limit_datasets_override=3,
         limit_wells_per_dataset_override=1,
@@ -458,9 +521,86 @@ def test_reconstruct_phase_wrappers_forward_dataset_and_well_limits(
 
     assert result is sentinel
     assert seen["stage_name"] == expected_stage
+    assert seen["unit_limit_override"] == 4
     assert seen["limit_segments_override"] == 2
     assert seen["limit_datasets_override"] == 3
     assert seen["limit_wells_per_dataset_override"] == 1
+
+
+def test_run_reconstruct_substage_applies_cli_target_limits_before_build(monkeypatch, tmp_path: Path) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+
+    target = ExecutionTarget(
+        dataset_index=0,
+        dataset_id="dataset_000:test.h5",
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+    )
+    dummy_inputs = ReconstructionInputs(
+        h5_path=target.h5_path,
+        stream_id=target.stream_id,
+        mea_output_root=target.mea_output_root,
+    )
+    select_kwargs: dict[str, object] = {}
+
+    class _DummyBundle:
+        runtime_config = object()
+        data_config = object()
+
+    def _fake_select_execution_targets(**kwargs):
+        select_kwargs.update(kwargs)
+        return [target]
+
+    def _fake_parse_reconstruction_stage_config(**kwargs):
+        return SimpleNamespace(
+            phase_sequence=(),
+            debug_mode_enabled=False,
+            debug_limit_datasets=None,
+            debug_limit_wells=None,
+            debug_limit_wells_per_dataset=None,
+            unit_limit=None,
+            limit_segments=None,
+        )
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", lambda *, config_path: _DummyBundle())
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", _fake_select_execution_targets)
+    monkeypatch.setattr(pipeline_runner, "parse_probe_geometry_from_data_config", lambda *, data_config: None)
+    monkeypatch.setattr(pipeline_runner, "parse_reconstruction_stage_config", _fake_parse_reconstruction_stage_config)
+    monkeypatch.setattr(
+        pipeline_runner,
+        "resolve_stage_parallelism",
+        lambda *, bundle, stage_name, target_count=None, targets=None, phase_resource_classes=None: StageParallelism(
+            max_workers=1,
+            max_stage_workers=1,
+            well_workers=1,
+            unit_workers=1,
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline_runner,
+        "build_reconstruction_inputs_for_target",
+        lambda *, target, stage_config, unit_workers, probe_geometry: dummy_inputs,
+    )
+
+    result = pipeline_runner._run_reconstruct_substage_from_runtime(
+        config_path=str(tmp_path / "runtime.yml"),
+        stage_name="reconstruct.generate_gtrs",
+        runner_fn=lambda inputs: ReconstructionResult(
+            well_out_dir=tmp_path / "well_out",
+            reconstruction_out_dir=tmp_path / "recon_out",
+            summary_json=tmp_path / "summary.json",
+            units=[UnitReconstructionResult(unit_id=1, status="ok", outputs={}, error=None)],
+        ),
+        limit_datasets_override=2,
+        limit_wells_per_dataset_override=1,
+        limit_segments_override=3,
+        unit_limit_override=4,
+    )
+
+    assert result.succeeded_targets == 1
+    assert select_kwargs["limit_datasets"] == 2
+    assert select_kwargs["limit_wells_per_dataset"] == 1
 
 
 def test_run_reconstruct_plot_recons_from_runtime_marks_target_error_when_no_units_succeed(monkeypatch, tmp_path: Path) -> None:

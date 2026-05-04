@@ -20,6 +20,11 @@ class SpikesortInputs:
 	logging_verbose: bool = False
 	logging_file_relpath: str | None = None
 	debug_outputs: bool = False
+	debug_mode_enabled: bool = False
+	debug_limit_datasets: int | None = None
+	debug_limit_wells: int | None = None
+	debug_limit_wells_per_dataset: int | None = None
+	debug_limit_segments_per_well: int | None = None
 	sort_engine: str = "mea_analysis"
 	sorter: str = "kilosort4"
 	docker_image: str | None = None
