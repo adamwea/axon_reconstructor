@@ -91,6 +91,73 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-04 - pending - ai: recommend profile io slots
+
+Status: accepted
+
+Summary:
+- Extended `--phase-tune` so IO slot advice now includes active resource profile capacity recommendations, not only per-phase resource class slot demand.
+- Estimated observed concurrent H5/disk-heavy slot demand from phase resource usage timestamps and wall times.
+- Added report and structured-log output for active profile `h5_read_slots` and `disk_heavy_slots` recommendations.
+- Kept profile recommendations advisory-only and scoped to the selected tuning run.
+
+Guardrails Consulted:
+- `debug/parallelism_agent_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+
+Acceptance Criteria:
+- Phase-level IO recommendations still classify whether each observed phase should consume H5 or disk-heavy slots.
+- Active profile recommendations can increase slots when observed/recommended concurrent phase demand exceeds the current profile.
+- Active profile recommendations can decrease slots only with enough representative observations and nonzero slot-consuming demand.
+- Non-IO selected phases do not recommend zeroing global profile IO slots.
+- The human-readable report and structured logs expose profile recommendations separately from phase recommendations.
+
+Expected To Run:
+- Focused phase tuning unit tests for resource class IO advice and active profile IO capacity advice.
+- A small real-data `--phase-tune` smoke to confirm CLI artifact/log emission.
+
+Confirmed Not Run:
+- Full dataset/well scope.
+- Runtime YAML mutation.
+- Destructive disk benchmarking.
+- Push to remote.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_phase_tuning.py` passed with `5 passed`.
+- Container focused tests: `docker run --rm -w /opt/axon_reconstructor axon-recon:test python -m pytest src/axon_recon/pipeline/tests/test_phase_tuning.py` passed with `5 passed` after rebuilding the container from this source.
+- Real-data smoke: `/home/adamm/miniconda3/envs/axon_recon/bin/axon-recon-container stages preprocess.save_rec_metadata --config debug/debug.runtime.yml --phase-tune --limit-datasets 1 --limit-wells-per-dataset 1 --limit-segments 2` passed.
+- Logs inspected: latest smoke emitted `phase_tuning_profile_recommendation` with `profile=lab_server_safe h5_read_slots=3->3 disk_heavy_slots=3->3`.
+- Artifacts inspected: `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/resource_tuning/resource_tuning_report.md` includes `## Active Profile IO Slots`; summary JSON includes `active_profile_recommendation`.
+- Diagnostics: VS Code diagnostics reported no errors for modified tuning source/test files.
+
+CLI / Debug Flag Impact:
+- No new CLI flags were added.
+- Existing `--phase-tune` output now includes active profile IO slot advice for the selected limited scope.
+
+Logging / Parallelism Impact:
+- Added `phase_tuning_profile_recommendation` structured log event.
+- Profile slot recommendations use estimated overlap from phase completion timestamps and wall times; they do not change runtime gating.
+
+Storage / Cache Impact:
+- Updated phase tuning artifacts under `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/resource_tuning` during the smoke.
+- No cache deletion or runtime YAML mutation was performed.
+
+Container / NERSC / MPI Impact:
+- Rebuilt local `axon-recon:local` from this source and refreshed disposable `axon-recon:test` for container tests.
+- No NERSC/MPI-specific behavior was changed.
+
+Resume / Force-Restart Impact:
+- No force-restart semantics were changed.
+
+Residual Risk And Follow-Ups:
+- Profile IO recommendations are scoped to observed overlap in the selected tuning run; representative multi-target tuning is needed before lowering active profile slots.
+- Disk throughput remains process-observed read/write rate, not a standalone disk capability benchmark.
+
+Rollback Notes:
+- Revert the profile recommendation helpers, report/log additions, and focused tests from this slice to restore phase-only IO recommendations.
+
 ## 2026-05-04 - pending - ai: add phase resource tuning
 
 Status: accepted

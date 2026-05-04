@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 import logging
 import math
@@ -210,6 +211,63 @@ def _cpu_parallelism_estimate(observation: dict[str, Any]) -> float | None:
 	return max(0.0, float(user_s + system_s) / float(wall_time_s))
 
 
+def _group_key_for_observation(observation: dict[str, Any]) -> tuple[str, str, str]:
+	return (
+		str(observation.get("stage", "unknown") or "unknown"),
+		str(observation.get("phase", "unknown") or "unknown"),
+		str(observation.get("resource_class", "") or ""),
+	)
+
+
+def _timestamp_to_epoch_s(value: Any) -> float | None:
+	if value is None:
+		return None
+	text = str(value).strip()
+	if not text:
+		return None
+	if text.endswith("Z"):
+		text = f"{text[:-1]}+00:00"
+	try:
+		parsed = datetime.fromisoformat(text)
+	except Exception:
+		return None
+	if parsed.tzinfo is None:
+		parsed = parsed.replace(tzinfo=timezone.utc)
+	return float(parsed.timestamp())
+
+
+def _max_overlapping_slot_demand(
+	*,
+	observations: list[dict[str, Any]],
+	recommendations_by_group: dict[tuple[str, str, str], dict[str, Any]],
+	demand_key: str,
+) -> tuple[int | None, int]:
+	events: list[tuple[float, int]] = []
+	interval_count = 0
+	for observation in observations:
+		wall_time_s = _metric(observation.get("wall_time_s", None))
+		end_s = _timestamp_to_epoch_s(observation.get("timestamp", None))
+		if wall_time_s is None or wall_time_s <= 0 or end_s is None:
+			continue
+		recommendation = recommendations_by_group.get(_group_key_for_observation(observation), {})
+		demand = _int_metric(recommendation.get(demand_key, None))
+		if demand is None or demand <= 0:
+			continue
+		start_s = max(0.0, float(end_s) - float(wall_time_s))
+		events.append((start_s, int(demand)))
+		events.append((float(end_s), -int(demand)))
+		interval_count += 1
+	if not events:
+		return None, interval_count
+	events.sort(key=lambda item: (float(item[0]), 0 if int(item[1]) < 0 else 1))
+	active_demand = 0
+	max_demand = 0
+	for _event_time, delta in events:
+		active_demand = max(0, int(active_demand) + int(delta))
+		max_demand = max(int(max_demand), int(active_demand))
+	return int(max_demand), interval_count
+
+
 def _recommend_for_group(
 	*,
 	resources: ResourcesConfig,
@@ -337,6 +395,115 @@ def _qualified_stage_phase(stage: Any, phase: Any) -> str:
 	return f"{stage_text}.{phase_text}"
 
 
+def _profile_io_slot_recommendation(
+	*,
+	resources: ResourcesConfig,
+	tuning_config: PhaseTuningConfig,
+	observations: list[dict[str, Any]],
+	recommendations: list[dict[str, Any]],
+) -> dict[str, Any]:
+	profile = get_active_resource_profile(resources)
+	profile_name = resources.active_profile
+	if profile is None:
+		return {
+			"profile": profile_name,
+			"notes": ["active resource profile is undefined; profile slot recommendations are unavailable"],
+			"warnings": [],
+		}
+	recommendations_by_group = {
+		(
+			str(recommendation.get("stage", "unknown") or "unknown"),
+			str(recommendation.get("phase", "unknown") or "unknown"),
+			str(recommendation.get("resource_class", "") or ""),
+		): recommendation
+		for recommendation in recommendations
+	}
+	notes: list[str] = []
+	warnings: list[str] = []
+	current_h5_read_slots = max(0, int(profile.h5_read_slots))
+	current_disk_heavy_slots = max(0, int(profile.disk_heavy_slots))
+	current_h5_demand, h5_interval_count = _max_overlapping_slot_demand(
+		observations=observations,
+		recommendations_by_group=recommendations_by_group,
+		demand_key="current_h5_read_slots",
+	)
+	recommended_h5_demand, recommended_h5_interval_count = _max_overlapping_slot_demand(
+		observations=observations,
+		recommendations_by_group=recommendations_by_group,
+		demand_key="recommended_h5_read_slots",
+	)
+	current_disk_demand, disk_interval_count = _max_overlapping_slot_demand(
+		observations=observations,
+		recommendations_by_group=recommendations_by_group,
+		demand_key="current_disk_heavy_slots",
+	)
+	recommended_disk_demand, recommended_disk_interval_count = _max_overlapping_slot_demand(
+		observations=observations,
+		recommendations_by_group=recommendations_by_group,
+		demand_key="recommended_disk_heavy_slots",
+	)
+
+	def _recommend_profile_slots(
+		*,
+		dimension: str,
+		current_slots: int,
+		observed_recommended_demand: int | None,
+		interval_count: int,
+	) -> int:
+		if observed_recommended_demand is None or observed_recommended_demand <= 0:
+			notes.append(f"{dimension}: selected observations did not show slot-consuming demand")
+			return int(current_slots)
+		if int(observed_recommended_demand) > int(current_slots):
+			warnings.append(
+				f"{dimension}: observed concurrent phase demand would exceed the active profile after class recommendations"
+			)
+			return int(observed_recommended_demand)
+		if int(observed_recommended_demand) < int(current_slots):
+			if int(interval_count) >= int(tuning_config.min_observations_for_underuse):
+				notes.append(
+					f"{dimension}: active profile may be overprovisioned for this representative tuning scope"
+				)
+				return int(observed_recommended_demand)
+			notes.append(
+				f"{dimension}: observed demand was lower than the active profile, but observation count is too small for a lowering recommendation"
+			)
+			return int(current_slots)
+		notes.append(f"{dimension}: active profile matches observed concurrent phase demand for this tuning scope")
+		return int(current_slots)
+
+	recommended_profile_h5_read_slots = _recommend_profile_slots(
+		dimension="h5_read_slots",
+		current_slots=current_h5_read_slots,
+		observed_recommended_demand=recommended_h5_demand,
+		interval_count=recommended_h5_interval_count,
+	)
+	recommended_profile_disk_heavy_slots = _recommend_profile_slots(
+		dimension="disk_heavy_slots",
+		current_slots=current_disk_heavy_slots,
+		observed_recommended_demand=recommended_disk_demand,
+		interval_count=recommended_disk_interval_count,
+	)
+	if observations:
+		notes.append("profile slot recommendations use observed phase overlap in the selected tuning scope")
+	return {
+		"profile": profile_name,
+		"current_h5_read_slots": current_h5_read_slots,
+		"recommended_h5_read_slots": recommended_profile_h5_read_slots,
+		"current_disk_heavy_slots": current_disk_heavy_slots,
+		"recommended_disk_heavy_slots": recommended_profile_disk_heavy_slots,
+		"max_current_h5_read_slot_demand": current_h5_demand,
+		"max_recommended_h5_read_slot_demand": recommended_h5_demand,
+		"h5_read_interval_observations": h5_interval_count,
+		"recommended_h5_read_interval_observations": recommended_h5_interval_count,
+		"max_current_disk_heavy_slot_demand": current_disk_demand,
+		"max_recommended_disk_heavy_slot_demand": recommended_disk_demand,
+		"disk_heavy_interval_observations": disk_interval_count,
+		"recommended_disk_heavy_interval_observations": recommended_disk_interval_count,
+		"notes": notes,
+		"warnings": warnings,
+	}
+
+
 def build_phase_tuning_summary(
 	*,
 	resources: ResourcesConfig,
@@ -363,11 +530,18 @@ def build_phase_tuning_summary(
 		for key, group_observations in sorted(groups.items())
 	]
 	profile = get_active_resource_profile(resources)
+	active_profile_recommendation = _profile_io_slot_recommendation(
+		resources=resources,
+		tuning_config=tuning_config,
+		observations=observations,
+		recommendations=recommendations,
+	)
 	return {
 		"run_id": run_id,
 		"selected_stages": list(selected_stages),
 		"active_profile": resources.active_profile,
 		"active_profile_capacity": None if profile is None else profile.__dict__,
+		"active_profile_recommendation": active_profile_recommendation,
 		"observation_count": len(observations),
 		"recommendation_count": len(recommendations),
 		"update_runtime_yml": False,
@@ -385,8 +559,33 @@ def format_phase_tuning_report(summary: dict[str, Any]) -> str:
 		f"Observations: {summary.get('observation_count', 0)}",
 		"Advisory only: runtime YAML was not modified.",
 		"",
-		"## Recommendations",
+		"## Active Profile IO Slots",
 	]
+	profile_recommendation = summary.get("active_profile_recommendation", {})
+	if isinstance(profile_recommendation, dict):
+		lines.extend(
+			[
+				f"- profile: {profile_recommendation.get('profile') or 'none'}",
+				f"- h5_read_slots: {profile_recommendation.get('current_h5_read_slots')} -> {profile_recommendation.get('recommended_h5_read_slots')}",
+				f"- disk_heavy_slots: {profile_recommendation.get('current_disk_heavy_slots')} -> {profile_recommendation.get('recommended_disk_heavy_slots')}",
+				f"- max_current_h5_read_slot_demand: {profile_recommendation.get('max_current_h5_read_slot_demand')}",
+				f"- max_recommended_h5_read_slot_demand: {profile_recommendation.get('max_recommended_h5_read_slot_demand')}",
+				f"- h5_read_interval_observations: {profile_recommendation.get('recommended_h5_read_interval_observations')}",
+				f"- max_current_disk_heavy_slot_demand: {profile_recommendation.get('max_current_disk_heavy_slot_demand')}",
+				f"- max_recommended_disk_heavy_slot_demand: {profile_recommendation.get('max_recommended_disk_heavy_slot_demand')}",
+				f"- disk_heavy_interval_observations: {profile_recommendation.get('recommended_disk_heavy_interval_observations')}",
+			]
+		)
+		for warning in profile_recommendation.get("warnings", []) or []:
+			lines.append(f"- warning: {warning}")
+		for note in profile_recommendation.get("notes", []) or []:
+			lines.append(f"- note: {note}")
+	lines.extend(
+		[
+			"",
+			"## Recommendations",
+		]
+	)
 	for recommendation in summary.get("recommendations", []) or []:
 		qualified_name = _qualified_stage_phase(recommendation.get("stage"), recommendation.get("phase"))
 		lines.extend(
@@ -491,6 +690,17 @@ def emit_phase_tuning_recommendations(
 			recommendation.get("current_disk_heavy_slots"),
 			recommendation.get("recommended_disk_heavy_slots"),
 			extra={"event": "phase_tuning_recommendation"},
+		)
+	profile_recommendation = summary.get("active_profile_recommendation", {})
+	if isinstance(profile_recommendation, dict):
+		LOGGER.info(
+			"Resource profile tuning recommendation: profile=%s h5_read_slots=%s->%s disk_heavy_slots=%s->%s",
+			profile_recommendation.get("profile") or "none",
+			profile_recommendation.get("current_h5_read_slots"),
+			profile_recommendation.get("recommended_h5_read_slots"),
+			profile_recommendation.get("current_disk_heavy_slots"),
+			profile_recommendation.get("recommended_disk_heavy_slots"),
+			extra={"event": "phase_tuning_profile_recommendation"},
 		)
 	LOGGER.info(
 		"Finished resource tuning run observations_written=%d summary_path=%s recommendations_path=%s",
