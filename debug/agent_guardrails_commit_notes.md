@@ -91,6 +91,59 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-05 - pending - ai: improve axon recon container cache
+
+Status: accepted
+
+Summary:
+- Split the axon-recon Docker build so heavyweight plugin/runtime dependency installs run before the full repository copy.
+- Copied only `containers/axon-recon/install_maxwell_hdf5_plugin.py` before the expensive install layer, then copied the full repo later for the local package and optional sibling package installs.
+- Kept entrypoint/smoke script chmod and symlink creation after the final copy so overwritten script metadata is refreshed.
+
+Guardrails Consulted:
+- `debug/optimization_simplificaiton_guardrails.md`
+- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
+
+Acceptance Criteria:
+- Ordinary source changes no longer invalidate the plugin/runtime dependency install layer.
+- Final image behavior stays equivalent for local axon_reconstructor, UnitMatchPy, and SLAy installs.
+- Container scripts still resolve through the existing build helper.
+
+Expected To Run:
+- Docker build helper dry run.
+
+Confirmed Not Run:
+- Full Docker image build.
+- Runtime real-data smoke.
+- Remote push.
+
+Validation:
+- Diagnostics: VS Code diagnostics reported no errors for `containers/axon-recon/Dockerfile`.
+- Dry run: `containers/axon-recon/build_local_image.sh --dry-run --no-unitmatch --no-slay` resolved the expected `docker build` command.
+- Not run: full Docker build, because this slice specifically reduces build invalidation and the dry run was enough to validate wrapper wiring.
+
+CLI / Debug Flag Impact:
+- No CLI flag changes.
+
+Logging / Parallelism Impact:
+- None.
+
+Storage / Cache Impact:
+- Modified Docker layer cache behavior only; no runtime artifacts were created or removed.
+
+Container / NERSC / MPI Impact:
+- Container build cache should now reuse plugin/runtime install layers when repository source files change.
+- No NERSC/MPI runtime behavior changed.
+
+Resume / Force-Restart Impact:
+- None.
+
+Residual Risk And Follow-Ups:
+- A full image build was not run in this slice; remaining risk is shell/install ordering in the final image build.
+
+Rollback Notes:
+- Revert `containers/axon-recon/Dockerfile` to restore the previous single post-copy install layer.
+
 ## 2026-05-04 - pending - ai: show spikeinterface progress bars
 
 Status: accepted

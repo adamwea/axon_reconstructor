@@ -31,28 +31,32 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /opt/axon_reconstructor
 
-COPY . /opt/axon_reconstructor
+COPY containers/axon-recon/install_maxwell_hdf5_plugin.py /opt/axon_reconstructor/containers/axon-recon/install_maxwell_hdf5_plugin.py
 
 RUN rm -rf /tmp/axon-recon-cache \
   && python containers/axon-recon/install_maxwell_hdf5_plugin.py --url "${MAXWELL_HDF5_PLUGIN_URL}" --plugin-dir "${MAXWELL_HDF5_PLUGIN_DIR}" \
   && python -m pip install --upgrade pip setuptools wheel \
-  && if [[ -n "${AXON_RECON_INSTALL_EXTRAS}" ]]; then \
-  python -m pip install ".[${AXON_RECON_INSTALL_EXTRAS}]"; \
-  else \
-  python -m pip install .; \
-  fi \
   && if [[ -n "${AXON_RECON_RUNTIME_SPEC}" ]]; then python -m pip install ${AXON_RECON_RUNTIME_SPEC}; fi \
   && if [[ -n "${AXON_VELOCITY_SPEC}" ]]; then python -m pip install "${AXON_VELOCITY_SPEC}"; fi \
   && if [[ -n "${SPIKEINTERFACE_SPEC}" ]]; then python -m pip install "${SPIKEINTERFACE_SPEC}"; fi \
   && if [[ -n "${UNITMATCH_SPEC}" ]]; then \
   if [[ -n "${UNITMATCH_RUNTIME_SPEC}" ]]; then python -m pip install ${UNITMATCH_RUNTIME_SPEC}; fi; \
-  python -m pip install ${UNITMATCH_INSTALL_ARGS} "${UNITMATCH_SPEC}"; \
   fi \
   && if [[ -n "${SLAY_SPEC}" ]]; then \
   if [[ -n "${SLAY_RUNTIME_SPEC}" ]]; then python -m pip install ${SLAY_RUNTIME_SPEC}; fi; \
-  python -m pip install ${SLAY_INSTALL_ARGS} "${SLAY_SPEC}"; \
   fi \
   && if [[ -n "${MPI4PY_SPEC}" ]]; then python -m pip install "${MPI4PY_SPEC}"; fi \
+  && rm -rf /root/.cache/pip /tmp/axon-recon-cache /tmp/pip-* /tmp/build-*
+
+COPY . /opt/axon_reconstructor
+
+RUN if [[ -n "${AXON_RECON_INSTALL_EXTRAS}" ]]; then \
+  python -m pip install ".[${AXON_RECON_INSTALL_EXTRAS}]"; \
+  else \
+  python -m pip install .; \
+  fi \
+  && if [[ -n "${UNITMATCH_SPEC}" ]]; then python -m pip install ${UNITMATCH_INSTALL_ARGS} "${UNITMATCH_SPEC}"; fi \
+  && if [[ -n "${SLAY_SPEC}" ]]; then python -m pip install ${SLAY_INSTALL_ARGS} "${SLAY_SPEC}"; fi \
   && chmod +x /opt/axon_reconstructor/containers/axon-recon/entrypoint.sh \
   && chmod +x /opt/axon_reconstructor/containers/axon-recon/smoke_cli.sh \
   && ln -sf /opt/axon_reconstructor/containers/axon-recon/entrypoint.sh /usr/local/bin/axon-recon-entrypoint \
