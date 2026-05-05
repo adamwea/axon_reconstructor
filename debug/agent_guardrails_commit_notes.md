@@ -91,7 +91,74 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-05 - pending - ai: improve axon recon container cache
+## 2026-05-05 - pending - ai: route build templates through canonical orchestrator
+
+Status: accepted
+
+Summary:
+- Moved `build_templates` phase orchestration into `src/axon_recon/pipeline/stages/reconstruct/phases/build_templates.py` so the phase flow can be audited in one ordered file.
+- Routed templates API, templates runner phase dispatch, and reconstruct direct-phase dispatch through the canonical phase module.
+- Removed duplicate cached-analyzer bootstrap and payload-root routing logic from the broad templates runner instead of leaving a compatibility implementation behind.
+- Added `reconstruct/phases/__init__.py` so the new phase module is included by package discovery.
+
+Guardrails Consulted:
+- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/optimization_simplificaiton_guardrails.md`
+- `debug/first_version_pipeline_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+
+Acceptance Criteria:
+- The build_templates phase reads as an ordered route: resolve context, force-restart cleanup, payload readiness check, cached-analyzer bootstrap when needed, core build from payloads, summary write.
+- Public/direct build_templates phase routes enter the canonical phase module.
+- The broad templates runner no longer carries duplicate build_templates cached-analyzer orchestration.
+- Existing lazy cached-analyzer behavior and disk payload behavior remain covered by focused tests.
+
+Expected To Run:
+- Focused templates runner tests.
+- Focused reconstruct stage dispatch tests.
+- Import/stale-import lint checks for touched files.
+
+Confirmed Not Run:
+- Full repository test suite.
+- Real-data smoke.
+- Full CLI/container run.
+- Remote push.
+
+Validation:
+- Diagnostics: VS Code diagnostics reported no errors for touched source and test files.
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py src/axon_recon/pipeline/stages/reconstruct/tests/test_runner.py -q` passed.
+- Import/stale-import lint: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m ruff check --select I ...` passed for the new phase module, templates API, and touched test imports.
+- Stale-import lint: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m ruff check --select F401 ...` passed for the new phase module, templates runner, templates API, and touched test file.
+- Not run: broad Ruff over the large touched test file still reports unrelated pre-existing line-length/indentation/local-variable findings outside this slice.
+
+CLI / Debug Flag Impact:
+- No CLI flag changes.
+- Existing external selectors are still routed; this slice did not remove CLI/config aliases beyond eliminating duplicate build_templates implementation code.
+
+Logging / Parallelism Impact:
+- Build_templates logs remain at the same phase points and now include `lazy_load_analyzers` in the settings line.
+- No resource class or worker allocation behavior changed.
+
+Storage / Cache Impact:
+- Created `src/axon_recon/pipeline/stages/reconstruct/phases/__init__.py`.
+- Created `src/axon_recon/pipeline/stages/reconstruct/phases/build_templates.py`.
+- Modified source payload materialization ownership only by moving orchestration code; artifact paths and cleanup behavior remain unchanged.
+
+Container / NERSC / MPI Impact:
+- None.
+
+Resume / Force-Restart Impact:
+- Force-restart source-payload cleanup remains scoped to the build_templates payload root.
+- Existing source payload reuse behavior is unchanged.
+
+Residual Risk And Follow-Ups:
+- Broader legacy CLI/config aliases such as `templates_build_templates` and nested `per_unit_processing.build_templates` remain for a separate explicit cleanup slice.
+- A limited real-data `reconstruct.build_templates` smoke was not run after this routing-only refactor.
+
+Rollback Notes:
+- Revert the new `reconstruct/phases` module additions and restore the build_templates functions/imports in `templates/runner.py` if the canonical phase route needs to be backed out.
+
+## 2026-05-05 - 945159a - ai: improve axon recon container cache
 
 Status: accepted
 

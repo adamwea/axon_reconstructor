@@ -1120,7 +1120,7 @@ def run_reconstruct_templates_extract_template_segments_phase(inputs: Reconstruc
 
 
 def run_reconstruct_templates_build_templates_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_reconstruct_templates_build_templates_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.build_templates import run_reconstruct_templates_build_templates_phase
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_build_templates requires templates_inputs to be populated on ReconstructionInputs")

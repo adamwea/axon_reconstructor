@@ -2,27 +2,33 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import replace
-from pathlib import Path
 import shutil
 import time
+from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 import numpy as np  # type: ignore[import-not-found]
 import pytest
 
 from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
-from axon_recon.pipeline.stages.reconstruct.templates.io import resolve_unit_output_paths, write_materialized_source_payload
+from axon_recon.pipeline.stages.reconstruct.phases.build_templates import (
+	run_reconstruct_templates_build_templates_phase,
+)
 from axon_recon.pipeline.stages.reconstruct.templates.core.template_similarity_methods import (
 	build_template_similarity_features,
 	compute_pairwise_template_similarity,
+)
+from axon_recon.pipeline.stages.reconstruct.templates.io import (
+	resolve_unit_output_paths,
+	write_materialized_source_payload,
 )
 from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import (
 	AnalyzerCacheConfig,
 	DataQualityChecksOutputsConfig,
 	FootprintGridsReportConfig,
-	FootprintMapGridReportConfig,
 	FootprintMapConfig,
+	FootprintMapGridReportConfig,
 	FootprintPlotsConfig,
 	MultipleNegativePeaksCheckConfig,
 	MultipleNegativePeaksOutputsConfig,
@@ -39,34 +45,36 @@ from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import (
 	TemplateBuildTemplatesPhaseConfig,
 	TemplateCirclesPlotConfig,
 	TemplateComputeSimilarityPhaseConfig,
-	TemplatePlotsPhaseConfig,
 	TemplatePerUnitProcessingPhaseConfig,
+	TemplatePlotConfig,
+	TemplatePlotsPhaseConfig,
+	TemplatesAnalyzersPhaseConfig,
 	TemplateSimilarityCandidateSelectionConfig,
 	TemplateSimilarityMethodOptionsConfig,
-	TemplatesAnalyzersPhaseConfig,
-	TemplateWaveformOverlayConfig,
-	TemplatePlotConfig,
-	TimeUpsampleConfig,
 	TemplatesInputs,
 	TemplatesPhasesConfig,
+	TemplateWaveformOverlayConfig,
+	TimeUpsampleConfig,
 	TopographicalFootprintConfig,
 	TopographicalFootprintsConfig,
 	UnitLocationsReportConfig,
 	WfOverlayGridReportConfig,
 )
-from axon_recon.pipeline.stages.reconstruct.templates.models.results import TemplatesResult, UnitTemplatesResult
+from axon_recon.pipeline.stages.reconstruct.templates.models.results import (
+	TemplatesResult,
+	UnitTemplatesResult,
+)
 from axon_recon.pipeline.stages.reconstruct.templates.runner import (
-	_quiet_unexpected_plot_logs,
 	_plot_safe_propagation_config,
 	_plot_safe_template_wf_overlay_config,
+	_quiet_unexpected_plot_logs,
 	_resolve_plot_templates_execution_plan,
 	_run_reconstruct_templates_plot_batches,
 	run_reconstruct_templates_analyzers_phase,
-	run_reconstruct_templates_build_templates_phase,
 	run_reconstruct_templates_compute_template_similarity_phase,
+	run_reconstruct_templates_pipeline,
 	run_reconstruct_templates_plot_templates_phase,
 	run_reconstruct_templates_report_templates_phase,
-	run_reconstruct_templates_pipeline,
 )
 
 
@@ -585,10 +593,6 @@ def test_run_reconstruct_templates_build_templates_phase_loads_cached_analyzers_
 			self.source_name = str(source_name)
 			self.sorting = _FakeSorting()
 
-	def _fake_extract_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-		_ = inputs
-		raise AssertionError("extract phase should not run during in-memory build bootstrap")
-
 	def _fake_discover_cached_source_names(**kwargs) -> list[str]:
 		assert kwargs["analyzer_cache_dir"] == analyzer_cache_dir
 		return ["concat", "000_recA"]
@@ -638,23 +642,19 @@ def test_run_reconstruct_templates_build_templates_phase_loads_cached_analyzers_
 		}
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_reconstruct_templates_extract_template_segments_phase",
-		_fake_extract_phase,
-	)
-	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.discover_cached_spikeinterface_analyzer_source_names",
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.discover_cached_spikeinterface_analyzer_source_names",
 		_fake_discover_cached_source_names,
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.load_cached_spikeinterface_analyzers",
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.load_cached_spikeinterface_analyzers",
 		_fake_load_cached_spikeinterface_analyzers,
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.build_unit_source_payload",
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_unit_source_payload",
 		_fake_build_unit_source_payload,
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.build_templates_phase_from_unit_payloads",
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_templates_phase_from_unit_payloads",
 		_fake_build_templates_phase_from_unit_payloads,
 	)
 
@@ -755,19 +755,19 @@ def test_run_reconstruct_templates_build_templates_phase_lazy_loads_cached_analy
 		}
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.discover_cached_spikeinterface_analyzer_source_names",
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.discover_cached_spikeinterface_analyzer_source_names",
 		_fake_discover_cached_source_names,
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.load_cached_spikeinterface_analyzers",
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.load_cached_spikeinterface_analyzers",
 		_fake_load_cached_spikeinterface_analyzers,
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.build_unit_source_payload",
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_unit_source_payload",
 		_fake_build_unit_source_payload,
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.build_templates_phase_from_unit_payloads",
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_templates_phase_from_unit_payloads",
 		_fake_build_templates_phase_from_unit_payloads,
 	)
 
@@ -805,7 +805,7 @@ def test_run_reconstruct_templates_build_templates_phase_requires_analyzer_cache
 		return []
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.discover_cached_spikeinterface_analyzer_source_names",
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.discover_cached_spikeinterface_analyzer_source_names",
 		_fake_discover_cached_source_names,
 	)
 

@@ -1,19 +1,19 @@
 from __future__ import annotations
 
+from ..phases.build_templates import run_reconstruct_templates_build_templates_phase
 from .models.inputs import TemplatesInputs
 from .models.results import TemplatesResult
 from .runner import (
 	collect_templates_result_from_outputs,
 	run_reconstruct_templates_analyzers_phase,
-	run_reconstruct_templates_build_templates_phase,
 	run_reconstruct_templates_compute_template_similarity_phase,
 	run_reconstruct_templates_extract_template_segments_phase,
 	run_reconstruct_templates_per_unit_processing_phase,
+	run_reconstruct_templates_pipeline,
 	run_reconstruct_templates_plot_templates_phase,
 	run_reconstruct_templates_report_templates_phase,
 	run_reconstruct_templates_reports_phase,
 	run_reconstruct_templates_resolve_sources_phase,
-	run_reconstruct_templates_pipeline,
 )
 
 

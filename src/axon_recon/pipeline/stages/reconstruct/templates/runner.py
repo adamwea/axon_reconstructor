@@ -22,7 +22,7 @@ from axon_recon.pipeline.shared.grid_sorting import (
 from axon_recon.pipeline.execution.phase_chain import PhaseDescriptor, run_phase_chain
 from axon_recon.pipeline.execution.progress import add_current_progress_total, advance_current_progress
 
-from .core.build_templates import build_templates_phase_from_payloads, build_templates_phase_from_unit_payloads
+from ..phases.build_templates import run_reconstruct_templates_build_templates_phase
 from .core.compute_template_similarity import (
 	TemplateSimilarityUnitInput,
 	build_template_similarity_phase_summary,
@@ -62,25 +62,18 @@ from .core.render import (
 )
 from .io import (
 	MATERIALIZED_TEMPLATES_CACHE_RELPATH,
-	load_materialized_source_payload,
 	load_materialized_overlay_waveforms,
 	load_materialized_merged_electrode_ids,
 	read_json,
-	resolve_materialized_source_payload_unit_dir,
-	resolve_materialized_templates_dirs,
 	resolve_report_output_paths,
 	resolve_similarity_output_paths,
 	resolve_unit_output_paths,
-	write_materialized_merged_electrode_ids,
 	write_materialized_source_payload,
-	write_materialized_unit_templates,
 	write_json,
 )
 from .integrations.spikeinterface_extract import (
 	build_unit_source_payload,
-	discover_cached_spikeinterface_analyzer_source_names,
 	iter_spikeinterface_analyzers,
-	load_cached_spikeinterface_analyzers,
 	load_spikeinterface_analyzers,
 )
 from .models.inputs import ProbeGeometryConfig, TemplatesInputs, TimeUpsampleConfig
@@ -1984,256 +1977,6 @@ def _load_templates_phase_analyzers(
 	)
 
 
-def _discover_templates_cached_build_sources(
-	*,
-	inputs: TemplatesInputs,
-	well_out_dir: Path,
-	alternate_well_out_dirs: list[Path],
-) -> tuple[Path, Path | None, list[str]]:
-	include_concat = bool(inputs.include_concat) and bool(inputs.phases.analyzers.concat.enabled)
-	include_segments = bool(inputs.include_segments) and bool(inputs.phases.analyzers.segments.enabled)
-	primary_cache_dir = _resolve_templates_analyzer_cache_dir(inputs=inputs, well_out_dir=well_out_dir)
-	candidate_well_out_dirs = [well_out_dir, *list(alternate_well_out_dirs)]
-	for candidate_well_out_dir in candidate_well_out_dirs:
-		candidate_cache_dir = _resolve_templates_analyzer_cache_dir(inputs=inputs, well_out_dir=candidate_well_out_dir)
-		source_names = discover_cached_spikeinterface_analyzer_source_names(
-			analyzer_cache_dir=candidate_cache_dir,
-			analyzer_cache_concat_subdir=str(inputs.analyzer_cache.concat_analyzer_subdir or "concat"),
-			analyzer_cache_segments_subdir=str(inputs.analyzer_cache.segment_analyzers_subdir or ""),
-			include_concat=include_concat,
-			include_segments=include_segments,
-			limit_segments=inputs.limit_segments,
-		)
-		if source_names:
-			if candidate_well_out_dir != well_out_dir:
-				LOGGER.info(
-					"templates.build_templates using fallback analyzer cache for cached build bootstrap: primary=%s fallback=%s source_count=%d",
-					str(well_out_dir),
-					str(candidate_well_out_dir),
-					int(len(source_names)),
-				)
-			return candidate_well_out_dir, candidate_cache_dir, source_names
-	return well_out_dir, primary_cache_dir, []
-
-
-def _build_templates_phase_from_cached_analyzers(
-	*,
-	inputs: TemplatesInputs,
-	well_out_dir: Path,
-	alternate_well_out_dirs: list[Path],
-	templates_out_dir: Path,
-	payload_root: Path,
-) -> dict[str, Any]:
-	analyzer_well_out_dir, analyzer_cache_dir, source_names = _discover_templates_cached_build_sources(
-		inputs=inputs,
-		well_out_dir=well_out_dir,
-		alternate_well_out_dirs=alternate_well_out_dirs,
-	)
-	if analyzer_cache_dir is None or not source_names:
-		raise FileNotFoundError(
-			"No cached templates analyzers found for build_templates. "
-			f"checked analyzer_cache_dir={analyzer_cache_dir}; run templates.analyzers before templates.build_templates."
-		)
-
-	lazy_load_analyzers = bool(getattr(inputs.phases.build_templates, "lazy_load_analyzers", False))
-	LOGGER.info(
-		"templates.build_templates loading cached analyzers for build bootstrap: analyzer_well_out_dir=%s analyzer_cache_dir=%s source_count=%d lazy_load_analyzers=%s",
-		str(analyzer_well_out_dir),
-		str(analyzer_cache_dir),
-		int(len(source_names)),
-		bool(lazy_load_analyzers),
-	)
-
-	output_rel_root = str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root)
-	streamed_sources_summary: dict[str, Any] = {}
-	unit_ids: list[Any] | None = (None if inputs.unit_ids is None else list(inputs.unit_ids))
-	if unit_ids is not None and inputs.unit_limit is not None:
-		unit_ids = unit_ids[: int(inputs.unit_limit)]
-
-	def _load_requested_cached_source(requested_source_name: str) -> tuple[tuple[str, Any], list[tuple[str, Any]]]:
-		analyzers = load_cached_spikeinterface_analyzers(
-			well_out_dir=analyzer_well_out_dir,
-			preprocessed_concat_reldir=(
-				inputs.phases.analyzers.concat.preprocessed_recording_reldir or inputs.preprocessed_concat_reldir
-			),
-			preprocessed_segments_reldir=(
-				inputs.phases.analyzers.segments.preprocessed_sources_reldir or inputs.preprocessed_segments_reldir
-			),
-			preproc_seg_sources_reldir=(
-				inputs.phases.analyzers.segments.preprocessed_sources_reldir or inputs.preproc_seg_sources_reldir
-			),
-			analyzer_cache_dir=analyzer_cache_dir,
-			analyzer_cache_concat_subdir=str(inputs.analyzer_cache.concat_analyzer_subdir or "concat"),
-			analyzer_cache_segments_subdir=str(inputs.analyzer_cache.segment_analyzers_subdir or ""),
-			include_concat=bool(inputs.include_concat) and bool(inputs.phases.analyzers.concat.enabled),
-			include_segments=bool(inputs.include_segments) and bool(inputs.phases.analyzers.segments.enabled),
-			requested_source_names=[str(requested_source_name)],
-			limit_segments=inputs.limit_segments,
-			load_extensions=(not bool(lazy_load_analyzers)),
-			attach_recordings=(not bool(lazy_load_analyzers)),
-		)
-		source_match = next(
-			((name, analyzer) for name, analyzer in analyzers if str(name) == str(requested_source_name)),
-			None,
-		)
-		if source_match is None:
-			raise FileNotFoundError(
-				f"Failed loading requested templates analyzer source {requested_source_name!r} under {analyzer_well_out_dir}"
-			)
-		return source_match, analyzers
-
-	if bool(lazy_load_analyzers):
-		streamed_sources_summary = {
-			str(source_name): {"units_materialized": [], "unit_count": 0}
-			for source_name in source_names
-		}
-		if unit_ids is None:
-			first_match, first_analyzers = _load_requested_cached_source(str(source_names[0]))
-			unit_ids = _collect_templates_phase_unit_ids(
-				inputs=inputs,
-				analyzers=[first_match],
-				well_out_dir=well_out_dir,
-			)
-			del first_match
-			del first_analyzers
-			gc.collect()
-
-		for unit_id in list(unit_ids or []):
-			materialized_source_count = 0
-			for requested_source_name in source_names:
-				source_match, analyzers = _load_requested_cached_source(str(requested_source_name))
-				source_name, analyzer = source_match
-				payload = build_unit_source_payload(
-					analyzer=analyzer,
-					unit_id=unit_id,
-					include_overlay_waveforms=False,
-					allow_prepare=False,
-					allow_waveforms_sparsity_fallback=False,
-				)
-				if payload is not None:
-					write_materialized_source_payload(
-						templates_out_dir=templates_out_dir,
-						output_rel_root=output_rel_root,
-						source_name=str(source_name),
-						unit_id=unit_id,
-						template_c_by_t=payload[0],
-						locations_xy=payload[1],
-						electrode_ids=payload[2],
-						channel_ids=payload[3],
-						waveform_count=payload[4],
-						sampling_rate_hz=payload[5],
-						overlay_waveforms=None,
-						top_electrode_id=None,
-						total_waveforms_at_channel=None,
-					)
-					summary_entry = streamed_sources_summary.setdefault(
-						str(source_name),
-						{"units_materialized": [], "unit_count": 0},
-					)
-					summary_entry["units_materialized"].append(unit_id)
-					summary_entry["unit_count"] = int(summary_entry.get("unit_count", 0)) + 1
-					materialized_source_count += 1
-					del payload
-				del analyzer
-				del analyzers
-				del source_match
-				gc.collect()
-			LOGGER.info(
-				"templates.build_templates lazy-materialized cached analyzer payloads: unit=%s source_count=%d",
-				str(unit_id),
-				int(materialized_source_count),
-			)
-	else:
-		for requested_source_name in source_names:
-			source_match, analyzers = _load_requested_cached_source(str(requested_source_name))
-
-			source_name, analyzer = source_match
-			if unit_ids is None:
-				unit_ids = _collect_templates_phase_unit_ids(
-					inputs=inputs,
-					analyzers=[source_match],
-					well_out_dir=well_out_dir,
-				)
-			materialized_units: list[Any] = []
-			for unit_id in list(unit_ids or []):
-				payload = build_unit_source_payload(
-					analyzer=analyzer,
-					unit_id=unit_id,
-					include_overlay_waveforms=False,
-					allow_prepare=False,
-				)
-				if payload is None:
-					continue
-				# Spool per-unit per-source payload to disk so the build phase can
-				# stream from disk one unit at a time instead of holding every
-				# (unit, source) tensor coresident in memory.
-				write_materialized_source_payload(
-					templates_out_dir=templates_out_dir,
-					output_rel_root=output_rel_root,
-					source_name=str(source_name),
-					unit_id=unit_id,
-					template_c_by_t=payload[0],
-					locations_xy=payload[1],
-					electrode_ids=payload[2],
-					channel_ids=payload[3],
-					waveform_count=payload[4],
-					sampling_rate_hz=payload[5],
-					overlay_waveforms=None,
-					top_electrode_id=None,
-					total_waveforms_at_channel=None,
-				)
-				materialized_units.append(unit_id)
-				del payload
-			streamed_sources_summary[str(source_name)] = {
-				"units_materialized": [unit for unit in materialized_units],
-				"unit_count": int(len(materialized_units)),
-			}
-			LOGGER.info(
-				"templates.build_templates materialized cached analyzer payloads: source=%s unit_count=%d",
-				str(source_name),
-				int(len(materialized_units)),
-			)
-			del analyzer
-			del analyzers
-			del source_match
-			gc.collect()
-
-	if unit_ids is None:
-		unit_ids = []
-
-	def _payload_loader(unit_id: Any) -> list[tuple[str, tuple[Any, ...]]]:
-		loaded: list[tuple[str, tuple[Any, ...]]] = []
-		for source_name in source_names:
-			payload = load_materialized_source_payload(
-				source_payload_unit_dir=resolve_materialized_source_payload_unit_dir(
-					templates_out_dir=templates_out_dir,
-					output_rel_root=output_rel_root,
-					source_name=str(source_name),
-					unit_id=unit_id,
-				),
-			)
-			if payload is None:
-				continue
-			loaded.append((str(source_name), payload))
-		return loaded
-
-	summary = build_templates_phase_from_unit_payloads(
-		inputs=inputs,
-		well_out_dir=well_out_dir,
-		templates_out_dir=templates_out_dir,
-		unit_ids=list(unit_ids),
-		source_names=[str(name) for name in source_names],
-		payload_root=payload_root,
-		payload_materialization_mode="analyzer_cache",
-		payload_loader=_payload_loader,
-	)
-	summary["source_payload_well_out_dir"] = str(analyzer_well_out_dir)
-	summary["analyzer_cache_dir"] = str(analyzer_cache_dir)
-	summary["lazy_load_analyzers"] = bool(lazy_load_analyzers)
-	summary["source_payload_sources"] = streamed_sources_summary
-	return summary
-
-
 def _collect_templates_phase_unit_ids(
 	*,
 	inputs: TemplatesInputs,
@@ -2516,92 +2259,6 @@ def run_reconstruct_templates_extract_template_segments_phase(inputs: TemplatesI
 	summary_path = templates_out_dir / str(inputs.phases.per_unit_processing.extract_template_segments.summary_json_relpath)
 	write_json(summary_path, summary)
 	summary["summary_json"] = str(summary_path)
-	return summary
-
-
-def _templates_payload_root_status(payload_root: Path) -> str:
-	if not payload_root.exists():
-		return "missing"
-	try:
-		if any(path.is_dir() for path in payload_root.iterdir()):
-			return "ready"
-	except Exception:
-		return "unreadable"
-	return "empty"
-
-
-def run_reconstruct_templates_build_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-	phase_started = perf_counter()
-	well_out_dir, _, templates_out_dir, analyzer_cache_dir = _resolve_templates_phase_environment(inputs)
-	alternate_well_out_dirs = _resolve_alternate_well_out_dirs(inputs=inputs, primary_well_out_dir=well_out_dir)
-	payload_root = templates_out_dir / Path(str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root)).expanduser()
-	payload_status = _templates_payload_root_status(payload_root)
-	LOGGER.info(
-		"templates.build_templates start: well_out_dir=%s templates_out_dir=%s payload_root=%s force_restart=%s",
-		str(well_out_dir),
-		str(templates_out_dir),
-		str(payload_root),
-		bool(inputs.force_restart),
-	)
-	LOGGER.info(
-		"templates.build_templates settings: merge_enable=%s merge_method=%s centering_method=%s max_waveforms_per_source_channel=%s upsampling_enabled=%s upsampling_factor=%d upsampling_method=%s",
-		bool(inputs.phases.build_templates.merge.enable),
-		str(inputs.phases.build_templates.merge.method),
-		str(inputs.phases.build_templates.merge.centering_method),
-		(
-			"unlimited"
-			if inputs.phases.build_templates.merge.max_waveforms_per_source_channel is None
-			else str(int(inputs.phases.build_templates.merge.max_waveforms_per_source_channel))
-		),
-		bool(inputs.phases.build_templates.execution_upsampling.enabled),
-		int(max(1, int(inputs.phases.build_templates.execution_upsampling.factor))),
-		str(inputs.phases.build_templates.execution_upsampling.method),
-	)
-	if bool(inputs.force_restart) and payload_root.exists():
-		LOGGER.info("templates.build_templates clearing persisted source payloads on force_restart: %s", str(payload_root))
-		shutil.rmtree(payload_root)
-		payload_status = "missing"
-	if bool(inputs.force_restart) or payload_status != "ready":
-		bootstrap_reason = ("force_restart" if bool(inputs.force_restart) else payload_status)
-		LOGGER.info(
-			"templates.build_templates loading source payloads from cached analyzers: payload_root=%s reason=%s",
-			str(payload_root),
-			bootstrap_reason,
-		)
-		summary = _build_templates_phase_from_cached_analyzers(
-			inputs=inputs,
-			well_out_dir=well_out_dir,
-			alternate_well_out_dirs=alternate_well_out_dirs,
-			templates_out_dir=templates_out_dir,
-			payload_root=payload_root,
-		)
-		LOGGER.info(
-			"templates.build_templates loaded source payloads from cached analyzers: payload_root=%s source_count=%d analyzer_well_out_dir=%s analyzer_cache_dir=%s",
-			str(payload_root),
-			int(summary.get("source_count", 0)),
-			str(summary.get("source_payload_well_out_dir", "")),
-			str(summary.get("analyzer_cache_dir", "")),
-		)
-	else:
-		summary = build_templates_phase_from_payloads(
-			inputs=inputs,
-			well_out_dir=well_out_dir,
-			templates_out_dir=templates_out_dir,
-		)
-	summary["timing"] = {"duration_seconds": float(perf_counter() - phase_started)}
-	summary["applied_debug_limits"] = _templates_applied_debug_limits(inputs)
-	summary_path = templates_out_dir / str(inputs.phases.build_templates.summary_json_relpath)
-	LOGGER.info("templates.build_templates generating outputs: summary_json=%s", str(summary_path))
-	write_json(summary_path, summary)
-	summary["summary_json"] = str(summary_path)
-	LOGGER.info("templates.build_templates wrote summary output: %s", str(summary_path))
-	LOGGER.info(
-		"templates.build_templates run stats: duration_seconds=%.3f unit_count=%d built_units=%d skipped_units=%d",
-		float(summary["timing"]["duration_seconds"]),
-		int(summary.get("unit_count", 0)),
-		int(len(summary.get("built_units", []))),
-		int(len(summary.get("skipped_units", []))),
-	)
 	return summary
 
 
