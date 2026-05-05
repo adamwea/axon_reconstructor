@@ -3731,6 +3731,7 @@ def parse_reconstruct_templates_config(
 		enabled=_as_bool(phase_build_cfg.get("enabled", True), True),
 		summary_json_relpath=str(phase_build_cfg.get("summary_json_relpath", "context/build_templates_summary.json")),
 		resource_class=_phase_resource_class(phase_build_cfg, "build_templates"),
+		lazy_load_analyzers=_as_bool(phase_build_cfg.get("lazy_load_analyzers", False), False),
 		emit_channel_count_per_unit_after_merge_log=_as_bool(
 			phase_build_cfg.get(
 				"emit_channel_count_per_unit_after_merge_log",

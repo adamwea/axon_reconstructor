@@ -323,6 +323,19 @@ def _format_policy_for_log(policy: AnalyzerPreparationPolicyConfig) -> str:
 	return _format_log_fields(_policy_log_fields(policy))
 
 
+def _load_sorting_analyzer_with_extension_policy(*, si: Any, folder: Path, load_extensions: bool = True) -> Any:
+	loader = getattr(si, "load_sorting_analyzer")
+	if bool(load_extensions):
+		return loader(folder)
+	try:
+		return loader(folder, load_extensions=False)
+	except TypeError:
+		LOGGER.debug(
+			"SpikeInterface load_sorting_analyzer does not support load_extensions=False; falling back to eager extension load"
+		)
+		return loader(folder)
+
+
 def _count_unit_train_spikes(unit_trains: dict[Any, list[int]]) -> int:
 	try:
 		return int(sum(len(times) for times in unit_trains.values()))
@@ -505,13 +518,19 @@ def _unit_key(value: Any) -> str:
 		return str(value)
 
 
-def _extract_unit_template(analyzer: Any, unit_id: Any, *, progress_bar: bool = True) -> np.ndarray | None:
+def _extract_unit_template(
+	analyzer: Any,
+	unit_id: Any,
+	*,
+	progress_bar: bool = True,
+	allow_compute: bool = True,
+) -> np.ndarray | None:
 	try:
 		has_templates = bool(analyzer.has_extension("templates"))
 	except Exception:
 		has_templates = False
 
-	if not has_templates:
+	if (not has_templates) and bool(allow_compute):
 		try:
 			analyzer.compute(["templates"], verbose=False, n_jobs=1, progress_bar=bool(progress_bar))
 			has_templates = bool(analyzer.has_extension("templates"))
@@ -544,9 +563,14 @@ def _extract_unit_template(analyzer: Any, unit_id: Any, *, progress_bar: bool = 
 	return None
 
 
-def _extract_sparse_channel_indices(analyzer: Any, unit_id: Any) -> np.ndarray | None:
+def _extract_sparse_channel_indices(
+	analyzer: Any,
+	unit_id: Any,
+	*,
+	allow_waveforms_fallback: bool = True,
+) -> np.ndarray | None:
 	sp = getattr(analyzer, "sparsity", None)
-	if sp is None:
+	if sp is None and bool(allow_waveforms_fallback):
 		try:
 			if analyzer.has_extension("waveforms"):
 				sp = getattr(analyzer.get_extension("waveforms"), "sparsity", None)
@@ -608,6 +632,104 @@ def _extract_electrode_ids(recording: Any) -> list[Any] | None:
 		cv = recording.get_property("contact_vector")
 		if isinstance(cv, dict) and "electrode" in cv:
 			return list(cv["electrode"])
+	except Exception:
+		pass
+	return None
+
+
+def _get_analyzer_recording_if_available(analyzer: Any) -> Any | None:
+	try:
+		return analyzer.recording
+	except Exception:
+		return None
+
+
+def _extract_channel_locations(analyzer: Any) -> np.ndarray:
+	recording = _get_analyzer_recording_if_available(analyzer)
+	if recording is not None:
+		try:
+			return np.asarray(recording.get_channel_locations(), dtype=float)
+		except Exception:
+			pass
+	get_channel_locations = getattr(analyzer, "get_channel_locations", None)
+	if callable(get_channel_locations):
+		return np.asarray(get_channel_locations(), dtype=float)
+	raise ValueError("Analyzer has no recording or saved channel-location metadata")
+
+
+def _extract_electrode_ids_from_analyzer(analyzer: Any) -> list[Any] | None:
+	recording = _get_analyzer_recording_if_available(analyzer)
+	if recording is not None:
+		electrode_ids = _extract_electrode_ids(recording)
+		if electrode_ids is not None:
+			return electrode_ids
+	for key in (
+		"electrode_id",
+		"electrode",
+		"contact_id",
+		"contact_ids",
+		"contact",
+		"site_id",
+		"site",
+	):
+		getter = getattr(analyzer, "get_recording_property", None)
+		if callable(getter):
+			try:
+				vals = getter(key)
+				if vals is not None:
+					return list(vals)
+			except Exception:
+				pass
+		try:
+			properties = getattr(analyzer, "rec_attributes", {}).get("properties", {})
+			vals = properties.get(key, None) if isinstance(properties, dict) else None
+			if vals is not None:
+				return list(vals)
+		except Exception:
+			pass
+	return None
+
+
+def _extract_channel_ids_from_analyzer(analyzer: Any) -> list[Any] | None:
+	recording = _get_analyzer_recording_if_available(analyzer)
+	if recording is not None:
+		try:
+			return list(recording.get_channel_ids())
+		except Exception:
+			pass
+	try:
+		return list(getattr(analyzer, "channel_ids"))
+	except Exception:
+		pass
+	try:
+		return list(getattr(analyzer, "rec_attributes", {}).get("channel_ids"))
+	except Exception:
+		return None
+
+
+def _extract_sampling_rate_hz_from_analyzer(analyzer: Any) -> float | None:
+	recording = _get_analyzer_recording_if_available(analyzer)
+	if recording is not None:
+		try:
+			sampling_rate_hz = float(recording.get_sampling_frequency())
+			if np.isfinite(sampling_rate_hz) and sampling_rate_hz > 0.0:
+				return sampling_rate_hz
+		except Exception:
+			pass
+	for attr in ("sampling_frequency", "sampling_rate"):
+		try:
+			sampling_rate_hz = float(getattr(analyzer, attr))
+			if np.isfinite(sampling_rate_hz) and sampling_rate_hz > 0.0:
+				return sampling_rate_hz
+		except Exception:
+			pass
+	try:
+		sorting = getattr(analyzer, "sorting", None)
+		getter = getattr(sorting, "get_sampling_frequency", None)
+		if callable(getter):
+			sampling_rate_hz = float(getter())
+			if np.isfinite(sampling_rate_hz) and sampling_rate_hz > 0.0:
+				return sampling_rate_hz
 	except Exception:
 		pass
 	return None
@@ -1178,6 +1300,7 @@ def _load_cached_analyzers(
 	analyzer_cache_dir: Path | None,
 	concat_analyzer_subdir: str = "concat",
 	segment_analyzers_subdir: str = "",
+	load_extensions: bool = True,
 ) -> dict[str, Any]:
 	return _load_cached_analyzers_with_filter(
 		si=si,
@@ -1185,6 +1308,7 @@ def _load_cached_analyzers(
 		concat_analyzer_subdir=concat_analyzer_subdir,
 		segment_analyzers_subdir=segment_analyzers_subdir,
 		requested_names=None,
+		load_extensions=load_extensions,
 	)
 
 
@@ -1195,6 +1319,7 @@ def _load_cached_analyzers_with_filter(
 	concat_analyzer_subdir: str = "concat",
 	segment_analyzers_subdir: str = "",
 	requested_names: set[str] | None = None,
+	load_extensions: bool = True,
 ) -> dict[str, Any]:
 	cached_dirs = _discover_cached_analyzer_dirs(
 		analyzer_cache_dir=analyzer_cache_dir,
@@ -1208,7 +1333,11 @@ def _load_cached_analyzers_with_filter(
 	cached: dict[str, Any] = {}
 	for analyzer_name, folder in sorted(cached_dirs.items(), key=lambda item: (0 if item[0] == "concat" else 1, item[0])):
 		try:
-			cached[str(analyzer_name)] = si.load_sorting_analyzer(folder)
+			cached[str(analyzer_name)] = _load_sorting_analyzer_with_extension_policy(
+				si=si,
+				folder=folder,
+				load_extensions=load_extensions,
+			)
 		except Exception:
 			if str(analyzer_name) == "concat":
 				LOGGER.warning("Failed to load cached concat analyzer: %s", folder, exc_info=True)
@@ -1286,6 +1415,8 @@ def load_cached_spikeinterface_analyzers(
 	include_segments: bool,
 	requested_source_names: list[str] | tuple[str, ...] | set[str] | None = None,
 	limit_segments: int | None = None,
+	load_extensions: bool = True,
+	attach_recordings: bool = True,
 ) -> list[tuple[str, Any]]:
 	import spikeinterface.full as si  # type: ignore[import-not-found]
 
@@ -1358,10 +1489,13 @@ def load_cached_spikeinterface_analyzers(
 		concat_analyzer_subdir=analyzer_cache_concat_subdir,
 		segment_analyzers_subdir=analyzer_cache_segments_subdir,
 		requested_names=requested_names,
+		load_extensions=load_extensions,
 	)
 	analyzers: list[tuple[str, Any]] = []
 	if bool(include_concat) and "concat" in loaded:
-		recording = None if preprocessed_concat_dir is None else _load_with_methods(preprocessed_concat_dir, ("load_extractor", "load_recording", "load"))
+		recording = None
+		if bool(attach_recordings) and preprocessed_concat_dir is not None:
+			recording = _load_with_methods(preprocessed_concat_dir, ("load_extractor", "load_recording", "load"))
 		analyzers.append(("concat", _attach_temporary_recording_if_missing(analyzer=loaded["concat"], recording=recording)))
 	if bool(include_segments):
 		segment_source_names = _apply_segment_source_limit(
@@ -1370,7 +1504,7 @@ def load_cached_spikeinterface_analyzers(
 		)
 		for source_name in segment_source_names:
 			recording = None
-			if segments_dir is not None:
+			if bool(attach_recordings) and segments_dir is not None:
 				seg_dir = segments_dir / str(source_name)
 				if seg_dir.exists():
 					recording = _load_with_methods(seg_dir, ("load_extractor", "load_recording", "load"))
@@ -1589,6 +1723,7 @@ def build_unit_source_payload(
 	compute_progress_bar: bool = True,
 	include_overlay_waveforms: bool = True,
 	allow_prepare: bool = True,
+	allow_waveforms_sparsity_fallback: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, list[Any] | None, list[Any] | None, int, float | None, np.ndarray | None, Any, int | None] | None:
 	waveform_count = _extract_total_waveform_count(analyzer=analyzer, unit_id=unit_id)
 	requested_waveforms = _normalize_requested_max_spikes_per_unit(max_spikes_per_unit)
@@ -1622,23 +1757,29 @@ def build_unit_source_payload(
 			compute_progress_bar=bool(compute_progress_bar),
 		)
 
-	t = _extract_unit_template(analyzer, unit_id, progress_bar=bool(compute_progress_bar))
+	t = _extract_unit_template(
+		analyzer,
+		unit_id,
+		progress_bar=bool(compute_progress_bar),
+		allow_compute=bool(allow_prepare),
+	)
 	if t is None:
 		return None
 
-	locs = np.asarray(analyzer.recording.get_channel_locations(), dtype=float)
-	electrode_ids = _extract_electrode_ids(analyzer.recording)
-	try:
-		channel_ids = list(analyzer.recording.get_channel_ids())
-	except Exception:
-		channel_ids = None
+	locs = _extract_channel_locations(analyzer)
+	electrode_ids = _extract_electrode_ids_from_analyzer(analyzer)
+	channel_ids = _extract_channel_ids_from_analyzer(analyzer)
 
 	normalized = normalize_source_payload(
 		template=t,
 		locations_xy=locs,
 		electrode_ids=electrode_ids,
 		channel_ids=channel_ids,
-		sparse_indices=_extract_sparse_channel_indices(analyzer, unit_id),
+		sparse_indices=_extract_sparse_channel_indices(
+			analyzer,
+			unit_id,
+			allow_waveforms_fallback=bool(allow_waveforms_sparsity_fallback),
+		),
 	)
 	if normalized is None:
 		return None
@@ -1758,13 +1899,7 @@ def build_unit_source_payload(
 			top_electrode_waveforms = None
 			top_electrode_waveform_count = None
 
-	sampling_rate_hz: float | None
-	try:
-		sampling_rate_hz = float(analyzer.recording.get_sampling_frequency())
-		if not np.isfinite(sampling_rate_hz) or sampling_rate_hz <= 0.0:
-			sampling_rate_hz = None
-	except Exception:
-		sampling_rate_hz = None
+	sampling_rate_hz = _extract_sampling_rate_hz_from_analyzer(analyzer)
 
 	return (
 		t_ch_by_t,
@@ -1864,6 +1999,7 @@ def load_spikeinterface_analyzers(
 	segments_build_if_missing: bool = True,
 	requested_source_names: list[str] | tuple[str, ...] | set[str] | None = None,
 	limit_segments: int | None = None,
+	load_extensions: bool = True,
 	return_stats: bool = False,
 ) -> Any:
 	import spikeinterface.full as si  # type: ignore[import-not-found]
@@ -1991,6 +2127,7 @@ def load_spikeinterface_analyzers(
 		concat_analyzer_subdir=str(analyzer_cache_concat_subdir or "concat"),
 		segment_analyzers_subdir=str(analyzer_cache_segments_subdir or ""),
 		requested_names=requested_names,
+		load_extensions=load_extensions,
 	)
 	if cache_root is None:
 		LOGGER.info("Templates analyzer cache disabled for this load")
@@ -2233,7 +2370,11 @@ def load_spikeinterface_analyzers(
 		if concat_use_existing_analyzer and concat_analyzer_obj is None and concat_dir.exists():
 			try:
 				LOGGER.info("Loading existing concat analyzer from disk: %s", str(concat_dir))
-				concat_analyzer_obj = si.load_sorting_analyzer(concat_dir)
+				concat_analyzer_obj = _load_sorting_analyzer_with_extension_policy(
+					si=si,
+					folder=concat_dir,
+					load_extensions=load_extensions,
+				)
 				concat_analyzer_obj = _attach_temporary_recording_if_missing(
 					analyzer=concat_analyzer_obj,
 					recording=_load_recording(preprocessed_concat_dir),
@@ -2369,7 +2510,11 @@ def load_spikeinterface_analyzers(
 				continue
 			try:
 				LOGGER.info("Attempting existing segment analyzer load from disk: segment=%s path=%s", str(seg_name), str(seg_dir))
-				seg_analyzer = si.load_sorting_analyzer(seg_dir)
+				seg_analyzer = _load_sorting_analyzer_with_extension_policy(
+					si=si,
+					folder=seg_dir,
+					load_extensions=load_extensions,
+				)
 				seg_analyzer = _persist_to_cache(analyzer=seg_analyzer, analyzer_name=seg_name)
 				seg_analyzer = _prepare_loaded_analyzer_with_policy(
 					analyzer=seg_analyzer,
@@ -2568,6 +2713,7 @@ def load_spikeinterface_analyzers(
 					segments_build_if_missing=segments_build_if_missing,
 					requested_source_names=(None if requested_names is None else list(requested_names)),
 					limit_segments=limit_segments,
+					load_extensions=load_extensions,
 					return_stats=return_stats,
 				)
 			except FileNotFoundError:
@@ -2692,6 +2838,7 @@ def iter_spikeinterface_analyzers(
 	segments_build_if_missing: bool = True,
 	requested_source_names: list[str] | tuple[str, ...] | set[str] | None = None,
 	limit_segments: int | None = None,
+	load_extensions: bool = True,
 	load_stats: dict[str, Any] | None = None,
 ) -> Iterator[tuple[str, Any]]:
 	"""Yield (source_name, analyzer) pairs one at a time without buffering the full set.
@@ -2781,6 +2928,7 @@ def iter_spikeinterface_analyzers(
 				segments_build_if_missing=segments_build_if_missing,
 				requested_source_names=[name],
 				limit_segments=limit_segments,
+				load_extensions=load_extensions,
 				return_stats=True,
 			)
 		except FileNotFoundError:
@@ -2862,6 +3010,7 @@ def iter_spikeinterface_analyzers(
 				segments_build_if_missing=segments_build_if_missing,
 				requested_source_names=requested_source_names,
 				limit_segments=limit_segments,
+				load_extensions=load_extensions,
 				load_stats=stats,
 			):
 				yield src_name, analyzer

@@ -2035,11 +2035,13 @@ def _build_templates_phase_from_cached_analyzers(
 			f"checked analyzer_cache_dir={analyzer_cache_dir}; run templates.analyzers before templates.build_templates."
 		)
 
+	lazy_load_analyzers = bool(getattr(inputs.phases.build_templates, "lazy_load_analyzers", False))
 	LOGGER.info(
-		"templates.build_templates loading cached analyzers for build bootstrap: analyzer_well_out_dir=%s analyzer_cache_dir=%s source_count=%d",
+		"templates.build_templates loading cached analyzers for build bootstrap: analyzer_well_out_dir=%s analyzer_cache_dir=%s source_count=%d lazy_load_analyzers=%s",
 		str(analyzer_well_out_dir),
 		str(analyzer_cache_dir),
 		int(len(source_names)),
+		bool(lazy_load_analyzers),
 	)
 
 	output_rel_root = str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root)
@@ -2048,7 +2050,7 @@ def _build_templates_phase_from_cached_analyzers(
 	if unit_ids is not None and inputs.unit_limit is not None:
 		unit_ids = unit_ids[: int(inputs.unit_limit)]
 
-	for requested_source_name in source_names:
+	def _load_requested_cached_source(requested_source_name: str) -> tuple[tuple[str, Any], list[tuple[str, Any]]]:
 		analyzers = load_cached_spikeinterface_analyzers(
 			well_out_dir=analyzer_well_out_dir,
 			preprocessed_concat_reldir=(
@@ -2067,6 +2069,8 @@ def _build_templates_phase_from_cached_analyzers(
 			include_segments=bool(inputs.include_segments) and bool(inputs.phases.analyzers.segments.enabled),
 			requested_source_names=[str(requested_source_name)],
 			limit_segments=inputs.limit_segments,
+			load_extensions=(not bool(lazy_load_analyzers)),
+			attach_recordings=(not bool(lazy_load_analyzers)),
 		)
 		source_match = next(
 			((name, analyzer) for name, analyzer in analyzers if str(name) == str(requested_source_name)),
@@ -2076,56 +2080,123 @@ def _build_templates_phase_from_cached_analyzers(
 			raise FileNotFoundError(
 				f"Failed loading requested templates analyzer source {requested_source_name!r} under {analyzer_well_out_dir}"
 			)
+		return source_match, analyzers
 
-		source_name, analyzer = source_match
+	if bool(lazy_load_analyzers):
+		streamed_sources_summary = {
+			str(source_name): {"units_materialized": [], "unit_count": 0}
+			for source_name in source_names
+		}
 		if unit_ids is None:
+			first_match, first_analyzers = _load_requested_cached_source(str(source_names[0]))
 			unit_ids = _collect_templates_phase_unit_ids(
 				inputs=inputs,
-				analyzers=[source_match],
+				analyzers=[first_match],
 				well_out_dir=well_out_dir,
 			)
-		materialized_units: list[Any] = []
+			del first_match
+			del first_analyzers
+			gc.collect()
+
 		for unit_id in list(unit_ids or []):
-			payload = build_unit_source_payload(
-				analyzer=analyzer,
-				unit_id=unit_id,
-				include_overlay_waveforms=False,
-				allow_prepare=False,
+			materialized_source_count = 0
+			for requested_source_name in source_names:
+				source_match, analyzers = _load_requested_cached_source(str(requested_source_name))
+				source_name, analyzer = source_match
+				payload = build_unit_source_payload(
+					analyzer=analyzer,
+					unit_id=unit_id,
+					include_overlay_waveforms=False,
+					allow_prepare=False,
+					allow_waveforms_sparsity_fallback=False,
+				)
+				if payload is not None:
+					write_materialized_source_payload(
+						templates_out_dir=templates_out_dir,
+						output_rel_root=output_rel_root,
+						source_name=str(source_name),
+						unit_id=unit_id,
+						template_c_by_t=payload[0],
+						locations_xy=payload[1],
+						electrode_ids=payload[2],
+						channel_ids=payload[3],
+						waveform_count=payload[4],
+						sampling_rate_hz=payload[5],
+						overlay_waveforms=None,
+						top_electrode_id=None,
+						total_waveforms_at_channel=None,
+					)
+					summary_entry = streamed_sources_summary.setdefault(
+						str(source_name),
+						{"units_materialized": [], "unit_count": 0},
+					)
+					summary_entry["units_materialized"].append(unit_id)
+					summary_entry["unit_count"] = int(summary_entry.get("unit_count", 0)) + 1
+					materialized_source_count += 1
+					del payload
+				del analyzer
+				del analyzers
+				del source_match
+				gc.collect()
+			LOGGER.info(
+				"templates.build_templates lazy-materialized cached analyzer payloads: unit=%s source_count=%d",
+				str(unit_id),
+				int(materialized_source_count),
 			)
-			if payload is None:
-				continue
-			# Spool per-unit per-source payload to disk so the build phase can
-			# stream from disk one unit at a time instead of holding every
-			# (unit, source) tensor coresident in memory.
-			write_materialized_source_payload(
-				templates_out_dir=templates_out_dir,
-				output_rel_root=output_rel_root,
-				source_name=str(source_name),
-				unit_id=unit_id,
-				template_c_by_t=payload[0],
-				locations_xy=payload[1],
-				electrode_ids=payload[2],
-				channel_ids=payload[3],
-				waveform_count=payload[4],
-				sampling_rate_hz=payload[5],
-				overlay_waveforms=None,
-				top_electrode_id=None,
-				total_waveforms_at_channel=None,
+	else:
+		for requested_source_name in source_names:
+			source_match, analyzers = _load_requested_cached_source(str(requested_source_name))
+
+			source_name, analyzer = source_match
+			if unit_ids is None:
+				unit_ids = _collect_templates_phase_unit_ids(
+					inputs=inputs,
+					analyzers=[source_match],
+					well_out_dir=well_out_dir,
+				)
+			materialized_units: list[Any] = []
+			for unit_id in list(unit_ids or []):
+				payload = build_unit_source_payload(
+					analyzer=analyzer,
+					unit_id=unit_id,
+					include_overlay_waveforms=False,
+					allow_prepare=False,
+				)
+				if payload is None:
+					continue
+				# Spool per-unit per-source payload to disk so the build phase can
+				# stream from disk one unit at a time instead of holding every
+				# (unit, source) tensor coresident in memory.
+				write_materialized_source_payload(
+					templates_out_dir=templates_out_dir,
+					output_rel_root=output_rel_root,
+					source_name=str(source_name),
+					unit_id=unit_id,
+					template_c_by_t=payload[0],
+					locations_xy=payload[1],
+					electrode_ids=payload[2],
+					channel_ids=payload[3],
+					waveform_count=payload[4],
+					sampling_rate_hz=payload[5],
+					overlay_waveforms=None,
+					top_electrode_id=None,
+					total_waveforms_at_channel=None,
+				)
+				materialized_units.append(unit_id)
+				del payload
+			streamed_sources_summary[str(source_name)] = {
+				"units_materialized": [unit for unit in materialized_units],
+				"unit_count": int(len(materialized_units)),
+			}
+			LOGGER.info(
+				"templates.build_templates materialized cached analyzer payloads: source=%s unit_count=%d",
+				str(source_name),
+				int(len(materialized_units)),
 			)
-			materialized_units.append(unit_id)
-			del payload
-		streamed_sources_summary[str(source_name)] = {
-			"units_materialized": [unit for unit in materialized_units],
-			"unit_count": int(len(materialized_units)),
-		}
-		LOGGER.info(
-			"templates.build_templates materialized cached analyzer payloads: source=%s unit_count=%d",
-			str(source_name),
-			int(len(materialized_units)),
-		)
-		del analyzer
-		del analyzers
-		gc.collect()
+			del analyzer
+			del analyzers
+			del source_match
+			gc.collect()
 
 	if unit_ids is None:
 		unit_ids = []
@@ -2158,6 +2229,7 @@ def _build_templates_phase_from_cached_analyzers(
 	)
 	summary["source_payload_well_out_dir"] = str(analyzer_well_out_dir)
 	summary["analyzer_cache_dir"] = str(analyzer_cache_dir)
+	summary["lazy_load_analyzers"] = bool(lazy_load_analyzers)
 	summary["source_payload_sources"] = streamed_sources_summary
 	return summary
 

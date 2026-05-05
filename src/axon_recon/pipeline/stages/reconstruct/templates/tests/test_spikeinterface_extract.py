@@ -11,6 +11,7 @@ from axon_recon.pipeline.stages.reconstruct.templates.integrations.spikeinterfac
 	_try_recompute_waveforms_extension,
 	build_unit_source_payload,
 	discover_cached_spikeinterface_analyzer_source_names,
+	load_cached_spikeinterface_analyzers,
 	load_spikeinterface_analyzers,
 )
 from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import AnalyzerPreparationPolicyConfig
@@ -1247,6 +1248,61 @@ def test_load_spikeinterface_analyzers_persists_cache_with_configured_subdirs(tm
 	assert (str(concat_dir), str(cache_dir / "concat_custom"), "binary_folder") in save_calls
 	assert (str(seg_a), str(cache_dir / "segments_custom" / "segA"), "binary_folder") in save_calls
 	assert (str(seg_b), str(cache_dir / "segments_custom" / "segB"), "binary_folder") in save_calls
+
+
+def test_load_cached_spikeinterface_analyzers_can_skip_extensions_and_recording_attach(tmp_path, monkeypatch) -> None:
+	well_out_dir = tmp_path / "well001"
+	cache_dir = well_out_dir / "templates_outputs" / "cache" / "analyzers"
+	(cache_dir / "concat").mkdir(parents=True, exist_ok=True)
+	(cache_dir / "segments" / "segA").mkdir(parents=True, exist_ok=True)
+	(well_out_dir / "preprocessed_concat").mkdir(parents=True, exist_ok=True)
+	(well_out_dir / "preprocessed_segments" / "segA").mkdir(parents=True, exist_ok=True)
+
+	load_calls: list[tuple[str, bool]] = []
+	attach_calls: list[object] = []
+
+	class _FakeAnalyzer:
+		def set_temporary_recording(self, recording) -> None:
+			attach_calls.append(recording)
+
+	def _fake_load_sorting_analyzer(path, load_extensions=True):
+		load_calls.append((str(path), bool(load_extensions)))
+		return _FakeAnalyzer()
+
+	def _fake_load_extractor(path):
+		_ = path
+		raise AssertionError("recordings should not be loaded when attach_recordings=False")
+
+	fake_full = types.ModuleType("spikeinterface.full")
+	fake_full.load_sorting_analyzer = _fake_load_sorting_analyzer  # type: ignore[attr-defined]
+	fake_full.load_extractor = _fake_load_extractor  # type: ignore[attr-defined]
+	fake_full.load_recording = _fake_load_extractor  # type: ignore[attr-defined]
+	fake_full.load = _fake_load_extractor  # type: ignore[attr-defined]
+	fake_root = types.ModuleType("spikeinterface")
+	fake_root.full = fake_full  # type: ignore[attr-defined]
+
+	monkeypatch.setitem(sys.modules, "spikeinterface", fake_root)
+	monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_full)
+
+	analyzers = load_cached_spikeinterface_analyzers(
+		well_out_dir=well_out_dir,
+		preprocessed_concat_reldir="/preprocessed_concat",
+		preprocessed_segments_reldir="/preprocessed_segments",
+		analyzer_cache_dir=cache_dir,
+		analyzer_cache_concat_subdir="concat",
+		analyzer_cache_segments_subdir="segments",
+		include_concat=True,
+		include_segments=True,
+		load_extensions=False,
+		attach_recordings=False,
+	)
+
+	assert [name for name, _ in analyzers] == ["concat", "segA"]
+	assert load_calls == [
+		(str(cache_dir / "concat"), False),
+		(str(cache_dir / "segments" / "segA"), False),
+	]
+	assert attach_calls == []
 
 
 def test_discover_cached_spikeinterface_analyzer_source_names_skips_segments_container(tmp_path) -> None:

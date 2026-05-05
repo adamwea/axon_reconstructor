@@ -21,7 +21,7 @@ resources:
       h5_read_slots: 6
       disk_heavy_slots: 6
       plot_slots: 3
-      analyzer_slots: 3
+      analyzer_slots: 1
       #default_chunk_duration: 1s
   keyed_resource_limits:
     source_h5_path:
@@ -1253,8 +1253,8 @@ stages:
             #max_spikes_per_unit: 50
             #random_spikes_method: all # TODO: this also defaults to 25 % for some reason...
             #random_spikes_percentage: 75
-            #random_spikes_percentage: 100
-            random_spikes_percentage: 10
+            random_spikes_percentage: 100
+            #random_spikes_percentage: 10
             #random_spikes_percentage: 1
             #min_spikes_per_unit: 250
             #margin_size: 0
@@ -1279,6 +1279,7 @@ stages:
         enabled: true
         resource_class: template_build
         summary_json_relpath: context/build_templates_summary.json
+        lazy_load_analyzers: true # whether to lazy load analyzers during template building, which can reduce memory usage and speed up builds for large datasets with many segments by only loading analyzers when needed for each unit, at the cost of potentially increased runtime due to more frequent loading operations; keep false by default for debugging iterations to simplify data flow and provide more immediate access to analyzer data during development.
         outputs:
           # merged_template: the final merged template waveform for the unit, typically averaged across all segments and/or concatenated segments.
           # This is the main data artifact representing the spatial footprint and waveform shape of the neuron across the MEA channels, and is used for downstream analyses and plotting.

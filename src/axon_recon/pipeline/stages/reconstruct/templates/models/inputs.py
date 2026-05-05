@@ -240,6 +240,7 @@ class TemplateBuildTemplatesPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/build_templates_summary.json"
 	resource_class: str | None = None
+	lazy_load_analyzers: bool = False
 	emit_channel_count_per_unit_after_merge_log: bool = False
 	merge: "MergeConfig" = field(default_factory=lambda: MergeConfig())
 	execution_upsampling: TimeUpsampleConfig = field(default_factory=TimeUpsampleConfig)
