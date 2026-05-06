@@ -157,6 +157,60 @@ resources:
     assert cmd[cmd.index("--ipc") + 1] == "host"
 
 
+def test_container_wrapper_reads_container_caps_from_yaml_without_host_pyyaml(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "debug"
+    config_dir.mkdir()
+    runtime_cfg = config_dir / "debug.runtime.yml"
+    runtime_cfg.write_text(
+        """
+resources:
+  container_caps:
+    shm_size: 32g
+    memory: 48g
+    memory_reservation: 40g
+    memory_swap: 64g
+    ipc: host
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        container_cli.RuntimeConfig,
+        "load",
+        classmethod(
+            lambda cls, path: (_ for _ in ()).throw(
+                RuntimeError("YAML runtime config requires PyYAML (`pip install pyyaml`).")
+            )
+        ),
+    )
+
+    options = container_cli._parse_options([
+        "--no-build",
+        "--dry-run",
+        "--no-config-mounts",
+        "stages",
+        "reconstruct.analyzers",
+        "--config",
+        str(runtime_cfg),
+    ])
+
+    cmd = container_cli._build_docker_run_command(repo_root=tmp_path, options=options)
+
+    assert "--shm-size" in cmd
+    assert cmd[cmd.index("--shm-size") + 1] == "32g"
+    assert "--memory" in cmd
+    assert cmd[cmd.index("--memory") + 1] == "48g"
+    assert "--memory-reservation" in cmd
+    assert cmd[cmd.index("--memory-reservation") + 1] == "40g"
+    assert "--memory-swap" in cmd
+    assert cmd[cmd.index("--memory-swap") + 1] == "64g"
+    assert "--ipc" in cmd
+    assert cmd[cmd.index("--ipc") + 1] == "host"
+
+
 def test_container_wrapper_cli_shm_size_overrides_runtime_config(tmp_path: Path) -> None:
     config_dir = tmp_path / "debug"
     config_dir.mkdir()
@@ -234,6 +288,53 @@ resources:
 """.strip()
         + "\n",
         encoding="utf-8",
+    )
+
+    options = container_cli._parse_options([
+        "--no-build",
+        "--dry-run",
+        "--no-config-mounts",
+        "stages",
+        "reconstruct.analyzers",
+        "--config",
+        str(runtime_cfg),
+    ])
+
+    warnings = container_cli._container_preflight_warnings(options)
+
+    assert len(warnings) == 1
+    assert "analyzer_slots=2" in warnings[0]
+    assert "16g" in warnings[0]
+
+
+def test_container_wrapper_warns_when_parallel_analyzers_have_small_shm_without_host_pyyaml(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "debug"
+    config_dir.mkdir()
+    runtime_cfg = config_dir / "debug.runtime.yml"
+    runtime_cfg.write_text(
+        """
+resources:
+  active_profile: lab_server_safe
+  profiles:
+    lab_server_safe:
+      analyzer_slots: 2
+  container_caps:
+    shm_size: 8g
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        container_cli.RuntimeConfig,
+        "load",
+        classmethod(
+            lambda cls, path: (_ for _ in ()).throw(
+                RuntimeError("YAML runtime config requires PyYAML (`pip install pyyaml`).")
+            )
+        ),
     )
 
     options = container_cli._parse_options([

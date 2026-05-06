@@ -12,6 +12,7 @@ from typing import Any
 
 from axon_recon.pipeline.resources import (
 	ContainerCapsConfig,
+	ResourceProfileConfig,
 	ResourcesConfig,
 	get_active_resource_profile,
 	parse_resources_config,
@@ -357,14 +358,135 @@ def _resolve_cli_config_path(config_path: str) -> Path:
 	return raw_path.resolve()
 
 
+def _wrapper_config_scalar(raw: str) -> str | None:
+	value = str(raw).split("#", 1)[0].strip()
+	if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+		value = value[1:-1]
+	if value.strip().lower() in {"", "null", "none", "~"}:
+		return None
+	return value
+
+
+def _yaml_scalar_entry(text: str, *, key_path: tuple[str, ...]) -> tuple[bool, str | None]:
+	stack: list[tuple[int, str]] = []
+	for raw_line in str(text or "").splitlines():
+		if raw_line.lstrip().startswith("#"):
+			continue
+		line = raw_line.split("#", 1)[0].rstrip()
+		if not line.strip() or line.lstrip().startswith("-"):
+			continue
+		match = re.match(r"^(\s*)([^:#][^:]*?)\s*:\s*(.*?)\s*$", line)
+		if match is None:
+			continue
+		indent = len(match.group(1))
+		key = str(match.group(2)).strip()
+		value = match.group(3)
+		while stack and indent <= stack[-1][0]:
+			stack.pop()
+		current_path = tuple(item[1] for item in stack) + (key,)
+		if value == "":
+			stack.append((indent, key))
+			continue
+		if current_path == key_path:
+			return True, _wrapper_config_scalar(value)
+	return False, None
+
+
+def _parse_wrapper_int(
+	value: str | None,
+	*,
+	config_path: Path,
+	key_path: tuple[str, ...],
+) -> int | None:
+	if value is None:
+		return None
+	try:
+		return int(value)
+	except Exception as exc:
+		raise SystemExit(
+			"axon-recon-container: invalid integer for "
+			f"{'.'.join(key_path)} in {config_path}: {value!r}"
+		) from exc
+
+
+def _fallback_resources_config_from_yaml(config_path: Path) -> ResourcesConfig:
+	try:
+		text = config_path.read_text(encoding="utf-8")
+	except OSError as exc:
+		raise SystemExit(f"axon-recon-container: cannot read config file {config_path}: {exc}") from exc
+
+	_active_profile_found, active_profile = _yaml_scalar_entry(
+		text,
+		key_path=("resources", "active_profile"),
+	)
+	profiles: dict[str, ResourceProfileConfig] = {}
+	if active_profile is not None:
+		_analyzer_slots_found, analyzer_slots_value = _yaml_scalar_entry(
+			text,
+			key_path=("resources", "profiles", str(active_profile), "analyzer_slots"),
+		)
+		analyzer_slots = _parse_wrapper_int(
+			analyzer_slots_value,
+			config_path=config_path,
+			key_path=("resources", "profiles", str(active_profile), "analyzer_slots"),
+		)
+		profiles[str(active_profile)] = ResourceProfileConfig(analyzer_slots=max(0, int(analyzer_slots or 0)))
+
+	shm_size_configured, shm_size = _yaml_scalar_entry(
+		text,
+		key_path=("resources", "container_caps", "shm_size"),
+	)
+	memory_configured, memory = _yaml_scalar_entry(
+		text,
+		key_path=("resources", "container_caps", "memory"),
+	)
+	memory_reservation_configured, memory_reservation = _yaml_scalar_entry(
+		text,
+		key_path=("resources", "container_caps", "memory_reservation"),
+	)
+	memory_swap_configured, memory_swap = _yaml_scalar_entry(
+		text,
+		key_path=("resources", "container_caps", "memory_swap"),
+	)
+	ipc_configured, ipc = _yaml_scalar_entry(
+		text,
+		key_path=("resources", "container_caps", "ipc"),
+	)
+	return ResourcesConfig(
+		active_profile=(str(active_profile) if active_profile is not None else None),
+		profiles=profiles,
+		container_caps=ContainerCapsConfig(
+			shm_size=shm_size,
+			shm_size_configured=bool(shm_size_configured),
+			memory=memory,
+			memory_configured=bool(memory_configured),
+			memory_reservation=memory_reservation,
+			memory_reservation_configured=bool(memory_reservation_configured),
+			memory_swap=memory_swap,
+			memory_swap_configured=bool(memory_swap_configured),
+			ipc=ipc,
+			ipc_configured=bool(ipc_configured),
+		),
+	)
+
+
+def _requires_pyyaml_fallback(exc: BaseException) -> bool:
+	return "PyYAML" in str(exc)
+
+
 def _load_resources_config_from_config(config_path: str | None) -> ResourcesConfig | None:
 	if not config_path:
 		return None
 	resolved = _resolve_cli_config_path(config_path)
 	if not resolved.exists():
 		raise SystemExit(f"axon-recon-container: --config path does not exist: {resolved}")
-	runtime_config = RuntimeConfig.load(resolved)
-	return parse_resources_config(runtime_config=runtime_config)
+	try:
+		runtime_config = RuntimeConfig.load(resolved)
+		return parse_resources_config(runtime_config=runtime_config)
+	except Exception as exc:
+		if resolved.suffix.lower() in {".yml", ".yaml"} and _requires_pyyaml_fallback(exc):
+			return _fallback_resources_config_from_yaml(resolved)
+		raise SystemExit(f"axon-recon-container: cannot load runtime config {resolved}: {exc}") from exc
 
 
 def _load_container_caps_from_config(config_path: str | None) -> ContainerCapsConfig:
