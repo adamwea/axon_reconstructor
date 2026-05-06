@@ -259,6 +259,24 @@ def test_build_parser_supports_phase_tune_flags() -> None:
     assert args.confirm_full_scope is True
 
 
+def test_build_parser_supports_target_datasets_flag() -> None:
+    parser = pipeline_cli.build_parser()
+    args = parser.parse_args(
+        [
+            "stages",
+            "reconstruct.build_templates",
+            "--config",
+            "/tmp/runtime.yml",
+            "--target-datasets",
+            "0,",
+            "2,",
+            "8",
+        ]
+    )
+
+    assert args.target_datasets == ["0,", "2,", "8"]
+
+
 def test_build_parser_supports_reconstruct_subparser_dataset_limit_flags() -> None:
     from axon_recon.pipeline.stages.reconstruct import cli as reconstruct_cli
 
@@ -274,6 +292,10 @@ def test_build_parser_supports_reconstruct_subparser_dataset_limit_flags() -> No
             "2",
             "--limit-datasets",
             "1",
+            "--target-datasets",
+            "0,",
+            "2,",
+            "8",
             "--limit-wells-per-dataset",
             "1",
             "--limit-units",
@@ -283,6 +305,7 @@ def test_build_parser_supports_reconstruct_subparser_dataset_limit_flags() -> No
 
     assert args.limit_segments == 2
     assert args.limit_datasets == 1
+    assert args.target_datasets == ["0,", "2,", "8"]
     assert args.limit_wells_per_dataset == 1
     assert args.limit_units == 3
 
@@ -297,6 +320,7 @@ def test_reconstruct_cli_runtime_kwargs_include_dataset_and_well_limits() -> Non
         limit_units=5,
         limit_segments=2,
         limit_datasets=1,
+        target_datasets=["0,", "2,", "8"],
         limit_wells_per_dataset=1,
         force_restart=False,
         force_replot=False,
@@ -306,6 +330,7 @@ def test_reconstruct_cli_runtime_kwargs_include_dataset_and_well_limits() -> Non
 
     assert kwargs["limit_segments_override"] == 2
     assert kwargs["limit_datasets_override"] == 1
+    assert kwargs["target_datasets_override"] == [0, 2, 8]
     assert kwargs["limit_wells_per_dataset_override"] == 1
     assert kwargs["unit_limit_override"] == 5
 

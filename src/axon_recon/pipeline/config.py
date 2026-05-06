@@ -169,6 +169,7 @@ def select_execution_targets(
 	bundle: PipelineRuntimeBundle,
 	materialize_scratch_inputs: bool = False,
 	limit_datasets: int | None = None,
+	target_datasets: list[int] | None = None,
 	limit_wells: int | None = None,
 	limit_wells_per_dataset: int | None = None,
 ) -> list[ExecutionTarget]:
@@ -188,6 +189,32 @@ def select_execution_targets(
 			"No datasets enabled for runtime execution. Set datasets[*].include_in_runtime=true "
 			"for each recording you want to include."
 		)
+	if target_datasets is not None:
+		requested_dataset_indices: list[int] = []
+		seen_requested_dataset_indices: set[int] = set()
+		for raw_index in list(target_datasets):
+			dataset_index = int(raw_index)
+			if dataset_index < 0 or dataset_index in seen_requested_dataset_indices:
+				continue
+			seen_requested_dataset_indices.add(dataset_index)
+			requested_dataset_indices.append(dataset_index)
+		selected_dataset_index_set = set(requested_dataset_indices)
+		original_count = len(enabled)
+		enabled = [item for item in enabled if int(item[0]) in selected_dataset_index_set]
+		matched_dataset_indices = [int(index) for index, _item in enabled]
+		if not enabled:
+			raise ValueError(
+				"No enabled datasets matched target_datasets="
+				f"{requested_dataset_indices}. Use 0-based dataset indices from debug.data.yml."
+			)
+		if len(enabled) < original_count:
+			LOGGER.info(
+				"Applying execution target dataset selection before scratch materialization: %d -> %d dataset(s) requested_dataset_indices=%s matched_dataset_indices=%s",
+				original_count,
+				len(enabled),
+				requested_dataset_indices,
+				matched_dataset_indices,
+			)
 	if limit_datasets is not None:
 		dataset_limit = max(1, int(limit_datasets))
 		if len(enabled) > dataset_limit:

@@ -104,6 +104,32 @@ def _parse_positive_int(raw: str) -> int:
 	return value
 
 
+def _parse_target_dataset_indices(raw: object) -> list[int] | None:
+	if raw is None:
+		return None
+	items = list(raw) if isinstance(raw, (list, tuple, set)) else [raw]
+	parsed: list[int] = []
+	seen: set[int] = set()
+	for item in items:
+		for token in str(item).split(","):
+			text = str(token).strip()
+			if not text:
+				continue
+			try:
+				value = int(text)
+			except Exception as exc:
+				raise ValueError(f"Invalid dataset index for --target-datasets: {text!r}") from exc
+			if value < 0:
+				raise ValueError(f"Dataset indices for --target-datasets must be >= 0, got {value}")
+			if value in seen:
+				continue
+			seen.add(value)
+			parsed.append(value)
+	if not parsed:
+		raise ValueError("--target-datasets requires at least one dataset index")
+	return parsed
+
+
 def register_reconstruct_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
 	parser = subparsers.add_parser("recon", aliases=["reconstruct"], help="Run reconstruct stage")
 	parser.add_argument("--config", type=str, required=True, help="Path to runtime YAML/JSON config")
@@ -136,6 +162,15 @@ def register_reconstruct_subparser(subparsers: argparse._SubParsersAction[argpar
 		help="Limit datasets for debug smoke runs",
 	)
 	parser.add_argument(
+		"--target-datasets",
+		nargs="+",
+		default=None,
+		help=(
+			"Target specific 0-based dataset indices, for example --target-datasets 0 or "
+			"--target-datasets 0,2,8"
+		),
+	)
+	parser.add_argument(
 		"--limit-wells-per-dataset",
 		type=_parse_positive_int,
 		default=None,
@@ -145,6 +180,10 @@ def register_reconstruct_subparser(subparsers: argparse._SubParsersAction[argpar
 
 
 def _reconstruct_runtime_kwargs(args: argparse.Namespace) -> dict[str, object]:
+	try:
+		target_datasets_override = _parse_target_dataset_indices(getattr(args, "target_datasets", None))
+	except ValueError as exc:
+		raise SystemExit(str(exc)) from exc
 	return {
 		"config_path": str(args.config),
 		"unit_id_override": getattr(args, "unit_id", None),
@@ -152,6 +191,7 @@ def _reconstruct_runtime_kwargs(args: argparse.Namespace) -> dict[str, object]:
 		"unit_limit_override": getattr(args, "limit_units", None),
 		"limit_segments_override": getattr(args, "limit_segments", None),
 		"limit_datasets_override": getattr(args, "limit_datasets", None),
+		"target_datasets_override": target_datasets_override,
 		"limit_wells_per_dataset_override": getattr(args, "limit_wells_per_dataset", None),
 		"force_restart_override": (True if bool(getattr(args, "force_restart", False)) else None),
 		"force_replot_override": (True if bool(getattr(args, "force_replot", False)) else None),

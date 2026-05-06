@@ -335,6 +335,15 @@ def _register_debug_limit_arguments(parser: argparse.ArgumentParser) -> None:
 		help="Limit datasets for debug smoke runs",
 	)
 	parser.add_argument(
+		"--target-datasets",
+		nargs="+",
+		default=None,
+		help=(
+			"Target specific 0-based dataset indices, for example --target-datasets 0 or "
+			"--target-datasets 0,2,8"
+		),
+	)
+	parser.add_argument(
 		"--limit-wells",
 		type=_parse_positive_int,
 		default=None,
@@ -444,6 +453,8 @@ def _phase_tune_has_scope_limits(args: argparse.Namespace) -> bool:
 		return True
 	if getattr(args, "limit_datasets", None) is not None:
 		return True
+	if getattr(args, "target_datasets", None) is not None:
+		return True
 	if getattr(args, "limit_wells_per_dataset", None) is not None:
 		return True
 	if getattr(args, "limit_units", None) is not None:
@@ -466,9 +477,10 @@ def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 			)
 			return 2
 		logger.info(
-			"Starting resource tuning run stages=%s limits={datasets:%s,wells_per_dataset:%s,segments:%s,units:%s}",
+			"Starting resource tuning run stages=%s limits={datasets:%s,target_datasets:%s,wells_per_dataset:%s,segments:%s,units:%s}",
 			stage_list,
 			getattr(args, "limit_datasets", None),
+			getattr(args, "target_datasets", None),
 			getattr(args, "limit_wells_per_dataset", None),
 			getattr(args, "limit_segments", None),
 			getattr(args, "limit_units", None),

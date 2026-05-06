@@ -669,6 +669,7 @@ def test_reconstruct_phase_wrappers_forward_dataset_and_well_limits(
         unit_limit_override=4,
         limit_segments_override=2,
         limit_datasets_override=3,
+        target_datasets_override=[1, 3],
         limit_wells_per_dataset_override=1,
     )
 
@@ -677,6 +678,7 @@ def test_reconstruct_phase_wrappers_forward_dataset_and_well_limits(
     assert seen["unit_limit_override"] == 4
     assert seen["limit_segments_override"] == 2
     assert seen["limit_datasets_override"] == 3
+    assert seen["target_datasets_override"] == [1, 3]
     assert seen["limit_wells_per_dataset_override"] == 1
 
 
@@ -746,6 +748,7 @@ def test_run_reconstruct_substage_applies_cli_target_limits_before_build(monkeyp
             units=[UnitReconstructionResult(unit_id=1, status="ok", outputs={}, error=None)],
         ),
         limit_datasets_override=2,
+        target_datasets_override=[1],
         limit_wells_per_dataset_override=1,
         limit_segments_override=3,
         unit_limit_override=4,
@@ -753,6 +756,7 @@ def test_run_reconstruct_substage_applies_cli_target_limits_before_build(monkeyp
 
     assert result.succeeded_targets == 1
     assert select_kwargs["limit_datasets"] == 2
+    assert select_kwargs["target_datasets"] == [1]
     assert select_kwargs["limit_wells_per_dataset"] == 1
 
 
