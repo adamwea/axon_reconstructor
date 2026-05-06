@@ -2651,9 +2651,6 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 			          waveform_extraction:
 			            max_spikes_per_unit: 11
 			      per_unit_processing:
-			        extract_template_segments:
-			          output_rel_root: templates/custom_source_payloads
-			          summary_json_relpath: context/custom_extract_summary.json
 			        build_templates:
 			          summary_json_relpath: context/custom_build_summary.json
 			          lazy_load_analyzers: true
@@ -2694,8 +2691,6 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 	assert inputs.phases.analyzers.segments.preprocessed_sources_reldir == "/custom/segments"
 	assert inputs.phases.analyzers.segments.policy.max_spikes_per_unit == 11
 
-	assert inputs.phases.per_unit_processing.extract_template_segments.output_rel_root == "templates/custom_source_payloads"
-	assert inputs.phases.per_unit_processing.extract_template_segments.summary_json_relpath == "context/custom_extract_summary.json"
 	assert inputs.phases.build_templates.summary_json_relpath == "context/custom_build_summary.json"
 	assert inputs.phases.build_templates.lazy_load_analyzers is True
 	assert inputs.phases.build_templates.emit_channel_count_per_unit_after_merge_log is True

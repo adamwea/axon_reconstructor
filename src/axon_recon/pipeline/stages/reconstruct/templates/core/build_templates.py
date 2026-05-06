@@ -12,6 +12,7 @@ from axon_recon.pipeline.shared.grid_sorting import compute_template_grid_sort_m
 from axon_recon.pipeline.shared.sampling import read_maxwell_sampling_frequency_hz
 
 from ..io import (
+    SOURCE_PAYLOADS_CACHE_RELPATH,
 	load_materialized_source_payload,
 	resolve_materialized_source_payload_unit_dir,
 	resolve_materialized_templates_dirs,
@@ -691,10 +692,10 @@ def build_templates_phase_from_payloads(
 	well_out_dir: Path,
 	templates_out_dir: Path,
 ) -> dict[str, Any]:
-	payload_root = templates_out_dir / Path(str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root)).expanduser()
+	payload_root = templates_out_dir / SOURCE_PAYLOADS_CACHE_RELPATH
 	if not payload_root.exists():
 		raise FileNotFoundError(
-			f"Missing extracted source payloads at {payload_root}; run templates.extract_template_segments first"
+			f"Missing materialized source payloads at {payload_root}; run templates.analyzers before templates.build_templates"
 		)
 
 	merged_units_dir, full_channels_templates_dir = resolve_materialized_templates_dirs(templates_out_dir=templates_out_dir)
@@ -711,7 +712,7 @@ def build_templates_phase_from_payloads(
 	)
 	if not source_dirs:
 		raise FileNotFoundError(
-			f"No source payload directories found under {payload_root}; run templates.extract_template_segments first"
+			f"No source payload directories found under {payload_root}; run templates.analyzers before templates.build_templates"
 		)
 
 	if inputs.unit_ids is not None:
@@ -721,7 +722,7 @@ def build_templates_phase_from_payloads(
 	if inputs.unit_limit is not None:
 		unit_ids = unit_ids[: int(inputs.unit_limit)]
 	unit_ids = _apply_unit_label_filter(inputs, unit_ids, well_out_dir)
-	output_rel_root = str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root)
+	output_rel_root = str(SOURCE_PAYLOADS_CACHE_RELPATH)
 
 	def _payload_loader(unit_id: Any) -> list[tuple[str, tuple[Any, ...]]]:
 		loaded: list[tuple[str, tuple[Any, ...]]] = []

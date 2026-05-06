@@ -103,7 +103,7 @@ resources:
     template_build:
       description: Template merge/build or lightweight unit-level compute.
       bottleneck: cpu_memory_light
-      cpu_cores: 2
+      cpu_cores: 5
       ram_gb: 8
     axon_reconstruction:
       description: Axon reconstruction, GTR generation, branch extraction, or unit-level reconstruction math.
@@ -1499,10 +1499,6 @@ stages:
           # Base rel dir for all outputs for a given unit. Can be formatted with {unit_id} if desired,
           # but should not include file name or extension components since those are specified separately for each output type below.
           unit_reldir: units/{unit_id:04d}/
-        extract_template_segments:
-          enabled: false
-          output_rel_root: cache/source_payloads
-          summary_json_relpath: context/extract_template_segments_summary.json
         quality_checks:
           enabled: false
           config:

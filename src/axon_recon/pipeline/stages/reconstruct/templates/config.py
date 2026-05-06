@@ -33,7 +33,6 @@ from .models.inputs import (
 	TemplateAnalysisPhaseConfig,
 	TemplateBuildTemplatesPhaseConfig,
 	TemplateComputeSimilarityPhaseConfig,
-	TemplateExtractTemplateSegmentsPhaseConfig,
 	TemplateLeafPhaseConfig,
 	TemplatePerUnitProcessingPhaseConfig,
 	TemplatePlotsPhaseConfig,
@@ -79,7 +78,6 @@ LOGGER = logging.getLogger("axon_recon.templates.config")
 DEFAULT_TEMPLATES_PHASE_SEQUENCE: tuple[str, ...] = (
 	"resolve_sources",
 	"analyzers",
-	"extract_template_segments",
 	"build_templates",
 	"compute_template_similarity",
 	"plot_templates",
@@ -92,9 +90,6 @@ _TEMPLATES_PHASE_ALIASES: dict[str, str] = {
 	"resolve_sources": "resolve_sources",
 	"analyzer": "analyzers",
 	"analyzers": "analyzers",
-	"extract": "extract_template_segments",
-	"extract_template_segments": "extract_template_segments",
-	"per_unit_processing.extract_template_segments": "extract_template_segments",
 	"build": "build_templates",
 	"build_templates": "build_templates",
 	"per_unit_processing.build_templates": "build_templates",
@@ -3699,7 +3694,6 @@ def parse_reconstruct_templates_config(
 		concat=concat_phase_cfg,
 		segments=segments_phase_cfg,
 	)
-	phase_extract_cfg = _phase_block(phases_cfg, "per_unit_processing", "extract_template_segments")
 	phase_quality_cfg_raw = _phase_block(phases_cfg, "per_unit_processing", "quality_checks")
 	phase_analysis_cfg = _phase_block(phases_cfg, "per_unit_processing", "analysis")
 	phase_compute_similarity_cfg = _phase_block(phases_cfg, "compute_template_similarity")
@@ -3900,12 +3894,6 @@ def parse_reconstruct_templates_config(
 	per_unit_processing_phase = TemplatePerUnitProcessingPhaseConfig(
 		enabled=_as_bool(per_unit_processing_cfg.get("enabled", True), True),
 		resource_class=_phase_resource_class(per_unit_processing_cfg, "per_unit_processing"),
-		extract_template_segments=TemplateExtractTemplateSegmentsPhaseConfig(
-			enabled=_as_bool(phase_extract_cfg.get("enabled", True), True),
-			output_rel_root=str(phase_extract_cfg.get("output_rel_root", phase_extract_cfg.get("relpath_root", "cache/source_payloads"))),
-			summary_json_relpath=str(phase_extract_cfg.get("summary_json_relpath", "context/extract_template_segments_summary.json")),
-			resource_class=_phase_resource_class(phase_extract_cfg, "extract_template_segments"),
-		),
 		build_templates=build_templates_phase,
 		quality_checks=TemplateQualityChecksPhaseConfig(
 			enabled=_as_bool(phase_quality_cfg_raw.get("enabled", quality_checks.enable), quality_checks.enable),

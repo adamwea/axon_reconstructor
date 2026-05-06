@@ -15,6 +15,10 @@ from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_recon.pipeline.stages.reconstruct.phases.build_templates import (
 	run_reconstruct_templates_build_templates_phase,
 )
+from axon_recon.pipeline.stages.reconstruct.phases.plot_templates import (
+	_resolve_plot_templates_execution_plan,
+	_run_reconstruct_templates_plot_batches,
+)
 from axon_recon.pipeline.stages.reconstruct.templates.core.template_similarity_methods import (
 	build_template_similarity_features,
 	compute_pairwise_template_similarity,
@@ -68,8 +72,6 @@ from axon_recon.pipeline.stages.reconstruct.templates.runner import (
 	_plot_safe_propagation_config,
 	_plot_safe_template_wf_overlay_config,
 	_quiet_unexpected_plot_logs,
-	_resolve_plot_templates_execution_plan,
-	_run_reconstruct_templates_plot_batches,
 	run_reconstruct_templates_analyzers_phase,
 	run_reconstruct_templates_compute_template_similarity_phase,
 	run_reconstruct_templates_pipeline,
@@ -3611,7 +3613,7 @@ def test_run_reconstruct_templates_plot_templates_phase_uses_batched_plot_runner
 		)
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner._run_reconstruct_templates_plot_batches",
+		"axon_recon.pipeline.stages.reconstruct.phases.plot_templates._run_reconstruct_templates_plot_batches",
 		_fake_run_reconstruct_templates_plot_batches,
 	)
 

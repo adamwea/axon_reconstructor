@@ -58,6 +58,22 @@ def test_parse_stage_list_tokens_rejects_retired_templates_selector(raw_token: s
 
 
 @pytest.mark.parametrize(
+    "raw_token",
+    [
+        "reconstruct.extract_template_segments",
+        "reconstruct.templates_extract_template_segments",
+        "recon.extract_template_segments",
+        "recon.templates_extract_template_segments",
+        "reconstruction.extract_template_segments",
+        "reconstruction.templates_extract_template_segments",
+    ],
+)
+def test_parse_stage_list_tokens_rejects_removed_extract_template_segments(raw_token: str) -> None:
+    with pytest.raises(SystemExit, match="Unsupported stage token"):
+        pipeline_cli._parse_stage_list_tokens([raw_token])
+
+
+@pytest.mark.parametrize(
     ("raw_token", "expected"),
     [
         ("preprocess.copy_src_to_scratch", "preprocess.copy_src_to_scratch"),

@@ -64,6 +64,7 @@ from .models.inputs import ReconstructionInputs
 from .models.results import ReconstructionResult, UnitReconstructionResult
 from .reporting.slides import write_reconstruct_report_markdown
 from .templates.core.render import finalize_grid_svg_output, render_footprint_map_grid_from_assets, render_template_report_pdf
+from .templates.models.inputs import TemplatesInputs
 
 
 LOGGER = logging.getLogger("axon_recon.reconstruct")
@@ -96,7 +97,6 @@ DEBUGGY_PROJECT_LOGGER_NAMES: tuple[str, ...] = (
 DEFAULT_INTERNAL_RECONSTRUCTION_PHASE_SEQUENCE: tuple[str, ...] = (
 	"templates_resolve_sources",
 	"templates_analyzers",
-	"templates_extract_template_segments",
 	"templates_build_templates",
 	"templates_compute_template_similarity",
 	"templates_plot_templates",
@@ -1096,7 +1096,7 @@ def _run_reconstruct_report_summaries_phase_impl(
 
 
 def run_reconstruct_templates_resolve_sources_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_reconstruct_templates_resolve_sources_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.resolve_sources import run_reconstruct_templates_resolve_sources_phase
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_resolve_sources requires templates_inputs to be populated on ReconstructionInputs")
@@ -1104,19 +1104,11 @@ def run_reconstruct_templates_resolve_sources_phase(inputs: ReconstructionInputs
 
 
 def run_reconstruct_templates_analyzers_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_reconstruct_templates_analyzers_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.analyzers import run_reconstruct_templates_analyzers_phase
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_analyzers requires templates_inputs to be populated on ReconstructionInputs")
 	return run_reconstruct_templates_analyzers_phase(inputs.templates_inputs)
-
-
-def run_reconstruct_templates_extract_template_segments_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_reconstruct_templates_extract_template_segments_phase
-
-	if inputs.templates_inputs is None:
-		raise ValueError("reconstruct.templates_extract_template_segments requires templates_inputs to be populated on ReconstructionInputs")
-	return run_reconstruct_templates_extract_template_segments_phase(inputs.templates_inputs)
 
 
 def run_reconstruct_templates_build_templates_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
@@ -1128,7 +1120,7 @@ def run_reconstruct_templates_build_templates_phase(inputs: ReconstructionInputs
 
 
 def run_reconstruct_templates_compute_template_similarity_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_reconstruct_templates_compute_template_similarity_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.compute_template_similarity import run_reconstruct_templates_compute_template_similarity_phase
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_compute_template_similarity requires templates_inputs to be populated on ReconstructionInputs")
@@ -1136,7 +1128,7 @@ def run_reconstruct_templates_compute_template_similarity_phase(inputs: Reconstr
 
 
 def run_reconstruct_templates_plot_templates_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_reconstruct_templates_plot_templates_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.plot_templates import run_reconstruct_templates_plot_templates_phase
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_plot_templates requires templates_inputs to be populated on ReconstructionInputs")
@@ -1144,7 +1136,7 @@ def run_reconstruct_templates_plot_templates_phase(inputs: ReconstructionInputs)
 
 
 def run_reconstruct_templates_report_templates_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_reconstruct_templates_report_templates_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.report_templates import run_reconstruct_templates_report_templates_phase
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_report_templates requires templates_inputs to be populated on ReconstructionInputs")
@@ -1152,7 +1144,7 @@ def run_reconstruct_templates_report_templates_phase(inputs: ReconstructionInput
 
 
 def run_reconstruct_templates_reports_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.templates.runner import run_reconstruct_templates_reports_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.reports import run_reconstruct_templates_reports_phase
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_reports requires templates_inputs to be populated on ReconstructionInputs")
@@ -1160,257 +1152,63 @@ def run_reconstruct_templates_reports_phase(inputs: ReconstructionInputs) -> dic
 
 
 def run_reconstruct_clear_templates_cache_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from .core.clear_templates_cache import run_clear_templates_cache_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.clear_templates_cache import run_reconstruct_clear_templates_cache_phase
 
-	well_out_dir = compute_mea_analysis_output_dir(
-		output_root=inputs.mea_output_root,
-		data_file=inputs.h5_path,
-		well=inputs.stream_id,
-	)
-	cfg = inputs.phases.clear_templates_cache
-	summary = run_clear_templates_cache_phase(
-		well_out_dir=well_out_dir,
-		enabled=bool(cfg.enabled),
-		keep_merged_per_unit_outputs=bool(cfg.keep_merged_per_unit_outputs),
-		keep_full_channels_templates=bool(cfg.keep_full_channels_templates),
-		templates_output_rel_root=(
-			str(inputs.templates_inputs.output_rel_root) if inputs.templates_inputs is not None else None
-		),
-		logger=LOGGER,
-	)
-	summary["applied_debug_limits"] = _reconstruct_applied_debug_limits(inputs)
-	summary_json = well_out_dir / str(inputs.output_rel_root) / Path(str(cfg.summary_json_relpath)).expanduser()
-	summary_json.parent.mkdir(parents=True, exist_ok=True)
-	write_json(summary_json, summary)
-	summary["summary_json"] = str(summary_json)
-	return summary
+	return run_reconstruct_clear_templates_cache_phase(inputs)
 
 
 def run_reconstruct_generate_gtrs_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=True)
-	LOGGER.info(
-		"reconstruct.generate_gtrs phase start: well_out_dir=%s reconstruction_out_dir=%s units=%d applied_debug_limits=%s",
-		str(env.well_out_dir),
-		str(env.reconstruction_out_dir),
-		len(env.unit_ids),
-		_reconstruct_applied_debug_limits(inputs),
-	)
-	unit_results, failed_units_summary_json = _run_reconstruct_generate_gtrs_phase_impl(inputs=inputs, env=env)
-	summary_json = env.reconstruction_out_dir / Path(str(inputs.phases.generate_gtrs.summary_json_relpath)).expanduser()
-	summary = _write_reconstruct_phase_summary(
-		phase_name="generate_gtrs",
-		summary_json=summary_json,
-		inputs=inputs,
-		well_out_dir=env.well_out_dir,
-		reconstruction_out_dir=env.reconstruction_out_dir,
-		unit_results=unit_results,
-		failed_units_summary_json=failed_units_summary_json,
-		preserve_stage_reports=env.preserve_stage_reports,
-	)
-	LOGGER.info(
-		"reconstruct.generate_gtrs wrote summary output: %s",
-		str(summary_json),
-	)
-	LOGGER.info(
-		"reconstruct.generate_gtrs run stats: units_total=%d units_ok=%d units_error=%d",
-		int(summary.get("unit_count", 0)),
-		int(summary.get("units_ok", 0)),
-		int(summary.get("units_error", 0)),
-	)
-	return summary
+	from axon_recon.pipeline.stages.reconstruct.phases.generate_gtrs import run_reconstruct_generate_gtrs_phase
+
+	return run_reconstruct_generate_gtrs_phase(inputs)
 
 
 def run_reconstruct_plot_recons_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
-	unit_results, failed_units_summary_json = _run_reconstruct_plot_recons_phase_impl(inputs=inputs, env=env)
-	summary_json = env.reconstruction_out_dir / Path(str(inputs.phases.plot_recons.summary_json_relpath)).expanduser()
-	return _write_reconstruct_phase_summary(
-		phase_name="plot_recons",
-		summary_json=summary_json,
-		inputs=inputs,
-		well_out_dir=env.well_out_dir,
-		reconstruction_out_dir=env.reconstruction_out_dir,
-		unit_results=unit_results,
-		failed_units_summary_json=failed_units_summary_json,
-		preserve_stage_reports=env.preserve_stage_reports,
-	)
+	from axon_recon.pipeline.stages.reconstruct.phases.plot_recons import run_reconstruct_plot_recons_phase
+
+	return run_reconstruct_plot_recons_phase(inputs)
 
 
 def run_reconstruct_plot_branch_propagations_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
-	unit_results, failed_units_summary_json = _run_reconstruct_plot_branch_propagations_phase_impl(inputs=inputs, env=env)
-	summary_json = env.reconstruction_out_dir / Path(
-		str(inputs.phases.plot_branch_propagations.summary_json_relpath)
-	).expanduser()
-	return _write_reconstruct_phase_summary(
-		phase_name="plot_branch_propagations",
-		summary_json=summary_json,
-		inputs=inputs,
-		well_out_dir=env.well_out_dir,
-		reconstruction_out_dir=env.reconstruction_out_dir,
-		unit_results=unit_results,
-		failed_units_summary_json=failed_units_summary_json,
-		preserve_stage_reports=env.preserve_stage_reports,
-	)
+	from axon_recon.pipeline.stages.reconstruct.phases.plot_branch_propagations import run_reconstruct_plot_branch_propagations_phase
+
+	return run_reconstruct_plot_branch_propagations_phase(inputs)
 
 
 def run_reconstruct_plot_branch_velocities_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
-	unit_results, failed_units_summary_json = _run_reconstruct_plot_branch_velocities_phase_impl(inputs=inputs, env=env)
-	summary_json = env.reconstruction_out_dir / Path(
-		str(inputs.phases.plot_branch_velocities.summary_json_relpath)
-	).expanduser()
-	return _write_reconstruct_phase_summary(
-		phase_name="plot_branch_velocities",
-		summary_json=summary_json,
-		inputs=inputs,
-		well_out_dir=env.well_out_dir,
-		reconstruction_out_dir=env.reconstruction_out_dir,
-		unit_results=unit_results,
-		failed_units_summary_json=failed_units_summary_json,
-		preserve_stage_reports=env.preserve_stage_reports,
-	)
+	from axon_recon.pipeline.stages.reconstruct.phases.plot_branch_velocities import run_reconstruct_plot_branch_velocities_phase
+
+	return run_reconstruct_plot_branch_velocities_phase(inputs)
 
 
 def run_reconstruct_plot_unit_summary_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
-	unit_results, failed_units_summary_json = _run_reconstruct_plot_unit_summary_phase_impl(inputs=inputs, env=env)
-	summary_json = env.reconstruction_out_dir / Path(
-		str(inputs.phases.plot_unit_summary.summary_json_relpath)
-	).expanduser()
-	return _write_reconstruct_phase_summary(
-		phase_name="plot_unit_summary",
-		summary_json=summary_json,
-		inputs=inputs,
-		well_out_dir=env.well_out_dir,
-		reconstruction_out_dir=env.reconstruction_out_dir,
-		unit_results=unit_results,
-		failed_units_summary_json=failed_units_summary_json,
-		preserve_stage_reports=env.preserve_stage_reports,
-	)
+	from axon_recon.pipeline.stages.reconstruct.phases.plot_unit_summary import run_reconstruct_plot_unit_summary_phase
+
+	return run_reconstruct_plot_unit_summary_phase(inputs)
 
 
 def run_reconstruct_report_recons_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
-	unit_results = _load_reconstruct_unit_results(
-		reconstruction_out_dir=env.reconstruction_out_dir,
-		inputs=inputs,
-		unit_ids=env.unit_ids,
-	)
-	stage_outputs = _run_reconstruct_report_recons_phase_impl(inputs=inputs, env=env, unit_results=unit_results)
-	summary_json = env.reconstruction_out_dir / Path(str(inputs.phases.report_recons.summary_json_relpath)).expanduser()
-	return _write_reconstruct_phase_summary(
-		phase_name="report_recons",
-		summary_json=summary_json,
-		inputs=inputs,
-		well_out_dir=env.well_out_dir,
-		reconstruction_out_dir=env.reconstruction_out_dir,
-		unit_results=unit_results,
-		stage_outputs=stage_outputs,
-		failed_units_summary_json=_current_failed_units_summary_json(
-			inputs=inputs,
-			reconstruction_out_dir=env.reconstruction_out_dir,
-		),
-		preserve_stage_reports=env.preserve_stage_reports,
-		extra_fields={
-			"report_sort_by": normalize_grid_sort_by(inputs.report_sort_by, default="unit_id"),
-		},
-	)
+	from axon_recon.pipeline.stages.reconstruct.phases.report_recons import run_reconstruct_report_recons_phase
+
+	return run_reconstruct_report_recons_phase(inputs)
 
 
 def run_reconstruct_report_recon_grid_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
-	unit_results = _load_reconstruct_unit_results(
-		reconstruction_out_dir=env.reconstruction_out_dir,
-		inputs=inputs,
-		unit_ids=env.unit_ids,
-	)
-	stage_outputs = _run_reconstruct_report_recon_grid_phase_impl(
-		inputs=inputs,
-		env=env,
-		unit_results=unit_results,
-		stage_outputs=dict(env.existing_stage_outputs),
-	)
-	summary_json = env.reconstruction_out_dir / Path(str(inputs.phases.report_recon_grid.summary_json_relpath)).expanduser()
-	return _write_reconstruct_phase_summary(
-		phase_name="report_recon_grid",
-		summary_json=summary_json,
-		inputs=inputs,
-		well_out_dir=env.well_out_dir,
-		reconstruction_out_dir=env.reconstruction_out_dir,
-		unit_results=unit_results,
-		stage_outputs=stage_outputs,
-		failed_units_summary_json=_current_failed_units_summary_json(
-			inputs=inputs,
-			reconstruction_out_dir=env.reconstruction_out_dir,
-		),
-		preserve_stage_reports=env.preserve_stage_reports,
-		extra_fields={
-			"report_sort_by": normalize_grid_sort_by(inputs.report_sort_by, default="unit_id"),
-		},
-	)
+	from axon_recon.pipeline.stages.reconstruct.phases.report_recon_grid import run_reconstruct_report_recon_grid_phase
+
+	return run_reconstruct_report_recon_grid_phase(inputs)
 
 
 def run_reconstruct_report_full_chip_layout_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
-	unit_results = _load_full_chip_layout_unit_results(
-		reconstruction_out_dir=env.reconstruction_out_dir,
-		inputs=inputs,
-		merged_units_dir=env.merged_units_dir,
-	)
-	stage_outputs = _run_reconstruct_report_full_chip_layout_phase_impl(inputs=inputs, env=env, unit_results=unit_results)
-	summary_json = env.reconstruction_out_dir / Path(
-		str(inputs.phases.report_full_chip_layout.summary_json_relpath)
-	).expanduser()
-	return _write_reconstruct_phase_summary(
-		phase_name="report_full_chip_layout",
-		summary_json=summary_json,
-		inputs=inputs,
-		well_out_dir=env.well_out_dir,
-		reconstruction_out_dir=env.reconstruction_out_dir,
-		unit_results=unit_results,
-		stage_outputs=stage_outputs,
-		failed_units_summary_json=_current_failed_units_summary_json(
-			inputs=inputs,
-			reconstruction_out_dir=env.reconstruction_out_dir,
-		),
-		preserve_stage_reports=False,
-	)
+	from axon_recon.pipeline.stages.reconstruct.phases.report_full_chip_layout import run_reconstruct_report_full_chip_layout_phase
+
+	return run_reconstruct_report_full_chip_layout_phase(inputs)
 
 
 def run_reconstruct_report_summaries_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
-	unit_results = _load_reconstruct_unit_results(
-		reconstruction_out_dir=env.reconstruction_out_dir,
-		inputs=inputs,
-		unit_ids=env.unit_ids,
-	)
-	stage_outputs = _run_reconstruct_report_summaries_phase_impl(
-		inputs=inputs,
-		env=env,
-		unit_results=unit_results,
-		stage_outputs=dict(env.existing_stage_outputs),
-	)
-	summary_json = env.reconstruction_out_dir / Path(
-		str(inputs.phases.report_summaries.summary_json_relpath)
-	).expanduser()
-	return _write_reconstruct_phase_summary(
-		phase_name="report_summaries",
-		summary_json=summary_json,
-		inputs=inputs,
-		well_out_dir=env.well_out_dir,
-		reconstruction_out_dir=env.reconstruction_out_dir,
-		unit_results=unit_results,
-		stage_outputs=stage_outputs,
-		failed_units_summary_json=_current_failed_units_summary_json(
-			inputs=inputs,
-			reconstruction_out_dir=env.reconstruction_out_dir,
-		),
-		preserve_stage_reports=env.preserve_stage_reports,
-		extra_fields={
-			"report_sort_by": normalize_grid_sort_by(inputs.report_sort_by, default="unit_id"),
-		},
-	)
+	from axon_recon.pipeline.stages.reconstruct.phases.report_summaries import run_reconstruct_report_summaries_phase
+
+	return run_reconstruct_report_summaries_phase(inputs)
 
 
 def _normalize_reconstruct_stage_phase_name(raw: Any) -> str:
@@ -1422,8 +1220,6 @@ def _normalize_reconstruct_stage_phase_name(raw: Any) -> str:
 		"templates.resolve_sources": "templates_resolve_sources",
 		"analyzers": "templates_analyzers",
 		"templates.analyzers": "templates_analyzers",
-		"extract_template_segments": "templates_extract_template_segments",
-		"templates.extract_template_segments": "templates_extract_template_segments",
 		"build_templates": "templates_build_templates",
 		"templates.build_templates": "templates_build_templates",
 		"compute_template_similarity": "templates_compute_template_similarity",
@@ -1448,11 +1244,6 @@ def _reconstruct_stage_phase_enabled(inputs: ReconstructionInputs, phase_name: s
 		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.resolve_sources_phase.enabled)
 	if phase == "templates_analyzers":
 		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.analyzers.enabled)
-	if phase == "templates_extract_template_segments":
-		return bool(
-			inputs.templates_inputs is not None
-			and inputs.templates_inputs.phases.per_unit_processing.extract_template_segments.enabled
-		)
 	if phase == "templates_build_templates":
 		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.build_templates.enabled)
 	if phase == "templates_compute_template_similarity":
@@ -1500,12 +1291,6 @@ def _reconstruct_stage_phase_resource_class(inputs: ReconstructionInputs, phase_
 		return None if inputs.templates_inputs is None else _resource_class(inputs.templates_inputs.resolve_sources_phase)
 	if phase == "templates_analyzers":
 		return None if inputs.templates_inputs is None else _resource_class(inputs.templates_inputs.phases.analyzers)
-	if phase == "templates_extract_template_segments":
-		return (
-			None
-			if inputs.templates_inputs is None
-			else _resource_class(inputs.templates_inputs.phases.per_unit_processing.extract_template_segments)
-		)
 	if phase == "templates_build_templates":
 		return None if inputs.templates_inputs is None else _resource_class(inputs.templates_inputs.phases.build_templates)
 	if phase == "templates_compute_template_similarity":
@@ -1548,7 +1333,6 @@ def _display_reconstruct_stage_phase_name(phase_name: str) -> str:
 	aliases = {
 		"templates_resolve_sources": "resolve_sources",
 		"templates_analyzers": "analyzers",
-		"templates_extract_template_segments": "extract_template_segments",
 		"templates_build_templates": "build_templates",
 		"templates_compute_template_similarity": "compute_template_similarity",
 		"templates_plot_templates": "plot_templates",
@@ -1564,8 +1348,6 @@ def _reconstruct_stage_phase_runner(phase_name: str):
 		return run_reconstruct_templates_resolve_sources_phase
 	if phase == "templates_analyzers":
 		return run_reconstruct_templates_analyzers_phase
-	if phase == "templates_extract_template_segments":
-		return run_reconstruct_templates_extract_template_segments_phase
 	if phase == "templates_build_templates":
 		return run_reconstruct_templates_build_templates_phase
 	if phase == "templates_compute_template_similarity":

@@ -113,7 +113,6 @@ Known reconstruct phases:
 
 - `resolve_sources`: inspect candidate upstream artifacts and write source-resolution summaries.
 - `analyzers`: build or reuse concat/segment analyzers.
-- `extract_template_segments`: extract selected template segment inputs where supported.
 - `build_templates`: build merged per-unit templates and template metadata.
 - `compute_template_similarity`: optional template similarity/candidate comparison.
 - `plot_templates`: render per-unit template plots.

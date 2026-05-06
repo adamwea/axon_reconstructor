@@ -57,7 +57,6 @@ from .stages.reconstruct.api import (
 	run_reconstruct_templates_analyzers,
 	run_reconstruct_templates_build_templates,
 	run_reconstruct_templates_compute_template_similarity,
-	run_reconstruct_templates_extract_template_segments,
 	run_reconstruct_templates_plot_templates,
 	run_reconstruct_templates_report_templates,
 	run_reconstruct_templates_reports,
@@ -3158,33 +3157,6 @@ def run_reconstruct_templates_analyzers_from_runtime(
 		config_path=config_path,
 		stage_name="reconstruct.analyzers",
 		runner_fn=run_reconstruct_templates_analyzers,
-		unit_id_override=unit_id_override,
-		unit_ids_override=unit_ids_override,
-		unit_limit_override=unit_limit_override,
-		limit_segments_override=limit_segments_override,
-		limit_datasets_override=limit_datasets_override,
-		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
-		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
-	)
-
-
-def run_reconstruct_templates_extract_template_segments_from_runtime(
-	*,
-	config_path: str,
-	unit_id_override: int | None = None,
-	unit_ids_override: list[int] | None = None,
-	unit_limit_override: int | None = None,
-	limit_segments_override: int | None = None,
-	limit_datasets_override: int | None = None,
-	limit_wells_per_dataset_override: int | None = None,
-	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
-) -> MultiTargetStageResult:
-	return _run_reconstruct_substage_from_runtime(
-		config_path=config_path,
-		stage_name="reconstruct.extract_template_segments",
-		runner_fn=run_reconstruct_templates_extract_template_segments,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,

@@ -37,9 +37,6 @@ from .stages.reconstruct.cli import _run_reconstruct_build_templates_from_args
 from .stages.reconstruct.cli import (
 	_run_reconstruct_compute_template_similarity_from_args,
 )
-from .stages.reconstruct.cli import (
-	_run_reconstruct_extract_template_segments_from_args,
-)
 from .stages.reconstruct.cli import _run_reconstruct_plot_templates_from_args
 from .stages.reconstruct.cli import _run_reconstruct_report_templates_from_args
 from .stages.reconstruct.cli import _run_reconstruct_reports_from_args
@@ -127,7 +124,6 @@ _STAGE_ALIASES: dict[str, str] = {
 	"reconstruction": "reconstruct",
 	"recon.resolve_sources": "reconstruct.resolve_sources",
 	"recon.analyzers": "reconstruct.analyzers",
-	"recon.extract_template_segments": "reconstruct.extract_template_segments",
 	"recon.build_templates": "reconstruct.build_templates",
 	"recon.compute_template_similarity": "reconstruct.compute_template_similarity",
 	"recon.plot_templates": "reconstruct.plot_templates",
@@ -135,7 +131,6 @@ _STAGE_ALIASES: dict[str, str] = {
 	"recon.reports": "reconstruct.reports",
 	"recon.templates_resolve_sources": "reconstruct.resolve_sources",
 	"recon.templates_analyzers": "reconstruct.analyzers",
-	"recon.templates_extract_template_segments": "reconstruct.extract_template_segments",
 	"recon.templates_build_templates": "reconstruct.build_templates",
 	"recon.templates_compute_template_similarity": "reconstruct.compute_template_similarity",
 	"recon.templates_plot_templates": "reconstruct.plot_templates",
@@ -153,7 +148,6 @@ _STAGE_ALIASES: dict[str, str] = {
 	"recon.clear_templates_cache": "reconstruct.clear_templates_cache",
 	"reconstruction.resolve_sources": "reconstruct.resolve_sources",
 	"reconstruction.analyzers": "reconstruct.analyzers",
-	"reconstruction.extract_template_segments": "reconstruct.extract_template_segments",
 	"reconstruction.build_templates": "reconstruct.build_templates",
 	"reconstruction.compute_template_similarity": "reconstruct.compute_template_similarity",
 	"reconstruction.plot_templates": "reconstruct.plot_templates",
@@ -161,7 +155,6 @@ _STAGE_ALIASES: dict[str, str] = {
 	"reconstruction.reports": "reconstruct.reports",
 	"reconstruction.templates_resolve_sources": "reconstruct.resolve_sources",
 	"reconstruction.templates_analyzers": "reconstruct.analyzers",
-	"reconstruction.templates_extract_template_segments": "reconstruct.extract_template_segments",
 	"reconstruction.templates_build_templates": "reconstruct.build_templates",
 	"reconstruction.templates_compute_template_similarity": "reconstruct.compute_template_similarity",
 	"reconstruction.templates_plot_templates": "reconstruct.plot_templates",
@@ -169,7 +162,6 @@ _STAGE_ALIASES: dict[str, str] = {
 	"reconstruction.templates_reports": "reconstruct.reports",
 	"reconstruct.templates_resolve_sources": "reconstruct.resolve_sources",
 	"reconstruct.templates_analyzers": "reconstruct.analyzers",
-	"reconstruct.templates_extract_template_segments": "reconstruct.extract_template_segments",
 	"reconstruct.templates_build_templates": "reconstruct.build_templates",
 	"reconstruct.templates_compute_template_similarity": "reconstruct.compute_template_similarity",
 	"reconstruct.templates_plot_templates": "reconstruct.plot_templates",
@@ -213,7 +205,6 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"reconstruct": _run_reconstruct_from_args,
 	"reconstruct.resolve_sources": _run_reconstruct_resolve_sources_from_args,
 	"reconstruct.analyzers": _run_reconstruct_analyzers_from_args,
-	"reconstruct.extract_template_segments": _run_reconstruct_extract_template_segments_from_args,
 	"reconstruct.build_templates": _run_reconstruct_build_templates_from_args,
 	"reconstruct.compute_template_similarity": _run_reconstruct_compute_template_similarity_from_args,
 	"reconstruct.plot_templates": _run_reconstruct_plot_templates_from_args,

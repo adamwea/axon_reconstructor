@@ -11,6 +11,7 @@ from .models.inputs import PerUnitTemplatesOutputsConfig
 
 
 MATERIALIZED_TEMPLATES_CACHE_RELPATH = Path("cache/templates")
+SOURCE_PAYLOADS_CACHE_RELPATH = Path("cache/source_payloads")
 
 
 def read_json(path: Path) -> Any:

@@ -20,7 +20,6 @@ from .runner import (
 	run_reconstruct_templates_analyzers_phase,
 	run_reconstruct_templates_build_templates_phase,
 	run_reconstruct_templates_compute_template_similarity_phase,
-	run_reconstruct_templates_extract_template_segments_phase,
 	run_reconstruct_templates_plot_templates_phase,
 	run_reconstruct_templates_report_templates_phase,
 	run_reconstruct_templates_reports_phase,
@@ -46,10 +45,6 @@ def run_reconstruct_templates_resolve_sources(inputs: ReconstructionInputs) -> d
 
 def run_reconstruct_templates_analyzers(inputs: ReconstructionInputs) -> dict[str, object]:
 	return _run_with_quiet_unexpected_plot_logs(inputs, run_reconstruct_templates_analyzers_phase)
-
-
-def run_reconstruct_templates_extract_template_segments(inputs: ReconstructionInputs) -> dict[str, object]:
-	return _run_with_quiet_unexpected_plot_logs(inputs, run_reconstruct_templates_extract_template_segments_phase)
 
 
 def run_reconstruct_templates_build_templates(inputs: ReconstructionInputs) -> dict[str, object]:

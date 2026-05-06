@@ -12,7 +12,6 @@ from axon_recon.pipeline.runner import (
     run_reconstruct_templates_analyzers_from_runtime,
     run_reconstruct_templates_build_templates_from_runtime,
     run_reconstruct_templates_compute_template_similarity_from_runtime,
-    run_reconstruct_templates_extract_template_segments_from_runtime,
     run_reconstruct_templates_plot_templates_from_runtime,
     run_reconstruct_templates_report_templates_from_runtime,
     run_reconstruct_templates_reports_from_runtime,
@@ -352,12 +351,6 @@ def test_run_reconstruct_from_runtime_marks_target_error_when_no_units_succeed(m
             "analyzers",
         ),
         (
-            run_reconstruct_templates_extract_template_segments_from_runtime,
-            "run_reconstruct_templates_extract_template_segments",
-            "reconstruct.extract_template_segments",
-            "extract_template_segments",
-        ),
-        (
             run_reconstruct_templates_build_templates_from_runtime,
             "run_reconstruct_templates_build_templates",
             "reconstruct.build_templates",
@@ -535,7 +528,6 @@ def test_run_reconstruct_analyzers_from_runtime_accepts_non_unit_phase_result(mo
     [
         (run_reconstruct_templates_resolve_sources_from_runtime, "reconstruct.resolve_sources"),
         (run_reconstruct_templates_analyzers_from_runtime, "reconstruct.analyzers"),
-        (run_reconstruct_templates_extract_template_segments_from_runtime, "reconstruct.extract_template_segments"),
         (run_reconstruct_templates_build_templates_from_runtime, "reconstruct.build_templates"),
         (run_reconstruct_templates_compute_template_similarity_from_runtime, "reconstruct.compute_template_similarity"),
         (run_reconstruct_templates_plot_templates_from_runtime, "reconstruct.plot_templates"),

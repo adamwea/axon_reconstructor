@@ -228,14 +228,6 @@ class TemplatesAnalyzersPhaseConfig:
 
 
 @dataclass(frozen=True)
-class TemplateExtractTemplateSegmentsPhaseConfig:
-	enabled: bool = True
-	output_rel_root: str = "cache/source_payloads"
-	summary_json_relpath: str = "context/extract_template_segments_summary.json"
-	resource_class: str | None = None
-
-
-@dataclass(frozen=True)
 class TemplateBuildTemplatesPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/build_templates_summary.json"
@@ -346,9 +338,6 @@ class TemplateComputeSimilarityPhaseConfig:
 class TemplatePerUnitProcessingPhaseConfig:
 	enabled: bool = True
 	resource_class: str | None = None
-	extract_template_segments: TemplateExtractTemplateSegmentsPhaseConfig = field(
-		default_factory=TemplateExtractTemplateSegmentsPhaseConfig
-	)
 	build_templates: TemplateBuildTemplatesPhaseConfig = field(default_factory=TemplateBuildTemplatesPhaseConfig)
 	quality_checks: TemplateQualityChecksPhaseConfig = field(default_factory=TemplateQualityChecksPhaseConfig)
 	analysis: TemplateAnalysisPhaseConfig = field(default_factory=TemplateAnalysisPhaseConfig)

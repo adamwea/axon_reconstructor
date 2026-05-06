@@ -22,7 +22,6 @@ from axon_recon.pipeline.shared.grid_sorting import (
 from axon_recon.pipeline.execution.phase_chain import PhaseDescriptor, run_phase_chain
 from axon_recon.pipeline.execution.progress import add_current_progress_total, advance_current_progress
 
-from ..phases.build_templates import run_reconstruct_templates_build_templates_phase
 from .core.compute_template_similarity import (
 	TemplateSimilarityUnitInput,
 	build_template_similarity_phase_summary,
@@ -93,7 +92,6 @@ NOISY_PLOT_LOGGER_NAMES: tuple[str, ...] = (
 DEFAULT_INTERNAL_TEMPLATES_PHASE_SEQUENCE: tuple[str, ...] = (
 	"resolve_sources",
 	"analyzers",
-	"extract_template_segments",
 	"build_templates",
 	"compute_template_similarity",
 	"plot_templates",
@@ -923,8 +921,6 @@ def run_reconstruct_templates_pipeline(inputs: TemplatesInputs) -> TemplatesResu
 			return _resource_class(inputs.resolve_sources_phase)
 		if phase == "analyzers":
 			return _resource_class(inputs.phases.analyzers)
-		if phase == "extract_template_segments":
-			return _resource_class(inputs.phases.per_unit_processing.extract_template_segments)
 		if phase == "build_templates":
 			return _resource_class(inputs.phases.build_templates)
 		if phase == "compute_template_similarity":
@@ -963,14 +959,12 @@ def _normalize_reconstruct_templates_phase_name(raw: Any) -> str:
 	aliases = {
 		"resolve": "resolve_sources",
 		"analyzer": "analyzers",
-		"extract": "extract_template_segments",
 		"build": "build_templates",
 		"similarity": "compute_template_similarity",
 		"compute_similarity": "compute_template_similarity",
 		"plot": "plot_templates",
 		"plots": "plot_templates",
 		"template_report": "report_templates",
-		"per_unit_processing.extract_template_segments": "extract_template_segments",
 		"per_unit_processing.build_templates": "build_templates",
 		"per_unit_processing.plots": "plot_templates",
 	}
@@ -984,8 +978,6 @@ def _reconstruct_templates_phase_enabled(inputs: TemplatesInputs, phase_name: st
 		return bool(inputs.resolve_sources_phase.enabled)
 	if phase == "analyzers":
 		return bool(phases.analyzers.enabled)
-	if phase == "extract_template_segments":
-		return bool(phases.per_unit_processing.extract_template_segments.enabled)
 	if phase == "build_templates":
 		return bool(phases.build_templates.enabled)
 	if phase == "compute_template_similarity":
@@ -1007,8 +999,6 @@ def _reconstruct_templates_phase_runner(phase_name: str) -> Callable[[TemplatesI
 		return run_reconstruct_templates_resolve_sources_phase
 	if phase == "analyzers":
 		return run_reconstruct_templates_analyzers_phase
-	if phase == "extract_template_segments":
-		return run_reconstruct_templates_extract_template_segments_phase
 	if phase == "build_templates":
 		return run_reconstruct_templates_build_templates_phase
 	if phase == "compute_template_similarity":
@@ -1572,205 +1562,6 @@ def _summarize_source_candidates(
 	}
 
 
-def run_reconstruct_templates_resolve_sources_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-	phase_cfg = inputs.resolve_sources_phase
-	well_out_dir = compute_mea_analysis_output_dir(
-		output_root=inputs.mea_output_root,
-		data_file=inputs.h5_path,
-		well=inputs.stream_id,
-	)
-	alternate_well_out_dirs = (
-		_resolve_alternate_well_out_dirs(inputs=inputs, primary_well_out_dir=well_out_dir)
-		if bool(phase_cfg.include_alternate_well_dirs)
-		else []
-	)
-	well_dirs = [well_out_dir, *list(alternate_well_out_dirs)]
-
-	concat_analyzer_tokens = _dedupe_string_tokens(
-		[
-			str(inputs.concat_analyzer_relpath or ""),
-			"/spikesort_outputs/analyzer_output",
-			"/stg2_spikesorting_outputs/analyzer_output",
-			"spikesort_outputs/analyzer_output",
-			"stg2_spikesorting_outputs/analyzer_output",
-		]
-	)
-	concat_sorting_tokens = _dedupe_string_tokens(
-		[
-			str(inputs.concat_sorting_relpath or ""),
-			"/spikesort_outputs/sorter_output",
-			"/stg2_spikesorting_outputs/sorter_output",
-			"spikesort_outputs/sorter_output",
-			"stg2_spikesorting_outputs/sorter_output",
-		]
-	)
-	preprocessed_concat_tokens = _dedupe_string_tokens(
-		[
-			str(inputs.preprocessed_concat_reldir or ""),
-			"/preprocess_outputs/preprocessed_recording",
-			"preprocess_outputs/preprocessed_recording",
-		]
-	)
-	preprocessed_segments_tokens = _dedupe_string_tokens(
-		[
-			str(inputs.preprocessed_segments_reldir or ""),
-			str(inputs.preproc_seg_sources_reldir or ""),
-			"/preprocess_outputs/per_segment_preprocessed",
-			"/preprocess_outputs/per_segment_recordings",
-			"preprocess_outputs/per_segment_preprocessed",
-			"preprocess_outputs/per_segment_recordings",
-		]
-	)
-
-	concat_analyzer_candidates = _resolve_well_relative_path_candidates(
-		well_dirs=well_dirs,
-		relpath_tokens=concat_analyzer_tokens,
-	)
-	concat_sorting_candidates = _resolve_well_relative_path_candidates(
-		well_dirs=well_dirs,
-		relpath_tokens=concat_sorting_tokens,
-	)
-	preprocessed_concat_candidates = _resolve_well_relative_path_candidates(
-		well_dirs=well_dirs,
-		relpath_tokens=preprocessed_concat_tokens,
-	)
-	preprocessed_segments_candidates = _resolve_well_relative_path_candidates(
-		well_dirs=well_dirs,
-		relpath_tokens=preprocessed_segments_tokens,
-	)
-
-	source_summaries = {
-		"concat_analyzer": _summarize_source_candidates(
-			name="concat_analyzer",
-			tokens=concat_analyzer_tokens,
-			candidate_paths=concat_analyzer_candidates,
-			check_path_exists=bool(phase_cfg.check_path_exists),
-			max_candidates_per_source=int(phase_cfg.max_candidates_per_source),
-		),
-		"concat_sorting": _summarize_source_candidates(
-			name="concat_sorting",
-			tokens=concat_sorting_tokens,
-			candidate_paths=concat_sorting_candidates,
-			check_path_exists=bool(phase_cfg.check_path_exists),
-			max_candidates_per_source=int(phase_cfg.max_candidates_per_source),
-		),
-		"preprocessed_concat": _summarize_source_candidates(
-			name="preprocessed_concat",
-			tokens=preprocessed_concat_tokens,
-			candidate_paths=preprocessed_concat_candidates,
-			check_path_exists=bool(phase_cfg.check_path_exists),
-			max_candidates_per_source=int(phase_cfg.max_candidates_per_source),
-		),
-		"preprocessed_segments": _summarize_source_candidates(
-			name="preprocessed_segments",
-			tokens=preprocessed_segments_tokens,
-			candidate_paths=preprocessed_segments_candidates,
-			check_path_exists=bool(phase_cfg.check_path_exists),
-			max_candidates_per_source=int(phase_cfg.max_candidates_per_source),
-		),
-	}
-
-	unit_label_probe: dict[str, Any] = {
-		"allowed_labels": list(inputs.unit_label_filter_labels),
-		"required": bool(inputs.unit_label_filter_required),
-		"probe_attempted": False,
-		"available": None,
-		"counts_by_label": {},
-	}
-	if bool(phase_cfg.probe_unit_labels) and inputs.unit_label_filter_labels:
-		unit_label_probe["probe_attempted"] = True
-		labels_by_unit = load_unit_labels_from_spikesorting(well_out_dir)
-		if labels_by_unit is not None:
-			unit_label_probe["available"] = True
-			unit_label_probe["counts_by_label"] = count_labels(labels_by_unit)
-		else:
-			unit_label_probe["available"] = False
-
-	summary: dict[str, Any] = {
-		"phase": "resolve_sources",
-		"stream_id": str(inputs.stream_id),
-		"h5_path": str(inputs.h5_path),
-		"well_out_dir": str(well_out_dir),
-		"alternate_well_out_dirs": [str(path) for path in alternate_well_out_dirs],
-		"run_intent": {
-			"force_restart": bool(inputs.force_restart),
-			"force_replot": bool(inputs.force_replot),
-			"force_replot_per_unit": bool(inputs.force_replot_per_unit),
-			"force_rereport": bool(inputs.force_rereport),
-		},
-		"applied_debug_limits": _templates_applied_debug_limits(inputs),
-		"unit_scope": {
-			"unit_ids": (None if inputs.unit_ids is None else list(inputs.unit_ids)),
-			"unit_limit": inputs.unit_limit,
-			"unit_label_filter": unit_label_probe,
-		},
-		"source_requirements": {
-			"include_concat": bool(inputs.include_concat),
-			"include_segments": bool(inputs.include_segments),
-			"require_concat_analyzer": bool(inputs.require_concat_analyzer),
-			"require_segment_analyzers": bool(inputs.require_segment_analyzers),
-		},
-		"sources": source_summaries,
-	}
-
-	if bool(phase_cfg.fail_if_required_sources_missing):
-		missing_required: list[str] = []
-		if bool(inputs.include_concat) and bool(inputs.require_concat_analyzer):
-			if source_summaries["concat_analyzer"].get("first_existing", None) is None:
-				missing_required.append("concat_analyzer")
-		if bool(inputs.include_segments) and bool(inputs.require_segment_analyzers):
-			if source_summaries["preprocessed_segments"].get("first_existing", None) is None:
-				missing_required.append("preprocessed_segments")
-		if missing_required:
-			raise RuntimeError(
-				"resolve_sources required inputs missing: "
-				+ ", ".join(missing_required)
-			)
-
-	if bool(phase_cfg.enabled):
-		if bool(phase_cfg.show_header):
-			header_title = f"templates.resolve_sources [{inputs.stream_id}]"
-			header_line = "=" * max(24, len(header_title))
-			LOGGER.info(header_line)
-			LOGGER.info(header_title)
-			LOGGER.info(header_line)
-		LOGGER.info(
-			"resolve_sources: stream=%s run_intent=%s",
-			str(inputs.stream_id),
-			summary["run_intent"],
-		)
-		LOGGER.info(
-			"resolve_sources: well_out_dir=%s alternate_well_out_dirs=%s",
-			str(well_out_dir),
-			["%s" % path for path in alternate_well_out_dirs],
-		)
-		for source_name, payload in source_summaries.items():
-			LOGGER.info(
-				"resolve_sources: %s first_existing=%s candidates=%d",
-				source_name,
-				payload.get("first_existing", None),
-				int(payload.get("candidate_count", 0)),
-			)
-			if bool(phase_cfg.log_candidates):
-				for row in list(payload.get("candidates", [])):
-					LOGGER.info(
-						"resolve_sources: %s candidate path=%s exists=%s",
-						source_name,
-						row.get("path", None),
-						row.get("exists", None),
-					)
-		LOGGER.info("resolve_sources: unit_scope=%s", summary["unit_scope"])
-
-	if bool(phase_cfg.write_json):
-		templates_out_dir = well_out_dir / str(inputs.output_rel_root)
-		json_path = templates_out_dir / str(phase_cfg.json_relpath)
-		json_path.parent.mkdir(parents=True, exist_ok=True)
-		write_json(json_path, summary)
-		summary["summary_json"] = str(json_path)
-
-	return summary
-
-
 def _resolve_templates_phase_environment(
 	inputs: TemplatesInputs,
 ) -> tuple[Path, list[Path], Path, Path | None]:
@@ -2053,359 +1844,6 @@ def _disable_reports_config(reports: Any) -> Any:
 	return _report_scope_config(reports, "none")
 
 
-def run_reconstruct_templates_analyzers_phase(inputs: TemplatesInputs, *, source_scope: str | None = None) -> dict[str, Any]:
-	phase_started = perf_counter()
-	well_out_dir, alternate_well_out_dirs, templates_out_dir, analyzer_cache_dir = _resolve_templates_phase_environment(inputs)
-	include_concat = bool(inputs.include_concat) and bool(inputs.phases.analyzers.concat.enabled)
-	include_segments = bool(inputs.include_segments) and bool(inputs.phases.analyzers.segments.enabled)
-	require_concat = bool(inputs.require_concat_analyzer) and include_concat
-	require_segments = bool(inputs.require_segment_analyzers) and include_segments
-	if source_scope == "concat":
-		include_segments = False
-		require_segments = False
-	elif source_scope == "segments":
-		include_concat = False
-		require_concat = False
-	LOGGER.info(
-		"templates.analyzers start: source_scope=%s well_out_dir=%s templates_out_dir=%s analyzer_cache_dir=%s include_concat=%s include_segments=%s require_concat=%s require_segments=%s force_restart=%s",
-		source_scope,
-		str(well_out_dir),
-		str(templates_out_dir),
-		(None if analyzer_cache_dir is None else str(analyzer_cache_dir)),
-		bool(include_concat),
-		bool(include_segments),
-		bool(require_concat),
-		bool(require_segments),
-		bool(inputs.force_restart),
-	)
-	LOGGER.info(
-		"templates.analyzers concat settings: use_existing=%s build_if_missing=%s analyzer_relpath=%s sorting_relpath=%s preprocessed_recording_reldir=%s settings=%s",
-		bool(inputs.phases.analyzers.concat.use_existing_analyzer),
-		bool(inputs.phases.analyzers.concat.build_if_missing),
-		(inputs.phases.analyzers.concat.analyzer_relpath or inputs.concat_analyzer_relpath),
-		(inputs.phases.analyzers.concat.sorting_relpath or inputs.concat_sorting_relpath),
-		(inputs.phases.analyzers.concat.preprocessed_recording_reldir or inputs.preprocessed_concat_reldir),
-		_format_templates_log_fields(_templates_analyzer_policy_log_fields(_resolve_analyzer_policy_runtime_n_jobs(inputs, inputs.phases.analyzers.concat.policy))),
-	)
-	LOGGER.info(
-		"templates.analyzers segments settings: use_existing=%s build_if_missing=%s preprocessed_sources_reldir=%s settings=%s",
-		bool(inputs.phases.analyzers.segments.use_existing_analyzer),
-		bool(inputs.phases.analyzers.segments.build_if_missing),
-		(inputs.phases.analyzers.segments.preprocessed_sources_reldir or inputs.preprocessed_segments_reldir or inputs.preproc_seg_sources_reldir),
-		_format_templates_log_fields(_templates_analyzer_policy_log_fields(_resolve_analyzer_policy_runtime_n_jobs(inputs, inputs.phases.analyzers.segments.policy))),
-	)
-	if bool(inputs.force_restart) and analyzer_cache_dir is not None and analyzer_cache_dir.exists():
-		LOGGER.info("templates.analyzers clearing analyzer cache on force_restart: %s", str(analyzer_cache_dir))
-		shutil.rmtree(analyzer_cache_dir)
-	LOGGER.info("templates.analyzers streaming analyzer sources (one at a time)")
-	load_stats: dict[str, Any] = {}
-	sources_summary: dict[str, Any] = {}
-	source_count = 0
-	concat_count = 0
-	segment_count = 0
-	for source_name, analyzer in _iter_templates_phase_analyzers(
-		inputs=inputs,
-		well_out_dir=well_out_dir,
-		alternate_well_out_dirs=alternate_well_out_dirs,
-		analyzer_cache_dir=analyzer_cache_dir,
-		source_scope=source_scope,
-		load_stats=load_stats,
-	):
-		policy = _templates_analyzer_policy_for_source(inputs, source_name)
-		num_channels: int | None = None
-		get_num_channels = getattr(analyzer, "get_num_channels", None)
-		if callable(get_num_channels):
-			try:
-				num_channels = int(get_num_channels())
-			except Exception:
-				num_channels = None
-		elif hasattr(getattr(analyzer, "recording", None), "get_num_channels"):
-			try:
-				num_channels = int(analyzer.recording.get_num_channels())
-			except Exception:
-				num_channels = None
-		sources_summary[str(source_name)] = {
-			"has_sparsity": bool(getattr(analyzer, "sparsity", None) is not None),
-			"num_channels": num_channels,
-			"num_units": int(len(list(getattr(analyzer.sorting, "unit_ids", [])))) if hasattr(analyzer, "sorting") else None,
-			"policy": {
-				"sparsity_mode": str(policy.sparsity_mode),
-				"compute_sparsity": bool(policy.compute_sparsity),
-				"sparsity_method": str(policy.sparsity_method),
-				"sparsity_radius_um": policy.sparsity_radius_um,
-				"sparsity_num_channels": policy.sparsity_num_channels,
-				"sparsity_threshold": policy.sparsity_threshold,
-				"sparsity_peak_sign": str(policy.sparsity_peak_sign),
-				"sparsity_num_spikes_for_sparsity": policy.sparsity_num_spikes_for_sparsity,
-				"sparsity_by_property": policy.sparsity_by_property,
-				"random_spikes_method": str(policy.random_spikes_method),
-				"random_spikes_percentage": policy.random_spikes_percentage,
-				"min_spikes_per_unit": policy.min_spikes_per_unit,
-				"random_seed": policy.random_seed,
-				"log_before_after_spike_counts": bool(policy.log_before_after_spike_counts),
-				"margin_size": policy.margin_size,
-				"ms_before": policy.ms_before,
-				"ms_after": policy.ms_after,
-				"dtype": policy.dtype,
-				"max_spikes_per_unit": policy.max_spikes_per_unit,
-				"n_jobs": policy.n_jobs,
-				"chunk_duration": policy.chunk_duration,
-			},
-		}
-		source_count += 1
-		if str(source_name) == "concat":
-			concat_count += 1
-		else:
-			segment_count += 1
-		# Drop the analyzer reference before advancing so its waveform tensors can be freed.
-		del analyzer
-		gc.collect()
-	summary = {
-		"phase": ("analyzers" if source_scope is None else f"analyzers.{source_scope}"),
-		"stream_id": str(inputs.stream_id),
-		"well_out_dir": str(well_out_dir),
-		"templates_out_dir": str(templates_out_dir),
-		"applied_debug_limits": _templates_applied_debug_limits(inputs),
-		"analyzer_cache_dir": (None if analyzer_cache_dir is None else str(analyzer_cache_dir)),
-		"source_scope": source_scope,
-		"source_count": int(source_count),
-		"load_stats": load_stats,
-		"sources": sources_summary,
-	}
-	summary["timing"] = {"duration_seconds": float(perf_counter() - phase_started)}
-	summary_path = templates_out_dir / str(inputs.phases.analyzers.summary_json_relpath)
-	LOGGER.info("templates.analyzers generating outputs: summary_json=%s", str(summary_path))
-	write_json(summary_path, summary)
-	summary["summary_json"] = str(summary_path)
-	LOGGER.info("templates.analyzers wrote summary output: %s", str(summary_path))
-	LOGGER.info(
-		"templates.analyzers run stats: duration_seconds=%.3f source_count=%d concat_count=%d segment_count=%d load_stats=%s",
-		float(summary["timing"]["duration_seconds"]),
-		int(source_count),
-		int(concat_count),
-		int(segment_count),
-		load_stats,
-	)
-	return summary
-
-
-def run_reconstruct_templates_extract_template_segments_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-	well_out_dir, alternate_well_out_dirs, templates_out_dir, analyzer_cache_dir = _resolve_templates_phase_environment(inputs)
-	payload_root = templates_out_dir / Path(str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root)).expanduser()
-	if bool(inputs.force_restart) and payload_root.exists():
-		shutil.rmtree(payload_root)
-	payload_root.mkdir(parents=True, exist_ok=True)
-	analyzers = _load_templates_phase_analyzers(
-		inputs=inputs,
-		well_out_dir=well_out_dir,
-		alternate_well_out_dirs=alternate_well_out_dirs,
-		analyzer_cache_dir=analyzer_cache_dir,
-	)
-	unit_ids = _collect_templates_phase_unit_ids(inputs=inputs, analyzers=analyzers, well_out_dir=well_out_dir)
-	sources_summary: dict[str, Any] = {}
-	for source_name, analyzer in analyzers:
-		policy = _templates_analyzer_policy_for_source(inputs, source_name)
-		written_units: list[Any] = []
-		for unit_id in unit_ids:
-			payload = build_unit_source_payload(
-				analyzer=analyzer,
-				unit_id=unit_id,
-				max_spikes_per_unit=policy.max_spikes_per_unit,
-				min_spikes_per_unit=policy.min_spikes_per_unit,
-				waveform_ms_before=policy.ms_before,
-				waveform_ms_after=policy.ms_after,
-				waveform_dtype=policy.dtype,
-				random_spikes_method=policy.random_spikes_method,
-				random_spikes_percentage=policy.random_spikes_percentage,
-				random_seed=policy.random_seed,
-				log_before_after_spike_counts=policy.log_before_after_spike_counts,
-				margin_size=policy.margin_size,
-				compute_n_jobs=policy.n_jobs,
-				compute_chunk_duration=policy.chunk_duration,
-				compute_progress_bar=policy.progress_bar,
-			)
-			if payload is None:
-				continue
-			write_materialized_source_payload(
-				templates_out_dir=templates_out_dir,
-				output_rel_root=str(inputs.phases.per_unit_processing.extract_template_segments.output_rel_root),
-				source_name=str(source_name),
-				unit_id=unit_id,
-				template_c_by_t=payload[0],
-				locations_xy=payload[1],
-				electrode_ids=payload[2],
-				channel_ids=payload[3],
-				waveform_count=payload[4],
-				sampling_rate_hz=payload[5],
-				overlay_waveforms=payload[6],
-				top_electrode_id=payload[7],
-				total_waveforms_at_channel=payload[8],
-			)
-			written_units.append(unit_id)
-		sources_summary[str(source_name)] = {
-			"units_written": [unit for unit in written_units],
-			"unit_count": int(len(written_units)),
-		}
-	summary = {
-		"phase": "per_unit_processing.extract_template_segments",
-		"stream_id": str(inputs.stream_id),
-		"well_out_dir": str(well_out_dir),
-		"templates_out_dir": str(templates_out_dir),
-		"payload_root": str(payload_root),
-		"applied_debug_limits": _templates_applied_debug_limits(inputs),
-		"unit_ids": [unit for unit in unit_ids],
-		"sources": sources_summary,
-	}
-	summary_path = templates_out_dir / str(inputs.phases.per_unit_processing.extract_template_segments.summary_json_relpath)
-	write_json(summary_path, summary)
-	summary["summary_json"] = str(summary_path)
-	return summary
-
-
-def run_reconstruct_templates_compute_template_similarity_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-	phase_started = perf_counter()
-	well_out_dir, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
-	try:
-		merged_units_dir, _ = _resolve_templates_dirs(
-			well_out_dir=well_out_dir,
-			templates_out_dir=templates_out_dir,
-		)
-	except FileNotFoundError as exc:
-		raise FileNotFoundError(
-			"Missing built template artifacts for compute_template_similarity; run templates.build_templates first"
-		) from exc
-	unit_ids = _build_unit_ids(inputs, merged_units_dir)
-	unit_ids = _apply_unit_label_filter(inputs, unit_ids, well_out_dir, context="compute_template_similarity")
-	if not unit_ids:
-		raise FileNotFoundError(
-			f"No built template artifacts found under {merged_units_dir}; run templates.build_templates first"
-		)
-	phase_cfg = inputs.phases.compute_template_similarity
-	output_paths = resolve_similarity_output_paths(
-		templates_out_dir=templates_out_dir,
-		similarity=phase_cfg,
-	)
-	worker_count = int(max(1, min(len(unit_ids), int(max(1, int(inputs.n_jobs))))))
-	pair_plot_dir = output_paths["template_similarity_candidate_pair_plots_dir"]
-	if pair_plot_dir.exists():
-		shutil.rmtree(pair_plot_dir)
-	for output_key in (
-		"template_similarity_matrix_png",
-		"template_similarity_matrix_svg",
-		"template_similarity_scores_json",
-		"template_similarity_candidate_pairs_json",
-	):
-		artifact_path = output_paths[output_key]
-		if artifact_path.exists():
-			artifact_path.unlink()
-	summary_path = templates_out_dir / str(phase_cfg.summary_json_relpath)
-	if summary_path.exists():
-		summary_path.unlink()
-	unit_payloads_by_key: dict[str, TemplateSimilarityUnitInput] = {}
-	missing_units: list[dict[str, Any]] = []
-	progress_interval = max(1, len(unit_ids) // 10)
-
-	def _load_unit_payload(unit_id: Any) -> tuple[Any, TemplateSimilarityUnitInput | None, dict[str, Any] | None]:
-		merged_dir = merged_units_dir / f"unit_{unit_id}"
-		try:
-			merged_template, merged_locs = _load_merged_unit(merged_dir)
-		except Exception as exc:
-			return (
-				unit_id,
-				None,
-				{
-					"unit_id": unit_id,
-					"reason": "failed_to_load_merged_template",
-					"error": str(exc),
-					"path": str(merged_dir),
-				},
-			)
-		return (
-			unit_id,
-			TemplateSimilarityUnitInput(
-				unit_id=unit_id,
-				template_c_by_t=merged_template,
-				locations_xy=merged_locs,
-			),
-			None,
-		)
-
-	LOGGER.info(
-		"templates.compute_template_similarity load start: units=%d worker_count=%d",
-		int(len(unit_ids)),
-		int(worker_count),
-	)
-	if worker_count <= 1 or len(unit_ids) <= 1:
-		for idx, unit_id in enumerate(unit_ids, start=1):
-			loaded_unit_id, payload, missing = _load_unit_payload(unit_id)
-			if payload is not None:
-				unit_payloads_by_key[str(loaded_unit_id)] = payload
-			if missing is not None:
-				missing_units.append(missing)
-			if (idx % progress_interval == 0) or (idx == len(unit_ids)):
-				LOGGER.info(
-					"templates.compute_template_similarity load progress: %d/%d units scanned",
-					int(idx),
-					int(len(unit_ids)),
-				)
-	else:
-		with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as pool:
-			futures = {pool.submit(_load_unit_payload, unit_id): unit_id for unit_id in unit_ids}
-			completed = 0
-			for future in concurrent.futures.as_completed(futures):
-				loaded_unit_id, payload, missing = future.result()
-				if payload is not None:
-					unit_payloads_by_key[str(loaded_unit_id)] = payload
-				if missing is not None:
-					missing_units.append(missing)
-				completed += 1
-				if (completed % progress_interval == 0) or (completed == len(unit_ids)):
-					LOGGER.info(
-						"templates.compute_template_similarity load progress: %d/%d units scanned",
-						int(completed),
-						int(len(unit_ids)),
-					)
-	unit_payloads = [unit_payloads_by_key[str(unit_id)] for unit_id in unit_ids if str(unit_id) in unit_payloads_by_key]
-	if not unit_payloads:
-		raise FileNotFoundError(
-			"Missing built template artifacts for compute_template_similarity; run templates.build_templates first"
-		)
-	LOGGER.info(
-		"templates.compute_template_similarity start: templates_out_dir=%s loaded_units=%d missing_units=%d method=%s worker_count=%d",
-		str(templates_out_dir),
-		len(unit_payloads),
-		len(missing_units),
-		str(phase_cfg.method),
-		int(worker_count),
-	)
-	summary = build_template_similarity_phase_summary(
-		unit_payloads=unit_payloads,
-		templates_out_dir=templates_out_dir,
-		config=phase_cfg,
-		output_paths=output_paths,
-		per_unit_outputs=inputs.per_unit_outputs,
-		probe_geometry=inputs.probe_geometry,
-		missing_units=missing_units,
-	)
-	summary["stream_id"] = str(inputs.stream_id)
-	summary["well_out_dir"] = str(well_out_dir)
-	summary["applied_debug_limits"] = _templates_applied_debug_limits(inputs)
-	summary["duration_seconds"] = float(perf_counter() - phase_started)
-	summary_path = templates_out_dir / str(phase_cfg.summary_json_relpath)
-	write_json(summary_path, summary)
-	summary["summary_json"] = str(summary_path)
-	LOGGER.info("templates.compute_template_similarity wrote summary output: %s", str(summary_path))
-	LOGGER.info(
-		"templates.compute_template_similarity run stats: duration_seconds=%.3f unit_count=%d pair_count=%d candidate_pairs=%d missing_units=%d",
-		float(summary["duration_seconds"]),
-		int(summary.get("unit_count", 0)),
-		int(summary.get("pair_count", 0)),
-		int(summary.get("candidate_pair_count", 0)),
-		int(len(summary.get("missing_units", []))),
-	)
-	return summary
-
-
 def _resolve_plot_templates_execution_plan(
 	*,
 	inputs: TemplatesInputs,
@@ -2602,244 +2040,52 @@ def _run_reconstruct_templates_plot_batches(
 		return _run_reconstruct_templates_pipeline_monolithic(replace(inputs, unit_ids=list(unit_ids), n_jobs=1))
 
 
+def run_reconstruct_templates_resolve_sources_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+	from axon_recon.pipeline.stages.reconstruct.phases.resolve_sources import run_reconstruct_templates_resolve_sources_phase
+
+	return run_reconstruct_templates_resolve_sources_phase(inputs)
+
+
+def run_reconstruct_templates_analyzers_phase(inputs: TemplatesInputs, *, source_scope: str | None = None) -> dict[str, Any]:
+	from axon_recon.pipeline.stages.reconstruct.phases.analyzers import run_reconstruct_templates_analyzers_phase
+
+	return run_reconstruct_templates_analyzers_phase(inputs, source_scope=source_scope)
+
+
+def run_reconstruct_templates_build_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+	from axon_recon.pipeline.stages.reconstruct.phases.build_templates import run_reconstruct_templates_build_templates_phase
+
+	return run_reconstruct_templates_build_templates_phase(inputs)
+
+
+def run_reconstruct_templates_compute_template_similarity_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+	from axon_recon.pipeline.stages.reconstruct.phases.compute_template_similarity import run_reconstruct_templates_compute_template_similarity_phase
+
+	return run_reconstruct_templates_compute_template_similarity_phase(inputs)
+
+
 def run_reconstruct_templates_plot_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-	phase_started = perf_counter()
-	well_out_dir, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
-	try:
-		merged_units_dir, _ = _resolve_templates_dirs(
-			well_out_dir=well_out_dir,
-			templates_out_dir=templates_out_dir,
-		)
-	except FileNotFoundError as exc:
-		raise FileNotFoundError(
-			"Missing built template artifacts for plot_templates; run templates.build_templates first"
-		) from exc
-	unit_ids = _build_unit_ids(inputs, merged_units_dir)
-	unit_ids = _apply_unit_label_filter(inputs, unit_ids, well_out_dir, context="plot_templates")
-	if not unit_ids:
-		raise FileNotFoundError(
-			f"No built template artifacts found under {merged_units_dir}; run templates.build_templates first"
-		)
-	phase_inputs = build_plot_templates_phase_inputs(inputs)
-	requested_outputs = requested_plot_output_keys(phase_inputs.per_unit_outputs)
-	force_replot_requested = (
-		bool(inputs.force_restart)
-		or bool(inputs.force_replot)
-		or bool(inputs.force_replot_per_unit)
-	)
-	_cleanup_unit_output_artifacts(
-		templates_out_dir=templates_out_dir,
-		unit_ids=unit_ids,
-		per_unit_outputs=phase_inputs.per_unit_outputs,
-		output_keys=excluded_plot_output_keys(),
-	)
-	units_to_render: list[Any] = []
-	skipped_units: list[Any] = []
-	for unit_id in unit_ids:
-		existing_outputs = _collect_existing_unit_output_paths(
-			templates_out_dir=templates_out_dir,
-			unit_id=unit_id,
-			per_unit_outputs=phase_inputs.per_unit_outputs,
-			output_keys=requested_outputs,
-		)
-		if (not force_replot_requested) and len(existing_outputs) == len(requested_outputs):
-			_persist_unit_summary_output_paths(
-				templates_out_dir=templates_out_dir,
-				unit_id=unit_id,
-				per_unit_outputs=phase_inputs.per_unit_outputs,
-				output_paths=existing_outputs,
-			)
-			skipped_units.append(unit_id)
-		else:
-			units_to_render.append(unit_id)
-	LOGGER.info(
-		"templates.plot_templates start: templates_out_dir=%s units=%d units_to_render=%d skipped_units=%d force_restart=%s",
-		str(templates_out_dir),
-		len(unit_ids),
-		len(units_to_render),
-		len(skipped_units),
-		bool(inputs.force_restart),
-	)
-	result = TemplatesResult(
-		well_out_dir=well_out_dir,
-		templates_out_dir=templates_out_dir,
-		summary_json=templates_out_dir / "templates_summary.json",
-		units=[],
-	)
-	if units_to_render:
-		result = _run_reconstruct_templates_plot_batches(
-			inputs=phase_inputs,
-			well_out_dir=well_out_dir,
-			templates_out_dir=templates_out_dir,
-			unit_ids=units_to_render,
-		)
-	summary = build_plot_templates_phase_summary(
-		inputs=phase_inputs,
-		result=result,
-		skipped_units=skipped_units,
-		duration_seconds=float(perf_counter() - phase_started),
-	)
-	summary["applied_debug_limits"] = _templates_applied_debug_limits(phase_inputs)
-	summary_path = templates_out_dir / str(inputs.phases.plot_templates.summary_json_relpath)
-	write_json(summary_path, summary)
-	summary["summary_json"] = str(summary_path)
-	LOGGER.info("templates.plot_templates wrote summary output: %s", str(summary_path))
-	LOGGER.info(
-		"templates.plot_templates run stats: duration_seconds=%.3f unit_count=%d rendered_units=%d skipped_units=%d failed_units=%d",
-		float(summary["duration_seconds"]),
-		int(summary.get("unit_count", 0)),
-		int(len(summary.get("rendered_units", []))),
-		int(len(summary.get("skipped_units", []))),
-		int(len(summary.get("failed_units", []))),
-	)
-	return summary
+	from axon_recon.pipeline.stages.reconstruct.phases.plot_templates import run_reconstruct_templates_plot_templates_phase
+
+	return run_reconstruct_templates_plot_templates_phase(inputs)
 
 
 def run_reconstruct_templates_per_unit_processing_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-	_, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
-	run_reconstruct_templates_extract_template_segments_phase(inputs)
-	run_reconstruct_templates_build_templates_phase(inputs)
-	try:
-		_resolve_templates_dirs(
-			well_out_dir=compute_mea_analysis_output_dir(
-				output_root=inputs.mea_output_root,
-				data_file=inputs.h5_path,
-				well=inputs.stream_id,
-			),
-			templates_out_dir=templates_out_dir,
-		)
-	except FileNotFoundError as exc:
-		raise FileNotFoundError("Missing built template artifacts for per-unit processing") from exc
-	unit_inputs = replace(
-		inputs,
-		force_restart=False,
-		force_replot=True,
-		force_replot_per_unit=False,
-		force_rereport=False,
-		reports=_disable_reports_config(inputs.reports),
-	)
-	_run_reconstruct_templates_pipeline_monolithic(unit_inputs)
-	summary_json = templates_out_dir / "templates_summary.json"
-	if summary_json.exists():
-		summary = read_json(summary_json)
-		if isinstance(summary, dict):
-			summary["phase"] = "per_unit_processing"
-			return summary
-	return {"phase": "per_unit_processing", "templates_out_dir": str(templates_out_dir)}
+	from axon_recon.pipeline.stages.reconstruct.phases.per_unit_processing import run_reconstruct_templates_per_unit_processing_phase
+
+	return run_reconstruct_templates_per_unit_processing_phase(inputs)
 
 
 def run_reconstruct_templates_reports_phase(inputs: TemplatesInputs, *, report_scope: str | None = None) -> dict[str, Any]:
-	_, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
-	unit_ids = list(inputs.unit_ids) if inputs.unit_ids is not None else _discover_unit_ids_from_unit_summaries(templates_out_dir)
-	if not unit_ids:
-		raise FileNotFoundError(
-			f"No unit summaries found under {templates_out_dir}; run templates.per_unit_processing first"
-		)
-	missing_unit_summaries: list[Any] = []
-	for unit_id in unit_ids:
-		paths = resolve_unit_output_paths(
-			templates_out_dir=templates_out_dir,
-			unit_id=unit_id,
-			per_unit_outputs=inputs.per_unit_outputs,
-		)
-		if not paths["unit_summary_json"].exists():
-			missing_unit_summaries.append(unit_id)
-	if missing_unit_summaries:
-		raise FileNotFoundError(
-			"Missing unit summaries required for reports phase; rerun per_unit_processing first for unit_ids="
-			+ str(missing_unit_summaries)
-		)
-	report_inputs = replace(
-		inputs,
-		force_restart=False,
-		force_replot=False,
-		force_replot_per_unit=False,
-		force_rereport=True,
-		reports=_report_scope_config(inputs.reports, report_scope),
-	)
-	_run_reconstruct_templates_pipeline_monolithic(report_inputs)
-	summary_json = templates_out_dir / "templates_summary.json"
-	if summary_json.exists():
-		summary = read_json(summary_json)
-		if isinstance(summary, dict):
-			summary["phase"] = ("reports" if report_scope is None else f"reports.{report_scope}")
-			return summary
-	return {
-		"phase": ("reports" if report_scope is None else f"reports.{report_scope}"),
-		"templates_out_dir": str(templates_out_dir),
-	}
+	from axon_recon.pipeline.stages.reconstruct.phases.reports import run_reconstruct_templates_reports_phase
+
+	return run_reconstruct_templates_reports_phase(inputs, report_scope=report_scope)
 
 
 def run_reconstruct_templates_report_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-	phase_started = perf_counter()
-	well_out_dir, _, templates_out_dir, _ = _resolve_templates_phase_environment(inputs)
-	unit_ids = list(inputs.unit_ids) if inputs.unit_ids is not None else _discover_unit_ids_from_unit_summaries(templates_out_dir)
-	unit_ids = _apply_unit_label_filter(inputs, unit_ids, well_out_dir, context="report_templates")
-	if inputs.unit_limit is not None:
-		unit_ids = unit_ids[: int(inputs.unit_limit)]
-	if not unit_ids:
-		raise FileNotFoundError(
-			f"No unit summaries found under {templates_out_dir}; run templates.plot_templates first"
-		)
+	from axon_recon.pipeline.stages.reconstruct.phases.report_templates import run_reconstruct_templates_report_templates_phase
 
-	render_units: list[dict[str, Any]] = []
-	missing_units: list[dict[str, Any]] = []
-	for unit_id in unit_ids:
-		paths = resolve_unit_output_paths(
-			templates_out_dir=templates_out_dir,
-			unit_id=unit_id,
-			per_unit_outputs=inputs.per_unit_outputs,
-		)
-		unit_result = _load_unit_result_from_summary(unit_id=unit_id, unit_summary_json=paths["unit_summary_json"])
-		if unit_result is None:
-			missing_units.append({"unit_id": unit_id, "reason": "missing_unit_summary"})
-			continue
-		circle_png = unit_result.outputs.get("template_circles_png")
-		if circle_png is None:
-			missing_units.append({"unit_id": unit_id, "reason": "missing_template_circles_png"})
-			continue
-		circle_png_path = Path(str(circle_png))
-		if not circle_png_path.exists():
-			missing_units.append({"unit_id": unit_id, "reason": "missing_circle_png_file", "path": str(circle_png_path)})
-			continue
-		render_units.append({"unit_id": unit_id, "image_path": str(circle_png_path)})
-
-	if not render_units:
-		raise FileNotFoundError(
-			"Missing circle plot assets required for report_templates; run templates.plot_templates first"
-		)
-
-	report_outputs: dict[str, str] = {}
-	if report_templates_pdf_requested(inputs):
-		report_path = templates_out_dir / str(inputs.phases.report_templates.relpath)
-		LOGGER.info(
-			"templates.report_templates start: templates_out_dir=%s units=%d",
-			str(templates_out_dir),
-			len(render_units),
-		)
-		report_outputs.update(render_template_report_pdf(units=render_units, pdf_path=report_path))
-
-	summary = build_report_templates_phase_summary(
-		inputs=inputs,
-		templates_out_dir=templates_out_dir,
-		rendered_units=[unit["unit_id"] for unit in render_units],
-		missing_units=missing_units,
-		report_outputs=report_outputs,
-		duration_seconds=float(perf_counter() - phase_started),
-	)
-	summary["applied_debug_limits"] = _templates_applied_debug_limits(inputs)
-	summary_path = templates_out_dir / str(inputs.phases.report_templates.summary_json_relpath)
-	write_json(summary_path, summary)
-	summary["summary_json"] = str(summary_path)
-	LOGGER.info("templates.report_templates wrote summary output: %s", str(summary_path))
-	LOGGER.info(
-		"templates.report_templates run stats: duration_seconds=%.3f unit_count=%d rendered_units=%d missing_units=%d",
-		float(summary["duration_seconds"]),
-		int(summary.get("unit_count", 0)),
-		int(len(summary.get("rendered_units", []))),
-		int(len(summary.get("missing_units", []))),
-	)
-	return summary
+	return run_reconstruct_templates_report_templates_phase(inputs)
 
 
 def _run_reconstruct_templates_pipeline_monolithic(inputs: TemplatesInputs) -> TemplatesResult:
