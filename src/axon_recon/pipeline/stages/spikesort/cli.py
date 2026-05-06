@@ -13,6 +13,7 @@ from .orchestrators import (
 	_run_sort_from_args,
 	_run_summarize_sort_from_args as _run_summarize_sort_orchestrator_from_args,
 )
+from .orchestrators.sort import _target_datasets_override_from_args
 
 
 def register_spikesort_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -20,6 +21,15 @@ def register_spikesort_subparser(subparsers: argparse._SubParsersAction[argparse
 	parser.add_argument("--config", type=str, required=True, help="Path to runtime YAML/JSON config")
 	parser.add_argument("--force-restart", action="store_true", help="Recompute spikesort outputs for each target")
 	parser.add_argument("--force-replot", action="store_true", help="Alias for force-restart compatibility")
+	parser.add_argument(
+		"--target-datasets",
+		nargs="+",
+		default=None,
+		help=(
+			"Target specific 0-based dataset indices, for example --target-datasets 0 or "
+			"--target-datasets 0,2,8"
+		),
+	)
 	parser.set_defaults(handler=_run_sort_from_args)
 
 
@@ -28,12 +38,14 @@ def _run_from_args(args: argparse.Namespace) -> int:
 	from .orchestrators.sort import _debug_outputs_enabled_for_config, _emit_spikesort_aggregate
 
 	config_path = str(args.config)
+	target_datasets_override = _target_datasets_override_from_args(args)
 
 	return _emit_spikesort_aggregate(
 		run_spikesort_from_runtime(
 			config_path=config_path,
 				limit_segments_override=getattr(args, "limit_segments", None),
 			limit_datasets_override=getattr(args, "limit_datasets", None),
+			target_datasets_override=target_datasets_override,
 			limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),

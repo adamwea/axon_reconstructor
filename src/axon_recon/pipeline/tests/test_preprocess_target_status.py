@@ -685,6 +685,7 @@ def test_run_preprocess_substage_from_runtime_marks_target_ok(
         config_path=str(tmp_path / "runtime.yml"),
         limit_segments_override=2,
         limit_datasets_override=1,
+        target_datasets_override=[1],
         limit_wells_per_dataset_override=1,
     )
 
@@ -706,6 +707,7 @@ def test_run_preprocess_substage_from_runtime_marks_target_ok(
     assert getattr(stage_configs_seen[0], "debug_limit_datasets") == 1
     assert getattr(stage_configs_seen[0], "debug_limit_wells_per_dataset") == 1
     assert select_kwargs[0]["limit_datasets"] == 1
+    assert select_kwargs[0]["target_datasets"] == [1]
     assert select_kwargs[0]["limit_wells_per_dataset"] == 1
     assert unit_worker_calls == [expected_unit_workers]
     assert divider_stdout_calls == [expected_divider_stdout]
@@ -739,6 +741,7 @@ def test_preprocess_phase_from_args_forwards_debug_limits(monkeypatch, tmp_path:
             config=str(runtime_cfg),
             limit_segments=2,
             limit_datasets=1,
+            target_datasets=["1,", "3"],
             limit_wells_per_dataset=1,
             force_restart=True,
             force_replot=False,
@@ -750,6 +753,7 @@ def test_preprocess_phase_from_args_forwards_debug_limits(monkeypatch, tmp_path:
     assert seen["config_path"] == str(runtime_cfg)
     assert seen["limit_segments_override"] == 2
     assert seen["limit_datasets_override"] == 1
+    assert seen["target_datasets_override"] == [1, 3]
     assert seen["limit_wells_per_dataset_override"] == 1
     assert seen["force_restart_override"] is True
 
@@ -797,6 +801,7 @@ def test_preprocess_phase_runtime_wrappers_forward_debug_limits(
         config_path="runtime.yml",
         limit_segments_override=2,
         limit_datasets_override=1,
+        target_datasets_override=[1, 3],
         limit_wells_per_dataset_override=1,
         force_restart_override=True,
     )
@@ -806,6 +811,7 @@ def test_preprocess_phase_runtime_wrappers_forward_debug_limits(
     assert seen["config_path"] == "runtime.yml"
     assert seen["limit_segments_override"] == 2
     assert seen["limit_datasets_override"] == 1
+    assert seen["target_datasets_override"] == [1, 3]
     assert seen["limit_wells_per_dataset_override"] == 1
     assert seen["force_restart_override"] is True
 

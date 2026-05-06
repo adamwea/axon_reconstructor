@@ -310,6 +310,39 @@ def test_build_parser_supports_reconstruct_subparser_dataset_limit_flags() -> No
     assert args.limit_units == 3
 
 
+@pytest.mark.parametrize(
+    ("command", "register_module"),
+    [
+        ("preprocess", "axon_recon.pipeline.stages.preprocess.cli"),
+        ("spikesort", "axon_recon.pipeline.stages.spikesort.cli"),
+    ],
+)
+def test_build_parser_supports_target_datasets_for_other_stage_subparsers(
+    command: str,
+    register_module: str,
+) -> None:
+    module = __import__(register_module, fromlist=["register_preprocess_subparser", "register_spikesort_subparser"])
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    if command == "preprocess":
+        module.register_preprocess_subparser(subparsers)
+    else:
+        module.register_spikesort_subparser(subparsers)
+
+    args = parser.parse_args(
+        [
+            command,
+            "--config",
+            "/tmp/runtime.yml",
+            "--target-datasets",
+            "1,",
+            "3",
+        ]
+    )
+
+    assert args.target_datasets == ["1,", "3"]
+
+
 def test_reconstruct_cli_runtime_kwargs_include_dataset_and_well_limits() -> None:
     from axon_recon.pipeline.stages.reconstruct import cli as reconstruct_cli
 
@@ -386,24 +419,29 @@ def test_phase_tune_rejects_unlimited_scope_before_running_stage(monkeypatch, tm
     assert calls == []
 
 
-def test_stage_sequence_rejects_target_datasets_for_non_reconstruct_stage(
+def test_stage_sequence_allows_target_datasets_for_preprocess_and_spikesort(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
     runtime_cfg = tmp_path / "runtime.yml"
     _write_runtime_cfg(runtime_cfg)
-    calls: list[str] = []
+    calls: list[tuple[str, list[str]]] = []
 
-    def _handler(args):
-        calls.append(str(getattr(args, "stage", "")))
-        return 0
+    def _mk_handler(stage_name: str):
+        def _handler(args):
+            calls.append((stage_name, list(getattr(args, "target_datasets", []) or [])))
+            return 0
 
-    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "preprocess", _handler)
+        return _handler
+
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "preprocess", _mk_handler("preprocess"))
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "spikesort", _mk_handler("spikesort"))
 
     rc = pipeline_cli.main(
         [
             "stages",
             "preprocess",
+            "spikesort",
             "--config",
             str(runtime_cfg),
             "--target-datasets",
@@ -411,8 +449,8 @@ def test_stage_sequence_rejects_target_datasets_for_non_reconstruct_stage(
         ]
     )
 
-    assert rc == 2
-    assert calls == []
+    assert rc == 0
+    assert calls == [("preprocess", ["1"]), ("spikesort", ["1"])]
 
 
 def test_phase_tune_runs_stage_then_emits_recommendations(monkeypatch, tmp_path: Path) -> None:

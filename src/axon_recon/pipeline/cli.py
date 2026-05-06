@@ -469,12 +469,6 @@ def _phase_tune_has_scope_limits(args: argparse.Namespace) -> bool:
 def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 	stage_list = _parse_stage_list_tokens(list(getattr(args, "stages", []) or []))
 	logger = logging.getLogger("axon_recon.pipeline.stages")
-	if getattr(args, "target_datasets", None) is not None and any(
-		stage_name != "reconstruct" and not str(stage_name).startswith("reconstruct.")
-		for stage_name in stage_list
-	):
-		logger.error("--target-datasets is currently supported only for reconstruct stages")
-		return 2
 	if bool(getattr(args, "phase_tune", False)):
 		if not _phase_tune_has_scope_limits(args) and not bool(getattr(args, "confirm_full_scope", False)):
 			logger.error(

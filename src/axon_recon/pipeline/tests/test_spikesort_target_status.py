@@ -143,6 +143,7 @@ def test_spikesort_direct_phase_from_args_forwards_debug_limits(
             config=str(tmp_path / "runtime.yml"),
             limit_segments=2,
             limit_datasets=3,
+            target_datasets=["1,", "3"],
             limit_wells_per_dataset=1,
             force_restart=True,
             force_replot=False,
@@ -152,6 +153,7 @@ def test_spikesort_direct_phase_from_args_forwards_debug_limits(
     assert rc == 0
     assert seen["limit_segments_override"] == 2
     assert seen["limit_datasets_override"] == 3
+    assert seen["target_datasets_override"] == [1, 3]
     assert seen["limit_wells_per_dataset_override"] == 1
     assert seen["force_restart_override"] is True
 
@@ -455,7 +457,10 @@ def test_run_spikesort_from_runtime_applies_debug_well_limit(monkeypatch, tmp_pa
     monkeypatch.setattr(pipeline_runner, "build_spikesort_inputs_for_target", _fake_build_spikesort_inputs_for_target)
     monkeypatch.setattr(pipeline_runner, "run_spikesort", _fake_run_spikesort)
 
-    agg = run_spikesort_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+    agg = run_spikesort_from_runtime(
+        config_path=str(tmp_path / "runtime.yml"),
+        target_datasets_override=[1],
+    )
 
     assert agg.total_targets == 1
     assert agg.succeeded_targets == 1
@@ -553,13 +558,17 @@ def test_run_spikesort_from_runtime_applies_global_debug_dataset_and_well_limits
     monkeypatch.setattr(pipeline_runner, "build_spikesort_inputs_for_target", _fake_build_spikesort_inputs_for_target)
     monkeypatch.setattr(pipeline_runner, "run_spikesort", _fake_run_spikesort)
 
-    agg = run_spikesort_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+    agg = run_spikesort_from_runtime(
+        config_path=str(tmp_path / "runtime.yml"),
+        target_datasets_override=[1],
+    )
 
     assert agg.total_targets == 2
     assert agg.succeeded_targets == 2
     assert agg.failed_targets == 0
     assert built_targets == [(0, "well001"), (0, "well002")]
     assert select_kwargs["limit_datasets"] == 1
+    assert select_kwargs["target_datasets"] == [1]
     assert select_kwargs["limit_wells"] == 2
 
 
@@ -1042,7 +1051,10 @@ def test_run_spikesort_sort_from_runtime_applies_global_debug_dataset_and_well_l
     monkeypatch.setattr(pipeline_runner, "build_spikesort_inputs_for_target", _fake_build_spikesort_inputs_for_target)
     monkeypatch.setattr(pipeline_runner, "run_spikesort", _fake_run_spikesort)
 
-    agg = run_spikesort_sort_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+    agg = run_spikesort_sort_from_runtime(
+        config_path=str(tmp_path / "runtime.yml"),
+        target_datasets_override=[1],
+    )
 
     assert agg.stage == "spikesort.sort"
     assert agg.total_targets == 2
@@ -1050,6 +1062,7 @@ def test_run_spikesort_sort_from_runtime_applies_global_debug_dataset_and_well_l
     assert agg.failed_targets == 0
     assert built_targets == [(0, "well001"), (0, "well002")]
     assert select_kwargs["limit_datasets"] == 1
+    assert select_kwargs["target_datasets"] == [1]
     assert select_kwargs["limit_wells"] == 2
 
 
