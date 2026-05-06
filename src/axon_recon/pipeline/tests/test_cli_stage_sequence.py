@@ -386,6 +386,35 @@ def test_phase_tune_rejects_unlimited_scope_before_running_stage(monkeypatch, tm
     assert calls == []
 
 
+def test_stage_sequence_rejects_target_datasets_for_non_reconstruct_stage(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runtime_cfg = tmp_path / "runtime.yml"
+    _write_runtime_cfg(runtime_cfg)
+    calls: list[str] = []
+
+    def _handler(args):
+        calls.append(str(getattr(args, "stage", "")))
+        return 0
+
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "preprocess", _handler)
+
+    rc = pipeline_cli.main(
+        [
+            "stages",
+            "preprocess",
+            "--config",
+            str(runtime_cfg),
+            "--target-datasets",
+            "1",
+        ]
+    )
+
+    assert rc == 2
+    assert calls == []
+
+
 def test_phase_tune_runs_stage_then_emits_recommendations(monkeypatch, tmp_path: Path) -> None:
     from axon_recon.pipeline import phase_tuning
 
