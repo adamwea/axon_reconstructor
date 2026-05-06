@@ -155,6 +155,31 @@ def _memory_peak_metric(observation: dict[str, Any]) -> float | None:
 	return _metric(observation.get("total_peak_rss_gb", None))
 
 
+def _append_note_once(notes: list[str], note: str) -> None:
+	text = str(note or "").strip()
+	if text and text not in notes:
+		notes.append(text)
+
+
+def _memory_interpretation_note(memory_peak_basis: str) -> str:
+	if str(memory_peak_basis) == "total_peak_pss_gb":
+		return (
+			"RAM sizing uses max_memory_peak_gb from total_peak_pss_gb; "
+			"max_total_peak_rss_gb is still useful for debugging but can overcount shared worker pages."
+		)
+	return (
+		"RAM sizing uses max_memory_peak_gb from total_peak_rss_gb because PSS was unavailable; "
+		"shared worker pages may still inflate the RSS total."
+	)
+
+
+def _disk_throughput_interpretation_note() -> str:
+	return (
+		"max_disk_read_gb_per_s and max_disk_write_gb_per_s are observed phase throughput "
+		"(total bytes divided by wall_time_s), not a storage benchmark ceiling."
+	)
+
+
 def _resource_gate_key_path(resource_gate: dict[str, Any], resource_name: str) -> str | None:
 	keyed_requests = _as_mapping(resource_gate.get("keyed_requests", None))
 	request = _as_mapping(keyed_requests.get(str(resource_name), None))
@@ -802,6 +827,8 @@ def _recommend_for_group(
 		notes.append("phase showed measurable disk throughput; consider disk_heavy_slots=1 before increasing phase concurrency")
 	elif max_read_rate is not None or max_write_rate is not None:
 		notes.append("disk read/write rates are observed phase throughput, not a destructive disk benchmark")
+	_append_note_once(notes, _memory_interpretation_note(memory_peak_basis))
+	_append_note_once(notes, _disk_throughput_interpretation_note())
 
 	return {
 		"stage": stage,

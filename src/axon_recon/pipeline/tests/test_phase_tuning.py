@@ -144,6 +144,7 @@ def test_build_phase_tuning_summary_recommends_resource_class_updates() -> None:
     assert "runtime YAML was not modified" in report
     assert "phase_tune_tools: iostat, pidstat" in report
     assert "max_phase_tune_peak_cpu_pct: 225.0" in report
+    assert "max_disk_read_gb_per_s and max_disk_write_gb_per_s are observed phase throughput" in report
 
 
 def test_build_phase_tuning_summary_keeps_cpu_when_current_class_covers_observed_basis() -> None:
@@ -218,6 +219,13 @@ def test_build_phase_tuning_summary_prefers_pss_for_ram_recommendation() -> None
     assert recommendation["max_total_peak_rss_gb"] == 117.0
     assert recommendation["max_total_peak_pss_gb"] == 17.0
     assert recommendation["recommended_class_ram_gb"] == 26.0
+    assert any(
+        "RAM sizing uses max_memory_peak_gb from total_peak_pss_gb" in note
+        for note in recommendation["notes"]
+    )
+    report = format_phase_tuning_report(summary)
+    assert "memory_peak_basis: total_peak_pss_gb" in report
+    assert "RAM sizing uses max_memory_peak_gb from total_peak_pss_gb" in report
 
 
 def test_build_phase_tuning_summary_recommends_active_profile_io_slot_increase_from_bandwidth_underuse() -> None:
