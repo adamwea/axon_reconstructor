@@ -14,7 +14,8 @@ env:
 resources:
   active_profile: lab_server_safe
   container_caps:
-    shm_size: 8g # Docker /dev/shm cap for axon-recon-container; raise this for parallel analyzer runs, or set to null to stop forcing --shm-size.
+    #shm_size: 8g # Docker /dev/shm cap for axon-recon-container; raise this for parallel analyzer runs, or set to null to stop forcing --shm-size.
+    shm_size: 16g # increase Docker /dev/shm cap for axon-recon-container to 16 GB to support more parallel analyzer runs and reduce the likelihood of out-of-shm errors during memory-intensive analysis phases; adjust as needed based on the expected memory usage of your analyzers and the degree of parallelism you want to enable, or set to null to stop forcing --shm-size.
     memory: null # Optional Docker --memory hard cap, e.g. 48g.
     memory_reservation: null # Optional Docker --memory-reservation soft cap.
     memory_swap: null # Optional Docker --memory-swap total memory+swap cap.
@@ -22,7 +23,7 @@ resources:
   profiles:
     lab_server_safe:
       cpu_cores: 36 # 48 total cores, but leaving some free for system processes and other users; adjust as needed based on typical server load and desired balance between performance and resource availability for others.
-      ram_gb: 54 # 62 GB total RAM, but leaving some free for system processes and other users; adjust as needed based on typical server load and desired balance between performance and availability for others.
+      ram_gb: 50 # 62 GB total RAM, but leaving some free for system processes and other users; adjust as needed based on typical server load and desired balance between performance and availability for others.
       gpu_sort_slots: 1
       h5_read_slots: 6
       disk_heavy_slots: 6
@@ -101,7 +102,7 @@ resources:
       description: SpikeInterface analyzer work that can be done at the segment level before concatenation, such as per-segment quality metrics or representative channel scoring.
       bottleneck: ram_cpu_disk_io
       cpu_cores: 16
-      ram_gb: 26
+      ram_gb: 25
       analyzer_slots: 1
       disk_heavy_slots: 1
       keyed_resources:
