@@ -16,6 +16,7 @@ def run_reconstruct_report_full_chip_layout_phase(inputs: ReconstructionInputs) 
         reconstruction_out_dir=env.reconstruction_out_dir,
         inputs=inputs,
         merged_units_dir=env.merged_units_dir,
+        unit_ids=env.unit_ids,
     )
     stage_outputs = _run_reconstruct_report_full_chip_layout_phase_impl(
         inputs=inputs, env=env, unit_results=unit_results

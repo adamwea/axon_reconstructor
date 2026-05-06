@@ -858,6 +858,116 @@ def test_run_reconstruct_templates_build_templates_phase_lazy_loads_cached_analy
 	assert summary["source_payload_sources"]["000_recA"]["unit_count"] == 2
 
 
+def test_run_reconstruct_templates_build_templates_phase_parallel_lazy_materialization_filters_labels(
+	tmp_path: Path,
+	monkeypatch,
+) -> None:
+	from axon_recon.pipeline.stages.reconstruct.phases import (
+		build_templates as build_templates_phase,
+	)
+
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	templates_out_dir = well_out_dir / "templates_outputs"
+	analyzer_cache_dir = templates_out_dir / "analyzers"
+	labels_json = well_out_dir / "spikesort_outputs" / "bombcell_label_outputs" / "bombcell_labels.json"
+	labels_json.parent.mkdir(parents=True, exist_ok=True)
+	labels_json.write_text(
+		json.dumps({"labels_by_unit": {"94": "good", "95": "noise", "96": "non_soma_good"}}),
+		encoding="utf-8",
+	)
+	worker_counts: list[int] = []
+	job_unit_ids: list[int] = []
+	payload_calls: list[tuple[str, int]] = []
+
+	class _FakeAnalyzer:
+		def __init__(self, source_name: str) -> None:
+			self.source_name = str(source_name)
+
+	def _fake_discover_cached_source_names(**kwargs) -> list[str]:
+		assert kwargs["analyzer_cache_dir"] == analyzer_cache_dir
+		return ["concat", "000_recA"]
+
+	def _fake_load_cached_spikeinterface_analyzers(**kwargs):
+		requested = [str(name) for name in list(kwargs.get("requested_source_names") or [])]
+		assert len(requested) == 1
+		return [(requested[0], _FakeAnalyzer(requested[0]))]
+
+	def _fake_build_unit_source_payload(*, analyzer, unit_id, **kwargs):
+		assert kwargs["include_overlay_waveforms"] is False
+		assert kwargs["allow_prepare"] is False
+		assert kwargs["allow_waveforms_sparsity_fallback"] is False
+		payload_calls.append((str(analyzer.source_name), int(unit_id)))
+		template = np.asarray([[0.0, -1.0, 0.0]], dtype=float)
+		locations = np.asarray([[0.0, 0.0]], dtype=float)
+		return (template, locations, [10], [100], 4, 10_000.0, None, None, None)
+
+	def _fake_run_jobs_with_processes(*, jobs, worker_count: int):
+		worker_counts.append(int(worker_count))
+		job_unit_ids.extend(int(job.unit_id) for job in jobs)
+		return [build_templates_phase._materialize_cached_analyzer_unit(job) for job in jobs]
+
+	def _fake_build_templates_phase_from_unit_payloads(**kwargs) -> dict[str, Any]:
+		assert kwargs["payload_materialization_mode"] == "analyzer_cache"
+		assert kwargs["unit_ids"] == [94, 96]
+		return {
+			"phase": "build_templates",
+			"payload_materialization_mode": "analyzer_cache",
+			"built_units": [94, 96],
+			"skipped_units": [],
+			"unit_count": 2,
+			"source_count": 2,
+		}
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.discover_cached_spikeinterface_analyzer_source_names",
+		_fake_discover_cached_source_names,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.load_cached_spikeinterface_analyzers",
+		_fake_load_cached_spikeinterface_analyzers,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_unit_source_payload",
+		_fake_build_unit_source_payload,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates._run_cached_analyzer_unit_materialization_jobs_with_processes",
+		_fake_run_jobs_with_processes,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_templates_phase_from_unit_payloads",
+		_fake_build_templates_phase_from_unit_payloads,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		unit_ids=[94, 95, 96],
+		unit_label_filter_labels=("good", "non_soma_good"),
+		unit_label_filter_required=True,
+		force_restart=True,
+		n_jobs=2,
+		phases=TemplatesPhasesConfig(
+			build_templates=TemplateBuildTemplatesPhaseConfig(lazy_load_analyzers=True),
+		),
+	)
+
+	summary = run_reconstruct_templates_build_templates_phase(inputs)
+
+	assert worker_counts == [2]
+	assert job_unit_ids == [94, 96]
+	assert payload_calls == [("concat", 94), ("000_recA", 94), ("concat", 96), ("000_recA", 96)]
+	assert summary["lazy_load_analyzers"] is True
+	assert summary["source_payload_sources"]["concat"]["units_materialized"] == [94, 96]
+	assert summary["source_payload_sources"]["000_recA"]["units_materialized"] == [94, 96]
+
+
 def test_run_reconstruct_templates_build_templates_phase_requires_analyzer_cache_when_payloads_missing(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
@@ -2666,7 +2776,6 @@ def test_run_reconstruct_templates_pipeline_uses_spikeinterface_materialization_
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
 
-	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
 	called = {"value": False}
 
 	def _fake_materialize(*, well_out_dir: Path, templates_out_dir: Path, unit_ids, include_concat: bool, include_segments: bool, **kwargs):
@@ -3007,8 +3116,6 @@ def test_run_reconstruct_templates_pipeline_passes_effective_sampling_rate_to_ti
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
-
-	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
 
 	def _fake_materialize(*, templates_out_dir: Path, **kwargs):
 		_ = kwargs

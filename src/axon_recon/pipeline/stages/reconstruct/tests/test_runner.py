@@ -139,6 +139,55 @@ def test_resolve_templates_dirs_prefers_configured_templates_output_root(tmp_pat
 	assert resolved_full_channels_templates_dir == configured_full_channels_templates_dir
 
 
+def test_prepare_reconstruct_environment_filters_units_by_templates_unit_labels(tmp_path: Path) -> None:
+	from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
+	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
+
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	output_root = tmp_path / "outputs"
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	for unit_id in (94, 95, 96):
+		(well_out_dir / "recon_outputs" / "cache" / "templates" / "merged" / f"unit_{unit_id}").mkdir(
+			parents=True,
+			exist_ok=True,
+		)
+		(well_out_dir / "recon_outputs" / "cache" / "templates" / "full" / f"unit_{unit_id}").mkdir(
+			parents=True,
+			exist_ok=True,
+		)
+	labels_json = well_out_dir / "spikesort_outputs" / "bombcell_label_outputs" / "bombcell_labels.json"
+	labels_json.parent.mkdir(parents=True, exist_ok=True)
+	labels_json.write_text(
+		json.dumps({"labels_by_unit": {"94": "good", "95": "noise", "96": "non_soma_good"}}),
+		encoding="utf-8",
+	)
+	inputs = ReconstructionInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		templates_inputs=TemplatesInputs(
+			h5_path=h5_path,
+			stream_id="well000",
+			mea_output_root=output_root,
+			output_rel_root="recon_outputs",
+			unit_label_filter_labels=("good", "non_soma_good"),
+			unit_label_filter_required=True,
+		),
+	)
+
+	env = reconstruct_runner._prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
+	full_chip_results = reconstruct_runner._load_full_chip_layout_unit_results(
+		reconstruction_out_dir=env.reconstruction_out_dir,
+		inputs=inputs,
+		merged_units_dir=env.merged_units_dir,
+		unit_ids=env.unit_ids,
+	)
+
+	assert env.unit_ids == [94, 96]
+	assert [result.unit_id for result in full_chip_results] == [94, 96]
+
+
 def test_quiet_unexpected_plot_logs_suppresses_debuggy_third_party_logs_unless_enabled() -> None:
 	loggers = [
 		logging.getLogger("matplotlib.font_manager"),

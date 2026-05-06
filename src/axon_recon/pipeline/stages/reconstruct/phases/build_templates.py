@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import gc
 import logging
 import shutil
@@ -8,6 +9,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
+from axon_recon.pipeline.execution import install_linux_parent_death_signal
 from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 
 from ..templates.core.build_templates import (
@@ -44,6 +46,22 @@ class BuildTemplatesContext:
     analyzer_cache_dir: Path | None
     payload_root: Path
     payload_output_rel_root: str
+
+
+@dataclass(frozen=True)
+class _CachedAnalyzerUnitMaterializationJob:
+    inputs: TemplatesInputs
+    context: BuildTemplatesContext
+    analyzer_well_out_dir: Path
+    analyzer_cache_dir: Path
+    source_names: tuple[str, ...]
+    unit_id: Any
+
+
+@dataclass(frozen=True)
+class _CachedAnalyzerUnitMaterializationResult:
+    unit_id: Any
+    source_names: tuple[str, ...]
 
 
 def _positive_int_or_none(value: Any) -> int | None:
@@ -376,6 +394,74 @@ def _build_payload_loader(*, context: BuildTemplatesContext, source_names: list[
     return _payload_loader
 
 
+def _record_materialization_result(
+    summary: dict[str, Any],
+    result: _CachedAnalyzerUnitMaterializationResult,
+) -> None:
+    for source_name in result.source_names:
+        summary_entry = summary.setdefault(
+            str(source_name),
+            {"units_materialized": [], "unit_count": 0},
+        )
+        summary_entry["units_materialized"].append(result.unit_id)
+        summary_entry["unit_count"] = int(summary_entry.get("unit_count", 0)) + 1
+
+
+def _materialize_cached_analyzer_unit(
+    job: _CachedAnalyzerUnitMaterializationJob,
+) -> _CachedAnalyzerUnitMaterializationResult:
+    materialized_sources: list[str] = []
+    for requested_source_name in job.source_names:
+        source_match, analyzers = _load_requested_cached_source(
+            inputs=job.inputs,
+            analyzer_well_out_dir=job.analyzer_well_out_dir,
+            analyzer_cache_dir=job.analyzer_cache_dir,
+            requested_source_name=str(requested_source_name),
+            lazy_load_analyzers=True,
+        )
+        source_name, analyzer = source_match
+        payload = build_unit_source_payload(
+            analyzer=analyzer,
+            unit_id=job.unit_id,
+            include_overlay_waveforms=False,
+            allow_prepare=False,
+            allow_waveforms_sparsity_fallback=False,
+        )
+        if payload is not None:
+            _write_cached_analyzer_payload(
+                context=job.context,
+                source_name=str(source_name),
+                unit_id=job.unit_id,
+                payload=payload,
+            )
+            materialized_sources.append(str(source_name))
+            del payload
+        del analyzer
+        del analyzers
+        del source_match
+        gc.collect()
+    return _CachedAnalyzerUnitMaterializationResult(
+        unit_id=job.unit_id,
+        source_names=tuple(materialized_sources),
+    )
+
+
+def _run_cached_analyzer_unit_materialization_jobs_with_processes(
+    *,
+    jobs: list[_CachedAnalyzerUnitMaterializationJob],
+    worker_count: int,
+) -> list[_CachedAnalyzerUnitMaterializationResult]:
+    results: list[_CachedAnalyzerUnitMaterializationResult] = []
+    with concurrent.futures.ProcessPoolExecutor(
+        max_workers=max(1, int(worker_count)),
+        initializer=install_linux_parent_death_signal,
+    ) as pool:
+        futures = {pool.submit(_materialize_cached_analyzer_unit, job): job.unit_id for job in jobs}
+        for future in concurrent.futures.as_completed(futures):
+            results.append(future.result())
+    return results
+
+
 def _materialize_cached_analyzers_by_unit(
     *,
     inputs: TemplatesInputs,
@@ -406,47 +492,50 @@ def _materialize_cached_analyzers_by_unit(
         del first_analyzers
         gc.collect()
 
+    jobs = [
+        _CachedAnalyzerUnitMaterializationJob(
+            inputs=inputs,
+            context=context,
+            analyzer_well_out_dir=analyzer_well_out_dir,
+            analyzer_cache_dir=analyzer_cache_dir,
+            source_names=tuple(str(source_name) for source_name in source_names),
+            unit_id=unit_id,
+        )
+        for unit_id in list(unit_ids or [])
+    ]
+    worker_count = max(1, min(len(jobs), int(max(1, int(inputs.n_jobs))))) if jobs else 1
+    executor_kind = "serial" if worker_count <= 1 or len(jobs) <= 1 else "process"
+    LOGGER.info(
+        "templates.build_templates lazy materialization start: requested_units=%d source_count=%d worker_count=%d executor=%s",
+        len(jobs),
+        len(source_names),
+        int(worker_count),
+        str(executor_kind),
+    )
+    results: list[_CachedAnalyzerUnitMaterializationResult] = []
+    if executor_kind == "process":
+        try:
+            results = _run_cached_analyzer_unit_materialization_jobs_with_processes(
+                jobs=jobs,
+                worker_count=worker_count,
+            )
+        except Exception as exc:
+            LOGGER.warning(
+                "templates.build_templates lazy materialization process workers failed; falling back to serial execution: %s",
+                exc,
+            )
+    if not results:
+        results = [_materialize_cached_analyzer_unit(job) for job in jobs]
+    results_by_unit = {str(result.unit_id): result for result in results}
     for unit_id in list(unit_ids or []):
-        materialized_source_count = 0
-        for requested_source_name in source_names:
-            source_match, analyzers = _load_requested_cached_source(
-                inputs=inputs,
-                analyzer_well_out_dir=analyzer_well_out_dir,
-                analyzer_cache_dir=analyzer_cache_dir,
-                requested_source_name=str(requested_source_name),
-                lazy_load_analyzers=True,
-            )
-            source_name, analyzer = source_match
-            payload = build_unit_source_payload(
-                analyzer=analyzer,
-                unit_id=unit_id,
-                include_overlay_waveforms=False,
-                allow_prepare=False,
-                allow_waveforms_sparsity_fallback=False,
-            )
-            if payload is not None:
-                _write_cached_analyzer_payload(
-                    context=context,
-                    source_name=str(source_name),
-                    unit_id=unit_id,
-                    payload=payload,
-                )
-                summary_entry = streamed_sources_summary.setdefault(
-                    str(source_name),
-                    {"units_materialized": [], "unit_count": 0},
-                )
-                summary_entry["units_materialized"].append(unit_id)
-                summary_entry["unit_count"] = int(summary_entry.get("unit_count", 0)) + 1
-                materialized_source_count += 1
-                del payload
-            del analyzer
-            del analyzers
-            del source_match
-            gc.collect()
+        result = results_by_unit.get(str(unit_id))
+        if result is None:
+            continue
+        _record_materialization_result(streamed_sources_summary, result)
         LOGGER.info(
             "templates.build_templates lazy-materialized cached analyzer payloads: unit=%s source_count=%d",
-            str(unit_id),
-            int(materialized_source_count),
+            str(result.unit_id),
+            int(len(result.source_names)),
         )
     return list(unit_ids or []), streamed_sources_summary
 
@@ -537,6 +626,12 @@ def _build_templates_from_cached_analyzers(
     unit_ids: list[Any] | None = None if inputs.unit_ids is None else list(inputs.unit_ids)
     if unit_ids is not None and inputs.unit_limit is not None:
         unit_ids = unit_ids[: int(inputs.unit_limit)]
+    if unit_ids is not None:
+        unit_ids = _apply_build_templates_unit_label_filter(
+            inputs=inputs,
+            unit_ids=unit_ids,
+            well_out_dir=context.well_out_dir,
+        )
     source_names = [str(source_name) for source_name in source_names]
     if lazy_load_analyzers:
         unit_ids, streamed_sources_summary = _materialize_cached_analyzers_by_unit(

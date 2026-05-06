@@ -79,6 +79,11 @@ from .templates.core.render import (
 	render_footprint_map_grid_from_assets,
 	render_template_report_pdf,
 )
+from .templates.core.unit_labels import (
+	count_labels,
+	filter_unit_ids_by_labels,
+	load_unit_labels_from_spikesorting,
+)
 from .templates.models.inputs import TemplatesInputs
 
 LOGGER = logging.getLogger("axon_recon.reconstruct")
@@ -246,11 +251,60 @@ def _resolve_templates_dirs(
 	raise FileNotFoundError(f"Missing merged templates directory: {last_merged_units_dir}")
 
 
-def _build_unit_ids(inputs: ReconstructionInputs, merged_units_dir: Path) -> list[Any]:
+def _reconstruct_unit_label_filter_config(inputs: ReconstructionInputs) -> tuple[tuple[str, ...], bool]:
+	templates_inputs = getattr(inputs, "templates_inputs", None)
+	labels_raw = getattr(inputs, "unit_label_filter_labels", None)
+	if labels_raw is None and templates_inputs is not None:
+		labels_raw = getattr(templates_inputs, "unit_label_filter_labels", None)
+	labels = tuple(str(label).strip().lower() for label in (labels_raw or ()) if str(label).strip())
+	required_raw = getattr(inputs, "unit_label_filter_required", None)
+	if required_raw is None and templates_inputs is not None:
+		required_raw = getattr(templates_inputs, "unit_label_filter_required", None)
+	return labels, bool(required_raw) if required_raw is not None else False
+
+
+def _apply_reconstruct_unit_label_filter(
+	inputs: ReconstructionInputs,
+	unit_ids: list[Any],
+	well_out_dir: Path,
+	*,
+	context: str,
+) -> list[Any]:
+	allowed_labels, required = _reconstruct_unit_label_filter_config(inputs)
+	if not allowed_labels:
+		return list(unit_ids)
+	labels_by_unit = load_unit_labels_from_spikesorting(well_out_dir)
+	if not labels_by_unit:
+		if bool(required):
+			raise RuntimeError(
+				"Reconstruct unit label filter is enabled, but no Bombcell/Kilosort unit labels were found under "
+				f"{well_out_dir}."
+			)
+		LOGGER.warning(
+			"reconstruct %s: unit label filter skipped because no labels were found under %s",
+			context,
+			well_out_dir,
+		)
+		return list(unit_ids)
+	filtered = filter_unit_ids_by_labels(unit_ids, labels_by_unit, allowed_labels)
+	LOGGER.info(
+		"reconstruct %s: unit label filter allowed=%s kept=%d/%d counts=%s",
+		context,
+		list(allowed_labels),
+		len(filtered),
+		len(unit_ids),
+		count_labels(labels_by_unit),
+	)
+	return filtered
+
+
+def _build_unit_ids(inputs: ReconstructionInputs, merged_units_dir: Path, *, well_out_dir: Path | None = None) -> list[Any]:
 	discovered = _discover_unit_ids(merged_units_dir)
 	unit_ids = list(inputs.unit_ids) if inputs.unit_ids is not None else discovered
 	if inputs.unit_limit is not None:
 		unit_ids = unit_ids[: int(inputs.unit_limit)]
+	if well_out_dir is not None:
+		unit_ids = _apply_reconstruct_unit_label_filter(inputs, unit_ids, well_out_dir, context="unit selection")
 	return unit_ids
 
 
@@ -524,8 +578,9 @@ def _load_full_chip_layout_unit_results(
 	reconstruction_out_dir: Path,
 	inputs: ReconstructionInputs,
 	merged_units_dir: Path,
+	unit_ids: list[Any] | None = None,
 ) -> list[UnitReconstructionResult]:
-	unit_ids = _discover_unit_ids(merged_units_dir)
+	unit_ids = list(unit_ids) if unit_ids is not None else _discover_unit_ids(merged_units_dir)
 	if not unit_ids:
 		unit_ids = list(inputs.unit_ids or [])
 	return _load_reconstruct_unit_results(
@@ -656,7 +711,7 @@ def _prepare_reconstruct_phase_environment(
 		if "templates_inputs" not in str(exc):
 			raise
 		_, merged_units_dir, full_channels_templates_dir = _resolve_templates_dirs(well_out_dir)
-	unit_ids = _build_unit_ids(inputs, merged_units_dir)
+	unit_ids = _build_unit_ids(inputs, merged_units_dir, well_out_dir=well_out_dir)
 	return _ReconstructPhaseEnvironment(
 		well_out_dir=well_out_dir,
 		reconstruction_out_dir=reconstruction_out_dir,
@@ -1699,6 +1754,7 @@ def _run_reconstruct_stage_default_order(inputs: ReconstructionInputs) -> Recons
 			reconstruction_out_dir=env.reconstruction_out_dir,
 			inputs=inputs,
 			merged_units_dir=env.merged_units_dir,
+			unit_ids=env.unit_ids,
 		)
 		full_chip_outputs = _run_reconstruct_report_full_chip_layout_phase_impl(
 			inputs=inputs,

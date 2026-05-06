@@ -91,6 +91,73 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-05 - pending - ai: parallelize lazy template payload materialization
+
+Status: accepted
+
+Summary:
+- Parallelized `build_templates` lazy cached-analyzer source payload materialization across selected units using the phase `n_jobs`/unit-worker budget.
+- Kept each materialization worker unit-scoped, loading cached analyzer sources lazily and writing only that unit's payload artifacts.
+- Applied the existing unit-label filter before materializing explicit unit selections, so rejected units do not get source payloads.
+- Applied the same label-filtered unit scope to downstream reconstruct unit discovery, including GTR generation, plots, reports, and full-chip layout summaries.
+
+Guardrails Consulted:
+- `debug/parallelism_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+
+Acceptance Criteria:
+- Lazy source payload materialization uses the same unit worker budget as the build_templates phase.
+- Only label-allowed units are materialized and passed to downstream reconstruct phases.
+- Materialization worker counts and executor choice are visible in logs.
+- Existing serial behavior remains available when only one unit/worker is selected or process workers fail.
+
+Expected To Run:
+- Focused tests for lazy cached-analyzer materialization, label-filtered materialization, and downstream reconstruct unit selection.
+- Import/syntax lint for touched Python files.
+- Limited real-data host smoke for `reconstruct.build_templates` with one dataset, one well, and a few units.
+
+Confirmed Not Run:
+- Full repository test suite.
+- Container image rebuild.
+- Multi-well parallelism smoke.
+- Remote push.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py::test_run_reconstruct_templates_build_templates_phase_lazy_loads_cached_analyzers_per_unit src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py::test_run_reconstruct_templates_build_templates_phase_parallel_lazy_materialization_filters_labels src/axon_recon/pipeline/stages/reconstruct/tests/test_runner.py::test_prepare_reconstruct_environment_filters_units_by_templates_unit_labels -q` passed.
+- Lint: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m ruff check --select I,F src/axon_recon/pipeline/stages/reconstruct/phases/build_templates.py src/axon_recon/pipeline/stages/reconstruct/phases/report_full_chip_layout.py src/axon_recon/pipeline/stages/reconstruct/runner.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py src/axon_recon/pipeline/stages/reconstruct/tests/test_runner.py` passed.
+- Diagnostics: VS Code diagnostics reported no errors for touched Python files.
+- Real-data smoke: `/home/adamm/miniconda3/envs/axon_recon/bin/axon-reconstructor stages reconstruct.build_templates --config debug/debug.runtime.yml --limit-datasets 1 --limit-wells 1 --limit-units 4 --phase-tune --force-restart` succeeded.
+- Logs inspected: `/tmp/axon_recon_build_templates_parallel_materialization_smoke.log` showed label filtering kept 3/4 units, `templates.build_templates lazy materialization start: requested_units=3 source_count=19 worker_count=3 executor=process`, per-unit lazy materialization completion for units 1, 3, and 4, `build_templates unit execution start: requested_units=3 worker_count=3 executor=process`, and `targets_failed: 0`.
+
+CLI / Debug Flag Impact:
+- No CLI flag changes.
+- Existing `--limit-units`, unit-label filter config, and phase resource-derived `n_jobs` now affect lazy payload materialization as well as downstream reconstruct work.
+
+Logging / Parallelism Impact:
+- Added a lazy materialization execution-plan log with requested units, source count, worker count, and executor.
+- Per-unit lazy materialization completion logs remain unit-scoped.
+- Downstream reconstruct unit selection logs label-filter counts before phase work begins.
+
+Storage / Cache Impact:
+- Source payload caches under `cache/source_payloads` are now only written for selected label-allowed units.
+- Validation regenerated selected build-template caches and phase-tune artifacts under the configured scratch output root.
+
+Container / NERSC / MPI Impact:
+- No Dockerfile, container wrapper, NERSC, or MPI changes.
+- Uses local `ProcessPoolExecutor` with Linux parent-death signal initializer, matching existing process-worker patterns.
+
+Resume / Force-Restart Impact:
+- Existing `force_restart` source-payload cleanup remains scoped to the build_templates payload root.
+- Unit-scoped resume behavior is unchanged except that label-rejected units are no longer materialized for this phase.
+
+Residual Risk And Follow-Ups:
+- Parallel lazy materialization can increase concurrent read pressure on cached analyzer folders; the phase resource class currently controls worker count but does not add a separate disk slot.
+- SpikeInterface emitted existing filter margin warnings during smoke; the phase completed successfully.
+
+Rollback Notes:
+- Revert the build_templates lazy materialization job pool, downstream reconstruct label-filter application, full-chip unit-list handoff, and focused tests to restore serial lazy materialization and previous downstream unit discovery.
+
 ## 2026-05-06 - pending - ai: align downstream reconstruct resource workers
 
 Status: accepted
