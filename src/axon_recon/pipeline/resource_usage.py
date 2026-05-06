@@ -210,6 +210,9 @@ class PhaseResourceUsage:
 	process_peak_rss_gb: float | None = None
 	child_peak_rss_gb: float | None = None
 	total_peak_rss_gb: float | None = None
+	process_peak_pss_gb: float | None = None
+	child_peak_pss_gb: float | None = None
+	total_peak_pss_gb: float | None = None
 	cpu_time_user_s: float | None = None
 	cpu_time_system_s: float | None = None
 	max_threads: int | None = None
@@ -241,6 +244,9 @@ class PhaseResourceUsage:
 			"process_peak_rss_gb": self.process_peak_rss_gb,
 			"child_peak_rss_gb": self.child_peak_rss_gb,
 			"total_peak_rss_gb": self.total_peak_rss_gb,
+			"process_peak_pss_gb": self.process_peak_pss_gb,
+			"child_peak_pss_gb": self.child_peak_pss_gb,
+			"total_peak_pss_gb": self.total_peak_pss_gb,
 			"cpu_time_user_s": self.cpu_time_user_s,
 			"cpu_time_system_s": self.cpu_time_system_s,
 			"max_threads": self.max_threads,
@@ -513,6 +519,9 @@ class PhaseResourceMonitor:
 		self._peak_process_rss_bytes = 0
 		self._peak_child_rss_bytes = 0
 		self._peak_total_rss_bytes = 0
+		self._peak_process_pss_bytes: int | None = None
+		self._peak_child_pss_bytes: int | None = None
+		self._peak_total_pss_bytes: int | None = None
 		self._observed_process_max_threads = 0
 		self._child_process_count_max = 0
 		self._gpu_peak_bytes: int | None = None
@@ -542,18 +551,35 @@ class PhaseResourceMonitor:
 		except Exception:
 			procs = [self._process]
 
+		def _read_memory_bytes(proc: Any) -> tuple[int | None, int | None]:
+			rss_bytes: int | None = None
+			pss_bytes: int | None = None
+			try:
+				rss_bytes = max(0, int(proc.memory_info().rss))
+			except Exception:
+				rss_bytes = None
+			try:
+				full_info = proc.memory_full_info()
+				pss = getattr(full_info, "pss", None)
+				if pss is not None:
+					pss_bytes = max(0, int(pss))
+			except Exception:
+				pss_bytes = None
+			return rss_bytes, pss_bytes
+
 		with self._lock:
 			self._child_process_count_max = max(self._child_process_count_max, max(0, len(procs) - 1))
 			parent_rss = None
+			parent_pss = None
 			total_threads = 0
-			try:
-				parent_rss = int(self._process.memory_info().rss)
-			except Exception:
-				parent_rss = None
+			parent_rss, parent_pss = _read_memory_bytes(self._process)
 			if parent_rss is not None:
 				self._peak_process_rss_bytes = max(self._peak_process_rss_bytes, max(0, parent_rss))
+			if parent_pss is not None:
+				self._peak_process_pss_bytes = max(int(self._peak_process_pss_bytes or 0), max(0, parent_pss))
 
 			child_rss_total = 0
+			child_pss_total: int | None = 0 if parent_pss is not None else None
 			for index, proc in enumerate(procs):
 				is_parent = bool(index == 0)
 				try:
@@ -578,15 +604,25 @@ class PhaseResourceMonitor:
 					pass
 				if is_parent:
 					continue
-				try:
-					child_rss_total += max(0, int(proc.memory_info().rss))
-				except Exception:
-					continue
+				child_rss, child_pss = _read_memory_bytes(proc)
+				if child_rss is not None:
+					child_rss_total += max(0, int(child_rss))
+				if child_pss_total is not None:
+					if child_pss is None:
+						child_pss_total = None
+					else:
+						child_pss_total += max(0, int(child_pss))
 			self._peak_child_rss_bytes = max(self._peak_child_rss_bytes, child_rss_total)
 			self._peak_total_rss_bytes = max(
 				self._peak_total_rss_bytes,
 				max(0, int(parent_rss or 0)) + max(0, int(child_rss_total)),
 			)
+			if child_pss_total is not None:
+				self._peak_child_pss_bytes = max(int(self._peak_child_pss_bytes or 0), child_pss_total)
+				self._peak_total_pss_bytes = max(
+					int(self._peak_total_pss_bytes or 0),
+					max(0, int(parent_pss or 0)) + max(0, int(child_pss_total)),
+				)
 			self._observed_process_max_threads = max(
 				self._observed_process_max_threads,
 				max(0, int(total_threads)),
@@ -680,6 +716,11 @@ class PhaseResourceMonitor:
 			child_peak_rss_gb=(_to_gib(self._peak_child_rss_bytes) if self.include_children else None),
 			total_peak_rss_gb=_to_gib(
 				self._peak_total_rss_bytes if self.include_children else self._peak_process_rss_bytes
+			),
+			process_peak_pss_gb=_to_gib(self._peak_process_pss_bytes),
+			child_peak_pss_gb=(_to_gib(self._peak_child_pss_bytes) if self.include_children else None),
+			total_peak_pss_gb=_to_gib(
+				self._peak_total_pss_bytes if self.include_children else self._peak_process_pss_bytes
 			),
 			cpu_time_user_s=_coerce_nonnegative(cpu_user_s),
 			cpu_time_system_s=_coerce_nonnegative(cpu_system_s),
@@ -825,7 +866,10 @@ def _phase_tune_recommendation_lines(recommendation: dict[str, Any] | None) -> l
 		lines.append(f"    {label}={_display_metric(current)}->{_display_metric(recommended)}")
 	for key in (
 		"observations",
+		"max_memory_peak_gb",
+		"memory_peak_basis",
 		"max_total_peak_rss_gb",
+		"max_total_peak_pss_gb",
 		"max_cpu_parallelism_estimate",
 		"max_disk_read_gb_per_s",
 		"max_disk_write_gb_per_s",
@@ -907,6 +951,12 @@ def _resource_warning_key(stage_name: Any, phase_name: Any, resource_class: Any,
 		str(resource_class or "unknown"),
 		str(metric),
 	)
+
+
+def _resource_usage_ram_peak_for_capacity(resource_usage: PhaseResourceUsage) -> tuple[float | None, str]:
+	if resource_usage.total_peak_pss_gb is not None:
+		return resource_usage.total_peak_pss_gb, "total_peak_pss_gb"
+	return resource_usage.total_peak_rss_gb, "total_peak_rss_gb"
 
 
 def log_phase_resource_plan_warnings(
@@ -1019,17 +1069,18 @@ def log_phase_resource_observation_warnings(
 	qualified_phase_name = _qualified_phase_name(stage_name, phase_name)
 
 	estimated_ram_gb = float(getattr(phase_config, "ram_gb", 0.0) or 0.0)
-	observed_total_peak_rss_gb = resource_usage.total_peak_rss_gb
-	if estimated_ram_gb > 0.0 and observed_total_peak_rss_gb is not None:
-		ram_ratio = float(observed_total_peak_rss_gb) / float(estimated_ram_gb)
+	observed_peak_ram_gb, observed_peak_metric = _resource_usage_ram_peak_for_capacity(resource_usage)
+	if estimated_ram_gb > 0.0 and observed_peak_ram_gb is not None:
+		ram_ratio = float(observed_peak_ram_gb) / float(estimated_ram_gb)
 		ram_key = _resource_warning_key(stage_name, phase_name, resource_class, "ram_gb")
 		if ram_ratio >= float(ram_warn_fraction):
 			logger.log(
 				level,
-				"Phase resource usage warning: %s resource_class=%s observed_total_peak_rss_gb=%.6f estimated_ram_gb=%.6f ratio=%.2fx",
+				"Phase resource usage warning: %s resource_class=%s observed_%s=%.6f estimated_ram_gb=%.6f ratio=%.2fx",
 				qualified_phase_name,
 				str(resource_class),
-				float(observed_total_peak_rss_gb),
+				str(observed_peak_metric),
+				float(observed_peak_ram_gb),
 				float(estimated_ram_gb),
 				float(ram_ratio),
 				extra={"event": "phase_resource_usage_warning"},
@@ -1039,10 +1090,11 @@ def log_phase_resource_observation_warnings(
 			observation_count = int(_RESOURCE_UNDERUSE_OBSERVATIONS.get(ram_key, 0)) + 1
 			if observation_count >= int(underuse_observation_count):
 				logger.info(
-					"Phase resource tuning note: %s resource_class=%s observed_total_peak_rss_gb=%.6f has stayed below estimated_ram_gb=%.6f for %d observation(s); consider tightening the class.",
+					"Phase resource tuning note: %s resource_class=%s observed_%s=%.6f has stayed below estimated_ram_gb=%.6f for %d observation(s); consider tightening the class.",
 					qualified_phase_name,
 					str(resource_class),
-					float(observed_total_peak_rss_gb),
+					str(observed_peak_metric),
+					float(observed_peak_ram_gb),
 					float(estimated_ram_gb),
 					int(underuse_observation_count),
 					extra={"event": "phase_resource_tuning_note"},

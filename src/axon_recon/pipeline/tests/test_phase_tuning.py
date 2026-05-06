@@ -32,6 +32,7 @@ def test_collect_phase_resource_observations_filters_run_and_stage(tmp_path: Pat
             "resource_usage": {
                 "wall_time_s": 2.0,
                 "total_peak_rss_gb": 1.2,
+                "total_peak_pss_gb": 0.7,
                 "cpu_time_user_s": 1.0,
                 "cpu_time_system_s": 0.5,
                 "max_threads": 2,
@@ -82,6 +83,7 @@ def test_collect_phase_resource_observations_filters_run_and_stage(tmp_path: Pat
     assert observations[0]["phase_tune_tools"] == ["pidstat", "iostat"]
     assert observations[0]["phase_tune_peak_cpu_pct"] == 225.0
     assert observations[0]["phase_tune_peak_device_util_pct"] == 88.0
+    assert observations[0]["total_peak_pss_gb"] == 0.7
 
 
 def test_build_phase_tuning_summary_recommends_resource_class_updates() -> None:
@@ -177,6 +179,45 @@ def test_build_phase_tuning_summary_keeps_cpu_when_current_class_covers_observed
 
     assert recommendation["recommended_class_cpu_cores"] == 1
     assert "### preprocess.save_rec_metadata" in format_phase_tuning_report(summary)
+
+
+def test_build_phase_tuning_summary_prefers_pss_for_ram_recommendation() -> None:
+    runtime_config = RuntimeConfig(
+        {
+            "resources": {
+                "active_profile": "test_profile",
+                "profiles": {"test_profile": {"cpu_cores": 16, "ram_gb": 64}},
+                "phase_resource_classes": {"analyzers": {"cpu_cores": 4, "ram_gb": 8}},
+            }
+        }
+    )
+    resources = parse_resources_config(runtime_config=runtime_config)
+    summary = build_phase_tuning_summary(
+        resources=resources,
+        tuning_config=PhaseTuningConfig(ram_safety_factor=1.5),
+        observations=[
+            {
+                "stage": "reconstruct.analyzers",
+                "phase": "analyzers",
+                "resource_class": "analyzers",
+                "wall_time_s": 10.0,
+                "total_peak_rss_gb": 117.0,
+                "total_peak_pss_gb": 17.0,
+                "cpu_time_user_s": 20.0,
+                "cpu_time_system_s": 1.0,
+                "max_threads": 4,
+            }
+        ],
+        selected_stages=["reconstruct.analyzers"],
+        run_id="run-a",
+    )
+    recommendation = summary["recommendations"][0]
+
+    assert recommendation["memory_peak_basis"] == "total_peak_pss_gb"
+    assert recommendation["max_memory_peak_gb"] == 17.0
+    assert recommendation["max_total_peak_rss_gb"] == 117.0
+    assert recommendation["max_total_peak_pss_gb"] == 17.0
+    assert recommendation["recommended_class_ram_gb"] == 26.0
 
 
 def test_build_phase_tuning_summary_recommends_active_profile_io_slot_increase_from_bandwidth_underuse() -> None:

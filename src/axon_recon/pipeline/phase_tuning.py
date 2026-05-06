@@ -148,6 +148,13 @@ def _int_metric(value: Any) -> int | None:
 		return None
 
 
+def _memory_peak_metric(observation: dict[str, Any]) -> float | None:
+	pss = _metric(observation.get("total_peak_pss_gb", None))
+	if pss is not None:
+		return pss
+	return _metric(observation.get("total_peak_rss_gb", None))
+
+
 def _resource_gate_key_path(resource_gate: dict[str, Any], resource_name: str) -> str | None:
 	keyed_requests = _as_mapping(resource_gate.get("keyed_requests", None))
 	request = _as_mapping(keyed_requests.get(str(resource_name), None))
@@ -226,6 +233,9 @@ def collect_phase_resource_observations_from_jsonl(
 				"process_peak_rss_gb": _metric(usage.get("process_peak_rss_gb", None)),
 				"child_peak_rss_gb": _metric(usage.get("child_peak_rss_gb", None)),
 				"total_peak_rss_gb": _metric(usage.get("total_peak_rss_gb", None)),
+				"process_peak_pss_gb": _metric(usage.get("process_peak_pss_gb", None)),
+				"child_peak_pss_gb": _metric(usage.get("child_peak_pss_gb", None)),
+				"total_peak_pss_gb": _metric(usage.get("total_peak_pss_gb", None)),
 				"cpu_time_user_s": _metric(usage.get("cpu_time_user_s", None)),
 				"cpu_time_system_s": _metric(usage.get("cpu_time_system_s", None)),
 				"max_threads": _int_metric(usage.get("max_threads", None)),
@@ -669,8 +679,13 @@ def _recommend_for_group(
 	current_plot_slots = None if phase_class is None else int(phase_class.plot_slots)
 	current_analyzer_slots = None if phase_class is None else int(phase_class.analyzer_slots)
 
-	peak_values = _nonnull_float_values(item.get("total_peak_rss_gb", None) for item in observations)
+	peak_values = _nonnull_float_values(_memory_peak_metric(item) for item in observations)
+	rss_peak_values = _nonnull_float_values(item.get("total_peak_rss_gb", None) for item in observations)
+	pss_peak_values = _nonnull_float_values(item.get("total_peak_pss_gb", None) for item in observations)
 	max_peak_ram = max(peak_values) if peak_values else None
+	max_peak_rss_ram = max(rss_peak_values) if rss_peak_values else None
+	max_peak_pss_ram = max(pss_peak_values) if pss_peak_values else None
+	memory_peak_basis = "total_peak_pss_gb" if pss_peak_values else "total_peak_rss_gb"
 	recommended_ram_gb = current_ram_gb
 	if max_peak_ram is not None:
 		ram_candidate = int(max(1, math.ceil(float(max_peak_ram) * float(tuning_config.ram_safety_factor))))
@@ -793,7 +808,10 @@ def _recommend_for_group(
 		"phase": phase,
 		"resource_class": resource_class or None,
 		"observations": observation_count,
-		"max_total_peak_rss_gb": max_peak_ram,
+		"max_memory_peak_gb": max_peak_ram,
+		"memory_peak_basis": memory_peak_basis,
+		"max_total_peak_rss_gb": max_peak_rss_ram,
+		"max_total_peak_pss_gb": max_peak_pss_ram,
 		"max_pipeline_threads": max_planned_threads,
 		"max_observed_process_threads": max_observed_threads,
 		"max_cpu_parallelism_estimate": max_cpu_parallelism,
@@ -858,6 +876,7 @@ def build_phase_resource_usage_recommendation(
 		"resource_class": str(resource_class or ""),
 		"wall_time_s": wall_time_s,
 		"total_peak_rss_gb": _metric(usage.get("total_peak_rss_gb", None)),
+		"total_peak_pss_gb": _metric(usage.get("total_peak_pss_gb", None)),
 		"cpu_time_user_s": _metric(usage.get("cpu_time_user_s", None)),
 		"cpu_time_system_s": _metric(usage.get("cpu_time_system_s", None)),
 		"max_threads": _int_metric(usage.get("max_threads", None)),
@@ -1252,7 +1271,10 @@ def format_phase_tuning_report(summary: dict[str, Any]) -> str:
 				f"- cpu_cores: {recommendation.get('current_class_cpu_cores')} -> {recommendation.get('recommended_class_cpu_cores')}",
 				f"- h5_read_slots: {recommendation.get('current_h5_read_slots')} -> {recommendation.get('recommended_h5_read_slots')}",
 				f"- disk_heavy_slots: {recommendation.get('current_disk_heavy_slots')} -> {recommendation.get('recommended_disk_heavy_slots')}",
+				f"- max_memory_peak_gb: {recommendation.get('max_memory_peak_gb')}",
+				f"- memory_peak_basis: {recommendation.get('memory_peak_basis')}",
 				f"- max_total_peak_rss_gb: {recommendation.get('max_total_peak_rss_gb')}",
+				f"- max_total_peak_pss_gb: {recommendation.get('max_total_peak_pss_gb')}",
 				f"- max_disk_read_gb_per_s: {recommendation.get('max_disk_read_gb_per_s')}",
 				f"- max_disk_write_gb_per_s: {recommendation.get('max_disk_write_gb_per_s')}",
 			]

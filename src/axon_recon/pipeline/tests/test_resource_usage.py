@@ -59,6 +59,57 @@ sda              1.00    2.00    5.00    3.00  12.00    0.10  45.00
     assert metrics["peak_device_util_pct"] == 88.00
 
 
+def test_phase_resource_monitor_reports_pss_separately_from_summed_child_rss(monkeypatch) -> None:
+    class FakeProcess:
+        def __init__(self, pid: int, *, rss: int, pss: int, children=None) -> None:
+            self.pid = int(pid)
+            self._rss = int(rss)
+            self._pss = int(pss)
+            self._children = list(children or [])
+
+        def children(self, recursive: bool = True):
+            _ = recursive
+            return list(self._children)
+
+        def memory_info(self):
+            return types.SimpleNamespace(rss=self._rss)
+
+        def memory_full_info(self):
+            return types.SimpleNamespace(rss=self._rss, pss=self._pss)
+
+        def num_threads(self) -> int:
+            return 1
+
+        def cpu_times(self):
+            return types.SimpleNamespace(user=0.0, system=0.0)
+
+    child_a = FakeProcess(102, rss=4_000, pss=1_000)
+    child_b = FakeProcess(103, rss=4_000, pss=1_000)
+    parent = FakeProcess(101, rss=1_000, pss=800, children=[child_a, child_b])
+    monkeypatch.setattr(
+        resource_usage,
+        "psutil",
+        types.SimpleNamespace(Process=lambda pid: parent),
+    )
+
+    monitor = resource_usage.PhaseResourceMonitor(
+        include_children=True,
+        sample_interval_s=0.05,
+        include_gpu=False,
+        include_disk_io=False,
+        pipeline_thread_count=1,
+    )
+    monitor._capture_sample(initial=True)
+    usage = monitor.stop()
+
+    assert usage.process_peak_rss_gb == 1_000 / float(1024**3)
+    assert usage.child_peak_rss_gb == 8_000 / float(1024**3)
+    assert usage.total_peak_rss_gb == 9_000 / float(1024**3)
+    assert usage.process_peak_pss_gb == 800 / float(1024**3)
+    assert usage.child_peak_pss_gb == 2_000 / float(1024**3)
+    assert usage.total_peak_pss_gb == 2_800 / float(1024**3)
+
+
 def test_format_phase_resource_usage_message_includes_inline_phase_tune_recommendation() -> None:
     message = format_phase_resource_usage_message(
         stage_name="reconstruct.build_templates",
