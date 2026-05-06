@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from axon_recon.pipeline.stages.reconstruct.templates.integrations.spikeinterface_extract import (
+	_prepare_analyzer_for_payload_extraction,
 	_try_recompute_waveforms_extension,
 	build_unit_source_payload,
 	discover_cached_spikeinterface_analyzer_source_names,
@@ -206,6 +207,44 @@ def test_build_unit_source_payload_returns_none_when_templates_unavailable() -> 
 	analyzer = _MockAnalyzer(templates_ext=_MockTemplatesExtension(np.zeros((2, 2), dtype=float)), has_templates=False)
 	payload = build_unit_source_payload(analyzer=analyzer, unit_id=94)
 	assert payload is None
+
+
+def test_prepare_analyzer_for_payload_extraction_reuses_existing_extensions_without_recompute() -> None:
+	template_time_by_ch = np.asarray(
+		[
+			[1.0, 3.0],
+			[2.0, 4.0],
+			[0.0, 0.0],
+			[0.0, 0.0],
+		],
+		dtype=float,
+	)
+	waveforms = np.arange(6 * 4 * 2, dtype=float).reshape(6, 4, 2)
+	analyzer = _MockAnalyzer(
+		templates_ext=_MockTemplatesExtension(template_time_by_ch),
+		has_templates=True,
+		waveforms=waveforms,
+		full_waveforms=waveforms,
+	)
+
+	prepared = _prepare_analyzer_for_payload_extraction(
+		analyzer=analyzer,
+		requested_max_spikes_per_unit=5,
+		requested_ms_before=1.0,
+		requested_ms_after=2.0,
+		requested_dtype="float32",
+		requested_random_spikes_method="uniform",
+		requested_random_seed=0,
+		requested_log_before_after_spike_counts=False,
+		requested_margin_size=None,
+		compute_n_jobs=1,
+		compute_progress_bar=False,
+		log_context="concat",
+	)
+
+	assert prepared is analyzer
+	assert analyzer.compute_call_count == 0
+	assert getattr(analyzer, "_axon_recon_prepared_waveforms_signature", None) is not None
 
 
 def test_build_unit_source_payload_expands_to_all_waveforms_when_unlimited() -> None:

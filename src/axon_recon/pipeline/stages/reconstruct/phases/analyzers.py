@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import shutil
+from dataclasses import replace
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -152,6 +153,76 @@ def _source_summary_from_manifest(
     }
 
 
+def _inputs_with_analyzer_build_if_missing(
+    inputs: TemplatesInputs,
+    *,
+    concat_build_if_missing: bool,
+    segments_build_if_missing: bool,
+) -> TemplatesInputs:
+    analyzers_phase = inputs.phases.analyzers
+    return replace(
+        inputs,
+        phases=replace(
+            inputs.phases,
+            analyzers=replace(
+                analyzers_phase,
+                concat=replace(
+                    analyzers_phase.concat,
+                    build_if_missing=bool(concat_build_if_missing),
+                ),
+                segments=replace(
+                    analyzers_phase.segments,
+                    build_if_missing=bool(segments_build_if_missing),
+                ),
+            ),
+        ),
+    )
+
+
+def _source_summary_from_loaded_analyzer(
+    *,
+    inputs: TemplatesInputs,
+    templates_out_dir: Path,
+    source_name: str,
+    analyzer: Any,
+) -> tuple[dict[str, Any], Path | None, int | None]:
+    policy = templates_runner._templates_analyzer_policy_for_source(inputs, source_name)
+    num_channels: int | None = None
+    get_num_channels = getattr(analyzer, "get_num_channels", None)
+    if callable(get_num_channels):
+        try:
+            num_channels = int(get_num_channels())
+        except Exception:
+            num_channels = None
+    elif hasattr(getattr(analyzer, "recording", None), "get_num_channels"):
+        try:
+            num_channels = int(analyzer.recording.get_num_channels())
+        except Exception:
+            num_channels = None
+    analyzer_unit_ids = extract_analyzer_unit_ids(analyzer)
+    unit_manifest_path: Path | None = None
+    unit_count: int | None = None
+    if analyzer_unit_ids is not None:
+        unit_count = int(len(analyzer_unit_ids))
+        unit_manifest_path = write_analyzer_source_units(
+            templates_out_dir=templates_out_dir,
+            source_name=str(source_name),
+            source_kind=("concat" if str(source_name) == "concat" else "segment"),
+            unit_ids=list(analyzer_unit_ids),
+        )
+    return (
+        {
+            "has_sparsity": bool(getattr(analyzer, "sparsity", None) is not None),
+            "num_channels": num_channels,
+            "num_units": unit_count,
+            "unit_manifest_json": (None if unit_manifest_path is None else str(unit_manifest_path)),
+            "policy": _analyzer_policy_summary(policy),
+        },
+        unit_manifest_path,
+        unit_count,
+    )
+
+
 def run_reconstruct_templates_analyzers_phase(
     inputs: TemplatesInputs, *, source_scope: str | None = None
 ) -> dict[str, Any]:
@@ -263,9 +334,6 @@ def run_reconstruct_templates_analyzers_phase(
     missing_manifest_source_names: list[str] = []
     if discovered_source_names:
         for source_name in discovered_source_names:
-            if str(source_name) not in cached_source_names:
-                missing_manifest_source_names.append(str(source_name))
-                continue
             existing_summary = _source_summary_from_manifest(
                 inputs=inputs,
                 templates_out_dir=templates_out_dir,
@@ -299,54 +367,72 @@ def run_reconstruct_templates_analyzers_phase(
     requested_source_names = (
         None if not discovered_source_names else list(missing_manifest_source_names)
     )
-    if requested_source_names is None or requested_source_names:
+
+    def _consume_loaded_analyzers(
+        iter_inputs: TemplatesInputs,
+        *,
+        requested_names: list[str] | None,
+    ) -> set[str]:
+        nonlocal generated_manifest_count
+        loaded_source_names: set[str] = set()
         for source_name, analyzer in templates_runner._iter_templates_phase_analyzers(
-            inputs=inputs,
+            inputs=iter_inputs,
             well_out_dir=well_out_dir,
             alternate_well_out_dirs=alternate_well_out_dirs,
             analyzer_cache_dir=analyzer_cache_dir,
             source_scope=source_scope,
-            requested_source_names=requested_source_names,
+            requested_source_names=requested_names,
             load_stats=load_stats,
         ):
-            policy = templates_runner._templates_analyzer_policy_for_source(inputs, source_name)
-            num_channels: int | None = None
-            get_num_channels = getattr(analyzer, "get_num_channels", None)
-            if callable(get_num_channels):
-                try:
-                    num_channels = int(get_num_channels())
-                except Exception:
-                    num_channels = None
-            elif hasattr(getattr(analyzer, "recording", None), "get_num_channels"):
-                try:
-                    num_channels = int(analyzer.recording.get_num_channels())
-                except Exception:
-                    num_channels = None
-            analyzer_unit_ids = extract_analyzer_unit_ids(analyzer)
-            unit_manifest_path: Path | None = None
-            if analyzer_unit_ids is not None:
-                unit_manifest_path = write_analyzer_source_units(
-                    templates_out_dir=templates_out_dir,
-                    source_name=str(source_name),
-                    source_kind=("concat" if str(source_name) == "concat" else "segment"),
-                    unit_ids=list(analyzer_unit_ids),
-                )
+            source_name = str(source_name)
+            loaded_source_names.add(source_name)
+            source_summary, unit_manifest_path, unit_count = _source_summary_from_loaded_analyzer(
+                inputs=inputs,
+                templates_out_dir=templates_out_dir,
+                source_name=source_name,
+                analyzer=analyzer,
+            )
+            if unit_manifest_path is not None:
                 generated_manifest_count += 1
                 templates_runner.LOGGER.info(
                     "templates.analyzers wrote source unit manifest: source=%s unit_count=%d path=%s",
-                    str(source_name),
-                    int(len(analyzer_unit_ids)),
+                    source_name,
+                    int(unit_count or 0),
                     str(unit_manifest_path),
                 )
-            sources_summary[str(source_name)] = {
-                "has_sparsity": bool(getattr(analyzer, "sparsity", None) is not None),
-                "num_channels": num_channels,
-                "num_units": (None if analyzer_unit_ids is None else int(len(analyzer_unit_ids))),
-                "unit_manifest_json": (None if unit_manifest_path is None else str(unit_manifest_path)),
-                "policy": _analyzer_policy_summary(policy),
-            }
+            sources_summary[source_name] = source_summary
             del analyzer
             gc.collect()
+        return loaded_source_names
+
+    if requested_source_names is None or requested_source_names:
+        if requested_source_names is None:
+            _consume_loaded_analyzers(inputs, requested_names=None)
+        elif requested_source_names:
+            templates_runner.LOGGER.info(
+                "templates.analyzers backfilling missing manifests from existing analyzers before rebuild: sources=%s",
+                list(requested_source_names),
+            )
+            no_build_inputs = _inputs_with_analyzer_build_if_missing(
+                inputs,
+                concat_build_if_missing=False,
+                segments_build_if_missing=False,
+            )
+            resolved_existing_sources = _consume_loaded_analyzers(
+                no_build_inputs,
+                requested_names=list(requested_source_names),
+            )
+            unresolved_sources = [
+                source_name
+                for source_name in requested_source_names
+                if str(source_name) not in resolved_existing_sources
+            ]
+            if unresolved_sources:
+                templates_runner.LOGGER.info(
+                    "templates.analyzers existing-analyzer backfill unresolved; allowing analyzer rebuild for remaining sources: sources=%s",
+                    list(unresolved_sources),
+                )
+                _consume_loaded_analyzers(inputs, requested_names=unresolved_sources)
     source_count = int(len(sources_summary))
     concat_count = int(sum(1 for source_name in sources_summary.keys() if str(source_name) == "concat"))
     segment_count = int(source_count - concat_count)

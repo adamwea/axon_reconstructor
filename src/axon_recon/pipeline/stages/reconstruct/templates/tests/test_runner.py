@@ -400,6 +400,136 @@ def test_run_reconstruct_templates_analyzers_phase_reuses_existing_manifests_and
 	)
 
 
+def test_run_reconstruct_templates_analyzers_phase_reuses_existing_manifests_without_cache_inventory(
+	tmp_path: Path,
+	monkeypatch,
+) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	templates_out_dir = well_out_dir / "templates_outputs"
+	write_analyzer_source_units(
+		templates_out_dir=templates_out_dir,
+		source_name="concat",
+		source_kind="concat",
+		unit_ids=[94, 95],
+	)
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.analyzers.discover_spikeinterface_analyzer_source_names",
+		lambda **kwargs: ["concat"],
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.analyzers.discover_cached_spikeinterface_analyzer_source_names",
+		lambda **kwargs: [],
+	)
+
+	def _unexpected_iter_templates_phase_analyzers(**kwargs):
+		raise AssertionError("existing manifest should have been reused without loading analyzers")
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.templates.runner._iter_templates_phase_analyzers",
+		_unexpected_iter_templates_phase_analyzers,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		analyzer_cache=AnalyzerCacheConfig(enabled=True, relpath="cache/analyzers"),
+		force_restart=False,
+		n_jobs=1,
+	)
+
+	summary = run_reconstruct_templates_analyzers_phase(inputs)
+	payload = json.loads(Path(str(summary["summary_json"])).read_text(encoding="utf-8"))
+	assert payload["source_count"] == 1
+	assert payload["source_unit_manifest_count"] == 1
+	assert payload["manifest_resume"]["reused_manifest_count"] == 1
+	assert payload["manifest_resume"]["generated_manifest_count"] == 0
+	assert payload["manifest_resume"]["missing_manifest_sources"] == []
+	assert payload["sources"]["concat"]["manifest_reused"] is True
+
+
+def test_run_reconstruct_templates_analyzers_phase_backfills_existing_analyzers_before_rebuild(
+	tmp_path: Path,
+	monkeypatch,
+) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	call_sequence: list[tuple[bool, bool, list[str]]] = []
+
+	class _FakeSorting:
+		unit_ids = [94, 95]
+
+	class _FakeAnalyzer:
+		def __init__(self, num_channels: int) -> None:
+			self.sorting = _FakeSorting()
+			self.sparsity = None
+			self._num_channels = int(num_channels)
+
+		def get_num_channels(self) -> int:
+			return int(self._num_channels)
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.analyzers.discover_spikeinterface_analyzer_source_names",
+		lambda **kwargs: ["concat", "000_recA"],
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.analyzers.discover_cached_spikeinterface_analyzer_source_names",
+		lambda **kwargs: [],
+	)
+
+	def _fake_iter_templates_phase_analyzers(**kwargs):
+		iter_inputs = kwargs["inputs"]
+		requested = [str(name) for name in list(kwargs.get("requested_source_names") or [])]
+		call_sequence.append(
+			(
+				bool(iter_inputs.phases.analyzers.concat.build_if_missing),
+				bool(iter_inputs.phases.analyzers.segments.build_if_missing),
+				requested,
+			)
+		)
+		if requested == ["concat", "000_recA"]:
+			yield ("concat", _FakeAnalyzer(257))
+			return
+		if requested == ["000_recA"]:
+			yield ("000_recA", _FakeAnalyzer(128))
+			return
+		raise AssertionError(f"unexpected requested_source_names: {requested}")
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.templates.runner._iter_templates_phase_analyzers",
+		_fake_iter_templates_phase_analyzers,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		analyzer_cache=AnalyzerCacheConfig(enabled=True, relpath="cache/analyzers"),
+		force_restart=False,
+		n_jobs=1,
+	)
+
+	summary = run_reconstruct_templates_analyzers_phase(inputs)
+	payload = json.loads(Path(str(summary["summary_json"])).read_text(encoding="utf-8"))
+	assert call_sequence == [
+		(False, False, ["concat", "000_recA"]),
+		(True, True, ["000_recA"]),
+	]
+	assert payload["source_count"] == 2
+	assert payload["source_unit_manifest_count"] == 2
+	assert payload["manifest_resume"]["reused_manifest_count"] == 0
+	assert payload["manifest_resume"]["generated_manifest_count"] == 2
+	assert payload["manifest_resume"]["missing_manifest_sources"] == ["concat", "000_recA"]
+
+
 def test_run_reconstruct_templates_build_templates_phase_materializes_templates_from_payloads(tmp_path: Path, monkeypatch, caplog) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"

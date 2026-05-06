@@ -1176,6 +1176,45 @@ def _waveforms_prepared_matches(
 	return int(prepared_max) >= int(required_max)
 
 
+def _analyzer_has_extension_safe(*, analyzer: Any, extension_name: str) -> bool:
+	try:
+		return bool(analyzer.has_extension(extension_name))
+	except Exception:
+		return False
+
+
+def _loaded_analyzer_extensions_satisfy_requested_payload(
+	*,
+	normalized_max: int | None,
+	requested_min_spikes_per_unit: int | None,
+	requested_ms_before: float | None,
+	requested_ms_after: float | None,
+	requested_dtype: str | None,
+	requested_random_spikes_method: str,
+	requested_random_spikes_percentage: float | None,
+	requested_log_before_after_spike_counts: bool | None,
+	requested_margin_size: int | None,
+	has_templates: bool,
+	has_waveforms: bool,
+) -> bool:
+	if not has_templates:
+		return False
+	needs_waveforms = (
+		normalized_max is not None
+		or requested_min_spikes_per_unit is not None
+		or requested_ms_before is not None
+		or requested_ms_after is not None
+		or _normalize_requested_waveform_dtype(requested_dtype) is not None
+		or _normalize_requested_random_spikes_method(requested_random_spikes_method) != "uniform"
+		or requested_random_spikes_percentage is not None
+		or _normalize_requested_log_counts(requested_log_before_after_spike_counts)
+		or requested_margin_size is not None
+	)
+	if needs_waveforms and (not has_waveforms):
+		return False
+	return True
+
+
 def _prepare_analyzer_for_payload_extraction(
 	*,
 	analyzer: Any,
@@ -1224,16 +1263,42 @@ def _prepare_analyzer_for_payload_extraction(
 		or _normalize_requested_log_counts(requested_log_before_after_spike_counts)
 		or requested_margin_size is not None
 	)
-	has_templates = False
-	has_waveforms = False
-	try:
-		has_templates = bool(analyzer.has_extension("templates"))
-	except Exception:
-		has_templates = False
-	try:
-		has_waveforms = bool(analyzer.has_extension("waveforms"))
-	except Exception:
-		has_waveforms = False
+	has_templates = _analyzer_has_extension_safe(analyzer=analyzer, extension_name="templates")
+	has_waveforms = _analyzer_has_extension_safe(analyzer=analyzer, extension_name="waveforms")
+	if _loaded_analyzer_extensions_satisfy_requested_payload(
+		normalized_max=normalized_max,
+		requested_min_spikes_per_unit=requested_min_spikes_per_unit,
+		requested_ms_before=requested_ms_before,
+		requested_ms_after=requested_ms_after,
+		requested_dtype=requested_dtype,
+		requested_random_spikes_method=requested_random_spikes_method,
+		requested_random_spikes_percentage=requested_random_spikes_percentage,
+		requested_log_before_after_spike_counts=requested_log_before_after_spike_counts,
+		requested_margin_size=requested_margin_size,
+		has_templates=has_templates,
+		has_waveforms=has_waveforms,
+	):
+		if log_context is not None:
+			LOGGER.info(
+				"Using existing analyzer extensions without recompute: source=%s has_waveforms=%s has_templates=%s",
+				str(log_context),
+				bool(has_waveforms),
+				bool(has_templates),
+			)
+		_mark_analyzer_waveforms_prepared(
+			analyzer=analyzer,
+			requested_max_spikes_per_unit=normalized_max,
+			requested_min_spikes_per_unit=requested_min_spikes_per_unit,
+			requested_ms_before=requested_ms_before,
+			requested_ms_after=requested_ms_after,
+			requested_dtype=requested_dtype,
+			requested_random_spikes_method=requested_random_spikes_method,
+			requested_random_spikes_percentage=requested_random_spikes_percentage,
+			requested_random_seed=requested_random_seed,
+			requested_log_before_after_spike_counts=requested_log_before_after_spike_counts,
+			requested_margin_size=requested_margin_size,
+		)
+		return analyzer
 	if needs_prepare or (not has_templates):
 		if log_context is not None:
 			LOGGER.info(
