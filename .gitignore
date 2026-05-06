@@ -31,4 +31,3 @@ axon_reconstruction*.log
 
 # Smoke-test local overrides (user-specific)
 tools/smoke_tests/perlmutter/smoke_tests.local.toml
-
