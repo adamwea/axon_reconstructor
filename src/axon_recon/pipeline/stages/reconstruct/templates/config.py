@@ -1078,6 +1078,15 @@ def _parse_optional_text(raw: Any) -> str | None:
 	return (text or None)
 
 
+def _normalize_report_templates_consume(raw: Any, default: str = "plot_templates") -> str:
+	value = str(raw or default).strip().lower().replace("-", "_").replace(" ", "_")
+	if value in {"plot_templates_v2", "plot_template_v2", "template_plots_v2", "plots_v2", "v2"}:
+		return "plot_templates_v2"
+	if value in {"plot_templates", "plot_template", "template_plots", "plots", "v1"}:
+		return "plot_templates"
+	return str(default)
+
+
 def _build_waveform_extraction_config(
 	*,
 	spikeinterface_cfg: dict[str, Any],
@@ -4115,6 +4124,10 @@ def parse_reconstruct_templates_config(
 			phase_report_templates_cfg.get("summary_json_relpath", "context/report_templates_summary.json")
 		),
 		resource_class=_phase_resource_class(phase_report_templates_cfg, "report_templates"),
+		consume=_normalize_report_templates_consume(
+			phase_report_templates_cfg.get("consume", "plot_templates"),
+			"plot_templates",
+		),
 		relpath=str(phase_report_templates_cfg.get("relpath", "template_report.pdf")),
 		write_pdf=_as_bool(phase_report_templates_cfg.get("write_pdf", True), True),
 	)

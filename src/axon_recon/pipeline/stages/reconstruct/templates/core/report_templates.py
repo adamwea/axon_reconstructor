@@ -17,6 +17,7 @@ def build_report_templates_phase_summary(
 	rendered_units: list[Any],
 	missing_units: list[dict[str, Any]],
 	report_outputs: dict[str, str],
+	source_output_key: str,
 	duration_seconds: float,
 ) -> dict[str, Any]:
 	return {
@@ -27,8 +28,9 @@ def build_report_templates_phase_summary(
 		"rendered_units": list(rendered_units),
 		"missing_units": list(missing_units),
 		"write_pdf": bool(inputs.phases.report_templates.write_pdf),
+		"consume": str(inputs.phases.report_templates.consume),
 		"report_relpath": str(inputs.phases.report_templates.relpath),
 		"summary_json_relpath": str(inputs.phases.report_templates.summary_json_relpath),
-		"source_output_key": "template_circles_png",
+		"source_output_key": str(source_output_key),
 		"outputs": dict(report_outputs),
 	}

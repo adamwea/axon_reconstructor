@@ -8,11 +8,19 @@ from axon_recon.pipeline.stages.reconstruct.templates import runner as templates
 from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import TemplatesInputs
 
 
+def _resolve_report_templates_source(inputs: TemplatesInputs) -> tuple[str, str]:
+    consume = str(inputs.phases.report_templates.consume).strip().lower()
+    if consume == "plot_templates_v2":
+        return "template_circles_v2_png", "templates.plot_templates_v2"
+    return "template_circles_png", "templates.plot_templates"
+
+
 def run_reconstruct_templates_report_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
     phase_started = perf_counter()
     well_out_dir, _, templates_out_dir, _ = templates_runner._resolve_templates_phase_environment(
         inputs
     )
+    source_output_key, source_phase_name = _resolve_report_templates_source(inputs)
     unit_ids = (
         list(inputs.unit_ids)
         if inputs.unit_ids is not None
@@ -25,7 +33,7 @@ def run_reconstruct_templates_report_templates_phase(inputs: TemplatesInputs) ->
         unit_ids = unit_ids[: int(inputs.unit_limit)]
     if not unit_ids:
         raise FileNotFoundError(
-            f"No unit summaries found under {templates_out_dir}; run templates.plot_templates first"
+            f"No unit summaries found under {templates_out_dir}; run {source_phase_name} first"
         )
 
     render_units: list[dict[str, Any]] = []
@@ -42,16 +50,16 @@ def run_reconstruct_templates_report_templates_phase(inputs: TemplatesInputs) ->
         if unit_result is None:
             missing_units.append({"unit_id": unit_id, "reason": "missing_unit_summary"})
             continue
-        circle_png = unit_result.outputs.get("template_circles_png")
+        circle_png = unit_result.outputs.get(source_output_key)
         if circle_png is None:
-            missing_units.append({"unit_id": unit_id, "reason": "missing_template_circles_png"})
+            missing_units.append({"unit_id": unit_id, "reason": f"missing_{source_output_key}"})
             continue
         circle_png_path = Path(str(circle_png))
         if not circle_png_path.exists():
             missing_units.append(
                 {
                     "unit_id": unit_id,
-                    "reason": "missing_circle_png_file",
+                    "reason": f"missing_{source_output_key}_file",
                     "path": str(circle_png_path),
                 }
             )
@@ -60,7 +68,7 @@ def run_reconstruct_templates_report_templates_phase(inputs: TemplatesInputs) ->
 
     if not render_units:
         raise FileNotFoundError(
-            "Missing circle plot assets required for report_templates; run templates.plot_templates first"
+            f"Missing circle plot assets required for report_templates; run {source_phase_name} first"
         )
 
     report_outputs: dict[str, str] = {}
@@ -81,6 +89,7 @@ def run_reconstruct_templates_report_templates_phase(inputs: TemplatesInputs) ->
         rendered_units=[unit["unit_id"] for unit in render_units],
         missing_units=missing_units,
         report_outputs=report_outputs,
+        source_output_key=source_output_key,
         duration_seconds=float(perf_counter() - phase_started),
     )
     summary["applied_debug_limits"] = templates_runner._templates_applied_debug_limits(inputs)

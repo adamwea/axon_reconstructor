@@ -3098,6 +3098,7 @@ def test_load_templates_config_parses_report_templates_phase_block(tmp_path: Pat
 			      report_templates:
 			        enabled: true
 			        summary_json_relpath: context/custom_report_templates_summary.json
+			        consume: plot_templates_v2
 			        relpath: reports/circle_templates.pdf
 			        write_pdf: true
 			"""
@@ -3110,6 +3111,7 @@ def test_load_templates_config_parses_report_templates_phase_block(tmp_path: Pat
 
 	assert inputs.phases.report_templates.enabled is True
 	assert inputs.phases.report_templates.summary_json_relpath == "context/custom_report_templates_summary.json"
+	assert inputs.phases.report_templates.consume == "plot_templates_v2"
 	assert inputs.phases.report_templates.relpath == "reports/circle_templates.pdf"
 	assert inputs.phases.report_templates.write_pdf is True
 

@@ -384,6 +384,7 @@ class TemplateReportTemplatesPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/report_templates_summary.json"
 	resource_class: str | None = None
+	consume: str = "plot_templates"
 	relpath: str = "template_report.pdf"
 	write_pdf: bool = True
 

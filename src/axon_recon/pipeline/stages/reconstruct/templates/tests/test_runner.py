@@ -21,6 +21,7 @@ from axon_recon.pipeline.stages.reconstruct.phases.plot_templates import (
 	_run_reconstruct_templates_plot_batches,
 )
 from axon_recon.pipeline.stages.reconstruct.phases.plot_templates_v2 import (
+	_resolve_plot_templates_v2_execution_plan,
 	run_reconstruct_templates_plot_templates_v2_phase,
 )
 from axon_recon.pipeline.stages.reconstruct.templates.core.template_similarity_methods import (
@@ -57,6 +58,7 @@ from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import (
 	TemplatePlotConfig,
 	TemplatePlotTemplatesV2PhaseConfig,
 	TemplatePlotsPhaseConfig,
+	TemplateReportTemplatesPhaseConfig,
 	TemplatesAnalyzersPhaseConfig,
 	TemplateSimilarityCandidateSelectionConfig,
 	TemplateSimilarityMethodOptionsConfig,
@@ -4329,6 +4331,27 @@ def test_run_reconstruct_templates_plot_templates_v2_phase_writes_direct_outputs
 	assert output_png.exists()
 	assert unit_summary["outputs"]["template_circles_v2_png"] == str(output_png)
 	assert unit_summary["selected_template_sources"]["template_circles_v2"] == "merged_contributing"
+	assert summary["unit_workers"] == 1
+	assert summary["unit_executor"] == "serial"
+
+
+def test_resolve_plot_templates_v2_execution_plan_uses_available_unit_workers(tmp_path: Path) -> None:
+	inputs = TemplatesInputs(
+		h5_path=tmp_path / "dataset.h5",
+		stream_id="well000",
+		mea_output_root=tmp_path / "outputs",
+		n_jobs=4,
+	)
+
+	derived_unit_workers, unit_workers, unit_batch_size, batches = _resolve_plot_templates_v2_execution_plan(
+		inputs=inputs,
+		unit_ids=[10, 11, 12, 13, 14, 15],
+	)
+
+	assert derived_unit_workers == 4
+	assert unit_workers == 4
+	assert unit_batch_size == 1
+	assert batches == [[10], [11], [12], [13], [14], [15]]
 
 
 def test_run_reconstruct_templates_plot_templates_phase_skips_existing_requested_outputs(tmp_path: Path) -> None:
@@ -4677,3 +4700,57 @@ def test_run_reconstruct_templates_report_templates_phase_writes_pdf_from_circle
 	assert Path(str(summary["summary_json"])).exists()
 	assert report_pdf.exists()
 	assert summary["outputs"]["template_report_pdf"] == str(report_pdf)
+	assert summary["source_output_key"] == "template_circles_png"
+	assert summary["consume"] == "plot_templates"
+
+
+def test_run_reconstruct_templates_report_templates_phase_writes_pdf_from_v2_circle_assets(tmp_path: Path) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+
+	plot_inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		unit_label_filter_required=False,
+		unit_ids=[94, 95],
+		n_jobs=1,
+		phases=TemplatesPhasesConfig(
+			plot_templates_v2=TemplatePlotTemplatesV2PhaseConfig(
+				enabled=True,
+				write_png=True,
+				write_svg=False,
+				output_relpath="template_circles_v2",
+			),
+		),
+	)
+	run_reconstruct_templates_plot_templates_v2_phase(plot_inputs)
+
+	report_inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		unit_label_filter_required=False,
+		unit_ids=[94, 95],
+		unit_limit=1,
+		n_jobs=1,
+		phases=TemplatesPhasesConfig(
+			report_templates=TemplateReportTemplatesPhaseConfig(consume="plot_templates_v2")
+		),
+	)
+
+	summary = run_reconstruct_templates_report_templates_phase(report_inputs)
+
+	report_pdf = well_out_dir / "templates_outputs" / "template_report.pdf"
+	assert summary["phase"] == "report_templates"
+	assert summary["rendered_units"] == [94]
+	assert summary["missing_units"] == []
+	assert report_pdf.exists()
+	assert summary["outputs"]["template_report_pdf"] == str(report_pdf)
+	assert summary["source_output_key"] == "template_circles_v2_png"
+	assert summary["consume"] == "plot_templates_v2"
