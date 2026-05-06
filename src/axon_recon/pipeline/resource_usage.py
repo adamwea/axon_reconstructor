@@ -228,6 +228,9 @@ class PhaseResourceUsage:
 	phase_tune_avg_cpu_pct: float | None = None
 	phase_tune_peak_cpu_pct: float | None = None
 	phase_tune_peak_rss_gb: float | None = None
+	phase_tune_shm_capacity_gb: float | None = None
+	phase_tune_peak_shm_used_gb: float | None = None
+	phase_tune_peak_shm_usage_pct: float | None = None
 	phase_tune_avg_read_gb_per_s: float | None = None
 	phase_tune_avg_write_gb_per_s: float | None = None
 	phase_tune_peak_read_gb_per_s: float | None = None
@@ -264,6 +267,9 @@ class PhaseResourceUsage:
 			"phase_tune_avg_cpu_pct": self.phase_tune_avg_cpu_pct,
 			"phase_tune_peak_cpu_pct": self.phase_tune_peak_cpu_pct,
 			"phase_tune_peak_rss_gb": self.phase_tune_peak_rss_gb,
+			"phase_tune_shm_capacity_gb": self.phase_tune_shm_capacity_gb,
+			"phase_tune_peak_shm_used_gb": self.phase_tune_peak_shm_used_gb,
+			"phase_tune_peak_shm_usage_pct": self.phase_tune_peak_shm_usage_pct,
 			"phase_tune_avg_read_gb_per_s": self.phase_tune_avg_read_gb_per_s,
 			"phase_tune_avg_write_gb_per_s": self.phase_tune_avg_write_gb_per_s,
 			"phase_tune_peak_read_gb_per_s": self.phase_tune_peak_read_gb_per_s,
@@ -497,6 +503,7 @@ class PhaseResourceMonitor:
 		include_disk_io: bool = False,
 		pipeline_thread_count: int | None = None,
 		include_phase_tune_tools: bool = False,
+		include_phase_tune_shm: bool = False,
 		phase_tune_tool_interval_s: float = 1.0,
 		phase_tune_tool_log_dir: Path | None = None,
 		phase_tune_write_tool_logs: bool = True,
@@ -522,6 +529,10 @@ class PhaseResourceMonitor:
 		self._peak_process_pss_bytes: int | None = None
 		self._peak_child_pss_bytes: int | None = None
 		self._peak_total_pss_bytes: int | None = None
+		self._phase_tune_shm_total_bytes: int | None = None
+		self._phase_tune_peak_shm_used_bytes: int | None = None
+		self._phase_tune_internal_warnings: list[str] = []
+		self._phase_tune_shm_warning_emitted = False
 		self._observed_process_max_threads = 0
 		self._child_process_count_max = 0
 		self._gpu_peak_bytes: int | None = None
@@ -531,6 +542,8 @@ class PhaseResourceMonitor:
 		self._lock = threading.RLock()
 		self._stop_event = threading.Event()
 		self._thread: threading.Thread | None = None
+		self._include_phase_tune_shm = bool(include_phase_tune_shm)
+		self._phase_tune_shm_path = "/dev/shm" if self._include_phase_tune_shm else None
 		self._phase_tune_external_monitor = (
 			_ExternalPhaseTuneMonitor(
 				tool_interval_s=phase_tune_tool_interval_s,
@@ -660,6 +673,28 @@ class PhaseResourceMonitor:
 						max(0.0, float(gpu_utilization)),
 					)
 
+			if self._include_phase_tune_shm and self._phase_tune_shm_path:
+				try:
+					shm_usage = shutil.disk_usage(self._phase_tune_shm_path)
+				except Exception as exc:
+					if not self._phase_tune_shm_warning_emitted:
+						self._phase_tune_internal_warnings.append(
+							f"shared-memory usage unavailable for {self._phase_tune_shm_path}: {type(exc).__name__}: {exc}"
+						)
+						self._phase_tune_shm_warning_emitted = True
+				else:
+					total_bytes = max(0, int(getattr(shm_usage, "total", 0) or 0))
+					used_bytes = max(0, int(getattr(shm_usage, "used", 0) or 0))
+					if total_bytes > 0:
+						self._phase_tune_shm_total_bytes = max(
+							int(self._phase_tune_shm_total_bytes or 0),
+							total_bytes,
+						)
+					self._phase_tune_peak_shm_used_bytes = max(
+						int(self._phase_tune_peak_shm_used_bytes or 0),
+						used_bytes,
+					)
+
 	def start(self) -> None:
 		self._start_perf = time.perf_counter()
 		if self._phase_tune_external_monitor is not None:
@@ -680,6 +715,10 @@ class PhaseResourceMonitor:
 		phase_tune_metrics = (
 			{} if self._phase_tune_external_monitor is None else self._phase_tune_external_monitor.stop()
 		)
+		phase_tune_warnings = list(phase_tune_metrics.get("warnings", ()) or ())
+		for warning in self._phase_tune_internal_warnings:
+			if warning not in phase_tune_warnings:
+				phase_tune_warnings.append(warning)
 
 		wall_time_s = max(0.0, float(time.perf_counter() - self._start_perf))
 		cpu_user_s: float | None = None
@@ -710,6 +749,22 @@ class PhaseResourceMonitor:
 			disk_write_gb = _to_gib(total_write)
 
 		gpu_peak_memory_gb = _to_gib(self._gpu_peak_bytes) if self.include_gpu else None
+		phase_tune_shm_capacity_gb = _to_gib(self._phase_tune_shm_total_bytes) if self._include_phase_tune_shm else None
+		phase_tune_peak_shm_used_gb = (
+			_to_gib(self._phase_tune_peak_shm_used_bytes) if self._include_phase_tune_shm else None
+		)
+		phase_tune_peak_shm_usage_pct: float | None = None
+		if (
+			self._include_phase_tune_shm
+			and self._phase_tune_shm_total_bytes is not None
+			and self._phase_tune_shm_total_bytes > 0
+			and self._phase_tune_peak_shm_used_bytes is not None
+		):
+			phase_tune_peak_shm_usage_pct = (
+				100.0
+				* float(self._phase_tune_peak_shm_used_bytes)
+				/ float(self._phase_tune_shm_total_bytes)
+			)
 		return PhaseResourceUsage(
 			wall_time_s=_coerce_nonnegative(wall_time_s),
 			process_peak_rss_gb=_to_gib(self._peak_process_rss_bytes),
@@ -741,6 +796,9 @@ class PhaseResourceMonitor:
 			phase_tune_avg_cpu_pct=_coerce_nonnegative(phase_tune_metrics.get("avg_cpu_pct", None)),
 			phase_tune_peak_cpu_pct=_coerce_nonnegative(phase_tune_metrics.get("peak_cpu_pct", None)),
 			phase_tune_peak_rss_gb=_coerce_nonnegative(phase_tune_metrics.get("peak_rss_gb", None)),
+			phase_tune_shm_capacity_gb=_coerce_nonnegative(phase_tune_shm_capacity_gb),
+			phase_tune_peak_shm_used_gb=_coerce_nonnegative(phase_tune_peak_shm_used_gb),
+			phase_tune_peak_shm_usage_pct=_coerce_nonnegative(phase_tune_peak_shm_usage_pct),
 			phase_tune_avg_read_gb_per_s=_coerce_nonnegative(phase_tune_metrics.get("avg_read_gb_per_s", None)),
 			phase_tune_avg_write_gb_per_s=_coerce_nonnegative(phase_tune_metrics.get("avg_write_gb_per_s", None)),
 			phase_tune_peak_read_gb_per_s=_coerce_nonnegative(phase_tune_metrics.get("peak_read_gb_per_s", None)),
@@ -757,7 +815,7 @@ class PhaseResourceMonitor:
 			phase_tune_peak_device_util_pct=_coerce_nonnegative(
 				phase_tune_metrics.get("peak_device_util_pct", None)
 			),
-			phase_tune_warnings=tuple(str(item) for item in (phase_tune_metrics.get("warnings", ()) or ())),
+			phase_tune_warnings=tuple(str(item) for item in phase_tune_warnings),
 		)
 
 
@@ -795,6 +853,7 @@ def start_phase_resource_monitor(
 		include_disk_io=phase_tune_enabled or bool(getattr(resource_usage_config, "include_disk_io", False)),
 		pipeline_thread_count=pipeline_thread_count,
 		include_phase_tune_tools=phase_tune_enabled and bool(phase_tune_config.get("system_tools_enabled", True)),
+		include_phase_tune_shm=phase_tune_enabled,
 		phase_tune_tool_interval_s=float(phase_tune_config.get("system_tool_interval_s", 1.0) or 1.0),
 		phase_tune_tool_log_dir=tool_log_dir,
 		phase_tune_write_tool_logs=bool(phase_tune_config.get("write_tool_logs", True)),

@@ -180,6 +180,13 @@ def _disk_throughput_interpretation_note() -> str:
 	)
 
 
+def _shared_memory_interpretation_note() -> str:
+	return (
+		"phase_tune_shm_capacity_gb and phase_tune_peak_shm_* reflect /dev/shm tmpfs usage inside the "
+		"running environment; use them to tune container shared memory separately from RAM sizing."
+	)
+
+
 def _resource_gate_key_path(resource_gate: dict[str, Any], resource_name: str) -> str | None:
 	keyed_requests = _as_mapping(resource_gate.get("keyed_requests", None))
 	request = _as_mapping(keyed_requests.get(str(resource_name), None))
@@ -278,6 +285,9 @@ def collect_phase_resource_observations_from_jsonl(
 				"phase_tune_avg_cpu_pct": _metric(usage.get("phase_tune_avg_cpu_pct", None)),
 				"phase_tune_peak_cpu_pct": _metric(usage.get("phase_tune_peak_cpu_pct", None)),
 				"phase_tune_peak_rss_gb": _metric(usage.get("phase_tune_peak_rss_gb", None)),
+				"phase_tune_shm_capacity_gb": _metric(usage.get("phase_tune_shm_capacity_gb", None)),
+				"phase_tune_peak_shm_used_gb": _metric(usage.get("phase_tune_peak_shm_used_gb", None)),
+				"phase_tune_peak_shm_usage_pct": _metric(usage.get("phase_tune_peak_shm_usage_pct", None)),
 				"phase_tune_avg_read_gb_per_s": _metric(usage.get("phase_tune_avg_read_gb_per_s", None)),
 				"phase_tune_avg_write_gb_per_s": _metric(usage.get("phase_tune_avg_write_gb_per_s", None)),
 				"phase_tune_peak_read_gb_per_s": _metric(usage.get("phase_tune_peak_read_gb_per_s", None)),
@@ -790,6 +800,18 @@ def _recommend_for_group(
 		_nonnull_float_values(item.get("phase_tune_peak_rss_gb", None) for item in observations),
 		default=None,
 	)
+	max_phase_tune_shm_capacity_gb = max(
+		_nonnull_float_values(item.get("phase_tune_shm_capacity_gb", None) for item in observations),
+		default=None,
+	)
+	max_phase_tune_peak_shm_used_gb = max(
+		_nonnull_float_values(item.get("phase_tune_peak_shm_used_gb", None) for item in observations),
+		default=None,
+	)
+	max_phase_tune_peak_shm_usage_pct = max(
+		_nonnull_float_values(item.get("phase_tune_peak_shm_usage_pct", None) for item in observations),
+		default=None,
+	)
 	max_phase_tune_peak_read_gb_per_s = max(
 		_nonnull_float_values(item.get("phase_tune_peak_read_gb_per_s", None) for item in observations),
 		default=None,
@@ -829,6 +851,15 @@ def _recommend_for_group(
 		notes.append("disk read/write rates are observed phase throughput, not a destructive disk benchmark")
 	_append_note_once(notes, _memory_interpretation_note(memory_peak_basis))
 	_append_note_once(notes, _disk_throughput_interpretation_note())
+	if any(
+		value is not None
+		for value in (
+			max_phase_tune_shm_capacity_gb,
+			max_phase_tune_peak_shm_used_gb,
+			max_phase_tune_peak_shm_usage_pct,
+		)
+	):
+		_append_note_once(notes, _shared_memory_interpretation_note())
 
 	return {
 		"stage": stage,
@@ -851,6 +882,9 @@ def _recommend_for_group(
 		"max_phase_tune_avg_cpu_pct": max_phase_tune_avg_cpu_pct,
 		"max_phase_tune_peak_cpu_pct": max_phase_tune_peak_cpu_pct,
 		"max_phase_tune_peak_rss_gb": max_phase_tune_peak_rss_gb,
+		"max_phase_tune_shm_capacity_gb": max_phase_tune_shm_capacity_gb,
+		"max_phase_tune_peak_shm_used_gb": max_phase_tune_peak_shm_used_gb,
+		"max_phase_tune_peak_shm_usage_pct": max_phase_tune_peak_shm_usage_pct,
 		"max_phase_tune_peak_read_gb_per_s": max_phase_tune_peak_read_gb_per_s,
 		"max_phase_tune_peak_write_gb_per_s": max_phase_tune_peak_write_gb_per_s,
 		"max_phase_tune_device_read_mb_per_s": max_phase_tune_device_read_mb_per_s,
@@ -917,6 +951,9 @@ def build_phase_resource_usage_recommendation(
 		"phase_tune_avg_cpu_pct": _metric(usage.get("phase_tune_avg_cpu_pct", None)),
 		"phase_tune_peak_cpu_pct": _metric(usage.get("phase_tune_peak_cpu_pct", None)),
 		"phase_tune_peak_rss_gb": _metric(usage.get("phase_tune_peak_rss_gb", None)),
+		"phase_tune_shm_capacity_gb": _metric(usage.get("phase_tune_shm_capacity_gb", None)),
+		"phase_tune_peak_shm_used_gb": _metric(usage.get("phase_tune_peak_shm_used_gb", None)),
+		"phase_tune_peak_shm_usage_pct": _metric(usage.get("phase_tune_peak_shm_usage_pct", None)),
 		"phase_tune_peak_read_gb_per_s": _metric(usage.get("phase_tune_peak_read_gb_per_s", None)),
 		"phase_tune_peak_write_gb_per_s": _metric(usage.get("phase_tune_peak_write_gb_per_s", None)),
 		"phase_tune_peak_device_read_mb_per_s": _metric(usage.get("phase_tune_peak_device_read_mb_per_s", None)),
@@ -1306,14 +1343,35 @@ def format_phase_tuning_report(summary: dict[str, Any]) -> str:
 				f"- max_disk_write_gb_per_s: {recommendation.get('max_disk_write_gb_per_s')}",
 			]
 		)
-		if recommendation.get("phase_tune_tools"):
+		phase_tune_metric_keys = (
+			"phase_tune_sample_count",
+			"max_phase_tune_avg_cpu_pct",
+			"max_phase_tune_peak_cpu_pct",
+			"max_phase_tune_peak_rss_gb",
+			"max_phase_tune_shm_capacity_gb",
+			"max_phase_tune_peak_shm_used_gb",
+			"max_phase_tune_peak_shm_usage_pct",
+			"max_phase_tune_peak_read_gb_per_s",
+			"max_phase_tune_peak_write_gb_per_s",
+			"max_phase_tune_device_read_mb_per_s",
+			"max_phase_tune_device_write_mb_per_s",
+			"max_phase_tune_device_await_ms",
+			"max_phase_tune_device_util_pct",
+		)
+		if recommendation.get("phase_tune_tools") or any(
+			recommendation.get(key) is not None for key in phase_tune_metric_keys
+		):
+			phase_tune_tools = recommendation.get("phase_tune_tools", []) or []
 			lines.extend(
 				[
-					f"- phase_tune_tools: {', '.join(str(item) for item in recommendation.get('phase_tune_tools', []))}",
+					f"- phase_tune_tools: {', '.join(str(item) for item in phase_tune_tools) if phase_tune_tools else 'none'}",
 					f"- phase_tune_sample_count: {recommendation.get('phase_tune_sample_count')}",
 					f"- max_phase_tune_avg_cpu_pct: {recommendation.get('max_phase_tune_avg_cpu_pct')}",
 					f"- max_phase_tune_peak_cpu_pct: {recommendation.get('max_phase_tune_peak_cpu_pct')}",
 					f"- max_phase_tune_peak_rss_gb: {recommendation.get('max_phase_tune_peak_rss_gb')}",
+					f"- max_phase_tune_shm_capacity_gb: {recommendation.get('max_phase_tune_shm_capacity_gb')}",
+					f"- max_phase_tune_peak_shm_used_gb: {recommendation.get('max_phase_tune_peak_shm_used_gb')}",
+					f"- max_phase_tune_peak_shm_usage_pct: {recommendation.get('max_phase_tune_peak_shm_usage_pct')}",
 					f"- max_phase_tune_peak_read_gb_per_s: {recommendation.get('max_phase_tune_peak_read_gb_per_s')}",
 					f"- max_phase_tune_peak_write_gb_per_s: {recommendation.get('max_phase_tune_peak_write_gb_per_s')}",
 					f"- max_phase_tune_device_read_mb_per_s: {recommendation.get('max_phase_tune_device_read_mb_per_s')}",

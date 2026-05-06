@@ -216,3 +216,70 @@ resources:
     cmd = container_cli._build_docker_run_command(repo_root=tmp_path, options=options)
 
     assert "--shm-size" not in cmd
+
+
+def test_container_wrapper_warns_when_parallel_analyzers_have_small_shm(tmp_path: Path) -> None:
+    config_dir = tmp_path / "debug"
+    config_dir.mkdir()
+    runtime_cfg = config_dir / "debug.runtime.yml"
+    runtime_cfg.write_text(
+        """
+resources:
+  active_profile: lab_server_safe
+  profiles:
+    lab_server_safe:
+      analyzer_slots: 2
+  container_caps:
+    shm_size: 8g
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    options = container_cli._parse_options([
+        "--no-build",
+        "--dry-run",
+        "--no-config-mounts",
+        "stages",
+        "reconstruct.analyzers",
+        "--config",
+        str(runtime_cfg),
+    ])
+
+    warnings = container_cli._container_preflight_warnings(options)
+
+    assert len(warnings) == 1
+    assert "analyzer_slots=2" in warnings[0]
+    assert "16g" in warnings[0]
+
+
+def test_container_wrapper_skips_parallel_analyzer_shm_warning_when_ipc_is_host(tmp_path: Path) -> None:
+    config_dir = tmp_path / "debug"
+    config_dir.mkdir()
+    runtime_cfg = config_dir / "debug.runtime.yml"
+    runtime_cfg.write_text(
+        """
+resources:
+  active_profile: lab_server_safe
+  profiles:
+    lab_server_safe:
+      analyzer_slots: 2
+  container_caps:
+    shm_size: 8g
+    ipc: host
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    options = container_cli._parse_options([
+        "--no-build",
+        "--dry-run",
+        "--no-config-mounts",
+        "stages",
+        "reconstruct.analyzers",
+        "--config",
+        str(runtime_cfg),
+    ])
+
+    assert container_cli._container_preflight_warnings(options) == []

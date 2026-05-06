@@ -198,3 +198,65 @@ def test_phase_tune_enables_monitor_when_regular_resource_usage_is_disabled(
     assert payload["max_threads"] == 2
     assert payload["observed_process_max_threads"] == 4
     assert payload["disk_read_gb"] == 0.0
+
+
+def test_phase_tune_records_shared_memory_usage(monkeypatch, tmp_path: Path) -> None:
+    class FakeProcess:
+        def __init__(self, pid: int) -> None:
+            self.pid = int(pid)
+
+        def children(self, recursive: bool = True):
+            _ = recursive
+            return []
+
+        def memory_info(self):
+            return types.SimpleNamespace(rss=1024 * 1024)
+
+        def num_threads(self) -> int:
+            return 2
+
+        def cpu_times(self):
+            return types.SimpleNamespace(user=0.5, system=0.25)
+
+        def io_counters(self):
+            return types.SimpleNamespace(read_bytes=1024, write_bytes=2048)
+
+    monkeypatch.setattr(
+        resource_usage,
+        "psutil",
+        types.SimpleNamespace(Process=lambda pid: FakeProcess(int(pid))),
+    )
+    monkeypatch.setattr(
+        resource_usage.shutil,
+        "disk_usage",
+        lambda path: types.SimpleNamespace(
+            total=8 * 1024**3,
+            used=3 * 1024**3,
+            free=5 * 1024**3,
+        ),
+    )
+    configure_phase_tuning_monitoring(enabled=True, system_tools_enabled=False)
+    try:
+        monitor = start_phase_resource_monitor(
+            types.SimpleNamespace(
+                enabled=False,
+                include_children=True,
+                sample_interval_s=0.05,
+                include_gpu=False,
+                include_disk_io=False,
+            ),
+            pipeline_thread_count=2,
+            run_root=tmp_path,
+            run_id="run-a",
+            stage_name="stage-a",
+            phase_name="phase-a",
+            target_label="target-a",
+        )
+        assert monitor is not None
+        usage = monitor.stop()
+    finally:
+        configure_phase_tuning_monitoring(enabled=False)
+
+    assert usage.phase_tune_shm_capacity_gb == 8.0
+    assert usage.phase_tune_peak_shm_used_gb == 3.0
+    assert usage.phase_tune_peak_shm_usage_pct == 37.5

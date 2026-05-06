@@ -10,7 +10,12 @@ import subprocess
 import sys
 from typing import Any
 
-from axon_recon.pipeline.resources import ContainerCapsConfig, parse_resources_config
+from axon_recon.pipeline.resources import (
+	ContainerCapsConfig,
+	ResourcesConfig,
+	get_active_resource_profile,
+	parse_resources_config,
+)
 from axon_recon.runtime_config import RuntimeConfig
 
 
@@ -352,14 +357,117 @@ def _resolve_cli_config_path(config_path: str) -> Path:
 	return raw_path.resolve()
 
 
-def _load_container_caps_from_config(config_path: str | None) -> ContainerCapsConfig:
+def _load_resources_config_from_config(config_path: str | None) -> ResourcesConfig | None:
 	if not config_path:
-		return ContainerCapsConfig()
+		return None
 	resolved = _resolve_cli_config_path(config_path)
 	if not resolved.exists():
 		raise SystemExit(f"axon-recon-container: --config path does not exist: {resolved}")
 	runtime_config = RuntimeConfig.load(resolved)
-	return parse_resources_config(runtime_config=runtime_config).container_caps
+	return parse_resources_config(runtime_config=runtime_config)
+
+
+def _load_container_caps_from_config(config_path: str | None) -> ContainerCapsConfig:
+	resources = _load_resources_config_from_config(config_path)
+	return ContainerCapsConfig() if resources is None else resources.container_caps
+
+
+def _resolve_effective_container_caps(
+	*,
+	options: WrapperOptions,
+	container_caps: ContainerCapsConfig,
+) -> dict[str, str | None]:
+	shm_size = options.shm_size
+	if not options.shm_size_overridden and container_caps.shm_size_configured:
+		shm_size = container_caps.shm_size
+	return {
+		"shm_size": shm_size,
+		"memory": options.memory if options.memory is not None else container_caps.memory,
+		"memory_reservation": (
+			options.memory_reservation
+			if options.memory_reservation is not None
+			else container_caps.memory_reservation
+		),
+		"memory_swap": options.memory_swap if options.memory_swap is not None else container_caps.memory_swap,
+		"ipc": options.ipc if options.ipc is not None else container_caps.ipc,
+	}
+
+
+def _size_spec_to_bytes(value: str | None) -> int | None:
+	if value is None:
+		return None
+	text = str(value).strip().lower()
+	if not text:
+		return None
+	match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)\s*([kmgtp]?)(?:i?b?)?", text)
+	if match is None:
+		return None
+	amount = float(match.group(1))
+	unit = str(match.group(2) or "")
+	multiplier = {
+		"": 1,
+		"k": 1024,
+		"m": 1024**2,
+		"g": 1024**3,
+		"t": 1024**4,
+		"p": 1024**5,
+	}.get(unit)
+	if multiplier is None:
+		return None
+	return int(amount * float(multiplier))
+
+
+def _targets_reconstruct_analyzers(container_args: list[str]) -> bool:
+	return any(str(arg).strip() == "reconstruct.analyzers" for arg in container_args)
+
+
+def _parallel_analyzer_preflight_warnings(
+	*,
+	resources: ResourcesConfig | None,
+	container_args: list[str],
+	shm_size: str | None,
+	ipc: str | None,
+) -> list[str]:
+	if resources is None or not _targets_reconstruct_analyzers(container_args):
+		return []
+	if str(ipc or "").strip().lower() == "host":
+		return []
+	profile = get_active_resource_profile(resources)
+	if profile is None:
+		return []
+	analyzer_slots = max(0, int(profile.analyzer_slots or 0))
+	if analyzer_slots <= 1:
+		return []
+	recommended_shm_gib = max(8, analyzer_slots * 8)
+	recommended_shm_bytes = int(recommended_shm_gib) * (1024**3)
+	actual_shm_bytes = _size_spec_to_bytes(shm_size)
+	if actual_shm_bytes is not None and actual_shm_bytes >= recommended_shm_bytes:
+		return []
+	current_shm = "the container runtime default" if shm_size is None else str(shm_size)
+	profile_name = str(resources.active_profile or "unknown")
+	return [
+		(
+			"container preflight warning: active profile "
+			f"{profile_name!r} targets reconstruct.analyzers with analyzer_slots={analyzer_slots}, "
+			f"but /dev/shm is {current_shm}. Parallel SpikeInterface analyzer builds use shared memory and may "
+			f"exhaust this cap; consider setting resources.container_caps.shm_size (or --shm-size) to at least "
+			f"{recommended_shm_gib}g, using ipc=host, or lowering analyzer_slots to 1."
+		)
+	]
+
+
+def _container_preflight_warnings(options: WrapperOptions) -> list[str]:
+	config_path = _find_cli_config_path(options.container_args)
+	resources = _load_resources_config_from_config(config_path)
+	if resources is None:
+		return []
+	effective_caps = _resolve_effective_container_caps(options=options, container_caps=resources.container_caps)
+	return _parallel_analyzer_preflight_warnings(
+		resources=resources,
+		container_args=options.container_args,
+		shm_size=effective_caps.get("shm_size", None),
+		ipc=effective_caps.get("ipc", None),
+	)
 
 
 def _resolve_config_mounts(*, repo_root: Path, config_path: str) -> list[str]:
@@ -533,17 +641,12 @@ def _build_docker_run_command(*, repo_root: Path, options: WrapperOptions) -> li
 	if options.config_mounts and config_path:
 		auto_mounts = _resolve_config_mounts(repo_root=repo_root, config_path=config_path)
 
-	shm_size = options.shm_size
-	if not options.shm_size_overridden and container_caps.shm_size_configured:
-		shm_size = container_caps.shm_size
-	memory = options.memory if options.memory is not None else container_caps.memory
-	memory_reservation = (
-		options.memory_reservation
-		if options.memory_reservation is not None
-		else container_caps.memory_reservation
-	)
-	memory_swap = options.memory_swap if options.memory_swap is not None else container_caps.memory_swap
-	ipc = options.ipc if options.ipc is not None else container_caps.ipc
+	effective_caps = _resolve_effective_container_caps(options=options, container_caps=container_caps)
+	shm_size = effective_caps.get("shm_size", None)
+	memory = effective_caps.get("memory", None)
+	memory_reservation = effective_caps.get("memory_reservation", None)
+	memory_swap = effective_caps.get("memory_swap", None)
+	ipc = effective_caps.get("ipc", None)
 
 	cmd = [options.container_cli, "run", "--rm"]
 	if options.tty and sys.stdin.isatty():
@@ -603,6 +706,8 @@ def main(argv: list[str] | None = None) -> int:
 	if not repo_root.exists():
 		raise SystemExit(f"axon-recon-container: repo root does not exist: {repo_root}")
 	_ensure_image_current(repo_root=repo_root, options=options)
+	for warning in _container_preflight_warnings(options):
+		print(f"axon-recon-container: {warning}", file=sys.stderr)
 	cmd = _build_docker_run_command(repo_root=repo_root, options=options)
 	if options.dry_run:
 		print("Resolved container command:")

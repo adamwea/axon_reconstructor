@@ -44,6 +44,9 @@ def test_collect_phase_resource_observations_filters_run_and_stage(tmp_path: Pat
                 "phase_tune_avg_cpu_pct": 125.0,
                 "phase_tune_peak_cpu_pct": 225.0,
                 "phase_tune_peak_rss_gb": 2.5,
+                "phase_tune_shm_capacity_gb": 8.0,
+                "phase_tune_peak_shm_used_gb": 3.0,
+                "phase_tune_peak_shm_usage_pct": 37.5,
                 "phase_tune_peak_read_gb_per_s": 0.75,
                 "phase_tune_peak_write_gb_per_s": 0.25,
                 "phase_tune_peak_device_util_pct": 88.0,
@@ -83,6 +86,9 @@ def test_collect_phase_resource_observations_filters_run_and_stage(tmp_path: Pat
     assert observations[0]["phase_tune_tools"] == ["pidstat", "iostat"]
     assert observations[0]["phase_tune_peak_cpu_pct"] == 225.0
     assert observations[0]["phase_tune_peak_device_util_pct"] == 88.0
+    assert observations[0]["phase_tune_shm_capacity_gb"] == 8.0
+    assert observations[0]["phase_tune_peak_shm_used_gb"] == 3.0
+    assert observations[0]["phase_tune_peak_shm_usage_pct"] == 37.5
     assert observations[0]["total_peak_pss_gb"] == 0.7
 
 
@@ -119,6 +125,9 @@ def test_build_phase_tuning_summary_recommends_resource_class_updates() -> None:
             "phase_tune_avg_cpu_pct": 125.0,
             "phase_tune_peak_cpu_pct": 225.0,
             "phase_tune_peak_rss_gb": 3.2,
+            "phase_tune_shm_capacity_gb": 8.0,
+            "phase_tune_peak_shm_used_gb": 3.0,
+            "phase_tune_peak_shm_usage_pct": 37.5,
             "phase_tune_peak_read_gb_per_s": 0.75,
             "phase_tune_peak_write_gb_per_s": 0.25,
             "phase_tune_peak_device_util_pct": 88.0,
@@ -144,7 +153,10 @@ def test_build_phase_tuning_summary_recommends_resource_class_updates() -> None:
     assert "runtime YAML was not modified" in report
     assert "phase_tune_tools: iostat, pidstat" in report
     assert "max_phase_tune_peak_cpu_pct: 225.0" in report
+    assert "max_phase_tune_peak_shm_used_gb: 3.0" in report
+    assert "max_phase_tune_peak_shm_usage_pct: 37.5" in report
     assert "max_disk_read_gb_per_s and max_disk_write_gb_per_s are observed phase throughput" in report
+    assert "phase_tune_shm_capacity_gb and phase_tune_peak_shm_* reflect /dev/shm tmpfs usage" in report
 
 
 def test_build_phase_tuning_summary_keeps_cpu_when_current_class_covers_observed_basis() -> None:
