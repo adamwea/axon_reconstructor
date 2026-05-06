@@ -15,7 +15,7 @@ resources:
   active_profile: lab_server_safe
   container_caps:
     #shm_size: 8g # Docker /dev/shm cap for axon-recon-container; raise this for parallel analyzer runs, or set to null to stop forcing --shm-size.
-    shm_size: 16g # increase Docker /dev/shm cap for axon-recon-container to 16 GB to support more parallel analyzer runs and reduce the likelihood of out-of-shm errors during memory-intensive analysis phases; adjust as needed based on the expected memory usage of your analyzers and the degree of parallelism you want to enable, or set to null to stop forcing --shm-size.
+    shm_size: 24g # increase Docker /dev/shm cap for axon-recon-container to 16 GB to support more parallel analyzer runs and reduce the likelihood of out-of-shm errors during memory-intensive analysis phases; adjust as needed based on the expected memory usage of your analyzers and the degree of parallelism you want to enable, or set to null to stop forcing --shm-size.
     memory: null # Optional Docker --memory hard cap, e.g. 48g.
     memory_reservation: null # Optional Docker --memory-reservation soft cap.
     memory_swap: null # Optional Docker --memory-swap total memory+swap cap.
@@ -110,7 +110,7 @@ resources:
     template_build:
       description: Template merge/build or lightweight unit-level compute.
       bottleneck: cpu_memory_light
-      cpu_cores: 4
+      cpu_cores: 6
       ram_gb: 8
     axon_reconstruction:
       description: Axon reconstruction, GTR generation, branch extraction, or unit-level reconstruction math.
