@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
-from pathlib import Path
 import threading
 import time
+from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, Iterator
 
 from .resources import (
-	RESOURCE_SLOT_DIMENSIONS,
+	RESOURCE_CAPACITY_DIMENSIONS,
+	SOURCE_H5_PATH_KEYED_RESOURCE,
 	ResourcesConfig,
 	estimate_phase_resource_class_capacity,
 	get_phase_keyed_resource_demands,
 	get_phase_resource_demand_units,
 	get_profile_budget_units,
-	SOURCE_H5_PATH_KEYED_RESOURCE,
 )
 
 
@@ -56,7 +56,7 @@ class ResourceBudgetManager:
 		self.well_workers = max(1, int(well_workers))
 		self._total_slot_budget = get_profile_budget_units(
 			resources=resources,
-			dimensions=RESOURCE_SLOT_DIMENSIONS,
+			dimensions=RESOURCE_CAPACITY_DIMENSIONS,
 		)
 		self._available_slot_budget = dict(self._total_slot_budget)
 		self._keyed_resource_limits = {
@@ -81,8 +81,22 @@ class ResourceBudgetManager:
 		return get_phase_resource_demand_units(
 			resources=self.resources,
 			resource_class=resource_class,
-			dimensions=RESOURCE_SLOT_DIMENSIONS,
+			dimensions=RESOURCE_CAPACITY_DIMENSIONS,
 		)
+
+	def phase_cpu_cores(self, resource_class: str | None) -> int:
+		demands = get_phase_resource_demand_units(
+			resources=self.resources,
+			resource_class=resource_class,
+			dimensions=("cpu_cores",),
+		)
+		return max(0, int(demands.get("cpu_cores", 0) or 0))
+
+	def phase_worker_count(self, resource_class: str | None, *, fallback_workers: int = 1) -> int:
+		cpu_cores = self.phase_cpu_cores(resource_class)
+		if cpu_cores > 0:
+			return int(cpu_cores)
+		return max(1, int(fallback_workers))
 
 	def keyed_resource_demands(self, resource_class: str | None) -> dict[str, int]:
 		return get_phase_keyed_resource_demands(self.resources, resource_class)
@@ -313,3 +327,17 @@ def stage_resource_budget_context(manager: ResourceBudgetManager | None) -> Iter
 def current_stage_resource_budget_manager() -> ResourceBudgetManager | None:
 	with _CURRENT_STAGE_RESOURCE_BUDGET_LOCK:
 		return _CURRENT_STAGE_RESOURCE_BUDGET
+
+
+def current_phase_worker_allocation(
+	*,
+	resource_class: str | None,
+	fallback_workers: int = 1,
+) -> tuple[int, str]:
+	manager = current_stage_resource_budget_manager()
+	if manager is None:
+		return max(1, int(fallback_workers)), "inputs.n_jobs"
+	cpu_cores = manager.phase_cpu_cores(resource_class)
+	if cpu_cores > 0:
+		return int(cpu_cores), "resource_class.cpu_cores"
+	return max(1, int(fallback_workers)), "inputs.n_jobs"

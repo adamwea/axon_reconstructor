@@ -397,6 +397,67 @@ def test_run_reconstruct_templates_build_templates_phase_materializes_templates_
 	assert (full_unit_dir / "full_template.npy").exists()
 
 
+def test_run_reconstruct_templates_build_templates_phase_uses_unit_workers(tmp_path: Path, monkeypatch) -> None:
+	from axon_recon.pipeline.stages.reconstruct.templates.core import (
+		build_templates as build_templates_core,
+	)
+
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	templates_out_dir = well_out_dir / "templates_outputs"
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.templates.core.build_templates.read_maxwell_sampling_frequency_hz",
+		lambda *, h5_path, stream_id: 10_000.0,
+	)
+	for unit_id in (94, 95):
+		write_materialized_source_payload(
+			templates_out_dir=templates_out_dir,
+			output_rel_root="cache/source_payloads",
+			source_name="concat",
+			unit_id=unit_id,
+			template_c_by_t=np.asarray([[0.0, -2.0, 0.0], [0.0, -1.0, 0.0]], dtype=float),
+			locations_xy=np.asarray([[0.0, 0.0], [20.0, 0.0]], dtype=float),
+			electrode_ids=[10, 11],
+			channel_ids=[100, 101],
+			waveform_count=4,
+			sampling_rate_hz=10_000.0,
+			overlay_waveforms=None,
+			top_electrode_id=10,
+			total_waveforms_at_channel=4,
+		)
+	process_calls: list[tuple[int, list[int]]] = []
+
+	def _fake_run_unit_jobs_with_processes(*, jobs, worker_count):
+		process_calls.append((int(worker_count), [int(job.unit_id) for job in jobs]))
+		return [build_templates_core._run_build_templates_unit_job(job) for job in jobs]
+
+	monkeypatch.setattr(
+		build_templates_core,
+		"_run_build_templates_unit_jobs_with_processes",
+		_fake_run_unit_jobs_with_processes,
+	)
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		phases=TemplatesPhasesConfig(build_templates=TemplateBuildTemplatesPhaseConfig()),
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(unit_reldir="units/{unit_id:04d}/"),
+		unit_ids=[94, 95],
+		unit_label_filter_required=False,
+		n_jobs=5,
+	)
+
+	summary = run_reconstruct_templates_build_templates_phase(inputs)
+
+	assert process_calls == [(2, [94, 95])]
+	assert summary["unit_workers"] == 2
+	assert summary["unit_executor"] == "process"
+	assert summary["built_units"] == [94, 95]
+
+
 def test_run_reconstruct_templates_build_templates_phase_warns_when_merged_scope_shrinks(tmp_path: Path, monkeypatch, caplog) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
@@ -3683,8 +3744,8 @@ def test_run_reconstruct_templates_plot_batches_runs_units_sequentially(tmp_path
 		)
 
 	messages = [rec.getMessage() for rec in caplog.records]
-	assert captured_inputs == {"n_jobs": 1, "unit_ids": [10, 11, 12, 13, 14, 15]}
-	assert any("templates.plot_templates execution plan:" in msg and "parallel=false" in msg for msg in messages)
+	assert captured_inputs == {"n_jobs": 2, "unit_ids": [10, 11, 12, 13, 14, 15]}
+	assert any("templates.plot_templates execution plan:" in msg and "parallel=true" in msg for msg in messages)
 	assert [unit.unit_id for unit in result.units] == [10, 11, 12, 13, 14, 15]
 
 

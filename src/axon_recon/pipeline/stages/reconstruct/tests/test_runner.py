@@ -1,29 +1,31 @@
 from __future__ import annotations
 
-from dataclasses import replace
 import json
 import logging
-from pathlib import Path
+import pickle
 import threading
 import time
+from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
-import pickle
 
 import numpy as np
 import pytest
 
-from axon_recon.pipeline.stages.reconstruct.io import resolve_branch_phase_output_paths
-from axon_recon.pipeline.stages.reconstruct.io import format_unit_reldir
-from axon_recon.pipeline.stages.reconstruct.io import resolve_full_chip_layout_output_paths
-from axon_recon.pipeline.stages.reconstruct.io import resolve_unit_summary_phase_output_paths
-from axon_recon.pipeline.stages.reconstruct.io import resolve_unit_output_paths
+from axon_recon.pipeline.stages.reconstruct.io import (
+	format_unit_reldir,
+	resolve_branch_phase_output_paths,
+	resolve_full_chip_layout_output_paths,
+	resolve_unit_output_paths,
+	resolve_unit_summary_phase_output_paths,
+)
 from axon_recon.pipeline.stages.reconstruct.models.inputs import (
+	PerUnitOutputsConfig,
+	ReconstructionAvReconsConfig,
 	ReconstructionBranchPlotOutputConfig,
 	ReconstructionBranchPropagationDisplayConfig,
 	ReconstructionBranchVelocityDisplayConfig,
-	PerUnitOutputsConfig,
-	ReconstructionAvReconsConfig,
 	ReconstructionClearTemplatesCachePhaseConfig,
 	ReconstructionDiagnosticFigureConfig,
 	ReconstructionFullChipLayoutColorConfig,
@@ -44,10 +46,11 @@ from axon_recon.pipeline.stages.reconstruct.models.inputs import (
 	ReconstructionUnitSummaryOutputConfig,
 )
 from axon_recon.pipeline.stages.reconstruct.runner import (
-	_quiet_unexpected_plot_logs,
-	_resolve_templates_dirs,
 	_normalize_reconstruct_stage_phase_name,
+	_quiet_unexpected_plot_logs,
+	_reconstruct_inputs_for_phase_workers,
 	_reconstruct_stage_phase_runner,
+	_resolve_templates_dirs,
 	run_reconstruct_clear_templates_cache_phase,
 	run_reconstruct_generate_gtrs_phase,
 	run_reconstruct_plot_branch_propagations_phase,
@@ -65,7 +68,12 @@ from axon_recon.pipeline.stages.reconstruct.runner import (
 	run_reconstruct_templates_reports_phase,
 	run_reconstruct_templates_resolve_sources_phase,
 )
-from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import ProbeGeometryConfig, TemplatesInputs
+from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import (
+	ProbeGeometryConfig,
+	TemplateBuildTemplatesPhaseConfig,
+	TemplatesInputs,
+	TemplatesPhasesConfig,
+)
 
 
 def test_format_unit_reldir() -> None:
@@ -1007,6 +1015,70 @@ def test_resolve_generate_gtrs_execution_plan_honors_unit_procs_override() -> No
 		[6, 7, 8],
 		[9, 10, 11],
 	]
+
+
+def test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_templates() -> None:
+	from axon_recon.pipeline.resource_budget import (
+		ResourceBudgetManager,
+		stage_resource_budget_context,
+	)
+	from axon_recon.pipeline.resources import parse_resources_config
+	from axon_recon.runtime_config import RuntimeConfig
+
+	resources = parse_resources_config(
+		runtime_config=RuntimeConfig(
+			{
+				"resources": {
+					"active_profile": "lab_server_safe",
+					"profiles": {"lab_server_safe": {"cpu_cores": 36, "ram_gb": 50}},
+					"phase_resource_classes": {
+						"template_build": {"cpu_cores": 5, "ram_gb": 8},
+						"axon_reconstruction": {"cpu_cores": 2, "ram_gb": 8},
+					},
+				}
+			}
+		)
+	)
+	manager = ResourceBudgetManager(resources=resources, planned_target_count=6, well_workers=6)
+	inputs = ReconstructionInputs(
+		h5_path=Path("/tmp/dataset.h5"),
+		stream_id="well000",
+		mea_output_root=Path("/tmp/out"),
+		phases=ReconstructionPhasesConfig(
+			generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(resource_class="axon_reconstruction")
+		),
+		templates_inputs=TemplatesInputs(
+			h5_path=Path("/tmp/dataset.h5"),
+			stream_id="well000",
+			mea_output_root=Path("/tmp/out"),
+			phases=TemplatesPhasesConfig(
+				build_templates=TemplateBuildTemplatesPhaseConfig(resource_class="template_build")
+			),
+			n_jobs=9,
+		),
+		n_jobs=9,
+	)
+
+	with stage_resource_budget_context(manager):
+		template_inputs, template_workers, template_source, template_resource_class = _reconstruct_inputs_for_phase_workers(
+			inputs,
+			"templates_build_templates",
+		)
+		gtr_inputs, gtr_workers, gtr_source, gtr_resource_class = _reconstruct_inputs_for_phase_workers(
+			inputs,
+			"generate_gtrs",
+		)
+
+	assert template_workers == 5
+	assert template_source == "resource_class.cpu_cores"
+	assert template_resource_class == "template_build"
+	assert template_inputs.n_jobs == 5
+	assert template_inputs.templates_inputs is not None
+	assert template_inputs.templates_inputs.n_jobs == 5
+	assert gtr_workers == 2
+	assert gtr_source == "resource_class.cpu_cores"
+	assert gtr_resource_class == "axon_reconstruction"
+	assert gtr_inputs.n_jobs == 2
 
 
 def test_run_reconstruct_generate_gtrs_batches_logs_unified_progress(tmp_path: Path, monkeypatch, caplog) -> None:

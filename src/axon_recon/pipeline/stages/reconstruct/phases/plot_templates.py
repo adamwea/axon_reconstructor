@@ -9,6 +9,24 @@ from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import Templ
 from axon_recon.pipeline.stages.reconstruct.templates.models.results import TemplatesResult
 
 
+def _as_positive_int_or_none(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except Exception:
+        return None
+    if parsed <= 0:
+        return None
+    return int(parsed)
+
+
+def _chunk_unit_ids(unit_ids: list[Any], *, batch_size: int) -> list[list[Any]]:
+    resolved_batch_size = max(1, int(batch_size))
+    return [
+        list(unit_ids[idx : idx + resolved_batch_size])
+        for idx in range(0, len(unit_ids), resolved_batch_size)
+    ]
+
+
 def run_reconstruct_templates_plot_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
     phase_started = perf_counter()
     well_out_dir, _, templates_out_dir, _ = templates_runner._resolve_templates_phase_environment(
@@ -116,7 +134,19 @@ def _resolve_plot_templates_execution_plan(
     unit_count = len(unit_ids)
     if unit_count <= 0:
         return 1, 1, 1, []
-    return 1, 1, int(unit_count), [list(unit_ids)]
+    derived_unit_workers = max(1, int(inputs.n_jobs))
+    phase_cfg = inputs.phases.plot_templates
+    plot_unit_workers = _as_positive_int_or_none(getattr(phase_cfg, "unit_workers", None))
+    if plot_unit_workers is None:
+        plot_unit_workers = _as_positive_int_or_none(getattr(phase_cfg, "unit_procs", None))
+    if plot_unit_workers is None:
+        plot_unit_workers = derived_unit_workers
+    plot_unit_workers = max(1, min(int(plot_unit_workers), derived_unit_workers, unit_count))
+    unit_batch_size = _as_positive_int_or_none(getattr(phase_cfg, "unit_batch_size", None))
+    if unit_batch_size is None:
+        unit_batch_size = max(1, (unit_count + plot_unit_workers - 1) // plot_unit_workers)
+    batches = _chunk_unit_ids(unit_ids, batch_size=unit_batch_size)
+    return derived_unit_workers, int(plot_unit_workers), int(unit_batch_size), batches
 
 
 def _run_reconstruct_templates_plot_batches(
@@ -126,22 +156,23 @@ def _run_reconstruct_templates_plot_batches(
     templates_out_dir: Any,
     unit_ids: list[Any],
 ) -> TemplatesResult:
-    plot_unit_workers, unit_procs, unit_batch_size, batches = (
+    derived_unit_workers, plot_unit_workers, unit_batch_size, batches = (
         _resolve_plot_templates_execution_plan(
             inputs=inputs,
             unit_ids=unit_ids,
         )
     )
     templates_runner.LOGGER.info(
-        "templates.plot_templates execution plan: requested_units=%d derived_unit_workers=%d plot_unit_workers=%d unit_procs=%d unit_batch_size=%d unit_batches=%d parallel=false",
+        "templates.plot_templates execution plan: requested_units=%d derived_unit_workers=%d plot_unit_workers=%d unit_procs=%d unit_batch_size=%d unit_batches=%d parallel=%s",
         len(unit_ids),
-        int(max(1, int(inputs.n_jobs))),
+        int(derived_unit_workers),
         int(plot_unit_workers),
-        int(unit_procs),
+        int(plot_unit_workers),
         int(unit_batch_size),
         len(batches),
+        str(bool(plot_unit_workers > 1 and len(unit_ids) > 1)).lower(),
     )
     with templates_runner._quiet_unexpected_plot_logs(inputs):
         return templates_runner._run_reconstruct_templates_pipeline_monolithic(
-            replace(inputs, unit_ids=list(unit_ids), n_jobs=1)
+            replace(inputs, unit_ids=list(unit_ids), n_jobs=int(plot_unit_workers))
         )

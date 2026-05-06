@@ -21,6 +21,9 @@ This document defines the expected behavior for well, dataset, segment, unit, re
 - Phase resource classes describe expected CPU, RAM, GPU, disk, analyzer, plot, and H5 demand.
 - The active machine profile describes available capacity.
 - The runtime derives safe stage fanout from resource class demand and active capacity.
+- Live phase gates must account for CPU and RAM as occupied resources, not only discrete slots, so wells in different phases share the remaining active profile budget.
+- For unit-focused phases, `resource_class.cpu_cores` is the per-well unit-worker budget while `resource_class.ram_gb` is the per-well RAM budget for the phase.
+- Total active unit workers across wells must stay within the unoccupied CPU budget through the same resource gate that limits phase entry.
 - Discrete resources must be gated during phase execution, not just estimated during planning.
 - Unit and segment workers must be resolved explicitly and logged clearly.
 
@@ -43,6 +46,8 @@ Rules:
 
 - Do not globally serialize a stage to solve one phase's resource problem.
 - Gate only the phase/resource that needs gating.
+- CPU and RAM demands are live resource demands: if other wells already occupy CPU/RAM in earlier or later phases, a new well must wait before entering a phase whose declared `cpu_cores` or `ram_gb` would overcommit the active profile.
+- Unit-focused reconstruct phases should derive their effective `n_jobs` or unit worker count from the active phase resource class CPU demand unless an explicitly supported phase override narrows it further.
 - `spikesort.sort` may be single-well gated when GPU/Kilosort resources require it.
 - Other spikesort phases should retain well parallelism when their resources allow it.
 - Per-source H5 contention must use keyed resource limits such as `source_h5_path`, not broad dataset-wide guesses.

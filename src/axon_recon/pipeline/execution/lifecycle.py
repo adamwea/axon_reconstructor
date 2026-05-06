@@ -7,11 +7,23 @@ import signal
 import sys
 import threading
 
-
 LOGGER = logging.getLogger("axon_recon.pipeline.execution.lifecycle")
 _PR_SET_PDEATHSIG = 1
 _INSTALL_LOCK = threading.Lock()
 _PROCESS_LIFECYCLE_INSTALLED = False
+
+
+def _pid_one_can_be_live_container_parent() -> bool:
+    if str(os.environ.get("AXON_RECON_ALLOW_PID1_PARENT", "")).strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    if os.path.exists("/.dockerenv"):
+        return True
+    try:
+        with open("/proc/1/cgroup", encoding="utf-8") as handle:
+            cgroup_text = handle.read().lower()
+    except Exception:
+        return False
+    return any(token in cgroup_text for token in ("docker", "kubepods", "containerd", "libpod"))
 
 
 def _termination_signal_handler(signum: int, _frame: object) -> None:
@@ -33,7 +45,7 @@ def install_linux_parent_death_signal(signum: int | signal.Signals = signal.SIGT
             raise OSError(err, os.strerror(err))
 
         # Avoid the race where the parent exits before prctl is installed.
-        if os.getppid() == 1:
+        if os.getppid() == 1 and not _pid_one_can_be_live_container_parent():
             os.kill(os.getpid(), int(signum))
         return True
     except Exception:

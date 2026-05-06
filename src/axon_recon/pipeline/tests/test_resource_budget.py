@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 import threading
+from pathlib import Path
 
 from axon_recon.pipeline.resource_budget import ResourceBudgetManager
 from axon_recon.pipeline.resources import parse_resources_config
@@ -91,6 +91,61 @@ def test_phase_budget_limits_same_source_h5_path_but_allows_other_files() -> Non
 	assert all(item[1]["slot_demands"] == {"h5_read_slots": 1} for item in leases)
 	assert all(item[1]["keyed_requests"]["source_h5_path"]["demand"] == 1 for item in leases)
 	assert any(bool(item[1]["waited"]) and float(item[1]["wait_s"]) > 0.0 for item in leases)
+
+
+def test_phase_budget_limits_cpu_and_ram_capacity() -> None:
+	resources = parse_resources_config(
+		runtime_config=RuntimeConfig(
+			{
+				"resources": {
+					"active_profile": "lab_server_safe",
+					"profiles": {"lab_server_safe": {"cpu_cores": 6, "ram_gb": 16}},
+					"phase_resource_classes": {
+						"template_build": {"cpu_cores": 5, "ram_gb": 8},
+					},
+				}
+			}
+		)
+	)
+	manager = ResourceBudgetManager(resources=resources, planned_target_count=2, well_workers=2)
+	condition = threading.Condition()
+	release_workers = threading.Event()
+	started: list[str] = []
+	leases: list[tuple[str, dict[str, object]]] = []
+	errors: list[BaseException] = []
+
+	def worker(label: str) -> None:
+		try:
+			with manager.phase_budget(resource_class="template_build", phase_name="build_templates", target_label=label) as lease:
+				with condition:
+					started.append(label)
+					leases.append((label, lease))
+					condition.notify_all()
+				assert release_workers.wait(timeout=5)
+		except BaseException as exc:
+			with condition:
+				errors.append(exc)
+				condition.notify_all()
+
+	threads = [threading.Thread(target=worker, args=("well000",)), threading.Thread(target=worker, args=("well001",))]
+	for thread in threads:
+		thread.start()
+
+	with condition:
+		assert condition.wait_for(lambda: len(started) == 1, timeout=5)
+		condition.wait(timeout=0.1)
+		assert len(started) == 1
+
+	release_workers.set()
+	for thread in threads:
+		thread.join(timeout=5)
+		assert not thread.is_alive()
+
+	assert not errors
+	assert len(leases) == 2
+	assert all(item[1]["slot_demands"] == {"cpu_cores": 5, "ram_gb": 8} for item in leases)
+	assert any(bool(item[1]["waited"]) and float(item[1]["wait_s"]) > 0.0 for item in leases)
+	assert manager.phase_worker_count("template_build") == 5
 
 
 def test_phase_budget_logs_structured_wait_warning_for_queued_worker() -> None:

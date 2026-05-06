@@ -103,7 +103,7 @@ resources:
     template_build:
       description: Template merge/build or lightweight unit-level compute.
       bottleneck: cpu_memory_light
-      cpu_cores: 5
+      cpu_cores: 4
       ram_gb: 8
     axon_reconstruction:
       description: Axon reconstruction, GTR generation, branch extraction, or unit-level reconstruction math.

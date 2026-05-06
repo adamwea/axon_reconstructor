@@ -1,26 +1,30 @@
 from __future__ import annotations
 
 import concurrent.futures
-from contextlib import contextmanager
-from dataclasses import replace
 import gc
 import logging
-from pathlib import Path
 import shutil
+from contextlib import contextmanager
+from dataclasses import replace
+from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable
 
 import numpy as np  # type: ignore[import-not-found]
 
+from axon_recon.pipeline.execution.phase_chain import PhaseDescriptor, run_phase_chain
+from axon_recon.pipeline.execution.progress import (
+	add_current_progress_total,
+	advance_current_progress,
+)
 from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
+from axon_recon.pipeline.resource_budget import current_phase_worker_allocation
 from axon_recon.pipeline.shared.grid_sorting import (
 	coerce_grid_sort_metrics,
 	compute_template_grid_sort_metrics,
 	grid_sort_key_for_unit,
 	normalize_grid_sort_by,
 )
-from axon_recon.pipeline.execution.phase_chain import PhaseDescriptor, run_phase_chain
-from axon_recon.pipeline.execution.progress import add_current_progress_total, advance_current_progress
 
 from .core.compute_template_similarity import (
 	TemplateSimilarityUnitInput,
@@ -34,11 +38,6 @@ from .core.plot_templates import (
 	propagation_outputs_requested,
 	requested_plot_output_keys,
 )
-from .core.report_templates import (
-	build_report_templates_phase_summary,
-	report_templates_pdf_requested,
-)
-from .core.unit_labels import count_labels, filter_unit_ids_by_labels, load_unit_labels_from_spikesorting
 from .core.quality_checks import detect_multiple_negative_peaks
 from .core.render import (
 	compose_png_side_by_side,
@@ -46,38 +45,46 @@ from .core.render import (
 	compute_propagation_channel_order,
 	finalize_grid_svg_output,
 	render_footprint_amplitude_map,
-	render_footprint_map_grid_from_assets,
 	render_footprint_latency_map,
+	render_footprint_map_grid_from_assets,
 	render_multi_source_pdf,
-	render_template_report_pdf,
 	render_propagation_plot,
 	render_template_circles_plot,
-	render_unit_locations_report,
 	render_template_plot,
+	render_template_report_pdf,
 	render_template_wf_overlay,
 	render_topographical_amplitude_footprint,
 	render_topographical_latency_footprint,
+	render_unit_locations_report,
 	render_wf_overlay_grid_from_assets,
 )
-from .io import (
-	MATERIALIZED_TEMPLATES_CACHE_RELPATH,
-	load_materialized_overlay_waveforms,
-	load_materialized_merged_electrode_ids,
-	read_json,
-	resolve_report_output_paths,
-	resolve_similarity_output_paths,
-	resolve_unit_output_paths,
-	write_materialized_source_payload,
-	write_json,
+from .core.report_templates import (
+	build_report_templates_phase_summary,
+	report_templates_pdf_requested,
+)
+from .core.unit_labels import (
+	count_labels,
+	filter_unit_ids_by_labels,
+	load_unit_labels_from_spikesorting,
 )
 from .integrations.spikeinterface_extract import (
 	build_unit_source_payload,
 	iter_spikeinterface_analyzers,
 	load_spikeinterface_analyzers,
 )
+from .io import (
+	MATERIALIZED_TEMPLATES_CACHE_RELPATH,
+	load_materialized_merged_electrode_ids,
+	load_materialized_overlay_waveforms,
+	read_json,
+	resolve_report_output_paths,
+	resolve_similarity_output_paths,
+	resolve_unit_output_paths,
+	write_json,
+	write_materialized_source_payload,
+)
 from .models.inputs import ProbeGeometryConfig, TemplatesInputs, TimeUpsampleConfig
 from .models.results import TemplatesResult, UnitTemplatesResult
-
 
 LOGGER = logging.getLogger("axon_recon.templates")
 
@@ -935,14 +942,37 @@ def run_reconstruct_templates_pipeline(inputs: TemplatesInputs) -> TemplatesResu
 			return _resource_class(inputs.phases.per_unit_processing)
 		return None
 
+	def _templates_phase_worker_allocation(phase_name: str) -> tuple[int, str, str | None]:
+		resource_class = _templates_phase_resource_class(phase_name)
+		workers, source = current_phase_worker_allocation(
+			resource_class=resource_class,
+			fallback_workers=max(1, int(inputs.n_jobs)),
+		)
+		return max(1, int(workers)), str(source), resource_class
+
+	def _templates_inputs_for_phase_workers(phase_name: str) -> tuple[TemplatesInputs, int, str, str | None]:
+		workers, source, resource_class = _templates_phase_worker_allocation(phase_name)
+		return replace(inputs, n_jobs=int(workers)), int(workers), str(source), resource_class
+
 	def _descriptor_for_phase(phase_name: str) -> PhaseDescriptor:
 		def _run_phase(phase_name: str = phase_name):
-			return _reconstruct_templates_phase_runner(phase_name)(inputs)
+			phase_inputs, workers, source, resource_class = _templates_inputs_for_phase_workers(phase_name)
+			LOGGER.info(
+				"templates phase worker allocation: phase=%s resource_class=%s n_jobs=%d n_jobs_source=%s",
+				str(phase_name),
+				str(resource_class or "none"),
+				int(workers),
+				str(source),
+			)
+			return _reconstruct_templates_phase_runner(phase_name)(phase_inputs)
+
+		workers, _source, resource_class = _templates_phase_worker_allocation(phase_name)
 
 		return PhaseDescriptor(
 			name=str(phase_name),
 			runner=_run_phase,
-			resource_class=_templates_phase_resource_class(phase_name),
+			resource_class=resource_class,
+			pipeline_thread_count=int(workers),
 		)
 
 	run_phase_chain(
@@ -2041,49 +2071,65 @@ def _run_reconstruct_templates_plot_batches(
 
 
 def run_reconstruct_templates_resolve_sources_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.resolve_sources import run_reconstruct_templates_resolve_sources_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.resolve_sources import (
+		run_reconstruct_templates_resolve_sources_phase,
+	)
 
 	return run_reconstruct_templates_resolve_sources_phase(inputs)
 
 
 def run_reconstruct_templates_analyzers_phase(inputs: TemplatesInputs, *, source_scope: str | None = None) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.analyzers import run_reconstruct_templates_analyzers_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.analyzers import (
+		run_reconstruct_templates_analyzers_phase,
+	)
 
 	return run_reconstruct_templates_analyzers_phase(inputs, source_scope=source_scope)
 
 
 def run_reconstruct_templates_build_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.build_templates import run_reconstruct_templates_build_templates_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.build_templates import (
+		run_reconstruct_templates_build_templates_phase,
+	)
 
 	return run_reconstruct_templates_build_templates_phase(inputs)
 
 
 def run_reconstruct_templates_compute_template_similarity_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.compute_template_similarity import run_reconstruct_templates_compute_template_similarity_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.compute_template_similarity import (
+		run_reconstruct_templates_compute_template_similarity_phase,
+	)
 
 	return run_reconstruct_templates_compute_template_similarity_phase(inputs)
 
 
 def run_reconstruct_templates_plot_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.plot_templates import run_reconstruct_templates_plot_templates_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.plot_templates import (
+		run_reconstruct_templates_plot_templates_phase,
+	)
 
 	return run_reconstruct_templates_plot_templates_phase(inputs)
 
 
 def run_reconstruct_templates_per_unit_processing_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.per_unit_processing import run_reconstruct_templates_per_unit_processing_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.per_unit_processing import (
+		run_reconstruct_templates_per_unit_processing_phase,
+	)
 
 	return run_reconstruct_templates_per_unit_processing_phase(inputs)
 
 
 def run_reconstruct_templates_reports_phase(inputs: TemplatesInputs, *, report_scope: str | None = None) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.reports import run_reconstruct_templates_reports_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.reports import (
+		run_reconstruct_templates_reports_phase,
+	)
 
 	return run_reconstruct_templates_reports_phase(inputs, report_scope=report_scope)
 
 
 def run_reconstruct_templates_report_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.report_templates import run_reconstruct_templates_report_templates_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.report_templates import (
+		run_reconstruct_templates_report_templates_phase,
+	)
 
 	return run_reconstruct_templates_report_templates_phase(inputs)
 

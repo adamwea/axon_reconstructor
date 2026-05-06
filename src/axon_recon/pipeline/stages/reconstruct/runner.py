@@ -1,39 +1,46 @@
 from __future__ import annotations
 
 import concurrent.futures
+import logging
+import shutil
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-import logging
 from pathlib import Path
-import shutil
 from typing import Any
 
+from axon_recon.pipeline.execution import install_linux_parent_death_signal
+from axon_recon.pipeline.execution.phase_chain import PhaseDescriptor, run_phase_chain
+from axon_recon.pipeline.execution.progress import (
+	add_current_progress_total,
+	advance_current_progress,
+)
 from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
+from axon_recon.pipeline.resource_budget import current_phase_worker_allocation
 from axon_recon.pipeline.shared.grid_sorting import (
 	coerce_grid_sort_metrics,
 	grid_sort_key_for_unit,
 	normalize_grid_sort_by,
 )
-from axon_recon.pipeline.execution import install_linux_parent_death_signal
-from axon_recon.pipeline.execution.phase_chain import PhaseDescriptor, run_phase_chain
-from axon_recon.pipeline.execution.progress import add_current_progress_total, advance_current_progress
 
+from .core.diagnostic_plots import (
+	write_unit_axon_reconstruction_diagnostic_figure,
+	write_unit_channel_selection_diagnostic_figure,
+)
 from .core.generate_gtrs import run_generate_gtrs_phase as run_generate_gtrs_core_phase
-from .core.diagnostic_plots import write_unit_axon_reconstruction_diagnostic_figure
-from .core.diagnostic_plots import write_unit_channel_selection_diagnostic_figure
-from .core.plot_branch_propagations import run_plot_branch_propagations_phase as run_plot_branch_propagations_core_phase
+from .core.plot_branch_propagations import (
+	run_plot_branch_propagations_phase as run_plot_branch_propagations_core_phase,
+)
 from .core.plot_branch_propagations import write_unit_branch_propagation_plot
-from .core.plot_branch_velocities import run_plot_branch_velocities_phase as run_plot_branch_velocities_core_phase
+from .core.plot_branch_velocities import (
+	run_plot_branch_velocities_phase as run_plot_branch_velocities_core_phase,
+)
 from .core.plot_branch_velocities import write_unit_branch_velocity_plot
 from .core.plot_recons import run_plot_recons_phase as run_plot_recons_core_phase
 from .core.plot_unit_summary import run_plot_unit_summary_phase as run_plot_unit_summary_core_phase
 from .core.plot_unit_summary import write_unit_summary_plot
-from .core.report_full_chip_layout import run_report_full_chip_layout_phase as run_report_full_chip_layout_core_phase
-from .core.report_full_chip_layout import write_full_chip_layout_plot
-from .core.report_recon_grid import run_report_recon_grid_phase as run_report_recon_grid_core_phase
 from .core.reconstruct import (
-	compute_branches_with_polyline,
 	compute_all_filters_payload,
+	compute_branches_with_polyline,
 	compute_delay_filter_payload,
 	compute_detection_filter_payload,
 	compute_gtr_json_payload,
@@ -43,12 +50,16 @@ from .core.reconstruct import (
 	compute_raw_branches_payload,
 	load_templates_for_unit,
 )
+from .core.report_full_chip_layout import (
+	run_report_full_chip_layout_phase as run_report_full_chip_layout_core_phase,
+)
+from .core.report_full_chip_layout import write_full_chip_layout_plot
+from .core.report_recon_grid import run_report_recon_grid_phase as run_report_recon_grid_core_phase
 from .core.report_recons import run_report_recons_phase as run_report_recons_core_phase
 from .core.report_summaries import run_report_summaries_phase as run_report_summaries_core_phase
 from .core.report_summaries import write_reconstruct_summary_slides_pdf
 from .core.summary_plots import write_amplitude_map_summary_png
-from .core.unit_plots import write_unit_amplitude_map_png
-from .core.unit_plots import write_unit_circle_recon_plot
+from .core.unit_plots import write_unit_amplitude_map_png, write_unit_circle_recon_plot
 from .integrations.axon_velocity import compute_graph_tracking, import_axon_velocity
 from .io import (
 	read_json,
@@ -56,16 +67,19 @@ from .io import (
 	resolve_branch_phase_output_paths,
 	resolve_full_chip_layout_output_paths,
 	resolve_report_output_paths,
-	resolve_unit_summary_phase_output_paths,
 	resolve_unit_output_paths,
+	resolve_unit_summary_phase_output_paths,
 	write_json,
 )
 from .models.inputs import ReconstructionInputs
 from .models.results import ReconstructionResult, UnitReconstructionResult
 from .reporting.slides import write_reconstruct_report_markdown
-from .templates.core.render import finalize_grid_svg_output, render_footprint_map_grid_from_assets, render_template_report_pdf
+from .templates.core.render import (
+	finalize_grid_svg_output,
+	render_footprint_map_grid_from_assets,
+	render_template_report_pdf,
+)
 from .templates.models.inputs import TemplatesInputs
-
 
 LOGGER = logging.getLogger("axon_recon.reconstruct")
 
@@ -1096,7 +1110,9 @@ def _run_reconstruct_report_summaries_phase_impl(
 
 
 def run_reconstruct_templates_resolve_sources_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.resolve_sources import run_reconstruct_templates_resolve_sources_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.resolve_sources import (
+		run_reconstruct_templates_resolve_sources_phase,
+	)
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_resolve_sources requires templates_inputs to be populated on ReconstructionInputs")
@@ -1104,7 +1120,9 @@ def run_reconstruct_templates_resolve_sources_phase(inputs: ReconstructionInputs
 
 
 def run_reconstruct_templates_analyzers_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.analyzers import run_reconstruct_templates_analyzers_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.analyzers import (
+		run_reconstruct_templates_analyzers_phase,
+	)
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_analyzers requires templates_inputs to be populated on ReconstructionInputs")
@@ -1112,7 +1130,9 @@ def run_reconstruct_templates_analyzers_phase(inputs: ReconstructionInputs) -> d
 
 
 def run_reconstruct_templates_build_templates_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.build_templates import run_reconstruct_templates_build_templates_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.build_templates import (
+		run_reconstruct_templates_build_templates_phase,
+	)
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_build_templates requires templates_inputs to be populated on ReconstructionInputs")
@@ -1120,7 +1140,9 @@ def run_reconstruct_templates_build_templates_phase(inputs: ReconstructionInputs
 
 
 def run_reconstruct_templates_compute_template_similarity_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.compute_template_similarity import run_reconstruct_templates_compute_template_similarity_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.compute_template_similarity import (
+		run_reconstruct_templates_compute_template_similarity_phase,
+	)
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_compute_template_similarity requires templates_inputs to be populated on ReconstructionInputs")
@@ -1128,7 +1150,9 @@ def run_reconstruct_templates_compute_template_similarity_phase(inputs: Reconstr
 
 
 def run_reconstruct_templates_plot_templates_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.plot_templates import run_reconstruct_templates_plot_templates_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.plot_templates import (
+		run_reconstruct_templates_plot_templates_phase,
+	)
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_plot_templates requires templates_inputs to be populated on ReconstructionInputs")
@@ -1136,7 +1160,9 @@ def run_reconstruct_templates_plot_templates_phase(inputs: ReconstructionInputs)
 
 
 def run_reconstruct_templates_report_templates_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.report_templates import run_reconstruct_templates_report_templates_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.report_templates import (
+		run_reconstruct_templates_report_templates_phase,
+	)
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_report_templates requires templates_inputs to be populated on ReconstructionInputs")
@@ -1144,7 +1170,9 @@ def run_reconstruct_templates_report_templates_phase(inputs: ReconstructionInput
 
 
 def run_reconstruct_templates_reports_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.reports import run_reconstruct_templates_reports_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.reports import (
+		run_reconstruct_templates_reports_phase,
+	)
 
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_reports requires templates_inputs to be populated on ReconstructionInputs")
@@ -1152,61 +1180,81 @@ def run_reconstruct_templates_reports_phase(inputs: ReconstructionInputs) -> dic
 
 
 def run_reconstruct_clear_templates_cache_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.clear_templates_cache import run_reconstruct_clear_templates_cache_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.clear_templates_cache import (
+		run_reconstruct_clear_templates_cache_phase,
+	)
 
 	return run_reconstruct_clear_templates_cache_phase(inputs)
 
 
 def run_reconstruct_generate_gtrs_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.generate_gtrs import run_reconstruct_generate_gtrs_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.generate_gtrs import (
+		run_reconstruct_generate_gtrs_phase,
+	)
 
 	return run_reconstruct_generate_gtrs_phase(inputs)
 
 
 def run_reconstruct_plot_recons_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.plot_recons import run_reconstruct_plot_recons_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.plot_recons import (
+		run_reconstruct_plot_recons_phase,
+	)
 
 	return run_reconstruct_plot_recons_phase(inputs)
 
 
 def run_reconstruct_plot_branch_propagations_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.plot_branch_propagations import run_reconstruct_plot_branch_propagations_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.plot_branch_propagations import (
+		run_reconstruct_plot_branch_propagations_phase,
+	)
 
 	return run_reconstruct_plot_branch_propagations_phase(inputs)
 
 
 def run_reconstruct_plot_branch_velocities_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.plot_branch_velocities import run_reconstruct_plot_branch_velocities_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.plot_branch_velocities import (
+		run_reconstruct_plot_branch_velocities_phase,
+	)
 
 	return run_reconstruct_plot_branch_velocities_phase(inputs)
 
 
 def run_reconstruct_plot_unit_summary_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.plot_unit_summary import run_reconstruct_plot_unit_summary_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.plot_unit_summary import (
+		run_reconstruct_plot_unit_summary_phase,
+	)
 
 	return run_reconstruct_plot_unit_summary_phase(inputs)
 
 
 def run_reconstruct_report_recons_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.report_recons import run_reconstruct_report_recons_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.report_recons import (
+		run_reconstruct_report_recons_phase,
+	)
 
 	return run_reconstruct_report_recons_phase(inputs)
 
 
 def run_reconstruct_report_recon_grid_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.report_recon_grid import run_reconstruct_report_recon_grid_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.report_recon_grid import (
+		run_reconstruct_report_recon_grid_phase,
+	)
 
 	return run_reconstruct_report_recon_grid_phase(inputs)
 
 
 def run_reconstruct_report_full_chip_layout_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.report_full_chip_layout import run_reconstruct_report_full_chip_layout_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.report_full_chip_layout import (
+		run_reconstruct_report_full_chip_layout_phase,
+	)
 
 	return run_reconstruct_report_full_chip_layout_phase(inputs)
 
 
 def run_reconstruct_report_summaries_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.report_summaries import run_reconstruct_report_summaries_phase
+	from axon_recon.pipeline.stages.reconstruct.phases.report_summaries import (
+		run_reconstruct_report_summaries_phase,
+	)
 
 	return run_reconstruct_report_summaries_phase(inputs)
 
@@ -1342,6 +1390,29 @@ def _display_reconstruct_stage_phase_name(phase_name: str) -> str:
 	return str(aliases.get(phase, phase))
 
 
+def _reconstruct_phase_worker_allocation(
+	inputs: ReconstructionInputs,
+	phase_name: str,
+) -> tuple[int, str, str | None]:
+	resource_class = _reconstruct_stage_phase_resource_class(inputs, phase_name)
+	workers, source = current_phase_worker_allocation(
+		resource_class=resource_class,
+		fallback_workers=max(1, int(inputs.n_jobs)),
+	)
+	return max(1, int(workers)), str(source), resource_class
+
+
+def _reconstruct_inputs_for_phase_workers(
+	inputs: ReconstructionInputs,
+	phase_name: str,
+) -> tuple[ReconstructionInputs, int, str, str | None]:
+	workers, source, resource_class = _reconstruct_phase_worker_allocation(inputs, phase_name)
+	phase_inputs = replace(inputs, n_jobs=int(workers))
+	if _normalize_reconstruct_stage_phase_name(phase_name).startswith("templates_") and inputs.templates_inputs is not None:
+		phase_inputs = replace(phase_inputs, templates_inputs=replace(inputs.templates_inputs, n_jobs=int(workers)))
+	return phase_inputs, int(workers), str(source), resource_class
+
+
 def _reconstruct_stage_phase_runner(phase_name: str):
 	phase = _normalize_reconstruct_stage_phase_name(phase_name)
 	if phase == "templates_resolve_sources":
@@ -1444,12 +1515,23 @@ def run_reconstruct_stage(inputs: ReconstructionInputs) -> ReconstructionResult:
 
 	def _descriptor_for_phase(phase_name: str) -> PhaseDescriptor:
 		def _run_phase(phase_name: str = phase_name):
-			return _reconstruct_stage_phase_runner(phase_name)(inputs)
+			phase_inputs, workers, source, resource_class = _reconstruct_inputs_for_phase_workers(inputs, phase_name)
+			LOGGER.info(
+				"reconstruct phase worker allocation: phase=%s resource_class=%s n_jobs=%d n_jobs_source=%s",
+				_display_reconstruct_stage_phase_name(phase_name),
+				str(resource_class or "none"),
+				int(workers),
+				str(source),
+			)
+			return _reconstruct_stage_phase_runner(phase_name)(phase_inputs)
+
+		workers, _source, resource_class = _reconstruct_phase_worker_allocation(inputs, phase_name)
 
 		return PhaseDescriptor(
 			name=_display_reconstruct_stage_phase_name(phase_name),
 			runner=_run_phase,
-			resource_class=_reconstruct_stage_phase_resource_class(inputs, phase_name),
+			resource_class=resource_class,
+			pipeline_thread_count=int(workers),
 		)
 
 	run_phase_chain(

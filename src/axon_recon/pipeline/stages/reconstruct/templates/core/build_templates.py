@@ -1,18 +1,21 @@
 from __future__ import annotations
 
-import logging
-from pathlib import Path
-import shutil
+import concurrent.futures
 import gc
+import logging
+import shutil
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np  # type: ignore[import-not-found]
 
+from axon_recon.pipeline.execution import install_linux_parent_death_signal
 from axon_recon.pipeline.shared.grid_sorting import compute_template_grid_sort_metrics
 from axon_recon.pipeline.shared.sampling import read_maxwell_sampling_frequency_hz
 
 from ..io import (
-    SOURCE_PAYLOADS_CACHE_RELPATH,
+	SOURCE_PAYLOADS_CACHE_RELPATH,
 	load_materialized_source_payload,
 	resolve_materialized_source_payload_unit_dir,
 	resolve_materialized_templates_dirs,
@@ -21,13 +24,55 @@ from ..io import (
 	write_materialized_merged_electrode_ids,
 	write_materialized_unit_templates,
 )
-
 from ..models.inputs import TemplatesInputs
 from .merge import materialize_unit_templates_from_sources_with_meta, normalize_overlap_priorities
 from .unit_labels import count_labels, filter_unit_ids_by_labels, load_unit_labels_from_spikesorting
 
-
 LOGGER = logging.getLogger("axon_recon.templates.build_templates")
+
+
+@dataclass(frozen=True)
+class _BuildTemplatesUnitJob:
+	inputs: TemplatesInputs
+	templates_out_dir: Path
+	merged_units_dir: Path
+	full_channels_templates_dir: Path
+	unit_id: Any
+	source_names: tuple[str, ...]
+	payload_output_rel_root: str
+	raw_sampling_rate_hz: float
+
+
+def _payload_output_rel_root_from_payload_root(*, templates_out_dir: Path, payload_root: Path | None) -> str | None:
+	if payload_root is None:
+		return None
+	try:
+		return str(Path(payload_root).relative_to(Path(templates_out_dir)))
+	except ValueError:
+		return None
+
+
+def _load_source_payloads_from_disk(
+	*,
+	templates_out_dir: Path,
+	output_rel_root: str,
+	source_names: list[str] | tuple[str, ...],
+	unit_id: Any,
+) -> list[tuple[str, tuple[Any, ...]]]:
+	loaded: list[tuple[str, tuple[Any, ...]]] = []
+	for source_name in source_names:
+		payload = load_materialized_source_payload(
+			source_payload_unit_dir=resolve_materialized_source_payload_unit_dir(
+				templates_out_dir=templates_out_dir,
+				output_rel_root=str(output_rel_root),
+				source_name=str(source_name),
+				unit_id=unit_id,
+			),
+		)
+		if payload is None:
+			continue
+		loaded.append((str(source_name), payload))
+	return loaded
 
 
 def _apply_unit_label_filter(inputs: TemplatesInputs, unit_ids: list[Any], well_out_dir: Path) -> list[Any]:
@@ -546,6 +591,166 @@ def _write_per_unit_data_outputs(
 	return unit_summary
 
 
+def _build_templates_unit_from_source_payloads(
+	*,
+	inputs: TemplatesInputs,
+	templates_out_dir: Path,
+	merged_units_dir: Path,
+	full_channels_templates_dir: Path,
+	unit_id: Any,
+	source_payloads: list[tuple[str, tuple[Any, ...]]],
+	raw_sampling_rate_hz: float,
+) -> dict[str, Any]:
+	merge_cfg = inputs.phases.build_templates.merge
+	upsampling_cfg = inputs.phases.build_templates.execution_upsampling
+	LOGGER.info("build_templates unit start: unit_id=%s", unit_id)
+	if not source_payloads:
+		LOGGER.info("build_templates unit skipped: unit_id=%s reason=no_source_payloads", unit_id)
+		return {"unit_id": unit_id, "status": "skipped", "reason": "no_source_payloads"}
+	source_scope_summary = _source_payload_channel_scope_summary(
+		unit_id=unit_id,
+		source_payloads=source_payloads,
+		overlap_match_priority=tuple(merge_cfg.overlap_match_priority),
+		location_tolerance_um=float(merge_cfg.location_tolerance_um),
+	)
+	_log_source_channel_scope_if_requested(inputs=inputs, scope_summary=source_scope_summary)
+
+	materialized, decision = materialize_unit_templates_from_sources_with_meta(
+		source_payloads=source_payloads,
+		enable_merge=bool(merge_cfg.enable),
+		merge_method=str(merge_cfg.method),
+		centering_method=str(merge_cfg.centering_method),
+		max_waveforms_per_source_channel=merge_cfg.max_waveforms_per_source_channel,
+		overlap_match_priority=tuple(merge_cfg.overlap_match_priority),
+		location_tolerance_um=float(merge_cfg.location_tolerance_um),
+		execution_upsampling=upsampling_cfg,
+		raw_sampling_rate_hz=raw_sampling_rate_hz,
+		log_context=f"unit_id={unit_id}",
+	)
+	if materialized is None:
+		LOGGER.info("build_templates unit skipped: unit_id=%s reason=materialization_returned_none", unit_id)
+		return {
+			"unit_id": unit_id,
+			"status": "skipped",
+			"reason": "materialization_returned_none",
+			"upsampling": dict(decision) if isinstance(decision, dict) else None,
+		}
+
+	merged_template, merged_locs, full_template, full_locs, merged_electrode_ids = materialized
+	channel_scope_summary = _merged_channel_scope_summary(
+		source_scope_summary=source_scope_summary,
+		merged_template=merged_template,
+		full_template=full_template,
+	)
+	_log_merged_channel_scope_if_requested(inputs=inputs, scope_summary=channel_scope_summary)
+	write_materialized_unit_templates(
+		merged_units_dir=merged_units_dir,
+		full_channels_templates_dir=full_channels_templates_dir,
+		unit_id=unit_id,
+		merged_template=merged_template,
+		merged_locations_xy=merged_locs,
+		full_template=full_template,
+		full_locations_xy=full_locs,
+		write_full_template=bool(inputs.per_unit_outputs.full_template.write_npy),
+	)
+	unit_paths = resolve_unit_output_paths(
+		templates_out_dir=templates_out_dir,
+		unit_id=unit_id,
+		per_unit_outputs=inputs.per_unit_outputs,
+	)
+	if bool(inputs.force_restart):
+		unit_dir = unit_paths["unit_dir"]
+		if unit_dir.exists():
+			shutil.rmtree(unit_dir)
+	write_materialized_merged_electrode_ids(
+		merged_units_dir=merged_units_dir,
+		unit_id=unit_id,
+		electrode_ids=merged_electrode_ids,
+		metadata_json_path=unit_paths["merged_contributing_electrode_ids_json"],
+	)
+	_write_per_unit_data_outputs(
+		inputs=inputs,
+		templates_out_dir=templates_out_dir,
+		unit_id=unit_id,
+		merged_template=merged_template,
+		merged_locs=merged_locs,
+		full_template=full_template,
+		full_locs=full_locs,
+		decision=decision,
+		channel_scope_summary=channel_scope_summary,
+	)
+	LOGGER.info("build_templates unit done: unit_id=%s sources=%d", unit_id, len(source_payloads))
+	result = {
+		"unit_id": unit_id,
+		"status": "built",
+		"upsampling": dict(decision) if isinstance(decision, dict) else None,
+		"channel_scope": dict(channel_scope_summary),
+	}
+	del source_payloads
+	del materialized
+	del merged_template
+	del merged_locs
+	del full_template
+	del full_locs
+	gc.collect()
+	return result
+
+
+def _build_templates_unit_with_loader(
+	*,
+	inputs: TemplatesInputs,
+	templates_out_dir: Path,
+	merged_units_dir: Path,
+	full_channels_templates_dir: Path,
+	unit_id: Any,
+	raw_sampling_rate_hz: float,
+	payload_loader: Callable[[Any], list[tuple[str, tuple[Any, ...]]]],
+) -> dict[str, Any]:
+	return _build_templates_unit_from_source_payloads(
+		inputs=inputs,
+		templates_out_dir=templates_out_dir,
+		merged_units_dir=merged_units_dir,
+		full_channels_templates_dir=full_channels_templates_dir,
+		unit_id=unit_id,
+		source_payloads=list(payload_loader(unit_id)),
+		raw_sampling_rate_hz=raw_sampling_rate_hz,
+	)
+
+
+def _run_build_templates_unit_job(job: _BuildTemplatesUnitJob) -> dict[str, Any]:
+	source_payloads = _load_source_payloads_from_disk(
+		templates_out_dir=job.templates_out_dir,
+		output_rel_root=job.payload_output_rel_root,
+		source_names=job.source_names,
+		unit_id=job.unit_id,
+	)
+	return _build_templates_unit_from_source_payloads(
+		inputs=job.inputs,
+		templates_out_dir=job.templates_out_dir,
+		merged_units_dir=job.merged_units_dir,
+		full_channels_templates_dir=job.full_channels_templates_dir,
+		unit_id=job.unit_id,
+		source_payloads=source_payloads,
+		raw_sampling_rate_hz=job.raw_sampling_rate_hz,
+	)
+
+
+def _run_build_templates_unit_jobs_with_processes(
+	*,
+	jobs: list[_BuildTemplatesUnitJob],
+	worker_count: int,
+) -> list[dict[str, Any]]:
+	results: list[dict[str, Any]] = []
+	with concurrent.futures.ProcessPoolExecutor(
+		max_workers=max(1, int(worker_count)),
+		initializer=install_linux_parent_death_signal,
+	) as pool:
+		futures = {pool.submit(_run_build_templates_unit_job, job): job.unit_id for job in jobs}
+		for future in concurrent.futures.as_completed(futures):
+			results.append(future.result())
+	return results
+
+
 def build_templates_phase_from_unit_payloads(
 	*,
 	inputs: TemplatesInputs,
@@ -570,103 +775,128 @@ def build_templates_phase_from_unit_payloads(
 		h5_path=Path(inputs.h5_path),
 		stream_id=str(inputs.stream_id),
 	)
-	merge_cfg = inputs.phases.build_templates.merge
-	upsampling_cfg = inputs.phases.build_templates.execution_upsampling
+	worker_count = max(1, min(len(unit_ids), int(max(1, int(inputs.n_jobs))))) if unit_ids else 1
+	payload_output_rel_root = _payload_output_rel_root_from_payload_root(
+		templates_out_dir=templates_out_dir,
+		payload_root=payload_root,
+	)
+	can_use_process_workers = bool(payload_output_rel_root and source_names)
+	executor_kind = "serial"
+	if worker_count > 1 and can_use_process_workers:
+		executor_kind = "process"
+	elif worker_count > 1:
+		executor_kind = "thread"
+	LOGGER.info(
+		"build_templates unit execution start: requested_units=%d worker_count=%d executor=%s payload_materialization_mode=%s",
+		len(unit_ids),
+		int(worker_count),
+		str(executor_kind),
+		str(payload_materialization_mode),
+	)
 	upsampling_decisions_by_unit: dict[Any, dict[str, Any]] = {}
 	channel_scope_by_unit: dict[str, dict[str, Any]] = {}
+	results: list[dict[str, Any]] = []
+	if worker_count <= 1 or len(unit_ids) <= 1:
+		for unit_id in unit_ids:
+			unit_payload_loader = payload_loader
+			if unit_payload_loader is None:
+				unit_payload_loader = lambda unit, _source_payloads_by_unit=source_payloads_by_unit: list(
+					(_source_payloads_by_unit or {}).get(unit, [])
+				)
+			results.append(
+				_build_templates_unit_with_loader(
+					inputs=inputs,
+					templates_out_dir=templates_out_dir,
+					merged_units_dir=merged_units_dir,
+					full_channels_templates_dir=full_channels_templates_dir,
+					unit_id=unit_id,
+					raw_sampling_rate_hz=float(raw_sampling_rate_hz),
+					payload_loader=unit_payload_loader,
+				)
+			)
+	elif can_use_process_workers and payload_output_rel_root is not None:
+		jobs = [
+			_BuildTemplatesUnitJob(
+				inputs=inputs,
+				templates_out_dir=templates_out_dir,
+				merged_units_dir=merged_units_dir,
+				full_channels_templates_dir=full_channels_templates_dir,
+				unit_id=unit_id,
+				source_names=tuple(str(name) for name in source_names),
+				payload_output_rel_root=str(payload_output_rel_root),
+				raw_sampling_rate_hz=float(raw_sampling_rate_hz),
+			)
+			for unit_id in unit_ids
+		]
+		try:
+			results = _run_build_templates_unit_jobs_with_processes(jobs=jobs, worker_count=worker_count)
+		except Exception as exc:
+			LOGGER.warning(
+				"build_templates process unit workers failed; falling back to thread workers: %s",
+				exc,
+			)
+			unit_payload_loader = lambda unit: _load_source_payloads_from_disk(
+				templates_out_dir=templates_out_dir,
+				output_rel_root=str(payload_output_rel_root),
+				source_names=source_names,
+				unit_id=unit,
+			)
+			with concurrent.futures.ThreadPoolExecutor(max_workers=int(worker_count)) as pool:
+				futures = {
+					pool.submit(
+						_build_templates_unit_with_loader,
+						inputs=inputs,
+						templates_out_dir=templates_out_dir,
+						merged_units_dir=merged_units_dir,
+						full_channels_templates_dir=full_channels_templates_dir,
+						unit_id=unit_id,
+						raw_sampling_rate_hz=float(raw_sampling_rate_hz),
+						payload_loader=unit_payload_loader,
+					): unit_id
+					for unit_id in unit_ids
+				}
+				for future in concurrent.futures.as_completed(futures):
+					results.append(future.result())
+	else:
+		unit_payload_loader = lambda unit: list((source_payloads_by_unit or {}).get(unit, []))
+		with concurrent.futures.ThreadPoolExecutor(max_workers=int(worker_count)) as pool:
+			futures = {
+				pool.submit(
+					_build_templates_unit_with_loader,
+					inputs=inputs,
+					templates_out_dir=templates_out_dir,
+					merged_units_dir=merged_units_dir,
+					full_channels_templates_dir=full_channels_templates_dir,
+					unit_id=unit_id,
+					raw_sampling_rate_hz=float(raw_sampling_rate_hz),
+					payload_loader=unit_payload_loader,
+				): unit_id
+				for unit_id in unit_ids
+			}
+			for future in concurrent.futures.as_completed(futures):
+				results.append(future.result())
+
+	results_by_unit = {str(result.get("unit_id")): result for result in results}
 	built_units: list[Any] = []
 	skipped_units: list[Any] = []
-
 	for unit_id in unit_ids:
-		LOGGER.info("build_templates unit start: unit_id=%s", unit_id)
-		if payload_loader is not None:
-			source_payloads = list(payload_loader(unit_id))
+		result = results_by_unit.get(str(unit_id), {"unit_id": unit_id, "status": "skipped"})
+		if result.get("upsampling") is not None:
+			upsampling_decisions_by_unit[unit_id] = dict(result.get("upsampling") or {})
+		if result.get("channel_scope") is not None:
+			channel_scope_by_unit[str(unit_id)] = dict(result.get("channel_scope") or {})
+		if str(result.get("status", "")).strip().lower() == "built":
+			built_units.append(unit_id)
 		else:
-			source_payloads = list((source_payloads_by_unit or {}).get(unit_id, []))
-		if not source_payloads:
 			skipped_units.append(unit_id)
-			LOGGER.info("build_templates unit skipped: unit_id=%s reason=no_source_payloads", unit_id)
-			continue
-		source_scope_summary = _source_payload_channel_scope_summary(
-			unit_id=unit_id,
-			source_payloads=source_payloads,
-			overlap_match_priority=tuple(merge_cfg.overlap_match_priority),
-			location_tolerance_um=float(merge_cfg.location_tolerance_um),
-		)
-		_log_source_channel_scope_if_requested(inputs=inputs, scope_summary=source_scope_summary)
-
-		materialized, decision = materialize_unit_templates_from_sources_with_meta(
-			source_payloads=source_payloads,
-			enable_merge=bool(merge_cfg.enable),
-			merge_method=str(merge_cfg.method),
-			centering_method=str(merge_cfg.centering_method),
-			max_waveforms_per_source_channel=merge_cfg.max_waveforms_per_source_channel,
-			overlap_match_priority=tuple(merge_cfg.overlap_match_priority),
-			location_tolerance_um=float(merge_cfg.location_tolerance_um),
-			execution_upsampling=upsampling_cfg,
-			raw_sampling_rate_hz=raw_sampling_rate_hz,
-			log_context=f"unit_id={unit_id}",
-		)
-		upsampling_decisions_by_unit[unit_id] = dict(decision)
-		if materialized is None:
-			skipped_units.append(unit_id)
-			LOGGER.info("build_templates unit skipped: unit_id=%s reason=materialization_returned_none", unit_id)
-			continue
-
-		merged_template, merged_locs, full_template, full_locs, merged_electrode_ids = materialized
-		channel_scope_summary = _merged_channel_scope_summary(
-			source_scope_summary=source_scope_summary,
-			merged_template=merged_template,
-			full_template=full_template,
-		)
-		_log_merged_channel_scope_if_requested(inputs=inputs, scope_summary=channel_scope_summary)
-		channel_scope_by_unit[str(unit_id)] = dict(channel_scope_summary)
-		write_materialized_unit_templates(
-			merged_units_dir=merged_units_dir,
-			full_channels_templates_dir=full_channels_templates_dir,
-			unit_id=unit_id,
-			merged_template=merged_template,
-			merged_locations_xy=merged_locs,
-			full_template=full_template,
-			full_locations_xy=full_locs,
-			write_full_template=bool(inputs.per_unit_outputs.full_template.write_npy),
-		)
-		unit_paths = resolve_unit_output_paths(
-			templates_out_dir=templates_out_dir,
-			unit_id=unit_id,
-			per_unit_outputs=inputs.per_unit_outputs,
-		)
-		if bool(inputs.force_restart):
-			unit_dir = unit_paths["unit_dir"]
-			if unit_dir.exists():
-				shutil.rmtree(unit_dir)
-		write_materialized_merged_electrode_ids(
-			merged_units_dir=merged_units_dir,
-			unit_id=unit_id,
-			electrode_ids=merged_electrode_ids,
-			metadata_json_path=unit_paths["merged_contributing_electrode_ids_json"],
-		)
-		_write_per_unit_data_outputs(
-			inputs=inputs,
-			templates_out_dir=templates_out_dir,
-			unit_id=unit_id,
-			merged_template=merged_template,
-			merged_locs=merged_locs,
-			full_template=full_template,
-			full_locs=full_locs,
-			decision=decision,
-			channel_scope_summary=channel_scope_summary,
-		)
-		built_units.append(unit_id)
-		LOGGER.info("build_templates unit done: unit_id=%s sources=%d", unit_id, len(source_payloads))
-		# Drop per-unit payloads/templates so the next iteration starts clean.
-		del source_payloads
-		del materialized
-		del merged_template
-		del merged_locs
-		del full_template
-		del full_locs
-		gc.collect()
+	LOGGER.info(
+		"build_templates unit execution complete: requested_units=%d built_units=%d skipped_units=%d worker_count=%d executor=%s",
+		len(unit_ids),
+		len(built_units),
+		len(skipped_units),
+		int(worker_count),
+		str(executor_kind),
+	)
 
 	return {
 		"phase": "build_templates",
@@ -681,6 +911,8 @@ def build_templates_phase_from_unit_payloads(
 		"built_units": [unit for unit in built_units],
 		"skipped_units": [unit for unit in skipped_units],
 		"unit_count": int(len(built_units)),
+		"unit_workers": int(worker_count),
+		"unit_executor": str(executor_kind),
 		"upsampling_decisions_by_unit": {str(k): v for k, v in upsampling_decisions_by_unit.items()},
 		"channel_scope_by_unit": channel_scope_by_unit,
 	}

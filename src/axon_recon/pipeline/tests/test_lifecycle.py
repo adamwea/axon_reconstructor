@@ -51,3 +51,29 @@ def test_install_linux_parent_death_signal_calls_prctl(monkeypatch) -> None:
 
     assert lifecycle.install_linux_parent_death_signal() is True
     assert dummy_lib.prctl.calls == [(1, int(signal.SIGTERM), 0, 0, 0)]
+
+
+def test_install_linux_parent_death_signal_allows_container_pid_one_parent(monkeypatch) -> None:
+    class DummyPrctl:
+        def __init__(self):
+            self.argtypes = None
+            self.restype = None
+            self.calls: list[tuple[int, int, int, int, int]] = []
+
+        def __call__(self, option, arg2, arg3, arg4, arg5):
+            self.calls.append((option, arg2, arg3, arg4, arg5))
+            return 0
+
+    class DummyLib:
+        def __init__(self):
+            self.prctl = DummyPrctl()
+
+    dummy_lib = DummyLib()
+    monkeypatch.setattr(lifecycle.sys, "platform", "linux")
+    monkeypatch.setattr(lifecycle.ctypes, "CDLL", lambda *args, **kwargs: dummy_lib)
+    monkeypatch.setattr(lifecycle.os, "getppid", lambda: 1)
+    monkeypatch.setattr(lifecycle.os.path, "exists", lambda path: path == "/.dockerenv")
+    monkeypatch.setattr(lifecycle.os, "kill", lambda *args, **kwargs: pytest.fail("worker should not self-kill"))
+
+    assert lifecycle.install_linux_parent_death_signal() is True
+    assert dummy_lib.prctl.calls == [(1, int(signal.SIGTERM), 0, 0, 0)]
