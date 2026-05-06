@@ -91,6 +91,75 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-06 - pending - ai: restrict plot templates resources
+
+Status: accepted
+
+Summary:
+- Removed legacy template artifact resolution fallbacks from reconstruct phase environment setup, templates runner materialized roots, and clear-template-cache root selection.
+- Downstream reconstruct phases now require the configured/current `cache/templates/{merged,full}` layout, so missing-template errors point at `recon_outputs/cache/templates/merged` for the active runtime.
+- Forced `templates.plot_templates` unit rendering to run sequentially inside a phase lease, ignoring parallel unit worker overrides that made recent full-well plotting much slower.
+- Tightened the debug runtime to one plot slot, `plot_unit.ram_gb: 48`, and `plot_templates.resources.unit_procs: 1` so plot work does not overlap with template-build/analyzer-heavy phases on the lab-server-safe profile.
+- Added focused tests for current-cache resolution, legacy-root rejection, clear-cache root selection, sequential plot planning, and RAM-based plot/build exclusion.
+
+Guardrails Consulted:
+- `debug/parallelism_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+
+Acceptance Criteria:
+- GTR/downstream reconstruct template discovery no longer falls through to `template_outputs`, `templates_outputs`, `stg4_templates_outputs`, `templates`, `merged_units`, or `full_channels_templates` layouts.
+- Future plot-template phases are serialized at the profile slot level and within the per-unit plot loop.
+- The resource budget blocks a `plot_unit` lease while a `template_build` lease holds RAM under the debug lab-server-safe budget.
+- Validation uses focused pytests and static checks only; no real-data reconstruct run starts while the user's build_templates run is active.
+
+Expected To Run:
+- Focused Ruff import/undefined-name checks for touched Python files.
+- Focused pytest coverage for template path resolution, clear-cache root selection, plot execution planning, and resource gating.
+
+Confirmed Not Run:
+- Real-data CLI runs or smokes.
+- Full repository test suite.
+- Cache-clearing phase against real outputs.
+- Container image rebuild.
+- Remote push.
+
+Validation:
+- Lint: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m ruff check --select F,I --ignore F401 src/axon_recon/pipeline/stages/reconstruct/runner.py src/axon_recon/pipeline/stages/reconstruct/templates/runner.py src/axon_recon/pipeline/stages/reconstruct/phases/plot_templates.py src/axon_recon/pipeline/stages/reconstruct/phases/clear_templates_cache.py src/axon_recon/pipeline/stages/reconstruct/core/clear_templates_cache.py src/axon_recon/pipeline/stages/reconstruct/tests/test_runner.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py src/axon_recon/pipeline/stages/reconstruct/tests/test_clear_templates_cache.py src/axon_recon/pipeline/tests/test_resource_budget.py` passed. `F401` was ignored because the large templates runner has pre-existing unused-import debt unrelated to this change.
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/tests/test_runner.py::test_resolve_templates_dirs_supports_cached_templates_layout src/axon_recon/pipeline/stages/reconstruct/tests/test_runner.py::test_resolve_templates_dirs_prefers_configured_templates_output_root src/axon_recon/pipeline/stages/reconstruct/tests/test_runner.py::test_resolve_templates_dirs_ignores_legacy_template_roots src/axon_recon/pipeline/stages/reconstruct/tests/test_runner.py::test_prepare_reconstruct_environment_filters_units_by_templates_unit_labels src/axon_recon/pipeline/stages/reconstruct/tests/test_clear_templates_cache.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py::test_resolve_plot_templates_execution_plan_is_sequential src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py::test_resolve_plot_templates_execution_plan_ignores_parallel_resource_overrides src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py::test_run_reconstruct_templates_plot_batches_runs_units_sequentially src/axon_recon/pipeline/tests/test_resource_budget.py::test_phase_budget_blocks_plot_unit_when_template_build_holds_ram -q` passed.
+- Diagnostics: VS Code diagnostics reported no errors for touched Python/YAML files.
+- Logs inspected: existing scratch logs showed recent `plot_templates` run `debug.runtime-20260506T075401Z` using `worker_count=2`, progressing in pairs roughly every 18 minutes, while earlier sequential plot logs were closer to three minutes per unit. Latest resource-gate logs included CPU/RAM/plot demands, but `plot_unit.ram_gb=24` still allowed overlap with several 8 GB template builds.
+- Artifacts inspected: no output artifacts modified.
+- Not run: no real-data smoke by explicit user request.
+
+CLI / Debug Flag Impact:
+- No CLI flag changes.
+- `debug/debug.runtime.yml` now uses one plot slot, a 48 GB `plot_unit` reservation, and one `plot_templates` unit proc.
+
+Logging / Parallelism Impact:
+- Plot-template execution-plan logs will report `plot_unit_workers=1`, `unit_procs=1`, and `parallel=false` even if higher unit worker overrides are present.
+- No new log fields or logger names.
+
+Storage / Cache Impact:
+- Created: none.
+- Modified: debug runtime config and tests only.
+- Removed: no files; legacy root discovery paths were removed from code.
+
+Container / NERSC / MPI Impact:
+- No Dockerfile, container wrapper, NERSC, or MPI changes.
+
+Resume / Force-Restart Impact:
+- Resume now fails fast on the configured current cache path when templates are missing instead of probing legacy roots.
+- No force-restart/cache-clearing command was run.
+
+Residual Risk And Follow-Ups:
+- Sequential plot rendering avoids the observed matplotlib/thread contention but a 185-unit plot phase can still be long if every unit must be replotted.
+- Existing `artifact_lookup_roots` analyzer/source fallbacks remain unchanged; this change only removes legacy materialized-template output layout fallbacks.
+- A real-data plot smoke was intentionally deferred until the active build_templates run is safe to leave alone.
+
+Rollback Notes:
+- Revert the resolver/root-candidate changes and debug runtime resource edits to restore legacy probing and parallel unit plotting.
+
 ## 2026-05-06 - pending - ai: stream unit source materialization logs
 
 Status: accepted

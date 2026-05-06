@@ -257,24 +257,15 @@ def _load_templates_unit_location_row(
 
 
 def _materialized_templates_root_candidates(templates_out_dir: Path) -> list[Path]:
-	return [
-		templates_out_dir / MATERIALIZED_TEMPLATES_CACHE_RELPATH,
-		templates_out_dir / "templates",
-	]
+	return [templates_out_dir / MATERIALIZED_TEMPLATES_CACHE_RELPATH]
 
 
 def _materialized_merged_root_candidates(templates_out_dir: Path) -> list[Path]:
-	return [
-		*[root / "merged" for root in _materialized_templates_root_candidates(templates_out_dir)],
-		templates_out_dir / "merged_units",
-	]
+	return [root / "merged" for root in _materialized_templates_root_candidates(templates_out_dir)]
 
 
 def _materialized_full_root_candidates(templates_out_dir: Path) -> list[Path]:
-	return [
-		*[root / "full" for root in _materialized_templates_root_candidates(templates_out_dir)],
-		templates_out_dir / "full_channels_templates",
-	]
+	return [root / "full" for root in _materialized_templates_root_candidates(templates_out_dir)]
 
 
 def _materialized_concat_channel_locations_candidates(templates_out_dir: Path) -> list[Path]:
@@ -282,10 +273,7 @@ def _materialized_concat_channel_locations_candidates(templates_out_dir: Path) -
 
 
 def _materialized_concat_unit_locations_candidates(templates_out_dir: Path) -> list[Path]:
-	return [
-		templates_out_dir / "units" / "concat_unit_locations.json",
-		templates_out_dir / "templates" / "concat_unit_locations.json",
-	]
+	return [templates_out_dir / "units" / "concat_unit_locations.json"]
 
 
 def _unit_dir_candidates_for_id(root_dir: Path, unit_id: Any) -> list[Path]:

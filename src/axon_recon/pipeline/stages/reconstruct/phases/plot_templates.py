@@ -135,16 +135,8 @@ def _resolve_plot_templates_execution_plan(
     if unit_count <= 0:
         return 1, 1, 1, []
     derived_unit_workers = max(1, int(inputs.n_jobs))
-    phase_cfg = inputs.phases.plot_templates
-    plot_unit_workers = _as_positive_int_or_none(getattr(phase_cfg, "unit_workers", None))
-    if plot_unit_workers is None:
-        plot_unit_workers = _as_positive_int_or_none(getattr(phase_cfg, "unit_procs", None))
-    if plot_unit_workers is None:
-        plot_unit_workers = derived_unit_workers
-    plot_unit_workers = max(1, min(int(plot_unit_workers), derived_unit_workers, unit_count))
-    unit_batch_size = _as_positive_int_or_none(getattr(phase_cfg, "unit_batch_size", None))
-    if unit_batch_size is None:
-        unit_batch_size = max(1, (unit_count + plot_unit_workers - 1) // plot_unit_workers)
+    plot_unit_workers = 1
+    unit_batch_size = unit_count
     batches = _chunk_unit_ids(unit_ids, batch_size=unit_batch_size)
     return derived_unit_workers, int(plot_unit_workers), int(unit_batch_size), batches
 

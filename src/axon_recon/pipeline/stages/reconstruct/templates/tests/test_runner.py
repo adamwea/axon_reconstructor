@@ -3856,13 +3856,13 @@ def test_resolve_plot_templates_execution_plan_is_sequential() -> None:
 		n_jobs=24,
 	)
 
-	plot_unit_workers, unit_procs, unit_batch_size, batches = _resolve_plot_templates_execution_plan(
+	derived_unit_workers, plot_unit_workers, unit_batch_size, batches = _resolve_plot_templates_execution_plan(
 		inputs=inputs,
 		unit_ids=list(range(12)),
 	)
 
+	assert derived_unit_workers == 24
 	assert plot_unit_workers == 1
-	assert unit_procs == 1
 	assert unit_batch_size == 12
 	assert batches == [list(range(12))]
 
@@ -3878,13 +3878,13 @@ def test_resolve_plot_templates_execution_plan_ignores_parallel_resource_overrid
 		n_jobs=24,
 	)
 
-	plot_unit_workers, unit_procs, unit_batch_size, batches = _resolve_plot_templates_execution_plan(
+	derived_unit_workers, plot_unit_workers, unit_batch_size, batches = _resolve_plot_templates_execution_plan(
 		inputs=inputs,
 		unit_ids=list(range(12)),
 	)
 
+	assert derived_unit_workers == 24
 	assert plot_unit_workers == 1
-	assert unit_procs == 1
 	assert unit_batch_size == 12
 	assert batches == [list(range(12))]
 
@@ -4037,8 +4037,8 @@ def test_run_reconstruct_templates_plot_batches_runs_units_sequentially(tmp_path
 		)
 
 	messages = [rec.getMessage() for rec in caplog.records]
-	assert captured_inputs == {"n_jobs": 2, "unit_ids": [10, 11, 12, 13, 14, 15]}
-	assert any("templates.plot_templates execution plan:" in msg and "parallel=true" in msg for msg in messages)
+	assert captured_inputs == {"n_jobs": 1, "unit_ids": [10, 11, 12, 13, 14, 15]}
+	assert any("templates.plot_templates execution plan:" in msg and "parallel=false" in msg for msg in messages)
 	assert [unit.unit_id for unit in result.units] == [10, 11, 12, 13, 14, 15]
 
 

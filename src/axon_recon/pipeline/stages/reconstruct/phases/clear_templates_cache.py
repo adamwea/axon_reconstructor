@@ -26,7 +26,7 @@ def run_reconstruct_clear_templates_cache_phase(inputs: ReconstructionInputs) ->
         templates_output_rel_root=(
             str(inputs.templates_inputs.output_rel_root)
             if inputs.templates_inputs is not None
-            else None
+            else str(inputs.output_rel_root)
         ),
         logger=reconstruct_runner.LOGGER,
     )

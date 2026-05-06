@@ -20,7 +20,7 @@ resources:
       gpu_sort_slots: 1
       h5_read_slots: 6
       disk_heavy_slots: 6
-      plot_slots: 3
+      plot_slots: 1
       analyzer_slots: 1
       #default_chunk_duration: 1s
   keyed_resource_limits:
@@ -114,7 +114,7 @@ resources:
       description: Per-unit plotting or matplotlib-heavy rendering.
       bottleneck: plotting_memory
       cpu_cores: 2
-      ram_gb: 24
+      ram_gb: 48
       plot_slots: 1
     plot_report_grid:
       description: Large report, grid, PDF, summary, or full-chip plotting.
@@ -1371,7 +1371,7 @@ stages:
         debug_prints: false # when true, allow raw/unexpected plotting debug output from render helpers and third-party plot libraries.
         summary_json_relpath: context/plot_templates_summary.json
         resources:
-          unit_procs: 4
+          unit_procs: 1
         outputs:
           ## Per-Unit Template Plots
           circles:

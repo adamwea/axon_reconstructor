@@ -103,14 +103,14 @@ def test_resolve_unit_output_paths_includes_amplitude_map() -> None:
 
 def test_resolve_templates_dirs_supports_cached_templates_layout(tmp_path: Path) -> None:
 	well_out_dir = tmp_path / "well000"
-	merged_units_dir = well_out_dir / "template_outputs" / "cache" / "templates" / "merged"
-	full_channels_templates_dir = well_out_dir / "template_outputs" / "cache" / "templates" / "full"
+	merged_units_dir = well_out_dir / "recon_outputs" / "cache" / "templates" / "merged"
+	full_channels_templates_dir = well_out_dir / "recon_outputs" / "cache" / "templates" / "full"
 	merged_units_dir.mkdir(parents=True, exist_ok=True)
 	full_channels_templates_dir.mkdir(parents=True, exist_ok=True)
 
 	templates_out_dir, resolved_merged_units_dir, resolved_full_channels_templates_dir = _resolve_templates_dirs(well_out_dir)
 
-	assert templates_out_dir == well_out_dir / "template_outputs"
+	assert templates_out_dir == well_out_dir / "recon_outputs"
 	assert resolved_merged_units_dir == merged_units_dir
 	assert resolved_full_channels_templates_dir == full_channels_templates_dir
 
@@ -137,6 +137,22 @@ def test_resolve_templates_dirs_prefers_configured_templates_output_root(tmp_pat
 	assert templates_out_dir == well_out_dir / "recon_outputs"
 	assert resolved_merged_units_dir == configured_merged_units_dir
 	assert resolved_full_channels_templates_dir == configured_full_channels_templates_dir
+
+
+def test_resolve_templates_dirs_ignores_legacy_template_roots(tmp_path: Path) -> None:
+	well_out_dir = tmp_path / "well000"
+	(well_out_dir / "stg4_templates_outputs" / "cache" / "templates" / "merged").mkdir(
+		parents=True,
+		exist_ok=True,
+	)
+	(well_out_dir / "templates_outputs" / "templates" / "merged").mkdir(parents=True, exist_ok=True)
+	(well_out_dir / "template_outputs" / "merged_units").mkdir(parents=True, exist_ok=True)
+
+	with pytest.raises(FileNotFoundError) as excinfo:
+		_resolve_templates_dirs(well_out_dir)
+
+	expected_merged_dir = well_out_dir / "recon_outputs" / "cache" / "templates" / "merged"
+	assert str(expected_merged_dir) in str(excinfo.value)
 
 
 def test_prepare_reconstruct_environment_filters_units_by_templates_unit_labels(tmp_path: Path) -> None:

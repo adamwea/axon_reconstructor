@@ -203,6 +203,78 @@ def test_phase_budget_limits_plot_slots_for_report_phases() -> None:
 	assert manager.phase_worker_count("plot_report_grid") == 4
 
 
+def test_phase_budget_blocks_plot_unit_when_template_build_holds_ram() -> None:
+	resources = parse_resources_config(
+		runtime_config=RuntimeConfig(
+			{
+				"resources": {
+					"active_profile": "lab_server_safe",
+					"profiles": {"lab_server_safe": {"cpu_cores": 36, "ram_gb": 50, "plot_slots": 1}},
+					"phase_resource_classes": {
+						"template_build": {"cpu_cores": 4, "ram_gb": 8},
+						"plot_unit": {"cpu_cores": 2, "ram_gb": 48, "plot_slots": 1},
+					},
+				}
+			}
+		)
+	)
+	manager = ResourceBudgetManager(resources=resources, planned_target_count=2, well_workers=2)
+	condition = threading.Condition()
+	release_build = threading.Event()
+	started: list[str] = []
+	leases: list[tuple[str, dict[str, object]]] = []
+	errors: list[BaseException] = []
+
+	def template_builder() -> None:
+		try:
+			with manager.phase_budget(resource_class="template_build", phase_name="build_templates", target_label="well000") as lease:
+				with condition:
+					started.append("build_templates")
+					leases.append(("build_templates", lease))
+					condition.notify_all()
+				assert release_build.wait(timeout=5)
+		except BaseException as exc:
+			with condition:
+				errors.append(exc)
+				condition.notify_all()
+
+	def plotter() -> None:
+		try:
+			with manager.phase_budget(resource_class="plot_unit", phase_name="plot_templates", target_label="well001") as lease:
+				with condition:
+					started.append("plot_templates")
+					leases.append(("plot_templates", lease))
+					condition.notify_all()
+		except BaseException as exc:
+			with condition:
+				errors.append(exc)
+				condition.notify_all()
+
+	build_thread = threading.Thread(target=template_builder)
+	plot_thread = threading.Thread(target=plotter)
+	build_thread.start()
+	with condition:
+		assert condition.wait_for(lambda: started == ["build_templates"], timeout=5)
+	plot_thread.start()
+	with condition:
+		condition.wait(timeout=0.1)
+		assert started == ["build_templates"]
+
+	release_build.set()
+	build_thread.join(timeout=5)
+	plot_thread.join(timeout=5)
+	assert not build_thread.is_alive()
+	assert not plot_thread.is_alive()
+
+	assert not errors
+	assert started == ["build_templates", "plot_templates"]
+	assert len(leases) == 2
+	assert leases[0][1]["slot_demands"] == {"cpu_cores": 4, "ram_gb": 8}
+	assert leases[1][1]["slot_demands"] == {"cpu_cores": 2, "ram_gb": 48, "plot_slots": 1}
+	assert bool(leases[1][1]["waited"])
+	assert float(leases[1][1]["wait_s"]) > 0.0
+
+
 def test_phase_budget_logs_structured_wait_warning_for_queued_worker() -> None:
 	resources = parse_resources_config(runtime_config=RuntimeConfig(_resource_budget_payload(h5_read_slots=1)))
 	manager = ResourceBudgetManager(resources=resources, planned_target_count=2, well_workers=2)

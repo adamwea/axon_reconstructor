@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from axon_recon.pipeline.stages.reconstruct.core.clear_templates_cache import run_clear_templates_cache_phase
+from axon_recon.pipeline.stages.reconstruct.core.clear_templates_cache import (
+	run_clear_templates_cache_phase,
+)
 
 
 def _write_dummy(path: Path, payload: bytes = b"dummy") -> None:
@@ -10,7 +12,7 @@ def _write_dummy(path: Path, payload: bytes = b"dummy") -> None:
 	path.write_bytes(payload)
 
 
-def _make_templates_cache(well_out_dir: Path, output_rel_root: str = "template_outputs") -> dict[str, Path]:
+def _make_templates_cache(well_out_dir: Path, output_rel_root: str = "recon_outputs") -> dict[str, Path]:
 	cache_dir = well_out_dir / output_rel_root / "cache"
 	paths = {
 		"concat": cache_dir / "analyzers" / "concat" / "dummy.bin",
@@ -27,7 +29,7 @@ def _make_templates_cache(well_out_dir: Path, output_rel_root: str = "template_o
 def test_run_clear_templates_cache_phase_preserves_merged_when_requested(tmp_path: Path) -> None:
 	well_out_dir = tmp_path / "well000"
 	paths = _make_templates_cache(well_out_dir)
-	cache_dir = well_out_dir / "template_outputs" / "cache"
+	cache_dir = well_out_dir / "recon_outputs" / "cache"
 
 	summary = run_clear_templates_cache_phase(
 		well_out_dir=well_out_dir,
@@ -66,6 +68,22 @@ def test_run_clear_templates_cache_phase_prefers_configured_output_root(tmp_path
 	assert not (configured_cache_dir / "source_payloads").exists()
 	assert configured_paths["merged_template"].exists()
 	assert legacy_paths["source_payload"].exists()
+
+
+def test_run_clear_templates_cache_phase_ignores_legacy_roots_without_config(tmp_path: Path) -> None:
+	well_out_dir = tmp_path / "well000"
+	legacy_paths = _make_templates_cache(well_out_dir, "template_outputs")
+
+	summary = run_clear_templates_cache_phase(
+		well_out_dir=well_out_dir,
+		enabled=True,
+		keep_merged_per_unit_outputs=False,
+		keep_full_channels_templates=False,
+	)
+
+	assert summary["templates_out_dir"] == str(well_out_dir / "recon_outputs")
+	for path in legacy_paths.values():
+		assert path.exists()
 
 
 def test_run_clear_templates_cache_phase_disabled_deletes_nothing(tmp_path: Path) -> None:

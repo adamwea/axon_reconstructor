@@ -10,18 +10,9 @@ def _templates_out_candidates(
 	well_out_dir: Path,
 	templates_output_rel_root: str | None = None,
 ) -> tuple[Path, ...]:
-	candidates: list[Path] = []
-	if templates_output_rel_root:
-		configured = well_out_dir / Path(str(templates_output_rel_root)).expanduser()
-		candidates.append(configured)
-	for candidate in (
-		well_out_dir / "template_outputs",
-		well_out_dir / "templates_outputs",
-		well_out_dir / "stg4_templates_outputs",
-	):
-		if candidate not in candidates:
-			candidates.append(candidate)
-	return tuple(candidates)
+	configured = str(templates_output_rel_root or "recon_outputs").strip() or "recon_outputs"
+	configured_path = Path(configured).expanduser()
+	return (configured_path if configured_path.is_absolute() else well_out_dir / configured_path,)
 
 
 def _resolve_templates_out_dir(well_out_dir: Path, templates_output_rel_root: str | None = None) -> Path:

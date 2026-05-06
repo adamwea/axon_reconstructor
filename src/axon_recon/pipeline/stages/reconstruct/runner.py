@@ -216,39 +216,21 @@ def _resolve_templates_dirs(
 	well_out_dir: Path,
 	*,
 	templates_inputs: TemplatesInputs | None = None,
+	output_rel_root: str = "recon_outputs",
 ) -> tuple[Path, Path, Path]:
-	last_merged_units_dir = well_out_dir / "templates_outputs" / "templates" / "merged"
-	templates_out_dirs: list[Path] = []
+	configured_rel_root = str(output_rel_root or "recon_outputs").strip() or "recon_outputs"
 	if templates_inputs is not None:
-		configured_rel_root = str(getattr(templates_inputs, "output_rel_root", "") or "").strip()
-		if configured_rel_root:
-			configured_path = Path(configured_rel_root).expanduser()
-			if configured_path.is_absolute():
-				templates_out_dirs.append(configured_path)
-			else:
-				templates_out_dirs.append(well_out_dir / configured_path)
-	for legacy_out_dir in (
-		well_out_dir / "template_outputs",
-		well_out_dir / "templates_outputs",
-		well_out_dir / "stg4_templates_outputs",
-	):
-		if legacy_out_dir not in templates_out_dirs:
-			templates_out_dirs.append(legacy_out_dir)
-	for templates_out_dir in templates_out_dirs:
-		for templates_dir in (
-			templates_out_dir / "templates",
-			templates_out_dir / "cache" / "templates",
-		):
-			merged_units_dir = templates_dir / "merged"
-			full_channels_templates_dir = templates_dir / "full"
-			if merged_units_dir.exists():
-				return templates_out_dir, merged_units_dir, full_channels_templates_dir
-			last_merged_units_dir = merged_units_dir
-		legacy_merged_units_dir = templates_out_dir / "merged_units"
-		legacy_full_channels_templates_dir = templates_out_dir / "full_channels_templates"
-		if legacy_merged_units_dir.exists():
-			return templates_out_dir, legacy_merged_units_dir, legacy_full_channels_templates_dir
-	raise FileNotFoundError(f"Missing merged templates directory: {last_merged_units_dir}")
+		templates_rel_root = str(getattr(templates_inputs, "output_rel_root", "") or "").strip()
+		if templates_rel_root:
+			configured_rel_root = templates_rel_root
+	configured_path = Path(configured_rel_root).expanduser()
+	templates_out_dir = configured_path if configured_path.is_absolute() else well_out_dir / configured_path
+	templates_dir = templates_out_dir / "cache" / "templates"
+	merged_units_dir = templates_dir / "merged"
+	full_channels_templates_dir = templates_dir / "full"
+	if merged_units_dir.exists():
+		return templates_out_dir, merged_units_dir, full_channels_templates_dir
+	raise FileNotFoundError(f"Missing merged templates directory: {merged_units_dir}")
 
 
 def _reconstruct_unit_label_filter_config(inputs: ReconstructionInputs) -> tuple[tuple[str, ...], bool]:
@@ -706,6 +688,7 @@ def _prepare_reconstruct_phase_environment(
 		_, merged_units_dir, full_channels_templates_dir = _resolve_templates_dirs(
 			well_out_dir,
 			templates_inputs=inputs.templates_inputs,
+			output_rel_root=inputs.output_rel_root,
 		)
 	except TypeError as exc:
 		if "templates_inputs" not in str(exc):
