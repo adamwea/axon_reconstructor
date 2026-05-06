@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import errno
 import gc
 import logging
 import shutil
@@ -62,6 +63,16 @@ class _CachedAnalyzerUnitMaterializationJob:
 class _CachedAnalyzerUnitMaterializationResult:
     unit_id: Any
     source_names: tuple[str, ...]
+    source_results: tuple["_CachedAnalyzerUnitSourceMaterializationResult", ...]
+
+
+@dataclass(frozen=True)
+class _CachedAnalyzerUnitSourceMaterializationResult:
+    source_name: str
+    status: str
+    duration_seconds: float
+    channel_count: int | None
+    waveform_count: int | None
 
 
 def _positive_int_or_none(value: Any) -> int | None:
@@ -181,7 +192,7 @@ def _log_build_templates_start(*, inputs: TemplatesInputs, context: BuildTemplat
         bool(inputs.force_restart),
     )
     LOGGER.info(
-        "templates.build_templates settings: merge_enable=%s merge_method=%s centering_method=%s max_waveforms_per_source_channel=%s upsampling_enabled=%s upsampling_factor=%d upsampling_method=%s lazy_load_analyzers=%s",
+        "templates.build_templates settings: merge_enable=%s merge_method=%s centering_method=%s max_waveforms_per_source_channel=%s upsampling_enabled=%s upsampling_factor=%d upsampling_method=%s lazy_load_analyzers=%s emit_unit_source_materialization_log=%s",
         bool(inputs.phases.build_templates.merge.enable),
         str(inputs.phases.build_templates.merge.method),
         str(inputs.phases.build_templates.merge.centering_method),
@@ -194,6 +205,7 @@ def _log_build_templates_start(*, inputs: TemplatesInputs, context: BuildTemplat
         int(max(1, int(inputs.phases.build_templates.execution_upsampling.factor))),
         str(inputs.phases.build_templates.execution_upsampling.method),
         bool(getattr(inputs.phases.build_templates, "lazy_load_analyzers", False)),
+        bool(getattr(inputs.phases.build_templates, "emit_unit_source_materialization_log", False)),
     )
 
 
@@ -206,7 +218,16 @@ def _clear_payload_root_for_force_restart(
         "templates.build_templates clearing persisted source payloads on force_restart: %s",
         str(context.payload_root),
     )
-    shutil.rmtree(context.payload_root)
+    try:
+        shutil.rmtree(context.payload_root)
+    except OSError as exc:
+        if exc.errno != errno.ENOTEMPTY or not context.payload_root.exists():
+            raise
+        LOGGER.warning(
+            "templates.build_templates source payload cleanup hit a non-empty directory race; retrying: %s",
+            str(context.payload_root),
+        )
+        shutil.rmtree(context.payload_root)
 
 
 def _discover_cached_analyzer_sources(
@@ -407,11 +428,48 @@ def _record_materialization_result(
         summary_entry["unit_count"] = int(summary_entry.get("unit_count", 0)) + 1
 
 
+def _payload_channel_count(payload: tuple[Any, ...]) -> int | None:
+    try:
+        return int(len(payload[1]))
+    except Exception:
+        return None
+
+
+def _payload_waveform_count(payload: tuple[Any, ...]) -> int | None:
+    try:
+        return int(payload[4])
+    except Exception:
+        return None
+
+
+def _log_unit_source_materialization_if_requested(
+    *,
+    inputs: TemplatesInputs,
+    unit_id: Any,
+    result: _CachedAnalyzerUnitSourceMaterializationResult,
+    lazy_load_analyzers: bool,
+) -> None:
+    if not bool(getattr(inputs.phases.build_templates, "emit_unit_source_materialization_log", False)):
+        return
+    LOGGER.info(
+        "templates.build_templates unit-source payload materialization: unit=%s source=%s status=%s lazy_load_analyzers=%s duration_seconds=%.3f channel_count=%s waveform_count=%s",
+        str(unit_id),
+        str(result.source_name),
+        str(result.status),
+        bool(lazy_load_analyzers),
+        float(result.duration_seconds),
+        "unknown" if result.channel_count is None else str(int(result.channel_count)),
+        "unknown" if result.waveform_count is None else str(int(result.waveform_count)),
+    )
+
+
 def _materialize_cached_analyzer_unit(
     job: _CachedAnalyzerUnitMaterializationJob,
 ) -> _CachedAnalyzerUnitMaterializationResult:
     materialized_sources: list[str] = []
+    source_results: list[_CachedAnalyzerUnitSourceMaterializationResult] = []
     for requested_source_name in job.source_names:
+        source_started = perf_counter()
         source_match, analyzers = _load_requested_cached_source(
             inputs=job.inputs,
             analyzer_well_out_dir=job.analyzer_well_out_dir,
@@ -427,7 +485,12 @@ def _materialize_cached_analyzer_unit(
             allow_prepare=False,
             allow_waveforms_sparsity_fallback=False,
         )
+        status = "skipped_empty_payload"
+        channel_count = None
+        waveform_count = None
         if payload is not None:
+            channel_count = _payload_channel_count(payload)
+            waveform_count = _payload_waveform_count(payload)
             _write_cached_analyzer_payload(
                 context=job.context,
                 source_name=str(source_name),
@@ -435,7 +498,17 @@ def _materialize_cached_analyzer_unit(
                 payload=payload,
             )
             materialized_sources.append(str(source_name))
+            status = "materialized"
             del payload
+        source_results.append(
+            _CachedAnalyzerUnitSourceMaterializationResult(
+                source_name=str(source_name),
+                status=status,
+                duration_seconds=float(perf_counter() - source_started),
+                channel_count=channel_count,
+                waveform_count=waveform_count,
+            )
+        )
         del analyzer
         del analyzers
         del source_match
@@ -443,6 +516,7 @@ def _materialize_cached_analyzer_unit(
     return _CachedAnalyzerUnitMaterializationResult(
         unit_id=job.unit_id,
         source_names=tuple(materialized_sources),
+        source_results=tuple(source_results),
     )
 
 
@@ -532,6 +606,13 @@ def _materialize_cached_analyzers_by_unit(
         if result is None:
             continue
         _record_materialization_result(streamed_sources_summary, result)
+        for source_result in result.source_results:
+            _log_unit_source_materialization_if_requested(
+                inputs=inputs,
+                unit_id=result.unit_id,
+                result=source_result,
+                lazy_load_analyzers=True,
+            )
         LOGGER.info(
             "templates.build_templates lazy-materialized cached analyzer payloads: unit=%s source_count=%d",
             str(result.unit_id),
@@ -567,6 +648,7 @@ def _materialize_cached_analyzers_by_source(
             )
         materialized_units: list[Any] = []
         for unit_id in list(unit_ids or []):
+            source_started = perf_counter()
             payload = build_unit_source_payload(
                 analyzer=analyzer,
                 unit_id=unit_id,
@@ -574,7 +656,21 @@ def _materialize_cached_analyzers_by_source(
                 allow_prepare=False,
             )
             if payload is None:
+                _log_unit_source_materialization_if_requested(
+                    inputs=inputs,
+                    unit_id=unit_id,
+                    result=_CachedAnalyzerUnitSourceMaterializationResult(
+                        source_name=str(source_name),
+                        status="skipped_empty_payload",
+                        duration_seconds=float(perf_counter() - source_started),
+                        channel_count=None,
+                        waveform_count=None,
+                    ),
+                    lazy_load_analyzers=False,
+                )
                 continue
+            channel_count = _payload_channel_count(payload)
+            waveform_count = _payload_waveform_count(payload)
             _write_cached_analyzer_payload(
                 context=context,
                 source_name=str(source_name),
@@ -582,6 +678,18 @@ def _materialize_cached_analyzers_by_source(
                 payload=payload,
             )
             materialized_units.append(unit_id)
+            _log_unit_source_materialization_if_requested(
+                inputs=inputs,
+                unit_id=unit_id,
+                result=_CachedAnalyzerUnitSourceMaterializationResult(
+                    source_name=str(source_name),
+                    status="materialized",
+                    duration_seconds=float(perf_counter() - source_started),
+                    channel_count=channel_count,
+                    waveform_count=waveform_count,
+                ),
+                lazy_load_analyzers=False,
+            )
             del payload
         streamed_sources_summary[str(source_name)] = {
             "units_materialized": [unit for unit in materialized_units],

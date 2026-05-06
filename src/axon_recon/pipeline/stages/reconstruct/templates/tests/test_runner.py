@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import shutil
@@ -752,7 +753,11 @@ def test_run_reconstruct_templates_build_templates_phase_loads_cached_analyzers_
 	assert build_call["payload_root"] == templates_out_dir / "cache/source_payloads"
 
 
-def test_run_reconstruct_templates_build_templates_phase_lazy_loads_cached_analyzers_per_unit(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_build_templates_phase_lazy_loads_cached_analyzers_per_unit(
+	tmp_path: Path,
+	monkeypatch,
+	caplog,
+) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -844,18 +849,80 @@ def test_run_reconstruct_templates_build_templates_phase_lazy_loads_cached_analy
 		force_restart=True,
 		n_jobs=1,
 		phases=TemplatesPhasesConfig(
-			build_templates=TemplateBuildTemplatesPhaseConfig(lazy_load_analyzers=True),
+			build_templates=TemplateBuildTemplatesPhaseConfig(
+				lazy_load_analyzers=True,
+				emit_unit_source_materialization_log=True,
+			),
 		),
 	)
 
-	summary = run_reconstruct_templates_build_templates_phase(inputs)
+	with caplog.at_level(logging.INFO, logger="axon_recon.templates"):
+		summary = run_reconstruct_templates_build_templates_phase(inputs)
 
 	assert requested_source_batches == [["concat"], ["000_recA"], ["concat"], ["000_recA"]]
 	assert load_modes == [(False, False), (False, False), (False, False), (False, False)]
 	assert payload_calls == [("concat", 94), ("000_recA", 94), ("concat", 95), ("000_recA", 95)]
+	materialization_messages = [
+		record.getMessage()
+		for record in caplog.records
+		if "unit-source payload materialization" in record.getMessage()
+	]
+	assert len(materialization_messages) == 4
+	assert any(
+		"unit=94 source=concat status=materialized" in message
+		and "lazy_load_analyzers=True" in message
+		and "channel_count=1" in message
+		and "waveform_count=4" in message
+		for message in materialization_messages
+	)
 	assert summary["lazy_load_analyzers"] is True
 	assert summary["source_payload_sources"]["concat"]["unit_count"] == 2
 	assert summary["source_payload_sources"]["000_recA"]["unit_count"] == 2
+
+
+def test_build_templates_force_restart_retries_non_empty_source_payload_cleanup(
+	tmp_path: Path,
+	monkeypatch,
+	caplog,
+) -> None:
+	from axon_recon.pipeline.stages.reconstruct.phases import (
+		build_templates as build_templates_phase,
+	)
+
+	payload_root = tmp_path / "source_payloads"
+	(payload_root / "000_recA" / "unit_94").mkdir(parents=True)
+	(payload_root / "000_recA" / "unit_94" / "payload.npz").write_text("", encoding="utf-8")
+	context = build_templates_phase.BuildTemplatesContext(
+		well_out_dir=tmp_path / "well000",
+		alternate_well_out_dirs=[],
+		templates_out_dir=tmp_path / "templates_outputs",
+		analyzer_cache_dir=None,
+		payload_root=payload_root,
+		payload_output_rel_root="cache/source_payloads",
+	)
+	inputs = TemplatesInputs(
+		h5_path=tmp_path / "dataset.h5",
+		stream_id="well000",
+		mea_output_root=tmp_path / "outputs",
+		force_restart=True,
+	)
+	real_rmtree = build_templates_phase.shutil.rmtree
+	calls: list[Path] = []
+
+	def _flaky_rmtree(path: Path) -> None:
+		calls.append(Path(path))
+		if len(calls) == 1:
+			raise OSError(errno.ENOTEMPTY, "Directory not empty", str(path))
+		real_rmtree(path)
+
+	monkeypatch.setattr(build_templates_phase.shutil, "rmtree", _flaky_rmtree)
+
+	with caplog.at_level(logging.WARNING, logger="axon_recon.templates"):
+		build_templates_phase._clear_payload_root_for_force_restart(inputs=inputs, context=context)
+
+	assert calls == [payload_root, payload_root]
+	assert not payload_root.exists()
+	assert any("source payload cleanup hit a non-empty directory race" in rec.getMessage() for rec in caplog.records)
 
 
 def test_run_reconstruct_templates_build_templates_phase_parallel_lazy_materialization_filters_labels(

@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
-from axon_recon.pipeline.stages.reconstruct.templates.config import load_reconstruct_templates_inputs_from_runtime
+from axon_recon.pipeline.stages.reconstruct.templates.config import (
+	load_reconstruct_templates_inputs_from_runtime,
+)
 
 
 def test_load_templates_config_from_reconstruct_stage_block(tmp_path: Path) -> None:
@@ -2654,6 +2656,7 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 			        build_templates:
 			          summary_json_relpath: context/custom_build_summary.json
 			          lazy_load_analyzers: true
+			          emit_unit_source_materialization_log: true
 			          emit_channel_count_per_unit_after_merge_log: true
 			          execution_upsampling:
 			            enabled: true
@@ -2693,11 +2696,13 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 
 	assert inputs.phases.build_templates.summary_json_relpath == "context/custom_build_summary.json"
 	assert inputs.phases.build_templates.lazy_load_analyzers is True
+	assert inputs.phases.build_templates.emit_unit_source_materialization_log is True
 	assert inputs.phases.build_templates.emit_channel_count_per_unit_after_merge_log is True
 	assert inputs.phases.build_templates.execution_upsampling.enabled is True
 	assert inputs.phases.build_templates.execution_upsampling.factor == 3
 	assert inputs.phases.per_unit_processing.build_templates.summary_json_relpath == "context/custom_build_summary.json"
 	assert inputs.phases.per_unit_processing.build_templates.lazy_load_analyzers is True
+	assert inputs.phases.per_unit_processing.build_templates.emit_unit_source_materialization_log is True
 	assert inputs.phases.per_unit_processing.build_templates.emit_channel_count_per_unit_after_merge_log is True
 	assert inputs.phases.per_unit_processing.build_templates.execution_upsampling.enabled is True
 	assert inputs.phases.per_unit_processing.build_templates.execution_upsampling.factor == 3

@@ -91,6 +91,74 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-05 - pending - ai: add unit source materialization logs
+
+Status: accepted
+
+Summary:
+- Added `build_templates.emit_unit_source_materialization_log` to the templates phase config and runtime parser.
+- Enabled the option in `debug/debug.runtime.yml` for the active debug runtime.
+- Added opt-in INFO logs for each unit/source payload materialization result, including status, lazy-load mode, duration, channel count, and waveform count.
+- Emitted those logs from both lazy unit-scoped materialization and non-lazy source-scoped materialization paths.
+- Added a one-retry guard for `force_restart` source-payload cleanup when generated cache deletion hits an `ENOTEMPTY` directory race.
+
+Guardrails Consulted:
+- `debug/logging_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+
+Acceptance Criteria:
+- The runtime YAML can turn detailed unit/source materialization logs on or off.
+- The debug runtime has the detailed logs enabled for current investigation.
+- Log lines identify the unit, segment/source name, materialization status, duration, channel count, and waveform count.
+- Focused tests cover config parsing, log emission, cleanup retry, and existing parallel lazy materialization behavior.
+- A narrow real-data logging smoke succeeds and shows the new unit/source log lines.
+
+Expected To Run:
+- Focused Ruff import/syntax checks for touched Python files.
+- Focused tests for templates config parsing and build_templates materialization behavior.
+- Narrow real-data `reconstruct.build_templates` smoke with one dataset, one well, two units, and two segments.
+
+Confirmed Not Run:
+- Full repository test suite.
+- Container image rebuild.
+- Multi-well logging smoke.
+- Remote push.
+
+Validation:
+- Lint: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m ruff check --select I,F src/axon_recon/pipeline/stages/reconstruct/templates/models/inputs.py src/axon_recon/pipeline/stages/reconstruct/templates/config.py src/axon_recon/pipeline/stages/reconstruct/phases/build_templates.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_config.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py` passed.
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_config.py::test_load_templates_config_parses_phased_templates_blocks src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py::test_run_reconstruct_templates_build_templates_phase_lazy_loads_cached_analyzers_per_unit src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py::test_build_templates_force_restart_retries_non_empty_source_payload_cleanup src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py::test_run_reconstruct_templates_build_templates_phase_parallel_lazy_materialization_filters_labels -q` passed.
+- Diagnostics: VS Code diagnostics reported no errors for touched Python files.
+- Real-data smoke: `/home/adamm/miniconda3/envs/axon_recon/bin/axon-reconstructor stages reconstruct.build_templates --config debug/debug.runtime.yml --limit-datasets 1 --limit-wells 1 --limit-units 2 --limit-segments 2 --force-restart` passed with `targets_failed: 0`.
+- Smoke log inspected: `/tmp/axon_recon_unit_source_materialization_log_smoke.log` showed `emit_unit_source_materialization_log=True`, `lazy materialization start: requested_units=1 source_count=2 worker_count=1 executor=serial`, and per unit/source logs for `unit=1 source=000_rec0000` and `unit=1 source=001_rec0001` with channel and waveform counts.
+
+CLI / Debug Flag Impact:
+- No CLI flag changes.
+- Added a runtime YAML option under `stages.reconstruct.phases.build_templates`.
+
+Logging / Parallelism Impact:
+- Adds opt-in detailed materialization logs at normal INFO level.
+- Lazy process-worker behavior remains parent-logged after each unit result is collected, keeping logs visible through the existing logging stack.
+- No worker-count or slot-allocation behavior changed.
+
+Storage / Cache Impact:
+- No new output artifacts.
+- `force_restart` cleanup now retries once when deleting generated `cache/source_payloads` hits an `ENOTEMPTY` race.
+- Validation regenerated selected source payload and build-template cache artifacts under the configured scratch output root.
+
+Container / NERSC / MPI Impact:
+- No Dockerfile, container wrapper, NERSC, or MPI changes.
+
+Resume / Force-Restart Impact:
+- Force-restart source-payload cleanup is more robust for generated payload cache directories.
+- Resume behavior without force-restart is unchanged.
+
+Residual Risk And Follow-Ups:
+- Detailed unit/source logging can be noisy on full-scope runs; leave it enabled only while investigating unit-segment performance.
+- The real smoke emitted the existing SpikeInterface margin warning; the phase completed successfully.
+
+Rollback Notes:
+- Revert the config field/parser/runtime setting, unit/source materialization log helpers, cleanup retry, and focused tests to return to previous per-unit-only materialization logging.
+
 ## 2026-05-05 - pending - ai: parallelize lazy template payload materialization
 
 Status: accepted

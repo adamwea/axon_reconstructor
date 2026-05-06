@@ -1,76 +1,75 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
 import math
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from axon_recon.runtime_config import RuntimeConfig
+from axon_recon.pipeline.execution.context import ExecutionTarget
 from axon_recon.pipeline.resources import parse_resources_config, validate_phase_resource_class
 from axon_recon.pipeline.shared.grid_sorting import normalize_grid_sort_by
 from axon_recon.pipeline.shared.plotting import build_stage_plot_block
+from axon_recon.runtime_config import RuntimeConfig
 
-from axon_recon.pipeline.execution.context import ExecutionTarget
 from .core.unit_labels import DEFAULT_UNIT_LABEL_FILTER
 from .models.inputs import (
-	AnalyzerPreparationPolicyConfig,
 	AnalyzerCacheConfig,
+	AnalyzerPreparationPolicyConfig,
 	AnalyzerSourcePhaseConfig,
 	CenterMostChannelCoordsConfig,
 	DataQualityChecksOutputsConfig,
 	FootprintGridsReportConfig,
-	FootprintMapGridReportConfig,
 	FootprintMapConfig,
+	FootprintMapGridReportConfig,
 	FootprintPlotsConfig,
 	MergeConfig,
-	MultipleNegativePeaksOutputsConfig,
 	MultipleNegativePeaksCheckConfig,
+	MultipleNegativePeaksOutputsConfig,
 	MultiSourcePdfReportConfig,
 	PerUnitQualityChecksOutputsConfig,
 	PerUnitTemplatesOutputsConfig,
 	ProbeGeometryConfig,
-	TemplateAnalysisPhaseConfig,
-	TemplateBuildTemplatesPhaseConfig,
-	TemplateComputeSimilarityPhaseConfig,
-	TemplateLeafPhaseConfig,
-	TemplatePerUnitProcessingPhaseConfig,
-	TemplatePlotsPhaseConfig,
-	TemplateReportTemplatesPhaseConfig,
-	TemplatePropagationOrderingPhaseConfig,
-	TemplateQualityChecksPhaseConfig,
-	TemplateReportsPhaseConfig,
 	PropagationAxesConfig,
 	PropagationLatencyMapConfig,
 	PropagationPlotConfig,
 	QualityCheckJsonOutputConfig,
 	QualityCheckPlotOutputConfig,
 	QualityChecksConfig,
-	ResolveSourcesPhaseConfig,
 	ReportsConfig,
+	ResolveSourcesPhaseConfig,
+	TemplateAnalysisPhaseConfig,
 	TemplateArtifactConfig,
-	TemplatesAnalyzersPhaseConfig,
+	TemplateBuildTemplatesPhaseConfig,
 	TemplateCirclesBranchMorphologyConfig,
 	TemplateCirclesOverlapControlsConfig,
 	TemplateCirclesPlotConfig,
-	TemplateScaleCircleConfig,
+	TemplateComputeSimilarityPhaseConfig,
+	TemplateLeafPhaseConfig,
+	TemplatePerUnitProcessingPhaseConfig,
 	TemplatePlotConfig,
-	TemplateWaveformOverlayConfig,
-	TemplatesPhasesConfig,
+	TemplatePlotsPhaseConfig,
+	TemplatePropagationOrderingPhaseConfig,
+	TemplateQualityChecksPhaseConfig,
+	TemplateReportsPhaseConfig,
+	TemplateReportTemplatesPhaseConfig,
+	TemplatesAnalyzersPhaseConfig,
+	TemplateScaleCircleConfig,
 	TemplateSimilarityCandidateSelectionConfig,
-	TemplateSimilarityMethodOptionsConfig,
 	TemplateSimilarityMatrixOutputConfig,
+	TemplateSimilarityMethodOptionsConfig,
 	TemplateSimilarityPairPlotsConfig,
-	UnitLocationsReportConfig,
-	UnitIdLabelConfig,
+	TemplatesInputs,
+	TemplatesPhasesConfig,
+	TemplateWaveformOverlayConfig,
+	TimeUpsampleConfig,
 	TopographicalFootprintConfig,
 	TopographicalFootprintsConfig,
-	TimeUpsampleConfig,
-	TemplatesInputs,
+	UnitIdLabelConfig,
+	UnitLocationsReportConfig,
 	WaveformExtractionConfig,
 	WfOverlayGridReportConfig,
 )
-
 
 LOGGER = logging.getLogger("axon_recon.templates.config")
 
@@ -3726,6 +3725,10 @@ def parse_reconstruct_templates_config(
 		summary_json_relpath=str(phase_build_cfg.get("summary_json_relpath", "context/build_templates_summary.json")),
 		resource_class=_phase_resource_class(phase_build_cfg, "build_templates"),
 		lazy_load_analyzers=_as_bool(phase_build_cfg.get("lazy_load_analyzers", False), False),
+		emit_unit_source_materialization_log=_as_bool(
+			phase_build_cfg.get("emit_unit_source_materialization_log", False),
+			False,
+		),
 		emit_channel_count_per_unit_after_merge_log=_as_bool(
 			phase_build_cfg.get(
 				"emit_channel_count_per_unit_after_merge_log",

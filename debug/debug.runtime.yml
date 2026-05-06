@@ -1280,6 +1280,7 @@ stages:
         resource_class: template_build
         summary_json_relpath: context/build_templates_summary.json
         lazy_load_analyzers: true # whether to lazy load analyzers during template building, which can reduce memory usage and speed up builds for large datasets with many segments by only loading analyzers when needed for each unit, at the cost of potentially increased runtime due to more frequent loading operations; keep false by default for debugging iterations to simplify data flow and provide more immediate access to analyzer data during development.
+        emit_unit_source_materialization_log: true # log each unit/source payload materialization result, including segment analyzer sources, duration, channel count, and waveform count; useful for finding slow or missing unit-segment pairs during build_templates.
         outputs:
           # merged_template: the final merged template waveform for the unit, typically averaged across all segments and/or concatenated segments.
           # This is the main data artifact representing the spatial footprint and waveform shape of the neuron across the MEA channels, and is used for downstream analyses and plotting.
