@@ -925,6 +925,125 @@ def test_build_templates_force_restart_retries_non_empty_source_payload_cleanup(
 	assert any("source payload cleanup hit a non-empty directory race" in rec.getMessage() for rec in caplog.records)
 
 
+def test_cached_analyzer_process_materialization_logs_each_unit_source_future(
+	tmp_path: Path,
+	monkeypatch,
+	caplog,
+) -> None:
+	from axon_recon.pipeline.stages.reconstruct.phases import (
+		build_templates as build_templates_phase,
+	)
+
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	templates_out_dir = well_out_dir / "templates_outputs"
+	analyzer_cache_dir = templates_out_dir / "analyzers"
+	submitted_jobs: list[tuple[int, str]] = []
+	max_workers_seen: list[int] = []
+
+	class _FakeAnalyzer:
+		def __init__(self, source_name: str) -> None:
+			self.source_name = str(source_name)
+
+	class _FakeProcessPoolExecutor:
+		def __init__(self, *, max_workers: int, initializer) -> None:
+			max_workers_seen.append(int(max_workers))
+			self.initializer = initializer
+
+		def __enter__(self):
+			return self
+
+		def __exit__(self, exc_type, exc, tb) -> bool:
+			return False
+
+		def submit(self, fn, job):
+			submitted_jobs.append((int(job.unit_id), str(job.source_name)))
+			future = build_templates_phase.concurrent.futures.Future()
+			future.set_result(fn(job))
+			return future
+
+	def _fake_load_cached_spikeinterface_analyzers(**kwargs):
+		requested = [str(name) for name in list(kwargs.get("requested_source_names") or [])]
+		assert len(requested) == 1
+		return [(requested[0], _FakeAnalyzer(requested[0]))]
+
+	def _fake_build_unit_source_payload(*, analyzer, unit_id, **kwargs):
+		assert kwargs["include_overlay_waveforms"] is False
+		assert kwargs["allow_prepare"] is False
+		assert kwargs["allow_waveforms_sparsity_fallback"] is False
+		amplitude = -float(int(unit_id) - 90)
+		template = np.asarray([[0.0, amplitude, 0.0]], dtype=float)
+		locations = np.asarray([[float(int(unit_id)), 0.0]], dtype=float)
+		return (template, locations, [10], [100], 7, 10_000.0, None, None, None)
+
+	monkeypatch.setattr(build_templates_phase.concurrent.futures, "ProcessPoolExecutor", _FakeProcessPoolExecutor)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.load_cached_spikeinterface_analyzers",
+		_fake_load_cached_spikeinterface_analyzers,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_unit_source_payload",
+		_fake_build_unit_source_payload,
+	)
+	context = build_templates_phase.BuildTemplatesContext(
+		well_out_dir=well_out_dir,
+		alternate_well_out_dirs=[],
+		templates_out_dir=templates_out_dir,
+		analyzer_cache_dir=analyzer_cache_dir,
+		payload_root=templates_out_dir / "cache/source_payloads",
+		payload_output_rel_root="cache/source_payloads",
+	)
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		phases=TemplatesPhasesConfig(
+			build_templates=TemplateBuildTemplatesPhaseConfig(
+				lazy_load_analyzers=True,
+				emit_unit_source_materialization_log=True,
+			),
+		),
+	)
+	jobs = [
+		build_templates_phase._CachedAnalyzerUnitMaterializationJob(
+			inputs=inputs,
+			context=context,
+			analyzer_well_out_dir=well_out_dir,
+			analyzer_cache_dir=analyzer_cache_dir,
+			source_names=("concat", "000_recA"),
+			unit_id=unit_id,
+		)
+		for unit_id in (94, 95)
+	]
+
+	with caplog.at_level(logging.INFO, logger="axon_recon.templates"):
+		results = build_templates_phase._run_cached_analyzer_unit_materialization_jobs_with_processes(
+			jobs=jobs,
+			worker_count=2,
+		)
+
+	assert max_workers_seen == [2]
+	assert submitted_jobs == [(94, "concat"), (95, "concat"), (94, "000_recA"), (95, "000_recA")]
+	assert [result.unit_id for result in results] == [94, 95]
+	assert all(result.source_names == ("concat", "000_recA") for result in results)
+	materialization_messages = [
+		record.getMessage()
+		for record in caplog.records
+		if "unit-source payload materialization" in record.getMessage()
+	]
+	assert len(materialization_messages) == 4
+	assert any(
+		"unit=94 source=concat status=materialized" in message
+		and "lazy_load_analyzers=True" in message
+		and "channel_count=1" in message
+		and "waveform_count=7" in message
+		for message in materialization_messages
+	)
+
+
 def test_run_reconstruct_templates_build_templates_phase_parallel_lazy_materialization_filters_labels(
 	tmp_path: Path,
 	monkeypatch,

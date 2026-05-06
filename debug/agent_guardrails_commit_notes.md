@@ -91,6 +91,70 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-06 - pending - ai: stream unit source materialization logs
+
+Status: accepted
+
+Summary:
+- Changed lazy cached-analyzer materialization process work from one future per unit to one future per unit/source payload while preserving the same max worker count.
+- Parent process now logs each unit/source payload materialization result as its future completes, instead of waiting for all sources for a unit to finish.
+- Aggregated unit/source results back into the existing per-unit materialization summaries and source payload summary structure.
+- Kept process submissions source-major across selected units so the pool fans out across units for each segment/source.
+
+Guardrails Consulted:
+- `debug/parallelism_agent_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+
+Acceptance Criteria:
+- Detailed unit/source payload logs appear during process-mode materialization, before the per-unit completion summaries.
+- The phase still caps materialization concurrency at the phase `n_jobs`/unit-worker count.
+- Summary payload counts and downstream build_templates unit execution remain unchanged in shape.
+- Focused tests cover the source-future process helper and existing lazy materialization behavior.
+- A process-mode real-data smoke succeeds and shows source-level logs before unit-level summaries.
+
+Expected To Run:
+- Focused Ruff import/syntax checks for touched Python files.
+- Focused tests for lazy materialization, source-future logging, and label-filtered parallel materialization.
+- Narrow real-data process-mode `reconstruct.build_templates` smoke with one dataset, one well, four limited units, and two segment sources.
+
+Confirmed Not Run:
+- Full repository test suite.
+- Container image rebuild.
+- Multi-well logging smoke.
+- Remote push.
+
+Validation:
+- Lint: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m ruff check --select I,F src/axon_recon/pipeline/stages/reconstruct/phases/build_templates.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py` passed.
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py::test_run_reconstruct_templates_build_templates_phase_lazy_loads_cached_analyzers_per_unit src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py::test_cached_analyzer_process_materialization_logs_each_unit_source_future src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py::test_run_reconstruct_templates_build_templates_phase_parallel_lazy_materialization_filters_labels -q` passed.
+- Diagnostics: VS Code diagnostics reported no errors for touched Python files.
+- Real-data smoke: `/home/adamm/miniconda3/envs/axon_recon/bin/axon-reconstructor stages reconstruct.build_templates --config debug/debug.runtime.yml --limit-datasets 1 --limit-wells 1 --limit-units 4 --limit-segments 2 --force-restart` passed with `targets_failed: 0`.
+- Smoke log inspected: `/tmp/axon_recon_unit_source_streaming_log_smoke.log` showed `lazy materialization start: requested_units=3 source_count=2 worker_count=3 executor=process`, unit/source materialization logs for units 1, 3, and 4 before the `lazy-materialized cached analyzer payloads` unit summaries, and downstream `build_templates unit execution start: requested_units=3 worker_count=3 executor=process`.
+
+CLI / Debug Flag Impact:
+- No CLI flag or runtime YAML changes.
+
+Logging / Parallelism Impact:
+- Per unit/source logs now stream from the parent process as each process-pool future completes.
+- The configured worker cap is unchanged; only the task granularity within the pool changed.
+- Detailed logs remain controlled by `build_templates.emit_unit_source_materialization_log`.
+
+Storage / Cache Impact:
+- No new output artifacts.
+- Source payload files are still written to the same `cache/source_payloads` paths.
+
+Container / NERSC / MPI Impact:
+- No Dockerfile, container wrapper, NERSC, or MPI changes.
+
+Resume / Force-Restart Impact:
+- Resume and force-restart semantics are unchanged.
+
+Residual Risk And Follow-Ups:
+- Unit/source task granularity may interleave source payload writes differently, but each task writes a unique unit/source payload directory.
+- Real smoke still emitted the existing SpikeInterface margin warnings; the phase completed successfully.
+
+Rollback Notes:
+- Revert the unit/source job split, source-future process helper aggregation, and focused process-helper test to restore per-unit process futures and delayed source logging.
+
 ## 2026-05-05 - pending - ai: add unit source materialization logs
 
 Status: accepted

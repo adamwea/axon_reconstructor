@@ -67,7 +67,18 @@ class _CachedAnalyzerUnitMaterializationResult:
 
 
 @dataclass(frozen=True)
+class _CachedAnalyzerUnitSourceMaterializationJob:
+    inputs: TemplatesInputs
+    context: BuildTemplatesContext
+    analyzer_well_out_dir: Path
+    analyzer_cache_dir: Path
+    source_name: str
+    unit_id: Any
+
+
+@dataclass(frozen=True)
 class _CachedAnalyzerUnitSourceMaterializationResult:
+    unit_id: Any
     source_name: str
     status: str
     duration_seconds: float
@@ -445,7 +456,6 @@ def _payload_waveform_count(payload: tuple[Any, ...]) -> int | None:
 def _log_unit_source_materialization_if_requested(
     *,
     inputs: TemplatesInputs,
-    unit_id: Any,
     result: _CachedAnalyzerUnitSourceMaterializationResult,
     lazy_load_analyzers: bool,
 ) -> None:
@@ -453,7 +463,7 @@ def _log_unit_source_materialization_if_requested(
         return
     LOGGER.info(
         "templates.build_templates unit-source payload materialization: unit=%s source=%s status=%s lazy_load_analyzers=%s duration_seconds=%.3f channel_count=%s waveform_count=%s",
-        str(unit_id),
+        str(result.unit_id),
         str(result.source_name),
         str(result.status),
         bool(lazy_load_analyzers),
@@ -463,61 +473,127 @@ def _log_unit_source_materialization_if_requested(
     )
 
 
+def _materialize_cached_analyzer_unit_source(
+    job: _CachedAnalyzerUnitSourceMaterializationJob,
+) -> _CachedAnalyzerUnitSourceMaterializationResult:
+    source_started = perf_counter()
+    source_match, analyzers = _load_requested_cached_source(
+        inputs=job.inputs,
+        analyzer_well_out_dir=job.analyzer_well_out_dir,
+        analyzer_cache_dir=job.analyzer_cache_dir,
+        requested_source_name=str(job.source_name),
+        lazy_load_analyzers=True,
+    )
+    source_name, analyzer = source_match
+    payload = build_unit_source_payload(
+        analyzer=analyzer,
+        unit_id=job.unit_id,
+        include_overlay_waveforms=False,
+        allow_prepare=False,
+        allow_waveforms_sparsity_fallback=False,
+    )
+    status = "skipped_empty_payload"
+    channel_count = None
+    waveform_count = None
+    if payload is not None:
+        channel_count = _payload_channel_count(payload)
+        waveform_count = _payload_waveform_count(payload)
+        _write_cached_analyzer_payload(
+            context=job.context,
+            source_name=str(source_name),
+            unit_id=job.unit_id,
+            payload=payload,
+        )
+        status = "materialized"
+        del payload
+    del analyzer
+    del analyzers
+    del source_match
+    gc.collect()
+    return _CachedAnalyzerUnitSourceMaterializationResult(
+        unit_id=job.unit_id,
+        source_name=str(source_name),
+        status=status,
+        duration_seconds=float(perf_counter() - source_started),
+        channel_count=channel_count,
+        waveform_count=waveform_count,
+    )
+
+
+def _cached_analyzer_source_jobs_for_unit(
+    job: _CachedAnalyzerUnitMaterializationJob,
+) -> list[_CachedAnalyzerUnitSourceMaterializationJob]:
+    return [
+        _CachedAnalyzerUnitSourceMaterializationJob(
+            inputs=job.inputs,
+            context=job.context,
+            analyzer_well_out_dir=job.analyzer_well_out_dir,
+            analyzer_cache_dir=job.analyzer_cache_dir,
+            source_name=str(source_name),
+            unit_id=job.unit_id,
+        )
+        for source_name in job.source_names
+    ]
+
+
+def _cached_analyzer_unit_result_from_source_results(
+    *,
+    unit_id: Any,
+    source_names: tuple[str, ...],
+    source_results: list[_CachedAnalyzerUnitSourceMaterializationResult],
+) -> _CachedAnalyzerUnitMaterializationResult:
+    results_by_source = {str(result.source_name): result for result in source_results}
+    ordered_results = [
+        results_by_source[str(source_name)]
+        for source_name in source_names
+        if str(source_name) in results_by_source
+    ]
+    return _CachedAnalyzerUnitMaterializationResult(
+        unit_id=unit_id,
+        source_names=tuple(
+            str(result.source_name) for result in ordered_results if result.status == "materialized"
+        ),
+        source_results=tuple(ordered_results),
+    )
+
+
 def _materialize_cached_analyzer_unit(
     job: _CachedAnalyzerUnitMaterializationJob,
 ) -> _CachedAnalyzerUnitMaterializationResult:
-    materialized_sources: list[str] = []
-    source_results: list[_CachedAnalyzerUnitSourceMaterializationResult] = []
-    for requested_source_name in job.source_names:
-        source_started = perf_counter()
-        source_match, analyzers = _load_requested_cached_source(
-            inputs=job.inputs,
-            analyzer_well_out_dir=job.analyzer_well_out_dir,
-            analyzer_cache_dir=job.analyzer_cache_dir,
-            requested_source_name=str(requested_source_name),
-            lazy_load_analyzers=True,
-        )
-        source_name, analyzer = source_match
-        payload = build_unit_source_payload(
-            analyzer=analyzer,
-            unit_id=job.unit_id,
-            include_overlay_waveforms=False,
-            allow_prepare=False,
-            allow_waveforms_sparsity_fallback=False,
-        )
-        status = "skipped_empty_payload"
-        channel_count = None
-        waveform_count = None
-        if payload is not None:
-            channel_count = _payload_channel_count(payload)
-            waveform_count = _payload_waveform_count(payload)
-            _write_cached_analyzer_payload(
-                context=job.context,
-                source_name=str(source_name),
-                unit_id=job.unit_id,
-                payload=payload,
-            )
-            materialized_sources.append(str(source_name))
-            status = "materialized"
-            del payload
-        source_results.append(
-            _CachedAnalyzerUnitSourceMaterializationResult(
-                source_name=str(source_name),
-                status=status,
-                duration_seconds=float(perf_counter() - source_started),
-                channel_count=channel_count,
-                waveform_count=waveform_count,
-            )
-        )
-        del analyzer
-        del analyzers
-        del source_match
-        gc.collect()
-    return _CachedAnalyzerUnitMaterializationResult(
+    source_results = [
+        _materialize_cached_analyzer_unit_source(source_job)
+        for source_job in _cached_analyzer_source_jobs_for_unit(job)
+    ]
+    return _cached_analyzer_unit_result_from_source_results(
         unit_id=job.unit_id,
-        source_names=tuple(materialized_sources),
-        source_results=tuple(source_results),
+        source_names=job.source_names,
+        source_results=source_results,
     )
+
+
+def _run_cached_analyzer_unit_materialization_jobs_serial(
+    *,
+    jobs: list[_CachedAnalyzerUnitMaterializationJob],
+) -> list[_CachedAnalyzerUnitMaterializationResult]:
+    results: list[_CachedAnalyzerUnitMaterializationResult] = []
+    for job in jobs:
+        source_results: list[_CachedAnalyzerUnitSourceMaterializationResult] = []
+        for source_job in _cached_analyzer_source_jobs_for_unit(job):
+            source_result = _materialize_cached_analyzer_unit_source(source_job)
+            source_results.append(source_result)
+            _log_unit_source_materialization_if_requested(
+                inputs=job.inputs,
+                result=source_result,
+                lazy_load_analyzers=True,
+            )
+        results.append(
+            _cached_analyzer_unit_result_from_source_results(
+                unit_id=job.unit_id,
+                source_names=job.source_names,
+                source_results=source_results,
+            )
+        )
+    return results
 
 
 def _run_cached_analyzer_unit_materialization_jobs_with_processes(
@@ -525,15 +601,44 @@ def _run_cached_analyzer_unit_materialization_jobs_with_processes(
     jobs: list[_CachedAnalyzerUnitMaterializationJob],
     worker_count: int,
 ) -> list[_CachedAnalyzerUnitMaterializationResult]:
-    results: list[_CachedAnalyzerUnitMaterializationResult] = []
+    if not jobs:
+        return []
+    source_jobs = [
+        _CachedAnalyzerUnitSourceMaterializationJob(
+            inputs=job.inputs,
+            context=job.context,
+            analyzer_well_out_dir=job.analyzer_well_out_dir,
+            analyzer_cache_dir=job.analyzer_cache_dir,
+            source_name=str(source_name),
+            unit_id=job.unit_id,
+        )
+        for source_name in jobs[0].source_names
+        for job in jobs
+    ]
+    source_results_by_unit: dict[str, list[_CachedAnalyzerUnitSourceMaterializationResult]] = {
+        str(job.unit_id): [] for job in jobs
+    }
     with concurrent.futures.ProcessPoolExecutor(
         max_workers=max(1, int(worker_count)),
         initializer=install_linux_parent_death_signal,
     ) as pool:
-        futures = {pool.submit(_materialize_cached_analyzer_unit, job): job.unit_id for job in jobs}
+        futures = {pool.submit(_materialize_cached_analyzer_unit_source, job): job for job in source_jobs}
         for future in concurrent.futures.as_completed(futures):
-            results.append(future.result())
-    return results
+            source_result = future.result()
+            source_results_by_unit.setdefault(str(source_result.unit_id), []).append(source_result)
+            _log_unit_source_materialization_if_requested(
+                inputs=jobs[0].inputs,
+                result=source_result,
+                lazy_load_analyzers=True,
+            )
+    return [
+        _cached_analyzer_unit_result_from_source_results(
+            unit_id=job.unit_id,
+            source_names=job.source_names,
+            source_results=source_results_by_unit.get(str(job.unit_id), []),
+        )
+        for job in jobs
+    ]
 
 
 def _materialize_cached_analyzers_by_unit(
@@ -599,20 +704,13 @@ def _materialize_cached_analyzers_by_unit(
                 exc,
             )
     if not results:
-        results = [_materialize_cached_analyzer_unit(job) for job in jobs]
+        results = _run_cached_analyzer_unit_materialization_jobs_serial(jobs=jobs)
     results_by_unit = {str(result.unit_id): result for result in results}
     for unit_id in list(unit_ids or []):
         result = results_by_unit.get(str(unit_id))
         if result is None:
             continue
         _record_materialization_result(streamed_sources_summary, result)
-        for source_result in result.source_results:
-            _log_unit_source_materialization_if_requested(
-                inputs=inputs,
-                unit_id=result.unit_id,
-                result=source_result,
-                lazy_load_analyzers=True,
-            )
         LOGGER.info(
             "templates.build_templates lazy-materialized cached analyzer payloads: unit=%s source_count=%d",
             str(result.unit_id),
@@ -658,8 +756,8 @@ def _materialize_cached_analyzers_by_source(
             if payload is None:
                 _log_unit_source_materialization_if_requested(
                     inputs=inputs,
-                    unit_id=unit_id,
                     result=_CachedAnalyzerUnitSourceMaterializationResult(
+                        unit_id=unit_id,
                         source_name=str(source_name),
                         status="skipped_empty_payload",
                         duration_seconds=float(perf_counter() - source_started),
@@ -680,8 +778,8 @@ def _materialize_cached_analyzers_by_source(
             materialized_units.append(unit_id)
             _log_unit_source_materialization_if_requested(
                 inputs=inputs,
-                unit_id=unit_id,
                 result=_CachedAnalyzerUnitSourceMaterializationResult(
+                    unit_id=unit_id,
                     source_name=str(source_name),
                     status="materialized",
                     duration_seconds=float(perf_counter() - source_started),
