@@ -325,6 +325,7 @@ class TemplatePlotTemplatesV2PhaseConfig:
 	write_png: bool = True
 	write_svg: bool = False
 	dpi: float = 220.0
+	force_soma_lowest_color_range: bool = False
 	figsize: tuple[float, float] = (8.0, 6.0)
 	figure_left: float = 0.08
 	figure_right: float = 0.88
@@ -339,6 +340,7 @@ class TemplatePlotTemplatesV2PhaseConfig:
 	marker_alpha: float = 0.92
 	marker_min_size: float = 8.0
 	marker_max_size: float = 50.0
+	marker_size_scaling: str = "linear"
 	size_by: str = "amplitude"
 	color_by: str = "latency"
 	cmap: str = "viridis"

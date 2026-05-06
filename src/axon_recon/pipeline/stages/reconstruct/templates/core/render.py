@@ -39,6 +39,7 @@ LOGGER = logging.getLogger("axon_recon.templates.render")
 
 
 FAST_RENDER_TEMPLATE_CIRCLES_MAX_DPI = 220.0
+TEMPLATE_PLOT_V2_SOMA_LOWEST_COLOR_RANGE_FRAC = 0.14
 
 
 def _as_template_channels_by_time(template: Any, n_channels: int) -> np.ndarray:
@@ -1571,8 +1572,22 @@ def _template_plot_v2_marker_sizes_pt2(
 	size_values: np.ndarray | None,
 	marker_min_size: float,
 	marker_max_size: float,
+	marker_size_scaling: str = "linear",
 	count: int,
 ) -> np.ndarray:
+	def _scaled_normalized_sizes(values: np.ndarray, scaling: str) -> np.ndarray:
+		clamped = np.clip(
+			np.nan_to_num(np.asarray(values, dtype=float), nan=0.0, posinf=0.0, neginf=0.0),
+			0.0,
+			1.0,
+		)
+		token = str(scaling or "linear").strip().lower().replace("-", "_").replace(" ", "_")
+		if token == "sqrt":
+			return np.sqrt(clamped)
+		if token == "log":
+			return np.log1p(9.0 * clamped) / np.log(10.0)
+		return clamped
+
 	min_diameter_pt = float(max(0.0, float(marker_min_size)))
 	max_diameter_pt = float(max(min_diameter_pt, float(marker_max_size)))
 	if size_values is None:
@@ -1588,6 +1603,7 @@ def _template_plot_v2_marker_sizes_pt2(
 			value_max = float(np.max(finite_values))
 			if value_max > value_min:
 				normalized = np.clip((raw_values - value_min) / float(value_max - value_min), 0.0, 1.0)
+				normalized = _scaled_normalized_sizes(normalized, marker_size_scaling)
 				diameters_pt = min_diameter_pt + ((max_diameter_pt - min_diameter_pt) * normalized)
 			else:
 				diameters_pt = np.full((int(count),), max_diameter_pt, dtype=float)
@@ -1668,6 +1684,113 @@ def _template_plot_v2_limits(
 		center = peak_xy if bool(config.center_on_peak) else None
 		xmin, xmax, ymin, ymax = _make_square_limits(xmin, xmax, ymin, ymax, center_xy=center)
 	return float(xmin), float(xmax), float(ymin), float(ymax)
+
+
+def _template_plot_v2_soma_lowest_color_buffer(
+	*,
+	latency_units_label: str,
+	probe_geometry: ProbeGeometryConfig | None,
+) -> float | None:
+	unit = str(latency_units_label or "").strip().lower()
+	if unit == "ms":
+		return 0.5
+	if unit == "s":
+		return 0.0005
+	if unit == "us":
+		return 500.0
+	if unit == "samples":
+		fs_hz = None if probe_geometry is None else getattr(probe_geometry, "sampling_rate_hz", None)
+		try:
+			fs_hz_float = None if fs_hz is None else float(fs_hz)
+		except Exception:
+			fs_hz_float = None
+		if fs_hz_float is None or fs_hz_float <= 0.0:
+			return None
+		return 0.0005 * fs_hz_float
+	return None
+
+
+def _template_plot_v2_color_norm(
+	*,
+	color_values: np.ndarray,
+	config: TemplatePlotTemplatesV2PhaseConfig,
+	peak_index: int,
+	latency_units_label: str,
+	probe_geometry: ProbeGeometryConfig | None,
+	plt: Any,
+) -> tuple[Any, float, float]:
+	finite_colors = np.asarray(color_values, dtype=float)
+	finite_colors = finite_colors[np.isfinite(finite_colors)]
+	if int(finite_colors.size) == 0:
+		finite_colors = np.asarray([0.0, 1.0], dtype=float)
+	vmin = float(np.min(finite_colors))
+	vmax = float(np.max(finite_colors))
+	if not np.isfinite(vmin):
+		vmin = 0.0
+	if not np.isfinite(vmax):
+		vmax = 1.0
+	if vmax <= vmin:
+		vmax = vmin + 1.0
+	use_soma_low_band = bool(
+		getattr(config, "force_soma_lowest_color_range", False)
+		and str(getattr(config, "color_by", "") or "").strip().lower() == "latency"
+		and 0 <= int(peak_index) < int(np.asarray(color_values).shape[0])
+	)
+	if use_soma_low_band:
+		try:
+			soma_value = float(np.asarray(color_values, dtype=float)[int(peak_index)])
+		except Exception:
+			soma_value = float("nan")
+		buffer = _template_plot_v2_soma_lowest_color_buffer(
+			latency_units_label=latency_units_label,
+			probe_geometry=probe_geometry,
+		)
+		transition_value = None
+		if buffer is not None and np.isfinite(soma_value):
+			transition_value = float(soma_value + float(buffer))
+		if (
+			transition_value is not None
+			and np.isfinite(transition_value)
+			and float(transition_value) > float(vmin)
+			and float(transition_value) < float(vmax)
+		):
+			low_band_frac = float(TEMPLATE_PLOT_V2_SOMA_LOWEST_COLOR_RANGE_FRAC)
+
+			def _forward(vals: Any) -> np.ndarray:
+				a = np.asarray(vals, dtype=float)
+				out = np.empty_like(a, dtype=float)
+				low = a <= float(transition_value)
+				low_t = (a[low] - float(vmin)) / float(float(transition_value) - float(vmin))
+				low_t = np.clip(low_t, 0.0, 1.0)
+				out[low] = low_t * low_band_frac
+
+				high_t = (a[~low] - float(transition_value)) / float(float(vmax) - float(transition_value))
+				high_t = np.clip(high_t, 0.0, 1.0)
+				out[~low] = low_band_frac + (high_t * (1.0 - low_band_frac))
+				return np.clip(out, 0.0, 1.0)
+
+			def _inverse(fracs: Any) -> np.ndarray:
+				u = np.asarray(fracs, dtype=float)
+				out = np.empty_like(u, dtype=float)
+				low = u <= low_band_frac
+				low_t = np.clip(u[low] / low_band_frac, 0.0, 1.0)
+				out[low] = float(vmin) + (low_t * float(float(transition_value) - float(vmin)))
+
+				high_t = np.clip((u[~low] - low_band_frac) / float(1.0 - low_band_frac), 0.0, 1.0)
+				out[~low] = float(transition_value) + (high_t * float(float(vmax) - float(transition_value)))
+				return np.clip(out, float(vmin), float(vmax))
+
+			return (
+				plt.matplotlib.colors.FuncNorm(
+					(lambda v: _forward(v), lambda u: _inverse(u)),
+					vmin=vmin,
+					vmax=vmax,
+					clip=True,
+				),
+				vmin,
+				vmax,
+			)
+	return plt.Normalize(vmin=vmin, vmax=vmax), vmin, vmax
 
 
 def _draw_template_plot_v2_scale_bar(ax: Any, config: TemplatePlotTemplatesV2PhaseConfig) -> None:
@@ -1770,6 +1893,7 @@ def render_template_circles_plot_v2(
 		size_values=size_values,
 		marker_min_size=float(config.marker_min_size),
 		marker_max_size=float(config.marker_max_size),
+		marker_size_scaling=str(getattr(config, "marker_size_scaling", "linear")),
 		count=int(locs.shape[0]),
 	)
 
@@ -1812,13 +1936,14 @@ def render_template_circles_plot_v2(
 		scatter = ax.scatter(locs[:, 0], locs[:, 1], color=str(config.marker_color), **scatter_kwargs)
 	else:
 		color_values = np.asarray(color_values, dtype=float)
-		finite_colors = color_values[np.isfinite(color_values)]
-		if int(finite_colors.size) == 0:
-			finite_colors = np.asarray([0.0, 1.0], dtype=float)
-		vmin = float(np.min(finite_colors))
-		vmax = float(np.max(finite_colors))
-		if vmax <= vmin:
-			vmax = vmin + 1.0
+		color_norm, vmin, vmax = _template_plot_v2_color_norm(
+			color_values=color_values,
+			config=config,
+			peak_index=peak_index,
+			latency_units_label=latency_units_label,
+			probe_geometry=resolved_probe_geometry,
+			plt=plt,
+		)
 		scatter = ax.scatter(
 			locs[:, 0],
 			locs[:, 1],
@@ -1827,8 +1952,7 @@ def render_template_circles_plot_v2(
 				str(config.cmap),
 				reverse=bool(getattr(config.colorbar, "reverse", False) or str(config.color_by or "").strip().lower() == "latency"),
 			),
-			vmin=vmin,
-			vmax=vmax,
+			norm=color_norm,
 			**scatter_kwargs,
 		)
 

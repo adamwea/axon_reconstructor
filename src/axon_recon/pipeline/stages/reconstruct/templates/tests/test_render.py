@@ -6,6 +6,7 @@ import re
 import numpy as np  # type: ignore[import-not-found]
 import matplotlib.pyplot as plt  # type: ignore[import-not-found]
 import matplotlib.collections  # type: ignore[import-not-found]
+import pytest
 
 import axon_recon.pipeline.stages.reconstruct.templates.core.render as render_mod
 from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_propagation_plot
@@ -23,6 +24,7 @@ from axon_recon.pipeline.stages.reconstruct.templates.core.render import _add_pr
 from axon_recon.pipeline.stages.reconstruct.templates.core.render import _compute_max_non_overlapping_circle_areas
 from axon_recon.pipeline.stages.reconstruct.templates.core.render import _convert_latency_samples_to_units
 from axon_recon.pipeline.stages.reconstruct.templates.core.render import _ticks_ending_in_0_or_5_with_max
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import _template_plot_v2_marker_sizes_pt2
 from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_template_circles_plot
 from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_template_circles_plot_v2
 from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_template_plot
@@ -1170,6 +1172,87 @@ def test_render_template_circles_plot_v2_maps_raw_metric_range_to_marker_size_ra
 	expected_diameters = np.asarray([8.0, 14.0, 20.0], dtype=float)
 	expected_areas = np.pi * np.square(expected_diameters * 0.5)
 	np.testing.assert_allclose(actual, expected_areas)
+
+
+@pytest.mark.parametrize(
+	("scaling", "expected_diameters"),
+	[
+		("linear", np.asarray([8.0, 14.0, 20.0], dtype=float)),
+		("sqrt", np.asarray([8.0, 8.0 + (12.0 * np.sqrt(0.5)), 20.0], dtype=float)),
+		(
+			"log",
+			np.asarray([8.0, 8.0 + (12.0 * (np.log1p(9.0 * 0.5) / np.log(10.0))), 20.0], dtype=float),
+		),
+	],
+)
+def test_template_plot_v2_marker_size_scaling_modes(scaling: str, expected_diameters: np.ndarray) -> None:
+	actual = _template_plot_v2_marker_sizes_pt2(
+		size_values=np.asarray([1.0, 3.0, 5.0], dtype=float),
+		marker_min_size=8.0,
+		marker_max_size=20.0,
+		marker_size_scaling=scaling,
+		count=3,
+	)
+	expected = np.pi * np.square(expected_diameters * 0.5)
+	np.testing.assert_allclose(actual, expected)
+
+
+def test_render_template_circles_plot_v2_force_soma_lowest_color_range_reserves_yellow_band(
+	tmp_path: Path,
+	monkeypatch,
+) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[0.0, -5.0, 0.0, 0.0],
+			[0.0, 0.0, -3.0, 0.0],
+			[0.0, 0.0, 0.0, -2.0],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[20.0, 0.0],
+			[40.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	seen_norms: list[object] = []
+	orig_scatter = matplotlib.axes.Axes.scatter
+
+	def _spy_scatter(self, *args, **kwargs):
+		norm = kwargs.get("norm", None)
+		if norm is not None and hasattr(norm, "vmin") and hasattr(norm, "vmax"):
+			seen_norms.append(norm)
+		return orig_scatter(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "scatter", _spy_scatter)
+
+	render_template_circles_plot_v2(
+		template=template,
+		locations_xy=locations,
+		config=TemplatePlotTemplatesV2PhaseConfig(
+			write_png=True,
+			write_svg=False,
+			size_by="amplitude",
+			color_by="latency",
+			color_bar_units="ms",
+			force_soma_lowest_color_range=True,
+			colorbar=TemplatePlotV2ColorbarConfig(show=False, reverse=True),
+		),
+		png_path=tmp_path / "v2_force_soma_low_band.png",
+		svg_path=tmp_path / "unused_v2_force_soma_low_band.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=2_000.0),
+	)
+
+	assert seen_norms
+	norm = seen_norms[-1]
+	assert np.isclose(float(norm(0.0)), 0.0, atol=1e-9)
+	assert float(norm(0.5)) <= 0.141
+	assert float(norm(1.0)) > 0.141
 
 
 def test_render_template_circles_plot_v2_uses_effective_sampling_rate_for_latency_and_restores_scale_circle(

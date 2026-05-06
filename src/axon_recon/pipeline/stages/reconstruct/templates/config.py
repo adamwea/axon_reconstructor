@@ -227,6 +227,17 @@ def _normalize_template_metric(raw: Any, default: str) -> str:
 	return str(default)
 
 
+def _normalize_marker_size_scaling(raw: Any, default: str = "linear") -> str:
+	v = str(raw or default).strip().lower().replace("-", "_").replace(" ", "_")
+	if v in {"linear", "lin"}:
+		return "linear"
+	if v in {"sqrt", "square_root", "root"}:
+		return "sqrt"
+	if v in {"log", "log10", "logarithmic"}:
+		return "log"
+	return str(default)
+
+
 def _normalize_horizontal_alignment(raw: Any, default: str = "left") -> str:
 	v = str(raw or default).strip().lower()
 	if v in {"left", "center", "right"}:
@@ -740,6 +751,7 @@ def _parse_plot_templates_v2_phase_config(
 		summary_json_relpath=str(cfg.get("summary_json_relpath", defaults.summary_json_relpath)),
 		resource_class=resource_class,
 		debug_prints=_as_bool(cfg.get("debug_prints", cfg.get("debug_plotting_prints", defaults.debug_prints)), defaults.debug_prints),
+		force_soma_lowest_color_range=_as_bool(cfg.get("force_soma_lowest_color_range", defaults.force_soma_lowest_color_range), defaults.force_soma_lowest_color_range),
 		output_relpath=str(
 			_config_first(
 				(output_cfg, cfg),
@@ -764,6 +776,7 @@ def _parse_plot_templates_v2_phase_config(
 		marker_alpha=_as_float(_config_first((render_cfg, display_cfg, cfg), "marker_alpha", defaults.marker_alpha), defaults.marker_alpha),
 		marker_min_size=_as_float(_config_first((render_cfg, display_cfg, cfg), "marker_min_size", defaults.marker_min_size), defaults.marker_min_size),
 		marker_max_size=_as_float(_config_first((render_cfg, display_cfg, cfg), "marker_max_size", defaults.marker_max_size), defaults.marker_max_size),
+		marker_size_scaling=_normalize_marker_size_scaling(_config_first((render_cfg, display_cfg, cfg), "marker_size_scaling", defaults.marker_size_scaling), defaults.marker_size_scaling),
 		size_by=str(_config_first((display_cfg, cfg), "size_by", defaults.size_by)),
 		color_by=str(_config_first((display_cfg, cfg), "color_by", defaults.color_by)),
 		cmap=str(_config_first((render_cfg, display_cfg, cfg), "cmap", defaults.cmap)),

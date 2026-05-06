@@ -2939,6 +2939,7 @@ def test_load_templates_config_parses_plot_templates_v2_phase_block(tmp_path: Pa
 			        enabled: true
 			        resource_class: plot_unit
 			        summary_json_relpath: context/v2_summary.json
+			        force_soma_lowest_color_range: true
 			        output:
 			          write_png: true
 			          write_svg: true
@@ -2971,6 +2972,7 @@ def test_load_templates_config_parses_plot_templates_v2_phase_block(tmp_path: Pa
 			        render:
 			          marker_min_size: 8
 			          marker_max_size: 12
+			          marker_size_scaling: log
 			          show_scale_circle: true
 			          scale_circle_color: cyan
 			          scale_circle:
@@ -2992,6 +2994,7 @@ def test_load_templates_config_parses_plot_templates_v2_phase_block(tmp_path: Pa
 	assert v2.enabled is True
 	assert v2.resource_class == "plot_unit"
 	assert v2.summary_json_relpath == "context/v2_summary.json"
+	assert v2.force_soma_lowest_color_range is True
 	assert v2.write_png is True
 	assert v2.write_svg is True
 	assert v2.dpi == 180
@@ -3015,6 +3018,7 @@ def test_load_templates_config_parses_plot_templates_v2_phase_block(tmp_path: Pa
 	assert v2.colorbar.width == 0.03
 	assert v2.marker_min_size == 8
 	assert v2.marker_max_size == 12
+	assert v2.marker_size_scaling == "log"
 	assert v2.show_scale_circle is True
 	assert v2.scale_circle_color == "cyan"
 	assert v2.scale_circle.digits_after_decimal == 1
