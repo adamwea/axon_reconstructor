@@ -1,24 +1,26 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import logging
 import os
-from pathlib import Path
+import re
+import shutil
+import subprocess
 import threading
 import time
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .resources import (
 	RESOURCE_CAPACITY_DIMENSIONS,
+	ResourcesConfig,
 	estimate_phase_resource_class_capacity,
 	get_active_resource_profile,
 	get_phase_resource_class_config,
 	get_phase_resource_demand_units,
 	get_profile_budget_units,
-	ResourcesConfig,
 )
-
 
 try:  # pragma: no cover - exercised in environments with psutil installed.
 	import psutil  # type: ignore[import-not-found]
@@ -28,6 +30,14 @@ except Exception:  # pragma: no cover - keep reporting best-effort.
 
 _NVML_INIT_LOCK = threading.Lock()
 _NVML_STATE: dict[str, Any] = {"module": None, "initialized": False, "unavailable": False}
+_PHASE_TUNE_LOCK = threading.Lock()
+_PHASE_TUNE_CONFIG: dict[str, Any] = {
+	"enabled": False,
+	"system_tools_enabled": True,
+	"system_tool_interval_s": 1.0,
+	"output_relpath": "resource_tuning",
+	"write_tool_logs": True,
+}
 _RESOURCE_UNDERUSE_OBSERVATIONS: dict[tuple[str, str, str, str], int] = {}
 _RESOURCE_DIMENSION_LABELS: dict[str, str] = {
 	"cpu_cores": "cpu_cores",
@@ -38,6 +48,36 @@ _RESOURCE_DIMENSION_LABELS: dict[str, str] = {
 	"plot_slots": "plot_slots",
 	"analyzer_slots": "analyzer_slots",
 }
+
+
+def configure_phase_tuning_monitoring(
+	*,
+	enabled: bool,
+	system_tools_enabled: bool = True,
+	system_tool_interval_s: float = 1.0,
+	output_relpath: str = "resource_tuning",
+	write_tool_logs: bool = True,
+) -> None:
+	with _PHASE_TUNE_LOCK:
+		_PHASE_TUNE_CONFIG.update(
+			{
+				"enabled": bool(enabled),
+				"system_tools_enabled": bool(system_tools_enabled),
+				"system_tool_interval_s": max(1.0, float(system_tool_interval_s or 1.0)),
+				"output_relpath": str(output_relpath or "resource_tuning"),
+				"write_tool_logs": bool(write_tool_logs),
+			}
+		)
+
+
+def phase_tuning_monitoring_enabled() -> bool:
+	with _PHASE_TUNE_LOCK:
+		return bool(_PHASE_TUNE_CONFIG.get("enabled", False))
+
+
+def _phase_tuning_monitoring_config() -> dict[str, Any]:
+	with _PHASE_TUNE_LOCK:
+		return dict(_PHASE_TUNE_CONFIG)
 
 
 def _to_gib(value: int | float | None) -> float | None:
@@ -171,9 +211,24 @@ class PhaseResourceUsage:
 	gpu_utilization_max_pct: float | None = None
 	disk_read_gb: float | None = None
 	disk_write_gb: float | None = None
+	phase_tune_tools: tuple[str, ...] = ()
+	phase_tune_log_dir: str | None = None
+	phase_tune_sample_count: int | None = None
+	phase_tune_avg_cpu_pct: float | None = None
+	phase_tune_peak_cpu_pct: float | None = None
+	phase_tune_peak_rss_gb: float | None = None
+	phase_tune_avg_read_gb_per_s: float | None = None
+	phase_tune_avg_write_gb_per_s: float | None = None
+	phase_tune_peak_read_gb_per_s: float | None = None
+	phase_tune_peak_write_gb_per_s: float | None = None
+	phase_tune_peak_device_read_mb_per_s: float | None = None
+	phase_tune_peak_device_write_mb_per_s: float | None = None
+	phase_tune_peak_device_await_ms: float | None = None
+	phase_tune_peak_device_util_pct: float | None = None
+	phase_tune_warnings: tuple[str, ...] = ()
 
 	def to_dict(self) -> dict[str, Any]:
-		return {
+		payload: dict[str, Any] = {
 			"wall_time_s": self.wall_time_s,
 			"process_peak_rss_gb": self.process_peak_rss_gb,
 			"child_peak_rss_gb": self.child_peak_rss_gb,
@@ -188,6 +243,234 @@ class PhaseResourceUsage:
 			"disk_read_gb": self.disk_read_gb,
 			"disk_write_gb": self.disk_write_gb,
 		}
+		phase_tune_fields = {
+			"phase_tune_tools": list(self.phase_tune_tools),
+			"phase_tune_log_dir": self.phase_tune_log_dir,
+			"phase_tune_sample_count": self.phase_tune_sample_count,
+			"phase_tune_avg_cpu_pct": self.phase_tune_avg_cpu_pct,
+			"phase_tune_peak_cpu_pct": self.phase_tune_peak_cpu_pct,
+			"phase_tune_peak_rss_gb": self.phase_tune_peak_rss_gb,
+			"phase_tune_avg_read_gb_per_s": self.phase_tune_avg_read_gb_per_s,
+			"phase_tune_avg_write_gb_per_s": self.phase_tune_avg_write_gb_per_s,
+			"phase_tune_peak_read_gb_per_s": self.phase_tune_peak_read_gb_per_s,
+			"phase_tune_peak_write_gb_per_s": self.phase_tune_peak_write_gb_per_s,
+			"phase_tune_peak_device_read_mb_per_s": self.phase_tune_peak_device_read_mb_per_s,
+			"phase_tune_peak_device_write_mb_per_s": self.phase_tune_peak_device_write_mb_per_s,
+			"phase_tune_peak_device_await_ms": self.phase_tune_peak_device_await_ms,
+			"phase_tune_peak_device_util_pct": self.phase_tune_peak_device_util_pct,
+			"phase_tune_warnings": list(self.phase_tune_warnings),
+		}
+		if any(value not in (None, [], ()) for value in phase_tune_fields.values()):
+			payload.update(phase_tune_fields)
+		return payload
+
+
+def _to_gib_from_kb(value: int | float | None) -> float | None:
+	if value is None:
+		return None
+	try:
+		return float(value) * 1024.0 / float(1024**3)
+	except Exception:
+		return None
+
+
+def _kb_per_s_to_gib_per_s(value: int | float | None) -> float | None:
+	if value is None:
+		return None
+	try:
+		return float(value) / float(1024**2)
+	except Exception:
+		return None
+
+
+def _safe_file_token(value: Any) -> str:
+	text = str(value or "unknown").strip() or "unknown"
+	return re.sub(r"[^A-Za-z0-9_.-]+", "_", text).strip("._") or "unknown"
+
+
+def _as_tool_float(value: Any) -> float | None:
+	if value is None:
+		return None
+	text = str(value).strip()
+	if not text or text == "-":
+		return None
+	try:
+		return float(text)
+	except Exception:
+		return None
+
+
+def _tool_rows_with_header(text: str, *, header_field: str) -> list[tuple[tuple[str, ...], dict[str, str]]]:
+	rows: list[tuple[tuple[str, ...], dict[str, str]]] = []
+	current_header: list[str] | None = None
+	for raw_line in str(text or "").splitlines():
+		line = raw_line.strip()
+		if not line or line.startswith("Linux ") or line.startswith("Average:"):
+			continue
+		parts = line.split()
+		if header_field in parts:
+			current_header = parts[parts.index(header_field) :]
+			continue
+		if current_header is None or len(parts) < len(current_header):
+			continue
+		values = parts[-len(current_header) :]
+		prefix = tuple(parts[: len(parts) - len(current_header)])
+		rows.append((prefix, dict(zip(current_header, values))))
+	return rows
+
+
+def parse_pidstat_phase_tune_output(text: str) -> dict[str, Any]:
+	cpu_by_sample: dict[tuple[str, ...], float] = {}
+	read_by_sample: dict[tuple[str, ...], float] = {}
+	write_by_sample: dict[tuple[str, ...], float] = {}
+	rss_by_sample: dict[tuple[str, ...], float] = {}
+	for sample_key, row in _tool_rows_with_header(text, header_field="UID"):
+		cpu_pct = _as_tool_float(row.get("%CPU"))
+		if cpu_pct is not None:
+			cpu_by_sample[sample_key] = float(cpu_by_sample.get(sample_key, 0.0)) + float(cpu_pct)
+		read_kb_per_s = _as_tool_float(row.get("kB_rd/s"))
+		if read_kb_per_s is not None:
+			read_by_sample[sample_key] = float(read_by_sample.get(sample_key, 0.0)) + float(read_kb_per_s)
+		write_kb_per_s = _as_tool_float(row.get("kB_wr/s"))
+		if write_kb_per_s is not None:
+			write_by_sample[sample_key] = float(write_by_sample.get(sample_key, 0.0)) + float(write_kb_per_s)
+		rss_kb = _as_tool_float(row.get("RSS"))
+		if rss_kb is not None:
+			rss_by_sample[sample_key] = float(rss_by_sample.get(sample_key, 0.0)) + float(rss_kb)
+
+	def _average(values: dict[tuple[str, ...], float]) -> float | None:
+		if not values:
+			return None
+		return float(sum(values.values())) / float(len(values))
+
+	peak_read_kb_per_s = max(read_by_sample.values(), default=None)
+	peak_write_kb_per_s = max(write_by_sample.values(), default=None)
+	avg_read_kb_per_s = _average(read_by_sample)
+	avg_write_kb_per_s = _average(write_by_sample)
+	return {
+		"sample_count": max(len(cpu_by_sample), len(read_by_sample), len(write_by_sample), len(rss_by_sample)),
+		"avg_cpu_pct": _average(cpu_by_sample),
+		"peak_cpu_pct": max(cpu_by_sample.values(), default=None),
+		"peak_rss_gb": _to_gib_from_kb(max(rss_by_sample.values(), default=None)),
+		"avg_read_gb_per_s": _kb_per_s_to_gib_per_s(avg_read_kb_per_s),
+		"avg_write_gb_per_s": _kb_per_s_to_gib_per_s(avg_write_kb_per_s),
+		"peak_read_gb_per_s": _kb_per_s_to_gib_per_s(peak_read_kb_per_s),
+		"peak_write_gb_per_s": _kb_per_s_to_gib_per_s(peak_write_kb_per_s),
+	}
+
+
+def parse_iostat_phase_tune_output(text: str) -> dict[str, Any]:
+	peak_read_mb_per_s: float | None = None
+	peak_write_mb_per_s: float | None = None
+	peak_await_ms: float | None = None
+	peak_util_pct: float | None = None
+	for _sample_key, row in _tool_rows_with_header(text, header_field="Device"):
+		read_mb_per_s = _as_tool_float(row.get("rMB/s"))
+		if read_mb_per_s is None:
+			read_kb_per_s = _as_tool_float(row.get("rkB/s"))
+			read_mb_per_s = None if read_kb_per_s is None else float(read_kb_per_s) / 1024.0
+		write_mb_per_s = _as_tool_float(row.get("wMB/s"))
+		if write_mb_per_s is None:
+			write_kb_per_s = _as_tool_float(row.get("wkB/s"))
+			write_mb_per_s = None if write_kb_per_s is None else float(write_kb_per_s) / 1024.0
+		await_candidates = [
+			_as_tool_float(row.get("await")),
+			_as_tool_float(row.get("r_await")),
+			_as_tool_float(row.get("w_await")),
+		]
+		await_ms = max((value for value in await_candidates if value is not None), default=None)
+		util_pct = _as_tool_float(row.get("%util"))
+		if read_mb_per_s is not None:
+			peak_read_mb_per_s = max(float(peak_read_mb_per_s or 0.0), float(read_mb_per_s))
+		if write_mb_per_s is not None:
+			peak_write_mb_per_s = max(float(peak_write_mb_per_s or 0.0), float(write_mb_per_s))
+		if await_ms is not None:
+			peak_await_ms = max(float(peak_await_ms or 0.0), float(await_ms))
+		if util_pct is not None:
+			peak_util_pct = max(float(peak_util_pct or 0.0), float(util_pct))
+	return {
+		"peak_device_read_mb_per_s": peak_read_mb_per_s,
+		"peak_device_write_mb_per_s": peak_write_mb_per_s,
+		"peak_device_await_ms": peak_await_ms,
+		"peak_device_util_pct": peak_util_pct,
+	}
+
+
+class _ExternalPhaseTuneMonitor:
+	def __init__(
+		self,
+		*,
+		tool_interval_s: float,
+		tool_log_dir: Path | None,
+		write_tool_logs: bool,
+	) -> None:
+		self.tool_interval_s = max(1, int(round(float(tool_interval_s or 1.0))))
+		self.tool_log_dir = tool_log_dir
+		self.write_tool_logs = bool(write_tool_logs)
+		self._processes: dict[str, subprocess.Popen[str]] = {}
+		self._warnings: list[str] = []
+		self._tools: list[str] = []
+
+	def _start_tool(self, tool_name: str, args: list[str]) -> None:
+		path = shutil.which(tool_name)
+		if path is None:
+			self._warnings.append(f"{tool_name} unavailable")
+			return
+		try:
+			self._processes[tool_name] = subprocess.Popen(
+				[path, *args],
+				stdout=subprocess.PIPE,
+				stderr=subprocess.STDOUT,
+				text=True,
+			)
+		except Exception as exc:
+			self._warnings.append(f"{tool_name} failed to start: {type(exc).__name__}: {exc}")
+			return
+		self._tools.append(tool_name)
+
+	def start(self) -> None:
+		interval = str(self.tool_interval_s)
+		self._start_tool("pidstat", ["-h", "-u", "-r", "-d", "-p", "ALL", interval])
+		self._start_tool("iostat", ["-x", "-d", "-m", "-y", interval])
+
+	def _stop_process(self, tool_name: str, proc: subprocess.Popen[str]) -> str:
+		if proc.poll() is None:
+			try:
+				proc.terminate()
+			except Exception:
+				pass
+		try:
+			stdout, _stderr = proc.communicate(timeout=3.0)
+		except subprocess.TimeoutExpired:
+			try:
+				proc.kill()
+			except Exception:
+				pass
+			stdout, _stderr = proc.communicate(timeout=3.0)
+		if self.write_tool_logs and self.tool_log_dir is not None:
+			try:
+				self.tool_log_dir.mkdir(parents=True, exist_ok=True)
+				(self.tool_log_dir / f"{tool_name}.txt").write_text(str(stdout or ""), encoding="utf-8")
+			except Exception as exc:
+				self._warnings.append(f"{tool_name} log write failed: {type(exc).__name__}: {exc}")
+		if proc.returncode not in (0, None, -15):
+			self._warnings.append(f"{tool_name} exited with code {proc.returncode}")
+		return str(stdout or "")
+
+	def stop(self) -> dict[str, Any]:
+		outputs = {
+			tool_name: self._stop_process(tool_name, proc)
+			for tool_name, proc in list(self._processes.items())
+		}
+		pidstat_metrics = parse_pidstat_phase_tune_output(outputs.get("pidstat", ""))
+		iostat_metrics = parse_iostat_phase_tune_output(outputs.get("iostat", ""))
+		return {
+			"tools": tuple(self._tools),
+			"log_dir": None if self.tool_log_dir is None else str(self.tool_log_dir),
+			"warnings": tuple(self._warnings),
+			**pidstat_metrics,
+			**iostat_metrics,
+		}
 
 
 class PhaseResourceMonitor:
@@ -199,6 +482,10 @@ class PhaseResourceMonitor:
 		include_gpu: bool = True,
 		include_disk_io: bool = False,
 		pipeline_thread_count: int | None = None,
+		include_phase_tune_tools: bool = False,
+		phase_tune_tool_interval_s: float = 1.0,
+		phase_tune_tool_log_dir: Path | None = None,
+		phase_tune_write_tool_logs: bool = True,
 	) -> None:
 		self.include_children = bool(include_children)
 		self.sample_interval_s = max(0.05, float(sample_interval_s))
@@ -227,6 +514,15 @@ class PhaseResourceMonitor:
 		self._lock = threading.RLock()
 		self._stop_event = threading.Event()
 		self._thread: threading.Thread | None = None
+		self._phase_tune_external_monitor = (
+			_ExternalPhaseTuneMonitor(
+				tool_interval_s=phase_tune_tool_interval_s,
+				tool_log_dir=phase_tune_tool_log_dir,
+				write_tool_logs=phase_tune_write_tool_logs,
+			)
+			if bool(include_phase_tune_tools)
+			else None
+		)
 
 	def _capture_sample(self, *, initial: bool = False) -> None:
 		if self._process is None:
@@ -322,6 +618,8 @@ class PhaseResourceMonitor:
 
 	def start(self) -> None:
 		self._start_perf = time.perf_counter()
+		if self._phase_tune_external_monitor is not None:
+			self._phase_tune_external_monitor.start()
 		self._capture_sample(initial=True)
 		self._thread = threading.Thread(target=self._run_sampler, name="phase-resource-monitor", daemon=True)
 		self._thread.start()
@@ -335,6 +633,9 @@ class PhaseResourceMonitor:
 		if self._thread is not None:
 			self._thread.join(timeout=max(0.1, self.sample_interval_s * 4.0))
 		self._capture_sample(initial=False)
+		phase_tune_metrics = (
+			{} if self._phase_tune_external_monitor is None else self._phase_tune_external_monitor.stop()
+		)
 
 		wall_time_s = max(0.0, float(time.perf_counter() - self._start_perf))
 		cpu_user_s: float | None = None
@@ -385,6 +686,29 @@ class PhaseResourceMonitor:
 			),
 			disk_read_gb=_coerce_nonnegative(disk_read_gb),
 			disk_write_gb=_coerce_nonnegative(disk_write_gb),
+			phase_tune_tools=tuple(phase_tune_metrics.get("tools", ()) or ()),
+			phase_tune_log_dir=phase_tune_metrics.get("log_dir", None),
+			phase_tune_sample_count=_coerce_nonnegative_int(phase_tune_metrics.get("sample_count", None)),
+			phase_tune_avg_cpu_pct=_coerce_nonnegative(phase_tune_metrics.get("avg_cpu_pct", None)),
+			phase_tune_peak_cpu_pct=_coerce_nonnegative(phase_tune_metrics.get("peak_cpu_pct", None)),
+			phase_tune_peak_rss_gb=_coerce_nonnegative(phase_tune_metrics.get("peak_rss_gb", None)),
+			phase_tune_avg_read_gb_per_s=_coerce_nonnegative(phase_tune_metrics.get("avg_read_gb_per_s", None)),
+			phase_tune_avg_write_gb_per_s=_coerce_nonnegative(phase_tune_metrics.get("avg_write_gb_per_s", None)),
+			phase_tune_peak_read_gb_per_s=_coerce_nonnegative(phase_tune_metrics.get("peak_read_gb_per_s", None)),
+			phase_tune_peak_write_gb_per_s=_coerce_nonnegative(phase_tune_metrics.get("peak_write_gb_per_s", None)),
+			phase_tune_peak_device_read_mb_per_s=_coerce_nonnegative(
+				phase_tune_metrics.get("peak_device_read_mb_per_s", None)
+			),
+			phase_tune_peak_device_write_mb_per_s=_coerce_nonnegative(
+				phase_tune_metrics.get("peak_device_write_mb_per_s", None)
+			),
+			phase_tune_peak_device_await_ms=_coerce_nonnegative(
+				phase_tune_metrics.get("peak_device_await_ms", None)
+			),
+			phase_tune_peak_device_util_pct=_coerce_nonnegative(
+				phase_tune_metrics.get("peak_device_util_pct", None)
+			),
+			phase_tune_warnings=tuple(str(item) for item in (phase_tune_metrics.get("warnings", ()) or ())),
 		)
 
 
@@ -392,15 +716,39 @@ def start_phase_resource_monitor(
 	resource_usage_config: Any | None,
 	*,
 	pipeline_thread_count: int | None = None,
+	run_root: str | Path | None = None,
+	run_id: str | None = None,
+	stage_name: Any = None,
+	phase_name: Any = None,
+	target_label: str | None = None,
 ) -> PhaseResourceMonitor | None:
-	if resource_usage_config is None or not bool(getattr(resource_usage_config, "enabled", False)):
+	phase_tune_config = _phase_tuning_monitoring_config()
+	phase_tune_enabled = bool(phase_tune_config.get("enabled", False))
+	if not phase_tune_enabled and (
+		resource_usage_config is None or not bool(getattr(resource_usage_config, "enabled", False))
+	):
 		return None
+	tool_log_dir = None
+	if phase_tune_enabled and bool(phase_tune_config.get("write_tool_logs", True)) and run_root is not None:
+		tool_log_dir = (
+			Path(run_root)
+			/ str(phase_tune_config.get("output_relpath", "resource_tuning") or "resource_tuning")
+			/ "raw"
+			/ _safe_file_token(run_id or os.getpid())
+			/ _safe_file_token(stage_name)
+			/ _safe_file_token(phase_name)
+			/ f"{time.time_ns()}_{_safe_file_token(target_label)}_{os.getpid()}"
+		)
 	monitor = PhaseResourceMonitor(
 		include_children=bool(getattr(resource_usage_config, "include_children", True)),
 		sample_interval_s=float(getattr(resource_usage_config, "sample_interval_s", 0.5) or 0.5),
 		include_gpu=bool(getattr(resource_usage_config, "include_gpu", True)),
-		include_disk_io=bool(getattr(resource_usage_config, "include_disk_io", False)),
+		include_disk_io=phase_tune_enabled or bool(getattr(resource_usage_config, "include_disk_io", False)),
 		pipeline_thread_count=pipeline_thread_count,
+		include_phase_tune_tools=phase_tune_enabled and bool(phase_tune_config.get("system_tools_enabled", True)),
+		phase_tune_tool_interval_s=float(phase_tune_config.get("system_tool_interval_s", 1.0) or 1.0),
+		phase_tune_tool_log_dir=tool_log_dir,
+		phase_tune_write_tool_logs=bool(phase_tune_config.get("write_tool_logs", True)),
 	)
 	monitor.start()
 	return monitor

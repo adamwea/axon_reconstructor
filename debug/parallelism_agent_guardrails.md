@@ -96,8 +96,9 @@ Required calibration behavior:
 
 - Can run a whole stage with limits.
 - Can run a single phase when upstream artifacts already exist.
+- Runs external system-tool samplers only when `--phase-tune` is explicitly requested; normal stage/phase runs must not start those tools implicitly.
 - Refuses full-scope calibration unless explicitly confirmed.
-- Records stage, phase, resource class, dataset, recording, well, source H5 path, applied limits, wall time, memory, child process usage, raw thread observations, pipeline thread counts, disk I/O, GPU metrics when available, status, and exception type when failed.
+- Records stage, phase, resource class, dataset, recording, well, source H5 path, applied limits, wall time, memory, child process usage, raw thread observations, pipeline thread counts, disk I/O, GPU metrics when available, `pidstat`/`iostat` phase-tune metrics when available, status, and exception type when failed.
 - Writes machine-readable observations and a human-readable recommendation report.
 - Reports recommendations as advisory, not automatic enforcement.
 - Includes inner parallelism settings in the report so recommendations are not treated as universal.

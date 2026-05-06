@@ -20,6 +20,7 @@ htmlcov/
 # Tooling
 .ruff_cache/
 .mypy_cache/
+memray_*.bin
 
 # OS / editor
 .DS_Store

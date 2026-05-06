@@ -4,6 +4,7 @@ FROM spikeinterface/kilosort4-base:4.0.38_cuda-12.0.0
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG AXON_RECON_INSTALL_EXTRAS=""
+ARG AXON_RECON_OBSERVABILITY_APT_PACKAGES="time sysstat procps"
 ARG AXON_RECON_RUNTIME_SPEC="numpy<2.0 h5py<4 tqdm<5 requests<3 psutil matplotlib<4 pandas<3.0 openpyxl scipy<2.0 pyyaml docker pypdf scikit-learn<2.0 nvidia-ml-py"
 ARG AXON_VELOCITY_SPEC="axon_velocity==0.1.2"
 ARG SPIKEINTERFACE_SPEC="spikeinterface==0.103.2"
@@ -34,6 +35,9 @@ WORKDIR /opt/axon_reconstructor
 COPY containers/axon-recon/install_maxwell_hdf5_plugin.py /opt/axon_reconstructor/containers/axon-recon/install_maxwell_hdf5_plugin.py
 
 RUN rm -rf /tmp/axon-recon-cache \
+  && apt-get update \
+  && if [[ -n "${AXON_RECON_OBSERVABILITY_APT_PACKAGES}" ]]; then DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${AXON_RECON_OBSERVABILITY_APT_PACKAGES}; fi \
+  && rm -rf /var/lib/apt/lists/* \
   && python containers/axon-recon/install_maxwell_hdf5_plugin.py --url "${MAXWELL_HDF5_PLUGIN_URL}" --plugin-dir "${MAXWELL_HDF5_PLUGIN_DIR}" \
   && python -m pip install --upgrade pip setuptools wheel \
   && if [[ -n "${AXON_RECON_RUNTIME_SPEC}" ]]; then python -m pip install ${AXON_RECON_RUNTIME_SPEC}; fi \

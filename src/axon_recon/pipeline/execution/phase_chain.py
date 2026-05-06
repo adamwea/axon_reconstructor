@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-from contextlib import nullcontext
-from dataclasses import dataclass, field
 import logging
 import time
+from contextlib import nullcontext
+from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence
 
-from .logging_context import current_log_context, pipeline_log_context
 from ..resource_budget import current_stage_resource_budget_manager
 from ..resource_usage import (
-	format_phase_message,
+    format_phase_message,
     format_phase_resource_usage_message,
     log_phase_resource_observation_warnings,
     log_phase_resource_plan_warnings,
     start_phase_resource_monitor,
     update_phase_summary_metadata,
 )
+from .logging_context import current_log_context, pipeline_log_context
 
 
 @dataclass(frozen=True)
@@ -121,6 +121,11 @@ def run_phase_chain(
                 resource_monitor = start_phase_resource_monitor(
                     resource_usage_config,
                     pipeline_thread_count=phase.pipeline_thread_count,
+                    run_root=(None if logging_config is None else logging_config.run_root),
+                    run_id=(None if logging_config is None else logging_config.run_id),
+                    stage_name=stage_name,
+                    phase_name=phase.name,
+                    target_label=target_label,
                 )
                 if logger is not None and resource_budget_manager is not None:
                     logger.info(

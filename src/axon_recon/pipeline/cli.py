@@ -3,55 +3,114 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
 
 from .execution import install_process_lifecycle
-from .execution.logging_context import ensure_pipeline_target_in_format, install_pipeline_log_record_factory
-from .logging import configure_pipeline_logging, finalize_pipeline_logging, install_noisy_external_log_filters, log_context
-from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
-from .stages.preprocess.cli import _run_concat_segments_from_args as _run_preprocess_concat_segments_from_args
-from .stages.preprocess.cli import _run_copy_src_to_scratch_from_args as _run_preprocess_copy_src_to_scratch_from_args
-from .stages.preprocess.cli import _run_from_args as _run_preprocess_from_args
-from .stages.preprocess.cli import _run_plot_concat_channel_layout_from_args as _run_preprocess_plot_concat_channel_layout_from_args
-from .stages.preprocess.cli import _run_prepare_raw_binaries_from_args as _run_preprocess_prepare_raw_binaries_from_args
-from .stages.preprocess.cli import _run_plot_concat_traces_from_args as _run_preprocess_plot_concat_traces_from_args
-from .stages.preprocess.cli import _run_plot_raster_threshold_from_args as _run_preprocess_plot_raster_threshold_from_args
-from .stages.preprocess.cli import _run_plot_segment_channel_layouts_from_args as _run_preprocess_plot_segment_channel_layouts_from_args
-from .stages.preprocess.cli import _run_plot_segment_traces_from_args as _run_preprocess_plot_segment_traces_from_args
-from .stages.preprocess.cli import _run_preprocess_segments_from_args as _run_preprocess_preprocess_segments_from_args
-from .stages.preprocess.cli import _run_save_rec_metadata_from_args as _run_preprocess_save_rec_metadata_from_args
-from .stages.preprocess.cli import _run_wipe_src_scratch_from_args as _run_preprocess_wipe_src_scratch_from_args
-from .stages.reconstruct.cli import _run_from_args as _run_reconstruct_from_args
-from .stages.reconstruct.cli import _run_clear_templates_cache_from_args as _run_reconstruct_clear_templates_cache_from_args
-from .stages.reconstruct.cli import _run_generate_gtrs_from_args as _run_reconstruct_generate_gtrs_from_args
-from .stages.reconstruct.cli import _run_plot_branch_propagations_from_args as _run_reconstruct_plot_branch_propagations_from_args
-from .stages.reconstruct.cli import _run_plot_branch_velocities_from_args as _run_reconstruct_plot_branch_velocities_from_args
-from .stages.reconstruct.cli import _run_plot_unit_summary_from_args as _run_reconstruct_plot_unit_summary_from_args
-from .stages.reconstruct.cli import _run_plot_recons_from_args as _run_reconstruct_plot_recons_from_args
-from .stages.reconstruct.cli import _run_report_full_chip_layout_from_args as _run_reconstruct_report_full_chip_layout_from_args
-from .stages.reconstruct.cli import _run_report_recon_grid_from_args as _run_reconstruct_report_recon_grid_from_args
-from .stages.reconstruct.cli import _run_report_recons_from_args as _run_reconstruct_report_recons_from_args
-from .stages.reconstruct.cli import _run_report_summaries_from_args as _run_reconstruct_report_summaries_from_args
-from .stages.reconstruct.cli import _run_reconstruct_analyzers_from_args
-from .stages.reconstruct.cli import _run_reconstruct_build_templates_from_args
-from .stages.reconstruct.cli import (
-	_run_reconstruct_compute_template_similarity_from_args,
+from .execution.logging_context import (
+	ensure_pipeline_target_in_format,
+	install_pipeline_log_record_factory,
 )
-from .stages.reconstruct.cli import _run_reconstruct_plot_templates_from_args
-from .stages.reconstruct.cli import _run_reconstruct_report_templates_from_args
-from .stages.reconstruct.cli import _run_reconstruct_reports_from_args
-from .stages.reconstruct.cli import _run_reconstruct_resolve_sources_from_args
-from .stages.spikesort.cli import _run_from_args as _run_spikesort_from_args
+from .logging import (
+	configure_pipeline_logging,
+	finalize_pipeline_logging,
+	install_noisy_external_log_filters,
+	log_context,
+)
+from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
+from .stages.preprocess.cli import (
+	_run_concat_segments_from_args as _run_preprocess_concat_segments_from_args,
+)
+from .stages.preprocess.cli import (
+	_run_copy_src_to_scratch_from_args as _run_preprocess_copy_src_to_scratch_from_args,
+)
+from .stages.preprocess.cli import _run_from_args as _run_preprocess_from_args
+from .stages.preprocess.cli import (
+	_run_plot_concat_channel_layout_from_args as _run_preprocess_plot_concat_channel_layout_from_args,
+)
+from .stages.preprocess.cli import (
+	_run_plot_concat_traces_from_args as _run_preprocess_plot_concat_traces_from_args,
+)
+from .stages.preprocess.cli import (
+	_run_plot_raster_threshold_from_args as _run_preprocess_plot_raster_threshold_from_args,
+)
+from .stages.preprocess.cli import (
+	_run_plot_segment_channel_layouts_from_args as _run_preprocess_plot_segment_channel_layouts_from_args,
+)
+from .stages.preprocess.cli import (
+	_run_plot_segment_traces_from_args as _run_preprocess_plot_segment_traces_from_args,
+)
+from .stages.preprocess.cli import (
+	_run_prepare_raw_binaries_from_args as _run_preprocess_prepare_raw_binaries_from_args,
+)
+from .stages.preprocess.cli import (
+	_run_preprocess_segments_from_args as _run_preprocess_preprocess_segments_from_args,
+)
+from .stages.preprocess.cli import (
+	_run_save_rec_metadata_from_args as _run_preprocess_save_rec_metadata_from_args,
+)
+from .stages.preprocess.cli import (
+	_run_wipe_src_scratch_from_args as _run_preprocess_wipe_src_scratch_from_args,
+)
+from .stages.reconstruct.cli import (
+	_run_clear_templates_cache_from_args as _run_reconstruct_clear_templates_cache_from_args,
+)
+from .stages.reconstruct.cli import _run_from_args as _run_reconstruct_from_args
+from .stages.reconstruct.cli import (
+	_run_generate_gtrs_from_args as _run_reconstruct_generate_gtrs_from_args,
+)
+from .stages.reconstruct.cli import (
+	_run_plot_branch_propagations_from_args as _run_reconstruct_plot_branch_propagations_from_args,
+)
+from .stages.reconstruct.cli import (
+	_run_plot_branch_velocities_from_args as _run_reconstruct_plot_branch_velocities_from_args,
+)
+from .stages.reconstruct.cli import (
+	_run_plot_recons_from_args as _run_reconstruct_plot_recons_from_args,
+)
+from .stages.reconstruct.cli import (
+	_run_plot_unit_summary_from_args as _run_reconstruct_plot_unit_summary_from_args,
+)
+from .stages.reconstruct.cli import (
+	_run_reconstruct_analyzers_from_args,
+	_run_reconstruct_build_templates_from_args,
+	_run_reconstruct_compute_template_similarity_from_args,
+	_run_reconstruct_plot_templates_from_args,
+	_run_reconstruct_report_templates_from_args,
+	_run_reconstruct_reports_from_args,
+	_run_reconstruct_resolve_sources_from_args,
+)
+from .stages.reconstruct.cli import (
+	_run_report_full_chip_layout_from_args as _run_reconstruct_report_full_chip_layout_from_args,
+)
+from .stages.reconstruct.cli import (
+	_run_report_recon_grid_from_args as _run_reconstruct_report_recon_grid_from_args,
+)
+from .stages.reconstruct.cli import (
+	_run_report_recons_from_args as _run_reconstruct_report_recons_from_args,
+)
+from .stages.reconstruct.cli import (
+	_run_report_summaries_from_args as _run_reconstruct_report_summaries_from_args,
+)
 from .stages.spikesort.cli import _run_bombcell_from_args as _run_spikesort_bombcell_from_args
-from .stages.spikesort.cli import _run_bootstrap_concat_binary_from_args as _run_spikesort_bootstrap_concat_binary_from_args
-from .stages.spikesort.cli import _run_cleanup_concat_binary_from_args as _run_spikesort_cleanup_concat_binary_from_args
+from .stages.spikesort.cli import (
+	_run_bootstrap_concat_binary_from_args as _run_spikesort_bootstrap_concat_binary_from_args,
+)
+from .stages.spikesort.cli import (
+	_run_cleanup_concat_binary_from_args as _run_spikesort_cleanup_concat_binary_from_args,
+)
+from .stages.spikesort.cli import _run_from_args as _run_spikesort_from_args
 from .stages.spikesort.cli import _run_merge_from_args as _run_spikesort_merge_from_args
-from .stages.spikesort.cli import _run_merge_si_auto_from_args as _run_spikesort_merge_si_auto_from_args
+from .stages.spikesort.cli import (
+	_run_merge_si_auto_from_args as _run_spikesort_merge_si_auto_from_args,
+)
 from .stages.spikesort.cli import _run_merge_slay_from_args as _run_spikesort_merge_slay_from_args
-from .stages.spikesort.cli import _run_merge_unitmatch_from_args as _run_spikesort_merge_unitmatch_from_args
-from .stages.spikesort.cli import _run_summarize_sort_from_args as _run_spikesort_summarize_sort_from_args
+from .stages.spikesort.cli import (
+	_run_merge_unitmatch_from_args as _run_spikesort_merge_unitmatch_from_args,
+)
+from .stages.spikesort.cli import (
+	_run_summarize_sort_from_args as _run_spikesort_summarize_sort_from_args,
+)
 from .stages.spikesort.orchestrators import _run_sort_from_args as _run_spikesort_sort_from_args
-
 
 StageHandler = Callable[[argparse.Namespace], int]
 
@@ -464,6 +523,30 @@ def _configure_runtime_logging_from_args(args: argparse.Namespace) -> None:
 	configure_pipeline_logging(config_path=Path(str(config_path)).expanduser().resolve() if config_path is not None else None)
 
 
+def _configure_phase_tuning_monitoring_from_args(args: argparse.Namespace) -> None:
+	from axon_recon.runtime_config import RuntimeConfig
+
+	from .phase_tuning import parse_phase_tuning_config
+	from .resource_usage import configure_phase_tuning_monitoring
+
+	if not bool(getattr(args, "phase_tune", False)):
+		configure_phase_tuning_monitoring(enabled=False)
+		return
+	config_path = getattr(args, "config", None)
+	if config_path is None:
+		configure_phase_tuning_monitoring(enabled=True)
+		return
+	runtime_config = RuntimeConfig.load(Path(str(config_path)).expanduser().resolve())
+	tuning_config = parse_phase_tuning_config(runtime_config)
+	configure_phase_tuning_monitoring(
+		enabled=True,
+		system_tools_enabled=bool(tuning_config.system_tools_enabled),
+		system_tool_interval_s=float(tuning_config.system_tool_interval_s),
+		output_relpath=str(tuning_config.output_relpath),
+		write_tool_logs=bool(tuning_config.write_tool_logs),
+	)
+
+
 def main(argv: list[str] | None = None) -> int:
 	parser = build_parser()
 	args = parser.parse_args(argv)
@@ -471,6 +554,7 @@ def main(argv: list[str] | None = None) -> int:
 	install_noisy_external_log_filters()
 	install_maxwell_hdf5_plugin_message_filter()
 	_configure_runtime_logging_from_args(args)
+	_configure_phase_tuning_monitoring_from_args(args)
 	handler = getattr(args, "handler", None)
 	if handler is None:
 		parser.print_help()
@@ -491,6 +575,12 @@ def main(argv: list[str] | None = None) -> int:
 		raise
 	finally:
 		finalize_pipeline_logging(status=status)
+		try:
+			from .resource_usage import configure_phase_tuning_monitoring
+
+			configure_phase_tuning_monitoring(enabled=False)
+		except Exception:
+			pass
 
 
 if __name__ == "__main__":

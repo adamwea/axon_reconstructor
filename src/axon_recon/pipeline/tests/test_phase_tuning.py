@@ -38,6 +38,14 @@ def test_collect_phase_resource_observations_filters_run_and_stage(tmp_path: Pat
                 "observed_process_max_threads": 8,
                 "disk_read_gb": 1.0,
                 "disk_write_gb": 0.5,
+                "phase_tune_tools": ["pidstat", "iostat"],
+                "phase_tune_sample_count": 3,
+                "phase_tune_avg_cpu_pct": 125.0,
+                "phase_tune_peak_cpu_pct": 225.0,
+                "phase_tune_peak_rss_gb": 2.5,
+                "phase_tune_peak_read_gb_per_s": 0.75,
+                "phase_tune_peak_write_gb_per_s": 0.25,
+                "phase_tune_peak_device_util_pct": 88.0,
             },
             "resource_gate": {
                 "wait_s": 1.25,
@@ -71,6 +79,9 @@ def test_collect_phase_resource_observations_filters_run_and_stage(tmp_path: Pat
     assert observations[0]["phase_read_h5_path"] == str(tmp_path / "scratch.h5")
     assert observations[0]["resource_gate_wait_s"] == 1.25
     assert observations[0]["resource_gate_slot_demands"] == {"h5_read_slots": 1}
+    assert observations[0]["phase_tune_tools"] == ["pidstat", "iostat"]
+    assert observations[0]["phase_tune_peak_cpu_pct"] == 225.0
+    assert observations[0]["phase_tune_peak_device_util_pct"] == 88.0
 
 
 def test_build_phase_tuning_summary_recommends_resource_class_updates() -> None:
@@ -101,6 +112,14 @@ def test_build_phase_tuning_summary_recommends_resource_class_updates() -> None:
             "disk_read_gb_per_s": 0.5,
             "disk_write_gb": 2.0,
             "disk_write_gb_per_s": 0.2,
+            "phase_tune_tools": ["pidstat", "iostat"],
+            "phase_tune_sample_count": 3,
+            "phase_tune_avg_cpu_pct": 125.0,
+            "phase_tune_peak_cpu_pct": 225.0,
+            "phase_tune_peak_rss_gb": 3.2,
+            "phase_tune_peak_read_gb_per_s": 0.75,
+            "phase_tune_peak_write_gb_per_s": 0.25,
+            "phase_tune_peak_device_util_pct": 88.0,
         }
     ]
 
@@ -119,7 +138,10 @@ def test_build_phase_tuning_summary_recommends_resource_class_updates() -> None:
     assert recommendation["recommended_class_cpu_cores"] > recommendation["current_class_cpu_cores"]
     assert recommendation["recommended_h5_read_slots"] == 1
     assert recommendation["recommended_disk_heavy_slots"] == 1
-    assert "runtime YAML was not modified" in format_phase_tuning_report(summary)
+    report = format_phase_tuning_report(summary)
+    assert "runtime YAML was not modified" in report
+    assert "phase_tune_tools: iostat, pidstat" in report
+    assert "max_phase_tune_peak_cpu_pct: 225.0" in report
 
 
 def test_build_phase_tuning_summary_keeps_cpu_when_current_class_covers_observed_basis() -> None:

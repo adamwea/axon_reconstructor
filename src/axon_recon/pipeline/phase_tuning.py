@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 import logging
 import math
 import os
-from pathlib import Path
 import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Iterable
 
 from axon_recon.runtime_config import RuntimeConfig
@@ -20,7 +20,6 @@ from .resources import (
 	get_phase_resource_class_config,
 	parse_resources_config,
 )
-
 
 LOGGER = logging.getLogger("axon_recon.pipeline.phase_tuning")
 
@@ -37,6 +36,9 @@ class PhaseTuningConfig:
 	disk_underuse_fraction: float = 0.50
 	disk_overuse_fraction: float = 0.90
 	disk_target_fraction: float = 0.75
+	system_tools_enabled: bool = True
+	system_tool_interval_s: float = 1.0
+	write_tool_logs: bool = True
 	require_limits_unless_confirmed: bool = True
 	write_recommendations: bool = True
 	update_runtime_yml: bool = False
@@ -104,6 +106,9 @@ def parse_phase_tuning_config(runtime_config: RuntimeConfig) -> PhaseTuningConfi
 		disk_underuse_fraction=disk_underuse_fraction,
 		disk_overuse_fraction=disk_overuse_fraction,
 		disk_target_fraction=disk_target_fraction,
+			system_tools_enabled=_as_bool(block.get("system_tools_enabled", True), True),
+			system_tool_interval_s=max(1.0, _as_float(block.get("system_tool_interval_s", 1.0), 1.0)),
+			write_tool_logs=_as_bool(block.get("write_tool_logs", True), True),
 		require_limits_unless_confirmed=_as_bool(block.get("require_limits_unless_confirmed", True), True),
 		write_recommendations=_as_bool(block.get("write_recommendations", True), True),
 		update_runtime_yml=_as_bool(block.get("update_runtime_yml", False), False),
@@ -232,6 +237,25 @@ def collect_phase_resource_observations_from_jsonl(
 				"disk_write_gb_per_s": write_gb_per_s,
 				"gpu_peak_memory_gb": _metric(usage.get("gpu_peak_memory_gb", None)),
 				"gpu_utilization_max_pct": _metric(usage.get("gpu_utilization_max_pct", None)),
+				"phase_tune_tools": list(usage.get("phase_tune_tools", []) or []),
+				"phase_tune_log_dir": usage.get("phase_tune_log_dir", None),
+				"phase_tune_sample_count": _int_metric(usage.get("phase_tune_sample_count", None)),
+				"phase_tune_avg_cpu_pct": _metric(usage.get("phase_tune_avg_cpu_pct", None)),
+				"phase_tune_peak_cpu_pct": _metric(usage.get("phase_tune_peak_cpu_pct", None)),
+				"phase_tune_peak_rss_gb": _metric(usage.get("phase_tune_peak_rss_gb", None)),
+				"phase_tune_avg_read_gb_per_s": _metric(usage.get("phase_tune_avg_read_gb_per_s", None)),
+				"phase_tune_avg_write_gb_per_s": _metric(usage.get("phase_tune_avg_write_gb_per_s", None)),
+				"phase_tune_peak_read_gb_per_s": _metric(usage.get("phase_tune_peak_read_gb_per_s", None)),
+				"phase_tune_peak_write_gb_per_s": _metric(usage.get("phase_tune_peak_write_gb_per_s", None)),
+				"phase_tune_peak_device_read_mb_per_s": _metric(
+					usage.get("phase_tune_peak_device_read_mb_per_s", None)
+				),
+				"phase_tune_peak_device_write_mb_per_s": _metric(
+					usage.get("phase_tune_peak_device_write_mb_per_s", None)
+				),
+				"phase_tune_peak_device_await_ms": _metric(usage.get("phase_tune_peak_device_await_ms", None)),
+				"phase_tune_peak_device_util_pct": _metric(usage.get("phase_tune_peak_device_util_pct", None)),
+				"phase_tune_warnings": list(usage.get("phase_tune_warnings", []) or []),
 				"resource_gate": resource_gate,
 				"resource_gate_wait_s": resource_gate_wait_s,
 				"resource_gate_waited": bool(resource_gate.get("waited", bool(resource_gate_wait_s > 0.0))),
@@ -695,6 +719,61 @@ def _recommend_for_group(
 	max_write_rate = max(_nonnull_float_values(item.get("disk_write_gb_per_s", None) for item in observations), default=None)
 	max_read_gb = max(_nonnull_float_values(item.get("disk_read_gb", None) for item in observations), default=None)
 	max_write_gb = max(_nonnull_float_values(item.get("disk_write_gb", None) for item in observations), default=None)
+	phase_tune_tools = sorted(
+		{
+			str(tool)
+			for item in observations
+			for tool in (item.get("phase_tune_tools", []) or [])
+			if str(tool).strip()
+		}
+	)
+	phase_tune_warnings = sorted(
+		{
+			str(warning)
+			for item in observations
+			for warning in (item.get("phase_tune_warnings", []) or [])
+			if str(warning).strip()
+		}
+	)
+	phase_tune_sample_count = sum(
+		int(value) for value in _nonnull_int_values(item.get("phase_tune_sample_count", None) for item in observations)
+	)
+	max_phase_tune_avg_cpu_pct = max(
+		_nonnull_float_values(item.get("phase_tune_avg_cpu_pct", None) for item in observations),
+		default=None,
+	)
+	max_phase_tune_peak_cpu_pct = max(
+		_nonnull_float_values(item.get("phase_tune_peak_cpu_pct", None) for item in observations),
+		default=None,
+	)
+	max_phase_tune_peak_rss_gb = max(
+		_nonnull_float_values(item.get("phase_tune_peak_rss_gb", None) for item in observations),
+		default=None,
+	)
+	max_phase_tune_peak_read_gb_per_s = max(
+		_nonnull_float_values(item.get("phase_tune_peak_read_gb_per_s", None) for item in observations),
+		default=None,
+	)
+	max_phase_tune_peak_write_gb_per_s = max(
+		_nonnull_float_values(item.get("phase_tune_peak_write_gb_per_s", None) for item in observations),
+		default=None,
+	)
+	max_phase_tune_device_read_mb_per_s = max(
+		_nonnull_float_values(item.get("phase_tune_peak_device_read_mb_per_s", None) for item in observations),
+		default=None,
+	)
+	max_phase_tune_device_write_mb_per_s = max(
+		_nonnull_float_values(item.get("phase_tune_peak_device_write_mb_per_s", None) for item in observations),
+		default=None,
+	)
+	max_phase_tune_device_await_ms = max(
+		_nonnull_float_values(item.get("phase_tune_peak_device_await_ms", None) for item in observations),
+		default=None,
+	)
+	max_phase_tune_device_util_pct = max(
+		_nonnull_float_values(item.get("phase_tune_peak_device_util_pct", None) for item in observations),
+		default=None,
+	)
 	recommended_h5_read_slots = current_h5_read_slots
 	recommended_disk_heavy_slots = current_disk_heavy_slots
 	if max_read_rate is not None and max_read_rate > 0.05 and current_h5_read_slots == 0:
@@ -722,6 +801,18 @@ def _recommend_for_group(
 		"max_disk_write_gb": max_write_gb,
 		"max_disk_read_gb_per_s": max_read_rate,
 		"max_disk_write_gb_per_s": max_write_rate,
+		"phase_tune_tools": phase_tune_tools,
+		"phase_tune_sample_count": phase_tune_sample_count,
+		"max_phase_tune_avg_cpu_pct": max_phase_tune_avg_cpu_pct,
+		"max_phase_tune_peak_cpu_pct": max_phase_tune_peak_cpu_pct,
+		"max_phase_tune_peak_rss_gb": max_phase_tune_peak_rss_gb,
+		"max_phase_tune_peak_read_gb_per_s": max_phase_tune_peak_read_gb_per_s,
+		"max_phase_tune_peak_write_gb_per_s": max_phase_tune_peak_write_gb_per_s,
+		"max_phase_tune_device_read_mb_per_s": max_phase_tune_device_read_mb_per_s,
+		"max_phase_tune_device_write_mb_per_s": max_phase_tune_device_write_mb_per_s,
+		"max_phase_tune_device_await_ms": max_phase_tune_device_await_ms,
+		"max_phase_tune_device_util_pct": max_phase_tune_device_util_pct,
+		"phase_tune_warnings": phase_tune_warnings,
 		"current_class_ram_gb": current_ram_gb,
 		"recommended_class_ram_gb": recommended_ram_gb,
 		"current_class_cpu_cores": current_cpu_cores,
@@ -1111,6 +1202,24 @@ def format_phase_tuning_report(summary: dict[str, Any]) -> str:
 				f"- max_disk_write_gb_per_s: {recommendation.get('max_disk_write_gb_per_s')}",
 			]
 		)
+		if recommendation.get("phase_tune_tools"):
+			lines.extend(
+				[
+					f"- phase_tune_tools: {', '.join(str(item) for item in recommendation.get('phase_tune_tools', []))}",
+					f"- phase_tune_sample_count: {recommendation.get('phase_tune_sample_count')}",
+					f"- max_phase_tune_avg_cpu_pct: {recommendation.get('max_phase_tune_avg_cpu_pct')}",
+					f"- max_phase_tune_peak_cpu_pct: {recommendation.get('max_phase_tune_peak_cpu_pct')}",
+					f"- max_phase_tune_peak_rss_gb: {recommendation.get('max_phase_tune_peak_rss_gb')}",
+					f"- max_phase_tune_peak_read_gb_per_s: {recommendation.get('max_phase_tune_peak_read_gb_per_s')}",
+					f"- max_phase_tune_peak_write_gb_per_s: {recommendation.get('max_phase_tune_peak_write_gb_per_s')}",
+					f"- max_phase_tune_device_read_mb_per_s: {recommendation.get('max_phase_tune_device_read_mb_per_s')}",
+					f"- max_phase_tune_device_write_mb_per_s: {recommendation.get('max_phase_tune_device_write_mb_per_s')}",
+					f"- max_phase_tune_device_await_ms: {recommendation.get('max_phase_tune_device_await_ms')}",
+					f"- max_phase_tune_device_util_pct: {recommendation.get('max_phase_tune_device_util_pct')}",
+				]
+			)
+		for warning in recommendation.get("phase_tune_warnings", []) or []:
+			lines.append(f"- phase_tune_warning: {warning}")
 		for warning in recommendation.get("warnings", []) or []:
 			lines.append(f"- warning: {warning}")
 		for note in recommendation.get("notes", []) or []:

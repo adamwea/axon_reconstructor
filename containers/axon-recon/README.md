@@ -42,6 +42,8 @@ Sibling package installs intentionally use package builds with `--no-deps` plus 
 
 The image downloads the MaxWell HDF5 compression plugin from the configured `MAXWELL_HDF5_PLUGIN_URL` build arg into `/usr/local/lib/plugin/libcompression.so` and sets `HDF5_PLUGIN_PATH=/usr/local/lib/plugin`. If the download URL stops returning a Linux shared object, the build fails with a message that the container needs an update; the entrypoint also fails early if the plugin is missing at runtime.
 
+The image also installs lightweight Linux accounting tools used by `--phase-tune`: `time`, `sysstat` (`pidstat`, `iostat`, `sar`), and `procps`. Normal stage runs do not start those samplers; the pipeline only launches them around phase windows when `--phase-tune` is explicitly requested.
+
 The Kilosort base image already includes conda at `/home/miniconda3`, and this image uses that single base environment. The live host `axon_recon` conda environment is not copied verbatim into the image because doing so would duplicate a large environment, may bake host-specific paths, and can disturb the Kilosort4 CUDA base stack. Instead, the image mirrors the repo `environment.yml` runtime intent plus container-only additions such as Kilosort4, UnitMatchPy, SLAy, and `mpi4py`; intentional version deviations are kept in the Dockerfile specs.
 
 Current DockerHub tags pushed from this branch:

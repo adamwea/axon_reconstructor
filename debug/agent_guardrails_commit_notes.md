@@ -91,6 +91,76 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-05 - pending - ai: add phase tune system telemetry
+
+Status: accepted
+
+Summary:
+- Kept `--phase-tune` as an explicit calibration mode and added opt-in per-phase system-tool sampling around phase windows.
+- Added `pidstat` and `iostat` sidecar collection to phase resource usage records, with raw tool logs under `resource_tuning/raw/...` and summarized CPU/RAM/process-IO/device-IO fields in the recommendation report.
+- Installed lightweight accounting tools (`time`, `sysstat`, `procps`) in the cached container runtime dependency layer.
+- Left normal stage/phase runs unchanged unless `--phase-tune` is explicitly requested.
+
+Guardrails Consulted:
+- `debug/parallelism_agent_guardrails.md`
+- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+
+Acceptance Criteria:
+- Individual phase runs with `--phase-tune` collect per-phase CPU, RAM, process disk IO, and device IO metrics from established tools when available.
+- Whole-stage runs with `--phase-tune` continue to emit one observation per phase window.
+- Missing system tools degrade to the existing Python monitor with warnings instead of failing the phase.
+- Runtime YAML remains advisory-only and is not rewritten.
+
+Expected To Run:
+- Focused phase-tuning/resource-usage tests.
+- Focused CLI and phase-chain resource usage tests.
+- Container image build and tool availability check.
+- Limited real-data/container `reconstruct.build_templates` phase-tune smoke.
+
+Confirmed Not Run:
+- Full repository test suite.
+- Multi-well phase-tune calibration.
+- Deep profilers such as Memray, Scalene, or perf as part of default `--phase-tune`.
+- Remote push.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_resource_usage.py src/axon_recon/pipeline/tests/test_phase_tuning.py src/axon_recon/pipeline/tests/test_pipeline_logging.py::test_phase_chain_logs_resource_class_and_writes_resource_usage src/axon_recon/pipeline/tests/test_cli_stage_sequence.py::test_phase_tune_runs_stage_then_emits_recommendations src/axon_recon/pipeline/tests/test_cli_stage_sequence.py::test_phase_tune_rejects_unlimited_scope_before_running_stage -q` passed.
+- Lint: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m ruff check --select I,F src/axon_recon/pipeline/resource_usage.py src/axon_recon/pipeline/phase_tuning.py src/axon_recon/pipeline/cli.py src/axon_recon/pipeline/execution/phase_chain.py src/axon_recon/pipeline/tests/test_resource_usage.py src/axon_recon/pipeline/tests/test_phase_tuning.py` passed.
+- Container build: `containers/axon-recon/build_local_image.sh --image axon-recon:local` succeeded.
+- Container tool check: rebuilt image contains `/usr/bin/time`, `pidstat`, `iostat`, `sar`, and `ps`.
+- Container monitor smoke: in-image `start_phase_resource_monitor(...)` produced `phase_tune_tools=['pidstat', 'iostat']` with one sample and no warnings.
+- Real-data smoke: `axon-recon-container --no-build stages reconstruct.build_templates --config debug/debug.runtime.yml --limit-datasets 1 --limit-wells 1 --phase-tune --limit-units 1` succeeded.
+- Logs inspected: phase resource usage included `phase_tune_avg_cpu_pct`, `phase_tune_peak_cpu_pct`, `phase_tune_peak_rss_gb`, process read/write rates, device read/write rates, await, util, and raw log directory.
+- Artifacts inspected: `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/resource_tuning/resource_tuning_report.md` included the new phase-tune metrics.
+
+CLI / Debug Flag Impact:
+- `--phase-tune` still uses the existing CLI surface.
+- `resources.tuning.system_tools_enabled`, `resources.tuning.system_tool_interval_s`, and `resources.tuning.write_tool_logs` can tune the system-tool sampler behavior.
+
+Logging / Parallelism Impact:
+- Per-phase resource records gain `phase_tune_*` fields only when tuning data is present.
+- Existing resource gating and worker allocation behavior is unchanged.
+
+Storage / Cache Impact:
+- Created raw phase-tune logs under `resource_tuning/raw/<run>/<stage>/<phase>/...` when `write_tool_logs` is true.
+- Added `memray_*.bin` to `.gitignore` for local profiling outputs.
+
+Container / NERSC / MPI Impact:
+- Local Docker image now installs `time`, `sysstat`, and `procps` before the source copy so the layer is cached across repo edits.
+- No MPI behavior changed.
+- Shifter/NERSC images need to be rebuilt/pushed before relying on in-image `pidstat`/`iostat` telemetry there.
+
+Resume / Force-Restart Impact:
+- None. Phase-tune measurement wraps whatever phase execution path is selected and does not change resume/force-restart semantics.
+
+Residual Risk And Follow-Ups:
+- Concurrent multi-well full-stage tuning can still make process-level attribution less precise because overlapping phase windows share the same Python parent process; individual phase calibration remains the intended high-confidence workflow.
+- `perf`, Memray, and Scalene remain separate deep-profiling tools, not default phase-tune dependencies.
+
+Rollback Notes:
+- Revert the resource usage sidecar monitor, CLI phase-tune monitor configuration, and Docker observability package layer to return to Python-only resource usage reporting.
+
 ## 2026-05-05 - pending - ai: route build templates through canonical orchestrator
 
 Status: accepted
