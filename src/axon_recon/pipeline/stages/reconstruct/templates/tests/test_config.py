@@ -2940,6 +2940,7 @@ def test_load_templates_config_parses_plot_templates_v2_phase_block(tmp_path: Pa
 			        resource_class: plot_unit
 			        summary_json_relpath: context/v2_summary.json
 			        force_soma_lowest_color_range: true
+			        force_soma_lowest_color_range_buffer_ms: 0.25
 			        output:
 			          write_png: true
 			          write_svg: true
@@ -2995,6 +2996,7 @@ def test_load_templates_config_parses_plot_templates_v2_phase_block(tmp_path: Pa
 	assert v2.resource_class == "plot_unit"
 	assert v2.summary_json_relpath == "context/v2_summary.json"
 	assert v2.force_soma_lowest_color_range is True
+	assert v2.force_soma_lowest_color_range_buffer_ms == 0.25
 	assert v2.write_png is True
 	assert v2.write_svg is True
 	assert v2.dpi == 180

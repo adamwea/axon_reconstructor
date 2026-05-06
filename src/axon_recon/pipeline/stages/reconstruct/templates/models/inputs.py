@@ -326,6 +326,7 @@ class TemplatePlotTemplatesV2PhaseConfig:
 	write_svg: bool = False
 	dpi: float = 220.0
 	force_soma_lowest_color_range: bool = False
+	force_soma_lowest_color_range_buffer_ms: float = 0.5
 	figsize: tuple[float, float] = (8.0, 6.0)
 	figure_left: float = 0.08
 	figure_right: float = 0.88

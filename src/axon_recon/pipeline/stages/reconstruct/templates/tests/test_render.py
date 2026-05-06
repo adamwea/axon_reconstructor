@@ -1241,6 +1241,7 @@ def test_render_template_circles_plot_v2_force_soma_lowest_color_range_reserves_
 			color_by="latency",
 			color_bar_units="ms",
 			force_soma_lowest_color_range=True,
+			force_soma_lowest_color_range_buffer_ms=0.5,
 			colorbar=TemplatePlotV2ColorbarConfig(show=False, reverse=True),
 		),
 		png_path=tmp_path / "v2_force_soma_low_band.png",
@@ -1253,6 +1254,64 @@ def test_render_template_circles_plot_v2_force_soma_lowest_color_range_reserves_
 	assert np.isclose(float(norm(0.0)), 0.0, atol=1e-9)
 	assert float(norm(0.5)) <= 0.141
 	assert float(norm(1.0)) > 0.141
+
+
+def test_render_template_circles_plot_v2_force_soma_lowest_color_range_uses_configurable_buffer(
+	tmp_path: Path,
+	monkeypatch,
+) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[0.0, -5.0, 0.0, 0.0],
+			[0.0, 0.0, -3.0, 0.0],
+			[0.0, 0.0, 0.0, -2.0],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[20.0, 0.0],
+			[40.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	seen_norms: list[object] = []
+	orig_scatter = matplotlib.axes.Axes.scatter
+
+	def _spy_scatter(self, *args, **kwargs):
+		norm = kwargs.get("norm", None)
+		if norm is not None and hasattr(norm, "vmin") and hasattr(norm, "vmax"):
+			seen_norms.append(norm)
+		return orig_scatter(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "scatter", _spy_scatter)
+
+	render_template_circles_plot_v2(
+		template=template,
+		locations_xy=locations,
+		config=TemplatePlotTemplatesV2PhaseConfig(
+			write_png=True,
+			write_svg=False,
+			size_by="amplitude",
+			color_by="latency",
+			color_bar_units="ms",
+			force_soma_lowest_color_range=True,
+			force_soma_lowest_color_range_buffer_ms=0.25,
+			colorbar=TemplatePlotV2ColorbarConfig(show=False, reverse=True),
+		),
+		png_path=tmp_path / "v2_force_soma_low_band_custom_buffer.png",
+		svg_path=tmp_path / "unused_v2_force_soma_low_band_custom_buffer.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=2_000.0),
+	)
+
+	assert seen_norms
+	norm = seen_norms[-1]
+	assert float(norm(0.25)) <= 0.141
+	assert float(norm(0.5)) > 0.141
 
 
 def test_render_template_circles_plot_v2_uses_effective_sampling_rate_for_latency_and_restores_scale_circle(

@@ -752,6 +752,7 @@ def _parse_plot_templates_v2_phase_config(
 		resource_class=resource_class,
 		debug_prints=_as_bool(cfg.get("debug_prints", cfg.get("debug_plotting_prints", defaults.debug_prints)), defaults.debug_prints),
 		force_soma_lowest_color_range=_as_bool(cfg.get("force_soma_lowest_color_range", defaults.force_soma_lowest_color_range), defaults.force_soma_lowest_color_range),
+		force_soma_lowest_color_range_buffer_ms=_as_float(cfg.get("force_soma_lowest_color_range_buffer_ms", defaults.force_soma_lowest_color_range_buffer_ms), defaults.force_soma_lowest_color_range_buffer_ms),
 		output_relpath=str(
 			_config_first(
 				(output_cfg, cfg),

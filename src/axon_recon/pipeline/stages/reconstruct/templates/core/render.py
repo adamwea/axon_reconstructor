@@ -1688,16 +1688,18 @@ def _template_plot_v2_limits(
 
 def _template_plot_v2_soma_lowest_color_buffer(
 	*,
+	buffer_ms: float,
 	latency_units_label: str,
 	probe_geometry: ProbeGeometryConfig | None,
 ) -> float | None:
+	buffer_ms_resolved = float(max(0.0, float(buffer_ms)))
 	unit = str(latency_units_label or "").strip().lower()
 	if unit == "ms":
-		return 0.5
+		return buffer_ms_resolved
 	if unit == "s":
-		return 0.0005
+		return buffer_ms_resolved / 1_000.0
 	if unit == "us":
-		return 500.0
+		return buffer_ms_resolved * 1_000.0
 	if unit == "samples":
 		fs_hz = None if probe_geometry is None else getattr(probe_geometry, "sampling_rate_hz", None)
 		try:
@@ -1706,7 +1708,7 @@ def _template_plot_v2_soma_lowest_color_buffer(
 			fs_hz_float = None
 		if fs_hz_float is None or fs_hz_float <= 0.0:
 			return None
-		return 0.0005 * fs_hz_float
+		return (buffer_ms_resolved / 1_000.0) * fs_hz_float
 	return None
 
 
@@ -1742,6 +1744,7 @@ def _template_plot_v2_color_norm(
 		except Exception:
 			soma_value = float("nan")
 		buffer = _template_plot_v2_soma_lowest_color_buffer(
+			buffer_ms=float(getattr(config, "force_soma_lowest_color_range_buffer_ms", 0.5)),
 			latency_units_label=latency_units_label,
 			probe_geometry=probe_geometry,
 		)
