@@ -1378,7 +1378,7 @@ stages:
             output:
               write_png: true
               write_svg: false
-              dpi: 420
+              dpi: 220
               relpath: template_circles
             display:
               channel_scope: contributing_channels
@@ -1424,8 +1424,7 @@ stages:
                 units: "µV" # label for scale circle units; can be empty string if no units desired.
 
             render:
-              #fast_render: true # speed-oriented render mode: clamp output DPI and skip expensive overlap/scale-circle passes.
-              fast_render: false # keep false by default for debugging iterations to ensure all rendering features are applied for thorough visual inspection, but can be set to true to speed up iterations when plot formatting is the main focus and some rendering features can be sacrificed.
+              fast_render: true # speed-oriented render mode: clamp output DPI and skip expensive overlap/scale-circle/layout passes.
               background: black
               signal_color: white
               scale_bar_color: white

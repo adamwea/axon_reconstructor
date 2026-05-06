@@ -1572,6 +1572,7 @@ def render_template_circles_plot(
 	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
 
 	config = _resolve_fast_render_template_circles_config(config)
+	fast_render = bool(getattr(config, "fast_render", False))
 
 	locs = np.asarray(locations_xy, dtype=float)
 	if locs.ndim != 2 or int(locs.shape[1]) < 2:
@@ -1744,21 +1745,32 @@ def render_template_circles_plot(
 		reference_value=scale_circle_ref_value,
 	)
 
-	# Build deterministic colorbar patch bounds in color-space. For piecewise zero-boundary
-	# mode this keeps zero exactly at the first/second color-range transition.
-	bounds = np.asarray(color_norm.inverse(np.linspace(0.0, 1.0, 257, dtype=float)), dtype=float)
-	boundary_norm = plt.matplotlib.colors.BoundaryNorm(boundaries=bounds, ncolors=plt.get_cmap(circles_cmap).N, clip=True)
-	cbar_mappable = plt.cm.ScalarMappable(norm=boundary_norm, cmap=plt.get_cmap(circles_cmap))
-	cbar_mappable.set_array(color_values)
-	cbar = fig.colorbar(
-		cbar_mappable,
-		ax=ax,
-		fraction=0.04,
-		pad=0.03,
-		extend="neither",
-		boundaries=bounds,
-		spacing="proportional",
-	)
+	if fast_render:
+		cbar_mappable = plt.cm.ScalarMappable(norm=color_norm, cmap=plt.get_cmap(circles_cmap))
+		cbar_mappable.set_array(color_values)
+		cbar = fig.colorbar(
+			cbar_mappable,
+			ax=ax,
+			fraction=0.04,
+			pad=0.03,
+			extend="neither",
+		)
+	else:
+		# Build deterministic colorbar patch bounds in color-space. For piecewise zero-boundary
+		# mode this keeps zero exactly at the first/second color-range transition.
+		bounds = np.asarray(color_norm.inverse(np.linspace(0.0, 1.0, 257, dtype=float)), dtype=float)
+		boundary_norm = plt.matplotlib.colors.BoundaryNorm(boundaries=bounds, ncolors=plt.get_cmap(circles_cmap).N, clip=True)
+		cbar_mappable = plt.cm.ScalarMappable(norm=boundary_norm, cmap=plt.get_cmap(circles_cmap))
+		cbar_mappable.set_array(color_values)
+		cbar = fig.colorbar(
+			cbar_mappable,
+			ax=ax,
+			fraction=0.04,
+			pad=0.03,
+			extend="neither",
+			boundaries=bounds,
+			spacing="proportional",
+		)
 
 	label_color = "white" if str(config.background or "").strip().lower() == "black" else "black"
 	show_axes_title = bool(config.color_bar_show_axes_title)
@@ -1983,11 +1995,12 @@ def render_template_circles_plot(
 			_expand_axes_limits(0.10)
 			_refresh_overlay_artists()
 
-	# Compute final non-overlapping sizes after colorbar/layout has finalized axis dimensions.
-	fig.canvas.draw()
-	_update_non_overlapping_sizes_for_current_axes()
-	if bool(getattr(config, "show_scale_circle", False)):
-		_refresh_overlay_artists()
+	if not fast_render:
+		# Compute final non-overlapping sizes after colorbar/layout has finalized axis dimensions.
+		fig.canvas.draw()
+		_update_non_overlapping_sizes_for_current_axes()
+		if bool(getattr(config, "show_scale_circle", False)):
+			_refresh_overlay_artists()
 
 	if bool(getattr(config, "show_propagation_order_labels", False)):
 		rank_map = dict(propagation_order_rank_by_channel or {})
@@ -2027,21 +2040,29 @@ def render_template_circles_plot(
 	outputs: dict[str, str] = {}
 	if bool(config.write_png):
 		png_path.parent.mkdir(parents=True, exist_ok=True)
+		savefig_kwargs: dict[str, Any] = {
+			"dpi": max(72.0, float(getattr(config, "dpi", 300.0))),
+			"facecolor": fig.get_facecolor(),
+		}
+		if not fast_render:
+			savefig_kwargs["bbox_inches"] = "tight"
 		fig.savefig(
 			png_path,
-			dpi=max(72.0, float(getattr(config, "dpi", 300.0))),
-			bbox_inches="tight",
-			facecolor=fig.get_facecolor(),
+			**savefig_kwargs,
 		)
 		outputs["template_circles_png"] = str(png_path)
 	if bool(config.write_svg):
 		svg_path.parent.mkdir(parents=True, exist_ok=True)
+		savefig_kwargs = {
+			"format": "svg",
+			"dpi": max(72.0, float(getattr(config, "dpi", 300.0))),
+			"facecolor": fig.get_facecolor(),
+		}
+		if not fast_render:
+			savefig_kwargs["bbox_inches"] = "tight"
 		fig.savefig(
 			svg_path,
-			format="svg",
-			dpi=max(72.0, float(getattr(config, "dpi", 300.0))),
-			bbox_inches="tight",
-			facecolor=fig.get_facecolor(),
+			**savefig_kwargs,
 		)
 		outputs["template_circles_svg"] = str(svg_path)
 

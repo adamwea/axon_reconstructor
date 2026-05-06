@@ -215,6 +215,8 @@ def test_load_config_reconstruct_populates_templates_inputs_from_debug_runtime()
 	inputs = load_reconstruction_inputs_from_runtime(config_path=str(repo_root / "debug" / "debug.runtime.yml"))
 	assert inputs.templates_inputs is not None
 	assert isinstance(inputs.templates_inputs, TemplatesInputs)
+	assert inputs.templates_inputs.per_unit_outputs.template_circles.fast_render is True
+	assert inputs.templates_inputs.per_unit_outputs.template_circles.dpi == 220.0
 	assert inputs.debug_prints is False
 	assert inputs.phase_sequence == (
 		"templates_analyzers",

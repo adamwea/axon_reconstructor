@@ -1001,6 +1001,8 @@ def test_render_template_circles_plot_fast_render_clamps_dpi_and_skips_scale_cir
 	import matplotlib.axes
 	import matplotlib.figure
 
+	import axon_recon.pipeline.stages.reconstruct.templates.core.render as render_mod
+
 	template = np.asarray(
 		[
 			[-1.0, -2.0, -0.5, 0.0, 0.2],
@@ -1017,9 +1019,11 @@ def test_render_template_circles_plot_fast_render_clamps_dpi_and_skips_scale_cir
 	)
 
 	seen_scale_circle_patch = {"count": 0}
-	seen_savefig_dpi: list[float] = []
+	seen_savefig_kwargs: list[dict[str, object]] = []
+	seen_colorbar_kwargs: list[dict[str, object]] = []
 	orig_add_patch = matplotlib.axes.Axes.add_patch
 	orig_savefig = matplotlib.figure.Figure.savefig
+	orig_colorbar = matplotlib.figure.Figure.colorbar
 
 	def _spy_add_patch(self, patch, *args, **kwargs):
 		if str(getattr(patch, "get_gid", lambda: "")() or "") == "template_scale_circle_patch":
@@ -1027,11 +1031,20 @@ def test_render_template_circles_plot_fast_render_clamps_dpi_and_skips_scale_cir
 		return orig_add_patch(self, patch, *args, **kwargs)
 
 	def _spy_savefig(self, *args, **kwargs):
-		seen_savefig_dpi.append(float(kwargs.get("dpi", 0.0) or 0.0))
+		seen_savefig_kwargs.append(dict(kwargs))
 		return orig_savefig(self, *args, **kwargs)
+
+	def _spy_colorbar(self, *args, **kwargs):
+		seen_colorbar_kwargs.append(dict(kwargs))
+		return orig_colorbar(self, *args, **kwargs)
+
+	def _unexpected_non_overlap_sizing(**kwargs):
+		raise AssertionError("fast render should not compute final non-overlapping circle sizes")
 
 	monkeypatch.setattr(matplotlib.axes.Axes, "add_patch", _spy_add_patch)
 	monkeypatch.setattr(matplotlib.figure.Figure, "savefig", _spy_savefig)
+	monkeypatch.setattr(matplotlib.figure.Figure, "colorbar", _spy_colorbar)
+	monkeypatch.setattr(render_mod, "_compute_max_non_overlapping_circle_areas", _unexpected_non_overlap_sizing)
 
 	render_template_circles_plot(
 		template=template,
@@ -1054,7 +1067,10 @@ def test_render_template_circles_plot_fast_render_clamps_dpi_and_skips_scale_cir
 		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
 	)
 
-	assert seen_savefig_dpi[-1] == 220.0
+	assert float(seen_savefig_kwargs[-1]["dpi"]) == 220.0
+	assert "bbox_inches" not in seen_savefig_kwargs[-1]
+	assert "boundaries" not in seen_colorbar_kwargs[-1]
+	assert "spacing" not in seen_colorbar_kwargs[-1]
 	assert seen_scale_circle_patch["count"] == 0
 
 

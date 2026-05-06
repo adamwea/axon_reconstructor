@@ -91,6 +91,77 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-06 10:23 PDT - pending - ai: lighten template circle rendering
+
+Status: accepted
+
+Summary:
+- Enabled `fast_render` for `templates.plot_templates` circle outputs in `debug/debug.runtime.yml` and lowered circle PNG DPI from 420 to 220 for the active debug runtime.
+- Made `render_template_circles_plot` fast mode skip the final canvas draw/non-overlapping circle-size pass, avoid the 257-boundary patched colorbar, and save without `bbox_inches="tight"`.
+- Left the high-fidelity render path unchanged for cases where exact overlap checks, scale-circle placement, and tight output bounds are required.
+- Added focused tests proving fast mode clamps DPI, skips scale-circle and final non-overlap sizing, uses the simpler colorbar path, and avoids tight-bbox savefig.
+
+Guardrails Consulted:
+- `debug/optimization_simplificaiton_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+
+Acceptance Criteria:
+- Plot-template circle rendering is cheaper without adding new real-data runs or changing the full-quality renderer path.
+- Active debug runtime uses the speed-oriented circle-render mode by default.
+- Focused synthetic tests cover the optimized fast-render behavior and verify the normal final-layout sizing path still runs outside fast mode.
+- No real-data reconstruct, plot, cache-clear, or GTR phase is started while the user's build_templates run is active.
+
+Expected To Run:
+- Focused synthetic pytest coverage for circle rendering and debug runtime config parsing.
+- Full synthetic render test module.
+- Focused Ruff check on touched Python files, ignoring known pre-existing import/order and unused-name debt.
+
+Confirmed Not Run:
+- Real-data CLI runs or smokes.
+- Full repository test suite.
+- Cache-clearing phase against real outputs.
+- Container image rebuild.
+- Remote push.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_render.py::test_render_template_circles_plot_fast_render_clamps_dpi_and_skips_scale_circle src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_render.py::test_render_template_circles_plot_sets_non_overlapping_sizes_in_final_layout src/axon_recon/pipeline/stages/reconstruct/tests/test_config.py::test_load_config_reconstruct_populates_templates_inputs_from_debug_runtime` passed.
+- Render tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_render.py` passed, 80 tests.
+- Lint: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m ruff check --select F,I --ignore F401,F821,F841,I001 src/axon_recon/pipeline/stages/reconstruct/templates/core/render.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_render.py src/axon_recon/pipeline/stages/reconstruct/tests/test_config.py` passed. Ignored categories cover known pre-existing import-order, unused-name, and annotation-name debt in these large modules.
+- Diagnostics: VS Code diagnostics reported no errors for touched Python/YAML files.
+- Real-data smoke: not run by explicit user request.
+- Logs inspected: none for this slice.
+- Artifacts inspected: no real output artifacts inspected or modified.
+- Not run: no real-data plot smoke, no full reconstruct stage, no cache clear.
+
+CLI / Debug Flag Impact:
+- No CLI flag changes.
+- `debug/debug.runtime.yml` now requests fast circle rendering and 220 DPI for plot-template circle PNGs.
+
+Logging / Parallelism Impact:
+- No new log fields, worker counts, or phase parallelism changes.
+- Renderer fast mode reduces per-unit Matplotlib work inside the already sequential `plot_templates` loop.
+
+Storage / Cache Impact:
+- Created: none.
+- Modified: debug runtime config, renderer code, focused tests, and this commit note.
+- Removed: none.
+
+Container / NERSC / MPI Impact:
+- No Dockerfile, container wrapper, NERSC, or MPI changes.
+
+Resume / Force-Restart Impact:
+- No resume or force-restart semantics changed.
+- Existing circle PNGs remain resumable/skippable according to the plot phase's existing output checks.
+
+Residual Risk And Follow-Ups:
+- Fast circle PNGs can have more whitespace and less exact circle-size de-overlap than the full-quality path because tight bbox and final layout sizing are intentionally skipped.
+- A real-data timing comparison is still needed after the active build_templates run is safe to leave alone.
+
+Rollback Notes:
+- Revert the fast-mode render changes and restore `debug/debug.runtime.yml` circle `dpi: 420` and `fast_render: false` to return to the previous high-fidelity plotting default.
+
 ## 2026-05-06 - pending - ai: restrict plot templates resources
 
 Status: accepted
