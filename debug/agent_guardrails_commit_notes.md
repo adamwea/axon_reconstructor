@@ -91,6 +91,71 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-06 11:47 - pending - ai: add analyzer unit manifests for build resume
+
+Status: accepted
+
+Summary:
+- Added analyzer source-unit manifest artifacts under `templates_outputs/context/analyzer_source_units/*.json` during the reconstruct analyzers phase.
+- Updated reconstruct build_templates to load or backfill those manifests from cached analyzers, skip absent unit/source pairs before launching payload workers, and reuse complete source payload artifacts.
+- Added build artifact resume in the core unit builder so completed unit template artifacts are counted as reused without rebuilding after cancellation.
+
+Guardrails Consulted:
+- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+
+Acceptance Criteria:
+- Direct `reconstruct.analyzers` writes per-source unit membership artifacts without broad analyzer/template recompute.
+- Direct `reconstruct.build_templates` rerun without `--force-restart` backfills missing manifest artifacts, fills missing source payloads, skips known-absent unit/source payload workers, and reuses completed unit outputs.
+- Process-pool lazy payload materialization logs preflight skip/reuse outcomes before submitting real worker jobs.
+
+Expected To Run:
+- Analyzer manifest write/backfill for selected cached analyzer sources.
+- Missing source payload materialization only for unit/source pairs present in the source manifest.
+- Core unit template build only for units without complete materialized template artifacts and per-unit summary.
+
+Confirmed Not Run:
+- `extract_template_segments` support was not reintroduced.
+- `compute_template_similarity` behavior was not changed.
+- Legacy source payload paths were not restored.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py -k "analyzers_phase_logs_settings_and_writes_run_stats or build_templates_phase_loads_cached_analyzers_when_payloads_missing or build_templates_phase_lazy_loads_cached_analyzers_per_unit or build_templates_phase_uses_unit_manifests_for_lazy_dispatch or build_templates_phase_resumes_partial_source_payloads or build_templates_phase_reuses_completed_unit_artifacts or build_templates_phase_uses_unit_workers or cached_analyzer_process_materialization_logs_each_unit_source_future or parallel_lazy_materialization_filters_labels"` → 9 passed, 53 deselected.
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_io.py` → 67 passed.
+- Lint: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m ruff check src/axon_recon/pipeline/stages/reconstruct/phases/analyzers.py src/axon_recon/pipeline/stages/reconstruct/phases/build_templates.py src/axon_recon/pipeline/stages/reconstruct/templates/core/build_templates.py src/axon_recon/pipeline/stages/reconstruct/templates/source_units.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py --ignore I001,F821,F841,E501,UP035,UP015,UP037,UP028,B009,B010,E731,E101` → passed.
+- Diagnostics: VS Code `get_errors` on touched Python files → no errors.
+- Real-data smoke: not run; this change is covered by focused runner/IO tests to avoid launching real analyzer/template compute in the current workspace.
+- Logs inspected: unit test logs asserting analyzer manifest writes and preflight `skipped_unit_absent_preflight` logs.
+- Artifacts inspected: test-created manifest JSON and materialized source/unit cache artifacts.
+- Not run: full real-data reconstruct CLI.
+
+CLI / Debug Flag Impact:
+- No CLI flags or YAML schema changes.
+
+Logging / Parallelism Impact:
+- Added analyzer/build_templates logs when source unit manifests are written or backfilled.
+- Lazy build_templates process scheduling performs manifest/cache preflight in the parent process, reducing submitted unit/source payload worker jobs for known-absent or already-materialized payloads.
+
+Storage / Cache Impact:
+- Created: additive `context/analyzer_source_units/<urlquoted_source_name>.json` artifacts with source name, source kind, unit ids, and unit counts.
+- Modified: build_templates source payload cache reuse now validates per-unit source payload artifacts before scheduling payload work.
+- Removed: none.
+
+Container / NERSC / MPI Impact:
+- No container, MPI, or scheduler changes.
+
+Resume / Force-Restart Impact:
+- Rerunning analyzers/build_templates without `--force-restart` creates missing source-unit manifest artifacts and missing source payloads while preserving existing complete work.
+- `--force-restart` continues to clear build_templates-owned materialized template/source payload outputs before rebuilding.
+
+Residual Risk And Follow-Ups:
+- Manifest backfill still loads cached analyzers once per missing source manifest; the intended steady state avoids this after the additive artifacts exist.
+- Real-data smoke remains useful before large production runs because unit tests cannot exercise SpikeInterface disk analyzer loading cost end to end.
+
+Rollback Notes:
+- Revert the commit to stop producing/consuming source-unit manifests; existing additive JSON artifacts can be left in place because older code ignores them.
+
 ## 2026-05-06 - pending - ai: add lightweight plot templates v2
 
 Status: accepted

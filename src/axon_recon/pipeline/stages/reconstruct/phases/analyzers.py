@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import gc
 import shutil
+from pathlib import Path
 from time import perf_counter
 from typing import Any
 
 from axon_recon.pipeline.stages.reconstruct.templates import runner as templates_runner
 from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import TemplatesInputs
+from axon_recon.pipeline.stages.reconstruct.templates.source_units import (
+    extract_analyzer_unit_ids,
+    write_analyzer_source_units,
+)
 
 
 def run_reconstruct_templates_analyzers_phase(
@@ -88,6 +93,7 @@ def run_reconstruct_templates_analyzers_phase(
     templates_runner.LOGGER.info("templates.analyzers streaming analyzer sources (one at a time)")
     load_stats: dict[str, Any] = {}
     sources_summary: dict[str, Any] = {}
+    source_unit_manifest_count = 0
     source_count = 0
     concat_count = 0
     segment_count = 0
@@ -112,12 +118,27 @@ def run_reconstruct_templates_analyzers_phase(
                 num_channels = int(analyzer.recording.get_num_channels())
             except Exception:
                 num_channels = None
+        analyzer_unit_ids = extract_analyzer_unit_ids(analyzer)
+        unit_manifest_path: Path | None = None
+        if analyzer_unit_ids is not None:
+            unit_manifest_path = write_analyzer_source_units(
+                templates_out_dir=templates_out_dir,
+                source_name=str(source_name),
+                source_kind=("concat" if str(source_name) == "concat" else "segment"),
+                unit_ids=list(analyzer_unit_ids),
+            )
+            source_unit_manifest_count += 1
+            templates_runner.LOGGER.info(
+                "templates.analyzers wrote source unit manifest: source=%s unit_count=%d path=%s",
+                str(source_name),
+                int(len(analyzer_unit_ids)),
+                str(unit_manifest_path),
+            )
         sources_summary[str(source_name)] = {
             "has_sparsity": bool(getattr(analyzer, "sparsity", None) is not None),
             "num_channels": num_channels,
-            "num_units": int(len(list(getattr(analyzer.sorting, "unit_ids", []))))
-            if hasattr(analyzer, "sorting")
-            else None,
+            "num_units": (None if analyzer_unit_ids is None else int(len(analyzer_unit_ids))),
+            "unit_manifest_json": (None if unit_manifest_path is None else str(unit_manifest_path)),
             "policy": {
                 "sparsity_mode": str(policy.sparsity_mode),
                 "compute_sparsity": bool(policy.compute_sparsity),
@@ -158,6 +179,7 @@ def run_reconstruct_templates_analyzers_phase(
         "analyzer_cache_dir": (None if analyzer_cache_dir is None else str(analyzer_cache_dir)),
         "source_scope": source_scope,
         "source_count": int(source_count),
+        "source_unit_manifest_count": int(source_unit_manifest_count),
         "load_stats": load_stats,
         "sources": sources_summary,
     }

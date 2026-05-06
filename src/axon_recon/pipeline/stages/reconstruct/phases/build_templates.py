@@ -35,6 +35,13 @@ from ..templates.io import (
     write_materialized_source_payload,
 )
 from ..templates.models.inputs import TemplatesInputs
+from ..templates.source_units import (
+    extract_analyzer_unit_ids,
+    load_analyzer_source_units,
+    resolve_analyzer_source_units_path,
+    unit_key,
+    write_analyzer_source_units,
+)
 
 LOGGER = logging.getLogger("axon_recon.templates.build_templates")
 
@@ -57,6 +64,7 @@ class _CachedAnalyzerUnitMaterializationJob:
     analyzer_cache_dir: Path
     source_names: tuple[str, ...]
     unit_id: Any
+    source_unit_keys_by_source: dict[str, frozenset[str]] | None = None
 
 
 @dataclass(frozen=True)
@@ -74,6 +82,7 @@ class _CachedAnalyzerUnitSourceMaterializationJob:
     analyzer_cache_dir: Path
     source_name: str
     unit_id: Any
+    source_unit_keys_by_source: dict[str, frozenset[str]] | None = None
 
 
 @dataclass(frozen=True)
@@ -382,6 +391,204 @@ def _collect_build_templates_unit_ids(
     )
 
 
+def _source_unit_manifest_unit_ids(
+    *, context: BuildTemplatesContext, source_name: str
+) -> list[Any] | None:
+    payload = load_analyzer_source_units(
+        templates_out_dir=context.templates_out_dir,
+        source_name=str(source_name),
+    )
+    if payload is None:
+        return None
+    unit_ids = payload.get("unit_ids", None)
+    if not isinstance(unit_ids, list):
+        return None
+    return list(unit_ids)
+
+
+def _write_source_unit_manifest_from_analyzer(
+    *, context: BuildTemplatesContext, source_name: str, analyzer: Any
+) -> list[Any] | None:
+    unit_ids = extract_analyzer_unit_ids(analyzer)
+    if unit_ids is None:
+        return None
+    manifest_path = write_analyzer_source_units(
+        templates_out_dir=context.templates_out_dir,
+        source_name=str(source_name),
+        source_kind=("concat" if str(source_name) == "concat" else "segment"),
+        unit_ids=list(unit_ids),
+    )
+    LOGGER.info(
+        "templates.build_templates wrote source unit manifest: source=%s unit_count=%d path=%s",
+        str(source_name),
+        int(len(unit_ids)),
+        str(manifest_path),
+    )
+    return list(unit_ids)
+
+
+def _load_or_create_source_unit_manifest(
+    *,
+    inputs: TemplatesInputs,
+    context: BuildTemplatesContext,
+    analyzer_well_out_dir: Path,
+    analyzer_cache_dir: Path,
+    source_name: str,
+) -> list[Any] | None:
+    existing = _source_unit_manifest_unit_ids(context=context, source_name=str(source_name))
+    if existing is not None:
+        return existing
+    LOGGER.info(
+        "templates.build_templates source unit manifest missing; "
+        "loading cached analyzer to create it: source=%s path=%s",
+        str(source_name),
+        str(
+            resolve_analyzer_source_units_path(
+                templates_out_dir=context.templates_out_dir,
+                source_name=str(source_name),
+            )
+        ),
+    )
+    source_match, analyzers = _load_requested_cached_source(
+        inputs=inputs,
+        analyzer_well_out_dir=analyzer_well_out_dir,
+        analyzer_cache_dir=analyzer_cache_dir,
+        requested_source_name=str(source_name),
+        lazy_load_analyzers=True,
+    )
+    loaded_source_name, analyzer = source_match
+    unit_ids = _write_source_unit_manifest_from_analyzer(
+        context=context,
+        source_name=str(loaded_source_name),
+        analyzer=analyzer,
+    )
+    del analyzer
+    del analyzers
+    del source_match
+    gc.collect()
+    return unit_ids
+
+
+def _load_or_create_source_unit_manifests(
+    *,
+    inputs: TemplatesInputs,
+    context: BuildTemplatesContext,
+    analyzer_well_out_dir: Path,
+    analyzer_cache_dir: Path,
+    source_names: list[str],
+) -> dict[str, list[Any] | None]:
+    manifests: dict[str, list[Any] | None] = {}
+    for source_name in source_names:
+        try:
+            manifests[str(source_name)] = _load_or_create_source_unit_manifest(
+                inputs=inputs,
+                context=context,
+                analyzer_well_out_dir=analyzer_well_out_dir,
+                analyzer_cache_dir=analyzer_cache_dir,
+                source_name=str(source_name),
+            )
+        except Exception:
+            manifests[str(source_name)] = None
+            LOGGER.warning(
+                "templates.build_templates failed to create source unit manifest; "
+                "dispatch will fall back to payload probing: source=%s",
+                str(source_name),
+                exc_info=True,
+            )
+    return manifests
+
+
+def _source_unit_keys_by_source(
+    source_unit_ids_by_source: dict[str, list[Any] | None],
+) -> dict[str, frozenset[str]]:
+    return {
+        str(source_name): frozenset(unit_key(unit_id) for unit_id in list(unit_ids))
+        for source_name, unit_ids in source_unit_ids_by_source.items()
+        if unit_ids is not None
+    }
+
+
+def _collect_unit_ids_from_source_manifests(
+    source_unit_ids_by_source: dict[str, list[Any] | None], source_names: list[str]
+) -> list[Any]:
+    unit_ids: list[Any] = []
+    seen: set[str] = set()
+    for source_name in source_names:
+        for unit_id in list(source_unit_ids_by_source.get(str(source_name)) or []):
+            key = unit_key(unit_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            unit_ids.append(unit_id)
+    return unit_ids
+
+
+def _source_manifest_allows_unit(
+    *,
+    source_unit_keys_by_source: dict[str, frozenset[str]] | None,
+    source_name: str,
+    unit_id: Any,
+) -> bool:
+    if source_unit_keys_by_source is None:
+        return True
+    unit_keys = source_unit_keys_by_source.get(str(source_name), None)
+    if unit_keys is None:
+        return True
+    return unit_key(unit_id) in unit_keys
+
+
+def _source_payload_artifact_exists(
+    *, context: BuildTemplatesContext, source_name: str, unit_id: Any
+) -> bool:
+    unit_dir = resolve_materialized_source_payload_unit_dir(
+        templates_out_dir=context.templates_out_dir,
+        output_rel_root=context.payload_output_rel_root,
+        source_name=str(source_name),
+        unit_id=unit_id,
+    )
+    required = (
+        unit_dir / "template.npy",
+        unit_dir / "channel_locations_xy.npy",
+        unit_dir / "payload_meta.json",
+    )
+    try:
+        return all(path.exists() and path.stat().st_size > 0 for path in required)
+    except OSError:
+        return False
+
+
+def _preflight_unit_source_materialization_result(
+    job: _CachedAnalyzerUnitSourceMaterializationJob,
+) -> _CachedAnalyzerUnitSourceMaterializationResult | None:
+    if not _source_manifest_allows_unit(
+        source_unit_keys_by_source=job.source_unit_keys_by_source,
+        source_name=str(job.source_name),
+        unit_id=job.unit_id,
+    ):
+        return _CachedAnalyzerUnitSourceMaterializationResult(
+            unit_id=job.unit_id,
+            source_name=str(job.source_name),
+            status="skipped_unit_absent_preflight",
+            duration_seconds=0.0,
+            channel_count=None,
+            waveform_count=None,
+        )
+    if _source_payload_artifact_exists(
+        context=job.context,
+        source_name=str(job.source_name),
+        unit_id=job.unit_id,
+    ):
+        return _CachedAnalyzerUnitSourceMaterializationResult(
+            unit_id=job.unit_id,
+            source_name=str(job.source_name),
+            status="reused_payload",
+            duration_seconds=0.0,
+            channel_count=None,
+            waveform_count=None,
+        )
+    return None
+
+
 def _write_cached_analyzer_payload(
     *,
     context: BuildTemplatesContext,
@@ -430,13 +637,28 @@ def _record_materialization_result(
     summary: dict[str, Any],
     result: _CachedAnalyzerUnitMaterializationResult,
 ) -> None:
-    for source_name in result.source_names:
+    for source_result in result.source_results:
+        source_name = str(source_result.source_name)
         summary_entry = summary.setdefault(
             str(source_name),
-            {"units_materialized": [], "unit_count": 0},
+            {
+                "units_materialized": [],
+                "units_reused": [],
+                "units_skipped_absent": [],
+                "unit_count": 0,
+            },
         )
-        summary_entry["units_materialized"].append(result.unit_id)
-        summary_entry["unit_count"] = int(summary_entry.get("unit_count", 0)) + 1
+        status = str(source_result.status)
+        if status == "materialized":
+            summary_entry.setdefault("units_materialized", []).append(result.unit_id)
+        elif status == "reused_payload":
+            summary_entry.setdefault("units_reused", []).append(result.unit_id)
+        elif status == "skipped_unit_absent_preflight":
+            summary_entry.setdefault("units_skipped_absent", []).append(result.unit_id)
+        available_count = len(summary_entry.get("units_materialized", [])) + len(
+            summary_entry.get("units_reused", [])
+        )
+        summary_entry["unit_count"] = int(available_count)
 
 
 def _payload_channel_count(payload: tuple[Any, ...]) -> int | None:
@@ -476,6 +698,9 @@ def _log_unit_source_materialization_if_requested(
 def _materialize_cached_analyzer_unit_source(
     job: _CachedAnalyzerUnitSourceMaterializationJob,
 ) -> _CachedAnalyzerUnitSourceMaterializationResult:
+    preflight_result = _preflight_unit_source_materialization_result(job)
+    if preflight_result is not None:
+        return preflight_result
     source_started = perf_counter()
     source_match, analyzers = _load_requested_cached_source(
         inputs=job.inputs,
@@ -531,6 +756,7 @@ def _cached_analyzer_source_jobs_for_unit(
             analyzer_cache_dir=job.analyzer_cache_dir,
             source_name=str(source_name),
             unit_id=job.unit_id,
+            source_unit_keys_by_source=job.source_unit_keys_by_source,
         )
         for source_name in job.source_names
     ]
@@ -551,7 +777,9 @@ def _cached_analyzer_unit_result_from_source_results(
     return _CachedAnalyzerUnitMaterializationResult(
         unit_id=unit_id,
         source_names=tuple(
-            str(result.source_name) for result in ordered_results if result.status == "materialized"
+            str(result.source_name)
+            for result in ordered_results
+            if result.status in {"materialized", "reused_payload"}
         ),
         source_results=tuple(ordered_results),
     )
@@ -603,34 +831,52 @@ def _run_cached_analyzer_unit_materialization_jobs_with_processes(
 ) -> list[_CachedAnalyzerUnitMaterializationResult]:
     if not jobs:
         return []
-    source_jobs = [
-        _CachedAnalyzerUnitSourceMaterializationJob(
-            inputs=job.inputs,
-            context=job.context,
-            analyzer_well_out_dir=job.analyzer_well_out_dir,
-            analyzer_cache_dir=job.analyzer_cache_dir,
-            source_name=str(source_name),
-            unit_id=job.unit_id,
-        )
-        for source_name in jobs[0].source_names
-        for job in jobs
-    ]
     source_results_by_unit: dict[str, list[_CachedAnalyzerUnitSourceMaterializationResult]] = {
         str(job.unit_id): [] for job in jobs
     }
-    with concurrent.futures.ProcessPoolExecutor(
-        max_workers=max(1, int(worker_count)),
-        initializer=install_linux_parent_death_signal,
-    ) as pool:
-        futures = {pool.submit(_materialize_cached_analyzer_unit_source, job): job for job in source_jobs}
-        for future in concurrent.futures.as_completed(futures):
-            source_result = future.result()
-            source_results_by_unit.setdefault(str(source_result.unit_id), []).append(source_result)
-            _log_unit_source_materialization_if_requested(
-                inputs=jobs[0].inputs,
-                result=source_result,
-                lazy_load_analyzers=True,
+    source_jobs: list[_CachedAnalyzerUnitSourceMaterializationJob] = []
+    for source_name in jobs[0].source_names:
+        for job in jobs:
+            source_job = _CachedAnalyzerUnitSourceMaterializationJob(
+                inputs=job.inputs,
+                context=job.context,
+                analyzer_well_out_dir=job.analyzer_well_out_dir,
+                analyzer_cache_dir=job.analyzer_cache_dir,
+                source_name=str(source_name),
+                unit_id=job.unit_id,
+                source_unit_keys_by_source=job.source_unit_keys_by_source,
             )
+            preflight_result = _preflight_unit_source_materialization_result(source_job)
+            if preflight_result is not None:
+                source_results_by_unit.setdefault(str(preflight_result.unit_id), []).append(
+                    preflight_result
+                )
+                _log_unit_source_materialization_if_requested(
+                    inputs=jobs[0].inputs,
+                    result=preflight_result,
+                    lazy_load_analyzers=True,
+                )
+                continue
+            source_jobs.append(source_job)
+    if source_jobs:
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=max(1, int(worker_count)),
+            initializer=install_linux_parent_death_signal,
+        ) as pool:
+            futures = {
+                pool.submit(_materialize_cached_analyzer_unit_source, job): job
+                for job in source_jobs
+            }
+            for future in concurrent.futures.as_completed(futures):
+                source_result = future.result()
+                source_results_by_unit.setdefault(str(source_result.unit_id), []).append(
+                    source_result
+                )
+                _log_unit_source_materialization_if_requested(
+                    inputs=jobs[0].inputs,
+                    result=source_result,
+                    lazy_load_analyzers=True,
+                )
     return [
         _cached_analyzer_unit_result_from_source_results(
             unit_id=job.unit_id,
@@ -649,9 +895,15 @@ def _materialize_cached_analyzers_by_unit(
     analyzer_cache_dir: Path,
     source_names: list[str],
     unit_ids: list[Any] | None,
+    source_unit_ids_by_source: dict[str, list[Any] | None],
 ) -> tuple[list[Any], dict[str, Any]]:
     streamed_sources_summary = {
-        str(source_name): {"units_materialized": [], "unit_count": 0}
+        str(source_name): {
+            "units_materialized": [],
+            "units_reused": [],
+            "units_skipped_absent": [],
+            "unit_count": 0,
+        }
         for source_name in source_names
     }
     if unit_ids is None:
@@ -670,6 +922,7 @@ def _materialize_cached_analyzers_by_unit(
         del first_match
         del first_analyzers
         gc.collect()
+    source_unit_keys_by_source = _source_unit_keys_by_source(source_unit_ids_by_source)
 
     jobs = [
         _CachedAnalyzerUnitMaterializationJob(
@@ -679,6 +932,7 @@ def _materialize_cached_analyzers_by_unit(
             analyzer_cache_dir=analyzer_cache_dir,
             source_names=tuple(str(source_name) for source_name in source_names),
             unit_id=unit_id,
+            source_unit_keys_by_source=source_unit_keys_by_source,
         )
         for unit_id in list(unit_ids or [])
     ]
@@ -727,8 +981,10 @@ def _materialize_cached_analyzers_by_source(
     analyzer_cache_dir: Path,
     source_names: list[str],
     unit_ids: list[Any] | None,
+    source_unit_ids_by_source: dict[str, list[Any] | None],
 ) -> tuple[list[Any], dict[str, Any]]:
     streamed_sources_summary: dict[str, Any] = {}
+    source_unit_keys_by_source = _source_unit_keys_by_source(source_unit_ids_by_source)
     for requested_source_name in source_names:
         source_match, analyzers = _load_requested_cached_source(
             inputs=inputs,
@@ -745,7 +1001,47 @@ def _materialize_cached_analyzers_by_source(
                 well_out_dir=context.well_out_dir,
             )
         materialized_units: list[Any] = []
+        reused_units: list[Any] = []
+        skipped_absent_units: list[Any] = []
         for unit_id in list(unit_ids or []):
+            if not _source_manifest_allows_unit(
+                source_unit_keys_by_source=source_unit_keys_by_source,
+                source_name=str(source_name),
+                unit_id=unit_id,
+            ):
+                skipped_absent_units.append(unit_id)
+                _log_unit_source_materialization_if_requested(
+                    inputs=inputs,
+                    result=_CachedAnalyzerUnitSourceMaterializationResult(
+                        unit_id=unit_id,
+                        source_name=str(source_name),
+                        status="skipped_unit_absent_preflight",
+                        duration_seconds=0.0,
+                        channel_count=None,
+                        waveform_count=None,
+                    ),
+                    lazy_load_analyzers=False,
+                )
+                continue
+            if _source_payload_artifact_exists(
+                context=context,
+                source_name=str(source_name),
+                unit_id=unit_id,
+            ):
+                reused_units.append(unit_id)
+                _log_unit_source_materialization_if_requested(
+                    inputs=inputs,
+                    result=_CachedAnalyzerUnitSourceMaterializationResult(
+                        unit_id=unit_id,
+                        source_name=str(source_name),
+                        status="reused_payload",
+                        duration_seconds=0.0,
+                        channel_count=None,
+                        waveform_count=None,
+                    ),
+                    lazy_load_analyzers=False,
+                )
+                continue
             source_started = perf_counter()
             payload = build_unit_source_payload(
                 analyzer=analyzer,
@@ -791,12 +1087,17 @@ def _materialize_cached_analyzers_by_source(
             del payload
         streamed_sources_summary[str(source_name)] = {
             "units_materialized": [unit for unit in materialized_units],
-            "unit_count": int(len(materialized_units)),
+            "units_reused": [unit for unit in reused_units],
+            "units_skipped_absent": [unit for unit in skipped_absent_units],
+            "unit_count": int(len(materialized_units) + len(reused_units)),
         }
         LOGGER.info(
-            "templates.build_templates materialized cached analyzer payloads: source=%s unit_count=%d",
+            "templates.build_templates materialized cached analyzer payloads: "
+            "source=%s unit_count=%d reused_units=%d skipped_absent_units=%d",
             str(source_name),
-            int(len(materialized_units)),
+            int(len(materialized_units) + len(reused_units)),
+            int(len(reused_units)),
+            int(len(skipped_absent_units)),
         )
         del analyzer
         del analyzers
@@ -809,11 +1110,15 @@ def _build_templates_from_cached_analyzers(
     *,
     inputs: TemplatesInputs,
     context: BuildTemplatesContext,
+    discovered_cached_analyzer_sources: tuple[Path, Path | None, list[str]] | None = None,
 ) -> dict[str, Any]:
-    analyzer_well_out_dir, analyzer_cache_dir, source_names = _discover_cached_analyzer_sources(
-        inputs=inputs,
-        context=context,
-    )
+    if discovered_cached_analyzer_sources is None:
+        analyzer_well_out_dir, analyzer_cache_dir, source_names = _discover_cached_analyzer_sources(
+            inputs=inputs,
+            context=context,
+        )
+    else:
+        analyzer_well_out_dir, analyzer_cache_dir, source_names = discovered_cached_analyzer_sources
     if analyzer_cache_dir is None or not source_names:
         raise FileNotFoundError(
             "No cached templates analyzers found for build_templates. "
@@ -839,6 +1144,26 @@ def _build_templates_from_cached_analyzers(
             well_out_dir=context.well_out_dir,
         )
     source_names = [str(source_name) for source_name in source_names]
+    source_unit_ids_by_source = _load_or_create_source_unit_manifests(
+        inputs=inputs,
+        context=context,
+        analyzer_well_out_dir=analyzer_well_out_dir,
+        analyzer_cache_dir=analyzer_cache_dir,
+        source_names=source_names,
+    )
+    if unit_ids is None:
+        manifest_unit_ids = _collect_unit_ids_from_source_manifests(
+            source_unit_ids_by_source,
+            source_names,
+        )
+        if manifest_unit_ids:
+            if inputs.unit_limit is not None:
+                manifest_unit_ids = manifest_unit_ids[: int(inputs.unit_limit)]
+            unit_ids = _apply_build_templates_unit_label_filter(
+                inputs=inputs,
+                unit_ids=manifest_unit_ids,
+                well_out_dir=context.well_out_dir,
+            )
     if lazy_load_analyzers:
         unit_ids, streamed_sources_summary = _materialize_cached_analyzers_by_unit(
             inputs=inputs,
@@ -847,6 +1172,7 @@ def _build_templates_from_cached_analyzers(
             analyzer_cache_dir=analyzer_cache_dir,
             source_names=source_names,
             unit_ids=unit_ids,
+            source_unit_ids_by_source=source_unit_ids_by_source,
         )
     else:
         unit_ids, streamed_sources_summary = _materialize_cached_analyzers_by_source(
@@ -856,6 +1182,7 @@ def _build_templates_from_cached_analyzers(
             analyzer_cache_dir=analyzer_cache_dir,
             source_names=source_names,
             unit_ids=unit_ids,
+            source_unit_ids_by_source=source_unit_ids_by_source,
         )
 
     summary = build_templates_phase_from_unit_payloads(
@@ -921,22 +1248,43 @@ def run_reconstruct_templates_build_templates_phase(inputs: TemplatesInputs) -> 
     # 2. Apply force-restart cleanup for build_templates-owned source payloads.
     _clear_payload_root_for_force_restart(inputs=inputs, context=context)
     payload_status = _payload_root_status(context.payload_root)
+    cached_analyzer_sources = _discover_cached_analyzer_sources(inputs=inputs, context=context)
+    cached_source_names = list(cached_analyzer_sources[2])
 
     # 3. Ensure source payloads exist, bootstrapping from cached analyzers when needed.
-    if payload_status != "ready":
+    if cached_source_names:
         bootstrap_reason = "force_restart" if bool(inputs.force_restart) else payload_status
         LOGGER.info(
-            "templates.build_templates loading source payloads from cached analyzers: payload_root=%s reason=%s",
+            "templates.build_templates resuming source payloads from cached analyzers: "
+            "payload_root=%s reason=%s source_count=%d",
             str(context.payload_root),
             bootstrap_reason,
+            int(len(cached_source_names)),
         )
-        summary = _build_templates_from_cached_analyzers(inputs=inputs, context=context)
+        summary = _build_templates_from_cached_analyzers(
+            inputs=inputs,
+            context=context,
+            discovered_cached_analyzer_sources=cached_analyzer_sources,
+        )
         LOGGER.info(
-            "templates.build_templates loaded source payloads from cached analyzers: payload_root=%s source_count=%d analyzer_well_out_dir=%s analyzer_cache_dir=%s",
+            "templates.build_templates source payload resume complete: payload_root=%s "
+            "source_count=%d analyzer_well_out_dir=%s analyzer_cache_dir=%s",
             str(context.payload_root),
             int(summary.get("source_count", 0)),
             str(summary.get("source_payload_well_out_dir", "")),
             str(summary.get("analyzer_cache_dir", "")),
+        )
+    elif payload_status != "ready":
+        LOGGER.info(
+            "templates.build_templates loading source payloads from cached analyzers: "
+            "payload_root=%s reason=%s",
+            str(context.payload_root),
+            "force_restart" if bool(inputs.force_restart) else payload_status,
+        )
+        summary = _build_templates_from_cached_analyzers(
+            inputs=inputs,
+            context=context,
+            discovered_cached_analyzer_sources=cached_analyzer_sources,
         )
     else:
         LOGGER.info(

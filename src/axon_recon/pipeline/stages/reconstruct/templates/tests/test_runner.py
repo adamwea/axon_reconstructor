@@ -286,11 +286,19 @@ def test_run_reconstruct_templates_analyzers_phase_logs_settings_and_writes_run_
 	assert summary_path.exists()
 	payload = json.loads(summary_path.read_text(encoding="utf-8"))
 	assert payload["source_count"] == 2
+	assert payload["source_unit_manifest_count"] == 2
 	assert payload["load_stats"] == fake_load_stats
 	assert float(payload["timing"]["duration_seconds"]) >= 0.0
+	concat_manifest = Path(payload["sources"]["concat"]["unit_manifest_json"])
+	segment_manifest = Path(payload["sources"]["000_recA"]["unit_manifest_json"])
+	assert concat_manifest.exists()
+	assert segment_manifest.exists()
+	assert json.loads(concat_manifest.read_text(encoding="utf-8"))["unit_ids"] == [94, 95]
+	assert json.loads(segment_manifest.read_text(encoding="utf-8"))["unit_ids"] == [94, 95]
 	messages = [rec.getMessage() for rec in caplog.records]
 	assert any("templates.analyzers concat settings:" in msg for msg in messages)
 	assert any("templates.analyzers segments settings:" in msg for msg in messages)
+	assert any("templates.analyzers wrote source unit manifest:" in msg for msg in messages)
 	assert any("templates.analyzers generating outputs:" in msg for msg in messages)
 	assert any("templates.analyzers wrote summary output:" in msg for msg in messages)
 	assert any("templates.analyzers run stats:" in msg for msg in messages)
@@ -461,6 +469,70 @@ def test_run_reconstruct_templates_build_templates_phase_uses_unit_workers(tmp_p
 	assert summary["unit_workers"] == 2
 	assert summary["unit_executor"] == "process"
 	assert summary["built_units"] == [94, 95]
+
+
+def test_run_reconstruct_templates_build_templates_phase_reuses_completed_unit_artifacts(
+	tmp_path: Path,
+	monkeypatch,
+) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	templates_out_dir = well_out_dir / "templates_outputs"
+	_make_templates_artifacts(well_out_dir, unit_ids=(94,))
+	unit_94_summary = templates_out_dir / "units" / "0094" / "unit_templates_summary.json"
+	unit_94_summary.write_text(json.dumps({"unit_id": 94, "status": "ok"}), encoding="utf-8")
+	for unit_id in (94, 95):
+		write_materialized_source_payload(
+			templates_out_dir=templates_out_dir,
+			output_rel_root="cache/source_payloads",
+			source_name="concat",
+			unit_id=unit_id,
+			template_c_by_t=np.asarray([[0.0, -2.0, 0.0], [0.0, -1.0, 0.0]], dtype=float),
+			locations_xy=np.asarray([[0.0, 0.0], [20.0, 0.0]], dtype=float),
+			electrode_ids=[10, 11],
+			channel_ids=[100, 101],
+			waveform_count=4,
+			sampling_rate_hz=10_000.0,
+			overlay_waveforms=None,
+			top_electrode_id=10,
+			total_waveforms_at_channel=4,
+		)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.templates.core.build_templates.read_maxwell_sampling_frequency_hz",
+		lambda *, h5_path, stream_id: 10_000.0,
+	)
+	materialized_contexts: list[str] = []
+
+	def _fake_materialize(*, source_payloads, log_context, **kwargs):
+		materialized_contexts.append(str(log_context))
+		template = np.asarray([[0.0, -3.0, 0.0], [0.0, -1.0, 0.0]], dtype=float)
+		locations = np.asarray([[0.0, 0.0], [20.0, 0.0]], dtype=float)
+		return (template, locations, template, locations, [10, 11]), {"applied": False}
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.templates.core.build_templates.materialize_unit_templates_from_sources_with_meta",
+		_fake_materialize,
+	)
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		per_unit_outputs=PerUnitTemplatesOutputsConfig(unit_reldir="units/{unit_id:04d}/"),
+		unit_ids=[94, 95],
+		unit_label_filter_required=False,
+		force_restart=False,
+		n_jobs=1,
+	)
+
+	summary = run_reconstruct_templates_build_templates_phase(inputs)
+
+	assert materialized_contexts == ["unit_id=95"]
+	assert summary["built_units"] == [94, 95]
+	assert summary["reused_units"] == [94]
+	assert summary["skipped_units"] == []
 
 
 def test_run_reconstruct_templates_build_templates_phase_warns_when_merged_scope_shrinks(tmp_path: Path, monkeypatch, caplog) -> None:
@@ -747,7 +819,7 @@ def test_run_reconstruct_templates_build_templates_phase_loads_cached_analyzers_
 
 	summary = run_reconstruct_templates_build_templates_phase(inputs)
 
-	assert requested_source_batches == [["concat"], ["000_recA"]]
+	assert requested_source_batches == [["concat"], ["000_recA"], ["concat"], ["000_recA"]]
 	assert summary["phase"] == "build_templates"
 	assert summary["payload_materialization_mode"] == "analyzer_cache"
 	assert summary["built_units"] == [94]
@@ -863,8 +935,22 @@ def test_run_reconstruct_templates_build_templates_phase_lazy_loads_cached_analy
 	with caplog.at_level(logging.INFO, logger="axon_recon.templates"):
 		summary = run_reconstruct_templates_build_templates_phase(inputs)
 
-	assert requested_source_batches == [["concat"], ["000_recA"], ["concat"], ["000_recA"]]
-	assert load_modes == [(False, False), (False, False), (False, False), (False, False)]
+	assert requested_source_batches == [
+		["concat"],
+		["000_recA"],
+		["concat"],
+		["000_recA"],
+		["concat"],
+		["000_recA"],
+	]
+	assert load_modes == [
+		(False, False),
+		(False, False),
+		(False, False),
+		(False, False),
+		(False, False),
+		(False, False),
+	]
 	assert payload_calls == [("concat", 94), ("000_recA", 94), ("concat", 95), ("000_recA", 95)]
 	materialization_messages = [
 		record.getMessage()
@@ -882,6 +968,216 @@ def test_run_reconstruct_templates_build_templates_phase_lazy_loads_cached_analy
 	assert summary["lazy_load_analyzers"] is True
 	assert summary["source_payload_sources"]["concat"]["unit_count"] == 2
 	assert summary["source_payload_sources"]["000_recA"]["unit_count"] == 2
+
+
+def test_run_reconstruct_templates_build_templates_phase_uses_unit_manifests_for_lazy_dispatch(
+	tmp_path: Path,
+	monkeypatch,
+	caplog,
+) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	templates_out_dir = well_out_dir / "templates_outputs"
+	analyzer_cache_dir = templates_out_dir / "analyzers"
+	requested_source_batches: list[list[str]] = []
+	payload_calls: list[tuple[str, int]] = []
+
+	class _FakeSorting:
+		def __init__(self, unit_ids: list[int]) -> None:
+			self.unit_ids = list(unit_ids)
+
+	class _FakeAnalyzer:
+		def __init__(self, source_name: str) -> None:
+			self.source_name = str(source_name)
+			self.sorting = _FakeSorting([94, 95] if str(source_name) == "concat" else [94])
+
+	def _fake_discover_cached_source_names(**kwargs) -> list[str]:
+		assert kwargs["analyzer_cache_dir"] == analyzer_cache_dir
+		return ["concat", "000_recA"]
+
+	def _fake_load_cached_spikeinterface_analyzers(**kwargs):
+		requested = [str(name) for name in list(kwargs.get("requested_source_names") or [])]
+		assert len(requested) == 1
+		requested_source_batches.append(requested)
+		return [(requested[0], _FakeAnalyzer(requested[0]))]
+
+	def _fake_build_unit_source_payload(*, analyzer, unit_id, **kwargs):
+		payload_calls.append((str(analyzer.source_name), int(unit_id)))
+		template = np.asarray([[0.0, -float(unit_id), 0.0]], dtype=float)
+		locations = np.asarray([[float(unit_id), 0.0]], dtype=float)
+		return (template, locations, [10], [100], 4, 10_000.0, None, None, None)
+
+	def _fake_build_templates_phase_from_unit_payloads(**kwargs) -> dict[str, Any]:
+		assert kwargs["payload_materialization_mode"] == "analyzer_cache"
+		assert kwargs["unit_ids"] == [94, 95]
+		loader = kwargs["payload_loader"]
+		assert [name for name, _ in loader(94)] == ["concat", "000_recA"]
+		assert [name for name, _ in loader(95)] == ["concat"]
+		return {
+			"phase": "build_templates",
+			"payload_materialization_mode": "analyzer_cache",
+			"built_units": [94, 95],
+			"skipped_units": [],
+			"unit_count": 2,
+			"source_count": 2,
+		}
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.discover_cached_spikeinterface_analyzer_source_names",
+		_fake_discover_cached_source_names,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.load_cached_spikeinterface_analyzers",
+		_fake_load_cached_spikeinterface_analyzers,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_unit_source_payload",
+		_fake_build_unit_source_payload,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_templates_phase_from_unit_payloads",
+		_fake_build_templates_phase_from_unit_payloads,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		unit_ids=[94, 95],
+		unit_label_filter_required=False,
+		force_restart=False,
+		n_jobs=1,
+		phases=TemplatesPhasesConfig(
+			build_templates=TemplateBuildTemplatesPhaseConfig(
+				lazy_load_analyzers=True,
+				emit_unit_source_materialization_log=True,
+			),
+		),
+	)
+
+	with caplog.at_level(logging.INFO, logger="axon_recon.templates"):
+		summary = run_reconstruct_templates_build_templates_phase(inputs)
+
+	assert requested_source_batches == [
+		["concat"],
+		["000_recA"],
+		["concat"],
+		["000_recA"],
+		["concat"],
+	]
+	assert payload_calls == [("concat", 94), ("000_recA", 94), ("concat", 95)]
+	assert summary["source_payload_sources"]["concat"]["unit_count"] == 2
+	assert summary["source_payload_sources"]["000_recA"]["unit_count"] == 1
+	assert summary["source_payload_sources"]["000_recA"]["units_skipped_absent"] == [95]
+	assert (templates_out_dir / "context" / "analyzer_source_units" / "concat.json").exists()
+	assert (templates_out_dir / "context" / "analyzer_source_units" / "000_recA.json").exists()
+	assert any(
+		"unit=95 source=000_recA status=skipped_unit_absent_preflight" in rec.getMessage()
+		for rec in caplog.records
+	)
+
+
+def test_run_reconstruct_templates_build_templates_phase_resumes_partial_source_payloads(
+	tmp_path: Path,
+	monkeypatch,
+) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	templates_out_dir = well_out_dir / "templates_outputs"
+	analyzer_cache_dir = templates_out_dir / "analyzers"
+	payload_calls: list[tuple[str, int]] = []
+
+	write_materialized_source_payload(
+		templates_out_dir=templates_out_dir,
+		output_rel_root="cache/source_payloads",
+		source_name="concat",
+		unit_id=94,
+		template_c_by_t=np.asarray([[0.0, -2.0, 0.0]], dtype=float),
+		locations_xy=np.asarray([[0.0, 0.0]], dtype=float),
+		electrode_ids=[10],
+		channel_ids=[100],
+		waveform_count=4,
+		sampling_rate_hz=10_000.0,
+		overlay_waveforms=None,
+		top_electrode_id=None,
+		total_waveforms_at_channel=None,
+	)
+
+	class _FakeSorting:
+		unit_ids = [94]
+
+	class _FakeAnalyzer:
+		def __init__(self, source_name: str) -> None:
+			self.source_name = str(source_name)
+			self.sorting = _FakeSorting()
+
+	def _fake_discover_cached_source_names(**kwargs) -> list[str]:
+		assert kwargs["analyzer_cache_dir"] == analyzer_cache_dir
+		return ["concat", "000_recA"]
+
+	def _fake_load_cached_spikeinterface_analyzers(**kwargs):
+		requested = [str(name) for name in list(kwargs.get("requested_source_names") or [])]
+		assert len(requested) == 1
+		return [(requested[0], _FakeAnalyzer(requested[0]))]
+
+	def _fake_build_unit_source_payload(*, analyzer, unit_id, **kwargs):
+		payload_calls.append((str(analyzer.source_name), int(unit_id)))
+		template = np.asarray([[0.0, -3.0, 0.0]], dtype=float)
+		locations = np.asarray([[20.0, 0.0]], dtype=float)
+		return (template, locations, [11], [101], 6, 10_000.0, None, None, None)
+
+	def _fake_build_templates_phase_from_unit_payloads(**kwargs) -> dict[str, Any]:
+		loader = kwargs["payload_loader"]
+		assert [name for name, _ in loader(94)] == ["concat", "000_recA"]
+		return {
+			"phase": "build_templates",
+			"payload_materialization_mode": "analyzer_cache",
+			"built_units": [94],
+			"skipped_units": [],
+			"unit_count": 1,
+			"source_count": 2,
+		}
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.discover_cached_spikeinterface_analyzer_source_names",
+		_fake_discover_cached_source_names,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.load_cached_spikeinterface_analyzers",
+		_fake_load_cached_spikeinterface_analyzers,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_unit_source_payload",
+		_fake_build_unit_source_payload,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_templates_phase_from_unit_payloads",
+		_fake_build_templates_phase_from_unit_payloads,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		unit_ids=[94],
+		unit_label_filter_required=False,
+		force_restart=False,
+		n_jobs=1,
+	)
+
+	summary = run_reconstruct_templates_build_templates_phase(inputs)
+
+	assert payload_calls == [("000_recA", 94)]
+	assert summary["source_payload_sources"]["concat"]["units_reused"] == [94]
+	assert summary["source_payload_sources"]["000_recA"]["units_materialized"] == [94]
 
 
 def test_build_templates_force_restart_retries_non_empty_source_payload_cleanup(

@@ -17,6 +17,7 @@ from axon_recon.pipeline.shared.sampling import read_maxwell_sampling_frequency_
 from ..io import (
 	SOURCE_PAYLOADS_CACHE_RELPATH,
 	load_materialized_source_payload,
+	read_json,
 	resolve_materialized_source_payload_unit_dir,
 	resolve_materialized_templates_dirs,
 	resolve_unit_output_paths,
@@ -496,6 +497,84 @@ def _discover_unit_ids_from_payloads(source_dirs: list[Path]) -> list[Any]:
 	return unit_tokens
 
 
+def _artifact_file_complete(path: Path | None) -> bool:
+	if path is None:
+		return True
+	try:
+		return path.exists() and path.stat().st_size > 0
+	except OSError:
+		return False
+
+
+def _unit_summary_complete(path: Path) -> bool:
+	if not _artifact_file_complete(path):
+		return False
+	try:
+		payload = read_json(path)
+	except Exception:
+		return False
+	if not isinstance(payload, dict):
+		return False
+	return str(payload.get("status", "")).strip().lower() == "ok"
+
+
+def _materialized_unit_templates_complete(
+	*,
+	inputs: TemplatesInputs,
+	templates_out_dir: Path,
+	merged_units_dir: Path,
+	full_channels_templates_dir: Path,
+	unit_id: Any,
+) -> bool:
+	merged_dir = merged_units_dir / f"unit_{unit_id}"
+	required = [
+		merged_dir / "merged_contributing_template.npy",
+		merged_dir / "merged_contributing_channel_locations.npy",
+	]
+	if bool(inputs.per_unit_outputs.full_template.write_npy):
+		full_dir = full_channels_templates_dir / f"unit_{unit_id}"
+		required.extend(
+			[
+				full_dir / "full_template.npy",
+				full_dir / "full_channel_locations_xy.npy",
+			]
+		)
+	if not all(_artifact_file_complete(path) for path in required):
+		return False
+	unit_paths = resolve_unit_output_paths(
+		templates_out_dir=templates_out_dir,
+		unit_id=unit_id,
+		per_unit_outputs=inputs.per_unit_outputs,
+	)
+	return _unit_summary_complete(unit_paths["unit_summary_json"])
+
+
+def _split_units_by_build_artifact_resume(
+	*,
+	inputs: TemplatesInputs,
+	templates_out_dir: Path,
+	merged_units_dir: Path,
+	full_channels_templates_dir: Path,
+	unit_ids: list[Any],
+) -> tuple[list[Any], list[Any]]:
+	if bool(inputs.force_restart):
+		return [], list(unit_ids)
+	reused_units: list[Any] = []
+	pending_units: list[Any] = []
+	for unit_id in unit_ids:
+		if _materialized_unit_templates_complete(
+			inputs=inputs,
+			templates_out_dir=templates_out_dir,
+			merged_units_dir=merged_units_dir,
+			full_channels_templates_dir=full_channels_templates_dir,
+			unit_id=unit_id,
+		):
+			reused_units.append(unit_id)
+		else:
+			pending_units.append(unit_id)
+	return reused_units, pending_units
+
+
 def _effective_sampling_rate_hz(*, decision: dict[str, Any] | None, inputs: TemplatesInputs) -> float | None:
 	if isinstance(decision, dict):
 		target_hz = _as_positive_float_or_none(decision.get("target_hz", None))
@@ -771,33 +850,50 @@ def build_templates_phase_from_unit_payloads(
 			shutil.rmtree(full_channels_templates_dir)
 		merged_units_dir, full_channels_templates_dir = resolve_materialized_templates_dirs(templates_out_dir=templates_out_dir)
 
-	raw_sampling_rate_hz = read_maxwell_sampling_frequency_hz(
-		h5_path=Path(inputs.h5_path),
-		stream_id=str(inputs.stream_id),
+	reused_units, pending_unit_ids = _split_units_by_build_artifact_resume(
+		inputs=inputs,
+		templates_out_dir=templates_out_dir,
+		merged_units_dir=merged_units_dir,
+		full_channels_templates_dir=full_channels_templates_dir,
+		unit_ids=list(unit_ids),
 	)
-	worker_count = max(1, min(len(unit_ids), int(max(1, int(inputs.n_jobs))))) if unit_ids else 1
+	if reused_units:
+		LOGGER.info(
+			"build_templates artifact resume: requested_units=%d reused_units=%d pending_units=%d",
+			int(len(unit_ids)),
+			int(len(reused_units)),
+			int(len(pending_unit_ids)),
+		)
+	worker_count = max(1, min(len(pending_unit_ids), int(max(1, int(inputs.n_jobs))))) if pending_unit_ids else 0
 	payload_output_rel_root = _payload_output_rel_root_from_payload_root(
 		templates_out_dir=templates_out_dir,
 		payload_root=payload_root,
 	)
 	can_use_process_workers = bool(payload_output_rel_root and source_names)
-	executor_kind = "serial"
+	executor_kind = "none" if not pending_unit_ids else "serial"
 	if worker_count > 1 and can_use_process_workers:
 		executor_kind = "process"
 	elif worker_count > 1:
 		executor_kind = "thread"
 	LOGGER.info(
 		"build_templates unit execution start: requested_units=%d worker_count=%d executor=%s payload_materialization_mode=%s",
-		len(unit_ids),
+		len(pending_unit_ids),
 		int(worker_count),
 		str(executor_kind),
 		str(payload_materialization_mode),
 	)
 	upsampling_decisions_by_unit: dict[Any, dict[str, Any]] = {}
 	channel_scope_by_unit: dict[str, dict[str, Any]] = {}
-	results: list[dict[str, Any]] = []
-	if worker_count <= 1 or len(unit_ids) <= 1:
-		for unit_id in unit_ids:
+	results: list[dict[str, Any]] = [{"unit_id": unit_id, "status": "reused"} for unit_id in reused_units]
+	if pending_unit_ids:
+		raw_sampling_rate_hz = read_maxwell_sampling_frequency_hz(
+			h5_path=Path(inputs.h5_path),
+			stream_id=str(inputs.stream_id),
+		)
+	else:
+		raw_sampling_rate_hz = 0.0
+	if pending_unit_ids and (worker_count <= 1 or len(pending_unit_ids) <= 1):
+		for unit_id in pending_unit_ids:
 			unit_payload_loader = payload_loader
 			if unit_payload_loader is None:
 				unit_payload_loader = lambda unit, _source_payloads_by_unit=source_payloads_by_unit: list(
@@ -814,7 +910,7 @@ def build_templates_phase_from_unit_payloads(
 					payload_loader=unit_payload_loader,
 				)
 			)
-	elif can_use_process_workers and payload_output_rel_root is not None:
+	elif pending_unit_ids and can_use_process_workers and payload_output_rel_root is not None:
 		jobs = [
 			_BuildTemplatesUnitJob(
 				inputs=inputs,
@@ -826,10 +922,11 @@ def build_templates_phase_from_unit_payloads(
 				payload_output_rel_root=str(payload_output_rel_root),
 				raw_sampling_rate_hz=float(raw_sampling_rate_hz),
 			)
-			for unit_id in unit_ids
+			for unit_id in pending_unit_ids
 		]
 		try:
 			results = _run_build_templates_unit_jobs_with_processes(jobs=jobs, worker_count=worker_count)
+			results = [{"unit_id": unit_id, "status": "reused"} for unit_id in reused_units] + results
 		except Exception as exc:
 			LOGGER.warning(
 				"build_templates process unit workers failed; falling back to thread workers: %s",
@@ -853,11 +950,11 @@ def build_templates_phase_from_unit_payloads(
 						raw_sampling_rate_hz=float(raw_sampling_rate_hz),
 						payload_loader=unit_payload_loader,
 					): unit_id
-					for unit_id in unit_ids
+					for unit_id in pending_unit_ids
 				}
 				for future in concurrent.futures.as_completed(futures):
 					results.append(future.result())
-	else:
+	elif pending_unit_ids:
 		unit_payload_loader = lambda unit: list((source_payloads_by_unit or {}).get(unit, []))
 		with concurrent.futures.ThreadPoolExecutor(max_workers=int(worker_count)) as pool:
 			futures = {
@@ -871,13 +968,14 @@ def build_templates_phase_from_unit_payloads(
 					raw_sampling_rate_hz=float(raw_sampling_rate_hz),
 					payload_loader=unit_payload_loader,
 				): unit_id
-				for unit_id in unit_ids
+				for unit_id in pending_unit_ids
 			}
 			for future in concurrent.futures.as_completed(futures):
 				results.append(future.result())
 
 	results_by_unit = {str(result.get("unit_id")): result for result in results}
 	built_units: list[Any] = []
+	reused_built_units: list[Any] = []
 	skipped_units: list[Any] = []
 	for unit_id in unit_ids:
 		result = results_by_unit.get(str(unit_id), {"unit_id": unit_id, "status": "skipped"})
@@ -885,8 +983,11 @@ def build_templates_phase_from_unit_payloads(
 			upsampling_decisions_by_unit[unit_id] = dict(result.get("upsampling") or {})
 		if result.get("channel_scope") is not None:
 			channel_scope_by_unit[str(unit_id)] = dict(result.get("channel_scope") or {})
-		if str(result.get("status", "")).strip().lower() == "built":
+		status = str(result.get("status", "")).strip().lower()
+		if status in {"built", "reused"}:
 			built_units.append(unit_id)
+			if status == "reused":
+				reused_built_units.append(unit_id)
 		else:
 			skipped_units.append(unit_id)
 	LOGGER.info(
@@ -909,6 +1010,7 @@ def build_templates_phase_from_unit_payloads(
 		"source_count": int(len(source_names)),
 		"requested_units": [unit for unit in unit_ids],
 		"built_units": [unit for unit in built_units],
+		"reused_units": [unit for unit in reused_built_units],
 		"skipped_units": [unit for unit in skipped_units],
 		"unit_count": int(len(built_units)),
 		"unit_workers": int(worker_count),
