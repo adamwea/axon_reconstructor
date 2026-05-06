@@ -83,6 +83,9 @@ from axon_recon.pipeline.stages.reconstruct.templates.runner import (
 	run_reconstruct_templates_plot_templates_phase,
 	run_reconstruct_templates_report_templates_phase,
 )
+from axon_recon.pipeline.stages.reconstruct.templates.source_units import (
+	write_analyzer_source_units,
+)
 
 
 def _make_templates_artifacts(well_out_dir: Path, *, unit_ids: tuple[int, ...] = (94,)) -> None:
@@ -302,6 +305,99 @@ def test_run_reconstruct_templates_analyzers_phase_logs_settings_and_writes_run_
 	assert any("templates.analyzers generating outputs:" in msg for msg in messages)
 	assert any("templates.analyzers wrote summary output:" in msg for msg in messages)
 	assert any("templates.analyzers run stats:" in msg for msg in messages)
+
+
+def test_run_reconstruct_templates_analyzers_phase_reuses_existing_manifests_and_only_loads_missing_sources(
+	tmp_path: Path,
+	monkeypatch,
+	caplog,
+) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	templates_out_dir = well_out_dir / "templates_outputs"
+	requested_source_batches: list[list[str]] = []
+
+	class _FakeSorting:
+		unit_ids = [94, 95]
+
+	class _FakeAnalyzer:
+		def __init__(self, num_channels: int) -> None:
+			self.sorting = _FakeSorting()
+			self.sparsity = None
+			self._num_channels = int(num_channels)
+
+		def get_num_channels(self) -> int:
+			return int(self._num_channels)
+
+	write_analyzer_source_units(
+		templates_out_dir=templates_out_dir,
+		source_name="concat",
+		source_kind="concat",
+		unit_ids=[94, 95],
+	)
+
+	def _fake_discover_source_names(**kwargs) -> list[str]:
+		assert kwargs["analyzer_cache_dir"] == templates_out_dir / "cache" / "analyzers"
+		return ["concat", "000_recA"]
+
+	def _fake_discover_cached_source_names(**kwargs) -> list[str]:
+		assert kwargs["analyzer_cache_dir"] == templates_out_dir / "cache" / "analyzers"
+		return ["concat", "000_recA"]
+
+	def _fake_iter_templates_phase_analyzers(**kwargs):
+		requested = [str(name) for name in list(kwargs.get("requested_source_names") or [])]
+		requested_source_batches.append(requested)
+		assert requested == ["000_recA"]
+		stats = kwargs.get("load_stats")
+		if isinstance(stats, dict):
+			stats.update({"segments": {"cache_hits": 1}})
+		yield ("000_recA", _FakeAnalyzer(128))
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.analyzers.discover_spikeinterface_analyzer_source_names",
+		_fake_discover_source_names,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.analyzers.discover_cached_spikeinterface_analyzer_source_names",
+		_fake_discover_cached_source_names,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.templates.runner._iter_templates_phase_analyzers",
+		_fake_iter_templates_phase_analyzers,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		analyzer_cache=AnalyzerCacheConfig(enabled=True, relpath="cache/analyzers"),
+		force_restart=False,
+		n_jobs=1,
+	)
+
+	with caplog.at_level(logging.INFO, logger="axon_recon.templates"):
+		summary = run_reconstruct_templates_analyzers_phase(inputs)
+
+	summary_path = Path(str(summary["summary_json"]))
+	payload = json.loads(summary_path.read_text(encoding="utf-8"))
+	assert requested_source_batches == [["000_recA"]]
+	assert payload["source_count"] == 2
+	assert payload["source_unit_manifest_count"] == 2
+	assert payload["manifest_resume"]["reused_manifest_count"] == 1
+	assert payload["manifest_resume"]["generated_manifest_count"] == 1
+	assert payload["manifest_resume"]["missing_manifest_sources"] == ["000_recA"]
+	assert payload["sources"]["concat"]["num_units"] == 2
+	assert payload["sources"]["concat"]["num_channels"] is None
+	assert payload["sources"]["concat"]["manifest_reused"] is True
+	assert Path(payload["sources"]["000_recA"]["unit_manifest_json"]).exists()
+	assert any(
+		"loading analyzers only for missing source manifests" in rec.getMessage()
+		for rec in caplog.records
+	)
 
 
 def test_run_reconstruct_templates_build_templates_phase_materializes_templates_from_payloads(tmp_path: Path, monkeypatch, caplog) -> None:
