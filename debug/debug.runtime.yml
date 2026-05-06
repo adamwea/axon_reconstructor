@@ -1956,7 +1956,7 @@ stages:
           dpi: 300
       report_summaries:
         enable: true
-        resource_class: template_build
+        resource_class: plot_report_grid
         write_pdf: true
         pdf_relpath: reports/reconstruct_summary_deck.pdf
       clear_templates_cache:

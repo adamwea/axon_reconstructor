@@ -1017,7 +1017,7 @@ def test_resolve_generate_gtrs_execution_plan_honors_unit_procs_override() -> No
 	]
 
 
-def test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_templates() -> None:
+def test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_downstream_phases() -> None:
 	from axon_recon.pipeline.resource_budget import (
 		ResourceBudgetManager,
 		stage_resource_budget_context,
@@ -1034,6 +1034,8 @@ def test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_templat
 					"phase_resource_classes": {
 						"template_build": {"cpu_cores": 5, "ram_gb": 8},
 						"axon_reconstruction": {"cpu_cores": 2, "ram_gb": 8},
+						"plot_unit": {"cpu_cores": 3, "ram_gb": 24, "plot_slots": 1},
+						"plot_report_grid": {"cpu_cores": 4, "ram_gb": 48, "plot_slots": 1},
 					},
 				}
 			}
@@ -1045,7 +1047,15 @@ def test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_templat
 		stream_id="well000",
 		mea_output_root=Path("/tmp/out"),
 		phases=ReconstructionPhasesConfig(
-			generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(resource_class="axon_reconstruction")
+			generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(resource_class="axon_reconstruction"),
+			plot_recons=ReconstructionPlotReconsPhaseConfig(resource_class="plot_unit"),
+			plot_branch_propagations=ReconstructionPlotBranchPropagationsPhaseConfig(resource_class="plot_unit"),
+			plot_branch_velocities=ReconstructionPlotBranchVelocitiesPhaseConfig(resource_class="plot_unit"),
+			plot_unit_summary=ReconstructionPlotUnitSummaryPhaseConfig(resource_class="plot_unit"),
+			report_recons=ReconstructionReportReconsPhaseConfig(resource_class="plot_report_grid"),
+			report_recon_grid=ReconstructionReportReconGridPhaseConfig(resource_class="plot_report_grid"),
+			report_full_chip_layout=ReconstructionReportFullChipLayoutPhaseConfig(resource_class="plot_report_grid"),
+			report_summaries=ReconstructionReportSummariesPhaseConfig(resource_class="plot_report_grid"),
 		),
 		templates_inputs=TemplatesInputs(
 			h5_path=Path("/tmp/dataset.h5"),
@@ -1068,6 +1078,14 @@ def test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_templat
 			inputs,
 			"generate_gtrs",
 		)
+		plot_inputs, plot_workers, plot_source, plot_resource_class = _reconstruct_inputs_for_phase_workers(
+			inputs,
+			"plot_recons",
+		)
+		report_inputs, report_workers, report_source, report_resource_class = _reconstruct_inputs_for_phase_workers(
+			inputs,
+			"report_summaries",
+		)
 
 	assert template_workers == 5
 	assert template_source == "resource_class.cpu_cores"
@@ -1079,6 +1097,14 @@ def test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_templat
 	assert gtr_source == "resource_class.cpu_cores"
 	assert gtr_resource_class == "axon_reconstruction"
 	assert gtr_inputs.n_jobs == 2
+	assert plot_workers == 3
+	assert plot_source == "resource_class.cpu_cores"
+	assert plot_resource_class == "plot_unit"
+	assert plot_inputs.n_jobs == 3
+	assert report_workers == 4
+	assert report_source == "resource_class.cpu_cores"
+	assert report_resource_class == "plot_report_grid"
+	assert report_inputs.n_jobs == 4
 
 
 def test_run_reconstruct_generate_gtrs_batches_logs_unified_progress(tmp_path: Path, monkeypatch, caplog) -> None:

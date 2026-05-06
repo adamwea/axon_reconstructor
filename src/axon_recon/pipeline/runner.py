@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from contextlib import nullcontext
 import copy
-from dataclasses import dataclass, replace
 import logging
-from pathlib import Path
-import threading
 import time
+from contextlib import nullcontext
+from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any, Callable
 
 from axon_recon.pipeline.publish import publish_path_to_final, remap_path_string_to_final
@@ -19,7 +18,10 @@ from .config import (
 	select_execution_targets,
 )
 from .execution.distributor import distribute_targets
-from .execution.logging_context import install_pipeline_log_record_factory, pipeline_log_context_for_target
+from .execution.logging_context import (
+	install_pipeline_log_record_factory,
+	pipeline_log_context_for_target,
+)
 from .execution.phase_chain import PhaseDescriptor, run_phase_chain
 from .execution.progress import PipelineProgress, ProgressSpec, pipeline_progress_context
 from .execution.results import MultiTargetStageResult, TargetStageResult
@@ -27,20 +29,23 @@ from .resource_budget import ResourceBudgetManager, stage_resource_budget_contex
 from .resources import parse_resources_config
 from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
 from .stages.preprocess.api import (
+	run_preprocess,
 	run_preprocess_concat_segments,
 	run_preprocess_copy_src_to_scratch,
-	run_preprocess,
 	run_preprocess_plot_concat_channel_layout,
-	run_preprocess_prepare_raw_binaries,
 	run_preprocess_plot_concat_traces,
 	run_preprocess_plot_raster_threshold,
 	run_preprocess_plot_segment_channel_layouts,
 	run_preprocess_plot_segment_traces,
+	run_preprocess_prepare_raw_binaries,
 	run_preprocess_preprocess_segments,
 	run_preprocess_save_rec_metadata,
 	run_preprocess_wipe_src_scratch,
 )
-from .stages.preprocess.config import build_preprocess_inputs_for_target, parse_preprocess_stage_config
+from .stages.preprocess.config import (
+	build_preprocess_inputs_for_target,
+	parse_preprocess_stage_config,
+)
 from .stages.preprocess.models.results import PreprocessResult
 from .stages.reconstruct.api import (
 	run_reconstruct,
@@ -48,8 +53,8 @@ from .stages.reconstruct.api import (
 	run_reconstruct_generate_gtrs,
 	run_reconstruct_plot_branch_propagations,
 	run_reconstruct_plot_branch_velocities,
-	run_reconstruct_plot_unit_summary,
 	run_reconstruct_plot_recons,
+	run_reconstruct_plot_unit_summary,
 	run_reconstruct_report_full_chip_layout,
 	run_reconstruct_report_recon_grid,
 	run_reconstruct_report_recons,
@@ -71,6 +76,11 @@ from .stages.reconstruct.models.results import ReconstructionResult, UnitReconst
 from .stages.reconstruct.runner import (
 	_display_reconstruct_stage_phase_name,
 	_reconstruct_stage_phase_resource_class,
+)
+from .stages.reconstruct.templates.config import (
+	build_templates_inputs_for_target,
+	parse_probe_geometry_from_data_config,
+	parse_reconstruct_templates_config,
 )
 from .stages.spikesort.api import (
 	bootstrap_spikesort_concat_binary,
@@ -94,12 +104,6 @@ from .stages.spikesort.models.results import (
 from .stages.spikesort.orchestrators.merge_si_auto import run_spikesort_merge_si_auto
 from .stages.spikesort.orchestrators.merge_slay import run_spikesort_merge_slay
 from .stages.spikesort.orchestrators.merge_unitmatch import run_spikesort_merge_unitmatch
-from .stages.reconstruct.templates.config import (
-	build_templates_inputs_for_target,
-	parse_probe_geometry_from_data_config,
-	parse_reconstruct_templates_config,
-)
-
 
 LOGGER = logging.getLogger("axon_recon.pipeline.runner")
 _WARNED_IGNORED_PHASE_DEBUG_LIMITS: set[tuple[str, str]] = set()
@@ -406,7 +410,35 @@ def _run_direct_phase_with_resource_tracking(
 def _reconstruct_runtime_phase_resource_classes(
 	stage_config: Any,
 	reconstruct_templates_config: Any | None,
+	stage_name: str = "reconstruct",
 ) -> tuple[str, ...]:
+	canonical_stage_name = str(stage_name).strip()
+	if canonical_stage_name != "reconstruct" and canonical_stage_name.startswith("reconstruct."):
+		direct_phase_name = canonical_stage_name.split(".", 1)[1]
+		template_phase_names = {
+			"resolve_sources",
+			"templates_resolve_sources",
+			"analyzers",
+			"templates_analyzers",
+			"build_templates",
+			"templates_build_templates",
+			"compute_template_similarity",
+			"templates_compute_template_similarity",
+			"plot_templates",
+			"templates_plot_templates",
+			"report_templates",
+			"templates_report_templates",
+			"reports",
+			"templates_reports",
+		}
+		if direct_phase_name in template_phase_names:
+			if reconstruct_templates_config is None:
+				return ()
+			return _phase_resource_classes_for_names(
+				reconstruct_templates_config,
+				(direct_phase_name.removeprefix("templates_"),),
+			)
+		return _phase_resource_classes_for_names(stage_config, (direct_phase_name,))
 	resource_classes: list[str] = list(
 		_phase_resource_classes_for_names(stage_config, _enabled_phase_names_from_config(stage_config))
 	)
@@ -3019,7 +3051,11 @@ def _run_reconstruct_substage_from_runtime(
 			limit_wells=getattr(stage_config, "debug_limit_wells", None),
 			limit_wells_per_dataset=getattr(stage_config, "debug_limit_wells_per_dataset", None),
 		)
-	phase_resource_classes = _reconstruct_runtime_phase_resource_classes(stage_config, reconstruct_templates_config)
+	phase_resource_classes = _reconstruct_runtime_phase_resource_classes(
+		stage_config,
+		reconstruct_templates_config,
+		stage_name=stage_name,
+	)
 	parallelism = _resolve_runtime_stage_parallelism(
 		bundle=bundle,
 		stage_name="reconstruct",
@@ -3055,10 +3091,18 @@ def _run_reconstruct_substage_from_runtime(
 			result = runner_fn(inputs)
 		else:
 			direct_phase_name = str(stage_name).split(".", 1)[1] if "." in str(stage_name) else str(stage_name)
+			resource_class = _reconstruct_stage_phase_resource_class(inputs, direct_phase_name)
+			LOGGER.info(
+				"reconstruct phase worker allocation: phase=%s resource_class=%s n_jobs=%d n_jobs_source=%s",
+				_display_reconstruct_stage_phase_name(direct_phase_name),
+				str(resource_class or "none"),
+				int(parallelism.unit_workers),
+				str(parallelism.unit_workers_source),
+			)
 			result = _run_direct_phase_with_resource_tracking(
 				phase_name=_display_reconstruct_stage_phase_name(direct_phase_name),
 				runner=lambda: runner_fn(inputs),
-				resource_class=_reconstruct_stage_phase_resource_class(inputs, direct_phase_name),
+				resource_class=resource_class,
 				pipeline_thread_count=int(parallelism.unit_workers),
 				target=target,
 			)

@@ -91,6 +91,71 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-06 - pending - ai: align downstream reconstruct resource workers
+
+Status: accepted
+
+Summary:
+- Routed direct downstream reconstruct phase selectors through selected-phase resource-class parallelism instead of deriving worker count from every enabled reconstruct phase.
+- Added direct-phase worker allocation logging for reconstruct substages so resource class, `n_jobs`, and source are visible before the phase gate.
+- Reclassified `report_summaries` in the debug runtime from `template_build` to `plot_report_grid` so summary deck/report work reserves report RAM and `plot_slots`.
+- Added focused tests for direct phase resource-class selection, downstream phase worker allocation, and plot-slot gating for report phases.
+
+Guardrails Consulted:
+- `debug/parallelism_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+
+Acceptance Criteria:
+- Direct reconstruct phase selectors derive worker count from the selected phase `resource_class.cpu_cores`.
+- Downstream unit phases that already parallelize units receive capped `inputs.n_jobs` values aligned with their live resource gate.
+- Plot/report phases reserve `plot_slots` and heavy report RAM where configured.
+- Logs make resource class, worker count, gate acquisition, and phase-tune advisory details visible.
+
+Expected To Run:
+- Focused unit tests for direct reconstruct runtime dispatch, downstream worker allocation, generate-GTR batching, and resource-budget slot gating.
+- Import/syntax lint for touched Python files.
+- Limited real-data host smoke covering `generate_gtrs`, `plot_recons`, and `report_summaries`.
+
+Confirmed Not Run:
+- Full repository test suite.
+- Container image rebuild.
+- Multi-well phase-tune calibration.
+- Remote push.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_reconstruct_target_status.py::test_run_reconstruct_direct_phase_parallelism_uses_selected_resource_class src/axon_recon/pipeline/stages/reconstruct/tests/test_runner.py::test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_downstream_phases src/axon_recon/pipeline/stages/reconstruct/tests/test_runner.py::test_run_reconstruct_generate_gtrs_batches_logs_unified_progress src/axon_recon/pipeline/tests/test_resource_budget.py::test_phase_budget_limits_plot_slots_for_report_phases src/axon_recon/pipeline/tests/test_resource_budget.py::test_phase_budget_limits_cpu_and_ram_capacity -q` passed.
+- Lint: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m ruff check --select I,F src/axon_recon/pipeline/runner.py src/axon_recon/pipeline/tests/test_reconstruct_target_status.py src/axon_recon/pipeline/tests/test_resource_budget.py src/axon_recon/pipeline/stages/reconstruct/tests/test_runner.py` passed.
+- Real-data smoke: `/home/adamm/miniconda3/envs/axon_recon/bin/axon-reconstructor stages reconstruct.generate_gtrs reconstruct.plot_recons reconstruct.report_summaries --config debug/debug.runtime.yml --limit-datasets 1 --limit-wells 1 --limit-units 4 --phase-tune --force-restart` succeeded.
+- Logs inspected: `/tmp/axon_recon_downstream_parallelism_fix_smoke.log` showed `generate_gtrs` with `n_jobs=2`, `derived_unit_workers=2`, `unit_procs=2`, `plot_recons` with `resource_class=plot_unit`, `plot_slots=1`, and `max_threads=2`, and `report_summaries` with `resource_class=plot_report_grid`, `plot_slots=1`, and `max_threads=4`.
+- Artifacts inspected: phase-tune output updated under the configured `resource_tuning` output root.
+
+CLI / Debug Flag Impact:
+- No CLI flag changes.
+- Direct phase selectors continue to run only the requested phase and now show selected-phase worker allocation in logs.
+
+Logging / Parallelism Impact:
+- Direct reconstruct substages log `reconstruct phase worker allocation` with phase, resource class, `n_jobs`, and source.
+- Direct downstream reconstruct phases now align `pipeline_thread_count`/resource usage `max_threads` with selected phase resource-class CPU rather than the maximum across all enabled reconstruct phases.
+
+Storage / Cache Impact:
+- Created/modified smoke outputs, per-phase summaries, and phase-tune artifacts under the configured scratch output during validation.
+- No cache layout changes.
+
+Container / NERSC / MPI Impact:
+- No Dockerfile, container wrapper, NERSC, or MPI changes.
+
+Resume / Force-Restart Impact:
+- Smoke used `--force-restart` for the selected downstream phases only.
+- Resume behavior is unchanged.
+
+Residual Risk And Follow-Ups:
+- `generate_gtrs` still recorded expected per-unit data-quality failures for units with too few selected channels while the target completed successfully.
+- Multi-well calibration remains a separate tuning pass.
+
+Rollback Notes:
+- Revert the direct reconstruct phase resource-class selection change, direct worker allocation log, debug runtime `report_summaries` class change, and added tests to restore previous direct-phase behavior.
+
 ## 2026-05-06 - pending - ai: inline phase tune recommendations
 
 Status: accepted

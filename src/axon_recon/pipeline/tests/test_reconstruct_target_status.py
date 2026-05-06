@@ -9,6 +9,16 @@ import pytest
 from axon_recon.pipeline.execution.context import ExecutionTarget, StageParallelism
 from axon_recon.pipeline.runner import (
     run_reconstruct_clear_templates_cache_from_runtime,
+    run_reconstruct_from_runtime,
+    run_reconstruct_generate_gtrs_from_runtime,
+    run_reconstruct_plot_branch_propagations_from_runtime,
+    run_reconstruct_plot_branch_velocities_from_runtime,
+    run_reconstruct_plot_recons_from_runtime,
+    run_reconstruct_plot_unit_summary_from_runtime,
+    run_reconstruct_report_full_chip_layout_from_runtime,
+    run_reconstruct_report_recon_grid_from_runtime,
+    run_reconstruct_report_recons_from_runtime,
+    run_reconstruct_report_summaries_from_runtime,
     run_reconstruct_templates_analyzers_from_runtime,
     run_reconstruct_templates_build_templates_from_runtime,
     run_reconstruct_templates_compute_template_similarity_from_runtime,
@@ -16,19 +26,12 @@ from axon_recon.pipeline.runner import (
     run_reconstruct_templates_report_templates_from_runtime,
     run_reconstruct_templates_reports_from_runtime,
     run_reconstruct_templates_resolve_sources_from_runtime,
-    run_reconstruct_from_runtime,
-    run_reconstruct_generate_gtrs_from_runtime,
-    run_reconstruct_plot_branch_propagations_from_runtime,
-    run_reconstruct_plot_branch_velocities_from_runtime,
-    run_reconstruct_plot_unit_summary_from_runtime,
-    run_reconstruct_plot_recons_from_runtime,
-    run_reconstruct_report_full_chip_layout_from_runtime,
-    run_reconstruct_report_recon_grid_from_runtime,
-    run_reconstruct_report_recons_from_runtime,
-    run_reconstruct_report_summaries_from_runtime,
 )
 from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionInputs
-from axon_recon.pipeline.stages.reconstruct.models.results import ReconstructionResult, UnitReconstructionResult
+from axon_recon.pipeline.stages.reconstruct.models.results import (
+    ReconstructionResult,
+    UnitReconstructionResult,
+)
 
 
 def test_run_reconstruct_direct_phase_wraps_resource_chain(monkeypatch, tmp_path: Path) -> None:
@@ -88,6 +91,105 @@ def test_run_reconstruct_direct_phase_wraps_resource_chain(monkeypatch, tmp_path
     descriptor = seen_descriptors[0]
     assert descriptor.name == "generate_gtrs"
     assert descriptor.pipeline_thread_count == 3
+
+
+def test_run_reconstruct_direct_phase_parallelism_uses_selected_resource_class(monkeypatch, tmp_path: Path) -> None:
+    import axon_recon.pipeline.runner as pipeline_runner
+    from axon_recon.pipeline.stages.reconstruct.models.inputs import (
+        ReconstructionPhasesConfig,
+        ReconstructionPlotReconsPhaseConfig,
+        ReconstructionReportSummariesPhaseConfig,
+    )
+
+    target = ExecutionTarget(
+        dataset_index=0,
+        dataset_id="dataset_000:test.h5",
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+    )
+    stage_config = SimpleNamespace(
+        phase_sequence=(),
+        debug_mode_enabled=False,
+        debug_limit_datasets=None,
+        debug_limit_wells=None,
+        debug_limit_wells_per_dataset=None,
+        unit_limit=None,
+        limit_segments=None,
+        phases=SimpleNamespace(
+            plot_recons=SimpleNamespace(enabled=True, resource_class="plot_unit"),
+            report_summaries=SimpleNamespace(enabled=True, resource_class="plot_report_grid"),
+        ),
+    )
+    dummy_inputs = ReconstructionInputs(
+        h5_path=target.h5_path,
+        stream_id=target.stream_id,
+        mea_output_root=target.mea_output_root,
+        phases=ReconstructionPhasesConfig(
+            plot_recons=ReconstructionPlotReconsPhaseConfig(resource_class="plot_unit"),
+            report_summaries=ReconstructionReportSummariesPhaseConfig(resource_class="plot_report_grid"),
+        ),
+    )
+    seen_phase_resource_classes: list[tuple[str, ...]] = []
+    seen_unit_workers: list[int] = []
+    seen_descriptors: list[object] = []
+
+    class _DummyBundle:
+        runtime_config = object()
+        data_config = object()
+
+    def _fake_resolve_stage_parallelism(*, bundle, stage_name, target_count=None, targets=None, phase_resource_classes=None):
+        _ = bundle, stage_name, target_count, targets
+        seen_phase_resource_classes.append(tuple(phase_resource_classes or ()))
+        assert tuple(phase_resource_classes or ()) == ("plot_unit",)
+        return StageParallelism(
+            max_workers=36,
+            max_stage_workers=36,
+            well_workers=1,
+            unit_workers=2,
+            unit_workers_source="resource_class.cpu_cores",
+        )
+
+    def _fake_build_reconstruction_inputs_for_target(*, target, stage_config, unit_workers: int, probe_geometry):
+        _ = target, stage_config, probe_geometry
+        seen_unit_workers.append(int(unit_workers))
+        return dummy_inputs
+
+    def _fake_run_phase_chain(*, phases, logger, target_label, resource_key_context):
+        _ = logger, target_label, resource_key_context
+        descriptor = list(phases)[0]
+        seen_descriptors.append(descriptor)
+        return SimpleNamespace(result=descriptor.runner(), outcomes=())
+
+    def _fake_run_reconstruct_plot_recons(inputs: ReconstructionInputs):
+        assert inputs is dummy_inputs
+        return {
+            "phase": "plot_recons",
+            "summary_json": str(tmp_path / "plot_recons_summary.json"),
+            "units_ok": 1,
+            "units_error": 0,
+            "units": [{"unit_id": 94, "status": "ok", "outputs": {}, "error": None}],
+        }
+
+    monkeypatch.setattr(pipeline_runner, "load_pipeline_runtime_bundle", lambda *, config_path: _DummyBundle())
+    monkeypatch.setattr(pipeline_runner, "select_execution_targets", lambda *, bundle, **kwargs: [target])
+    monkeypatch.setattr(pipeline_runner, "resolve_stage_parallelism", _fake_resolve_stage_parallelism)
+    monkeypatch.setattr(pipeline_runner, "parse_probe_geometry_from_data_config", lambda *, data_config: None)
+    monkeypatch.setattr(pipeline_runner, "parse_reconstruction_stage_config", lambda **kwargs: stage_config)
+    monkeypatch.setattr(pipeline_runner, "build_reconstruction_inputs_for_target", _fake_build_reconstruction_inputs_for_target)
+    monkeypatch.setattr(pipeline_runner, "_build_stage_resource_budget_manager", lambda **kwargs: None)
+    monkeypatch.setattr(pipeline_runner, "run_reconstruct_plot_recons", _fake_run_reconstruct_plot_recons)
+    monkeypatch.setattr(pipeline_runner, "run_phase_chain", _fake_run_phase_chain)
+
+    agg = run_reconstruct_plot_recons_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+
+    assert agg.succeeded_targets == 1
+    assert seen_phase_resource_classes == [("plot_unit",)]
+    assert seen_unit_workers == [2]
+    assert seen_descriptors
+    descriptor = seen_descriptors[0]
+    assert descriptor.resource_class == "plot_unit"
+    assert descriptor.pipeline_thread_count == 2
 
 
 def test_run_reconstruct_from_runtime_marks_target_ok_when_any_unit_succeeds(monkeypatch, tmp_path: Path) -> None:
