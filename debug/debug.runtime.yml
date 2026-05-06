@@ -1089,7 +1089,8 @@ stages:
       - analyzers
       - build_templates
       #- compute_template_similarity
-      - plot_templates
+      #- plot_templates
+      #- plot_templates_v2
       - report_templates
       - generate_gtrs
       - plot_recons
@@ -1366,7 +1367,7 @@ stages:
           top_k_per_unit: 3
           max_pairs: 12
       plot_templates:
-        enabled: true
+        enabled: false
         resource_class: plot_unit
         debug_prints: false # when true, allow raw/unexpected plotting debug output from render helpers and third-party plot libraries.
         summary_json_relpath: context/plot_templates_summary.json
@@ -1378,7 +1379,7 @@ stages:
             output:
               write_png: true
               write_svg: false
-              dpi: 220
+              dpi: 420
               relpath: template_circles
             display:
               channel_scope: contributing_channels
@@ -1424,7 +1425,8 @@ stages:
                 units: "µV" # label for scale circle units; can be empty string if no units desired.
 
             render:
-              fast_render: true # speed-oriented render mode: clamp output DPI and skip expensive overlap/scale-circle/layout passes.
+              #fast_render: true # speed-oriented render mode: clamp output DPI and skip expensive overlap/scale-circle passes.
+              fast_render: true # keep false by default for debugging iterations to ensure all rendering features are applied for thorough visual inspection, but can be set to true to speed up iterations when plot formatting is the main focus and some rendering features can be sacrificed.
               background: black
               signal_color: white
               scale_bar_color: white
@@ -1485,6 +1487,96 @@ stages:
               scalebar_channel_overlap_detect: true # whether to check for overlaps between scale bar and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
               max_overlap_check_iterations: 10 # maximum number of iterations to attempt to resolve overlaps through zooming out; if exceeded, will give up and plot with overlaps.
               scalecircle_channel_overlap_detect: true # whether to check for overlaps between scale circle and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
+      plot_templates_v2:
+        enabled: true
+        resource_class: plot_unit
+        debug_prints: false
+        summary_json_relpath: context/plot_templates_v2_summary.json
+        output:
+          write_png: true
+          write_svg: false
+          dpi: 220
+          relpath: template_circles_v2
+          bbox_inches: null # null avoids the extra tight-bbox layout pass; set to tight only when needed.
+        display:
+          channel_scope: contributing_channels
+          size_by: amplitude
+          color_by: latency
+          padding_fraction: 0.08
+          padding_um: null
+          x_min: null
+          x_max: null
+          y_min: null
+          y_max: null
+          force_square_aspect: true
+          center_on_peak: false
+          invert_y_axis: true
+          show_axes: false
+          show_axis_labels: false
+        render:
+          background: black
+          marker_color: white
+          edge_color: none
+          marker_linewidth: 0
+          marker_alpha: 0.92
+          marker_min_size: 8
+          marker_max_size: 50
+          cmap: viridis
+        layout:
+          figsize: [8.0, 6.0]
+          left: 0.06
+          right: 0.88
+          bottom: 0.06
+          top: 0.94
+        title:
+          show: true
+          text: "Unit {unit_id}"
+          x: 0.5
+          y: 0.98
+          fontsize: 9
+          color: white
+          horizontal_alignment: center
+          vertical_alignment: top
+        unit_id_label:
+          show: false
+          text: "{unit_id}"
+          x: 0.98
+          y: 0.98
+          fontsize: 8
+          color: white
+          horizontal_alignment: right
+          vertical_alignment: top
+        coords:
+          show: true
+          text: "x={x_um:.1f} um, y={y_um:.1f} um"
+          x: 0.02
+          y: 0.02
+          fontsize: 7
+          color: white
+          horizontal_alignment: left
+          vertical_alignment: bottom
+        colorbar:
+          show: true
+          label: ""
+          units: ms
+          fontsize: 7
+          tick_fontsize: 6
+          color: white
+          x: 0.90
+          y: 0.14
+          width: 0.025
+          height: 0.70
+        scale_bar:
+          show: true
+          length_um: 100
+          label: "{length_um:g} um"
+          x: 0.96
+          y: 0.06
+          fontsize: 6
+          color: white
+          linewidth: 1.6
+          horizontal_alignment: right
+          text_y_offset: 0.018
       report_templates:
         enabled: true
         resource_class: plot_report_grid

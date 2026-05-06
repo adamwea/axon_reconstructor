@@ -215,13 +215,10 @@ def test_load_config_reconstruct_populates_templates_inputs_from_debug_runtime()
 	inputs = load_reconstruction_inputs_from_runtime(config_path=str(repo_root / "debug" / "debug.runtime.yml"))
 	assert inputs.templates_inputs is not None
 	assert isinstance(inputs.templates_inputs, TemplatesInputs)
-	assert inputs.templates_inputs.per_unit_outputs.template_circles.fast_render is True
-	assert inputs.templates_inputs.per_unit_outputs.template_circles.dpi == 220.0
 	assert inputs.debug_prints is False
 	assert inputs.phase_sequence == (
 		"templates_analyzers",
 		"templates_build_templates",
-		"templates_plot_templates",
 		"templates_report_templates",
 		"generate_gtrs",
 		"plot_recons",
@@ -234,6 +231,17 @@ def test_load_config_reconstruct_populates_templates_inputs_from_debug_runtime()
 		"report_summaries",
 		"clear_templates_cache",
 	)
+	v2 = inputs.templates_inputs.phases.plot_templates_v2
+	assert v2.enabled is True
+	assert v2.resource_class == "plot_unit"
+	assert v2.output_relpath == "template_circles_v2"
+	assert v2.write_png is True
+	assert v2.write_svg is False
+	assert v2.dpi == 220.0
+	assert v2.bbox_inches is None
+	assert v2.coords.show is True
+	assert v2.colorbar.x == 0.90
+	assert v2.scale_bar.length_um == 100.0
 
 
 def test_load_config_reconstruct_reads_runtime_unit_ids(tmp_path: Path) -> None:

@@ -24,6 +24,8 @@ from ..models.inputs import (
 	PropagationPlotConfig,
 	TemplateCirclesOverlapControlsConfig,
 	TemplateCirclesPlotConfig,
+	TemplatePlotTemplatesV2PhaseConfig,
+	TemplatePlotV2TextConfig,
 	TemplatePlotConfig,
 	TemplateWaveformOverlayConfig,
 	TopographicalFootprintConfig,
@@ -1547,6 +1549,331 @@ def render_template_plot(
 	return outputs
 
 
+def _template_plot_v2_metric(
+	metric: str,
+	*,
+	amplitude: np.ndarray,
+	negative_peak: np.ndarray,
+	latency: np.ndarray,
+) -> np.ndarray | None:
+	token = str(metric or "").strip().lower().replace("-", "_").replace(" ", "_")
+	if token in {"", "fixed", "none", "constant"}:
+		return None
+	if token in {"latency", "delay"}:
+		return np.asarray(latency, dtype=float)
+	if token in {"negative_peak", "neg_peak", "peak"}:
+		return np.asarray(negative_peak, dtype=float)
+	return np.asarray(amplitude, dtype=float)
+
+
+def _format_template_plot_v2_text(text: str, values: dict[str, Any]) -> str:
+	try:
+		return str(text).format(**values)
+	except Exception:
+		return str(text)
+
+
+def _draw_template_plot_v2_text(
+	ax: Any,
+	config: TemplatePlotV2TextConfig,
+	*,
+	default_text: str,
+	values: dict[str, Any],
+) -> None:
+	if not bool(config.show):
+		return
+	text = str(config.text or default_text)
+	if not text.strip():
+		return
+	ax.text(
+		float(config.x),
+		float(config.y),
+		_format_template_plot_v2_text(text, values),
+		transform=ax.transAxes,
+		fontsize=float(config.fontsize),
+		color=str(config.color),
+		horizontalalignment=str(config.horizontal_alignment),
+		verticalalignment=str(config.vertical_alignment),
+	)
+
+
+def _template_plot_v2_limits(
+	locs: np.ndarray,
+	config: TemplatePlotTemplatesV2PhaseConfig,
+	*,
+	peak_xy: tuple[float, float] | None,
+) -> tuple[float, float, float, float]:
+	finite_locs = np.asarray(locs, dtype=float)
+	finite_locs = finite_locs[np.isfinite(finite_locs).all(axis=1)]
+	if int(finite_locs.shape[0]) == 0:
+		raise ValueError("No finite channel locations available for plot_templates_v2")
+	xmin = float(np.min(finite_locs[:, 0]))
+	xmax = float(np.max(finite_locs[:, 0]))
+	ymin = float(np.min(finite_locs[:, 1]))
+	ymax = float(np.max(finite_locs[:, 1]))
+	x_span = float(max(abs(xmax - xmin), 1.0))
+	y_span = float(max(abs(ymax - ymin), 1.0))
+	if config.padding_um is not None:
+		x_pad = float(max(0.0, float(config.padding_um)))
+		y_pad = float(max(0.0, float(config.padding_um)))
+	else:
+		padding_fraction = float(max(0.0, float(config.padding_fraction)))
+		x_pad = x_span * padding_fraction
+		y_pad = y_span * padding_fraction
+	xmin -= x_pad
+	xmax += x_pad
+	ymin -= y_pad
+	ymax += y_pad
+	if config.x_min is not None:
+		xmin = float(config.x_min)
+	if config.x_max is not None:
+		xmax = float(config.x_max)
+	if config.y_min is not None:
+		ymin = float(config.y_min)
+	if config.y_max is not None:
+		ymax = float(config.y_max)
+	if float(xmax) <= float(xmin):
+		xmax = float(xmin) + 1.0
+	if float(ymax) <= float(ymin):
+		ymax = float(ymin) + 1.0
+	if bool(config.force_square_aspect):
+		center = peak_xy if bool(config.center_on_peak) else None
+		xmin, xmax, ymin, ymax = _make_square_limits(xmin, xmax, ymin, ymax, center_xy=center)
+	return float(xmin), float(xmax), float(ymin), float(ymax)
+
+
+def _draw_template_plot_v2_scale_bar(ax: Any, config: TemplatePlotTemplatesV2PhaseConfig) -> None:
+	scale_bar = config.scale_bar
+	if not bool(scale_bar.show):
+		return
+	x_limits = ax.get_xlim()
+	x_span = float(abs(float(x_limits[1]) - float(x_limits[0])))
+	if x_span <= 0.0:
+		return
+	length_um = float(scale_bar.length_um) if scale_bar.length_um is not None else x_span * 0.20
+	length_frac = float(max(0.0, min(1.0, length_um / x_span)))
+	x_anchor = float(scale_bar.x)
+	alignment = str(scale_bar.horizontal_alignment or "right").strip().lower()
+	if alignment == "center":
+		x0 = x_anchor - (0.5 * length_frac)
+		x1 = x_anchor + (0.5 * length_frac)
+	elif alignment == "left":
+		x0 = x_anchor
+		x1 = x_anchor + length_frac
+	else:
+		x0 = x_anchor - length_frac
+		x1 = x_anchor
+	y_position = float(scale_bar.y)
+	ax.plot(
+		[x0, x1],
+		[y_position, y_position],
+		transform=ax.transAxes,
+		color=str(scale_bar.color),
+		linewidth=float(scale_bar.linewidth),
+		solid_capstyle="butt",
+		clip_on=False,
+	)
+	label = _format_template_plot_v2_text(str(scale_bar.label), {"length_um": length_um})
+	if label.strip():
+		ax.text(
+			0.5 * (x0 + x1),
+			y_position + float(scale_bar.text_y_offset),
+			label,
+			transform=ax.transAxes,
+			color=str(scale_bar.color),
+			fontsize=float(scale_bar.fontsize),
+			horizontalalignment="center",
+			verticalalignment="bottom",
+		)
+
+
+def render_template_circles_plot_v2(
+	*,
+	template: Any,
+	locations_xy: Any,
+	config: TemplatePlotTemplatesV2PhaseConfig,
+	png_path: Path,
+	svg_path: Path,
+	probe_geometry: ProbeGeometryConfig | None = None,
+	unit_id: Any | None = None,
+) -> dict[str, str]:
+	import matplotlib
+
+	matplotlib.use("Agg")
+	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+
+	locs = np.asarray(locations_xy, dtype=float)
+	if locs.ndim != 2 or int(locs.shape[1]) < 2:
+		raise ValueError(f"Expected locations shape (n,2+), got {getattr(locs, 'shape', None)}")
+	locs = locs[:, :2]
+
+	template_c_by_t = _as_template_channels_by_time(template, int(locs.shape[0]))
+	if int(template_c_by_t.shape[0]) != int(locs.shape[0]):
+		raise ValueError(
+			f"Template/locations size mismatch: template_channels={template_c_by_t.shape[0]} locations={locs.shape[0]}"
+		)
+
+	resolved_probe_geometry = _resolve_probe_geometry_sampling_rate(
+		probe_geometry=probe_geometry,
+		png_path=png_path,
+		svg_path=svg_path,
+		unit_id=unit_id,
+	)
+	amplitude = np.ptp(template_c_by_t, axis=1)
+	negative_peak = np.abs(np.min(template_c_by_t, axis=1))
+	min_indices = np.argmin(template_c_by_t, axis=1).astype(float)
+	peak_index = int(np.argmax(negative_peak)) if negative_peak.size > 0 else 0
+	reference_index = float(min_indices[peak_index]) if min_indices.size > 0 else 0.0
+	latency_samples = min_indices - reference_index
+	latency, latency_units_label = _convert_latency_samples_to_units(
+		latency_samples,
+		units=str(config.color_bar_units or ""),
+		probe_geometry=resolved_probe_geometry,
+	)
+
+	size_values = _template_plot_v2_metric(
+		str(config.size_by),
+		amplitude=amplitude,
+		negative_peak=negative_peak,
+		latency=latency,
+	)
+	if size_values is None:
+		marker_sizes = np.full((int(locs.shape[0]),), float(config.marker_max_size), dtype=float)
+	else:
+		size_norm = np.asarray(np.abs(size_values), dtype=float)
+		size_norm = np.nan_to_num(size_norm, nan=0.0, posinf=0.0, neginf=0.0)
+		max_size_value = float(np.max(size_norm)) if size_norm.size > 0 else 0.0
+		if max_size_value > 0.0:
+			size_norm = size_norm / max_size_value
+		marker_sizes = float(config.marker_min_size) + ((float(config.marker_max_size) - float(config.marker_min_size)) * size_norm)
+
+	color_values = _template_plot_v2_metric(
+		str(config.color_by),
+		amplitude=amplitude,
+		negative_peak=negative_peak,
+		latency=latency,
+	)
+	peak_xy = None
+	if 0 <= peak_index < int(locs.shape[0]) and bool(np.isfinite(locs[peak_index, :]).all()):
+		peak_xy = (float(locs[peak_index, 0]), float(locs[peak_index, 1]))
+	xmin, xmax, ymin, ymax = _template_plot_v2_limits(locs, config, peak_xy=peak_xy)
+
+	fig, ax = plt.subplots(figsize=tuple(config.figsize))
+	fig.patch.set_facecolor(str(config.background))
+	ax.set_facecolor(str(config.background))
+	fig.subplots_adjust(
+		left=float(config.figure_left),
+		right=float(config.figure_right),
+		bottom=float(config.figure_bottom),
+		top=float(config.figure_top),
+	)
+	ax.set_xlim(xmin, xmax)
+	ax.set_ylim(ymin, ymax)
+	if bool(config.invert_y_axis):
+		ax.invert_yaxis()
+	ax.set_aspect("equal", adjustable="box")
+
+	scatter_kwargs: dict[str, Any] = {
+		"s": marker_sizes,
+		"alpha": float(config.marker_alpha),
+		"linewidths": float(config.marker_linewidth),
+	}
+	if str(config.edge_color).strip().lower() not in {"", "none"}:
+		scatter_kwargs["edgecolors"] = str(config.edge_color)
+	else:
+		scatter_kwargs["edgecolors"] = "none"
+	if color_values is None:
+		scatter = ax.scatter(locs[:, 0], locs[:, 1], color=str(config.marker_color), **scatter_kwargs)
+	else:
+		color_values = np.asarray(color_values, dtype=float)
+		finite_colors = color_values[np.isfinite(color_values)]
+		if int(finite_colors.size) == 0:
+			finite_colors = np.asarray([0.0, 1.0], dtype=float)
+		vmin = float(np.min(finite_colors))
+		vmax = float(np.max(finite_colors))
+		if vmax <= vmin:
+			vmax = vmin + 1.0
+		scatter = ax.scatter(
+			locs[:, 0],
+			locs[:, 1],
+			c=color_values,
+			cmap=str(config.cmap),
+			vmin=vmin,
+			vmax=vmax,
+			**scatter_kwargs,
+		)
+
+	axes_color = str(config.axis_label_color)
+	for spine in ax.spines.values():
+		spine.set_color(axes_color)
+	if bool(config.show_axis_labels):
+		ax.set_xlabel("x (um)", color=axes_color)
+		ax.set_ylabel("y (um)", color=axes_color)
+	ax.tick_params(colors=axes_color, labelsize=6)
+	if not bool(config.show_axes):
+		ax.set_axis_off()
+
+	text_values = {
+		"unit_id": unit_id,
+		"x_um": None if peak_xy is None else float(peak_xy[0]),
+		"y_um": None if peak_xy is None else float(peak_xy[1]),
+		"latency_units": latency_units_label,
+	}
+	_draw_template_plot_v2_text(ax, config.title, default_text="Unit {unit_id}", values=text_values)
+	_draw_template_plot_v2_text(ax, config.unit_id_label, default_text="{unit_id}", values=text_values)
+	if peak_xy is not None:
+		_draw_template_plot_v2_text(
+			ax,
+			config.coords,
+			default_text="x={x_um:.1f} um, y={y_um:.1f} um",
+			values=text_values,
+		)
+	_draw_template_plot_v2_scale_bar(ax, config)
+
+	colorbar = config.colorbar
+	if color_values is not None and bool(colorbar.show):
+		colorbar_axes = None
+		if None not in {colorbar.x, colorbar.y, colorbar.width, colorbar.height}:
+			colorbar_axes = fig.add_axes([
+				float(colorbar.x),
+				float(colorbar.y),
+				float(colorbar.width),
+				float(colorbar.height),
+			])
+		if colorbar_axes is None:
+			cbar = fig.colorbar(scatter, ax=ax, fraction=float(colorbar.fraction), pad=float(colorbar.pad))
+		else:
+			cbar = fig.colorbar(scatter, cax=colorbar_axes)
+		label = str(colorbar.label or "").strip()
+		if not label:
+			metric = str(config.color_by or "amplitude").strip().lower()
+			if metric == "latency":
+				label = f"Latency ({latency_units_label})" if latency_units_label else "Latency"
+			else:
+				label = "Amplitude"
+		cbar.set_label(label, color=str(colorbar.color), fontsize=float(colorbar.fontsize))
+		cbar.ax.tick_params(labelsize=float(colorbar.tick_fontsize), colors=str(colorbar.color))
+		cbar.outline.set_edgecolor(str(colorbar.color))
+
+	outputs: dict[str, str] = {}
+	savefig_kwargs: dict[str, Any] = {
+		"dpi": max(72.0, float(config.dpi)),
+		"facecolor": fig.get_facecolor(),
+	}
+	if config.bbox_inches is not None:
+		savefig_kwargs["bbox_inches"] = str(config.bbox_inches)
+	if bool(config.write_png):
+		png_path.parent.mkdir(parents=True, exist_ok=True)
+		fig.savefig(png_path, **savefig_kwargs)
+		outputs["template_circles_v2_png"] = str(png_path)
+	if bool(config.write_svg):
+		svg_path.parent.mkdir(parents=True, exist_ok=True)
+		fig.savefig(svg_path, format="svg", **savefig_kwargs)
+		outputs["template_circles_v2_svg"] = str(svg_path)
+	plt.close(fig)
+	return outputs
+
+
 def render_template_circles_plot(
 	*,
 	template: Any,
@@ -1572,7 +1899,6 @@ def render_template_circles_plot(
 	import matplotlib.pyplot as plt  # type: ignore[import-not-found]
 
 	config = _resolve_fast_render_template_circles_config(config)
-	fast_render = bool(getattr(config, "fast_render", False))
 
 	locs = np.asarray(locations_xy, dtype=float)
 	if locs.ndim != 2 or int(locs.shape[1]) < 2:
@@ -1745,32 +2071,21 @@ def render_template_circles_plot(
 		reference_value=scale_circle_ref_value,
 	)
 
-	if fast_render:
-		cbar_mappable = plt.cm.ScalarMappable(norm=color_norm, cmap=plt.get_cmap(circles_cmap))
-		cbar_mappable.set_array(color_values)
-		cbar = fig.colorbar(
-			cbar_mappable,
-			ax=ax,
-			fraction=0.04,
-			pad=0.03,
-			extend="neither",
-		)
-	else:
-		# Build deterministic colorbar patch bounds in color-space. For piecewise zero-boundary
-		# mode this keeps zero exactly at the first/second color-range transition.
-		bounds = np.asarray(color_norm.inverse(np.linspace(0.0, 1.0, 257, dtype=float)), dtype=float)
-		boundary_norm = plt.matplotlib.colors.BoundaryNorm(boundaries=bounds, ncolors=plt.get_cmap(circles_cmap).N, clip=True)
-		cbar_mappable = plt.cm.ScalarMappable(norm=boundary_norm, cmap=plt.get_cmap(circles_cmap))
-		cbar_mappable.set_array(color_values)
-		cbar = fig.colorbar(
-			cbar_mappable,
-			ax=ax,
-			fraction=0.04,
-			pad=0.03,
-			extend="neither",
-			boundaries=bounds,
-			spacing="proportional",
-		)
+	# Build deterministic colorbar patch bounds in color-space. For piecewise zero-boundary
+	# mode this keeps zero exactly at the first/second color-range transition.
+	bounds = np.asarray(color_norm.inverse(np.linspace(0.0, 1.0, 257, dtype=float)), dtype=float)
+	boundary_norm = plt.matplotlib.colors.BoundaryNorm(boundaries=bounds, ncolors=plt.get_cmap(circles_cmap).N, clip=True)
+	cbar_mappable = plt.cm.ScalarMappable(norm=boundary_norm, cmap=plt.get_cmap(circles_cmap))
+	cbar_mappable.set_array(color_values)
+	cbar = fig.colorbar(
+		cbar_mappable,
+		ax=ax,
+		fraction=0.04,
+		pad=0.03,
+		extend="neither",
+		boundaries=bounds,
+		spacing="proportional",
+	)
 
 	label_color = "white" if str(config.background or "").strip().lower() == "black" else "black"
 	show_axes_title = bool(config.color_bar_show_axes_title)
@@ -1995,12 +2310,11 @@ def render_template_circles_plot(
 			_expand_axes_limits(0.10)
 			_refresh_overlay_artists()
 
-	if not fast_render:
-		# Compute final non-overlapping sizes after colorbar/layout has finalized axis dimensions.
-		fig.canvas.draw()
-		_update_non_overlapping_sizes_for_current_axes()
-		if bool(getattr(config, "show_scale_circle", False)):
-			_refresh_overlay_artists()
+	# Compute final non-overlapping sizes after colorbar/layout has finalized axis dimensions.
+	fig.canvas.draw()
+	_update_non_overlapping_sizes_for_current_axes()
+	if bool(getattr(config, "show_scale_circle", False)):
+		_refresh_overlay_artists()
 
 	if bool(getattr(config, "show_propagation_order_labels", False)):
 		rank_map = dict(propagation_order_rank_by_channel or {})
@@ -2040,29 +2354,21 @@ def render_template_circles_plot(
 	outputs: dict[str, str] = {}
 	if bool(config.write_png):
 		png_path.parent.mkdir(parents=True, exist_ok=True)
-		savefig_kwargs: dict[str, Any] = {
-			"dpi": max(72.0, float(getattr(config, "dpi", 300.0))),
-			"facecolor": fig.get_facecolor(),
-		}
-		if not fast_render:
-			savefig_kwargs["bbox_inches"] = "tight"
 		fig.savefig(
 			png_path,
-			**savefig_kwargs,
+			dpi=max(72.0, float(getattr(config, "dpi", 300.0))),
+			bbox_inches="tight",
+			facecolor=fig.get_facecolor(),
 		)
 		outputs["template_circles_png"] = str(png_path)
 	if bool(config.write_svg):
 		svg_path.parent.mkdir(parents=True, exist_ok=True)
-		savefig_kwargs = {
-			"format": "svg",
-			"dpi": max(72.0, float(getattr(config, "dpi", 300.0))),
-			"facecolor": fig.get_facecolor(),
-		}
-		if not fast_render:
-			savefig_kwargs["bbox_inches"] = "tight"
 		fig.savefig(
 			svg_path,
-			**savefig_kwargs,
+			format="svg",
+			dpi=max(72.0, float(getattr(config, "dpi", 300.0))),
+			bbox_inches="tight",
+			facecolor=fig.get_facecolor(),
 		)
 		outputs["template_circles_svg"] = str(svg_path)
 

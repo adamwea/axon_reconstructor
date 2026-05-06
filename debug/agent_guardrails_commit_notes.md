@@ -91,76 +91,77 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-06 10:23 PDT - pending - ai: lighten template circle rendering
+## 2026-05-06 - pending - ai: add lightweight plot templates v2
 
 Status: accepted
 
 Summary:
-- Enabled `fast_render` for `templates.plot_templates` circle outputs in `debug/debug.runtime.yml` and lowered circle PNG DPI from 420 to 220 for the active debug runtime.
-- Made `render_template_circles_plot` fast mode skip the final canvas draw/non-overlapping circle-size pass, avoid the 257-boundary patched colorbar, and save without `bbox_inches="tight"`.
-- Left the high-fidelity render path unchanged for cases where exact overlap checks, scale-circle placement, and tight output bounds are required.
-- Added focused tests proving fast mode clamps DPI, skips scale-circle and final non-overlap sizing, uses the simpler colorbar path, and avoids tight-bbox savefig.
+- Added a separate `plot_templates_v2` template phase that loads current `cache/templates/{merged,full}` artifacts directly and renders one minimal circle plot per selected unit without calling the legacy overlap/layout adjustment renderer path.
+- Added typed v2 knobs for output path/DPI, channel scope, marker sizing/coloring, explicit plot limits/padding, fixed title/unit/coordinate text positions, direct colorbar axes, and scale-bar placement.
+- Wired `reconstruct.plot_templates_v2` through config parsing, reconstruct/template phase dispatch, direct runtime execution, and the top-level CLI stage selector.
+- Filled the debug runtime `plot_templates_v2` block while leaving it out of the full reconstruct `phase_sequence` so it can be tested as an explicit direct phase.
+- Added focused coverage for v2 config parsing, renderer output without overlap sizing, phase summary/unit-summary writes, reconstruct phase dispatch, debug-runtime parsing, and CLI selector parsing.
 
 Guardrails Consulted:
 - `debug/optimization_simplificaiton_guardrails.md`
 - `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
+- `debug/cli_debug_flags_agent_guardrails.md`
 - `debug/logging_agent_guardrails.md`
 
 Acceptance Criteria:
-- Plot-template circle rendering is cheaper without adding new real-data runs or changing the full-quality renderer path.
-- Active debug runtime uses the speed-oriented circle-render mode by default.
-- Focused synthetic tests cover the optimized fast-render behavior and verify the normal final-layout sizing path still runs outside fast mode.
-- No real-data reconstruct, plot, cache-clear, or GTR phase is started while the user's build_templates run is active.
+- `stages reconstruct.plot_templates_v2` resolves to a direct reconstruct template phase.
+- V2 plotting has no overlap checks, no iterative zoom-out loop, and no final non-overlapping circle sizing pass.
+- V2 plot decoration is controlled by explicit inclusion and position knobs rather than automatic overlap logic.
+- The phase writes per-unit output paths and a phase summary without running real-data CLI during this slice.
 
 Expected To Run:
-- Focused synthetic pytest coverage for circle rendering and debug runtime config parsing.
-- Full synthetic render test module.
-- Focused Ruff check on touched Python files, ignoring known pre-existing import/order and unused-name debt.
+- Focused pytest coverage for v2 render/config/phase/CLI dispatch.
+- Syntax compile and focused Ruff checks on touched Python files.
+- VS Code diagnostics for touched Python/YAML files.
 
 Confirmed Not Run:
-- Real-data CLI runs or smokes.
+- Real-data CLI or container smoke; Adam planned to test in the CLI after implementation.
 - Full repository test suite.
-- Cache-clearing phase against real outputs.
 - Container image rebuild.
 - Remote push.
 
 Validation:
-- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_render.py::test_render_template_circles_plot_fast_render_clamps_dpi_and_skips_scale_circle src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_render.py::test_render_template_circles_plot_sets_non_overlapping_sizes_in_final_layout src/axon_recon/pipeline/stages/reconstruct/tests/test_config.py::test_load_config_reconstruct_populates_templates_inputs_from_debug_runtime` passed.
-- Render tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_render.py` passed, 80 tests.
-- Lint: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m ruff check --select F,I --ignore F401,F821,F841,I001 src/axon_recon/pipeline/stages/reconstruct/templates/core/render.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_render.py src/axon_recon/pipeline/stages/reconstruct/tests/test_config.py` passed. Ignored categories cover known pre-existing import-order, unused-name, and annotation-name debt in these large modules.
+- Syntax: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m py_compile src/axon_recon/pipeline/stages/reconstruct/templates/core/render.py src/axon_recon/pipeline/stages/reconstruct/phases/plot_templates_v2.py src/axon_recon/pipeline/stages/reconstruct/templates/config.py src/axon_recon/pipeline/stages/reconstruct/templates/models/inputs.py src/axon_recon/pipeline/stages/reconstruct/runner.py src/axon_recon/pipeline/runner.py src/axon_recon/pipeline/cli.py src/axon_recon/pipeline/stages/reconstruct/cli.py` passed.
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_render.py::test_render_template_circles_plot_v2_writes_outputs_without_overlap_pass src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_config.py::test_load_templates_config_parses_plot_templates_v2_phase_block src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py::test_run_reconstruct_templates_plot_templates_v2_phase_writes_direct_outputs src/axon_recon/pipeline/stages/reconstruct/tests/test_runner.py::test_reconstruct_phase_resolver_handles_templates_phases src/axon_recon/pipeline/stages/reconstruct/tests/test_config.py::test_load_config_reconstruct_populates_templates_inputs_from_debug_runtime src/axon_recon/pipeline/tests/test_cli_stage_sequence.py::test_parse_stage_list_tokens_supports_reconstruct_phase_tokens` passed, 33 tests.
+- Lint: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m ruff check --select F,I --ignore I001,F821,F841 ...` passed for touched Python files. `F821`/`F841` were ignored for known pre-existing debt in the large render test/helper files.
 - Diagnostics: VS Code diagnostics reported no errors for touched Python/YAML files.
-- Real-data smoke: not run by explicit user request.
+- Real-data smoke: not run by request; Adam will test via CLI.
 - Logs inspected: none for this slice.
 - Artifacts inspected: no real output artifacts inspected or modified.
-- Not run: no real-data plot smoke, no full reconstruct stage, no cache clear.
+- Not run: no real-data reconstruct, no cache clear, no full suite.
 
 CLI / Debug Flag Impact:
-- No CLI flag changes.
-- `debug/debug.runtime.yml` now requests fast circle rendering and 220 DPI for plot-template circle PNGs.
+- New direct selector: `reconstruct.plot_templates_v2` plus `recon.*`, `reconstruction.*`, and `templates_*` aliases.
+- Existing debug/target flags flow through the shared reconstruct runtime path for the new phase.
+- `debug/debug.runtime.yml` now contains a `plot_templates_v2` knob block and keeps the full reconstruct sequence from running it unless selected explicitly.
 
 Logging / Parallelism Impact:
-- No new log fields, worker counts, or phase parallelism changes.
-- Renderer fast mode reduces per-unit Matplotlib work inside the already sequential `plot_templates` loop.
+- Adds start, per-unit render, summary, and run-stats logs for `templates.plot_templates_v2`.
+- No new inner plot parallelism; v2 renders units sequentially inside the direct phase handler.
 
 Storage / Cache Impact:
-- Created: none.
-- Modified: debug runtime config, renderer code, focused tests, and this commit note.
+- Created: per-unit `template_circles_v2.{png,svg}` paths when requested and `context/plot_templates_v2_summary.json`.
+- Modified: per-unit `unit_templates_summary.json` gains `template_circles_v2` output metadata when the phase runs.
 - Removed: none.
 
 Container / NERSC / MPI Impact:
 - No Dockerfile, container wrapper, NERSC, or MPI changes.
 
 Resume / Force-Restart Impact:
-- No resume or force-restart semantics changed.
-- Existing circle PNGs remain resumable/skippable according to the plot phase's existing output checks.
+- V2 skips existing requested PNG/SVG outputs unless `force_restart`, `force_replot`, or `force_replot_per_unit` is set.
+- No cache deletion or template rebuild behavior changed.
 
 Residual Risk And Follow-Ups:
-- Fast circle PNGs can have more whitespace and less exact circle-size de-overlap than the full-quality path because tight bbox and final layout sizing are intentionally skipped.
-- A real-data timing comparison is still needed after the active build_templates run is safe to leave alone.
+- V2 intentionally trades automatic label/colorbar/scale-bar overlap protection for simpler fixed-position controls, so visual tuning is now a YAML responsibility.
+- A one-unit real-data CLI smoke is still needed to inspect the actual formatting and timing.
 
 Rollback Notes:
-- Revert the fast-mode render changes and restore `debug/debug.runtime.yml` circle `dpi: 420` and `fast_render: false` to return to the previous high-fidelity plotting default.
+- Revert the v2 phase/config/CLI wiring and remove the `plot_templates_v2` block from the debug runtime to return to the previous plot-template surface.
 
 ## 2026-05-06 - pending - ai: restrict plot templates resources
 

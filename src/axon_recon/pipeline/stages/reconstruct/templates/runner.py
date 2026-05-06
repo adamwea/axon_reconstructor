@@ -922,6 +922,8 @@ def run_reconstruct_templates_pipeline(inputs: TemplatesInputs) -> TemplatesResu
 			return _resource_class(inputs.phases.compute_template_similarity)
 		if phase == "plot_templates":
 			return _resource_class(inputs.phases.plot_templates)
+		if phase == "plot_templates_v2":
+			return _resource_class(getattr(inputs.phases, "plot_templates_v2", None))
 		if phase == "report_templates":
 			return _resource_class(inputs.phases.report_templates)
 		if phase == "reports":
@@ -982,6 +984,9 @@ def _normalize_reconstruct_templates_phase_name(raw: Any) -> str:
 		"compute_similarity": "compute_template_similarity",
 		"plot": "plot_templates",
 		"plots": "plot_templates",
+		"plot_templates_v2": "plot_templates_v2",
+		"plots_v2": "plot_templates_v2",
+		"template_plots_v2": "plot_templates_v2",
 		"template_report": "report_templates",
 		"per_unit_processing.build_templates": "build_templates",
 		"per_unit_processing.plots": "plot_templates",
@@ -1002,6 +1007,9 @@ def _reconstruct_templates_phase_enabled(inputs: TemplatesInputs, phase_name: st
 		return bool(phases.compute_template_similarity.enabled)
 	if phase == "plot_templates":
 		return bool(phases.plot_templates.enabled)
+	if phase == "plot_templates_v2":
+		phase_cfg = getattr(phases, "plot_templates_v2", None)
+		return bool(False if phase_cfg is None else phase_cfg.enabled)
 	if phase == "report_templates":
 		return bool(phases.report_templates.enabled)
 	if phase == "reports":
@@ -1023,6 +1031,8 @@ def _reconstruct_templates_phase_runner(phase_name: str) -> Callable[[TemplatesI
 		return run_reconstruct_templates_compute_template_similarity_phase
 	if phase == "plot_templates":
 		return run_reconstruct_templates_plot_templates_phase
+	if phase == "plot_templates_v2":
+		return run_reconstruct_templates_plot_templates_v2_phase
 	if phase == "report_templates":
 		return run_reconstruct_templates_report_templates_phase
 	if phase == "reports":
@@ -1874,7 +1884,10 @@ def _resolve_plot_templates_execution_plan(
 
 
 def _debug_prints_enabled(inputs: TemplatesInputs) -> bool:
-	return bool(getattr(inputs.phases.plot_templates, "debug_prints", False))
+	return bool(
+		getattr(inputs.phases.plot_templates, "debug_prints", False)
+		or getattr(getattr(inputs.phases, "plot_templates_v2", None), "debug_prints", False)
+	)
 
 
 @contextmanager
@@ -2096,6 +2109,14 @@ def run_reconstruct_templates_plot_templates_phase(inputs: TemplatesInputs) -> d
 	)
 
 	return run_reconstruct_templates_plot_templates_phase(inputs)
+
+
+def run_reconstruct_templates_plot_templates_v2_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+	from axon_recon.pipeline.stages.reconstruct.phases.plot_templates_v2 import (
+		run_reconstruct_templates_plot_templates_v2_phase,
+	)
+
+	return run_reconstruct_templates_plot_templates_v2_phase(inputs)
 
 
 def run_reconstruct_templates_per_unit_processing_phase(inputs: TemplatesInputs) -> dict[str, Any]:

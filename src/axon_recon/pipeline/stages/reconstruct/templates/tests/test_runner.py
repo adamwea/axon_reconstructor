@@ -20,6 +20,9 @@ from axon_recon.pipeline.stages.reconstruct.phases.plot_templates import (
 	_resolve_plot_templates_execution_plan,
 	_run_reconstruct_templates_plot_batches,
 )
+from axon_recon.pipeline.stages.reconstruct.phases.plot_templates_v2 import (
+	run_reconstruct_templates_plot_templates_v2_phase,
+)
 from axon_recon.pipeline.stages.reconstruct.templates.core.template_similarity_methods import (
 	build_template_similarity_features,
 	compute_pairwise_template_similarity,
@@ -52,6 +55,7 @@ from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import (
 	TemplateComputeSimilarityPhaseConfig,
 	TemplatePerUnitProcessingPhaseConfig,
 	TemplatePlotConfig,
+	TemplatePlotTemplatesV2PhaseConfig,
 	TemplatePlotsPhaseConfig,
 	TemplatesAnalyzersPhaseConfig,
 	TemplateSimilarityCandidateSelectionConfig,
@@ -3761,6 +3765,48 @@ def test_run_reconstruct_templates_plot_templates_phase_writes_circle_plots_only
 	assert not (well_out_dir / "templates_outputs" / "units" / "0094" / "extremum_ch_wf_overlay.png").exists()
 	assert not (well_out_dir / "templates_outputs" / "units" / "0094" / "footprint_amplitude_map.png").exists()
 	assert not (well_out_dir / "templates_outputs" / "units" / "0094" / "propagation_plot.svg").exists()
+
+
+def test_run_reconstruct_templates_plot_templates_v2_phase_writes_direct_outputs(tmp_path: Path) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	_make_templates_artifacts(well_out_dir)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		unit_label_filter_required=False,
+		unit_ids=[94],
+		n_jobs=1,
+		phases=TemplatesPhasesConfig(
+			plot_templates_v2=TemplatePlotTemplatesV2PhaseConfig(
+				enabled=True,
+				write_png=True,
+				write_svg=False,
+				dpi=120,
+				output_relpath="template_circles_v2",
+				show_axes=False,
+			),
+		),
+	)
+
+	summary = run_reconstruct_templates_plot_templates_v2_phase(inputs)
+
+	output_png = well_out_dir / "templates_outputs" / "units" / "0094" / "template_circles_v2.png"
+	unit_summary_json = well_out_dir / "templates_outputs" / "units" / "0094" / "unit_templates_summary.json"
+	unit_summary = json.loads(unit_summary_json.read_text(encoding="utf-8"))
+	assert summary["phase"] == "plot_templates_v2"
+	assert summary["rendered_units"] == [94]
+	assert summary["skipped_units"] == []
+	assert summary["failed_units"] == []
+	assert Path(str(summary["summary_json"])).exists()
+	assert output_png.exists()
+	assert unit_summary["outputs"]["template_circles_v2_png"] == str(output_png)
+	assert unit_summary["selected_template_sources"]["template_circles_v2"] == "merged_contributing"
 
 
 def test_run_reconstruct_templates_plot_templates_phase_skips_existing_requested_outputs(tmp_path: Path) -> None:

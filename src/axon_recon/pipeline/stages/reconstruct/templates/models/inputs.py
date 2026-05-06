@@ -274,6 +274,105 @@ class TemplatePlotsPhaseConfig:
 
 
 @dataclass(frozen=True)
+class TemplatePlotV2TextConfig:
+	show: bool = False
+	text: str = ""
+	x: float = 0.5
+	y: float = 0.98
+	fontsize: float = 9.0
+	color: str = "white"
+	horizontal_alignment: str = "center"
+	vertical_alignment: str = "top"
+
+
+@dataclass(frozen=True)
+class TemplatePlotV2ColorbarConfig:
+	show: bool = True
+	label: str = ""
+	fontsize: float = 7.0
+	tick_fontsize: float = 6.0
+	color: str = "white"
+	fraction: float = 0.035
+	pad: float = 0.02
+	x: float | None = None
+	y: float | None = None
+	width: float | None = None
+	height: float | None = None
+
+
+@dataclass(frozen=True)
+class TemplatePlotV2ScaleBarConfig:
+	show: bool = False
+	length_um: float | None = None
+	label: str = "{length_um:g} um"
+	x: float = 0.96
+	y: float = 0.06
+	fontsize: float = 6.0
+	color: str = "white"
+	linewidth: float = 1.6
+	horizontal_alignment: str = "right"
+	text_y_offset: float = 0.018
+
+
+@dataclass(frozen=True)
+class TemplatePlotTemplatesV2PhaseConfig:
+	enabled: bool = False
+	summary_json_relpath: str = "context/plot_templates_v2_summary.json"
+	resource_class: str | None = None
+	debug_prints: bool = False
+	output_relpath: str = "template_circles_v2"
+	write_png: bool = True
+	write_svg: bool = False
+	dpi: float = 220.0
+	figsize: tuple[float, float] = (8.0, 6.0)
+	figure_left: float = 0.08
+	figure_right: float = 0.88
+	figure_bottom: float = 0.08
+	figure_top: float = 0.92
+	bbox_inches: str | None = None
+	channel_scope: str = "contributing_channels"
+	background: str = "black"
+	marker_color: str = "white"
+	edge_color: str = "none"
+	marker_linewidth: float = 0.0
+	marker_alpha: float = 0.92
+	marker_min_size: float = 8.0
+	marker_max_size: float = 50.0
+	size_by: str = "amplitude"
+	color_by: str = "latency"
+	cmap: str = "viridis"
+	color_bar_units: str = ""
+	padding_fraction: float = 0.08
+	padding_um: float | None = None
+	x_min: float | None = None
+	x_max: float | None = None
+	y_min: float | None = None
+	y_max: float | None = None
+	force_square_aspect: bool = True
+	center_on_peak: bool = False
+	invert_y_axis: bool = True
+	show_axes: bool = False
+	show_axis_labels: bool = False
+	axis_label_color: str = "white"
+	title: TemplatePlotV2TextConfig = field(
+		default_factory=lambda: TemplatePlotV2TextConfig(show=True, text="Unit {unit_id}")
+	)
+	unit_id_label: TemplatePlotV2TextConfig = field(default_factory=TemplatePlotV2TextConfig)
+	coords: TemplatePlotV2TextConfig = field(
+		default_factory=lambda: TemplatePlotV2TextConfig(
+			show=False,
+			text="x={x_um:.1f} um, y={y_um:.1f} um",
+			x=0.02,
+			y=0.02,
+			horizontal_alignment="left",
+			vertical_alignment="bottom",
+		)
+	)
+	colorbar: TemplatePlotV2ColorbarConfig = field(default_factory=TemplatePlotV2ColorbarConfig)
+	scale_bar: TemplatePlotV2ScaleBarConfig = field(default_factory=TemplatePlotV2ScaleBarConfig)
+
+
+@dataclass(frozen=True)
 class TemplateReportTemplatesPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/report_templates_summary.json"
@@ -887,6 +986,9 @@ class TemplatesPhasesConfig:
 		default_factory=TemplateComputeSimilarityPhaseConfig
 	)
 	plot_templates: TemplatePlotsPhaseConfig = field(default_factory=TemplatePlotsPhaseConfig)
+	plot_templates_v2: TemplatePlotTemplatesV2PhaseConfig = field(
+		default_factory=TemplatePlotTemplatesV2PhaseConfig
+	)
 	report_templates: TemplateReportTemplatesPhaseConfig = field(default_factory=TemplateReportTemplatesPhaseConfig)
 	per_unit_processing: TemplatePerUnitProcessingPhaseConfig = field(
 		default_factory=TemplatePerUnitProcessingPhaseConfig

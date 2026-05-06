@@ -2907,6 +2907,106 @@ def test_load_templates_config_plot_templates_parses_resources_block(tmp_path: P
 	assert inputs.phases.plot_templates.unit_batch_size == 2
 
 
+def test_load_templates_config_parses_plot_templates_v2_phase_block(tmp_path: Path) -> None:
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			resources:
+			  phase_resource_classes:
+			    plot_unit:
+			      max_parallel: 1
+			stages:
+			  reconstruct:
+			    phase_sequence: [plot_templates_v2]
+			    phases:
+			      plot_templates_v2:
+			        enabled: true
+			        resource_class: plot_unit
+			        summary_json_relpath: context/v2_summary.json
+			        output:
+			          write_png: true
+			          write_svg: true
+			          dpi: 180
+			          relpath: plots/v2_circle
+			          bbox_inches: null
+			        display:
+			          channel_scope: recorded_channels
+			          size_by: latency
+			          color_by: amplitude
+			          padding_um: 25
+			          show_axes: true
+			        layout:
+			          figsize: [4, 3]
+			          right: 0.82
+			        title:
+			          show: false
+			        coords:
+			          show: true
+			          x: 0.03
+			          y: 0.04
+			        colorbar:
+			          show: true
+			          units: ms
+			          x: 0.88
+			          y: 0.2
+			          width: 0.03
+			          height: 0.6
+			        scale_bar:
+			          show: true
+			          length_um: 100
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
+
+	v2 = inputs.phases.plot_templates_v2
+	assert inputs.phase_sequence == ("plot_templates_v2",)
+	assert v2.enabled is True
+	assert v2.resource_class == "plot_unit"
+	assert v2.summary_json_relpath == "context/v2_summary.json"
+	assert v2.write_png is True
+	assert v2.write_svg is True
+	assert v2.dpi == 180
+	assert v2.output_relpath == "plots/v2_circle"
+	assert v2.bbox_inches is None
+	assert v2.channel_scope == "recorded_channels"
+	assert v2.size_by == "latency"
+	assert v2.color_by == "amplitude"
+	assert v2.padding_um == 25
+	assert v2.show_axes is True
+	assert v2.figsize == (4.0, 3.0)
+	assert v2.figure_right == 0.82
+	assert v2.title.show is False
+	assert v2.coords.show is True
+	assert v2.coords.x == 0.03
+	assert v2.coords.y == 0.04
+	assert v2.colorbar.show is True
+	assert v2.color_bar_units == "ms"
+	assert v2.colorbar.x == 0.88
+	assert v2.colorbar.width == 0.03
+	assert v2.scale_bar.show is True
+	assert v2.scale_bar.length_um == 100
+
+
 def test_load_templates_config_plot_templates_falls_back_to_legacy_nested_phase_block(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(

@@ -7,6 +7,7 @@ import numpy as np  # type: ignore[import-not-found]
 import matplotlib.pyplot as plt  # type: ignore[import-not-found]
 import matplotlib.collections  # type: ignore[import-not-found]
 
+import axon_recon.pipeline.stages.reconstruct.templates.core.render as render_mod
 from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_propagation_plot
 from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_footprint_amplitude_map
 from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_footprint_map_grid_from_assets
@@ -23,6 +24,7 @@ from axon_recon.pipeline.stages.reconstruct.templates.core.render import _comput
 from axon_recon.pipeline.stages.reconstruct.templates.core.render import _convert_latency_samples_to_units
 from axon_recon.pipeline.stages.reconstruct.templates.core.render import _ticks_ending_in_0_or_5_with_max
 from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_template_circles_plot
+from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_template_circles_plot_v2
 from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_template_plot
 from axon_recon.pipeline.stages.reconstruct.templates.core.render import compute_propagation_channel_order
 from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_image_grid
@@ -35,6 +37,10 @@ from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import (
 	TemplateCirclesOverlapControlsConfig,
 	TemplateCirclesPlotConfig,
 	TemplateCirclesBranchMorphologyConfig,
+	TemplatePlotTemplatesV2PhaseConfig,
+	TemplatePlotV2ColorbarConfig,
+	TemplatePlotV2ScaleBarConfig,
+	TemplatePlotV2TextConfig,
 	TemplateScaleCircleConfig,
 	TemplatePlotConfig,
 	TemplateWaveformOverlayConfig,
@@ -1001,8 +1007,6 @@ def test_render_template_circles_plot_fast_render_clamps_dpi_and_skips_scale_cir
 	import matplotlib.axes
 	import matplotlib.figure
 
-	import axon_recon.pipeline.stages.reconstruct.templates.core.render as render_mod
-
 	template = np.asarray(
 		[
 			[-1.0, -2.0, -0.5, 0.0, 0.2],
@@ -1019,11 +1023,9 @@ def test_render_template_circles_plot_fast_render_clamps_dpi_and_skips_scale_cir
 	)
 
 	seen_scale_circle_patch = {"count": 0}
-	seen_savefig_kwargs: list[dict[str, object]] = []
-	seen_colorbar_kwargs: list[dict[str, object]] = []
+	seen_savefig_dpi: list[float] = []
 	orig_add_patch = matplotlib.axes.Axes.add_patch
 	orig_savefig = matplotlib.figure.Figure.savefig
-	orig_colorbar = matplotlib.figure.Figure.colorbar
 
 	def _spy_add_patch(self, patch, *args, **kwargs):
 		if str(getattr(patch, "get_gid", lambda: "")() or "") == "template_scale_circle_patch":
@@ -1031,20 +1033,11 @@ def test_render_template_circles_plot_fast_render_clamps_dpi_and_skips_scale_cir
 		return orig_add_patch(self, patch, *args, **kwargs)
 
 	def _spy_savefig(self, *args, **kwargs):
-		seen_savefig_kwargs.append(dict(kwargs))
+		seen_savefig_dpi.append(float(kwargs.get("dpi", 0.0) or 0.0))
 		return orig_savefig(self, *args, **kwargs)
-
-	def _spy_colorbar(self, *args, **kwargs):
-		seen_colorbar_kwargs.append(dict(kwargs))
-		return orig_colorbar(self, *args, **kwargs)
-
-	def _unexpected_non_overlap_sizing(**kwargs):
-		raise AssertionError("fast render should not compute final non-overlapping circle sizes")
 
 	monkeypatch.setattr(matplotlib.axes.Axes, "add_patch", _spy_add_patch)
 	monkeypatch.setattr(matplotlib.figure.Figure, "savefig", _spy_savefig)
-	monkeypatch.setattr(matplotlib.figure.Figure, "colorbar", _spy_colorbar)
-	monkeypatch.setattr(render_mod, "_compute_max_non_overlapping_circle_areas", _unexpected_non_overlap_sizing)
 
 	render_template_circles_plot(
 		template=template,
@@ -1067,11 +1060,63 @@ def test_render_template_circles_plot_fast_render_clamps_dpi_and_skips_scale_cir
 		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
 	)
 
-	assert float(seen_savefig_kwargs[-1]["dpi"]) == 220.0
-	assert "bbox_inches" not in seen_savefig_kwargs[-1]
-	assert "boundaries" not in seen_colorbar_kwargs[-1]
-	assert "spacing" not in seen_colorbar_kwargs[-1]
+	assert seen_savefig_dpi[-1] == 220.0
 	assert seen_scale_circle_patch["count"] == 0
+
+
+def test_render_template_circles_plot_v2_writes_outputs_without_overlap_pass(tmp_path: Path, monkeypatch) -> None:
+	template = np.asarray(
+		[
+			[-1.0, -2.0, -0.5, 0.0, 0.2],
+			[-0.8, -1.8, -0.4, 0.0, 0.1],
+			[-0.2, -0.5, -1.5, -0.4, 0.0],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+			[9.0, 16.0],
+		],
+		dtype=float,
+	)
+
+	def _unexpected_non_overlap_sizing(**kwargs):
+		raise AssertionError("v2 renderer should not compute non-overlapping circle sizes")
+
+	monkeypatch.setattr(render_mod, "_compute_max_non_overlapping_circle_areas", _unexpected_non_overlap_sizing)
+
+	outputs = render_template_circles_plot_v2(
+		template=template,
+		locations_xy=locations,
+		config=TemplatePlotTemplatesV2PhaseConfig(
+			write_png=True,
+			write_svg=True,
+			dpi=180,
+			figsize=(3.0, 2.5),
+			output_relpath="template_circles_v2",
+			show_axes=False,
+			title=TemplatePlotV2TextConfig(show=True, text="Unit {unit_id}", x=0.5, y=0.96),
+			coords=TemplatePlotV2TextConfig(
+				show=True,
+				text="x={x_um:.1f}, y={y_um:.1f}",
+				x=0.02,
+				y=0.02,
+				horizontal_alignment="left",
+				vertical_alignment="bottom",
+			),
+			colorbar=TemplatePlotV2ColorbarConfig(show=True, x=0.90, y=0.20, width=0.03, height=0.60),
+			scale_bar=TemplatePlotV2ScaleBarConfig(show=True, length_um=18.0),
+		),
+		png_path=tmp_path / "circles_v2.png",
+		svg_path=tmp_path / "circles_v2.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+		unit_id=94,
+	)
+
+	assert Path(outputs["template_circles_v2_png"]).exists()
+	assert Path(outputs["template_circles_v2_svg"]).exists()
 
 
 def test_render_template_circles_plot_scale_circle_label_precision_knob(tmp_path: Path, monkeypatch) -> None:

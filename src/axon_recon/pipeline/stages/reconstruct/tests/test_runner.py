@@ -64,6 +64,7 @@ from axon_recon.pipeline.stages.reconstruct.runner import (
 	run_reconstruct_templates_build_templates_phase,
 	run_reconstruct_templates_compute_template_similarity_phase,
 	run_reconstruct_templates_plot_templates_phase,
+	run_reconstruct_templates_plot_templates_v2_phase,
 	run_reconstruct_templates_report_templates_phase,
 	run_reconstruct_templates_reports_phase,
 	run_reconstruct_templates_resolve_sources_phase,
@@ -250,6 +251,8 @@ def test_reconstruct_phase_resolver_handles_templates_phases() -> None:
 		is run_reconstruct_templates_compute_template_similarity_phase
 	)
 	assert _reconstruct_stage_phase_runner("templates_plot_templates") is run_reconstruct_templates_plot_templates_phase
+	assert _normalize_reconstruct_stage_phase_name("plot_templates_v2") == "templates_plot_templates_v2"
+	assert _reconstruct_stage_phase_runner("templates_plot_templates_v2") is run_reconstruct_templates_plot_templates_v2_phase
 	assert _reconstruct_stage_phase_runner("templates_report_templates") is run_reconstruct_templates_report_templates_phase
 	assert _reconstruct_stage_phase_runner("templates_reports") is run_reconstruct_templates_reports_phase
 	assert _reconstruct_stage_phase_runner("report_recon_grid") is run_reconstruct_report_recon_grid_phase

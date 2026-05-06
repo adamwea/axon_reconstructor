@@ -47,6 +47,10 @@ from .models.inputs import (
 	TemplateComputeSimilarityPhaseConfig,
 	TemplateLeafPhaseConfig,
 	TemplatePerUnitProcessingPhaseConfig,
+	TemplatePlotTemplatesV2PhaseConfig,
+	TemplatePlotV2ColorbarConfig,
+	TemplatePlotV2ScaleBarConfig,
+	TemplatePlotV2TextConfig,
 	TemplatePlotConfig,
 	TemplatePlotsPhaseConfig,
 	TemplatePropagationOrderingPhaseConfig,
@@ -98,6 +102,9 @@ _TEMPLATES_PHASE_ALIASES: dict[str, str] = {
 	"plot": "plot_templates",
 	"plots": "plot_templates",
 	"plot_templates": "plot_templates",
+	"plot_templates_v2": "plot_templates_v2",
+	"plots_v2": "plot_templates_v2",
+	"template_plots_v2": "plot_templates_v2",
 	"per_unit_processing.plots": "plot_templates",
 	"report_templates": "report_templates",
 	"template_report": "report_templates",
@@ -584,6 +591,171 @@ def _as_tuple(value: Any, default: tuple[Any, ...]) -> tuple[Any, ...]:
 	if isinstance(value, (list, tuple)):
 		return tuple(value)
 	return tuple(default)
+
+
+def _as_float_pair(value: Any, default: tuple[float, float]) -> tuple[float, float]:
+	items = _as_tuple(value, default)
+	if len(items) < 2:
+		return tuple(default)
+	return (_as_float(items[0], float(default[0])), _as_float(items[1], float(default[1])))
+
+
+def _as_optional_bbox_inches(value: Any, default: str | None = None) -> str | None:
+	if value is None:
+		return default
+	token = str(value).strip().lower()
+	if token in {"", "none", "null", "false", "off"}:
+		return None
+	return str(value).strip()
+
+
+def _config_first(blocks: tuple[dict[str, Any], ...], key: str, default: Any) -> Any:
+	for block in blocks:
+		if isinstance(block, dict) and key in block:
+			return block.get(key)
+	return default
+
+
+def _parse_plot_v2_text_config(
+	raw_cfg: dict[str, Any],
+	default: TemplatePlotV2TextConfig,
+) -> TemplatePlotV2TextConfig:
+	cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
+	return TemplatePlotV2TextConfig(
+		show=_as_bool(cfg.get("show", default.show), default.show),
+		text=str(cfg.get("text", default.text)),
+		x=_as_float(cfg.get("x", default.x), default.x),
+		y=_as_float(cfg.get("y", default.y), default.y),
+		fontsize=_as_float(cfg.get("fontsize", default.fontsize), default.fontsize),
+		color=str(cfg.get("color", default.color)),
+		horizontal_alignment=str(
+			cfg.get(
+				"horizontal_alignment",
+				cfg.get("ha", default.horizontal_alignment),
+			)
+		),
+		vertical_alignment=str(
+			cfg.get(
+				"vertical_alignment",
+				cfg.get("va", default.vertical_alignment),
+			)
+		),
+	)
+
+
+def _parse_plot_v2_colorbar_config(
+	raw_cfg: dict[str, Any],
+	default: TemplatePlotV2ColorbarConfig,
+) -> TemplatePlotV2ColorbarConfig:
+	cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
+	return TemplatePlotV2ColorbarConfig(
+		show=_as_bool(cfg.get("show", default.show), default.show),
+		label=str(cfg.get("label", default.label)),
+		fontsize=_as_float(cfg.get("fontsize", default.fontsize), default.fontsize),
+		tick_fontsize=_as_float(cfg.get("tick_fontsize", default.tick_fontsize), default.tick_fontsize),
+		color=str(cfg.get("color", default.color)),
+		fraction=_as_float(cfg.get("fraction", default.fraction), default.fraction),
+		pad=_as_float(cfg.get("pad", default.pad), default.pad),
+		x=_as_float_or_none(cfg.get("x", default.x), default.x),
+		y=_as_float_or_none(cfg.get("y", default.y), default.y),
+		width=_as_float_or_none(cfg.get("width", default.width), default.width),
+		height=_as_float_or_none(cfg.get("height", default.height), default.height),
+	)
+
+
+def _parse_plot_v2_scale_bar_config(
+	raw_cfg: dict[str, Any],
+	default: TemplatePlotV2ScaleBarConfig,
+) -> TemplatePlotV2ScaleBarConfig:
+	cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
+	return TemplatePlotV2ScaleBarConfig(
+		show=_as_bool(cfg.get("show", default.show), default.show),
+		length_um=_as_float_or_none(cfg.get("length_um", default.length_um), default.length_um),
+		label=str(cfg.get("label", default.label)),
+		x=_as_float(cfg.get("x", default.x), default.x),
+		y=_as_float(cfg.get("y", default.y), default.y),
+		fontsize=_as_float(cfg.get("fontsize", default.fontsize), default.fontsize),
+		color=str(cfg.get("color", default.color)),
+		linewidth=_as_float(cfg.get("linewidth", default.linewidth), default.linewidth),
+		horizontal_alignment=str(
+			cfg.get("horizontal_alignment", cfg.get("ha", default.horizontal_alignment))
+		),
+		text_y_offset=_as_float(cfg.get("text_y_offset", default.text_y_offset), default.text_y_offset),
+	)
+
+
+def _parse_plot_templates_v2_phase_config(
+	phase_cfg: dict[str, Any],
+	*,
+	resource_class: str | None,
+) -> TemplatePlotTemplatesV2PhaseConfig:
+	cfg = phase_cfg if isinstance(phase_cfg, dict) else {}
+	defaults = TemplatePlotTemplatesV2PhaseConfig()
+	output_cfg = _phase_block(cfg, "output")
+	display_cfg = _phase_block(cfg, "display")
+	render_cfg = _phase_block(cfg, "render")
+	layout_cfg = _phase_block(cfg, "layout")
+	colorbar_cfg = _phase_block(cfg, "colorbar") or _phase_block(cfg, "color_bar")
+	scale_bar_cfg = _phase_block(cfg, "scale_bar")
+	title_cfg = _phase_block(cfg, "title")
+	unit_id_cfg = _phase_block(cfg, "unit_id_label") or _phase_block(cfg, "unit_id")
+	coords_cfg = _phase_block(cfg, "coords") or _phase_block(cfg, "center_coords")
+	figsize = _as_float_pair(
+		_config_first((layout_cfg, cfg), "figsize", defaults.figsize),
+		defaults.figsize,
+	)
+
+	return TemplatePlotTemplatesV2PhaseConfig(
+		enabled=_as_bool(cfg.get("enabled", defaults.enabled), defaults.enabled),
+		summary_json_relpath=str(cfg.get("summary_json_relpath", defaults.summary_json_relpath)),
+		resource_class=resource_class,
+		debug_prints=_as_bool(cfg.get("debug_prints", cfg.get("debug_plotting_prints", defaults.debug_prints)), defaults.debug_prints),
+		output_relpath=str(
+			_config_first(
+				(output_cfg, cfg),
+				"relpath",
+				cfg.get("output_relpath", defaults.output_relpath),
+			)
+		),
+		write_png=_as_bool(_config_first((output_cfg, cfg), "write_png", defaults.write_png), defaults.write_png),
+		write_svg=_as_bool(_config_first((output_cfg, cfg), "write_svg", defaults.write_svg), defaults.write_svg),
+		dpi=_as_float(_config_first((output_cfg, cfg), "dpi", defaults.dpi), defaults.dpi),
+		figsize=figsize,
+		figure_left=_as_float(_config_first((layout_cfg, cfg), "left", defaults.figure_left), defaults.figure_left),
+		figure_right=_as_float(_config_first((layout_cfg, cfg), "right", defaults.figure_right), defaults.figure_right),
+		figure_bottom=_as_float(_config_first((layout_cfg, cfg), "bottom", defaults.figure_bottom), defaults.figure_bottom),
+		figure_top=_as_float(_config_first((layout_cfg, cfg), "top", defaults.figure_top), defaults.figure_top),
+		bbox_inches=_as_optional_bbox_inches(_config_first((output_cfg, cfg), "bbox_inches", defaults.bbox_inches), defaults.bbox_inches),
+		channel_scope=_normalize_channel_scope(_config_first((display_cfg, cfg), "channel_scope", defaults.channel_scope)),
+		background=str(_config_first((render_cfg, display_cfg, cfg), "background", defaults.background)),
+		marker_color=str(_config_first((render_cfg, display_cfg, cfg), "marker_color", defaults.marker_color)),
+		edge_color=str(_config_first((render_cfg, display_cfg, cfg), "edge_color", defaults.edge_color)),
+		marker_linewidth=_as_float(_config_first((render_cfg, display_cfg, cfg), "marker_linewidth", defaults.marker_linewidth), defaults.marker_linewidth),
+		marker_alpha=_as_float(_config_first((render_cfg, display_cfg, cfg), "marker_alpha", defaults.marker_alpha), defaults.marker_alpha),
+		marker_min_size=_as_float(_config_first((display_cfg, cfg), "marker_min_size", defaults.marker_min_size), defaults.marker_min_size),
+		marker_max_size=_as_float(_config_first((display_cfg, cfg), "marker_max_size", defaults.marker_max_size), defaults.marker_max_size),
+		size_by=str(_config_first((display_cfg, cfg), "size_by", defaults.size_by)),
+		color_by=str(_config_first((display_cfg, cfg), "color_by", defaults.color_by)),
+		cmap=str(_config_first((render_cfg, display_cfg, cfg), "cmap", defaults.cmap)),
+		color_bar_units=str(_config_first((colorbar_cfg, display_cfg, cfg), "units", defaults.color_bar_units)),
+		padding_fraction=_as_float(_config_first((display_cfg, cfg), "padding_fraction", defaults.padding_fraction), defaults.padding_fraction),
+		padding_um=_as_float_or_none(_config_first((display_cfg, cfg), "padding_um", defaults.padding_um), defaults.padding_um),
+		x_min=_as_float_or_none(_config_first((display_cfg, cfg), "x_min", defaults.x_min), defaults.x_min),
+		x_max=_as_float_or_none(_config_first((display_cfg, cfg), "x_max", defaults.x_max), defaults.x_max),
+		y_min=_as_float_or_none(_config_first((display_cfg, cfg), "y_min", defaults.y_min), defaults.y_min),
+		y_max=_as_float_or_none(_config_first((display_cfg, cfg), "y_max", defaults.y_max), defaults.y_max),
+		force_square_aspect=_as_bool(_config_first((display_cfg, cfg), "force_square_aspect", defaults.force_square_aspect), defaults.force_square_aspect),
+		center_on_peak=_as_bool(_config_first((display_cfg, cfg), "center_on_peak", defaults.center_on_peak), defaults.center_on_peak),
+		invert_y_axis=_as_bool(_config_first((display_cfg, cfg), "invert_y_axis", defaults.invert_y_axis), defaults.invert_y_axis),
+		show_axes=_as_bool(_config_first((display_cfg, cfg), "show_axes", defaults.show_axes), defaults.show_axes),
+		show_axis_labels=_as_bool(_config_first((display_cfg, cfg), "show_axis_labels", defaults.show_axis_labels), defaults.show_axis_labels),
+		axis_label_color=str(_config_first((display_cfg, cfg), "axis_label_color", defaults.axis_label_color)),
+		title=_parse_plot_v2_text_config(title_cfg, defaults.title),
+		unit_id_label=_parse_plot_v2_text_config(unit_id_cfg, defaults.unit_id_label),
+		coords=_parse_plot_v2_text_config(coords_cfg, defaults.coords),
+		colorbar=_parse_plot_v2_colorbar_config(colorbar_cfg, defaults.colorbar),
+		scale_bar=_parse_plot_v2_scale_bar_config(scale_bar_cfg, defaults.scale_bar),
+	)
 
 
 def _normalize_padding_value(raw: Any) -> str:
@@ -3697,6 +3869,7 @@ def parse_reconstruct_templates_config(
 	phase_analysis_cfg = _phase_block(phases_cfg, "per_unit_processing", "analysis")
 	phase_compute_similarity_cfg = _phase_block(phases_cfg, "compute_template_similarity")
 	phase_plot_templates_cfg = _phase_block(phases_cfg, "plot_templates")
+	phase_plot_templates_v2_cfg = _phase_block(phases_cfg, "plot_templates_v2")
 	phase_report_templates_cfg = _phase_block(phases_cfg, "report_templates")
 	phase_plots_cfg = _phase_block(phases_cfg, "per_unit_processing", "plots")
 	phase_reports_cfg = _phase_block(phases_cfg, "reports")
@@ -3885,6 +4058,10 @@ def parse_reconstruct_templates_config(
 		unit_batch_size=plot_phase_unit_batch_size,
 		outputs=per_unit,
 	)
+	plot_templates_v2_phase = _parse_plot_templates_v2_phase_config(
+		phase_plot_templates_v2_cfg,
+		resource_class=_phase_resource_class(phase_plot_templates_v2_cfg, "plot_templates_v2"),
+	)
 	report_templates_phase = TemplateReportTemplatesPhaseConfig(
 		enabled=_as_bool(phase_report_templates_cfg.get("enabled", True), True),
 		summary_json_relpath=str(
@@ -3955,6 +4132,7 @@ def parse_reconstruct_templates_config(
 		build_templates=build_templates_phase,
 		compute_template_similarity=compute_template_similarity_phase,
 		plot_templates=plot_templates_phase,
+		plot_templates_v2=plot_templates_v2_phase,
 		report_templates=report_templates_phase,
 		per_unit_processing=per_unit_processing_phase,
 		reports=reports_phase,
