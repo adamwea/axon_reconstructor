@@ -532,6 +532,120 @@ def test_run_reconstruct_templates_analyzers_phase_backfills_existing_analyzers_
 	assert payload["manifest_resume"]["missing_manifest_sources"] == ["concat", "000_recA"]
 
 
+def test_run_reconstruct_templates_analyzers_phase_force_restart_clears_only_selected_source_and_rebuilds(
+	tmp_path: Path,
+	monkeypatch,
+) -> None:
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
+	templates_out_dir = well_out_dir / "templates_outputs"
+	analyzer_cache_dir = templates_out_dir / "cache" / "analyzers"
+	selected_cache_dir = analyzer_cache_dir / "segments" / "000_recA"
+	selected_legacy_cache_dir = analyzer_cache_dir / "000_recA"
+	other_cache_dir = analyzer_cache_dir / "segments" / "001_recB"
+	other_legacy_cache_dir = analyzer_cache_dir / "001_recB"
+	selected_cache_dir.mkdir(parents=True, exist_ok=True)
+	selected_legacy_cache_dir.mkdir(parents=True, exist_ok=True)
+	other_cache_dir.mkdir(parents=True, exist_ok=True)
+	other_legacy_cache_dir.mkdir(parents=True, exist_ok=True)
+	(selected_cache_dir / "old.txt").write_text("old", encoding="utf-8")
+	(selected_legacy_cache_dir / "old.txt").write_text("old", encoding="utf-8")
+	(other_cache_dir / "keep.txt").write_text("keep", encoding="utf-8")
+	(other_legacy_cache_dir / "keep.txt").write_text("keep", encoding="utf-8")
+	write_analyzer_source_units(
+		templates_out_dir=templates_out_dir,
+		source_name="000_recA",
+		source_kind="segment",
+		unit_ids=[1],
+	)
+	requested_source_batches: list[list[str]] = []
+	use_existing_flags: list[bool] = []
+
+	class _FakeSorting:
+		unit_ids = [94, 95]
+
+	class _FakeAnalyzer:
+		def __init__(self) -> None:
+			self.sorting = _FakeSorting()
+			self.sparsity = None
+
+		def get_num_channels(self) -> int:
+			return 128
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.analyzers.discover_spikeinterface_analyzer_source_names",
+		lambda **kwargs: ["000_recA"],
+	)
+
+	def _fake_discover_cached_source_names(**kwargs) -> list[str]:
+		assert not selected_cache_dir.exists()
+		assert not selected_legacy_cache_dir.exists()
+		assert other_cache_dir.exists()
+		assert other_legacy_cache_dir.exists()
+		return ["001_recB"]
+
+	def _fake_iter_templates_phase_analyzers(**kwargs):
+		iter_inputs = kwargs["inputs"]
+		requested = [str(name) for name in list(kwargs.get("requested_source_names") or [])]
+		assert kwargs["alternate_well_out_dirs"] == []
+		requested_source_batches.append(requested)
+		use_existing_flags.append(bool(iter_inputs.phases.analyzers.segments.use_existing_analyzer))
+		assert requested == ["000_recA"]
+		yield ("000_recA", _FakeAnalyzer())
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.analyzers.discover_cached_spikeinterface_analyzer_source_names",
+		_fake_discover_cached_source_names,
+	)
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.templates.runner._iter_templates_phase_analyzers",
+		_fake_iter_templates_phase_analyzers,
+	)
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		final_output_root=tmp_path / "alternate_outputs",
+		analyzer_cache=AnalyzerCacheConfig(
+			enabled=True,
+			relpath="cache/analyzers",
+			segment_analyzers_subdir="segments",
+		),
+		force_restart=True,
+		n_jobs=1,
+	)
+
+	summary = run_reconstruct_templates_analyzers_phase(inputs)
+	payload = json.loads(Path(str(summary["summary_json"])).read_text(encoding="utf-8"))
+	manifest_payload = json.loads(
+		(templates_out_dir / "context" / "analyzer_source_units" / "000_recA.json").read_text(
+			encoding="utf-8"
+		)
+	)
+
+	assert requested_source_batches == [["000_recA"]]
+	assert use_existing_flags == [False]
+	assert not selected_cache_dir.exists()
+	assert not selected_legacy_cache_dir.exists()
+	assert other_cache_dir.exists()
+	assert other_legacy_cache_dir.exists()
+	assert payload["manifest_resume"]["reused_manifest_count"] == 0
+	assert payload["manifest_resume"]["generated_manifest_count"] == 1
+	assert payload["manifest_resume"]["missing_manifest_sources"] == ["000_recA"]
+	assert payload["force_restart_artifacts"]["cleared_cache_paths"] == [
+		str(selected_cache_dir),
+		str(selected_legacy_cache_dir),
+	]
+	assert payload["force_restart_artifacts"]["cleared_manifest_paths"] == [
+		str(templates_out_dir / "context" / "analyzer_source_units" / "000_recA.json")
+	]
+	assert manifest_payload["unit_ids"] == [94, 95]
+
+
 def test_run_reconstruct_templates_build_templates_phase_materializes_templates_from_payloads(tmp_path: Path, monkeypatch, caplog) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"

@@ -179,6 +179,114 @@ def _inputs_with_analyzer_build_if_missing(
     )
 
 
+def _inputs_with_analyzer_use_existing(
+    inputs: TemplatesInputs,
+    *,
+    concat_use_existing_analyzer: bool,
+    segments_use_existing_analyzer: bool,
+) -> TemplatesInputs:
+    analyzers_phase = inputs.phases.analyzers
+    return replace(
+        inputs,
+        phases=replace(
+            inputs.phases,
+            analyzers=replace(
+                analyzers_phase,
+                concat=replace(
+                    analyzers_phase.concat,
+                    use_existing_analyzer=bool(concat_use_existing_analyzer),
+                ),
+                segments=replace(
+                    analyzers_phase.segments,
+                    use_existing_analyzer=bool(segments_use_existing_analyzer),
+                ),
+            ),
+        ),
+    )
+
+
+def _analyzer_cache_paths_for_source(
+    *,
+    inputs: TemplatesInputs,
+    analyzer_cache_dir: Path | None,
+    source_name: str,
+) -> list[Path]:
+    if analyzer_cache_dir is None:
+        return []
+    source_name = str(source_name)
+    cache_root = Path(analyzer_cache_dir).expanduser()
+    if source_name == "concat":
+        concat_subdir = str(inputs.analyzer_cache.concat_analyzer_subdir or "concat").strip().strip("/")
+        return [cache_root / (concat_subdir or "concat")]
+    segments_subdir = str(inputs.analyzer_cache.segment_analyzers_subdir or "").strip().strip("/")
+    paths = []
+    if segments_subdir:
+        paths.append(cache_root / segments_subdir / source_name)
+    paths.append(cache_root / source_name)
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(path)
+    return deduped
+
+
+def _delete_path_if_exists(path: Path) -> bool:
+    if not path.exists():
+        return False
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+    return True
+
+
+def _clear_force_restart_analyzer_artifacts(
+    *,
+    inputs: TemplatesInputs,
+    templates_out_dir: Path,
+    analyzer_cache_dir: Path | None,
+    source_names: list[str],
+) -> dict[str, list[str]]:
+    cleared_cache_paths: list[str] = []
+    cleared_manifest_paths: list[str] = []
+    if source_names:
+        for source_name in source_names:
+            for cache_path in _analyzer_cache_paths_for_source(
+                inputs=inputs,
+                analyzer_cache_dir=analyzer_cache_dir,
+                source_name=str(source_name),
+            ):
+                if _delete_path_if_exists(cache_path):
+                    cleared_cache_paths.append(str(cache_path))
+            manifest_path = resolve_analyzer_source_units_path(
+                templates_out_dir=templates_out_dir,
+                source_name=str(source_name),
+            )
+            if _delete_path_if_exists(manifest_path):
+                cleared_manifest_paths.append(str(manifest_path))
+        return {
+            "cleared_cache_paths": cleared_cache_paths,
+            "cleared_manifest_paths": cleared_manifest_paths,
+        }
+
+    if analyzer_cache_dir is not None and _delete_path_if_exists(Path(analyzer_cache_dir)):
+        cleared_cache_paths.append(str(analyzer_cache_dir))
+    manifest_dir = resolve_analyzer_source_units_path(
+        templates_out_dir=templates_out_dir,
+        source_name="__force_restart_inventory_fallback__",
+    ).parent
+    if _delete_path_if_exists(manifest_dir):
+        cleared_manifest_paths.append(str(manifest_dir))
+    return {
+        "cleared_cache_paths": cleared_cache_paths,
+        "cleared_manifest_paths": cleared_manifest_paths,
+    }
+
+
 def _source_summary_from_loaded_analyzer(
     *,
     inputs: TemplatesInputs,
@@ -289,21 +397,23 @@ def run_reconstruct_templates_analyzers_phase(
             )
         ),
     )
-    if (
-        bool(inputs.force_restart)
-        and analyzer_cache_dir is not None
-        and analyzer_cache_dir.exists()
-    ):
-        templates_runner.LOGGER.info(
-            "templates.analyzers clearing analyzer cache on force_restart: %s",
-            str(analyzer_cache_dir),
-        )
-        shutil.rmtree(analyzer_cache_dir)
     templates_runner.LOGGER.info("templates.analyzers streaming analyzer sources (one at a time)")
     load_stats: dict[str, Any] = {}
     sources_summary: dict[str, Any] = {}
     reused_manifest_count = 0
     generated_manifest_count = 0
+    force_restart_artifacts: dict[str, list[str]] = {
+        "cleared_cache_paths": [],
+        "cleared_manifest_paths": [],
+    }
+    iteration_alternate_well_out_dirs = list(alternate_well_out_dirs)
+    if bool(inputs.force_restart) and not bool(inputs.analyzer_cache.reuse_on_force_restart):
+        if iteration_alternate_well_out_dirs:
+            templates_runner.LOGGER.info(
+                "templates.analyzers force_restart suppressing artifact lookup fallbacks: %s",
+                [str(path) for path in iteration_alternate_well_out_dirs],
+            )
+        iteration_alternate_well_out_dirs = []
     try:
         discovered_source_names = _discover_analyzer_source_names(
             inputs=inputs,
@@ -316,6 +426,19 @@ def run_reconstruct_templates_analyzers_phase(
         templates_runner.LOGGER.warning(
             "templates.analyzers source discovery failed; falling back to full analyzer iteration",
             exc_info=True,
+        )
+    if bool(inputs.force_restart):
+        force_restart_artifacts = _clear_force_restart_analyzer_artifacts(
+            inputs=inputs,
+            templates_out_dir=templates_out_dir,
+            analyzer_cache_dir=analyzer_cache_dir,
+            source_names=[str(source_name) for source_name in discovered_source_names],
+        )
+        templates_runner.LOGGER.info(
+            "templates.analyzers force_restart cleared scoped analyzer artifacts: source_count=%d cache_paths=%d manifest_paths=%d",
+            int(len(discovered_source_names)),
+            int(len(force_restart_artifacts.get("cleared_cache_paths", []))),
+            int(len(force_restart_artifacts.get("cleared_manifest_paths", []))),
         )
     try:
         cached_source_names = set(
@@ -334,6 +457,9 @@ def run_reconstruct_templates_analyzers_phase(
     missing_manifest_source_names: list[str] = []
     if discovered_source_names:
         for source_name in discovered_source_names:
+            if bool(inputs.force_restart):
+                missing_manifest_source_names.append(str(source_name))
+                continue
             existing_summary = _source_summary_from_manifest(
                 inputs=inputs,
                 templates_out_dir=templates_out_dir,
@@ -378,7 +504,7 @@ def run_reconstruct_templates_analyzers_phase(
         for source_name, analyzer in templates_runner._iter_templates_phase_analyzers(
             inputs=iter_inputs,
             well_out_dir=well_out_dir,
-            alternate_well_out_dirs=alternate_well_out_dirs,
+            alternate_well_out_dirs=iteration_alternate_well_out_dirs,
             analyzer_cache_dir=analyzer_cache_dir,
             source_scope=source_scope,
             requested_source_names=requested_names,
@@ -406,7 +532,14 @@ def run_reconstruct_templates_analyzers_phase(
         return loaded_source_names
 
     if requested_source_names is None or requested_source_names:
-        if requested_source_names is None:
+        if bool(inputs.force_restart):
+            restart_inputs = _inputs_with_analyzer_use_existing(
+                inputs,
+                concat_use_existing_analyzer=False,
+                segments_use_existing_analyzer=False,
+            )
+            _consume_loaded_analyzers(restart_inputs, requested_names=requested_source_names)
+        elif requested_source_names is None:
             _consume_loaded_analyzers(inputs, requested_names=None)
         elif requested_source_names:
             templates_runner.LOGGER.info(
@@ -459,6 +592,7 @@ def run_reconstruct_templates_analyzers_phase(
             "generated_manifest_count": int(generated_manifest_count),
             "missing_manifest_sources": list(missing_manifest_source_names),
         },
+        "force_restart_artifacts": force_restart_artifacts,
         "load_stats": load_stats,
         "sources": sources_summary,
     }
