@@ -8,10 +8,12 @@ from typing import Any, Callable, Sequence
 
 from ..resource_budget import current_stage_resource_budget_manager
 from ..resource_usage import (
+    current_phase_tuning_config,
     format_phase_message,
     format_phase_resource_usage_message,
     log_phase_resource_observation_warnings,
     log_phase_resource_plan_warnings,
+    phase_tuning_monitoring_enabled,
     start_phase_resource_monitor,
     update_phase_summary_metadata,
 )
@@ -53,6 +55,31 @@ def _resource_gate_payload(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return dict(value)
     return {"wait_s": 0.0, "waited": False, "slot_demands": {}, "keyed_requests": {}}
+
+
+def _build_inline_phase_tune_recommendation(
+    *,
+    resources_config: Any,
+    stage_name: Any,
+    phase_name: Any,
+    resource_class: str | None,
+    resource_usage: Any,
+) -> dict[str, Any] | None:
+    if resources_config is None or resource_usage is None or not phase_tuning_monitoring_enabled():
+        return None
+    try:
+        from ..phase_tuning import build_phase_resource_usage_recommendation
+
+        return build_phase_resource_usage_recommendation(
+            resources=resources_config,
+            tuning_config=current_phase_tuning_config(),
+            stage_name=stage_name,
+            phase_name=phase_name,
+            resource_class=resource_class,
+            resource_usage=resource_usage,
+        )
+    except Exception:
+        return None
 
 
 def run_phase_chain(
@@ -155,6 +182,13 @@ def run_phase_chain(
                     last_result = phase.runner()
                 except Exception as exc:
                     resource_usage = None if resource_monitor is None else resource_monitor.stop()
+                    phase_tune_recommendation = _build_inline_phase_tune_recommendation(
+                        resources_config=resources_config,
+                        stage_name=stage_name,
+                        phase_name=phase.name,
+                        resource_class=phase.resource_class,
+                        resource_usage=resource_usage,
+                    )
                     outcome = PhaseOutcome(name=str(phase.name), status="error", error=str(exc))
                     outcomes.append(outcome)
                     exception_type = type(exc).__name__
@@ -188,6 +222,7 @@ def run_phase_chain(
 								resource_class=phase.resource_class,
 								status="failed",
 								resource_usage=resource_usage,
+                                phase_tune_recommendation=phase_tune_recommendation,
 								exception_type=exception_type,
 							),
                                 extra={
@@ -196,6 +231,7 @@ def run_phase_chain(
 								"exception_type": exception_type,
                                     "resource_gate": resource_gate,
                                     "resource_usage": resource_usage.to_dict(),
+                                    "phase_tune_recommendation": phase_tune_recommendation,
                                 },
                             )
                             log_phase_resource_observation_warnings(
@@ -212,6 +248,13 @@ def run_phase_chain(
                     raise PhaseChainError(phase_name=str(phase.name), error=exc, outcomes=tuple(outcomes)) from exc
                 outcomes.append(PhaseOutcome(name=str(phase.name), status="ok", result=last_result))
                 resource_usage = None if resource_monitor is None else resource_monitor.stop()
+                phase_tune_recommendation = _build_inline_phase_tune_recommendation(
+                    resources_config=resources_config,
+                    stage_name=stage_name,
+                    phase_name=phase.name,
+                    resource_class=phase.resource_class,
+                    resource_usage=resource_usage,
+                )
                 update_phase_summary_metadata(
                     summary_source=last_result,
                     resource_class=phase.resource_class,
@@ -243,12 +286,14 @@ def run_phase_chain(
                                 resource_class=phase.resource_class,
                                 status="success",
                                 resource_usage=resource_usage,
+                                phase_tune_recommendation=phase_tune_recommendation,
                             ),
                             extra={
                                 "event": "phase_resource_usage",
                                 "status": "success",
                                 "resource_gate": resource_gate,
                                 "resource_usage": resource_usage.to_dict(),
+                                "phase_tune_recommendation": phase_tune_recommendation,
                             },
                         )
                         log_phase_resource_observation_warnings(

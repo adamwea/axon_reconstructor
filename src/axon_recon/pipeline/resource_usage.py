@@ -37,6 +37,7 @@ _PHASE_TUNE_CONFIG: dict[str, Any] = {
 	"system_tool_interval_s": 1.0,
 	"output_relpath": "resource_tuning",
 	"write_tool_logs": True,
+	"tuning_config": None,
 }
 _RESOURCE_UNDERUSE_OBSERVATIONS: dict[tuple[str, str, str, str], int] = {}
 _RESOURCE_DIMENSION_LABELS: dict[str, str] = {
@@ -57,6 +58,7 @@ def configure_phase_tuning_monitoring(
 	system_tool_interval_s: float = 1.0,
 	output_relpath: str = "resource_tuning",
 	write_tool_logs: bool = True,
+	tuning_config: Any | None = None,
 ) -> None:
 	with _PHASE_TUNE_LOCK:
 		_PHASE_TUNE_CONFIG.update(
@@ -66,6 +68,7 @@ def configure_phase_tuning_monitoring(
 				"system_tool_interval_s": max(1.0, float(system_tool_interval_s or 1.0)),
 				"output_relpath": str(output_relpath or "resource_tuning"),
 				"write_tool_logs": bool(write_tool_logs),
+				"tuning_config": tuning_config if bool(enabled) else None,
 			}
 		)
 
@@ -78,6 +81,11 @@ def phase_tuning_monitoring_enabled() -> bool:
 def _phase_tuning_monitoring_config() -> dict[str, Any]:
 	with _PHASE_TUNE_LOCK:
 		return dict(_PHASE_TUNE_CONFIG)
+
+
+def current_phase_tuning_config() -> Any | None:
+	with _PHASE_TUNE_LOCK:
+		return _PHASE_TUNE_CONFIG.get("tuning_config", None)
 
 
 def _to_gib(value: int | float | None) -> float | None:
@@ -800,6 +808,39 @@ def _display_metric(value: Any) -> str:
 		return str(value)
 
 
+def _phase_tune_recommendation_lines(recommendation: dict[str, Any] | None) -> list[str]:
+	if not isinstance(recommendation, dict) or not recommendation:
+		return []
+	lines = ["  phase_tune_recommendation:"]
+	for label, current_key, recommended_key in (
+		("ram_gb", "current_class_ram_gb", "recommended_class_ram_gb"),
+		("cpu_cores", "current_class_cpu_cores", "recommended_class_cpu_cores"),
+		("h5_read_slots", "current_h5_read_slots", "recommended_h5_read_slots"),
+		("disk_heavy_slots", "current_disk_heavy_slots", "recommended_disk_heavy_slots"),
+	):
+		current = recommendation.get(current_key, None)
+		recommended = recommendation.get(recommended_key, None)
+		if current is None and recommended is None:
+			continue
+		lines.append(f"    {label}={_display_metric(current)}->{_display_metric(recommended)}")
+	for key in (
+		"observations",
+		"max_total_peak_rss_gb",
+		"max_cpu_parallelism_estimate",
+		"max_disk_read_gb_per_s",
+		"max_disk_write_gb_per_s",
+	):
+		if recommendation.get(key, None) is not None:
+			lines.append(f"    {key}={_display_metric(recommendation.get(key))}")
+	for warning in recommendation.get("phase_tune_warnings", []) or []:
+		lines.append(f"    phase_tune_warning={warning}")
+	for warning in recommendation.get("warnings", []) or []:
+		lines.append(f"    warning={warning}")
+	for note in recommendation.get("notes", []) or []:
+		lines.append(f"    note={note}")
+	return lines
+
+
 def _qualified_phase_name(stage_name: Any, phase_name: Any) -> str:
 	stage = str(stage_name).strip() if stage_name is not None else ""
 	phase = str(phase_name).strip() if phase_name is not None else ""
@@ -840,6 +881,7 @@ def format_phase_resource_usage_message(
 	resource_class: Any = None,
 	status: str,
 	resource_usage: PhaseResourceUsage,
+	phase_tune_recommendation: dict[str, Any] | None = None,
 	exception_type: str | None = None,
 ) -> str:
 	lines = [
@@ -854,6 +896,7 @@ def format_phase_resource_usage_message(
 		lines.append(f"  exception_type={_display_field(exception_type)}")
 	for key, value in resource_usage.to_dict().items():
 		lines.append(f"  {key}={_display_metric(value)}")
+	lines.extend(_phase_tune_recommendation_lines(phase_tune_recommendation))
 	return "\n".join(lines)
 
 

@@ -544,6 +544,7 @@ def _configure_phase_tuning_monitoring_from_args(args: argparse.Namespace) -> No
 		system_tool_interval_s=float(tuning_config.system_tool_interval_s),
 		output_relpath=str(tuning_config.output_relpath),
 		write_tool_logs=bool(tuning_config.write_tool_logs),
+		tuning_config=tuning_config,
 	)
 
 

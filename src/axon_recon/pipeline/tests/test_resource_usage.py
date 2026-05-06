@@ -5,7 +5,9 @@ from pathlib import Path
 
 from axon_recon.pipeline import resource_usage
 from axon_recon.pipeline.resource_usage import (
+    PhaseResourceUsage,
     configure_phase_tuning_monitoring,
+    format_phase_resource_usage_message,
     parse_iostat_phase_tune_output,
     parse_pidstat_phase_tune_output,
     start_phase_resource_monitor,
@@ -55,6 +57,39 @@ sda              1.00    2.00    5.00    3.00  12.00    0.10  45.00
     assert metrics["peak_device_write_mb_per_s"] == 64.25
     assert metrics["peak_device_await_ms"] == 12.00
     assert metrics["peak_device_util_pct"] == 88.00
+
+
+def test_format_phase_resource_usage_message_includes_inline_phase_tune_recommendation() -> None:
+    message = format_phase_resource_usage_message(
+        stage_name="reconstruct.build_templates",
+        phase_name="build_templates",
+        dataset_id="dataset-a",
+        recording_id="000031",
+        well_id="well000",
+        resource_class="template_build",
+        status="success",
+        resource_usage=PhaseResourceUsage(
+            wall_time_s=10.0,
+            total_peak_rss_gb=2.0,
+            cpu_time_user_s=20.0,
+            cpu_time_system_s=1.0,
+            max_threads=4,
+        ),
+        phase_tune_recommendation={
+            "current_class_ram_gb": 8.0,
+            "recommended_class_ram_gb": 8.0,
+            "current_class_cpu_cores": 4,
+            "recommended_class_cpu_cores": 4,
+            "observations": 1,
+            "notes": ["current CPU estimate covers observed pipeline thread demand"],
+        },
+    )
+
+    assert "Phase resource usage: reconstruct.build_templates.build_templates" in message
+    assert "  phase_tune_recommendation:" in message
+    assert "    ram_gb=8.000000->8.000000" in message
+    assert "    cpu_cores=4->4" in message
+    assert "    note=current CPU estimate covers observed pipeline thread demand" in message
 
 
 def test_phase_tune_enables_monitor_when_regular_resource_usage_is_disabled(

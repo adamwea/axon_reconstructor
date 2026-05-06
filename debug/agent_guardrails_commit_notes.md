@@ -91,7 +91,68 @@ Rollback Notes:
 
 ## Commit Log
 
-## 2026-05-05 - pending - ai: add phase tune system telemetry
+## 2026-05-06 - pending - ai: inline phase tune recommendations
+
+Status: accepted
+
+Summary:
+- Moved per-resource-class phase-tune recommendation details into the existing `Phase resource usage` block for each phase observation.
+- Kept aggregate `resource_tuning_summary.json` and `resource_tuning_report.md` artifact generation at the end of `--phase-tune` runs.
+- Stopped emitting the duplicated post-stage resource/profile recommendation console logs after `stages: completed ...`.
+
+Guardrails Consulted:
+- `debug/logging_agent_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+
+Acceptance Criteria:
+- Per-phase `--phase-tune` logs show resource tuning recommendation details next to the measured `phase_tune_*` metrics.
+- End-of-run phase tuning still writes aggregate observations, summary JSON, and Markdown report artifacts.
+- `--phase-tune` remains explicit and does not change normal stage/phase logging.
+
+Expected To Run:
+- Focused resource-usage, phase-tuning, CLI, and phase-chain tests.
+- Import/syntax lint for edited Python files.
+- Limited real-data host smoke for `reconstruct.build_templates` with one dataset, one well, and one unit.
+
+Confirmed Not Run:
+- Full repository test suite.
+- Container image rebuild.
+- Multi-well calibration.
+- Remote push.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_resource_usage.py src/axon_recon/pipeline/tests/test_phase_tuning.py src/axon_recon/pipeline/tests/test_pipeline_logging.py::test_phase_chain_logs_resource_class_and_writes_resource_usage src/axon_recon/pipeline/tests/test_cli_stage_sequence.py::test_phase_tune_runs_stage_then_emits_recommendations src/axon_recon/pipeline/tests/test_cli_stage_sequence.py::test_phase_tune_rejects_unlimited_scope_before_running_stage -q` passed.
+- Lint: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m ruff check --select I,F src/axon_recon/pipeline/resource_usage.py src/axon_recon/pipeline/phase_tuning.py src/axon_recon/pipeline/cli.py src/axon_recon/pipeline/execution/phase_chain.py src/axon_recon/pipeline/tests/test_resource_usage.py` passed.
+- Diagnostics: VS Code diagnostics reported no errors for edited Python files.
+- Real-data smoke: `axon-reconstructor stages reconstruct.build_templates --config debug/debug.runtime.yml --limit-datasets 1 --limit-wells 1 --phase-tune --limit-units 1` succeeded.
+- Logs inspected: `/tmp/axon_recon_phase_tune_inline_host.log` showed `phase_tune_recommendation:` nested in the `Phase resource usage: reconstruct.build_templates.build_templates` block and no `Resource tuning recommendation:` or `Resource profile tuning recommendation:` records after stage completion.
+
+CLI / Debug Flag Impact:
+- No CLI flag changes.
+- `--phase-tune` still controls both external system-tool sampling and recommendation log placement.
+
+Logging / Parallelism Impact:
+- Per-phase resource usage records include a structured `phase_tune_recommendation` payload when phase tuning is active and resource config is available.
+- Parallelism, resource gating, and worker allocation behavior are unchanged.
+
+Storage / Cache Impact:
+- Created/modified phase-tune raw logs and aggregate tuning artifacts under the configured run output during validation.
+- No source artifact path changes.
+
+Container / NERSC / MPI Impact:
+- No Dockerfile or container runtime changes.
+- Cached local container image was not rebuilt during this slice, so `axon-recon-container --no-build` still reflected the previously built image until rebuilt.
+
+Resume / Force-Restart Impact:
+- None.
+
+Residual Risk And Follow-Ups:
+- Inline recommendations are one-observation advisories; the Markdown report remains the better place to review aggregate multi-run recommendations.
+
+Rollback Notes:
+- Revert the phase-chain inline recommendation call, resource usage formatter extension, and phase-tuning end-of-run log quieting to restore the previous separate post-stage recommendation logs.
+
+## 2026-05-05 - 9791241 - ai: add phase tune system telemetry
 
 Status: accepted
 

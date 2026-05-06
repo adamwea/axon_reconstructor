@@ -832,6 +832,61 @@ def _recommend_for_group(
 	}
 
 
+def build_phase_resource_usage_recommendation(
+	*,
+	resources: ResourcesConfig,
+	tuning_config: PhaseTuningConfig | None,
+	stage_name: Any,
+	phase_name: Any,
+	resource_class: str | None,
+	resource_usage: Any,
+) -> dict[str, Any]:
+	usage = resource_usage.to_dict() if hasattr(resource_usage, "to_dict") else dict(resource_usage or {})
+	wall_time_s = _metric(usage.get("wall_time_s", None))
+	disk_read_gb = _metric(usage.get("disk_read_gb", None))
+	disk_write_gb = _metric(usage.get("disk_write_gb", None))
+	read_gb_per_s = None
+	write_gb_per_s = None
+	if wall_time_s is not None and wall_time_s > 0:
+		if disk_read_gb is not None:
+			read_gb_per_s = max(0.0, float(disk_read_gb) / float(wall_time_s))
+		if disk_write_gb is not None:
+			write_gb_per_s = max(0.0, float(disk_write_gb) / float(wall_time_s))
+	observation = {
+		"stage": str(stage_name or "unknown"),
+		"phase": str(phase_name or "unknown"),
+		"resource_class": str(resource_class or ""),
+		"wall_time_s": wall_time_s,
+		"total_peak_rss_gb": _metric(usage.get("total_peak_rss_gb", None)),
+		"cpu_time_user_s": _metric(usage.get("cpu_time_user_s", None)),
+		"cpu_time_system_s": _metric(usage.get("cpu_time_system_s", None)),
+		"max_threads": _int_metric(usage.get("max_threads", None)),
+		"observed_process_max_threads": _int_metric(usage.get("observed_process_max_threads", None)),
+		"disk_read_gb": disk_read_gb,
+		"disk_write_gb": disk_write_gb,
+		"disk_read_gb_per_s": read_gb_per_s,
+		"disk_write_gb_per_s": write_gb_per_s,
+		"phase_tune_tools": list(usage.get("phase_tune_tools", []) or []),
+		"phase_tune_sample_count": _int_metric(usage.get("phase_tune_sample_count", None)),
+		"phase_tune_avg_cpu_pct": _metric(usage.get("phase_tune_avg_cpu_pct", None)),
+		"phase_tune_peak_cpu_pct": _metric(usage.get("phase_tune_peak_cpu_pct", None)),
+		"phase_tune_peak_rss_gb": _metric(usage.get("phase_tune_peak_rss_gb", None)),
+		"phase_tune_peak_read_gb_per_s": _metric(usage.get("phase_tune_peak_read_gb_per_s", None)),
+		"phase_tune_peak_write_gb_per_s": _metric(usage.get("phase_tune_peak_write_gb_per_s", None)),
+		"phase_tune_peak_device_read_mb_per_s": _metric(usage.get("phase_tune_peak_device_read_mb_per_s", None)),
+		"phase_tune_peak_device_write_mb_per_s": _metric(usage.get("phase_tune_peak_device_write_mb_per_s", None)),
+		"phase_tune_peak_device_await_ms": _metric(usage.get("phase_tune_peak_device_await_ms", None)),
+		"phase_tune_peak_device_util_pct": _metric(usage.get("phase_tune_peak_device_util_pct", None)),
+		"phase_tune_warnings": list(usage.get("phase_tune_warnings", []) or []),
+	}
+	return _recommend_for_group(
+		resources=resources,
+		tuning_config=tuning_config or PhaseTuningConfig(),
+		group_key=(str(stage_name or "unknown"), str(phase_name or "unknown"), str(resource_class or "")),
+		observations=[observation],
+	)
+
+
 def _qualified_stage_phase(stage: Any, phase: Any) -> str:
 	stage_text = str(stage or "unknown").strip() or "unknown"
 	phase_text = str(phase or "unknown").strip() or "unknown"
@@ -1298,79 +1353,6 @@ def emit_phase_tuning_recommendations(
 		observations=observations,
 		summary=summary,
 	)
-	for recommendation in summary.get("recommendations", []) or []:
-		qualified_name = _qualified_stage_phase(recommendation.get("stage"), recommendation.get("phase"))
-		LOGGER.info(
-			"Resource tuning recommendation: %s resource_class=%s observations=%s ram_gb=%s->%s cpu_cores=%s->%s h5_read_slots=%s->%s disk_heavy_slots=%s->%s",
-			qualified_name,
-			recommendation.get("resource_class") or "none",
-			recommendation.get("observations", 0),
-			recommendation.get("current_class_ram_gb"),
-			recommendation.get("recommended_class_ram_gb"),
-			recommendation.get("current_class_cpu_cores"),
-			recommendation.get("recommended_class_cpu_cores"),
-			recommendation.get("current_h5_read_slots"),
-			recommendation.get("recommended_h5_read_slots"),
-			recommendation.get("current_disk_heavy_slots"),
-			recommendation.get("recommended_disk_heavy_slots"),
-			extra={"event": "phase_tuning_recommendation"},
-		)
-	profile_recommendation = summary.get("active_profile_recommendation", {})
-	if isinstance(profile_recommendation, dict):
-		LOGGER.info(
-			"Resource profile tuning recommendation: profile=%s h5_read_slots=%s->%s disk_heavy_slots=%s->%s h5_requested_demand=%s disk_requested_demand=%s gate_wait_max_s=%s h5_read_utilization=%s disk_heavy_utilization=%s",
-			profile_recommendation.get("profile") or "none",
-			profile_recommendation.get("current_h5_read_slots"),
-			profile_recommendation.get("recommended_h5_read_slots"),
-			profile_recommendation.get("current_disk_heavy_slots"),
-			profile_recommendation.get("recommended_disk_heavy_slots"),
-			profile_recommendation.get("max_requested_recommended_h5_read_slot_demand"),
-			profile_recommendation.get("max_requested_recommended_disk_heavy_slot_demand"),
-			profile_recommendation.get("max_resource_gate_wait_s"),
-			profile_recommendation.get("max_h5_read_bandwidth_utilization"),
-			profile_recommendation.get("max_disk_heavy_bandwidth_utilization"),
-			extra={"event": "phase_tuning_profile_recommendation"},
-		)
-		for item in profile_recommendation.get("disk_bandwidth_pressure", []) or []:
-			if not isinstance(item, dict):
-				continue
-			LOGGER.info(
-				"Resource profile disk bandwidth utilization: path=%s kind=%s read_gb_per_s=%s read_capacity_gb_per_s=%s read_utilization=%s write_gb_per_s=%s write_capacity_gb_per_s=%s write_utilization=%s combined_utilization=%s observations=%s",
-				item.get("path"),
-				item.get("path_kind"),
-				item.get("max_observed_read_gb_per_s"),
-				item.get("read_capacity_gb_per_s"),
-				item.get("max_read_utilization"),
-				item.get("max_observed_write_gb_per_s"),
-				item.get("write_capacity_gb_per_s"),
-				item.get("max_write_utilization"),
-				item.get("max_combined_utilization"),
-				item.get("observation_count"),
-				extra={
-					"event": "phase_tuning_disk_bandwidth_utilization",
-					"disk_bandwidth_pressure": item,
-				},
-			)
-		for warning in profile_recommendation.get("warnings", []) or []:
-			LOGGER.warning(
-				"Resource profile tuning warning: %s",
-				warning,
-				extra={
-					"event": "phase_tuning_profile_recommendation_warning",
-					"profile": profile_recommendation.get("profile"),
-					"recommendation_message": warning,
-				},
-			)
-		for note in profile_recommendation.get("notes", []) or []:
-			LOGGER.info(
-				"Resource profile tuning note: %s",
-				note,
-				extra={
-					"event": "phase_tuning_profile_recommendation_note",
-					"profile": profile_recommendation.get("profile"),
-					"recommendation_message": note,
-				},
-			)
 	LOGGER.info(
 		"Finished resource tuning run observations_written=%d summary_path=%s recommendations_path=%s",
 		len(observations),
