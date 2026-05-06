@@ -13,15 +13,21 @@ env:
 
 resources:
   active_profile: lab_server_safe
+  container_caps:
+    shm_size: 8g # Docker /dev/shm cap for axon-recon-container; raise this for parallel analyzer runs, or set to null to stop forcing --shm-size.
+    memory: null # Optional Docker --memory hard cap, e.g. 48g.
+    memory_reservation: null # Optional Docker --memory-reservation soft cap.
+    memory_swap: null # Optional Docker --memory-swap total memory+swap cap.
+    ipc: null # Optional Docker --ipc mode, e.g. host.
   profiles:
     lab_server_safe:
       cpu_cores: 36 # 48 total cores, but leaving some free for system processes and other users; adjust as needed based on typical server load and desired balance between performance and resource availability for others.
-      ram_gb: 50 # 62 GB total RAM, but leaving some free for system processes and other users; adjust as needed based on typical server load and desired balance between performance and availability for others.
+      ram_gb: 54 # 62 GB total RAM, but leaving some free for system processes and other users; adjust as needed based on typical server load and desired balance between performance and availability for others.
       gpu_sort_slots: 1
       h5_read_slots: 6
       disk_heavy_slots: 6
       plot_slots: 1
-      analyzer_slots: 1
+      analyzer_slots: 2
       #default_chunk_duration: 1s
   keyed_resource_limits:
     source_h5_path:
@@ -94,8 +100,8 @@ resources:
     spikeinterface_analyzer_segment:
       description: SpikeInterface analyzer work that can be done at the segment level before concatenation, such as per-segment quality metrics or representative channel scoring.
       bottleneck: ram_cpu_disk_io
-      cpu_cores: 4
-      ram_gb: 24
+      cpu_cores: 16
+      ram_gb: 26
       analyzer_slots: 1
       disk_heavy_slots: 1
       keyed_resources:
@@ -113,8 +119,8 @@ resources:
     plot_unit:
       description: Per-unit plotting or matplotlib-heavy rendering.
       bottleneck: plotting_memory
-      cpu_cores: 2
-      ram_gb: 48
+      cpu_cores: 4
+      ram_gb: 8
       plot_slots: 1
     plot_report_grid:
       description: Large report, grid, PDF, summary, or full-chip plotting.
@@ -1104,7 +1110,7 @@ stages:
       - clear_templates_cache
 
     debug_mode:
-      enabled: true
+      #enabled: true
       #limit_datasets: null
       #limit_datasets: 1
       limit_wells: null
@@ -1492,10 +1498,12 @@ stages:
         resource_class: plot_unit
         debug_prints: false
         summary_json_relpath: context/plot_templates_v2_summary.json
+        force_soma_lowest_color_range: true # when true, forces the channel identified as the soma (i.e. the channel with the largest amplitude in the template) to be in the lowest color range of the colormap, which can help with visually distinguishing the soma channel from other channels in the template plot, especially when using a colormap where higher values are more visually prominent.
+        force_soma_lowest_color_range_buffer_ms: .75 # width of the soma-friendly low-color band in milliseconds; only used when force_soma_lowest_color_range is true.
         output:
           write_png: true
           write_svg: false
-          dpi: 220
+          dpi: 420
           relpath: template_circles_v2
           bbox_inches: null # null avoids the extra tight-bbox layout pass; set to tight only when needed.
         display:
@@ -1519,8 +1527,9 @@ stages:
           edge_color: none
           marker_linewidth: 0
           marker_alpha: 0.92
-          marker_min_size: 8
-          marker_max_size: 8
+          marker_min_size: 1
+          marker_max_size: 3.15
+          marker_size_scaling: log # linear | sqrt | log ; controls how marker sizes are scaled by the amplitude values.
           show_scale_circle: true
           scale_circle_color: white
           scale_circle:
@@ -1585,6 +1594,7 @@ stages:
           text_y_offset: 0.018
       report_templates:
         enabled: true
+        consume: plot_templates_v2 # plot_templates | plot_templates_v2
         resource_class: plot_report_grid
         summary_json_relpath: context/report_templates_summary.json
         # write pdf slide deck of all circle style template plots for all units.

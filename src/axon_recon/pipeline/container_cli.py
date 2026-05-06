@@ -10,6 +10,9 @@ import subprocess
 import sys
 from typing import Any
 
+from axon_recon.pipeline.resources import ContainerCapsConfig, parse_resources_config
+from axon_recon.runtime_config import RuntimeConfig
+
 
 DEFAULT_IMAGE = "axon-recon:local"
 FINGERPRINT_LABEL = "org.axon-recon.source-fingerprint"
@@ -33,6 +36,11 @@ class WrapperOptions:
 	container_cli: str = "docker"
 	gpu_request: str | None = None
 	shm_size: str | None = "8g"
+	shm_size_overridden: bool = False
+	memory: str | None = None
+	memory_reservation: str | None = None
+	memory_swap: str | None = None
+	ipc: str | None = None
 	repo_root: Path | None = None
 	repo_mode: str = "ro"
 	cache_dir: Path = field(default_factory=lambda: Path.home() / ".cache" / "axon-recon-container")
@@ -58,7 +66,7 @@ Wrapper options:
   --rebuild              Force a rebuild before running
   --dry-run              Print the resolved build/run commands without running them
 	--gpus SPEC            Pass Docker --gpus SPEC (default: AXON_RECON_CONTAINER_GPUS when set)
-	--shm-size SIZE        Pass Docker --shm-size SIZE (default: AXON_RECON_CONTAINER_SHM_SIZE or 8g)
+	--shm-size SIZE        Pass Docker --shm-size SIZE (default: resources.container_caps.shm_size, else AXON_RECON_CONTAINER_SHM_SIZE or 8g)
 	--no-shm-size          Do not override Docker shared memory size
 	--no-gpus              Do not request container GPU access
   --repo-root PATH       Repo root to mount (default: git top-level or installed source root)
@@ -203,10 +211,12 @@ def _parse_options(argv: list[str]) -> WrapperOptions:
 			if not shm_size:
 				raise SystemExit("axon-recon-container: --shm-size requires a non-empty value")
 			options.shm_size = shm_size
+			options.shm_size_overridden = True
 			idx += 1
 			continue
 		if arg == "--no-shm-size":
 			options.shm_size = None
+			options.shm_size_overridden = True
 			idx += 1
 			continue
 		if arg == "--repo-root":
@@ -335,11 +345,25 @@ def _find_cli_config_path(args: list[str]) -> str | None:
 	return None
 
 
-def _resolve_config_mounts(*, repo_root: Path, config_path: str) -> list[str]:
+def _resolve_cli_config_path(config_path: str) -> Path:
 	raw_path = Path(os.path.expandvars(os.path.expanduser(config_path)))
 	if not raw_path.is_absolute():
 		raw_path = _logical_cwd() / raw_path
-	config = raw_path.resolve()
+	return raw_path.resolve()
+
+
+def _load_container_caps_from_config(config_path: str | None) -> ContainerCapsConfig:
+	if not config_path:
+		return ContainerCapsConfig()
+	resolved = _resolve_cli_config_path(config_path)
+	if not resolved.exists():
+		raise SystemExit(f"axon-recon-container: --config path does not exist: {resolved}")
+	runtime_config = RuntimeConfig.load(resolved)
+	return parse_resources_config(runtime_config=runtime_config).container_caps
+
+
+def _resolve_config_mounts(*, repo_root: Path, config_path: str) -> list[str]:
+	config = _resolve_cli_config_path(config_path)
 	if not config.exists():
 		raise SystemExit(f"axon-recon-container: --config path does not exist: {config}")
 
@@ -504,10 +528,22 @@ def _build_docker_run_command(*, repo_root: Path, options: WrapperOptions) -> li
 			path.mkdir(parents=True, exist_ok=True)
 
 	auto_mounts: list[str] = []
-	if options.config_mounts:
-		config_path = _find_cli_config_path(options.container_args)
-		if config_path:
-			auto_mounts = _resolve_config_mounts(repo_root=repo_root, config_path=config_path)
+	config_path = _find_cli_config_path(options.container_args)
+	container_caps = _load_container_caps_from_config(config_path)
+	if options.config_mounts and config_path:
+		auto_mounts = _resolve_config_mounts(repo_root=repo_root, config_path=config_path)
+
+	shm_size = options.shm_size
+	if not options.shm_size_overridden and container_caps.shm_size_configured:
+		shm_size = container_caps.shm_size
+	memory = options.memory if options.memory is not None else container_caps.memory
+	memory_reservation = (
+		options.memory_reservation
+		if options.memory_reservation is not None
+		else container_caps.memory_reservation
+	)
+	memory_swap = options.memory_swap if options.memory_swap is not None else container_caps.memory_swap
+	ipc = options.ipc if options.ipc is not None else container_caps.ipc
 
 	cmd = [options.container_cli, "run", "--rm"]
 	if options.tty and sys.stdin.isatty():
@@ -516,8 +552,16 @@ def _build_docker_run_command(*, repo_root: Path, options: WrapperOptions) -> li
 		cmd.append("-t")
 	if options.gpu_request:
 		cmd.extend(["--gpus", str(options.gpu_request)])
-	if options.shm_size:
-		cmd.extend(["--shm-size", str(options.shm_size)])
+	if shm_size:
+		cmd.extend(["--shm-size", str(shm_size)])
+	if memory:
+		cmd.extend(["--memory", str(memory)])
+	if memory_reservation:
+		cmd.extend(["--memory-reservation", str(memory_reservation)])
+	if memory_swap:
+		cmd.extend(["--memory-swap", str(memory_swap)])
+	if ipc:
+		cmd.extend(["--ipc", str(ipc)])
 
 	cmd.extend(
 		[

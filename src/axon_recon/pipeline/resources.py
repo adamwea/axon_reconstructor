@@ -11,7 +11,14 @@ from axon_recon.runtime_config import RuntimeConfig
 LOGGER = logging.getLogger("axon_recon.pipeline.resources")
 
 _RESERVED_RESOURCE_KEYS: frozenset[str] = frozenset(
-	{"active_profile", "profiles", "phase_resource_classes", "keyed_resource_limits", "defaults"}
+	{
+		"active_profile",
+		"profiles",
+		"phase_resource_classes",
+		"keyed_resource_limits",
+		"defaults",
+		"container_caps",
+	}
 )
 _LEGACY_RESOURCE_DEFAULT_KEYS: tuple[str, ...] = (
 	"chunk_duration",
@@ -77,11 +84,26 @@ class PhaseResourceClassConfig:
 
 
 @dataclass(frozen=True)
+class ContainerCapsConfig:
+	shm_size: str | None = None
+	shm_size_configured: bool = False
+	memory: str | None = None
+	memory_configured: bool = False
+	memory_reservation: str | None = None
+	memory_reservation_configured: bool = False
+	memory_swap: str | None = None
+	memory_swap_configured: bool = False
+	ipc: str | None = None
+	ipc_configured: bool = False
+
+
+@dataclass(frozen=True)
 class ResourcesConfig:
 	active_profile: str | None = None
 	profiles: dict[str, ResourceProfileConfig] = field(default_factory=dict)
 	keyed_resource_limits: dict[str, KeyedResourceLimitConfig] = field(default_factory=dict)
 	phase_resource_classes: dict[str, PhaseResourceClassConfig] = field(default_factory=dict)
+	container_caps: ContainerCapsConfig = field(default_factory=ContainerCapsConfig)
 	defaults: dict[str, Any] = field(default_factory=dict)
 
 
@@ -203,6 +225,33 @@ def _parse_phase_resource_class(raw: Any) -> PhaseResourceClassConfig:
 	)
 
 
+def _parse_container_cap_value(block: dict[str, Any], key: str) -> tuple[str | None, bool]:
+	if key not in block:
+		return None, False
+	return _as_optional_name(block.get(key, None)), True
+
+
+def _parse_container_caps(raw: Any) -> ContainerCapsConfig:
+	block = _as_mapping(raw)
+	shm_size, shm_size_configured = _parse_container_cap_value(block, "shm_size")
+	memory, memory_configured = _parse_container_cap_value(block, "memory")
+	memory_reservation, memory_reservation_configured = _parse_container_cap_value(block, "memory_reservation")
+	memory_swap, memory_swap_configured = _parse_container_cap_value(block, "memory_swap")
+	ipc, ipc_configured = _parse_container_cap_value(block, "ipc")
+	return ContainerCapsConfig(
+		shm_size=shm_size,
+		shm_size_configured=shm_size_configured,
+		memory=memory,
+		memory_configured=memory_configured,
+		memory_reservation=memory_reservation,
+		memory_reservation_configured=memory_reservation_configured,
+		memory_swap=memory_swap,
+		memory_swap_configured=memory_swap_configured,
+		ipc=ipc,
+		ipc_configured=ipc_configured,
+	)
+
+
 def _warn_legacy_resource_defaults(*, logger: logging.Logger, keys: tuple[str, ...]) -> None:
 	global _WARNED_LEGACY_RESOURCE_DEFAULTS
 	if _WARNED_LEGACY_RESOURCE_DEFAULTS or not keys:
@@ -270,6 +319,7 @@ def parse_resources_config(
 		str(name): _parse_phase_resource_class(value)
 		for name, value in phase_classes_raw.items()
 	}
+	container_caps = _parse_container_caps(resources_block.get("container_caps", {}))
 	legacy_source_h5_limit, legacy_source_h5_keys = _legacy_source_h5_limit_value(
 		resources_block=resources_block,
 		defaults=defaults,
@@ -297,6 +347,7 @@ def parse_resources_config(
 		profiles=profiles,
 		keyed_resource_limits=keyed_resource_limits,
 		phase_resource_classes=phase_resource_classes,
+		container_caps=container_caps,
 		defaults=defaults,
 	)
 

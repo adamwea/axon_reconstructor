@@ -113,3 +113,106 @@ def test_source_fingerprint_preserves_logical_sibling_symlink(tmp_path: Path) ->
     (sibling_parent / "UnitMatchPy").symlink_to(external_unitmatch, target_is_directory=True)
 
     assert len(container_cli._source_fingerprint(repo_root)) == 64
+
+
+def test_container_wrapper_reads_container_caps_from_runtime_config(tmp_path: Path) -> None:
+    config_dir = tmp_path / "debug"
+    config_dir.mkdir()
+    runtime_cfg = config_dir / "debug.runtime.yml"
+    runtime_cfg.write_text(
+        """
+resources:
+  container_caps:
+    shm_size: 32g
+    memory: 48g
+    memory_reservation: 40g
+    memory_swap: 64g
+    ipc: host
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    options = container_cli._parse_options([
+        "--no-build",
+        "--dry-run",
+        "--no-config-mounts",
+        "stages",
+        "reconstruct.analyzers",
+        "--config",
+        str(runtime_cfg),
+    ])
+
+    cmd = container_cli._build_docker_run_command(repo_root=tmp_path, options=options)
+
+    assert "--shm-size" in cmd
+    assert cmd[cmd.index("--shm-size") + 1] == "32g"
+    assert "--memory" in cmd
+    assert cmd[cmd.index("--memory") + 1] == "48g"
+    assert "--memory-reservation" in cmd
+    assert cmd[cmd.index("--memory-reservation") + 1] == "40g"
+    assert "--memory-swap" in cmd
+    assert cmd[cmd.index("--memory-swap") + 1] == "64g"
+    assert "--ipc" in cmd
+    assert cmd[cmd.index("--ipc") + 1] == "host"
+
+
+def test_container_wrapper_cli_shm_size_overrides_runtime_config(tmp_path: Path) -> None:
+    config_dir = tmp_path / "debug"
+    config_dir.mkdir()
+    runtime_cfg = config_dir / "debug.runtime.yml"
+    runtime_cfg.write_text(
+        """
+resources:
+  container_caps:
+    shm_size: 32g
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    options = container_cli._parse_options([
+        "--no-build",
+        "--dry-run",
+        "--no-config-mounts",
+        "--shm-size",
+        "12g",
+        "stages",
+        "reconstruct.analyzers",
+        "--config",
+        str(runtime_cfg),
+    ])
+
+    cmd = container_cli._build_docker_run_command(repo_root=tmp_path, options=options)
+
+    assert "--shm-size" in cmd
+    assert cmd[cmd.index("--shm-size") + 1] == "12g"
+
+
+def test_container_wrapper_runtime_config_can_disable_shm_override(tmp_path: Path) -> None:
+    config_dir = tmp_path / "debug"
+    config_dir.mkdir()
+    runtime_cfg = config_dir / "debug.runtime.yml"
+    runtime_cfg.write_text(
+        """
+resources:
+  container_caps:
+    shm_size: null
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    options = container_cli._parse_options([
+        "--no-build",
+        "--dry-run",
+        "--no-config-mounts",
+        "stages",
+        "reconstruct.analyzers",
+        "--config",
+        str(runtime_cfg),
+    ])
+
+    cmd = container_cli._build_docker_run_command(repo_root=tmp_path, options=options)
+
+    assert "--shm-size" not in cmd
