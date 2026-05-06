@@ -292,6 +292,7 @@ class TemplatePlotV2ColorbarConfig:
 	fontsize: float = 7.0
 	tick_fontsize: float = 6.0
 	color: str = "white"
+	reverse: bool = False
 	fraction: float = 0.035
 	pad: float = 0.02
 	x: float | None = None
@@ -370,6 +371,9 @@ class TemplatePlotTemplatesV2PhaseConfig:
 	)
 	colorbar: TemplatePlotV2ColorbarConfig = field(default_factory=TemplatePlotV2ColorbarConfig)
 	scale_bar: TemplatePlotV2ScaleBarConfig = field(default_factory=TemplatePlotV2ScaleBarConfig)
+	show_scale_circle: bool = False
+	scale_circle_color: str = "white"
+	scale_circle: TemplateScaleCircleConfig = field(default_factory=TemplateScaleCircleConfig)
 
 
 @dataclass(frozen=True)

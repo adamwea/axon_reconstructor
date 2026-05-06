@@ -1566,6 +1566,34 @@ def _template_plot_v2_metric(
 	return np.asarray(amplitude, dtype=float)
 
 
+def _template_plot_v2_marker_sizes_pt2(
+	*,
+	size_values: np.ndarray | None,
+	marker_min_size: float,
+	marker_max_size: float,
+	count: int,
+) -> np.ndarray:
+	min_diameter_pt = float(max(0.0, float(marker_min_size)))
+	max_diameter_pt = float(max(min_diameter_pt, float(marker_max_size)))
+	if size_values is None:
+		diameters_pt = np.full((int(count),), max_diameter_pt, dtype=float)
+	else:
+		raw_values = np.asarray(size_values, dtype=float)
+		raw_values = np.abs(np.nan_to_num(raw_values, nan=0.0, posinf=0.0, neginf=0.0))
+		finite_values = raw_values[np.isfinite(raw_values)]
+		if int(finite_values.size) == 0:
+			diameters_pt = np.full((int(count),), min_diameter_pt, dtype=float)
+		else:
+			value_min = float(np.min(finite_values))
+			value_max = float(np.max(finite_values))
+			if value_max > value_min:
+				normalized = np.clip((raw_values - value_min) / float(value_max - value_min), 0.0, 1.0)
+				diameters_pt = min_diameter_pt + ((max_diameter_pt - min_diameter_pt) * normalized)
+			else:
+				diameters_pt = np.full((int(count),), max_diameter_pt, dtype=float)
+	return np.asarray(np.pi * np.square(np.maximum(diameters_pt * 0.5, 0.0)), dtype=float)
+
+
 def _format_template_plot_v2_text(text: str, values: dict[str, Any]) -> str:
 	try:
 		return str(text).format(**values)
@@ -1715,6 +1743,7 @@ def render_template_circles_plot_v2(
 
 	resolved_probe_geometry = _resolve_probe_geometry_sampling_rate(
 		probe_geometry=probe_geometry,
+		config=config,
 		png_path=png_path,
 		svg_path=svg_path,
 		unit_id=unit_id,
@@ -1737,15 +1766,12 @@ def render_template_circles_plot_v2(
 		negative_peak=negative_peak,
 		latency=latency,
 	)
-	if size_values is None:
-		marker_sizes = np.full((int(locs.shape[0]),), float(config.marker_max_size), dtype=float)
-	else:
-		size_norm = np.asarray(np.abs(size_values), dtype=float)
-		size_norm = np.nan_to_num(size_norm, nan=0.0, posinf=0.0, neginf=0.0)
-		max_size_value = float(np.max(size_norm)) if size_norm.size > 0 else 0.0
-		if max_size_value > 0.0:
-			size_norm = size_norm / max_size_value
-		marker_sizes = float(config.marker_min_size) + ((float(config.marker_max_size) - float(config.marker_min_size)) * size_norm)
+	marker_sizes = _template_plot_v2_marker_sizes_pt2(
+		size_values=size_values,
+		marker_min_size=float(config.marker_min_size),
+		marker_max_size=float(config.marker_max_size),
+		count=int(locs.shape[0]),
+	)
 
 	color_values = _template_plot_v2_metric(
 		str(config.color_by),
@@ -1797,7 +1823,10 @@ def render_template_circles_plot_v2(
 			locs[:, 0],
 			locs[:, 1],
 			c=color_values,
-			cmap=str(config.cmap),
+			cmap=_maybe_reversed_colormap(
+				str(config.cmap),
+				reverse=bool(getattr(config.colorbar, "reverse", False) or str(config.color_by or "").strip().lower() == "latency"),
+			),
 			vmin=vmin,
 			vmax=vmax,
 			**scatter_kwargs,
@@ -1829,6 +1858,13 @@ def render_template_circles_plot_v2(
 			values=text_values,
 		)
 	_draw_template_plot_v2_scale_bar(ax, config)
+	scale_circle_ref_value = float(np.nanmax(negative_peak)) if negative_peak.size > 0 else 0.0
+	_add_scale_circle(
+		ax,
+		config=config,
+		reference_area_pt2=float(np.nanmax(marker_sizes)) if marker_sizes.size > 0 else 0.0,
+		reference_value=scale_circle_ref_value,
+	)
 
 	colorbar = config.colorbar
 	if color_values is not None and bool(colorbar.show):
@@ -2407,18 +2443,24 @@ def _convert_latency_samples_to_units(
 def _resolve_probe_geometry_sampling_rate(
 	*,
 	probe_geometry: ProbeGeometryConfig | None,
+	config: Any | None = None,
 	png_path: Path,
 	svg_path: Path,
 	unit_id: Any | None,
 ) -> ProbeGeometryConfig | None:
-	if probe_geometry is not None and probe_geometry.sampling_rate_hz is not None and float(probe_geometry.sampling_rate_hz) > 0:
-		return probe_geometry
-
 	sampling_rate_hz = _read_sampling_rate_hz_from_templates_metadata(
 		png_path=png_path,
 		svg_path=svg_path,
 		unit_id=unit_id,
 	)
+	if sampling_rate_hz is None and probe_geometry is not None and probe_geometry.sampling_rate_hz is not None:
+		try:
+			candidate = float(probe_geometry.sampling_rate_hz)
+			if candidate > 0.0:
+				sampling_rate_hz = candidate
+		except Exception:
+			pass
+
 	if sampling_rate_hz is None:
 		return probe_geometry
 

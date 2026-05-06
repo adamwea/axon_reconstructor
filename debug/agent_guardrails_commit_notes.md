@@ -91,6 +91,68 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-06 12:05 - pending - ai: fix plot templates v2 sizing and latency scale
+
+Status: accepted
+
+Summary:
+- Fixed `plot_templates_v2` marker sizing so the raw per-channel metric range maps onto the configured visible marker-size range, and corrected the config parser to honor `render.marker_min_size` / `render.marker_max_size` from runtime YAML.
+- Corrected v2 latency coloring to use the persisted effective per-unit sampling rate when available, which fixes the 10x delay-scale inflation on upsampled templates, and reversed latency coloring so smaller delays use the yellow end of the colormap.
+- Restored the v1-style scale-circle concept to v2 and enabled it in the active `debug/debug.runtime.yml` block used for the current smoke path.
+
+Guardrails Consulted:
+- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+
+Acceptance Criteria:
+- `plot_templates_v2` honors the configured marker size range from the active runtime YAML.
+- Latency colors and colorbar direction in v2 match the intended semantics for upsampled templates.
+- v2 renders include a scale circle using the same conceptual reference as v1 without reintroducing overlap logic.
+
+Expected To Run:
+- Only the direct `plot_templates_v2` config/render/phase slice and its focused unit tests.
+- No analyzer/template rebuilds, no reconstruct/GTR phases, and no real-data heavy compute.
+
+Confirmed Not Run:
+- No analyzer, build_templates, or generate_gtrs work.
+- No real-data CLI smoke was launched from the agent.
+- No overlap-resolution loop or non-overlapping size pass was added to v2.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_config.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_render.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_runner.py -k "plot_templates_v2_phase_block or render_template_circles_plot_v2 or plot_templates_v2_phase_writes_direct_outputs"` → 5 passed, 191 deselected.
+- Focused tests: targeted narrow v2 render/config slice also passed earlier during iteration.
+- Lint: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m ruff check src/axon_recon/pipeline/stages/reconstruct/templates/models/inputs.py src/axon_recon/pipeline/stages/reconstruct/templates/config.py src/axon_recon/pipeline/stages/reconstruct/templates/core/render.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_config.py src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_render.py --ignore I001,F821,F841,E501,UP035,UP015,UP037,UP028,UP034,B009,B010,E731,E101` → passed.
+- Real-data smoke: not run by the agent; Adam indicated he would run smoke tests separately.
+- Logs inspected: pytest failures/success output for the config/render/phase v2 slice.
+- Artifacts inspected: rendered v2 png/svg test outputs and unit summary metadata lookup behavior.
+- Not run: broad reconstruct CLI and full test suite.
+
+CLI / Debug Flag Impact:
+- No CLI interface changes.
+- Active debug runtime now explicitly enables the v2 scale circle and reversed latency colorbar for smoke testing.
+
+Logging / Parallelism Impact:
+- No logging flow or parallelism behavior changes.
+
+Storage / Cache Impact:
+- Created: none in repository code beyond test temp artifacts.
+- Modified: v2 per-unit plot rendering behavior and the active debug runtime YAML block.
+- Removed: none.
+
+Container / NERSC / MPI Impact:
+- None.
+
+Resume / Force-Restart Impact:
+- None; this slice only affects v2 template plotting and its runtime config.
+
+Residual Risk And Follow-Ups:
+- Real-data smoke is still the right follow-up to confirm the latency scale now visually matches the v1 reference unit on the current run.
+- The v2 latency colormap now auto-reverses for latency, which matches the requested behavior but may be worth making explicitly user-toggleable in future if both directions are needed.
+
+Rollback Notes:
+- Revert the commit to restore the prior v2 sizing/latency behavior and remove the runtime scale-circle/colorbar tweaks.
+
 ## 2026-05-06 11:47 - pending - ai: add analyzer unit manifests for build resume
 
 Status: accepted

@@ -2963,10 +2963,19 @@ def test_load_templates_config_parses_plot_templates_v2_phase_block(tmp_path: Pa
 			        colorbar:
 			          show: true
 			          units: ms
+			          reverse: true
 			          x: 0.88
 			          y: 0.2
 			          width: 0.03
 			          height: 0.6
+			        render:
+			          marker_min_size: 8
+			          marker_max_size: 12
+			          show_scale_circle: true
+			          scale_circle_color: cyan
+			          scale_circle:
+			            digits_after_decimal: 1
+			            units: uV
 			        scale_bar:
 			          show: true
 			          length_um: 100
@@ -3001,8 +3010,15 @@ def test_load_templates_config_parses_plot_templates_v2_phase_block(tmp_path: Pa
 	assert v2.coords.y == 0.04
 	assert v2.colorbar.show is True
 	assert v2.color_bar_units == "ms"
+	assert v2.colorbar.reverse is True
 	assert v2.colorbar.x == 0.88
 	assert v2.colorbar.width == 0.03
+	assert v2.marker_min_size == 8
+	assert v2.marker_max_size == 12
+	assert v2.show_scale_circle is True
+	assert v2.scale_circle_color == "cyan"
+	assert v2.scale_circle.digits_after_decimal == 1
+	assert v2.scale_circle.units == "uV"
 	assert v2.scale_bar.show is True
 	assert v2.scale_bar.length_um == 100
 

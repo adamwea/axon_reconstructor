@@ -1119,6 +1119,135 @@ def test_render_template_circles_plot_v2_writes_outputs_without_overlap_pass(tmp
 	assert Path(outputs["template_circles_v2_svg"]).exists()
 
 
+def test_render_template_circles_plot_v2_maps_raw_metric_range_to_marker_size_range(tmp_path: Path, monkeypatch) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[-1.0, 0.0, 0.0, 0.0],
+			[-3.0, 0.0, 0.0, 0.0],
+			[-5.0, 0.0, 0.0, 0.0],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[20.0, 0.0],
+			[40.0, 0.0],
+		],
+		dtype=float,
+	)
+
+	captured_sizes: list[np.ndarray] = []
+	orig_scatter = matplotlib.axes.Axes.scatter
+
+	def _spy_scatter(self, *args, **kwargs):
+		captured_sizes.append(np.asarray(kwargs.get("s"), dtype=float))
+		return orig_scatter(self, *args, **kwargs)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "scatter", _spy_scatter)
+
+	render_template_circles_plot_v2(
+		template=template,
+		locations_xy=locations,
+		config=TemplatePlotTemplatesV2PhaseConfig(
+			write_png=True,
+			write_svg=False,
+			size_by="amplitude",
+			color_by="amplitude",
+			marker_min_size=8.0,
+			marker_max_size=20.0,
+			colorbar=TemplatePlotV2ColorbarConfig(show=False),
+		),
+		png_path=tmp_path / "v2_marker_sizes.png",
+		svg_path=tmp_path / "unused_v2_marker_sizes.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+	)
+
+	assert captured_sizes
+	actual = captured_sizes[-1]
+	expected_diameters = np.asarray([8.0, 14.0, 20.0], dtype=float)
+	expected_areas = np.pi * np.square(expected_diameters * 0.5)
+	np.testing.assert_allclose(actual, expected_areas)
+
+
+def test_render_template_circles_plot_v2_uses_effective_sampling_rate_for_latency_and_restores_scale_circle(
+	tmp_path: Path,
+	monkeypatch,
+) -> None:
+	import matplotlib.axes
+
+	template = np.asarray(
+		[
+			[-1.0, -4.0, 0.0, 0.0, 0.0, 0.0],
+			[0.0, 0.0, -2.0, -5.0, 0.0, 0.0],
+			[0.0, 0.0, 0.0, 0.0, -3.0, -6.0],
+		],
+		dtype=float,
+	)
+	locations = np.asarray(
+		[
+			[0.0, 0.0],
+			[18.0, 0.0],
+			[36.0, 0.0],
+		],
+		dtype=float,
+	)
+	(tmp_path / "unit_templates_summary.json").write_text(
+		'{"effective_sampling_rate_hz": 100000.0}',
+		encoding="utf-8",
+	)
+
+	captured_color_values: list[np.ndarray] = []
+	captured_cmaps: list[str] = []
+	scale_circle_calls: list[dict[str, float]] = []
+	orig_scatter = matplotlib.axes.Axes.scatter
+
+	def _spy_scatter(self, *args, **kwargs):
+		if kwargs.get("c") is not None:
+			captured_color_values.append(np.asarray(kwargs.get("c"), dtype=float))
+			captured_cmaps.append(str(kwargs.get("cmap")))
+		return orig_scatter(self, *args, **kwargs)
+
+	def _spy_add_scale_circle(ax, **kwargs):
+		scale_circle_calls.append(
+			{
+				"reference_area_pt2": float(kwargs["reference_area_pt2"]),
+				"reference_value": float(kwargs["reference_value"]),
+			}
+		)
+
+	monkeypatch.setattr(matplotlib.axes.Axes, "scatter", _spy_scatter)
+	monkeypatch.setattr(render_mod, "_add_scale_circle", _spy_add_scale_circle)
+
+	render_template_circles_plot_v2(
+		template=template,
+		locations_xy=locations,
+		config=TemplatePlotTemplatesV2PhaseConfig(
+			write_png=True,
+			write_svg=False,
+			color_by="latency",
+				color_bar_units="ms",
+			colorbar=TemplatePlotV2ColorbarConfig(show=True),
+			show_scale_circle=True,
+			scale_circle_color="white",
+			scale_circle=TemplateScaleCircleConfig(units="uV"),
+		),
+		png_path=tmp_path / "v2_latency.png",
+		svg_path=tmp_path / "unused_v2_latency.svg",
+		probe_geometry=ProbeGeometryConfig(sampling_rate_hz=10_000.0),
+		unit_id=7,
+	)
+
+	assert captured_color_values
+	np.testing.assert_allclose(captured_color_values[-1], np.asarray([-0.04, -0.02, 0.0], dtype=float))
+	assert captured_cmaps[-1] == "viridis_r"
+	assert scale_circle_calls
+	assert scale_circle_calls[-1]["reference_value"] == 6.0
+	assert scale_circle_calls[-1]["reference_area_pt2"] > 0.0
+
+
 def test_render_template_circles_plot_scale_circle_label_precision_knob(tmp_path: Path, monkeypatch) -> None:
 	import matplotlib.axes
 

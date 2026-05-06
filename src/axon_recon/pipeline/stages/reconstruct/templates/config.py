@@ -654,6 +654,7 @@ def _parse_plot_v2_colorbar_config(
 		fontsize=_as_float(cfg.get("fontsize", default.fontsize), default.fontsize),
 		tick_fontsize=_as_float(cfg.get("tick_fontsize", default.tick_fontsize), default.tick_fontsize),
 		color=str(cfg.get("color", default.color)),
+		reverse=_as_bool(cfg.get("reverse", default.reverse), default.reverse),
 		fraction=_as_float(cfg.get("fraction", default.fraction), default.fraction),
 		pad=_as_float(cfg.get("pad", default.pad), default.pad),
 		x=_as_float_or_none(cfg.get("x", default.x), default.x),
@@ -681,6 +682,35 @@ def _parse_plot_v2_scale_bar_config(
 			cfg.get("horizontal_alignment", cfg.get("ha", default.horizontal_alignment))
 		),
 		text_y_offset=_as_float(cfg.get("text_y_offset", default.text_y_offset), default.text_y_offset),
+	)
+
+
+def _parse_scale_circle_config(
+	raw_cfg: dict[str, Any],
+	default: TemplateScaleCircleConfig,
+) -> TemplateScaleCircleConfig:
+	cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
+	raw_diameter = cfg.get("diameter", default.diameter)
+	if isinstance(raw_diameter, str):
+		diameter: str | float = str(raw_diameter)
+	else:
+		default_numeric = 0.0 if isinstance(default.diameter, str) else float(default.diameter)
+		diameter = _as_float(raw_diameter, default_numeric)
+	return TemplateScaleCircleConfig(
+		diameter=diameter,
+		linewidth=max(0.1, _as_float(cfg.get("linewidth", default.linewidth), default.linewidth)),
+		linestyle=_normalize_optional_linestyle(cfg.get("linestyle", default.linestyle), default.linestyle),
+		fill=_as_bool(cfg.get("fill", default.fill), default.fill),
+		fill_color=(lambda raw: None if raw is None else (str(raw).strip() or None))(cfg.get("fill_color", default.fill_color)),
+		fontsize=max(1.0, _as_float(cfg.get("fontsize", default.fontsize), default.fontsize)),
+		digits_after_decimal=max(0, _as_int(cfg.get("digits_after_decimal", default.digits_after_decimal), default.digits_after_decimal)),
+		horizontal_alignment=_normalize_horizontal_alignment(cfg.get("horizontal_alignment", default.horizontal_alignment), default=default.horizontal_alignment),
+		vertical_alignment=_normalize_vertical_alignment(cfg.get("vertical_alignment", default.vertical_alignment), default=default.vertical_alignment),
+		x_offset_frac=max(0.0, _as_float(cfg.get("x_offset_frac", default.x_offset_frac), default.x_offset_frac)),
+		y_offset_frac=max(0.0, _as_float(cfg.get("y_offset_frac", default.y_offset_frac), default.y_offset_frac)),
+		font_location=str(cfg.get("font_location", default.font_location)),
+		font_location_circle_too_small=str(cfg.get("font_location_circle_too_small", default.font_location_circle_too_small)),
+		units=str(cfg.get("units", default.units)),
 	)
 
 
@@ -732,8 +762,8 @@ def _parse_plot_templates_v2_phase_config(
 		edge_color=str(_config_first((render_cfg, display_cfg, cfg), "edge_color", defaults.edge_color)),
 		marker_linewidth=_as_float(_config_first((render_cfg, display_cfg, cfg), "marker_linewidth", defaults.marker_linewidth), defaults.marker_linewidth),
 		marker_alpha=_as_float(_config_first((render_cfg, display_cfg, cfg), "marker_alpha", defaults.marker_alpha), defaults.marker_alpha),
-		marker_min_size=_as_float(_config_first((display_cfg, cfg), "marker_min_size", defaults.marker_min_size), defaults.marker_min_size),
-		marker_max_size=_as_float(_config_first((display_cfg, cfg), "marker_max_size", defaults.marker_max_size), defaults.marker_max_size),
+		marker_min_size=_as_float(_config_first((render_cfg, display_cfg, cfg), "marker_min_size", defaults.marker_min_size), defaults.marker_min_size),
+		marker_max_size=_as_float(_config_first((render_cfg, display_cfg, cfg), "marker_max_size", defaults.marker_max_size), defaults.marker_max_size),
 		size_by=str(_config_first((display_cfg, cfg), "size_by", defaults.size_by)),
 		color_by=str(_config_first((display_cfg, cfg), "color_by", defaults.color_by)),
 		cmap=str(_config_first((render_cfg, display_cfg, cfg), "cmap", defaults.cmap)),
@@ -755,6 +785,9 @@ def _parse_plot_templates_v2_phase_config(
 		coords=_parse_plot_v2_text_config(coords_cfg, defaults.coords),
 		colorbar=_parse_plot_v2_colorbar_config(colorbar_cfg, defaults.colorbar),
 		scale_bar=_parse_plot_v2_scale_bar_config(scale_bar_cfg, defaults.scale_bar),
+		show_scale_circle=_as_bool(_config_first((render_cfg, cfg), "show_scale_circle", defaults.show_scale_circle), defaults.show_scale_circle),
+		scale_circle_color=str(_config_first((render_cfg, cfg), "scale_circle_color", defaults.scale_circle_color)),
+		scale_circle=_parse_scale_circle_config(_phase_block(render_cfg, "scale_circle"), defaults.scale_circle),
 	)
 
 

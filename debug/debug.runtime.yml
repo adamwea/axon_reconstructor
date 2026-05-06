@@ -1521,6 +1521,11 @@ stages:
           marker_alpha: 0.92
           marker_min_size: 8
           marker_max_size: 8
+          show_scale_circle: true
+          scale_circle_color: white
+          scale_circle:
+            digits_after_decimal: 1
+            units: uV
           cmap: viridis
         layout:
           figsize: [8.0, 6.0]
@@ -1559,6 +1564,7 @@ stages:
           show: true
           label: ""
           units: ms
+          reverse: true
           fontsize: 7
           tick_fontsize: 6
           color: white
