@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 from typing import Callable
 
+from .cpu_allocation import detect_cpu_topology, format_cpu_topology
 from .execution import install_process_lifecycle
 from .execution.logging_context import (
 	ensure_pipeline_target_in_format,
@@ -405,6 +406,22 @@ def _register_stage_sequence_parser(
 	parser.set_defaults(handler=_run_stage_sequence_from_args)
 
 
+def _run_system_topology_from_args(_args: argparse.Namespace) -> int:
+	print(format_cpu_topology(detect_cpu_topology()))
+	return 0
+
+
+def _register_system_topology_parser(
+	*,
+	subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+	parser = subparsers.add_parser(
+		"systopo",
+		help="Print visible CPU topology derived from current affinity and sysfs",
+	)
+	parser.set_defaults(handler=_run_system_topology_from_args)
+
+
 def _parse_stage_list_tokens(raw_tokens: list[str]) -> list[str]:
 	text = " ".join(str(token) for token in list(raw_tokens or [])).strip()
 	if not text:
@@ -527,6 +544,7 @@ def build_parser() -> argparse.ArgumentParser:
 		name="stage",
 		help_text="Alias for stages",
 	)
+	_register_system_topology_parser(subparsers=subparsers)
 
 	return parser
 

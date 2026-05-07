@@ -259,6 +259,14 @@ def test_build_parser_supports_phase_tune_flags() -> None:
     assert args.confirm_full_scope is True
 
 
+def test_build_parser_supports_systopo_command() -> None:
+    parser = pipeline_cli.build_parser()
+    args = parser.parse_args(["systopo"])
+
+    assert args.command == "systopo"
+    assert args.handler is pipeline_cli._run_system_topology_from_args
+
+
 def test_build_parser_supports_target_datasets_flag() -> None:
     parser = pipeline_cli.build_parser()
     args = parser.parse_args(
@@ -400,6 +408,25 @@ def test_main_runs_selected_stages_in_order(monkeypatch, tmp_path: Path) -> None
         ("preprocess", "preprocess", True),
         ("spikesort", "spikesort", True),
     ]
+
+
+def test_main_runs_systopo_command(monkeypatch, capsys) -> None:
+    fake_topology = object()
+
+    monkeypatch.setattr(pipeline_cli, "detect_cpu_topology", lambda: fake_topology)
+    monkeypatch.setattr(
+        pipeline_cli,
+        "format_cpu_topology",
+        lambda topology: "CPU topology\nsource: sysfs\nvisible_cpus: 0-3",
+    )
+
+    rc = pipeline_cli.main(["systopo"])
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    assert "CPU topology" in captured.out
+    assert "source: sysfs" in captured.out
+    assert "visible_cpus: 0-3" in captured.out
 
 
 def test_phase_tune_rejects_unlimited_scope_before_running_stage(monkeypatch, tmp_path: Path) -> None:

@@ -63,6 +63,16 @@ def test_container_wrapper_stops_parsing_at_first_pipeline_arg() -> None:
     ]
 
 
+def test_container_wrapper_forwards_config_free_systopo_command(tmp_path: Path) -> None:
+    options = container_cli._parse_options(["--no-build", "--dry-run", "systopo"])
+
+    assert options.container_args == ["systopo"]
+
+    cmd = container_cli._build_docker_run_command(repo_root=tmp_path, options=options)
+
+    assert cmd[-2:] == [container_cli.DEFAULT_IMAGE, "systopo"]
+
+
 def test_container_wrapper_option_before_pipeline_command_changes_image() -> None:
     options = container_cli._parse_options(["--image", "custom:tag", "stages", "all", "--config", "cfg.yml"])
 

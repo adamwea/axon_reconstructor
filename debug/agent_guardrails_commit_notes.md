@@ -91,6 +91,69 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-07 00:25 - pending - ai: add systopo cpu topology command
+
+Status: accepted
+
+Summary:
+- Added a read-only CPU topology detector in `src/axon_recon/pipeline/cpu_allocation.py` that derives visible CPUs from process affinity, reads per-CPU topology from sysfs when available, and falls back to logical-CPU-only grouping with a warning when sysfs data is unavailable.
+- Added `systopo` to the main CLI so `axon-reconstructor systopo` prints a user-reviewable topology report without requiring a runtime config or starting any pipeline stage work.
+- Confirmed the existing container wrapper already forwards config-free commands, added coverage for `axon-recon-container systopo`, and added `axon-recon` as a package script alias in project metadata for future installs.
+
+Guardrails Consulted:
+- `debug/parallelism_agent_guardrails.md`
+- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/first_version_pipeline_guardrails.md`
+
+Acceptance Criteria:
+- Unit tests cover sysfs topology detection for 1 socket, 24 cores, 2 threads per core.
+- Unit tests cover cpuset-restricted visibility and missing-sysfs fallback.
+- A direct CLI command prints topology information for user review without requiring config.
+- The container wrapper accepts and forwards the config-free `systopo` command shape.
+
+Expected To Run:
+- Focused topology detector tests, focused CLI/container tests, and read-only topology command checks only.
+
+Confirmed Not Run:
+- No preprocess, spikesort, reconstruct, analyzer, containerized pipeline stage, or MPI work was launched by the agent.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_cpu_allocation.py src/axon_recon/pipeline/tests/test_cli_stage_sequence.py src/axon_recon/pipeline/tests/test_container_cli.py` → 161 passed.
+- Diagnostics: VS Code `get_errors` on touched topology and CLI files → no errors.
+- Host command smoke: `axon-reconstructor systopo | head -n 20` → printed live visible CPU topology for the current machine.
+- Container wrapper smoke: `axon-recon-container --no-build --dry-run systopo` → resolved a config-free `docker run ... axon-recon:local systopo` command.
+- Logs inspected: focused pytest output and the live host `systopo` sample output.
+- Artifacts inspected: none.
+- Not run: editable reinstall or container execution, to avoid unnecessary churn while Adam had an analyzer phase running.
+
+CLI / Debug Flag Impact:
+- Added `systopo` as a top-level read-only CLI command.
+- Added `axon-recon` as a package script alias in `pyproject.toml` for future installs.
+- Created a local workstation symlink `/home/adamm/miniconda3/bin/axon-recon -> /home/adamm/miniconda3/bin/axon-reconstructor` so the short alias works immediately without reinstalling during the active analyzer run.
+
+Logging / Parallelism Impact:
+- No stage parallelism behavior changes yet.
+- `systopo` currently prints a topology report and inherits the standard pipeline start/completion log lines.
+
+Storage / Cache Impact:
+- Created: `src/axon_recon/pipeline/cpu_allocation.py`, `src/axon_recon/pipeline/tests/test_cpu_allocation.py`.
+- Modified: `src/axon_recon/pipeline/cli.py`, `src/axon_recon/pipeline/tests/test_cli_stage_sequence.py`, `src/axon_recon/pipeline/tests/test_container_cli.py`, `pyproject.toml`, `debug/agent_guardrails_commit_notes.md`.
+- Removed: none.
+
+Container / NERSC / MPI Impact:
+- No MPI or NERSC runtime behavior changes.
+- The container wrapper now has focused coverage for a config-free read-only topology command, which is useful for container visibility checks before later affinity work.
+
+Resume / Force-Restart Impact:
+- None.
+
+Residual Risk And Follow-Ups:
+- The live topology report shows kernel-provided core IDs, which may not be contiguous or numerically ordered by visible CPU range.
+- The next slice should turn this topology object into a task-slot allocation plan without changing stage execution when task allocation is disabled.
+
+Rollback Notes:
+- Revert the commit to remove the detector, the `systopo` command, and the metadata alias.
+
 ## 2026-05-06 21:45 - pending - ai: add task allocation config schema
 
 Status: accepted
