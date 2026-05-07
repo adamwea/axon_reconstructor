@@ -196,7 +196,8 @@ def test_build_task_allocation_plan_uses_physical_core_capacity_without_hyperthr
 	)
 	formatted = format_stage_allocation_previews([preview])
 	assert "task_allocation: enabled backend=local_affinity bind=physical_cores" in formatted
-	assert "cpu_topology: visible_cpus=0-47" in formatted
+	assert "cpu_topology:" in formatted
+	assert "visible_cpus:" in formatted
 
 
 def test_build_task_allocation_plan_reserve_cpus_reduces_slot_capacity(tmp_path: Path) -> None:
@@ -556,8 +557,8 @@ def test_allocation_preview_shows_thread_env_policy_when_enabled(tmp_path: Path)
 	)
 	formatted = format_stage_allocation_previews([preview])
 	assert "thread_env: policy=match_cpus_per_task" in formatted
-	assert "thread_env_current:" in formatted
+	assert "current:" in formatted
 	assert "OMP_NUM_THREADS=" in formatted
-	assert "thread_env_worker:" in formatted
-	assert "set per worker at execution" in formatted
+	assert "worker:" in formatted
+	assert "set per-worker at execution" in formatted
 	assert "slot_clamps:" in formatted

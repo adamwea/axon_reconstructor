@@ -1850,41 +1850,58 @@ def _format_allocation_plan_summary(plan: TaskAllocationPlan | None) -> list[str
 		return ["task_allocation: disabled"]
 	lines = [
 		f"task_allocation: enabled backend={plan.backend} bind={plan.bind}",
-		f"cpu_topology: visible_cpus={format_cpu_set(plan.topology.visible_cpus)} physical_cores={plan.topology.physical_core_count} logical_cpus={plan.topology.logical_cpu_count}",
-		f"task_shape: cpus_per_task={plan.cpus_per_task}({plan.cpus_per_task_source}) tasks_per_node={plan.effective_tasks_per_node} cpu_capacity_tasks={plan.cpu_capacity_tasks}",
+		"",
+		"  cpu_topology:",
+		f"    visible_cpus:    {format_cpu_set(plan.topology.visible_cpus)}",
+		f"    physical_cores:  {plan.topology.physical_core_count}",
+		f"    logical_cpus:    {plan.topology.logical_cpu_count}",
+		"",
+		"  task_shape:",
+		f"    cpus_per_task:   {plan.cpus_per_task}  (source: {plan.cpus_per_task_source})",
+		f"    tasks_per_node:  {plan.effective_tasks_per_node}",
+		f"    cpu_capacity:    {plan.cpu_capacity_tasks} tasks",
 	]
-	clamp_parts: list[str] = [f"cpu_capacity={plan.cpu_capacity_tasks}"]
+	clamp_inputs: list[str] = [f"cpu_capacity={plan.cpu_capacity_tasks}"]
 	if plan.ram_capacity_tasks is not None:
-		clamp_parts.append(f"ram_capacity={plan.ram_capacity_tasks}")
+		clamp_inputs.append(f"ram_capacity={plan.ram_capacity_tasks}")
 	if plan.shm_capacity_tasks is not None:
-		clamp_parts.append(f"shm_capacity={plan.shm_capacity_tasks}")
+		clamp_inputs.append(f"shm_capacity={plan.shm_capacity_tasks}")
 	if plan.target_count is not None:
-		clamp_parts.append(f"target_count={plan.target_count}")
+		clamp_inputs.append(f"target_count={plan.target_count}")
 	if plan.stage_well_worker_limit is not None:
-		clamp_parts.append(f"stage_well_workers={plan.stage_well_worker_limit}")
-	clamp_parts.append(f"-> effective={plan.effective_tasks_per_node}")
-	lines.append(f"slot_clamps: {', '.join(clamp_parts)}")
-	thread_env_note = f"policy={plan.nested_thread_policy}" if bool(plan.set_thread_env) else "disabled"
-	lines.append(f"thread_env: {thread_env_note}")
-	env_parts = [
-		f"{var}={os.environ[var]}" if var in os.environ else f"{var}=unset"
-		for var in _THREAD_ENV_VARS
+		clamp_inputs.append(f"stage_well_workers={plan.stage_well_worker_limit}")
+	lines += [
+		"",
+		f"  slot_clamps:  {', '.join(clamp_inputs)}  ->  effective={plan.effective_tasks_per_node}",
 	]
-	lines.append(f"thread_env_current: {' '.join(env_parts)}")
+	thread_env_note = f"policy={plan.nested_thread_policy}" if bool(plan.set_thread_env) else "disabled"
+	lines += [
+		"",
+		f"  thread_env: {thread_env_note}",
+		"    current:",
+	]
+	for var in _THREAD_ENV_VARS:
+		val = os.environ.get(var, "unset")
+		lines.append(f"      {var}={val}")
 	if bool(plan.set_thread_env):
 		_policy = str(plan.nested_thread_policy).strip()
 		if _policy == "match_cpus_per_task":
-			_worker_val = str(plan.cpus_per_task)
-			_worker_parts = "  ".join(f"{var}={_worker_val}" for var in _THREAD_ENV_VARS)
-			lines.append(f"thread_env_worker: {_worker_parts}  (set per worker at execution)")
+			_val = str(plan.cpus_per_task)
+			lines.append("    worker:  (set per-worker at execution)")
+			for var in _THREAD_ENV_VARS:
+				lines.append(f"      {var}={_val}")
 		elif _policy == "force_1":
-			_worker_parts = "  ".join(f"{var}=1" for var in _THREAD_ENV_VARS)
-			lines.append(f"thread_env_worker: {_worker_parts}  (set per worker at execution)")
-		else:  # preserve_existing or unknown
-			lines.append(f"thread_env_worker: no-op (policy={_policy}, vars left as-is per worker)")
-	lines.append(f"slots: {len(plan.slots)}")
+			lines.append("    worker:  (set per-worker at execution)")
+			for var in _THREAD_ENV_VARS:
+				lines.append(f"      {var}=1")
+		else:
+			lines.append(f"    worker:  no-op  (policy={_policy}, vars preserved as-is)")
+	lines += [
+		"",
+		f"  slots: {len(plan.slots)}",
+	]
 	for slot in plan.slots:
-		lines.append(f"  slot[{slot.slot_id}]: cpus={format_cpu_set(slot.logical_cpus)}")
+		lines.append(f"    slot[{slot.slot_id}]: cpus={format_cpu_set(slot.logical_cpus)}")
 	return lines
 
 
