@@ -20,6 +20,7 @@ from .config import (
 )
 from .cpu_allocation import (
 	TaskAllocationPlan,
+	_THREAD_ENV_VARS,
 	apply_thread_env_context,
 	build_task_allocation_plan,
 	current_task_slot,
@@ -1865,6 +1866,11 @@ def _format_allocation_plan_summary(plan: TaskAllocationPlan | None) -> list[str
 	lines.append(f"slot_clamps: {', '.join(clamp_parts)}")
 	thread_env_note = f"policy={plan.nested_thread_policy}" if bool(plan.set_thread_env) else "disabled"
 	lines.append(f"thread_env: {thread_env_note}")
+	env_parts = [
+		f"{var}={os.environ[var]}" if var in os.environ else f"{var}=unset"
+		for var in _THREAD_ENV_VARS
+	]
+	lines.append(f"thread_env_current: {' '.join(env_parts)}")
 	lines.append(f"slots: {len(plan.slots)}")
 	for slot in plan.slots:
 		lines.append(f"  slot[{slot.slot_id}]: cpus={format_cpu_set(slot.logical_cpus)}")

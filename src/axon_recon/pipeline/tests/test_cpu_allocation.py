@@ -556,4 +556,6 @@ def test_allocation_preview_shows_thread_env_policy_when_enabled(tmp_path: Path)
 	)
 	formatted = format_stage_allocation_previews([preview])
 	assert "thread_env: policy=match_cpus_per_task" in formatted
+	assert "thread_env_current:" in formatted
+	assert "OMP_NUM_THREADS=" in formatted
 	assert "slot_clamps:" in formatted
