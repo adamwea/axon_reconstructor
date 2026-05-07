@@ -91,6 +91,62 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-06 21:15 - pending - ai: document NERSC shaped local affinity plan
+
+Status: accepted
+
+Summary:
+- Added `debug/nersc_shaped_local_affinity_plan.md`, a sequential planning note for evolving local pipeline parallelism toward NERSC-shaped task allocation.
+- The plan keeps local CPU affinity as the first backend and defers MPI/Slurm until the task allocation abstraction is stable.
+- The note captures config shape, CPU topology detection, task slot planning, target-distribution integration, worker affinity, nested thread env, logging, phase-tune metadata, container smoke, and later MPI/Slurm backends.
+
+Guardrails Consulted:
+- `debug/parallelism_agent_guardrails.md`
+- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/optimization_simplificaiton_guardrails.md`
+
+Acceptance Criteria:
+- Debug folder gains a markdown roadmap for sequential implementation slices.
+- Existing locked guardrail docs remain unchanged.
+- The plan preserves non-MPI default behavior and marks NERSC validation as deferred.
+
+Expected To Run:
+- Documentation-only update.
+
+Confirmed Not Run:
+- No pipeline stages, real-data smoke, container builds, or MPI commands were launched by the agent for this slice.
+
+Validation:
+- Focused tests: not run; documentation-only change.
+- Real-data smoke: not run.
+- Logs inspected: not applicable.
+- Artifacts inspected: existing debug guardrail notes for local style and acceptance vocabulary.
+- Not run: full test suite and container smoke.
+
+CLI / Debug Flag Impact:
+- None. The document proposes future CLI override vocabulary but does not implement it.
+
+Logging / Parallelism Impact:
+- None in code. The document proposes future task-allocation logs and phase-tune metadata.
+
+Storage / Cache Impact:
+- Created: `debug/nersc_shaped_local_affinity_plan.md`.
+- Modified: `debug/agent_guardrails_commit_notes.md`.
+- Removed: none.
+
+Container / NERSC / MPI Impact:
+- No runtime impact. The document recommends local CPU affinity first, MPI later, and Slurm/NERSC last after real validation.
+
+Resume / Force-Restart Impact:
+- None.
+
+Residual Risk And Follow-Ups:
+- The first implementation slice should verify whether current well target distribution uses threads or processes before applying per-worker affinity, because process-wide affinity is unsafe for independent thread workers.
+- Follow-up implementation should begin with config parsing and topology detection only.
+
+Rollback Notes:
+- Revert the commit to remove the planning note and its commit-log entry.
+
 ## 2026-05-06 12:05 - pending - ai: fix plot templates v2 sizing and latency scale
 
 Status: accepted
