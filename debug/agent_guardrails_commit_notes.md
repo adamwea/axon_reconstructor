@@ -91,6 +91,69 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-07 00:45 - pending - ai: add task allocation plan builder
+
+Status: accepted
+
+Summary:
+- Added pure task-allocation planning dataclasses and slot-building logic in `src/axon_recon/pipeline/cpu_allocation.py` without wiring the plan into live stage execution yet.
+- The plan builder consumes the parsed `TaskAllocationConfig`, detected `CpuTopology`, optional `StageParallelism`, and optional RAM or `/dev/shm` capacity inputs.
+- The implementation currently supports `backend=local_affinity`, returns no plan when task allocation is disabled, computes capacity from CPU units first, applies reserve and resource-cap clamps, and builds concrete `TaskSlot` CPU sets for later integration.
+
+Guardrails Consulted:
+- `debug/parallelism_agent_guardrails.md`
+- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/first_version_pipeline_guardrails.md`
+
+Acceptance Criteria:
+- Disabled task allocation returns no plan.
+- The 24-core lab-style topology with `cpus_per_task=4`, `use_hyperthreads=false` yields 6 slots.
+- `reserve_cpus=2` reduces the same topology to 5 slots.
+- Explicit `tasks_per_node` is clamped to available capacity under the current clear-policy choice.
+- RAM and `/dev/shm` per-task limits can reduce effective task count below CPU capacity.
+
+Expected To Run:
+- Focused CPU topology and task-allocation-plan unit tests only.
+
+Confirmed Not Run:
+- No preprocess, spikesort, reconstruct, analyzer, containerized pipeline, or MPI work was launched by the agent.
+- No runtime integration into target distribution or worker affinity was attempted in this slice.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_cpu_allocation.py` → 11 passed.
+- Diagnostics: VS Code `get_errors` on `src/axon_recon/pipeline/cpu_allocation.py` and `src/axon_recon/pipeline/tests/test_cpu_allocation.py` → no errors.
+- Real-data smoke: not run.
+- Logs inspected: focused pytest output for the plan builder slice.
+- Artifacts inspected: none.
+- Not run: broader pipeline tests and any stage command that could interfere with Adam’s active analyzer work.
+
+CLI / Debug Flag Impact:
+- None in this slice. The existing `systopo` command remains unchanged.
+
+Logging / Parallelism Impact:
+- No runtime parallelism behavior change yet.
+- Added `TaskSlot` and `TaskAllocationPlan` dataclasses for the next integration slice.
+
+Storage / Cache Impact:
+- Created: none.
+- Modified: `src/axon_recon/pipeline/cpu_allocation.py`, `src/axon_recon/pipeline/tests/test_cpu_allocation.py`, `debug/agent_guardrails_commit_notes.md`.
+- Removed: none.
+
+Container / NERSC / MPI Impact:
+- No runtime container, MPI, or NERSC behavior changes.
+- The plan builder now accepts optional RAM and `/dev/shm` capacities so the later container/local-affinity slice can clamp tasks without changing the planner interface.
+
+Resume / Force-Restart Impact:
+- None.
+
+Residual Risk And Follow-Ups:
+- The current implementation clamps explicit `tasks_per_node` to capacity rather than failing; if Adam wants strict validation later, that should be a deliberate policy switch.
+- `bind=logical_cpus` currently treats `reserve_cpus` and `cpus_per_task` as logical-CPU units, while physical-core bindings treat them as core units; that distinction should be kept explicit in later logging.
+- The next slice should integrate the plan at the target distribution boundary and clamp effective `well_workers` to the number of planned slots.
+
+Rollback Notes:
+- Revert the commit to remove the pure plan builder and its focused tests.
+
 ## 2026-05-07 00:25 - pending - ai: add systopo cpu topology command
 
 Status: accepted

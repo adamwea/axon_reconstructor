@@ -6,6 +6,9 @@ import os
 from pathlib import Path
 from typing import Callable, Iterable
 
+from .execution.context import StageParallelism
+from .resources import ResourceProfileConfig, TaskAllocationConfig
+
 
 LOGGER = logging.getLogger("axon_recon.pipeline.cpu_allocation")
 
@@ -56,6 +59,42 @@ class CpuTopology:
 			if len(core.logical_cpus) > 0
 		}
 		return tuple(sorted(int(count) for count in thread_counts))
+
+
+@dataclass(frozen=True)
+class TaskSlot:
+	slot_id: int
+	logical_cpus: tuple[int, ...]
+	core_ids: tuple[int, ...]
+	package_ids: tuple[int, ...]
+
+	@property
+	def cpu_count(self) -> int:
+		return len(self.logical_cpus)
+
+	@property
+	def physical_core_count(self) -> int:
+		return len(self.core_ids)
+
+
+@dataclass(frozen=True)
+class TaskAllocationPlan:
+	backend: str
+	bind: str
+	use_hyperthreads: bool
+	cpus_per_task: int
+	cpus_per_task_source: str
+	requested_tasks_per_node: int | str
+	effective_tasks_per_node: int
+	slot_capacity: int
+	cpu_capacity_tasks: int
+	ram_capacity_tasks: int | None
+	shm_capacity_tasks: int | None
+	available_unit_count: int
+	reserved_unit_count: int
+	target_count: int | None = None
+	stage_well_worker_limit: int | None = None
+	slots: tuple[TaskSlot, ...] = ()
 
 
 def _default_affinity_getter(pid: int) -> Iterable[int]:
@@ -119,6 +158,208 @@ def format_cpu_set(cpus: Iterable[int]) -> str:
 
 def _read_required_text(path: Path) -> str:
 	return path.read_text(encoding="utf-8").strip()
+
+
+def _as_optional_positive_int(value: int | None) -> int | None:
+	if value is None:
+		return None
+	parsed = int(value)
+	if parsed <= 0:
+		return None
+	return parsed
+
+
+def _capacity_limit_from_float(*, budget: float | None, demand: float | None) -> int | None:
+	if budget is None or demand is None:
+		return None
+	budget_value = float(budget)
+	demand_value = float(demand)
+	if budget_value <= 0.0 or demand_value <= 0.0:
+		return None
+	return max(0, int(budget_value // demand_value))
+
+
+def _derive_cpus_per_task(
+	*,
+	config: TaskAllocationConfig,
+	stage_parallelism: StageParallelism | None,
+) -> tuple[int, str]:
+	configured = getattr(config, "cpus_per_task", "auto")
+	if isinstance(configured, int):
+		return max(1, int(configured)), "task_allocation.cpus_per_task"
+	if str(configured).strip().lower() != "auto":
+		return max(1, int(configured)), "task_allocation.cpus_per_task"
+	if stage_parallelism is not None and int(stage_parallelism.well_workers) > 0:
+		derived = max(1, int(stage_parallelism.max_stage_workers) // int(stage_parallelism.well_workers))
+		return int(derived), "stage_parallelism.max_stage_workers/well_workers"
+	return 1, "default"
+
+
+def _logical_cpu_owner_map(topology: CpuTopology) -> dict[int, CpuCoreTopology]:
+	owners: dict[int, CpuCoreTopology] = {}
+	for core in topology.cores:
+		for cpu_id in core.logical_cpus:
+			owners[int(cpu_id)] = core
+	return owners
+
+
+def _allocation_units(
+	*,
+	topology: CpuTopology,
+	bind: str,
+	use_hyperthreads: bool,
+) -> list[tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]]:
+	if str(bind) == "logical_cpus":
+		owners = _logical_cpu_owner_map(topology)
+		units: list[tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]] = []
+		for cpu_id in topology.visible_cpus:
+			owner = owners.get(int(cpu_id))
+			core_ids = () if owner is None else (int(owner.core_id),)
+			package_ids = () if owner is None else (int(owner.package_id),)
+			units.append(((int(cpu_id),), core_ids, package_ids))
+		return units
+	units = []
+	for core in topology.cores:
+		logical_cpus = core.logical_cpus if bool(use_hyperthreads) else (int(core.logical_cpus[0]),)
+		units.append((logical_cpus, (int(core.core_id),), (int(core.package_id),)))
+	return units
+
+
+def _limit_units_by_profile_cpu(
+	*,
+	units: list[tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]],
+	resource_profile: ResourceProfileConfig | None,
+) -> list[tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]]:
+	if resource_profile is None or resource_profile.cpu_cores is None:
+		return list(units)
+	limit = max(0, int(resource_profile.cpu_cores))
+	if limit <= 0:
+		return []
+	return list(units[:limit])
+
+
+def _build_slot(
+	*,
+	slot_id: int,
+	units: list[tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]],
+) -> TaskSlot:
+	logical_cpus: list[int] = []
+	core_ids: list[int] = []
+	package_ids: list[int] = []
+	seen_cpus: set[int] = set()
+	seen_core_ids: set[int] = set()
+	seen_package_ids: set[int] = set()
+	for logical_cpu_group, core_group, package_group in units:
+		for cpu_id in logical_cpu_group:
+			if int(cpu_id) in seen_cpus:
+				continue
+			seen_cpus.add(int(cpu_id))
+			logical_cpus.append(int(cpu_id))
+		for core_id in core_group:
+			if int(core_id) in seen_core_ids:
+				continue
+			seen_core_ids.add(int(core_id))
+			core_ids.append(int(core_id))
+		for package_id in package_group:
+			if int(package_id) in seen_package_ids:
+				continue
+			seen_package_ids.add(int(package_id))
+			package_ids.append(int(package_id))
+	return TaskSlot(
+		slot_id=int(slot_id),
+		logical_cpus=tuple(sorted(logical_cpus)),
+		core_ids=tuple(core_ids),
+		package_ids=tuple(package_ids),
+	)
+
+
+def build_task_allocation_plan(
+	*,
+	config: TaskAllocationConfig,
+	topology: CpuTopology,
+	target_count: int | None = None,
+	stage_parallelism: StageParallelism | None = None,
+	resource_profile: ResourceProfileConfig | None = None,
+	available_shm_gb: float | None = None,
+) -> TaskAllocationPlan | None:
+	if not bool(getattr(config, "enabled", False)):
+		return None
+	backend = str(getattr(config, "backend", "none") or "none")
+	if backend == "none":
+		return None
+	if backend != "local_affinity":
+		raise ValueError(
+			f"Task allocation plan builder currently supports backend='local_affinity', got {backend!r}"
+		)
+
+	cpus_per_task, cpus_per_task_source = _derive_cpus_per_task(
+		config=config,
+		stage_parallelism=stage_parallelism,
+	)
+	allocation_units = _allocation_units(
+		topology=topology,
+		bind=str(getattr(config, "bind", "none") or "none"),
+		use_hyperthreads=bool(getattr(config, "use_hyperthreads", False)),
+	)
+	allocation_units = _limit_units_by_profile_cpu(units=allocation_units, resource_profile=resource_profile)
+	reserved_unit_count = min(len(allocation_units), max(0, int(getattr(config, "reserve_cpus", 0) or 0)))
+	allocatable_units = allocation_units[reserved_unit_count:]
+	available_unit_count = len(allocatable_units)
+	slot_capacity = max(0, int(available_unit_count // max(1, int(cpus_per_task))))
+	cpu_capacity_tasks = int(slot_capacity)
+	ram_capacity_tasks = _capacity_limit_from_float(
+		budget=None if resource_profile is None else resource_profile.ram_gb,
+		demand=getattr(config, "ram_gb_per_task", None),
+	)
+	shm_capacity_tasks = _capacity_limit_from_float(
+		budget=available_shm_gb,
+		demand=getattr(config, "shm_gb_per_task", None),
+	)
+
+	requested_tasks_per_node = getattr(config, "tasks_per_node", "auto")
+	if isinstance(requested_tasks_per_node, int):
+		effective_task_limit = max(0, int(requested_tasks_per_node))
+	else:
+		effective_task_limit = int(cpu_capacity_tasks)
+	if ram_capacity_tasks is not None:
+		effective_task_limit = min(int(effective_task_limit), int(ram_capacity_tasks))
+	if shm_capacity_tasks is not None:
+		effective_task_limit = min(int(effective_task_limit), int(shm_capacity_tasks))
+	resolved_target_count = _as_optional_positive_int(target_count)
+	if resolved_target_count is not None:
+		effective_task_limit = min(int(effective_task_limit), int(resolved_target_count))
+	stage_well_worker_limit = None
+	if stage_parallelism is not None:
+		stage_well_worker_limit = max(1, int(stage_parallelism.well_workers))
+		effective_task_limit = min(int(effective_task_limit), int(stage_well_worker_limit))
+	effective_task_limit = min(int(effective_task_limit), int(slot_capacity))
+	effective_task_limit = max(0, int(effective_task_limit))
+
+	slots = tuple(
+		_build_slot(
+			slot_id=slot_id,
+			units=list(allocatable_units[slot_id * cpus_per_task : (slot_id + 1) * cpus_per_task]),
+		)
+		for slot_id in range(int(effective_task_limit))
+	)
+	return TaskAllocationPlan(
+		backend=backend,
+		bind=str(getattr(config, "bind", "none") or "none"),
+		use_hyperthreads=bool(getattr(config, "use_hyperthreads", False)),
+		cpus_per_task=int(cpus_per_task),
+		cpus_per_task_source=str(cpus_per_task_source),
+		requested_tasks_per_node=requested_tasks_per_node,
+		effective_tasks_per_node=int(effective_task_limit),
+		slot_capacity=int(slot_capacity),
+		cpu_capacity_tasks=int(cpu_capacity_tasks),
+		ram_capacity_tasks=ram_capacity_tasks,
+		shm_capacity_tasks=shm_capacity_tasks,
+		available_unit_count=int(available_unit_count),
+		reserved_unit_count=int(reserved_unit_count),
+		target_count=resolved_target_count,
+		stage_well_worker_limit=stage_well_worker_limit,
+		slots=slots,
+	)
 
 
 def _logical_cpu_fallback(*, visible_cpus: tuple[int, ...], warning: str | None) -> CpuTopology:
