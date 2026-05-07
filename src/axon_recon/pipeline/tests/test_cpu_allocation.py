@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
 from axon_recon.pipeline.cpu_allocation import (
 	TaskSlot,
+	apply_thread_env_context,
 	build_task_allocation_plan,
 	detect_cpu_topology,
 	format_cpu_set,
@@ -380,3 +382,178 @@ def test_task_slot_affinity_context_strict_failure_raises() -> None:
 			affinity_setter=affinity_setter,
 		):
 			pass
+
+
+# ---------------------------------------------------------------------------
+# apply_thread_env_context tests
+# ---------------------------------------------------------------------------
+
+_THREAD_ENV_VARS = (
+	"OMP_NUM_THREADS",
+	"MKL_NUM_THREADS",
+	"OPENBLAS_NUM_THREADS",
+	"NUMEXPR_NUM_THREADS",
+	"VECLIB_MAXIMUM_THREADS",
+	"NUMBA_NUM_THREADS",
+)
+
+
+def _strip_thread_env_vars() -> dict[str, str | None]:
+	"""Remove all thread env vars from os.environ and return their original values."""
+	previous: dict[str, str | None] = {}
+	for var in _THREAD_ENV_VARS:
+		previous[var] = os.environ.pop(var, None)
+	return previous
+
+
+def _restore_thread_env_vars(previous: dict[str, str | None]) -> None:
+	for var, val in previous.items():
+		if val is None:
+			os.environ.pop(var, None)
+		else:
+			os.environ[var] = val
+
+
+def test_apply_thread_env_context_disabled_does_not_touch_env() -> None:
+	prev = _strip_thread_env_vars()
+	slot = TaskSlot(slot_id=0, logical_cpus=(0, 1), core_ids=(0,), package_ids=(0,))
+	try:
+		with apply_thread_env_context(slot, enabled=False, policy="match_cpus_per_task"):
+			for var in _THREAD_ENV_VARS:
+				assert var not in os.environ
+	finally:
+		_restore_thread_env_vars(prev)
+
+
+def test_apply_thread_env_context_force_1_sets_all_vars_to_1() -> None:
+	prev = _strip_thread_env_vars()
+	slot = TaskSlot(slot_id=0, logical_cpus=(0, 1, 2, 3), core_ids=(0, 1), package_ids=(0,))
+	try:
+		with apply_thread_env_context(slot, enabled=True, policy="force_1"):
+			for var in _THREAD_ENV_VARS:
+				assert os.environ.get(var) == "1"
+		# values restored after context
+		for var in _THREAD_ENV_VARS:
+			assert var not in os.environ
+	finally:
+		_restore_thread_env_vars(prev)
+
+
+def test_apply_thread_env_context_match_cpus_per_task_uses_slot_cpu_count() -> None:
+	prev = _strip_thread_env_vars()
+	# slot has 4 logical CPUs
+	slot = TaskSlot(slot_id=1, logical_cpus=(0, 1, 2, 3), core_ids=(0, 1), package_ids=(0,))
+	try:
+		with apply_thread_env_context(slot, enabled=True, policy="match_cpus_per_task"):
+			for var in _THREAD_ENV_VARS:
+				assert os.environ.get(var) == "4"
+		for var in _THREAD_ENV_VARS:
+			assert var not in os.environ
+	finally:
+		_restore_thread_env_vars(prev)
+
+
+def test_apply_thread_env_context_restores_previous_values() -> None:
+	prev_outer = _strip_thread_env_vars()
+	os.environ["OMP_NUM_THREADS"] = "16"
+	slot = TaskSlot(slot_id=0, logical_cpus=(0, 1), core_ids=(0,), package_ids=(0,))
+	try:
+		with apply_thread_env_context(slot, enabled=True, policy="force_1"):
+			assert os.environ["OMP_NUM_THREADS"] == "1"
+		assert os.environ["OMP_NUM_THREADS"] == "16"
+	finally:
+		_restore_thread_env_vars(prev_outer)
+
+
+def test_apply_thread_env_context_preserve_existing_logs_and_skips(
+	caplog: pytest.LogCaptureFixture,
+) -> None:
+	prev = _strip_thread_env_vars()
+	os.environ["OMP_NUM_THREADS"] = "8"
+	slot = TaskSlot(slot_id=0, logical_cpus=(0, 1), core_ids=(0,), package_ids=(0,))
+	caplog.set_level("INFO", logger="axon_recon.pipeline.cpu_allocation")
+	try:
+		with apply_thread_env_context(slot, enabled=True, policy="preserve_existing"):
+			# env must be unchanged
+			assert os.environ.get("OMP_NUM_THREADS") == "8"
+		assert any("preserve_existing" in record.getMessage() for record in caplog.records)
+	finally:
+		_restore_thread_env_vars(prev)
+
+
+def test_apply_thread_env_context_match_cpus_per_task_defaults_to_1_when_slot_is_none() -> None:
+	prev = _strip_thread_env_vars()
+	try:
+		with apply_thread_env_context(None, enabled=True, policy="match_cpus_per_task"):
+			for var in _THREAD_ENV_VARS:
+				assert os.environ.get(var) == "1"
+	finally:
+		_restore_thread_env_vars(prev)
+
+
+def test_build_task_allocation_plan_propagates_thread_env_fields(tmp_path: Path) -> None:
+	sysfs_root = tmp_path / "sys" / "devices" / "system" / "cpu"
+	_write_single_socket_hyperthreaded_topology(sysfs_root, core_count=24, threads_per_core=2)
+	topology = detect_cpu_topology(
+		sysfs_root=sysfs_root,
+		affinity_getter=lambda _pid: set(range(48)),
+	)
+	plan = build_task_allocation_plan(
+		config=TaskAllocationConfig(
+			enabled=True,
+			backend="local_affinity",
+			bind="physical_cores",
+			cpus_per_task=2,
+			tasks_per_node="auto",
+			use_hyperthreads=False,
+			set_thread_env=True,
+			nested_thread_policy="match_cpus_per_task",
+		),
+		topology=topology,
+		target_count=4,
+		stage_parallelism=_stage_parallelism(well_workers=4),
+	)
+	assert plan is not None
+	assert plan.set_thread_env is True
+	assert plan.nested_thread_policy == "match_cpus_per_task"
+
+
+def test_allocation_preview_shows_thread_env_policy_when_enabled(tmp_path: Path) -> None:
+	sysfs_root = tmp_path / "sys" / "devices" / "system" / "cpu"
+	_write_single_socket_hyperthreaded_topology(sysfs_root, core_count=24, threads_per_core=2)
+	topology = detect_cpu_topology(
+		sysfs_root=sysfs_root,
+		affinity_getter=lambda _pid: set(range(48)),
+	)
+	plan = build_task_allocation_plan(
+		config=TaskAllocationConfig(
+			enabled=True,
+			backend="local_affinity",
+			bind="physical_cores",
+			cpus_per_task=2,
+			tasks_per_node="auto",
+			use_hyperthreads=False,
+			set_thread_env=True,
+			nested_thread_policy="match_cpus_per_task",
+		),
+		topology=topology,
+		target_count=4,
+		stage_parallelism=_stage_parallelism(well_workers=4),
+	)
+	assert plan is not None
+	preview = StageAllocationPreview(
+		stage="preprocess",
+		target_count=4,
+		target_labels=("12:well000", "12:well001", "12:well002", "12:well003"),
+		phase_resource_classes=("h5_metadata",),
+		parallelism=StageParallelism(
+			max_workers=24,
+			max_stage_workers=24,
+			well_workers=4,
+			unit_workers=6,
+			task_allocation_plan=plan,
+		),
+	)
+	formatted = format_stage_allocation_previews([preview])
+	assert "thread_env: policy=match_cpus_per_task" in formatted
+	assert "slot_clamps:" in formatted

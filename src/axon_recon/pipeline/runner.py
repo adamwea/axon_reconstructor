@@ -20,6 +20,7 @@ from .config import (
 )
 from .cpu_allocation import (
 	TaskAllocationPlan,
+	apply_thread_env_context,
 	build_task_allocation_plan,
 	current_task_slot,
 	detect_cpu_topology,
@@ -573,6 +574,8 @@ def _distribute_runtime_targets(
 		and str(getattr(plan, "backend", "none")) == "local_affinity"
 		and str(getattr(plan, "bind", "none")) != "none"
 	)
+	_plan_set_thread_env = bool(getattr(plan, "set_thread_env", False)) if plan is not None else False
+	_plan_thread_policy = str(getattr(plan, "nested_thread_policy", "preserve_existing") or "preserve_existing") if plan is not None else "preserve_existing"
 
 	def worker_with_log_context(target: Any) -> Any:
 		with pipeline_log_context_for_target(target, stage=stage_name), pipeline_progress_context(progress):
@@ -582,23 +585,30 @@ def _distribute_runtime_targets(
 				enabled=bool(apply_task_affinity),
 				soft_failure=True,
 				logger=LOGGER,
+			), apply_thread_env_context(
+				task_slot,
+				enabled=bool(_plan_set_thread_env),
+				policy=str(_plan_thread_policy),
+				logger=LOGGER,
 			):
 				started = time.perf_counter()
 				if task_slot is not None:
 					LOGGER.info(
-						"target task allocation dataset=%s well=%s stage=%s task_slot=%d cpus=%s affinity=%s",
+						"target task allocation dataset=%s well=%s stage=%s task_slot=%d cpus=%s affinity=%s thread_env=%s",
 						getattr(target, "dataset_id", "unknown"),
 						getattr(target, "stream_id", "unknown"),
 						str(stage_name or "unknown"),
 						int(task_slot.slot_id),
 						format_cpu_set(task_slot.logical_cpus),
 						"enabled" if bool(apply_task_affinity) else "disabled",
+						str(_plan_thread_policy) if bool(_plan_set_thread_env) else "disabled",
 						extra={
 							"event": "task_allocation_target_assigned",
 							"task_slot_id": int(task_slot.slot_id),
 							"task_cpu_set": format_cpu_set(task_slot.logical_cpus),
 							"task_cpu_count": int(task_slot.cpu_count),
 							"task_affinity_enabled": bool(apply_task_affinity),
+							"task_thread_env_policy": str(_plan_thread_policy) if bool(_plan_set_thread_env) else "disabled",
 						},
 					)
 				LOGGER.info(
@@ -1840,9 +1850,22 @@ def _format_allocation_plan_summary(plan: TaskAllocationPlan | None) -> list[str
 	lines = [
 		f"task_allocation: enabled backend={plan.backend} bind={plan.bind}",
 		f"cpu_topology: visible_cpus={format_cpu_set(plan.topology.visible_cpus)} physical_cores={plan.topology.physical_core_count} logical_cpus={plan.topology.logical_cpu_count}",
-		f"task_shape: cpus_per_task={plan.cpus_per_task} tasks_per_node={plan.effective_tasks_per_node} cpu_capacity_tasks={plan.cpu_capacity_tasks}",
-		f"slots: {len(plan.slots)}",
+		f"task_shape: cpus_per_task={plan.cpus_per_task}({plan.cpus_per_task_source}) tasks_per_node={plan.effective_tasks_per_node} cpu_capacity_tasks={plan.cpu_capacity_tasks}",
 	]
+	clamp_parts: list[str] = [f"cpu_capacity={plan.cpu_capacity_tasks}"]
+	if plan.ram_capacity_tasks is not None:
+		clamp_parts.append(f"ram_capacity={plan.ram_capacity_tasks}")
+	if plan.shm_capacity_tasks is not None:
+		clamp_parts.append(f"shm_capacity={plan.shm_capacity_tasks}")
+	if plan.target_count is not None:
+		clamp_parts.append(f"target_count={plan.target_count}")
+	if plan.stage_well_worker_limit is not None:
+		clamp_parts.append(f"stage_well_workers={plan.stage_well_worker_limit}")
+	clamp_parts.append(f"-> effective={plan.effective_tasks_per_node}")
+	lines.append(f"slot_clamps: {', '.join(clamp_parts)}")
+	thread_env_note = f"policy={plan.nested_thread_policy}" if bool(plan.set_thread_env) else "disabled"
+	lines.append(f"thread_env: {thread_env_note}")
+	lines.append(f"slots: {len(plan.slots)}")
 	for slot in plan.slots:
 		lines.append(f"  slot[{slot.slot_id}]: cpus={format_cpu_set(slot.logical_cpus)}")
 	return lines

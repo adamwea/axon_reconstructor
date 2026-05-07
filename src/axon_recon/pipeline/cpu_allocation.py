@@ -109,6 +109,8 @@ class TaskAllocationPlan:
 	shm_capacity_tasks: int | None
 	available_unit_count: int
 	reserved_unit_count: int
+	set_thread_env: bool = False
+	nested_thread_policy: str = "preserve_existing"
 	target_count: int | None = None
 	stage_well_worker_limit: int | None = None
 	slots: tuple[TaskSlot, ...] = ()
@@ -247,6 +249,90 @@ def task_slot_affinity_context(
 						"task_affinity_error": str(exc),
 					},
 				)
+
+
+_THREAD_ENV_VARS: tuple[str, ...] = (
+	"OMP_NUM_THREADS",
+	"MKL_NUM_THREADS",
+	"OPENBLAS_NUM_THREADS",
+	"NUMEXPR_NUM_THREADS",
+	"VECLIB_MAXIMUM_THREADS",
+	"NUMBA_NUM_THREADS",
+)
+
+
+@contextmanager
+def apply_thread_env_context(
+	slot: TaskSlot | None,
+	*,
+	enabled: bool,
+	policy: str,
+	logger: logging.Logger | None = None,
+) -> Iterator[None]:
+	"""Optionally set native thread-count env vars for the duration of a worker call.
+
+	Args:
+		slot: The task slot for the current worker, used to derive the CPU count.
+		enabled: Whether thread-env application is enabled (``set_thread_env`` config).
+		policy: One of ``match_cpus_per_task``, ``force_1``, or ``preserve_existing``.
+		logger: Logger to use; falls back to the module logger.
+	"""
+	log = logger if logger is not None else LOGGER
+	if not bool(enabled) or str(policy).strip() == "preserve_existing":
+		if bool(enabled) and str(policy).strip() == "preserve_existing":
+			existing = {var: os.environ.get(var) for var in _THREAD_ENV_VARS}
+			log.info(
+				"Thread env policy=preserve_existing; logging existing values: %s",
+				" ".join(
+					f"{var}={val if val is not None else '(unset)'}"
+					for var, val in existing.items()
+				),
+				extra={"event": "thread_env_preserved", "thread_env_policy": "preserve_existing"},
+			)
+		yield
+		return
+
+	if str(policy).strip() == "force_1":
+		thread_count = 1
+	elif str(policy).strip() == "match_cpus_per_task":
+		thread_count = int(slot.cpu_count) if slot is not None else 1
+	else:
+		log.warning(
+			"Unknown nested_thread_policy=%r; skipping thread env application.",
+			str(policy),
+			extra={"event": "thread_env_unknown_policy", "thread_env_policy": str(policy)},
+		)
+		yield
+		return
+
+	previous: dict[str, str | None] = {}
+	applied_vars: dict[str, str] = {}
+	for var in _THREAD_ENV_VARS:
+		previous[var] = os.environ.get(var)
+		os.environ[var] = str(thread_count)
+		applied_vars[var] = str(thread_count)
+
+	log.info(
+		"Applied thread env policy=%s thread_count=%d task_slot=%s vars=%s",
+		str(policy),
+		int(thread_count),
+		str(slot.slot_id) if slot is not None else "none",
+		" ".join(f"{var}={val}" for var, val in applied_vars.items()),
+		extra={
+			"event": "thread_env_applied",
+			"thread_env_policy": str(policy),
+			"thread_env_count": int(thread_count),
+		},
+	)
+	try:
+		yield
+	finally:
+		for var in _THREAD_ENV_VARS:
+			prev = previous.get(var)
+			if prev is None:
+				os.environ.pop(var, None)
+			else:
+				os.environ[var] = prev
 
 
 def _read_required_text(path: Path) -> str:
@@ -450,6 +536,8 @@ def build_task_allocation_plan(
 		shm_capacity_tasks=shm_capacity_tasks,
 		available_unit_count=int(available_unit_count),
 		reserved_unit_count=int(reserved_unit_count),
+		set_thread_env=bool(getattr(config, "set_thread_env", False)),
+		nested_thread_policy=str(getattr(config, "nested_thread_policy", "preserve_existing") or "preserve_existing"),
 		target_count=resolved_target_count,
 		stage_well_worker_limit=stage_well_worker_limit,
 		slots=slots,

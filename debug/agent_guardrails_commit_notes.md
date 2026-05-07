@@ -91,6 +91,66 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-07 15:51 - 76f63a7 - ai: slice 6 nested thread env + richer alloc preview
+
+Status: accepted
+
+Summary:
+- Added `apply_thread_env_context` contextmanager to `cpu_allocation.py`: saves, conditionally overwrites, and restores the six standard native thread-count env vars (`OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `NUMEXPR_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS`, `NUMBA_NUM_THREADS`) for the duration of each worker call.
+- Three policies: `match_cpus_per_task` (slot cpu_count), `force_1`, `preserve_existing` (log only).
+- Added `set_thread_env` and `nested_thread_policy` fields to `TaskAllocationPlan`; populated from `TaskAllocationConfig` in `build_task_allocation_plan`.
+- Wired `apply_thread_env_context` into `_distribute_runtime_targets` worker wrapper in `runner.py`, nested inside the affinity context, opt-in via plan fields.
+- Enhanced `_format_allocation_plan_summary` to show: source suffix on `cpus_per_task`, `slot_clamps:` chain (cpu/ram/shm/target/stage_well_workers → effective), and `thread_env:` policy line.
+- Added per-target log field `thread_env=<policy|disabled>` to `task_allocation_target_assigned` log event.
+- Also fixed `use_hyperthreading` typo in `debug/debug.runtime.yml` → `use_hyperthreads` (user had already corrected this).
+
+Guardrails Consulted:
+- `debug/parallelism_agent_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/nersc_shaped_local_affinity_plan.md` slice 6
+
+Acceptance Criteria:
+- Logs record effective env policy and values (covered by `thread_env_applied` / `thread_env_preserved` events).
+- Existing phase resource-class CPU derivation remains visible (unchanged).
+- apply/restore is scoped; outer process env is restored after each worker exits.
+
+Expected To Run:
+- `apply_thread_env_context` body when `set_thread_env=true` and policy is `match_cpus_per_task` or `force_1`.
+
+Confirmed Not Run:
+- No stage work runs for `--alloc` preview commands.
+- Thread env not touched when `set_thread_env=false` (default).
+
+Validation:
+- Focused tests: 22 passed (`test_cpu_allocation.py`).
+- Broad tests: 405 passed (excluding pre-existing `test_progress.py` TabError).
+- Real-data smoke: not run this slice; smoke from slices 1–5 remains valid.
+- Logs inspected: n/a (dry run).
+
+CLI / Debug Flag Impact:
+- No new flags; `set_thread_env` and `nested_thread_policy` are YAML-only in this slice.
+
+Logging / Parallelism Impact:
+- New structured events: `thread_env_applied`, `thread_env_preserved`, `thread_env_unknown_policy`.
+- `task_allocation_target_assigned` event gains `task_thread_env_policy` field.
+- `--alloc` preview now shows `slot_clamps:` chain and `thread_env:` line.
+
+Storage / Cache Impact:
+- Created: none.
+- Modified: `cpu_allocation.py`, `runner.py`, `tests/test_cpu_allocation.py`, `debug/debug.runtime.yml`.
+
+Container / NERSC / MPI Impact:
+- `set_thread_env` is particularly relevant inside containers where native libraries default to full-host CPU counts. Slice 6 is the first mechanism to tame that.
+
+Residual Risk And Follow-Ups:
+- Some libraries (numpy, torch) read thread vars at import time; env-set applies to subprocesses and late-created pools only.
+- Slice 7 (CLI overrides for task allocation) is next.
+- Strict thread-env failure mode not currently needed; restore failures are logged as warnings only.
+
+Rollback Notes:
+- Revert `cpu_allocation.py` changes to remove `apply_thread_env_context`, `_THREAD_ENV_VARS`, `set_thread_env`/`nested_thread_policy` plan fields.
+- Revert `runner.py` to remove `apply_thread_env_context` import and worker wrapper wiring and plain `_format_allocation_plan_summary`.
+
 ## 2026-05-07 13:41 - pending - ai: support singular target dataset smoke
 
 Status: accepted
