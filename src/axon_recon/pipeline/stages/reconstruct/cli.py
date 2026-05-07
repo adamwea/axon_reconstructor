@@ -162,11 +162,13 @@ def register_reconstruct_subparser(subparsers: argparse._SubParsersAction[argpar
 		help="Limit datasets for debug smoke runs",
 	)
 	parser.add_argument(
+		"--target-dataset",
 		"--target-datasets",
 		nargs="+",
 		default=None,
+		dest="target_datasets",
 		help=(
-			"Target specific 0-based dataset indices, for example --target-datasets 0 or "
+			"Target specific 0-based dataset indices, for example --target-dataset 0 or "
 			"--target-datasets 0,2,8"
 		),
 	)

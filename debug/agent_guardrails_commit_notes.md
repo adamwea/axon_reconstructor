@@ -91,6 +91,80 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-07 13:41 - pending - ai: support singular target dataset smoke
+
+Status: accepted
+
+Summary:
+- Added `--target-dataset` as a singular alias for the existing `--target-datasets` flag on stage-sequence and direct preprocess/spikesort/reconstruct parsers.
+- Fixed enabled allocation previews by storing `CpuTopology` on `TaskAllocationPlan`; the container smoke exposed that the formatter expected topology details that the plan did not carry.
+- Added regression coverage for the singular alias, container forwarding, and enabled allocation preview formatting.
+
+Guardrails Consulted:
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/first_version_pipeline_guardrails.md`
+
+Acceptance Criteria:
+- The requested `--target-dataset 12` command shape works in the pipeline parser and is forwarded unchanged by `axon-recon-container`.
+- Enabled `--alloc` previews print topology and slot details instead of failing.
+- Container smoke targets the last dataset index, selects two wells, and validates local-affinity behavior without mutating checked-in runtime YAML.
+
+Expected To Run:
+- Focused CLI/container/allocation tests.
+- Broad pipeline tests excluding the known malformed progress test.
+- Container topology, allocation preview, real lightweight two-well stage smoke, and no-data two-slot affinity smoke.
+
+Confirmed Not Run:
+- No full-scope stage run, spikesort, reconstruct, MPI, Slurm, or non-smoke container workflow was launched.
+- No checked-in runtime/data YAML was modified for the smoke.
+
+Validation:
+- Focused tests before the smoke fix: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_cli_stage_sequence.py src/axon_recon/pipeline/tests/test_container_cli.py` -> 162 passed.
+- Focused tests after the enabled-preview fix: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_cpu_allocation.py src/axon_recon/pipeline/tests/test_cli_stage_sequence.py src/axon_recon/pipeline/tests/test_container_cli.py` -> 176 passed.
+- Pipeline test directory excluding the known malformed progress test: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests --ignore=src/axon_recon/pipeline/tests/test_progress.py` -> 397 passed.
+- Existing test gap: including `src/axon_recon/pipeline/tests/test_progress.py` still fails at collection with a pre-existing `TabError`; not modified here.
+- Container topology smoke: `axon-recon-container systopo` rebuilt `axon-recon:local` and reported `visible_cpus: 0-47`, `logical_cpu_count: 48`, `physical_core_count: 24`.
+- Container allocation preview smoke: `axon-recon-container --mount <tmp-runtime-dir>:<tmp-runtime-dir>:ro stages preprocess.save_rec_metadata --config <tmp-runtime> --target-dataset 12 --limit-wells 2 --alloc` selected `12:well000` and `12:well001`, printed local-affinity topology and slot details, and completed without stage work.
+- Container non-H5 preview smoke: `reconstruct.generate_gtrs --target-dataset 12 --limit-wells 2 --alloc` selected the same two wells and showed the current same-source target cap still clamps active well workers to one.
+- Real container smoke: `preprocess.save_rec_metadata --target-dataset 12 --limit-wells 2 --force-restart` succeeded for both targets, `targets_succeeded: 2`, `targets_failed: 0`, and logged `task_affinity_applied` for `well000` and `well001`.
+- No-data container affinity smoke: direct `docker run axon-recon:local python ...` with fake targets showed `well000 -> slot 0 affinity 0-1`, `well001 -> slot 1 affinity 2-3`, and `parent_affinity_after=0-47`.
+- Diagnostics: VS Code `get_errors` on touched source and tests -> no errors.
+- Logs inspected: container command outputs and pytest outputs.
+- Artifacts inspected: smoke output summaries for `well000` and `well001` recording metadata paths.
+- Not run: full unbounded data scope, actual reconstruct/spikesort work, MPI/Slurm commands.
+
+CLI / Debug Flag Impact:
+- `--target-dataset` is now a supported alias for `--target-datasets`; both populate `args.target_datasets`.
+- Existing plural syntax and comma/list parsing remain unchanged.
+
+Logging / Parallelism Impact:
+- Enabled allocation previews now include topology details from the stored plan topology.
+- Real smoke confirmed the same-source-H5/read-group gate still serializes same-H5 work even with local affinity enabled.
+- Real smoke confirmed target affinity logs are emitted inside the container.
+
+Storage / Cache Impact:
+- Created: temporary runtime config under `/tmp/axon-recon-smoke.*`, removed after smoke.
+- Modified: recording metadata outputs for dataset 12 wells `well000` and `well001` under scratch due forced save-metadata smoke.
+- Removed: temporary smoke config directory.
+
+Container / NERSC / MPI Impact:
+- Rebuilt `axon-recon:local` twice as source changed during the smoke/fix cycle.
+- Verified container CPU topology and local-affinity behavior using container-visible CPUs.
+- No MPI or Slurm behavior was changed.
+
+Resume / Force-Restart Impact:
+- The real smoke used `--force-restart` only for `preprocess.save_rec_metadata` on dataset 12 wells `well000` and `well001`.
+
+Residual Risk And Follow-Ups:
+- The current same-source-H5/read-group cap means two wells from one source H5 can be selected together but may run serially for H5-heavy phases; this is expected under the active resource gates.
+- Slice 6 should add nested thread environment handling and then another container smoke can validate `thread_env` logging alongside affinity.
+
+Rollback Notes:
+- Revert the commit to remove the singular flag alias and the topology field on `TaskAllocationPlan`; the smoke-only scratch metadata outputs can be ignored or regenerated.
+
 ## 2026-05-07 13:17 - pending - ai: apply task slot cpu affinity
 
 Status: accepted

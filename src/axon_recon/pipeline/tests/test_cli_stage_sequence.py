@@ -337,6 +337,22 @@ def test_build_parser_supports_target_datasets_flag() -> None:
     assert args.target_datasets == ["0,", "2,", "8"]
 
 
+def test_build_parser_supports_singular_target_dataset_alias() -> None:
+    parser = pipeline_cli.build_parser()
+    args = parser.parse_args(
+        [
+            "stages",
+            "reconstruct.build_templates",
+            "--config",
+            "/tmp/runtime.yml",
+            "--target-dataset",
+            "12",
+        ]
+    )
+
+    assert args.target_datasets == ["12"]
+
+
 def test_build_parser_supports_reconstruct_subparser_dataset_limit_flags() -> None:
     from axon_recon.pipeline.stages.reconstruct import cli as reconstruct_cli
 
@@ -352,7 +368,7 @@ def test_build_parser_supports_reconstruct_subparser_dataset_limit_flags() -> No
             "2",
             "--limit-datasets",
             "1",
-            "--target-datasets",
+            "--target-dataset",
             "0,",
             "2,",
             "8",
@@ -394,7 +410,7 @@ def test_build_parser_supports_target_datasets_for_other_stage_subparsers(
             command,
             "--config",
             "/tmp/runtime.yml",
-            "--target-datasets",
+            "--target-dataset",
             "1,",
             "3",
         ]

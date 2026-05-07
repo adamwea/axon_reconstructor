@@ -98,6 +98,7 @@ class TaskAllocationPlan:
 	backend: str
 	bind: str
 	use_hyperthreads: bool
+	topology: CpuTopology
 	cpus_per_task: int
 	cpus_per_task_source: str
 	requested_tasks_per_node: int | str
@@ -438,6 +439,7 @@ def build_task_allocation_plan(
 		backend=backend,
 		bind=str(getattr(config, "bind", "none") or "none"),
 		use_hyperthreads=bool(getattr(config, "use_hyperthreads", False)),
+		topology=topology,
 		cpus_per_task=int(cpus_per_task),
 		cpus_per_task_source=str(cpus_per_task_source),
 		requested_tasks_per_node=requested_tasks_per_node,

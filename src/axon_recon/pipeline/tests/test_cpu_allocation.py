@@ -13,6 +13,7 @@ from axon_recon.pipeline.cpu_allocation import (
 	task_slot_affinity_context,
 )
 from axon_recon.pipeline.execution.context import StageParallelism
+from axon_recon.pipeline.runner import StageAllocationPreview, format_stage_allocation_previews
 from axon_recon.pipeline.resources import ResourceProfileConfig, TaskAllocationConfig
 
 
@@ -175,8 +176,25 @@ def test_build_task_allocation_plan_uses_physical_core_capacity_without_hyperthr
 	assert plan.effective_tasks_per_node == 6
 	assert len(plan.slots) == 6
 	assert plan.cpus_per_task == 4
+	assert plan.topology.visible_cpus == tuple(range(48))
 	assert plan.slots[0].logical_cpus == (0, 2, 4, 6)
 	assert plan.slots[0].physical_core_count == 4
+	preview = StageAllocationPreview(
+		stage="preprocess.save_rec_metadata",
+		target_count=2,
+		target_labels=("12:well000", "12:well001"),
+		phase_resource_classes=("h5_metadata",),
+		parallelism=StageParallelism(
+			max_workers=4,
+			max_stage_workers=4,
+			well_workers=2,
+			unit_workers=2,
+			task_allocation_plan=plan,
+		),
+	)
+	formatted = format_stage_allocation_previews([preview])
+	assert "task_allocation: enabled backend=local_affinity bind=physical_cores" in formatted
+	assert "cpu_topology: visible_cpus=0-47" in formatted
 
 
 def test_build_task_allocation_plan_reserve_cpus_reduces_slot_capacity(tmp_path: Path) -> None:

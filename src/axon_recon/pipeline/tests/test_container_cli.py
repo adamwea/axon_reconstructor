@@ -90,6 +90,26 @@ def test_container_wrapper_forwards_alloc_flag(tmp_path: Path) -> None:
     assert cmd[-(len(forwarded) + 1) :] == [container_cli.DEFAULT_IMAGE, *forwarded]
 
 
+def test_container_wrapper_forwards_singular_target_dataset_flag(tmp_path: Path) -> None:
+    forwarded = [
+        "stages",
+        "preprocess",
+        "--config",
+        "debug/debug.runtime.yml",
+        "--target-dataset",
+        "12",
+        "--limit-wells",
+        "2",
+    ]
+    options = container_cli._parse_options(["--no-build", "--dry-run", "--no-config-mounts", *forwarded])
+
+    assert options.container_args == forwarded
+
+    cmd = container_cli._build_docker_run_command(repo_root=tmp_path, options=options)
+
+    assert cmd[-(len(forwarded) + 1) :] == [container_cli.DEFAULT_IMAGE, *forwarded]
+
+
 def test_container_wrapper_option_before_pipeline_command_changes_image() -> None:
     options = container_cli._parse_options(["--image", "custom:tag", "stages", "all", "--config", "cfg.yml"])
 

@@ -68,11 +68,13 @@ def register_preprocess_subparser(subparsers: argparse._SubParsersAction[argpars
 	parser.add_argument("--force-restart", action="store_true", help="Recompute preprocess outputs for each target")
 	parser.add_argument("--force-replot", action="store_true", help="Alias for force-restart compatibility")
 	parser.add_argument(
+		"--target-dataset",
 		"--target-datasets",
 		nargs="+",
 		default=None,
+		dest="target_datasets",
 		help=(
-			"Target specific 0-based dataset indices, for example --target-datasets 0 or "
+			"Target specific 0-based dataset indices, for example --target-dataset 0 or "
 			"--target-datasets 0,2,8"
 		),
 	)
