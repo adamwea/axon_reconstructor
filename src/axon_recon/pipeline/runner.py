@@ -24,6 +24,7 @@ from .cpu_allocation import (
 	current_task_slot,
 	detect_cpu_topology,
 	format_cpu_set,
+	task_slot_affinity_context,
 )
 from .execution.distributor import distribute_targets
 from .execution.logging_context import (
@@ -565,60 +566,73 @@ def _distribute_runtime_targets(
 ) -> list[TargetStageResult]:
 	install_pipeline_log_record_factory()
 	install_maxwell_hdf5_plugin_message_filter()
+	plan = getattr(parallelism, "task_allocation_plan", None)
+	task_slots = tuple(getattr(plan, "slots", ()) or ()) if plan is not None else ()
+	apply_task_affinity = bool(
+		plan is not None
+		and str(getattr(plan, "backend", "none")) == "local_affinity"
+		and str(getattr(plan, "bind", "none")) != "none"
+	)
 
 	def worker_with_log_context(target: Any) -> Any:
 		with pipeline_log_context_for_target(target, stage=stage_name), pipeline_progress_context(progress):
 			task_slot = current_task_slot()
-			started = time.perf_counter()
-			if task_slot is not None:
+			with task_slot_affinity_context(
+				task_slot,
+				enabled=bool(apply_task_affinity),
+				soft_failure=True,
+				logger=LOGGER,
+			):
+				started = time.perf_counter()
+				if task_slot is not None:
+					LOGGER.info(
+						"target task allocation dataset=%s well=%s stage=%s task_slot=%d cpus=%s affinity=%s",
+						getattr(target, "dataset_id", "unknown"),
+						getattr(target, "stream_id", "unknown"),
+						str(stage_name or "unknown"),
+						int(task_slot.slot_id),
+						format_cpu_set(task_slot.logical_cpus),
+						"enabled" if bool(apply_task_affinity) else "disabled",
+						extra={
+							"event": "task_allocation_target_assigned",
+							"task_slot_id": int(task_slot.slot_id),
+							"task_cpu_set": format_cpu_set(task_slot.logical_cpus),
+							"task_cpu_count": int(task_slot.cpu_count),
+							"task_affinity_enabled": bool(apply_task_affinity),
+						},
+					)
 				LOGGER.info(
-					"target task allocation dataset=%s well=%s stage=%s task_slot=%d cpus=%s",
+					"target started dataset=%s well=%s stage=%s",
 					getattr(target, "dataset_id", "unknown"),
 					getattr(target, "stream_id", "unknown"),
 					str(stage_name or "unknown"),
-					int(task_slot.slot_id),
-					format_cpu_set(task_slot.logical_cpus),
-					extra={
-						"event": "task_allocation_target_assigned",
-						"task_slot_id": int(task_slot.slot_id),
-						"task_cpu_set": format_cpu_set(task_slot.logical_cpus),
-						"task_cpu_count": int(task_slot.cpu_count),
-					},
+					extra={"event": "well_started"},
 				)
-			LOGGER.info(
-				"target started dataset=%s well=%s stage=%s",
-				getattr(target, "dataset_id", "unknown"),
-				getattr(target, "stream_id", "unknown"),
-				str(stage_name or "unknown"),
-				extra={"event": "well_started"},
-			)
-			try:
-				result = worker_fn(target)
-			except Exception:
-				LOGGER.exception(
-					"target failed dataset=%s well=%s stage=%s",
+				try:
+					result = worker_fn(target)
+				except Exception:
+					LOGGER.exception(
+						"target failed dataset=%s well=%s stage=%s",
+						getattr(target, "dataset_id", "unknown"),
+						getattr(target, "stream_id", "unknown"),
+						str(stage_name or "unknown"),
+						extra={"event": "well_failed", "elapsed_s": float(max(0.0, time.perf_counter() - started))},
+					)
+					raise
+				LOGGER.info(
+					"target completed dataset=%s well=%s stage=%s",
 					getattr(target, "dataset_id", "unknown"),
 					getattr(target, "stream_id", "unknown"),
 					str(stage_name or "unknown"),
-					extra={"event": "well_failed", "elapsed_s": float(max(0.0, time.perf_counter() - started))},
+					extra={"event": "well_completed", "elapsed_s": float(max(0.0, time.perf_counter() - started))},
 				)
-				raise
-			LOGGER.info(
-				"target completed dataset=%s well=%s stage=%s",
-				getattr(target, "dataset_id", "unknown"),
-				getattr(target, "stream_id", "unknown"),
-				str(stage_name or "unknown"),
-				extra={"event": "well_completed", "elapsed_s": float(max(0.0, time.perf_counter() - started))},
-			)
-			return result
+				return result
 
 	def _on_target_complete(_result: TargetStageResult) -> None:
 		if progress is not None and bool(advance_progress_on_target_complete):
 			progress.update(1)
 
 	progress_context = progress if progress is not None else nullcontext()
-	plan = getattr(parallelism, "task_allocation_plan", None)
-	task_slots = tuple(getattr(plan, "slots", ()) or ()) if plan is not None else ()
 	with progress_context:
 		return distribute_targets(
 			targets=targets,

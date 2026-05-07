@@ -121,6 +121,13 @@ def _default_affinity_getter(pid: int) -> Iterable[int]:
 	return range(cpu_count)
 
 
+def _default_affinity_setter(pid: int, cpus: Iterable[int]) -> None:
+	sched_setaffinity = getattr(os, "sched_setaffinity", None)
+	if not callable(sched_setaffinity):
+		raise RuntimeError("os.sched_setaffinity is not available on this platform")
+	sched_setaffinity(pid, set(int(cpu_id) for cpu_id in cpus))
+
+
 def _normalize_cpu_ids(values: Iterable[int]) -> tuple[int, ...]:
 	parsed: list[int] = []
 	seen: set[int] = set()
@@ -170,6 +177,75 @@ def format_cpu_set(cpus: Iterable[int]) -> str:
 		end = cpu_id
 	ranges.append(f"{start}-{end}" if start != end else str(start))
 	return ",".join(ranges)
+
+
+@contextmanager
+def task_slot_affinity_context(
+	slot: TaskSlot | None,
+	*,
+	enabled: bool,
+	soft_failure: bool = True,
+	logger: logging.Logger | None = None,
+	affinity_getter: Callable[[int], Iterable[int]] | None = None,
+	affinity_setter: Callable[[int, Iterable[int]], None] | None = None,
+) -> Iterator[None]:
+	if slot is None or not bool(enabled):
+		yield
+		return
+	log = logger if logger is not None else LOGGER
+	get_affinity = affinity_getter or _default_affinity_getter
+	set_affinity = affinity_setter or _default_affinity_setter
+	requested_cpus = tuple(int(cpu_id) for cpu_id in slot.logical_cpus)
+	previous_cpus: tuple[int, ...] | None = None
+	applied = False
+	try:
+		previous_cpus = _normalize_cpu_ids(get_affinity(0))
+		set_affinity(0, requested_cpus)
+		applied = True
+		log.info(
+			"Applied task CPU affinity task_slot=%d cpus=%s previous_cpus=%s",
+			int(slot.slot_id),
+			format_cpu_set(requested_cpus),
+			format_cpu_set(previous_cpus),
+			extra={
+				"event": "task_affinity_applied",
+				"task_slot_id": int(slot.slot_id),
+				"task_cpu_set": format_cpu_set(requested_cpus),
+				"task_previous_cpu_set": format_cpu_set(previous_cpus),
+			},
+		)
+	except Exception as exc:
+		message = f"Failed to apply task CPU affinity task_slot={int(slot.slot_id)} cpus={format_cpu_set(requested_cpus)} error={exc}"
+		if not bool(soft_failure):
+			raise RuntimeError(message) from exc
+		log.warning(
+			message,
+			extra={
+				"event": "task_affinity_apply_failed",
+				"task_slot_id": int(slot.slot_id),
+				"task_cpu_set": format_cpu_set(requested_cpus),
+				"task_affinity_error": str(exc),
+			},
+		)
+	try:
+		yield
+	finally:
+		if applied and previous_cpus is not None:
+			try:
+				set_affinity(0, previous_cpus)
+			except Exception as exc:
+				log.warning(
+					"Failed to restore task CPU affinity task_slot=%d cpus=%s error=%s",
+					int(slot.slot_id),
+					format_cpu_set(previous_cpus),
+					str(exc),
+					extra={
+						"event": "task_affinity_restore_failed",
+						"task_slot_id": int(slot.slot_id),
+						"task_cpu_set": format_cpu_set(previous_cpus),
+						"task_affinity_error": str(exc),
+					},
+				)
 
 
 def _read_required_text(path: Path) -> str:

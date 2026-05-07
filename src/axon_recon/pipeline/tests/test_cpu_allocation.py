@@ -5,10 +5,12 @@ from pathlib import Path
 import pytest
 
 from axon_recon.pipeline.cpu_allocation import (
+	TaskSlot,
 	build_task_allocation_plan,
 	detect_cpu_topology,
 	format_cpu_set,
 	format_cpu_topology,
+	task_slot_affinity_context,
 )
 from axon_recon.pipeline.execution.context import StageParallelism
 from axon_recon.pipeline.resources import ResourceProfileConfig, TaskAllocationConfig
@@ -297,3 +299,66 @@ def test_build_task_allocation_plan_derives_auto_cpus_per_task_from_stage_parall
 	assert plan.cpus_per_task_source == "stage_parallelism.max_stage_workers/well_workers"
 	assert plan.cpu_capacity_tasks == 6
 	assert plan.effective_tasks_per_node == 6
+
+
+def test_task_slot_affinity_context_applies_and_restores_mock_affinity() -> None:
+	current_affinity = {0, 1, 2, 3}
+	set_calls: list[tuple[int, tuple[int, ...]]] = []
+	slot = TaskSlot(slot_id=2, logical_cpus=(2, 3), core_ids=(1,), package_ids=(0,))
+
+	def affinity_getter(_pid: int) -> set[int]:
+		return set(current_affinity)
+
+	def affinity_setter(pid: int, cpus) -> None:
+		nonlocal current_affinity
+		resolved = tuple(sorted(int(cpu_id) for cpu_id in cpus))
+		set_calls.append((int(pid), resolved))
+		current_affinity = set(resolved)
+
+	with task_slot_affinity_context(
+		slot,
+		enabled=True,
+		affinity_getter=affinity_getter,
+		affinity_setter=affinity_setter,
+	):
+		assert current_affinity == {2, 3}
+
+	assert current_affinity == {0, 1, 2, 3}
+	assert set_calls == [(0, (2, 3)), (0, (0, 1, 2, 3))]
+
+
+def test_task_slot_affinity_context_soft_failure_warns_and_continues(caplog: pytest.LogCaptureFixture) -> None:
+	slot = TaskSlot(slot_id=3, logical_cpus=(4, 5), core_ids=(2,), package_ids=(0,))
+	caplog.set_level("WARNING", logger="axon_recon.pipeline.cpu_allocation")
+	entered = False
+
+	def affinity_setter(_pid: int, _cpus) -> None:
+		raise OSError("mock affinity denied")
+
+	with task_slot_affinity_context(
+		slot,
+		enabled=True,
+		affinity_getter=lambda _pid: {0, 1, 2, 3},
+		affinity_setter=affinity_setter,
+	):
+		entered = True
+
+	assert entered is True
+	assert any("Failed to apply task CPU affinity" in record.getMessage() for record in caplog.records)
+
+
+def test_task_slot_affinity_context_strict_failure_raises() -> None:
+	slot = TaskSlot(slot_id=4, logical_cpus=(6, 7), core_ids=(3,), package_ids=(0,))
+
+	def affinity_setter(_pid: int, _cpus) -> None:
+		raise OSError("mock affinity denied")
+
+	with pytest.raises(RuntimeError, match="Failed to apply task CPU affinity"):
+		with task_slot_affinity_context(
+			slot,
+			enabled=True,
+			soft_failure=False,
+			affinity_getter=lambda _pid: {0, 1, 2, 3},
+			affinity_setter=affinity_setter,
+		):
+			pass

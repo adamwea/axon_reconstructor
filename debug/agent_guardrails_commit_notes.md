@@ -91,6 +91,78 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-07 13:17 - pending - ai: apply task slot cpu affinity
+
+Status: accepted
+
+Summary:
+- Added a scoped task-slot CPU affinity context that applies a slot CPU set with `os.sched_setaffinity(0, cpus)` when local task allocation uses an active bind mode.
+- Restores the previous affinity after target work completes so worker-thread affinity does not leak into later work.
+- Wired affinity application through `_distribute_runtime_targets(...)`, preserving target log context and keeping lower-level slot assignment behavior unchanged.
+
+Guardrails Consulted:
+- `debug/parallelism_agent_guardrails.md`
+- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/first_version_pipeline_guardrails.md`
+
+Acceptance Criteria:
+- Unit tests mock affinity application and verify apply/restore behavior.
+- Soft affinity application failures log warnings and continue.
+- Strict failure mode exists internally for future config wiring and raises clearly when selected.
+- Runtime distribution applies affinity only for `backend=local_affinity` with `bind != none`.
+- Parent/main affinity is not left narrowed after the smoke check.
+
+Expected To Run:
+- Focused CPU allocation and runtime distribution tests.
+- Broad pipeline unit tests excluding the known malformed progress test.
+- A no-data local affinity smoke using fake targets and task slots only.
+
+Confirmed Not Run:
+- No preprocess, spikesort, reconstruct, analyzer, MPI, Slurm, or real container stage work was launched.
+- No runtime YAML was mutated.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_cpu_allocation.py src/axon_recon/pipeline/tests/test_logging_context.py src/axon_recon/pipeline/tests/test_distributor.py` -> 27 passed.
+- Pipeline test directory excluding the known malformed progress test: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests --ignore=src/axon_recon/pipeline/tests/test_progress.py` -> 395 passed.
+- Existing test gap: including `src/axon_recon/pipeline/tests/test_progress.py` still fails at collection with a pre-existing `TabError`; not modified in this slice.
+- Local no-data smoke: Pylance-run Python snippet called `_distribute_runtime_targets(...)` with two fake targets, two task slots, and a local-affinity bound plan -> logged `Applied task CPU affinity` for slots 0 and 1, returned both fake targets as ok.
+- Parent affinity check after smoke: Pylance-run Python snippet reported `os.sched_getaffinity(0)` as `0-47`.
+- Diagnostics: VS Code `get_errors` on touched source and tests -> no errors.
+- Logs inspected: focused pytest output, broad pytest output, and no-data affinity smoke output.
+- Artifacts inspected: none.
+- Not run: real-data stage smoke, non-dry-run container command, MPI/Slurm command.
+
+CLI / Debug Flag Impact:
+- No new CLI flags in this slice.
+- Existing `--alloc` behavior is unchanged; affinity only applies when target workers actually run with an attached local-affinity plan.
+
+Logging / Parallelism Impact:
+- Added `task_affinity_applied`, `task_affinity_apply_failed`, and `task_affinity_restore_failed` structured log events.
+- Target allocation logs now include whether affinity was enabled or disabled for the assigned task slot.
+- Existing resource gates and phase admission behavior are unchanged.
+
+Storage / Cache Impact:
+- Created: none.
+- Modified: `src/axon_recon/pipeline/cpu_allocation.py`, `src/axon_recon/pipeline/runner.py`, `src/axon_recon/pipeline/tests/test_cpu_allocation.py`, `src/axon_recon/pipeline/tests/test_logging_context.py`, and this commit log.
+- Removed: none.
+
+Container / NERSC / MPI Impact:
+- No MPI, Slurm, or container runtime behavior was added.
+- The affinity helper uses the current process-visible CPU set, so later container validation can confirm Docker cpuset behavior without changing this interface.
+
+Resume / Force-Restart Impact:
+- None. Affinity application is scoped to active target workers and does not alter resume or force-restart decisions.
+
+Residual Risk And Follow-Ups:
+- Python/Linux `sched_setaffinity(0, cpus)` is expected to affect the calling worker thread; the context restores previous affinity after worker completion to avoid leakage.
+- Other platforms without `os.sched_setaffinity` will warn and continue under the current soft-failure policy.
+- A future strict-affinity config field can wire into the existing internal `soft_failure=False` path.
+- Slice 6 should set nested thread environment values in a similarly scoped way, with care for process-wide env mutation from worker threads.
+
+Rollback Notes:
+- Revert the commit to remove scoped CPU affinity application and restore slice 4 slot-assignment-only behavior.
+
 ## 2026-05-07 13:01 - pending - ai: integrate task allocation previews
 
 Status: accepted
