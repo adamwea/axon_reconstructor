@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import contextmanager
+from contextvars import ContextVar
 import logging
 import os
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Iterator
 
 from .execution.context import StageParallelism
 from .resources import ResourceProfileConfig, TaskAllocationConfig
 
 
 LOGGER = logging.getLogger("axon_recon.pipeline.cpu_allocation")
+_CURRENT_TASK_SLOT: ContextVar["TaskSlot | None"] = ContextVar("axon_recon_task_slot", default=None)
 
 
 @dataclass(frozen=True)
@@ -75,6 +78,19 @@ class TaskSlot:
 	@property
 	def physical_core_count(self) -> int:
 		return len(self.core_ids)
+
+
+def current_task_slot() -> TaskSlot | None:
+	return _CURRENT_TASK_SLOT.get()
+
+
+@contextmanager
+def task_slot_context(slot: TaskSlot | None) -> Iterator[None]:
+	token = _CURRENT_TASK_SLOT.set(slot)
+	try:
+		yield
+	finally:
+		_CURRENT_TASK_SLOT.reset(token)
 
 
 @dataclass(frozen=True)

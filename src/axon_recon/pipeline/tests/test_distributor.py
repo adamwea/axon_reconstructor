@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import threading
 
+from axon_recon.pipeline.cpu_allocation import TaskSlot, current_task_slot
 from axon_recon.pipeline.execution.context import ExecutionTarget
 from axon_recon.pipeline.execution.distributor import distribute_targets
 from axon_recon.pipeline.execution.read_groups import target_read_group_key
@@ -199,4 +200,66 @@ def test_distributor_read_cap_groups_by_source_h5_path() -> None:
 
     assert len(started) == 1
     assert max(max_counts.values()) == 1
+    assert len(results) == len(targets)
+
+
+def test_distributor_assigns_task_slots_and_clamps_concurrency() -> None:
+    targets = [_target(index) for index in range(4)]
+    task_slots = (
+        TaskSlot(slot_id=0, logical_cpus=(0, 1), core_ids=(0,), package_ids=(0,)),
+        TaskSlot(slot_id=1, logical_cpus=(2, 3), core_ids=(1,), package_ids=(0,)),
+    )
+    condition = threading.Condition()
+    release_workers = threading.Event()
+    active_slot_ids: set[int] = set()
+    started_slot_ids: list[int] = []
+    max_active = 0
+    results: list[str] = []
+    errors: list[BaseException] = []
+
+    def worker(target: ExecutionTarget) -> str:
+        nonlocal max_active
+        task_slot = current_task_slot()
+        assert task_slot is not None
+        with condition:
+            active_slot_ids.add(task_slot.slot_id)
+            started_slot_ids.append(task_slot.slot_id)
+            max_active = max(max_active, len(active_slot_ids))
+            condition.notify_all()
+        try:
+            release_workers.wait(timeout=5)
+            return f"slot-{task_slot.slot_id}-target-{target.dataset_index}"
+        finally:
+            with condition:
+                active_slot_ids.discard(task_slot.slot_id)
+                condition.notify_all()
+
+    def run_distribution() -> None:
+        try:
+            output = distribute_targets(
+                targets=targets,
+                well_workers=4,
+                worker_fn=worker,
+                task_slots=task_slots,
+            )
+            results.extend(str(item.result) for item in output)
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=run_distribution)
+    thread.start()
+    with condition:
+        assert condition.wait_for(lambda: len(started_slot_ids) >= 2, timeout=5)
+        condition.wait(timeout=0.1)
+        started_snapshot = list(started_slot_ids)
+        max_active_snapshot = max_active
+    release_workers.set()
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert not errors
+    assert len(started_snapshot) == 2
+    assert set(started_snapshot) == {0, 1}
+    assert max_active_snapshot == 2
+    assert set(started_slot_ids) == {0, 1}
     assert len(results) == len(targets)

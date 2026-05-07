@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import os
 import time
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
@@ -17,6 +18,13 @@ from .config import (
 	resolve_stage_parallelism,
 	select_execution_targets,
 )
+from .cpu_allocation import (
+	TaskAllocationPlan,
+	build_task_allocation_plan,
+	current_task_slot,
+	detect_cpu_topology,
+	format_cpu_set,
+)
 from .execution.distributor import distribute_targets
 from .execution.logging_context import (
 	install_pipeline_log_record_factory,
@@ -26,7 +34,7 @@ from .execution.phase_chain import PhaseDescriptor, run_phase_chain
 from .execution.progress import PipelineProgress, ProgressSpec, pipeline_progress_context
 from .execution.results import MultiTargetStageResult, TargetStageResult
 from .resource_budget import ResourceBudgetManager, stage_resource_budget_context
-from .resources import parse_resources_config
+from .resources import get_active_resource_profile, parse_resources_config
 from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
 from .stages.preprocess.api import (
 	run_preprocess,
@@ -285,10 +293,78 @@ def _resolve_runtime_stage_parallelism(
 				raise
 			parallelism = resolve_stage_parallelism(bundle=bundle, stage_name=stage_name)
 	if targets is None:
-		return parallelism
-	return constrain_stage_parallelism_to_read_groups(
+		return _attach_task_allocation_plan(
+			bundle=bundle,
+			parallelism=parallelism,
+			target_count=int(target_count),
+		)
+	parallelism = constrain_stage_parallelism_to_read_groups(
 		parallelism=parallelism,
 		targets=list(targets),
+	)
+	return _attach_task_allocation_plan(
+		bundle=bundle,
+		parallelism=parallelism,
+		target_count=int(target_count),
+	)
+
+
+def _available_shm_gb(path: str = "/dev/shm") -> float | None:
+	try:
+		stats = os.statvfs(path)
+	except Exception:
+		return None
+	return float(int(stats.f_bavail) * int(stats.f_frsize)) / float(1024**3)
+
+
+def _unit_workers_after_well_worker_clamp(*, parallelism: Any, well_workers: int) -> int:
+	if str(getattr(parallelism, "unit_workers_source", "derived")) != "derived":
+		return max(1, int(getattr(parallelism, "unit_workers", 1)))
+	if bool(getattr(parallelism, "divide_stage_workers_by_wells", True)) and int(well_workers) > 1:
+		return max(1, int(getattr(parallelism, "max_stage_workers", 1)) // int(well_workers))
+	return max(1, int(getattr(parallelism, "max_stage_workers", 1)))
+
+
+def _attach_task_allocation_plan(
+	*,
+	bundle: PipelineRuntimeBundle,
+	parallelism: Any,
+	target_count: int,
+) -> Any:
+	if not callable(getattr(getattr(bundle, "runtime_config", None), "get", None)):
+		return parallelism
+	try:
+		resources_config = parse_resources_config(runtime_config=bundle.runtime_config, logger=LOGGER)
+	except Exception:
+		return parallelism
+	task_config = resources_config.task_allocation
+	if not bool(getattr(task_config, "enabled", False)):
+		return parallelism
+	plan = build_task_allocation_plan(
+		config=task_config,
+		topology=detect_cpu_topology(logger=LOGGER),
+		target_count=max(0, int(target_count)),
+		stage_parallelism=parallelism,
+		resource_profile=get_active_resource_profile(resources_config),
+		available_shm_gb=_available_shm_gb(),
+	)
+	if plan is None:
+		return parallelism
+	if int(target_count) > 0 and not plan.slots:
+		raise ValueError(
+			"Task allocation is enabled but produced no available task slots. "
+			"Lower resources.task_allocation.cpus_per_task or reserve_cpus, or disable task allocation."
+		)
+	effective_well_workers = max(1, min(int(getattr(parallelism, "well_workers", 1)), len(plan.slots) or 1))
+	unit_workers = _unit_workers_after_well_worker_clamp(
+		parallelism=parallelism,
+		well_workers=effective_well_workers,
+	)
+	return replace(
+		parallelism,
+		well_workers=int(effective_well_workers),
+		unit_workers=int(unit_workers),
+		task_allocation_plan=plan,
 	)
 
 
@@ -492,7 +568,23 @@ def _distribute_runtime_targets(
 
 	def worker_with_log_context(target: Any) -> Any:
 		with pipeline_log_context_for_target(target, stage=stage_name), pipeline_progress_context(progress):
+			task_slot = current_task_slot()
 			started = time.perf_counter()
+			if task_slot is not None:
+				LOGGER.info(
+					"target task allocation dataset=%s well=%s stage=%s task_slot=%d cpus=%s",
+					getattr(target, "dataset_id", "unknown"),
+					getattr(target, "stream_id", "unknown"),
+					str(stage_name or "unknown"),
+					int(task_slot.slot_id),
+					format_cpu_set(task_slot.logical_cpus),
+					extra={
+						"event": "task_allocation_target_assigned",
+						"task_slot_id": int(task_slot.slot_id),
+						"task_cpu_set": format_cpu_set(task_slot.logical_cpus),
+						"task_cpu_count": int(task_slot.cpu_count),
+					},
+				)
 			LOGGER.info(
 				"target started dataset=%s well=%s stage=%s",
 				getattr(target, "dataset_id", "unknown"),
@@ -525,6 +617,8 @@ def _distribute_runtime_targets(
 			progress.update(1)
 
 	progress_context = progress if progress is not None else nullcontext()
+	plan = getattr(parallelism, "task_allocation_plan", None)
+	task_slots = tuple(getattr(plan, "slots", ()) or ()) if plan is not None else ()
 	with progress_context:
 		return distribute_targets(
 			targets=targets,
@@ -536,6 +630,7 @@ def _distribute_runtime_targets(
 				None,
 			),
 			on_target_complete=_on_target_complete,
+			task_slots=task_slots,
 		)
 
 
@@ -622,6 +717,27 @@ def _log_runtime_stage_topology(*, stage_name: str, targets: list[Any], parallel
 			"max_stage_workers": int(parallelism.max_stage_workers),
 		},
 	)
+	plan = getattr(parallelism, "task_allocation_plan", None)
+	if plan is not None:
+		LOGGER.info(
+			"Task allocation backend=%s bind=%s cpus_per_task=%d tasks_per_node=%d slots=%d cpu_capacity=%d target_count=%s",
+			str(plan.backend),
+			str(plan.bind),
+			int(plan.cpus_per_task),
+			int(plan.effective_tasks_per_node),
+			int(len(plan.slots)),
+			int(plan.cpu_capacity_tasks),
+			str(plan.target_count),
+			extra={
+				"event": "task_allocation_plan",
+				"task_allocation_backend": str(plan.backend),
+				"task_allocation_bind": str(plan.bind),
+				"task_allocation_cpus_per_task": int(plan.cpus_per_task),
+				"task_allocation_tasks_per_node": int(plan.effective_tasks_per_node),
+				"task_allocation_slot_count": int(len(plan.slots)),
+				"task_allocation_cpu_capacity_tasks": int(plan.cpu_capacity_tasks),
+			},
+		)
 
 
 def _log_spikesort_phase_worker_allocation(
@@ -1395,6 +1511,379 @@ def _publish_reconstruct_target_result(item: TargetStageResult, *, policy: Publi
 		units=updated_units,
 	)
 	return TargetStageResult(target=item.target, status=item.status, result=updated, error=item.error)
+
+
+@dataclass(frozen=True)
+class StageAllocationPreview:
+	stage: str
+	target_count: int
+	target_labels: tuple[str, ...]
+	phase_resource_classes: tuple[str, ...]
+	parallelism: Any
+
+
+def _allocation_target_labels(targets: list[Any], *, limit: int = 8) -> tuple[str, ...]:
+	labels: list[str] = []
+	for target in list(targets)[: max(0, int(limit))]:
+		labels.append(f"{getattr(target, 'dataset_index', 'unknown')}:{getattr(target, 'stream_id', 'unknown')}")
+	return tuple(labels)
+
+
+def _build_preprocess_allocation_preview(
+	*,
+	config_path: str,
+	stage_name: str,
+	target_datasets_override: list[int] | None,
+	limit_segments_override: int | None,
+	limit_datasets_override: int | None,
+	limit_wells_per_dataset_override: int | None,
+	force_restart_override: bool | None,
+	force_replot_override: bool | None,
+) -> StageAllocationPreview:
+	bundle = load_pipeline_runtime_bundle(config_path=config_path)
+	stage_config = parse_preprocess_stage_config(
+		runtime_config=bundle.runtime_config,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+	stage_config = _with_debug_limit_overrides(
+		stage_config,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+	)
+	targets = _select_preprocess_execution_targets(
+		bundle=bundle,
+		stage_config=stage_config,
+		materialize_scratch_inputs=False,
+		target_datasets=target_datasets_override,
+	)
+	targets = _apply_preprocess_stage_debug_limits(
+		stage_name="preprocess",
+		stage_config=stage_config,
+		targets=list(targets),
+	)
+	if str(stage_name).strip() != "preprocess":
+		targets = _apply_preprocess_substage_phase_debug_limits(
+			stage_name=stage_name,
+			stage_config=stage_config,
+			targets=list(targets),
+		)
+	phase_resource_classes = _preprocess_runtime_phase_resource_classes(stage_config, stage_name)
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="preprocess",
+		target_count=len(targets),
+		targets=targets,
+		phase_resource_classes=phase_resource_classes,
+	)
+	return StageAllocationPreview(
+		stage=str(stage_name),
+		target_count=len(targets),
+		target_labels=_allocation_target_labels(list(targets)),
+		phase_resource_classes=phase_resource_classes,
+		parallelism=parallelism,
+	)
+
+
+_SPIKESORT_DIRECT_PHASE_LABELS: dict[str, str] = {
+	"spikesort.bootstrap_concat_binary": "bootstrap_concat_binary",
+	"spikesort.cleanup_concat_binary": "cleanup_concat_binary",
+	"spikesort.sort": "sort",
+	"spikesort.summarize_sort": "summarize_sort",
+	"spikesort.bombcell_label": "bombcell_label",
+	"spikesort.merge": "merge",
+	"spikesort.merge_SLAy": "merge_slay",
+	"spikesort.merge_si_auto": "merge_si_auto",
+	"spikesort.merge_unitmatch": "merge_unitmatch",
+}
+
+
+def _spikesort_allocation_phase_labels(stage_config: Any, stage_name: str) -> tuple[str, ...]:
+	stage_name = str(stage_name).strip()
+	if stage_name == "spikesort":
+		return tuple(str(phase.phase_label) for phase in _enabled_spikesort_runtime_phase_plan(stage_config))
+	phase_label = _SPIKESORT_DIRECT_PHASE_LABELS.get(stage_name)
+	if phase_label is None:
+		return ()
+	if phase_label != "merge":
+		return (phase_label,)
+	labels: list[str] = []
+	for token in tuple(getattr(stage_config, "merge_sequence", ()) or ("SLAy", "si_auto", "unitmatch")):
+		normalized = str(token).strip().lower().replace("-", "_")
+		if normalized in {"slay", "merge_slay"}:
+			labels.append("merge_slay")
+		elif normalized in {"si_auto", "auto", "auto_merge", "automerge", "merge_si_auto"}:
+			labels.append("merge_si_auto")
+		elif normalized in {"unitmatch", "unit_match", "merge_unitmatch"}:
+			labels.append("merge_unitmatch")
+	return _unique_resource_classes(tuple(labels))
+
+
+def _build_spikesort_allocation_preview(
+	*,
+	config_path: str,
+	stage_name: str,
+	target_datasets_override: list[int] | None,
+	limit_segments_override: int | None,
+	limit_datasets_override: int | None,
+	limit_wells_per_dataset_override: int | None,
+	force_restart_override: bool | None,
+	force_replot_override: bool | None,
+) -> StageAllocationPreview:
+	bundle = load_pipeline_runtime_bundle(config_path=config_path)
+	stage_config = parse_spikesort_stage_config(
+		runtime_config=bundle.runtime_config,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+	stage_config = _with_debug_limit_overrides(
+		stage_config,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+	)
+	phase_labels = _spikesort_allocation_phase_labels(stage_config, stage_name)
+	targets = _select_execution_targets_with_debug_limits(
+		bundle=bundle,
+		stage_name=stage_name,
+		stage_config=stage_config,
+		target_datasets=target_datasets_override,
+	)
+	targets = _apply_spikesort_stage_debug_limits(
+		stage_name="spikesort",
+		stage_config=stage_config,
+		targets=list(targets),
+	)
+	phase_resource_classes = _spikesort_phase_resource_classes_from_labels(stage_config, phase_labels)
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="spikesort",
+		target_count=len(targets),
+		targets=targets,
+		phase_resource_classes=phase_resource_classes,
+	)
+	return StageAllocationPreview(
+		stage=str(stage_name),
+		target_count=len(targets),
+		target_labels=_allocation_target_labels(list(targets)),
+		phase_resource_classes=phase_resource_classes,
+		parallelism=parallelism,
+	)
+
+
+def _build_reconstruct_allocation_preview(
+	*,
+	config_path: str,
+	stage_name: str,
+	target_datasets_override: list[int] | None,
+	unit_id_override: int | None,
+	unit_ids_override: list[int] | None,
+	unit_limit_override: int | None,
+	limit_segments_override: int | None,
+	limit_datasets_override: int | None,
+	limit_wells_per_dataset_override: int | None,
+	force_restart_override: bool | None,
+	force_replot_override: bool | None,
+) -> StageAllocationPreview:
+	bundle = load_pipeline_runtime_bundle(config_path=config_path)
+	probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
+	stage_config = parse_reconstruction_stage_config(
+		runtime_config=bundle.runtime_config,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+	stage_config = _with_debug_limit_overrides(
+		stage_config,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+	)
+	targets = _select_execution_targets_with_debug_limits(
+		bundle=bundle,
+		stage_name=stage_name,
+		stage_config=stage_config,
+		target_datasets=target_datasets_override,
+	)
+	reconstruct_templates_config = None
+	if callable(getattr(bundle.runtime_config, "get", None)):
+		templates_runtime_config = build_reconstruct_templates_runtime_config(bundle.runtime_config)
+		reconstruct_templates_config = parse_reconstruct_templates_config(
+			runtime_config=templates_runtime_config,
+			probe_geometry=probe_geometry,
+			unit_id_override=unit_id_override,
+			unit_ids_override=unit_ids_override,
+			unit_limit_override=stage_config.unit_limit,
+			limit_segments_override=stage_config.limit_segments,
+			force_restart_override=force_restart_override,
+			force_replot_override=force_replot_override,
+		)
+		reconstruct_templates_config = _with_debug_limit_overrides(
+			reconstruct_templates_config,
+			limit_segments_override=limit_segments_override,
+			limit_datasets_override=limit_datasets_override,
+			limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+		)
+	if bool(getattr(stage_config, "debug_mode_enabled", False)):
+		targets = _apply_spikesort_debug_target_limits(
+			stage_name=stage_name,
+			targets=list(targets),
+			limit_datasets=getattr(stage_config, "debug_limit_datasets", None),
+			limit_wells=getattr(stage_config, "debug_limit_wells", None),
+			limit_wells_per_dataset=getattr(stage_config, "debug_limit_wells_per_dataset", None),
+		)
+	phase_resource_classes = _reconstruct_runtime_phase_resource_classes(
+		stage_config,
+		reconstruct_templates_config,
+		stage_name=stage_name,
+	)
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="reconstruct",
+		target_count=len(targets),
+		targets=targets,
+		phase_resource_classes=phase_resource_classes,
+	)
+	return StageAllocationPreview(
+		stage=str(stage_name),
+		target_count=len(targets),
+		target_labels=_allocation_target_labels(list(targets)),
+		phase_resource_classes=phase_resource_classes,
+		parallelism=parallelism,
+	)
+
+
+def build_stage_allocation_previews(
+	*,
+	config_path: str,
+	stages: list[str] | tuple[str, ...],
+	target_datasets_override: list[int] | None = None,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> list[StageAllocationPreview]:
+	previews: list[StageAllocationPreview] = []
+	for stage_name in tuple(str(item).strip() for item in stages if str(item).strip()):
+		if stage_name == "preprocess" or stage_name.startswith("preprocess."):
+			previews.append(
+				_build_preprocess_allocation_preview(
+					config_path=config_path,
+					stage_name=stage_name,
+					target_datasets_override=target_datasets_override,
+					limit_segments_override=limit_segments_override,
+					limit_datasets_override=limit_datasets_override,
+					limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+					force_restart_override=force_restart_override,
+					force_replot_override=force_replot_override,
+				)
+			)
+		elif stage_name == "spikesort" or stage_name.startswith("spikesort."):
+			previews.append(
+				_build_spikesort_allocation_preview(
+					config_path=config_path,
+					stage_name=stage_name,
+					target_datasets_override=target_datasets_override,
+					limit_segments_override=limit_segments_override,
+					limit_datasets_override=limit_datasets_override,
+					limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+					force_restart_override=force_restart_override,
+					force_replot_override=force_replot_override,
+				)
+			)
+		elif stage_name == "reconstruct" or stage_name.startswith("reconstruct."):
+			previews.append(
+				_build_reconstruct_allocation_preview(
+					config_path=config_path,
+					stage_name=stage_name,
+					target_datasets_override=target_datasets_override,
+					unit_id_override=unit_id_override,
+					unit_ids_override=unit_ids_override,
+					unit_limit_override=unit_limit_override,
+					limit_segments_override=limit_segments_override,
+					limit_datasets_override=limit_datasets_override,
+					limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+					force_restart_override=force_restart_override,
+					force_replot_override=force_replot_override,
+				)
+			)
+		else:
+			raise ValueError(f"Unsupported stage for allocation preview: {stage_name}")
+	return previews
+
+
+def _format_allocation_plan_summary(plan: TaskAllocationPlan | None) -> list[str]:
+	if plan is None:
+		return ["task_allocation: disabled"]
+	lines = [
+		f"task_allocation: enabled backend={plan.backend} bind={plan.bind}",
+		f"cpu_topology: visible_cpus={format_cpu_set(plan.topology.visible_cpus)} physical_cores={plan.topology.physical_core_count} logical_cpus={plan.topology.logical_cpu_count}",
+		f"task_shape: cpus_per_task={plan.cpus_per_task} tasks_per_node={plan.effective_tasks_per_node} cpu_capacity_tasks={plan.cpu_capacity_tasks}",
+		f"slots: {len(plan.slots)}",
+	]
+	for slot in plan.slots:
+		lines.append(f"  slot[{slot.slot_id}]: cpus={format_cpu_set(slot.logical_cpus)}")
+	return lines
+
+
+def format_stage_allocation_previews(previews: list[StageAllocationPreview] | tuple[StageAllocationPreview, ...]) -> str:
+	lines = ["Allocation preview", "No stage work was run."]
+	for preview in previews:
+		parallelism = preview.parallelism
+		lines.append("")
+		lines.append(f"stage: {preview.stage}")
+		lines.append(f"selected_targets: {preview.target_count}")
+		if preview.target_labels:
+			target_suffix = "" if int(preview.target_count) <= len(preview.target_labels) else " ..."
+			lines.append(f"selected_target_sample: {', '.join(preview.target_labels)}{target_suffix}")
+		lines.append(f"phase_resource_classes: {', '.join(preview.phase_resource_classes) if preview.phase_resource_classes else 'none'}")
+		lines.append(
+			"parallelism: "
+			f"well_workers={int(getattr(parallelism, 'well_workers', 1))} "
+			f"unit_workers={int(getattr(parallelism, 'unit_workers', 1))} "
+			f"max_stage_workers={int(getattr(parallelism, 'max_stage_workers', 1))}"
+		)
+		plan = getattr(parallelism, "task_allocation_plan", None)
+		lines.extend(_format_allocation_plan_summary(plan))
+	return "\n".join(lines)
+
+
+def print_stage_allocation_preview(
+	*,
+	config_path: str,
+	stages: list[str] | tuple[str, ...],
+	target_datasets_override: list[int] | None = None,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+) -> None:
+	previews = build_stage_allocation_previews(
+		config_path=config_path,
+		stages=stages,
+		target_datasets_override=target_datasets_override,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+	print(format_stage_allocation_previews(previews))
 
 
 def run_preprocess_from_runtime(

@@ -259,6 +259,58 @@ def test_build_parser_supports_phase_tune_flags() -> None:
     assert args.confirm_full_scope is True
 
 
+def test_build_parser_supports_alloc_flag() -> None:
+    parser = pipeline_cli.build_parser()
+    args = parser.parse_args([
+        "stages",
+        "reconstruct.report_templates",
+        "--config",
+        "/tmp/runtime.yml",
+        "--alloc",
+    ])
+
+    assert args.alloc is True
+
+
+def test_run_stage_sequence_alloc_prints_preview_without_running_handlers(monkeypatch) -> None:
+    preview_calls: list[dict[str, object]] = []
+
+    def fake_preview(**kwargs: object) -> None:
+        preview_calls.append(kwargs)
+
+    def fail_handler(_args: argparse.Namespace) -> int:
+        raise AssertionError("stage handler should not run for --alloc")
+
+    monkeypatch.setattr(pipeline_cli, "print_stage_allocation_preview", fake_preview)
+    monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "preprocess", fail_handler)
+
+    args = argparse.Namespace(
+        stages=["preprocess"],
+        config="debug/debug.runtime.yml",
+        alloc=True,
+        target_datasets=["0,2", "8"],
+        unit_id=None,
+        unit_ids=None,
+        limit_units=None,
+        limit_segments=2,
+        limit_datasets=None,
+        limit_wells_per_dataset=1,
+        force_restart=False,
+        force_replot=False,
+        phase_tune=False,
+        confirm_full_scope=False,
+    )
+
+    rc = pipeline_cli._run_stage_sequence_from_args(args)
+
+    assert rc == 0
+    assert len(preview_calls) == 1
+    assert preview_calls[0]["stages"] == ["preprocess"]
+    assert preview_calls[0]["target_datasets_override"] == [0, 2, 8]
+    assert preview_calls[0]["limit_segments_override"] == 2
+    assert preview_calls[0]["limit_wells_per_dataset_override"] == 1
+
+
 def test_build_parser_supports_systopo_command() -> None:
     parser = pipeline_cli.build_parser()
     args = parser.parse_args(["systopo"])

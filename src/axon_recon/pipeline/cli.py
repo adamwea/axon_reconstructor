@@ -17,6 +17,7 @@ from .logging import (
 	install_noisy_external_log_filters,
 	log_context,
 )
+from .runner import print_stage_allocation_preview
 from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
 from .stages.preprocess.cli import (
 	_run_concat_segments_from_args as _run_preprocess_concat_segments_from_args,
@@ -312,6 +313,33 @@ def _parse_unit_ids_csv(raw: str) -> list[int]:
 	return parsed
 
 
+def _parse_target_dataset_indices_from_args(args: argparse.Namespace) -> list[int] | None:
+	raw = getattr(args, "target_datasets", None)
+	if raw is None:
+		return None
+	items = list(raw) if isinstance(raw, (list, tuple, set)) else [raw]
+	parsed: list[int] = []
+	seen: set[int] = set()
+	for item in items:
+		for token in str(item).split(","):
+			text = str(token).strip()
+			if not text:
+				continue
+			try:
+				value = int(text)
+			except Exception as exc:
+				raise SystemExit(f"Invalid dataset index for --target-datasets: {text!r}") from exc
+			if value < 0:
+				raise SystemExit(f"Dataset indices for --target-datasets must be >= 0, got {value}")
+			if value in seen:
+				continue
+			seen.add(value)
+			parsed.append(value)
+	if not parsed:
+		raise SystemExit("--target-datasets requires at least one dataset index")
+	return parsed
+
+
 def _parse_positive_int(raw: str) -> int:
 	try:
 		value = int(str(raw).strip())
@@ -403,6 +431,11 @@ def _register_stage_sequence_parser(
 		action="store_true",
 		help="Allow --phase-tune without debug limit flags",
 	)
+	parser.add_argument(
+		"--alloc",
+		action="store_true",
+		help="Print allocation details that would be used by the selected stage(s), without running stage work",
+	)
 	parser.set_defaults(handler=_run_stage_sequence_from_args)
 
 
@@ -486,6 +519,21 @@ def _phase_tune_has_scope_limits(args: argparse.Namespace) -> bool:
 def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 	stage_list = _parse_stage_list_tokens(list(getattr(args, "stages", []) or []))
 	logger = logging.getLogger("axon_recon.pipeline.stages")
+	if bool(getattr(args, "alloc", False)):
+		print_stage_allocation_preview(
+			config_path=str(getattr(args, "config")),
+			stages=stage_list,
+			target_datasets_override=_parse_target_dataset_indices_from_args(args),
+			unit_id_override=getattr(args, "unit_id", None),
+			unit_ids_override=getattr(args, "unit_ids", None),
+			unit_limit_override=getattr(args, "limit_units", None),
+			limit_segments_override=getattr(args, "limit_segments", None),
+			limit_datasets_override=getattr(args, "limit_datasets", None),
+			limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
+			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		)
+		return 0
 	if bool(getattr(args, "phase_tune", False)):
 		if not _phase_tune_has_scope_limits(args) and not bool(getattr(args, "confirm_full_scope", False)):
 			logger.error(
@@ -566,6 +614,9 @@ def _configure_phase_tuning_monitoring_from_args(args: argparse.Namespace) -> No
 	from .phase_tuning import parse_phase_tuning_config
 	from .resource_usage import configure_phase_tuning_monitoring
 
+	if bool(getattr(args, "alloc", False)):
+		configure_phase_tuning_monitoring(enabled=False)
+		return
 	if not bool(getattr(args, "phase_tune", False)):
 		configure_phase_tuning_monitoring(enabled=False)
 		return

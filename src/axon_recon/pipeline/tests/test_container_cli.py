@@ -73,6 +73,23 @@ def test_container_wrapper_forwards_config_free_systopo_command(tmp_path: Path) 
     assert cmd[-2:] == [container_cli.DEFAULT_IMAGE, "systopo"]
 
 
+def test_container_wrapper_forwards_alloc_flag(tmp_path: Path) -> None:
+    forwarded = [
+        "stages",
+        "reconstruct.report_templates",
+        "--config",
+        "debug/debug.runtime.yml",
+        "--alloc",
+    ]
+    options = container_cli._parse_options(["--no-build", "--dry-run", "--no-config-mounts", *forwarded])
+
+    assert options.container_args == forwarded
+
+    cmd = container_cli._build_docker_run_command(repo_root=tmp_path, options=options)
+
+    assert cmd[-(len(forwarded) + 1) :] == [container_cli.DEFAULT_IMAGE, *forwarded]
+
+
 def test_container_wrapper_option_before_pipeline_command_changes_image() -> None:
     options = container_cli._parse_options(["--image", "custom:tag", "stages", "all", "--config", "cfg.yml"])
 

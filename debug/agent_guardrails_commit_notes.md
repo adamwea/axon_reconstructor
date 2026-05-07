@@ -91,6 +91,80 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-07 13:01 - pending - ai: integrate task allocation previews
+
+Status: accepted
+
+Summary:
+- Integrated task allocation plans at the shared runtime target distribution boundary when `resources.task_allocation.enabled=true`.
+- Added per-target task-slot context so workers can observe their assigned slot, while preserving existing distribution behavior when no allocation plan is attached.
+- Added `--alloc` to `axon-recon stage/stages` so selected stages print allocation details and return without invoking stage handlers; the container wrapper forwards this flag unchanged.
+
+Guardrails Consulted:
+- `debug/parallelism_agent_guardrails.md`
+- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/first_version_pipeline_guardrails.md`
+
+Acceptance Criteria:
+- Task allocation remains opt-in and disabled configs behave as before.
+- Runtime target distribution clamps active workers to available task slots and exposes the current task slot to target-local workers.
+- `--alloc` computes selected targets, resource classes, resolved parallelism, and allocation details without running stage work.
+- `axon-recon-container ... --alloc` forwards the flag to the pipeline command.
+
+Expected To Run:
+- Focused unit tests for CPU allocation, target distribution, runtime logging context, stage-sequence CLI parsing, and container wrapper argument forwarding.
+- Read-only/safe dry preview smoke commands only.
+
+Confirmed Not Run:
+- No preprocess, spikesort, reconstruct, analyzer, MPI, or real container stage work was launched by the agent.
+- `--alloc` smoke returned before any stage handler execution.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_cpu_allocation.py src/axon_recon/pipeline/tests/test_distributor.py src/axon_recon/pipeline/tests/test_logging_context.py src/axon_recon/pipeline/tests/test_cli_stage_sequence.py src/axon_recon/pipeline/tests/test_container_cli.py` -> 182 passed.
+- Broader stage target-status tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_preprocess_target_status.py src/axon_recon/pipeline/tests/test_spikesort_target_status.py src/axon_recon/pipeline/tests/test_reconstruct_target_status.py` -> 103 passed.
+- Pipeline test directory excluding the known malformed progress test: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests --ignore=src/axon_recon/pipeline/tests/test_progress.py` -> 390 passed.
+- Existing focused test gap: including `src/axon_recon/pipeline/tests/test_progress.py` currently fails at collection with a pre-existing `TabError` on line 76; not modified in this slice.
+- Real-data smoke: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m axon_recon.pipeline.cli stages reconstruct.report_templates --config debug/debug.runtime.yml --limit-datasets 1 --limit-wells 1 --alloc` -> printed allocation preview and completed without stage work.
+- Container wrapper smoke: `axon-recon-container --no-build --dry-run stages reconstruct.report_templates --config debug/debug.runtime.yml --alloc` -> resolved Docker command ending in `axon-recon:local stages reconstruct.report_templates --config debug/debug.runtime.yml --alloc`.
+- Diagnostics: VS Code `get_errors` on touched source and test files -> no errors.
+- Logs inspected: focused pytest output, allocation preview smoke output, and container dry-run output.
+- Artifacts inspected: none.
+- Not run: full pipeline test suite, any real stage command, any non-dry-run container command, and MPI/Slurm commands.
+
+CLI / Debug Flag Impact:
+- Added `--alloc` to `stage` and `stages` commands.
+- The flag supports existing stage selectors, debug limit flags, unit filters, force flags, and `--target-datasets`, then returns after printing a preview.
+- `--phase-tune` monitoring is disabled for allocation-only previews.
+
+Logging / Parallelism Impact:
+- When a task allocation plan is attached, runtime topology logging includes backend, bind mode, CPUs per task, task count, slots, and CPU capacity.
+- Target logs include the assigned task slot id and CPU set.
+- Distribution now accepts optional task slots and schedules at most one active target per slot.
+
+Storage / Cache Impact:
+- Created: none.
+- Modified: `src/axon_recon/pipeline/cli.py`, `src/axon_recon/pipeline/cpu_allocation.py`, `src/axon_recon/pipeline/execution/context.py`, `src/axon_recon/pipeline/execution/distributor.py`, `src/axon_recon/pipeline/runner.py`, focused tests, and this commit log.
+- Removed: none.
+
+Container / NERSC / MPI Impact:
+- Container wrapper argument handling remains pass-through; added focused coverage for `--alloc` forwarding.
+- No MPI or Slurm behavior was added in this slice.
+- Local-affinity plans are computed from current process-visible topology, preserving NERSC-shaped task-slot concepts without requiring MPI.
+
+Resume / Force-Restart Impact:
+- `--alloc` accepts force flags for preview parity but does not run or restart stage work.
+- Runtime execution remains resume/force-restart driven by the underlying stage handlers when `--alloc` is absent.
+
+Residual Risk And Follow-Ups:
+- `--alloc` currently reports planned CPU slots but does not yet enforce OS CPU affinity or nested thread environment variables inside workers.
+- Direct preview target selection can still log existing scratch input reuse while computing targets; it does not materialize copy work.
+- The pre-existing `test_progress.py` indentation error should be fixed separately if that test file is needed in the validation set.
+
+Rollback Notes:
+- Revert the commit to remove the `--alloc` CLI path, task-slot context propagation, runtime plan attachment, and focused tests.
+
 ## 2026-05-07 00:45 - pending - ai: add task allocation plan builder
 
 Status: accepted
