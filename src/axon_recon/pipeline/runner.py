@@ -1871,6 +1871,17 @@ def _format_allocation_plan_summary(plan: TaskAllocationPlan | None) -> list[str
 		for var in _THREAD_ENV_VARS
 	]
 	lines.append(f"thread_env_current: {' '.join(env_parts)}")
+	if bool(plan.set_thread_env):
+		_policy = str(plan.nested_thread_policy).strip()
+		if _policy == "match_cpus_per_task":
+			_worker_val = str(plan.cpus_per_task)
+			_worker_parts = "  ".join(f"{var}={_worker_val}" for var in _THREAD_ENV_VARS)
+			lines.append(f"thread_env_worker: {_worker_parts}  (set per worker at execution)")
+		elif _policy == "force_1":
+			_worker_parts = "  ".join(f"{var}=1" for var in _THREAD_ENV_VARS)
+			lines.append(f"thread_env_worker: {_worker_parts}  (set per worker at execution)")
+		else:  # preserve_existing or unknown
+			lines.append(f"thread_env_worker: no-op (policy={_policy}, vars left as-is per worker)")
 	lines.append(f"slots: {len(plan.slots)}")
 	for slot in plan.slots:
 		lines.append(f"  slot[{slot.slot_id}]: cpus={format_cpu_set(slot.logical_cpus)}")
