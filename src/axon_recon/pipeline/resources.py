@@ -18,6 +18,7 @@ _RESERVED_RESOURCE_KEYS: frozenset[str] = frozenset(
 		"keyed_resource_limits",
 		"defaults",
 		"container_caps",
+		"task_allocation",
 	}
 )
 _LEGACY_RESOURCE_DEFAULT_KEYS: tuple[str, ...] = (
@@ -47,6 +48,12 @@ RESOURCE_SLOT_DIMENSIONS: tuple[str, ...] = (
 	"disk_heavy_slots",
 	"plot_slots",
 	"analyzer_slots",
+)
+TASK_ALLOCATION_BACKENDS: frozenset[str] = frozenset({"local_affinity", "none", "mpi", "slurm"})
+TASK_ALLOCATION_UNITS: frozenset[str] = frozenset({"well"})
+TASK_ALLOCATION_BIND_MODES: frozenset[str] = frozenset({"physical_cores", "logical_cpus", "none"})
+TASK_ALLOCATION_THREAD_POLICIES: frozenset[str] = frozenset(
+	{"match_cpus_per_task", "force_1", "preserve_existing"}
 )
 
 
@@ -98,17 +105,47 @@ class ContainerCapsConfig:
 
 
 @dataclass(frozen=True)
+class TaskAllocationConfig:
+	enabled: bool = False
+	backend: str = "none"
+	task_unit: str = "well"
+	cpus_per_task: int | str = "auto"
+	tasks_per_node: int | str = "auto"
+	bind: str = "none"
+	use_hyperthreads: bool = False
+	reserve_cpus: int = 0
+	set_thread_env: bool = False
+	nested_thread_policy: str = "preserve_existing"
+	ram_gb_per_task: float | None = None
+	shm_gb_per_task: float | None = None
+
+
+@dataclass(frozen=True)
 class ResourcesConfig:
 	active_profile: str | None = None
 	profiles: dict[str, ResourceProfileConfig] = field(default_factory=dict)
 	keyed_resource_limits: dict[str, KeyedResourceLimitConfig] = field(default_factory=dict)
 	phase_resource_classes: dict[str, PhaseResourceClassConfig] = field(default_factory=dict)
 	container_caps: ContainerCapsConfig = field(default_factory=ContainerCapsConfig)
+	task_allocation: TaskAllocationConfig = field(default_factory=TaskAllocationConfig)
 	defaults: dict[str, Any] = field(default_factory=dict)
 
 
 def _as_mapping(value: Any) -> dict[str, Any]:
 	return dict(value) if isinstance(value, dict) else {}
+
+
+def _as_bool(value: Any, default: bool = False) -> bool:
+	if value is None:
+		return bool(default)
+	if isinstance(value, bool):
+		return value
+	token = str(value).strip().lower()
+	if token in {"1", "true", "yes", "on"}:
+		return True
+	if token in {"0", "false", "no", "off"}:
+		return False
+	return bool(default)
 
 
 def _as_optional_name(value: Any) -> str | None:
@@ -162,6 +199,60 @@ def _as_optional_float(value: Any) -> float | None:
 def _as_float(value: Any, default: float = 0.0) -> float:
 	parsed = _as_optional_float(value)
 	return float(default if parsed is None else parsed)
+
+
+def _require_choice(
+	*,
+	value: Any,
+	field_name: str,
+	choices: frozenset[str],
+	default: str,
+) -> str:
+	if value is None:
+		return str(default)
+	resolved = _as_optional_name(value)
+	if resolved is None:
+		return str(default)
+	if resolved not in choices:
+		raise ValueError(
+			f"resources.task_allocation.{field_name} must be one of {sorted(choices)!r}; got {resolved!r}"
+		)
+	return str(resolved)
+
+
+def _require_auto_or_positive_int(*, value: Any, field_name: str) -> int | str:
+	if value is None:
+		return "auto"
+	if isinstance(value, str) and value.strip().lower() == "auto":
+		return "auto"
+	parsed = _as_optional_int(value)
+	if parsed is None or parsed <= 0:
+		raise ValueError(
+			f"resources.task_allocation.{field_name} must be a positive integer or 'auto'; got {value!r}"
+		)
+	return int(parsed)
+
+
+def _require_nonnegative_int(*, value: Any, field_name: str, default: int = 0) -> int:
+	if value is None:
+		return int(default)
+	parsed = _as_optional_int(value)
+	if parsed is None or parsed < 0:
+		raise ValueError(
+			f"resources.task_allocation.{field_name} must be a non-negative integer; got {value!r}"
+		)
+	return int(parsed)
+
+
+def _require_optional_positive_float(*, value: Any, field_name: str) -> float | None:
+	if value is None:
+		return None
+	parsed = _as_optional_float(value)
+	if parsed is None or parsed <= 0.0:
+		raise ValueError(
+			f"resources.task_allocation.{field_name} must be a positive number when set; got {value!r}"
+		)
+	return float(parsed)
 
 
 def _parse_resource_profile(raw: Any) -> ResourceProfileConfig:
@@ -252,6 +343,60 @@ def _parse_container_caps(raw: Any) -> ContainerCapsConfig:
 	)
 
 
+def _parse_task_allocation(raw: Any) -> TaskAllocationConfig:
+	block = _as_mapping(raw)
+	return TaskAllocationConfig(
+		enabled=_as_bool(block.get("enabled", False), False),
+		backend=_require_choice(
+			value=block.get("backend", None),
+			field_name="backend",
+			choices=TASK_ALLOCATION_BACKENDS,
+			default="none",
+		),
+		task_unit=_require_choice(
+			value=block.get("task_unit", None),
+			field_name="task_unit",
+			choices=TASK_ALLOCATION_UNITS,
+			default="well",
+		),
+		cpus_per_task=_require_auto_or_positive_int(
+			value=block.get("cpus_per_task", None),
+			field_name="cpus_per_task",
+		),
+		tasks_per_node=_require_auto_or_positive_int(
+			value=block.get("tasks_per_node", None),
+			field_name="tasks_per_node",
+		),
+		bind=_require_choice(
+			value=block.get("bind", None),
+			field_name="bind",
+			choices=TASK_ALLOCATION_BIND_MODES,
+			default="none",
+		),
+		use_hyperthreads=_as_bool(block.get("use_hyperthreads", False), False),
+		reserve_cpus=_require_nonnegative_int(
+			value=block.get("reserve_cpus", None),
+			field_name="reserve_cpus",
+			default=0,
+		),
+		set_thread_env=_as_bool(block.get("set_thread_env", False), False),
+		nested_thread_policy=_require_choice(
+			value=block.get("nested_thread_policy", None),
+			field_name="nested_thread_policy",
+			choices=TASK_ALLOCATION_THREAD_POLICIES,
+			default="preserve_existing",
+		),
+		ram_gb_per_task=_require_optional_positive_float(
+			value=block.get("ram_gb_per_task", None),
+			field_name="ram_gb_per_task",
+		),
+		shm_gb_per_task=_require_optional_positive_float(
+			value=block.get("shm_gb_per_task", None),
+			field_name="shm_gb_per_task",
+		),
+	)
+
+
 def _warn_legacy_resource_defaults(*, logger: logging.Logger, keys: tuple[str, ...]) -> None:
 	global _WARNED_LEGACY_RESOURCE_DEFAULTS
 	if _WARNED_LEGACY_RESOURCE_DEFAULTS or not keys:
@@ -320,6 +465,7 @@ def parse_resources_config(
 		for name, value in phase_classes_raw.items()
 	}
 	container_caps = _parse_container_caps(resources_block.get("container_caps", {}))
+	task_allocation = _parse_task_allocation(resources_block.get("task_allocation", {}))
 	legacy_source_h5_limit, legacy_source_h5_keys = _legacy_source_h5_limit_value(
 		resources_block=resources_block,
 		defaults=defaults,
@@ -348,6 +494,7 @@ def parse_resources_config(
 		keyed_resource_limits=keyed_resource_limits,
 		phase_resource_classes=phase_resource_classes,
 		container_caps=container_caps,
+		task_allocation=task_allocation,
 		defaults=defaults,
 	)
 

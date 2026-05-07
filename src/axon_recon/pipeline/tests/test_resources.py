@@ -140,6 +140,85 @@ def test_parse_resources_config_maps_legacy_h5_read_cap_alias_into_keyed_limits(
 	assert parsed.keyed_resource_limits["source_h5_path"].max_concurrent == 2
 
 
+def test_parse_resources_config_defaults_task_allocation_to_disabled_schema():
+	parsed = parse_resources_config(runtime_config=RuntimeConfig(_resource_payload()))
+
+	assert parsed.task_allocation.enabled is False
+	assert parsed.task_allocation.backend == "none"
+	assert parsed.task_allocation.task_unit == "well"
+	assert parsed.task_allocation.cpus_per_task == "auto"
+	assert parsed.task_allocation.tasks_per_node == "auto"
+	assert parsed.task_allocation.bind == "none"
+	assert parsed.task_allocation.use_hyperthreads is False
+	assert parsed.task_allocation.reserve_cpus == 0
+	assert parsed.task_allocation.set_thread_env is False
+	assert parsed.task_allocation.nested_thread_policy == "preserve_existing"
+	assert parsed.task_allocation.ram_gb_per_task is None
+	assert parsed.task_allocation.shm_gb_per_task is None
+
+
+def test_parse_resources_config_parses_explicit_task_allocation_block():
+	payload = _resource_payload()
+	resources = payload["resources"]
+	assert isinstance(resources, dict)
+	resources["task_allocation"] = {
+		"enabled": True,
+		"backend": "local_affinity",
+		"task_unit": "well",
+		"cpus_per_task": 4,
+		"tasks_per_node": "auto",
+		"bind": "physical_cores",
+		"use_hyperthreads": False,
+		"reserve_cpus": 2,
+		"set_thread_env": True,
+		"nested_thread_policy": "match_cpus_per_task",
+		"ram_gb_per_task": 12.5,
+		"shm_gb_per_task": 8,
+	}
+
+	parsed = parse_resources_config(runtime_config=RuntimeConfig(payload))
+
+	assert parsed.task_allocation.enabled is True
+	assert parsed.task_allocation.backend == "local_affinity"
+	assert parsed.task_allocation.task_unit == "well"
+	assert parsed.task_allocation.cpus_per_task == 4
+	assert parsed.task_allocation.tasks_per_node == "auto"
+	assert parsed.task_allocation.bind == "physical_cores"
+	assert parsed.task_allocation.use_hyperthreads is False
+	assert parsed.task_allocation.reserve_cpus == 2
+	assert parsed.task_allocation.set_thread_env is True
+	assert parsed.task_allocation.nested_thread_policy == "match_cpus_per_task"
+	assert parsed.task_allocation.ram_gb_per_task == pytest.approx(12.5)
+	assert parsed.task_allocation.shm_gb_per_task == pytest.approx(8.0)
+
+
+@pytest.mark.parametrize(
+	("field_name", "field_value"),
+	[
+		("backend", "bogus"),
+		("task_unit", "dataset"),
+		("cpus_per_task", 0),
+		("tasks_per_node", -1),
+		("bind", "socket"),
+		("reserve_cpus", -1),
+		("nested_thread_policy", "inherit"),
+		("ram_gb_per_task", 0),
+		("shm_gb_per_task", "bad"),
+	],
+)
+def test_parse_resources_config_rejects_invalid_task_allocation_values(
+	field_name: str,
+	field_value: object,
+) -> None:
+	payload = _resource_payload()
+	resources = payload["resources"]
+	assert isinstance(resources, dict)
+	resources["task_allocation"] = {field_name: field_value}
+
+	with pytest.raises(ValueError, match=field_name):
+		parse_resources_config(runtime_config=RuntimeConfig(payload))
+
+
 def test_preprocess_stage_parses_phase_resource_class_and_default_chunk_duration():
 	payload = _resource_payload()
 	payload["stages"] = {

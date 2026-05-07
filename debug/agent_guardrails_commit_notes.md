@@ -91,6 +91,63 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-06 21:45 - pending - ai: add task allocation config schema
+
+Status: accepted
+
+Summary:
+- Added a typed `resources.task_allocation` schema to the central pipeline resource parser.
+- Kept the new schema fully additive and default-disabled so existing runtime YAML keeps current behavior.
+- Added focused parser coverage for defaults, explicit `local_affinity` config, and invalid enum or numeric values.
+
+Guardrails Consulted:
+- `debug/parallelism_agent_guardrails.md`
+- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/first_version_pipeline_guardrails.md`
+
+Acceptance Criteria:
+- Existing runtime YAML remains valid with no behavior change when `resources.task_allocation` is absent.
+- Invalid `resources.task_allocation` enum and numeric values fail clearly during parsing.
+- Focused tests cover defaults, explicit config, and invalid values.
+
+Expected To Run:
+- Central resource parser updates and focused parser tests only.
+
+Confirmed Not Run:
+- No preprocess, spikesort, reconstruct, analyzer, container, MPI, or real-data runtime work was launched by the agent.
+
+Validation:
+- Focused tests: `/home/adamm/miniconda3/envs/axon_recon/bin/python -m pytest src/axon_recon/pipeline/tests/test_resources.py` → 20 passed.
+- Diagnostics: VS Code `get_errors` on `src/axon_recon/pipeline/resources.py` and `src/axon_recon/pipeline/tests/test_resources.py` → no errors.
+- Real-data smoke: not run.
+- Logs inspected: pytest output for the resource parser slice.
+- Artifacts inspected: none beyond repository source and test code.
+- Not run: container smoke, broader pipeline tests, and any command that could interfere with the user’s active analyzer work.
+
+CLI / Debug Flag Impact:
+- None yet. This slice adds typed runtime config parsing only.
+
+Logging / Parallelism Impact:
+- None yet at runtime. This slice only introduces the parsed schema needed for later local-affinity and scheduler-shaped allocation work.
+
+Storage / Cache Impact:
+- Created: none.
+- Modified: `src/axon_recon/pipeline/resources.py`, `src/axon_recon/pipeline/tests/test_resources.py`, `debug/agent_guardrails_commit_notes.md`.
+- Removed: none.
+
+Container / NERSC / MPI Impact:
+- No runtime impact. The new schema recognizes future `local_affinity`, `mpi`, and `slurm` backends without enabling any of them.
+
+Resume / Force-Restart Impact:
+- None.
+
+Residual Risk And Follow-Ups:
+- The schema currently defaults to a disabled allocation block and does not yet validate cross-field semantics such as `enabled=true` plus missing capacity decisions.
+- The next slice should use this schema for topology detection and plan construction without changing existing non-allocation execution.
+
+Rollback Notes:
+- Revert the commit to remove the additive schema and its parser tests.
+
 ## 2026-05-06 21:15 - pending - ai: document NERSC shaped local affinity plan
 
 Status: accepted
