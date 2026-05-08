@@ -275,6 +275,7 @@ def _resolve_runtime_stage_parallelism(
 	target_count: int,
 	targets: list[Any] | None = None,
 	phase_resource_classes: list[str] | tuple[str, ...] | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ):
 	try:
 		parallelism = resolve_stage_parallelism(
@@ -301,6 +302,7 @@ def _resolve_runtime_stage_parallelism(
 			bundle=bundle,
 			parallelism=parallelism,
 			target_count=int(target_count),
+			task_allocation_override=task_allocation_override,
 		)
 	read_cap = getattr(parallelism, "max_simultaneous_well_reads_per_dataset", None)
 	keyed_read_cap: int | None = None
@@ -317,6 +319,7 @@ def _resolve_runtime_stage_parallelism(
 		parallelism=parallelism,
 		target_count=int(target_count),
 		keyed_read_cap=keyed_read_cap,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -342,6 +345,7 @@ def _attach_task_allocation_plan(
 	parallelism: Any,
 	target_count: int,
 	keyed_read_cap: int | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> Any:
 	if not callable(getattr(getattr(bundle, "runtime_config", None), "get", None)):
 		return parallelism
@@ -350,6 +354,8 @@ def _attach_task_allocation_plan(
 	except Exception:
 		return parallelism
 	task_config = resources_config.task_allocation
+	if task_allocation_override:
+		task_config = replace(task_config, **task_allocation_override)
 	if not bool(getattr(task_config, "enabled", False)):
 		return parallelism
 	plan = build_task_allocation_plan(
@@ -586,6 +592,19 @@ def _distribute_runtime_targets(
 	)
 	_plan_set_thread_env = bool(getattr(plan, "set_thread_env", False)) if plan is not None else False
 	_plan_thread_policy = str(getattr(plan, "nested_thread_policy", "preserve_existing") or "preserve_existing") if plan is not None else "preserve_existing"
+	_plan_cpus_per_task = int(getattr(plan, "cpus_per_task", 1)) if plan is not None else 1
+
+	def _worker_thread_env_str(slot: Any | None) -> str:
+		"""Compute the would-be thread env string for a slot, for logging only."""
+		if not _plan_set_thread_env or _plan_thread_policy == "preserve_existing":
+			return "disabled"
+		if _plan_thread_policy == "force_1":
+			count = 1
+		elif _plan_thread_policy == "match_cpus_per_task":
+			count = int(slot.cpu_count) if slot is not None else _plan_cpus_per_task
+		else:
+			return _plan_thread_policy
+		return " ".join(f"{var}={count}" for var in _THREAD_ENV_VARS)
 
 	def worker_with_log_context(target: Any) -> Any:
 		with pipeline_log_context_for_target(target, stage=stage_name), pipeline_progress_context(progress):
@@ -603,6 +622,7 @@ def _distribute_runtime_targets(
 			):
 				started = time.perf_counter()
 				if task_slot is not None:
+					thread_env_str = _worker_thread_env_str(task_slot)
 					LOGGER.info(
 						"target task allocation dataset=%s well=%s stage=%s task_slot=%d cpus=%s affinity=%s thread_env=%s",
 						getattr(target, "dataset_id", "unknown"),
@@ -611,14 +631,16 @@ def _distribute_runtime_targets(
 						int(task_slot.slot_id),
 						format_cpu_set(task_slot.logical_cpus),
 						"enabled" if bool(apply_task_affinity) else "disabled",
-						str(_plan_thread_policy) if bool(_plan_set_thread_env) else "disabled",
+						thread_env_str,
 						extra={
 							"event": "task_allocation_target_assigned",
 							"task_slot_id": int(task_slot.slot_id),
 							"task_cpu_set": format_cpu_set(task_slot.logical_cpus),
 							"task_cpu_count": int(task_slot.cpu_count),
+							"task_cpus_per_task": _plan_cpus_per_task,
 							"task_affinity_enabled": bool(apply_task_affinity),
 							"task_thread_env_policy": str(_plan_thread_policy) if bool(_plan_set_thread_env) else "disabled",
+							"task_thread_env_values": thread_env_str,
 						},
 					)
 				LOGGER.info(
@@ -753,19 +775,28 @@ def _log_runtime_stage_topology(*, stage_name: str, targets: list[Any], parallel
 	)
 	plan = getattr(parallelism, "task_allocation_plan", None)
 	if plan is not None:
+		topology = getattr(plan, "topology", None)
+		visible_cpus_str = format_cpu_set(getattr(topology, "visible_cpus", ())) if topology is not None else "unknown"
+		physical_cores = int(getattr(topology, "physical_core_count", 0)) if topology is not None else 0
 		LOGGER.info(
-			"Task allocation backend=%s bind=%s cpus_per_task=%d tasks_per_node=%d slots=%d cpu_capacity=%d target_count=%s",
+			"Task allocation backend=%s task_unit=%s visible_cpus=%s physical_cores=%d cpus_per_task=%d tasks_per_node=%d bind=%s use_hyperthreads=%s slots=%d",
 			str(plan.backend),
-			str(plan.bind),
+			str(getattr(plan, "task_unit", "well")),
+			visible_cpus_str,
+			physical_cores,
 			int(plan.cpus_per_task),
 			int(plan.effective_tasks_per_node),
+			str(plan.bind),
+			str(plan.use_hyperthreads).lower(),
 			int(len(plan.slots)),
-			int(plan.cpu_capacity_tasks),
-			str(plan.target_count),
 			extra={
 				"event": "task_allocation_plan",
 				"task_allocation_backend": str(plan.backend),
+				"task_allocation_task_unit": str(getattr(plan, "task_unit", "well")),
+				"task_allocation_visible_cpus": visible_cpus_str,
+				"task_allocation_physical_cores": physical_cores,
 				"task_allocation_bind": str(plan.bind),
+				"task_allocation_use_hyperthreads": bool(plan.use_hyperthreads),
 				"task_allocation_cpus_per_task": int(plan.cpus_per_task),
 				"task_allocation_tasks_per_node": int(plan.effective_tasks_per_node),
 				"task_allocation_slot_count": int(len(plan.slots)),
@@ -1573,6 +1604,7 @@ def _build_preprocess_allocation_preview(
 	limit_wells_per_dataset_override: int | None,
 	force_restart_override: bool | None,
 	force_replot_override: bool | None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> StageAllocationPreview:
 	bundle = load_pipeline_runtime_bundle(config_path=config_path)
 	stage_config = parse_preprocess_stage_config(
@@ -1610,6 +1642,7 @@ def _build_preprocess_allocation_preview(
 		target_count=len(targets),
 		targets=targets,
 		phase_resource_classes=phase_resource_classes,
+		task_allocation_override=task_allocation_override,
 	)
 	return StageAllocationPreview(
 		stage=str(stage_name),
@@ -1664,6 +1697,7 @@ def _build_spikesort_allocation_preview(
 	limit_wells_per_dataset_override: int | None,
 	force_restart_override: bool | None,
 	force_replot_override: bool | None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> StageAllocationPreview:
 	bundle = load_pipeline_runtime_bundle(config_path=config_path)
 	stage_config = parse_spikesort_stage_config(
@@ -1696,6 +1730,7 @@ def _build_spikesort_allocation_preview(
 		target_count=len(targets),
 		targets=targets,
 		phase_resource_classes=phase_resource_classes,
+		task_allocation_override=task_allocation_override,
 	)
 	return StageAllocationPreview(
 		stage=str(stage_name),
@@ -1719,6 +1754,7 @@ def _build_reconstruct_allocation_preview(
 	limit_wells_per_dataset_override: int | None,
 	force_restart_override: bool | None,
 	force_replot_override: bool | None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> StageAllocationPreview:
 	bundle = load_pipeline_runtime_bundle(config_path=config_path)
 	probe_geometry = parse_probe_geometry_from_data_config(data_config=bundle.data_config)
@@ -1781,6 +1817,7 @@ def _build_reconstruct_allocation_preview(
 		target_count=len(targets),
 		targets=targets,
 		phase_resource_classes=phase_resource_classes,
+		task_allocation_override=task_allocation_override,
 	)
 	return StageAllocationPreview(
 		stage=str(stage_name),
@@ -1804,6 +1841,7 @@ def build_stage_allocation_previews(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> list[StageAllocationPreview]:
 	previews: list[StageAllocationPreview] = []
 	for stage_name in tuple(str(item).strip() for item in stages if str(item).strip()):
@@ -1818,6 +1856,7 @@ def build_stage_allocation_previews(
 					limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 					force_restart_override=force_restart_override,
 					force_replot_override=force_replot_override,
+					task_allocation_override=task_allocation_override,
 				)
 			)
 		elif stage_name == "spikesort" or stage_name.startswith("spikesort."):
@@ -1831,6 +1870,7 @@ def build_stage_allocation_previews(
 					limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 					force_restart_override=force_restart_override,
 					force_replot_override=force_replot_override,
+					task_allocation_override=task_allocation_override,
 				)
 			)
 		elif stage_name == "reconstruct" or stage_name.startswith("reconstruct."):
@@ -1847,6 +1887,7 @@ def build_stage_allocation_previews(
 					limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 					force_restart_override=force_restart_override,
 					force_replot_override=force_replot_override,
+					task_allocation_override=task_allocation_override,
 				)
 			)
 		else:
@@ -1949,6 +1990,7 @@ def print_stage_allocation_preview(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> None:
 	previews = build_stage_allocation_previews(
 		config_path=config_path,
@@ -1962,6 +2004,7 @@ def print_stage_allocation_preview(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 	print(format_stage_allocation_previews(previews))
 
@@ -1975,6 +2018,7 @@ def run_preprocess_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
 	publish_policy = _resolve_publish_policy(runtime_config=bundle.runtime_config, data_config=bundle.data_config)
@@ -2008,6 +2052,7 @@ def run_preprocess_from_runtime(
 		target_count=len(targets),
 		targets=targets,
 		phase_resource_classes=phase_resource_classes,
+		task_allocation_override=task_allocation_override,
 	)
 	_log_runtime_stage_topology(stage_name="preprocess", targets=list(targets), parallelism=parallelism)
 	resource_budget_manager = _build_stage_resource_budget_manager(
@@ -2081,6 +2126,7 @@ def _run_preprocess_substage_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
 	stage_config = parse_preprocess_stage_config(
@@ -2117,6 +2163,7 @@ def _run_preprocess_substage_from_runtime(
 		target_count=len(targets),
 		targets=targets,
 		phase_resource_classes=phase_resource_classes,
+		task_allocation_override=task_allocation_override,
 	)
 	resource_budget_manager = _build_stage_resource_budget_manager(
 		bundle=bundle,
@@ -2185,6 +2232,7 @@ def run_preprocess_copy_src_to_scratch_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_preprocess_substage_from_runtime(
 		config_path=config_path,
@@ -2196,6 +2244,7 @@ def run_preprocess_copy_src_to_scratch_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -2208,6 +2257,7 @@ def run_preprocess_save_rec_metadata_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_preprocess_substage_from_runtime(
 		config_path=config_path,
@@ -2219,6 +2269,7 @@ def run_preprocess_save_rec_metadata_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -2231,6 +2282,7 @@ def run_preprocess_prepare_raw_binaries_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_preprocess_substage_from_runtime(
 		config_path=config_path,
@@ -2242,6 +2294,7 @@ def run_preprocess_prepare_raw_binaries_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -2254,6 +2307,7 @@ def run_preprocess_plot_segment_channel_layouts_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_preprocess_substage_from_runtime(
 		config_path=config_path,
@@ -2265,6 +2319,7 @@ def run_preprocess_plot_segment_channel_layouts_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -2277,6 +2332,7 @@ def run_preprocess_wipe_src_scratch_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_preprocess_substage_from_runtime(
 		config_path=config_path,
@@ -2288,6 +2344,7 @@ def run_preprocess_wipe_src_scratch_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -2300,6 +2357,7 @@ def run_preprocess_preprocess_segments_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_preprocess_substage_from_runtime(
 		config_path=config_path,
@@ -2311,6 +2369,7 @@ def run_preprocess_preprocess_segments_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -2323,6 +2382,7 @@ def run_preprocess_plot_segment_traces_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_preprocess_substage_from_runtime(
 		config_path=config_path,
@@ -2334,6 +2394,7 @@ def run_preprocess_plot_segment_traces_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -2346,6 +2407,7 @@ def run_preprocess_concat_segments_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_preprocess_substage_from_runtime(
 		config_path=config_path,
@@ -2357,6 +2419,7 @@ def run_preprocess_concat_segments_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -2369,6 +2432,7 @@ def run_preprocess_plot_concat_traces_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_preprocess_substage_from_runtime(
 		config_path=config_path,
@@ -2380,6 +2444,7 @@ def run_preprocess_plot_concat_traces_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -2392,6 +2457,7 @@ def run_preprocess_plot_concat_channel_layout_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_preprocess_substage_from_runtime(
 		config_path=config_path,
@@ -2403,6 +2469,7 @@ def run_preprocess_plot_concat_channel_layout_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -2415,6 +2482,7 @@ def run_preprocess_plot_raster_threshold_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_preprocess_substage_from_runtime(
 		config_path=config_path,
@@ -2426,6 +2494,7 @@ def run_preprocess_plot_raster_threshold_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -2438,6 +2507,7 @@ def run_spikesort_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
 	publish_policy = _resolve_publish_policy(runtime_config=bundle.runtime_config, data_config=bundle.data_config)
@@ -2481,6 +2551,7 @@ def run_spikesort_from_runtime(
 		target_count=len(targets),
 		targets=targets,
 		phase_resource_classes=phase_resource_classes,
+		task_allocation_override=task_allocation_override,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	runtime_stage_config = _stage_config_with_runtime_n_jobs(
@@ -2817,6 +2888,7 @@ def run_spikesort_sort_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_spikesort_sort_from_runtime(
 		config_path=config_path,
@@ -2827,6 +2899,7 @@ def run_spikesort_sort_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -2839,6 +2912,7 @@ def run_spikesort_summarize_sort_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
 	stage_config = parse_spikesort_stage_config(
@@ -2880,6 +2954,7 @@ def run_spikesort_summarize_sort_from_runtime(
 		target_count=len(targets),
 		targets=targets,
 		phase_resource_classes=phase_resource_classes,
+		task_allocation_override=task_allocation_override,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	resource_budget_manager = _build_stage_resource_budget_manager(
@@ -2944,6 +3019,7 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 	debug_phase_label: str,
 	debug_enabled_attr: str,
 	debug_limit_datasets_attr: str,
@@ -2994,6 +3070,7 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 		target_count=len(targets),
 		targets=targets,
 		phase_resource_classes=phase_resource_classes,
+		task_allocation_override=task_allocation_override,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	runtime_stage_config = _stage_config_with_runtime_n_jobs(
@@ -3066,6 +3143,7 @@ def run_spikesort_bootstrap_concat_binary_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_spikesort_concat_binary_phase_from_runtime(
 		config_path=config_path,
@@ -3077,6 +3155,7 @@ def run_spikesort_bootstrap_concat_binary_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 		debug_phase_label="bootstrap_concat_binary",
 		debug_enabled_attr="bootstrap_concat_binary_debug_mode_enabled",
 		debug_limit_datasets_attr="bootstrap_concat_binary_debug_limit_datasets",
@@ -3095,6 +3174,7 @@ def run_spikesort_cleanup_concat_binary_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_spikesort_concat_binary_phase_from_runtime(
 		config_path=config_path,
@@ -3106,6 +3186,7 @@ def run_spikesort_cleanup_concat_binary_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 		debug_phase_label="cleanup_concat_binary",
 		debug_enabled_attr="cleanup_concat_binary_debug_mode_enabled",
 		debug_limit_datasets_attr="cleanup_concat_binary_debug_limit_datasets",
@@ -3125,6 +3206,7 @@ def _run_spikesort_sort_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
 	publish_policy = _resolve_publish_policy(runtime_config=bundle.runtime_config, data_config=bundle.data_config)
@@ -3163,6 +3245,7 @@ def _run_spikesort_sort_from_runtime(
 		target_count=len(targets),
 		targets=targets,
 		phase_resource_classes=phase_resource_classes,
+		task_allocation_override=task_allocation_override,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	resource_budget_manager = _build_stage_resource_budget_manager(
@@ -3233,6 +3316,7 @@ def run_spikesort_merge_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 	merge_sequence_override: tuple[str, ...] | list[str] | None = None,
 	stage_config_transformer: Callable[[Any], Any] | None = None,
 	debug_phase_label: str | None = None,
@@ -3372,6 +3456,7 @@ def run_spikesort_merge_from_runtime(
 		target_count=len(targets),
 		targets=targets,
 		phase_resource_classes=phase_resource_classes,
+		task_allocation_override=task_allocation_override,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	runtime_stage_config = _stage_config_with_runtime_n_jobs(
@@ -3456,6 +3541,7 @@ def run_spikesort_bombcell_label_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 	stage_name: str = "spikesort.bombcell_label",
 ) -> MultiTargetStageResult:
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
@@ -3500,6 +3586,7 @@ def run_spikesort_bombcell_label_from_runtime(
 		target_count=len(targets),
 		targets=targets,
 		phase_resource_classes=phase_resource_classes,
+		task_allocation_override=task_allocation_override,
 	)
 	n_jobs_source = _runtime_n_jobs_source(stage_config)
 	runtime_stage_config = _stage_config_with_runtime_n_jobs(
@@ -3621,6 +3708,7 @@ def _run_reconstruct_substage_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 	publish_outputs: bool = False,
 ) -> MultiTargetStageResult:
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
@@ -3687,6 +3775,7 @@ def _run_reconstruct_substage_from_runtime(
 		target_count=len(targets),
 		targets=targets,
 		phase_resource_classes=phase_resource_classes,
+		task_allocation_override=task_allocation_override,
 	)
 	if str(stage_name).strip() == "reconstruct":
 		_log_runtime_stage_topology(stage_name="reconstruct", targets=list(targets), parallelism=parallelism)
@@ -3767,6 +3856,7 @@ def run_reconstruct_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -3781,6 +3871,7 @@ def run_reconstruct_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 		publish_outputs=True,
 	)
 
@@ -3797,6 +3888,7 @@ def run_reconstruct_templates_resolve_sources_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -3811,6 +3903,7 @@ def run_reconstruct_templates_resolve_sources_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -3826,6 +3919,7 @@ def run_reconstruct_templates_analyzers_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -3840,6 +3934,7 @@ def run_reconstruct_templates_analyzers_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -3855,6 +3950,7 @@ def run_reconstruct_templates_build_templates_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -3869,6 +3965,7 @@ def run_reconstruct_templates_build_templates_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -3884,6 +3981,7 @@ def run_reconstruct_templates_compute_template_similarity_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -3898,6 +3996,7 @@ def run_reconstruct_templates_compute_template_similarity_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -3913,6 +4012,7 @@ def run_reconstruct_templates_plot_templates_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -3927,6 +4027,7 @@ def run_reconstruct_templates_plot_templates_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -3942,6 +4043,7 @@ def run_reconstruct_templates_plot_templates_v2_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -3956,6 +4058,7 @@ def run_reconstruct_templates_plot_templates_v2_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -3971,6 +4074,7 @@ def run_reconstruct_templates_report_templates_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -3985,6 +4089,7 @@ def run_reconstruct_templates_report_templates_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -4000,6 +4105,7 @@ def run_reconstruct_templates_reports_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -4014,6 +4120,7 @@ def run_reconstruct_templates_reports_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -4029,6 +4136,7 @@ def run_reconstruct_generate_gtrs_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -4043,6 +4151,7 @@ def run_reconstruct_generate_gtrs_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -4058,6 +4167,7 @@ def run_reconstruct_plot_recons_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -4072,6 +4182,7 @@ def run_reconstruct_plot_recons_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -4087,6 +4198,7 @@ def run_reconstruct_plot_branch_propagations_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -4101,6 +4213,7 @@ def run_reconstruct_plot_branch_propagations_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -4116,6 +4229,7 @@ def run_reconstruct_plot_branch_velocities_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -4130,6 +4244,7 @@ def run_reconstruct_plot_branch_velocities_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -4145,6 +4260,7 @@ def run_reconstruct_plot_unit_summary_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -4159,6 +4275,7 @@ def run_reconstruct_plot_unit_summary_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -4174,6 +4291,7 @@ def run_reconstruct_report_recons_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -4188,6 +4306,7 @@ def run_reconstruct_report_recons_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -4203,6 +4322,7 @@ def run_reconstruct_report_recon_grid_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -4217,6 +4337,7 @@ def run_reconstruct_report_recon_grid_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -4232,6 +4353,7 @@ def run_reconstruct_report_full_chip_layout_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -4246,6 +4368,7 @@ def run_reconstruct_report_full_chip_layout_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -4261,6 +4384,7 @@ def run_reconstruct_report_summaries_from_runtime(
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
@@ -4275,6 +4399,7 @@ def run_reconstruct_report_summaries_from_runtime(
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
 	)
 
 

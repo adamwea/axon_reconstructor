@@ -110,6 +110,7 @@ class TaskAllocationPlan:
 	reserved_unit_count: int
 	set_thread_env: bool = False
 	nested_thread_policy: str = "preserve_existing"
+	task_unit: str = "well"
 	target_count: int | None = None
 	keyed_read_cap: int | None = None
 	slots: tuple[TaskSlot, ...] = ()
@@ -531,6 +532,7 @@ def build_task_allocation_plan(
 		reserved_unit_count=int(reserved_unit_count),
 		set_thread_env=bool(getattr(config, "set_thread_env", False)),
 		nested_thread_policy=str(getattr(config, "nested_thread_policy", "preserve_existing") or "preserve_existing"),
+		task_unit=str(getattr(config, "task_unit", "well") or "well"),
 		target_count=resolved_target_count,
 		keyed_read_cap=resolved_keyed_read_cap,
 		slots=slots,
