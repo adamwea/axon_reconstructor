@@ -355,6 +355,7 @@ def capture_sample_worker_environment(
 	slot: TaskSlot | None,
 	*,
 	plan: Any | None = None,
+	logger: logging.Logger | None = None,
 ) -> dict[str, str]:
 	"""Capture what environment would be set for a sample worker in this slot.
 
@@ -377,10 +378,12 @@ def capture_sample_worker_environment(
 			slot,
 			enabled=apply_affinity,
 			soft_failure=True,
+			logger=logger,
 		), apply_thread_env_context(
 			slot,
 			enabled=set_thread_env,
 			policy=thread_policy,
+			logger=logger,
 		):
 			# Capture the environment state inside the contexts
 			captured["thread_env"] = {var: os.environ.get(var) for var in _THREAD_ENV_VARS}

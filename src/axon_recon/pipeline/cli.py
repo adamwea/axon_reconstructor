@@ -18,7 +18,7 @@ from .logging import (
 	log_context,
 )
 from .mpi_adapter import current_mpi_context
-from .runner import print_stage_allocation_preview
+from .runner import build_stage_allocation_previews, format_stage_allocation_previews, print_stage_allocation_preview
 from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
 from .stages.preprocess.cli import (
 	_run_concat_segments_from_args as _run_preprocess_concat_segments_from_args,
@@ -602,23 +602,19 @@ def _phase_tune_has_scope_limits(args: argparse.Namespace) -> bool:
 	return False
 
 
-def _run_mpi_sample_worker_test(*, rank: int, size: int, config_path: str | None = None) -> None:
-	"""Run a sample worker test on this MPI rank to validate environment setup."""
-	import sys
+def _render_mpi_sample_worker_test(*, rank: int, size: int, config_path: str | None = None) -> str:
+	"""Render a sample worker preview for this MPI rank as a text block."""
 	from types import SimpleNamespace
 
 	from .cpu_allocation import _THREAD_ENV_VARS, TaskSlot, capture_sample_worker_environment
 
 	if size <= 1:
-		return
+		return ""
 
-	# Flush output to ensure each rank's message appears
-	sys.stdout.flush()
-	sys.stderr.flush()
-
-	print("")
-	print(f"mpi_sample_worker_test: rank {rank}")
-	sys.stdout.flush()
+	lines = ["", f"mpi_sample_worker_test: rank {rank}"]
+	preview_logger = logging.Logger(f"axon_recon.pipeline.alloc_preview.rank_{rank}")
+	preview_logger.addHandler(logging.NullHandler())
+	preview_logger.propagate = False
 
 	try:
 		# Detect full topology for this rank (reflects mpirun --bind-to affinity)
@@ -667,26 +663,28 @@ def _run_mpi_sample_worker_test(*, rank: int, size: int, config_path: str | None
 		)
 
 		# Capture what environment would be set for this rank's worker
-		env_state = capture_sample_worker_environment(slot, plan=synthetic_plan)
+		env_state = capture_sample_worker_environment(slot, plan=synthetic_plan, logger=preview_logger)
 
 		# Show CPU topology for this rank; use physical cores when hyperthreads disabled
 		effective_cpu_count = topology.logical_cpu_count if _use_ht else topology.physical_core_count
-		print(f"  visible_cpus: {list(test_cpus)} ({topology.physical_core_count} physical cores, {topology.logical_cpu_count} logical)")
-		print(f"  effective_thread_count (use_hyperthreads={_use_ht}): {effective_cpu_count}")
+		lines.append(f"  visible_cpus: {list(test_cpus)} ({topology.physical_core_count} physical cores, {topology.logical_cpu_count} logical)")
+		lines.append(f"  effective_thread_count (use_hyperthreads={_use_ht}): {effective_cpu_count}")
 		if "error" not in env_state:
 			thread_env = env_state.get("thread_env", {})
 			any_set = any(v is not None for v in thread_env.values())
 			if any_set:
-				print("  thread_env (would set):")
+				lines.append("  thread_env (would set):")
 				for var, val in thread_env.items():
-					print(f"    {var}={val if val is not None else 'unset'}")
+					lines.append(f"    {var}={val if val is not None else 'unset'}")
 			else:
-				print("  thread_env: (not configured — set resources.task_allocation.set_thread_env: true)")
+				lines.append("  thread_env: (not configured — set resources.task_allocation.set_thread_env: true)")
 		else:
-			print(f"  error: {env_state['error']}")
+			lines.append(f"  error: {env_state['error']}")
 
 	except Exception as exc:
-		print(f"  error_spawning_test_worker: {exc}")
+		lines.append(f"  error_spawning_test_worker: {exc}")
+
+	return "\n".join(lines)
 
 
 def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
@@ -695,10 +693,18 @@ def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 	if bool(getattr(args, "alloc", False)):
 		task_allocation_override = _build_task_allocation_override_from_args(args)
 		if task_allocation_override and str(task_allocation_override.get("backend", "")).strip().lower() == "mpi":
+			import hashlib as _hashlib
+			import os as _os
+			import tempfile as _tempfile
+			import time as _time
+
 			mpi_ctx = current_mpi_context()
-			# Rank 0 prints the main allocation preview for all ranks
-			if mpi_ctx is not None and int(mpi_ctx.size) > 1 and int(mpi_ctx.rank) == 0:
-				print_stage_allocation_preview(
+			_rank = int(mpi_ctx.rank) if mpi_ctx is not None else 0
+			_size = int(mpi_ctx.size) if mpi_ctx is not None else 1
+
+			allocation_preview_text: str | None = None
+			if _rank == 0:
+				previews = build_stage_allocation_previews(
 					config_path=str(getattr(args, "config")),
 					stages=stage_list,
 					target_datasets_override=_parse_target_dataset_indices_from_args(args),
@@ -712,35 +718,57 @@ def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 					force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
 					task_allocation_override=task_allocation_override,
 				)
+				allocation_preview_text = format_stage_allocation_previews(previews)
 
-			# All ranks run their own sample worker test
-			# Barrier: ensure rank 0 preview finishes before any rank prints sample worker output.
-			# Then each rank prints in turn (rank 0 first) to minimize interleaving.
-			import sys as _sys
-			_mpi_comm = getattr(mpi_ctx, "comm", None) if mpi_ctx is not None else None
-			if _mpi_comm is not None:
-				try:
-					_mpi_comm.Barrier()
-				except Exception:
-					pass
+			local_preview_block = _render_mpi_sample_worker_test(
+				rank=_rank,
+				size=_size,
+				config_path=str(getattr(args, "config", None) or "") or None,
+			)
+
+			preview_token = _hashlib.sha1(
+				"|".join(
+					[
+						str(_os.getppid()),
+						str(_size),
+						str(getattr(args, "config", "")),
+						",".join(stage_list),
+					]
+				).encode("utf-8")
+			).hexdigest()[:16]
+			preview_dir = Path(_tempfile.gettempdir()) / f"axon_recon_alloc_preview_{preview_token}"
+			preview_dir.mkdir(parents=True, exist_ok=True)
+			local_preview_path = preview_dir / f"rank_{_rank}.txt"
+			done_path = preview_dir / "preview.done"
+
+			local_preview_path.write_text(local_preview_block, encoding="utf-8")
+
+			if _rank == 0:
+				deadline = _time.time() + 15.0
+				while _time.time() < deadline:
+					if all((preview_dir / f"rank_{idx}.txt").exists() for idx in range(_size)):
+						break
+					_time.sleep(0.05)
+
+				gathered_preview_blocks: list[str] = []
+				for idx in range(_size):
+					block_path = preview_dir / f"rank_{idx}.txt"
+					if block_path.exists():
+						gathered_preview_blocks.append(block_path.read_text(encoding="utf-8"))
+					else:
+						gathered_preview_blocks.append(f"\nmpi_sample_worker_test: rank {idx}\n  error: preview block missing")
+
+				if allocation_preview_text:
+					print(allocation_preview_text)
+				if gathered_preview_blocks:
+					print("\n".join(block for block in gathered_preview_blocks if block))
+				done_path.write_text("done\n", encoding="utf-8")
 			else:
-				_sys.stdout.flush()
-				_sys.stderr.flush()
-			_rank = int(mpi_ctx.rank) if mpi_ctx is not None else 0
-			_size = int(mpi_ctx.size) if mpi_ctx is not None else 1
-			for _r in range(_size):
-				if _r == _rank:
-					_run_mpi_sample_worker_test(
-						rank=_rank,
-						size=_size,
-						config_path=str(getattr(args, "config", None) or "") or None,
-					)
-					_sys.stdout.flush()
-				if _mpi_comm is not None:
-					try:
-						_mpi_comm.Barrier()
-					except Exception:
-						pass
+				deadline = _time.time() + 20.0
+				while _time.time() < deadline:
+					if done_path.exists():
+						break
+					_time.sleep(0.05)
 			return 0
 		else:
 			# Non-MPI backend
