@@ -456,7 +456,7 @@ stages:
     - bootstrap_concat_binary
     - sort
     #- summarize_sort
-    - bombcell_label
+    #- bombcell_label
     #- merge_SLAy
     - cleanup_concat_binary
     debug_outputs: false
