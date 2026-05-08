@@ -2200,3 +2200,4 @@ be96f51 | slice 7 [sonnet] | strip per-phase yaml parallelism knobs; Smoke I def
 371f702 | slice 11 [sonnet] | lock new resources schema, remove back-compat parser; fix 17 test payloads
 82ed42c | hotfix [sonnet]   | fix LogRecord 'stage' collision in phase_parallelism event (unblocks mpirun.sh preprocess)
 32f76cb | cleanup [sonnet]  | drop per-phase cpu_cores; collapse onto cpus_per_task; remove dead phase_worker_count helpers
+78d409b | plan [sonnet]     | post-migration cleanup plan: 7 slices, file:line inventory, smoke matrix, out-of-scope appendix
