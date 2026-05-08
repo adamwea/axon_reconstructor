@@ -356,9 +356,10 @@ def test_write_unit_summary_plot_rerenders_into_shared_figure(tmp_path: Path, mo
 		ax = kwargs["ax"]
 		fig = kwargs["fig"]
 		config = kwargs["config"]
+		branch_cfg = kwargs.get("branch_cfg")
 		seen["circle_ax_id"] = id(ax)
 		seen["circle_unit_label_show"] = bool(config.unit_id_label.show)
-		seen["circle_branch_legend_show"] = bool(config.branch_morphology.show_branch_legend)
+		seen["circle_branch_legend_show"] = bool(getattr(branch_cfg, "show_branch_legend", False))
 		fig.patch.set_facecolor("black")
 		ax.set_facecolor("black")
 		ax.plot([0.0, 1.0], [0.0, 1.0], color="white")
@@ -397,7 +398,7 @@ def test_write_unit_summary_plot_rerenders_into_shared_figure(tmp_path: Path, mo
 		return orig_savefig(self, *args, **kwargs)
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot_v2",
 		_spy_render_template_circles_plot,
 	)
 	monkeypatch.setattr(av_plotting, "plot_template_propagation", _spy_plot_template_propagation)
@@ -546,7 +547,7 @@ def test_write_unit_summary_plot_inherits_velocity_legend_from_standalone_config
 		return orig_savefig(self, *args, **kwargs)
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot_v2",
 		_spy_render_template_circles_plot,
 	)
 	monkeypatch.setattr(av_plotting, "plot_template_propagation", _spy_plot_template_propagation)

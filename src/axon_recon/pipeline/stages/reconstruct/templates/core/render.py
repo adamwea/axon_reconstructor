@@ -1850,6 +1850,12 @@ def render_template_circles_plot_v2(
 	svg_path: Path,
 	probe_geometry: ProbeGeometryConfig | None = None,
 	unit_id: Any | None = None,
+	branch_morphology: Any | None = None,
+	branch_cfg: Any | None = None,
+	gtr: Any | None = None,
+	fig: Any | None = None,
+	ax: Any | None = None,
+	close_figure: bool = True,
 ) -> dict[str, str]:
 	import matplotlib
 
@@ -1911,15 +1917,17 @@ def render_template_circles_plot_v2(
 		peak_xy = (float(locs[peak_index, 0]), float(locs[peak_index, 1]))
 	xmin, xmax, ymin, ymax = _template_plot_v2_limits(locs, config, peak_xy=peak_xy)
 
-	fig, ax = plt.subplots(figsize=tuple(config.figsize))
-	fig.patch.set_facecolor(str(config.background))
-	ax.set_facecolor(str(config.background))
-	fig.subplots_adjust(
-		left=float(config.figure_left),
-		right=float(config.figure_right),
-		bottom=float(config.figure_bottom),
-		top=float(config.figure_top),
-	)
+	external_fig = fig is not None and ax is not None
+	if not external_fig:
+		fig, ax = plt.subplots(figsize=tuple(config.figsize))
+		fig.patch.set_facecolor(str(config.background))
+		ax.set_facecolor(str(config.background))
+		fig.subplots_adjust(
+			left=float(config.figure_left),
+			right=float(config.figure_right),
+			bottom=float(config.figure_bottom),
+			top=float(config.figure_top),
+		)
 	ax.set_xlim(xmin, xmax)
 	ax.set_ylim(ymin, ymax)
 	if bool(config.invert_y_axis):
@@ -2018,6 +2026,20 @@ def render_template_circles_plot_v2(
 		cbar.ax.tick_params(labelsize=float(colorbar.tick_fontsize), colors=str(colorbar.color))
 		cbar.outline.set_edgecolor(str(colorbar.color))
 
+	if branch_cfg is not None and bool(getattr(branch_cfg, "enabled", False)):
+		resolved_branch_payload = branch_morphology
+		if resolved_branch_payload is None and gtr is not None:
+			resolved_branch_payload = _branch_morphology_from_gtr(gtr)
+		if resolved_branch_payload is not None:
+			_draw_branch_morphology_overlay(
+				ax=ax,
+				fig=fig,
+				sc=scatter,
+				locations_xy=locs,
+				branch_morphology=resolved_branch_payload,
+				branch_cfg=branch_cfg,
+			)
+
 	outputs: dict[str, str] = {}
 	savefig_kwargs: dict[str, Any] = {
 		"dpi": max(72.0, float(config.dpi)),
@@ -2033,7 +2055,8 @@ def render_template_circles_plot_v2(
 		svg_path.parent.mkdir(parents=True, exist_ok=True)
 		fig.savefig(svg_path, format="svg", **savefig_kwargs)
 		outputs["template_circles_v2_svg"] = str(svg_path)
-	plt.close(fig)
+	if close_figure:
+		plt.close(fig)
 	return outputs
 
 

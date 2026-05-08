@@ -223,13 +223,11 @@ def test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps(mo
 		captured["locations_xy"] = np.asarray(kwargs["locations_xy"], dtype=float)
 		captured["config"] = kwargs["config"]
 		captured["branch_morphology"] = kwargs.get("branch_morphology")
-		captured["plot_scope_points_xy"] = kwargs.get("plot_scope_points_xy")
-		captured["zoom_padding_percent"] = kwargs.get("zoom_padding_percent")
-		captured["allow_scope_expansion"] = kwargs.get("allow_scope_expansion")
-		return {"template_circles_png": "noop.png"}
+		captured["branch_cfg"] = kwargs.get("branch_cfg")
+		return {"template_circles_v2_png": "noop.png"}
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot_v2",
 		_fake_render_template_circles_plot,
 	)
 
@@ -266,24 +264,21 @@ def test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps(mo
 	np.testing.assert_allclose(captured["template"][0, :], template_ch_by_t[0, :])
 	np.testing.assert_allclose(captured["template"][1, :], template_ch_by_t[1, :])
 	np.testing.assert_allclose(captured["template"][2, :], template_ch_by_t[3, :])
-	np.testing.assert_allclose(captured["locations_xy"], np.asarray(captured["plot_scope_points_xy"], dtype=float))
 
 	branch_payload = captured["branch_morphology"]
 	assert isinstance(branch_payload, dict)
 	branches = branch_payload.get("branches")
 	assert branches == [{"branch_index": 0, "channels": [0, 1, 2], "label": 0, "color": "#1f77b4"}]
 
+	branch_cfg = captured["branch_cfg"]
+	assert bool(branch_cfg.enabled) is True
+	assert bool(branch_cfg.unique_color_per_branch) is False
+	assert bool(branch_cfg.show_branch_labels) is True
+	assert str(branch_cfg.color_scheme) == "tab10"
+	assert float(branch_cfg.node_border_linewidth) == 0.5
+	assert float(branch_cfg.edge_linewidth) == 1.25
 	render_cfg = captured["config"]
-	assert float(captured["zoom_padding_percent"]) == 12.0
-	assert bool(captured["allow_scope_expansion"]) is False
-	assert bool(render_cfg.branch_morphology.enabled) is True
-	assert bool(render_cfg.branch_morphology.unique_color_per_branch) is False
-	assert bool(render_cfg.branch_morphology.show_branch_labels) is True
-	assert str(render_cfg.branch_morphology.color_scheme) == "tab10"
-	assert float(render_cfg.branch_morphology.node_border_linewidth) == 0.5
-	assert float(render_cfg.branch_morphology.edge_linewidth) == 1.25
 	assert bool(render_cfg.invert_y_axis) is False
-	assert bool(render_cfg.force_center_soma) is False
 	assert "branch_scope=raw" in caplog.text
 	assert "source=gtr._paths_raw" in caplog.text
 	assert "selected_branch_class=list" in caplog.text
@@ -330,7 +325,7 @@ def test_write_unit_circle_recon_plot_nodes_only_scope_uses_clean_payload(monkey
 		return {"template_circles_png": "noop.png"}
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot_v2",
 		_fake_render_template_circles_plot,
 	)
 
@@ -413,12 +408,12 @@ def test_write_unit_circle_recon_plot_selected_channels_scope_uses_filtered_chan
 		captured["template"] = np.asarray(kwargs["template"], dtype=float)
 		captured["locations_xy"] = np.asarray(kwargs["locations_xy"], dtype=float)
 		captured["branch_morphology"] = kwargs.get("branch_morphology")
+		captured["branch_cfg"] = kwargs.get("branch_cfg")
 		captured["config"] = kwargs.get("config")
-		captured["plot_scope_points_xy"] = kwargs.get("plot_scope_points_xy")
-		return {"template_circles_png": "noop.png"}
+		return {"template_circles_v2_png": "noop.png"}
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot_v2",
 		_fake_render_template_circles_plot,
 	)
 
@@ -449,8 +444,7 @@ def test_write_unit_circle_recon_plot_selected_channels_scope_uses_filtered_chan
 	np.testing.assert_allclose(captured["template"][0, :], template_ch_by_t[0, :])
 	np.testing.assert_allclose(captured["template"][1, :], template_ch_by_t[2, :])
 	np.testing.assert_allclose(captured["template"][2, :], template_ch_by_t[3, :])
-	np.testing.assert_allclose(captured["locations_xy"], np.asarray(captured["plot_scope_points_xy"], dtype=float))
-	assert bool(captured["config"].branch_morphology.show_branch_legend) is True
+	assert bool(captured["branch_cfg"].show_branch_legend) is True
 	assert captured["branch_morphology"] == {
 		"branches": [{"branch_index": 0, "channels": [0, 1, 2], "label": 0, "color": "#1f77b4"}]
 	}
@@ -497,7 +491,7 @@ def test_write_unit_circle_recon_plot_clean_scope_falls_back_to_paths_clean(monk
 		return {"template_circles_png": "noop.png"}
 
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot_v2",
 		_fake_render_template_circles_plot,
 	)
 
@@ -579,7 +573,7 @@ def test_write_unit_circle_recon_plot_base_amplitude_map_dispatches(monkeypatch)
 		_should_not_call,
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot_v2",
 		_should_not_call,
 	)
 
@@ -683,7 +677,7 @@ def test_write_unit_circle_recon_plot_base_latency_map_dispatches(monkeypatch) -
 		_should_not_call,
 	)
 	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot",
+		"axon_recon.pipeline.stages.reconstruct.templates.core.render.render_template_circles_plot_v2",
 		_should_not_call,
 	)
 

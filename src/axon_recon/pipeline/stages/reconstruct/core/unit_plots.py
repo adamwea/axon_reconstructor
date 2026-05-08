@@ -332,10 +332,11 @@ def write_unit_circle_recon_plot(
 
 	from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_footprint_amplitude_map
 	from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_footprint_latency_map
-	from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_template_circles_plot
+	from axon_recon.pipeline.stages.reconstruct.templates.core.render import render_template_circles_plot_v2
 	from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import FootprintMapConfig
 	from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import TemplateCirclesBranchMorphologyConfig
 	from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import TemplateCirclesPlotConfig
+	from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import TemplatePlotTemplatesV2PhaseConfig
 
 	# Step 1: keep reconstruct circle_recon as a thin wrapper around templates-stage circles rendering.
 
@@ -519,18 +520,24 @@ def write_unit_circle_recon_plot(
 			close_figure=close_figure,
 		)
 
-	return render_template_circles_plot(
+	v2_cfg = TemplatePlotTemplatesV2PhaseConfig(
+		write_png=bool(output_cfg.write_png),
+		write_svg=bool(output_cfg.write_svg),
+		dpi=float(max(72.0, float(output_cfg.dpi))),
+		bbox_inches=(str(output_cfg.bbox_inches) if getattr(output_cfg, "bbox_inches", None) is not None else None),
+		invert_y_axis=bool(getattr(display_cfg, "invert_y_axis", True)),
+		background=str(getattr(base_cfg, "background", "black") or "black"),
+	)
+	return render_template_circles_plot_v2(
 		template=tpl,
 		locations_xy=locs,
-		config=cfg,
+		config=v2_cfg,
 		png_path=Path(output_png),
 		svg_path=Path(output_svg),
 		unit_id=unit_id,
 		branch_morphology={"branches": branch_payload},
+		branch_cfg=branch_cfg,
 		gtr=gtr,
-		plot_scope_points_xy=locs,
-		zoom_padding_percent=float(max(0.0, float(getattr(display_cfg, "zoom_padding_percent", 20.0)))),
-		allow_scope_expansion=False,
 		fig=fig,
 		ax=ax,
 		close_figure=close_figure,
