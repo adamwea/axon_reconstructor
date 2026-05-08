@@ -197,6 +197,7 @@ def _reconstruct_runtime_kwargs(args: argparse.Namespace) -> dict[str, object]:
 		"limit_wells_per_dataset_override": getattr(args, "limit_wells_per_dataset", None),
 		"force_restart_override": (True if bool(getattr(args, "force_restart", False)) else None),
 		"force_replot_override": (True if bool(getattr(args, "force_replot", False)) else None),
+		"task_allocation_override": getattr(args, "task_allocation_override", None),
 	}
 
 

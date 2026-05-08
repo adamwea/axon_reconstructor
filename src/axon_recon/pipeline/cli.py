@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from .cpu_allocation import detect_cpu_topology, format_cpu_topology
 from .execution import install_process_lifecycle
@@ -313,6 +313,88 @@ def _parse_unit_ids_csv(raw: str) -> list[int]:
 	return parsed
 
 
+def _parse_int_or_auto(raw: str) -> int | str:
+	stripped = str(raw).strip().lower()
+	if stripped == "auto":
+		return "auto"
+	try:
+		value = int(stripped)
+	except Exception as exc:
+		raise argparse.ArgumentTypeError(f"Expected a positive integer or 'auto', got {raw!r}") from exc
+	if value <= 0:
+		raise argparse.ArgumentTypeError(f"Expected a positive integer or 'auto', got {value}")
+	return value
+
+
+def _register_task_allocation_override_arguments(parser: argparse.ArgumentParser) -> None:
+	"""Add optional task-allocation override flags that map onto TaskAllocationConfig fields."""
+	parser.add_argument(
+		"--task-backend",
+		default=None,
+		dest="task_allocation_backend",
+		help="Override task allocation backend (e.g. local_affinity). Implies enabled=True.",
+	)
+	parser.add_argument(
+		"--tasks-per-node",
+		type=_parse_int_or_auto,
+		default=None,
+		dest="task_allocation_tasks_per_node",
+		help="Override tasks per node (positive integer or 'auto')",
+	)
+	parser.add_argument(
+		"--cpus-per-task",
+		type=_parse_int_or_auto,
+		default=None,
+		dest="task_allocation_cpus_per_task",
+		help="Override CPUs per task (positive integer or 'auto')",
+	)
+	parser.add_argument(
+		"--bind",
+		default=None,
+		dest="task_allocation_bind",
+		help="Override CPU bind policy (e.g. physical_cores, logical_cores, none)",
+	)
+	parser.add_argument(
+		"--use-hyperthreads",
+		action="store_const",
+		const=True,
+		default=None,
+		dest="task_allocation_use_hyperthreads",
+		help="Override: include sibling logical CPUs (hyperthreads) in each task slot",
+	)
+	parser.add_argument(
+		"--reserve-cpus",
+		type=_parse_positive_int,
+		default=None,
+		dest="task_allocation_reserve_cpus",
+		help="Override: number of CPU cores to reserve from the allocatable pool",
+	)
+
+
+def _build_task_allocation_override_from_args(args: argparse.Namespace) -> dict[str, Any] | None:
+	override: dict[str, Any] = {}
+	backend = getattr(args, "task_allocation_backend", None)
+	if backend is not None:
+		override["backend"] = str(backend)
+		override["enabled"] = True
+	tasks_per_node = getattr(args, "task_allocation_tasks_per_node", None)
+	if tasks_per_node is not None:
+		override["tasks_per_node"] = tasks_per_node
+	cpus_per_task = getattr(args, "task_allocation_cpus_per_task", None)
+	if cpus_per_task is not None:
+		override["cpus_per_task"] = cpus_per_task
+	bind = getattr(args, "task_allocation_bind", None)
+	if bind is not None:
+		override["bind"] = str(bind)
+	use_hyperthreads = getattr(args, "task_allocation_use_hyperthreads", None)
+	if use_hyperthreads is not None:
+		override["use_hyperthreads"] = bool(use_hyperthreads)
+	reserve_cpus = getattr(args, "task_allocation_reserve_cpus", None)
+	if reserve_cpus is not None:
+		override["reserve_cpus"] = int(reserve_cpus)
+	return override if override else None
+
+
 def _parse_target_dataset_indices_from_args(args: argparse.Namespace) -> list[int] | None:
 	raw = getattr(args, "target_datasets", None)
 	if raw is None:
@@ -423,6 +505,7 @@ def _register_stage_sequence_parser(
 		help="Optional comma-separated list of unit ids",
 	)
 	_register_debug_limit_arguments(parser)
+	_register_task_allocation_override_arguments(parser)
 	parser.add_argument(
 		"--phase-tune",
 		action="store_true",
@@ -522,6 +605,7 @@ def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 	stage_list = _parse_stage_list_tokens(list(getattr(args, "stages", []) or []))
 	logger = logging.getLogger("axon_recon.pipeline.stages")
 	if bool(getattr(args, "alloc", False)):
+		task_allocation_override = _build_task_allocation_override_from_args(args)
 		print_stage_allocation_preview(
 			config_path=str(getattr(args, "config")),
 			stages=stage_list,
@@ -534,6 +618,7 @@ def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 			limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
 			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+			task_allocation_override=task_allocation_override,
 		)
 		return 0
 	if bool(getattr(args, "phase_tune", False)):
@@ -563,6 +648,7 @@ def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 			logger.info("stages: starting %s", stage_name, extra={"event": "stage_started"})
 			nested_args = argparse.Namespace(**vars(args))
 			nested_args.stage = stage_name
+			nested_args.task_allocation_override = _build_task_allocation_override_from_args(args)
 			rc = int(handler(nested_args))
 			if rc != 0:
 				logger.error("stages: stage %s failed with code %d", stage_name, rc, extra={"event": "stage_failed"})
