@@ -26,10 +26,18 @@
 #   axon-recon stages preprocess --config debug/debug.runtime.yml \
 #   --target-dataset 11,12 --limit-wells 1 --alloc --task-backend mpi
 
-# testing
+# testing alloc
+# /usr/bin/mpirun -np 2 \
+#   --map-by ppr:2:node:pe=10 \
+#   --bind-to core \
+#   --report-bindings \
+#   axon-recon stages preprocess --config debug/debug.runtime.yml \
+#   --target-dataset 11,12 --limit-wells 1 --alloc --task-backend mpi
+
+# testing preprocess
 /usr/bin/mpirun -np 2 \
   --map-by ppr:2:node:pe=10 \
   --bind-to core \
   --report-bindings \
   axon-recon stages preprocess --config debug/debug.runtime.yml \
-  --target-dataset 11,12 --limit-wells 1 --alloc --task-backend mpi
+  --target-dataset 11,12 --limit-wells 1 --task-backend mpi --force-restart
