@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 import numpy as np  # type: ignore[import-not-found]
 
+from axon_recon.pipeline.cpu_allocation import current_phase_budget, resolve_inner_worker_count
 from axon_recon.pipeline.execution import install_linux_parent_death_signal
 from axon_recon.pipeline.shared.grid_sorting import compute_template_grid_sort_metrics
 from axon_recon.pipeline.shared.sampling import read_maxwell_sampling_frequency_hz
@@ -864,7 +865,13 @@ def build_templates_phase_from_unit_payloads(
 			int(len(reused_units)),
 			int(len(pending_unit_ids)),
 		)
-	worker_count = max(1, min(len(pending_unit_ids), int(max(1, int(inputs.n_jobs))))) if pending_unit_ids else 0
+	_phase_budget = current_phase_budget("reconstruct", "build_templates")
+	worker_count = resolve_inner_worker_count(
+		nested_shape=str(getattr(_phase_budget, "nested_shape", "unit_workers") or "unit_workers"),
+		phase_cpus_per_task=getattr(_phase_budget, "cpus_per_task", None) if _phase_budget else None,
+		yaml_n_jobs_override=int(inputs.n_jobs) if getattr(inputs, "n_jobs", None) is not None else None,
+		work_item_count=int(len(pending_unit_ids)) if pending_unit_ids else None,
+	) if pending_unit_ids else 0
 	payload_output_rel_root = _payload_output_rel_root_from_payload_root(
 		templates_out_dir=templates_out_dir,
 		payload_root=payload_root,

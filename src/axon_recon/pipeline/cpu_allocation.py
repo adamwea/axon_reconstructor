@@ -8,13 +8,16 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
 
-from .resources import ResourceProfileConfig, TaskAllocationConfig
+from .resources import PhaseResourceClassConfig, ResourceProfileConfig, TaskAllocationConfig
 
 
 LOGGER = logging.getLogger("axon_recon.pipeline.cpu_allocation")
 _CURRENT_TASK_SLOT: ContextVar["TaskSlot | None"] = ContextVar("axon_recon_task_slot", default=None)
 _CURRENT_TASK_ALLOCATION_CONTEXT: ContextVar["dict[str, Any] | None"] = ContextVar(
 	"axon_recon_task_allocation_context", default=None
+)
+_CURRENT_PHASE_BUDGETS: ContextVar["dict[str, PhaseResourceClassConfig] | None"] = ContextVar(
+	"axon_recon_phase_budgets", default=None
 )
 
 
@@ -106,6 +109,73 @@ def task_allocation_context(metadata: dict[str, Any] | None) -> Iterator[None]:
 		yield
 	finally:
 		_CURRENT_TASK_ALLOCATION_CONTEXT.reset(token)
+
+
+def current_phase_budgets() -> dict[str, PhaseResourceClassConfig] | None:
+	"""Return the active phase_budgets mapping (stage.phase -> config), or None if unset."""
+	return _CURRENT_PHASE_BUDGETS.get()
+
+
+@contextmanager
+def phase_budgets_context(
+	budgets: dict[str, PhaseResourceClassConfig] | None,
+) -> Iterator[None]:
+	"""Bind the active resources.phase_budgets dict to the current context."""
+	token = _CURRENT_PHASE_BUDGETS.set(budgets)
+	try:
+		yield
+	finally:
+		_CURRENT_PHASE_BUDGETS.reset(token)
+
+
+def current_phase_budget(stage: str, phase: str) -> PhaseResourceClassConfig | None:
+	"""Look up the phase budget entry for ``<stage>.<phase>`` in the active context.
+
+	Returns None if no budget context is active or no entry is configured for the
+	given stage/phase pair. Callers must tolerate None — phases without budgets
+	default to inheriting the active task slot's CPU count.
+	"""
+	budgets = _CURRENT_PHASE_BUDGETS.get()
+	if budgets is None:
+		return None
+	key = f"{stage}.{phase}"
+	return budgets.get(key)
+
+
+def resolve_inner_worker_count(
+	*,
+	nested_shape: str,
+	phase_cpus_per_task: int | None,
+	yaml_n_jobs_override: int | None,
+	work_item_count: int | None,
+) -> int:
+	"""Compute the per-well inner worker count from the active task slot.
+
+	Rules:
+		- If ``nested_shape == "serial"``, return 1 unconditionally.
+		- Base = ``current_task_slot().cpu_count``, or 1 if no slot is active.
+		- If ``phase_cpus_per_task`` is a positive int, base = min(base, phase_cpus_per_task).
+		- If ``yaml_n_jobs_override`` is a positive int, base = min(base, override).
+		- If ``work_item_count`` is a positive int, base = min(base, work_item_count).
+		- Result is always >= 1.
+
+	Phase RAM is *not* a clamp here; it is enforced by the live-resource gate at
+	phase entry. Inner thread count is purely a CPU question.
+	"""
+	if str(nested_shape).strip() == "serial":
+		return 1
+	slot = _CURRENT_TASK_SLOT.get()
+	if slot is not None and int(slot.cpu_count) > 0:
+		base = int(slot.cpu_count)
+	else:
+		base = 1
+	if isinstance(phase_cpus_per_task, int) and int(phase_cpus_per_task) > 0:
+		base = min(base, int(phase_cpus_per_task))
+	if isinstance(yaml_n_jobs_override, int) and int(yaml_n_jobs_override) > 0:
+		base = min(base, int(yaml_n_jobs_override))
+	if isinstance(work_item_count, int) and int(work_item_count) > 0:
+		base = min(base, int(work_item_count))
+	return max(1, int(base))
 
 
 @dataclass(frozen=True)

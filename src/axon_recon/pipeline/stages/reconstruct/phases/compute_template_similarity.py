@@ -5,6 +5,7 @@ import shutil
 from time import perf_counter
 from typing import Any
 
+from axon_recon.pipeline.cpu_allocation import current_phase_budget, resolve_inner_worker_count
 from axon_recon.pipeline.stages.reconstruct.templates import runner as templates_runner
 from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import TemplatesInputs
 
@@ -38,7 +39,13 @@ def run_reconstruct_templates_compute_template_similarity_phase(
         templates_out_dir=templates_out_dir,
         similarity=phase_cfg,
     )
-    worker_count = int(max(1, min(len(unit_ids), int(max(1, int(inputs.n_jobs))))))
+    _phase_budget = current_phase_budget("reconstruct", "compute_template_similarity")
+    worker_count = resolve_inner_worker_count(
+        nested_shape=str(getattr(_phase_budget, "nested_shape", "unit_workers") or "unit_workers"),
+        phase_cpus_per_task=getattr(_phase_budget, "cpus_per_task", None) if _phase_budget else None,
+        yaml_n_jobs_override=int(inputs.n_jobs) if getattr(inputs, "n_jobs", None) is not None else None,
+        work_item_count=int(len(unit_ids)) if unit_ids is not None else None,
+    )
     pair_plot_dir = output_paths["template_similarity_candidate_pair_plots_dir"]
     if pair_plot_dir.exists():
         shutil.rmtree(pair_plot_dir)

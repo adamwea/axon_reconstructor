@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 import numpy as np  # type: ignore[import-not-found]
 
+from axon_recon.pipeline.cpu_allocation import current_phase_budget, resolve_inner_worker_count
 from axon_recon.pipeline.execution.phase_chain import PhaseDescriptor, run_phase_chain
 from axon_recon.pipeline.execution.progress import (
 	add_current_progress_total,
@@ -2991,7 +2992,13 @@ def _run_reconstruct_templates_pipeline_monolithic(inputs: TemplatesInputs) -> T
 				[unit for unit in missing_unit_summaries],
 			)
 
-	worker_count = int(max(1, int(inputs.n_jobs)))
+	_phase_budget = current_phase_budget("reconstruct", "templates_reports")
+	worker_count = resolve_inner_worker_count(
+		nested_shape=str(getattr(_phase_budget, "nested_shape", "unit_workers") or "unit_workers"),
+		phase_cpus_per_task=getattr(_phase_budget, "cpus_per_task", None) if _phase_budget else None,
+		yaml_n_jobs_override=int(inputs.n_jobs) if getattr(inputs, "n_jobs", None) is not None else None,
+		work_item_count=int(len(units_to_process)) if units_to_process else None,
+	)
 	if bool(inputs.log_stage_unit_counts):
 		LOGGER.info(
 			"Templates unit execution start: units_to_process=%d reused_units=%d worker_count=%d",

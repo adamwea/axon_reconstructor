@@ -11,6 +11,7 @@ from .artifacts import (
 	load_segment_recording_from_entry,
 	load_segment_manifest,
 )
+from axon_recon.pipeline.cpu_allocation import current_phase_budget, resolve_inner_worker_count
 
 
 def _estimate_pitch_um(x: Any, y: Any) -> float:
@@ -355,7 +356,13 @@ def _resolve_representative_channels(
 			)
 		)
 
-	score_workers = min(max(1, int(plot_n_jobs)), max(1, int(len(representatives))))
+	_phase_budget_score = current_phase_budget("preprocess", "plot_segment_traces")
+	score_workers = resolve_inner_worker_count(
+		nested_shape=str(getattr(_phase_budget_score, "nested_shape", "segment_workers") or "segment_workers"),
+		phase_cpus_per_task=getattr(_phase_budget_score, "cpus_per_task", None) if _phase_budget_score else None,
+		yaml_n_jobs_override=int(plot_n_jobs) if plot_n_jobs is not None else None,
+		work_item_count=int(len(representatives)),
+	)
 	if score_workers > 1 and len(representatives) > 1:
 		with ThreadPoolExecutor(max_workers=int(score_workers)) as pool:
 			scores = list(pool.map(_score_channel, representatives))
@@ -455,7 +462,13 @@ def run_plot_segment_traces_core(
 			)
 			return str(out_path)
 
-		segment_jobs = min(max(1, int(plot_n_jobs)), max(1, int(len(segment_entries))))
+		_phase_budget_seg = current_phase_budget("preprocess", "plot_segment_traces")
+		segment_jobs = resolve_inner_worker_count(
+			nested_shape=str(getattr(_phase_budget_seg, "nested_shape", "segment_workers") or "segment_workers"),
+			phase_cpus_per_task=getattr(_phase_budget_seg, "cpus_per_task", None) if _phase_budget_seg else None,
+			yaml_n_jobs_override=int(plot_n_jobs) if plot_n_jobs is not None else None,
+			work_item_count=int(len(segment_entries)),
+		)
 		if segment_jobs > 1 and len(segment_entries) > 1:
 			with ThreadPoolExecutor(max_workers=int(segment_jobs)) as pool:
 				futures = [pool.submit(_render_segment, dict(entry)) for entry in segment_entries]

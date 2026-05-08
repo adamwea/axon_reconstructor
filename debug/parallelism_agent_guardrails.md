@@ -77,6 +77,16 @@ Use precise language in logs and summaries:
 - Child process counts and child memory must be included when configured.
 - Native library thread pools should not be mistaken for pipeline-owned workers.
 - Warnings should compare pipeline-owned concurrency against planned resources and report raw observations as diagnostic context.
+- Inner worker count is derived from `task_slot.cpu_count` (or the active MPI rank's CPU affinity, treated identically) and optionally clamped by `phase_budgets[<stage.phase>].cpus_per_task`. Phases never read `inputs.n_jobs` directly to decide fanout.
+
+## Required Tests And Acceptance Criteria
+
+### Inner worker derivation tests
+
+- With slot.cpu_count=10 and `phase_cpus_per_task=None`, inner = 10 (inherits).
+- With slot.cpu_count=10 and `phase_cpus_per_task=4`, inner = 4 (clamps).
+- With no active slot, inner falls back to `yaml_n_jobs_override` or 1.
+- `nested_shape: "serial"` always returns 1 regardless of slot or clamp.
 
 ## Shared-State Guardrails
 

@@ -17,6 +17,7 @@ from .artifacts import (
 	load_recording_metadata,
 	write_json,
 )
+from axon_recon.pipeline.cpu_allocation import current_phase_budget, resolve_inner_worker_count
 
 
 def _ensure_maxwell_hdf5_plugin_path(*, prefix: str = "[axon_recon]", suppress_messages: bool = False) -> None:
@@ -279,11 +280,14 @@ def run_preprocess_segments_core(
 	if not rec_names:
 		raise RuntimeError(f"No recording segments available in metadata artifact: {segment_epochs_path}")
 
-	try:
-		max_workers = min(len(rec_names), max(1, int(n_jobs)))
-	except Exception:
-		max_workers = 1
 	segment_count = int(len(rec_names))
+	_phase_budget = current_phase_budget("preprocess", "preprocess_segments")
+	max_workers = resolve_inner_worker_count(
+		nested_shape=str(getattr(_phase_budget, "nested_shape", "si_njobs") or "si_njobs"),
+		phase_cpus_per_task=getattr(_phase_budget, "cpus_per_task", None) if _phase_budget else None,
+		yaml_n_jobs_override=int(n_jobs) if n_jobs is not None else None,
+		work_item_count=segment_count,
+	)
 	if logger is not None:
 		logger.info(
 			"Starting preprocess_segments for well=%s segment_count=%d common_electrodes=%d workers=%d output_mode=%s",

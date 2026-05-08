@@ -7,6 +7,7 @@ import pickle
 from typing import Any, Callable
 
 from axon_recon.pipeline.execution.progress import add_current_progress_total, advance_current_progress
+from axon_recon.pipeline.cpu_allocation import current_phase_budget, resolve_inner_worker_count
 
 from ..models.inputs import ReconstructionGenerateGtrsOutputsConfig, ReconstructionInputs
 from ..models.results import UnitReconstructionResult
@@ -131,7 +132,13 @@ def run_generate_gtrs_phase(
 	active_logger = logger or logging.getLogger("axon_recon.reconstruct.generate_gtrs")
 	phase_cfg = inputs.phases.generate_gtrs
 	phase_outputs = _resolve_generate_gtrs_outputs(inputs)
-	worker_count = int(max(1, int(inputs.n_jobs)))
+	_phase_budget = current_phase_budget("reconstruct", "generate_gtrs")
+	worker_count = resolve_inner_worker_count(
+		nested_shape=str(getattr(_phase_budget, "nested_shape", "unit_workers") or "unit_workers"),
+		phase_cpus_per_task=getattr(_phase_budget, "cpus_per_task", None) if _phase_budget else None,
+		yaml_n_jobs_override=int(inputs.n_jobs) if getattr(inputs, "n_jobs", None) is not None else None,
+		work_item_count=int(len(unit_ids)) if unit_ids is not None else None,
+	)
 	plotting_worker_count = _resolve_plotting_worker_count(inputs=inputs)
 	if not bool(phase_cfg.axon_velocity.enabled):
 		raise RuntimeError("reconstruct.generate_gtrs currently requires phases.generate_gtrs.axon_velocity.enabled=true")

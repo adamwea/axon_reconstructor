@@ -15,6 +15,7 @@ from .plot_branch_velocities import write_unit_branch_velocity_plot
 from .unit_plots import write_unit_circle_recon_plot
 from ..models.inputs import ReconstructionInputs
 from ..models.results import UnitReconstructionResult
+from axon_recon.pipeline.cpu_allocation import current_phase_budget, resolve_inner_worker_count
 
 
 def _unit_result_from_summary(*, unit_id: Any, payload: Any) -> UnitReconstructionResult:
@@ -511,7 +512,13 @@ def run_plot_unit_summary_phase(
 		write_json_fn(unit_summary_json, unit_summary)
 		return _unit_result_from_summary(unit_id=unit_id, payload=unit_summary)
 
-	worker_count = int(max(1, int(inputs.n_jobs)))
+	_phase_budget = current_phase_budget("reconstruct", "plot_unit_summary")
+	worker_count = resolve_inner_worker_count(
+		nested_shape=str(getattr(_phase_budget, "nested_shape", "unit_workers") or "unit_workers"),
+		phase_cpus_per_task=getattr(_phase_budget, "cpus_per_task", None) if _phase_budget else None,
+		yaml_n_jobs_override=int(inputs.n_jobs) if getattr(inputs, "n_jobs", None) is not None else None,
+		work_item_count=int(len(unit_ids)) if unit_ids is not None else None,
+	)
 	unit_results: list[UnitReconstructionResult] = []
 	if worker_count <= 1 or len(unit_ids) <= 1:
 		for unit_id in unit_ids:

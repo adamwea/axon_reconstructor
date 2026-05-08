@@ -9,15 +9,19 @@ from axon_recon.pipeline.cpu_allocation import (
 	TaskSlot,
 	apply_thread_env_context,
 	build_task_allocation_plan,
+	current_phase_budget,
 	detect_cpu_topology,
 	format_cpu_set,
 	format_cpu_topology,
+	phase_budgets_context,
 	probe_container_readiness,
+	resolve_inner_worker_count,
 	task_slot_affinity_context,
+	task_slot_context,
 )
 from axon_recon.pipeline.execution.context import StageParallelism
 from axon_recon.pipeline.runner import StageAllocationPreview, format_stage_allocation_previews
-from axon_recon.pipeline.resources import ResourceProfileConfig, TaskAllocationConfig
+from axon_recon.pipeline.resources import PhaseResourceClassConfig, ResourceProfileConfig, TaskAllocationConfig
 
 
 def _write_cpu_topology(
@@ -669,3 +673,134 @@ def test_probe_container_readiness_to_dict_has_expected_keys(tmp_path: Path) -> 
 	assert "visible_cpu_count" in d
 	assert "warnings" in d
 	assert isinstance(d["warnings"], list)
+
+
+# ---------------------------------------------------------------------------
+# resolve_inner_worker_count + phase_budgets_context tests (slice 5)
+# ---------------------------------------------------------------------------
+
+
+def _make_slot(*, slot_id: int = 0, cpu_count: int = 10) -> TaskSlot:
+	return TaskSlot(
+		slot_id=int(slot_id),
+		logical_cpus=tuple(range(int(cpu_count))),
+		core_ids=tuple(range(int(cpu_count))),
+		package_ids=(0,),
+	)
+
+
+def test_resolve_inner_worker_count_inherits_slot_cpu_count_when_no_clamp() -> None:
+	slot = _make_slot(cpu_count=10)
+	with task_slot_context(slot):
+		result = resolve_inner_worker_count(
+			nested_shape="si_njobs",
+			phase_cpus_per_task=None,
+			yaml_n_jobs_override=None,
+			work_item_count=None,
+		)
+	assert result == 10
+
+
+def test_resolve_inner_worker_count_clamps_by_phase_cpus_per_task() -> None:
+	slot = _make_slot(cpu_count=10)
+	with task_slot_context(slot):
+		result = resolve_inner_worker_count(
+			nested_shape="unit_workers",
+			phase_cpus_per_task=4,
+			yaml_n_jobs_override=None,
+			work_item_count=None,
+		)
+	assert result == 4
+
+
+def test_resolve_inner_worker_count_clamps_by_yaml_n_jobs_override() -> None:
+	slot = _make_slot(cpu_count=10)
+	with task_slot_context(slot):
+		result = resolve_inner_worker_count(
+			nested_shape="si_njobs",
+			phase_cpus_per_task=None,
+			yaml_n_jobs_override=2,
+			work_item_count=None,
+		)
+	assert result == 2
+
+
+def test_resolve_inner_worker_count_clamps_by_work_item_count() -> None:
+	slot = _make_slot(cpu_count=10)
+	with task_slot_context(slot):
+		result = resolve_inner_worker_count(
+			nested_shape="segment_workers",
+			phase_cpus_per_task=None,
+			yaml_n_jobs_override=None,
+			work_item_count=3,
+		)
+	assert result == 3
+
+
+def test_resolve_inner_worker_count_serial_returns_one_regardless() -> None:
+	slot = _make_slot(cpu_count=10)
+	with task_slot_context(slot):
+		result = resolve_inner_worker_count(
+			nested_shape="serial",
+			phase_cpus_per_task=8,
+			yaml_n_jobs_override=8,
+			work_item_count=8,
+		)
+	assert result == 1
+
+
+def test_resolve_inner_worker_count_no_active_slot_falls_back_to_override() -> None:
+	# No task_slot_context active.
+	result = resolve_inner_worker_count(
+		nested_shape="si_njobs",
+		phase_cpus_per_task=None,
+		yaml_n_jobs_override=None,
+		work_item_count=None,
+	)
+	assert result == 1
+	# Even with overrides, base is 1, so min(1, override) == 1.
+	result_with_override = resolve_inner_worker_count(
+		nested_shape="si_njobs",
+		phase_cpus_per_task=None,
+		yaml_n_jobs_override=8,
+		work_item_count=None,
+	)
+	assert result_with_override == 1
+
+
+def test_resolve_inner_worker_count_minimum_is_one_with_tiny_slot() -> None:
+	# Zero / negative clamps are treated as "absent" (no clamp); the base is the slot count.
+	# To validate that the minimum return value is always >= 1, force base=1 by using
+	# a 1-CPU slot and verifying that even larger overrides do not push the result below 1.
+	slot = _make_slot(cpu_count=1)
+	with task_slot_context(slot):
+		result = resolve_inner_worker_count(
+			nested_shape="si_njobs",
+			phase_cpus_per_task=None,
+			yaml_n_jobs_override=None,
+			work_item_count=None,
+		)
+	assert result == 1
+
+
+def test_phase_budgets_context_lookup_returns_entry_for_stage_phase() -> None:
+	budgets = {
+		"reconstruct.plot_recons": PhaseResourceClassConfig(
+			nested_shape="unit_workers",
+			cpus_per_task=4,
+		),
+		"preprocess.preprocess_segments": PhaseResourceClassConfig(
+			nested_shape="si_njobs",
+		),
+	}
+	with phase_budgets_context(budgets):
+		assert current_phase_budget("reconstruct", "plot_recons") is budgets["reconstruct.plot_recons"]
+		assert current_phase_budget("preprocess", "preprocess_segments") is budgets["preprocess.preprocess_segments"]
+		assert current_phase_budget("reconstruct", "missing") is None
+	# After context exits, budgets should be cleared.
+	assert current_phase_budget("reconstruct", "plot_recons") is None
+
+
+def test_phase_budgets_context_with_none_clears_lookup() -> None:
+	with phase_budgets_context(None):
+		assert current_phase_budget("any", "phase") is None

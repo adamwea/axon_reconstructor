@@ -28,6 +28,7 @@ from .cpu_allocation import (
 	current_task_slot,
 	detect_cpu_topology,
 	format_cpu_set,
+	phase_budgets_context,
 	probe_container_readiness,
 	task_allocation_context,
 	task_slot_affinity_context,
@@ -605,9 +606,21 @@ def _distribute_runtime_targets(
 	stage_name: str | None = None,
 	progress: PipelineProgress | None = None,
 	advance_progress_on_target_complete: bool = False,
+	bundle: Any | None = None,
 ) -> list[TargetStageResult]:
 	install_pipeline_log_record_factory()
 	install_maxwell_hdf5_plugin_message_filter()
+
+	# Bind the active phase_budgets dict (from the parsed resources config) to a
+	# ContextVar so per-phase code can call current_phase_budget("stage", "phase")
+	# to look up its budget without threading it through every call signature.
+	_phase_budgets: dict[str, Any] | None = None
+	if bundle is not None and callable(getattr(getattr(bundle, "runtime_config", None), "get", None)):
+		try:
+			_resources_for_budgets = parse_resources_config(runtime_config=bundle.runtime_config, logger=LOGGER)
+			_phase_budgets = dict(_resources_for_budgets.phase_budgets or {})
+		except Exception:
+			_phase_budgets = None
 
 	# Detect MPI context and log if active
 	mpi_context = current_mpi_context()
@@ -673,7 +686,7 @@ def _distribute_runtime_targets(
 		return " ".join(f"{var}={count}" for var in _THREAD_ENV_VARS)
 
 	def worker_with_log_context(target: Any) -> Any:
-		with pipeline_log_context_for_target(target, stage=stage_name), pipeline_progress_context(progress):
+		with pipeline_log_context_for_target(target, stage=stage_name), pipeline_progress_context(progress), phase_budgets_context(_phase_budgets):
 			task_slot = current_task_slot()
 			alloc_meta: dict[str, Any] | None = None
 			if plan is not None:
@@ -2382,6 +2395,7 @@ def run_preprocess_from_runtime(
 			stage_name="preprocess",
 			progress=PipelineProgress(ProgressSpec(label="preprocess wells", total=len(targets), unit="well")),
 			advance_progress_on_target_complete=True,
+			bundle=bundle,
 		)
 	target_results = [_publish_preprocess_target_result(item, policy=publish_policy) for item in target_results]
 
@@ -2492,6 +2506,7 @@ def _run_preprocess_substage_from_runtime(
 			stage_name=stage_name,
 			progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
 			advance_progress_on_target_complete=True,
+			bundle=bundle,
 		)
 	succeeded = sum(1 for item in target_results if item.status == "ok")
 	failed = sum(1 for item in target_results if item.status != "ok")
@@ -2917,6 +2932,7 @@ def run_spikesort_from_runtime(
 				)
 			),
 			advance_progress_on_target_complete=True,
+			bundle=bundle,
 		)
 	target_results = [
 		_publish_spikesort_chain_target_result(
@@ -3277,6 +3293,7 @@ def run_spikesort_summarize_sort_from_runtime(
 			stage_name="spikesort.summarize_sort",
 			progress=PipelineProgress(ProgressSpec(label="spikesort.summarize_sort wells", total=len(targets), unit="well")),
 			advance_progress_on_target_complete=True,
+			bundle=bundle,
 		)
 	succeeded = sum(1 for item in target_results if item.status == "ok")
 	failed = sum(1 for item in target_results if item.status != "ok")
@@ -3400,6 +3417,7 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 			stage_name=stage_name,
 			progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
 			advance_progress_on_target_complete=True,
+			bundle=bundle,
 		)
 	if publish_after_run:
 		target_results = [_publish_spikesort_target_result(item, policy=publish_policy) for item in target_results]
@@ -3574,6 +3592,7 @@ def _run_spikesort_sort_from_runtime(
 			stage_name=stage_name,
 			progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
 			advance_progress_on_target_complete=True,
+			bundle=bundle,
 		)
 	target_results = [_publish_spikesort_target_result(item, policy=publish_policy) for item in target_results]
 
@@ -3799,6 +3818,7 @@ def run_spikesort_merge_from_runtime(
 			stage_name=stage_name,
 			progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
 			advance_progress_on_target_complete=True,
+			bundle=bundle,
 		)
 	target_results = [_publish_spikesort_merge_target_result(item, policy=publish_policy) for item in target_results]
 
@@ -3916,6 +3936,7 @@ def run_spikesort_bombcell_label_from_runtime(
 			stage_name=stage_name,
 			progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
 			advance_progress_on_target_complete=True,
+			bundle=bundle,
 		)
 	target_results = [
 		_publish_spikesort_bombcell_target_result(item, policy=publish_policy)
@@ -4110,6 +4131,7 @@ def _run_reconstruct_substage_from_runtime(
 			worker_fn=_worker,
 			stage_name=stage_name,
 			progress=_reconstruct_unit_progress(stage_name),
+			bundle=bundle,
 		)
 	if publish_outputs:
 		target_results = [_publish_reconstruct_target_result(item, policy=publish_policy) for item in target_results]
