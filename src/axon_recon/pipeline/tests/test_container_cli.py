@@ -329,7 +329,8 @@ resources:
   active_profile: lab_server_safe
   profiles:
     lab_server_safe:
-      analyzer_slots: 2
+      capacity:
+        analyzer_slots: 2
   container_caps:
     shm_size: 8g
 """.strip()
@@ -411,7 +412,8 @@ resources:
   active_profile: lab_server_safe
   profiles:
     lab_server_safe:
-      analyzer_slots: 2
+      capacity:
+        analyzer_slots: 2
   container_caps:
     shm_size: 8g
     ipc: host

@@ -4,6 +4,10 @@ Status: guardrail document. Once agentic development begins, treat this file as 
 
 This document defines the expected behavior for well, dataset, segment, unit, resource-slot, and future MPI parallelism in the active `axon_recon` pipeline.
 
+## Schema Lock (post-slice-11)
+
+Runtime YAML must use the per-profile shape: `capacity`, `task_allocation`, and `keyed_resource_limits` nested inside `resources.profiles.<name>`. Phase demand declarations live at `resources.phase_budgets`. A profile missing the `capacity` key raises a `ValueError` at parse time. Legacy top-level resource keys (the old flat profile format) are no longer recognized.
+
 ## Operating Contract
 
 - Commit frequently after each coherent accepted slice, using an `ai:` prefix in the commit subject.
@@ -93,10 +97,7 @@ Per phase entry (when `stage_name`/`phase_name` are passed to `resolve_inner_wor
 phase parallelism stage=<stage> phase=<phase> nested_shape=<shape> slot_cpus=<n> phase_cap=<cap|none> effective=<n>
 ```
 
-Per target well (from runner.py):
-```
-well_workers=<n>
-```
+Per target well (from runner.py): outer fanout is derived from `len(task_slots)` (task allocation) and appears in the stage topology log.
 
 ## Required Tests And Acceptance Criteria
 

@@ -1,5 +1,10 @@
 # Debug runtime configuration for axon reconstructor.
 # This file is meant to be used in conjunction with debug.data.yml, which contains dataset-specific information.
+#
+# Resources are organized by profile. Each profile owns its own
+# capacity, task_allocation, and keyed_resource_limits blocks.
+# Phase demand declarations live at resources.phase_budgets.
+# Only per-profile capacity nesting is recognized (legacy flat keys are rejected).
 
 # Data set config is seperated from runtime config.
 data: ./debug.data.yml

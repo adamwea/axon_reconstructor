@@ -2196,3 +2196,4 @@ a5e26f1 | slice 4 [sonnet] | add --task-profile CLI flag and perlmutter_cpu prof
 be96f51 | slice 7 [sonnet] | strip per-phase yaml parallelism knobs; Smoke I deferred (MPI gate)
 8fe3ff4 | slice 8 [sonnet] | delete legacy stage parallelism plumbing
 6741630 | slice 9 [sonnet] | add keyed H5 contention test + guardrails
+1e82707 | slice 10 [sonnet] | standardize parallelism log lines; add phase_parallelism event

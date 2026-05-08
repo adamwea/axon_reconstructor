@@ -401,19 +401,19 @@ def _parse_task_allocation(raw: Any) -> TaskAllocationConfig:
 
 
 def _parse_profile(block: dict[str, Any]) -> Profile:
-	if "capacity" in block:
-		capacity = _parse_resource_profile(_as_mapping(block.get("capacity", {})))
-		task_allocation = _parse_task_allocation(_as_mapping(block.get("task_allocation", {})))
-		keyed_limits_raw = _as_mapping(block.get("keyed_resource_limits", {}))
-		keyed_resource_limits = {
-			str(name): _parse_keyed_resource_limit(value)
-			for name, value in keyed_limits_raw.items()
-		}
-	else:
-		# Old shape: block IS the capacity; task_allocation and keyed_resource_limits injected later
-		capacity = _parse_resource_profile(block)
-		task_allocation = TaskAllocationConfig()
-		keyed_resource_limits = {}
+	if "capacity" not in block:
+		raise ValueError(
+			"Profile is missing a 'capacity' key. Use the nested schema: "
+			"profiles.<name>.capacity.{cpu_cores, ram_gb, ...}. "
+			"The legacy flat profile shape (cpu_cores directly under profiles.<name>) is no longer supported."
+		)
+	capacity = _parse_resource_profile(_as_mapping(block.get("capacity", {})))
+	task_allocation = _parse_task_allocation(_as_mapping(block.get("task_allocation", {})))
+	keyed_limits_raw = _as_mapping(block.get("keyed_resource_limits", {}))
+	keyed_resource_limits = {
+		str(name): _parse_keyed_resource_limit(value)
+		for name, value in keyed_limits_raw.items()
+	}
 	return Profile(
 		capacity=capacity,
 		task_allocation=task_allocation,

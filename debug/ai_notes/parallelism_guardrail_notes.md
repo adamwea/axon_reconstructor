@@ -5,18 +5,18 @@ Add this section to the guardrail file.
 
 ## Resource Tuning / Calibration Mode
 
-The pipeline should support a resource tuning mode for empirically estimating realistic `phase_resource_class` values before large full runs.
+The pipeline should support a resource tuning mode for empirically estimating realistic `phase_budget` values before large full runs.
 
 The goal is to measure actual resource usage for representative phase executions, then provide recommendations for CPU/RAM/slot estimates and safe parallelism. This should help tune:
 
 ```yaml
-resources.phase_resource_classes.<class>.cpu_cores
-resources.phase_resource_classes.<class>.ram_gb
-resources.phase_resource_classes.<class>.h5_read_slots
-resources.phase_resource_classes.<class>.disk_heavy_slots
-resources.phase_resource_classes.<class>.gpu_sort_slots
-resources.phase_resource_classes.<class>.plot_slots
-resources.phase_resource_classes.<class>.analyzer_slots
+resources.phase_budgets.<class>.cpu_cores
+resources.phase_budgets.<class>.ram_gb
+resources.phase_budgets.<class>.h5_read_slots
+resources.phase_budgets.<class>.disk_heavy_slots
+resources.phase_budgets.<class>.gpu_sort_slots
+resources.phase_budgets.<class>.plot_slots
+resources.phase_budgets.<class>.analyzer_slots
 ````
 
 Resource tuning should be observational and advisory. It should not silently rewrite the runtime YAML unless explicitly requested.

@@ -196,3 +196,23 @@ def test_active_profile_cli_override_invalid_raises(tmp_path: Path):
             target_count=1,
             active_profile_override="nonexistent_machine",
         )
+
+
+# ── Slice 11: legacy flat profile shape is now rejected ──────────────────────
+
+
+def test_legacy_yaml_shape_now_rejected():
+    """A profile without 'capacity' key raises ValueError with a helpful message."""
+    from axon_recon.runtime_config import RuntimeConfig
+
+    rc = _make_runtime_config({
+        "resources": {
+            "active_profile": "old",
+            "profiles": {
+                "old": {"cpu_cores": 8, "ram_gb": 32},
+            },
+            "phase_budgets": {},
+        },
+    })
+    with pytest.raises(ValueError, match="capacity"):
+        parse_resources_config(runtime_config=rc)
