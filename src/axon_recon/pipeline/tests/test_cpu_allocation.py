@@ -12,6 +12,7 @@ from axon_recon.pipeline.cpu_allocation import (
 	detect_cpu_topology,
 	format_cpu_set,
 	format_cpu_topology,
+	probe_container_readiness,
 	task_slot_affinity_context,
 )
 from axon_recon.pipeline.execution.context import StageParallelism
@@ -565,3 +566,83 @@ def test_allocation_preview_shows_thread_env_policy_when_enabled(tmp_path: Path)
 	assert "worker:" in formatted
 	assert "set per-worker at execution" in formatted
 	assert "slot_clamps:" in formatted
+
+
+# ---------------------------------------------------------------------------
+# probe_container_readiness tests
+# ---------------------------------------------------------------------------
+
+
+def test_probe_container_readiness_reports_sysfs_readable(tmp_path: Path) -> None:
+	sysfs_root = tmp_path / "sys" / "devices" / "system" / "cpu"
+	_write_single_socket_hyperthreaded_topology(sysfs_root, core_count=2, threads_per_core=2)
+
+	result = probe_container_readiness(
+		sysfs_root=sysfs_root,
+		shm_path=tmp_path,
+		affinity_getter=lambda _pid: {0, 1, 2, 3},
+	)
+
+	assert result.sysfs_topology_readable is True
+	assert result.affinity_api_available is True or result.affinity_api_available is False  # platform dependent
+	assert result.visible_cpu_count == 4
+	assert result.sysfs_root == str(sysfs_root)
+	assert result.shm_path == str(tmp_path)
+	assert not any("sysfs topology is not readable" in w for w in result.warnings)
+
+
+def test_probe_container_readiness_warns_when_sysfs_missing(tmp_path: Path) -> None:
+	sysfs_root = tmp_path / "nonexistent" / "cpu"
+
+	result = probe_container_readiness(
+		sysfs_root=sysfs_root,
+		shm_path=tmp_path,
+		affinity_getter=lambda _pid: {0, 1},
+	)
+
+	assert result.sysfs_topology_readable is False
+	assert any("sysfs topology is not readable" in w for w in result.warnings)
+
+
+def test_probe_container_readiness_reports_visible_cpu_count_from_affinity_getter(tmp_path: Path) -> None:
+	sysfs_root = tmp_path / "nonexistent" / "cpu"
+
+	result = probe_container_readiness(
+		sysfs_root=sysfs_root,
+		shm_path=tmp_path,
+		affinity_getter=lambda _pid: {0, 1, 2, 3},
+	)
+
+	assert result.visible_cpu_count == 4
+
+
+def test_probe_container_readiness_warns_when_shm_unavailable(tmp_path: Path) -> None:
+	sysfs_root = tmp_path / "nonexistent" / "cpu"
+	missing_shm = tmp_path / "nonexistent_shm"
+
+	result = probe_container_readiness(
+		sysfs_root=sysfs_root,
+		shm_path=missing_shm,
+		affinity_getter=lambda _pid: {0},
+	)
+
+	assert result.shm_available_gb is None
+	assert any("shm_gb_per_task" in w for w in result.warnings)
+
+
+def test_probe_container_readiness_to_dict_has_expected_keys(tmp_path: Path) -> None:
+	result = probe_container_readiness(
+		sysfs_root=tmp_path / "nonexistent",
+		shm_path=tmp_path,
+		affinity_getter=lambda _pid: {0, 1},
+	)
+
+	d = result.to_dict()
+	assert "affinity_api_available" in d
+	assert "sysfs_topology_readable" in d
+	assert "sysfs_root" in d
+	assert "shm_available_gb" in d
+	assert "shm_path" in d
+	assert "visible_cpu_count" in d
+	assert "warnings" in d
+	assert isinstance(d["warnings"], list)

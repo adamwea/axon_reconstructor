@@ -19,6 +19,7 @@ from .config import (
 	select_execution_targets,
 )
 from .cpu_allocation import (
+	ContainerAffinityReadiness,
 	TaskAllocationPlan,
 	_THREAD_ENV_VARS,
 	apply_thread_env_context,
@@ -26,6 +27,7 @@ from .cpu_allocation import (
 	current_task_slot,
 	detect_cpu_topology,
 	format_cpu_set,
+	probe_container_readiness,
 	task_allocation_context,
 	task_slot_affinity_context,
 )
@@ -814,6 +816,24 @@ def _log_runtime_stage_topology(*, stage_name: str, targets: list[Any], parallel
 				"task_allocation_cpu_capacity_tasks": int(plan.cpu_capacity_tasks),
 			},
 		)
+		if str(getattr(plan, "backend", "none")) == "local_affinity":
+			readiness = probe_container_readiness()
+			readiness_fields = readiness.to_dict()
+			LOGGER.info(
+				"Container affinity readiness: affinity_api=%s sysfs=%s shm_gb=%s visible_cpus=%d warnings=%d",
+				str(readiness.affinity_api_available),
+				str(readiness.sysfs_topology_readable),
+				f"{readiness.shm_available_gb:.2f}" if readiness.shm_available_gb is not None else "unavailable",
+				int(readiness.visible_cpu_count),
+				len(readiness.warnings),
+				extra={"event": "container_affinity_readiness", **readiness_fields},
+			)
+			for warning in readiness.warnings:
+				LOGGER.warning(
+					"Container affinity readiness warning: %s",
+					str(warning),
+					extra={"event": "container_affinity_readiness_warning"},
+				)
 
 
 def _log_spikesort_phase_worker_allocation(

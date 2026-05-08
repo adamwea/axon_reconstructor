@@ -47,6 +47,7 @@ class WrapperOptions:
 	memory_reservation: str | None = None
 	memory_swap: str | None = None
 	ipc: str | None = None
+	cpuset_cpus: str | None = None
 	repo_root: Path | None = None
 	repo_mode: str = "ro"
 	cache_dir: Path = field(default_factory=lambda: Path.home() / ".cache" / "axon-recon-container")
@@ -75,6 +76,7 @@ Wrapper options:
 	--shm-size SIZE        Pass Docker --shm-size SIZE (default: resources.container_caps.shm_size, else AXON_RECON_CONTAINER_SHM_SIZE or 8g)
 	--no-shm-size          Do not override Docker shared memory size
 	--no-gpus              Do not request container GPU access
+	--cpuset-cpus SPEC     Pass Docker --cpuset-cpus SPEC (e.g. 0-7) to restrict visible CPUs
   --repo-root PATH       Repo root to mount (default: git top-level or installed source root)
   --repo-writable        Mount the repo read-write instead of read-only
   --cache-dir PATH       Host cache directory (default: ~/.cache/axon-recon-container)
@@ -207,6 +209,16 @@ def _parse_options(argv: list[str]) -> WrapperOptions:
 			continue
 		if arg == "--no-gpus":
 			options.gpu_request = None
+			idx += 1
+			continue
+		if arg == "--cpuset-cpus":
+			idx += 1
+			if idx >= len(argv):
+				raise SystemExit("axon-recon-container: --cpuset-cpus requires a value")
+			cpuset_cpus = argv[idx].strip()
+			if not cpuset_cpus:
+				raise SystemExit("axon-recon-container: --cpuset-cpus requires a non-empty value")
+			options.cpuset_cpus = cpuset_cpus
 			idx += 1
 			continue
 		if arg == "--shm-size":
@@ -787,6 +799,8 @@ def _build_docker_run_command(*, repo_root: Path, options: WrapperOptions) -> li
 		cmd.extend(["--memory-swap", str(memory_swap)])
 	if ipc:
 		cmd.extend(["--ipc", str(ipc)])
+	if options.cpuset_cpus:
+		cmd.extend(["--cpuset-cpus", str(options.cpuset_cpus)])
 
 	cmd.extend(
 		[

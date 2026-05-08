@@ -645,3 +645,104 @@ def format_cpu_topology(topology: CpuTopology) -> str:
 			lines.append(f"  package {active_package}:")
 		lines.append(f"    core {int(core.core_id)} -> {format_cpu_set(core.logical_cpus)}")
 	return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class ContainerAffinityReadiness:
+	"""Diagnostic result from probing whether local affinity can work in the current environment."""
+
+	affinity_api_available: bool
+	"""True when os.sched_getaffinity / os.sched_setaffinity exist on this platform."""
+	sysfs_topology_readable: bool
+	"""True when /sys/devices/system/cpu exists and cpu0/topology is accessible."""
+	sysfs_root: str
+	"""Path that was probed for sysfs topology."""
+	shm_available_gb: float | None
+	"""Usable bytes in /dev/shm (or the probed shm_path) as GiB, None if unavailable."""
+	shm_path: str
+	"""Path that was probed for shared memory sizing."""
+	visible_cpu_count: int
+	"""Number of CPUs visible to the current process via sched_getaffinity (or os.cpu_count fallback)."""
+	warnings: tuple[str, ...]
+	"""Human-readable warnings about conditions that may limit local affinity."""
+
+	def to_dict(self) -> dict[str, Any]:
+		return {
+			"affinity_api_available": self.affinity_api_available,
+			"sysfs_topology_readable": self.sysfs_topology_readable,
+			"sysfs_root": self.sysfs_root,
+			"shm_available_gb": self.shm_available_gb,
+			"shm_path": self.shm_path,
+			"visible_cpu_count": self.visible_cpu_count,
+			"warnings": list(self.warnings),
+		}
+
+
+def probe_container_readiness(
+	*,
+	sysfs_root: str | Path = "/sys/devices/system/cpu",
+	shm_path: str | Path = "/dev/shm",
+	affinity_getter: Callable[[int], Iterable[int]] | None = None,
+) -> ContainerAffinityReadiness:
+	"""Probe the current process environment for local affinity prerequisites.
+
+	Designed to be called at stage start when backend=local_affinity is configured,
+	so operator logs record exactly what the container-visible topology and /dev/shm
+	look like before work starts.
+	"""
+	warnings: list[str] = []
+
+	# --- affinity API ---
+	get_affinity = affinity_getter or _default_affinity_getter
+	affinity_api_available = callable(getattr(os, "sched_getaffinity", None)) and callable(
+		getattr(os, "sched_setaffinity", None)
+	)
+	if not affinity_api_available:
+		warnings.append("os.sched_getaffinity / os.sched_setaffinity are not available on this platform; CPU affinity will not be applied")
+
+	# --- visible CPUs ---
+	visible_cpu_count = 0
+	try:
+		visible_cpu_count = len(tuple(get_affinity(0)))
+	except Exception:
+		try:
+			visible_cpu_count = int(os.cpu_count() or 0)
+		except Exception:
+			pass
+	if visible_cpu_count == 0:
+		warnings.append("could not determine visible CPU count; sched_getaffinity returned empty or failed")
+
+	# --- sysfs topology ---
+	resolved_sysfs = Path(sysfs_root)
+	sysfs_topology_readable = False
+	try:
+		cpu0_topology = resolved_sysfs / "cpu0" / "topology"
+		_ = (cpu0_topology / "physical_package_id").read_text(encoding="utf-8")
+		sysfs_topology_readable = True
+	except Exception:
+		warnings.append(
+			f"sysfs topology is not readable under {resolved_sysfs}; "
+			"physical-core grouping will fall back to logical CPUs only"
+		)
+
+	# --- /dev/shm ---
+	shm_available_gb: float | None = None
+	resolved_shm = Path(shm_path)
+	try:
+		stats = os.statvfs(str(resolved_shm))
+		shm_available_gb = float(int(stats.f_bavail) * int(stats.f_frsize)) / float(1024**3)
+	except Exception:
+		warnings.append(
+			f"could not read /dev/shm size from {resolved_shm}; "
+			"shm_gb_per_task capacity planning will not be validated"
+		)
+
+	return ContainerAffinityReadiness(
+		affinity_api_available=affinity_api_available,
+		sysfs_topology_readable=sysfs_topology_readable,
+		sysfs_root=str(resolved_sysfs),
+		shm_available_gb=shm_available_gb,
+		shm_path=str(resolved_shm),
+		visible_cpu_count=visible_cpu_count,
+		warnings=tuple(warnings),
+	)

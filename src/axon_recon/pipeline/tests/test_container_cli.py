@@ -431,3 +431,44 @@ resources:
     ])
 
     assert container_cli._container_preflight_warnings(options) == []
+
+
+def test_container_wrapper_cpuset_cpus_is_forwarded_to_docker_run(tmp_path: Path) -> None:
+    options = container_cli._parse_options([
+        "--no-build",
+        "--dry-run",
+        "--no-config-mounts",
+        "--cpuset-cpus",
+        "0-7",
+        "stages",
+        "preprocess",
+        "--config",
+        "debug/debug.runtime.yml",
+    ])
+
+    assert options.cpuset_cpus == "0-7"
+
+    cmd = container_cli._build_docker_run_command(repo_root=tmp_path, options=options)
+
+    assert "--cpuset-cpus" in cmd
+    assert cmd[cmd.index("--cpuset-cpus") + 1] == "0-7"
+
+
+def test_container_wrapper_cpuset_cpus_defaults_to_none() -> None:
+    options = container_cli._parse_options(["stages", "preprocess"])
+
+    assert options.cpuset_cpus is None
+
+
+def test_container_wrapper_cpuset_cpus_not_in_run_command_when_unset(tmp_path: Path) -> None:
+    options = container_cli._parse_options([
+        "--no-build",
+        "--dry-run",
+        "--no-config-mounts",
+        "stages",
+        "preprocess",
+    ])
+
+    cmd = container_cli._build_docker_run_command(repo_root=tmp_path, options=options)
+
+    assert "--cpuset-cpus" not in cmd
