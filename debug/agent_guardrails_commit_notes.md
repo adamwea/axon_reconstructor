@@ -2189,3 +2189,6 @@ Validation:
 
 Residual Risk And Follow-Ups:
 - Future implementation passes should update this file after every AI commit and leave the guardrail documents locked unless Adam asks for changes.
+79321a1 | slice 3 [sonnet] | collapse profiles, rename phase_resource_classes → phase_budgets
+a5e26f1 | slice 4 [sonnet] | add --task-profile CLI flag and perlmutter_cpu profile
+2099494 | slice 5 [opus] | inner worker count via resolve_inner_worker_count + phase_budgets_context

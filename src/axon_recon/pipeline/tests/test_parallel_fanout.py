@@ -1062,3 +1062,111 @@ data: {data_path}
     expected_ds2_h5 = dataset_scratch_input.resolve() / "set_2" / "data.raw.h5"
     assert second.h5_path == expected_ds2_h5
     assert expected_ds2_h5.exists()
+
+
+# ---------------------------------------------------------------------------
+# Slice 5 inner-worker derivation integration tests
+# ---------------------------------------------------------------------------
+
+
+def test_phase_budget_drives_inner_worker_count_for_unit_workers_phase() -> None:
+    """A phase with no cpus_per_task clamp inherits the slot CPU count."""
+    from axon_recon.pipeline.cpu_allocation import (
+        TaskSlot,
+        phase_budgets_context,
+        resolve_inner_worker_count,
+        task_slot_context,
+    )
+    from axon_recon.pipeline.resources import PhaseResourceClassConfig
+
+    slot = TaskSlot(
+        slot_id=0,
+        logical_cpus=tuple(range(10)),
+        core_ids=tuple(range(10)),
+        package_ids=(0,),
+    )
+    budgets = {
+        "reconstruct.extract_partial_templates": PhaseResourceClassConfig(
+            nested_shape="segment_workers",
+            cpus_per_task=None,  # inherit
+        ),
+    }
+    captured: dict[str, int] = {}
+    with task_slot_context(slot), phase_budgets_context(budgets):
+        # Simulate the call-site lookup pattern used by the 12 patched ThreadPoolExecutor sites.
+        from axon_recon.pipeline.cpu_allocation import current_phase_budget
+
+        budget = current_phase_budget("reconstruct", "extract_partial_templates")
+        captured["max_workers"] = resolve_inner_worker_count(
+            nested_shape=str(getattr(budget, "nested_shape", "segment_workers")),
+            phase_cpus_per_task=getattr(budget, "cpus_per_task", None),
+            yaml_n_jobs_override=None,
+            work_item_count=None,
+        )
+    # No clamp, no override, no work item count => inherits slot.cpu_count = 10.
+    assert captured["max_workers"] == 10
+
+
+def test_phase_budget_clamps_inner_worker_count_for_plot_recons() -> None:
+    """A phase with explicit cpus_per_task=4 caps the inner thread count at 4."""
+    from axon_recon.pipeline.cpu_allocation import (
+        TaskSlot,
+        phase_budgets_context,
+        resolve_inner_worker_count,
+        task_slot_context,
+    )
+    from axon_recon.pipeline.resources import PhaseResourceClassConfig
+
+    slot = TaskSlot(
+        slot_id=0,
+        logical_cpus=tuple(range(10)),
+        core_ids=tuple(range(10)),
+        package_ids=(0,),
+    )
+    budgets = {
+        "reconstruct.plot_recons": PhaseResourceClassConfig(
+            nested_shape="unit_workers",
+            cpus_per_task=4,  # explicit clamp (matplotlib RAM)
+        ),
+    }
+    captured: dict[str, int] = {}
+    with task_slot_context(slot), phase_budgets_context(budgets):
+        from axon_recon.pipeline.cpu_allocation import current_phase_budget
+
+        budget = current_phase_budget("reconstruct", "plot_recons")
+        captured["max_workers"] = resolve_inner_worker_count(
+            nested_shape=str(getattr(budget, "nested_shape", "unit_workers")),
+            phase_cpus_per_task=getattr(budget, "cpus_per_task", None),
+            yaml_n_jobs_override=None,
+            work_item_count=None,
+        )
+    # cpus_per_task=4 clamps the slot's 10 cpus down to 4.
+    assert captured["max_workers"] == 4
+
+
+def test_phase_budget_missing_entry_inherits_slot_for_unconfigured_phase() -> None:
+    """When no entry is configured for stage.phase, the helper still returns slot cpu count."""
+    from axon_recon.pipeline.cpu_allocation import (
+        TaskSlot,
+        phase_budgets_context,
+        resolve_inner_worker_count,
+        task_slot_context,
+        current_phase_budget,
+    )
+
+    slot = TaskSlot(
+        slot_id=0,
+        logical_cpus=tuple(range(8)),
+        core_ids=tuple(range(8)),
+        package_ids=(0,),
+    )
+    with task_slot_context(slot), phase_budgets_context({}):
+        budget = current_phase_budget("reconstruct", "nonexistent_phase")
+        assert budget is None
+        result = resolve_inner_worker_count(
+            nested_shape="si_njobs",
+            phase_cpus_per_task=None,
+            yaml_n_jobs_override=None,
+            work_item_count=None,
+        )
+    assert result == 8
