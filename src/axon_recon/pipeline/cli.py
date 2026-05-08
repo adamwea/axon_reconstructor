@@ -624,16 +624,6 @@ def _run_mpi_sample_worker_test(*, rank: int, size: int, config_path: str | None
 		# Detect full topology for this rank (reflects mpirun --bind-to affinity)
 		topology = detect_cpu_topology()
 		visible_cpus = tuple(topology.visible_cpus)
-		test_cpus = visible_cpus if visible_cpus else (0,)
-		test_cores = test_cpus
-		test_packages = tuple([0] * len(test_cpus))
-
-		slot = TaskSlot(
-			slot_id=0,
-			logical_cpus=test_cpus,
-			core_ids=test_cores,
-			package_ids=test_packages,
-		)
 
 		# Read task_allocation config to know set_thread_env / nested_thread_policy / use_hyperthreads
 		synthetic_plan: object | None = None
@@ -656,6 +646,25 @@ def _run_mpi_sample_worker_test(*, rank: int, size: int, config_path: str | None
 				)
 			except Exception:
 				pass
+
+		if _use_ht:
+			test_cpus = visible_cpus if visible_cpus else (0,)
+			test_cores = tuple(core.core_id for core in topology.cores) if topology.cores else tuple(test_cpus)
+			test_packages = tuple(core.package_id for core in topology.cores) if topology.cores else tuple([0] * len(test_cpus))
+		else:
+			# Match local_affinity behavior when hyperthreads are disabled: one logical CPU per physical core.
+			test_cpus = tuple(int(core.logical_cpus[0]) for core in topology.cores if core.logical_cpus)
+			if not test_cpus:
+				test_cpus = visible_cpus if visible_cpus else (0,)
+			test_cores = tuple(core.core_id for core in topology.cores if core.logical_cpus)
+			test_packages = tuple(core.package_id for core in topology.cores if core.logical_cpus)
+
+		slot = TaskSlot(
+			slot_id=0,
+			logical_cpus=test_cpus,
+			core_ids=test_cores if test_cores else tuple(test_cpus),
+			package_ids=test_packages if test_packages else tuple([0] * len(test_cpus)),
+		)
 
 		# Capture what environment would be set for this rank's worker
 		env_state = capture_sample_worker_environment(slot, plan=synthetic_plan)
