@@ -2199,4 +2199,4 @@ be96f51 | slice 7 [sonnet] | strip per-phase yaml parallelism knobs; Smoke I def
 1e82707 | slice 10 [sonnet] | standardize parallelism log lines; add phase_parallelism event
 371f702 | slice 11 [sonnet] | lock new resources schema, remove back-compat parser; fix 17 test payloads
 82ed42c | hotfix [sonnet]   | fix LogRecord 'stage' collision in phase_parallelism event (unblocks mpirun.sh preprocess)
-PENDING | cleanup [sonnet]  | drop per-phase cpu_cores; collapse onto cpus_per_task; remove dead phase_worker_count helpers
+32f76cb | cleanup [sonnet]  | drop per-phase cpu_cores; collapse onto cpus_per_task; remove dead phase_worker_count helpers
