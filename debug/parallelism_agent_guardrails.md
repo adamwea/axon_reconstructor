@@ -134,10 +134,18 @@ Required calibration behavior:
 
 Acceptance criteria:
 
-- Resource-derived stage fanout matches the active profile and enabled phase resource classes.
+- Resource-derived stage fanout matches the active profile and enabled phase resource classes (declared under `resources.phase_budgets`).
 - Explicit worker overrides are honored where supported.
 - Keyed resources reduce only the matching contended work.
 - Pipeline-declared thread counts and raw observed thread counts are reported separately.
+
+### Keyed H5 contention smoke
+
+Two targets sharing the same `source_h5_path` must run serially when `profile.keyed_resource_limits.source_h5_path.max_concurrent=1`. Two targets from *different* source H5 files must be allowed to run concurrently.
+
+The concurrency limit is declared in `resources.profiles.<name>.keyed_resource_limits.source_h5_path.max_concurrent` (not the legacy `max_simultaneous_well_reads_per_h5_file` YAML key). It flows through `resolve_stage_parallelism` → `StageParallelism.max_simultaneous_well_reads_per_dataset` → `distribute_targets`.
+
+Unit test: `test_keyed_h5_serializes_same_source` in `tests/test_parallel_fanout.py`.
 
 ### Minimal real-data smoke
 

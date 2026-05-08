@@ -836,3 +836,50 @@ def test_phase_budget_missing_entry_inherits_slot_for_unconfigured_phase() -> No
             work_item_count=None,
         )
     assert result == 8
+
+
+def test_keyed_h5_serializes_same_source() -> None:
+    """Two targets sharing the same source H5 run serially; different H5 runs concurrently."""
+    import threading
+    from axon_recon.pipeline.execution.distributor import distribute_targets
+    from axon_recon.pipeline.execution.context import ExecutionTarget
+
+    shared_h5 = Path("/tmp/shared.h5")
+    other_h5 = Path("/tmp/other.h5")
+
+    def _target(stream_id: str, h5: Path) -> ExecutionTarget:
+        return ExecutionTarget(
+            dataset_index=0,
+            dataset_id="test",
+            h5_path=h5,
+            stream_id=stream_id,
+            mea_output_root=Path("/tmp"),
+            source_h5_path=h5,
+        )
+
+    active: set[str] = set()
+    lock = threading.Lock()
+    max_concurrent: list[int] = [0]
+    release = threading.Event()
+
+    def worker(target: ExecutionTarget) -> None:
+        with lock:
+            active.add(target.stream_id)
+            max_concurrent[0] = max(max_concurrent[0], len(active))
+        assert release.wait(timeout=5)
+        with lock:
+            active.discard(target.stream_id)
+
+    targets = [
+        _target("well-a", shared_h5),
+        _target("well-b", shared_h5),
+    ]
+    release.set()
+    results = distribute_targets(
+        targets=targets,
+        well_workers=2,
+        worker_fn=worker,
+        max_simultaneous_well_reads_per_dataset=1,
+    )
+    assert all(r.status == "ok" for r in results)
+    assert max_concurrent[0] == 1, f"Expected serial execution, saw {max_concurrent[0]} concurrent"
