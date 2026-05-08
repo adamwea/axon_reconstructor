@@ -64,15 +64,6 @@ def _lab_topology(tmp_path: Path):
 	)
 
 
-def _stage_parallelism(*, well_workers: int, max_stage_workers: int = 24) -> StageParallelism:
-	return StageParallelism(
-		max_workers=max_stage_workers,
-		max_stage_workers=max_stage_workers,
-		well_workers=well_workers,
-		unit_workers=max(1, int(max_stage_workers // max(1, int(well_workers)))),
-	)
-
-
 def test_format_cpu_set_compacts_ranges() -> None:
 	assert format_cpu_set((0, 1, 2, 4, 5, 7, 9, 10)) == "0-2,4-5,7,9-10"
 
@@ -150,7 +141,6 @@ def test_build_task_allocation_plan_returns_none_when_disabled(tmp_path: Path) -
 		config=TaskAllocationConfig(enabled=False),
 		topology=topology,
 		target_count=8,
-		stage_parallelism=_stage_parallelism(well_workers=8),
 	)
 
 	assert plan is None
@@ -169,7 +159,6 @@ def test_build_task_allocation_plan_uses_physical_core_capacity_without_hyperthr
 		),
 		topology=topology,
 		target_count=12,
-		stage_parallelism=_stage_parallelism(well_workers=12),
 	)
 
 	assert plan is not None
@@ -214,7 +203,6 @@ def test_build_task_allocation_plan_reserve_cpus_reduces_slot_capacity(tmp_path:
 		),
 		topology=topology,
 		target_count=10,
-		stage_parallelism=_stage_parallelism(well_workers=10),
 	)
 
 	assert plan is not None
@@ -239,7 +227,6 @@ def test_build_task_allocation_plan_clamps_explicit_tasks_per_node_to_capacity(t
 		),
 		topology=topology,
 		target_count=99,
-		stage_parallelism=_stage_parallelism(well_workers=99),
 	)
 
 	assert plan is not None
@@ -264,7 +251,6 @@ def test_build_task_allocation_plan_reduces_tasks_by_ram_and_shm_capacity(tmp_pa
 		),
 		topology=topology,
 		target_count=99,
-		stage_parallelism=_stage_parallelism(well_workers=99),
 		resource_profile=ResourceProfileConfig(cpu_cores=24, ram_gb=55.0),
 		available_shm_gb=25.0,
 	)
@@ -275,6 +261,29 @@ def test_build_task_allocation_plan_reduces_tasks_by_ram_and_shm_capacity(tmp_pa
 	assert plan.shm_capacity_tasks == 2
 	assert plan.effective_tasks_per_node == 2
 	assert len(plan.slots) == 2
+
+
+def test_build_task_allocation_plan_keyed_read_cap_clamps_effective_tasks(tmp_path: Path) -> None:
+	topology = _lab_topology(tmp_path)
+	plan = build_task_allocation_plan(
+		config=TaskAllocationConfig(
+			enabled=True,
+			backend="local_affinity",
+			bind="physical_cores",
+			cpus_per_task=2,
+			tasks_per_node="auto",
+			use_hyperthreads=False,
+		),
+		topology=topology,
+		target_count=12,
+		keyed_read_cap=3,
+	)
+
+	assert plan is not None
+	assert plan.cpu_capacity_tasks == 12
+	assert plan.keyed_read_cap == 3
+	assert plan.effective_tasks_per_node == 3
+	assert len(plan.slots) == 3
 
 
 def test_build_task_allocation_plan_includes_sibling_threads_when_enabled(tmp_path: Path) -> None:
@@ -290,7 +299,6 @@ def test_build_task_allocation_plan_includes_sibling_threads_when_enabled(tmp_pa
 		),
 		topology=topology,
 		target_count=12,
-		stage_parallelism=_stage_parallelism(well_workers=12),
 	)
 
 	assert plan is not None
@@ -299,7 +307,7 @@ def test_build_task_allocation_plan_includes_sibling_threads_when_enabled(tmp_pa
 	assert plan.slots[0].physical_core_count == 2
 
 
-def test_build_task_allocation_plan_derives_auto_cpus_per_task_from_stage_parallelism(tmp_path: Path) -> None:
+def test_build_task_allocation_plan_auto_cpus_per_task_defaults_to_1(tmp_path: Path) -> None:
 	topology = _lab_topology(tmp_path)
 	plan = build_task_allocation_plan(
 		config=TaskAllocationConfig(
@@ -312,14 +320,11 @@ def test_build_task_allocation_plan_derives_auto_cpus_per_task_from_stage_parall
 		),
 		topology=topology,
 		target_count=8,
-		stage_parallelism=_stage_parallelism(well_workers=6, max_stage_workers=24),
 	)
 
 	assert plan is not None
-	assert plan.cpus_per_task == 4
-	assert plan.cpus_per_task_source == "stage_parallelism.max_stage_workers/well_workers"
-	assert plan.cpu_capacity_tasks == 6
-	assert plan.effective_tasks_per_node == 6
+	assert plan.cpus_per_task == 1
+	assert plan.cpus_per_task_source == "default"
 
 
 def test_task_slot_affinity_context_applies_and_restores_mock_affinity() -> None:
@@ -512,7 +517,6 @@ def test_build_task_allocation_plan_propagates_thread_env_fields(tmp_path: Path)
 		),
 		topology=topology,
 		target_count=4,
-		stage_parallelism=_stage_parallelism(well_workers=4),
 	)
 	assert plan is not None
 	assert plan.set_thread_env is True
@@ -539,7 +543,6 @@ def test_allocation_preview_shows_thread_env_policy_when_enabled(tmp_path: Path)
 		),
 		topology=topology,
 		target_count=4,
-		stage_parallelism=_stage_parallelism(well_workers=4),
 	)
 	assert plan is not None
 	preview = StageAllocationPreview(

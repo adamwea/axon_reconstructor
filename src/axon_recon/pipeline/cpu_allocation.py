@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 from typing import Callable, Iterable, Iterator
 
-from .execution.context import StageParallelism
 from .resources import ResourceProfileConfig, TaskAllocationConfig
 
 
@@ -112,7 +111,7 @@ class TaskAllocationPlan:
 	set_thread_env: bool = False
 	nested_thread_policy: str = "preserve_existing"
 	target_count: int | None = None
-	stage_well_worker_limit: int | None = None
+	keyed_read_cap: int | None = None
 	slots: tuple[TaskSlot, ...] = ()
 
 
@@ -361,16 +360,12 @@ def _capacity_limit_from_float(*, budget: float | None, demand: float | None) ->
 def _derive_cpus_per_task(
 	*,
 	config: TaskAllocationConfig,
-	stage_parallelism: StageParallelism | None,
 ) -> tuple[int, str]:
 	configured = getattr(config, "cpus_per_task", "auto")
 	if isinstance(configured, int):
 		return max(1, int(configured)), "task_allocation.cpus_per_task"
 	if str(configured).strip().lower() != "auto":
 		return max(1, int(configured)), "task_allocation.cpus_per_task"
-	if stage_parallelism is not None and int(stage_parallelism.well_workers) > 0:
-		derived = max(1, int(stage_parallelism.max_stage_workers) // int(stage_parallelism.well_workers))
-		return int(derived), "stage_parallelism.max_stage_workers/well_workers"
 	return 1, "default"
 
 
@@ -457,7 +452,7 @@ def build_task_allocation_plan(
 	config: TaskAllocationConfig,
 	topology: CpuTopology,
 	target_count: int | None = None,
-	stage_parallelism: StageParallelism | None = None,
+	keyed_read_cap: int | None = None,
 	resource_profile: ResourceProfileConfig | None = None,
 	available_shm_gb: float | None = None,
 ) -> TaskAllocationPlan | None:
@@ -473,7 +468,6 @@ def build_task_allocation_plan(
 
 	cpus_per_task, cpus_per_task_source = _derive_cpus_per_task(
 		config=config,
-		stage_parallelism=stage_parallelism,
 	)
 	allocation_units = _allocation_units(
 		topology=topology,
@@ -507,10 +501,9 @@ def build_task_allocation_plan(
 	resolved_target_count = _as_optional_positive_int(target_count)
 	if resolved_target_count is not None:
 		effective_task_limit = min(int(effective_task_limit), int(resolved_target_count))
-	stage_well_worker_limit = None
-	if stage_parallelism is not None:
-		stage_well_worker_limit = max(1, int(stage_parallelism.well_workers))
-		effective_task_limit = min(int(effective_task_limit), int(stage_well_worker_limit))
+	resolved_keyed_read_cap = _as_optional_positive_int(keyed_read_cap)
+	if resolved_keyed_read_cap is not None:
+		effective_task_limit = min(int(effective_task_limit), int(resolved_keyed_read_cap))
 	effective_task_limit = min(int(effective_task_limit), int(slot_capacity))
 	effective_task_limit = max(0, int(effective_task_limit))
 
@@ -539,7 +532,7 @@ def build_task_allocation_plan(
 		set_thread_env=bool(getattr(config, "set_thread_env", False)),
 		nested_thread_policy=str(getattr(config, "nested_thread_policy", "preserve_existing") or "preserve_existing"),
 		target_count=resolved_target_count,
-		stage_well_worker_limit=stage_well_worker_limit,
+		keyed_read_cap=resolved_keyed_read_cap,
 		slots=slots,
 	)
 

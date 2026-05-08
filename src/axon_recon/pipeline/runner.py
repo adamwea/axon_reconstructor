@@ -29,6 +29,7 @@ from .cpu_allocation import (
 	task_slot_affinity_context,
 )
 from .execution.distributor import distribute_targets
+from .execution.read_groups import count_target_read_groups
 from .execution.logging_context import (
 	install_pipeline_log_record_factory,
 	pipeline_log_context_for_target,
@@ -301,6 +302,12 @@ def _resolve_runtime_stage_parallelism(
 			parallelism=parallelism,
 			target_count=int(target_count),
 		)
+	read_cap = getattr(parallelism, "max_simultaneous_well_reads_per_dataset", None)
+	keyed_read_cap: int | None = None
+	if read_cap is not None and targets:
+		read_group_count = count_target_read_groups(list(targets))
+		if read_group_count > 0:
+			keyed_read_cap = min(len(targets), int(read_group_count) * int(read_cap))
 	parallelism = constrain_stage_parallelism_to_read_groups(
 		parallelism=parallelism,
 		targets=list(targets),
@@ -309,6 +316,7 @@ def _resolve_runtime_stage_parallelism(
 		bundle=bundle,
 		parallelism=parallelism,
 		target_count=int(target_count),
+		keyed_read_cap=keyed_read_cap,
 	)
 
 
@@ -333,6 +341,7 @@ def _attach_task_allocation_plan(
 	bundle: PipelineRuntimeBundle,
 	parallelism: Any,
 	target_count: int,
+	keyed_read_cap: int | None = None,
 ) -> Any:
 	if not callable(getattr(getattr(bundle, "runtime_config", None), "get", None)):
 		return parallelism
@@ -347,7 +356,7 @@ def _attach_task_allocation_plan(
 		config=task_config,
 		topology=detect_cpu_topology(logger=LOGGER),
 		target_count=max(0, int(target_count)),
-		stage_parallelism=parallelism,
+		keyed_read_cap=keyed_read_cap,
 		resource_profile=get_active_resource_profile(resources_config),
 		available_shm_gb=_available_shm_gb(),
 	)
@@ -1868,8 +1877,8 @@ def _format_allocation_plan_summary(plan: TaskAllocationPlan | None) -> list[str
 		clamp_inputs.append(f"shm_capacity={plan.shm_capacity_tasks}")
 	if plan.target_count is not None:
 		clamp_inputs.append(f"target_count={plan.target_count}")
-	if plan.stage_well_worker_limit is not None:
-		clamp_inputs.append(f"stage_well_workers={plan.stage_well_worker_limit}")
+	if plan.keyed_read_cap is not None:
+		clamp_inputs.append(f"keyed_h5_read={plan.keyed_read_cap}")
 	lines += [
 		"",
 		f"  slot_clamps:  {', '.join(clamp_inputs)}  ->  effective={plan.effective_tasks_per_node}",
