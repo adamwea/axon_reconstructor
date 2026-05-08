@@ -2194,3 +2194,5 @@ a5e26f1 | slice 4 [sonnet] | add --task-profile CLI flag and perlmutter_cpu prof
 2099494 | slice 5 [opus] | inner worker count via resolve_inner_worker_count + phase_budgets_context
 92baee9 | slice 6 [sonnet] | route si n_jobs through phase budget helper; MPI synthetic slot for parity
 be96f51 | slice 7 [sonnet] | strip per-phase yaml parallelism knobs; Smoke I deferred (MPI gate)
+8fe3ff4 | slice 8 [sonnet] | delete legacy stage parallelism plumbing
+6741630 | slice 9 [sonnet] | add keyed H5 contention test + guardrails

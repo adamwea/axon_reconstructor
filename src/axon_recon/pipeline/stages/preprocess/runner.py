@@ -1009,6 +1009,8 @@ def _resolve_preprocess_phase_n_jobs(
 			phase_cpus_per_task=getattr(_budget, "cpus_per_task", None) if _budget else None,
 			yaml_n_jobs_override=None,
 			work_item_count=None,
+			stage_name="preprocess",
+			phase_name=phase_name,
 		)
 	if phase_name in {
 		"plot_segment_traces",
@@ -1030,10 +1032,9 @@ def _log_preprocess_phase_worker_allocation(
 	if phase_logger is None:
 		return
 	phase_logger.info(
-		"Preprocess phase worker allocation stage=preprocess phase=%s well=%s stage_workers=%s well_workers=%s n_jobs=%d n_jobs_source=%s phase_n_jobs=%d",
+		"Preprocess phase worker allocation stage=preprocess phase=%s well=%s well_workers=%s n_jobs=%d n_jobs_source=%s phase_n_jobs=%d",
 		str(phase_name),
 		str(inputs.stream_id),
-		_format_worker_count(getattr(inputs, "runtime_stage_workers", None)),
 		_format_worker_count(getattr(inputs, "runtime_well_workers", None)),
 		max(1, int(inputs.n_jobs)),
 		str(getattr(inputs, "runtime_n_jobs_source", None) or "input"),

@@ -148,6 +148,8 @@ def resolve_inner_worker_count(
 	phase_cpus_per_task: int | None,
 	yaml_n_jobs_override: int | None,
 	work_item_count: int | None,
+	stage_name: str | None = None,
+	phase_name: str | None = None,
 ) -> int:
 	"""Compute the per-well inner worker count from the active task slot.
 
@@ -163,19 +165,42 @@ def resolve_inner_worker_count(
 	phase entry. Inner thread count is purely a CPU question.
 	"""
 	if str(nested_shape).strip() == "serial":
-		return 1
-	slot = _CURRENT_TASK_SLOT.get()
-	if slot is not None and int(slot.cpu_count) > 0:
-		base = int(slot.cpu_count)
+		result = 1
 	else:
-		base = 1
-	if isinstance(phase_cpus_per_task, int) and int(phase_cpus_per_task) > 0:
-		base = min(base, int(phase_cpus_per_task))
-	if isinstance(yaml_n_jobs_override, int) and int(yaml_n_jobs_override) > 0:
-		base = min(base, int(yaml_n_jobs_override))
-	if isinstance(work_item_count, int) and int(work_item_count) > 0:
-		base = min(base, int(work_item_count))
-	return max(1, int(base))
+		slot = _CURRENT_TASK_SLOT.get()
+		if slot is not None and int(slot.cpu_count) > 0:
+			base = int(slot.cpu_count)
+		else:
+			base = 1
+		if isinstance(phase_cpus_per_task, int) and int(phase_cpus_per_task) > 0:
+			base = min(base, int(phase_cpus_per_task))
+		if isinstance(yaml_n_jobs_override, int) and int(yaml_n_jobs_override) > 0:
+			base = min(base, int(yaml_n_jobs_override))
+		if isinstance(work_item_count, int) and int(work_item_count) > 0:
+			base = min(base, int(work_item_count))
+		result = max(1, int(base))
+	if stage_name is not None and phase_name is not None:
+		slot = _CURRENT_TASK_SLOT.get()
+		slot_cpus = int(slot.cpu_count) if slot is not None and int(slot.cpu_count) > 0 else 1
+		LOGGER.info(
+			"phase parallelism stage=%s phase=%s nested_shape=%s slot_cpus=%d phase_cap=%s effective=%d",
+			str(stage_name),
+			str(phase_name),
+			str(nested_shape),
+			slot_cpus,
+			str(phase_cpus_per_task) if phase_cpus_per_task is not None else "none",
+			result,
+			extra={
+				"event": "phase_parallelism",
+				"stage": str(stage_name),
+				"phase": str(phase_name),
+				"nested_shape": str(nested_shape),
+				"slot_cpus": slot_cpus,
+				"phase_cap": phase_cpus_per_task,
+				"effective_workers": result,
+			},
+		)
+	return result
 
 
 @dataclass(frozen=True)

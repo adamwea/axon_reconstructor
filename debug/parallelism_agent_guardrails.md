@@ -81,6 +81,23 @@ Use precise language in logs and summaries:
 - Warnings should compare pipeline-owned concurrency against planned resources and report raw observations as diagnostic context.
 - Inner worker count is derived from `task_slot.cpu_count` (or the active MPI rank's CPU affinity, treated identically) and optionally clamped by `phase_budgets[<stage.phase>].cpus_per_task`. Phases never read `inputs.n_jobs` directly to decide fanout.
 
+### Canonical log format (post-slice-10)
+
+Per stage start (when task allocation is active):
+```
+Task allocation backend=<bck> task_unit=well visible_cpus=<set> physical_cores=<n> cpus_per_task=<m> tasks_per_node=<k> bind=<b> use_hyperthreads=<h> slots=<s>
+```
+
+Per phase entry (when `stage_name`/`phase_name` are passed to `resolve_inner_worker_count`):
+```
+phase parallelism stage=<stage> phase=<phase> nested_shape=<shape> slot_cpus=<n> phase_cap=<cap|none> effective=<n>
+```
+
+Per target well (from runner.py):
+```
+well_workers=<n>
+```
+
 ## Required Tests And Acceptance Criteria
 
 ### Inner worker derivation tests
