@@ -478,9 +478,13 @@ def build_task_allocation_plan(
 	backend = str(getattr(config, "backend", "none") or "none")
 	if backend == "none":
 		return None
+	if backend == "mpi":
+		# MPI backend: rank partitioning happens at distributor level.
+		# No local allocation plan needed here; each rank will manage its own CPUs.
+		return None
 	if backend != "local_affinity":
 		raise ValueError(
-			f"Task allocation plan builder currently supports backend='local_affinity', got {backend!r}"
+			f"Task allocation plan builder currently supports backend='local_affinity' or 'mpi', got {backend!r}"
 		)
 
 	cpus_per_task, cpus_per_task_source = _derive_cpus_per_task(

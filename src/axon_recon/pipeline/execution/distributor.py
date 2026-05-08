@@ -142,96 +142,102 @@ def _distribute_targets_with_read_group_cap(
 
 
 def distribute_targets(
-    *,
-    targets: list[ExecutionTarget],
-    well_workers: int,
-    worker_fn: Callable[[ExecutionTarget], Any],
-    max_simultaneous_well_reads_per_dataset: int | None = None,
-    on_target_complete: TargetCompleteCallback | None = None,
-    task_slots: tuple[TaskSlot, ...] | list[TaskSlot] | None = None,
+	*,
+	targets: list[ExecutionTarget],
+	well_workers: int,
+	worker_fn: Callable[[ExecutionTarget], Any],
+	max_simultaneous_well_reads_per_dataset: int | None = None,
+	on_target_complete: TargetCompleteCallback | None = None,
+	task_slots: tuple[TaskSlot, ...] | list[TaskSlot] | None = None,
+	mpi_context: Any | None = None,
 ) -> list[TargetStageResult]:
-    resolved_task_slots = tuple(task_slots or ())
-    effective_well_workers = int(max(1, int(well_workers)))
-    if resolved_task_slots:
-        effective_well_workers = min(effective_well_workers, len(resolved_task_slots))
+	# Apply MPI rank partitioning first if active
+	if mpi_context is not None and int(getattr(mpi_context, "size", 1)) > 1:
+		from ..mpi_adapter import partition_targets_by_mpi_rank
 
-    if effective_well_workers <= 1:
-        out: list[TargetStageResult] = []
-        task_slot = resolved_task_slots[0] if resolved_task_slots else None
-        for target in targets:
-            try:
-                result = _run_worker_with_task_slot(
-                    worker_fn=worker_fn,
-                    target=target,
-                    task_slot=task_slot,
-                )
-                target_result = TargetStageResult(target=target, status="ok", result=result, error=None)
-            except Exception as exc:
-                target_result = TargetStageResult(target=target, status="error", result=None, error=str(exc))
-            out.append(target_result)
-            _notify_target_complete(on_target_complete, target_result)
-        return out
+		targets = partition_targets_by_mpi_rank(targets=targets, mpi_context=mpi_context)
+	resolved_task_slots = tuple(task_slots or ())
+	effective_well_workers = int(max(1, int(well_workers)))
+	if resolved_task_slots:
+		effective_well_workers = min(effective_well_workers, len(resolved_task_slots))
 
-    read_cap = _coerce_positive_optional_int(max_simultaneous_well_reads_per_dataset)
-    if read_cap is not None:
-        return _distribute_targets_with_read_group_cap(
-            targets=targets,
-            well_workers=effective_well_workers,
-            max_simultaneous_well_reads_per_dataset=int(read_cap),
-            worker_fn=worker_fn,
-            on_target_complete=on_target_complete,
-            task_slots=resolved_task_slots,
-        )
+	if effective_well_workers <= 1:
+		out: list[TargetStageResult] = []
+		task_slot = resolved_task_slots[0] if resolved_task_slots else None
+		for target in targets:
+			try:
+				result = _run_worker_with_task_slot(
+					worker_fn=worker_fn,
+					target=target,
+					task_slot=task_slot,
+				)
+				target_result = TargetStageResult(target=target, status="ok", result=result, error=None)
+			except Exception as exc:
+				target_result = TargetStageResult(target=target, status="error", result=None, error=str(exc))
+			out.append(target_result)
+			_notify_target_complete(on_target_complete, target_result)
+		return out
 
-    if resolved_task_slots:
-        pending = deque(targets)
-        available_slots = deque(resolved_task_slots[:effective_well_workers])
-        futures: dict[concurrent.futures.Future[Any], tuple[ExecutionTarget, TaskSlot]] = {}
-        out: list[TargetStageResult] = []
+	read_cap = _coerce_positive_optional_int(max_simultaneous_well_reads_per_dataset)
+	if read_cap is not None:
+		return _distribute_targets_with_read_group_cap(
+			targets=targets,
+			well_workers=effective_well_workers,
+			max_simultaneous_well_reads_per_dataset=int(read_cap),
+			worker_fn=worker_fn,
+			on_target_complete=on_target_complete,
+			task_slots=resolved_task_slots,
+		)
 
-        def _submit_available(pool: concurrent.futures.ThreadPoolExecutor) -> None:
-            while pending and available_slots and len(futures) < effective_well_workers:
-                target = pending.popleft()
-                task_slot = available_slots.popleft()
-                futures[
-                    pool.submit(
-                        _run_worker_with_task_slot,
-                        worker_fn=worker_fn,
-                        target=target,
-                        task_slot=task_slot,
-                    )
-                ] = (target, task_slot)
+	if resolved_task_slots:
+		pending = deque(targets)
+		available_slots = deque(resolved_task_slots[:effective_well_workers])
+		futures: dict[concurrent.futures.Future[Any], tuple[ExecutionTarget, TaskSlot]] = {}
+		out: list[TargetStageResult] = []
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=effective_well_workers) as pool:
-            _submit_available(pool)
-            while futures:
-                done, _ = concurrent.futures.wait(
-                    futures,
-                    return_when=concurrent.futures.FIRST_COMPLETED,
-                )
-                for future in done:
-                    target, task_slot = futures.pop(future)
-                    available_slots.append(task_slot)
-                    result = _target_stage_result_from_future(future=future, target=target)
-                    out.append(result)
-                    _notify_target_complete(on_target_complete, result)
-                _submit_available(pool)
+		def _submit_available(pool: concurrent.futures.ThreadPoolExecutor) -> None:
+			while pending and available_slots and len(futures) < effective_well_workers:
+				target = pending.popleft()
+				task_slot = available_slots.popleft()
+				futures[
+					pool.submit(
+						_run_worker_with_task_slot,
+						worker_fn=worker_fn,
+						target=target,
+						task_slot=task_slot,
+					)
+				] = (target, task_slot)
 
-        out.sort(key=lambda item: (item.target.dataset_index, item.target.stream_id))
-        return out
+		with concurrent.futures.ThreadPoolExecutor(max_workers=effective_well_workers) as pool:
+			_submit_available(pool)
+			while futures:
+				done, _ = concurrent.futures.wait(
+					futures,
+					return_when=concurrent.futures.FIRST_COMPLETED,
+				)
+				for future in done:
+					target, task_slot = futures.pop(future)
+					available_slots.append(task_slot)
+					result = _target_stage_result_from_future(future=future, target=target)
+					out.append(result)
+					_notify_target_complete(on_target_complete, result)
+				_submit_available(pool)
 
-    futures: dict[concurrent.futures.Future[Any], ExecutionTarget] = {}
-    out: list[TargetStageResult] = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=effective_well_workers) as pool:
-        for target in targets:
-            fut = pool.submit(worker_fn, target)
-            futures[fut] = target
+		out.sort(key=lambda item: (item.target.dataset_index, item.target.stream_id))
+		return out
 
-        for fut in concurrent.futures.as_completed(futures):
-            target = futures[fut]
-            result = _target_stage_result_from_future(future=fut, target=target)
-            out.append(result)
-            _notify_target_complete(on_target_complete, result)
+	futures: dict[concurrent.futures.Future[Any], ExecutionTarget] = {}
+	out: list[TargetStageResult] = []
+	with concurrent.futures.ThreadPoolExecutor(max_workers=effective_well_workers) as pool:
+		for target in targets:
+			fut = pool.submit(worker_fn, target)
+			futures[fut] = target
 
-    out.sort(key=lambda item: (item.target.dataset_index, item.target.stream_id))
-    return out
+		for fut in concurrent.futures.as_completed(futures):
+			target = futures[fut]
+			result = _target_stage_result_from_future(future=fut, target=target)
+			out.append(result)
+			_notify_target_complete(on_target_complete, result)
+
+	out.sort(key=lambda item: (item.target.dataset_index, item.target.stream_id))
+	return out

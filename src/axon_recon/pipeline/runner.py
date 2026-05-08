@@ -37,6 +37,7 @@ from .execution.logging_context import (
 	install_pipeline_log_record_factory,
 	pipeline_log_context_for_target,
 )
+from .mpi_adapter import current_mpi_context, log_mpi_context
 from .execution.phase_chain import PhaseDescriptor, run_phase_chain
 from .execution.progress import PipelineProgress, ProgressSpec, pipeline_progress_context
 from .execution.results import MultiTargetStageResult, TargetStageResult
@@ -586,6 +587,12 @@ def _distribute_runtime_targets(
 ) -> list[TargetStageResult]:
 	install_pipeline_log_record_factory()
 	install_maxwell_hdf5_plugin_message_filter()
+	
+	# Detect MPI context and log if active
+	mpi_context = current_mpi_context()
+	if mpi_context is not None:
+		log_mpi_context(logger=LOGGER, context=mpi_context)
+	
 	plan = getattr(parallelism, "task_allocation_plan", None)
 	task_slots = tuple(getattr(plan, "slots", ()) or ()) if plan is not None else ()
 	apply_task_affinity = bool(
@@ -700,6 +707,7 @@ def _distribute_runtime_targets(
 			),
 			on_target_complete=_on_target_complete,
 			task_slots=task_slots,
+			mpi_context=mpi_context,
 		)
 
 
@@ -760,6 +768,12 @@ def _target_log_label(target: Any) -> str:
 
 def _log_runtime_stage_topology(*, stage_name: str, targets: list[Any], parallelism: Any) -> None:
 	LOGGER.info("Starting stage: %s", str(stage_name), extra={"event": "stage_started"})
+	
+	# Log MPI context if active
+	mpi_context = current_mpi_context()
+	if mpi_context is not None and int(mpi_context.size) > 1:
+		log_mpi_context(logger=LOGGER, context=mpi_context)
+	
 	LOGGER.info(
 		"Execution topology: stage_global_order=true, well_local_phase_sequence=true",
 		extra={
