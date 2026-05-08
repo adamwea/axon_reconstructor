@@ -351,6 +351,49 @@ def apply_thread_env_context(
 				os.environ[var] = prev
 
 
+def capture_sample_worker_environment(
+	slot: TaskSlot | None,
+	*,
+	plan: Any | None = None,
+) -> dict[str, str]:
+	"""Capture what environment would be set for a sample worker in this slot.
+	
+	Enters the task allocation contexts and captures the resulting environment state.
+	Used for validation during --alloc preview mode.
+	"""
+	if plan is None:
+		return {}
+	
+	apply_affinity = bool(
+		str(getattr(plan, "backend", "none")) == "local_affinity"
+		and str(getattr(plan, "bind", "none")) != "none"
+	)
+	set_thread_env = bool(getattr(plan, "set_thread_env", False))
+	thread_policy = str(getattr(plan, "nested_thread_policy", "preserve_existing") or "preserve_existing")
+	
+	captured = {}
+	try:
+		with task_slot_affinity_context(
+			slot,
+			enabled=apply_affinity,
+			soft_failure=True,
+		), apply_thread_env_context(
+			slot,
+			enabled=set_thread_env,
+			policy=thread_policy,
+		):
+			# Capture the environment state inside the contexts
+			captured["thread_env"] = {var: os.environ.get(var) for var in _THREAD_ENV_VARS}
+			if slot is not None:
+				captured["cpu_affinity"] = format_cpu_set(slot.logical_cpus)
+				captured["cpu_count"] = int(slot.cpu_count)
+				captured["slot_id"] = int(slot.slot_id)
+	except Exception as exc:
+		captured["error"] = str(exc)
+	
+	return captured
+
+
 def _read_required_text(path: Path) -> str:
 	return path.read_text(encoding="utf-8").strip()
 

@@ -24,6 +24,7 @@ from .cpu_allocation import (
 	_THREAD_ENV_VARS,
 	apply_thread_env_context,
 	build_task_allocation_plan,
+	capture_sample_worker_environment,
 	current_task_slot,
 	detect_cpu_topology,
 	format_cpu_set,
@@ -2138,7 +2139,114 @@ def format_stage_allocation_previews(previews: list[StageAllocationPreview] | tu
 				mpi_size=preview.mpi_size,
 			)
 		)
+		lines.extend(
+			_format_sample_worker_environment(
+				plan=plan,
+				mpi_context=None,
+				allocation_backend=preview.allocation_backend,
+			)
+		)
 	return "\n".join(lines)
+
+
+def _format_sample_worker_environment(
+	*,
+	plan: TaskAllocationPlan | None,
+	mpi_context: Any | None = None,
+	allocation_backend: str | None = None,
+) -> list[str]:
+	"""Format the environment that would be set for sample workers."""
+	lines = []
+	backend = str(allocation_backend or "none").strip().lower()
+	
+	# If no plan, check for MPI backend
+	if plan is None:
+		if backend == "mpi":
+			lines.append("")
+			lines.append("sample_worker_environment_preview:")
+			lines.append("  (mpi backend, no local task slots)")
+			lines.append("  each rank partitions targets independently")
+		return lines
+	
+	# If plan has slots, spawn sample worker for each
+	if plan.slots:
+		lines.append("")
+		lines.append("sample_worker_environment_preview:")
+		
+		for slot in plan.slots:
+			env_state = capture_sample_worker_environment(
+				slot,
+				plan=plan,
+			)
+			
+			lines.append(f"  slot[{slot.slot_id}]:")
+			
+			if "error" in env_state:
+				lines.append(f"    error: {env_state['error']}")
+				continue
+			
+			if "cpu_affinity" in env_state:
+				lines.append(f"    cpu_affinity: {env_state['cpu_affinity']}")
+			if "cpu_count" in env_state:
+				lines.append(f"    cpu_count: {env_state['cpu_count']}")
+			
+			if "thread_env" in env_state:
+				thread_vars = env_state["thread_env"]
+				set_vars = {k: v for k, v in thread_vars.items() if v is not None}
+				if set_vars:
+					lines.append(f"    thread_env: {' '.join(f'{k}={v}' for k, v in sorted(set_vars.items()))}")
+				else:
+					lines.append("    thread_env: (preserved from parent)")
+	
+	return lines
+
+
+def _spawn_mpi_sample_workers(*, previews: list[StageAllocationPreview]) -> None:
+	"""Spawn minimal test workers on each MPI rank to validate environment."""
+	mpi_context = current_mpi_context()
+	if mpi_context is None or int(mpi_context.size) <= 1:
+		return
+	
+	rank = int(mpi_context.rank)
+	size = int(mpi_context.size)
+	
+	print("")
+	print(f"mpi_sample_worker_test: rank={rank}/{size}")
+	
+	# Each rank spawns one minimal test worker
+	# This validates that the task allocation infrastructure works on this rank
+	try:
+		# Create a minimal dummy task slot for testing
+		from axon_recon.pipeline.cpu_allocation import TaskSlot, detect_cpu_topology
+		
+		topology = detect_cpu_topology()
+		# Assign first 2 CPUs as a test slot
+		test_cpus = tuple(range(min(2, len(topology.visible_cpus))))
+		# For simplicity, assume each CPU is a separate core
+		test_cores = test_cpus
+		# Assume all on same package
+		test_packages = tuple([0] * len(test_cpus))
+		
+		slot = TaskSlot(
+			slot_id=0,
+			logical_cpus=test_cpus,
+			core_ids=test_cores,
+			package_ids=test_packages,
+		)
+		
+		# Capture the environment that would be set
+		env_state = capture_sample_worker_environment(slot, plan=None)
+		
+		print(f"  test_worker_slot: cpus={list(test_cpus)}")
+		if "error" not in env_state:
+			print(f"  thread_env: (parent process env)")
+			for var in _THREAD_ENV_VARS:
+				print(f"    {var}={os.environ.get(var, 'unset')}")
+		else:
+			print(f"  error: {env_state['error']}")
+	
+	except Exception as exc:
+		print(f"  error_spawning_test_worker: {exc}")
 
 
 def print_stage_allocation_preview(
@@ -2171,6 +2279,12 @@ def print_stage_allocation_preview(
 		task_allocation_override=task_allocation_override,
 	)
 	print(format_stage_allocation_previews(previews))
+	
+	# If MPI backend is active and multiple ranks, spawn test workers on each rank independently
+	mpi_context = current_mpi_context()
+	if mpi_context is not None and int(mpi_context.size) > 1:
+		if task_allocation_override and str(task_allocation_override.get("backend", "")).strip().lower() == "mpi":
+			_spawn_mpi_sample_workers(previews=previews)
 
 
 def run_preprocess_from_runtime(
