@@ -92,6 +92,7 @@ Rollback Notes:
 ## Commit Log
 
 claude-migration baseline: 437 passed / 0 failed / 0 skipped (test_progress.py excluded - pre-existing TabError), 2026-05-08
+a18c9d2 | slice 1 [sonnet] | add nested_shape to phase resource classes
 
 ## 2026-05-07 15:51 - 76f63a7 - ai: slice 6 nested thread env + richer alloc preview
 
