@@ -2202,3 +2202,6 @@ be96f51 | slice 7 [sonnet] | strip per-phase yaml parallelism knobs; Smoke I def
 32f76cb | cleanup [sonnet]  | drop per-phase cpu_cores; collapse onto cpus_per_task; remove dead phase_worker_count helpers
 78d409b | plan [sonnet]     | post-migration cleanup plan: 7 slices, file:line inventory, smoke matrix, out-of-scope appendix
 5b36eb9 | plan [sonnet]     | integrate survey findings: add Slice 7 (replace() bug + max_plotting_concurrency), §1.4-1.6 detail, dual-format log inventory
+4dbbc8d | docs [sonnet]     | add container+MPI strategy note (Options A/B/C, recommend C short-term)
+28534cc | yaml+plan [sonnet]| enable plot_templates_v2 in phase_sequence; queue plot_templates v1 retirement
+e2a4200 | feat [sonnet]     | switch plot_recons template_circles base to render_template_circles_plot_v2 (faster); v2 gains fig/ax/branch_cfg parity
