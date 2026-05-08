@@ -4,7 +4,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from axon_recon.pipeline.resources import get_resource_default, parse_resources_config
+from axon_recon.pipeline.resources import (
+	get_active_profile,
+	get_keyed_resource_limit_config,
+	get_resource_default,
+	parse_resources_config,
+)
 from axon_recon.pipeline.stages.preprocess.config import parse_preprocess_stage_config
 from axon_recon.pipeline.stages.reconstruct.config import parse_reconstruction_stage_config
 from axon_recon.pipeline.stages.reconstruct.templates.config import parse_reconstruct_templates_config
@@ -114,16 +119,19 @@ def _resource_payload() -> dict[str, object]:
 def test_parse_resources_config_parses_typed_profiles_and_keyed_limits():
 	cfg = RuntimeConfig(_resource_payload())
 	parsed = parse_resources_config(runtime_config=cfg)
+	active = get_active_profile(parsed)
 
 	assert parsed.active_profile == "lab_server_safe"
-	assert parsed.profiles["lab_server_safe"].cpu_cores == 18
-	assert parsed.profiles["lab_server_safe"].default_chunk_duration == "1s"
+	assert active is not None
+	assert active.capacity.cpu_cores == 18
+	assert active.capacity.default_chunk_duration == "1s"
 	assert parsed.defaults["chunk_duration"] == "3s"
-	assert parsed.keyed_resource_limits["source_h5_path"].max_concurrent == 1
-	assert parsed.phase_resource_classes["h5_metadata"].keyed_resources["source_h5_path"] == 1
-	assert parsed.phase_resource_classes["h5_to_binary"].keyed_resources["source_h5_path"] == 1
-	assert parsed.phase_resource_classes["kilosort4"].description is not None
-	assert parsed.phase_resource_classes["kilosort4"].gpu_sort_slots == 1
+	assert get_keyed_resource_limit_config(parsed, "source_h5_path") is not None
+	assert get_keyed_resource_limit_config(parsed, "source_h5_path").max_concurrent == 1
+	assert parsed.phase_budgets["h5_metadata"].keyed_resources["source_h5_path"] == 1
+	assert parsed.phase_budgets["h5_to_binary"].keyed_resources["source_h5_path"] == 1
+	assert parsed.phase_budgets["kilosort4"].description is not None
+	assert parsed.phase_budgets["kilosort4"].gpu_sort_slots == 1
 	assert get_resource_default(runtime_config=cfg, key="max_workers", default=None) == 7
 
 
@@ -135,26 +143,31 @@ def test_parse_resources_config_maps_legacy_h5_read_cap_alias_into_keyed_limits(
 	resources["max_simultaneous_well_reads_per_h5_file"] = 2
 
 	parsed = parse_resources_config(runtime_config=RuntimeConfig(payload))
+	limit = get_keyed_resource_limit_config(parsed, "source_h5_path")
 
 	assert parsed.defaults["max_simultaneous_well_reads_per_h5_file"] == 2
-	assert parsed.keyed_resource_limits["source_h5_path"].max_concurrent == 2
+	assert limit is not None
+	assert limit.max_concurrent == 2
 
 
 def test_parse_resources_config_defaults_task_allocation_to_disabled_schema():
 	parsed = parse_resources_config(runtime_config=RuntimeConfig(_resource_payload()))
+	active = get_active_profile(parsed)
+	assert active is not None
+	ta = active.task_allocation
 
-	assert parsed.task_allocation.enabled is False
-	assert parsed.task_allocation.backend == "none"
-	assert parsed.task_allocation.task_unit == "well"
-	assert parsed.task_allocation.cpus_per_task == "auto"
-	assert parsed.task_allocation.tasks_per_node == "auto"
-	assert parsed.task_allocation.bind == "none"
-	assert parsed.task_allocation.use_hyperthreads is False
-	assert parsed.task_allocation.reserve_cpus == 0
-	assert parsed.task_allocation.set_thread_env is False
-	assert parsed.task_allocation.nested_thread_policy == "preserve_existing"
-	assert parsed.task_allocation.ram_gb_per_task is None
-	assert parsed.task_allocation.shm_gb_per_task is None
+	assert ta.enabled is False
+	assert ta.backend == "none"
+	assert ta.task_unit == "well"
+	assert ta.cpus_per_task == "auto"
+	assert ta.tasks_per_node == "auto"
+	assert ta.bind == "none"
+	assert ta.use_hyperthreads is False
+	assert ta.reserve_cpus == 0
+	assert ta.set_thread_env is False
+	assert ta.nested_thread_policy == "preserve_existing"
+	assert ta.ram_gb_per_task is None
+	assert ta.shm_gb_per_task is None
 
 
 def test_parse_resources_config_parses_explicit_task_allocation_block():
@@ -177,19 +190,22 @@ def test_parse_resources_config_parses_explicit_task_allocation_block():
 	}
 
 	parsed = parse_resources_config(runtime_config=RuntimeConfig(payload))
+	active = get_active_profile(parsed)
+	assert active is not None
+	ta = active.task_allocation
 
-	assert parsed.task_allocation.enabled is True
-	assert parsed.task_allocation.backend == "local_affinity"
-	assert parsed.task_allocation.task_unit == "well"
-	assert parsed.task_allocation.cpus_per_task == 4
-	assert parsed.task_allocation.tasks_per_node == "auto"
-	assert parsed.task_allocation.bind == "physical_cores"
-	assert parsed.task_allocation.use_hyperthreads is False
-	assert parsed.task_allocation.reserve_cpus == 2
-	assert parsed.task_allocation.set_thread_env is True
-	assert parsed.task_allocation.nested_thread_policy == "match_cpus_per_task"
-	assert parsed.task_allocation.ram_gb_per_task == pytest.approx(12.5)
-	assert parsed.task_allocation.shm_gb_per_task == pytest.approx(8.0)
+	assert ta.enabled is True
+	assert ta.backend == "local_affinity"
+	assert ta.task_unit == "well"
+	assert ta.cpus_per_task == 4
+	assert ta.tasks_per_node == "auto"
+	assert ta.bind == "physical_cores"
+	assert ta.use_hyperthreads is False
+	assert ta.reserve_cpus == 2
+	assert ta.set_thread_env is True
+	assert ta.nested_thread_policy == "match_cpus_per_task"
+	assert ta.ram_gb_per_task == pytest.approx(12.5)
+	assert ta.shm_gb_per_task == pytest.approx(8.0)
 
 
 @pytest.mark.parametrize(

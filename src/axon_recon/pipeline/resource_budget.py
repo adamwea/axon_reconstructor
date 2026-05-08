@@ -11,6 +11,7 @@ from .resources import (
 	SOURCE_H5_PATH_KEYED_RESOURCE,
 	ResourcesConfig,
 	estimate_phase_resource_class_capacity,
+	get_active_profile,
 	get_phase_keyed_resource_demands,
 	get_phase_resource_demand_units,
 	get_profile_budget_units,
@@ -59,9 +60,14 @@ class ResourceBudgetManager:
 			dimensions=RESOURCE_CAPACITY_DIMENSIONS,
 		)
 		self._available_slot_budget = dict(self._total_slot_budget)
+		_active_prof = get_active_profile(self.resources)
+		if _active_prof is not None and hasattr(_active_prof, "keyed_resource_limits"):
+			_keyed_limits = _active_prof.keyed_resource_limits
+		else:
+			_keyed_limits = self.resources._legacy_keyed_resource_limits
 		self._keyed_resource_limits = {
 			str(resource_name): max(1, int(limit.max_concurrent))
-			for resource_name, limit in self.resources.keyed_resource_limits.items()
+			for resource_name, limit in _keyed_limits.items()
 			if int(limit.max_concurrent) > 0
 		}
 		self._active_keyed_resource_counts: dict[str, dict[str, int]] = {}

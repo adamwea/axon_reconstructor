@@ -43,7 +43,7 @@ from .execution.phase_chain import PhaseDescriptor, run_phase_chain
 from .execution.progress import PipelineProgress, ProgressSpec, pipeline_progress_context
 from .execution.results import MultiTargetStageResult, TargetStageResult
 from .resource_budget import ResourceBudgetManager, stage_resource_budget_context
-from .resources import get_active_resource_profile, parse_resources_config
+from .resources import TaskAllocationConfig, get_active_profile, get_active_resource_profile, parse_resources_config
 from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
 from .stages.preprocess.api import (
 	run_preprocess,
@@ -359,7 +359,8 @@ def _attach_task_allocation_plan(
 		resources_config = parse_resources_config(runtime_config=bundle.runtime_config, logger=LOGGER)
 	except Exception:
 		return parallelism
-	task_config = resources_config.task_allocation
+	_active_prof = get_active_profile(resources_config)
+	task_config = _active_prof.task_allocation if _active_prof is not None else TaskAllocationConfig()
 	if task_allocation_override:
 		task_config = replace(task_config, **task_allocation_override)
 	if not bool(getattr(task_config, "enabled", False)):
@@ -1700,7 +1701,8 @@ def _resolve_preview_allocation_backend(
 		return str(getattr(plan, "backend", "local_affinity") or "local_affinity")
 	try:
 		resources_config = parse_resources_config(runtime_config=bundle.runtime_config, logger=LOGGER)
-		task_config = resources_config.task_allocation
+		_prof = get_active_profile(resources_config)
+		task_config = _prof.task_allocation if _prof is not None else TaskAllocationConfig()
 		if not bool(getattr(task_config, "enabled", False)):
 			return "none"
 		return str(getattr(task_config, "backend", "none") or "none")
