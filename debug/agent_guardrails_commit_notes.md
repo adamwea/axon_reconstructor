@@ -2201,3 +2201,4 @@ be96f51 | slice 7 [sonnet] | strip per-phase yaml parallelism knobs; Smoke I def
 82ed42c | hotfix [sonnet]   | fix LogRecord 'stage' collision in phase_parallelism event (unblocks mpirun.sh preprocess)
 32f76cb | cleanup [sonnet]  | drop per-phase cpu_cores; collapse onto cpus_per_task; remove dead phase_worker_count helpers
 78d409b | plan [sonnet]     | post-migration cleanup plan: 7 slices, file:line inventory, smoke matrix, out-of-scope appendix
+5b36eb9 | plan [sonnet]     | integrate survey findings: add Slice 7 (replace() bug + max_plotting_concurrency), §1.4-1.6 detail, dual-format log inventory
