@@ -602,6 +602,53 @@ def _phase_tune_has_scope_limits(args: argparse.Namespace) -> bool:
 	return False
 
 
+def _run_mpi_sample_worker_test(*, rank: int, size: int) -> None:
+	"""Run a sample worker test on this MPI rank to validate environment setup."""
+	import os
+	import sys
+	
+	from .cpu_allocation import _THREAD_ENV_VARS, TaskSlot, capture_sample_worker_environment
+	
+	if size <= 1:
+		return
+	
+	# Flush output to ensure each rank's message appears
+	sys.stdout.flush()
+	sys.stderr.flush()
+	
+	print("")
+	print(f"mpi_sample_worker_test: rank={rank}/{size}")
+	sys.stdout.flush()
+	
+	try:
+		# Create a minimal test task slot
+		topology = detect_cpu_topology()
+		test_cpus = tuple(range(min(2, len(topology.visible_cpus))))
+		test_cores = test_cpus
+		test_packages = tuple([0] * len(test_cpus))
+		
+		slot = TaskSlot(
+			slot_id=0,
+			logical_cpus=test_cpus,
+			core_ids=test_cores,
+			package_ids=test_packages,
+		)
+		
+		# Capture what environment would be set for this worker
+		env_state = capture_sample_worker_environment(slot, plan=None)
+		
+		print(f"  test_worker_slot: cpus={list(test_cpus)}")
+		if "error" not in env_state:
+			print(f"  thread_env: (parent process env)")
+			for var in _THREAD_ENV_VARS:
+				print(f"    {var}={os.environ.get(var, 'unset')}")
+		else:
+			print(f"  error: {env_state['error']}")
+	
+	except Exception as exc:
+		print(f"  error_spawning_test_worker: {exc}")
+
+
 def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 	stage_list = _parse_stage_list_tokens(list(getattr(args, "stages", []) or []))
 	logger = logging.getLogger("axon_recon.pipeline.stages")
@@ -609,23 +656,46 @@ def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 		task_allocation_override = _build_task_allocation_override_from_args(args)
 		if task_allocation_override and str(task_allocation_override.get("backend", "")).strip().lower() == "mpi":
 			mpi_ctx = current_mpi_context()
-			if mpi_ctx is not None and int(mpi_ctx.size) > 1 and int(mpi_ctx.rank) != 0:
-				return 0
-		print_stage_allocation_preview(
-			config_path=str(getattr(args, "config")),
-			stages=stage_list,
-			target_datasets_override=_parse_target_dataset_indices_from_args(args),
-			unit_id_override=getattr(args, "unit_id", None),
-			unit_ids_override=getattr(args, "unit_ids", None),
-			unit_limit_override=getattr(args, "limit_units", None),
-			limit_segments_override=getattr(args, "limit_segments", None),
-			limit_datasets_override=getattr(args, "limit_datasets", None),
-			limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
-			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
-			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
-			task_allocation_override=task_allocation_override,
-		)
-		return 0
+			# Rank 0 prints the main allocation preview for all ranks
+			if mpi_ctx is not None and int(mpi_ctx.size) > 1 and int(mpi_ctx.rank) == 0:
+				print_stage_allocation_preview(
+					config_path=str(getattr(args, "config")),
+					stages=stage_list,
+					target_datasets_override=_parse_target_dataset_indices_from_args(args),
+					unit_id_override=getattr(args, "unit_id", None),
+					unit_ids_override=getattr(args, "unit_ids", None),
+					unit_limit_override=getattr(args, "limit_units", None),
+					limit_segments_override=getattr(args, "limit_segments", None),
+					limit_datasets_override=getattr(args, "limit_datasets", None),
+					limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
+					force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+					force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+					task_allocation_override=task_allocation_override,
+				)
+			
+			# All ranks run their own sample worker test
+			_run_mpi_sample_worker_test(
+				rank=int(mpi_ctx.rank) if mpi_ctx is not None else 0,
+				size=int(mpi_ctx.size) if mpi_ctx is not None else 1,
+			)
+			return 0
+		else:
+			# Non-MPI backend
+			print_stage_allocation_preview(
+				config_path=str(getattr(args, "config")),
+				stages=stage_list,
+				target_datasets_override=_parse_target_dataset_indices_from_args(args),
+				unit_id_override=getattr(args, "unit_id", None),
+				unit_ids_override=getattr(args, "unit_ids", None),
+				unit_limit_override=getattr(args, "limit_units", None),
+				limit_segments_override=getattr(args, "limit_segments", None),
+				limit_datasets_override=getattr(args, "limit_datasets", None),
+				limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
+				force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
+				force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+				task_allocation_override=task_allocation_override,
+			)
+			return 0
 	if bool(getattr(args, "phase_tune", False)):
 		if not _phase_tune_has_scope_limits(args) and not bool(getattr(args, "confirm_full_scope", False)):
 			logger.error(
