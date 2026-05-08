@@ -82,7 +82,7 @@ No `cpu_cores` keys remain under `phase_budgets`. No `phase_resource_classes` bl
 
 ### 1.5 Dual-format parallelism logging
 
-The new `phase_parallelism` event from Slice 10 (emitted by `cpu_allocation.py:185`) co-exists with old log lines that still print `well_workers=… n_jobs=… n_jobs_source=…`. Cleanup is folded into Slice 1 (most sites) and Slice 8 (final allowlist drop):
+The new `phase_parallelism` event from migration-plan Slice 10 (emitted by `cpu_allocation.py:185`) co-exists with old log lines that still print `well_workers=… n_jobs=… n_jobs_source=…`. Cleanup is folded into cleanup-plan Slice 1 (most sites) and cleanup-plan Slice 10 (final allowlist drop):
 
 | File:Line | Old format still emitted |
 |---|---|
@@ -92,14 +92,33 @@ The new `phase_parallelism` event from Slice 10 (emitted by `cpu_allocation.py:1
 | `stages/preprocess/runner.py:1031-1041` | `Preprocess phase worker allocation … well_workers=%d n_jobs=%d n_jobs_source=%s phase_n_jobs=%d` |
 | `pipeline/logging/formatters.py:69` | `well_workers` in JSON allowlist (drop after the emit sites are dead) |
 
-### 1.6 Pre-existing stage-test failures (8, not 14 — survey corrected)
+### 1.6 Pre-existing stage-test failures (14 total — broader-sweep classification)
 
-Grouped by root cause; out-of-scope for this plan but each gets a one-line owner:
+Grouped by root cause and by which slice fixes each. Categories C1–C4 came from the focused reconstruct/preprocess sweep; the templates subtree adds another 6 to the picture once you run the broader test sweep.
 
-- **C1 — flat profile schema (1 test)**: `stages/reconstruct/tests/test_runner.py::test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_downstream_phases`. Fixture builds `profiles.<name>.cpu_cores:` flat; `resources.py:415` raises `ValueError("Profile is missing 'capacity' key")`. Fix: nest under `capacity:`.
-- **C2 — `replace()` on non-dataclass at `reconstruct/runner.py:1509` (4 tests, single root cause)**: `replace(inputs.templates_inputs, n_jobs=int(workers))` chokes when `inputs.templates_inputs` is None or a mock. Affects `test_reconstruct_combined_phase_sequence_runs_in_order`, `test_reconstruct_combined_phase_sequence_skips_clear_templates_cache_when_disabled`, `test_reconstruct_configured_copied_template_phase_sequence_runs_requested_order`, `test_run_reconstruct_generate_gtrs_phase_ignores_max_plotting_concurrency`. Fix: guard with `is_dataclass(inputs.templates_inputs)` before calling `replace`. **Real bug, not a fixture problem.** This is the highest-impact quick win after Slice 1.
-- **C3 — assertion drift (1 test)**: `stages/preprocess/tests/test_runner.py::test_run_preprocess_stage_logs_phase_start_per_well:843-847` asserts `phase_n_jobs=12`; runtime now clamps to 1 because slot_cpus=1 in the test. Update assertion.
-- **C4 — content drift (2 tests)**: `test_load_config_reconstruct_populates_templates_inputs_from_debug_runtime` asserts `v2.dpi == 220.0` but YAML ships `420.0`; `test_run_reconstruct_report_full_chip_layout_phase_writes_outputs:2013` asserts `units_successful == 2` but gets 1 (likely worker-count clamp side-effect — verify it's not C2-related).
+**Resolved by Slice 7 (replace() guard + max_plotting_concurrency deletion)** — 4 tests
+- `test_reconstruct_combined_phase_sequence_runs_in_order` — C2
+- `test_reconstruct_combined_phase_sequence_skips_clear_templates_cache_when_disabled` — C2
+- `test_reconstruct_configured_copied_template_phase_sequence_runs_requested_order` — C2
+- `test_run_reconstruct_generate_gtrs_phase_ignores_max_plotting_concurrency` — C2 + dead field. **Test deleted with the field.**
+
+**Resolved by Slice 8 (stage test fixture migration)** — 5 tests
+- `stages/reconstruct/tests/test_runner.py::test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_downstream_phases` — C1: flat profile fixture; also retarget `"resource_class.cpu_cores"` → `"resource_class.cpus_per_task"` source string.
+- `stages/preprocess/tests/test_runner.py::test_run_preprocess_stage_logs_phase_start_per_well:843-847` — C3: asserts `phase_n_jobs=12`; runtime now clamps to 1. Update assertion (or delete if Slice 1 retired the log line).
+- `stages/reconstruct/tests/test_config.py::test_load_config_reconstruct_populates_templates_inputs_from_debug_runtime` — C4: asserts `v2.dpi == 220.0` against live `debug.runtime.yml:1537` which now ships `420`. Rewrite to use a pinned fixture YAML instead of the live runtime.
+- `stages/reconstruct/tests/test_runner.py::test_run_reconstruct_report_full_chip_layout_phase_writes_outputs:2013` — C4 follow-up: asserts `units_successful == 2`, gets 1. Verify this clears after Slice 7 lands; if not, fix in Slice 8.
+- `stages/reconstruct/templates/tests/test_runner.py::test_run_reconstruct_templates_build_templates_phase_uses_unit_workers` — phase-sequence fixture drift; needs `nested_shape: unit_workers` vocabulary.
+- `stages/reconstruct/templates/tests/test_config.py::test_load_templates_config_parses_plot_templates_v2_phase_block` — YAML parser test for the v2 block; either parser changed shape or fixture is stale.
+
+**Resolved by Slice 9 (spikeinterface_extract compat audit)** — 4 tests
+- `stages/reconstruct/templates/tests/test_spikeinterface_extract.py::test_build_unit_source_payload_expands_to_all_waveforms_when_unlimited`
+- `stages/reconstruct/templates/tests/test_spikeinterface_extract.py::test_build_unit_source_payload_forwards_waveform_window_on_recompute`
+- `stages/reconstruct/templates/tests/test_spikeinterface_extract.py::test_build_unit_source_payload_forwards_random_spikes_policy_on_recompute`
+- `stages/reconstruct/templates/tests/test_spikeinterface_extract.py::test_build_unit_source_payload_retries_without_compat_only_kwargs`
+
+These all exercise the `compat_only_kwargs` retry path against `SortingAnalyzer.compute(...)`. Likely root cause: spikeinterface upstream API drift; production retry guard needs an audit. **Don't delete** — `build_unit_source_payload` is load-bearing for analyzers and extract_partial_templates.
+
+After Slices 7–9, all 14 should be green. Verify with `pytest src/axon_recon/pipeline/stages/ -q`.
 
 ---
 
@@ -142,7 +161,7 @@ Classify each hit as: `delete`, `replace-with-budget-manager`, `keep-as-runtime-
 **B. Edits**:
 - `pipeline/config.py:329-386` — delete `resolve_stage_parallelism` entirely. If something needs `unit_workers` for fallback, expose a one-liner `default_inner_workers(stage_config)` that returns 1.
 - `pipeline/runner.py:280-313` — delete `_resolve_runtime_stage_parallelism` (or simplify to just `_attach_task_allocation_plan`). Remove the three-branch try/except.
-- `pipeline/runner.py:248-274, 752, 808, 844-848, 910-913, 2173, 2839, 2842` — strip log lines that emit `parallelism.well_workers`/`unit_workers`. Slice 10's `phase_parallelism` event already covers the structured telemetry; these are dead duplicates.
+- `pipeline/runner.py:248-274, 752, 808, 844-848, 910-913, 2173, 2839, 2842` — strip log lines that emit `parallelism.well_workers`/`unit_workers`. Migration-plan Slice 10's `phase_parallelism` event already covers the structured telemetry; these are dead duplicates.
 - `pipeline/runner.py:914-919` — drop the `n_jobs_source` literal mapping (`"derived"`/`"configured"`/`"serial"`); replace with the canonical `slot.cpu_count` / `phase_cap` / `yaml_n_jobs_override` source from `current_phase_worker_allocation` (see Slice 5).
 - `execution/context.py:24-32` — drop `well_workers` and `unit_workers` from `StageParallelism`. If only `task_allocation_plan` survives, fold into `TaskAllocationPlan`.
 - `pipeline/resources.py:643` — delete `get_max_phase_resource_demands` if no caller remains after the above.
@@ -330,7 +349,76 @@ Add `from dataclasses import is_dataclass` to the imports if missing. This unblo
 
 ---
 
-### Slice 8 — Update `parallelism_agent_guardrails.md`
+### Slice 8 — Stage test fixture migration (mechanical drift fixes)
+
+**Goal**: clear the mechanical drift in stage tests so the fail list is honest about what's actually broken. After Slice 7 lands, ~9 stage-test failures remain; this slice fixes the ones that are pure fixture/assertion drift (no production-code change needed).
+
+**A. Schema-nest fix (1 test, C1)**:
+- `stages/reconstruct/tests/test_runner.py::test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_downstream_phases` — change the inline YAML fixture so `profiles.<name>.cpu_cores: N` becomes `profiles.<name>.capacity.cpu_cores: N`. Also retarget the source-string assertions: `"resource_class.cpu_cores"` → `"resource_class.cpus_per_task"` (matches `current_phase_worker_allocation`'s relabel from `32f76cb`).
+
+**B. Assertion drift (1 test, C3)**:
+- `stages/preprocess/tests/test_runner.py::test_run_preprocess_stage_logs_phase_start_per_well` — assertion `phase_n_jobs=12` is stale; runtime correctly clamps to 1 because `slot_cpus=1` in the test env. Update to `phase_n_jobs=1`.
+  - **Note**: if cleanup plan Slice 1 retires the old `Preprocess phase worker allocation … well_workers=… n_jobs=… n_jobs_source=… phase_n_jobs=…` log line entirely, this test should be deleted instead. Land Slice 1 first; if the log line is gone, drop this test in Slice 8 instead of patching the assertion.
+
+**C. Live-config dependency (1 test, C4)**:
+- `stages/reconstruct/tests/test_config.py::test_load_config_reconstruct_populates_templates_inputs_from_debug_runtime` — currently asserts `v2.dpi == 220.0` against `debug/debug.runtime.yml:1537` which now ships `dpi: 420`. Don't just bump the assertion to 420 — that re-rots the next time anyone tunes the live config. Rewrite the test to either (a) load a stable fixture YAML pinned in the test directory with known values, or (b) bind the dpi-comparison value via `RuntimeConfig.load(debug.runtime.yml).get_templates_dpi()` so the test verifies plumbing, not a specific number.
+
+**D. C4 follow-up (1 test, verify after Slice 7)**:
+- `stages/reconstruct/tests/test_runner.py::test_run_reconstruct_report_full_chip_layout_phase_writes_outputs:2013` — asserts `units_successful == 2`, gets 1. Probably the same `replace()` root cause as C2; re-run after Slice 7 lands. If still red, then it's a separate worker-clamp side effect — investigate and fix in this slice. If it passes after Slice 7, no action needed.
+
+**E. Vocabulary/fixture drift (2 tests in templates/tests)**:
+- `stages/reconstruct/templates/tests/test_runner.py::test_run_reconstruct_templates_build_templates_phase_uses_unit_workers` — likely needs the test's phase-sequence fixture updated to the new `nested_shape: unit_workers` vocabulary. Read the test, identify what assumption broke, fix.
+- `stages/reconstruct/templates/tests/test_config.py::test_load_templates_config_parses_plot_templates_v2_phase_block` — YAML parser test for the v2 block. Either the parser changed shape post-migration or the fixture is stale; one read of each should make it obvious.
+
+**Acceptance**:
+- After Slice 7 + Slice 8, `pytest src/axon_recon/pipeline/stages/ -q` shows at most the 4 spikeinterface_extract failures (handled in Slice 9).
+- `pipeline/tests/` still 457 passed.
+- Each fixture change is a one-test commit unit (don't bundle); 5–6 small commits or one commit if all share the same shape — author's choice.
+
+**Commit**: `claude: migrate stale stage test fixtures to post-migration schema (cleanup slice 8)`
+
+---
+
+### Slice 9 — Templates `spikeinterface_extract` compat audit
+
+**Goal**: the four `test_build_unit_source_payload_*` failures in `stages/reconstruct/templates/tests/test_spikeinterface_extract.py` exercise the `compat_only_kwargs` retry path that guards against version drift in `spikeinterface.SortingAnalyzer.compute(...)`. They've been failing since before slice 11. Don't delete — the `build_unit_source_payload` path is load-bearing for analyzers and extract_partial_templates. This slice diagnoses and fixes.
+
+**A. Inventory the 4 tests**:
+- `test_build_unit_source_payload_expands_to_all_waveforms_when_unlimited`
+- `test_build_unit_source_payload_forwards_waveform_window_on_recompute`
+- `test_build_unit_source_payload_forwards_random_spikes_policy_on_recompute`
+- `test_build_unit_source_payload_retries_without_compat_only_kwargs`
+
+**B. Diagnose**:
+```bash
+conda run -n axon_recon python -m pytest \
+  src/axon_recon/pipeline/stages/reconstruct/templates/tests/test_spikeinterface_extract.py -q --tb=short
+conda run -n axon_recon python -c "import spikeinterface; print(spikeinterface.__version__)"
+conda run -n axon_recon python -c "from spikeinterface.core.sortinganalyzer import SortingAnalyzer; help(SortingAnalyzer.compute)" | head -40
+```
+Identify which kwarg the production retry path branches on and what spikeinterface accepts now. Possible root causes:
+
+- Fixture stale — bump expected kwargs to match current SI signature.
+- Real compat path is broken — the `compat_only_kwargs` retry guards against a SI version we no longer support; reduce or update the guard set in `templates/core/spikeinterface_extract.py` (or wherever the retry lives).
+- SI changed its API mid-release and the production code needs an update too.
+
+**C. Fix**:
+- If fixture-only: update test fixtures + assertions, no production change.
+- If production path needs to evolve: pinch out the dead branch (the SI version it guarded against is no longer supported) and simplify, or update the retry to match new SI shape.
+
+**D. Acceptance**:
+- All 4 `test_build_unit_source_payload_*` tests pass.
+- A targeted real-data smoke (analyzer build + extract_partial_templates) confirms no regression:
+  ```bash
+  axon-recon-container --no-build --gpus all stages reconstruct.analyzers reconstruct.extract_partial_templates \
+    --config debug/debug.runtime.yml --target-dataset 11,12 --limit-wells 1 --limit-segments 2
+  ```
+
+**Commit**: `claude: audit and repair spikeinterface_extract compat path (cleanup slice 9)`
+
+---
+
+### Slice 10 — Update `parallelism_agent_guardrails.md`
 
 **Goal**: lock the contract doc to the post-cleanup vocabulary. Each prior slice was supposed to update this doc inline, but several slices are pending (slices 1–4 of *this* plan introduce vocabulary changes, e.g. removing `well_workers`).
 
@@ -342,11 +430,11 @@ Add `from dataclasses import is_dataclass` to the imports if missing. This unblo
 **B. Acceptance**:
 - The grep `git grep -nE "well_workers|max_stage_workers|divide_stage_workers|resolve_stage_parallelism" debug/parallelism_agent_guardrails.md` returns only `## Banned Vocabulary` mentions.
 
-**Commit**: `claude: lock guardrails doc to post-cleanup vocabulary (cleanup slice 8)`
+**Commit**: `claude: lock guardrails doc to post-cleanup vocabulary (cleanup slice 10)`
 
 ---
 
-## 4. Smoke Matrix (rerun after slices 1, 2, 4, 7)
+## 4. Smoke Matrix (rerun after slices 1, 2, 4, 7, 9)
 
 ```bash
 # A. Direct preprocess via mpirun (already passing post-82ed42c)
@@ -373,7 +461,7 @@ Verify in each: `phase_parallelism` log lines exist for every fanout site; `effe
 
 ---
 
-## 5. Cleanup Checklist (post-Slice 8)
+## 5. Cleanup Checklist (post-Slice 10)
 
 ```bash
 # (a) No banned vocabulary in non-test code
@@ -401,12 +489,8 @@ git grep -nE "well_workers|max_stage_workers|divide_stage_workers" debug/paralle
 
 ## 6. Out of Scope (filed for the next planner)
 
-- **Reconstruct stage test rot** (14 failures listed in §1.4). Stale fixtures use the flat profile schema or rely on removed `phase_resource_classes` plumbing. A separate "test fixture migration" slice should:
-  1. Walk the failing fixtures.
-  2. Convert flat profiles to `capacity:` nested schema.
-  3. Replace `phase_resource_classes` keys with `phase_budgets`.
-  4. Re-run.
-- **`reconstruct/runner.py:1509` `replace()` bug**. Independent of the migration; the input mock yields a non-dataclass `templates_inputs`, and `dataclasses.replace` chokes. Needs a real fix in either the test fixture or the runner.
+- ~~**Reconstruct stage test rot**~~ — superseded by Slice 8 (mechanical fixture/assertion drift) and Slice 9 (spikeinterface_extract compat audit).
+- ~~**`reconstruct/runner.py:1509` `replace()` bug**~~ — superseded by Slice 7 (the guard goes in alongside the `max_plotting_concurrency` field deletion).
 - **Container + mpirun "runs double"**. Each `mpirun -np 2 axon-recon-container` spawns two independent containers each with `MPI_COMM_WORLD` of size 1. Either fix MPI passthrough (`--ipc=host`, PMIx mounts) or document that container is single-rank only and use mpirun directly with the host axon-recon for multi-rank work. Strategy options captured in `debug/container_mpi_strategy_note.md`; recommendation is to stay on Option C (single-rank container for sort, host mpirun for everything else) until lab patterns force a change.
 
 - **Retire `plot_templates` (v1) phase**. The `plot_templates_v2` phase replaces it; v1 is commented out of `debug/debug.runtime.yml` phase_sequence (line 1125) but the YAML block at lines 1406+, the parser, and the runner all still exist for v1. A future cleanup slice should:
@@ -423,7 +507,7 @@ git grep -nE "well_workers|max_stage_workers|divide_stage_workers" debug/paralle
 
 This cleanup is complete when:
 
-1. The 8 slices above are merged in order, each with passing acceptance checks.
+1. The 10 slices above are merged in order, each with passing acceptance checks.
 2. `pipeline/tests/` still passes 457 tests after every slice.
 3. `parallelism_agent_guardrails.md` matches the post-cleanup vocabulary exactly.
 4. The cleanup checklist (§5) commands all return clean.
