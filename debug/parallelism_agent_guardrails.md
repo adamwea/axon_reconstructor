@@ -27,6 +27,14 @@ This document defines the expected behavior for well, dataset, segment, unit, re
 - Discrete resources must be gated during phase execution, not just estimated during planning.
 - Unit and segment workers must be resolved explicitly and logged clearly.
 
+Each phase resource class declares a `nested_shape` that describes how inner CPUs are spent within a task slot:
+- `si_njobs` — SpikeInterface `n_jobs` fanout (parallel SI compute across recordings/segments).
+- `segment_workers` — a `ThreadPoolExecutor` with one worker per segment; each worker holds one segment analyzer.
+- `unit_workers` — a `ThreadPoolExecutor` with one worker per unit; workers read from completed segment-level outputs.
+- `serial` — single-threaded; always 1 inner worker regardless of slot size.
+
+The per-phase `cpus_per_task` field is OPTIONAL and acts as a cap on the inner thread count. When absent, the phase inherits `task_allocation.cpus_per_task` from the active profile. A phase with `nested_shape: serial` always runs 1 thread, ignoring `cpus_per_task` entirely.
+
 Parallelism must be understandable from logs. Every phase that launches work should make effective worker counts, resource class, and any active keyed resources visible in logs or phase summaries.
 
 ## Resource And Slot Guardrails

@@ -76,6 +76,9 @@ class KeyedResourceLimitConfig:
 	applies_to: tuple[str, ...] = ()
 
 
+_VALID_NESTED_SHAPES = {"si_njobs", "segment_workers", "unit_workers", "serial"}
+
+
 @dataclass(frozen=True)
 class PhaseResourceClassConfig:
 	description: str | None = None
@@ -88,6 +91,8 @@ class PhaseResourceClassConfig:
 	plot_slots: int = 0
 	analyzer_slots: int = 0
 	keyed_resources: dict[str, int] = field(default_factory=dict)
+	nested_shape: str = "serial"
+	cpus_per_task: int | None = None
 
 
 @dataclass(frozen=True)
@@ -300,6 +305,16 @@ def _parse_keyed_resource_demands(raw: Any) -> dict[str, int]:
 
 def _parse_phase_resource_class(raw: Any) -> PhaseResourceClassConfig:
 	block = _as_mapping(raw)
+	nested_shape = str(block.get("nested_shape", "serial"))
+	if nested_shape not in _VALID_NESTED_SHAPES:
+		raise ValueError(
+			f"nested_shape {nested_shape!r} is not valid; "
+			f"must be one of {sorted(_VALID_NESTED_SHAPES)}"
+		)
+	raw_cpus = block.get("cpus_per_task", None)
+	phase_cpus_per_task: int | None = None
+	if raw_cpus is not None:
+		phase_cpus_per_task = max(1, _as_int(raw_cpus, 1))
 	return PhaseResourceClassConfig(
 		description=_as_optional_name(block.get("description", block.get("note", None))),
 		bottleneck=_as_optional_name(block.get("bottleneck", None)),
@@ -313,6 +328,8 @@ def _parse_phase_resource_class(raw: Any) -> PhaseResourceClassConfig:
 		keyed_resources=_parse_keyed_resource_demands(
 			block.get("keyed_resources", block.get("keyed_locks", {}))
 		),
+		nested_shape=nested_shape,
+		cpus_per_task=phase_cpus_per_task,
 	)
 
 

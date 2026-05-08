@@ -70,6 +70,7 @@ resources:
       cpu_cores: 1
       ram_gb: 4
       h5_read_slots: 1
+      nested_shape: serial
       keyed_resources:
         source_h5_path: 1
     h5_to_binary:
@@ -79,6 +80,7 @@ resources:
       ram_gb: 16
       h5_read_slots: 1
       disk_heavy_slots: 1
+      nested_shape: si_njobs
       keyed_resources:
         source_h5_path: 1
     preprocess_segments:
@@ -88,6 +90,7 @@ resources:
       ram_gb: 24
       h5_read_slots: 1
       disk_heavy_slots: 1
+      nested_shape: si_njobs
       keyed_resources:
         source_h5_path: 1
     bootstrap_concat_binary:
@@ -96,6 +99,7 @@ resources:
       cpu_cores: 6
       ram_gb: 24
       disk_heavy_slots: 1
+      nested_shape: si_njobs
       keyed_resources:
         source_h5_path: 1
     kilosort4:
@@ -105,6 +109,7 @@ resources:
       ram_gb: 32
       gpu_sort_slots: 1
       disk_heavy_slots: 1
+      nested_shape: si_njobs
     spikeinterface_analyzer_concat:
       description: SpikeInterface analyzer, waveform, template, sparsity, or curation work.
       bottleneck: ram_cpu_disk_io
@@ -112,6 +117,7 @@ resources:
       ram_gb: 48
       analyzer_slots: 1
       disk_heavy_slots: 1
+      nested_shape: si_njobs
     spikeinterface_analyzer_segment:
       description: SpikeInterface analyzer work that can be done at the segment level before concatenation, such as per-segment quality metrics or representative channel scoring.
       bottleneck: ram_cpu_disk_io
@@ -119,6 +125,7 @@ resources:
       ram_gb: 25
       analyzer_slots: 1
       disk_heavy_slots: 1
+      nested_shape: si_njobs
       keyed_resources:
         source_h5_path: 1
     template_build:
@@ -126,29 +133,35 @@ resources:
       bottleneck: cpu_memory_light
       cpu_cores: 6
       ram_gb: 8
+      nested_shape: unit_workers
     axon_reconstruction:
       description: Axon reconstruction, GTR generation, branch extraction, or unit-level reconstruction math.
       bottleneck: cpu_memory_light
       cpu_cores: 2
       ram_gb: 8
+      nested_shape: unit_workers
     plot_unit:
       description: Per-unit plotting or matplotlib-heavy rendering.
       bottleneck: plotting_memory
       cpu_cores: 4
       ram_gb: 8
       plot_slots: 1
+      nested_shape: unit_workers
+      cpus_per_task: 4
     plot_report_grid:
       description: Large report, grid, PDF, summary, or full-chip plotting.
       bottleneck: plotting_memory_heavy
       cpu_cores: 4
       ram_gb: 48
       plot_slots: 1
+      nested_shape: serial
     disk_cleanup:
       description: Cleanup/deletion of generated intermediate files.
       bottleneck: disk_metadata_io
       cpu_cores: 1
       ram_gb: 4
       disk_heavy_slots: 1
+      nested_shape: serial
   defaults:
     chunk_duration: 1s
 
