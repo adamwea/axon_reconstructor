@@ -2158,7 +2158,7 @@ def _format_sample_worker_environment(
 	"""Format the environment that would be set for sample workers."""
 	lines = []
 	backend = str(allocation_backend or "none").strip().lower()
-	
+
 	# If no plan, check for MPI backend
 	if plan is None:
 		if backend == "mpi":
@@ -2167,29 +2167,29 @@ def _format_sample_worker_environment(
 			lines.append("  (mpi backend, no local task slots)")
 			lines.append("  each rank partitions targets independently")
 		return lines
-	
+
 	# If plan has slots, spawn sample worker for each
 	if plan.slots:
 		lines.append("")
 		lines.append("sample_worker_environment_preview:")
-		
+
 		for slot in plan.slots:
 			env_state = capture_sample_worker_environment(
 				slot,
 				plan=plan,
 			)
-			
+
 			lines.append(f"  slot[{slot.slot_id}]:")
-			
+
 			if "error" in env_state:
 				lines.append(f"    error: {env_state['error']}")
 				continue
-			
+
 			if "cpu_affinity" in env_state:
 				lines.append(f"    cpu_affinity: {env_state['cpu_affinity']}")
 			if "cpu_count" in env_state:
 				lines.append(f"    cpu_count: {env_state['cpu_count']}")
-			
+
 			if "thread_env" in env_state:
 				thread_vars = env_state["thread_env"]
 				set_vars = {k: v for k, v in thread_vars.items() if v is not None}
@@ -2197,7 +2197,7 @@ def _format_sample_worker_environment(
 					lines.append(f"    thread_env: {' '.join(f'{k}={v}' for k, v in sorted(set_vars.items()))}")
 				else:
 					lines.append("    thread_env: (preserved from parent)")
-	
+
 	return lines
 
 

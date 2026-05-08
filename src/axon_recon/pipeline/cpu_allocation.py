@@ -357,20 +357,20 @@ def capture_sample_worker_environment(
 	plan: Any | None = None,
 ) -> dict[str, str]:
 	"""Capture what environment would be set for a sample worker in this slot.
-	
+
 	Enters the task allocation contexts and captures the resulting environment state.
 	Used for validation during --alloc preview mode.
 	"""
 	if plan is None:
 		return {}
-	
+
 	apply_affinity = bool(
 		str(getattr(plan, "backend", "none")) == "local_affinity"
 		and str(getattr(plan, "bind", "none")) != "none"
 	)
 	set_thread_env = bool(getattr(plan, "set_thread_env", False))
 	thread_policy = str(getattr(plan, "nested_thread_policy", "preserve_existing") or "preserve_existing")
-	
+
 	captured = {}
 	try:
 		with task_slot_affinity_context(
@@ -390,7 +390,7 @@ def capture_sample_worker_environment(
 				captured["slot_id"] = int(slot.slot_id)
 	except Exception as exc:
 		captured["error"] = str(exc)
-	
+
 	return captured
 
 
