@@ -337,6 +337,12 @@ def _parse_int_or_auto(raw: str) -> int | str:
 def _register_task_allocation_override_arguments(parser: argparse.ArgumentParser) -> None:
 	"""Add optional task-allocation override flags that map onto TaskAllocationConfig fields."""
 	parser.add_argument(
+		"--task-profile",
+		default=None,
+		dest="active_profile_override",
+		help="Override the active machine profile (must match a name under resources.profiles).",
+	)
+	parser.add_argument(
 		"--task-backend",
 		default=None,
 		dest="task_allocation_backend",
@@ -822,6 +828,7 @@ def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 			nested_args = argparse.Namespace(**vars(args))
 			nested_args.stage = stage_name
 			nested_args.task_allocation_override = _build_task_allocation_override_from_args(args)
+			nested_args.active_profile_override = getattr(args, "active_profile_override", None)
 			rc = int(handler(nested_args))
 			if rc != 0:
 				logger.error("stages: stage %s failed with code %d", stage_name, rc, extra={"event": "stage_failed"})

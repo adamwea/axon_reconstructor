@@ -9,6 +9,7 @@ This document defines the expected behavior for well, dataset, segment, unit, re
 - Commit frequently after each coherent accepted slice, using an `ai:` prefix in the commit subject.
 - Update `debug/agent_guardrails_commit_notes.md` after every AI commit.
 - Run focused tests plus real-data smoke tests when touching parallelism, resource budgeting, keyed resources, worker allocation, logging, progress, subprocess behavior, or stage dispatch.
+- Supported task-allocation CLI overrides: `--task-profile <name>` (switches active machine profile), `--task-backend {local_affinity,mpi,none}` (overrides backend), `--cpus-per-task <int>` (overrides slot size). These flags override the YAML for the current run only; they never mutate the YAML file.
 - Start with 1 dataset, 1 well, 2 segments, and a few units when validating ordinary behavior.
 - Use at least 2 wells when validating well-worker concurrency.
 - Use up to 2 datasets with 2 wells per dataset when dataset/well interaction, keyed H5 limits, or log interleaving matters.

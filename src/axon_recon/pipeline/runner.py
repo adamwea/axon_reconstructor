@@ -282,6 +282,7 @@ def _resolve_runtime_stage_parallelism(
 	targets: list[Any] | None = None,
 	phase_resource_classes: list[str] | tuple[str, ...] | None = None,
 	task_allocation_override: dict[str, Any] | None = None,
+	active_profile_override: str | None = None,
 ):
 	try:
 		parallelism = resolve_stage_parallelism(
@@ -309,6 +310,7 @@ def _resolve_runtime_stage_parallelism(
 			parallelism=parallelism,
 			target_count=int(target_count),
 			task_allocation_override=task_allocation_override,
+			active_profile_override=active_profile_override,
 		)
 	read_cap = getattr(parallelism, "max_simultaneous_well_reads_per_dataset", None)
 	keyed_read_cap: int | None = None
@@ -326,6 +328,7 @@ def _resolve_runtime_stage_parallelism(
 		target_count=int(target_count),
 		keyed_read_cap=keyed_read_cap,
 		task_allocation_override=task_allocation_override,
+		active_profile_override=active_profile_override,
 	)
 
 
@@ -352,6 +355,7 @@ def _attach_task_allocation_plan(
 	target_count: int,
 	keyed_read_cap: int | None = None,
 	task_allocation_override: dict[str, Any] | None = None,
+	active_profile_override: str | None = None,
 ) -> Any:
 	if not callable(getattr(getattr(bundle, "runtime_config", None), "get", None)):
 		return parallelism
@@ -359,6 +363,13 @@ def _attach_task_allocation_plan(
 		resources_config = parse_resources_config(runtime_config=bundle.runtime_config, logger=LOGGER)
 	except Exception:
 		return parallelism
+	if active_profile_override is not None:
+		profile_name = str(active_profile_override).strip()
+		if profile_name not in resources_config.profiles:
+			raise ValueError(
+				f"resources.active_profile references an undefined profile: {profile_name!r}"
+			)
+		resources_config = replace(resources_config, active_profile=profile_name)
 	_active_prof = get_active_profile(resources_config)
 	task_config = _active_prof.task_allocation if _active_prof is not None else TaskAllocationConfig()
 	if task_allocation_override:

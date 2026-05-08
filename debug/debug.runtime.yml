@@ -55,6 +55,28 @@ resources:
             - preprocess_segments
             - bootstrap_concat_binary
             - spikeinterface_analyzer_segment
+    perlmutter_cpu:
+      capacity:
+        cpu_cores: 128
+        ram_gb: 256
+        gpu_sort_slots: 0
+        h5_read_slots: 8
+        disk_heavy_slots: 16
+        plot_slots: 4
+        analyzer_slots: 4
+      task_allocation:
+        enabled: true
+        backend: mpi
+        task_unit: well
+        cpus_per_task: 16
+        bind: physical_cores
+        use_hyperthreads: false
+        reserve_cpus: 0
+        set_thread_env: true
+        nested_thread_policy: match_cpus_per_task
+      keyed_resource_limits:
+        source_h5_path:
+          max_concurrent: 1
   phase_budgets:
     h5_metadata:
       description: Light HDF5 metadata and small file reads.
