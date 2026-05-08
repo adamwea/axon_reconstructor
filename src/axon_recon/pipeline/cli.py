@@ -602,10 +602,11 @@ def _phase_tune_has_scope_limits(args: argparse.Namespace) -> bool:
 	return False
 
 
-def _run_mpi_sample_worker_test(*, rank: int, size: int) -> None:
+def _run_mpi_sample_worker_test(*, rank: int, size: int, config_path: str | None = None) -> None:
 	"""Run a sample worker test on this MPI rank to validate environment setup."""
 	import os
 	import sys
+	from types import SimpleNamespace
 
 	from .cpu_allocation import _THREAD_ENV_VARS, TaskSlot, capture_sample_worker_environment
 
@@ -621,9 +622,10 @@ def _run_mpi_sample_worker_test(*, rank: int, size: int) -> None:
 	sys.stdout.flush()
 
 	try:
-		# Create a minimal test task slot
+		# Detect full topology for this rank (reflects mpirun --bind-to affinity)
 		topology = detect_cpu_topology()
-		test_cpus = tuple(range(min(2, len(topology.visible_cpus))))
+		visible_cpus = tuple(topology.visible_cpus)
+		test_cpus = visible_cpus if visible_cpus else (0,)
 		test_cores = test_cpus
 		test_packages = tuple([0] * len(test_cpus))
 
@@ -634,18 +636,38 @@ def _run_mpi_sample_worker_test(*, rank: int, size: int) -> None:
 			package_ids=test_packages,
 		)
 
-		# Capture what environment would be set for this worker
-		env_state = capture_sample_worker_environment(slot, plan=None)
+		# Read task_allocation config to know set_thread_env / nested_thread_policy
+		synthetic_plan: object | None = None
+		if config_path is not None:
+			try:
+				from pathlib import Path
+				from axon_recon.runtime_config import RuntimeConfig
+				from .resources import parse_resources_config
+				_runtime_cfg = RuntimeConfig.load(Path(config_path).expanduser().resolve())
+				_res_cfg = parse_resources_config(runtime_config=_runtime_cfg, logger=None)
+				_task_cfg = _res_cfg.task_allocation
+				synthetic_plan = SimpleNamespace(
+					set_thread_env=bool(_task_cfg.set_thread_env),
+					nested_thread_policy=str(_task_cfg.nested_thread_policy or "preserve_existing"),
+					backend="mpi",
+					bind="none",
+				)
+			except Exception:
+				pass
 
-		print(f"  test_worker_slot: cpus={list(test_cpus)}")
+		# Capture what environment would be set for this rank's worker
+		env_state = capture_sample_worker_environment(slot, plan=synthetic_plan)
+
+		print(f"  visible_cpus: {list(test_cpus)} ({len(test_cpus)} total)")
 		if "error" not in env_state:
-			any_set = any(os.environ.get(var) is not None for var in _THREAD_ENV_VARS)
+			thread_env = env_state.get("thread_env", {})
+			any_set = any(v is not None for v in thread_env.values())
 			if any_set:
-				print("  thread_env:")
-				for var in _THREAD_ENV_VARS:
-					print(f"    {var}={os.environ.get(var, 'unset')}")
+				print("  thread_env (would set):")
+				for var, val in thread_env.items():
+					print(f"    {var}={val if val is not None else 'unset'}")
 			else:
-				print("  thread_env: (not set — with MPI backend, pass via mpirun -x flags if needed)")
+				print("  thread_env: (not configured — set resources.task_allocation.set_thread_env: true)")
 		else:
 			print(f"  error: {env_state['error']}")
 
@@ -681,6 +703,7 @@ def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 			_run_mpi_sample_worker_test(
 				rank=int(mpi_ctx.rank) if mpi_ctx is not None else 0,
 				size=int(mpi_ctx.size) if mpi_ctx is not None else 1,
+				config_path=str(getattr(args, "config", None) or "") or None,
 			)
 			return 0
 		else:

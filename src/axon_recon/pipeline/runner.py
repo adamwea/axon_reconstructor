@@ -372,7 +372,13 @@ def _attach_task_allocation_plan(
 		available_shm_gb=_available_shm_gb(),
 	)
 	if plan is None:
-		return parallelism
+		# MPI backend (or other non-local backends) produce no local task slots, but still
+		# propagate thread-env settings so _distribute_runtime_targets can apply them per rank.
+		return replace(
+			parallelism,
+			set_thread_env=bool(task_config.set_thread_env),
+			nested_thread_policy=str(task_config.nested_thread_policy or "preserve_existing"),
+		)
 	if int(target_count) > 0 and not plan.slots:
 		raise ValueError(
 			"Task allocation is enabled but produced no available task slots. "
@@ -601,9 +607,40 @@ def _distribute_runtime_targets(
 		and str(getattr(plan, "backend", "none")) == "local_affinity"
 		and str(getattr(plan, "bind", "none")) != "none"
 	)
-	_plan_set_thread_env = bool(getattr(plan, "set_thread_env", False)) if plan is not None else False
-	_plan_thread_policy = str(getattr(plan, "nested_thread_policy", "preserve_existing") or "preserve_existing") if plan is not None else "preserve_existing"
+	_plan_set_thread_env = (
+		bool(getattr(plan, "set_thread_env", False)) if plan is not None
+		else bool(getattr(parallelism, "set_thread_env", False))
+	)
+	_plan_thread_policy = (
+		str(getattr(plan, "nested_thread_policy", "preserve_existing") or "preserve_existing") if plan is not None
+		else str(getattr(parallelism, "nested_thread_policy", "preserve_existing") or "preserve_existing")
+	)
 	_plan_cpus_per_task = int(getattr(plan, "cpus_per_task", 1)) if plan is not None else 1
+
+	# For MPI backend (plan is None), apply thread env once per rank based on affinity-visible CPUs.
+	# Each MPI rank is bound to its own CPU set; detect_cpu_topology() reflects that binding.
+	# We apply vars here and skip the per-target apply_thread_env_context to avoid slot=None → count=1.
+	_mpi_thread_env_applied = False
+	if (
+		mpi_context is not None
+		and int(getattr(mpi_context, "size", 1)) > 1
+		and plan is None
+		and bool(_plan_set_thread_env)
+		and str(_plan_thread_policy) in ("match_cpus_per_task", "force_1")
+	):
+		_mpi_topology = detect_cpu_topology(logger=LOGGER)
+		_mpi_thread_count = _mpi_topology.logical_cpu_count if str(_plan_thread_policy) == "match_cpus_per_task" else 1
+		for _var in _THREAD_ENV_VARS:
+			os.environ[_var] = str(_mpi_thread_count)
+		LOGGER.info(
+			"mpi thread env applied: rank=%d policy=%s count=%d vars=%s",
+			int(getattr(mpi_context, "rank", 0)),
+			str(_plan_thread_policy),
+			int(_mpi_thread_count),
+			" ".join(f"{v}={_mpi_thread_count}" for v in _THREAD_ENV_VARS),
+			extra={"event": "mpi_thread_env_applied", "mpi_thread_count": int(_mpi_thread_count)},
+		)
+		_mpi_thread_env_applied = True
 
 	def _worker_thread_env_str(slot: Any | None) -> str:
 		"""Compute the would-be thread env string for a slot, for logging only."""
@@ -637,7 +674,8 @@ def _distribute_runtime_targets(
 				logger=LOGGER,
 			), apply_thread_env_context(
 				task_slot,
-				enabled=bool(_plan_set_thread_env),
+				# Skip per-target application when MPI rank already applied thread env at startup.
+				enabled=bool(_plan_set_thread_env) and not _mpi_thread_env_applied,
 				policy=str(_plan_thread_policy),
 				logger=LOGGER,
 			):
