@@ -103,7 +103,7 @@ def test_phase_budget_limits_cpu_and_ram_capacity() -> None:
 					"active_profile": "lab_server_safe",
 					"profiles": {"lab_server_safe": {"capacity": {"cpu_cores": 6, "ram_gb": 16}}},
 					"phase_budgets": {
-						"template_build": {"cpu_cores": 5, "ram_gb": 8},
+						"template_build": {"cpus_per_task": 5, "ram_gb": 8},
 					},
 				}
 			}
@@ -147,7 +147,6 @@ def test_phase_budget_limits_cpu_and_ram_capacity() -> None:
 	assert len(leases) == 2
 	assert all(item[1]["slot_demands"] == {"cpu_cores": 5, "ram_gb": 8} for item in leases)
 	assert any(bool(item[1]["waited"]) and float(item[1]["wait_s"]) > 0.0 for item in leases)
-	assert manager.phase_worker_count("template_build") == 5
 
 
 def test_phase_budget_limits_plot_slots_for_report_phases() -> None:
@@ -158,7 +157,7 @@ def test_phase_budget_limits_plot_slots_for_report_phases() -> None:
 					"active_profile": "lab_server_safe",
 					"profiles": {"lab_server_safe": {"capacity": {"cpu_cores": 12, "ram_gb": 96, "plot_slots": 1}}},
 					"phase_budgets": {
-						"plot_report_grid": {"cpu_cores": 4, "ram_gb": 48, "plot_slots": 1},
+						"plot_report_grid": {"cpus_per_task": 4, "ram_gb": 48, "plot_slots": 1},
 					},
 				}
 			}
@@ -202,7 +201,6 @@ def test_phase_budget_limits_plot_slots_for_report_phases() -> None:
 	assert len(leases) == 2
 	assert all(item[1]["slot_demands"] == {"cpu_cores": 4, "ram_gb": 48, "plot_slots": 1} for item in leases)
 	assert any(bool(item[1]["waited"]) and float(item[1]["wait_s"]) > 0.0 for item in leases)
-	assert manager.phase_worker_count("plot_report_grid") == 4
 
 
 def test_phase_budget_blocks_plot_unit_when_template_build_holds_ram() -> None:
@@ -213,8 +211,8 @@ def test_phase_budget_blocks_plot_unit_when_template_build_holds_ram() -> None:
 					"active_profile": "lab_server_safe",
 					"profiles": {"lab_server_safe": {"capacity": {"cpu_cores": 36, "ram_gb": 50, "plot_slots": 1}}},
 					"phase_budgets": {
-						"template_build": {"cpu_cores": 4, "ram_gb": 8},
-						"plot_unit": {"cpu_cores": 2, "ram_gb": 48, "plot_slots": 1},
+						"template_build": {"cpus_per_task": 4, "ram_gb": 8},
+						"plot_unit": {"cpus_per_task": 2, "ram_gb": 48, "plot_slots": 1},
 					},
 				}
 			}

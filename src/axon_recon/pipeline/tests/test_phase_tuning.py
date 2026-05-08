@@ -99,7 +99,7 @@ def test_build_phase_tuning_summary_recommends_resource_class_updates() -> None:
                 "active_profile": "test_profile",
                 "profiles": {"test_profile": {"capacity": {"cpu_cores": 16, "ram_gb": 64, "h5_read_slots": 2}}},
                 "phase_budgets": {
-                    "h5_metadata": {"cpu_cores": 1, "ram_gb": 2, "h5_read_slots": 0, "disk_heavy_slots": 0}
+                    "h5_metadata": {"cpus_per_task": 1, "ram_gb": 2, "h5_read_slots": 0, "disk_heavy_slots": 0}
                 },
             }
         }
@@ -165,7 +165,7 @@ def test_build_phase_tuning_summary_keeps_cpu_when_current_class_covers_observed
             "resources": {
                 "active_profile": "test_profile",
                 "profiles": {"test_profile": {"capacity": {"cpu_cores": 16, "ram_gb": 64}}},
-                "phase_budgets": {"h5_metadata": {"cpu_cores": 1, "ram_gb": 4}},
+                "phase_budgets": {"h5_metadata": {"cpus_per_task": 1, "ram_gb": 4}},
             }
         }
     )
@@ -200,7 +200,7 @@ def test_build_phase_tuning_summary_prefers_pss_for_ram_recommendation() -> None
             "resources": {
                 "active_profile": "test_profile",
                 "profiles": {"test_profile": {"capacity": {"cpu_cores": 16, "ram_gb": 64}}},
-                "phase_budgets": {"analyzers": {"cpu_cores": 4, "ram_gb": 8}},
+                "phase_budgets": {"analyzers": {"cpus_per_task": 4, "ram_gb": 8}},
             }
         }
     )
@@ -247,7 +247,7 @@ def test_build_phase_tuning_summary_recommends_active_profile_io_slot_increase_f
                 "active_profile": "test_profile",
                 "profiles": {"test_profile": {"capacity": {"cpu_cores": 16, "ram_gb": 64, "h5_read_slots": 1, "disk_heavy_slots": 1}}},
                 "phase_budgets": {
-                    "h5_metadata": {"cpu_cores": 1, "ram_gb": 2, "h5_read_slots": 0, "disk_heavy_slots": 0}
+                    "h5_metadata": {"cpus_per_task": 1, "ram_gb": 2, "h5_read_slots": 0, "disk_heavy_slots": 0}
                 },
             }
         }
@@ -322,7 +322,7 @@ def test_build_phase_tuning_summary_explains_flat_io_slots_when_bandwidth_underu
                 "active_profile": "test_profile",
                 "profiles": {"test_profile": {"capacity": {"cpu_cores": 16, "ram_gb": 64, "h5_read_slots": 3, "disk_heavy_slots": 3}}},
                 "phase_budgets": {
-                    "preprocess_segments": {"cpu_cores": 1, "ram_gb": 2, "h5_read_slots": 1, "disk_heavy_slots": 1}
+                    "preprocess_segments": {"cpus_per_task": 1, "ram_gb": 2, "h5_read_slots": 1, "disk_heavy_slots": 1}
                 },
             }
         }
@@ -391,7 +391,7 @@ def test_build_phase_tuning_summary_uses_phase_read_h5_path_for_bandwidth_pressu
                 "active_profile": "test_profile",
                 "profiles": {"test_profile": {"capacity": {"cpu_cores": 16, "ram_gb": 64, "h5_read_slots": 1, "disk_heavy_slots": 1}}},
                 "phase_budgets": {
-                    "h5_metadata": {"cpu_cores": 1, "ram_gb": 2, "h5_read_slots": 1, "disk_heavy_slots": 0}
+                    "h5_metadata": {"cpus_per_task": 1, "ram_gb": 2, "h5_read_slots": 1, "disk_heavy_slots": 0}
                 },
             }
         }
@@ -487,7 +487,7 @@ def test_collect_disk_bandwidth_measurements_includes_phase_read_h5_on_output_de
                 "active_profile": "test_profile",
                 "profiles": {"test_profile": {"capacity": {"cpu_cores": 16, "ram_gb": 64, "h5_read_slots": 1, "disk_heavy_slots": 1}}},
                 "phase_budgets": {
-                    "h5_metadata": {"cpu_cores": 1, "ram_gb": 2, "h5_read_slots": 1, "disk_heavy_slots": 0}
+                    "h5_metadata": {"cpus_per_task": 1, "ram_gb": 2, "h5_read_slots": 1, "disk_heavy_slots": 0}
                 },
             }
         }
@@ -532,7 +532,7 @@ def test_build_phase_tuning_summary_includes_gate_wait_in_requested_slot_demand(
                 "active_profile": "test_profile",
                 "profiles": {"test_profile": {"capacity": {"cpu_cores": 16, "ram_gb": 64, "h5_read_slots": 1, "disk_heavy_slots": 1}}},
                 "phase_budgets": {
-                    "preprocess_segments": {"cpu_cores": 1, "ram_gb": 2, "h5_read_slots": 1, "disk_heavy_slots": 1}
+                    "preprocess_segments": {"cpus_per_task": 1, "ram_gb": 2, "h5_read_slots": 1, "disk_heavy_slots": 1}
                 },
             }
         }
@@ -620,7 +620,7 @@ def test_build_phase_tuning_summary_recommends_active_profile_io_slot_decrease_f
                 "active_profile": "test_profile",
                 "profiles": {"test_profile": {"capacity": {"cpu_cores": 16, "ram_gb": 64, "h5_read_slots": 4, "disk_heavy_slots": 4}}},
                 "phase_budgets": {
-                    "h5_to_binary": {"cpu_cores": 1, "ram_gb": 2, "h5_read_slots": 1, "disk_heavy_slots": 1}
+                    "h5_to_binary": {"cpus_per_task": 1, "ram_gb": 2, "h5_read_slots": 1, "disk_heavy_slots": 1}
                 },
             }
         }

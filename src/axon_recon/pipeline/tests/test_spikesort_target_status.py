@@ -58,7 +58,7 @@ def test_run_spikesort_sort_from_runtime_wraps_direct_phase_in_resource_chain(mo
                 "resources": {
                     "active_profile": "test_profile",
                     "profiles": {"test_profile": {"capacity": {"cpu_cores": 8, "ram_gb": 32}}},
-                    "phase_budgets": {"sort_class": {"cpu_cores": 4, "ram_gb": 12}},
+                    "phase_budgets": {"sort_class": {"cpus_per_task": 4, "ram_gb": 12}},
                 }
             }
         )
@@ -763,11 +763,11 @@ def test_run_spikesort_from_runtime_gates_only_sort_phase_across_wells_via_resou
                     },
                     "phase_budgets": {
                         "bootstrap_concat_binary": {
-                            "cpu_cores": 1,
+                            "cpus_per_task": 1,
                             "ram_gb": 1,
                         },
                         "kilosort4": {
-                            "cpu_cores": 1,
+                            "cpus_per_task": 1,
                             "ram_gb": 1,
                             "gpu_sort_slots": 1,
                         },

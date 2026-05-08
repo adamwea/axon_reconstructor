@@ -46,7 +46,7 @@ def _resource_payload() -> dict[str, object]:
 				"h5_metadata": {
 					"description": "Light HDF5 metadata and small file reads.",
 					"bottleneck": "h5_read",
-					"cpu_cores": 1,
+					"cpus_per_task": 1,
 					"ram_gb": 4,
 					"h5_read_slots": 1,
 					"keyed_resources": {"source_h5_path": 1},
@@ -54,7 +54,7 @@ def _resource_payload() -> dict[str, object]:
 				"h5_to_binary": {
 					"description": "HDF5/source read plus large binary write.",
 					"bottleneck": "h5_read_and_disk_write",
-					"cpu_cores": 4,
+					"cpus_per_task": 4,
 					"ram_gb": 16,
 					"h5_read_slots": 1,
 					"disk_heavy_slots": 1,
@@ -63,7 +63,7 @@ def _resource_payload() -> dict[str, object]:
 				"preprocess_segments": {
 					"description": "Segment-level preprocessing with HDF5/source reads and disk output.",
 					"bottleneck": "h5_read_and_disk_io",
-					"cpu_cores": 6,
+					"cpus_per_task": 6,
 					"ram_gb": 24,
 					"h5_read_slots": 1,
 					"disk_heavy_slots": 1,
@@ -72,14 +72,14 @@ def _resource_payload() -> dict[str, object]:
 				"plot_unit": {
 					"description": "Per-unit plotting or matplotlib-heavy rendering.",
 					"bottleneck": "plotting_memory",
-					"cpu_cores": 2,
+					"cpus_per_task": 2,
 					"ram_gb": 24,
 					"plot_slots": 1,
 				},
 				"kilosort4": {
 					"description": "GPU-backed Kilosort4 sorting through SpikeInterface.",
 					"bottleneck": "gpu_and_disk_io",
-					"cpu_cores": 8,
+					"cpus_per_task": 8,
 					"ram_gb": 32,
 					"gpu_sort_slots": 1,
 					"disk_heavy_slots": 1,
@@ -87,7 +87,7 @@ def _resource_payload() -> dict[str, object]:
 				"spikeinterface_analyzer": {
 					"description": "SpikeInterface analyzer, waveform, template, sparsity, or curation work.",
 					"bottleneck": "ram_cpu_disk_io",
-					"cpu_cores": 8,
+					"cpus_per_task": 8,
 					"ram_gb": 48,
 					"analyzer_slots": 1,
 					"disk_heavy_slots": 1,
@@ -95,19 +95,19 @@ def _resource_payload() -> dict[str, object]:
 				"axon_reconstruction": {
 					"description": "Axon reconstruction, GTR generation, or unit-level reconstruction math.",
 					"bottleneck": "cpu_memory_light",
-					"cpu_cores": 2,
+					"cpus_per_task": 2,
 					"ram_gb": 8,
 				},
 				"template_build": {
 					"description": "Template merge/build or lightweight unit-level compute.",
 					"bottleneck": "cpu_memory_light",
-					"cpu_cores": 2,
+					"cpus_per_task": 2,
 					"ram_gb": 8,
 				},
 				"plot_report_grid": {
 					"description": "Large report, grid, PDF, summary, or full-chip plotting.",
 					"bottleneck": "plotting_memory_heavy",
-					"cpu_cores": 4,
+					"cpus_per_task": 4,
 					"ram_gb": 48,
 					"plot_slots": 1,
 				},

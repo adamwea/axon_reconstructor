@@ -61,7 +61,6 @@ _VALID_NESTED_SHAPES = {"si_njobs", "segment_workers", "unit_workers", "serial"}
 class PhaseResourceClassConfig:
 	description: str | None = None
 	bottleneck: str | None = None
-	cpu_cores: int = 0
 	ram_gb: float = 0.0
 	gpu_sort_slots: int = 0
 	h5_read_slots: int = 0
@@ -71,6 +70,12 @@ class PhaseResourceClassConfig:
 	keyed_resources: dict[str, int] = field(default_factory=dict)
 	nested_shape: str = "serial"
 	cpus_per_task: int | None = None
+
+	@property
+	def cpu_cores(self) -> int:
+		# Derived alias: a phase's CPU footprint is its cpus_per_task. Profile capacity
+		# stays under capacity.cpu_cores; phase budgets only declare cpus_per_task.
+		return int(self.cpus_per_task or 0)
 
 
 @dataclass(frozen=True)
@@ -301,10 +306,15 @@ def _parse_phase_resource_class(raw: Any) -> PhaseResourceClassConfig:
 	phase_cpus_per_task: int | None = None
 	if raw_cpus is not None:
 		phase_cpus_per_task = max(1, _as_int(raw_cpus, 1))
+	if "cpu_cores" in block or "cpu" in block:
+		raise ValueError(
+			"phase_budgets entries no longer accept 'cpu_cores' or 'cpu'. "
+			"Declare per-phase CPU demand as 'cpus_per_task'. "
+			"Profile-level capacity still uses capacity.cpu_cores."
+		)
 	return PhaseResourceClassConfig(
 		description=_as_optional_name(block.get("description", block.get("note", None))),
 		bottleneck=_as_optional_name(block.get("bottleneck", None)),
-		cpu_cores=max(0, _as_int(block.get("cpu_cores", block.get("cpu", 0)), 0)),
 		ram_gb=max(0.0, _as_float(block.get("ram_gb", 0.0), 0.0)),
 		gpu_sort_slots=max(0, _as_int(block.get("gpu_sort_slots", block.get("gpu", 0)), 0)),
 		h5_read_slots=max(0, _as_int(block.get("h5_read_slots", 0), 0)),

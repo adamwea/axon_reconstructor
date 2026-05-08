@@ -90,20 +90,6 @@ class ResourceBudgetManager:
 			dimensions=RESOURCE_CAPACITY_DIMENSIONS,
 		)
 
-	def phase_cpu_cores(self, resource_class: str | None) -> int:
-		demands = get_phase_resource_demand_units(
-			resources=self.resources,
-			resource_class=resource_class,
-			dimensions=("cpu_cores",),
-		)
-		return max(0, int(demands.get("cpu_cores", 0) or 0))
-
-	def phase_worker_count(self, resource_class: str | None, *, fallback_workers: int = 1) -> int:
-		cpu_cores = self.phase_cpu_cores(resource_class)
-		if cpu_cores > 0:
-			return int(cpu_cores)
-		return max(1, int(fallback_workers))
-
 	def keyed_resource_demands(self, resource_class: str | None) -> dict[str, int]:
 		return get_phase_keyed_resource_demands(self.resources, resource_class)
 
@@ -343,7 +329,8 @@ def current_phase_worker_allocation(
 	manager = current_stage_resource_budget_manager()
 	if manager is None:
 		return max(1, int(fallback_workers)), "inputs.n_jobs"
-	cpu_cores = manager.phase_cpu_cores(resource_class)
-	if cpu_cores > 0:
-		return int(cpu_cores), "resource_class.cpu_cores"
+	demands = manager.slot_demands(resource_class)
+	cpus_per_task = max(0, int(demands.get("cpu_cores", 0) or 0))
+	if cpus_per_task > 0:
+		return cpus_per_task, "resource_class.cpus_per_task"
 	return max(1, int(fallback_workers)), "inputs.n_jobs"

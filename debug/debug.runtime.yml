@@ -30,7 +30,7 @@ resources:
       capacity:
         cpu_cores: 36 # 48 total cores, but leaving some free for system processes and other users; adjust as needed based on typical server load and desired balance between performance and resource availability for others.
         ram_gb: 50 # 62 GB total RAM, but leaving some free for system processes and other users; adjust as needed based on typical server load and desired balance between performance and availability for others.
-        gpu_sort_slots: 1
+        gpu_sort_slots: 2
         h5_read_slots: 6
         disk_heavy_slots: 6
         plot_slots: 1
@@ -86,7 +86,6 @@ resources:
     h5_metadata:
       description: Light HDF5 metadata and small file reads.
       bottleneck: h5_read
-      cpu_cores: 1
       ram_gb: 4
       h5_read_slots: 1
       nested_shape: serial
@@ -95,7 +94,6 @@ resources:
     h5_to_binary:
       description: HDF5/source read plus large binary write.
       bottleneck: h5_read_and_disk_write
-      cpu_cores: 4
       ram_gb: 16
       h5_read_slots: 1
       disk_heavy_slots: 1
@@ -105,7 +103,6 @@ resources:
     preprocess_segments:
       description: Segment-level preprocessing with HDF5/source reads and disk output.
       bottleneck: h5_read_and_disk_io
-      cpu_cores: 6
       ram_gb: 24
       h5_read_slots: 1
       disk_heavy_slots: 1
@@ -115,7 +112,6 @@ resources:
     bootstrap_concat_binary:
       description: Concatenated binary/cache creation from preprocessed segment recordings.
       bottleneck: disk_io
-      cpu_cores: 6
       ram_gb: 24
       disk_heavy_slots: 1
       nested_shape: si_njobs
@@ -124,15 +120,13 @@ resources:
     kilosort4:
       description: GPU-backed Kilosort4 sorting through SpikeInterface.
       bottleneck: gpu_and_disk_io
-      cpu_cores: 8
-      ram_gb: 32
+      ram_gb: 24
       gpu_sort_slots: 1
       disk_heavy_slots: 1
       nested_shape: si_njobs
     spikeinterface_analyzer_concat:
       description: SpikeInterface analyzer, waveform, template, sparsity, or curation work.
       bottleneck: ram_cpu_disk_io
-      cpu_cores: 8
       ram_gb: 48
       analyzer_slots: 1
       disk_heavy_slots: 1
@@ -140,7 +134,6 @@ resources:
     spikeinterface_analyzer_segment:
       description: SpikeInterface analyzer work that can be done at the segment level before concatenation, such as per-segment quality metrics or representative channel scoring.
       bottleneck: ram_cpu_disk_io
-      cpu_cores: 16
       ram_gb: 25
       analyzer_slots: 1
       disk_heavy_slots: 1
@@ -150,26 +143,22 @@ resources:
     extract_partial_templates:
       description: Per-segment extraction of partial templates from cached analyzers.
       bottleneck: ram_cpu_disk_io
-      cpu_cores: 6
       ram_gb: 24
       analyzer_slots: 1
       nested_shape: segment_workers
     template_build:
       description: Template merge/build or lightweight unit-level compute.
       bottleneck: cpu_memory_light
-      cpu_cores: 6
       ram_gb: 8
       nested_shape: unit_workers
     axon_reconstruction:
       description: Axon reconstruction, GTR generation, branch extraction, or unit-level reconstruction math.
       bottleneck: cpu_memory_light
-      cpu_cores: 2
       ram_gb: 8
       nested_shape: unit_workers
     plot_unit:
       description: Per-unit plotting or matplotlib-heavy rendering.
       bottleneck: plotting_memory
-      cpu_cores: 4
       ram_gb: 8
       plot_slots: 1
       nested_shape: unit_workers
@@ -177,14 +166,13 @@ resources:
     plot_report_grid:
       description: Large report, grid, PDF, summary, or full-chip plotting.
       bottleneck: plotting_memory_heavy
-      cpu_cores: 4
+      cpus_per_task: 4
       ram_gb: 48
       plot_slots: 1
       nested_shape: serial
     disk_cleanup:
       description: Cleanup/deletion of generated intermediate files.
       bottleneck: disk_metadata_io
-      cpu_cores: 1
       ram_gb: 4
       disk_heavy_slots: 1
       nested_shape: serial
