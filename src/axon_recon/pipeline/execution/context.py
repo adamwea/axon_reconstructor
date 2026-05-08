@@ -33,3 +33,4 @@ class StageParallelism:
     task_allocation_plan: object | None = None
     set_thread_env: bool = False
     nested_thread_policy: str = "preserve_existing"
+    use_hyperthreads: bool = False

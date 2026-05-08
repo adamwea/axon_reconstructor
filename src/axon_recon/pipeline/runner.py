@@ -378,6 +378,7 @@ def _attach_task_allocation_plan(
 			parallelism,
 			set_thread_env=bool(task_config.set_thread_env),
 			nested_thread_policy=str(task_config.nested_thread_policy or "preserve_existing"),
+		use_hyperthreads=bool(task_config.use_hyperthreads),
 		)
 	if int(target_count) > 0 and not plan.slots:
 		raise ValueError(
@@ -629,7 +630,11 @@ def _distribute_runtime_targets(
 		and str(_plan_thread_policy) in ("match_cpus_per_task", "force_1")
 	):
 		_mpi_topology = detect_cpu_topology(logger=LOGGER)
-		_mpi_thread_count = _mpi_topology.logical_cpu_count if str(_plan_thread_policy) == "match_cpus_per_task" else 1
+		_mpi_use_ht = bool(getattr(parallelism, "use_hyperthreads", False))
+		if str(_plan_thread_policy) == "match_cpus_per_task":
+			_mpi_thread_count = _mpi_topology.logical_cpu_count if _mpi_use_ht else _mpi_topology.physical_core_count
+		else:
+			_mpi_thread_count = 1
 		for _var in _THREAD_ENV_VARS:
 			os.environ[_var] = str(_mpi_thread_count)
 		LOGGER.info(

@@ -636,29 +636,35 @@ def _run_mpi_sample_worker_test(*, rank: int, size: int, config_path: str | None
 			package_ids=test_packages,
 		)
 
-		# Read task_allocation config to know set_thread_env / nested_thread_policy
-		synthetic_plan: object | None = None
-		if config_path is not None:
-			try:
-				from pathlib import Path
-				from axon_recon.runtime_config import RuntimeConfig
-				from .resources import parse_resources_config
-				_runtime_cfg = RuntimeConfig.load(Path(config_path).expanduser().resolve())
-				_res_cfg = parse_resources_config(runtime_config=_runtime_cfg, logger=None)
-				_task_cfg = _res_cfg.task_allocation
-				synthetic_plan = SimpleNamespace(
-					set_thread_env=bool(_task_cfg.set_thread_env),
-					nested_thread_policy=str(_task_cfg.nested_thread_policy or "preserve_existing"),
-					backend="mpi",
-					bind="none",
-				)
-			except Exception:
-				pass
+			# Read task_allocation config to know set_thread_env / nested_thread_policy / use_hyperthreads
+			synthetic_plan: object | None = None
+			_use_ht: bool = True
+			if config_path is not None:
+				try:
+					from pathlib import Path
+					from axon_recon.runtime_config import RuntimeConfig
+					from .resources import parse_resources_config
+					_runtime_cfg = RuntimeConfig.load(Path(config_path).expanduser().resolve())
+					_res_cfg = parse_resources_config(runtime_config=_runtime_cfg, logger=None)
+					_task_cfg = _res_cfg.task_allocation
+					_use_ht = bool(_task_cfg.use_hyperthreads)
+					synthetic_plan = SimpleNamespace(
+						set_thread_env=bool(_task_cfg.set_thread_env),
+						nested_thread_policy=str(_task_cfg.nested_thread_policy or "preserve_existing"),
+						use_hyperthreads=_use_ht,
+						backend="mpi",
+						bind="none",
+					)
+				except Exception:
+					pass
 
 		# Capture what environment would be set for this rank's worker
 		env_state = capture_sample_worker_environment(slot, plan=synthetic_plan)
 
-		print(f"  visible_cpus: {list(test_cpus)} ({len(test_cpus)} total)")
+		# Show CPU topology for this rank; use physical cores when hyperthreads disabled
+		effective_cpu_count = topology.logical_cpu_count if _use_ht else topology.physical_core_count
+		print(f"  visible_cpus: {list(test_cpus)} ({topology.physical_core_count} physical cores, {topology.logical_cpu_count} logical)")
+		print(f"  effective_thread_count (use_hyperthreads={_use_ht}): {effective_cpu_count}")
 		if "error" not in env_state:
 			thread_env = env_state.get("thread_env", {})
 			any_set = any(v is not None for v in thread_env.values())
@@ -700,11 +706,33 @@ def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 				)
 
 			# All ranks run their own sample worker test
-			_run_mpi_sample_worker_test(
-				rank=int(mpi_ctx.rank) if mpi_ctx is not None else 0,
-				size=int(mpi_ctx.size) if mpi_ctx is not None else 1,
-				config_path=str(getattr(args, "config", None) or "") or None,
-			)
+			# Barrier: ensure rank 0 preview finishes before any rank prints sample worker output.
+			# Then each rank prints in turn (rank 0 first) to minimize interleaving.
+			import sys as _sys
+			_mpi_comm = getattr(mpi_ctx, "comm", None) if mpi_ctx is not None else None
+			if _mpi_comm is not None:
+				try:
+					_mpi_comm.Barrier()
+				except Exception:
+					pass
+			else:
+				_sys.stdout.flush()
+				_sys.stderr.flush()
+			_rank = int(mpi_ctx.rank) if mpi_ctx is not None else 0
+			_size = int(mpi_ctx.size) if mpi_ctx is not None else 1
+			for _r in range(_size):
+				if _r == _rank:
+					_run_mpi_sample_worker_test(
+						rank=_rank,
+						size=_size,
+						config_path=str(getattr(args, "config", None) or "") or None,
+					)
+					_sys.stdout.flush()
+				if _mpi_comm is not None:
+					try:
+						_mpi_comm.Barrier()
+					except Exception:
+						pass
 			return 0
 		else:
 			# Non-MPI backend
@@ -827,40 +855,5 @@ def _configure_phase_tuning_monitoring_from_args(args: argparse.Namespace) -> No
 
 
 def main(argv: list[str] | None = None) -> int:
-	parser = build_parser()
+		# Read task_allocation config to know set_thread_env / nested_thread_policy / use_hyperthreads
 	args = parser.parse_args(argv)
-	install_process_lifecycle()
-	install_noisy_external_log_filters()
-	install_maxwell_hdf5_plugin_message_filter()
-	_configure_runtime_logging_from_args(args)
-	_configure_phase_tuning_monitoring_from_args(args)
-	handler = getattr(args, "handler", None)
-	if handler is None:
-		parser.print_help()
-		return 2
-	logger = logging.getLogger("axon_recon.pipeline")
-	logger.info("pipeline run started", extra={"event": "run_started"})
-	status = "error"
-	try:
-		rc = int(handler(args))
-		status = "ok" if rc == 0 else "error"
-		if rc == 0:
-			logger.info("pipeline run completed", extra={"event": "run_completed"})
-		else:
-			logger.error("pipeline run failed with code %d", rc, extra={"event": "run_failed"})
-		return rc
-	except Exception:
-		logger.exception("pipeline run failed", extra={"event": "run_failed"})
-		raise
-	finally:
-		finalize_pipeline_logging(status=status)
-		try:
-			from .resource_usage import configure_phase_tuning_monitoring
-
-			configure_phase_tuning_monitoring(enabled=False)
-		except Exception:
-			pass
-
-
-if __name__ == "__main__":
-	raise SystemExit(main())
