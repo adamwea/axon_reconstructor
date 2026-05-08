@@ -2205,3 +2205,4 @@ be96f51 | slice 7 [sonnet] | strip per-phase yaml parallelism knobs; Smoke I def
 4dbbc8d | docs [sonnet]     | add container+MPI strategy note (Options A/B/C, recommend C short-term)
 28534cc | yaml+plan [sonnet]| enable plot_templates_v2 in phase_sequence; queue plot_templates v1 retirement
 e2a4200 | feat [sonnet]     | switch plot_recons template_circles base to render_template_circles_plot_v2 (faster); v2 gains fig/ax/branch_cfg parity
+2b69f73 | plan [sonnet]     | add Slice 8 (stage test fixture migration) and Slice 9 (spikeinterface_extract compat audit); §1.6 enumerates all 14 failures by resolving slice
