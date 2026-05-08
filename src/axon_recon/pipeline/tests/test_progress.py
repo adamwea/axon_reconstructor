@@ -114,8 +114,6 @@ def test_pipeline_progress_skips_tqdm_logging_redirect_for_rich_handler(monkeypa
 def test_runtime_distribution_advances_target_progress() -> None:
     targets = [_target(0, "well001"), _target(1, "well002")]
     parallelism = StageParallelism(
-        max_workers=2,
-        max_stage_workers=2,
         well_workers=2,
         unit_workers=1,
     )

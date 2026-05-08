@@ -95,62 +95,6 @@ def test_new_profile_shape_round_trips():
     assert limit.max_concurrent == 2
 
 
-def test_legacy_profile_shape_back_compat():
-    """Old schema: profiles[name] IS capacity; task_allocation/keyed_resource_limits at top-level."""
-    rc = _make_runtime_config({
-        "resources": {
-            "active_profile": "lab",
-            "profiles": {
-                "lab": {"cpu_cores": 16, "ram_gb": 64},
-            },
-            "task_allocation": {"enabled": True, "backend": "local_affinity"},
-            "keyed_resource_limits": {
-                "source_h5_path": {"max_concurrent": 3},
-            },
-            "phase_budgets": {},
-        },
-    })
-    cfg = parse_resources_config(runtime_config=rc)
-    profile = get_active_profile(cfg)
-    assert profile is not None
-    assert profile.capacity.cpu_cores == 16
-    assert profile.task_allocation.enabled is True
-    limit = get_keyed_resource_limit_config(cfg, "source_h5_path")
-    assert limit is not None
-    assert limit.max_concurrent == 3
-
-
-def test_no_profile_legacy_keyed_limits_fallback():
-    """No profiles, no active_profile: top-level keyed_resource_limits must still be reachable."""
-    rc = _make_runtime_config({
-        "resources": {
-            "keyed_resource_limits": {
-                "source_h5_path": {"max_concurrent": 4},
-            },
-            "phase_budgets": {},
-        },
-    })
-    cfg = parse_resources_config(runtime_config=rc)
-    assert cfg.active_profile is None
-    limit = get_keyed_resource_limit_config(cfg, "source_h5_path")
-    assert limit is not None
-    assert limit.max_concurrent == 4
-
-
-def test_phase_resource_classes_legacy_name_still_parses():
-    """phase_resource_classes key is back-compat alias for phase_budgets."""
-    rc = _make_runtime_config({
-        "resources": {
-            "phase_resource_classes": {
-                "heavy": {"cpu_cores": 8, "nested_shape": "unit_workers"},
-            },
-        },
-    })
-    cfg = parse_resources_config(runtime_config=rc)
-    assert "heavy" in cfg.phase_budgets
-    assert cfg.phase_budgets["heavy"].nested_shape == "unit_workers"
-
-
 # ── Slice 4: per-machine selectable profiles and CLI override ──────────────
 
 
@@ -212,8 +156,6 @@ resources:
 def _make_parallelism(**kwargs):
     from axon_recon.pipeline.execution.context import StageParallelism
     defaults = dict(
-        max_workers=24,
-        max_stage_workers=24,
         well_workers=3,
         unit_workers=8,
     )

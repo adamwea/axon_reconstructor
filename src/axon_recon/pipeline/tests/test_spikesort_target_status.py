@@ -58,7 +58,7 @@ def test_run_spikesort_sort_from_runtime_wraps_direct_phase_in_resource_chain(mo
                 "resources": {
                     "active_profile": "test_profile",
                     "profiles": {"test_profile": {"cpu_cores": 8, "ram_gb": 32}},
-                    "phase_resource_classes": {"sort_class": {"cpu_cores": 4, "ram_gb": 12}},
+                    "phase_budgets": {"sort_class": {"cpu_cores": 4, "ram_gb": 12}},
                 }
             }
         )
@@ -78,7 +78,7 @@ def test_run_spikesort_sort_from_runtime_wraps_direct_phase_in_resource_chain(mo
     monkeypatch.setattr(
         pipeline_runner,
         "resolve_stage_parallelism",
-        lambda **kwargs: StageParallelism(max_workers=4, max_stage_workers=4, well_workers=1, unit_workers=4),
+        lambda **kwargs: StageParallelism(well_workers=1, unit_workers=4),
     )
     monkeypatch.setattr(
         pipeline_runner,
@@ -186,7 +186,7 @@ def test_run_spikesort_from_runtime_marks_target_ok(monkeypatch, tmp_path: Path)
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_spikesort_stage_config(**kwargs):
         return SimpleNamespace(debug_limit_wells=None)
@@ -244,7 +244,7 @@ def test_run_spikesort_from_runtime_logs_stage_topology(monkeypatch, tmp_path: P
     monkeypatch.setattr(
         pipeline_runner,
         "resolve_stage_parallelism",
-        lambda *, bundle, stage_name: StageParallelism(max_workers=8, max_stage_workers=8, well_workers=2, unit_workers=4),
+        lambda *, bundle, stage_name: StageParallelism(well_workers=2, unit_workers=4),
     )
     monkeypatch.setattr(pipeline_runner, "parse_spikesort_stage_config", lambda **kwargs: SimpleNamespace(debug_limit_wells=None))
     monkeypatch.setattr(
@@ -270,7 +270,7 @@ def test_run_spikesort_from_runtime_logs_stage_topology(monkeypatch, tmp_path: P
     assert "Starting stage: spikesort" in messages
     assert "Execution topology: stage_global_order=true, well_local_phase_sequence=true" in messages
     assert "Selected wells: 1" in messages
-    assert "well_workers=2 max_stage_workers=8" in messages
+    assert "well_workers=2" in messages
 
 
 def test_run_spikesort_from_runtime_marks_target_error(monkeypatch, tmp_path: Path) -> None:
@@ -301,7 +301,7 @@ def test_run_spikesort_from_runtime_marks_target_error(monkeypatch, tmp_path: Pa
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_spikesort_stage_config(**kwargs):
         return SimpleNamespace(debug_limit_wells=None)
@@ -367,7 +367,7 @@ def test_run_spikesort_from_runtime_applies_segment_limit_to_bootstrap_phase(
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_distribute_targets(*, targets, well_workers: int, worker_fn, **kwargs):
         return [TargetStageResult(target=item, status="ok", result=worker_fn(item)) for item in targets]
@@ -430,7 +430,7 @@ def test_run_spikesort_from_runtime_applies_debug_well_limit(monkeypatch, tmp_pa
         return [target_a, target_b]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_spikesort_stage_config(**kwargs):
         return SimpleNamespace(debug_limit_wells=1)
@@ -521,7 +521,7 @@ def test_run_spikesort_from_runtime_applies_global_debug_dataset_and_well_limits
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str, target_count: int | None = None):
         _ = bundle, stage_name, target_count
-        return StageParallelism(max_workers=2, max_stage_workers=2, well_workers=2, unit_workers=1)
+        return StageParallelism(well_workers=2, unit_workers=1)
 
     def _fake_parse_spikesort_stage_config(**kwargs):
         _ = kwargs
@@ -633,7 +633,7 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=12, max_stage_workers=12, well_workers=2, unit_workers=6)
+        return StageParallelism(well_workers=2, unit_workers=6)
 
     def _fake_parse_spikesort_stage_config(**kwargs):
         return SimpleNamespace(
@@ -713,7 +713,7 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
     ]
     assert n_jobs_seen == [6, 6, 6, 6, 6]
     assert any(
-        "Spikesort phase worker allocation stage=spikesort phase=sort target=0:well001 stage_workers=12 well_workers=2 n_jobs=6 n_jobs_source=derived"
+        "Spikesort phase worker allocation stage=spikesort phase=sort target=0:well001 well_workers=2 n_jobs=6 n_jobs_source=derived"
         in message
         for message in messages
     )
@@ -759,7 +759,7 @@ def test_run_spikesort_from_runtime_gates_only_sort_phase_across_wells_via_resou
                             "gpu_sort_slots": 1,
                         }
                     },
-                    "phase_resource_classes": {
+                    "phase_budgets": {
                         "bootstrap_concat_binary": {
                             "cpu_cores": 1,
                             "ram_gb": 1,
@@ -786,7 +786,7 @@ def test_run_spikesort_from_runtime_gates_only_sort_phase_across_wells_via_resou
         return targets
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=4, max_stage_workers=4, well_workers=2, unit_workers=2)
+        return StageParallelism(well_workers=2, unit_workers=2)
 
     def _fake_parse_spikesort_stage_config(**kwargs):
         return SimpleNamespace(
@@ -920,7 +920,7 @@ def test_run_spikesort_sort_from_runtime_ignores_phase_debug_limits(monkeypatch,
         return [target_a, target_b, target_c]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_spikesort_stage_config(**kwargs):
         return SimpleNamespace(
@@ -1017,7 +1017,7 @@ def test_run_spikesort_sort_from_runtime_applies_global_debug_dataset_and_well_l
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str, target_count: int | None = None):
         _ = bundle, stage_name, target_count
-        return StageParallelism(max_workers=2, max_stage_workers=2, well_workers=2, unit_workers=1)
+        return StageParallelism(well_workers=2, unit_workers=1)
 
     def _fake_parse_spikesort_stage_config(**kwargs):
         _ = kwargs
@@ -1095,7 +1095,7 @@ def test_run_spikesort_summarize_sort_from_runtime_marks_target_ok(monkeypatch, 
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_spikesort_stage_config(**kwargs):
         return SimpleNamespace(debug_limit_wells=None)
@@ -1163,7 +1163,7 @@ def test_run_spikesort_summarize_sort_from_runtime_ignores_phase_debug_limits(mo
         return [target_a, target_b, target_c]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_spikesort_stage_config(**kwargs):
         return SimpleNamespace(
@@ -1230,7 +1230,7 @@ def test_run_spikesort_bombcell_label_from_runtime_marks_target_ok(monkeypatch, 
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_spikesort_stage_config(**kwargs):
         return SimpleNamespace(
@@ -1301,7 +1301,7 @@ def test_run_spikesort_bombcell_label_from_runtime_ignores_phase_debug_limits(mo
         return [target_a, target_b, target_c]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_spikesort_stage_config(**kwargs):
         return SimpleNamespace(
@@ -1366,7 +1366,7 @@ def test_run_spikesort_merge_from_runtime_inherits_template_heatmap_probe_dimens
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_spikesort_stage_config(**kwargs):
         return SimpleNamespace(
@@ -1462,7 +1462,7 @@ def test_run_spikesort_merge_slay_from_runtime_applies_phase_workspace_config(
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str, **kwargs):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_spikesort_stage_config(**kwargs):
         return SimpleNamespace(
@@ -1586,7 +1586,7 @@ def test_run_spikesort_merge_slay_from_runtime_ignores_phase_debug_limits(
         return [target_a, target_b, target_c]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str, **kwargs):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_spikesort_stage_config(**kwargs):
         return SimpleNamespace(

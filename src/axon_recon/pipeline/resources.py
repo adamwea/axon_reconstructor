@@ -10,31 +10,6 @@ from axon_recon.runtime_config import RuntimeConfig
 
 LOGGER = logging.getLogger("axon_recon.pipeline.resources")
 
-_RESERVED_RESOURCE_KEYS: frozenset[str] = frozenset(
-	{
-		"active_profile",
-		"profiles",
-		"phase_resource_classes",
-		"phase_budgets",
-		"keyed_resource_limits",
-		"defaults",
-		"container_caps",
-		"task_allocation",
-	}
-)
-_LEGACY_RESOURCE_DEFAULT_KEYS: tuple[str, ...] = (
-	"chunk_duration",
-	"max_simultaneous_well_reads_per_dataset",
-	"max_simultaneous_well_reads_per_h5_file",
-)
-_WARNED_LEGACY_RESOURCE_DEFAULTS = False
-_WARNED_LEGACY_KEYED_RESOURCE_LIMITS = False
-_WARNED_LEGACY_PROFILE_KEYS = False
-_WARNED_LEGACY_PHASE_RESOURCE_CLASSES = False
-_LEGACY_SOURCE_H5_LIMIT_KEYS: tuple[str, ...] = (
-	"max_simultaneous_well_reads_per_h5_file",
-	"max_simultaneous_well_reads_per_dataset",
-)
 SOURCE_H5_PATH_KEYED_RESOURCE = "source_h5_path"
 RESOURCE_CAPACITY_DIMENSIONS: tuple[str, ...] = (
 	"cpu_cores",
@@ -425,39 +400,6 @@ def _parse_task_allocation(raw: Any) -> TaskAllocationConfig:
 	)
 
 
-def _warn_legacy_resource_defaults(*, logger: logging.Logger, keys: tuple[str, ...]) -> None:
-	global _WARNED_LEGACY_RESOURCE_DEFAULTS
-	if _WARNED_LEGACY_RESOURCE_DEFAULTS or not keys:
-		return
-	logger.warning(
-		"Legacy top-level resources keys detected; mapping %s into resources.defaults for compatibility.",
-		", ".join(sorted(keys)),
-	)
-	_WARNED_LEGACY_RESOURCE_DEFAULTS = True
-
-
-def _warn_legacy_profile_keys(*, logger: logging.Logger) -> None:
-	global _WARNED_LEGACY_PROFILE_KEYS
-	if _WARNED_LEGACY_PROFILE_KEYS:
-		return
-	logger.warning(
-		"Legacy resources schema detected: resources.task_allocation and resources.keyed_resource_limits "
-		"should be moved inside resources.profiles.<name>.task_allocation and "
-		"resources.profiles.<name>.keyed_resource_limits."
-	)
-	_WARNED_LEGACY_PROFILE_KEYS = True
-
-
-def _warn_legacy_phase_resource_classes(*, logger: logging.Logger) -> None:
-	global _WARNED_LEGACY_PHASE_RESOURCE_CLASSES
-	if _WARNED_LEGACY_PHASE_RESOURCE_CLASSES:
-		return
-	logger.warning(
-		"resources.phase_resource_classes is deprecated; rename to resources.phase_budgets."
-	)
-	_WARNED_LEGACY_PHASE_RESOURCE_CLASSES = True
-
-
 def _parse_profile(block: dict[str, Any]) -> Profile:
 	if "capacity" in block:
 		capacity = _parse_resource_profile(_as_mapping(block.get("capacity", {})))
@@ -479,32 +421,6 @@ def _parse_profile(block: dict[str, Any]) -> Profile:
 	)
 
 
-def _warn_legacy_keyed_resource_limit(*, logger: logging.Logger, keys: tuple[str, ...]) -> None:
-	global _WARNED_LEGACY_KEYED_RESOURCE_LIMITS
-	if _WARNED_LEGACY_KEYED_RESOURCE_LIMITS or not keys:
-		return
-	logger.warning(
-		"Legacy H5 read cap keys detected; mapping %s into resources.keyed_resource_limits.%s.max_concurrent for compatibility.",
-		", ".join(sorted(keys)),
-		SOURCE_H5_PATH_KEYED_RESOURCE,
-	)
-	_WARNED_LEGACY_KEYED_RESOURCE_LIMITS = True
-
-
-def _legacy_source_h5_limit_value(
-	*,
-	resources_block: dict[str, Any],
-	defaults: dict[str, Any],
-) -> tuple[int | None, tuple[str, ...]]:
-	for key in _LEGACY_SOURCE_H5_LIMIT_KEYS:
-		candidate = defaults.get(key, resources_block.get(key, None))
-		parsed = _as_optional_int(candidate)
-		if parsed is None or parsed <= 0:
-			continue
-		return int(parsed), (str(key),)
-	return None, ()
-
-
 def parse_resources_config(
 	*,
 	runtime_config: RuntimeConfig,
@@ -512,107 +428,18 @@ def parse_resources_config(
 ) -> ResourcesConfig:
 	resources_block = _as_mapping(runtime_config.get("resources", None))
 	defaults = _as_mapping(resources_block.get("defaults", {}))
-	legacy_defaults: list[str] = []
-	for key in _LEGACY_RESOURCE_DEFAULT_KEYS:
-		if key in resources_block and key not in defaults:
-			defaults[key] = resources_block[key]
-			legacy_defaults.append(key)
-	if legacy_defaults:
-		_warn_legacy_resource_defaults(logger=(logger or LOGGER), keys=tuple(legacy_defaults))
 
-	# Parse profiles (detect old vs new shape)
 	profiles_raw = _as_mapping(resources_block.get("profiles", {}))
-	legacy_profile_shape = any(
-		"capacity" not in _as_mapping(v)
-		for v in profiles_raw.values()
-		if isinstance(v, dict)
-	) if profiles_raw else False
-
 	profiles: dict[str, Profile] = {
 		str(name): _parse_profile(_as_mapping(value))
 		for name, value in profiles_raw.items()
 	}
 
-	# Back-compat: old YAML has task_allocation and keyed_resource_limits at top-level
-	if legacy_profile_shape:
-		top_task_alloc_raw = _as_mapping(resources_block.get("task_allocation", {}))
-		top_keyed_raw = _as_mapping(resources_block.get("keyed_resource_limits", {}))
-
-		if top_task_alloc_raw or top_keyed_raw:
-			_warn_legacy_profile_keys(logger=(logger or LOGGER))
-
-		legacy_task_alloc = _parse_task_allocation(top_task_alloc_raw)
-		legacy_keyed_limits: dict[str, KeyedResourceLimitConfig] = {
-			str(name): _parse_keyed_resource_limit(value)
-			for name, value in top_keyed_raw.items()
-		}
-
-		# Also handle ancient source_h5_path limit from defaults
-		legacy_source_h5_limit, legacy_source_h5_keys = _legacy_source_h5_limit_value(
-			resources_block=resources_block,
-			defaults=defaults,
-		)
-		if (
-			legacy_source_h5_limit is not None
-			and SOURCE_H5_PATH_KEYED_RESOURCE not in legacy_keyed_limits
-		):
-			legacy_keyed_limits[SOURCE_H5_PATH_KEYED_RESOURCE] = KeyedResourceLimitConfig(
-				description="Legacy source H5 concurrency limit.",
-				max_concurrent=int(legacy_source_h5_limit),
-			)
-			_warn_legacy_keyed_resource_limit(
-				logger=(logger or LOGGER),
-				keys=legacy_source_h5_keys,
-			)
-
-		# Inject top-level task_allocation and keyed_resource_limits into each profile
-		if top_task_alloc_raw or legacy_keyed_limits:
-			profiles = {
-				name: Profile(
-					capacity=p.capacity,
-					task_allocation=legacy_task_alloc,
-					keyed_resource_limits=legacy_keyed_limits,
-				)
-				for name, p in profiles.items()
-			}
-
-	# Parse phase_budgets (try new name first, fall back to legacy name)
-	if "phase_budgets" in resources_block:
-		phase_raw = _as_mapping(resources_block["phase_budgets"])
-	elif "phase_resource_classes" in resources_block:
-		_warn_legacy_phase_resource_classes(logger=(logger or LOGGER))
-		phase_raw = _as_mapping(resources_block["phase_resource_classes"])
-	else:
-		phase_raw = {}
+	phase_raw = _as_mapping(resources_block.get("phase_budgets", {}))
 	phase_budgets: dict[str, PhaseResourceClassConfig] = {
 		str(name): _parse_phase_resource_class(value)
 		for name, value in phase_raw.items()
 	}
-
-	# Legacy: no profiles at all, but top-level keyed_resource_limits present.
-	# Capture them so get_keyed_resource_limit_config can fall back even with no active profile.
-	legacy_keyed_resource_limits: dict[str, KeyedResourceLimitConfig] = {}
-	if not profiles_raw:
-		top_keyed_raw_noprofile = _as_mapping(resources_block.get("keyed_resource_limits", {}))
-		if top_keyed_raw_noprofile:
-			legacy_keyed_resource_limits = {
-				str(name): _parse_keyed_resource_limit(value)
-				for name, value in top_keyed_raw_noprofile.items()
-			}
-		if SOURCE_H5_PATH_KEYED_RESOURCE not in legacy_keyed_resource_limits:
-			legacy_source_h5_limit, legacy_source_h5_keys = _legacy_source_h5_limit_value(
-				resources_block=resources_block,
-				defaults=defaults,
-			)
-			if legacy_source_h5_limit is not None:
-				legacy_keyed_resource_limits[SOURCE_H5_PATH_KEYED_RESOURCE] = KeyedResourceLimitConfig(
-					description="Legacy source H5 concurrency limit.",
-					max_concurrent=int(legacy_source_h5_limit),
-				)
-				_warn_legacy_keyed_resource_limit(
-					logger=(logger or LOGGER),
-					keys=legacy_source_h5_keys,
-				)
 
 	container_caps = _parse_container_caps(resources_block.get("container_caps", {}))
 	active_profile = _as_optional_name(resources_block.get("active_profile", None))
@@ -627,7 +454,6 @@ def parse_resources_config(
 		phase_budgets=phase_budgets,
 		container_caps=container_caps,
 		defaults=defaults,
-		_legacy_keyed_resource_limits=legacy_keyed_resource_limits,
 	)
 
 
@@ -842,7 +668,4 @@ def get_resource_default(
 			cap = active_profile.capacity if hasattr(active_profile, "capacity") else active_profile
 			if getattr(cap, "default_chunk_duration", None) is not None:
 				return cap.default_chunk_duration
-	resources_block = _as_mapping(runtime_config.get("resources", None))
-	if key in resources_block and key not in _RESERVED_RESOURCE_KEYS:
-		return resources_block[key]
 	return default

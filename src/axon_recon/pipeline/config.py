@@ -9,20 +9,17 @@ from axon_recon.pipeline.scratch_layout import resolve_optional_path, resolve_sc
 from axon_recon.runtime_config import RuntimeConfig
 
 from .execution.context import ExecutionTarget, StageParallelism
-from .execution.read_groups import count_target_read_groups
 from .resources import (
 	SOURCE_H5_PATH_KEYED_RESOURCE,
 	get_active_resource_profile,
 	get_keyed_resource_limit_max_concurrent,
 	get_max_phase_resource_demands,
-	get_resource_default,
 	parse_resources_config,
 )
 from .stages.preprocess.core.copy_src_to_scratch import resolve_copy_src_to_scratch_input_path
 
 
 LOGGER = logging.getLogger("axon_recon.pipeline.config")
-_WARNED_LEGACY_STAGE_PARALLELISM_KEYS: set[tuple[str, tuple[str, ...]]] = set()
 
 
 def _warn_legacy_scratch_input_keys(*, scope: str) -> None:
@@ -73,30 +70,6 @@ def _as_optional_positive_int(value: Any) -> int | None:
 	if parsed <= 0:
 		return None
 	return parsed
-
-
-def _warn_legacy_stage_parallelism_keys(*, runtime_cfg: RuntimeConfig, stage_name: str) -> None:
-	has_fn = getattr(runtime_cfg, "has", None)
-	legacy_keys: list[str] = []
-	for key in ("max_stage_workers", "well_workers", "divide_stage_workers_by_wells"):
-		path = f"stages.{stage_name}.resources.{key}"
-		try:
-			has_value = bool(has_fn(path)) if callable(has_fn) else False
-		except Exception:
-			has_value = False
-		if has_value:
-			legacy_keys.append(key)
-	if not legacy_keys:
-		return
-	token = (str(stage_name), tuple(sorted(legacy_keys)))
-	if token in _WARNED_LEGACY_STAGE_PARALLELISM_KEYS:
-		return
-	_WARNED_LEGACY_STAGE_PARALLELISM_KEYS.add(token)
-	LOGGER.warning(
-		"Ignoring legacy stage resource keys for %s: %s. Stage parallelism now derives from resources.active_profile and enabled phase resource_class values.",
-		str(stage_name),
-		", ".join(sorted(legacy_keys)),
-	)
 
 
 def _as_path_list(value: Any, *, base_dir: Path | None = None) -> list[Path]:
@@ -363,129 +336,51 @@ def resolve_stage_parallelism(
 	runtime_cfg = bundle.runtime_config
 	resources_config = parse_resources_config(runtime_config=runtime_cfg, logger=LOGGER)
 	active_profile = get_active_resource_profile(resources_config)
-	legacy_max_workers = _as_int(
-		runtime_cfg.get(
-			"resources.max_workers",
-			get_resource_default(runtime_config=runtime_cfg, key="max_workers", default=8, logger=LOGGER),
-		),
-		8,
-	)
-	max_workers = max(1, int(active_profile.cpu_cores)) if active_profile is not None and active_profile.cpu_cores else max(1, int(legacy_max_workers))
-	stage_workers = int(max_workers)
+	if active_profile is None:
+		raise ValueError(
+			f"resolve_stage_parallelism: no active resource profile found. "
+			"Set resources.active_profile in the runtime YAML."
+		)
+	stage_workers = max(1, int(active_profile.cpu_cores)) if active_profile.cpu_cores else 1
 	resolved_phase_resource_classes = tuple(
 		str(resource_class)
 		for resource_class in (phase_resource_classes or ())
 		if str(resource_class).strip()
 	)
-	resource_driven_parallelism = bool(active_profile is not None and resolved_phase_resource_classes)
-	if resource_driven_parallelism:
-		_warn_legacy_stage_parallelism_keys(runtime_cfg=runtime_cfg, stage_name=stage_name)
-		max_phase_demands = get_max_phase_resource_demands(
-			resources=resources_config,
-			resource_classes=list(resolved_phase_resource_classes),
-			dimensions=("cpu_cores", "ram_gb"),
+	if not resolved_phase_resource_classes:
+		raise ValueError(
+			f"resolve_stage_parallelism for stage={stage_name!r}: no phase_resource_classes provided. "
+			"Caller must supply phase_resource_classes from the enabled phase budgets."
 		)
-		candidate_well_worker_limits: list[int] = []
-		cpu_demand = max(0, int(max_phase_demands.get("cpu_cores", 0)))
-		ram_demand = max(0, int(max_phase_demands.get("ram_gb", 0)))
-		if target_count is not None:
-			resolved_target_count = max(0, int(target_count))
-			if resolved_target_count > 0:
-				candidate_well_worker_limits.append(int(resolved_target_count))
-		if cpu_demand > 0:
-			candidate_well_worker_limits.append(max(1, int(stage_workers // cpu_demand)))
-		if ram_demand > 0 and active_profile is not None and active_profile.ram_gb is not None:
-			ram_budget = max(0, int(active_profile.ram_gb))
-			candidate_well_worker_limits.append(max(1, int(ram_budget // ram_demand)))
-		well_workers = min(candidate_well_worker_limits) if candidate_well_worker_limits else 1
-		well_workers = max(1, int(well_workers))
-		divide_stage_workers_by_wells = False
-		derived_unit_workers = max(1, int(cpu_demand or max(1, stage_workers // well_workers)))
-		derived_unit_workers_source = "resource_class.cpu_cores" if cpu_demand > 0 else "derived"
-	else:
-		stage_workers = _as_int(runtime_cfg.get(f"stages.{stage_name}.resources.max_stage_workers", max_workers), max_workers)
-		stage_workers = max(1, int(stage_workers))
+	max_phase_demands = get_max_phase_resource_demands(
+		resources=resources_config,
+		resource_classes=list(resolved_phase_resource_classes),
+		dimensions=("cpu_cores", "ram_gb"),
+	)
+	candidate_well_worker_limits: list[int] = []
+	cpu_demand = max(0, int(max_phase_demands.get("cpu_cores", 0)))
+	ram_demand = max(0, int(max_phase_demands.get("ram_gb", 0)))
+	if target_count is not None:
+		resolved_target_count = max(0, int(target_count))
+		if resolved_target_count > 0:
+			candidate_well_worker_limits.append(int(resolved_target_count))
+	if cpu_demand > 0:
+		candidate_well_worker_limits.append(max(1, int(stage_workers // cpu_demand)))
+	if ram_demand > 0 and active_profile.ram_gb is not None:
+		ram_budget = max(0, int(active_profile.ram_gb))
+		candidate_well_worker_limits.append(max(1, int(ram_budget // ram_demand)))
+	well_workers = min(candidate_well_worker_limits) if candidate_well_worker_limits else 1
+	well_workers = max(1, int(well_workers))
+	derived_unit_workers = max(1, int(cpu_demand or max(1, stage_workers // well_workers)))
 
-		well_workers = _as_int(runtime_cfg.get(f"stages.{stage_name}.resources.well_workers", 1), 1)
-		well_workers = max(1, int(well_workers))
-		if target_count is not None:
-			resolved_target_count = max(0, int(target_count))
-			if resolved_target_count > 0:
-				well_workers = min(well_workers, resolved_target_count)
-
-		divide_stage_workers_by_wells = _as_bool(
-			runtime_cfg.get(f"stages.{stage_name}.resources.divide_stage_workers_by_wells", True),
-			True,
-		)
-		if bool(divide_stage_workers_by_wells) and int(well_workers) > 1:
-			derived_unit_workers = max(1, int(stage_workers // well_workers))
-		else:
-			derived_unit_workers = max(1, int(stage_workers))
-		derived_unit_workers_source = "derived"
-	read_cap_raw = None
-	for read_cap_key in (
-		f"stages.{stage_name}.resources.max_simultaneous_well_reads_per_h5_file",
-		f"stages.{stage_name}.resources.max_simultaneous_well_reads_per_dataset",
-	):
-		if runtime_cfg.has(read_cap_key):
-			read_cap_raw = runtime_cfg.get(read_cap_key, None)
-			break
-	if read_cap_raw is None:
-		read_cap_raw = get_keyed_resource_limit_max_concurrent(
-			resources_config,
-			SOURCE_H5_PATH_KEYED_RESOURCE,
-		)
+	read_cap_raw = get_keyed_resource_limit_max_concurrent(
+		resources_config,
+		SOURCE_H5_PATH_KEYED_RESOURCE,
+	)
 	max_simultaneous_well_reads_per_dataset = _as_optional_positive_int(read_cap_raw)
 
-	unit_workers_key = f"stages.{stage_name}.resources.unit_workers"
-	unit_workers_raw = runtime_cfg.get(unit_workers_key, None) if runtime_cfg.has(unit_workers_key) else None
-	if unit_workers_raw is None:
-		unit_workers = int(derived_unit_workers)
-		unit_workers_source = str(derived_unit_workers_source)
-	else:
-		unit_workers = max(1, _as_int(unit_workers_raw, int(derived_unit_workers)))
-		unit_workers_source = "resources.unit_workers"
-
 	return StageParallelism(
-		max_workers=max_workers,
-		max_stage_workers=stage_workers,
 		well_workers=well_workers,
-		unit_workers=unit_workers,
-		unit_workers_source=unit_workers_source,
+		unit_workers=int(derived_unit_workers),
 		max_simultaneous_well_reads_per_dataset=max_simultaneous_well_reads_per_dataset,
-		divide_stage_workers_by_wells=bool(divide_stage_workers_by_wells),
-	)
-
-
-def constrain_stage_parallelism_to_read_groups(
-	*,
-	parallelism: StageParallelism,
-	targets: list[Any],
-) -> StageParallelism:
-	read_cap = getattr(parallelism, "max_simultaneous_well_reads_per_dataset", None)
-	if read_cap is None:
-		return parallelism
-	if not targets:
-		return parallelism
-
-	read_group_count = count_target_read_groups(list(targets))
-	if read_group_count <= 0:
-		return parallelism
-
-	max_effective_well_workers = min(len(targets), int(read_group_count) * int(read_cap))
-	effective_well_workers = min(int(parallelism.well_workers), max(1, int(max_effective_well_workers)))
-	if effective_well_workers == int(parallelism.well_workers):
-		return parallelism
-
-	if str(getattr(parallelism, "unit_workers_source", "derived")) != "derived":
-		unit_workers = max(1, int(parallelism.unit_workers))
-	elif bool(getattr(parallelism, "divide_stage_workers_by_wells", True)) and int(effective_well_workers) > 1:
-		unit_workers = max(1, int(parallelism.max_stage_workers) // int(effective_well_workers))
-	else:
-		unit_workers = max(1, int(parallelism.max_stage_workers))
-
-	return replace(
-		parallelism,
-		well_workers=int(effective_well_workers),
-		unit_workers=int(unit_workers),
 	)

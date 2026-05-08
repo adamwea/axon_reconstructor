@@ -67,7 +67,6 @@ class PipelineJsonFormatter(logging.Formatter):
             "exception_type",
             "selected_wells",
             "well_workers",
-            "max_stage_workers",
             "stage_global_order",
             "well_local_phase_sequence",
         ):

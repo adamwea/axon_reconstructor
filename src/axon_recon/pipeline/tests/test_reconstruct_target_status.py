@@ -76,7 +76,7 @@ def test_run_reconstruct_direct_phase_wraps_resource_chain(monkeypatch, tmp_path
     monkeypatch.setattr(
         pipeline_runner,
         "resolve_stage_parallelism",
-        lambda **kwargs: StageParallelism(max_workers=3, max_stage_workers=3, well_workers=1, unit_workers=3),
+        lambda **kwargs: StageParallelism(well_workers=1, unit_workers=3),
     )
     monkeypatch.setattr(pipeline_runner, "parse_probe_geometry_from_data_config", lambda *, data_config: None)
     monkeypatch.setattr(pipeline_runner, "parse_reconstruction_stage_config", lambda **kwargs: object())
@@ -143,11 +143,8 @@ def test_run_reconstruct_direct_phase_parallelism_uses_selected_resource_class(m
         seen_phase_resource_classes.append(tuple(phase_resource_classes or ()))
         assert tuple(phase_resource_classes or ()) == ("plot_unit",)
         return StageParallelism(
-            max_workers=36,
-            max_stage_workers=36,
             well_workers=1,
             unit_workers=2,
-            unit_workers_source="resource_class.cpu_cores",
         )
 
     def _fake_build_reconstruction_inputs_for_target(*, target, stage_config, unit_workers: int, probe_geometry):
@@ -220,7 +217,7 @@ def test_run_reconstruct_from_runtime_marks_target_ok_when_any_unit_succeeds(mon
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_reconstruction_stage_config(**kwargs):
         return object()
@@ -293,7 +290,7 @@ def test_run_reconstruct_from_runtime_logs_stage_topology(monkeypatch, tmp_path:
     monkeypatch.setattr(
         pipeline_runner,
         "resolve_stage_parallelism",
-        lambda *, bundle, stage_name: StageParallelism(max_workers=6, max_stage_workers=6, well_workers=2, unit_workers=3),
+        lambda *, bundle, stage_name: StageParallelism(well_workers=2, unit_workers=3),
     )
     monkeypatch.setattr(pipeline_runner, "parse_probe_geometry_from_data_config", lambda *, data_config: None)
     monkeypatch.setattr(pipeline_runner, "parse_reconstruction_stage_config", lambda **kwargs: object())
@@ -320,7 +317,7 @@ def test_run_reconstruct_from_runtime_logs_stage_topology(monkeypatch, tmp_path:
     assert "Starting stage: reconstruct" in messages
     assert "Execution topology: stage_global_order=true, well_local_phase_sequence=true" in messages
     assert "Selected wells: 1" in messages
-    assert "well_workers=2 max_stage_workers=6" in messages
+    assert "well_workers=2" in messages
 
 
 def test_run_reconstruct_from_runtime_marks_target_error_when_no_units_succeed(monkeypatch, tmp_path: Path) -> None:
@@ -351,7 +348,7 @@ def test_run_reconstruct_from_runtime_marks_target_error_when_no_units_succeed(m
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_reconstruction_stage_config(**kwargs):
         return object()
@@ -519,7 +516,7 @@ def test_run_reconstruct_phase_from_runtime_marks_target_ok(
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_reconstruction_stage_config(**kwargs):
         return object()
@@ -602,8 +599,6 @@ def test_run_reconstruct_analyzers_from_runtime_accepts_non_unit_phase_result(mo
         pipeline_runner,
         "resolve_stage_parallelism",
         lambda *, bundle, stage_name: StageParallelism(
-            max_workers=1,
-            max_stage_workers=1,
             well_workers=1,
             unit_workers=1,
         ),
@@ -726,8 +721,6 @@ def test_run_reconstruct_substage_applies_cli_target_limits_before_build(monkeyp
         pipeline_runner,
         "resolve_stage_parallelism",
         lambda *, bundle, stage_name, target_count=None, targets=None, phase_resource_classes=None: StageParallelism(
-            max_workers=1,
-            max_stage_workers=1,
             well_workers=1,
             unit_workers=1,
         ),
@@ -788,7 +781,7 @@ def test_run_reconstruct_plot_recons_from_runtime_marks_target_error_when_no_uni
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_reconstruction_stage_config(**kwargs):
         return object()
@@ -855,7 +848,7 @@ def test_run_reconstruct_clear_templates_cache_from_runtime_marks_target_ok_when
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_reconstruction_stage_config(**kwargs):
         return object()

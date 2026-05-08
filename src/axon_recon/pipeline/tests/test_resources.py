@@ -23,24 +23,26 @@ def _resource_payload() -> dict[str, object]:
 			"active_profile": "lab_server_safe",
 			"profiles": {
 				"lab_server_safe": {
-					"cpu_cores": 18,
-					"ram_gb": 96,
-					"gpu_sort_slots": 1,
-					"h5_read_slots": 1,
-					"disk_heavy_slots": 1,
-					"plot_slots": 1,
-					"analyzer_slots": 1,
-					"default_chunk_duration": "1s",
+					"capacity": {
+						"cpu_cores": 18,
+						"ram_gb": 96,
+						"gpu_sort_slots": 1,
+						"h5_read_slots": 1,
+						"disk_heavy_slots": 1,
+						"plot_slots": 1,
+						"analyzer_slots": 1,
+						"default_chunk_duration": "1s",
+					},
+					"keyed_resource_limits": {
+						"source_h5_path": {
+							"description": "Limit concurrent well-workers touching the same source H5 file.",
+							"max_concurrent": 1,
+							"applies_to": ["h5_metadata", "h5_to_binary", "preprocess_segments"],
+						},
+					},
 				},
 			},
-			"keyed_resource_limits": {
-				"source_h5_path": {
-					"description": "Limit concurrent well-workers touching the same source H5 file.",
-					"max_concurrent": 1,
-					"applies_to": ["h5_metadata", "h5_to_binary", "preprocess_segments"],
-				},
-			},
-			"phase_resource_classes": {
+			"phase_budgets": {
 				"h5_metadata": {
 					"description": "Light HDF5 metadata and small file reads.",
 					"bottleneck": "h5_read",
@@ -110,8 +112,10 @@ def _resource_payload() -> dict[str, object]:
 					"plot_slots": 1,
 				},
 			},
-			"max_workers": 7,
-			"chunk_duration": "3s",
+			"defaults": {
+				"chunk_duration": "3s",
+				"max_workers": 7,
+			},
 		},
 	}
 
@@ -134,20 +138,6 @@ def test_parse_resources_config_parses_typed_profiles_and_keyed_limits():
 	assert parsed.phase_budgets["kilosort4"].gpu_sort_slots == 1
 	assert get_resource_default(runtime_config=cfg, key="max_workers", default=None) == 7
 
-
-def test_parse_resources_config_maps_legacy_h5_read_cap_alias_into_keyed_limits():
-	payload = _resource_payload()
-	resources = payload["resources"]
-	assert isinstance(resources, dict)
-	resources.pop("keyed_resource_limits", None)
-	resources["max_simultaneous_well_reads_per_h5_file"] = 2
-
-	parsed = parse_resources_config(runtime_config=RuntimeConfig(payload))
-	limit = get_keyed_resource_limit_config(parsed, "source_h5_path")
-
-	assert parsed.defaults["max_simultaneous_well_reads_per_h5_file"] == 2
-	assert limit is not None
-	assert limit.max_concurrent == 2
 
 
 def test_parse_resources_config_defaults_task_allocation_to_disabled_schema():
@@ -174,7 +164,9 @@ def test_parse_resources_config_parses_explicit_task_allocation_block():
 	payload = _resource_payload()
 	resources = payload["resources"]
 	assert isinstance(resources, dict)
-	resources["task_allocation"] = {
+	profiles = resources["profiles"]
+	assert isinstance(profiles, dict)
+	profiles["lab_server_safe"]["task_allocation"] = {
 		"enabled": True,
 		"backend": "local_affinity",
 		"task_unit": "well",
@@ -229,7 +221,9 @@ def test_parse_resources_config_rejects_invalid_task_allocation_values(
 	payload = _resource_payload()
 	resources = payload["resources"]
 	assert isinstance(resources, dict)
-	resources["task_allocation"] = {field_name: field_value}
+	profiles = resources["profiles"]
+	assert isinstance(profiles, dict)
+	profiles["lab_server_safe"]["task_allocation"] = {field_name: field_value}
 
 	with pytest.raises(ValueError, match=field_name):
 		parse_resources_config(runtime_config=RuntimeConfig(payload))
@@ -325,7 +319,9 @@ def test_get_resource_default_uses_active_profile_default_chunk_duration_when_de
 	payload = _resource_payload()
 	resources = payload["resources"]
 	assert isinstance(resources, dict)
-	resources.pop("chunk_duration", None)
+	defaults = resources.get("defaults", {})
+	assert isinstance(defaults, dict)
+	defaults.pop("chunk_duration", None)
 
 	assert get_resource_default(runtime_config=RuntimeConfig(payload), key="chunk_duration", default=None) == "1s"
 
@@ -333,7 +329,7 @@ def test_get_resource_default_uses_active_profile_default_chunk_duration_when_de
 @pytest.mark.parametrize(
 	"payload",
 	[
-		{"resources": {"active_profile": "missing", "profiles": {}, "phase_resource_classes": {}}},
+		{"resources": {"active_profile": "missing", "profiles": {}, "phase_budgets": {}}},
 		{
 			**_resource_payload(),
 			"stages": {

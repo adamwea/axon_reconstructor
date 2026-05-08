@@ -62,8 +62,6 @@ def test_runtime_target_distribution_sets_log_context(caplog):
         _target(dataset_index=1, dataset_id="dataset-b", stream_id="well002"),
     ]
     parallelism = StageParallelism(
-        max_workers=2,
-        max_stage_workers=2,
         well_workers=2,
         unit_workers=1,
     )
@@ -89,8 +87,6 @@ def test_runtime_target_distribution_sets_task_slot_context() -> None:
         TaskSlot(slot_id=1, logical_cpus=(2, 3), core_ids=(1,), package_ids=(0,)),
     )
     parallelism = StageParallelism(
-        max_workers=2,
-        max_stage_workers=2,
         well_workers=2,
         unit_workers=1,
         task_allocation_plan=SimpleNamespace(slots=task_slots),
@@ -120,8 +116,6 @@ def test_runtime_target_distribution_applies_affinity_for_bound_local_plan(monke
         TaskSlot(slot_id=1, logical_cpus=(2, 3), core_ids=(1,), package_ids=(0,)),
     )
     parallelism = StageParallelism(
-        max_workers=2,
-        max_stage_workers=2,
         well_workers=2,
         unit_workers=1,
         task_allocation_plan=SimpleNamespace(backend="local_affinity", bind="physical_cores", slots=task_slots),
@@ -145,8 +139,6 @@ def test_runtime_target_distribution_skips_affinity_for_bind_none(monkeypatch) -
     targets = [_target(dataset_index=0, dataset_id="dataset-a", stream_id="well001")]
     task_slots = (TaskSlot(slot_id=0, logical_cpus=(0, 1), core_ids=(0,), package_ids=(0,)),)
     parallelism = StageParallelism(
-        max_workers=1,
-        max_stage_workers=1,
         well_workers=1,
         unit_workers=1,
         task_allocation_plan=SimpleNamespace(backend="local_affinity", bind="none", slots=task_slots),

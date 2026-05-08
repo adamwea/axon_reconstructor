@@ -15,17 +15,19 @@ def _resource_budget_payload(*, h5_read_slots: int = 2, source_h5_max_concurrent
 			"active_profile": "lab_server_safe",
 			"profiles": {
 				"lab_server_safe": {
-					"cpu_cores": 8,
-					"ram_gb": 32,
-					"h5_read_slots": h5_read_slots,
+					"capacity": {
+						"cpu_cores": 8,
+						"ram_gb": 32,
+						"h5_read_slots": h5_read_slots,
+					},
+					"keyed_resource_limits": {
+						"source_h5_path": {
+							"max_concurrent": source_h5_max_concurrent,
+						},
+					},
 				},
 			},
-			"keyed_resource_limits": {
-				"source_h5_path": {
-					"max_concurrent": source_h5_max_concurrent,
-				},
-			},
-			"phase_resource_classes": {
+			"phase_budgets": {
 				"preprocess_segments": {
 					"h5_read_slots": 1,
 					"keyed_resources": {"source_h5_path": 1},
@@ -100,7 +102,7 @@ def test_phase_budget_limits_cpu_and_ram_capacity() -> None:
 				"resources": {
 					"active_profile": "lab_server_safe",
 					"profiles": {"lab_server_safe": {"cpu_cores": 6, "ram_gb": 16}},
-					"phase_resource_classes": {
+					"phase_budgets": {
 						"template_build": {"cpu_cores": 5, "ram_gb": 8},
 					},
 				}
@@ -155,7 +157,7 @@ def test_phase_budget_limits_plot_slots_for_report_phases() -> None:
 				"resources": {
 					"active_profile": "lab_server_safe",
 					"profiles": {"lab_server_safe": {"cpu_cores": 12, "ram_gb": 96, "plot_slots": 1}},
-					"phase_resource_classes": {
+					"phase_budgets": {
 						"plot_report_grid": {"cpu_cores": 4, "ram_gb": 48, "plot_slots": 1},
 					},
 				}
@@ -210,7 +212,7 @@ def test_phase_budget_blocks_plot_unit_when_template_build_holds_ram() -> None:
 				"resources": {
 					"active_profile": "lab_server_safe",
 					"profiles": {"lab_server_safe": {"cpu_cores": 36, "ram_gb": 50, "plot_slots": 1}},
-					"phase_resource_classes": {
+					"phase_budgets": {
 						"template_build": {"cpu_cores": 4, "ram_gb": 8},
 						"plot_unit": {"cpu_cores": 2, "ram_gb": 48, "plot_slots": 1},
 					},

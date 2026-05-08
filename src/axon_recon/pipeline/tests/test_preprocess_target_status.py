@@ -59,7 +59,7 @@ def test_run_preprocess_from_runtime_marks_target_ok(monkeypatch, tmp_path: Path
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=24, max_stage_workers=24, well_workers=2, unit_workers=12)
+        return StageParallelism(well_workers=2, unit_workers=12)
 
     def _fake_parse_preprocess_stage_config(**kwargs):
         return SimpleNamespace(debug_limit_wells=None)
@@ -126,7 +126,7 @@ def test_run_preprocess_from_runtime_logs_stage_topology(monkeypatch, tmp_path: 
     monkeypatch.setattr(
         pipeline_runner,
         "resolve_stage_parallelism",
-        lambda *, bundle, stage_name: StageParallelism(max_workers=24, max_stage_workers=24, well_workers=2, unit_workers=12),
+        lambda *, bundle, stage_name: StageParallelism(well_workers=2, unit_workers=12),
     )
     monkeypatch.setattr(pipeline_runner, "parse_preprocess_stage_config", lambda **kwargs: SimpleNamespace(debug_limit_wells=None))
     monkeypatch.setattr(
@@ -152,7 +152,7 @@ def test_run_preprocess_from_runtime_logs_stage_topology(monkeypatch, tmp_path: 
     assert "Starting stage: preprocess" in messages
     assert "Execution topology: stage_global_order=true, well_local_phase_sequence=true" in messages
     assert "Selected wells: 1" in messages
-    assert "well_workers=2 max_stage_workers=24" in messages
+    assert "well_workers=2" in messages
 
 
 def test_run_preprocess_from_runtime_applies_force_restart_override_to_stage_inputs(
@@ -185,7 +185,7 @@ def test_run_preprocess_from_runtime_applies_force_restart_override_to_stage_inp
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
         _ = bundle, stage_name
-        return StageParallelism(max_workers=24, max_stage_workers=24, well_workers=1, unit_workers=8)
+        return StageParallelism(well_workers=1, unit_workers=8)
 
     def _fake_parse_preprocess_stage_config(**kwargs):
         parse_force_restart_overrides.append(kwargs.get("force_restart_override"))
@@ -261,7 +261,7 @@ def test_run_preprocess_from_runtime_marks_target_error(monkeypatch, tmp_path: P
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=24, max_stage_workers=24, well_workers=2, unit_workers=12)
+        return StageParallelism(well_workers=2, unit_workers=12)
 
     def _fake_parse_preprocess_stage_config(**kwargs):
         return SimpleNamespace(debug_limit_wells=None)
@@ -328,7 +328,7 @@ def test_run_preprocess_from_runtime_applies_debug_well_limit(monkeypatch, tmp_p
         return [target_a, target_b]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_preprocess_stage_config(**kwargs):
         return SimpleNamespace(
@@ -421,7 +421,7 @@ def test_run_preprocess_from_runtime_applies_global_debug_dataset_and_well_limit
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
         _ = bundle, stage_name
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_preprocess_stage_config(**kwargs):
         _ = kwargs
@@ -655,7 +655,7 @@ def test_run_preprocess_substage_from_runtime_marks_target_ok(
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=24, max_stage_workers=24, well_workers=2, unit_workers=12)
+        return StageParallelism(well_workers=2, unit_workers=12)
 
     def _fake_parse_preprocess_stage_config(**kwargs):
         return SimpleNamespace(debug_limit_wells=None)
@@ -849,7 +849,7 @@ def test_run_preprocess_from_runtime_materializes_inputs_when_copy_phase_enabled
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=24, max_stage_workers=24, well_workers=2, unit_workers=12)
+        return StageParallelism(well_workers=2, unit_workers=12)
 
     def _fake_parse_preprocess_stage_config(**kwargs):
         return SimpleNamespace(
@@ -919,7 +919,7 @@ def test_run_preprocess_from_runtime_passes_debug_limits_to_scratch_materializin
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=1, max_stage_workers=1, well_workers=1, unit_workers=1)
+        return StageParallelism(well_workers=1, unit_workers=1)
 
     def _fake_parse_preprocess_stage_config(**kwargs):
         _ = kwargs
@@ -998,7 +998,7 @@ def test_run_preprocess_from_runtime_uses_nested_workers_when_heavy_phases_enabl
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=24, max_stage_workers=24, well_workers=2, unit_workers=12)
+        return StageParallelism(well_workers=2, unit_workers=12)
 
     def _fake_parse_preprocess_stage_config(**kwargs):
         return SimpleNamespace(
@@ -1039,7 +1039,7 @@ def test_run_preprocess_from_runtime_uses_nested_workers_when_heavy_phases_enabl
     assert unit_worker_calls == [12]
     assert divider_stdout_calls == [False]
     assert any(
-        "Preprocess worker allocation stage=preprocess stage_workers=24 well_workers=2 n_jobs=12 n_jobs_source=derived"
+        "Preprocess worker allocation stage=preprocess well_workers=2 n_jobs=12 n_jobs_source=derived"
         in message
         for message in messages
     )
@@ -1082,7 +1082,7 @@ def test_run_preprocess_from_runtime_uses_phase_sequence_for_scratch_and_worker_
         return [target]
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
-        return StageParallelism(max_workers=24, max_stage_workers=24, well_workers=2, unit_workers=12)
+        return StageParallelism(well_workers=2, unit_workers=12)
 
     def _fake_parse_preprocess_stage_config(**kwargs):
         return SimpleNamespace(
@@ -1183,7 +1183,7 @@ def test_run_preprocess_save_rec_metadata_from_runtime_ignores_phase_debug_datas
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
         _ = bundle, stage_name
-        return StageParallelism(max_workers=24, max_stage_workers=24, well_workers=2, unit_workers=12)
+        return StageParallelism(well_workers=2, unit_workers=12)
 
     def _fake_parse_preprocess_stage_config(**kwargs):
         _ = kwargs
@@ -1282,7 +1282,7 @@ def test_run_preprocess_plot_raster_threshold_from_runtime_ignores_phase_debug_d
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
         _ = bundle, stage_name
-        return StageParallelism(max_workers=24, max_stage_workers=24, well_workers=2, unit_workers=12)
+        return StageParallelism(well_workers=2, unit_workers=12)
 
     def _fake_parse_preprocess_stage_config(**kwargs):
         _ = kwargs
@@ -1382,7 +1382,7 @@ def test_run_preprocess_concat_segments_from_runtime_ignores_phase_debug_dataset
 
     def _fake_resolve_stage_parallelism(*, bundle, stage_name: str):
         _ = bundle, stage_name
-        return StageParallelism(max_workers=24, max_stage_workers=24, well_workers=2, unit_workers=12)
+        return StageParallelism(well_workers=2, unit_workers=12)
 
     def _fake_parse_preprocess_stage_config(**kwargs):
         _ = kwargs

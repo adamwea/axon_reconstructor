@@ -181,8 +181,6 @@ def test_build_task_allocation_plan_uses_physical_core_capacity_without_hyperthr
 		target_labels=("12:well000", "12:well001"),
 		phase_resource_classes=("h5_metadata",),
 		parallelism=StageParallelism(
-			max_workers=4,
-			max_stage_workers=4,
 			well_workers=2,
 			unit_workers=2,
 			task_allocation_plan=plan,
@@ -556,8 +554,6 @@ def test_allocation_preview_shows_thread_env_policy_when_enabled(tmp_path: Path)
 		target_labels=("12:well000", "12:well001", "12:well002", "12:well003"),
 		phase_resource_classes=("h5_metadata",),
 		parallelism=StageParallelism(
-			max_workers=24,
-			max_stage_workers=24,
 			well_workers=4,
 			unit_workers=6,
 			task_allocation_plan=plan,
@@ -579,8 +575,6 @@ def test_allocation_preview_reports_mpi_backend_without_local_plan() -> None:
 		target_labels=("11:well000",),
 		phase_resource_classes=("h5_metadata",),
 		parallelism=StageParallelism(
-			max_workers=4,
-			max_stage_workers=4,
 			well_workers=2,
 			unit_workers=2,
 			task_allocation_plan=None,

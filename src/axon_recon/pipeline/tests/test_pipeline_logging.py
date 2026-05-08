@@ -306,7 +306,7 @@ def test_phase_chain_logs_resource_gate_waiting_event_for_queued_worker(tmp_path
                 "resources": {
                     "active_profile": "test_profile",
                     "profiles": {"test_profile": {"h5_read_slots": 1}},
-                    "phase_resource_classes": {"h5_reader": {"h5_read_slots": 1}},
+                    "phase_budgets": {"h5_reader": {"h5_read_slots": 1}},
                 }
             }
         )

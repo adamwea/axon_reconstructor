@@ -13,7 +13,6 @@ from axon_recon.pipeline.publish import publish_path_to_final, remap_path_string
 
 from .config import (
 	PipelineRuntimeBundle,
-	constrain_stage_parallelism_to_read_groups,
 	load_pipeline_runtime_bundle,
 	resolve_stage_parallelism,
 	select_execution_targets,
@@ -259,9 +258,8 @@ def _resolve_preprocess_runtime_unit_workers(*, stage_name: str, parallelism: An
 	)
 	emit_subphase_dividers_to_stdout = not (bool(uses_nested_workers) and int(parallelism.well_workers) > 1)
 	LOGGER.info(
-		"Preprocess worker allocation stage=%s stage_workers=%d well_workers=%d n_jobs=%d n_jobs_source=%s uses_nested_workers=%s emit_subphase_dividers_to_stdout=%s",
+		"Preprocess worker allocation stage=%s well_workers=%d n_jobs=%d n_jobs_source=%s uses_nested_workers=%s emit_subphase_dividers_to_stdout=%s",
 		str(stage_name),
-		int(parallelism.max_stage_workers),
 		int(parallelism.well_workers),
 		int(max(1, n_jobs)),
 		str(n_jobs_source),
@@ -306,29 +304,10 @@ def _resolve_runtime_stage_parallelism(
 			if "target_count" not in str(inner_exc):
 				raise
 			parallelism = resolve_stage_parallelism(bundle=bundle, stage_name=stage_name)
-	if targets is None:
-		return _attach_task_allocation_plan(
-			bundle=bundle,
-			parallelism=parallelism,
-			target_count=int(target_count),
-			task_allocation_override=task_allocation_override,
-			active_profile_override=active_profile_override,
-		)
-	read_cap = getattr(parallelism, "max_simultaneous_well_reads_per_dataset", None)
-	keyed_read_cap: int | None = None
-	if read_cap is not None and targets:
-		read_group_count = count_target_read_groups(list(targets))
-		if read_group_count > 0:
-			keyed_read_cap = min(len(targets), int(read_group_count) * int(read_cap))
-	parallelism = constrain_stage_parallelism_to_read_groups(
-		parallelism=parallelism,
-		targets=list(targets),
-	)
 	return _attach_task_allocation_plan(
 		bundle=bundle,
 		parallelism=parallelism,
 		target_count=int(target_count),
-		keyed_read_cap=keyed_read_cap,
 		task_allocation_override=task_allocation_override,
 		active_profile_override=active_profile_override,
 	)
@@ -342,20 +321,11 @@ def _available_shm_gb(path: str = "/dev/shm") -> float | None:
 	return float(int(stats.f_bavail) * int(stats.f_frsize)) / float(1024**3)
 
 
-def _unit_workers_after_well_worker_clamp(*, parallelism: Any, well_workers: int) -> int:
-	if str(getattr(parallelism, "unit_workers_source", "derived")) != "derived":
-		return max(1, int(getattr(parallelism, "unit_workers", 1)))
-	if bool(getattr(parallelism, "divide_stage_workers_by_wells", True)) and int(well_workers) > 1:
-		return max(1, int(getattr(parallelism, "max_stage_workers", 1)) // int(well_workers))
-	return max(1, int(getattr(parallelism, "max_stage_workers", 1)))
-
-
 def _attach_task_allocation_plan(
 	*,
 	bundle: PipelineRuntimeBundle,
 	parallelism: Any,
 	target_count: int,
-	keyed_read_cap: int | None = None,
 	task_allocation_override: dict[str, Any] | None = None,
 	active_profile_override: str | None = None,
 ) -> Any:
@@ -382,7 +352,6 @@ def _attach_task_allocation_plan(
 		config=task_config,
 		topology=detect_cpu_topology(logger=LOGGER),
 		target_count=max(0, int(target_count)),
-		keyed_read_cap=keyed_read_cap,
 		resource_profile=get_active_resource_profile(resources_config),
 		available_shm_gb=_available_shm_gb(),
 	)
@@ -393,7 +362,7 @@ def _attach_task_allocation_plan(
 			parallelism,
 			set_thread_env=bool(task_config.set_thread_env),
 			nested_thread_policy=str(task_config.nested_thread_policy or "preserve_existing"),
-		use_hyperthreads=bool(task_config.use_hyperthreads),
+			use_hyperthreads=bool(task_config.use_hyperthreads),
 		)
 	if int(target_count) > 0 and not plan.slots:
 		raise ValueError(
@@ -401,14 +370,9 @@ def _attach_task_allocation_plan(
 			"Lower resources.task_allocation.cpus_per_task or reserve_cpus, or disable task allocation."
 		)
 	effective_well_workers = max(1, min(int(getattr(parallelism, "well_workers", 1)), len(plan.slots) or 1))
-	unit_workers = _unit_workers_after_well_worker_clamp(
-		parallelism=parallelism,
-		well_workers=effective_well_workers,
-	)
 	return replace(
 		parallelism,
 		well_workers=int(effective_well_workers),
-		unit_workers=int(unit_workers),
 		task_allocation_plan=plan,
 	)
 
@@ -841,7 +805,6 @@ def _with_preprocess_runtime_worker_allocation(
 	try:
 		return replace(
 			inputs,
-			runtime_stage_workers=max(1, int(parallelism.max_stage_workers)),
 			runtime_well_workers=max(1, int(parallelism.well_workers)),
 			runtime_n_jobs_source=str(n_jobs_source),
 		)
@@ -878,13 +841,11 @@ def _log_runtime_stage_topology(*, stage_name: str, targets: list[Any], parallel
 		},
 	)
 	LOGGER.info(
-		"well_workers=%d max_stage_workers=%d",
+		"well_workers=%d",
 		int(parallelism.well_workers),
-		int(parallelism.max_stage_workers),
 		extra={
 			"event": "stage_topology",
 			"well_workers": int(parallelism.well_workers),
-			"max_stage_workers": int(parallelism.max_stage_workers),
 		},
 	)
 	plan = getattr(parallelism, "task_allocation_plan", None)
@@ -946,10 +907,9 @@ def _log_spikesort_phase_worker_allocation(
 	n_jobs_source: str,
 ) -> None:
 	LOGGER.info(
-		"Spikesort phase worker allocation stage=spikesort phase=%s target=%s stage_workers=%d well_workers=%d n_jobs=%d n_jobs_source=%s",
+		"Spikesort phase worker allocation stage=spikesort phase=%s target=%s well_workers=%d n_jobs=%d n_jobs_source=%s",
 		str(phase_name),
 		_target_log_label(target),
-		int(parallelism.max_stage_workers),
 		int(parallelism.well_workers),
 		max(1, int(n_jobs)),
 		str(n_jobs_source),
@@ -2211,8 +2171,7 @@ def format_stage_allocation_previews(previews: list[StageAllocationPreview] | tu
 		lines.append(
 			"parallelism: "
 			f"well_workers={int(getattr(parallelism, 'well_workers', 1))} "
-			f"unit_workers={int(getattr(parallelism, 'unit_workers', 1))} "
-			f"max_stage_workers={int(getattr(parallelism, 'max_stage_workers', 1))}"
+			f"unit_workers={int(getattr(parallelism, 'unit_workers', 1))}"
 		)
 		if preview.allocation_backend is not None and str(preview.allocation_backend).strip().lower() == "mpi":
 			if preview.mpi_rank is not None and preview.mpi_size is not None and int(preview.mpi_size) > 1:
@@ -2877,10 +2836,9 @@ def run_spikesort_from_runtime(
 	)
 	_log_runtime_stage_topology(stage_name="spikesort", targets=list(targets), parallelism=parallelism)
 	LOGGER.info(
-		"spikesort: starting target-local phase chains targets=%d phases=%s stage_workers=%d well_workers=%d n_jobs=%d n_jobs_source=%s",
+		"spikesort: starting target-local phase chains targets=%d phases=%s well_workers=%d n_jobs=%d n_jobs_source=%s",
 		len(targets),
 		[phase.name for phase in phase_plan],
-		int(parallelism.max_stage_workers),
 		int(parallelism.well_workers),
 		int(runtime_n_jobs),
 		str(n_jobs_source),
@@ -4126,11 +4084,10 @@ def _run_reconstruct_substage_from_runtime(
 			direct_phase_name = str(stage_name).split(".", 1)[1] if "." in str(stage_name) else str(stage_name)
 			resource_class = _reconstruct_stage_phase_resource_class(inputs, direct_phase_name)
 			LOGGER.info(
-				"reconstruct phase worker allocation: phase=%s resource_class=%s n_jobs=%d n_jobs_source=%s",
+				"reconstruct phase worker allocation: phase=%s resource_class=%s n_jobs=%d",
 				_display_reconstruct_stage_phase_name(direct_phase_name),
 				str(resource_class or "none"),
 				int(parallelism.unit_workers),
-				str(parallelism.unit_workers_source),
 			)
 			result = _run_direct_phase_with_resource_tracking(
 				phase_name=_display_reconstruct_stage_phase_name(direct_phase_name),
