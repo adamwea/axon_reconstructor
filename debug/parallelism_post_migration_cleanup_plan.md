@@ -68,23 +68,38 @@ Some of these are legitimately "pass `inputs.n_jobs` to an SI kwargs dict" rathe
 Quick audit (current state):
 - `phase_budgets` block uses canonical schema (`nested_shape`, `cpus_per_task`, slot-typed gates). ✓
 - Profile capacity uses `cpu_cores`, `ram_gb`, etc. ✓
-- `resources.profiles.<name>.task_allocation.ram_gb_per_task: null` (lines 51, 76 area) — the field is still parsed; verify it's still consulted, otherwise drop.
-- The `defaults` block at `resources.defaults.chunk_duration: 1s` — verify it has a consumer; the migration may have dropped the read site.
+- `resources.profiles.<name>.task_allocation.ram_gb_per_task: null` (lines 51, 76 area) — the field is still parsed; verify it's still consulted, otherwise drop. (Slice 6 covers this.)
+- The `defaults` block at `resources.defaults.chunk_duration: 1s` (line 179) — still consumed via `resources.py:672-680`. Keep.
+- `debug/debug.runtime.yml:1223` — commented-out `#n_jobs: 4` under `phases.analyzers.defaults`. **HIGH stale**: banned vocabulary even as a comment. Delete in Slice 8's vocabulary sweep.
+- `debug/debug.runtime.yml:322,335,393` — `print_n_jobs_used: true` toggles under `outputs:` of `prepare_raw_binaries`, `preprocess_segments`, `concat_segments`. Logging-only switch; verify a consumer still references it before keeping. **MEDIUM**.
 
 No `cpu_cores` keys remain under `phase_budgets`. No `phase_resource_classes` block. No `well_workers`/`max_stage_workers` keys. The YAML is the cleanest of the three layers.
 
-### 1.4 Tests with stale fixtures (out-of-scope but flagged)
+### 1.4 Stale model fields (banned vocabulary still on input dataclasses)
 
-These already failed at slice 11 baseline — fixtures use the flat (pre-`capacity:`) profile schema or rely on the old `phase_resource_classes` key. They are listed here so a future cleanup slice can pick them up:
+- `pipeline/stages/reconstruct/models/inputs.py:502` — `max_plotting_concurrency: int | None = None` field on `ReconstructionInputs`. Parser at `stages/reconstruct/config.py:887-894` warns and ignores YAML usage, but the field stays so legacy tests can still construct the dataclass. **HIGH stale**: delete the field, delete the parser warn-and-ignore branch, delete the test that asserts on it (`test_run_reconstruct_generate_gtrs_phase_ignores_max_plotting_concurrency` is one of the 8 stage-test failures — see §1.6 C2).
+- `pipeline/stages/preprocess/models/inputs.py:307` — `runtime_well_workers: int | None = None`. Slice 1.B already covers deletion.
 
-- `stages/reconstruct/tests/test_runner.py::test_reconstruct_combined_phase_sequence_runs_in_order` and 5 sibling tests
-- `stages/reconstruct/tests/test_config.py::test_load_config_reconstruct_populates_templates_inputs_from_debug_runtime`
-- `stages/reconstruct/templates/tests/test_runner.py::test_run_reconstruct_templates_build_templates_phase_uses_unit_workers`
-- `stages/reconstruct/templates/tests/test_spikeinterface_extract.py` (4 tests, `compat_only_kwargs` plumbing)
-- `stages/reconstruct/templates/tests/test_config.py::test_load_templates_config_parses_plot_templates_v2_phase_block`
-- `stages/preprocess/tests/test_runner.py::test_run_preprocess_stage_logs_phase_start_per_well`
+### 1.5 Dual-format parallelism logging
 
-There is also one truly broken test fixture independent of the migration: `reconstruct/runner.py:1509` calls `replace(inputs.templates_inputs, n_jobs=int(workers))` against a non-dataclass under certain mocked inputs (`TypeError: replace() should be called on dataclass instances`). That's a real bug, not a fixture problem.
+The new `phase_parallelism` event from Slice 10 (emitted by `cpu_allocation.py:185`) co-exists with old log lines that still print `well_workers=… n_jobs=… n_jobs_source=…`. Cleanup is folded into Slice 1 (most sites) and Slice 8 (final allowlist drop):
+
+| File:Line | Old format still emitted |
+|---|---|
+| `pipeline/runner.py:261, 752, 808, 844-848, 910-913, 2173, 2839, 2842` | preprocess/spikesort `parallelism.well_workers`/`unit_workers` log lines |
+| `pipeline/runner.py:914-919` | `n_jobs_source` literals `"derived"`, `"configured"`, `"serial"` (canonical: `slot.cpu_count` / `phase_cap` / `yaml_n_jobs_override`) |
+| `pipeline/resource_budget.py:235-245` | phase-gate warning emits `well_workers=%d` |
+| `stages/preprocess/runner.py:1031-1041` | `Preprocess phase worker allocation … well_workers=%d n_jobs=%d n_jobs_source=%s phase_n_jobs=%d` |
+| `pipeline/logging/formatters.py:69` | `well_workers` in JSON allowlist (drop after the emit sites are dead) |
+
+### 1.6 Pre-existing stage-test failures (8, not 14 — survey corrected)
+
+Grouped by root cause; out-of-scope for this plan but each gets a one-line owner:
+
+- **C1 — flat profile schema (1 test)**: `stages/reconstruct/tests/test_runner.py::test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_downstream_phases`. Fixture builds `profiles.<name>.cpu_cores:` flat; `resources.py:415` raises `ValueError("Profile is missing 'capacity' key")`. Fix: nest under `capacity:`.
+- **C2 — `replace()` on non-dataclass at `reconstruct/runner.py:1509` (4 tests, single root cause)**: `replace(inputs.templates_inputs, n_jobs=int(workers))` chokes when `inputs.templates_inputs` is None or a mock. Affects `test_reconstruct_combined_phase_sequence_runs_in_order`, `test_reconstruct_combined_phase_sequence_skips_clear_templates_cache_when_disabled`, `test_reconstruct_configured_copied_template_phase_sequence_runs_requested_order`, `test_run_reconstruct_generate_gtrs_phase_ignores_max_plotting_concurrency`. Fix: guard with `is_dataclass(inputs.templates_inputs)` before calling `replace`. **Real bug, not a fixture problem.** This is the highest-impact quick win after Slice 1.
+- **C3 — assertion drift (1 test)**: `stages/preprocess/tests/test_runner.py::test_run_preprocess_stage_logs_phase_start_per_well:843-847` asserts `phase_n_jobs=12`; runtime now clamps to 1 because slot_cpus=1 in the test. Update assertion.
+- **C4 — content drift (2 tests)**: `test_load_config_reconstruct_populates_templates_inputs_from_debug_runtime` asserts `v2.dpi == 220.0` but YAML ships `420.0`; `test_run_reconstruct_report_full_chip_layout_phase_writes_outputs:2013` asserts `units_successful == 2` but gets 1 (likely worker-count clamp side-effect — verify it's not C2-related).
 
 ---
 
@@ -127,10 +142,14 @@ Classify each hit as: `delete`, `replace-with-budget-manager`, `keep-as-runtime-
 **B. Edits**:
 - `pipeline/config.py:329-386` — delete `resolve_stage_parallelism` entirely. If something needs `unit_workers` for fallback, expose a one-liner `default_inner_workers(stage_config)` that returns 1.
 - `pipeline/runner.py:280-313` — delete `_resolve_runtime_stage_parallelism` (or simplify to just `_attach_task_allocation_plan`). Remove the three-branch try/except.
+- `pipeline/runner.py:248-274, 752, 808, 844-848, 910-913, 2173, 2839, 2842` — strip log lines that emit `parallelism.well_workers`/`unit_workers`. Slice 10's `phase_parallelism` event already covers the structured telemetry; these are dead duplicates.
+- `pipeline/runner.py:914-919` — drop the `n_jobs_source` literal mapping (`"derived"`/`"configured"`/`"serial"`); replace with the canonical `slot.cpu_count` / `phase_cap` / `yaml_n_jobs_override` source from `current_phase_worker_allocation` (see Slice 5).
 - `execution/context.py:24-32` — drop `well_workers` and `unit_workers` from `StageParallelism`. If only `task_allocation_plan` survives, fold into `TaskAllocationPlan`.
 - `pipeline/resources.py:643` — delete `get_max_phase_resource_demands` if no caller remains after the above.
+- `pipeline/resource_budget.py:235-245` — phase-gate warning still prints `well_workers=%d`; rename log key to `task_slot_count` (keep the value; it really is the rank's well_workers, but that's a budget-manager concept now, not a stage parallelism concept).
+- `pipeline/logging/formatters.py:69` — remove `well_workers` from the JSON allowlist after the emit sites above are dead.
 - `stages/preprocess/models/inputs.py:307` — remove `runtime_well_workers: int | None = None` field.
-- `stages/preprocess/runner.py:2892,1035-1039` — drop the `runtime_well_workers` plumbing; the budget manager carries `well_workers` for its own log lines if needed (it does, see `resource_budget.py:53,57,231-245`).
+- `stages/preprocess/runner.py:1031-1041, 2892` — drop the `runtime_well_workers` plumbing AND the old-format `Preprocess phase worker allocation … well_workers=%d n_jobs=%d n_jobs_source=%s phase_n_jobs=%d` log line; the new `phase_parallelism` event already covers it.
 
 **C. Tests**:
 - Update or delete the `~10` test fixtures in `pipeline/tests/test_spikesort_target_status.py` that monkeypatch `resolve_stage_parallelism` and instantiate `StageParallelism(well_workers=…)`. Where the assertion is "the stage ran with N parallel wells", replace with "the budget manager ran with planned_target_count=N".
@@ -279,7 +298,39 @@ Classify each: parser write, YAML config doc, actual consumer.
 
 ---
 
-### Slice 7 — Update `parallelism_agent_guardrails.md`
+### Slice 7 — Fix `replace()` bug at `reconstruct/runner.py:1509` and retire `max_plotting_concurrency` field
+
+**Goal**: pick up the highest-impact stage-test failures (4 of the 8) in one focused slice. The two are coupled: `test_run_reconstruct_generate_gtrs_phase_ignores_max_plotting_concurrency` only constructs `ReconstructionInputs(max_plotting_concurrency=…)` because the field still exists on the dataclass; once the field is gone, the test goes with it.
+
+**A. Fix the `replace()` bug** (`pipeline/stages/reconstruct/runner.py:1509`):
+```python
+# Before:
+phase_inputs = replace(phase_inputs, templates_inputs=replace(inputs.templates_inputs, n_jobs=int(workers)))
+# After:
+templates_inputs = inputs.templates_inputs
+if templates_inputs is not None and is_dataclass(templates_inputs):
+    templates_inputs = replace(templates_inputs, n_jobs=int(workers))
+phase_inputs = replace(phase_inputs, templates_inputs=templates_inputs)
+```
+Add `from dataclasses import is_dataclass` to the imports if missing. This unblocks 4 stage-test failures (C2 group).
+
+**B. Retire `max_plotting_concurrency`**:
+- Delete `max_plotting_concurrency: int | None = None` from `pipeline/stages/reconstruct/models/inputs.py:502`.
+- Delete the parser warn-and-ignore branch at `stages/reconstruct/config.py:887-894`.
+- Delete `test_run_reconstruct_generate_gtrs_phase_ignores_max_plotting_concurrency` (the only behavior it tested is "the field is ignored" — once the field is gone, the test is moot).
+- Grep the rest of the codebase for `max_plotting_concurrency` to confirm zero hits.
+
+**C. Acceptance**:
+- `git grep -nE "max_plotting_concurrency" src/` returns 0 hits.
+- `git grep -nE "replace\(inputs\.templates_inputs" src/` returns 0 hits (or only the guarded form above).
+- The 4 C2 tests now pass; the C2-tagged generate_gtrs test is deleted (no longer applicable).
+- `pipeline/tests/` still 457 passed.
+
+**Commit**: `claude: guard reconstruct templates_inputs replace; drop max_plotting_concurrency field (cleanup slice 7)`
+
+---
+
+### Slice 8 — Update `parallelism_agent_guardrails.md`
 
 **Goal**: lock the contract doc to the post-cleanup vocabulary. Each prior slice was supposed to update this doc inline, but several slices are pending (slices 1–4 of *this* plan introduce vocabulary changes, e.g. removing `well_workers`).
 
@@ -291,7 +342,7 @@ Classify each: parser write, YAML config doc, actual consumer.
 **B. Acceptance**:
 - The grep `git grep -nE "well_workers|max_stage_workers|divide_stage_workers|resolve_stage_parallelism" debug/parallelism_agent_guardrails.md` returns only `## Banned Vocabulary` mentions.
 
-**Commit**: `claude: lock guardrails doc to post-cleanup vocabulary (cleanup slice 7)`
+**Commit**: `claude: lock guardrails doc to post-cleanup vocabulary (cleanup slice 8)`
 
 ---
 
@@ -322,7 +373,7 @@ Verify in each: `phase_parallelism` log lines exist for every fanout site; `effe
 
 ---
 
-## 5. Cleanup Checklist (post-Slice 7)
+## 5. Cleanup Checklist (post-Slice 8)
 
 ```bash
 # (a) No banned vocabulary in non-test code
@@ -364,7 +415,7 @@ git grep -nE "well_workers|max_stage_workers|divide_stage_workers" debug/paralle
 
 This cleanup is complete when:
 
-1. The 7 slices above are merged in order, each with passing acceptance checks.
+1. The 8 slices above are merged in order, each with passing acceptance checks.
 2. `pipeline/tests/` still passes 457 tests after every slice.
 3. `parallelism_agent_guardrails.md` matches the post-cleanup vocabulary exactly.
 4. The cleanup checklist (§5) commands all return clean.
