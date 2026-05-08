@@ -604,7 +604,6 @@ def _phase_tune_has_scope_limits(args: argparse.Namespace) -> bool:
 
 def _run_mpi_sample_worker_test(*, rank: int, size: int, config_path: str | None = None) -> None:
 	"""Run a sample worker test on this MPI rank to validate environment setup."""
-	import os
 	import sys
 	from types import SimpleNamespace
 
@@ -636,27 +635,27 @@ def _run_mpi_sample_worker_test(*, rank: int, size: int, config_path: str | None
 			package_ids=test_packages,
 		)
 
-			# Read task_allocation config to know set_thread_env / nested_thread_policy / use_hyperthreads
-			synthetic_plan: object | None = None
-			_use_ht: bool = True
-			if config_path is not None:
-				try:
-					from pathlib import Path
-					from axon_recon.runtime_config import RuntimeConfig
-					from .resources import parse_resources_config
-					_runtime_cfg = RuntimeConfig.load(Path(config_path).expanduser().resolve())
-					_res_cfg = parse_resources_config(runtime_config=_runtime_cfg, logger=None)
-					_task_cfg = _res_cfg.task_allocation
-					_use_ht = bool(_task_cfg.use_hyperthreads)
-					synthetic_plan = SimpleNamespace(
-						set_thread_env=bool(_task_cfg.set_thread_env),
-						nested_thread_policy=str(_task_cfg.nested_thread_policy or "preserve_existing"),
-						use_hyperthreads=_use_ht,
-						backend="mpi",
-						bind="none",
-					)
-				except Exception:
-					pass
+		# Read task_allocation config to know set_thread_env / nested_thread_policy / use_hyperthreads
+		synthetic_plan: object | None = None
+		_use_ht: bool = True
+		if config_path is not None:
+			try:
+				from pathlib import Path
+				from axon_recon.runtime_config import RuntimeConfig
+				from .resources import parse_resources_config
+				_runtime_cfg = RuntimeConfig.load(Path(config_path).expanduser().resolve())
+				_res_cfg = parse_resources_config(runtime_config=_runtime_cfg, logger=None)
+				_task_cfg = _res_cfg.task_allocation
+				_use_ht = bool(_task_cfg.use_hyperthreads)
+				synthetic_plan = SimpleNamespace(
+					set_thread_env=bool(_task_cfg.set_thread_env),
+					nested_thread_policy=str(_task_cfg.nested_thread_policy or "preserve_existing"),
+					use_hyperthreads=_use_ht,
+					backend="mpi",
+					bind="none",
+				)
+			except Exception:
+				pass
 
 		# Capture what environment would be set for this rank's worker
 		env_state = capture_sample_worker_environment(slot, plan=synthetic_plan)
@@ -855,5 +854,40 @@ def _configure_phase_tuning_monitoring_from_args(args: argparse.Namespace) -> No
 
 
 def main(argv: list[str] | None = None) -> int:
-		# Read task_allocation config to know set_thread_env / nested_thread_policy / use_hyperthreads
+	parser = build_parser()
 	args = parser.parse_args(argv)
+	install_process_lifecycle()
+	install_noisy_external_log_filters()
+	install_maxwell_hdf5_plugin_message_filter()
+	_configure_runtime_logging_from_args(args)
+	_configure_phase_tuning_monitoring_from_args(args)
+	handler = getattr(args, "handler", None)
+	if handler is None:
+		parser.print_help()
+		return 2
+	logger = logging.getLogger("axon_recon.pipeline")
+	logger.info("pipeline run started", extra={"event": "run_started"})
+	status = "error"
+	try:
+		rc = int(handler(args))
+		status = "ok" if rc == 0 else "error"
+		if rc == 0:
+			logger.info("pipeline run completed", extra={"event": "run_completed"})
+		else:
+			logger.error("pipeline run failed with code %d", rc, extra={"event": "run_failed"})
+		return rc
+	except Exception:
+		logger.exception("pipeline run failed", extra={"event": "run_failed"})
+		raise
+	finally:
+		finalize_pipeline_logging(status=status)
+		try:
+			from .resource_usage import configure_phase_tuning_monitoring
+
+			configure_phase_tuning_monitoring(enabled=False)
+		except Exception:
+			pass
+
+
+if __name__ == "__main__":
+	raise SystemExit(main())
