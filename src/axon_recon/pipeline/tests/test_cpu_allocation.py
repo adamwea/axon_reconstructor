@@ -568,6 +568,29 @@ def test_allocation_preview_shows_thread_env_policy_when_enabled(tmp_path: Path)
 	assert "slot_clamps:" in formatted
 
 
+def test_allocation_preview_reports_mpi_backend_without_local_plan() -> None:
+	preview = StageAllocationPreview(
+		stage="preprocess",
+		target_count=1,
+		target_labels=("11:well000",),
+		phase_resource_classes=("h5_metadata",),
+		parallelism=StageParallelism(
+			max_workers=4,
+			max_stage_workers=4,
+			well_workers=2,
+			unit_workers=2,
+			task_allocation_plan=None,
+		),
+		allocation_backend="mpi",
+		mpi_rank=1,
+		mpi_size=2,
+	)
+	formatted = format_stage_allocation_previews([preview])
+	assert "mpi_partition: rank=1 size=2" in formatted
+	assert "task_allocation: enabled backend=mpi" in formatted
+	assert "local_task_slots: n/a" in formatted
+
+
 # ---------------------------------------------------------------------------
 # probe_container_readiness tests
 # ---------------------------------------------------------------------------

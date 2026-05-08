@@ -37,7 +37,7 @@ from .execution.logging_context import (
 	install_pipeline_log_record_factory,
 	pipeline_log_context_for_target,
 )
-from .mpi_adapter import current_mpi_context, log_mpi_context
+from .mpi_adapter import current_mpi_context, log_mpi_context, partition_targets_by_mpi_rank
 from .execution.phase_chain import PhaseDescriptor, run_phase_chain
 from .execution.progress import PipelineProgress, ProgressSpec, pipeline_progress_context
 from .execution.results import MultiTargetStageResult, TargetStageResult
@@ -1630,6 +1630,9 @@ class StageAllocationPreview:
 	target_labels: tuple[str, ...]
 	phase_resource_classes: tuple[str, ...]
 	parallelism: Any
+	allocation_backend: str | None = None
+	mpi_rank: int | None = None
+	mpi_size: int | None = None
 
 
 def _allocation_target_labels(targets: list[Any], *, limit: int = 8) -> tuple[str, ...]:
@@ -1637,6 +1640,41 @@ def _allocation_target_labels(targets: list[Any], *, limit: int = 8) -> tuple[st
 	for target in list(targets)[: max(0, int(limit))]:
 		labels.append(f"{getattr(target, 'dataset_index', 'unknown')}:{getattr(target, 'stream_id', 'unknown')}")
 	return tuple(labels)
+
+
+def _resolve_preview_allocation_backend(
+	*,
+	bundle: PipelineRuntimeBundle,
+	parallelism: Any,
+	task_allocation_override: dict[str, Any] | None,
+) -> str:
+	if task_allocation_override and task_allocation_override.get("backend") is not None:
+		return str(task_allocation_override.get("backend") or "none")
+	plan = getattr(parallelism, "task_allocation_plan", None)
+	if plan is not None:
+		return str(getattr(plan, "backend", "local_affinity") or "local_affinity")
+	try:
+		resources_config = parse_resources_config(runtime_config=bundle.runtime_config, logger=LOGGER)
+		task_config = resources_config.task_allocation
+		if not bool(getattr(task_config, "enabled", False)):
+			return "none"
+		return str(getattr(task_config, "backend", "none") or "none")
+	except Exception:
+		return "none"
+
+
+def _partition_targets_for_preview(
+	*,
+	targets: list[Any],
+	allocation_backend: str,
+) -> tuple[list[Any], int | None, int | None]:
+	if str(allocation_backend).strip().lower() != "mpi":
+		return list(targets), None, None
+	mpi_context = current_mpi_context()
+	if mpi_context is None:
+		return list(targets), None, None
+	partitioned = partition_targets_by_mpi_rank(targets=list(targets), mpi_context=mpi_context)
+	return partitioned, int(mpi_context.rank), int(mpi_context.size)
 
 
 def _build_preprocess_allocation_preview(
@@ -1689,12 +1727,24 @@ def _build_preprocess_allocation_preview(
 		phase_resource_classes=phase_resource_classes,
 		task_allocation_override=task_allocation_override,
 	)
+	allocation_backend = _resolve_preview_allocation_backend(
+		bundle=bundle,
+		parallelism=parallelism,
+		task_allocation_override=task_allocation_override,
+	)
+	preview_targets, mpi_rank, mpi_size = _partition_targets_for_preview(
+		targets=list(targets),
+		allocation_backend=allocation_backend,
+	)
 	return StageAllocationPreview(
 		stage=str(stage_name),
-		target_count=len(targets),
-		target_labels=_allocation_target_labels(list(targets)),
+		target_count=len(preview_targets),
+		target_labels=_allocation_target_labels(list(preview_targets)),
 		phase_resource_classes=phase_resource_classes,
 		parallelism=parallelism,
+		allocation_backend=allocation_backend,
+		mpi_rank=mpi_rank,
+		mpi_size=mpi_size,
 	)
 
 
@@ -1777,12 +1827,24 @@ def _build_spikesort_allocation_preview(
 		phase_resource_classes=phase_resource_classes,
 		task_allocation_override=task_allocation_override,
 	)
+	allocation_backend = _resolve_preview_allocation_backend(
+		bundle=bundle,
+		parallelism=parallelism,
+		task_allocation_override=task_allocation_override,
+	)
+	preview_targets, mpi_rank, mpi_size = _partition_targets_for_preview(
+		targets=list(targets),
+		allocation_backend=allocation_backend,
+	)
 	return StageAllocationPreview(
 		stage=str(stage_name),
-		target_count=len(targets),
-		target_labels=_allocation_target_labels(list(targets)),
+		target_count=len(preview_targets),
+		target_labels=_allocation_target_labels(list(preview_targets)),
 		phase_resource_classes=phase_resource_classes,
 		parallelism=parallelism,
+		allocation_backend=allocation_backend,
+		mpi_rank=mpi_rank,
+		mpi_size=mpi_size,
 	)
 
 
@@ -1864,12 +1926,24 @@ def _build_reconstruct_allocation_preview(
 		phase_resource_classes=phase_resource_classes,
 		task_allocation_override=task_allocation_override,
 	)
+	allocation_backend = _resolve_preview_allocation_backend(
+		bundle=bundle,
+		parallelism=parallelism,
+		task_allocation_override=task_allocation_override,
+	)
+	preview_targets, mpi_rank, mpi_size = _partition_targets_for_preview(
+		targets=list(targets),
+		allocation_backend=allocation_backend,
+	)
 	return StageAllocationPreview(
 		stage=str(stage_name),
-		target_count=len(targets),
-		target_labels=_allocation_target_labels(list(targets)),
+		target_count=len(preview_targets),
+		target_labels=_allocation_target_labels(list(preview_targets)),
 		phase_resource_classes=phase_resource_classes,
 		parallelism=parallelism,
+		allocation_backend=allocation_backend,
+		mpi_rank=mpi_rank,
+		mpi_size=mpi_size,
 	)
 
 
@@ -1940,8 +2014,25 @@ def build_stage_allocation_previews(
 	return previews
 
 
-def _format_allocation_plan_summary(plan: TaskAllocationPlan | None) -> list[str]:
+def _format_allocation_plan_summary(
+	plan: TaskAllocationPlan | None,
+	*,
+	allocation_backend: str | None = None,
+	mpi_rank: int | None = None,
+	mpi_size: int | None = None,
+) -> list[str]:
+	backend = str(allocation_backend or "none").strip().lower()
 	if plan is None:
+		if backend == "mpi":
+			mpi_line = "  mpi_context: unavailable"
+			if mpi_rank is not None and mpi_size is not None:
+				mpi_line = f"  mpi_context: rank={int(mpi_rank)} size={int(mpi_size)}"
+			return [
+				"task_allocation: enabled backend=mpi",
+				"",
+				mpi_line,
+				"  local_task_slots: n/a (rank partitioning handled by MPI backend)",
+			]
 		return ["task_allocation: disabled"]
 	lines = [
 		f"task_allocation: enabled backend={plan.backend} bind={plan.bind}",
@@ -2017,8 +2108,18 @@ def format_stage_allocation_previews(previews: list[StageAllocationPreview] | tu
 			f"unit_workers={int(getattr(parallelism, 'unit_workers', 1))} "
 			f"max_stage_workers={int(getattr(parallelism, 'max_stage_workers', 1))}"
 		)
+		if preview.allocation_backend is not None and str(preview.allocation_backend).strip().lower() == "mpi":
+			if preview.mpi_rank is not None and preview.mpi_size is not None and int(preview.mpi_size) > 1:
+				lines.append(f"mpi_partition: rank={int(preview.mpi_rank)} size={int(preview.mpi_size)}")
 		plan = getattr(parallelism, "task_allocation_plan", None)
-		lines.extend(_format_allocation_plan_summary(plan))
+		lines.extend(
+			_format_allocation_plan_summary(
+				plan,
+				allocation_backend=preview.allocation_backend,
+				mpi_rank=preview.mpi_rank,
+				mpi_size=preview.mpi_size,
+			)
+		)
 	return "\n".join(lines)
 
 
