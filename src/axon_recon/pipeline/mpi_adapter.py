@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Generator, Iterable, Iterator
+from typing import Any, Iterator
 import logging
 import os
 
@@ -50,22 +50,57 @@ def _is_mpi4py_available() -> bool:
 		return False
 
 
+def _parse_int_env(name: str) -> int | None:
+	raw = os.environ.get(name)
+	if raw is None:
+		return None
+	text = str(raw).strip()
+	if not text:
+		return None
+	try:
+		return int(text)
+	except Exception:
+		return None
+
+
+def _context_from_mpi_env() -> MPIContext | None:
+	"""Detect MPI rank/size from common launcher environment variables."""
+	pairs: tuple[tuple[str, str], ...] = (
+		("OMPI_COMM_WORLD_RANK", "OMPI_COMM_WORLD_SIZE"),
+		("PMI_RANK", "PMI_SIZE"),
+		("PMIX_RANK", "PMIX_SIZE"),
+		("SLURM_PROCID", "SLURM_NTASKS"),
+	)
+	for rank_var, size_var in pairs:
+		rank = _parse_int_env(rank_var)
+		size = _parse_int_env(size_var)
+		if rank is None or size is None:
+			continue
+		if int(size) <= 1:
+			continue
+		if int(rank) < 0 or int(rank) >= int(size):
+			continue
+		return MPIContext(rank=int(rank), size=int(size), comm=None, is_fake=False)
+	return None
+
+
 def _get_mpi_context() -> MPIContext | None:
 	"""Detect and return current MPI context if running under mpirun.
 
 	Returns None if MPI is not available or process is not an MPI rank.
 	"""
-	if not _is_mpi4py_available():
-		return None
-	try:
-		from mpi4py import MPI
+	if _is_mpi4py_available():
+		try:
+			from mpi4py import MPI
 
-		comm = MPI.COMM_WORLD
-		rank = int(comm.Get_rank())
-		size = int(comm.Get_size())
-		return MPIContext(rank=rank, size=size, comm=comm, is_fake=False)
-	except Exception:
-		return None
+			comm = MPI.COMM_WORLD
+			rank = int(comm.Get_rank())
+			size = int(comm.Get_size())
+			if int(size) > 1:
+				return MPIContext(rank=rank, size=size, comm=comm, is_fake=False)
+		except Exception:
+			pass
+	return _context_from_mpi_env()
 
 
 _CURRENT_MPI_CONTEXT: MPIContext | None = None

@@ -311,6 +311,48 @@ def test_run_stage_sequence_alloc_prints_preview_without_running_handlers(monkey
     assert preview_calls[0]["limit_wells_per_dataset_override"] == 1
 
 
+def test_run_stage_sequence_alloc_skips_non_root_rank_for_mpi_override(monkeypatch) -> None:
+    preview_calls: list[dict[str, object]] = []
+
+    def fake_preview(**kwargs: object) -> None:
+        preview_calls.append(kwargs)
+
+    class _Ctx:
+        rank = 1
+        size = 2
+
+    monkeypatch.setattr(pipeline_cli, "print_stage_allocation_preview", fake_preview)
+    monkeypatch.setattr(pipeline_cli, "current_mpi_context", lambda: _Ctx())
+
+    args = argparse.Namespace(
+        stages=["preprocess"],
+        config="debug/debug.runtime.yml",
+        alloc=True,
+        target_datasets=["11,12"],
+        unit_id=None,
+        unit_ids=None,
+        limit_units=None,
+        limit_segments=2,
+        limit_datasets=None,
+        limit_wells_per_dataset=1,
+        force_restart=False,
+        force_replot=False,
+        phase_tune=False,
+        confirm_full_scope=False,
+        task_allocation_backend="mpi",
+        task_allocation_tasks_per_node=None,
+        task_allocation_cpus_per_task=None,
+        task_allocation_bind=None,
+        task_allocation_use_hyperthreads=None,
+        task_allocation_reserve_cpus=None,
+    )
+
+    rc = pipeline_cli._run_stage_sequence_from_args(args)
+
+    assert rc == 0
+    assert len(preview_calls) == 0
+
+
 def test_build_parser_supports_systopo_command() -> None:
     parser = pipeline_cli.build_parser()
     args = parser.parse_args(["systopo"])

@@ -2027,12 +2027,30 @@ def _format_allocation_plan_summary(
 			mpi_line = "  mpi_context: unavailable"
 			if mpi_rank is not None and mpi_size is not None:
 				mpi_line = f"  mpi_context: rank={int(mpi_rank)} size={int(mpi_size)}"
-			return [
+			lines = [
 				"task_allocation: enabled backend=mpi",
 				"",
 				mpi_line,
 				"  local_task_slots: n/a (rank partitioning handled by MPI backend)",
 			]
+			try:
+				topology = detect_cpu_topology(logger=LOGGER)
+				lines += [
+					"",
+					"  cpu_topology:",
+					f"    visible_cpus:    {format_cpu_set(topology.visible_cpus)}",
+					f"    physical_cores:  {topology.physical_core_count}",
+					f"    logical_cpus:    {topology.logical_cpu_count}",
+				]
+			except Exception:
+				pass
+			lines += [
+				"",
+				"  thread_env: current",
+			]
+			for var in _THREAD_ENV_VARS:
+				lines.append(f"    {var}={os.environ.get(var, 'unset')}")
+			return lines
 		return ["task_allocation: disabled"]
 	lines = [
 		f"task_allocation: enabled backend={plan.backend} bind={plan.bind}",

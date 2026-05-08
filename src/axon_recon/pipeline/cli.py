@@ -17,6 +17,7 @@ from .logging import (
 	install_noisy_external_log_filters,
 	log_context,
 )
+from .mpi_adapter import current_mpi_context
 from .runner import print_stage_allocation_preview
 from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
 from .stages.preprocess.cli import (
@@ -606,6 +607,10 @@ def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 	logger = logging.getLogger("axon_recon.pipeline.stages")
 	if bool(getattr(args, "alloc", False)):
 		task_allocation_override = _build_task_allocation_override_from_args(args)
+		if task_allocation_override and str(task_allocation_override.get("backend", "")).strip().lower() == "mpi":
+			mpi_ctx = current_mpi_context()
+			if mpi_ctx is not None and int(mpi_ctx.size) > 1 and int(mpi_ctx.rank) != 0:
+				return 0
 		print_stage_allocation_preview(
 			config_path=str(getattr(args, "config")),
 			stages=stage_list,

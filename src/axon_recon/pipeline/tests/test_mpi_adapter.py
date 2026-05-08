@@ -13,6 +13,7 @@ from axon_recon.pipeline.mpi_adapter import (
 	mpi_context,
 	partition_targets_by_mpi_rank,
 )
+import axon_recon.pipeline.mpi_adapter as mpi_adapter
 
 
 def test_mpi_context_is_rank_0_when_rank_is_zero() -> None:
@@ -187,3 +188,22 @@ def test_partition_targets_by_mpi_rank_across_all_ranks() -> None:
 	# Should be non-overlapping and complete
 	assert sorted(all_partitioned) == targets
 	assert len(all_partitioned) == len(targets)
+
+
+def test_current_mpi_context_falls_back_to_openmpi_env(monkeypatch) -> None:
+	monkeypatch.setattr(mpi_adapter, "_CURRENT_MPI_CONTEXT", None)
+	monkeypatch.setenv("OMPI_COMM_WORLD_RANK", "1")
+	monkeypatch.setenv("OMPI_COMM_WORLD_SIZE", "2")
+	ctx = current_mpi_context()
+	assert ctx is not None
+	assert ctx.rank == 1
+	assert ctx.size == 2
+	assert ctx.comm is None
+
+
+def test_current_mpi_context_env_fallback_ignores_single_rank(monkeypatch) -> None:
+	monkeypatch.setattr(mpi_adapter, "_CURRENT_MPI_CONTEXT", None)
+	monkeypatch.setenv("OMPI_COMM_WORLD_RANK", "0")
+	monkeypatch.setenv("OMPI_COMM_WORLD_SIZE", "1")
+	ctx = current_mpi_context()
+	assert ctx is None or ctx.size == 1
