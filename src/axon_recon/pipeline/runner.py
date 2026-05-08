@@ -26,6 +26,7 @@ from .cpu_allocation import (
 	current_task_slot,
 	detect_cpu_topology,
 	format_cpu_set,
+	task_allocation_context,
 	task_slot_affinity_context,
 )
 from .execution.distributor import distribute_targets
@@ -609,7 +610,17 @@ def _distribute_runtime_targets(
 	def worker_with_log_context(target: Any) -> Any:
 		with pipeline_log_context_for_target(target, stage=stage_name), pipeline_progress_context(progress):
 			task_slot = current_task_slot()
-			with task_slot_affinity_context(
+			alloc_meta: dict[str, Any] | None = None
+			if plan is not None:
+				alloc_meta = {
+					"task_allocation_backend": str(getattr(plan, "backend", "none")),
+					"task_slot_id": int(task_slot.slot_id) if task_slot is not None else None,
+					"task_cpu_set": format_cpu_set(task_slot.logical_cpus) if task_slot is not None else None,
+					"task_cpus_per_task": _plan_cpus_per_task,
+					"task_allocation_tasks_per_node": int(getattr(plan, "effective_tasks_per_node", 1)),
+					"task_thread_env_policy": str(_plan_thread_policy) if bool(_plan_set_thread_env) else "disabled",
+				}
+			with task_allocation_context(alloc_meta), task_slot_affinity_context(
 				task_slot,
 				enabled=bool(apply_task_affinity),
 				soft_failure=True,

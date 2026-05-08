@@ -306,6 +306,12 @@ def collect_phase_resource_observations_from_jsonl(
 				"resource_gate_waited": bool(resource_gate.get("waited", bool(resource_gate_wait_s > 0.0))),
 				"resource_gate_slot_demands": _as_mapping(resource_gate.get("slot_demands", None)),
 				"resource_gate_keyed_requests": _as_mapping(resource_gate.get("keyed_requests", None)),
+				"task_allocation_backend": record.get("task_allocation_backend", None),
+				"task_slot_id": record.get("task_slot_id", None),
+				"task_cpu_set": record.get("task_cpu_set", None),
+				"task_cpus_per_task": record.get("task_cpus_per_task", None),
+				"task_allocation_tasks_per_node": record.get("task_allocation_tasks_per_node", None),
+				"task_thread_env_policy": record.get("task_thread_env_policy", None),
 			}
 		)
 	return observations
@@ -861,6 +867,36 @@ def _recommend_for_group(
 	):
 		_append_note_once(notes, _shared_memory_interpretation_note())
 
+	# Collect task allocation context from observations
+	allocation_backends = sorted(
+		{str(item["task_allocation_backend"]) for item in observations if item.get("task_allocation_backend") is not None}
+	)
+	allocation_cpus_per_task_values = _nonnull_int_values(
+		item.get("task_cpus_per_task", None) for item in observations
+	)
+	allocation_tasks_per_node_values = _nonnull_int_values(
+		item.get("task_allocation_tasks_per_node", None) for item in observations
+	)
+	allocation_thread_env_policies = sorted(
+		{str(item["task_thread_env_policy"]) for item in observations if item.get("task_thread_env_policy") is not None}
+	)
+	task_allocation_backend = allocation_backends[0] if len(allocation_backends) == 1 else (", ".join(allocation_backends) if allocation_backends else None)
+	task_cpus_per_task = max(allocation_cpus_per_task_values, default=None)
+	task_allocation_tasks_per_node = max(allocation_tasks_per_node_values, default=None)
+	task_thread_env_policy = allocation_thread_env_policies[0] if len(allocation_thread_env_policies) == 1 else (", ".join(allocation_thread_env_policies) if allocation_thread_env_policies else None)
+	if task_allocation_backend == "local_affinity" and task_cpus_per_task is not None:
+		notes.append(
+			f"observations were measured under local_affinity with cpus_per_task={task_cpus_per_task}; "
+			"CPU and RAM estimates reflect per-task allocation, not whole-node fanout"
+		)
+		if task_thread_env_policy not in (None, "disabled", "preserve_existing"):
+			notes.append(
+				f"thread environment was managed by the scheduler (policy={task_thread_env_policy}); "
+				"observed thread counts are bounded by cpus_per_task"
+			)
+	elif len(allocation_backends) > 1:
+		notes.append("mixed task_allocation_backend values across observations; treat CPU/RAM estimates with caution")
+
 	return {
 		"stage": stage,
 		"phase": phase,
@@ -908,6 +944,10 @@ def _recommend_for_group(
 		"recommended_analyzer_slots": current_analyzer_slots,
 		"notes": notes,
 		"warnings": warnings,
+		"task_allocation_backend": task_allocation_backend,
+		"task_cpus_per_task": task_cpus_per_task,
+		"task_allocation_tasks_per_node": task_allocation_tasks_per_node,
+		"task_thread_env_policy": task_thread_env_policy,
 	}
 
 

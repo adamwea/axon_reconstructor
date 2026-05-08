@@ -16,7 +16,7 @@ resources:
     enabled: true
     backend: local_affinity
     task_unit: well
-    cpus_per_task: 2
+    cpus_per_task: 10
     tasks_per_node: auto
     bind: physical_cores
     use_hyperthreads: false

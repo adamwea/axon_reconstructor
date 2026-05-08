@@ -6,13 +6,16 @@ from contextvars import ContextVar
 import logging
 import os
 from pathlib import Path
-from typing import Callable, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
 from .resources import ResourceProfileConfig, TaskAllocationConfig
 
 
 LOGGER = logging.getLogger("axon_recon.pipeline.cpu_allocation")
 _CURRENT_TASK_SLOT: ContextVar["TaskSlot | None"] = ContextVar("axon_recon_task_slot", default=None)
+_CURRENT_TASK_ALLOCATION_CONTEXT: ContextVar["dict[str, Any] | None"] = ContextVar(
+	"axon_recon_task_allocation_context", default=None
+)
 
 
 @dataclass(frozen=True)
@@ -90,6 +93,19 @@ def task_slot_context(slot: TaskSlot | None) -> Iterator[None]:
 		yield
 	finally:
 		_CURRENT_TASK_SLOT.reset(token)
+
+
+def current_task_allocation_context() -> dict[str, Any] | None:
+	return _CURRENT_TASK_ALLOCATION_CONTEXT.get()
+
+
+@contextmanager
+def task_allocation_context(metadata: dict[str, Any] | None) -> Iterator[None]:
+	token = _CURRENT_TASK_ALLOCATION_CONTEXT.set(metadata)
+	try:
+		yield
+	finally:
+		_CURRENT_TASK_ALLOCATION_CONTEXT.reset(token)
 
 
 @dataclass(frozen=True)

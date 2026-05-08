@@ -17,6 +17,7 @@ from ..resource_usage import (
     start_phase_resource_monitor,
     update_phase_summary_metadata,
 )
+from ..cpu_allocation import current_task_allocation_context
 from .logging_context import current_log_context, pipeline_log_context
 
 
@@ -80,6 +81,21 @@ def _build_inline_phase_tune_recommendation(
         )
     except Exception:
         return None
+
+
+def _build_task_allocation_extras() -> dict[str, Any]:
+    """Return allocation context fields to stamp onto phase_resource_usage log records."""
+    ctx = current_task_allocation_context()
+    if ctx is None:
+        return {}
+    return {
+        "task_allocation_backend": ctx.get("task_allocation_backend"),
+        "task_slot_id": ctx.get("task_slot_id"),
+        "task_cpu_set": ctx.get("task_cpu_set"),
+        "task_cpus_per_task": ctx.get("task_cpus_per_task"),
+        "task_allocation_tasks_per_node": ctx.get("task_allocation_tasks_per_node"),
+        "task_thread_env_policy": ctx.get("task_thread_env_policy"),
+    }
 
 
 def run_phase_chain(
@@ -232,6 +248,7 @@ def run_phase_chain(
                                     "resource_gate": resource_gate,
                                     "resource_usage": resource_usage.to_dict(),
                                     "phase_tune_recommendation": phase_tune_recommendation,
+                                    **_build_task_allocation_extras(),
                                 },
                             )
                             log_phase_resource_observation_warnings(
@@ -294,6 +311,7 @@ def run_phase_chain(
                                 "resource_gate": resource_gate,
                                 "resource_usage": resource_usage.to_dict(),
                                 "phase_tune_recommendation": phase_tune_recommendation,
+                                **_build_task_allocation_extras(),
                             },
                         )
                         log_phase_resource_observation_warnings(
