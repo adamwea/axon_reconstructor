@@ -23,4 +23,5 @@
   -x OPENBLAS_NUM_THREADS=10 \
   -x NUMEXPR_NUM_THREADS=10 \
   axon-recon stages preprocess --config debug/debug.runtime.yml \
-  --target-dataset 11,12 --limit-wells 1 --alloc --task-backend mpi
+  --target-dataset 11,12 --limit-wells 1 --alloc --task-backend mpi \
+  2>&1 | grep -v "Authorization required"
