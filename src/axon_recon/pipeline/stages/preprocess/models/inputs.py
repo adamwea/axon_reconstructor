@@ -98,8 +98,6 @@ class PreprocessPlotConfig:
 class PreprocessPhaseOutputsConfig:
 	save_chunk_duration: str = "1s"
 	save_progress_bar: bool = False
-	concat_save_n_jobs: int | None = None
-	segment_save_n_jobs: int | None = None
 	print_n_jobs_used: bool = False
 
 
@@ -341,7 +339,5 @@ class PreprocessInputs:
 	save_segment_recordings: bool = True
 	save_chunk_duration: str = "1s"
 	save_progress_bar: bool = False
-	concat_save_n_jobs: int | None = None
-	segment_save_n_jobs: int | None = None
 	print_n_jobs_used: bool = False
 	phases: PreprocessPhasesConfig = field(default_factory=PreprocessPhasesConfig)

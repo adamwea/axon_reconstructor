@@ -1297,11 +1297,7 @@ def parse_spikesort_stage_config(
 		True,
 	)
 	bootstrap_concat_binary_n_jobs = _as_optional_positive_int(
-		_coalesce(
-			bootstrap_concat_binary_phase_cfg.get("n_jobs", None),
-			_get_nested_value(bootstrap_concat_binary_phase_cfg, ("outputs", "concat_save_n_jobs")),
-			None,
-		)
+		bootstrap_concat_binary_phase_cfg.get("n_jobs", None)
 	)
 	bootstrap_concat_binary_chunk_duration = _as_optional_str(
 		_coalesce(

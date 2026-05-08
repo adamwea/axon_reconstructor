@@ -330,8 +330,6 @@ class PreprocessStageConfig:
 	save_segment_recordings: bool
 	save_chunk_duration: str
 	save_progress_bar: bool
-	concat_save_n_jobs: int | None
-	segment_save_n_jobs: int | None
 	print_n_jobs_used: bool
 	phases: PreprocessPhasesConfig
 
@@ -573,8 +571,6 @@ def _parse_phase_outputs_config(
 			outputs_cfg.get("save_progress_bar", defaults.save_progress_bar),
 			bool(defaults.save_progress_bar),
 		),
-		concat_save_n_jobs=_as_optional_int(outputs_cfg.get("concat_save_n_jobs", defaults.concat_save_n_jobs)),
-		segment_save_n_jobs=_as_optional_int(outputs_cfg.get("segment_save_n_jobs", defaults.segment_save_n_jobs)),
 		print_n_jobs_used=_as_bool(
 			outputs_cfg.get("print_n_jobs_used", defaults.print_n_jobs_used),
 			bool(defaults.print_n_jobs_used),
@@ -752,8 +748,6 @@ def parse_preprocess_stage_config(
 	)
 	save_chunk_duration = _as_optional_str(outputs_cfg.get("save_chunk_duration", default_chunk_duration)) or default_chunk_duration
 	save_progress_bar = _as_bool(outputs_cfg.get("save_progress_bar", False), False)
-	concat_save_n_jobs = _as_optional_int(outputs_cfg.get("concat_save_n_jobs", None))
-	segment_save_n_jobs = _as_optional_int(outputs_cfg.get("segment_save_n_jobs", None))
 	print_n_jobs_used = _as_bool(outputs_cfg.get("print_n_jobs_used", False), False)
 	legacy_segment_phase_cfg = phases_cfg.get("save_segment_recordings", {}) if isinstance(phases_cfg.get("save_segment_recordings", {}), dict) else {}
 	legacy_concat_phase_cfg = phases_cfg.get("save_concatenated_recording", {}) if isinstance(phases_cfg.get("save_concatenated_recording", {}), dict) else {}
@@ -827,7 +821,6 @@ def parse_preprocess_stage_config(
 	segment_outputs_defaults = PreprocessPhaseOutputsConfig(
 		save_chunk_duration=save_chunk_duration,
 		save_progress_bar=save_progress_bar,
-		segment_save_n_jobs=segment_save_n_jobs,
 		print_n_jobs_used=print_n_jobs_used,
 	)
 	prepare_raw_binaries_phase = _parse_prepare_raw_binaries_phase_config(
@@ -977,7 +970,6 @@ def parse_preprocess_stage_config(
 	concat_outputs_defaults = PreprocessPhaseOutputsConfig(
 		save_chunk_duration=preprocess_segments_phase.outputs.save_chunk_duration,
 		save_progress_bar=preprocess_segments_phase.outputs.save_progress_bar,
-		concat_save_n_jobs=concat_save_n_jobs,
 		print_n_jobs_used=preprocess_segments_phase.outputs.print_n_jobs_used,
 	)
 	concat_debug_cfg = (
@@ -1258,8 +1250,6 @@ def parse_preprocess_stage_config(
 		save_segment_recordings=save_segment_recordings,
 		save_chunk_duration=save_chunk_duration,
 		save_progress_bar=save_progress_bar,
-		concat_save_n_jobs=concat_save_n_jobs,
-		segment_save_n_jobs=segment_save_n_jobs,
 		print_n_jobs_used=print_n_jobs_used,
 		phases=PreprocessPhasesConfig(
 			copy_src_to_scratch=copy_src_to_scratch_phase,
@@ -1347,8 +1337,6 @@ def build_preprocess_inputs_for_target(
 		save_segment_recordings=stage_config.save_segment_recordings,
 		save_chunk_duration=stage_config.save_chunk_duration,
 		save_progress_bar=stage_config.save_progress_bar,
-		concat_save_n_jobs=stage_config.concat_save_n_jobs,
-		segment_save_n_jobs=stage_config.segment_save_n_jobs,
 		print_n_jobs_used=stage_config.print_n_jobs_used,
 		phases=stage_config.phases,
 	)
@@ -1450,8 +1438,6 @@ def load_preprocess_inputs_from_runtime(
 		save_segment_recordings=stage_cfg.save_segment_recordings,
 		save_chunk_duration=stage_cfg.save_chunk_duration,
 		save_progress_bar=stage_cfg.save_progress_bar,
-		concat_save_n_jobs=stage_cfg.concat_save_n_jobs,
-		segment_save_n_jobs=stage_cfg.segment_save_n_jobs,
 		print_n_jobs_used=stage_cfg.print_n_jobs_used,
 		phases=stage_cfg.phases,
 	)

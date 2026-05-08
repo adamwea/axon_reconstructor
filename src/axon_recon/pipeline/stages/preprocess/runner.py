@@ -986,20 +986,6 @@ def _normalize_phase_timing(artifacts: dict[str, object]) -> dict[str, float]:
 	return phase_timing_s
 
 
-def _resolve_save_workers(inputs: PreprocessInputs) -> tuple[int, int]:
-	def _resolve_jobs(raw: int | None, *, fallback: int) -> int:
-		try:
-			parsed = int(raw) if raw is not None else int(fallback)
-		except Exception:
-			parsed = int(fallback)
-		return max(1, int(parsed))
-
-	return (
-		_resolve_jobs(inputs.phases.concatenate_recordings.outputs.concat_save_n_jobs, fallback=int(inputs.n_jobs)),
-		_resolve_jobs(inputs.phases.preprocess_segments.outputs.segment_save_n_jobs, fallback=int(inputs.n_jobs)),
-	)
-
-
 def _format_worker_count(value: Any) -> str:
 	if value is None:
 		return "unknown"
@@ -1878,8 +1864,6 @@ def _write_preprocess_config_json(
 	effective_save_recording: bool,
 	effective_save_concat_recording: bool,
 	effective_save_segment_recordings: bool,
-	concat_jobs: int,
-	segment_jobs: int,
 	build_plot_cfg: PreprocessPlotConfig,
 ) -> None:
 	payload = {
@@ -1925,13 +1909,11 @@ def _write_preprocess_config_json(
 				),
 				"save_chunk_duration": str(inputs.phases.concatenate_recordings.outputs.save_chunk_duration),
 				"save_progress_bar": bool(inputs.phases.concatenate_recordings.outputs.save_progress_bar),
-				"concat_save_n_jobs": int(concat_jobs),
 				"print_n_jobs_used": bool(inputs.phases.concatenate_recordings.outputs.print_n_jobs_used),
 			},
 			"preprocess_segments": {
 				"save_chunk_duration": str(inputs.phases.preprocess_segments.outputs.save_chunk_duration),
 				"save_progress_bar": bool(inputs.phases.preprocess_segments.outputs.save_progress_bar),
-				"segment_save_n_jobs": int(segment_jobs),
 				"print_n_jobs_used": bool(inputs.phases.preprocess_segments.outputs.print_n_jobs_used),
 			},
 		},
@@ -3048,7 +3030,7 @@ def _run_preprocess_phase_sequence(
 						recording_dir=paths.raw_binary_dir,
 						manifest_path=paths.raw_binary_manifest_path,
 						overwrite_saved_recording=bool(inputs.overwrite_saved_recording),
-						n_jobs=max(1, int(inputs.phases.prepare_raw_binaries.outputs.segment_save_n_jobs or inputs.n_jobs)),
+						n_jobs=resolve_inner_worker_count(nested_shape="si_njobs", phase_cpus_per_task=getattr(current_phase_budget("preprocess", "prepare_raw_binaries"), "cpus_per_task", None), yaml_n_jobs_override=None, work_item_count=None),
 						chunk_duration=str(inputs.phases.prepare_raw_binaries.outputs.save_chunk_duration),
 						progress_bar=bool(inputs.phases.prepare_raw_binaries.outputs.save_progress_bar),
 						suppress_h5_plugin_messages=bool(inputs.logging_suppress_h5_plugin_messages),
@@ -3088,7 +3070,7 @@ def _run_preprocess_phase_sequence(
 						output_dir=paths.per_segment_preprocessed_dir,
 						manifest_path=paths.per_segment_manifest_path,
 						overwrite_saved_recording=bool(inputs.overwrite_saved_recording),
-						save_n_jobs=max(1, int(inputs.phases.preprocess_segments.outputs.segment_save_n_jobs or inputs.n_jobs)),
+						save_n_jobs=_ps_n_jobs,
 						chunk_duration=str(inputs.phases.preprocess_segments.outputs.save_chunk_duration),
 						progress_bar=bool(inputs.phases.preprocess_segments.outputs.save_progress_bar),
 						limit_segments_per_well=inputs.debug_limit_segments_per_well,
@@ -3578,8 +3560,6 @@ def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
 			"save_segment_recordings": bool(inputs.save_segment_recordings),
 			"save_chunk_duration": str(inputs.save_chunk_duration),
 			"save_progress_bar": bool(inputs.save_progress_bar),
-			"concat_save_n_jobs": (int(inputs.concat_save_n_jobs) if inputs.concat_save_n_jobs is not None else None),
-			"segment_save_n_jobs": (int(inputs.segment_save_n_jobs) if inputs.segment_save_n_jobs is not None else None),
 			"print_n_jobs_used": bool(inputs.print_n_jobs_used),
 			"phases": _json_ready(asdict(inputs.phases)),
 		},

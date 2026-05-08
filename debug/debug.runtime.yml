@@ -326,7 +326,6 @@ stages:
         outputs:
           save_chunk_duration: 1s
           save_progress_bar: true
-          segment_save_n_jobs: null
           print_n_jobs_used: true
 
       preprocess_segments:
@@ -340,7 +339,6 @@ stages:
         outputs:
           save_chunk_duration: 1s
           save_progress_bar: true
-          segment_save_n_jobs: null
           print_n_jobs_used: true
 
       plot_segment_traces:
@@ -367,10 +365,6 @@ stages:
             enabled: true
             # Alias-compatible with `n_representative_channels`; set to -1 to include all representatives.
             n_reps: 2
-          # Parallel workers for diagnostic plotting/scoring (segment trace rendering + representative scoring).
-          #n_jobs: null # inherit preprocess n_jobs by default; can set an explicit number here for more control.
-          n_jobs: 1 # force one job at a time, probably better for read/write contention
-
           # Downsample plotting density for concat/segment trace figures.
           # Example math (10 kHz source, 30 min recording):
           #   duration_s = 30 * 60 = 1800 s
@@ -403,7 +397,6 @@ stages:
         outputs:
           save_chunk_duration: 1s
           save_progress_bar: true
-          concat_save_n_jobs: null
           print_n_jobs_used: true
 
       plot_concat_traces:
@@ -508,7 +501,6 @@ stages:
         use_as_preprocess_concat_recording: true
         overwrite_existing: false
         overwrite_on_force_restart: true
-        n_jobs: null
         chunk_duration: 1s
         progress_bar: true
 
@@ -589,10 +581,6 @@ stages:
           #regenerate_on_replot: false # when false, force_replot reuses an existing pre-merge workspace analyzer if present and only regenerates it when missing.
           regenerate_on_replot: false # when true, force_replot always regenerates the pre-merge workspace analyzer from the pre-merge workspace sorter output to ensure that merge reports reflect the current state of the pre-merge workspace, even if merge outputs are not being regenerated; keep false by default for faster iterations when merge debugging is not the focus, but can be set to true to ensure consistency between the pre-merge workspace and merge reports during debugging iterations that involve changes to the pre-merge workspace or its sorter output.
           check_if_regen_is_needed: true # when true, merge phase logic checks whether the pre-merge workspace analyzer needs to be regenerated based on the presence and freshness of an existing analyzer relative to the pre-merge workspace sorter output, and only regenerates the analyzer if needed; keep true by default to avoid unnecessary regenerations and speed up iterations when merge debugging is not the focus, but can be set to false to always regenerate the analyzer for consistency during debugging iterations that involve changes to the pre-merge workspace or its sorter output.
-          #n_jobs: 1 # optional merge-only analyzer compute parallelism override for waveform/template/unit-location extensions and sparsity estimation. Omit to inherit stage-level n_jobs.
-          #n_jobs: 24 # increase merge-side analyzer compute parallelism to speed up waveform/template/unit-location extensions and sparsity estimation during merge iterations, which can be computationally intensive; keep 1 by default for debugging iterations to simplify resource usage and make logs easier to follow, but can be set to a higher number for faster iterations when merge debugging is not the focus.
-          #n_jobs: 32
-          n_jobs: null # inherit stage-level n_jobs by default; can set an explicit number here for more control.
           #chunk_duration: 0.5s # optional merge-only analyzer compute chunking override. Omit to inherit stage-level chunk_duration.
           template_extraction:
             random_spikes_method: default # default|percentage|all. When random_spikes_percentage is set, default promotes to percentage automatically; "all" disables random spike subsampling entirely.
@@ -678,8 +666,6 @@ stages:
         analyzer:
           regenerate_on_replot: false
           check_if_regen_is_needed: true
-          #n_jobs: 24
-          n_jobs: null # inherit stage-level n_jobs by default; can set an explicit number here for more control.
           template_extraction:
             seed: 0
             #random_spikes_percentage: 25
@@ -861,7 +847,6 @@ stages:
         analyzer:
           regenerate_on_replot: false
           check_if_regen_is_needed: true
-          n_jobs: 24
           template_extraction:
             seed: 0
             random_spikes_percentage: 25
@@ -1005,7 +990,6 @@ stages:
         analyzer:
           regenerate_on_replot: false
           check_if_regen_is_needed: true
-          n_jobs: 24
           template_extraction:
             seed: 0
             random_spikes_percentage: 25

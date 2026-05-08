@@ -66,8 +66,6 @@ def test_parse_preprocess_stage_config_defaults() -> None:
     assert parsed.save_segment_recordings is True
     assert parsed.save_chunk_duration == "1s"
     assert parsed.save_progress_bar is False
-    assert parsed.concat_save_n_jobs is None
-    assert parsed.segment_save_n_jobs is None
     assert parsed.print_n_jobs_used is False
     assert parsed.phases.copy_src_to_scratch.enabled is False
     assert parsed.phases.copy_src_to_scratch.summary_json_relpath == "context/copy_src_to_scratch_summary.json"
@@ -389,8 +387,6 @@ def test_parse_preprocess_stage_config_reads_save_output_knobs() -> None:
                         "save_segment_recordings": False,
                         "save_chunk_duration": "2s",
                         "save_progress_bar": True,
-                        "concat_save_n_jobs": 3,
-                        "segment_save_n_jobs": 1,
                         "print_n_jobs_used": True,
                     },
                 }
@@ -405,8 +401,6 @@ def test_parse_preprocess_stage_config_reads_save_output_knobs() -> None:
     assert parsed.save_segment_recordings is False
     assert parsed.save_chunk_duration == "2s"
     assert parsed.save_progress_bar is True
-    assert parsed.concat_save_n_jobs == 3
-    assert parsed.segment_save_n_jobs == 1
     assert parsed.print_n_jobs_used is True
 
 
@@ -463,7 +457,6 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                             "outputs": {
                                 "save_chunk_duration": "2s",
                                 "save_progress_bar": True,
-                                "segment_save_n_jobs": 2,
                                 "print_n_jobs_used": True,
                             },
                         },
@@ -496,9 +489,7 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                             "output_mode": "lazy",
                             "summary_json_relpath": "context/custom_concat_segments_summary.json",
                             "rel_output_root": "concatenated_recording",
-                            "outputs": {
-                                "concat_save_n_jobs": 4,
-                            },
+                            "outputs": {},
                         },
                         "plot_concat_traces": {
                             "enabled": True,
@@ -580,7 +571,6 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
     assert parsed.phases.preprocess_segments.rel_output_root == "preprocessed_segments"
     assert parsed.phases.preprocess_segments.outputs.save_chunk_duration == "2s"
     assert parsed.phases.preprocess_segments.outputs.save_progress_bar is True
-    assert parsed.phases.preprocess_segments.outputs.segment_save_n_jobs == 2
     assert parsed.phases.preprocess_segments.outputs.print_n_jobs_used is True
     assert parsed.phases.plot_segment_traces.enabled is True
     assert parsed.phases.plot_segment_traces.summary_json_relpath == "context/custom_plot_segment_traces_summary.json"
@@ -600,7 +590,6 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
     assert parsed.phases.concat_segments.output_mode == "lazy"
     assert parsed.phases.concat_segments.summary_json_relpath == "context/custom_concat_segments_summary.json"
     assert parsed.phases.concat_segments.rel_output_root == "concatenated_recording"
-    assert parsed.phases.concat_segments.outputs.concat_save_n_jobs == 4
     assert parsed.phases.plot_concat_traces.enabled is True
     assert parsed.phases.plot_concat_traces.summary_json_relpath == "context/custom_plot_concat_traces_summary.json"
     assert parsed.phases.plot_concat_traces.plot.concat_trace is False
@@ -821,15 +810,13 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
                         "        outputs:\n"
                         "          save_chunk_duration: 2s\n"
                         "          save_progress_bar: true\n"
-                        "          segment_save_n_jobs: 2\n"
                         "          print_n_jobs_used: true\n"
                         "      concat_segments:\n"
                         "        enabled: true\n"
                         "        concatenate_preprocessed_recordings: false\n"
                         "        output_mode: binary\n"
                         "        rel_output_root: concatenated_recording\n"
-                        "        outputs:\n"
-                        "          concat_save_n_jobs: 4\n"
+                        "        outputs: {}\n"
                         "      plot_concat_traces:\n"
                         "        enabled: true\n"
                         "        plot:\n"
@@ -896,7 +883,6 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
     assert inputs.phases.preprocess_segments.rel_output_root == "preprocessed_segments"
     assert inputs.phases.preprocess_segments.outputs.save_chunk_duration == "2s"
     assert inputs.phases.preprocess_segments.outputs.save_progress_bar is True
-    assert inputs.phases.preprocess_segments.outputs.segment_save_n_jobs == 2
     assert inputs.phases.preprocess_segments.outputs.print_n_jobs_used is True
     assert inputs.phases.plot_segment_traces.enabled is True
     assert inputs.phases.plot_segment_traces.plot.layouts is False
@@ -918,7 +904,6 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
     assert inputs.phases.plot_raster_threshold.enabled is False
     assert inputs.phases.report_preprocessing.enabled is False
     assert inputs.phases.cleanup_preprocessing_outputs.enabled is False
-    assert inputs.phases.concat_segments.outputs.concat_save_n_jobs == 4
     assert inputs.phases.save_rec_metadata.common_electrodes_summary_json_relpath == "context/save_common_electrodes_summary.json"
 
 
@@ -981,3 +966,36 @@ def test_build_preprocess_inputs_plot_n_jobs_inherits_unit_workers_when_unset() 
     assert inputs.source_h5_path == target.h5_path
     assert inputs.copied_to_scratch is False
     assert inputs.logging_subphase_dividers_to_stdout is True
+
+
+def test_per_phase_yaml_n_jobs_no_longer_recognized() -> None:
+    """Per-phase parallelism knobs are silently ignored after slice 7.
+    The runtime n_jobs is determined by the phase budget / task slot, not the YAML knob.
+    """
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "preprocess": {
+                    "phases": {
+                        "preprocess_segments": {
+                            "outputs": {
+                                "segment_save_n_jobs": 8,
+                            },
+                        },
+                        "concat_segments": {
+                            "outputs": {
+                                "concat_save_n_jobs": 8,
+                            },
+                        },
+                    }
+                }
+            }
+        }
+    )
+    parsed = parse_preprocess_stage_config(runtime_config=cfg)
+    assert not hasattr(parsed.phases.preprocess_segments.outputs, "segment_save_n_jobs"), (
+        "segment_save_n_jobs field must be removed from PreprocessPhaseOutputsConfig"
+    )
+    assert not hasattr(parsed.phases.concat_segments.outputs, "concat_save_n_jobs"), (
+        "concat_save_n_jobs field must be removed from PreprocessPhaseOutputsConfig"
+    )
