@@ -587,12 +587,12 @@ def _distribute_runtime_targets(
 ) -> list[TargetStageResult]:
 	install_pipeline_log_record_factory()
 	install_maxwell_hdf5_plugin_message_filter()
-	
+
 	# Detect MPI context and log if active
 	mpi_context = current_mpi_context()
 	if mpi_context is not None:
 		log_mpi_context(logger=LOGGER, context=mpi_context)
-	
+
 	plan = getattr(parallelism, "task_allocation_plan", None)
 	task_slots = tuple(getattr(plan, "slots", ()) or ()) if plan is not None else ()
 	apply_task_affinity = bool(
@@ -768,12 +768,12 @@ def _target_log_label(target: Any) -> str:
 
 def _log_runtime_stage_topology(*, stage_name: str, targets: list[Any], parallelism: Any) -> None:
 	LOGGER.info("Starting stage: %s", str(stage_name), extra={"event": "stage_started"})
-	
+
 	# Log MPI context if active
 	mpi_context = current_mpi_context()
 	if mpi_context is not None and int(mpi_context.size) > 1:
 		log_mpi_context(logger=LOGGER, context=mpi_context)
-	
+
 	LOGGER.info(
 		"Execution topology: stage_global_order=true, well_local_phase_sequence=true",
 		extra={
